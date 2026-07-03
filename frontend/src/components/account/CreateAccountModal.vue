@@ -844,13 +844,24 @@
       <div v-if="form.platform === 'antigravity' && antigravityAccountType === 'upstream'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.baseUrl') }}</label>
-          <input
-            v-model="upstreamBaseUrl"
-            type="text"
-            required
-            class="input"
-            placeholder="https://cloudcode-pa.googleapis.com"
-          />
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+            <input
+              v-model="upstreamBaseUrl"
+              type="text"
+              required
+              class="input"
+              placeholder="https://cloudcode-pa.googleapis.com"
+            />
+            <select
+              v-model="upstreamProvider"
+              class="input"
+              :aria-label="t('admin.accounts.upstreamProvider.label')"
+            >
+              <option value="sub2api">{{ t('admin.accounts.upstreamProvider.sub2api') }}</option>
+              <option value="newapi">{{ t('admin.accounts.upstreamProvider.newapi') }}</option>
+              <option value="other">{{ t('admin.accounts.upstreamProvider.other') }}</option>
+            </select>
+          </div>
           <p class="input-hint">{{ t('admin.accounts.upstream.baseUrlHint') }}</p>
         </div>
         <div>
@@ -863,6 +874,67 @@
             placeholder="sk-..."
           />
           <p class="input-hint">{{ t('admin.accounts.upstream.apiKeyHint') }}</p>
+        </div>
+        <div
+          v-if="upstreamProvider === 'sub2api'"
+          class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20"
+        >
+          <div class="mb-3">
+            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.authModeLabel') }}</label>
+            <select v-model="sub2APIAuthMode" class="input">
+              <option value="user_login">{{ t('admin.accounts.sub2apiLogin.authModeUserLogin') }}</option>
+              <option value="manual_jwt">{{ t('admin.accounts.sub2apiLogin.authModeManualJwt') }}</option>
+            </select>
+          </div>
+          <template v-if="sub2APIAuthMode === 'user_login'">
+          <div class="mb-3">
+            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.emailLabel') }}</label>
+            <input
+              v-model="sub2APILoginEmail"
+              type="email"
+              required
+              class="input"
+              autocomplete="off"
+              :placeholder="t('admin.accounts.sub2apiLogin.emailPlaceholder')"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.passwordLabel') }}</label>
+            <input
+              v-model="sub2APILoginPassword"
+              type="password"
+              required
+              class="input"
+              autocomplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore="true"
+              :placeholder="t('admin.accounts.sub2apiLogin.passwordPlaceholder')"
+            />
+          </div>
+          <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+            {{ t('admin.accounts.sub2apiLogin.hint') }}
+          </p>
+          </template>
+          <template v-else>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.jwtLabel') }}</label>
+              <textarea
+                v-model="sub2APIAccessToken"
+                required
+                rows="3"
+                class="input font-mono"
+                autocomplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore="true"
+                :placeholder="t('admin.accounts.sub2apiLogin.jwtPlaceholder')"
+              ></textarea>
+            </div>
+            <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {{ t('admin.accounts.sub2apiLogin.jwtHint') }}
+            </p>
+          </template>
         </div>
       </div>
 
@@ -1078,18 +1150,29 @@
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
-          <input
-            v-model="apiKeyBaseUrl"
-            type="text"
-            class="input"
-            :placeholder="
-              form.platform === 'openai'
-                ? 'https://api.openai.com'
-                : form.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : 'https://api.anthropic.com'
-            "
-          />
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+            <input
+              v-model="apiKeyBaseUrl"
+              type="text"
+              class="input"
+              :placeholder="
+                form.platform === 'openai'
+                  ? 'https://api.openai.com'
+                  : form.platform === 'gemini'
+                    ? 'https://generativelanguage.googleapis.com'
+                    : 'https://api.anthropic.com'
+              "
+            />
+            <select
+              v-model="upstreamProvider"
+              class="input"
+              :aria-label="t('admin.accounts.upstreamProvider.label')"
+            >
+              <option value="sub2api">{{ t('admin.accounts.upstreamProvider.sub2api') }}</option>
+              <option value="newapi">{{ t('admin.accounts.upstreamProvider.newapi') }}</option>
+              <option value="other">{{ t('admin.accounts.upstreamProvider.other') }}</option>
+            </select>
+          </div>
           <p class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
@@ -1108,6 +1191,68 @@
             "
           />
           <p class="input-hint">{{ apiKeyHint }}</p>
+        </div>
+
+        <div
+          v-if="upstreamProvider === 'sub2api'"
+          class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20"
+        >
+          <div class="mb-3">
+            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.authModeLabel') }}</label>
+            <select v-model="sub2APIAuthMode" class="input">
+              <option value="user_login">{{ t('admin.accounts.sub2apiLogin.authModeUserLogin') }}</option>
+              <option value="manual_jwt">{{ t('admin.accounts.sub2apiLogin.authModeManualJwt') }}</option>
+            </select>
+          </div>
+          <template v-if="sub2APIAuthMode === 'user_login'">
+          <div class="mb-3">
+            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.emailLabel') }}</label>
+            <input
+              v-model="sub2APILoginEmail"
+              type="email"
+              required
+              class="input"
+              autocomplete="off"
+              :placeholder="t('admin.accounts.sub2apiLogin.emailPlaceholder')"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.passwordLabel') }}</label>
+            <input
+              v-model="sub2APILoginPassword"
+              type="password"
+              required
+              class="input"
+              autocomplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore="true"
+              :placeholder="t('admin.accounts.sub2apiLogin.passwordPlaceholder')"
+            />
+          </div>
+          <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+            {{ t('admin.accounts.sub2apiLogin.hint') }}
+          </p>
+          </template>
+          <template v-else>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.jwtLabel') }}</label>
+              <textarea
+                v-model="sub2APIAccessToken"
+                required
+                rows="3"
+                class="input font-mono"
+                autocomplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore="true"
+                :placeholder="t('admin.accounts.sub2apiLogin.jwtPlaceholder')"
+              ></textarea>
+            </div>
+            <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {{ t('admin.accounts.sub2apiLogin.jwtHint') }}
+            </p>
+          </template>
         </div>
 
         <!-- Gemini API Key tier selection -->
@@ -3436,6 +3581,9 @@ interface TempUnschedRuleForm {
   description: string
 }
 
+type UpstreamProvider = 'sub2api' | 'newapi' | 'other'
+type Sub2APIAuthMode = 'user_login' | 'manual_jwt'
+
 // State
 const step = ref(1)
 const submitting = ref(false)
@@ -3443,6 +3591,11 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const upstreamProvider = ref<UpstreamProvider>('other')
+const sub2APIAuthMode = ref<Sub2APIAuthMode>('user_login')
+const sub2APILoginEmail = ref('')
+const sub2APILoginPassword = ref('')
+const sub2APIAccessToken = ref('')
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -3957,6 +4110,24 @@ watch(
   }
 )
 
+watch(upstreamProvider, (provider) => {
+  if (provider !== 'sub2api') {
+    sub2APILoginEmail.value = ''
+    sub2APILoginPassword.value = ''
+    sub2APIAccessToken.value = ''
+    sub2APIAuthMode.value = 'user_login'
+  }
+})
+
+watch(sub2APIAuthMode, (mode) => {
+  if (mode === 'manual_jwt') {
+    sub2APILoginEmail.value = ''
+    sub2APILoginPassword.value = ''
+  } else {
+    sub2APIAccessToken.value = ''
+  }
+})
+
 // Gemini AI Studio OAuth availability (requires operator-configured OAuth client)
 watch(
   [accountCategory, () => form.platform],
@@ -4310,6 +4481,11 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  upstreamProvider.value = 'other'
+  sub2APIAuthMode.value = 'user_login'
+  sub2APILoginEmail.value = ''
+  sub2APILoginPassword.value = ''
+  sub2APIAccessToken.value = ''
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4473,6 +4649,12 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
 
   return Object.keys(extra).length > 0 ? extra : undefined
 }
+
+const withUpstreamProviderExtra = (base?: Record<string, unknown>): Record<string, unknown> => ({
+  ...(base || {}),
+  upstream_provider: upstreamProvider.value,
+  ...(upstreamProvider.value === 'sub2api' ? { sub2api_rate_sync_adapter: sub2APIAuthMode.value } : {})
+})
 
 // Helper function to create account with mixed channel warning handling
 const doCreateAccount = async (payload: CreateAccountRequest) => {
@@ -4658,11 +4840,36 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.upstream.pleaseEnterApiKey'))
       return
     }
+    if (upstreamProvider.value === 'sub2api') {
+      if (sub2APIAuthMode.value === 'manual_jwt') {
+        if (!sub2APIAccessToken.value.trim()) {
+          appStore.showError(t('admin.accounts.sub2apiLogin.jwtRequired'))
+          return
+        }
+      } else {
+        if (!sub2APILoginEmail.value.trim()) {
+          appStore.showError(t('admin.accounts.sub2apiLogin.emailRequired'))
+          return
+        }
+        if (!sub2APILoginPassword.value.trim()) {
+          appStore.showError(t('admin.accounts.sub2apiLogin.passwordRequired'))
+          return
+        }
+      }
+    }
 
     // Build upstream credentials (and optional model restriction)
     const credentials: Record<string, unknown> = {
       base_url: upstreamBaseUrl.value.trim(),
       api_key: upstreamApiKey.value.trim()
+    }
+    if (upstreamProvider.value === 'sub2api') {
+      if (sub2APIAuthMode.value === 'manual_jwt') {
+        credentials.sub2api_access_token = sub2APIAccessToken.value.trim()
+      } else {
+        credentials.sub2api_login_email = sub2APILoginEmail.value.trim()
+        credentials.sub2api_login_password = sub2APILoginPassword.value
+      }
     }
 
     // Antigravity 只使用映射模式
@@ -4677,7 +4884,7 @@ const handleSubmit = async () => {
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
-    const extra = buildAntigravityExtra()
+    const extra = withUpstreamProviderExtra(buildAntigravityExtra())
     await createAccountAndFinish(form.platform, 'apikey', credentials, extra)
     return
   }
@@ -4710,6 +4917,23 @@ const handleSubmit = async () => {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
+  if (upstreamProvider.value === 'sub2api') {
+    if (sub2APIAuthMode.value === 'manual_jwt') {
+      if (!sub2APIAccessToken.value.trim()) {
+        appStore.showError(t('admin.accounts.sub2apiLogin.jwtRequired'))
+        return
+      }
+    } else {
+      if (!sub2APILoginEmail.value.trim()) {
+        appStore.showError(t('admin.accounts.sub2apiLogin.emailRequired'))
+        return
+      }
+      if (!sub2APILoginPassword.value.trim()) {
+        appStore.showError(t('admin.accounts.sub2apiLogin.passwordRequired'))
+        return
+      }
+    }
+  }
 
   // Determine default base URL based on platform
   const defaultBaseUrl =
@@ -4717,12 +4941,22 @@ const handleSubmit = async () => {
       ? 'https://api.openai.com'
       : form.platform === 'gemini'
         ? 'https://generativelanguage.googleapis.com'
-        : 'https://api.anthropic.com'
+        : form.platform === 'grok'
+          ? 'https://api.x.ai/v1'
+          : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
+  }
+  if (upstreamProvider.value === 'sub2api') {
+    if (sub2APIAuthMode.value === 'manual_jwt') {
+      credentials.sub2api_access_token = sub2APIAccessToken.value.trim()
+    } else {
+      credentials.sub2api_login_email = sub2APILoginEmail.value.trim()
+      credentials.sub2api_login_password = sub2APILoginPassword.value
+    }
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
@@ -4765,7 +4999,7 @@ const handleSubmit = async () => {
   }
 
   form.credentials = credentials
-  const extra = buildAnthropicExtra(buildOpenAIExtra())
+  const extra = withUpstreamProviderExtra(buildAnthropicExtra(buildOpenAIExtra()))
 
   await doCreateAccount({
     ...form,

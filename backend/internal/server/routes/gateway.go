@@ -84,6 +84,7 @@ func RegisterGatewayRoutes(
 			},
 		})
 	}
+
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
 	gateway.Use(bodyLimit)

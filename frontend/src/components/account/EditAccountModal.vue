@@ -30,20 +30,31 @@
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
-          <input
-            v-model="editBaseUrl"
-            type="text"
-            class="input"
-            :placeholder="
-              account.platform === 'openai'
-                ? 'https://api.openai.com'
-                : account.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : account.platform === 'antigravity'
-                    ? 'https://cloudcode-pa.googleapis.com'
-                    : 'https://api.anthropic.com'
-            "
-          />
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+            <input
+              v-model="editBaseUrl"
+              type="text"
+              class="input"
+              :placeholder="
+                account.platform === 'openai'
+                  ? 'https://api.openai.com'
+                  : account.platform === 'gemini'
+                    ? 'https://generativelanguage.googleapis.com'
+                    : account.platform === 'antigravity'
+                      ? 'https://cloudcode-pa.googleapis.com'
+                      : 'https://api.anthropic.com'
+              "
+            />
+            <select
+              v-model="editUpstreamProvider"
+              class="input"
+              :aria-label="t('admin.accounts.upstreamProvider.label')"
+            >
+              <option value="sub2api">{{ t('admin.accounts.upstreamProvider.sub2api') }}</option>
+              <option value="newapi">{{ t('admin.accounts.upstreamProvider.newapi') }}</option>
+              <option value="other">{{ t('admin.accounts.upstreamProvider.other') }}</option>
+            </select>
+          </div>
           <p class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
@@ -67,6 +78,66 @@
             "
           />
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
+        </div>
+
+        <div
+          v-if="editUpstreamProvider === 'sub2api'"
+          class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20"
+        >
+          <div class="mb-3">
+            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.authModeLabel') }}</label>
+            <select v-model="editSub2APIAuthMode" class="input">
+              <option value="user_login">{{ t('admin.accounts.sub2apiLogin.authModeUserLogin') }}</option>
+              <option value="manual_jwt">{{ t('admin.accounts.sub2apiLogin.authModeManualJwt') }}</option>
+            </select>
+          </div>
+          <template v-if="editSub2APIAuthMode === 'user_login'">
+          <div class="mb-3">
+            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.emailLabel') }}</label>
+            <input
+              v-model="editSub2APILoginEmail"
+              type="email"
+              required
+              class="input"
+              autocomplete="off"
+              :placeholder="t('admin.accounts.sub2apiLogin.emailPlaceholder')"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.passwordLabel') }}</label>
+            <input
+              v-model="editSub2APILoginPassword"
+              type="password"
+              class="input"
+              autocomplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore="true"
+              :placeholder="t('admin.accounts.sub2apiLogin.passwordEditPlaceholder')"
+            />
+          </div>
+          <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+            {{ t('admin.accounts.sub2apiLogin.editHint') }}
+          </p>
+          </template>
+          <template v-else>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.jwtLabel') }}</label>
+              <textarea
+                v-model="editSub2APIAccessToken"
+                rows="3"
+                class="input font-mono"
+                autocomplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore="true"
+                :placeholder="t('admin.accounts.sub2apiLogin.jwtEditPlaceholder')"
+              ></textarea>
+            </div>
+            <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {{ t('admin.accounts.sub2apiLogin.jwtEditHint') }}
+            </p>
+          </template>
         </div>
 
         <!-- Model Restriction Section (不适用于 Antigravity) -->
@@ -2482,10 +2553,18 @@ interface TempUnschedRuleForm {
   description: string
 }
 
+type UpstreamProvider = 'sub2api' | 'newapi' | 'other'
+type Sub2APIAuthMode = 'user_login' | 'manual_jwt'
+
 // State
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const editUpstreamProvider = ref<UpstreamProvider>('other')
+const editSub2APIAuthMode = ref<Sub2APIAuthMode>('user_login')
+const editSub2APILoginEmail = ref('')
+const editSub2APILoginPassword = ref('')
+const editSub2APIAccessToken = ref('')
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -2865,6 +2944,8 @@ const tempUnschedPresets = computed(() => [
 const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
+  if (props.account?.platform === 'antigravity') return 'https://cloudcode-pa.googleapis.com'
   return 'https://api.anthropic.com'
 })
 
@@ -2956,6 +3037,14 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
   }
 }
 
+const normalizeUpstreamProvider = (value: unknown): UpstreamProvider => {
+  return value === 'sub2api' || value === 'newapi' || value === 'other' ? value : 'other'
+}
+
+const normalizeSub2APIAuthMode = (value: unknown): Sub2APIAuthMode => {
+  return value === 'manual_jwt' ? 'manual_jwt' : 'user_login'
+}
+
 const syncFormFromAccount = (newAccount: Account | null) => {
   if (!newAccount) {
     return
@@ -3002,6 +3091,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
 	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
+  editUpstreamProvider.value = normalizeUpstreamProvider(extra?.upstream_provider)
+  editSub2APIAuthMode.value = normalizeSub2APIAuthMode(extra?.sub2api_rate_sync_adapter)
+  editSub2APILoginEmail.value =
+    typeof credentials?.sub2api_login_email === 'string' ? credentials.sub2api_login_email : ''
+  editSub2APILoginPassword.value = ''
+  editSub2APIAccessToken.value = ''
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/API Key)
   openaiPassthroughEnabled.value = false
@@ -3147,7 +3242,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+          : newAccount.platform === 'grok'
+            ? 'https://api.x.ai/v1'
+            : newAccount.platform === 'antigravity'
+              ? 'https://cloudcode-pa.googleapis.com'
+              : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
 
     // Load model mappings and detect mode
@@ -3215,7 +3314,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+          : newAccount.platform === 'grok'
+            ? 'https://api.x.ai/v1'
+            : newAccount.platform === 'antigravity'
+              ? 'https://cloudcode-pa.googleapis.com'
+              : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
     // Load model mappings for OpenAI OAuth accounts
@@ -3258,6 +3361,24 @@ watch(
   },
   { immediate: true }
 )
+
+watch(editUpstreamProvider, (provider) => {
+  if (provider !== 'sub2api') {
+    editSub2APIAuthMode.value = 'user_login'
+    editSub2APILoginEmail.value = ''
+    editSub2APILoginPassword.value = ''
+    editSub2APIAccessToken.value = ''
+  }
+})
+
+watch(editSub2APIAuthMode, (mode) => {
+  if (mode === 'manual_jwt') {
+    editSub2APILoginEmail.value = ''
+    editSub2APILoginPassword.value = ''
+  } else {
+    editSub2APIAccessToken.value = ''
+  }
+})
 
 // Model mapping helpers
 const addModelMapping = () => {
@@ -3757,6 +3878,44 @@ const handleSubmit = async () => {
         return
       }
 
+      if (editUpstreamProvider.value === 'sub2api') {
+        if (editSub2APIAuthMode.value === 'manual_jwt') {
+          const hasExistingSub2APIAccessToken =
+            props.account.credentials_status?.has_sub2api_access_token ??
+            Boolean(currentCredentials.sub2api_access_token)
+          if (!editSub2APIAccessToken.value.trim() && !hasExistingSub2APIAccessToken) {
+            appStore.showError(t('admin.accounts.sub2apiLogin.jwtRequired'))
+            return
+          }
+          newCredentials.sub2api_login_email = ''
+          newCredentials.sub2api_login_password = ''
+          if (editSub2APIAccessToken.value.trim()) {
+            newCredentials.sub2api_access_token = editSub2APIAccessToken.value.trim()
+          }
+        } else {
+          const hasExistingSub2APILoginPassword =
+            props.account.credentials_status?.has_sub2api_login_password ??
+            Boolean(currentCredentials.sub2api_login_password)
+          if (!editSub2APILoginEmail.value.trim()) {
+            appStore.showError(t('admin.accounts.sub2apiLogin.emailRequired'))
+            return
+          }
+          if (!editSub2APILoginPassword.value.trim() && !hasExistingSub2APILoginPassword) {
+            appStore.showError(t('admin.accounts.sub2apiLogin.passwordRequired'))
+            return
+          }
+          newCredentials.sub2api_access_token = ''
+          newCredentials.sub2api_login_email = editSub2APILoginEmail.value.trim()
+          if (editSub2APILoginPassword.value.trim()) {
+            newCredentials.sub2api_login_password = editSub2APILoginPassword.value
+          }
+        }
+      } else {
+        newCredentials.sub2api_login_email = ''
+        newCredentials.sub2api_login_password = ''
+        newCredentials.sub2api_access_token = ''
+      }
+
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
       if (shouldApplyModelMapping) {
         const modelMapping = buildModelRestrictionMapping()
@@ -4241,6 +4400,21 @@ const handleSubmit = async () => {
       }
       // Quota notify config
       writeQuotaNotifyToExtra(newExtra, 'update')
+      updatePayload.extra = newExtra
+    }
+
+    if (props.account.type === 'apikey') {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
+        (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = {
+        ...currentExtra,
+        upstream_provider: editUpstreamProvider.value
+      }
+      if (editUpstreamProvider.value === 'sub2api') {
+        newExtra.sub2api_rate_sync_adapter = editSub2APIAuthMode.value
+      } else {
+        delete newExtra.sub2api_rate_sync_adapter
+      }
       updatePayload.extra = newExtra
     }
 
