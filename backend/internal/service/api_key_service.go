@@ -810,6 +810,27 @@ func (s *APIKeyService) GetUserGroupRates(ctx context.Context, userID int64) (ma
 	return rates, nil
 }
 
+// ResolveEffectiveRateMultiplier returns the rate multiplier that this API key
+// actually uses for user billing. User-specific group rate overrides take
+// precedence over the group default.
+func (s *APIKeyService) ResolveEffectiveRateMultiplier(ctx context.Context, apiKey *APIKey) (float64, error) {
+	if apiKey == nil || apiKey.Group == nil || apiKey.GroupID == nil {
+		return 0, infraerrors.BadRequest("API_KEY_GROUP_REQUIRED", "api key must be bound to a group")
+	}
+	groupRate := apiKey.Group.RateMultiplier
+	if s == nil || s.userGroupRateRepo == nil {
+		return groupRate, nil
+	}
+	userRate, err := s.userGroupRateRepo.GetByUserAndGroup(ctx, apiKey.UserID, apiKey.Group.ID)
+	if err != nil {
+		return 0, fmt.Errorf("get user group rate: %w", err)
+	}
+	if userRate != nil {
+		return *userRate, nil
+	}
+	return groupRate, nil
+}
+
 // CheckAPIKeyQuotaAndExpiry checks if the API key is valid for use (not expired, quota not exhausted)
 // Returns nil if valid, error if invalid
 func (s *APIKeyService) CheckAPIKeyQuotaAndExpiry(apiKey *APIKey) error {

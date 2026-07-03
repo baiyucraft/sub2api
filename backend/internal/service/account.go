@@ -17,6 +17,21 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
+const (
+	AccountUpstreamProviderKey     = "upstream_provider"
+	AccountUpstreamProviderSub2API = "sub2api"
+	AccountUpstreamProviderNewAPI  = "newapi"
+	AccountUpstreamProviderOther   = "other"
+
+	AccountSub2APIRateSyncAdapterKey       = "sub2api_rate_sync_adapter"
+	AccountSub2APIRateSyncAdapterUserLogin = "user_login"
+	AccountSub2APIRateSyncAdapterManualJWT = "manual_jwt"
+
+	AccountCredentialSub2APILoginEmail    = "sub2api_login_email"
+	AccountCredentialSub2APILoginPassword = "sub2api_login_password"
+	AccountCredentialSub2APIAccessToken   = "sub2api_access_token"
+)
+
 type Account struct {
 	ID                      int64
 	Name                    string
@@ -70,6 +85,38 @@ type Account struct {
 	modelMappingCacheRawPtr         uintptr
 	modelMappingCacheRawLen         int
 	modelMappingCacheRawSig         uint64
+}
+
+func (a *Account) UpstreamProvider() string {
+	if a == nil || a.Extra == nil {
+		return ""
+	}
+	raw, ok := a.Extra[AccountUpstreamProviderKey]
+	if !ok {
+		return ""
+	}
+	provider, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(provider))
+}
+
+func (a *Account) IsSub2APIUpstream() bool {
+	return a != nil && a.Type == AccountTypeAPIKey && a.UpstreamProvider() == AccountUpstreamProviderSub2API
+}
+
+func (a *Account) Sub2APIRateSyncAdapter() string {
+	if a == nil || a.Extra == nil {
+		return AccountSub2APIRateSyncAdapterUserLogin
+	}
+	raw, _ := a.Extra[AccountSub2APIRateSyncAdapterKey].(string)
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case AccountSub2APIRateSyncAdapterManualJWT:
+		return AccountSub2APIRateSyncAdapterManualJWT
+	default:
+		return AccountSub2APIRateSyncAdapterUserLogin
+	}
 }
 
 type OpenAIEndpointCapability string

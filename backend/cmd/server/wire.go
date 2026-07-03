@@ -81,6 +81,7 @@ func provideCleanup(
 	schedulerSnapshot *service.SchedulerSnapshotService,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
+	sub2APIRateSync *service.Sub2APIUpstreamRateSyncService,
 	proxyExpiry *service.ProxyExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
 	usageCleanup *service.UsageCleanupService,
@@ -173,6 +174,12 @@ func provideCleanup(
 			}},
 			{"AccountExpiryService", func() error {
 				accountExpiry.Stop()
+				return nil
+			}},
+			{"Sub2APIUpstreamRateSyncService", func() error {
+				if sub2APIRateSync != nil {
+					sub2APIRateSync.Stop()
+				}
 				return nil
 			}},
 			{"ProxyExpiryService", func() error {

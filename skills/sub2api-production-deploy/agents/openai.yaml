@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sub2API Production Deploy"
+  short_description: "Safely deploy this Sub2API fork to production Docker Compose."
+  default_prompt: "Use $sub2api-production-deploy to deploy the current Sub2API workspace to production."

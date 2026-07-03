@@ -542,13 +542,18 @@ var proxyQualityTargets = []proxyQualityTarget{
 }
 
 const (
-	proxyQualityRequestTimeout        = 15 * time.Second
-	proxyQualityResponseHeaderTimeout = 10 * time.Second
-	proxyQualityMaxBodyBytes          = int64(8 * 1024)
-	proxyQualityClientUserAgent       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+	proxyQualityRequestTimeout          = 15 * time.Second
+	proxyQualityResponseHeaderTimeout   = 10 * time.Second
+	proxyQualityMaxBodyBytes            = int64(8 * 1024)
+	proxyQualityClientUserAgent         = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+	sub2APIUpstreamImmediateSyncTimeout = 10 * time.Second
 )
 
 var ErrRPMStatusUnavailable = infraerrors.New(http.StatusNotImplemented, "RPM_STATUS_UNAVAILABLE", "RPM cache not available")
+
+type Sub2APIUpstreamRateSyncTrigger interface {
+	SyncAccountNow(ctx context.Context, account *Account) error
+}
 
 // adminServiceImpl implements AdminService
 type adminServiceImpl struct {
@@ -570,6 +575,7 @@ type adminServiceImpl struct {
 	userSubRepo          UserSubscriptionRepository
 	privacyClientFactory PrivacyClientFactory
 	runtimeBlocker       AccountRuntimeBlocker
+	sub2APIRateSync      Sub2APIUpstreamRateSyncTrigger
 }
 
 type userGroupRateBatchReader interface {
@@ -596,6 +602,7 @@ func NewAdminService(
 	userSubRepo UserSubscriptionRepository,
 	privacyClientFactory PrivacyClientFactory,
 	runtimeBlocker AccountRuntimeBlocker,
+	sub2APIRateSync Sub2APIUpstreamRateSyncTrigger,
 ) AdminService {
 	return &adminServiceImpl{
 		userRepo:             userRepo,
@@ -616,7 +623,94 @@ func NewAdminService(
 		userSubRepo:          userSubRepo,
 		privacyClientFactory: privacyClientFactory,
 		runtimeBlocker:       runtimeBlocker,
+		sub2APIRateSync:      sub2APIRateSync,
 	}
+}
+
+func (s *adminServiceImpl) scheduleSub2APIUpstreamRateSync(account *Account) {
+	if s == nil || s.sub2APIRateSync == nil || account == nil || !account.IsSub2APIUpstream() {
+		return
+	}
+	accountCopy := cloneAccountForSub2APIRateSync(account)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("sub2api_upstream_rate_sync_immediate_panic", "account_id", accountCopy.ID, "recover", r)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), sub2APIUpstreamImmediateSyncTimeout)
+		defer cancel()
+		if err := s.sub2APIRateSync.SyncAccountNow(ctx, accountCopy); err != nil {
+			slog.Warn("sub2api_upstream_rate_sync_immediate_failed", "account_id", accountCopy.ID, "error", err)
+		}
+	}()
+}
+
+func cloneAccountForSub2APIRateSync(account *Account) *Account {
+	if account == nil {
+		return nil
+	}
+	cp := *account
+	if account.Credentials != nil {
+		cp.Credentials = make(map[string]any, len(account.Credentials))
+		for k, v := range account.Credentials {
+			cp.Credentials[k] = v
+		}
+	}
+	if account.Extra != nil {
+		cp.Extra = make(map[string]any, len(account.Extra))
+		for k, v := range account.Extra {
+			cp.Extra[k] = v
+		}
+	}
+	return &cp
+}
+
+func validateAndNormalizeSub2APIUpstreamCredentials(account *Account) error {
+	if account == nil {
+		return nil
+	}
+	if account.Type != AccountTypeAPIKey || account.UpstreamProvider() != AccountUpstreamProviderSub2API {
+		if account.Extra != nil {
+			delete(account.Extra, AccountSub2APIRateSyncAdapterKey)
+		}
+		if account.Credentials != nil {
+			delete(account.Credentials, AccountCredentialSub2APILoginEmail)
+			delete(account.Credentials, AccountCredentialSub2APILoginPassword)
+			delete(account.Credentials, AccountCredentialSub2APIAccessToken)
+		}
+		return nil
+	}
+
+	if account.Extra == nil {
+		account.Extra = map[string]any{}
+	}
+	if account.Credentials == nil {
+		account.Credentials = map[string]any{}
+	}
+	adapter := account.Sub2APIRateSyncAdapter()
+	switch adapter {
+	case AccountSub2APIRateSyncAdapterManualJWT:
+		token := strings.TrimSpace(account.GetCredential(AccountCredentialSub2APIAccessToken))
+		if token == "" || strings.Contains(token, "***") {
+			return infraerrors.New(http.StatusBadRequest, "SUB2API_UPSTREAM_ACCESS_TOKEN_REQUIRED", "sub2api upstream access token is required")
+		}
+		delete(account.Credentials, AccountCredentialSub2APILoginEmail)
+		delete(account.Credentials, AccountCredentialSub2APILoginPassword)
+		account.Extra[AccountSub2APIRateSyncAdapterKey] = AccountSub2APIRateSyncAdapterManualJWT
+	default:
+		email := strings.TrimSpace(account.GetCredential(AccountCredentialSub2APILoginEmail))
+		password := strings.TrimSpace(account.GetCredential(AccountCredentialSub2APILoginPassword))
+		if email == "" || !strings.Contains(email, "@") || strings.Contains(email, "***") {
+			return infraerrors.New(http.StatusBadRequest, "SUB2API_UPSTREAM_LOGIN_EMAIL_REQUIRED", "sub2api upstream login email is required")
+		}
+		if password == "" || strings.Contains(password, "***") {
+			return infraerrors.New(http.StatusBadRequest, "SUB2API_UPSTREAM_LOGIN_PASSWORD_REQUIRED", "sub2api upstream login password is required")
+		}
+		delete(account.Credentials, AccountCredentialSub2APIAccessToken)
+		account.Extra[AccountSub2APIRateSyncAdapterKey] = AccountSub2APIRateSyncAdapterUserLogin
+	}
+	return nil
 }
 
 // User management implementations
@@ -2662,6 +2756,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 		account.LoadFactor = input.LoadFactor
 	}
+	if err := validateAndNormalizeSub2APIUpstreamCredentials(account); err != nil {
+		return nil, err
+	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}
@@ -2672,6 +2769,8 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 			return nil, err
 		}
 	}
+
+	s.scheduleSub2APIUpstreamRateSync(account)
 
 	// OAuth 账号：创建后异步设置隐私。
 	// 使用 Ensure（幂等）而非 Force：新建账号 Extra 为空时效果相同，但更安全。
@@ -2827,6 +2926,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
 	}
+	if err := validateAndNormalizeSub2APIUpstreamCredentials(account); err != nil {
+		return nil, err
+	}
 
 	// 先验证分组是否存在（在任何写操作之前）
 	if input.GroupIDs != nil {
@@ -2866,6 +2968,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	s.scheduleSub2APIUpstreamRateSync(updated)
 	return updated, nil
 }
 

@@ -267,6 +267,23 @@ describe('EditAccountModal', () => {
     authIsSimpleMode.value = true
   })
 
+  it('renders Sub2API login fields for apikey accounts marked as sub2api upstream', () => {
+    const account = buildAccount()
+    account.extra = {
+      upstream_provider: 'sub2api'
+    }
+    account.credentials_status = {
+      has_api_key: true,
+      has_sub2api_login_password: false
+    }
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('select[aria-label="admin.accounts.upstreamProvider.label"]').exists()).toBe(true)
+    expect(wrapper.find('input[type="email"]').exists()).toBe(true)
+    expect(wrapper.find('input[placeholder="admin.accounts.sub2apiLogin.passwordEditPlaceholder"]').exists()).toBe(true)
+  })
+
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()
