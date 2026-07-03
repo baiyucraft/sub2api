@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -94,10 +95,15 @@ func (r *sub2APIRateSyncAccountRepo) BulkUpdate(ctx context.Context, ids []int64
 	defer r.mu.Unlock()
 
 	copiedIDs := append([]int64(nil), ids...)
+	credentials := make(map[string]any, len(updates.Credentials))
+	for k, v := range updates.Credentials {
+		credentials[k] = v
+	}
 	extra := make(map[string]any, len(updates.Extra))
 	for k, v := range updates.Extra {
 		extra[k] = v
 	}
+	updates.Credentials = credentials
 	updates.Extra = extra
 	r.bulkUpdates = append(r.bulkUpdates, sub2APIRateSyncBulkUpdate{ids: copiedIDs, updates: updates})
 	return int64(len(ids)), nil
@@ -289,6 +295,152 @@ func TestSub2APIUpstreamRateSync_ManualJWTSkipsLogin(t *testing.T) {
 	require.Len(t, repo.bulkUpdates, 1)
 	require.InDelta(t, 0.12, *repo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.Equal(t, 12, *repo.bulkUpdates[0].updates.Priority)
+}
+
+func TestSub2APIUpstreamRateSync_ManualJWTRefreshesExpiredTokenAndRetries(t *testing.T) {
+	refreshCount := 0
+	keysCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			t.Fatal("manual jwt sync must not call login")
+		case "/api/v1/auth/refresh":
+			refreshCount++
+			require.Equal(t, http.MethodPost, r.Method)
+			var body map[string]string
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			require.Equal(t, "refresh-old", body["refresh_token"])
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-new","refresh_token":"refresh-new"}}`))
+		case "/api/v1/keys":
+			keysCount++
+			switch r.Header.Get("Authorization") {
+			case "Bearer jwt-old":
+				http.Error(w, `{"code":401,"reason":"TOKEN_EXPIRED"}`, http.StatusUnauthorized)
+			case "Bearer jwt-new":
+				_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-upstream","group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":0.07}}],"page":1,"page_size":100,"pages":1}}`))
+			default:
+				t.Fatalf("unexpected auth header %q", r.Header.Get("Authorization"))
+			}
+		case "/api/v1/groups/rates":
+			require.Equal(t, "Bearer jwt-new", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	repo := &sub2APIRateSyncAccountRepo{}
+	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
+	account := newSub2APIManualJWTRefreshRateSyncAccount(42, server.URL, "sk-upstream", "jwt-old", "refresh-old")
+
+	err := svc.SyncAccountNow(context.Background(), &account)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, refreshCount)
+	require.Equal(t, 2, keysCount)
+	require.Len(t, repo.bulkUpdates, 2)
+	tokenUpdate := repo.bulkUpdates[0]
+	require.Equal(t, []int64{42}, tokenUpdate.ids)
+	require.Equal(t, "jwt-new", tokenUpdate.updates.Credentials[AccountCredentialSub2APIAccessToken])
+	require.Equal(t, "refresh-new", tokenUpdate.updates.Credentials[AccountCredentialSub2APIRefreshToken])
+	rateUpdate := repo.bulkUpdates[1]
+	require.InDelta(t, 0.07, *rateUpdate.updates.RateMultiplier, 1e-12)
+	require.Equal(t, 7, *rateUpdate.updates.Priority)
+	require.Empty(t, repo.extraUpdates)
+}
+
+func TestSub2APIUpstreamRateSync_ManualJWTRefreshFailureDoesNotUpdateRateOrTokens(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/keys":
+			http.Error(w, `{"code":401,"reason":"TOKEN_EXPIRED"}`, http.StatusUnauthorized)
+		case "/api/v1/auth/refresh":
+			http.Error(w, `{"code":401,"reason":"invalid_refresh_token","data":{"refresh_token":"refresh-secret"}}`, http.StatusUnauthorized)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	repo := &sub2APIRateSyncAccountRepo{}
+	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
+	account := newSub2APIManualJWTRefreshRateSyncAccount(42, server.URL, "sk-secret", "jwt-secret", "refresh-secret")
+
+	err := svc.SyncAccountNow(context.Background(), &account)
+
+	require.Error(t, err)
+	require.Empty(t, repo.bulkUpdates)
+	require.Len(t, repo.extraUpdates, 1)
+	errText := fmt.Sprint(repo.extraUpdates[0].updates["sub2api_rate_sync_last_error"])
+	require.Contains(t, errText, "refresh")
+	require.NotContains(t, errText, "jwt-secret")
+	require.NotContains(t, errText, "refresh-secret")
+	require.NotContains(t, errText, "sk-secret")
+}
+
+func TestSub2APIUpstreamRateSync_ManualJWTRefreshesOnceForGroupedAccountsAndSavesAll(t *testing.T) {
+	refreshCount := 0
+	keysCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			t.Fatal("manual jwt sync must not call login")
+		case "/api/v1/auth/refresh":
+			refreshCount++
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-new","refresh_token":"refresh-new"}}`))
+		case "/api/v1/keys":
+			keysCount++
+			switch r.Header.Get("Authorization") {
+			case "Bearer jwt-old-a":
+				http.Error(w, `{"code":401}`, http.StatusUnauthorized)
+			case "Bearer jwt-new":
+				_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-a","group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":0.1}},{"id":2,"key":"sk-b","group_id":20,"group":{"id":20,"platform":"openai","rate_multiplier":0.2}}],"page":1,"page_size":100,"pages":1}}`))
+			default:
+				t.Fatalf("unexpected auth header %q", r.Header.Get("Authorization"))
+			}
+		case "/api/v1/groups/rates":
+			require.Equal(t, "Bearer jwt-new", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	repo := &sub2APIRateSyncAccountRepo{accounts: []Account{
+		newSub2APIManualJWTRefreshRateSyncAccount(1, server.URL, "sk-a", "jwt-old-a", "refresh-shared"),
+		newSub2APIManualJWTRefreshRateSyncAccount(2, server.URL, "sk-b", "jwt-old-b", "refresh-shared"),
+	}}
+	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
+	svc.concurrency = 1
+
+	svc.runOnce()
+
+	require.Equal(t, 1, refreshCount)
+	require.Equal(t, 2, keysCount)
+	require.Empty(t, repo.extraUpdates)
+	tokenUpdates := map[int64]map[string]any{}
+	rateUpdates := map[int64]float64{}
+	for _, update := range repo.bulkUpdates {
+		if len(update.updates.Credentials) > 0 {
+			tokenUpdates[update.ids[0]] = update.updates.Credentials
+			continue
+		}
+		if update.updates.RateMultiplier != nil {
+			rateUpdates[update.ids[0]] = *update.updates.RateMultiplier
+		}
+	}
+	require.Len(t, tokenUpdates, 2)
+	for _, id := range []int64{1, 2} {
+		require.Equal(t, "jwt-new", tokenUpdates[id][AccountCredentialSub2APIAccessToken])
+		require.Equal(t, "refresh-new", tokenUpdates[id][AccountCredentialSub2APIRefreshToken])
+	}
+	require.InDelta(t, 0.1, rateUpdates[1], 1e-12)
+	require.InDelta(t, 0.2, rateUpdates[2], 1e-12)
 }
 
 func TestSub2APIUpstreamRateSync_ManualJWTGroupsByProxy(t *testing.T) {
@@ -614,6 +766,12 @@ func newSub2APIManualJWTRateSyncAccount(id int64, baseURL, apiKey, token string)
 	}
 }
 
+func newSub2APIManualJWTRefreshRateSyncAccount(id int64, baseURL, apiKey, token, refreshToken string) Account {
+	account := newSub2APIManualJWTRateSyncAccount(id, baseURL, apiKey, token)
+	account.Credentials[AccountCredentialSub2APIRefreshToken] = refreshToken
+	return account
+}
+
 func newSub2APITestHTTPProxy(t *testing.T, proxyID string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -687,11 +845,12 @@ func TestSanitizeSub2APISyncError(t *testing.T) {
 }
 
 func TestSanitizeSub2APISyncErrorRedactsManualJWT(t *testing.T) {
-	account := newSub2APIManualJWTRateSyncAccount(1, "https://upstream.example", "sk-secret", "jwt-secret")
-	err := errors.New("failed with sk-secret and jwt-secret")
+	account := newSub2APIManualJWTRefreshRateSyncAccount(1, "https://upstream.example", "sk-secret", "jwt-secret", "refresh-secret")
+	err := errors.New("failed with sk-secret and jwt-secret and refresh-secret")
 
 	got := sanitizeSub2APISyncError(&account, err)
 
 	require.NotContains(t, got, "sk-secret")
 	require.NotContains(t, got, "jwt-secret")
+	require.NotContains(t, got, "refresh-secret")
 }

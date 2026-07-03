@@ -11,6 +11,8 @@ var SensitiveCredentialKeys = []string{
 	AccountCredentialSub2APILoginPassword,
 	// Sub2API 上游手动 JWT（用于跳过登录、直接通过公开用户接口同步倍率）
 	AccountCredentialSub2APIAccessToken,
+	// Sub2API 上游 Refresh Token（用于手动 JWT 模式自动续期）
+	AccountCredentialSub2APIRefreshToken,
 	// 云服务凭据
 	"aws_secret_access_key", "aws_session_token",
 	"service_account_json", "service_account", "private_key",

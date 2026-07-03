@@ -24,6 +24,7 @@ import (
 
 const (
 	sub2APILoginPath       = "/api/v1/auth/login"
+	sub2APIRefreshPath     = "/api/v1/auth/refresh"
 	sub2APIKeysPath        = "/api/v1/keys"
 	sub2APIKeysFallback    = "/api/v1/api-keys"
 	sub2APIGroupRatesPath  = "/api/v1/groups/rates"
@@ -31,7 +32,10 @@ const (
 	sub2APIMaxKeyListPages = 1000
 )
 
-var errSub2APIEndpointNotFound = errors.New("sub2api endpoint not found")
+var (
+	errSub2APIEndpointNotFound      = errors.New("sub2api endpoint not found")
+	errSub2APIAccessTokenMayBeStale = errors.New("sub2api access token may be expired; please update the manual JWT or provide a refresh token")
+)
 
 type Sub2APIUpstreamRateSyncService struct {
 	accountRepo AccountRepository
@@ -53,6 +57,11 @@ type sub2APIEnvelope[T any] struct {
 type sub2APILoginData struct {
 	AccessToken string `json:"access_token"`
 	Requires2FA bool   `json:"requires_2fa"`
+}
+
+type sub2APIRefreshData struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 type sub2APIKeyListData struct {
@@ -80,15 +89,16 @@ type sub2APIUserLoginSession struct {
 }
 
 type sub2APISyncTarget struct {
-	account     Account
-	rootURL     string
-	adapter     string
-	email       string
-	password    string
-	accessToken string
-	apiKey      string
-	proxyID     *int64
-	proxyURL    string
+	account      Account
+	rootURL      string
+	adapter      string
+	email        string
+	password     string
+	accessToken  string
+	refreshToken string
+	apiKey       string
+	proxyID      *int64
+	proxyURL     string
 }
 
 func NewSub2APIUpstreamRateSyncService(accountRepo AccountRepository, proxyRepo ProxyRepository, interval time.Duration) *Sub2APIUpstreamRateSyncService {
@@ -146,9 +156,14 @@ func (s *Sub2APIUpstreamRateSyncService) SyncAccountNow(ctx context.Context, acc
 	if err != nil {
 		return s.recordSyncError(ctx, account, err)
 	}
-	session, err := s.fetchUserLoginSession(ctx, target)
+	session, refreshedTokens, err := s.fetchUserLoginSession(ctx, target)
 	if err != nil {
 		return s.recordSyncError(ctx, account, err)
+	}
+	if refreshedTokens != nil {
+		if err := s.saveRefreshedSub2APITokens(ctx, account, *refreshedTokens); err != nil {
+			return s.recordSyncError(ctx, account, err)
+		}
 	}
 	return s.syncTargetWithSession(ctx, target, session)
 }
@@ -204,7 +219,7 @@ func (s *Sub2APIUpstreamRateSyncService) runOnce() {
 				if len(targets) == 0 {
 					continue
 				}
-				session, err := s.fetchUserLoginSession(ctx, targets[0])
+				session, refreshedTokens, err := s.fetchUserLoginSession(ctx, targets[0])
 				if err != nil {
 					for i := range targets {
 						if recErr := s.recordSyncError(ctx, &targets[i].account, err); recErr != nil {
@@ -213,7 +228,21 @@ func (s *Sub2APIUpstreamRateSyncService) runOnce() {
 					}
 					continue
 				}
+				skipIDs := map[int64]struct{}{}
+				if refreshedTokens != nil {
+					for i := range targets {
+						if err := s.saveRefreshedSub2APITokens(ctx, &targets[i].account, *refreshedTokens); err != nil {
+							skipIDs[targets[i].account.ID] = struct{}{}
+							if recErr := s.recordSyncError(ctx, &targets[i].account, err); recErr != nil {
+								log.Printf("[Sub2APIRateSync] record account error failed: account=%d err=%v", targets[i].account.ID, recErr)
+							}
+						}
+					}
+				}
 				for i := range targets {
+					if _, skip := skipIDs[targets[i].account.ID]; skip {
+						continue
+					}
 					if err := s.syncTargetWithSession(ctx, targets[i], session); err != nil {
 						log.Printf("[Sub2APIRateSync] sync account failed: account=%d err=%v", targets[i].account.ID, err)
 					}
@@ -241,6 +270,7 @@ func newSub2APISyncTarget(account Account, proxyURL string) (sub2APISyncTarget, 
 	email := strings.TrimSpace(account.GetCredential(AccountCredentialSub2APILoginEmail))
 	password := strings.TrimSpace(account.GetCredential(AccountCredentialSub2APILoginPassword))
 	accessToken := strings.TrimSpace(account.GetCredential(AccountCredentialSub2APIAccessToken))
+	refreshToken := strings.TrimSpace(account.GetCredential(AccountCredentialSub2APIRefreshToken))
 	if baseURL == "" {
 		return sub2APISyncTarget{}, fmt.Errorf("missing base_url")
 	}
@@ -269,35 +299,57 @@ func newSub2APISyncTarget(account Account, proxyURL string) (sub2APISyncTarget, 
 		}
 	}
 	return sub2APISyncTarget{
-		account:     account,
-		rootURL:     rootURL,
-		adapter:     adapter,
-		email:       email,
-		password:    password,
-		accessToken: accessToken,
-		apiKey:      apiKey,
-		proxyID:     account.ProxyID,
-		proxyURL:    normalizedProxyURL,
+		account:      account,
+		rootURL:      rootURL,
+		adapter:      adapter,
+		email:        email,
+		password:     password,
+		accessToken:  accessToken,
+		refreshToken: refreshToken,
+		apiKey:       apiKey,
+		proxyID:      account.ProxyID,
+		proxyURL:     normalizedProxyURL,
 	}, nil
 }
 
-func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Context, target sub2APISyncTarget) (*sub2APIUserLoginSession, error) {
+func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Context, target sub2APISyncTarget) (*sub2APIUserLoginSession, *sub2APIRefreshData, error) {
 	client, err := sub2APIHTTPClient(target.proxyURL)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	token := target.accessToken
 	if target.adapter != AccountSub2APIRateSyncAdapterManualJWT {
 		token, err = s.loginSub2APIUser(ctx, client, target)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		session, err := s.fetchSessionWithToken(ctx, client, target.rootURL, token)
+		return session, nil, err
 	}
-	keys, err := s.fetchSub2APIKeys(ctx, client, target.rootURL, token)
+	session, err := s.fetchSessionWithToken(ctx, client, target.rootURL, token)
+	if err == nil || !errors.Is(err, errSub2APIAccessTokenMayBeStale) {
+		return session, nil, err
+	}
+	if target.refreshToken == "" {
+		return nil, nil, err
+	}
+	refreshed, refreshErr := s.refreshSub2APIToken(ctx, client, target)
+	if refreshErr != nil {
+		return nil, nil, fmt.Errorf("refresh sub2api token failed: %w", refreshErr)
+	}
+	session, err = s.fetchSessionWithToken(ctx, client, target.rootURL, refreshed.AccessToken)
+	if err != nil {
+		return nil, nil, err
+	}
+	return session, refreshed, nil
+}
+
+func (s *Sub2APIUpstreamRateSyncService) fetchSessionWithToken(ctx context.Context, client *http.Client, rootURL, token string) (*sub2APIUserLoginSession, error) {
+	keys, err := s.fetchSub2APIKeys(ctx, client, rootURL, token)
 	if err != nil {
 		return nil, err
 	}
-	rates, err := s.fetchSub2APIGroupRates(ctx, client, target.rootURL, token)
+	rates, err := s.fetchSub2APIGroupRates(ctx, client, rootURL, token)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +359,11 @@ func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Conte
 func (t sub2APISyncTarget) groupKey() string {
 	proxyIdentity := fmt.Sprintf("proxy:%d:%s", proxyIDValue(t.proxyID), t.proxyURL)
 	if t.adapter == AccountSub2APIRateSyncAdapterManualJWT {
-		sum := sha256.Sum256([]byte(t.accessToken))
+		tokenMaterial := t.accessToken
+		if t.refreshToken != "" {
+			tokenMaterial = "refresh:" + t.refreshToken
+		}
+		sum := sha256.Sum256([]byte(tokenMaterial))
 		return t.rootURL + "|" + t.adapter + "|" + proxyIdentity + "|" + hex.EncodeToString(sum[:8])
 	}
 	return t.rootURL + "|" + t.adapter + "|" + proxyIdentity + "|" + strings.ToLower(t.email)
@@ -339,6 +395,58 @@ func (s *Sub2APIUpstreamRateSyncService) loginSub2APIUser(ctx context.Context, c
 		return "", fmt.Errorf("sub2api login returned no access token")
 	}
 	return strings.TrimSpace(payload.Data.AccessToken), nil
+}
+
+func (s *Sub2APIUpstreamRateSyncService) refreshSub2APIToken(ctx context.Context, client *http.Client, target sub2APISyncTarget) (*sub2APIRefreshData, error) {
+	endpoint, err := buildSub2APIURL(target.rootURL, sub2APIRefreshPath)
+	if err != nil {
+		return nil, err
+	}
+	var payload sub2APIEnvelope[sub2APIRefreshData]
+	status, err := s.doJSON(ctx, client, http.MethodPost, endpoint, "", map[string]string{
+		"refresh_token": target.refreshToken,
+	}, &payload)
+	if err != nil {
+		return nil, fmt.Errorf("refresh request failed: %w", err)
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("refresh returned status %d", status)
+	}
+	if payload.Code != 0 {
+		return nil, fmt.Errorf("refresh failed: code %d%s", payload.Code, safeEnvelopeReason(payload.Reason))
+	}
+	payload.Data.AccessToken = strings.TrimSpace(payload.Data.AccessToken)
+	payload.Data.RefreshToken = strings.TrimSpace(payload.Data.RefreshToken)
+	if payload.Data.AccessToken == "" {
+		return nil, fmt.Errorf("refresh returned no access token")
+	}
+	if payload.Data.RefreshToken == "" {
+		return nil, fmt.Errorf("refresh returned no refresh token")
+	}
+	return &payload.Data, nil
+}
+
+func (s *Sub2APIUpstreamRateSyncService) saveRefreshedSub2APITokens(ctx context.Context, account *Account, tokens sub2APIRefreshData) error {
+	if account == nil {
+		return fmt.Errorf("save refreshed sub2api token: missing account")
+	}
+	if strings.TrimSpace(tokens.AccessToken) == "" || strings.TrimSpace(tokens.RefreshToken) == "" {
+		return fmt.Errorf("save refreshed sub2api token: missing token")
+	}
+	credentialUpdates := map[string]any{
+		AccountCredentialSub2APIAccessToken:  strings.TrimSpace(tokens.AccessToken),
+		AccountCredentialSub2APIRefreshToken: strings.TrimSpace(tokens.RefreshToken),
+	}
+	if _, err := s.accountRepo.BulkUpdate(ctx, []int64{account.ID}, AccountBulkUpdate{Credentials: credentialUpdates}); err != nil {
+		return fmt.Errorf("save refreshed sub2api token: %w", err)
+	}
+	if account.Credentials == nil {
+		account.Credentials = map[string]any{}
+	}
+	for k, v := range credentialUpdates {
+		account.Credentials[k] = v
+	}
+	return nil
 }
 
 func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIKeys(ctx context.Context, client *http.Client, rootURL, token string) ([]sub2APIUpstreamKey, error) {
@@ -376,7 +484,7 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIKeysFromPath(ctx context.Co
 		if status < 200 || status >= 300 {
 			if path == sub2APIKeysPath || path == sub2APIKeysFallback {
 				if status == http.StatusUnauthorized {
-					return nil, fmt.Errorf("sub2api access token may be expired; please update the manual JWT")
+					return nil, errSub2APIAccessTokenMayBeStale
 				}
 				if status == http.StatusForbidden {
 					return nil, fmt.Errorf("sub2api access token was rejected or blocked by upstream")
@@ -415,7 +523,7 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIGroupRates(ctx context.Cont
 	}
 	if status < 200 || status >= 300 {
 		if status == http.StatusUnauthorized {
-			return nil, fmt.Errorf("sub2api access token may be expired; please update the manual JWT")
+			return nil, errSub2APIAccessTokenMayBeStale
 		}
 		if status == http.StatusForbidden {
 			return nil, fmt.Errorf("sub2api access token was rejected or blocked by upstream")
@@ -701,6 +809,7 @@ func sanitizeSub2APISyncError(account *Account, err error) string {
 		account.GetCredential("api_key"),
 		account.GetCredential(AccountCredentialSub2APILoginPassword),
 		account.GetCredential(AccountCredentialSub2APIAccessToken),
+		account.GetCredential(AccountCredentialSub2APIRefreshToken),
 	} {
 		secret = strings.TrimSpace(secret)
 		if secret != "" {

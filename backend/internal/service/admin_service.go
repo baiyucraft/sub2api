@@ -678,6 +678,7 @@ func validateAndNormalizeSub2APIUpstreamCredentials(account *Account) error {
 			delete(account.Credentials, AccountCredentialSub2APILoginEmail)
 			delete(account.Credentials, AccountCredentialSub2APILoginPassword)
 			delete(account.Credentials, AccountCredentialSub2APIAccessToken)
+			delete(account.Credentials, AccountCredentialSub2APIRefreshToken)
 		}
 		return nil
 	}
@@ -708,6 +709,7 @@ func validateAndNormalizeSub2APIUpstreamCredentials(account *Account) error {
 			return infraerrors.New(http.StatusBadRequest, "SUB2API_UPSTREAM_LOGIN_PASSWORD_REQUIRED", "sub2api upstream login password is required")
 		}
 		delete(account.Credentials, AccountCredentialSub2APIAccessToken)
+		delete(account.Credentials, AccountCredentialSub2APIRefreshToken)
 		account.Extra[AccountSub2APIRateSyncAdapterKey] = AccountSub2APIRateSyncAdapterUserLogin
 	}
 	return nil

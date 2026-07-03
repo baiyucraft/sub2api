@@ -231,7 +231,7 @@ func TestAdminServiceSub2APIManualJWTRequiresTokenButNotLoginCredentials(t *test
 		Name:                 "sub2api-upstream",
 		Platform:             PlatformOpenAI,
 		Type:                 AccountTypeAPIKey,
-		Credentials:          map[string]any{"base_url": "https://upstream.example/v1", "api_key": "sk-upstream", AccountCredentialSub2APIAccessToken: "jwt-secret"},
+		Credentials:          map[string]any{"base_url": "https://upstream.example/v1", "api_key": "sk-upstream", AccountCredentialSub2APIAccessToken: "jwt-secret", AccountCredentialSub2APIRefreshToken: "refresh-secret"},
 		Extra:                map[string]any{AccountUpstreamProviderKey: AccountUpstreamProviderSub2API, AccountSub2APIRateSyncAdapterKey: AccountSub2APIRateSyncAdapterManualJWT},
 		SkipDefaultGroupBind: true,
 	})
@@ -239,6 +239,7 @@ func TestAdminServiceSub2APIManualJWTRequiresTokenButNotLoginCredentials(t *test
 	require.NoError(t, err)
 	require.Equal(t, AccountSub2APIRateSyncAdapterManualJWT, account.Sub2APIRateSyncAdapter())
 	require.Equal(t, "jwt-secret", account.GetCredential(AccountCredentialSub2APIAccessToken))
+	require.Equal(t, "refresh-secret", account.GetCredential(AccountCredentialSub2APIRefreshToken))
 	require.Empty(t, account.GetCredential(AccountCredentialSub2APILoginEmail))
 	require.Empty(t, account.GetCredential(AccountCredentialSub2APILoginPassword))
 }
@@ -251,9 +252,10 @@ func TestAdminServiceSub2APIManualJWTEditKeepsSavedToken(t *testing.T) {
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"base_url":                          "https://upstream.example/v1",
-			"api_key":                           "sk-upstream",
-			AccountCredentialSub2APIAccessToken: "jwt-secret",
+			"base_url":                           "https://upstream.example/v1",
+			"api_key":                            "sk-upstream",
+			AccountCredentialSub2APIAccessToken:  "jwt-secret",
+			AccountCredentialSub2APIRefreshToken: "refresh-secret",
 		},
 		Extra: map[string]any{AccountUpstreamProviderKey: AccountUpstreamProviderSub2API, AccountSub2APIRateSyncAdapterKey: AccountSub2APIRateSyncAdapterManualJWT},
 	})
@@ -266,6 +268,7 @@ func TestAdminServiceSub2APIManualJWTEditKeepsSavedToken(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "jwt-secret", updated.GetCredential(AccountCredentialSub2APIAccessToken))
+	require.Equal(t, "refresh-secret", updated.GetCredential(AccountCredentialSub2APIRefreshToken))
 	require.Equal(t, AccountSub2APIRateSyncAdapterManualJWT, updated.Sub2APIRateSyncAdapter())
 }
 
@@ -290,6 +293,7 @@ func TestAdminServiceSwitchingAwayFromSub2APIClearsLoginCredentials(t *testing.T
 	require.Empty(t, updated.GetCredential(AccountCredentialSub2APILoginEmail))
 	require.Empty(t, updated.GetCredential(AccountCredentialSub2APILoginPassword))
 	require.Empty(t, updated.GetCredential(AccountCredentialSub2APIAccessToken))
+	require.Empty(t, updated.GetCredential(AccountCredentialSub2APIRefreshToken))
 }
 
 func sub2APITestCredentials() map[string]any {

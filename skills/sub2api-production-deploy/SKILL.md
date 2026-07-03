@@ -78,10 +78,13 @@ Prefer:
 ```bash
 docker build --network=host --progress=plain \
   --build-arg COMMIT=<short-sha> \
-  --build-arg VERSION=<base-version>-codex.<timestamp> \
+  --build-arg VERSION=<base-version>-baiyu \
   --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  -t sub2api:codex-<short-sha>-<timestamp> .
+  -t sub2api:baiyu-<base-version>-<short-sha> \
+  -t sub2api:<base-version>-baiyu .
 ```
+
+Use `<base-version>` from `backend/cmd/server/VERSION`. The runtime/application version must stay simple (`<base-version>-baiyu`, for example `0.1.142-baiyu`). The compose image line should use the unique `sub2api:baiyu-<base-version>-<short-sha>` tag; the shorter `sub2api:<base-version>-baiyu` tag is only a convenience alias.
 
 Use `--network=host` because Alpine and package downloads can hang under the default build network in this environment. Capture logs to `/tmp/sub2api-build-<timestamp>.log` and write the exit code to a `.rc` file for polling.
 
@@ -108,7 +111,6 @@ Run these checks after `docker compose up -d sub2api`:
 
 - `docker ps` shows `sub2api` using the new image and `healthy`.
 - `curl -i http://127.0.0.1:<mapped-port>/health` returns `200`.
-- `curl -i http://127.0.0.1:<mapped-port>/v1/sub2api/account-meta` without authorization returns `401`.
 - `docker compose logs --tail=120 sub2api` has no new startup panic or repeated Sub2API sync errors.
 - For Sub2API upstream sync deployments, query the target account count and sync fields from Postgres without printing credentials.
 

@@ -931,6 +931,19 @@
                 :placeholder="t('admin.accounts.sub2apiLogin.jwtPlaceholder')"
               ></textarea>
             </div>
+            <div class="mt-3">
+              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.refreshTokenLabel') }}</label>
+              <textarea
+                v-model="sub2APIRefreshToken"
+                rows="3"
+                class="input font-mono"
+                autocomplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore="true"
+                :placeholder="t('admin.accounts.sub2apiLogin.refreshTokenPlaceholder')"
+              ></textarea>
+            </div>
             <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
               {{ t('admin.accounts.sub2apiLogin.jwtHint') }}
             </p>
@@ -1247,6 +1260,19 @@
                 data-lpignore="true"
                 data-bwignore="true"
                 :placeholder="t('admin.accounts.sub2apiLogin.jwtPlaceholder')"
+              ></textarea>
+            </div>
+            <div class="mt-3">
+              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.refreshTokenLabel') }}</label>
+              <textarea
+                v-model="sub2APIRefreshToken"
+                rows="3"
+                class="input font-mono"
+                autocomplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore="true"
+                :placeholder="t('admin.accounts.sub2apiLogin.refreshTokenPlaceholder')"
               ></textarea>
             </div>
             <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
@@ -3596,6 +3622,7 @@ const sub2APIAuthMode = ref<Sub2APIAuthMode>('user_login')
 const sub2APILoginEmail = ref('')
 const sub2APILoginPassword = ref('')
 const sub2APIAccessToken = ref('')
+const sub2APIRefreshToken = ref('')
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -4115,6 +4142,7 @@ watch(upstreamProvider, (provider) => {
     sub2APILoginEmail.value = ''
     sub2APILoginPassword.value = ''
     sub2APIAccessToken.value = ''
+    sub2APIRefreshToken.value = ''
     sub2APIAuthMode.value = 'user_login'
   }
 })
@@ -4125,6 +4153,7 @@ watch(sub2APIAuthMode, (mode) => {
     sub2APILoginPassword.value = ''
   } else {
     sub2APIAccessToken.value = ''
+    sub2APIRefreshToken.value = ''
   }
 })
 
@@ -4486,6 +4515,7 @@ const resetForm = () => {
   sub2APILoginEmail.value = ''
   sub2APILoginPassword.value = ''
   sub2APIAccessToken.value = ''
+  sub2APIRefreshToken.value = ''
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4866,6 +4896,9 @@ const handleSubmit = async () => {
     if (upstreamProvider.value === 'sub2api') {
       if (sub2APIAuthMode.value === 'manual_jwt') {
         credentials.sub2api_access_token = sub2APIAccessToken.value.trim()
+        if (sub2APIRefreshToken.value.trim()) {
+          credentials.sub2api_refresh_token = sub2APIRefreshToken.value.trim()
+        }
       } else {
         credentials.sub2api_login_email = sub2APILoginEmail.value.trim()
         credentials.sub2api_login_password = sub2APILoginPassword.value
@@ -4953,6 +4986,9 @@ const handleSubmit = async () => {
   if (upstreamProvider.value === 'sub2api') {
     if (sub2APIAuthMode.value === 'manual_jwt') {
       credentials.sub2api_access_token = sub2APIAccessToken.value.trim()
+      if (sub2APIRefreshToken.value.trim()) {
+        credentials.sub2api_refresh_token = sub2APIRefreshToken.value.trim()
+      }
     } else {
       credentials.sub2api_login_email = sub2APILoginEmail.value.trim()
       credentials.sub2api_login_password = sub2APILoginPassword.value

@@ -17,9 +17,13 @@ describe('sub2api account locale copy', () => {
 
     expect(() => t('admin.accounts.sub2apiLogin.emailPlaceholder')).not.toThrow()
     expect(() => t('admin.accounts.sub2apiLogin.passwordEditPlaceholder')).not.toThrow()
+    expect(() => t('admin.accounts.sub2apiLogin.refreshTokenPlaceholder')).not.toThrow()
+    expect(() => t('admin.accounts.sub2apiLogin.refreshTokenEditPlaceholder')).not.toThrow()
 
     i18n.global.locale.value = 'en'
     expect(() => t('admin.accounts.sub2apiLogin.emailPlaceholder')).not.toThrow()
     expect(() => t('admin.accounts.sub2apiLogin.passwordEditPlaceholder')).not.toThrow()
+    expect(() => t('admin.accounts.sub2apiLogin.refreshTokenPlaceholder')).not.toThrow()
+    expect(() => t('admin.accounts.sub2apiLogin.refreshTokenEditPlaceholder')).not.toThrow()
   })
 })
