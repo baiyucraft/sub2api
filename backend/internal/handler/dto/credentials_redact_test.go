@@ -19,6 +19,7 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 		"api_key":                "sk-secret",
 		"sub2api_login_password": "login-secret",
 		"sub2api_access_token":   "sub2api-jwt-secret",
+		"sub2api_refresh_token":  "sub2api-refresh-secret",
 		"aws_secret_access_key":  "aws-secret",
 		"service_account_json":   map[string]any{"private_key": "..."},
 		"private_key":            "raw-key",
@@ -36,6 +37,7 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 	require.NotContains(t, out, "api_key")
 	require.NotContains(t, out, "sub2api_login_password")
 	require.NotContains(t, out, "sub2api_access_token")
+	require.NotContains(t, out, "sub2api_refresh_token")
 	require.NotContains(t, out, "aws_secret_access_key")
 	require.NotContains(t, out, "service_account_json")
 	require.NotContains(t, out, "private_key")
@@ -50,6 +52,7 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 	require.True(t, status["has_api_key"])
 	require.True(t, status["has_sub2api_login_password"])
 	require.True(t, status["has_sub2api_access_token"])
+	require.True(t, status["has_sub2api_refresh_token"])
 	require.True(t, status["has_aws_secret_access_key"])
 	require.True(t, status["has_service_account_json"])
 	require.True(t, status["has_private_key"])
@@ -87,7 +90,7 @@ func TestRedactCredentials_DoesNotMutateInput(t *testing.T) {
 func TestRedactCredentials_AllKnownSensitiveKeys(t *testing.T) {
 	keys := []string{
 		"access_token", "refresh_token", "id_token",
-		"api_key", "session_key", "cookie", "sub2api_login_password", "sub2api_access_token",
+		"api_key", "session_key", "cookie", "sub2api_login_password", "sub2api_access_token", "sub2api_refresh_token",
 		"aws_secret_access_key", "aws_session_token",
 		"service_account_json", "service_account", "private_key",
 	}

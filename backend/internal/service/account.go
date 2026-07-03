@@ -30,6 +30,7 @@ const (
 	AccountCredentialSub2APILoginEmail    = "sub2api_login_email"
 	AccountCredentialSub2APILoginPassword = "sub2api_login_password"
 	AccountCredentialSub2APIAccessToken   = "sub2api_access_token"
+	AccountCredentialSub2APIRefreshToken  = "sub2api_refresh_token"
 )
 
 type Account struct {

@@ -134,6 +134,19 @@
                 :placeholder="t('admin.accounts.sub2apiLogin.jwtEditPlaceholder')"
               ></textarea>
             </div>
+            <div class="mt-3">
+              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.refreshTokenLabel') }}</label>
+              <textarea
+                v-model="editSub2APIRefreshToken"
+                rows="3"
+                class="input font-mono"
+                autocomplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore="true"
+                :placeholder="t('admin.accounts.sub2apiLogin.refreshTokenEditPlaceholder')"
+              ></textarea>
+            </div>
             <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
               {{ t('admin.accounts.sub2apiLogin.jwtEditHint') }}
             </p>
@@ -2565,6 +2578,7 @@ const editSub2APIAuthMode = ref<Sub2APIAuthMode>('user_login')
 const editSub2APILoginEmail = ref('')
 const editSub2APILoginPassword = ref('')
 const editSub2APIAccessToken = ref('')
+const editSub2APIRefreshToken = ref('')
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -3097,6 +3111,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     typeof credentials?.sub2api_login_email === 'string' ? credentials.sub2api_login_email : ''
   editSub2APILoginPassword.value = ''
   editSub2APIAccessToken.value = ''
+  editSub2APIRefreshToken.value = ''
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/API Key)
   openaiPassthroughEnabled.value = false
@@ -3368,6 +3383,7 @@ watch(editUpstreamProvider, (provider) => {
     editSub2APILoginEmail.value = ''
     editSub2APILoginPassword.value = ''
     editSub2APIAccessToken.value = ''
+    editSub2APIRefreshToken.value = ''
   }
 })
 
@@ -3377,6 +3393,7 @@ watch(editSub2APIAuthMode, (mode) => {
     editSub2APILoginPassword.value = ''
   } else {
     editSub2APIAccessToken.value = ''
+    editSub2APIRefreshToken.value = ''
   }
 })
 
@@ -3892,6 +3909,9 @@ const handleSubmit = async () => {
           if (editSub2APIAccessToken.value.trim()) {
             newCredentials.sub2api_access_token = editSub2APIAccessToken.value.trim()
           }
+          if (editSub2APIRefreshToken.value.trim()) {
+            newCredentials.sub2api_refresh_token = editSub2APIRefreshToken.value.trim()
+          }
         } else {
           const hasExistingSub2APILoginPassword =
             props.account.credentials_status?.has_sub2api_login_password ??
@@ -3905,6 +3925,7 @@ const handleSubmit = async () => {
             return
           }
           newCredentials.sub2api_access_token = ''
+          newCredentials.sub2api_refresh_token = ''
           newCredentials.sub2api_login_email = editSub2APILoginEmail.value.trim()
           if (editSub2APILoginPassword.value.trim()) {
             newCredentials.sub2api_login_password = editSub2APILoginPassword.value
@@ -3914,6 +3935,7 @@ const handleSubmit = async () => {
         newCredentials.sub2api_login_email = ''
         newCredentials.sub2api_login_password = ''
         newCredentials.sub2api_access_token = ''
+        newCredentials.sub2api_refresh_token = ''
       }
 
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
