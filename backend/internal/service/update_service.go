@@ -517,7 +517,7 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	_ = s.cache.SetUpdateInfo(ctx, string(data), time.Duration(updateCacheTTL)*time.Second)
 }
 
-// compareVersions compares two semantic versions
+// compareVersions compares major.minor.patch numeric versions.
 func compareVersions(current, latest string) int {
 	currentParts := parseVersion(current)
 	latestParts := parseVersion(latest)
@@ -534,13 +534,22 @@ func compareVersions(current, latest string) int {
 }
 
 func parseVersion(v string) [3]int {
-	v = strings.TrimPrefix(v, "v")
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
 	parts := strings.Split(v, ".")
 	result := [3]int{0, 0, 0}
 	for i := 0; i < len(parts) && i < 3; i++ {
-		if parsed, err := strconv.Atoi(parts[i]); err == nil {
+		if parsed, err := strconv.Atoi(leadingDigits(parts[i])); err == nil {
 			result[i] = parsed
 		}
 	}
 	return result
+}
+
+func leadingDigits(s string) string {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return s[:i]
+		}
+	}
+	return s
 }
