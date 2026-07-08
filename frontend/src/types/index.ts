@@ -852,6 +852,8 @@ export interface Account {
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
   } & Record<string, unknown>)
   proxy_id: number | null
+  upstream_config_id?: number | null
+  upstream_key_id?: number | null
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
   concurrency: number
@@ -1072,6 +1074,8 @@ export interface CreateAccountRequest {
   type: AccountType
   credentials: Record<string, unknown>
   extra?: Record<string, unknown>
+  upstream_config_id?: number | null
+  upstream_key_id?: number | null
   proxy_id?: number | null
   concurrency?: number
   load_factor?: number | null
@@ -1089,6 +1093,8 @@ export interface UpdateAccountRequest {
   type?: AccountType
   credentials?: Record<string, unknown>
   extra?: Record<string, unknown>
+  upstream_config_id?: number | null
+  upstream_key_id?: number | null
   proxy_id?: number | null
   concurrency?: number
   load_factor?: number | null

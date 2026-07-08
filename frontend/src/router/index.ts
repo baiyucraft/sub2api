@@ -490,6 +490,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/upstream-configs',
+    name: 'AdminUpstreamConfigs',
+    component: () => import('@/views/admin/UpstreamConfigsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Upstream Configs',
+      titleKey: 'admin.upstreamConfigs.title',
+      descriptionKey: 'admin.upstreamConfigs.description'
+    }
+  },
+  {
     path: '/admin/announcements',
     name: 'AdminAnnouncements',
     component: () => import('@/views/admin/AnnouncementsView.vue'),

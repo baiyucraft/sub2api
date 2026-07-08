@@ -26,35 +26,59 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
-      <!-- API Key fields (only for apikey type) -->
-      <div v-if="account.type === 'apikey'" class="space-y-4">
-        <div>
-          <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
-            <input
-              v-model="editBaseUrl"
-              type="text"
-              class="input"
-              :placeholder="
-                account.platform === 'openai'
-                  ? 'https://api.openai.com'
-                  : account.platform === 'gemini'
-                    ? 'https://generativelanguage.googleapis.com'
-                    : account.platform === 'antigravity'
-                      ? 'https://cloudcode-pa.googleapis.com'
-                      : 'https://api.anthropic.com'
-              "
-            />
+      <div v-if="isUpstreamBoundAccount" class="space-y-4">
+        <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200">
+          此账号绑定到“上游配置”。上游站点的 Base URL、代理、登录态、JWT 和 refresh token 请在“上游配置”页维护。
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="input-label">上游配置</label>
             <select
-              v-model="editUpstreamProvider"
+              v-model.number="editUpstreamConfigId"
               class="input"
-              :aria-label="t('admin.accounts.upstreamProvider.label')"
+              required
+              :disabled="loadingUpstreamConfigs"
+              @change="loadUpstreamKeys(editUpstreamConfigId)"
             >
-              <option value="sub2api">{{ t('admin.accounts.upstreamProvider.sub2api') }}</option>
-              <option value="newapi">{{ t('admin.accounts.upstreamProvider.newapi') }}</option>
-              <option value="other">{{ t('admin.accounts.upstreamProvider.other') }}</option>
+              <option :value="null">{{ loadingUpstreamConfigs ? '加载中...' : '请选择上游配置' }}</option>
+              <option v-for="config in upstreamConfigs" :key="config.id" :value="config.id">
+                {{ config.name }} · {{ config.base_url }}
+              </option>
             </select>
           </div>
+          <div>
+            <label class="input-label">上游 Key</label>
+            <UpstreamKeySelector
+              v-model="editUpstreamKeyId"
+              :keys="filteredUpstreamKeys"
+              :disabled="!editUpstreamConfigId || loadingUpstreamKeys"
+              :placeholder="loadingUpstreamKeys ? '加载中...' : undefined"
+            />
+            <p v-if="editUpstreamConfigId && !loadingUpstreamKeys && filteredUpstreamKeys.length === 0" class="input-hint">
+              未找到与当前平台匹配的上游 Key，请先到“上游配置”页同步 Key。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Key fields (only for apikey type) -->
+      <div v-if="account.type === 'apikey' && !isUpstreamBoundAccount" class="space-y-4">
+        <div>
+          <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
+          <input
+            v-model="editBaseUrl"
+            type="text"
+            class="input"
+            :placeholder="
+              account.platform === 'openai'
+                ? 'https://api.openai.com'
+                : account.platform === 'gemini'
+                  ? 'https://generativelanguage.googleapis.com'
+                  : account.platform === 'antigravity'
+                    ? 'https://cloudcode-pa.googleapis.com'
+                    : 'https://api.anthropic.com'
+            "
+          />
           <p class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
@@ -78,79 +102,6 @@
             "
           />
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
-        </div>
-
-        <div
-          v-if="editUpstreamProvider === 'sub2api'"
-          class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20"
-        >
-          <div class="mb-3">
-            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.authModeLabel') }}</label>
-            <select v-model="editSub2APIAuthMode" class="input">
-              <option value="user_login">{{ t('admin.accounts.sub2apiLogin.authModeUserLogin') }}</option>
-              <option value="manual_jwt">{{ t('admin.accounts.sub2apiLogin.authModeManualJwt') }}</option>
-            </select>
-          </div>
-          <template v-if="editSub2APIAuthMode === 'user_login'">
-          <div class="mb-3">
-            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.emailLabel') }}</label>
-            <input
-              v-model="editSub2APILoginEmail"
-              type="email"
-              required
-              class="input"
-              autocomplete="off"
-              :placeholder="t('admin.accounts.sub2apiLogin.emailPlaceholder')"
-            />
-          </div>
-          <div>
-            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.passwordLabel') }}</label>
-            <input
-              v-model="editSub2APILoginPassword"
-              type="password"
-              class="input"
-              autocomplete="new-password"
-              data-1p-ignore
-              data-lpignore="true"
-              data-bwignore="true"
-              :placeholder="t('admin.accounts.sub2apiLogin.passwordEditPlaceholder')"
-            />
-          </div>
-          <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
-            {{ t('admin.accounts.sub2apiLogin.editHint') }}
-          </p>
-          </template>
-          <template v-else>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.jwtLabel') }}</label>
-              <textarea
-                v-model="editSub2APIAccessToken"
-                rows="3"
-                class="input font-mono"
-                autocomplete="off"
-                data-1p-ignore
-                data-lpignore="true"
-                data-bwignore="true"
-                :placeholder="t('admin.accounts.sub2apiLogin.jwtEditPlaceholder')"
-              ></textarea>
-            </div>
-            <div class="mt-3">
-              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.refreshTokenLabel') }}</label>
-              <textarea
-                v-model="editSub2APIRefreshToken"
-                rows="3"
-                class="input font-mono"
-                autocomplete="off"
-                data-1p-ignore
-                data-lpignore="true"
-                data-bwignore="true"
-                :placeholder="t('admin.accounts.sub2apiLogin.refreshTokenEditPlaceholder')"
-              ></textarea>
-            </div>
-            <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
-              {{ t('admin.accounts.sub2apiLogin.jwtEditHint') }}
-            </p>
-          </template>
         </div>
 
         <!-- Model Restriction Section (不适用于 Antigravity) -->
@@ -2496,6 +2447,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import upstreamConfigsAPI, { type UpstreamConfig, type UpstreamKey } from '@/api/admin/upstreamConfigs'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type {
   Account,
@@ -2513,6 +2465,7 @@ import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
+import UpstreamKeySelector from '@/components/account/UpstreamKeySelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import {
@@ -2585,19 +2538,16 @@ interface TempUnschedRuleForm {
   description: string
 }
 
-type UpstreamProvider = 'sub2api' | 'newapi' | 'other'
-type Sub2APIAuthMode = 'user_login' | 'manual_jwt'
-
 // State
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
-const editUpstreamProvider = ref<UpstreamProvider>('other')
-const editSub2APIAuthMode = ref<Sub2APIAuthMode>('user_login')
-const editSub2APILoginEmail = ref('')
-const editSub2APILoginPassword = ref('')
-const editSub2APIAccessToken = ref('')
-const editSub2APIRefreshToken = ref('')
+const upstreamConfigs = ref<UpstreamConfig[]>([])
+const upstreamKeys = ref<UpstreamKey[]>([])
+const editUpstreamConfigId = ref<number | null>(null)
+const editUpstreamKeyId = ref<number | null>(null)
+const loadingUpstreamConfigs = ref(false)
+const loadingUpstreamKeys = ref(false)
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -3004,6 +2954,17 @@ const defaultBaseUrl = computed(() => {
   return 'https://api.anthropic.com'
 })
 
+const isUpstreamBoundAccount = computed(() =>
+  props.account?.upstream_config_id != null || props.account?.upstream_key_id != null
+)
+
+const filteredUpstreamKeys = computed(() =>
+  upstreamKeys.value.filter((key) => {
+    const keyPlatform = (key.platform || '').trim()
+    return key.id === editUpstreamKeyId.value || !keyPlatform || keyPlatform === props.account?.platform
+  })
+)
+
 const mixedChannelWarningMessageText = computed(() => {
   if (mixedChannelWarningDetails.value) {
     return t('admin.accounts.mixedChannelWarning', mixedChannelWarningDetails.value)
@@ -3092,14 +3053,6 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
   }
 }
 
-const normalizeUpstreamProvider = (value: unknown): UpstreamProvider => {
-  return value === 'sub2api' || value === 'newapi' || value === 'other' ? value : 'other'
-}
-
-const normalizeSub2APIAuthMode = (value: unknown): Sub2APIAuthMode => {
-  return value === 'manual_jwt' ? 'manual_jwt' : 'user_login'
-}
-
 const syncFormFromAccount = (newAccount: Account | null) => {
   if (!newAccount) {
     return
@@ -3146,14 +3099,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
 	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
-  editUpstreamProvider.value = normalizeUpstreamProvider(extra?.upstream_provider)
-  editSub2APIAuthMode.value = normalizeSub2APIAuthMode(extra?.sub2api_rate_sync_adapter)
-  editSub2APILoginEmail.value =
-    typeof credentials?.sub2api_login_email === 'string' ? credentials.sub2api_login_email : ''
-  editSub2APILoginPassword.value = ''
-  editSub2APIAccessToken.value = ''
-  editSub2APIRefreshToken.value = ''
-
+  editUpstreamConfigId.value = newAccount.upstream_config_id ?? null
+  editUpstreamKeyId.value = newAccount.upstream_key_id ?? null
+  if (editUpstreamConfigId.value) {
+    loadUpstreamKeys(editUpstreamConfigId.value, editUpstreamKeyId.value)
+  } else {
+    upstreamKeys.value = []
+  }
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
   openAICompactMode.value = 'auto'
@@ -3401,6 +3353,41 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   editApiKey.value = ''
 }
 
+const loadUpstreamConfigs = async () => {
+  loadingUpstreamConfigs.value = true
+  try {
+    const result = await upstreamConfigsAPI.list(1, 200, { status: 'active' })
+    upstreamConfigs.value = result.items || []
+  } catch (error: any) {
+    upstreamConfigs.value = []
+    appStore.showError(error.message || '加载上游配置失败')
+  } finally {
+    loadingUpstreamConfigs.value = false
+  }
+}
+
+const loadUpstreamKeys = async (configID: number | null, keepKeyID?: number | null) => {
+  upstreamKeys.value = []
+  editUpstreamKeyId.value = keepKeyID ?? null
+  if (!configID) {
+    editUpstreamKeyId.value = null
+    return
+  }
+  loadingUpstreamKeys.value = true
+  try {
+    upstreamKeys.value = await upstreamConfigsAPI.listKeys(configID)
+    if (keepKeyID && upstreamKeys.value.some((key) => key.id === keepKeyID)) {
+      editUpstreamKeyId.value = keepKeyID
+    } else if (!upstreamKeys.value.some((key) => key.id === editUpstreamKeyId.value)) {
+      editUpstreamKeyId.value = null
+    }
+  } catch (error: any) {
+    appStore.showError(error.message || '加载上游 Key 失败')
+  } finally {
+    loadingUpstreamKeys.value = false
+  }
+}
+
 async function loadTLSProfiles() {
   try {
     const profiles = await adminAPI.tlsFingerprintProfiles.list()
@@ -3418,31 +3405,12 @@ watch(
     }
     if (!wasShow || newAccount !== previousAccount) {
       syncFormFromAccount(newAccount)
+      loadUpstreamConfigs()
       loadTLSProfiles()
     }
   },
   { immediate: true }
 )
-
-watch(editUpstreamProvider, (provider) => {
-  if (provider !== 'sub2api') {
-    editSub2APIAuthMode.value = 'user_login'
-    editSub2APILoginEmail.value = ''
-    editSub2APILoginPassword.value = ''
-    editSub2APIAccessToken.value = ''
-    editSub2APIRefreshToken.value = ''
-  }
-})
-
-watch(editSub2APIAuthMode, (mode) => {
-  if (mode === 'manual_jwt') {
-    editSub2APILoginEmail.value = ''
-    editSub2APILoginPassword.value = ''
-  } else {
-    editSub2APIAccessToken.value = ''
-    editSub2APIRefreshToken.value = ''
-  }
-})
 
 // Model mapping helpers
 const addModelMapping = () => {
@@ -3916,8 +3884,22 @@ const handleSubmit = async () => {
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
 
+    if (isUpstreamBoundAccount.value) {
+      if (!editUpstreamConfigId.value || editUpstreamConfigId.value <= 0) {
+        appStore.showError('请选择上游配置')
+        return
+      }
+      if (!editUpstreamKeyId.value || editUpstreamKeyId.value <= 0) {
+        appStore.showError('请选择上游 Key')
+        return
+      }
+      updatePayload.type = 'upstream'
+      updatePayload.upstream_config_id = editUpstreamConfigId.value
+      updatePayload.upstream_key_id = editUpstreamKeyId.value
+    }
+
     // For apikey type, handle credentials update
-    if (props.account.type === 'apikey') {
+    if (props.account.type === 'apikey' && !isUpstreamBoundAccount.value) {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
       const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
@@ -3940,49 +3922,6 @@ const handleSubmit = async () => {
       } else if (!hasExistingApiKey) {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
-      }
-
-      if (editUpstreamProvider.value === 'sub2api') {
-        if (editSub2APIAuthMode.value === 'manual_jwt') {
-          const hasExistingSub2APIAccessToken =
-            props.account.credentials_status?.has_sub2api_access_token ??
-            Boolean(currentCredentials.sub2api_access_token)
-          if (!editSub2APIAccessToken.value.trim() && !hasExistingSub2APIAccessToken) {
-            appStore.showError(t('admin.accounts.sub2apiLogin.jwtRequired'))
-            return
-          }
-          newCredentials.sub2api_login_email = ''
-          newCredentials.sub2api_login_password = ''
-          if (editSub2APIAccessToken.value.trim()) {
-            newCredentials.sub2api_access_token = editSub2APIAccessToken.value.trim()
-          }
-          if (editSub2APIRefreshToken.value.trim()) {
-            newCredentials.sub2api_refresh_token = editSub2APIRefreshToken.value.trim()
-          }
-        } else {
-          const hasExistingSub2APILoginPassword =
-            props.account.credentials_status?.has_sub2api_login_password ??
-            Boolean(currentCredentials.sub2api_login_password)
-          if (!editSub2APILoginEmail.value.trim()) {
-            appStore.showError(t('admin.accounts.sub2apiLogin.emailRequired'))
-            return
-          }
-          if (!editSub2APILoginPassword.value.trim() && !hasExistingSub2APILoginPassword) {
-            appStore.showError(t('admin.accounts.sub2apiLogin.passwordRequired'))
-            return
-          }
-          newCredentials.sub2api_access_token = ''
-          newCredentials.sub2api_refresh_token = ''
-          newCredentials.sub2api_login_email = editSub2APILoginEmail.value.trim()
-          if (editSub2APILoginPassword.value.trim()) {
-            newCredentials.sub2api_login_password = editSub2APILoginPassword.value
-          }
-        }
-      } else {
-        newCredentials.sub2api_login_email = ''
-        newCredentials.sub2api_login_password = ''
-        newCredentials.sub2api_access_token = ''
-        newCredentials.sub2api_refresh_token = ''
       }
 
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
@@ -4492,21 +4431,6 @@ const handleSubmit = async () => {
       }
       // Quota notify config
       writeQuotaNotifyToExtra(newExtra, 'update')
-      updatePayload.extra = newExtra
-    }
-
-    if (props.account.type === 'apikey') {
-      const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
-        (props.account.extra as Record<string, unknown>) || {}
-      const newExtra: Record<string, unknown> = {
-        ...currentExtra,
-        upstream_provider: editUpstreamProvider.value
-      }
-      if (editUpstreamProvider.value === 'sub2api') {
-        newExtra.sub2api_rate_sync_adapter = editSub2APIAuthMode.value
-      } else {
-        delete newExtra.sub2api_rate_sync_adapter
-      }
       updatePayload.extra = newExtra
     }
 

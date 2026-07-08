@@ -166,7 +166,7 @@
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-5" data-tour="account-form-type">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -283,6 +283,32 @@
             </div>
           </button>
 
+          <button
+            type="button"
+            @click="accountCategory = 'upstream_config'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'upstream_config'
+                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                : 'border-gray-200 hover:border-emerald-300 dark:border-dark-600 dark:hover:border-emerald-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'upstream_config'
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="cloud" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">上游配置</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">选择站点和 Key</span>
+            </div>
+          </button>
+
         </div>
 
         <div
@@ -296,7 +322,7 @@
       <!-- Account Type Selection (OpenAI) -->
       <div v-if="form.platform === 'openai'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-tour="account-form-type">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -349,6 +375,32 @@
             </div>
           </button>
 
+          <button
+            type="button"
+            @click="accountCategory = 'upstream_config'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'upstream_config'
+                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                : 'border-gray-200 hover:border-emerald-300 dark:border-dark-600 dark:hover:border-emerald-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'upstream_config'
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="cloud" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">上游配置</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">选择站点和 Key</span>
+            </div>
+          </button>
+
         </div>
       </div>
 
@@ -381,6 +433,31 @@
               <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.grokOauth') }}</span>
             </div>
           </button>
+          <button
+            type="button"
+            @click="accountCategory = 'upstream_config'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'upstream_config'
+                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                : 'border-gray-200 hover:border-emerald-300 dark:border-dark-600 dark:hover:border-emerald-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'upstream_config'
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="cloud" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">上游配置</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">选择站点和 Key</span>
+            </div>
+          </button>
         </div>
         <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
           {{ t('admin.accounts.oauth.grok.oauthOnlyHint') }}
@@ -402,7 +479,7 @@
             {{ t('admin.accounts.gemini.helpButton') }}
           </button>
         </div>
-        <div class="mt-2 grid grid-cols-3 gap-3" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" data-tour="account-form-type">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -502,6 +579,32 @@
               <span class="text-xs text-gray-500 dark:text-gray-400">
                 Service Account
               </span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            @click="accountCategory = 'upstream_config'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'upstream_config'
+                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                : 'border-gray-200 hover:border-emerald-300 dark:border-dark-600 dark:hover:border-emerald-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'upstream_config'
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="cloud" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">上游配置</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">选择站点和 Key</span>
             </div>
           </button>
         </div>
@@ -735,7 +838,7 @@
         </div>
 
         <!-- Tier selection (used as fallback when auto-detection is unavailable/fails) -->
-        <div v-if="accountCategory !== 'service_account'" class="mt-4">
+        <div v-if="accountCategory === 'oauth-based' || accountCategory === 'apikey'" class="mt-4">
           <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
           <div class="mt-2">
             <select
@@ -773,10 +876,10 @@
       <!-- Account Type Selection (Antigravity - OAuth or Upstream) -->
       <div v-if="form.platform === 'antigravity'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <button
             type="button"
-            @click="antigravityAccountType = 'oauth'"
+            @click="antigravityAccountType = 'oauth'; accountCategory = 'oauth-based'"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               antigravityAccountType === 'oauth'
@@ -802,7 +905,7 @@
 
           <button
             type="button"
-            @click="antigravityAccountType = 'upstream'"
+            @click="antigravityAccountType = 'upstream'; accountCategory = 'apikey'"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               antigravityAccountType === 'upstream'
@@ -825,10 +928,36 @@
               <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.antigravityApikey') }}</span>
             </div>
           </button>
+
+          <button
+            type="button"
+            @click="accountCategory = 'upstream_config'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'upstream_config'
+                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                : 'border-gray-200 hover:border-emerald-300 dark:border-dark-600 dark:hover:border-emerald-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'upstream_config'
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="cloud" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">上游配置</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">选择站点和 Key</span>
+            </div>
+          </button>
         </div>
       </div>
 
-      <div v-if="form.platform === 'antigravity' && antigravityAccountType === 'oauth'">
+      <div v-if="form.platform === 'antigravity' && antigravityAccountType === 'oauth' && accountCategory !== 'upstream_config'">
         <label class="input-label">{{ t('admin.accounts.antigravityProjectIdLabel') }}</label>
         <input
           v-model="antigravityProjectId"
@@ -841,27 +970,16 @@
       </div>
 
       <!-- Upstream config (only for Antigravity upstream type) -->
-      <div v-if="form.platform === 'antigravity' && antigravityAccountType === 'upstream'" class="space-y-4">
+      <div v-if="form.platform === 'antigravity' && antigravityAccountType === 'upstream' && accountCategory !== 'upstream_config'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.baseUrl') }}</label>
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
-            <input
-              v-model="upstreamBaseUrl"
-              type="text"
-              required
-              class="input"
-              placeholder="https://cloudcode-pa.googleapis.com"
-            />
-            <select
-              v-model="upstreamProvider"
-              class="input"
-              :aria-label="t('admin.accounts.upstreamProvider.label')"
-            >
-              <option value="sub2api">{{ t('admin.accounts.upstreamProvider.sub2api') }}</option>
-              <option value="newapi">{{ t('admin.accounts.upstreamProvider.newapi') }}</option>
-              <option value="other">{{ t('admin.accounts.upstreamProvider.other') }}</option>
-            </select>
-          </div>
+          <input
+            v-model="upstreamBaseUrl"
+            type="text"
+            required
+            class="input"
+            placeholder="https://cloudcode-pa.googleapis.com"
+          />
           <p class="input-hint">{{ t('admin.accounts.upstream.baseUrlHint') }}</p>
         </div>
         <div>
@@ -874,80 +992,6 @@
             placeholder="sk-..."
           />
           <p class="input-hint">{{ t('admin.accounts.upstream.apiKeyHint') }}</p>
-        </div>
-        <div
-          v-if="upstreamProvider === 'sub2api'"
-          class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20"
-        >
-          <div class="mb-3">
-            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.authModeLabel') }}</label>
-            <select v-model="sub2APIAuthMode" class="input">
-              <option value="user_login">{{ t('admin.accounts.sub2apiLogin.authModeUserLogin') }}</option>
-              <option value="manual_jwt">{{ t('admin.accounts.sub2apiLogin.authModeManualJwt') }}</option>
-            </select>
-          </div>
-          <template v-if="sub2APIAuthMode === 'user_login'">
-          <div class="mb-3">
-            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.emailLabel') }}</label>
-            <input
-              v-model="sub2APILoginEmail"
-              type="email"
-              required
-              class="input"
-              autocomplete="off"
-              :placeholder="t('admin.accounts.sub2apiLogin.emailPlaceholder')"
-            />
-          </div>
-          <div>
-            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.passwordLabel') }}</label>
-            <input
-              v-model="sub2APILoginPassword"
-              type="password"
-              required
-              class="input"
-              autocomplete="new-password"
-              data-1p-ignore
-              data-lpignore="true"
-              data-bwignore="true"
-              :placeholder="t('admin.accounts.sub2apiLogin.passwordPlaceholder')"
-            />
-          </div>
-          <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
-            {{ t('admin.accounts.sub2apiLogin.hint') }}
-          </p>
-          </template>
-          <template v-else>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.jwtLabel') }}</label>
-              <textarea
-                v-model="sub2APIAccessToken"
-                required
-                rows="3"
-                class="input font-mono"
-                autocomplete="off"
-                data-1p-ignore
-                data-lpignore="true"
-                data-bwignore="true"
-                :placeholder="t('admin.accounts.sub2apiLogin.jwtPlaceholder')"
-              ></textarea>
-            </div>
-            <div class="mt-3">
-              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.refreshTokenLabel') }}</label>
-              <textarea
-                v-model="sub2APIRefreshToken"
-                rows="3"
-                class="input font-mono"
-                autocomplete="off"
-                data-1p-ignore
-                data-lpignore="true"
-                data-bwignore="true"
-                :placeholder="t('admin.accounts.sub2apiLogin.refreshTokenPlaceholder')"
-              ></textarea>
-            </div>
-            <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
-              {{ t('admin.accounts.sub2apiLogin.jwtHint') }}
-            </p>
-          </template>
         </div>
       </div>
 
@@ -1043,7 +1087,7 @@
 
       <!-- Antigravity model restriction (applies to OAuth + Upstream) -->
       <!-- Antigravity 只支持模型映射模式，不支持白名单模式 -->
-      <div v-if="form.platform === 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+      <div v-if="form.platform === 'antigravity' && accountCategory !== 'upstream_config'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
 
         <!-- Mapping Mode Only (no toggle for Antigravity) -->
@@ -1163,29 +1207,18 @@
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
-            <input
-              v-model="apiKeyBaseUrl"
-              type="text"
-              class="input"
-              :placeholder="
-                form.platform === 'openai'
-                  ? 'https://api.openai.com'
-                  : form.platform === 'gemini'
-                    ? 'https://generativelanguage.googleapis.com'
-                    : 'https://api.anthropic.com'
-              "
-            />
-            <select
-              v-model="upstreamProvider"
-              class="input"
-              :aria-label="t('admin.accounts.upstreamProvider.label')"
-            >
-              <option value="sub2api">{{ t('admin.accounts.upstreamProvider.sub2api') }}</option>
-              <option value="newapi">{{ t('admin.accounts.upstreamProvider.newapi') }}</option>
-              <option value="other">{{ t('admin.accounts.upstreamProvider.other') }}</option>
-            </select>
-          </div>
+          <input
+            v-model="apiKeyBaseUrl"
+            type="text"
+            class="input"
+            :placeholder="
+              form.platform === 'openai'
+                ? 'https://api.openai.com'
+                : form.platform === 'gemini'
+                  ? 'https://generativelanguage.googleapis.com'
+                  : 'https://api.anthropic.com'
+            "
+          />
           <p class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
@@ -1204,81 +1237,6 @@
             "
           />
           <p class="input-hint">{{ apiKeyHint }}</p>
-        </div>
-
-        <div
-          v-if="upstreamProvider === 'sub2api'"
-          class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20"
-        >
-          <div class="mb-3">
-            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.authModeLabel') }}</label>
-            <select v-model="sub2APIAuthMode" class="input">
-              <option value="user_login">{{ t('admin.accounts.sub2apiLogin.authModeUserLogin') }}</option>
-              <option value="manual_jwt">{{ t('admin.accounts.sub2apiLogin.authModeManualJwt') }}</option>
-            </select>
-          </div>
-          <template v-if="sub2APIAuthMode === 'user_login'">
-          <div class="mb-3">
-            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.emailLabel') }}</label>
-            <input
-              v-model="sub2APILoginEmail"
-              type="email"
-              required
-              class="input"
-              autocomplete="off"
-              :placeholder="t('admin.accounts.sub2apiLogin.emailPlaceholder')"
-            />
-          </div>
-          <div>
-            <label class="input-label">{{ t('admin.accounts.sub2apiLogin.passwordLabel') }}</label>
-            <input
-              v-model="sub2APILoginPassword"
-              type="password"
-              required
-              class="input"
-              autocomplete="new-password"
-              data-1p-ignore
-              data-lpignore="true"
-              data-bwignore="true"
-              :placeholder="t('admin.accounts.sub2apiLogin.passwordPlaceholder')"
-            />
-          </div>
-          <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
-            {{ t('admin.accounts.sub2apiLogin.hint') }}
-          </p>
-          </template>
-          <template v-else>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.jwtLabel') }}</label>
-              <textarea
-                v-model="sub2APIAccessToken"
-                required
-                rows="3"
-                class="input font-mono"
-                autocomplete="off"
-                data-1p-ignore
-                data-lpignore="true"
-                data-bwignore="true"
-                :placeholder="t('admin.accounts.sub2apiLogin.jwtPlaceholder')"
-              ></textarea>
-            </div>
-            <div class="mt-3">
-              <label class="input-label">{{ t('admin.accounts.sub2apiLogin.refreshTokenLabel') }}</label>
-              <textarea
-                v-model="sub2APIRefreshToken"
-                rows="3"
-                class="input font-mono"
-                autocomplete="off"
-                data-1p-ignore
-                data-lpignore="true"
-                data-bwignore="true"
-                :placeholder="t('admin.accounts.sub2apiLogin.refreshTokenPlaceholder')"
-              ></textarea>
-            </div>
-            <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
-              {{ t('admin.accounts.sub2apiLogin.jwtHint') }}
-            </p>
-          </template>
         </div>
 
         <!-- Gemini API Key tier selection -->
@@ -1894,6 +1852,35 @@
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.poolModeRetryStatusCodesHint', { default: DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ') }) }}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="accountCategory === 'upstream_config'" class="space-y-4">
+        <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200">
+          上游站点的 Base URL、代理、登录态、JWT 和 refresh token 在“上游配置”页维护。这里仅选择要绑定的站点和上游 Key。
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="input-label">上游配置</label>
+            <select v-model.number="selectedUpstreamConfigId" class="input" required :disabled="loadingUpstreamConfigs">
+              <option :value="null">{{ loadingUpstreamConfigs ? '加载中...' : '请选择上游配置' }}</option>
+              <option v-for="config in upstreamConfigs" :key="config.id" :value="config.id">
+                {{ config.name }} · {{ config.base_url }}
+              </option>
+            </select>
+          </div>
+          <div>
+            <label class="input-label">上游 Key</label>
+            <UpstreamKeySelector
+              v-model="selectedUpstreamKeyId"
+              :keys="filteredUpstreamKeys"
+              :disabled="!selectedUpstreamConfigId || loadingUpstreamKeys"
+              :placeholder="loadingUpstreamKeys ? '加载中...' : undefined"
+            />
+            <p v-if="selectedUpstreamConfigId && !loadingUpstreamKeys && filteredUpstreamKeys.length === 0" class="input-hint">
+              未找到与当前平台匹配的上游 Key，请先到“上游配置”页同步 Key。
             </p>
           </div>
         </div>
@@ -3465,6 +3452,7 @@ import {
 } from '@/composables/useModelWhitelist'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import upstreamConfigsAPI, { type UpstreamConfig, type UpstreamKey } from '@/api/admin/upstreamConfigs'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import {
   useAccountOAuth,
@@ -3495,6 +3483,7 @@ import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
+import UpstreamKeySelector from '@/components/account/UpstreamKeySelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import {
@@ -3626,22 +3615,21 @@ interface TempUnschedRuleForm {
   description: string
 }
 
-type UpstreamProvider = 'sub2api' | 'newapi' | 'other'
-type Sub2APIAuthMode = 'user_login' | 'manual_jwt'
+type AccountCategory = 'oauth-based' | 'apikey' | 'upstream_config' | 'bedrock' | 'service_account'
 
 // State
 const step = ref(1)
 const submitting = ref(false)
-const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
+const accountCategory = ref<AccountCategory>('oauth-based') // UI selection for account category
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
-const upstreamProvider = ref<UpstreamProvider>('other')
-const sub2APIAuthMode = ref<Sub2APIAuthMode>('user_login')
-const sub2APILoginEmail = ref('')
-const sub2APILoginPassword = ref('')
-const sub2APIAccessToken = ref('')
-const sub2APIRefreshToken = ref('')
+const upstreamConfigs = ref<UpstreamConfig[]>([])
+const upstreamKeys = ref<UpstreamKey[]>([])
+const selectedUpstreamConfigId = ref<number | null>(null)
+const selectedUpstreamKeyId = ref<number | null>(null)
+const loadingUpstreamConfigs = ref(false)
+const loadingUpstreamKeys = ref(false)
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -3652,6 +3640,17 @@ const syncPreviewCredentials = computed(() => {
     api_key: apiKeyValue.value
   }
 })
+
+const filteredUpstreamKeys = computed(() =>
+  upstreamKeys.value.filter((key) => {
+    const keyPlatform = (key.platform || '').trim()
+    return !keyPlatform || keyPlatform === form.platform
+  })
+)
+
+const selectedUpstreamKey = computed(() =>
+  upstreamKeys.value.find((key) => key.id === selectedUpstreamKeyId.value) || null
+)
 
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
@@ -3984,7 +3983,7 @@ const form = reactive({
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
   // Antigravity upstream 类型不需要 OAuth 流程
-  if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
+  if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream' && accountCategory.value !== 'upstream_config') {
     return false
   }
   // Bedrock 类型不需要 OAuth 流程
@@ -4022,11 +4021,41 @@ const canExchangeCode = computed(() => {
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
 })
 
+const loadUpstreamConfigs = async () => {
+  loadingUpstreamConfigs.value = true
+  try {
+    const result = await upstreamConfigsAPI.list(1, 200, { status: 'active' })
+    upstreamConfigs.value = result.items || []
+  } catch (error: any) {
+    upstreamConfigs.value = []
+    appStore.showError(error.message || '加载上游配置失败')
+  } finally {
+    loadingUpstreamConfigs.value = false
+  }
+}
+
+const loadUpstreamKeys = async (configID: number | null) => {
+  upstreamKeys.value = []
+  selectedUpstreamKeyId.value = null
+  if (!configID) {
+    return
+  }
+  loadingUpstreamKeys.value = true
+  try {
+    upstreamKeys.value = await upstreamConfigsAPI.listKeys(configID)
+  } catch (error: any) {
+    appStore.showError(error.message || '加载上游 Key 失败')
+  } finally {
+    loadingUpstreamKeys.value = false
+  }
+}
+
 // Watchers
 watch(
   () => props.show,
   (newVal) => {
     if (newVal) {
+      loadUpstreamConfigs()
       // Load TLS fingerprint profiles
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
@@ -4051,10 +4080,18 @@ watch(
   }
 )
 
+watch(selectedUpstreamConfigId, (configID) => {
+  loadUpstreamKeys(configID)
+})
+
 // Sync form.type based on accountCategory, addMethod, and platform-specific type
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
+    if (category === 'upstream_config') {
+      form.type = 'upstream' as AccountType
+      return
+    }
     // Antigravity upstream 类型（实际创建为 apikey）
     if (form.platform === 'antigravity' && agType === 'upstream') {
       form.type = 'apikey'
@@ -4121,6 +4158,9 @@ watch(
     if (newPlatform !== 'anthropic' && accountCategory.value === 'bedrock') {
       accountCategory.value = 'oauth-based'
     }
+    if (newPlatform === 'grok' && accountCategory.value !== 'upstream_config') {
+      accountCategory.value = 'oauth-based'
+    }
     // Reset Bedrock fields when switching platforms
     bedrockAccessKeyId.value = ''
     bedrockSecretAccessKey.value = ''
@@ -4160,26 +4200,6 @@ watch(
   }
 )
 
-watch(upstreamProvider, (provider) => {
-  if (provider !== 'sub2api') {
-    sub2APILoginEmail.value = ''
-    sub2APILoginPassword.value = ''
-    sub2APIAccessToken.value = ''
-    sub2APIRefreshToken.value = ''
-    sub2APIAuthMode.value = 'user_login'
-  }
-})
-
-watch(sub2APIAuthMode, (mode) => {
-  if (mode === 'manual_jwt') {
-    sub2APILoginEmail.value = ''
-    sub2APILoginPassword.value = ''
-  } else {
-    sub2APIAccessToken.value = ''
-    sub2APIRefreshToken.value = ''
-  }
-})
-
 // Gemini AI Studio OAuth availability (requires operator-configured OAuth client)
 watch(
   [accountCategory, () => form.platform],
@@ -4211,6 +4231,12 @@ watch(
   },
   { immediate: true }
 )
+
+watch([() => form.platform, upstreamKeys], () => {
+  if (selectedUpstreamKeyId.value && !filteredUpstreamKeys.value.some((key) => key.id === selectedUpstreamKeyId.value)) {
+    selectedUpstreamKeyId.value = null
+  }
+})
 
 const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | 'ai_studio') => {
   if (oauthType === 'ai_studio' && !geminiAIStudioOAuthEnabled.value) {
@@ -4534,12 +4560,10 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
-  upstreamProvider.value = 'other'
-  sub2APIAuthMode.value = 'user_login'
-  sub2APILoginEmail.value = ''
-  sub2APILoginPassword.value = ''
-  sub2APIAccessToken.value = ''
-  sub2APIRefreshToken.value = ''
+  upstreamConfigs.value = []
+  upstreamKeys.value = []
+  selectedUpstreamConfigId.value = null
+  selectedUpstreamKeyId.value = null
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4709,12 +4733,6 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
 
   return Object.keys(extra).length > 0 ? extra : undefined
 }
-
-const withUpstreamProviderExtra = (base?: Record<string, unknown>): Record<string, unknown> => ({
-  ...(base || {}),
-  upstream_provider: upstreamProvider.value,
-  ...(upstreamProvider.value === 'sub2api' ? { sub2api_rate_sync_adapter: sub2APIAuthMode.value } : {})
-})
 
 // Helper function to create account with mixed channel warning handling
 const doCreateAccount = async (payload: CreateAccountRequest) => {
@@ -4900,39 +4918,10 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.upstream.pleaseEnterApiKey'))
       return
     }
-    if (upstreamProvider.value === 'sub2api') {
-      if (sub2APIAuthMode.value === 'manual_jwt') {
-        if (!sub2APIAccessToken.value.trim()) {
-          appStore.showError(t('admin.accounts.sub2apiLogin.jwtRequired'))
-          return
-        }
-      } else {
-        if (!sub2APILoginEmail.value.trim()) {
-          appStore.showError(t('admin.accounts.sub2apiLogin.emailRequired'))
-          return
-        }
-        if (!sub2APILoginPassword.value.trim()) {
-          appStore.showError(t('admin.accounts.sub2apiLogin.passwordRequired'))
-          return
-        }
-      }
-    }
-
     // Build upstream credentials (and optional model restriction)
     const credentials: Record<string, unknown> = {
       base_url: upstreamBaseUrl.value.trim(),
       api_key: upstreamApiKey.value.trim()
-    }
-    if (upstreamProvider.value === 'sub2api') {
-      if (sub2APIAuthMode.value === 'manual_jwt') {
-        credentials.sub2api_access_token = sub2APIAccessToken.value.trim()
-        if (sub2APIRefreshToken.value.trim()) {
-          credentials.sub2api_refresh_token = sub2APIRefreshToken.value.trim()
-        }
-      } else {
-        credentials.sub2api_login_email = sub2APILoginEmail.value.trim()
-        credentials.sub2api_login_password = sub2APILoginPassword.value
-      }
     }
 
     // Antigravity 只使用映射模式
@@ -4947,7 +4936,7 @@ const handleSubmit = async () => {
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
-    const extra = withUpstreamProviderExtra(buildAntigravityExtra())
+    const extra = buildAntigravityExtra()
     await createAccountAndFinish(form.platform, 'apikey', credentials, extra)
     return
   }
@@ -4975,27 +4964,40 @@ const handleSubmit = async () => {
     return
   }
 
+  if (accountCategory.value === 'upstream_config') {
+    if (!form.name.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    if (!selectedUpstreamConfigId.value || selectedUpstreamConfigId.value <= 0) {
+      appStore.showError('请选择上游配置')
+      return
+    }
+    if (!selectedUpstreamKeyId.value || selectedUpstreamKeyId.value <= 0) {
+      appStore.showError('请选择上游 Key')
+      return
+    }
+    const key = selectedUpstreamKey.value
+    const platform = (key?.platform || form.platform) as AccountPlatform
+    await doCreateAccount({
+      ...form,
+      platform,
+      type: 'upstream' as AccountType,
+      credentials: {},
+      extra: buildOpenAIExtra(),
+      proxy_id: null,
+      group_ids: form.group_ids,
+      upstream_config_id: selectedUpstreamConfigId.value,
+      upstream_key_id: selectedUpstreamKeyId.value,
+      auto_pause_on_expired: autoPauseOnExpired.value
+    })
+    return
+  }
+
   // For apikey type, create directly
   if (!apiKeyValue.value.trim()) {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
-  }
-  if (upstreamProvider.value === 'sub2api') {
-    if (sub2APIAuthMode.value === 'manual_jwt') {
-      if (!sub2APIAccessToken.value.trim()) {
-        appStore.showError(t('admin.accounts.sub2apiLogin.jwtRequired'))
-        return
-      }
-    } else {
-      if (!sub2APILoginEmail.value.trim()) {
-        appStore.showError(t('admin.accounts.sub2apiLogin.emailRequired'))
-        return
-      }
-      if (!sub2APILoginPassword.value.trim()) {
-        appStore.showError(t('admin.accounts.sub2apiLogin.passwordRequired'))
-        return
-      }
-    }
   }
 
   // Determine default base URL based on platform
@@ -5012,17 +5014,6 @@ const handleSubmit = async () => {
   const credentials: Record<string, unknown> = {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
-  }
-  if (upstreamProvider.value === 'sub2api') {
-    if (sub2APIAuthMode.value === 'manual_jwt') {
-      credentials.sub2api_access_token = sub2APIAccessToken.value.trim()
-      if (sub2APIRefreshToken.value.trim()) {
-        credentials.sub2api_refresh_token = sub2APIRefreshToken.value.trim()
-      }
-    } else {
-      credentials.sub2api_login_email = sub2APILoginEmail.value.trim()
-      credentials.sub2api_login_password = sub2APILoginPassword.value
-    }
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
@@ -5065,7 +5056,7 @@ const handleSubmit = async () => {
   }
 
   form.credentials = credentials
-  const extra = withUpstreamProviderExtra(buildAnthropicExtra(buildOpenAIExtra()))
+  const extra = buildAnthropicExtra(buildOpenAIExtra())
 
   await doCreateAccount({
     ...form,
