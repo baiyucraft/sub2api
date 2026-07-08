@@ -259,6 +259,21 @@
           </template>
 
           <template v-if="form.provider === 'sub2api' && form.auth_mode === 'manual_jwt'">
+            <div class="md:col-span-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-200">
+              <span class="inline-flex items-center gap-2">
+                <Icon name="key" size="sm" />
+                {{ t('admin.upstreamConfigs.tokenAssistant.inlineHint') }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                data-test="open-token-assistant"
+                @click="openTokenAssistant"
+              >
+                <Icon name="clipboard" size="sm" class="mr-1.5" />
+                {{ t('admin.upstreamConfigs.tokenAssistant.open') }}
+              </button>
+            </div>
             <label class="space-y-1 md:col-span-2">
               <span class="input-label">{{ t('admin.upstreamConfigs.fields.accessToken') }}</span>
               <textarea
@@ -298,6 +313,110 @@
       </template>
     </BaseDialog>
 
+    <BaseDialog
+      :show="tokenAssistantOpen"
+      :title="t('admin.upstreamConfigs.tokenAssistant.title')"
+      width="wide"
+      @close="closeTokenAssistant"
+    >
+      <div class="max-h-[65vh] overflow-y-auto pr-1">
+        <div class="space-y-4">
+          <div class="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
+            <Icon name="shield" size="sm" class="mt-0.5 flex-shrink-0" />
+            <p>{{ t('admin.upstreamConfigs.tokenAssistant.securityHint') }}</p>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="text-sm text-gray-700 dark:text-gray-300">
+              {{ t('admin.upstreamConfigs.tokenAssistant.loginPageHint') }}
+            </div>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-test="open-upstream-login"
+              @click="openUpstreamLogin"
+            >
+              <Icon name="externalLink" size="sm" class="mr-2" />
+              {{ t('admin.upstreamConfigs.tokenAssistant.openLoginPage') }}
+            </button>
+          </div>
+
+          <label class="space-y-1">
+            <span class="input-label">{{ t('admin.upstreamConfigs.tokenAssistant.pasteLabel') }}</span>
+            <textarea
+              v-model="tokenPaste"
+              class="input min-h-[150px] font-mono text-xs"
+              data-test="token-paste-input"
+              spellcheck="false"
+              :placeholder="t('admin.upstreamConfigs.tokenAssistant.pastePlaceholder')"
+              @input="syncTokenSelections"
+            ></textarea>
+          </label>
+
+          <div v-if="hasParsedTokenCandidates" class="grid gap-4 md:grid-cols-2">
+            <label class="space-y-1">
+              <span class="input-label">{{ t('admin.upstreamConfigs.tokenAssistant.accessCandidate') }}</span>
+              <select
+                v-model="selectedAccessTokenId"
+                class="input"
+                data-test="access-token-candidate"
+              >
+                <option value="">{{ t('admin.upstreamConfigs.tokenAssistant.doNotApply') }}</option>
+                <option v-for="candidate in accessTokenCandidates" :key="candidate.id" :value="candidate.id">
+                  {{ tokenCandidateLabel(candidate) }}
+                </option>
+              </select>
+            </label>
+
+            <label class="space-y-1">
+              <span class="input-label">{{ t('admin.upstreamConfigs.tokenAssistant.refreshCandidate') }}</span>
+              <select
+                v-model="selectedRefreshTokenId"
+                class="input"
+                data-test="refresh-token-candidate"
+              >
+                <option value="">{{ t('admin.upstreamConfigs.tokenAssistant.doNotApply') }}</option>
+                <option v-for="candidate in parsedTokenResult.refreshCandidates" :key="candidate.id" :value="candidate.id">
+                  {{ tokenCandidateLabel(candidate) }}
+                </option>
+              </select>
+            </label>
+          </div>
+
+          <div v-if="selectedAccessTokenMeta" class="flex gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-200">
+            <Icon
+              :name="selectedAccessTokenMeta.expired ? 'exclamationTriangle' : 'infoCircle'"
+              size="sm"
+              :class="selectedAccessTokenMeta.expired ? 'mt-0.5 flex-shrink-0 text-amber-500' : 'mt-0.5 flex-shrink-0 text-blue-500'"
+            />
+            <p>{{ tokenExpiryDescription(selectedAccessTokenMeta) }}</p>
+          </div>
+
+          <div v-else-if="tokenPaste.trim() && !hasParsedTokenCandidates" class="flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-200">
+            <Icon name="exclamationCircle" size="sm" class="mt-0.5 flex-shrink-0" />
+            <p>{{ t('admin.upstreamConfigs.tokenAssistant.noTokenFound') }}</p>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-secondary" @click="closeTokenAssistant">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            data-test="apply-token-candidates"
+            :disabled="!canApplyTokenCandidates"
+            @click="applyTokenCandidates"
+          >
+            {{ t('admin.upstreamConfigs.tokenAssistant.apply') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <ConfirmDialog
       :show="deleteDialogOpen"
       :title="t('admin.upstreamConfigs.delete.title')"
@@ -329,6 +448,10 @@ import { adminAPI } from '@/api/admin'
 import upstreamAPI, { type UpstreamAuthMode, type UpstreamConfig, type UpstreamProvider } from '@/api/admin/upstreamConfigs'
 import { useAppStore } from '@/stores/app'
 import type { Proxy } from '@/types'
+import {
+  parseUpstreamTokenPaste,
+  type ParsedTokenCandidate
+} from '@/utils/upstreamTokenParser'
 
 type RowAction = 'test' | 'sync'
 
@@ -343,11 +466,15 @@ const dialogOpen = ref(false)
 const editing = ref<UpstreamConfig | null>(null)
 const deletingConfig = ref<UpstreamConfig | null>(null)
 const deleteDialogOpen = ref(false)
+const tokenAssistantOpen = ref(false)
 const busyAction = ref<{ id: number; action: RowAction } | null>(null)
 const search = ref('')
 const provider = ref<string>('')
 const proxies = ref<Proxy[]>([])
 const loadingProxies = ref(false)
+const tokenPaste = ref('')
+const selectedAccessTokenId = ref('')
+const selectedRefreshTokenId = ref('')
 
 const pagination = reactive({
   page: 1,
@@ -396,6 +523,25 @@ const authModeOptions = computed<SelectOption[]>(() => [
   { value: 'user_login', label: t('admin.upstreamConfigs.authModes.userLogin') },
   { value: 'manual_jwt', label: t('admin.upstreamConfigs.authModes.manualJwt') }
 ])
+
+const parsedTokenResult = computed(() => parseUpstreamTokenPaste(tokenPaste.value))
+
+const accessTokenCandidates = computed(() => [
+  ...parsedTokenResult.value.accessCandidates,
+  ...parsedTokenResult.value.unknownCandidates
+])
+
+const hasParsedTokenCandidates = computed(() =>
+  accessTokenCandidates.value.length > 0 || parsedTokenResult.value.refreshCandidates.length > 0
+)
+
+const selectedAccessTokenMeta = computed(() =>
+  accessTokenCandidates.value.find((candidate) => candidate.id === selectedAccessTokenId.value) || null
+)
+
+const canApplyTokenCandidates = computed(() =>
+  Boolean(selectedAccessTokenId.value || selectedRefreshTokenId.value)
+)
 
 onMounted(() => {
   loadConfigs()
@@ -496,6 +642,71 @@ function openEdit(item: UpstreamConfig) {
 function handleDialogClose() {
   if (saving.value) return
   dialogOpen.value = false
+}
+
+function openTokenAssistant() {
+  tokenAssistantOpen.value = true
+  tokenPaste.value = ''
+  selectedAccessTokenId.value = ''
+  selectedRefreshTokenId.value = ''
+}
+
+function closeTokenAssistant() {
+  tokenAssistantOpen.value = false
+  tokenPaste.value = ''
+  selectedAccessTokenId.value = ''
+  selectedRefreshTokenId.value = ''
+}
+
+function openUpstreamLogin() {
+  const url = buildUpstreamLoginURL()
+  if (!url) {
+    appStore.showError(t('admin.upstreamConfigs.tokenAssistant.invalidBaseUrl'))
+    return
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function buildUpstreamLoginURL(): string | null {
+  try {
+    const url = new URL(form.base_url.trim())
+    if (!['http:', 'https:'].includes(url.protocol)) return null
+    url.pathname = '/login'
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+function syncTokenSelections() {
+  selectedAccessTokenId.value = syncCandidateSelection(
+    selectedAccessTokenId.value,
+    accessTokenCandidates.value
+  )
+  selectedRefreshTokenId.value = syncCandidateSelection(
+    selectedRefreshTokenId.value,
+    parsedTokenResult.value.refreshCandidates
+  )
+}
+
+function syncCandidateSelection(current: string, candidates: ParsedTokenCandidate[]): string {
+  if (current && candidates.some((candidate) => candidate.id === current)) return current
+  return candidates.length === 1 ? candidates[0].id : ''
+}
+
+function applyTokenCandidates() {
+  const access = accessTokenCandidates.value.find((candidate) => candidate.id === selectedAccessTokenId.value)
+  const refresh = parsedTokenResult.value.refreshCandidates.find((candidate) => candidate.id === selectedRefreshTokenId.value)
+  if (!access && !refresh) {
+    appStore.showError(t('admin.upstreamConfigs.tokenAssistant.noSelection'))
+    return
+  }
+  if (access) form.access_token = access.value
+  if (refresh) form.refresh_token = refresh.value
+  appStore.showSuccess(t('admin.upstreamConfigs.tokenAssistant.applied'))
+  closeTokenAssistant()
 }
 
 async function saveConfig() {
@@ -661,6 +872,31 @@ function credentialLines(item: UpstreamConfig) {
 
 function statusLabel(ok: boolean) {
   return ok ? t('admin.upstreamConfigs.credentialStatus.configured') : t('admin.upstreamConfigs.credentialStatus.missing')
+}
+
+function tokenCandidateLabel(candidate: ParsedTokenCandidate): string {
+  return t('admin.upstreamConfigs.tokenAssistant.candidateLabel', {
+    source: tokenSourceLabel(candidate),
+    suffix: tokenSuffix(candidate.value)
+  })
+}
+
+function tokenSourceLabel(candidate: ParsedTokenCandidate): string {
+  if (candidate.source === 'bearer') return t('admin.upstreamConfigs.tokenAssistant.sources.bearer')
+  if (candidate.source === 'jwt') return t('admin.upstreamConfigs.tokenAssistant.sources.jwt')
+  return candidate.label
+}
+
+function tokenSuffix(value: string): string {
+  return `****${value.slice(-8)}`
+}
+
+function tokenExpiryDescription(candidate: ParsedTokenCandidate): string {
+  if (!candidate.expiresAt) return t('admin.upstreamConfigs.tokenAssistant.jwtUnverifiedNoExp')
+  const time = new Date(candidate.expiresAt).toLocaleString()
+  return candidate.expired
+    ? t('admin.upstreamConfigs.tokenAssistant.jwtExpired', { time })
+    : t('admin.upstreamConfigs.tokenAssistant.jwtExpiresAt', { time })
 }
 
 function formatTime(value?: string | null): string {
