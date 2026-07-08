@@ -40,6 +40,7 @@ var (
 type Sub2APIUpstreamRateSyncService struct {
 	accountRepo        AccountRepository
 	upstreamConfigRepo UpstreamConfigRepository
+	upstreamConfigSvc  *UpstreamConfigService
 	proxyRepo          ProxyRepository
 	interval           time.Duration
 	concurrency        int
@@ -120,6 +121,12 @@ func (s *Sub2APIUpstreamRateSyncService) SetUpstreamConfigRepository(repo Upstre
 	}
 }
 
+func (s *Sub2APIUpstreamRateSyncService) SetUpstreamConfigService(svc *UpstreamConfigService) {
+	if s != nil {
+		s.upstreamConfigSvc = svc
+	}
+}
+
 func (s *Sub2APIUpstreamRateSyncService) Start() {
 	if s == nil || s.accountRepo == nil || s.interval <= 0 {
 		return
@@ -180,6 +187,17 @@ func (s *Sub2APIUpstreamRateSyncService) SyncAccountNow(ctx context.Context, acc
 func (s *Sub2APIUpstreamRateSyncService) runOnce() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+
+	if s.upstreamConfigSvc != nil {
+		results := s.upstreamConfigSvc.SyncActiveSub2APIConfigs(ctx)
+		for i := range results {
+			result := results[i]
+			if !result.Success {
+				log.Printf("[Sub2APIRateSync] sync upstream config failed: config=%d name=%q err=%s", result.ConfigID, result.Name, result.Error)
+			}
+		}
+		return
+	}
 
 	accounts, _, err := s.accountRepo.ListWithFilters(ctx, pagination.PaginationParams{
 		Page:     1,

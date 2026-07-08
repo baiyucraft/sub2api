@@ -61,6 +61,15 @@ export interface UpstreamConfigPayload {
   extra?: Record<string, unknown>
 }
 
+export interface UpstreamSyncResult {
+  config_id: number
+  name: string
+  success: boolean
+  key_count: number
+  updated_account_count: number
+  error?: string
+}
+
 export interface UpstreamKeyPayload {
   name?: string
   key: string
@@ -109,6 +118,11 @@ export async function syncKeys(id: number): Promise<{ keys: UpstreamKey[] }> {
   return data
 }
 
+export async function syncAllKeys(): Promise<{ results: UpstreamSyncResult[] }> {
+  const { data } = await apiClient.post<{ results: UpstreamSyncResult[] }>('/admin/upstream-configs/sync-keys')
+  return data
+}
+
 export async function listKeys(id: number): Promise<UpstreamKey[]> {
   const { data } = await apiClient.get<UpstreamKey[]>(`/admin/upstream-configs/${id}/keys`)
   return data
@@ -132,6 +146,7 @@ export default {
   remove,
   test,
   syncKeys,
+  syncAllKeys,
   listKeys,
   createKey,
   removeKey

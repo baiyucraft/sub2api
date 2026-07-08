@@ -36,13 +36,14 @@ export default {
       refreshToken: 'Refresh {status}'
     },
     actions: {
-      create: '新增配置',
+      create: '添加上游',
       test: '测试连接',
-      syncKeys: '同步 Key',
+      syncKeys: '同步上游',
+      syncAll: '同步全部',
       saving: '保存中...'
     },
     dialog: {
-      createTitle: '新增上游配置',
+      createTitle: '添加上游',
       editTitle: '编辑上游配置'
     },
     fields: {
@@ -77,8 +78,11 @@ export default {
       deleteFailed: '删除上游配置失败',
       testSuccess: '连接测试成功',
       testFailed: '连接测试失败',
-      syncSuccess: '已同步 {count} 个 Key',
-      syncFailed: '同步 Key 失败'
+      syncSuccess: '已同步上游，发现 {count} 个 Key',
+      syncFailed: '同步上游失败',
+      syncAllSuccess: '已同步 {success} 个上游，共发现 {keys} 个 Key',
+      syncAllPartial: '同步完成：成功 {success} 个上游，失败 {failed} 个，共发现 {keys} 个 Key',
+      syncAllFailed: '同步全部上游失败'
     }
   }
 }

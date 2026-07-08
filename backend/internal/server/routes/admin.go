@@ -356,6 +356,7 @@ func registerUpstreamConfigRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		upstreams.GET("", h.Admin.UpstreamConfig.List)
 		upstreams.POST("", h.Admin.UpstreamConfig.Create)
+		upstreams.POST("/sync-keys", h.Admin.UpstreamConfig.SyncAllKeys)
 		upstreams.GET("/:id", h.Admin.UpstreamConfig.GetByID)
 		upstreams.PUT("/:id", h.Admin.UpstreamConfig.Update)
 		upstreams.DELETE("/:id", h.Admin.UpstreamConfig.Delete)

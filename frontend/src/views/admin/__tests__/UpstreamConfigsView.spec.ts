@@ -4,12 +4,13 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import UpstreamConfigsView from '../UpstreamConfigsView.vue'
 
-const { listMock, createMock, removeMock, testMock, syncKeysMock, proxiesMock, showErrorMock, showSuccessMock } = vi.hoisted(() => ({
+const { listMock, createMock, removeMock, testMock, syncKeysMock, syncAllKeysMock, proxiesMock, showErrorMock, showSuccessMock } = vi.hoisted(() => ({
   listMock: vi.fn(),
   createMock: vi.fn(),
   removeMock: vi.fn(),
   testMock: vi.fn(),
   syncKeysMock: vi.fn(),
+  syncAllKeysMock: vi.fn(),
   proxiesMock: vi.fn(),
   showErrorMock: vi.fn(),
   showSuccessMock: vi.fn()
@@ -22,7 +23,8 @@ vi.mock('@/api/admin/upstreamConfigs', () => ({
     update: vi.fn(),
     remove: removeMock,
     test: testMock,
-    syncKeys: syncKeysMock
+    syncKeys: syncKeysMock,
+    syncAllKeys: syncAllKeysMock
   }
 }))
 
@@ -207,6 +209,7 @@ describe('UpstreamConfigsView', () => {
     removeMock.mockReset()
     testMock.mockReset()
     syncKeysMock.mockReset()
+    syncAllKeysMock.mockReset()
     proxiesMock.mockReset()
     showErrorMock.mockReset()
     showSuccessMock.mockReset()
@@ -224,6 +227,7 @@ describe('UpstreamConfigsView', () => {
     removeMock.mockResolvedValue({ message: 'ok' })
     testMock.mockResolvedValue({ ok: true })
     syncKeysMock.mockResolvedValue({ keys: [{ id: 1 }] })
+    syncAllKeysMock.mockResolvedValue({ results: [{ config_id: 10, name: 'Sub2API Main', success: true, key_count: 3, updated_account_count: 1 }] })
   })
 
   afterEach(() => {
@@ -316,5 +320,17 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     expect(removeMock).toHaveBeenCalledWith(10)
+  })
+
+  it('syncs all upstream configs from toolbar', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button[title="admin.upstreamConfigs.actions.syncAll"]').trigger('click')
+    await flushPromises()
+
+    expect(syncAllKeysMock).toHaveBeenCalledTimes(1)
+    expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.syncAllSuccess:{"success":1,"keys":3}')
+    expect(listMock).toHaveBeenCalledTimes(2)
   })
 })
