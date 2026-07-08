@@ -4,9 +4,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import UpstreamConfigsView from '../UpstreamConfigsView.vue'
 
-const { listMock, createMock, removeMock, testMock, syncKeysMock, syncAllKeysMock, proxiesMock, showErrorMock, showSuccessMock } = vi.hoisted(() => ({
+const { listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock, proxiesMock, showErrorMock, showSuccessMock } = vi.hoisted(() => ({
   listMock: vi.fn(),
   createMock: vi.fn(),
+  updateMock: vi.fn(),
   removeMock: vi.fn(),
   testMock: vi.fn(),
   syncKeysMock: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock('@/api/admin/upstreamConfigs', () => ({
   default: {
     list: listMock,
     create: createMock,
-    update: vi.fn(),
+    update: updateMock,
     remove: removeMock,
     test: testMock,
     syncKeys: syncKeysMock,
@@ -206,6 +207,7 @@ describe('UpstreamConfigsView', () => {
     vi.useRealTimers()
     listMock.mockReset()
     createMock.mockReset()
+    updateMock.mockReset()
     removeMock.mockReset()
     testMock.mockReset()
     syncKeysMock.mockReset()
@@ -224,6 +226,7 @@ describe('UpstreamConfigsView', () => {
       }
     ])
     createMock.mockResolvedValue(upstreamConfig({ id: 11 }))
+    updateMock.mockResolvedValue(upstreamConfig({ id: 10 }))
     removeMock.mockResolvedValue({ message: 'ok' })
     testMock.mockResolvedValue({ ok: true })
     syncKeysMock.mockResolvedValue({ keys: [{ id: 1 }] })
@@ -304,6 +307,51 @@ describe('UpstreamConfigsView', () => {
       credentials: {
         sub2api_login_email: 'admin@example.com',
         sub2api_login_password: 'secret-password'
+      }
+    }))
+  })
+
+  it('fills manual JWT fields from local token helper before saving', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.get('[data-test="base-dialog"]')
+    const inputs = dialog.findAll('input')
+    await inputs[0].setValue('JWT Upstream')
+    await inputs[1].setValue('https://jwt.example.com')
+
+    const selects = dialog.findAll('select')
+    await selects[1].setValue('manual_jwt')
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-token-assistant"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-test="token-paste-input"]').setValue(JSON.stringify({
+      access_token: 'parsed_access_token_123456',
+      refresh_token: 'parsed_refresh_token_123456'
+    }))
+    await wrapper.get('[data-test="apply-token-candidates"]').trigger('click')
+    await flushPromises()
+
+    const textareas = wrapper.get('form#upstream-config-form').findAll('textarea')
+    expect((textareas[0].element as HTMLTextAreaElement).value).toBe('parsed_access_token_123456')
+    expect((textareas[1].element as HTMLTextAreaElement).value).toBe('parsed_refresh_token_123456')
+
+    await wrapper.get('form#upstream-config-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'JWT Upstream',
+      base_url: 'https://jwt.example.com',
+      provider: 'sub2api',
+      auth_mode: 'manual_jwt',
+      credentials: {
+        sub2api_access_token: 'parsed_access_token_123456',
+        sub2api_refresh_token: 'parsed_refresh_token_123456'
       }
     }))
   })

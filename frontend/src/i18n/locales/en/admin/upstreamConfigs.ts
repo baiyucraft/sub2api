@@ -46,6 +46,32 @@ export default {
       createTitle: 'Add Upstream',
       editTitle: 'Edit Upstream Config'
     },
+    tokenAssistant: {
+      open: 'Login Helper',
+      title: 'Upstream Login Helper',
+      inlineHint: 'Copy tokens after logging in upstream; parse locally and fill this form.',
+      securityHint: 'Pasted content is parsed locally in the browser. It is not saved automatically or sent to the backend; review candidates before applying.',
+      loginPageHint: 'Log in on the upstream site first, then copy localStorage, a Network response, or Authorization content.',
+      openLoginPage: 'Open Login Page',
+      pasteLabel: 'Paste Login Data',
+      pastePlaceholder: 'Supports Bearer, JWT, JSON with access_token / refresh_token, or localStorage content',
+      accessCandidate: 'Access Token Candidate',
+      refreshCandidate: 'Refresh Token Candidate',
+      doNotApply: 'Do not apply',
+      candidateLabel: '{source} / suffix {suffix}',
+      noTokenFound: 'No usable token was recognized.',
+      noSelection: 'Select at least one token candidate.',
+      apply: 'Apply to Form',
+      applied: 'Token values filled. Review and save to persist them.',
+      invalidBaseUrl: 'Enter a valid upstream Base URL first.',
+      jwtUnverifiedNoExp: 'This JWT candidate was parsed locally; its signature and validity were not verified.',
+      jwtExpiresAt: 'Locally parsed JWT expiry: {time}. Signature and permission must still be verified upstream.',
+      jwtExpired: 'Local parsing shows this JWT expired at {time}; a refresh token can still be saved if present.',
+      sources: {
+        bearer: 'Bearer',
+        jwt: 'JWT'
+      }
+    },
     fields: {
       name: 'Name',
       provider: 'Type',

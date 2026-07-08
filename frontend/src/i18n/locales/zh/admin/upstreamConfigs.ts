@@ -46,6 +46,32 @@ export default {
       createTitle: '添加上游',
       editTitle: '编辑上游配置'
     },
+    tokenAssistant: {
+      open: '登录辅助',
+      title: '上游登录辅助',
+      inlineHint: '可从上游登录后复制 Token，本地解析后回填到表单。',
+      securityHint: '粘贴内容只在浏览器本地解析，不会自动保存，也不会发送到后端；请确认候选项后再应用。',
+      loginPageHint: '先在上游站点完成登录，再复制 localStorage、Network 响应或 Authorization 内容。',
+      openLoginPage: '打开登录页',
+      pasteLabel: '粘贴登录信息',
+      pastePlaceholder: '支持 Bearer、JWT、包含 access_token / refresh_token 的 JSON 或 localStorage 内容',
+      accessCandidate: 'Access Token 候选',
+      refreshCandidate: 'Refresh Token 候选',
+      doNotApply: '不应用',
+      candidateLabel: '{source} / 尾号 {suffix}',
+      noTokenFound: '未识别到可用 Token。',
+      noSelection: '请选择至少一个 Token 候选。',
+      apply: '应用到表单',
+      applied: 'Token 已回填，请确认后保存。',
+      invalidBaseUrl: '请先填写有效的上游 Base URL。',
+      jwtUnverifiedNoExp: '这是本地解析到的 JWT 候选，未验证签名和有效性。',
+      jwtExpiresAt: '本地解析的 JWT 过期时间：{time}。签名和权限仍需由上游验证。',
+      jwtExpired: '本地解析显示 JWT 已在 {time} 过期；如有 Refresh Token 仍可一并保存。',
+      sources: {
+        bearer: 'Bearer',
+        jwt: 'JWT'
+      }
+    },
     fields: {
       name: '名称',
       provider: '类型',
