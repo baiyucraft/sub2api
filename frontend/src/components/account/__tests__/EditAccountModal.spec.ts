@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
-const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
+const {
+  updateAccountMock,
+  checkMixedChannelRiskMock,
+  authIsSimpleMode,
+  upstreamConfigsListMock,
+  upstreamConfigKeysListMock
+} = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
-  authIsSimpleMode: { value: true }
+  authIsSimpleMode: { value: true },
+  upstreamConfigsListMock: vi.fn(),
+  upstreamConfigKeysListMock: vi.fn()
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -44,12 +52,20 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
+vi.mock('@/api/admin/upstreamConfigs', () => ({
+  default: {
+    list: upstreamConfigsListMock,
+    listKeys: upstreamConfigKeysListMock
+  }
+}))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key
+      t: (key: string, params?: Record<string, unknown>) =>
+        params ? `${key}:${JSON.stringify(params)}` : key
     })
   }
 })
@@ -302,9 +318,42 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+    upstreamConfigsListMock.mockReset()
+    upstreamConfigKeysListMock.mockReset()
+    upstreamConfigsListMock.mockResolvedValue({
+      items: [
+        {
+          id: 10,
+          name: 'Sub2API Main',
+          provider: 'sub2api',
+          base_url: 'https://upstream.example.com',
+          auth_mode: 'manual_jwt',
+          status: 'active',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z'
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20
+    })
+    upstreamConfigKeysListMock.mockResolvedValue([
+      {
+        id: 20,
+        upstream_config_id: 10,
+        name: 'OpenAI upstream key',
+        key_status: { has_key: true, suffix: 'abc123' },
+        upstream_group_name: 'plus',
+        platform: 'openai',
+        rate_multiplier: 0.06,
+        status: 'active',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z'
+      }
+    ])
   })
 
-  it('renders Sub2API login fields for apikey accounts marked as sub2api upstream', () => {
+  it('does not render legacy Sub2API login fields for normal apikey accounts', () => {
     const account = buildAccount()
     account.extra = {
       upstream_provider: 'sub2api'
@@ -316,9 +365,26 @@ describe('EditAccountModal', () => {
 
     const wrapper = mountModal(account)
 
-    expect(wrapper.find('select[aria-label="admin.accounts.upstreamProvider.label"]').exists()).toBe(true)
-    expect(wrapper.find('input[type="email"]').exists()).toBe(true)
-    expect(wrapper.find('input[placeholder="admin.accounts.sub2apiLogin.passwordEditPlaceholder"]').exists()).toBe(true)
+    expect(wrapper.find('select[aria-label="admin.accounts.upstreamProvider.label"]').exists()).toBe(false)
+    expect(wrapper.find('input[type="email"]').exists()).toBe(false)
+    expect(wrapper.find('input[placeholder="admin.accounts.sub2apiLogin.passwordEditPlaceholder"]').exists()).toBe(false)
+  })
+
+  it('renders upstream config selectors for upstream-bound accounts', async () => {
+    const account = buildAccount()
+    account.upstream_config_id = 10
+    account.upstream_key_id = 20
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('此账号绑定到“上游配置”')
+    expect(wrapper.text()).toContain('Sub2API Main')
+    expect(wrapper.text()).toContain('OpenAI upstream key')
+    expect(wrapper.text()).toContain('plus')
+    expect(wrapper.text()).toContain('0.06')
+    expect(upstreamConfigsListMock).toHaveBeenCalledWith(1, 200, { status: 'active' })
+    expect(upstreamConfigKeysListMock).toHaveBeenCalledWith(10)
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
