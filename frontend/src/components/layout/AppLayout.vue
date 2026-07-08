@@ -45,7 +45,7 @@ const { replayTour } = useOnboardingTour({
 const onboardingStore = useOnboardingStore()
 
 onMounted(() => {
-  onboardingStore.setReplayCallback(replayTour)
+  onboardingStore.setReplayCallback(null)
 })
 
 defineExpose({ replayTour })
