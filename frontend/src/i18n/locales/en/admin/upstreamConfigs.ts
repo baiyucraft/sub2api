@@ -36,13 +36,14 @@ export default {
       refreshToken: 'Refresh {status}'
     },
     actions: {
-      create: 'New Config',
+      create: 'Add Upstream',
       test: 'Test Connection',
-      syncKeys: 'Sync Keys',
+      syncKeys: 'Sync Upstream',
+      syncAll: 'Sync All',
       saving: 'Saving...'
     },
     dialog: {
-      createTitle: 'New Upstream Config',
+      createTitle: 'Add Upstream',
       editTitle: 'Edit Upstream Config'
     },
     fields: {
@@ -77,8 +78,11 @@ export default {
       deleteFailed: 'Failed to delete upstream config',
       testSuccess: 'Connection test succeeded',
       testFailed: 'Connection test failed',
-      syncSuccess: 'Synced {count} key(s)',
-      syncFailed: 'Failed to sync keys'
+      syncSuccess: 'Upstream synced, found {count} key(s)',
+      syncFailed: 'Failed to sync upstream',
+      syncAllSuccess: 'Synced {success} upstream(s), found {keys} key(s)',
+      syncAllPartial: 'Sync finished: {success} succeeded, {failed} failed, found {keys} key(s)',
+      syncAllFailed: 'Failed to sync all upstreams'
     }
   }
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 )
 
 const (
@@ -82,12 +84,22 @@ type UpstreamConfigRepository interface {
 }
 
 type UpstreamConfigService struct {
-	repo      UpstreamConfigRepository
-	proxyRepo ProxyRepository
+	repo        UpstreamConfigRepository
+	proxyRepo   ProxyRepository
+	accountRepo AccountRepository
 }
 
-func NewUpstreamConfigService(repo UpstreamConfigRepository, proxyRepo ProxyRepository) *UpstreamConfigService {
-	return &UpstreamConfigService{repo: repo, proxyRepo: proxyRepo}
+type UpstreamConfigSyncResult struct {
+	ConfigID            int64  `json:"config_id"`
+	Name                string `json:"name"`
+	Success             bool   `json:"success"`
+	KeyCount            int    `json:"key_count"`
+	UpdatedAccountCount int    `json:"updated_account_count"`
+	Error               string `json:"error,omitempty"`
+}
+
+func NewUpstreamConfigService(repo UpstreamConfigRepository, proxyRepo ProxyRepository, accountRepo AccountRepository) *UpstreamConfigService {
+	return &UpstreamConfigService{repo: repo, proxyRepo: proxyRepo, accountRepo: accountRepo}
 }
 
 func (s *UpstreamConfigService) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error) {
@@ -211,31 +223,189 @@ func (s *UpstreamConfigService) SyncKeys(ctx context.Context, id int64) ([]Upstr
 	if cfg.Provider != UpstreamProviderSub2API {
 		return nil, infraerrors.BadRequest("UPSTREAM_PROVIDER_SYNC_UNSUPPORTED", "automatic sync is only supported for sub2api upstream configs")
 	}
+	keys, _, err := s.syncSub2APIConfig(ctx, cfg)
+	return keys, err
+}
+
+func (s *UpstreamConfigService) SyncActiveSub2APIConfigs(ctx context.Context) []UpstreamConfigSyncResult {
+	configs, listErr := s.listActiveSub2APIConfigs(ctx)
+	if listErr != nil {
+		return []UpstreamConfigSyncResult{{
+			Success: false,
+			Error:   logredact.RedactText(listErr.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token"),
+		}}
+	}
+	results := make([]UpstreamConfigSyncResult, 0, len(configs))
+	for i := range configs {
+		cfg := configs[i]
+		_, result, err := s.syncSub2APIConfig(ctx, &cfg)
+		if err != nil {
+			result.Success = false
+			result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
+func (s *UpstreamConfigService) syncSub2APIConfig(ctx context.Context, cfg *UpstreamConfig) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
+	result := UpstreamConfigSyncResult{}
+	if cfg != nil {
+		result.ConfigID = cfg.ID
+		result.Name = cfg.Name
+	}
+	if cfg == nil {
+		err := fmt.Errorf("missing upstream config")
+		result.Error = err.Error()
+		return nil, result, err
+	}
+	if cfg.Provider != UpstreamProviderSub2API {
+		err := infraerrors.BadRequest("UPSTREAM_PROVIDER_SYNC_UNSUPPORTED", "automatic sync is only supported for sub2api upstream configs")
+		result.Error = err.Error()
+		return nil, result, err
+	}
 	proxyURL, err := s.resolveUpstreamConfigProxyURL(ctx, cfg)
 	if err != nil {
-		_ = s.repo.RecordCheckResult(ctx, id, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
-		return nil, err
+		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
+		result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+		return nil, result, err
 	}
 	keys, refreshedTokens, err := syncSub2APIUpstreamKeys(ctx, cfg, proxyURL)
 	if err != nil {
-		_ = s.repo.RecordCheckResult(ctx, id, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
-		return nil, err
+		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
+		result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+		return nil, result, err
 	}
 	if refreshedTokens != nil {
-		if err := s.repo.SaveRefreshedTokens(ctx, id, refreshedTokens.AccessToken, refreshedTokens.RefreshToken); err != nil {
-			return nil, err
+		if err := s.repo.SaveRefreshedTokens(ctx, cfg.ID, refreshedTokens.AccessToken, refreshedTokens.RefreshToken); err != nil {
+			result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+			return nil, result, err
 		}
 	}
 	for i := range keys {
 		if err := normalizeAndValidateUpstreamKey(&keys[i]); err != nil {
-			return nil, err
+			result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+			return nil, result, err
 		}
 		if err := s.repo.UpsertKey(ctx, &keys[i]); err != nil {
-			return nil, err
+			result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+			return nil, result, err
 		}
 	}
-	_ = s.repo.RecordCheckResult(ctx, id, true, "")
-	return s.repo.ListKeys(ctx, id)
+	localKeys, err := s.repo.ListKeys(ctx, cfg.ID)
+	if err != nil {
+		result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+		return nil, result, err
+	}
+	result.KeyCount = len(keys)
+	updated, err := s.syncBoundAccountRates(ctx, cfg.ID, localKeys)
+	if err != nil {
+		result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+		return nil, result, err
+	}
+	result.UpdatedAccountCount = updated
+	result.Success = true
+	_ = s.repo.RecordCheckResult(ctx, cfg.ID, true, "")
+	return localKeys, result, nil
+}
+
+func (s *UpstreamConfigService) listActiveSub2APIConfigs(ctx context.Context) ([]UpstreamConfig, error) {
+	const pageSize = 200
+	out := make([]UpstreamConfig, 0)
+	for page := 1; ; page++ {
+		configs, result, err := s.repo.List(ctx, pagination.PaginationParams{
+			Page:     page,
+			PageSize: pageSize,
+		}, UpstreamProviderSub2API, StatusActive, "")
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, configs...)
+		if result == nil || page >= result.Pages || len(configs) == 0 {
+			return out, nil
+		}
+	}
+}
+
+func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, upstreamConfigID int64, keys []UpstreamKey) (int, error) {
+	if s.accountRepo == nil || upstreamConfigID <= 0 || len(keys) == 0 {
+		return 0, nil
+	}
+	keyRates := make(map[int64]UpstreamKey, len(keys))
+	for i := range keys {
+		if keys[i].ID <= 0 || keys[i].RateMultiplier == nil {
+			continue
+		}
+		keyRates[keys[i].ID] = keys[i]
+	}
+	if len(keyRates) == 0 {
+		return 0, nil
+	}
+
+	accounts, err := s.listAccountsForUpstreamConfig(ctx, upstreamConfigID)
+	if err != nil {
+		return 0, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	updated := 0
+	for i := range accounts {
+		account := accounts[i]
+		if account.UpstreamKeyID == nil {
+			continue
+		}
+		key, ok := keyRates[*account.UpstreamKeyID]
+		if !ok || key.RateMultiplier == nil {
+			continue
+		}
+		multiplier := *key.RateMultiplier
+		if multiplier < 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
+			continue
+		}
+		priority := Sub2APIUpstreamPriority(multiplier)
+		extra := map[string]any{
+			"sub2api_rate_sync_last_success_at": now,
+			"sub2api_rate_sync_last_error":      "",
+			"sub2api_upstream_platform":         key.Platform,
+			"sub2api_upstream_rate_multiplier":  multiplier,
+		}
+		if key.UpstreamGroupID != nil {
+			extra["sub2api_upstream_group_id"] = *key.UpstreamGroupID
+		}
+		if strings.TrimSpace(key.UpstreamGroupName) != "" {
+			extra["sub2api_upstream_group_name"] = key.UpstreamGroupName
+		}
+		if _, err := s.accountRepo.BulkUpdate(ctx, []int64{account.ID}, AccountBulkUpdate{
+			RateMultiplier: &multiplier,
+			Priority:       &priority,
+			Extra:          extra,
+		}); err != nil {
+			return updated, fmt.Errorf("update bound account %d rate: %w", account.ID, err)
+		}
+		updated++
+	}
+	return updated, nil
+}
+
+func (s *UpstreamConfigService) listAccountsForUpstreamConfig(ctx context.Context, upstreamConfigID int64) ([]Account, error) {
+	const pageSize = 500
+	out := make([]Account, 0)
+	for page := 1; ; page++ {
+		accounts, result, err := s.accountRepo.ListWithFilters(ctx, pagination.PaginationParams{
+			Page:     page,
+			PageSize: pageSize,
+		}, "", AccountTypeAPIKey, "", "", 0, "")
+		if err != nil {
+			return nil, err
+		}
+		for i := range accounts {
+			if accounts[i].UpstreamConfigID != nil && *accounts[i].UpstreamConfigID == upstreamConfigID {
+				out = append(out, accounts[i])
+			}
+		}
+		if result == nil || page >= result.Pages || len(accounts) == 0 {
+			return out, nil
+		}
+	}
 }
 
 func (s *UpstreamConfigService) resolveUpstreamConfigProxyURL(ctx context.Context, cfg *UpstreamConfig) (string, error) {

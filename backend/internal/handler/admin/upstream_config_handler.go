@@ -137,6 +137,11 @@ func (h *UpstreamConfigHandler) SyncKeys(c *gin.Context) {
 	response.Success(c, gin.H{"keys": sanitizeUpstreamKeys(keys)})
 }
 
+func (h *UpstreamConfigHandler) SyncAllKeys(c *gin.Context) {
+	results := h.service.SyncActiveSub2APIConfigs(c.Request.Context())
+	response.Success(c, gin.H{"results": sanitizeUpstreamSyncResults(results)})
+}
+
 func (h *UpstreamConfigHandler) ListKeys(c *gin.Context) {
 	id, ok := parseUpstreamIDParam(c, "id")
 	if !ok {
@@ -178,6 +183,21 @@ func (h *UpstreamConfigHandler) DeleteKey(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"message": "upstream key deleted"})
+}
+
+func sanitizeUpstreamSyncResults(results []service.UpstreamConfigSyncResult) []gin.H {
+	out := make([]gin.H, 0, len(results))
+	for i := range results {
+		out = append(out, gin.H{
+			"config_id":             results[i].ConfigID,
+			"name":                  results[i].Name,
+			"success":               results[i].Success,
+			"key_count":             results[i].KeyCount,
+			"updated_account_count": results[i].UpdatedAccountCount,
+			"error":                 logredact.RedactText(results[i].Error, "password", "api_key", "jwt", "authorization", "refresh_token", "access_token"),
+		})
+	}
+	return out
 }
 
 func parseUpstreamIDParam(c *gin.Context, name string) (int64, bool) {

@@ -32,6 +32,16 @@
           <div class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-2 lg:w-auto">
             <button
               type="button"
+              class="btn btn-secondary"
+              :disabled="syncingAll"
+              :title="t('admin.upstreamConfigs.actions.syncAll')"
+              @click="handleSyncAll"
+            >
+              <Icon name="sync" size="md" :class="syncingAll ? 'mr-2 animate-spin' : 'mr-2'" />
+              {{ t('admin.upstreamConfigs.actions.syncAll') }}
+            </button>
+            <button
+              type="button"
               class="btn btn-secondary px-3"
               :disabled="loading"
               :title="t('common.refresh')"
@@ -40,7 +50,6 @@
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
             <button type="button" class="btn btn-primary" @click="openCreate">
-              <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.upstreamConfigs.actions.create') }}
             </button>
           </div>
@@ -127,7 +136,7 @@
               <button
                 type="button"
                 class="table-action-button hover:text-emerald-600 dark:hover:text-emerald-400"
-                :disabled="isActionBusy(row.id, 'sync')"
+                :disabled="syncingAll || isActionBusy(row.id, 'sync')"
                 :title="t('admin.upstreamConfigs.actions.syncKeys')"
                 :aria-label="t('admin.upstreamConfigs.actions.syncKeys')"
                 @click="handleSync(row)"
@@ -166,7 +175,6 @@
                 {{ t('admin.upstreamConfigs.emptyDescription') }}
               </p>
               <button type="button" class="btn btn-primary mt-4" @click="openCreate">
-                <Icon name="plus" size="sm" class="mr-2" />
                 {{ t('admin.upstreamConfigs.actions.create') }}
               </button>
             </div>
@@ -330,6 +338,7 @@ const appStore = useAppStore()
 const configs = ref<UpstreamConfig[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const syncingAll = ref(false)
 const dialogOpen = ref(false)
 const editing = ref<UpstreamConfig | null>(null)
 const deletingConfig = ref<UpstreamConfig | null>(null)
@@ -552,6 +561,27 @@ async function handleSync(item: UpstreamConfig) {
     appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.syncFailed')))
   } finally {
     busyAction.value = null
+  }
+}
+
+async function handleSyncAll() {
+  syncingAll.value = true
+  try {
+    const res = await upstreamAPI.syncAllKeys()
+    const results = res.results || []
+    const success = results.filter((item) => item.success).length
+    const failed = results.length - success
+    const keys = results.reduce((sum, item) => sum + (item.key_count || 0), 0)
+    if (failed > 0) {
+      appStore.showError(t('admin.upstreamConfigs.messages.syncAllPartial', { success, failed, keys }))
+    } else {
+      appStore.showSuccess(t('admin.upstreamConfigs.messages.syncAllSuccess', { success, keys }))
+    }
+    await loadConfigs()
+  } catch (error: any) {
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.syncAllFailed')))
+  } finally {
+    syncingAll.value = false
   }
 }
 
