@@ -658,11 +658,13 @@ func TestSub2APIUpstreamRateSync_DuplicateKeyFails(t *testing.T) {
 	session := &sub2APIUserLoginSession{keys: []sub2APIUpstreamKey{
 		{Key: "sk-same", GroupID: ptrInt64(1), Group: &struct {
 			ID             int64   `json:"id"`
+			Name           string  `json:"name"`
 			Platform       string  `json:"platform"`
 			RateMultiplier float64 `json:"rate_multiplier"`
 		}{ID: 1, Platform: "openai", RateMultiplier: 0.1}},
 		{Key: "sk-same", GroupID: ptrInt64(1), Group: &struct {
 			ID             int64   `json:"id"`
+			Name           string  `json:"name"`
 			Platform       string  `json:"platform"`
 			RateMultiplier float64 `json:"rate_multiplier"`
 		}{ID: 1, Platform: "openai", RateMultiplier: 0.1}},
@@ -748,6 +750,62 @@ func newSub2APIRateSyncAccount(id int64, baseURL, apiKey string) Account {
 		},
 		Extra: map[string]any{AccountUpstreamProviderKey: AccountUpstreamProviderSub2API},
 	}
+}
+
+func TestSyncSub2APIUpstreamKeysPreservesNamesAndGroupMetadata(t *testing.T) {
+	longGroupName := strings.Repeat("长", 120)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/keys":
+			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"code":0,"message":"success","data":{"items":[
+				{"id":11917,"key":"sk-free","name":" free ","group_id":44,"group":{"id":44,"name":" ChatGPT-Plus【高并发-特惠通道】 ","platform":"openai","rate_multiplier":0.03}},
+				{"id":10046,"key":"sk-plus","name":"plus","group":{"id":33,"name":%q,"platform":"openai","rate_multiplier":0.05}},
+				{"id":1440,"key":"sk-pro","name":"","group_id":37,"group":{"id":37,"name":"","platform":"openai","rate_multiplier":0.12}}
+			],"page":1,"page_size":100,"pages":1}}`, longGroupName)))
+		case "/api/v1/groups/rates":
+			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"44":0.03,"33":0.05,"37":0.12}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := &UpstreamConfig{
+		ID:       9,
+		Name:     "乔燃",
+		Provider: UpstreamProviderSub2API,
+		BaseURL:  server.URL,
+		AuthMode: UpstreamAuthModeManualJWT,
+		Credentials: map[string]any{
+			AccountCredentialSub2APIAccessToken: "jwt-upstream",
+		},
+	}
+
+	keys, refreshed, err := syncSub2APIUpstreamKeys(context.Background(), cfg, "")
+
+	require.NoError(t, err)
+	require.Nil(t, refreshed)
+	require.Len(t, keys, 3)
+	require.Equal(t, "free", keys[0].Name)
+	require.Equal(t, "ChatGPT-Plus【高并发-特惠通道】", keys[0].UpstreamGroupName)
+	require.NotNil(t, keys[0].UpstreamGroupID)
+	require.Equal(t, int64(44), *keys[0].UpstreamGroupID)
+	require.Equal(t, "openai", keys[0].Platform)
+	require.NotNil(t, keys[0].RateMultiplier)
+	require.Equal(t, 0.03, *keys[0].RateMultiplier)
+
+	require.Equal(t, "plus", keys[1].Name)
+	require.NotNil(t, keys[1].UpstreamGroupID)
+	require.Equal(t, int64(33), *keys[1].UpstreamGroupID, "group.id should backfill missing group_id")
+	require.Len(t, []rune(keys[1].UpstreamGroupName), 100)
+
+	require.Empty(t, keys[2].Name)
+	require.Empty(t, keys[2].UpstreamGroupName)
+	require.NotNil(t, keys[2].UpstreamGroupID)
+	require.Equal(t, int64(37), *keys[2].UpstreamGroupID)
 }
 
 func newSub2APIManualJWTRateSyncAccount(id int64, baseURL, apiKey, token string) Account {

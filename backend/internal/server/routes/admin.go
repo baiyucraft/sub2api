@@ -35,6 +35,9 @@ func RegisterAdminRoutes(
 		// 账号管理
 		registerAccountRoutes(admin, h)
 
+		// 上游配置
+		registerUpstreamConfigRoutes(admin, h)
+
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)
 
@@ -345,6 +348,22 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/exchange-setup-token-code", h.Admin.OAuth.ExchangeSetupTokenCode)
 		accounts.POST("/cookie-auth", h.Admin.OAuth.CookieAuth)
 		accounts.POST("/setup-token-cookie-auth", h.Admin.OAuth.SetupTokenCookieAuth)
+	}
+}
+
+func registerUpstreamConfigRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	upstreams := admin.Group("/upstream-configs")
+	{
+		upstreams.GET("", h.Admin.UpstreamConfig.List)
+		upstreams.POST("", h.Admin.UpstreamConfig.Create)
+		upstreams.GET("/:id", h.Admin.UpstreamConfig.GetByID)
+		upstreams.PUT("/:id", h.Admin.UpstreamConfig.Update)
+		upstreams.DELETE("/:id", h.Admin.UpstreamConfig.Delete)
+		upstreams.POST("/:id/test", h.Admin.UpstreamConfig.Test)
+		upstreams.POST("/:id/sync-keys", h.Admin.UpstreamConfig.SyncKeys)
+		upstreams.GET("/:id/keys", h.Admin.UpstreamConfig.ListKeys)
+		upstreams.POST("/:id/keys", h.Admin.UpstreamConfig.CreateKey)
+		upstreams.DELETE("/:id/keys/:keyID", h.Admin.UpstreamConfig.DeleteKey)
 	}
 }
 

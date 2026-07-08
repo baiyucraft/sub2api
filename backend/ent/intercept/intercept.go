@@ -36,6 +36,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -831,6 +833,60 @@ func (f TraverseTLSFingerprintProfile) Traverse(ctx context.Context, q ent.Query
 	return fmt.Errorf("unexpected query type %T. expect *ent.TLSFingerprintProfileQuery", q)
 }
 
+// The UpstreamConfigFunc type is an adapter to allow the use of ordinary function as a Querier.
+type UpstreamConfigFunc func(context.Context, *ent.UpstreamConfigQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f UpstreamConfigFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.UpstreamConfigQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamConfigQuery", q)
+}
+
+// The TraverseUpstreamConfig type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseUpstreamConfig func(context.Context, *ent.UpstreamConfigQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseUpstreamConfig) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseUpstreamConfig) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.UpstreamConfigQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamConfigQuery", q)
+}
+
+// The UpstreamKeyFunc type is an adapter to allow the use of ordinary function as a Querier.
+type UpstreamKeyFunc func(context.Context, *ent.UpstreamKeyQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f UpstreamKeyFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.UpstreamKeyQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamKeyQuery", q)
+}
+
+// The TraverseUpstreamKey type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseUpstreamKey func(context.Context, *ent.UpstreamKeyQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseUpstreamKey) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseUpstreamKey) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.UpstreamKeyQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamKeyQuery", q)
+}
+
 // The UsageCleanupTaskFunc type is an adapter to allow the use of ordinary function as a Querier.
 type UsageCleanupTaskFunc func(context.Context, *ent.UsageCleanupTaskQuery) (ent.Value, error)
 
@@ -1104,6 +1160,10 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.SubscriptionPlanQuery, predicate.SubscriptionPlan, subscriptionplan.OrderOption]{typ: ent.TypeSubscriptionPlan, tq: q}, nil
 	case *ent.TLSFingerprintProfileQuery:
 		return &query[*ent.TLSFingerprintProfileQuery, predicate.TLSFingerprintProfile, tlsfingerprintprofile.OrderOption]{typ: ent.TypeTLSFingerprintProfile, tq: q}, nil
+	case *ent.UpstreamConfigQuery:
+		return &query[*ent.UpstreamConfigQuery, predicate.UpstreamConfig, upstreamconfig.OrderOption]{typ: ent.TypeUpstreamConfig, tq: q}, nil
+	case *ent.UpstreamKeyQuery:
+		return &query[*ent.UpstreamKeyQuery, predicate.UpstreamKey, upstreamkey.OrderOption]{typ: ent.TypeUpstreamKey, tq: q}, nil
 	case *ent.UsageCleanupTaskQuery:
 		return &query[*ent.UsageCleanupTaskQuery, predicate.UsageCleanupTask, usagecleanuptask.OrderOption]{typ: ent.TypeUsageCleanupTask, tq: q}, nil
 	case *ent.UsageLogQuery:

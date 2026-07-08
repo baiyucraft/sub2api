@@ -38,6 +38,10 @@ const (
 	FieldProxyID = "proxy_id"
 	// FieldProxyFallbackOriginID holds the string denoting the proxy_fallback_origin_id field in the database.
 	FieldProxyFallbackOriginID = "proxy_fallback_origin_id"
+	// FieldUpstreamConfigID holds the string denoting the upstream_config_id field in the database.
+	FieldUpstreamConfigID = "upstream_config_id"
+	// FieldUpstreamKeyID holds the string denoting the upstream_key_id field in the database.
+	FieldUpstreamKeyID = "upstream_key_id"
 	// FieldConcurrency holds the string denoting the concurrency field in the database.
 	FieldConcurrency = "concurrency"
 	// FieldLoadFactor holds the string denoting the load_factor field in the database.
@@ -82,6 +86,10 @@ const (
 	EdgeGroups = "groups"
 	// EdgeProxy holds the string denoting the proxy edge name in mutations.
 	EdgeProxy = "proxy"
+	// EdgeUpstreamConfig holds the string denoting the upstream_config edge name in mutations.
+	EdgeUpstreamConfig = "upstream_config"
+	// EdgeUpstreamKey holds the string denoting the upstream_key edge name in mutations.
+	EdgeUpstreamKey = "upstream_key"
 	// EdgeParent holds the string denoting the parent edge name in mutations.
 	EdgeParent = "parent"
 	// EdgeChildren holds the string denoting the children edge name in mutations.
@@ -104,6 +112,20 @@ const (
 	ProxyInverseTable = "proxies"
 	// ProxyColumn is the table column denoting the proxy relation/edge.
 	ProxyColumn = "proxy_id"
+	// UpstreamConfigTable is the table that holds the upstream_config relation/edge.
+	UpstreamConfigTable = "accounts"
+	// UpstreamConfigInverseTable is the table name for the UpstreamConfig entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamconfig" package.
+	UpstreamConfigInverseTable = "upstream_configs"
+	// UpstreamConfigColumn is the table column denoting the upstream_config relation/edge.
+	UpstreamConfigColumn = "upstream_config_id"
+	// UpstreamKeyTable is the table that holds the upstream_key relation/edge.
+	UpstreamKeyTable = "accounts"
+	// UpstreamKeyInverseTable is the table name for the UpstreamKey entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamkey" package.
+	UpstreamKeyInverseTable = "upstream_keys"
+	// UpstreamKeyColumn is the table column denoting the upstream_key relation/edge.
+	UpstreamKeyColumn = "upstream_key_id"
 	// ParentTable is the table that holds the parent relation/edge.
 	ParentTable = "accounts"
 	// ParentColumn is the table column denoting the parent relation/edge.
@@ -142,6 +164,8 @@ var Columns = []string{
 	FieldExtra,
 	FieldProxyID,
 	FieldProxyFallbackOriginID,
+	FieldUpstreamConfigID,
+	FieldUpstreamKeyID,
 	FieldConcurrency,
 	FieldLoadFactor,
 	FieldPriority,
@@ -301,6 +325,16 @@ func ByProxyFallbackOriginID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProxyFallbackOriginID, opts...).ToFunc()
 }
 
+// ByUpstreamConfigID orders the results by the upstream_config_id field.
+func ByUpstreamConfigID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamConfigID, opts...).ToFunc()
+}
+
+// ByUpstreamKeyID orders the results by the upstream_key_id field.
+func ByUpstreamKeyID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamKeyID, opts...).ToFunc()
+}
+
 // ByConcurrency orders the results by the concurrency field.
 func ByConcurrency(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldConcurrency, opts...).ToFunc()
@@ -422,6 +456,20 @@ func ByProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 	}
 }
 
+// ByUpstreamConfigField orders the results by upstream_config field.
+func ByUpstreamConfigField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUpstreamConfigStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByUpstreamKeyField orders the results by upstream_key field.
+func ByUpstreamKeyField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUpstreamKeyStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByParentField orders the results by parent field.
 func ByParentField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -482,6 +530,20 @@ func newProxyStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ProxyInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, false, ProxyTable, ProxyColumn),
+	)
+}
+func newUpstreamConfigStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UpstreamConfigInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, UpstreamConfigTable, UpstreamConfigColumn),
+	)
+}
+func newUpstreamKeyStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UpstreamKeyInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, UpstreamKeyTable, UpstreamKeyColumn),
 	)
 }
 func newParentStep() *sqlgraph.Step {

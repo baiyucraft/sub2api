@@ -127,6 +127,8 @@ var (
 		{Name: "quota_dimension", Type: field.TypeEnum, Enums: []string{"global", "spark"}, Default: "global"},
 		{Name: "proxy_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "parent_account_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "upstream_config_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "upstream_key_id", Type: field.TypeInt64, Nullable: true},
 	}
 	// AccountsTable holds the schema information for the "accounts" table.
 	AccountsTable = &schema.Table{
@@ -145,6 +147,18 @@ var (
 				Columns:    []*schema.Column{AccountsColumns[31]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
 				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "accounts_upstream_configs_accounts",
+				Columns:    []*schema.Column{AccountsColumns[32]},
+				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "accounts_upstream_keys_accounts",
+				Columns:    []*schema.Column{AccountsColumns[33]},
+				RefColumns: []*schema.Column{UpstreamKeysColumns[0]},
+				OnDelete:   schema.SetNull,
 			},
 		},
 		Indexes: []*schema.Index{
@@ -167,6 +181,16 @@ var (
 				Name:    "account_proxy_id",
 				Unique:  false,
 				Columns: []*schema.Column{AccountsColumns[30]},
+			},
+			{
+				Name:    "account_upstream_config_id",
+				Unique:  false,
+				Columns: []*schema.Column{AccountsColumns[32]},
+			},
+			{
+				Name:    "account_upstream_key_id",
+				Unique:  false,
+				Columns: []*schema.Column{AccountsColumns[33]},
 			},
 			{
 				Name:    "account_priority",
@@ -1307,6 +1331,95 @@ var (
 		Columns:    TLSFingerprintProfilesColumns,
 		PrimaryKey: []*schema.Column{TLSFingerprintProfilesColumns[0]},
 	}
+	// UpstreamConfigsColumns holds the columns for the "upstream_configs" table.
+	UpstreamConfigsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "provider", Type: field.TypeString, Size: 32},
+		{Name: "base_url", Type: field.TypeString, Size: 512},
+		{Name: "auth_mode", Type: field.TypeString, Size: 32, Default: "user_login"},
+		{Name: "credentials", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "extra", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
+		{Name: "last_error", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "last_checked_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "last_success_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "proxy_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// UpstreamConfigsTable holds the schema information for the "upstream_configs" table.
+	UpstreamConfigsTable = &schema.Table{
+		Name:       "upstream_configs",
+		Columns:    UpstreamConfigsColumns,
+		PrimaryKey: []*schema.Column{UpstreamConfigsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "upstream_configs_proxies_proxy",
+				Columns:    []*schema.Column{UpstreamConfigsColumns[14]},
+				RefColumns: []*schema.Column{ProxiesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "upstreamconfig_provider",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamConfigsColumns[5]},
+			},
+			{
+				Name:    "upstreamconfig_proxy_id",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamConfigsColumns[14]},
+			},
+		},
+	}
+	// UpstreamKeysColumns holds the columns for the "upstream_keys" table.
+	UpstreamKeysColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "name", Type: field.TypeString, Size: 100, Default: ""},
+		{Name: "key", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "key_hash", Type: field.TypeString, Size: 128},
+		{Name: "remote_key_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "upstream_group_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "upstream_group_name", Type: field.TypeString, Size: 100, Default: ""},
+		{Name: "platform", Type: field.TypeString, Size: 50, Default: "openai"},
+		{Name: "rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
+		{Name: "last_seen_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "extra", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "upstream_config_id", Type: field.TypeInt64},
+	}
+	// UpstreamKeysTable holds the schema information for the "upstream_keys" table.
+	UpstreamKeysTable = &schema.Table{
+		Name:       "upstream_keys",
+		Columns:    UpstreamKeysColumns,
+		PrimaryKey: []*schema.Column{UpstreamKeysColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "upstream_keys_upstream_configs_keys",
+				Columns:    []*schema.Column{UpstreamKeysColumns[15]},
+				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "upstreamkey_upstream_config_id",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamKeysColumns[15]},
+			},
+			{
+				Name:    "upstreamkey_upstream_config_id_key_hash",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamKeysColumns[15], UpstreamKeysColumns[6]},
+			},
+		},
+	}
 	// UsageCleanupTasksColumns holds the columns for the "usage_cleanup_tasks" table.
 	UsageCleanupTasksColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1819,6 +1932,8 @@ var (
 		SettingsTable,
 		SubscriptionPlansTable,
 		TLSFingerprintProfilesTable,
+		UpstreamConfigsTable,
+		UpstreamKeysTable,
 		UsageCleanupTasksTable,
 		UsageLogsTable,
 		UsersTable,
@@ -1838,6 +1953,8 @@ func init() {
 	}
 	AccountsTable.ForeignKeys[0].RefTable = ProxiesTable
 	AccountsTable.ForeignKeys[1].RefTable = AccountsTable
+	AccountsTable.ForeignKeys[2].RefTable = UpstreamConfigsTable
+	AccountsTable.ForeignKeys[3].RefTable = UpstreamKeysTable
 	AccountsTable.Annotation = &entsql.Annotation{
 		Table: "accounts",
 	}
@@ -1933,6 +2050,14 @@ func init() {
 	}
 	TLSFingerprintProfilesTable.Annotation = &entsql.Annotation{
 		Table: "tls_fingerprint_profiles",
+	}
+	UpstreamConfigsTable.ForeignKeys[0].RefTable = ProxiesTable
+	UpstreamConfigsTable.Annotation = &entsql.Annotation{
+		Table: "upstream_configs",
+	}
+	UpstreamKeysTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
+	UpstreamKeysTable.Annotation = &entsql.Annotation{
+		Table: "upstream_keys",
 	}
 	UsageCleanupTasksTable.Annotation = &entsql.Annotation{
 		Table: "usage_cleanup_tasks",

@@ -202,8 +202,9 @@ func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpirySe
 	return svc
 }
 
-func ProvideSub2APIUpstreamRateSyncService(accountRepo AccountRepository, proxyRepo ProxyRepository) *Sub2APIUpstreamRateSyncService {
+func ProvideSub2APIUpstreamRateSyncService(accountRepo AccountRepository, upstreamConfigRepo UpstreamConfigRepository, proxyRepo ProxyRepository) *Sub2APIUpstreamRateSyncService {
 	svc := NewSub2APIUpstreamRateSyncService(accountRepo, proxyRepo, 10*time.Minute)
+	svc.SetUpstreamConfigRepository(upstreamConfigRepo)
 	svc.Start()
 	return svc
 }
@@ -632,6 +633,7 @@ var ProviderSet = wire.NewSet(
 	NewTotpService,
 	NewErrorPassthroughService,
 	NewTLSFingerprintProfileService,
+	NewUpstreamConfigService,
 	NewDigestSessionStore,
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,
