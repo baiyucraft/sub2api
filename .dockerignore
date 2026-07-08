@@ -80,3 +80,10 @@ deploy/redis_data/
 .claude/
 issues/
 CLAUDE.md
+
+# Local agent/deploy scratch files
+.codex/
+.playwright-cli/
+.ssh.local
+.tmp/
+AGENTS.md
