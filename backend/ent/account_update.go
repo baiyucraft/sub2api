@@ -15,6 +15,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
 
@@ -175,6 +177,46 @@ func (_u *AccountUpdate) AddProxyFallbackOriginID(v int64) *AccountUpdate {
 // ClearProxyFallbackOriginID clears the value of the "proxy_fallback_origin_id" field.
 func (_u *AccountUpdate) ClearProxyFallbackOriginID() *AccountUpdate {
 	_u.mutation.ClearProxyFallbackOriginID()
+	return _u
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (_u *AccountUpdate) SetUpstreamConfigID(v int64) *AccountUpdate {
+	_u.mutation.SetUpstreamConfigID(v)
+	return _u
+}
+
+// SetNillableUpstreamConfigID sets the "upstream_config_id" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableUpstreamConfigID(v *int64) *AccountUpdate {
+	if v != nil {
+		_u.SetUpstreamConfigID(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (_u *AccountUpdate) ClearUpstreamConfigID() *AccountUpdate {
+	_u.mutation.ClearUpstreamConfigID()
+	return _u
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (_u *AccountUpdate) SetUpstreamKeyID(v int64) *AccountUpdate {
+	_u.mutation.SetUpstreamKeyID(v)
+	return _u
+}
+
+// SetNillableUpstreamKeyID sets the "upstream_key_id" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableUpstreamKeyID(v *int64) *AccountUpdate {
+	if v != nil {
+		_u.SetUpstreamKeyID(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (_u *AccountUpdate) ClearUpstreamKeyID() *AccountUpdate {
+	_u.mutation.ClearUpstreamKeyID()
 	return _u
 }
 
@@ -584,6 +626,16 @@ func (_u *AccountUpdate) SetProxy(v *Proxy) *AccountUpdate {
 	return _u.SetProxyID(v.ID)
 }
 
+// SetUpstreamConfig sets the "upstream_config" edge to the UpstreamConfig entity.
+func (_u *AccountUpdate) SetUpstreamConfig(v *UpstreamConfig) *AccountUpdate {
+	return _u.SetUpstreamConfigID(v.ID)
+}
+
+// SetUpstreamKey sets the "upstream_key" edge to the UpstreamKey entity.
+func (_u *AccountUpdate) SetUpstreamKey(v *UpstreamKey) *AccountUpdate {
+	return _u.SetUpstreamKeyID(v.ID)
+}
+
 // SetParentID sets the "parent" edge to the Account entity by ID.
 func (_u *AccountUpdate) SetParentID(id int64) *AccountUpdate {
 	_u.mutation.SetParentID(id)
@@ -662,6 +714,18 @@ func (_u *AccountUpdate) RemoveGroups(v ...*Group) *AccountUpdate {
 // ClearProxy clears the "proxy" edge to the Proxy entity.
 func (_u *AccountUpdate) ClearProxy() *AccountUpdate {
 	_u.mutation.ClearProxy()
+	return _u
+}
+
+// ClearUpstreamConfig clears the "upstream_config" edge to the UpstreamConfig entity.
+func (_u *AccountUpdate) ClearUpstreamConfig() *AccountUpdate {
+	_u.mutation.ClearUpstreamConfig()
+	return _u
+}
+
+// ClearUpstreamKey clears the "upstream_key" edge to the UpstreamKey entity.
+func (_u *AccountUpdate) ClearUpstreamKey() *AccountUpdate {
+	_u.mutation.ClearUpstreamKey()
 	return _u
 }
 
@@ -1032,6 +1096,64 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.UpstreamConfigCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.UpstreamConfigTable,
+			Columns: []string{account.UpstreamConfigColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamconfig.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UpstreamConfigIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.UpstreamConfigTable,
+			Columns: []string{account.UpstreamConfigColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamconfig.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UpstreamKeyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.UpstreamKeyTable,
+			Columns: []string{account.UpstreamKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkey.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UpstreamKeyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.UpstreamKeyTable,
+			Columns: []string{account.UpstreamKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _u.mutation.ParentCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -1315,6 +1437,46 @@ func (_u *AccountUpdateOne) AddProxyFallbackOriginID(v int64) *AccountUpdateOne 
 // ClearProxyFallbackOriginID clears the value of the "proxy_fallback_origin_id" field.
 func (_u *AccountUpdateOne) ClearProxyFallbackOriginID() *AccountUpdateOne {
 	_u.mutation.ClearProxyFallbackOriginID()
+	return _u
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (_u *AccountUpdateOne) SetUpstreamConfigID(v int64) *AccountUpdateOne {
+	_u.mutation.SetUpstreamConfigID(v)
+	return _u
+}
+
+// SetNillableUpstreamConfigID sets the "upstream_config_id" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableUpstreamConfigID(v *int64) *AccountUpdateOne {
+	if v != nil {
+		_u.SetUpstreamConfigID(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (_u *AccountUpdateOne) ClearUpstreamConfigID() *AccountUpdateOne {
+	_u.mutation.ClearUpstreamConfigID()
+	return _u
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (_u *AccountUpdateOne) SetUpstreamKeyID(v int64) *AccountUpdateOne {
+	_u.mutation.SetUpstreamKeyID(v)
+	return _u
+}
+
+// SetNillableUpstreamKeyID sets the "upstream_key_id" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableUpstreamKeyID(v *int64) *AccountUpdateOne {
+	if v != nil {
+		_u.SetUpstreamKeyID(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (_u *AccountUpdateOne) ClearUpstreamKeyID() *AccountUpdateOne {
+	_u.mutation.ClearUpstreamKeyID()
 	return _u
 }
 
@@ -1724,6 +1886,16 @@ func (_u *AccountUpdateOne) SetProxy(v *Proxy) *AccountUpdateOne {
 	return _u.SetProxyID(v.ID)
 }
 
+// SetUpstreamConfig sets the "upstream_config" edge to the UpstreamConfig entity.
+func (_u *AccountUpdateOne) SetUpstreamConfig(v *UpstreamConfig) *AccountUpdateOne {
+	return _u.SetUpstreamConfigID(v.ID)
+}
+
+// SetUpstreamKey sets the "upstream_key" edge to the UpstreamKey entity.
+func (_u *AccountUpdateOne) SetUpstreamKey(v *UpstreamKey) *AccountUpdateOne {
+	return _u.SetUpstreamKeyID(v.ID)
+}
+
 // SetParentID sets the "parent" edge to the Account entity by ID.
 func (_u *AccountUpdateOne) SetParentID(id int64) *AccountUpdateOne {
 	_u.mutation.SetParentID(id)
@@ -1802,6 +1974,18 @@ func (_u *AccountUpdateOne) RemoveGroups(v ...*Group) *AccountUpdateOne {
 // ClearProxy clears the "proxy" edge to the Proxy entity.
 func (_u *AccountUpdateOne) ClearProxy() *AccountUpdateOne {
 	_u.mutation.ClearProxy()
+	return _u
+}
+
+// ClearUpstreamConfig clears the "upstream_config" edge to the UpstreamConfig entity.
+func (_u *AccountUpdateOne) ClearUpstreamConfig() *AccountUpdateOne {
+	_u.mutation.ClearUpstreamConfig()
+	return _u
+}
+
+// ClearUpstreamKey clears the "upstream_key" edge to the UpstreamKey entity.
+func (_u *AccountUpdateOne) ClearUpstreamKey() *AccountUpdateOne {
+	_u.mutation.ClearUpstreamKey()
 	return _u
 }
 
@@ -2195,6 +2379,64 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UpstreamConfigCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.UpstreamConfigTable,
+			Columns: []string{account.UpstreamConfigColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamconfig.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UpstreamConfigIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.UpstreamConfigTable,
+			Columns: []string{account.UpstreamConfigColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamconfig.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UpstreamKeyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.UpstreamKeyTable,
+			Columns: []string{account.UpstreamKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkey.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UpstreamKeyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.UpstreamKeyTable,
+			Columns: []string{account.UpstreamKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkey.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

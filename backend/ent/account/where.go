@@ -100,6 +100,16 @@ func ProxyFallbackOriginID(v int64) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldProxyFallbackOriginID, v))
 }
 
+// UpstreamConfigID applies equality check predicate on the "upstream_config_id" field. It's identical to UpstreamConfigIDEQ.
+func UpstreamConfigID(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamConfigID, v))
+}
+
+// UpstreamKeyID applies equality check predicate on the "upstream_key_id" field. It's identical to UpstreamKeyIDEQ.
+func UpstreamKeyID(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamKeyID, v))
+}
+
 // Concurrency applies equality check predicate on the "concurrency" field. It's identical to ConcurrencyEQ.
 func Concurrency(v int) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldConcurrency, v))
@@ -673,6 +683,66 @@ func ProxyFallbackOriginIDIsNil() predicate.Account {
 // ProxyFallbackOriginIDNotNil applies the NotNil predicate on the "proxy_fallback_origin_id" field.
 func ProxyFallbackOriginIDNotNil() predicate.Account {
 	return predicate.Account(sql.FieldNotNull(FieldProxyFallbackOriginID))
+}
+
+// UpstreamConfigIDEQ applies the EQ predicate on the "upstream_config_id" field.
+func UpstreamConfigIDEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamConfigID, v))
+}
+
+// UpstreamConfigIDNEQ applies the NEQ predicate on the "upstream_config_id" field.
+func UpstreamConfigIDNEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldUpstreamConfigID, v))
+}
+
+// UpstreamConfigIDIn applies the In predicate on the "upstream_config_id" field.
+func UpstreamConfigIDIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldUpstreamConfigID, vs...))
+}
+
+// UpstreamConfigIDNotIn applies the NotIn predicate on the "upstream_config_id" field.
+func UpstreamConfigIDNotIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldUpstreamConfigID, vs...))
+}
+
+// UpstreamConfigIDIsNil applies the IsNil predicate on the "upstream_config_id" field.
+func UpstreamConfigIDIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldUpstreamConfigID))
+}
+
+// UpstreamConfigIDNotNil applies the NotNil predicate on the "upstream_config_id" field.
+func UpstreamConfigIDNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldUpstreamConfigID))
+}
+
+// UpstreamKeyIDEQ applies the EQ predicate on the "upstream_key_id" field.
+func UpstreamKeyIDEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamKeyID, v))
+}
+
+// UpstreamKeyIDNEQ applies the NEQ predicate on the "upstream_key_id" field.
+func UpstreamKeyIDNEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldUpstreamKeyID, v))
+}
+
+// UpstreamKeyIDIn applies the In predicate on the "upstream_key_id" field.
+func UpstreamKeyIDIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldUpstreamKeyID, vs...))
+}
+
+// UpstreamKeyIDNotIn applies the NotIn predicate on the "upstream_key_id" field.
+func UpstreamKeyIDNotIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldUpstreamKeyID, vs...))
+}
+
+// UpstreamKeyIDIsNil applies the IsNil predicate on the "upstream_key_id" field.
+func UpstreamKeyIDIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldUpstreamKeyID))
+}
+
+// UpstreamKeyIDNotNil applies the NotNil predicate on the "upstream_key_id" field.
+func UpstreamKeyIDNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldUpstreamKeyID))
 }
 
 // ConcurrencyEQ applies the EQ predicate on the "concurrency" field.
@@ -1643,6 +1713,52 @@ func HasProxy() predicate.Account {
 func HasProxyWith(preds ...predicate.Proxy) predicate.Account {
 	return predicate.Account(func(s *sql.Selector) {
 		step := newProxyStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasUpstreamConfig applies the HasEdge predicate on the "upstream_config" edge.
+func HasUpstreamConfig() predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, UpstreamConfigTable, UpstreamConfigColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUpstreamConfigWith applies the HasEdge predicate on the "upstream_config" edge with a given conditions (other predicates).
+func HasUpstreamConfigWith(preds ...predicate.UpstreamConfig) predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := newUpstreamConfigStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasUpstreamKey applies the HasEdge predicate on the "upstream_key" edge.
+func HasUpstreamKey() predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, UpstreamKeyTable, UpstreamKeyColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUpstreamKeyWith applies the HasEdge predicate on the "upstream_key" edge with a given conditions (other predicates).
+func HasUpstreamKeyWith(preds ...predicate.UpstreamKey) predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := newUpstreamKeyStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

@@ -1,0 +1,385 @@
+package service
+
+import (
+	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"math"
+	"net/http"
+	"strings"
+	"time"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+)
+
+const (
+	UpstreamProviderSub2API = AccountUpstreamProviderSub2API
+	UpstreamProviderNewAPI  = AccountUpstreamProviderNewAPI
+	UpstreamProviderOther   = AccountUpstreamProviderOther
+
+	UpstreamAuthModeUserLogin = AccountSub2APIRateSyncAdapterUserLogin
+	UpstreamAuthModeManualJWT = AccountSub2APIRateSyncAdapterManualJWT
+)
+
+var (
+	ErrUpstreamConfigNotFound = infraerrors.NotFound("UPSTREAM_CONFIG_NOT_FOUND", "upstream config not found")
+	ErrUpstreamKeyNotFound    = infraerrors.NotFound("UPSTREAM_KEY_NOT_FOUND", "upstream key not found")
+)
+
+type UpstreamConfig struct {
+	ID            int64
+	Name          string
+	Provider      string
+	BaseURL       string
+	AuthMode      string
+	Credentials   map[string]any
+	Extra         map[string]any
+	ProxyID       *int64
+	Status        string
+	LastError     *string
+	LastCheckedAt *time.Time
+	LastSuccessAt *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+
+	Keys []*UpstreamKey
+}
+
+type UpstreamKey struct {
+	ID                int64
+	UpstreamConfigID  int64
+	Name              string
+	Key               string
+	KeyHash           string
+	RemoteKeyID       *int64
+	UpstreamGroupID   *int64
+	UpstreamGroupName string
+	Platform          string
+	RateMultiplier    *float64
+	Status            string
+	LastSeenAt        *time.Time
+	Extra             map[string]any
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type UpstreamConfigRepository interface {
+	List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error)
+	GetByID(ctx context.Context, id int64) (*UpstreamConfig, error)
+	Create(ctx context.Context, config *UpstreamConfig) error
+	Update(ctx context.Context, config *UpstreamConfig) error
+	Delete(ctx context.Context, id int64) error
+	CountAccounts(ctx context.Context, id int64) (int64, error)
+	ListKeys(ctx context.Context, upstreamConfigID int64) ([]UpstreamKey, error)
+	GetKeyByID(ctx context.Context, id int64) (*UpstreamKey, error)
+	CreateKey(ctx context.Context, key *UpstreamKey) error
+	UpsertKey(ctx context.Context, key *UpstreamKey) error
+	UpdateKey(ctx context.Context, key *UpstreamKey) error
+	DeleteKey(ctx context.Context, id int64) error
+	RecordCheckResult(ctx context.Context, id int64, success bool, safeErr string) error
+	SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string) error
+}
+
+type UpstreamConfigService struct {
+	repo      UpstreamConfigRepository
+	proxyRepo ProxyRepository
+}
+
+func NewUpstreamConfigService(repo UpstreamConfigRepository, proxyRepo ProxyRepository) *UpstreamConfigService {
+	return &UpstreamConfigService{repo: repo, proxyRepo: proxyRepo}
+}
+
+func (s *UpstreamConfigService) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error) {
+	return s.repo.List(ctx, params, provider, status, search)
+}
+
+func (s *UpstreamConfigService) GetByID(ctx context.Context, id int64) (*UpstreamConfig, error) {
+	return s.repo.GetByID(ctx, id)
+}
+
+func (s *UpstreamConfigService) Create(ctx context.Context, config *UpstreamConfig) (*UpstreamConfig, error) {
+	if err := normalizeAndValidateUpstreamConfig(config, true); err != nil {
+		return nil, err
+	}
+	if err := s.repo.Create(ctx, config); err != nil {
+		return nil, err
+	}
+	return s.repo.GetByID(ctx, config.ID)
+}
+
+func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *UpstreamConfig) (*UpstreamConfig, error) {
+	current, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, ErrUpstreamConfigNotFound
+	}
+	current.Name = upstreamFirstNonEmpty(patch.Name, current.Name)
+	current.Provider = normalizeUpstreamProvider(upstreamFirstNonEmpty(patch.Provider, current.Provider))
+	current.BaseURL = upstreamFirstNonEmpty(patch.BaseURL, current.BaseURL)
+	current.AuthMode = normalizeUpstreamAuthMode(upstreamFirstNonEmpty(patch.AuthMode, current.AuthMode))
+	if patch.ProxyID != nil {
+		if *patch.ProxyID == 0 {
+			current.ProxyID = nil
+		} else {
+			current.ProxyID = patch.ProxyID
+		}
+	}
+	if patch.Status != "" {
+		current.Status = patch.Status
+	}
+	current.Credentials = mergePreservingUpstreamSecrets(current.Credentials, patch.Credentials)
+	if patch.Extra != nil {
+		current.Extra = patch.Extra
+	}
+	if err := normalizeAndValidateUpstreamConfig(current, false); err != nil {
+		return nil, err
+	}
+	if err := s.repo.Update(ctx, current); err != nil {
+		return nil, err
+	}
+	return s.repo.GetByID(ctx, id)
+}
+
+func (s *UpstreamConfigService) Delete(ctx context.Context, id int64) error {
+	count, err := s.repo.CountAccounts(ctx, id)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_CONFIG_IN_USE", "upstream config is used by accounts")
+	}
+	return s.repo.Delete(ctx, id)
+}
+
+func (s *UpstreamConfigService) ListKeys(ctx context.Context, upstreamConfigID int64) ([]UpstreamKey, error) {
+	return s.repo.ListKeys(ctx, upstreamConfigID)
+}
+
+func (s *UpstreamConfigService) CreateKey(ctx context.Context, upstreamConfigID int64, key *UpstreamKey) (*UpstreamKey, error) {
+	if key == nil {
+		return nil, infraerrors.BadRequest("UPSTREAM_KEY_REQUIRED", "upstream key is required")
+	}
+	key.UpstreamConfigID = upstreamConfigID
+	if err := normalizeAndValidateUpstreamKey(key); err != nil {
+		return nil, err
+	}
+	if err := s.repo.CreateKey(ctx, key); err != nil {
+		return nil, err
+	}
+	return s.repo.GetKeyByID(ctx, key.ID)
+}
+
+func (s *UpstreamConfigService) DeleteKey(ctx context.Context, id int64) error {
+	return s.repo.DeleteKey(ctx, id)
+}
+
+func (s *UpstreamConfigService) Test(ctx context.Context, id int64) error {
+	cfg, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if cfg == nil {
+		return ErrUpstreamConfigNotFound
+	}
+	if cfg.Provider != UpstreamProviderSub2API {
+		return infraerrors.BadRequest("UPSTREAM_PROVIDER_SYNC_UNSUPPORTED", "automatic sync is only supported for sub2api upstream configs")
+	}
+	proxyURL, err := s.resolveUpstreamConfigProxyURL(ctx, cfg)
+	if err != nil {
+		_ = s.repo.RecordCheckResult(ctx, id, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
+		return err
+	}
+	err = testSub2APIUpstreamConfig(ctx, cfg, proxyURL)
+	if err != nil {
+		_ = s.repo.RecordCheckResult(ctx, id, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
+		return err
+	}
+	return s.repo.RecordCheckResult(ctx, id, true, "")
+}
+
+func (s *UpstreamConfigService) SyncKeys(ctx context.Context, id int64) ([]UpstreamKey, error) {
+	cfg, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if cfg == nil {
+		return nil, ErrUpstreamConfigNotFound
+	}
+	if cfg.Provider != UpstreamProviderSub2API {
+		return nil, infraerrors.BadRequest("UPSTREAM_PROVIDER_SYNC_UNSUPPORTED", "automatic sync is only supported for sub2api upstream configs")
+	}
+	proxyURL, err := s.resolveUpstreamConfigProxyURL(ctx, cfg)
+	if err != nil {
+		_ = s.repo.RecordCheckResult(ctx, id, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
+		return nil, err
+	}
+	keys, refreshedTokens, err := syncSub2APIUpstreamKeys(ctx, cfg, proxyURL)
+	if err != nil {
+		_ = s.repo.RecordCheckResult(ctx, id, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
+		return nil, err
+	}
+	if refreshedTokens != nil {
+		if err := s.repo.SaveRefreshedTokens(ctx, id, refreshedTokens.AccessToken, refreshedTokens.RefreshToken); err != nil {
+			return nil, err
+		}
+	}
+	for i := range keys {
+		if err := normalizeAndValidateUpstreamKey(&keys[i]); err != nil {
+			return nil, err
+		}
+		if err := s.repo.UpsertKey(ctx, &keys[i]); err != nil {
+			return nil, err
+		}
+	}
+	_ = s.repo.RecordCheckResult(ctx, id, true, "")
+	return s.repo.ListKeys(ctx, id)
+}
+
+func (s *UpstreamConfigService) resolveUpstreamConfigProxyURL(ctx context.Context, cfg *UpstreamConfig) (string, error) {
+	if cfg == nil || cfg.ProxyID == nil {
+		return "", nil
+	}
+	if s.proxyRepo == nil {
+		return "", infraerrors.New(http.StatusServiceUnavailable, "UPSTREAM_PROXY_UNAVAILABLE", "upstream config proxy service is unavailable")
+	}
+	proxy, err := s.proxyRepo.GetByID(ctx, *cfg.ProxyID)
+	if err != nil {
+		return "", err
+	}
+	if proxy == nil {
+		return "", ErrProxyNotFound
+	}
+	return proxy.URL(), nil
+}
+
+func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets bool) error {
+	if config == nil {
+		return infraerrors.BadRequest("UPSTREAM_CONFIG_REQUIRED", "upstream config is required")
+	}
+	config.Name = strings.TrimSpace(config.Name)
+	config.Provider = normalizeUpstreamProvider(config.Provider)
+	config.AuthMode = normalizeUpstreamAuthMode(config.AuthMode)
+	config.BaseURL = strings.TrimSpace(config.BaseURL)
+	if config.Status == "" {
+		config.Status = StatusActive
+	}
+	if config.Name == "" {
+		return infraerrors.BadRequest("UPSTREAM_CONFIG_NAME_REQUIRED", "upstream config name is required")
+	}
+	if config.BaseURL == "" {
+		return infraerrors.BadRequest("UPSTREAM_CONFIG_BASE_URL_REQUIRED", "upstream config base url is required")
+	}
+	if config.Credentials == nil {
+		config.Credentials = map[string]any{}
+	}
+	if config.Extra == nil {
+		config.Extra = map[string]any{}
+	}
+	if config.Provider != UpstreamProviderSub2API {
+		return nil
+	}
+	if config.AuthMode == UpstreamAuthModeManualJWT {
+		if requireSecrets && strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APIAccessToken)) == "" {
+			return infraerrors.BadRequest("UPSTREAM_ACCESS_TOKEN_REQUIRED", "sub2api access token is required")
+		}
+		return nil
+	}
+	if strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APILoginEmail)) == "" {
+		return infraerrors.BadRequest("UPSTREAM_LOGIN_EMAIL_REQUIRED", "sub2api login email is required")
+	}
+	if requireSecrets && strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APILoginPassword)) == "" {
+		return infraerrors.BadRequest("UPSTREAM_LOGIN_PASSWORD_REQUIRED", "sub2api login password is required")
+	}
+	return nil
+}
+
+func normalizeAndValidateUpstreamKey(key *UpstreamKey) error {
+	if key == nil {
+		return infraerrors.BadRequest("UPSTREAM_KEY_REQUIRED", "upstream key is required")
+	}
+	key.Name = strings.TrimSpace(key.Name)
+	key.Key = strings.TrimSpace(key.Key)
+	key.Platform = strings.TrimSpace(key.Platform)
+	if key.Platform == "" {
+		key.Platform = PlatformOpenAI
+	}
+	if key.Status == "" {
+		key.Status = StatusActive
+	}
+	if key.UpstreamConfigID <= 0 {
+		return infraerrors.BadRequest("UPSTREAM_CONFIG_ID_REQUIRED", "upstream config id is required")
+	}
+	if key.Key == "" {
+		return infraerrors.BadRequest("UPSTREAM_KEY_SECRET_REQUIRED", "upstream key is required")
+	}
+	if key.KeyHash == "" {
+		key.KeyHash = HashUpstreamKey(key.Key)
+	}
+	if key.RateMultiplier != nil && (*key.RateMultiplier < 0 || math.IsNaN(*key.RateMultiplier) || math.IsInf(*key.RateMultiplier, 0)) {
+		return infraerrors.BadRequest("UPSTREAM_KEY_RATE_INVALID", "upstream key rate multiplier is invalid")
+	}
+	return nil
+}
+
+func normalizeUpstreamProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case UpstreamProviderSub2API:
+		return UpstreamProviderSub2API
+	case UpstreamProviderNewAPI:
+		return UpstreamProviderNewAPI
+	default:
+		return UpstreamProviderOther
+	}
+}
+
+func normalizeUpstreamAuthMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case UpstreamAuthModeManualJWT:
+		return UpstreamAuthModeManualJWT
+	default:
+		return UpstreamAuthModeUserLogin
+	}
+}
+
+func HashUpstreamKey(key string) string {
+	sum := md5.Sum([]byte(strings.TrimSpace(key)))
+	return hex.EncodeToString(sum[:])
+}
+
+func upstreamFirstNonEmpty(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func mergePreservingUpstreamSecrets(current, incoming map[string]any) map[string]any {
+	out := make(map[string]any)
+	for k, v := range current {
+		out[k] = v
+	}
+	for k, v := range incoming {
+		if strings.TrimSpace(upstreamString(v)) == "" || strings.Contains(upstreamString(v), "***") {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+func stringCredential(credentials map[string]any, key string) string {
+	if credentials == nil {
+		return ""
+	}
+	return upstreamString(credentials[key])
+}
+
+func upstreamString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}

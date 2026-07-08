@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,8 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
+	dbupstreamconfig "github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -108,6 +111,12 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 
 	if account.ProxyID != nil {
 		builder.SetProxyID(*account.ProxyID)
+	}
+	if account.UpstreamConfigID != nil {
+		builder.SetUpstreamConfigID(*account.UpstreamConfigID)
+	}
+	if account.UpstreamKeyID != nil {
+		builder.SetUpstreamKeyID(*account.UpstreamKeyID)
 	}
 	if account.LastUsedAt != nil {
 		builder.SetLastUsedAt(*account.LastUsedAt)
@@ -365,6 +374,16 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 		builder.SetProxyID(*account.ProxyID)
 	} else {
 		builder.ClearProxyID()
+	}
+	if account.UpstreamConfigID != nil {
+		builder.SetUpstreamConfigID(*account.UpstreamConfigID)
+	} else {
+		builder.ClearUpstreamConfigID()
+	}
+	if account.UpstreamKeyID != nil {
+		builder.SetUpstreamKeyID(*account.UpstreamKeyID)
+	} else {
+		builder.ClearUpstreamKeyID()
 	}
 	if account.LastUsedAt != nil {
 		builder.SetLastUsedAt(*account.LastUsedAt)
@@ -1795,6 +1814,8 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 
 	accountIDs := make([]int64, 0, len(accounts))
 	proxyIDs := make([]int64, 0, len(accounts))
+	upstreamConfigIDs := make([]int64, 0, len(accounts))
+	upstreamKeyIDs := make([]int64, 0, len(accounts))
 	for _, acc := range accounts {
 		accountIDs = append(accountIDs, acc.ID)
 		if acc.ProxyID != nil {
@@ -1802,6 +1823,22 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		}
 		if acc.ProxyFallbackOriginID != nil {
 			proxyIDs = append(proxyIDs, *acc.ProxyFallbackOriginID)
+		}
+		if acc.UpstreamConfigID != nil {
+			upstreamConfigIDs = append(upstreamConfigIDs, *acc.UpstreamConfigID)
+		}
+		if acc.UpstreamKeyID != nil {
+			upstreamKeyIDs = append(upstreamKeyIDs, *acc.UpstreamKeyID)
+		}
+	}
+
+	upstreamConfigs, upstreamKeys, err := r.loadUpstreamBindings(ctx, upstreamConfigIDs, upstreamKeyIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, cfg := range upstreamConfigs {
+		if cfg != nil && cfg.ProxyID != nil {
+			proxyIDs = append(proxyIDs, *cfg.ProxyID)
 		}
 	}
 
@@ -1823,6 +1860,36 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if acc.ProxyID != nil {
 			if proxy, ok := proxyMap[*acc.ProxyID]; ok {
 				out.Proxy = proxy
+			}
+		}
+		if out.UpstreamConfigID != nil {
+			if cfg, ok := upstreamConfigs[*out.UpstreamConfigID]; ok && cfg != nil {
+				if out.Credentials == nil {
+					out.Credentials = map[string]any{}
+				}
+				out.Credentials["base_url"] = cfg.BaseURL
+				if out.Extra == nil {
+					out.Extra = map[string]any{}
+				}
+				out.Extra[service.AccountUpstreamProviderKey] = cfg.Provider
+				out.Extra[service.AccountSub2APIRateSyncAdapterKey] = cfg.AuthMode
+				if cfg.ProxyID != nil {
+					out.ProxyID = cfg.ProxyID
+					if proxy, ok := proxyMap[*cfg.ProxyID]; ok {
+						out.Proxy = proxy
+					}
+				}
+			}
+		}
+		if out.UpstreamKeyID != nil {
+			if key, ok := upstreamKeys[*out.UpstreamKeyID]; ok && key != nil {
+				if out.UpstreamConfigID != nil && key.UpstreamConfigID != *out.UpstreamConfigID {
+					return nil, fmt.Errorf("account %d upstream key %d does not belong to upstream config %d", out.ID, key.ID, *out.UpstreamConfigID)
+				}
+				if out.Credentials == nil {
+					out.Credentials = map[string]any{}
+				}
+				out.Credentials["api_key"] = key.Key
 			}
 		}
 		out.ProxyFallbackOriginID = acc.ProxyFallbackOriginID
@@ -1886,6 +1953,44 @@ func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (
 		}
 	}
 	return proxyMap, nil
+}
+
+func (r *accountRepository) loadUpstreamBindings(ctx context.Context, configIDs, keyIDs []int64) (map[int64]*service.UpstreamConfig, map[int64]*service.UpstreamKey, error) {
+	configs := make(map[int64]*service.UpstreamConfig)
+	keys := make(map[int64]*service.UpstreamKey)
+	configIDs = uniquePositiveInt64s(configIDs)
+	keyIDs = uniquePositiveInt64s(keyIDs)
+	for start := 0; start < len(configIDs); start += postgresParameterBatchSize {
+		end := start + postgresParameterBatchSize
+		if end > len(configIDs) {
+			end = len(configIDs)
+		}
+		rows, err := r.client.UpstreamConfig.Query().
+			Where(dbupstreamconfig.IDIn(configIDs[start:end]...)).
+			All(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, row := range rows {
+			configs[row.ID] = upstreamConfigEntityToService(row)
+		}
+	}
+	for start := 0; start < len(keyIDs); start += postgresParameterBatchSize {
+		end := start + postgresParameterBatchSize
+		if end > len(keyIDs) {
+			end = len(keyIDs)
+		}
+		rows, err := r.client.UpstreamKey.Query().
+			Where(dbupstreamkey.IDIn(keyIDs[start:end]...)).
+			All(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, row := range rows {
+			keys[row.ID] = upstreamKeyEntityToService(row)
+		}
+	}
+	return configs, keys, nil
 }
 
 func (r *accountRepository) loadAccountGroups(ctx context.Context, accountIDs []int64) (map[int64][]*service.Group, map[int64][]int64, map[int64][]service.AccountGroup, error) {
@@ -2050,6 +2155,8 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		Extra:                   copyJSONMap(m.Extra),
 		ProxyID:                 m.ProxyID,
 		ProxyFallbackOriginID:   m.ProxyFallbackOriginID,
+		UpstreamConfigID:        m.UpstreamConfigID,
+		UpstreamKeyID:           m.UpstreamKeyID,
 		Concurrency:             m.Concurrency,
 		Priority:                m.Priority,
 		RateMultiplier:          &rateMultiplier,

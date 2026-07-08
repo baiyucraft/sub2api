@@ -297,6 +297,8 @@ type CreateAccountInput struct {
 	Credentials        map[string]any
 	Extra              map[string]any
 	ProxyID            *int64
+	UpstreamConfigID   *int64
+	UpstreamKeyID      *int64
 	Concurrency        int
 	Priority           int
 	RateMultiplier     *float64 // 账号计费倍率（>=0，允许 0）
@@ -327,6 +329,8 @@ type UpdateAccountInput struct {
 	Credentials           map[string]any
 	Extra                 map[string]any
 	ProxyID               *int64
+	UpstreamConfigID      *int64
+	UpstreamKeyID         *int64
 	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
 	Priority              *int     // 使用指针区分"未提供"和"设置为0"
 	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）
@@ -570,6 +574,7 @@ type adminServiceImpl struct {
 	userRepo             UserRepository
 	groupRepo            GroupRepository
 	accountRepo          AccountRepository
+	upstreamConfigRepo   UpstreamConfigRepository
 	proxyRepo            ProxyRepository
 	apiKeyRepo           APIKeyRepository
 	redeemCodeRepo       RedeemCodeRepository
@@ -597,6 +602,7 @@ func NewAdminService(
 	userRepo UserRepository,
 	groupRepo GroupRepository,
 	accountRepo AccountRepository,
+	upstreamConfigRepo UpstreamConfigRepository,
 	proxyRepo ProxyRepository,
 	apiKeyRepo APIKeyRepository,
 	redeemCodeRepo RedeemCodeRepository,
@@ -618,6 +624,7 @@ func NewAdminService(
 		userRepo:             userRepo,
 		groupRepo:            groupRepo,
 		accountRepo:          accountRepo,
+		upstreamConfigRepo:   upstreamConfigRepo,
 		proxyRepo:            proxyRepo,
 		apiKeyRepo:           apiKeyRepo,
 		redeemCodeRepo:       redeemCodeRepo,
@@ -676,6 +683,99 @@ func cloneAccountForSub2APIRateSync(account *Account) *Account {
 	return &cp
 }
 
+func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, input *CreateAccountInput) error {
+	if input == nil {
+		return nil
+	}
+	if input.Type != AccountTypeUpstream && (input.UpstreamConfigID == nil || *input.UpstreamConfigID <= 0) {
+		return nil
+	}
+	if input.UpstreamConfigID == nil || *input.UpstreamConfigID <= 0 || input.UpstreamKeyID == nil || *input.UpstreamKeyID <= 0 {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_BINDING_REQUIRED", "upstream config and key are required")
+	}
+	cfg, key, err := s.validateUpstreamAccountBinding(ctx, *input.UpstreamConfigID, *input.UpstreamKeyID)
+	if err != nil {
+		return err
+	}
+	input.Type = AccountTypeAPIKey
+	if strings.TrimSpace(input.Platform) == "" {
+		input.Platform = key.Platform
+	}
+	if input.Credentials == nil {
+		input.Credentials = map[string]any{}
+	}
+	if input.Extra == nil {
+		input.Extra = map[string]any{}
+	}
+	input.Extra[AccountUpstreamProviderKey] = cfg.Provider
+	input.Extra[AccountSub2APIRateSyncAdapterKey] = cfg.AuthMode
+	return nil
+}
+
+func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, account *Account, input *UpdateAccountInput) error {
+	if input == nil || account == nil {
+		return nil
+	}
+	if input.Type == AccountTypeUpstream {
+		account.Type = AccountTypeAPIKey
+	}
+	cfgID := account.UpstreamConfigID
+	keyID := account.UpstreamKeyID
+	if input.UpstreamConfigID != nil {
+		if *input.UpstreamConfigID <= 0 {
+			cfgID = nil
+		} else {
+			cfgID = input.UpstreamConfigID
+		}
+	}
+	if input.UpstreamKeyID != nil {
+		if *input.UpstreamKeyID <= 0 {
+			keyID = nil
+		} else {
+			keyID = input.UpstreamKeyID
+		}
+	}
+	if cfgID == nil && keyID == nil {
+		return nil
+	}
+	if cfgID == nil || keyID == nil {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_BINDING_REQUIRED", "upstream config and key are required")
+	}
+	cfg, _, err := s.validateUpstreamAccountBinding(ctx, *cfgID, *keyID)
+	if err != nil {
+		return err
+	}
+	if input.Extra == nil {
+		if account.Extra == nil {
+			account.Extra = map[string]any{}
+		}
+		account.Extra[AccountUpstreamProviderKey] = cfg.Provider
+		account.Extra[AccountSub2APIRateSyncAdapterKey] = cfg.AuthMode
+	} else {
+		input.Extra[AccountUpstreamProviderKey] = cfg.Provider
+		input.Extra[AccountSub2APIRateSyncAdapterKey] = cfg.AuthMode
+	}
+	return nil
+}
+
+func (s *adminServiceImpl) validateUpstreamAccountBinding(ctx context.Context, configID, keyID int64) (*UpstreamConfig, *UpstreamKey, error) {
+	if s == nil || s.upstreamConfigRepo == nil {
+		return nil, nil, infraerrors.New(http.StatusServiceUnavailable, "UPSTREAM_CONFIG_UNAVAILABLE", "upstream config service is unavailable")
+	}
+	cfg, err := s.upstreamConfigRepo.GetByID(ctx, configID)
+	if err != nil {
+		return nil, nil, err
+	}
+	key, err := s.upstreamConfigRepo.GetKeyByID(ctx, keyID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if cfg == nil || key == nil || key.UpstreamConfigID != cfg.ID {
+		return nil, nil, infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_CONFIG_MISMATCH", "upstream key does not belong to the selected config")
+	}
+	return cfg, key, nil
+}
+
 func validateAndNormalizeSub2APIUpstreamCredentials(account *Account) error {
 	if account == nil {
 		return nil
@@ -698,6 +798,10 @@ func validateAndNormalizeSub2APIUpstreamCredentials(account *Account) error {
 	}
 	if account.Credentials == nil {
 		account.Credentials = map[string]any{}
+	}
+	if account.UpstreamConfigID != nil && account.UpstreamKeyID != nil {
+		account.Extra[AccountUpstreamProviderKey] = AccountUpstreamProviderSub2API
+		return nil
 	}
 	adapter := account.Sub2APIRateSyncAdapter()
 	switch adapter {
@@ -2741,6 +2845,9 @@ func normalizeAccountConcurrency(platform, accountType string, concurrency int) 
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if err := s.normalizeUpstreamAccountInput(ctx, input); err != nil {
+		return nil, err
+	}
 	// 绑定分组
 	groupIDs := input.GroupIDs
 	// 如果没有指定分组,自动绑定对应平台的默认分组
@@ -2772,6 +2879,8 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		Credentials: input.Credentials,
 		Extra:       input.Extra,
 		ProxyID:     input.ProxyID,
+		UpstreamConfigID: input.UpstreamConfigID,
+		UpstreamKeyID:    input.UpstreamKeyID,
 		Concurrency: normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
 		Priority:    input.Priority,
 		Status:      StatusActive,
@@ -2818,6 +2927,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		if err := s.accountRepo.BindGroups(ctx, account.ID, groupIDs); err != nil {
 			return nil, err
 		}
+	}
+	if enriched, err := s.accountRepo.GetByID(ctx, account.ID); err == nil && enriched != nil {
+		account = enriched
 	}
 
 	s.scheduleSub2APIUpstreamRateSync(account)
@@ -2890,6 +3002,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.Type != "" {
 		account.Type = input.Type
 	}
+	if err := s.normalizeUpstreamAccountUpdate(ctx, account, input); err != nil {
+		return nil, err
+	}
 	if input.Notes != nil {
 		account.Notes = normalizeAccountNotes(input.Notes)
 	}
@@ -2938,6 +3053,20 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			account.ProxyID = input.ProxyID
 		}
 		account.Proxy = nil // 清除关联对象，防止 GORM Save 时根据 Proxy.ID 覆盖 ProxyID
+	}
+	if input.UpstreamConfigID != nil {
+		if *input.UpstreamConfigID == 0 {
+			account.UpstreamConfigID = nil
+		} else {
+			account.UpstreamConfigID = input.UpstreamConfigID
+		}
+	}
+	if input.UpstreamKeyID != nil {
+		if *input.UpstreamKeyID == 0 {
+			account.UpstreamKeyID = nil
+		} else {
+			account.UpstreamKeyID = input.UpstreamKeyID
+		}
 	}
 	// 只在指针非 nil 时更新 Concurrency（支持设置为 0）
 	if input.Concurrency != nil {

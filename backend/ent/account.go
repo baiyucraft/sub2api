@@ -12,6 +12,8 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 )
 
 // Account is the model entity for the Account schema.
@@ -41,6 +43,10 @@ type Account struct {
 	ProxyID *int64 `json:"proxy_id,omitempty"`
 	// Original proxy id replaced by expiry-fallback; for manual revert. NULL = not in fallback.
 	ProxyFallbackOriginID *int64 `json:"proxy_fallback_origin_id,omitempty"`
+	// Shared upstream relay configuration used by upstream-bound API key accounts.
+	UpstreamConfigID *int64 `json:"upstream_config_id,omitempty"`
+	// Shared upstream key selected for this account.
+	UpstreamKeyID *int64 `json:"upstream_key_id,omitempty"`
 	// Concurrency holds the value of the "concurrency" field.
 	Concurrency int `json:"concurrency,omitempty"`
 	// LoadFactor holds the value of the "load_factor" field.
@@ -93,6 +99,10 @@ type AccountEdges struct {
 	Groups []*Group `json:"groups,omitempty"`
 	// Proxy holds the value of the proxy edge.
 	Proxy *Proxy `json:"proxy,omitempty"`
+	// UpstreamConfig holds the value of the upstream_config edge.
+	UpstreamConfig *UpstreamConfig `json:"upstream_config,omitempty"`
+	// UpstreamKey holds the value of the upstream_key edge.
+	UpstreamKey *UpstreamKey `json:"upstream_key,omitempty"`
 	// Parent holds the value of the parent edge.
 	Parent *Account `json:"parent,omitempty"`
 	// Children holds the value of the children edge.
@@ -103,7 +113,7 @@ type AccountEdges struct {
 	AccountGroups []*AccountGroup `json:"account_groups,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [6]bool
+	loadedTypes [8]bool
 }
 
 // GroupsOrErr returns the Groups value or an error if the edge
@@ -126,12 +136,34 @@ func (e AccountEdges) ProxyOrErr() (*Proxy, error) {
 	return nil, &NotLoadedError{edge: "proxy"}
 }
 
+// UpstreamConfigOrErr returns the UpstreamConfig value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e AccountEdges) UpstreamConfigOrErr() (*UpstreamConfig, error) {
+	if e.UpstreamConfig != nil {
+		return e.UpstreamConfig, nil
+	} else if e.loadedTypes[2] {
+		return nil, &NotFoundError{label: upstreamconfig.Label}
+	}
+	return nil, &NotLoadedError{edge: "upstream_config"}
+}
+
+// UpstreamKeyOrErr returns the UpstreamKey value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e AccountEdges) UpstreamKeyOrErr() (*UpstreamKey, error) {
+	if e.UpstreamKey != nil {
+		return e.UpstreamKey, nil
+	} else if e.loadedTypes[3] {
+		return nil, &NotFoundError{label: upstreamkey.Label}
+	}
+	return nil, &NotLoadedError{edge: "upstream_key"}
+}
+
 // ParentOrErr returns the Parent value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e AccountEdges) ParentOrErr() (*Account, error) {
 	if e.Parent != nil {
 		return e.Parent, nil
-	} else if e.loadedTypes[2] {
+	} else if e.loadedTypes[4] {
 		return nil, &NotFoundError{label: account.Label}
 	}
 	return nil, &NotLoadedError{edge: "parent"}
@@ -140,7 +172,7 @@ func (e AccountEdges) ParentOrErr() (*Account, error) {
 // ChildrenOrErr returns the Children value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) ChildrenOrErr() ([]*Account, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[5] {
 		return e.Children, nil
 	}
 	return nil, &NotLoadedError{edge: "children"}
@@ -149,7 +181,7 @@ func (e AccountEdges) ChildrenOrErr() ([]*Account, error) {
 // UsageLogsOrErr returns the UsageLogs value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) UsageLogsOrErr() ([]*UsageLog, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[6] {
 		return e.UsageLogs, nil
 	}
 	return nil, &NotLoadedError{edge: "usage_logs"}
@@ -158,7 +190,7 @@ func (e AccountEdges) UsageLogsOrErr() ([]*UsageLog, error) {
 // AccountGroupsOrErr returns the AccountGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) AccountGroupsOrErr() ([]*AccountGroup, error) {
-	if e.loadedTypes[5] {
+	if e.loadedTypes[7] {
 		return e.AccountGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "account_groups"}
@@ -175,7 +207,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case account.FieldRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
+		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldUpstreamConfigID, account.FieldUpstreamKeyID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
 			values[i] = new(sql.NullInt64)
 		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus, account.FieldQuotaDimension:
 			values[i] = new(sql.NullString)
@@ -275,6 +307,20 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.ProxyFallbackOriginID = new(int64)
 				*_m.ProxyFallbackOriginID = value.Int64
+			}
+		case account.FieldUpstreamConfigID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_config_id", values[i])
+			} else if value.Valid {
+				_m.UpstreamConfigID = new(int64)
+				*_m.UpstreamConfigID = value.Int64
+			}
+		case account.FieldUpstreamKeyID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_key_id", values[i])
+			} else if value.Valid {
+				_m.UpstreamKeyID = new(int64)
+				*_m.UpstreamKeyID = value.Int64
 			}
 		case account.FieldConcurrency:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -432,6 +478,16 @@ func (_m *Account) QueryProxy() *ProxyQuery {
 	return NewAccountClient(_m.config).QueryProxy(_m)
 }
 
+// QueryUpstreamConfig queries the "upstream_config" edge of the Account entity.
+func (_m *Account) QueryUpstreamConfig() *UpstreamConfigQuery {
+	return NewAccountClient(_m.config).QueryUpstreamConfig(_m)
+}
+
+// QueryUpstreamKey queries the "upstream_key" edge of the Account entity.
+func (_m *Account) QueryUpstreamKey() *UpstreamKeyQuery {
+	return NewAccountClient(_m.config).QueryUpstreamKey(_m)
+}
+
 // QueryParent queries the "parent" edge of the Account entity.
 func (_m *Account) QueryParent() *AccountQuery {
 	return NewAccountClient(_m.config).QueryParent(_m)
@@ -513,6 +569,16 @@ func (_m *Account) String() string {
 	builder.WriteString(", ")
 	if v := _m.ProxyFallbackOriginID; v != nil {
 		builder.WriteString("proxy_fallback_origin_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamConfigID; v != nil {
+		builder.WriteString("upstream_config_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamKeyID; v != nil {
+		builder.WriteString("upstream_key_id=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")

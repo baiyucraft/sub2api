@@ -38,13 +38,14 @@ var (
 )
 
 type Sub2APIUpstreamRateSyncService struct {
-	accountRepo AccountRepository
-	proxyRepo   ProxyRepository
-	interval    time.Duration
-	concurrency int
-	stopCh      chan struct{}
-	stopOnce    sync.Once
-	wg          sync.WaitGroup
+	accountRepo        AccountRepository
+	upstreamConfigRepo UpstreamConfigRepository
+	proxyRepo          ProxyRepository
+	interval           time.Duration
+	concurrency        int
+	stopCh             chan struct{}
+	stopOnce           sync.Once
+	wg                 sync.WaitGroup
 }
 
 type sub2APIEnvelope[T any] struct {
@@ -75,9 +76,11 @@ type sub2APIKeyListData struct {
 type sub2APIUpstreamKey struct {
 	ID      int64  `json:"id"`
 	Key     string `json:"key"`
+	Name    string `json:"name"`
 	GroupID *int64 `json:"group_id"`
 	Group   *struct {
 		ID             int64   `json:"id"`
+		Name           string  `json:"name"`
 		Platform       string  `json:"platform"`
 		RateMultiplier float64 `json:"rate_multiplier"`
 	} `json:"group"`
@@ -108,6 +111,12 @@ func NewSub2APIUpstreamRateSyncService(accountRepo AccountRepository, proxyRepo 
 		interval:    interval,
 		concurrency: 5,
 		stopCh:      make(chan struct{}),
+	}
+}
+
+func (s *Sub2APIUpstreamRateSyncService) SetUpstreamConfigRepository(repo UpstreamConfigRepository) {
+	if s != nil {
+		s.upstreamConfigRepo = repo
 	}
 }
 
@@ -152,7 +161,7 @@ func (s *Sub2APIUpstreamRateSyncService) SyncAccountNow(ctx context.Context, acc
 	if err != nil {
 		return s.recordSyncError(ctx, account, err)
 	}
-	target, err := newSub2APISyncTarget(*account, proxyURL)
+	target, err := s.newSub2APISyncTarget(ctx, *account, proxyURL)
 	if err != nil {
 		return s.recordSyncError(ctx, account, err)
 	}
@@ -195,7 +204,7 @@ func (s *Sub2APIUpstreamRateSyncService) runOnce() {
 				continue
 			}
 		}
-		target, err := newSub2APISyncTarget(accounts[i], proxyURLs[proxyIDValue(accounts[i].ProxyID)])
+		target, err := s.newSub2APISyncTarget(ctx, accounts[i], proxyURLs[proxyIDValue(accounts[i].ProxyID)])
 		if err != nil {
 			if recErr := s.recordSyncError(ctx, &accounts[i], err); recErr != nil {
 				log.Printf("[Sub2APIRateSync] record account error failed: account=%d err=%v", accounts[i].ID, recErr)
@@ -312,6 +321,43 @@ func newSub2APISyncTarget(account Account, proxyURL string) (sub2APISyncTarget, 
 	}, nil
 }
 
+func (s *Sub2APIUpstreamRateSyncService) newSub2APISyncTarget(ctx context.Context, account Account, proxyURL string) (sub2APISyncTarget, error) {
+	if account.UpstreamConfigID == nil || account.UpstreamKeyID == nil {
+		return newSub2APISyncTarget(account, proxyURL)
+	}
+	if s == nil || s.upstreamConfigRepo == nil {
+		return sub2APISyncTarget{}, fmt.Errorf("missing upstream config repository")
+	}
+	cfg, err := s.upstreamConfigRepo.GetByID(ctx, *account.UpstreamConfigID)
+	if err != nil {
+		return sub2APISyncTarget{}, err
+	}
+	key, err := s.upstreamConfigRepo.GetKeyByID(ctx, *account.UpstreamKeyID)
+	if err != nil {
+		return sub2APISyncTarget{}, err
+	}
+	if cfg == nil || key == nil || key.UpstreamConfigID != cfg.ID {
+		return sub2APISyncTarget{}, fmt.Errorf("invalid upstream binding")
+	}
+	if account.Credentials == nil {
+		account.Credentials = map[string]any{}
+	}
+	account.Credentials["base_url"] = cfg.BaseURL
+	account.Credentials["api_key"] = key.Key
+	for k, v := range cfg.Credentials {
+		account.Credentials[k] = v
+	}
+	if account.Extra == nil {
+		account.Extra = map[string]any{}
+	}
+	account.Extra[AccountUpstreamProviderKey] = cfg.Provider
+	account.Extra[AccountSub2APIRateSyncAdapterKey] = cfg.AuthMode
+	if cfg.ProxyID != nil {
+		account.ProxyID = cfg.ProxyID
+	}
+	return newSub2APISyncTarget(account, proxyURL)
+}
+
 func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Context, target sub2APISyncTarget) (*sub2APIUserLoginSession, *sub2APIRefreshData, error) {
 	client, err := sub2APIHTTPClient(target.proxyURL)
 	if err != nil {
@@ -342,6 +388,107 @@ func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Conte
 		return nil, nil, err
 	}
 	return session, refreshed, nil
+}
+
+func testSub2APIUpstreamConfig(ctx context.Context, cfg *UpstreamConfig, proxyURL string) error {
+	_, _, err := syncSub2APIUpstreamKeys(ctx, cfg, proxyURL)
+	return err
+}
+
+func syncSub2APIUpstreamKeys(ctx context.Context, cfg *UpstreamConfig, proxyURL string) ([]UpstreamKey, *sub2APIRefreshData, error) {
+	if cfg == nil {
+		return nil, nil, fmt.Errorf("missing upstream config")
+	}
+	account := Account{
+		ID:          cfg.ID,
+		Name:        cfg.Name,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": cfg.BaseURL, "api_key": "sync-only"},
+		Extra: map[string]any{
+			AccountUpstreamProviderKey:       cfg.Provider,
+			AccountSub2APIRateSyncAdapterKey: cfg.AuthMode,
+		},
+		ProxyID: cfg.ProxyID,
+	}
+	for k, v := range cfg.Credentials {
+		account.Credentials[k] = v
+	}
+	target, err := newSub2APISyncTarget(account, proxyURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	svc := &Sub2APIUpstreamRateSyncService{}
+	session, refreshed, err := svc.fetchUserLoginSession(ctx, target)
+	if err != nil {
+		return nil, nil, err
+	}
+	now := time.Now()
+	out := make([]UpstreamKey, 0, len(session.keys))
+	for _, upstreamKey := range session.keys {
+		key := strings.TrimSpace(upstreamKey.Key)
+		if key == "" || strings.Contains(key, "*") {
+			continue
+		}
+		rate, _, err := resolveSub2APIEffectiveRate(key, session)
+		if err != nil {
+			return nil, nil, err
+		}
+		name := normalizeUpstreamDisplayName(upstreamKey.Name, 100)
+		groupID := effectiveSub2APIGroupID(upstreamKey)
+		groupName := ""
+		platform := PlatformOpenAI
+		if upstreamKey.Group != nil {
+			groupName = normalizeUpstreamDisplayName(upstreamKey.Group.Name, 100)
+			if strings.TrimSpace(upstreamKey.Group.Platform) != "" {
+				platform = strings.TrimSpace(upstreamKey.Group.Platform)
+			}
+		}
+		out = append(out, UpstreamKey{
+			UpstreamConfigID:  cfg.ID,
+			Name:              name,
+			Key:               key,
+			KeyHash:           HashUpstreamKey(key),
+			RemoteKeyID:       &upstreamKey.ID,
+			UpstreamGroupID:   groupID,
+			UpstreamGroupName: groupName,
+			Platform:          platform,
+			RateMultiplier:    &rate,
+			Status:            StatusActive,
+			LastSeenAt:        &now,
+		})
+	}
+	return out, refreshed, nil
+}
+
+func normalizeUpstreamDisplayName(value string, maxRunes int) string {
+	value = strings.TrimSpace(value)
+	if value == "" || maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes])
+}
+
+func sanitizeStandaloneSub2APIError(err error, credentials map[string]any) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	for _, key := range []string{
+		AccountCredentialSub2APILoginPassword,
+		AccountCredentialSub2APIAccessToken,
+		AccountCredentialSub2APIRefreshToken,
+	} {
+		value := strings.TrimSpace(stringCredential(credentials, key))
+		if value != "" {
+			text = strings.ReplaceAll(text, value, "[REDACTED]")
+		}
+	}
+	return logredact.RedactText(text, "api_key", "jwt", "authorization")
 }
 
 func (s *Sub2APIUpstreamRateSyncService) fetchSessionWithToken(ctx context.Context, client *http.Client, rootURL, token string) (*sub2APIUserLoginSession, error) {
@@ -432,6 +579,12 @@ func (s *Sub2APIUpstreamRateSyncService) saveRefreshedSub2APITokens(ctx context.
 	}
 	if strings.TrimSpace(tokens.AccessToken) == "" || strings.TrimSpace(tokens.RefreshToken) == "" {
 		return fmt.Errorf("save refreshed sub2api token: missing token")
+	}
+	if account.UpstreamConfigID != nil {
+		if s.upstreamConfigRepo == nil {
+			return fmt.Errorf("save refreshed sub2api token: missing upstream config repository")
+		}
+		return s.upstreamConfigRepo.SaveRefreshedTokens(ctx, *account.UpstreamConfigID, strings.TrimSpace(tokens.AccessToken), strings.TrimSpace(tokens.RefreshToken))
 	}
 	credentialUpdates := map[string]any{
 		AccountCredentialSub2APIAccessToken:  strings.TrimSpace(tokens.AccessToken),
@@ -599,16 +752,27 @@ func resolveSub2APIEffectiveRate(apiKey string, session *sub2APIUserLoginSession
 	}
 
 	key := matches[0]
-	if key.GroupID == nil || key.Group == nil {
+	groupID := effectiveSub2APIGroupID(key)
+	if groupID == nil || key.Group == nil {
 		return 0, "", fmt.Errorf("matched api key is not bound to a group")
 	}
 	multiplier := key.Group.RateMultiplier
 	if session.rates != nil {
-		if userRate, ok := session.rates[*key.GroupID]; ok {
+		if userRate, ok := session.rates[*groupID]; ok {
 			multiplier = userRate
 		}
 	}
 	return multiplier, key.Group.Platform, nil
+}
+
+func effectiveSub2APIGroupID(key sub2APIUpstreamKey) *int64 {
+	if key.GroupID != nil {
+		return key.GroupID
+	}
+	if key.Group != nil && key.Group.ID > 0 {
+		return &key.Group.ID
+	}
+	return nil
 }
 
 func (s *Sub2APIUpstreamRateSyncService) recordSyncError(ctx context.Context, account *Account, err error) error {

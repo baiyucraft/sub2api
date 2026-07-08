@@ -333,6 +333,30 @@ func (f TLSFingerprintProfileFunc) Mutate(ctx context.Context, m ent.Mutation) (
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.TLSFingerprintProfileMutation", m)
 }
 
+// The UpstreamConfigFunc type is an adapter to allow the use of ordinary
+// function as UpstreamConfig mutator.
+type UpstreamConfigFunc func(context.Context, *ent.UpstreamConfigMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f UpstreamConfigFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.UpstreamConfigMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamConfigMutation", m)
+}
+
+// The UpstreamKeyFunc type is an adapter to allow the use of ordinary
+// function as UpstreamKey mutator.
+type UpstreamKeyFunc func(context.Context, *ent.UpstreamKeyMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f UpstreamKeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.UpstreamKeyMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamKeyMutation", m)
+}
+
 // The UsageCleanupTaskFunc type is an adapter to allow the use of ordinary
 // function as UsageCleanupTask mutator.
 type UsageCleanupTaskFunc func(context.Context, *ent.UsageCleanupTaskMutation) (ent.Value, error)
