@@ -1,5 +1,6 @@
 docs/claude-relay-service/
 .codex
+.playwright-cli/
 
 # ===================
 # Go 后端
