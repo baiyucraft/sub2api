@@ -11,6 +11,8 @@ export interface OnboardingOptions {
   autoStart?: boolean
 }
 
+export const ONBOARDING_TOUR_DISABLED = true
+
 export function useOnboardingTour(options: OnboardingOptions) {
   const { t } = useI18n()
   const userStore = useUserStore()
@@ -57,6 +59,26 @@ export function useOnboardingTour(options: OnboardingOptions) {
   let autoStartTimer: ReturnType<typeof setTimeout> | null = null
   let globalKeyboardHandler: ((e: KeyboardEvent) => void) | null = null
 
+  const disableOnboardingTour = () => {
+    if (autoStartTimer) {
+      clearTimeout(autoStartTimer)
+      autoStartTimer = null
+    }
+    cleanupClickListener()
+    if (globalKeyboardHandler) {
+      document.removeEventListener('keydown', globalKeyboardHandler, { capture: true })
+      globalKeyboardHandler = null
+    }
+    const existingDriver = driverInstance ?? onboardingStore.getDriverInstance()
+    if (existingDriver) {
+      existingDriver.destroy()
+    }
+    driverInstance = null
+    onboardingStore.setDriverInstance(null)
+    onboardingStore.clearControlMethods()
+    onboardingStore.setReplayCallback(null)
+  }
+
   const getStorageKey = () => {
     const baseKey = options.storageKey ?? 'onboarding_tour'
     const userId = userStore.user?.id ?? 'guest'
@@ -92,6 +114,11 @@ export function useOnboardingTour(options: OnboardingOptions) {
   }
 
   const startTour = async (startIndex = 0) => {
+    if (ONBOARDING_TOUR_DISABLED) {
+      disableOnboardingTour()
+      return
+    }
+
     // 动态获取当前用户角色和步骤
     const isAdmin = userStore.user?.role === 'admin'
     const isSimpleMode = userStore.isSimpleMode
@@ -516,11 +543,21 @@ export function useOnboardingTour(options: OnboardingOptions) {
   }
 
   const replayTour = () => {
+    if (ONBOARDING_TOUR_DISABLED) {
+      disableOnboardingTour()
+      return
+    }
+
     clearSeen()
     void startTour()
   }
 
   onMounted(async () => {
+    if (ONBOARDING_TOUR_DISABLED) {
+      disableOnboardingTour()
+      return
+    }
+
     onboardingStore.setControlMethods({
       nextStep,
       isCurrentStep
