@@ -309,7 +309,7 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('$0.174')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.usedQuota:{"amount":"$9.826","total":"$10.00"}')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.usedQuota:{"amount":"$9.826"}')
     expect(wrapper.text()).not.toContain('-4,826,010')
     expect(wrapper.text()).not.toContain('admin.upstreamConfigs.balance.totalRecharged')
   })
