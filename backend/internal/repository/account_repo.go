@@ -685,6 +685,12 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 	}
 
 	if sortOrder == pagination.SortOrderDesc {
+		if sortBy == "last_used_at" {
+			return []func(*entsql.Selector){
+				entsql.OrderByField(field, entsql.OrderDesc(), entsql.OrderNullsLast()).ToFunc(),
+				dbent.Desc(dbaccount.FieldID),
+			}
+		}
 		return []func(*entsql.Selector){dbent.Desc(field), dbent.Desc(dbaccount.FieldID)}
 	}
 	if defaultOrder {
