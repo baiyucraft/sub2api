@@ -1449,12 +1449,19 @@
           <input v-model.number="form.concurrency" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
         </div>
-        <div>
+        <div v-if="!isUpstreamBoundAccount">
           <label class="input-label">{{ t('admin.accounts.loadFactor') }}</label>
           <input v-model.number="form.load_factor" type="number" min="1"
             class="input" :placeholder="String(form.concurrency || 1)"
             @input="form.load_factor = (form.load_factor &amp;&amp; form.load_factor >= 1) ? form.load_factor : null" />
           <p class="input-hint">{{ t('admin.accounts.loadFactorHint') }}</p>
+        </div>
+        <div v-else>
+          <label class="input-label">{{ t('admin.accounts.loadFactor') }}</label>
+          <div class="input flex items-center text-sm text-gray-600 dark:text-dark-300">
+            {{ t('admin.accounts.upstreamAutoLoadFactor') }}
+          </div>
+          <p class="input-hint">{{ t('admin.accounts.upstreamAutoLoadFactorHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.priority') }}</label>

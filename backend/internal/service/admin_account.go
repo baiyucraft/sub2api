@@ -138,12 +138,13 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 		account.RateMultiplier = input.RateMultiplier
 	}
-	if input.LoadFactor != nil && *input.LoadFactor > 0 {
+	if input.LoadFactor != nil && !account.IsUpstreamBound() && *input.LoadFactor > 0 {
 		if *input.LoadFactor > 10000 {
 			return nil, errors.New("load_factor must be <= 10000")
 		}
 		account.LoadFactor = input.LoadFactor
 	}
+	account.ApplyUpstreamAutoLoadFactor()
 	if err := validateAndNormalizeSub2APIUpstreamCredentials(account); err != nil {
 		return nil, err
 	}
@@ -315,7 +316,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		account.RateMultiplier = input.RateMultiplier
 	}
-	if input.LoadFactor != nil {
+	if input.LoadFactor != nil && !account.IsUpstreamBound() {
 		if *input.LoadFactor <= 0 {
 			account.LoadFactor = nil // 0 或负数表示清除
 		} else if *input.LoadFactor > 10000 {
@@ -324,6 +325,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			account.LoadFactor = input.LoadFactor
 		}
 	}
+	account.ApplyUpstreamAutoLoadFactor()
 	if input.Status != "" {
 		account.Status = input.Status
 	}
@@ -423,12 +425,22 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck {
+	loadCachedTargets := func() error {
+		if cachedTargets != nil {
+			return nil
+		}
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		cachedTargets = loaded
+		return nil
+	}
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck ||
+		input.Concurrency != nil || input.Priority != nil || input.LoadFactor != nil {
+		if err := loadCachedTargets(); err != nil {
+			return nil, err
+		}
 	}
 
 	// 影子账号绝不持有凭据:批量更新携带凭据时,目标中不得含影子(外审 G5,与单账号
@@ -513,12 +525,21 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		repoUpdates.RateMultiplier = input.RateMultiplier
 	}
 	if input.LoadFactor != nil {
-		if *input.LoadFactor <= 0 {
-			repoUpdates.LoadFactor = nil // 0 或负数表示清除
-		} else if *input.LoadFactor > 10000 {
-			return nil, errors.New("load_factor must be <= 10000")
-		} else {
-			repoUpdates.LoadFactor = input.LoadFactor
+		hasOrdinaryTarget := false
+		for _, acc := range cachedTargets {
+			if acc != nil && !acc.IsUpstreamBound() {
+				hasOrdinaryTarget = true
+				break
+			}
+		}
+		if hasOrdinaryTarget {
+			if *input.LoadFactor <= 0 {
+				repoUpdates.LoadFactor = nil // 0 或负数表示清除
+			} else if *input.LoadFactor > 10000 {
+				return nil, errors.New("load_factor must be <= 10000")
+			} else {
+				repoUpdates.LoadFactor = input.LoadFactor
+			}
 		}
 	}
 	if input.Status != "" {
@@ -531,6 +552,26 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// Run bulk update for column/jsonb fields first.
 	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
 		return nil, err
+	}
+
+	if input.Concurrency != nil || input.Priority != nil || input.LoadFactor != nil {
+		for _, acc := range cachedTargets {
+			if acc == nil || !acc.IsUpstreamBound() {
+				continue
+			}
+			priority := acc.Priority
+			if input.Priority != nil {
+				priority = *input.Priority
+			}
+			concurrency := acc.Concurrency
+			if input.Concurrency != nil {
+				concurrency = *input.Concurrency
+			}
+			loadFactor := AutoUpstreamLoadFactor(priority, concurrency)
+			if _, err := s.accountRepo.BulkUpdate(ctx, []int64{acc.ID}, AccountBulkUpdate{LoadFactor: &loadFactor}); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// 将 proxy 变更传播到每个目标账号的 spark 影子账号

@@ -799,9 +799,11 @@ func (s *Sub2APIUpstreamRateSyncService) syncTargetWithSession(ctx context.Conte
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	priority := Sub2APIUpstreamPriority(multiplier)
+	loadFactor := AutoUpstreamLoadFactor(priority, target.account.Concurrency)
 	_, err = s.accountRepo.BulkUpdate(ctx, []int64{target.account.ID}, AccountBulkUpdate{
 		RateMultiplier: &multiplier,
 		Priority:       &priority,
+		LoadFactor:     &loadFactor,
 		Extra: map[string]any{
 			"sub2api_rate_sync_last_success_at": now,
 			"sub2api_rate_sync_last_error":      "",

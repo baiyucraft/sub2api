@@ -181,6 +181,8 @@ func TestSub2APIUpstreamRateSync_RunOnceUsesUserLoginAndReusesSession(t *testing
 		require.InDelta(t, 0.065, *update.updates.RateMultiplier, 1e-12)
 		require.NotNil(t, update.updates.Priority)
 		require.Equal(t, 7, *update.updates.Priority)
+		require.NotNil(t, update.updates.LoadFactor)
+		require.Equal(t, 150, *update.updates.LoadFactor)
 		require.Equal(t, "openai", update.updates.Extra["sub2api_upstream_platform"])
 		require.Empty(t, update.updates.Extra["sub2api_rate_sync_last_error"])
 	}
@@ -263,6 +265,7 @@ func TestSub2APIUpstreamRateSync_KeysFallback(t *testing.T) {
 	require.Len(t, repo.bulkUpdates, 1)
 	require.InDelta(t, 0.1, *repo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.Equal(t, 10, *repo.bulkUpdates[0].updates.Priority)
+	require.Equal(t, 150, *repo.bulkUpdates[0].updates.LoadFactor)
 }
 
 func TestSub2APIUpstreamRateSync_ManualJWTSkipsLogin(t *testing.T) {
@@ -295,6 +298,7 @@ func TestSub2APIUpstreamRateSync_ManualJWTSkipsLogin(t *testing.T) {
 	require.Len(t, repo.bulkUpdates, 1)
 	require.InDelta(t, 0.12, *repo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.Equal(t, 12, *repo.bulkUpdates[0].updates.Priority)
+	require.Equal(t, 100, *repo.bulkUpdates[0].updates.LoadFactor)
 }
 
 func TestSub2APIUpstreamRateSync_ManualJWTRefreshesExpiredTokenAndRetries(t *testing.T) {
@@ -348,6 +352,7 @@ func TestSub2APIUpstreamRateSync_ManualJWTRefreshesExpiredTokenAndRetries(t *tes
 	rateUpdate := repo.bulkUpdates[1]
 	require.InDelta(t, 0.07, *rateUpdate.updates.RateMultiplier, 1e-12)
 	require.Equal(t, 7, *rateUpdate.updates.Priority)
+	require.Equal(t, 150, *rateUpdate.updates.LoadFactor)
 	require.Empty(t, repo.extraUpdates)
 }
 
@@ -787,8 +792,9 @@ func TestAPIKeyServiceResolveEffectiveRateMultiplier(t *testing.T) {
 
 func newSub2APIRateSyncAccount(id int64, baseURL, apiKey string) Account {
 	return Account{
-		ID:   id,
-		Type: AccountTypeAPIKey,
+		ID:          id,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 100,
 		Credentials: map[string]any{
 			"base_url":                            baseURL,
 			"api_key":                             apiKey,
@@ -857,8 +863,9 @@ func TestSyncSub2APIUpstreamKeysPreservesNamesAndGroupMetadata(t *testing.T) {
 
 func newSub2APIManualJWTRateSyncAccount(id int64, baseURL, apiKey, token string) Account {
 	return Account{
-		ID:   id,
-		Type: AccountTypeAPIKey,
+		ID:          id,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 100,
 		Credentials: map[string]any{
 			"base_url":                          baseURL,
 			"api_key":                           apiKey,

@@ -918,6 +918,26 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		}
 		return buildOpenAIWeightedSelectionOrder(ranked, req)
 	}
+	buildPriorityAwareSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+		if len(pool) == 0 {
+			return nil
+		}
+		orderedPool := append([]openAIAccountCandidateScore(nil), pool...)
+		sort.SliceStable(orderedPool, func(i, j int) bool {
+			return openAIAccountSchedulingPriority(orderedPool[i].account) < openAIAccountSchedulingPriority(orderedPool[j].account)
+		})
+		selectionOrder := make([]openAIAccountCandidateScore, 0, len(orderedPool))
+		for start := 0; start < len(orderedPool); {
+			priority := openAIAccountSchedulingPriority(orderedPool[start].account)
+			end := start + 1
+			for end < len(orderedPool) && openAIAccountSchedulingPriority(orderedPool[end].account) == priority {
+				end++
+			}
+			selectionOrder = append(selectionOrder, buildSelectionOrder(orderedPool[start:end])...)
+			start = end
+		}
+		return selectionOrder
+	}
 
 	if req.RequireCompact {
 		supported := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
@@ -931,15 +951,15 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			}
 		}
 		selectionOrder := make([]openAIAccountCandidateScore, 0, len(plan.allCandidates))
-		selectionOrder = append(selectionOrder, buildSelectionOrder(supported)...)
-		selectionOrder = append(selectionOrder, buildSelectionOrder(unknown)...)
+		selectionOrder = append(selectionOrder, buildPriorityAwareSelectionOrder(supported)...)
+		selectionOrder = append(selectionOrder, buildPriorityAwareSelectionOrder(unknown)...)
 		if len(plan.staleSnapshotCompactRetry) > 0 && s.service.schedulerSnapshot != nil {
 			selectionOrder = append(selectionOrder, sortOpenAICompactRetryCandidates(plan.staleSnapshotCompactRetry)...)
 		}
 		return selectionOrder
 	}
 
-	return buildSelectionOrder(plan.candidates)
+	return buildPriorityAwareSelectionOrder(plan.candidates)
 }
 
 func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {

@@ -16,6 +16,7 @@ type accountRepoStubForBulkUpdate struct {
 	accountRepoStub
 	bulkUpdateErr    error
 	bulkUpdateIDs    []int64
+	bulkUpdates      []sub2APIRateSyncBulkUpdate
 	bindGroupErrByID map[int64]error
 	bindGroupsCalls  []int64
 	getByIDsAccounts []*Account
@@ -42,8 +43,12 @@ type accountRepoStubForBulkUpdate struct {
 	}
 }
 
-func (s *accountRepoStubForBulkUpdate) BulkUpdate(_ context.Context, ids []int64, _ AccountBulkUpdate) (int64, error) {
+func (s *accountRepoStubForBulkUpdate) BulkUpdate(_ context.Context, ids []int64, updates AccountBulkUpdate) (int64, error) {
 	s.bulkUpdateIDs = append([]int64{}, ids...)
+	s.bulkUpdates = append(s.bulkUpdates, sub2APIRateSyncBulkUpdate{
+		ids:     append([]int64{}, ids...),
+		updates: updates,
+	})
 	if s.bulkUpdateErr != nil {
 		return 0, s.bulkUpdateErr
 	}
@@ -229,6 +234,38 @@ func TestAdminService_BulkUpdateAccounts_RejectsProxyChangeOnUpstreamBound(t *te
 	require.Contains(t, err.Error(), "UPSTREAM_ACCOUNT_PROXY_INHERITED")
 	require.True(t, repo.getByIDsCalled)
 	require.Empty(t, repo.bulkUpdateIDs)
+}
+
+func TestAdminService_BulkUpdateAccounts_AutoLoadFactorForUpstreamBoundOnly(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, Priority: 50, Concurrency: 10},
+			{ID: 2, Priority: 50, Concurrency: 10, UpstreamConfigID: &cfgID, UpstreamKeyID: &keyID},
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	priority := 7
+	concurrency := 100
+	loadFactor := 44
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs:  []int64{1, 2},
+		Priority:    &priority,
+		Concurrency: &concurrency,
+		LoadFactor:  &loadFactor,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 2, result.Success)
+	require.Len(t, repo.bulkUpdates, 2)
+	require.Equal(t, []int64{1, 2}, repo.bulkUpdates[0].ids)
+	require.NotNil(t, repo.bulkUpdates[0].updates.LoadFactor)
+	require.Equal(t, 44, *repo.bulkUpdates[0].updates.LoadFactor)
+	require.Equal(t, []int64{2}, repo.bulkUpdates[1].ids)
+	require.NotNil(t, repo.bulkUpdates[1].updates.LoadFactor)
+	require.Equal(t, 150, *repo.bulkUpdates[1].updates.LoadFactor)
 }
 
 func TestAdminServiceBulkUpdateAccounts_ResolvesIDsFromFilters(t *testing.T) {
