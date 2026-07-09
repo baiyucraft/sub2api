@@ -698,6 +698,8 @@ export default {
       concurrency: 'Concurrency',
       loadFactor: 'Load Factor',
       loadFactorHint: 'Higher load factor increases scheduling frequency',
+      upstreamAutoLoadFactor: 'Calculated from priority and concurrency',
+      upstreamAutoLoadFactorHint: 'Upstream-config accounts calculate load factor automatically after concurrency changes or rate sync',
       priority: 'Priority',
       priorityHint: 'Lower value accounts are used first',
       billingRateMultiplier: 'Billing Rate Multiplier',

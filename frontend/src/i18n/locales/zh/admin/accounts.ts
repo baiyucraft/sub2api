@@ -791,6 +791,8 @@ export default {
       concurrency: '并发数',
       loadFactor: '负载因子',
       loadFactorHint: '提高负载因子可以提高对账号的调度频率',
+      upstreamAutoLoadFactor: '按优先级和并发自动计算',
+      upstreamAutoLoadFactorHint: '上游配置账号无需手动填写负载因子；调整并发或同步倍率后会自动重算',
       priority: '优先级',
       priorityHint: '优先级越小的账号优先使用',
       billingRateMultiplier: '账号计费倍率',

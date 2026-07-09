@@ -237,6 +237,127 @@ func TestNormalizeUpstreamAccountUpdateClearsAccountProxy(t *testing.T) {
 	require.Nil(t, input.ProxyID)
 }
 
+func TestAdminServiceCreateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "NewAPI Main", UpstreamProviderNewAPI, StatusActive, "https://upstream.example.com")},
+		keys: []UpstreamKey{{
+			ID:               keyID,
+			UpstreamConfigID: cfgID,
+			Name:             "pro",
+			Platform:         PlatformOpenAI,
+			Key:              "sk-upstream",
+			KeyHash:          HashUpstreamKey("sk-upstream"),
+			Status:           StatusActive,
+		}},
+	}
+	svc := &adminServiceImpl{
+		accountRepo:        newAdminSub2APIRateSyncAccountRepo(),
+		upstreamConfigRepo: repo,
+	}
+	loadFactor := 999999
+
+	account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "upstream-bound",
+		Type:                 AccountTypeUpstream,
+		Platform:             PlatformOpenAI,
+		UpstreamConfigID:     &cfgID,
+		UpstreamKeyID:        &keyID,
+		Concurrency:          80,
+		Priority:             7,
+		LoadFactor:           &loadFactor,
+		SkipDefaultGroupBind: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, AccountTypeAPIKey, account.Type)
+	require.Equal(t, 80, account.Concurrency)
+	require.NotNil(t, account.LoadFactor)
+	require.Equal(t, 120, *account.LoadFactor)
+}
+
+func TestAdminServiceUpdateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "NewAPI Main", UpstreamProviderNewAPI, StatusActive, "https://upstream.example.com")},
+		keys: []UpstreamKey{{
+			ID:               keyID,
+			UpstreamConfigID: cfgID,
+			Name:             "pro",
+			Platform:         PlatformOpenAI,
+			Key:              "sk-upstream",
+			KeyHash:          HashUpstreamKey("sk-upstream"),
+			Status:           StatusActive,
+		}},
+	}
+	staleLoadFactor := 999
+	accountID := int64(101)
+	accountRepo := newAdminSub2APIRateSyncAccountRepo(&Account{
+		ID:               accountID,
+		Name:             "upstream-bound",
+		Type:             AccountTypeAPIKey,
+		Platform:         PlatformOpenAI,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &keyID,
+		Concurrency:      10,
+		Priority:         50,
+		LoadFactor:       &staleLoadFactor,
+		Extra:            map[string]any{AccountUpstreamProviderKey: UpstreamProviderNewAPI},
+	})
+	svc := &adminServiceImpl{accountRepo: accountRepo, upstreamConfigRepo: repo}
+	priority := 21
+	concurrency := 40
+	incomingLoadFactor := 999999
+
+	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		Priority:    &priority,
+		Concurrency: &concurrency,
+		LoadFactor:  &incomingLoadFactor,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 40, updated.Concurrency)
+	require.Equal(t, 21, updated.Priority)
+	require.NotNil(t, updated.LoadFactor)
+	require.Equal(t, 30, *updated.LoadFactor)
+}
+
+func TestAdminServiceUpdateUnboundAccountUsesOrdinaryLoadFactor(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	accountID := int64(101)
+	staleLoadFactor := 150
+	accountRepo := newAdminSub2APIRateSyncAccountRepo(&Account{
+		ID:               accountID,
+		Name:             "upstream-bound",
+		Type:             AccountTypeAPIKey,
+		Platform:         PlatformOpenAI,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &keyID,
+		Concurrency:      100,
+		Priority:         7,
+		LoadFactor:       &staleLoadFactor,
+		Extra:            map[string]any{AccountUpstreamProviderKey: UpstreamProviderNewAPI},
+	})
+	svc := &adminServiceImpl{accountRepo: accountRepo}
+	zero := int64(0)
+	ordinaryLoadFactor := 33
+
+	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		UpstreamConfigID: &zero,
+		UpstreamKeyID:    &zero,
+		LoadFactor:       &ordinaryLoadFactor,
+	})
+
+	require.NoError(t, err)
+	require.Nil(t, updated.UpstreamConfigID)
+	require.Nil(t, updated.UpstreamKeyID)
+	require.NotNil(t, updated.LoadFactor)
+	require.Equal(t, 33, *updated.LoadFactor)
+}
+
 func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -285,6 +406,7 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 		Status:           StatusActive,
 		UpstreamConfigID: &configID,
 		UpstreamKeyID:    &keyID,
+		Concurrency:      100,
 	}}}
 	svc := NewUpstreamConfigService(repo, nil, accountRepo)
 
@@ -303,6 +425,8 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	require.InDelta(t, 0.065, *accountRepo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.NotNil(t, accountRepo.bulkUpdates[0].updates.Priority)
 	require.Equal(t, 7, *accountRepo.bulkUpdates[0].updates.Priority)
+	require.NotNil(t, accountRepo.bulkUpdates[0].updates.LoadFactor)
+	require.Equal(t, 150, *accountRepo.bulkUpdates[0].updates.LoadFactor)
 	require.Equal(t, "Plus Group", accountRepo.bulkUpdates[0].updates.Extra["sub2api_upstream_group_name"])
 	require.Len(t, repo.checks, 1)
 	require.True(t, repo.checks[0].success)
@@ -536,6 +660,7 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 		Status:           StatusActive,
 		UpstreamConfigID: &configID,
 		UpstreamKeyID:    &keyID,
+		Concurrency:      100,
 	}}}
 	svc := NewUpstreamConfigService(repo, nil, accountRepo)
 
@@ -558,6 +683,8 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 	require.Len(t, accountRepo.bulkUpdates, 1)
 	require.InDelta(t, 0.06, *accountRepo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.Equal(t, 6, *accountRepo.bulkUpdates[0].updates.Priority)
+	require.NotNil(t, accountRepo.bulkUpdates[0].updates.LoadFactor)
+	require.Equal(t, 150, *accountRepo.bulkUpdates[0].updates.LoadFactor)
 	require.Len(t, repo.extraUpdates, 1)
 	snapshot, ok := repo.extraUpdates[0].updates["upstream_provider_snapshot"].(map[string]any)
 	require.True(t, ok)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"log/slog"
+	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -197,6 +198,44 @@ func (a *Account) EffectiveLoadFactor() int {
 		return a.Concurrency
 	}
 	return 1
+}
+
+func AutoUpstreamLoadFactor(priority, concurrency int) int {
+	base := concurrency
+	if base < 1 {
+		base = 1
+	}
+
+	multiplier := 0.5
+	switch {
+	case priority <= 5:
+		multiplier = 2.0
+	case priority <= 10:
+		multiplier = 1.5
+	case priority <= 20:
+		multiplier = 1.0
+	case priority <= 50:
+		multiplier = 0.75
+	}
+
+	value := int(math.Round(float64(base) * multiplier))
+	if value < 1 {
+		return 1
+	}
+	maxValue := base * 2
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func (a *Account) ApplyUpstreamAutoLoadFactor() bool {
+	if a == nil || !a.IsUpstreamBound() {
+		return false
+	}
+	loadFactor := AutoUpstreamLoadFactor(a.Priority, a.Concurrency)
+	a.LoadFactor = &loadFactor
+	return true
 }
 
 func (a *Account) IsSchedulable() bool {

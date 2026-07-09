@@ -447,6 +447,7 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, cfg *
 			continue
 		}
 		priority := Sub2APIUpstreamPriority(multiplier)
+		loadFactor := AutoUpstreamLoadFactor(priority, account.Concurrency)
 		extra := map[string]any{
 			"upstream_rate_sync_last_success_at": now,
 			"upstream_rate_sync_last_error":      "",
@@ -475,6 +476,7 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, cfg *
 		if _, err := s.accountRepo.BulkUpdate(ctx, []int64{account.ID}, AccountBulkUpdate{
 			RateMultiplier: &multiplier,
 			Priority:       &priority,
+			LoadFactor:     &loadFactor,
 			Extra:          extra,
 		}); err != nil {
 			return updated, fmt.Errorf("update bound account %d rate: %w", account.ID, err)
