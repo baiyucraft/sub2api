@@ -76,6 +76,7 @@ func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, in
 	}
 	input.Extra[AccountUpstreamProviderKey] = cfg.Provider
 	input.Extra[AccountSub2APIRateSyncAdapterKey] = cfg.AuthMode
+	input.ProxyID = nil
 	return nil
 }
 
@@ -135,6 +136,9 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 		input.Extra[AccountUpstreamProviderKey] = cfg.Provider
 		input.Extra[AccountSub2APIRateSyncAdapterKey] = cfg.AuthMode
 	}
+	account.ProxyID = nil
+	account.Proxy = nil
+	input.ProxyID = nil
 	return nil
 }
 

@@ -73,6 +73,19 @@ func (r *upstreamConfigServiceRepo) GetByID(ctx context.Context, id int64) (*Ups
 	return nil, ErrUpstreamConfigNotFound
 }
 
+func (r *upstreamConfigServiceRepo) GetKeyByID(ctx context.Context, id int64) (*UpstreamKey, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, key := range r.keys {
+		if key.ID == id {
+			out := cloneUpstreamKey(key)
+			return &out, nil
+		}
+	}
+	return nil, ErrUpstreamKeyNotFound
+}
+
 func (r *upstreamConfigServiceRepo) ListKeys(ctx context.Context, upstreamConfigID int64) ([]UpstreamKey, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -149,6 +162,72 @@ func (r *upstreamConfigServiceRepo) UpdateExtra(ctx context.Context, id int64, u
 		}
 	}
 	return nil
+}
+
+func TestNormalizeUpstreamAccountInputClearsAccountProxy(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	proxyID := int64(30)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "Sub2API Main", UpstreamProviderSub2API, StatusActive, "https://upstream.example.com")},
+		keys: []UpstreamKey{{
+			ID:               keyID,
+			UpstreamConfigID: cfgID,
+			Name:             "pro",
+			Platform:         PlatformOpenAI,
+			Key:              "sk-upstream",
+			KeyHash:          HashUpstreamKey("sk-upstream"),
+			Status:           StatusActive,
+		}},
+	}
+	svc := &adminServiceImpl{upstreamConfigRepo: repo}
+	input := &CreateAccountInput{
+		Type:             AccountTypeUpstream,
+		Platform:         PlatformOpenAI,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &keyID,
+		ProxyID:          &proxyID,
+	}
+
+	require.NoError(t, svc.normalizeUpstreamAccountInput(context.Background(), input))
+	require.Equal(t, AccountTypeAPIKey, input.Type)
+	require.Nil(t, input.ProxyID)
+	require.Equal(t, UpstreamProviderSub2API, input.Extra[AccountUpstreamProviderKey])
+}
+
+func TestNormalizeUpstreamAccountUpdateClearsAccountProxy(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	oldProxyID := int64(30)
+	newProxyID := int64(40)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "Sub2API Main", UpstreamProviderSub2API, StatusActive, "https://upstream.example.com")},
+		keys: []UpstreamKey{{
+			ID:               keyID,
+			UpstreamConfigID: cfgID,
+			Name:             "pro",
+			Platform:         PlatformOpenAI,
+			Key:              "sk-upstream",
+			KeyHash:          HashUpstreamKey("sk-upstream"),
+			Status:           StatusActive,
+		}},
+	}
+	svc := &adminServiceImpl{upstreamConfigRepo: repo}
+	account := &Account{
+		ID:               1,
+		Type:             AccountTypeAPIKey,
+		Platform:         PlatformOpenAI,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &keyID,
+		ProxyID:          &oldProxyID,
+		Proxy:            &Proxy{ID: oldProxyID, Name: "dirty-account-proxy"},
+	}
+	input := &UpdateAccountInput{ProxyID: &newProxyID}
+
+	require.NoError(t, svc.normalizeUpstreamAccountUpdate(context.Background(), account, input))
+	require.Nil(t, account.ProxyID)
+	require.Nil(t, account.Proxy)
+	require.Nil(t, input.ProxyID)
 }
 
 func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *testing.T) {

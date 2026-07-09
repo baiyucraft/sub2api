@@ -1435,7 +1435,7 @@
         </div>
       </div>
 
-      <div v-if="!isSparkShadow">
+      <div v-if="!isSparkShadow && !isUpstreamBoundAccount">
         <div class="mb-1 flex items-center gap-2">
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />
@@ -4045,6 +4045,7 @@ const handleSubmit = async () => {
       updatePayload.type = 'upstream'
       updatePayload.upstream_config_id = editUpstreamConfigId.value
       updatePayload.upstream_key_id = editUpstreamKeyId.value
+      updatePayload.proxy_id = 0
     }
 
     // For apikey type, handle credentials update

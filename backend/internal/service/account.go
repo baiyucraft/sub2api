@@ -117,6 +117,10 @@ func (a *Account) IsSub2APIUpstream() bool {
 	return a != nil && a.Type == AccountTypeAPIKey && a.UpstreamProvider() == AccountUpstreamProviderSub2API
 }
 
+func (a *Account) IsUpstreamBound() bool {
+	return a != nil && (a.UpstreamConfigID != nil || a.UpstreamKeyID != nil)
+}
+
 func (a *Account) Sub2APIRateSyncAdapter() string {
 	if a == nil || a.Extra == nil {
 		return AccountSub2APIRateSyncAdapterUserLogin
