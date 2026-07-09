@@ -208,6 +208,29 @@ func TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingCon
 	require.Empty(t, repo.bindGroupsCalls)
 }
 
+func TestAdminService_BulkUpdateAccounts_RejectsProxyChangeOnUpstreamBound(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	proxyID := int64(30)
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, UpstreamConfigID: &cfgID, UpstreamKeyID: &keyID},
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs: []int64{1},
+		ProxyID:    &proxyID,
+	})
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "UPSTREAM_ACCOUNT_PROXY_INHERITED")
+	require.True(t, repo.getByIDsCalled)
+	require.Empty(t, repo.bulkUpdateIDs)
+}
+
 func TestAdminServiceBulkUpdateAccounts_ResolvesIDsFromFilters(t *testing.T) {
 	repo := &accountRepoStubForBulkUpdate{
 		listData: []Account{

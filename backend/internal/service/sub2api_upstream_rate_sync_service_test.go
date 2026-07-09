@@ -703,13 +703,13 @@ func TestSub2APIUpstreamRateSync_HiddenKeyFailsWithoutSecretInError(t *testing.T
 
 func TestSub2APIUpstreamRateSync_DuplicateKeyFails(t *testing.T) {
 	session := &sub2APIUserLoginSession{keys: []sub2APIUpstreamKey{
-		{Key: "sk-same", GroupID: ptrInt64(1), Group: &struct {
+		{Key: "sk-same", GroupID: ptrSub2APITestInt64(1), Group: &struct {
 			ID             int64   `json:"id"`
 			Name           string  `json:"name"`
 			Platform       string  `json:"platform"`
 			RateMultiplier float64 `json:"rate_multiplier"`
 		}{ID: 1, Platform: "openai", RateMultiplier: 0.1}},
-		{Key: "sk-same", GroupID: ptrInt64(1), Group: &struct {
+		{Key: "sk-same", GroupID: ptrSub2APITestInt64(1), Group: &struct {
 			ID             int64   `json:"id"`
 			Name           string  `json:"name"`
 			Platform       string  `json:"platform"`
@@ -933,7 +933,7 @@ func ptrAccount(account Account) *Account {
 	return &account
 }
 
-func ptrInt64(v int64) *int64 {
+func ptrSub2APITestInt64(v int64) *int64 {
 	return &v
 }
 

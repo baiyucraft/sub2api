@@ -2793,7 +2793,7 @@
         </div>
       </div>
 
-      <div>
+      <div v-if="accountCategory !== 'upstream_config'">
         <div class="mb-1 flex items-center gap-2">
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />

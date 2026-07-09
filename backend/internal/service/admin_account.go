@@ -451,6 +451,10 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 				return nil, infraerrors.Newf(http.StatusBadRequest, "SPARK_SHADOW_PROXY_INHERITED",
 					"spark shadow account %d proxy is inherited from its parent and cannot be set in bulk; manage it on the parent account", acc.ID)
 			}
+			if acc != nil && acc.IsUpstreamBound() {
+				return nil, infraerrors.Newf(http.StatusBadRequest, "UPSTREAM_ACCOUNT_PROXY_INHERITED",
+					"upstream-bound account %d proxy is inherited from upstream config and cannot be set in bulk; manage it on the upstream config", acc.ID)
+			}
 		}
 	}
 

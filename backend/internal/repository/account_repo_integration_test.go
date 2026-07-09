@@ -798,6 +798,85 @@ func (s *AccountRepoSuite) TestGetByIDsHydratesUpstreamBoundCredentials() {
 	s.Require().Equal(upstreamKey, gotByIDs[0].GetCredential("api_key"))
 }
 
+func (s *AccountRepoSuite) TestUpstreamBoundAccountProxyOnlyComesFromUpstreamConfig() {
+	dirtyProxy := mustCreateProxy(s.T(), s.client, &service.Proxy{Name: "dirty-account-proxy"})
+	cfgProxy := mustCreateProxy(s.T(), s.client, &service.Proxy{Name: "upstream-config-proxy"})
+
+	cfgNoProxy := s.client.UpstreamConfig.Create().
+		SetName("repo-upstream-no-proxy").
+		SetProvider(service.UpstreamProviderSub2API).
+		SetBaseURL("https://upstream-no-proxy.example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetCredentials(map[string]any{"access_token": "jwt"}).
+		SetStatus(service.StatusActive).
+		SaveX(s.ctx)
+	cfgWithProxy := s.client.UpstreamConfig.Create().
+		SetName("repo-upstream-with-proxy").
+		SetProvider(service.UpstreamProviderSub2API).
+		SetBaseURL("https://upstream-with-proxy.example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetCredentials(map[string]any{"access_token": "jwt"}).
+		SetProxyID(cfgProxy.ID).
+		SetStatus(service.StatusActive).
+		SaveX(s.ctx)
+
+	upstreamKeyNoProxy := "sk-upstream-no-proxy"
+	keyNoProxy := s.client.UpstreamKey.Create().
+		SetUpstreamConfigID(cfgNoProxy.ID).
+		SetName("no-proxy").
+		SetKey(upstreamKeyNoProxy).
+		SetKeyHash(service.HashUpstreamKey(upstreamKeyNoProxy)).
+		SetPlatform(service.PlatformOpenAI).
+		SetStatus(service.StatusActive).
+		SaveX(s.ctx)
+	upstreamKeyWithProxy := "sk-upstream-with-proxy"
+	keyWithProxy := s.client.UpstreamKey.Create().
+		SetUpstreamConfigID(cfgWithProxy.ID).
+		SetName("with-proxy").
+		SetKey(upstreamKeyWithProxy).
+		SetKeyHash(service.HashUpstreamKey(upstreamKeyWithProxy)).
+		SetPlatform(service.PlatformOpenAI).
+		SetStatus(service.StatusActive).
+		SaveX(s.ctx)
+
+	accountNoProxy := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:        "upstream-bound-dirty-no-proxy",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Credentials: map[string]any{},
+		ProxyID:     &dirtyProxy.ID,
+	})
+	accountWithProxy := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:        "upstream-bound-dirty-with-proxy",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Credentials: map[string]any{},
+		ProxyID:     &dirtyProxy.ID,
+	})
+	s.client.Account.UpdateOneID(accountNoProxy.ID).
+		SetUpstreamConfigID(cfgNoProxy.ID).
+		SetUpstreamKeyID(keyNoProxy.ID).
+		SaveX(s.ctx)
+	s.client.Account.UpdateOneID(accountWithProxy.ID).
+		SetUpstreamConfigID(cfgWithProxy.ID).
+		SetUpstreamKeyID(keyWithProxy.ID).
+		SaveX(s.ctx)
+
+	gotNoProxy, err := s.repo.GetByID(s.ctx, accountNoProxy.ID)
+	s.Require().NoError(err)
+	s.Require().Nil(gotNoProxy.ProxyID)
+	s.Require().Nil(gotNoProxy.Proxy)
+
+	gotWithProxy, err := s.repo.GetByID(s.ctx, accountWithProxy.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(gotWithProxy.ProxyID)
+	s.Require().Equal(cfgProxy.ID, *gotWithProxy.ProxyID)
+	s.Require().NotNil(gotWithProxy.Proxy)
+	s.Require().Equal(cfgProxy.ID, gotWithProxy.Proxy.ID)
+}
+
 func (s *AccountRepoSuite) TestSetTempUnschedulableSkipsOutboxWhenWindowDoesNotExtend() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-temp-noop"})
 	cacheRecorder := &schedulerCacheRecorder{}

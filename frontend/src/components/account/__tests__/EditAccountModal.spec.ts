@@ -156,6 +156,18 @@ const GroupSelectorStub = defineComponent({
   `
 })
 
+const ProxySelectorStub = defineComponent({
+  name: 'ProxySelector',
+  props: {
+    modelValue: {
+      type: Number,
+      default: null
+    }
+  },
+  emits: ['update:modelValue'],
+  template: '<div data-testid="proxy-selector" />'
+})
+
 function buildAccount() {
   return {
     id: 1,
@@ -307,7 +319,7 @@ function mountModal(account = buildAccount()) {
         BaseDialog: BaseDialogStub,
         Select: SelectStub,
         Icon: true,
-        ProxySelector: true,
+        ProxySelector: ProxySelectorStub,
         GroupSelector: GroupSelectorStub,
         ModelWhitelistSelector: ModelWhitelistSelectorStub
       }
@@ -383,8 +395,31 @@ describe('EditAccountModal', () => {
     expect(wrapper.text()).toContain('OpenAI upstream key')
     expect(wrapper.text()).toContain('plus')
     expect(wrapper.text()).toContain('0.06')
+    expect(wrapper.find('[data-testid="proxy-selector"]').exists()).toBe(false)
     expect(upstreamConfigsListMock).toHaveBeenCalledWith(1, 200, { status: 'active' })
     expect(upstreamConfigKeysListMock).toHaveBeenCalledWith(10)
+  })
+
+  it('clears account-level proxy when saving an upstream-bound account', async () => {
+    const account = buildAccount()
+    account.proxy_id = 7
+    account.upstream_config_id = 10
+    account.upstream_key_id = 20
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]).toMatchObject({
+      type: 'upstream',
+      upstream_config_id: 10,
+      upstream_key_id: 20,
+      proxy_id: 0
+    })
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
