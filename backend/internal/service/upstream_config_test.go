@@ -695,7 +695,8 @@ func TestUpstreamConfigService_NewAPIExtraUpdateFailureFailsSync(t *testing.T) {
 	require.False(t, repo.checks[0].success)
 }
 
-func TestUpstreamConfigService_NewAPISkipsMaskedKeys(t *testing.T) {
+func TestUpstreamConfigService_NewAPIResolvesMaskedKeys(t *testing.T) {
+	batchCalled := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -706,6 +707,9 @@ func TestUpstreamConfigService_NewAPISkipsMaskedKeys(t *testing.T) {
 			_, _ = w.Write([]byte(`{"success":true,"data":{"gptplus":{"ratio":0.06}}}`))
 		case "/api/token/":
 			_, _ = w.Write([]byte(`{"success":true,"data":{"page":1,"page_size":100,"total":3,"items":[{"id":1,"user_id":4798,"key":"sk-visible","status":1,"name":"visible","group":"gptplus"},{"id":2,"user_id":4798,"key":"sk-********","status":1,"name":"masked","group":"gptplus"},{"id":3,"user_id":4798,"key":"","status":1,"name":"empty","group":"gptplus"}]}}`))
+		case "/api/token/batch/keys":
+			batchCalled = true
+			_, _ = w.Write([]byte(`{"success":true,"data":{"keys":{"2":"sk-unmasked"}}}`))
 		case "/api/user/self":
 			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798,"email":"owner@example.com","quota":10,"used_quota":4}}`))
 		default:
@@ -733,10 +737,12 @@ func TestUpstreamConfigService_NewAPISkipsMaskedKeys(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, result.Success)
-	require.Equal(t, 1, result.KeyCount)
-	require.Len(t, keys, 1)
-	require.Len(t, repo.upserts, 1)
+	require.True(t, batchCalled)
+	require.Equal(t, 2, result.KeyCount)
+	require.Len(t, keys, 2)
+	require.Len(t, repo.upserts, 2)
 	require.Equal(t, "sk-visible", repo.upserts[0].Key)
+	require.Equal(t, "sk-unmasked", repo.upserts[1].Key)
 }
 
 func TestUpstreamConfigService_NewAPILoginRequiresUserID(t *testing.T) {
