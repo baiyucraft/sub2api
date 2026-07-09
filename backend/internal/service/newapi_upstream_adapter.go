@@ -24,6 +24,7 @@ const (
 	newAPITokenBatchKeysPath = "/api/token/batch/keys"
 	newAPIUserGroupsPath     = "/api/user/self/groups"
 	newAPIUserProfilePath    = "/api/user/self"
+	newAPIStatusPath         = "/api/status"
 	newAPIKeysPageSize       = 100
 	newAPIMaxKeyListPages    = 1000
 )
@@ -87,6 +88,14 @@ type newAPIUserProfile struct {
 	Quota        float64 `json:"quota"`
 	UsedQuota    float64 `json:"used_quota"`
 	RequestCount float64 `json:"request_count"`
+}
+
+type newAPIStatusData struct {
+	QuotaDisplayType           string  `json:"quota_display_type"`
+	QuotaPerUnit               float64 `json:"quota_per_unit"`
+	USDExchangeRate            float64 `json:"usd_exchange_rate"`
+	CustomCurrencySymbol       string  `json:"custom_currency_symbol"`
+	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
 }
 
 func (newAPIUpstreamProviderAdapter) Provider() string { return UpstreamProviderNewAPI }
@@ -190,7 +199,8 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	out := &upstreamProviderSnapshot{Keys: keys}
 	if includeProfile {
 		profile, profileErr := a.fetchProfile(ctx, session)
-		out.ExtraUpdates = newAPIProfileExtraUpdates(cfg, profile, profileErr)
+		status, statusErr := a.fetchStatus(ctx, session)
+		out.ExtraUpdates = newAPIProfileExtraUpdates(cfg, profile, profileErr, status, statusErr)
 	}
 	return out, nil
 }
@@ -382,6 +392,25 @@ func (a newAPIUpstreamProviderAdapter) fetchProfile(ctx context.Context, session
 	return &payload.Data, nil
 }
 
+func (a newAPIUpstreamProviderAdapter) fetchStatus(ctx context.Context, session *newAPISession) (*newAPIStatusData, error) {
+	endpoint, err := buildSub2APIURL(session.rootURL, newAPIStatusPath)
+	if err != nil {
+		return nil, err
+	}
+	var payload newAPIEnvelope[newAPIStatusData]
+	status, err := a.doJSON(ctx, session.client, http.MethodGet, endpoint, session.userID, nil, &payload)
+	if err != nil {
+		return nil, fmt.Errorf("newapi get status failed: %w", err)
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("newapi get status returned status %d", status)
+	}
+	if !payload.Success {
+		return nil, fmt.Errorf("newapi get status failed%s", safeNewAPIMessage(payload.Message))
+	}
+	return &payload.Data, nil
+}
+
 func (newAPIUpstreamProviderAdapter) doJSON(ctx context.Context, client *http.Client, method, endpoint string, userID int64, body any, out any) (int, error) {
 	var reader *bytes.Reader
 	if body != nil {
@@ -422,7 +451,7 @@ func (newAPIUpstreamProviderAdapter) doJSON(ctx context.Context, client *http.Cl
 	return resp.StatusCode, nil
 }
 
-func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, profileErr error) map[string]any {
+func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, profileErr error, status *newAPIStatusData, statusErr error) map[string]any {
 	now := time.Now().UTC().Format(time.RFC3339)
 	if profileErr != nil {
 		return map[string]any{
@@ -433,25 +462,124 @@ func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, 
 	if profile == nil {
 		return nil
 	}
-	remain := profile.Quota - profile.UsedQuota
+	if statusErr != nil {
+		return map[string]any{
+			"upstream_provider_snapshot_last_error":    newAPIUpstreamProviderAdapter{}.SanitizeError(statusErr, cfg.Credentials),
+			"upstream_provider_snapshot_last_error_at": now,
+		}
+	}
+	amounts := newAPIQuotaAmounts(profile.Quota, profile.UsedQuota, status)
 	return map[string]any{
 		"upstream_provider_snapshot": map[string]any{
-			"version":       1,
-			"provider":      UpstreamProviderNewAPI,
-			"synced_at":     now,
-			"user_id":       profile.ID,
-			"email":         strings.TrimSpace(profile.Email),
-			"username":      strings.TrimSpace(profile.Username),
-			"display_name":  strings.TrimSpace(profile.DisplayName),
-			"group":         strings.TrimSpace(profile.Group),
-			"quota":         profile.Quota,
-			"used_quota":    profile.UsedQuota,
-			"remain_quota":  remain,
-			"request_count": profile.RequestCount,
-			"unit":          "quota",
+			"version":                       1,
+			"provider":                      UpstreamProviderNewAPI,
+			"synced_at":                     now,
+			"user_id":                       profile.ID,
+			"email":                         strings.TrimSpace(profile.Email),
+			"username":                      strings.TrimSpace(profile.Username),
+			"display_name":                  strings.TrimSpace(profile.DisplayName),
+			"group":                         strings.TrimSpace(profile.Group),
+			"quota":                         profile.Quota,
+			"quota_raw":                     profile.Quota,
+			"used_quota":                    profile.UsedQuota,
+			"used_quota_raw":                profile.UsedQuota,
+			"remain_quota":                  profile.Quota,
+			"remain_quota_raw":              profile.Quota,
+			"total_quota":                   amounts.TotalRaw,
+			"total_quota_raw":               amounts.TotalRaw,
+			"balance_amount":                amounts.BalanceAmount,
+			"used_amount":                   amounts.UsedAmount,
+			"total_amount":                  amounts.TotalAmount,
+			"currency":                      amounts.Currency,
+			"currency_symbol":               amounts.Symbol,
+			"quota_display_type":            amounts.DisplayType,
+			"quota_per_unit":                amounts.QuotaPerUnit,
+			"usd_exchange_rate":             amounts.USDExchangeRate,
+			"custom_currency_symbol":        amounts.CustomCurrencySymbol,
+			"custom_currency_exchange_rate": amounts.CustomCurrencyExchangeRate,
+			"request_count":                 profile.RequestCount,
+			"unit":                          "currency",
 		},
 		"upstream_provider_snapshot_last_error":    "",
 		"upstream_provider_snapshot_last_error_at": "",
+	}
+}
+
+type newAPIQuotaSnapshotAmounts struct {
+	BalanceAmount              float64
+	UsedAmount                 float64
+	TotalAmount                float64
+	TotalRaw                   float64
+	Currency                   string
+	Symbol                     string
+	DisplayType                string
+	QuotaPerUnit               float64
+	USDExchangeRate            float64
+	CustomCurrencySymbol       string
+	CustomCurrencyExchangeRate float64
+}
+
+func newAPIQuotaAmounts(balanceRaw, usedRaw float64, status *newAPIStatusData) newAPIQuotaSnapshotAmounts {
+	quotaPerUnit := 500000.0
+	displayType := "USD"
+	usdRate := 1.0
+	customRate := 1.0
+	customSymbol := "¤"
+	if status != nil {
+		if finiteNewAPINumber(status.QuotaPerUnit) && status.QuotaPerUnit > 0 {
+			quotaPerUnit = status.QuotaPerUnit
+		}
+		if strings.TrimSpace(status.QuotaDisplayType) != "" {
+			displayType = strings.ToUpper(strings.TrimSpace(status.QuotaDisplayType))
+		}
+		if finiteNewAPINumber(status.USDExchangeRate) && status.USDExchangeRate > 0 {
+			usdRate = status.USDExchangeRate
+		}
+		if finiteNewAPINumber(status.CustomCurrencyExchangeRate) && status.CustomCurrencyExchangeRate > 0 {
+			customRate = status.CustomCurrencyExchangeRate
+		}
+		if strings.TrimSpace(status.CustomCurrencySymbol) != "" {
+			customSymbol = strings.TrimSpace(status.CustomCurrencySymbol)
+		}
+	}
+	rate := 1.0
+	currency := "USD"
+	symbol := "$"
+	switch displayType {
+	case "CNY":
+		rate = usdRate
+		currency = "CNY"
+		symbol = "¥"
+	case "CUSTOM":
+		rate = customRate
+		currency = "CUSTOM"
+		symbol = customSymbol
+	case "TOKENS":
+		rate = quotaPerUnit
+		currency = "TOKENS"
+		symbol = ""
+	default:
+		displayType = "USD"
+	}
+	toAmount := func(raw float64) float64 {
+		if displayType == "TOKENS" {
+			return raw
+		}
+		return raw / quotaPerUnit * rate
+	}
+	totalRaw := balanceRaw + usedRaw
+	return newAPIQuotaSnapshotAmounts{
+		BalanceAmount:              toAmount(balanceRaw),
+		UsedAmount:                 toAmount(usedRaw),
+		TotalAmount:                toAmount(totalRaw),
+		TotalRaw:                   totalRaw,
+		Currency:                   currency,
+		Symbol:                     symbol,
+		DisplayType:                displayType,
+		QuotaPerUnit:               quotaPerUnit,
+		USDExchangeRate:            usdRate,
+		CustomCurrencySymbol:       customSymbol,
+		CustomCurrencyExchangeRate: customRate,
 	}
 }
 

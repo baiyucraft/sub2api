@@ -498,6 +498,8 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 		case "/api/user/self":
 			require.Equal(t, "4798", r.Header.Get("New-Api-User"))
 			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798,"email":"owner@example.com","username":"owner","display_name":"Owner","group":"default","quota":86995,"used_quota":4913005,"request_count":701}}`))
+		case "/api/status":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"quota_display_type":"USD","quota_per_unit":500000,"usd_exchange_rate":7.3,"custom_currency_symbol":"¤","custom_currency_exchange_rate":1}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -562,6 +564,14 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 	require.Equal(t, UpstreamProviderNewAPI, snapshot["provider"])
 	require.InDelta(t, 86995.0, snapshot["quota"], 1e-12)
 	require.InDelta(t, 4913005.0, snapshot["used_quota"], 1e-12)
+	require.InDelta(t, 86995.0, snapshot["remain_quota"], 1e-12)
+	require.InDelta(t, 5000000.0, snapshot["total_quota"], 1e-12)
+	require.InDelta(t, 0.17399, snapshot["balance_amount"], 1e-12)
+	require.InDelta(t, 9.82601, snapshot["used_amount"], 1e-12)
+	require.InDelta(t, 10.0, snapshot["total_amount"], 1e-12)
+	require.Equal(t, "USD", snapshot["currency"])
+	require.Equal(t, "$", snapshot["currency_symbol"])
+	require.InDelta(t, 500000.0, snapshot["quota_per_unit"], 1e-12)
 	require.Equal(t, "owner@example.com", snapshot["email"])
 }
 

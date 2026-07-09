@@ -92,13 +92,16 @@
           <template #cell-balance="{ row }">
             <div class="min-w-[120px]" :title="balanceTitle(row)">
               <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                {{ formatBalanceAmount(upstreamBalance(row)) }}
+                {{ formatUpstreamBalance(row, upstreamBalance(row)) }}
               </div>
               <div v-if="upstreamTotalRecharged(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
-                {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatBalanceAmount(upstreamTotalRecharged(row)) }) }}
+                {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatUpstreamBalance(row, upstreamTotalRecharged(row)) }) }}
               </div>
               <div v-if="upstreamUsedQuota(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
-                {{ t('admin.upstreamConfigs.balance.usedQuota', { amount: formatBalanceAmount(upstreamUsedQuota(row)) }) }}
+                {{ t('admin.upstreamConfigs.balance.usedQuota', {
+                  amount: formatUpstreamBalance(row, upstreamUsedQuota(row)),
+                  total: formatUpstreamBalance(row, upstreamTotalQuota(row))
+                }) }}
               </div>
               <div
                 v-if="upstreamBalanceError(row)"
@@ -1004,7 +1007,9 @@ function statusLabel(ok: boolean) {
 
 function upstreamBalance(item: UpstreamConfig): number | null {
   if (item.provider === 'newapi') {
-    return finiteNumberFromExtra(upstreamProviderSnapshot(item)?.remain_quota)
+    const snapshot = upstreamProviderSnapshot(item)
+    return finiteNumberFromExtra(snapshot?.balance_amount)
+      ?? convertNewAPIQuotaRaw(item, finiteNumberFromExtra(snapshot?.remain_quota) ?? finiteNumberFromExtra(snapshot?.quota))
   }
   return finiteNumberFromExtra(item.extra?.sub2api_balance)
 }
@@ -1016,7 +1021,16 @@ function upstreamTotalRecharged(item: UpstreamConfig): number | null {
 
 function upstreamUsedQuota(item: UpstreamConfig): number | null {
   if (item.provider !== 'newapi') return null
-  return finiteNumberFromExtra(upstreamProviderSnapshot(item)?.used_quota)
+  const snapshot = upstreamProviderSnapshot(item)
+  return finiteNumberFromExtra(snapshot?.used_amount)
+    ?? convertNewAPIQuotaRaw(item, finiteNumberFromExtra(snapshot?.used_quota))
+}
+
+function upstreamTotalQuota(item: UpstreamConfig): number | null {
+  if (item.provider !== 'newapi') return null
+  const snapshot = upstreamProviderSnapshot(item)
+  return finiteNumberFromExtra(snapshot?.total_amount)
+    ?? convertNewAPIQuotaRaw(item, finiteNumberFromExtra(snapshot?.total_quota))
 }
 
 function upstreamBalanceError(item: UpstreamConfig): string {
@@ -1058,6 +1072,13 @@ function finiteNumberFromExtra(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function formatUpstreamBalance(item: UpstreamConfig, value: number | null): string {
+  if (item.provider === 'newapi') {
+    return formatNewAPIAmount(item, value)
+  }
+  return formatBalanceAmount(value)
+}
+
 function formatBalanceAmount(value: number | null): string {
   if (value === null) return '-'
   return value.toLocaleString(undefined, {
@@ -1066,11 +1087,55 @@ function formatBalanceAmount(value: number | null): string {
   })
 }
 
+function formatNewAPIAmount(item: UpstreamConfig, value: number | null): string {
+  if (value === null) return '-'
+  const snapshot = upstreamProviderSnapshot(item)
+  const currency = typeof snapshot?.currency === 'string' ? snapshot.currency : 'USD'
+  const symbol = typeof snapshot?.currency_symbol === 'string' ? snapshot.currency_symbol : '$'
+  if (currency === 'TOKENS') {
+    return value.toLocaleString(undefined, { maximumFractionDigits: 0 })
+  }
+  const amount = value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4
+  })
+  return `${symbol}${amount}`
+}
+
+function convertNewAPIQuotaRaw(item: UpstreamConfig, raw: number | null): number | null {
+  if (raw === null) return null
+  const snapshot = upstreamProviderSnapshot(item)
+  const quotaPerUnit = finiteNumberFromExtra(snapshot?.quota_per_unit) ?? 500000
+  if (quotaPerUnit <= 0) return raw
+  const displayType = typeof snapshot?.quota_display_type === 'string'
+    ? snapshot.quota_display_type.toUpperCase()
+    : 'USD'
+  if (displayType === 'TOKENS') return raw
+  if (displayType === 'CNY') {
+    const rate = finiteNumberFromExtra(snapshot?.usd_exchange_rate) ?? 1
+    return raw / quotaPerUnit * rate
+  }
+  if (displayType === 'CUSTOM') {
+    const rate = finiteNumberFromExtra(snapshot?.custom_currency_exchange_rate) ?? 1
+    return raw / quotaPerUnit * rate
+  }
+  return raw / quotaPerUnit
+}
+
 function balanceTitle(item: UpstreamConfig): string {
   const parts: string[] = []
   const email = upstreamBalanceEmail(item)
   const syncedAt = upstreamBalanceSyncedAt(item)
   const error = upstreamBalanceError(item)
+  if (item.provider === 'newapi') {
+    const snapshot = upstreamProviderSnapshot(item)
+    const rawBalance = finiteNumberFromExtra(snapshot?.remain_quota_raw) ?? finiteNumberFromExtra(snapshot?.remain_quota) ?? finiteNumberFromExtra(snapshot?.quota)
+    const rawUsed = finiteNumberFromExtra(snapshot?.used_quota_raw) ?? finiteNumberFromExtra(snapshot?.used_quota)
+    const rawTotal = finiteNumberFromExtra(snapshot?.total_quota_raw) ?? finiteNumberFromExtra(snapshot?.total_quota)
+    if (rawBalance !== null) parts.push(t('admin.upstreamConfigs.balance.rawBalance', { amount: formatBalanceAmount(rawBalance) }))
+    if (rawUsed !== null) parts.push(t('admin.upstreamConfigs.balance.rawUsed', { amount: formatBalanceAmount(rawUsed) }))
+    if (rawTotal !== null) parts.push(t('admin.upstreamConfigs.balance.rawTotal', { amount: formatBalanceAmount(rawTotal) }))
+  }
   if (email) parts.push(t('admin.upstreamConfigs.balance.email', { email }))
   if (syncedAt) parts.push(t('admin.upstreamConfigs.balance.syncedAt', { time: formatTime(syncedAt) }))
   if (error) parts.push(t('admin.upstreamConfigs.balance.error', { error }))

@@ -16,7 +16,10 @@ export default {
     },
     balance: {
       totalRecharged: 'Recharged {amount}',
-      usedQuota: 'Used {amount}',
+      usedQuota: 'Used {amount} / total {total}',
+      rawBalance: 'Raw balance: {amount}',
+      rawUsed: 'Raw used: {amount}',
+      rawTotal: 'Raw total: {amount}',
       email: 'Upstream email: {email}',
       syncedAt: 'Quota synced: {time}',
       error: 'Quota error: {error}'
