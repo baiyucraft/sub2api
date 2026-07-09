@@ -62,7 +62,7 @@ export default {
       loginPageHint: '先在上游站点完成登录，再复制 localStorage、Network 响应或 Authorization 内容。',
       openLoginPage: '打开登录页',
       pasteLabel: '粘贴登录信息',
-      pastePlaceholder: '支持 Bearer、JWT、裸 rt_ Refresh Token、包含 access_token / refresh_token 的 JSON 或 localStorage 内容',
+      pastePlaceholder: '支持 Bearer、JWT、裸 rt_ Refresh Token、包含 access_token / refresh_token 的 JSON，或浏览器 localStorage 表格行（auth_token / refresh_token）',
       accessCandidate: 'Access Token 候选',
       refreshCandidate: 'Refresh Token 候选',
       doNotApply: '不应用',

@@ -50,6 +50,49 @@ describe('parseUpstreamTokenPaste', () => {
     expect(result.refreshCandidates[0]?.value).toBe('nested_refresh_token_123456')
   })
 
+  it('parses browser localStorage table rows without treating metadata as tokens', () => {
+    const jwt = makeJWT(1783598154)
+    const refresh = `rt_${'b'.repeat(64)}`
+    const result = parseUpstreamTokenPaste([
+      `auth_token\t${jwt}`,
+      'auth_user\t{"id":27,"email":"owner@example.com","total_recharged":169.169316}',
+      'channel-status-auto-refresh\t{"enabled":true,"interval_seconds":60}',
+      `refresh_token\t${refresh}`,
+      'token_expires_at\t1783598152643',
+      'sub2api_login_agreement_consent\t{"revision":"1225230147c6dfe6"}'
+    ].join('\n'), NOW)
+
+    expect(result.accessCandidates).toHaveLength(1)
+    expect(result.accessCandidates[0]).toMatchObject({
+      kind: 'access',
+      source: 'field',
+      value: jwt,
+      label: 'auth_token',
+      expiresAt: '2026-07-09T11:55:54.000Z',
+      expired: false
+    })
+    expect(result.refreshCandidates).toHaveLength(1)
+    expect(result.refreshCandidates[0]).toMatchObject({
+      kind: 'refresh',
+      source: 'field',
+      value: refresh,
+      label: 'refresh_token'
+    })
+    expect(result.unknownCandidates).toHaveLength(0)
+  })
+
+  it('does not parse localStorage rows separated only by spaces', () => {
+    const jwt = makeJWT(1783598154)
+    const result = parseUpstreamTokenPaste([
+      `auth_token ${jwt}`,
+      `refresh_token rt_${'c'.repeat(64)}`
+    ].join('\n'), NOW)
+
+    expect(result.accessCandidates).toHaveLength(0)
+    expect(result.refreshCandidates).toHaveLength(0)
+    expect(result.unknownCandidates.map((item) => item.value)).toContain(jwt)
+  })
+
   it('parses Authorization Bearer as an access token', () => {
     const result = parseUpstreamTokenPaste('Authorization: Bearer bearer_token_value_123456', NOW)
 

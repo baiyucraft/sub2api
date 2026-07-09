@@ -22,6 +22,7 @@ const JWT_RE = /\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g
 const JWT_FULL_RE = /^eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 const BEARER_RE = /(?:authorization\s*:\s*)?bearer\s+([A-Za-z0-9._~+/=-]{12,})/gi
 const FIELD_RE = /["']?([A-Za-z0-9_./:-]*(?:access_token|refresh_token|sub2api_access_token|sub2api_refresh_token)[A-Za-z0-9_./:-]*)["']?\s*[:=]\s*["']?([A-Za-z0-9._~+/=-]{12,})/gi
+const LOCAL_STORAGE_ROW_RE = /^([A-Za-z0-9_.:-]+)\t+(.+)$/gm
 const RAW_SUB2API_REFRESH_RE = /^rt_[0-9a-f]{64}$/
 
 const SENSITIVE_FIELD_KEYS = new Set([
@@ -56,6 +57,7 @@ export function parseUpstreamTokenPaste(input: string, now = new Date()): Parsed
   }
 
   collectFromJSONLike(input, addCandidate)
+  collectFromLocalStorageRows(input, addCandidate)
   collectFromFields(input, addCandidate)
   collectFromBearer(input, addCandidate)
   collectFromJWT(input, addCandidate)
@@ -75,6 +77,24 @@ function collectFromRawSub2APIRefresh(
   const token = input.trim().replace(/^["']|["']$/g, '')
   if (!RAW_SUB2API_REFRESH_RE.test(token)) return
   addCandidate('refresh', 'raw_refresh', token, 'Sub2API refresh token')
+}
+
+function collectFromLocalStorageRows(
+  input: string,
+  addCandidate: (kind: ParsedTokenKind, source: ParsedTokenSource, value: string, label: string) => void
+) {
+  LOCAL_STORAGE_ROW_RE.lastIndex = 0
+  for (const match of input.matchAll(LOCAL_STORAGE_ROW_RE)) {
+    const key = normalizeKey(match[1] || '')
+    const value = match[2] || ''
+    if (key === 'auth_token') {
+      addCandidate('access', 'field', value, 'auth_token')
+      continue
+    }
+    if (key === 'refresh_token') {
+      addCandidate('refresh', 'field', value, 'refresh_token')
+    }
+  }
 }
 
 function collectFromFields(

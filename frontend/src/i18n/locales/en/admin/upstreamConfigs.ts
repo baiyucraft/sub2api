@@ -62,7 +62,7 @@ export default {
       loginPageHint: 'Log in on the upstream site first, then copy localStorage, a Network response, or Authorization content.',
       openLoginPage: 'Open Login Page',
       pasteLabel: 'Paste Login Data',
-      pastePlaceholder: 'Supports Bearer, JWT, raw rt_ refresh tokens, JSON with access_token / refresh_token, or localStorage content',
+      pastePlaceholder: 'Supports Bearer, JWT, raw rt_ refresh tokens, JSON with access_token / refresh_token, or browser localStorage table rows (auth_token / refresh_token)',
       accessCandidate: 'Access Token Candidate',
       refreshCandidate: 'Refresh Token Candidate',
       doNotApply: 'Do not apply',
