@@ -358,16 +358,20 @@ describe('UpstreamConfigsView', () => {
     await wrapper.get('[data-test="open-token-assistant"]').trigger('click')
     await flushPromises()
 
-    await wrapper.get('[data-test="token-paste-input"]').setValue(JSON.stringify({
-      access_token: 'parsed_access_token_123456',
-      refresh_token: 'parsed_refresh_token_123456'
-    }))
+    const accessToken = 'eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3ODM1OTgxNTR9.signature'
+    const refreshToken = `rt_${'b'.repeat(64)}`
+    await wrapper.get('[data-test="token-paste-input"]').setValue([
+      `auth_token\t${accessToken}`,
+      'auth_user\t{"id":27,"email":"owner@example.com","total_recharged":169.169316}',
+      `refresh_token\t${refreshToken}`,
+      'token_expires_at\t1783598152643'
+    ].join('\n'))
     await wrapper.get('[data-test="apply-token-candidates"]').trigger('click')
     await flushPromises()
 
     const textareas = wrapper.get('form#upstream-config-form').findAll('textarea')
-    expect((textareas[0].element as HTMLTextAreaElement).value).toBe('parsed_access_token_123456')
-    expect((textareas[1].element as HTMLTextAreaElement).value).toBe('parsed_refresh_token_123456')
+    expect((textareas[0].element as HTMLTextAreaElement).value).toBe(accessToken)
+    expect((textareas[1].element as HTMLTextAreaElement).value).toBe(refreshToken)
 
     await wrapper.get('form#upstream-config-form').trigger('submit.prevent')
     await flushPromises()
@@ -378,8 +382,8 @@ describe('UpstreamConfigsView', () => {
       provider: 'sub2api',
       auth_mode: 'manual_jwt',
       credentials: {
-        sub2api_access_token: 'parsed_access_token_123456',
-        sub2api_refresh_token: 'parsed_refresh_token_123456'
+        sub2api_access_token: accessToken,
+        sub2api_refresh_token: refreshToken
       }
     }))
     expect(syncKeysMock).toHaveBeenCalledWith(11)
