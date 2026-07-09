@@ -1203,8 +1203,8 @@
         </div>
       </div>
 
-      <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
-      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+      <!-- API Key input (only for direct apikey type, excluding Antigravity which has its own fields) -->
+      <div v-if="isAPIKeyCredentialInput" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -1248,7 +1248,10 @@
           </select>
           <p class="input-hint">{{ t('admin.accounts.gemini.tier.aiStudioHint') }}</p>
         </div>
+      </div>
 
+      <!-- API Key-like advanced settings (direct API Key and upstream-bound accounts) -->
+      <div v-if="isAPIKeyLikeAdvanced" class="space-y-4">
         <!-- Model Restriction Section (Antigravity 已在上层条件排除) -->
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -1319,7 +1322,7 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :sync-credentials="syncPreviewCredentials" />
+              <ModelWhitelistSelector v-model="allowedModels" :platform="effectivePlatform" :sync-credentials="syncPreviewCredentials" />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -1599,7 +1602,7 @@
 
         <!-- Header Override Section (anthropic/openai apikey only) -->
         <div
-          v-if="isHeaderOverridePlatform(form.platform)"
+          v-if="isHeaderOverridePlatform(effectivePlatform)"
           class="border-t border-gray-200 pt-4 dark:border-dark-600"
         >
           <div class="mb-3 flex items-center justify-between">
@@ -1992,7 +1995,7 @@
 
       <!-- 配额控制 (Anthropic apikey/bedrock: 配额限制 + 亲和) -->
       <div
-        v-if="form.platform === 'anthropic' && (form.type === 'apikey' || form.type === 'bedrock')"
+        v-if="effectivePlatform === 'anthropic' && (isAPIKeyLikeAdvanced || form.type === 'bedrock')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="mb-3">
@@ -2044,7 +2047,7 @@
 
       <!-- 配额控制 (非 Anthropic apikey/bedrock) -->
       <div
-        v-else-if="form.type === 'apikey' || form.type === 'bedrock'"
+        v-else-if="isAPIKeyLikeAdvanced || form.type === 'apikey' || form.type === 'bedrock'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="mb-3">
@@ -2380,7 +2383,7 @@
 
       <!-- Intercept Warmup Requests (Anthropic/Antigravity) -->
       <div
-        v-if="form.platform === 'anthropic' || form.platform === 'antigravity'"
+        v-if="effectivePlatform === 'anthropic' || effectivePlatform === 'antigravity'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2836,7 +2839,7 @@
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
-        v-if="form.platform === 'openai'"
+        v-if="effectivePlatform === 'openai'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2866,7 +2869,7 @@
 
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
-        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        v-if="effectivePlatform === 'openai' && (accountCategory === 'oauth-based' || isAPIKeyLikeAdvanced)"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2887,7 +2890,7 @@
 
       <!-- Anthropic API Key 自动透传开关 -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
+        v-if="effectivePlatform === 'anthropic' && isAPIKeyLikeAdvanced"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2916,7 +2919,7 @@
       </div>
 
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
+        v-if="effectivePlatform === 'anthropic' && isAPIKeyLikeAdvanced"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -2935,7 +2938,7 @@
 
       <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey' && webSearchGlobalEnabled"
+        v-if="effectivePlatform === 'anthropic' && isAPIKeyLikeAdvanced && webSearchGlobalEnabled"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -3011,7 +3014,7 @@
 
       <!-- OpenAI Compact 能力配置 -->
       <div
-        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        v-if="effectivePlatform === 'openai' && (accountCategory === 'oauth-based' || isAPIKeyLikeAdvanced)"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="flex items-center justify-between">
@@ -3050,7 +3053,7 @@
 
       <!-- OpenAI APIKey Responses API support mode -->
       <div
-        v-if="form.platform === 'openai' && accountCategory === 'apikey'"
+        v-if="effectivePlatform === 'openai' && isAPIKeyLikeAdvanced"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -3761,6 +3764,21 @@ const selectedUpstreamKey = computed(() =>
   upstreamKeys.value.find((key) => key.id === selectedUpstreamKeyId.value) || null
 )
 
+const isAPIKeyCredentialInput = computed(() =>
+  accountCategory.value === 'apikey' && form.type === 'apikey' && form.platform !== 'antigravity'
+)
+
+const isAPIKeyLikeAdvanced = computed(() =>
+  accountCategory.value === 'upstream_config' ||
+  (accountCategory.value === 'apikey' && form.platform !== 'antigravity')
+)
+
+const effectivePlatform = computed<AccountPlatform>(() =>
+  (accountCategory.value === 'upstream_config'
+    ? (selectedUpstreamKey.value?.platform || form.platform)
+    : form.platform) as AccountPlatform
+)
+
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
@@ -3817,7 +3835,7 @@ const fillHeaderOverrideTemplate = () => {
     headerOverrideRows.value.map((row) => row.name.trim().toLowerCase()).filter(Boolean)
   )
   const rows = headerOverrideRows.value.filter((row) => row.name.trim() || row.value.trim())
-  for (const row of getHeaderOverrideTemplate(form.platform)) {
+  for (const row of getHeaderOverrideTemplate(effectivePlatform.value)) {
     if (!existing.has(row.name)) {
       rows.push(row)
     }
@@ -4023,13 +4041,13 @@ const openAIWSModeOptions = computed(() => [
 
 const openaiResponsesWebSocketV2Mode = computed({
   get: () => {
-    if (form.platform === 'openai' && accountCategory.value === 'apikey') {
+    if (effectivePlatform.value === 'openai' && isAPIKeyLikeAdvanced.value) {
       return openaiAPIKeyResponsesWebSocketV2Mode.value
     }
     return openaiOAuthResponsesWebSocketV2Mode.value
   },
   set: (mode: OpenAIWSMode) => {
-    if (form.platform === 'openai' && accountCategory.value === 'apikey') {
+    if (effectivePlatform.value === 'openai' && isAPIKeyLikeAdvanced.value) {
       openaiAPIKeyResponsesWebSocketV2Mode.value = mode
       return
     }
@@ -4042,7 +4060,7 @@ const openAIWSModeConcurrencyHintKey = computed(() =>
 )
 
 const isOpenAIModelRestrictionDisabled = computed(() =>
-  form.platform === 'openai' && openaiPassthroughEnabled.value
+  effectivePlatform.value === 'openai' && openaiPassthroughEnabled.value
 )
 
 const mixedChannelWarningMessageText = computed(() => {
@@ -4068,7 +4086,7 @@ const geminiHelpLinks = {
 }
 
 // Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform))
+const presetMappings = computed(() => getPresetMappingsByPlatform(effectivePlatform.value))
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -4340,13 +4358,13 @@ watch(
 
 // Gemini AI Studio OAuth availability (requires operator-configured OAuth client)
 watch(
-  [accountCategory, () => form.platform],
+  [accountCategory, () => form.platform, selectedUpstreamKey],
   ([category, platform]) => {
     if (platform === 'openai' && category !== 'oauth-based') {
       codexCLIOnlyEnabled.value = false
       codexCLIOnlyAppServerEnabled.value = false
     }
-    if (platform !== 'anthropic' || category !== 'apikey') {
+    if (effectivePlatform.value !== 'anthropic' || !isAPIKeyLikeAdvanced.value) {
       anthropicPassthroughEnabled.value = false
       anthropicAPIKeyAuthScheme.value = 'x_api_key'
       webSearchEmulationMode.value = 'default'
@@ -4386,10 +4404,10 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
 
 // Auto-fill related models when switching to whitelist mode or changing platform
 watch(
-  [modelRestrictionMode, () => form.platform],
-  ([newMode]) => {
+  [modelRestrictionMode, effectivePlatform],
+  ([newMode, platform]) => {
     if (newMode === 'whitelist') {
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      allowedModels.value = [...getModelsByPlatform(platform)]
     }
   }
 )
@@ -4793,7 +4811,7 @@ const handleClose = () => {
 }
 
 const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  if (form.platform !== 'openai') {
+  if (effectivePlatform.value !== 'openai') {
     return base
   }
 
@@ -4801,7 +4819,7 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   if (accountCategory.value === 'oauth-based') {
     extra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
     extra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
-  } else if (accountCategory.value === 'apikey') {
+  } else if (isAPIKeyLikeAdvanced.value) {
     extra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
     extra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
   }
@@ -4837,7 +4855,7 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   }
 
   if (
-    accountCategory.value === 'apikey' &&
+    isAPIKeyLikeAdvanced.value &&
     openAITextGenerationCapabilityEnabled.value &&
     openAIResponsesMode.value !== 'auto'
   ) {
@@ -4850,7 +4868,7 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
 }
 
 const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  if (form.platform !== 'anthropic' || accountCategory.value !== 'apikey') {
+  if (effectivePlatform.value !== 'anthropic' || !isAPIKeyLikeAdvanced.value) {
     return base
   }
 
@@ -4873,6 +4891,107 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
 
   return Object.keys(extra).length > 0 ? extra : undefined
 }
+
+const applyQuotaExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
+  const extra: Record<string, unknown> = { ...(base || {}) }
+  if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
+    extra.quota_limit = editQuotaLimit.value
+  }
+  if (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) {
+    extra.quota_daily_limit = editQuotaDailyLimit.value
+  }
+  if (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0) {
+    extra.quota_weekly_limit = editQuotaWeeklyLimit.value
+  }
+  if (editDailyResetMode.value === 'fixed') {
+    extra.quota_daily_reset_mode = 'fixed'
+    extra.quota_daily_reset_hour = editDailyResetHour.value ?? 0
+  }
+  if (editWeeklyResetMode.value === 'fixed') {
+    extra.quota_weekly_reset_mode = 'fixed'
+    extra.quota_weekly_reset_day = editWeeklyResetDay.value ?? 1
+    extra.quota_weekly_reset_hour = editWeeklyResetHour.value ?? 0
+  }
+  if (editDailyResetMode.value === 'fixed' || editWeeklyResetMode.value === 'fixed') {
+    extra.quota_reset_timezone = editResetTimezone.value || 'UTC'
+  }
+  writeQuotaNotifyToExtra(extra, 'create')
+  return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+const defaultAPIKeyBaseURL = (platform: AccountPlatform) =>
+  platform === 'openai'
+    ? 'https://api.openai.com'
+    : platform === 'gemini'
+      ? 'https://generativelanguage.googleapis.com'
+      : platform === 'grok'
+        ? 'https://api.x.ai/v1'
+        : 'https://api.anthropic.com'
+
+const buildAPIKeyLikeCredentials = (options: { includeSecretFields: boolean }): Record<string, unknown> | null => {
+  const platform = effectivePlatform.value
+  const credentials: Record<string, unknown> = {}
+
+  if (options.includeSecretFields) {
+    if (!apiKeyValue.value.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
+      return null
+    }
+    credentials.base_url = apiKeyBaseUrl.value.trim() || defaultAPIKeyBaseURL(platform)
+    credentials.api_key = apiKeyValue.value.trim()
+    if (platform === 'gemini') {
+      credentials.tier_id = geminiTierAIStudio.value
+    }
+  }
+
+  if (!isOpenAIModelRestrictionDisabled.value) {
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (modelMapping) {
+      credentials.model_mapping = modelMapping
+    }
+  }
+  if (platform === 'openai') {
+    applyOpenAIEndpointCapabilities(credentials)
+    const compactModelMapping = buildOpenAICompactModelMapping()
+    if (compactModelMapping) {
+      credentials.compact_model_mapping = compactModelMapping
+    }
+  }
+
+  if (poolModeEnabled.value) {
+    credentials.pool_mode = true
+    credentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+    const parsedRetryStatusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
+    if (parsedRetryStatusCodes.length > 0) {
+      credentials.pool_mode_retry_status_codes = parsedRetryStatusCodes
+    }
+  }
+
+  if (customErrorCodesEnabled.value) {
+    credentials.custom_error_codes_enabled = true
+    credentials.custom_error_codes = [...selectedErrorCodes.value]
+  }
+
+  if (isHeaderOverridePlatform(platform)) {
+    if (headerOverrideEnabled.value) {
+      const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
+      if (headerError) {
+        appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
+        return null
+      }
+    }
+    applyHeaderOverride(credentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
+  }
+
+  applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
+  if (!applyTempUnschedConfig(credentials)) {
+    return null
+  }
+  return credentials
+}
+
+const buildAPIKeyLikeExtra = (): Record<string, unknown> | undefined =>
+  applyQuotaExtra(buildAnthropicExtra(buildOpenAIExtra()))
 
 // Helper function to create account with mixed channel warning handling
 const doCreateAccount = async (payload: CreateAccountRequest) => {
@@ -5117,14 +5236,17 @@ const handleSubmit = async () => {
       appStore.showError('请选择上游 Key')
       return
     }
-    const key = selectedUpstreamKey.value
-    const platform = (key?.platform || form.platform) as AccountPlatform
+    const platform = effectivePlatform.value
+    const credentials = buildAPIKeyLikeCredentials({ includeSecretFields: false })
+    if (credentials === null) {
+      return
+    }
     await doCreateAccount({
       ...form,
       platform,
       type: 'upstream' as AccountType,
-      credentials: {},
-      extra: buildOpenAIExtra(),
+      credentials,
+      extra: buildAPIKeyLikeExtra(),
       proxy_id: null,
       group_ids: form.group_ids,
       upstream_config_id: selectedUpstreamConfigId.value,
@@ -5135,80 +5257,13 @@ const handleSubmit = async () => {
   }
 
   // For apikey type, create directly
-  if (!apiKeyValue.value.trim()) {
-    appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
-    return
-  }
-
-  // Determine default base URL based on platform
-  const defaultBaseUrl =
-    form.platform === 'openai'
-      ? 'https://api.openai.com'
-      : form.platform === 'gemini'
-        ? 'https://generativelanguage.googleapis.com'
-        : form.platform === 'grok'
-          ? 'https://api.x.ai/v1'
-          : 'https://api.anthropic.com'
-
-  // Build credentials with optional model mapping
-  const credentials: Record<string, unknown> = {
-    base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
-    api_key: apiKeyValue.value.trim()
-  }
-  if (form.platform === 'gemini') {
-    credentials.tier_id = geminiTierAIStudio.value
-  }
-
-  // Add model mapping if configured（OpenAI 开启自动透传时不应用）
-  if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
-    if (modelMapping) {
-      credentials.model_mapping = modelMapping
-    }
-  }
-  if (form.platform === 'openai') {
-    applyOpenAIEndpointCapabilities(credentials)
-    const compactModelMapping = buildOpenAICompactModelMapping()
-    if (compactModelMapping) {
-      credentials.compact_model_mapping = compactModelMapping
-    }
-  }
-
-  // Add pool mode if enabled
-  if (poolModeEnabled.value) {
-    credentials.pool_mode = true
-    credentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
-    const parsedRetryStatusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
-    if (parsedRetryStatusCodes.length > 0) {
-      credentials.pool_mode_retry_status_codes = parsedRetryStatusCodes
-    }
-  }
-
-  // Add custom error codes if enabled
-  if (customErrorCodesEnabled.value) {
-    credentials.custom_error_codes_enabled = true
-    credentials.custom_error_codes = [...selectedErrorCodes.value]
-  }
-
-  // Add header override if enabled (anthropic/openai apikey only)
-  if (isHeaderOverridePlatform(form.platform)) {
-    if (headerOverrideEnabled.value) {
-      const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
-      if (headerError) {
-        appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
-        return
-      }
-    }
-    applyHeaderOverride(credentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
-  }
-
-  applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
-  if (!applyTempUnschedConfig(credentials)) {
+  const credentials = buildAPIKeyLikeCredentials({ includeSecretFields: true })
+  if (credentials === null) {
     return
   }
 
   form.credentials = credentials
-  const extra = buildAnthropicExtra(buildOpenAIExtra())
+  const extra = buildAPIKeyLikeExtra()
 
   await doCreateAccount({
     ...form,

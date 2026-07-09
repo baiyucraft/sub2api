@@ -351,6 +351,53 @@ func TestSub2APIUpstreamRateSync_ManualJWTRefreshesExpiredTokenAndRetries(t *tes
 	require.Empty(t, repo.extraUpdates)
 }
 
+func TestSub2APIUpstreamRateSync_ManualJWTRefreshOnlyFetchesAccessTokenBeforeSync(t *testing.T) {
+	refreshCount := 0
+	keysCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			t.Fatal("manual jwt sync must not call login")
+		case "/api/v1/auth/refresh":
+			refreshCount++
+			require.Equal(t, http.MethodPost, r.Method)
+			var body map[string]string
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			require.Equal(t, "refresh-only", body["refresh_token"])
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-new","refresh_token":"refresh-new"}}`))
+		case "/api/v1/keys":
+			keysCount++
+			require.Equal(t, "Bearer jwt-new", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-upstream","group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":0.08}}],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/rates":
+			require.Equal(t, "Bearer jwt-new", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	repo := &sub2APIRateSyncAccountRepo{}
+	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
+	account := newSub2APIManualJWTRefreshRateSyncAccount(42, server.URL, "sk-upstream", "", "refresh-only")
+
+	err := svc.SyncAccountNow(context.Background(), &account)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, refreshCount)
+	require.Equal(t, 1, keysCount)
+	require.Len(t, repo.bulkUpdates, 2)
+	tokenUpdate := repo.bulkUpdates[0]
+	require.Equal(t, "jwt-new", tokenUpdate.updates.Credentials[AccountCredentialSub2APIAccessToken])
+	require.Equal(t, "refresh-new", tokenUpdate.updates.Credentials[AccountCredentialSub2APIRefreshToken])
+	rateUpdate := repo.bulkUpdates[1]
+	require.InDelta(t, 0.08, *rateUpdate.updates.RateMultiplier, 1e-12)
+	require.Equal(t, 8, *rateUpdate.updates.Priority)
+	require.Empty(t, repo.extraUpdates)
+}
+
 func TestSub2APIUpstreamRateSync_ManualJWTRefreshFailureDoesNotUpdateRateOrTokens(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

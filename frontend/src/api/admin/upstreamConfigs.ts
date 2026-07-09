@@ -113,8 +113,8 @@ export async function test(id: number): Promise<{ ok: boolean }> {
   return data
 }
 
-export async function syncKeys(id: number): Promise<{ keys: UpstreamKey[] }> {
-  const { data } = await apiClient.post<{ keys: UpstreamKey[] }>(`/admin/upstream-configs/${id}/sync-keys`)
+export async function syncKeys(id: number): Promise<{ keys: UpstreamKey[]; key_count?: number; updated_account_count?: number }> {
+  const { data } = await apiClient.post<{ keys: UpstreamKey[]; key_count?: number; updated_account_count?: number }>(`/admin/upstream-configs/${id}/sync-keys`)
   return data
 }
 

@@ -54,7 +54,7 @@ export default {
       loginPageHint: '先在上游站点完成登录，再复制 localStorage、Network 响应或 Authorization 内容。',
       openLoginPage: '打开登录页',
       pasteLabel: '粘贴登录信息',
-      pastePlaceholder: '支持 Bearer、JWT、包含 access_token / refresh_token 的 JSON 或 localStorage 内容',
+      pastePlaceholder: '支持 Bearer、JWT、裸 rt_ Refresh Token、包含 access_token / refresh_token 的 JSON 或 localStorage 内容',
       accessCandidate: 'Access Token 候选',
       refreshCandidate: 'Refresh Token 候选',
       doNotApply: '不应用',
@@ -69,7 +69,8 @@ export default {
       jwtExpired: '本地解析显示 JWT 已在 {time} 过期；如有 Refresh Token 仍可一并保存。',
       sources: {
         bearer: 'Bearer',
-        jwt: 'JWT'
+        jwt: 'JWT',
+        rawRefresh: 'Sub2API Refresh Token'
       }
     },
     fields: {
@@ -99,6 +100,8 @@ export default {
       loadProxiesFailed: '加载代理列表失败',
       created: '上游配置已创建',
       updated: '上游配置已更新',
+      savedAndSynced: '已保存并同步成功，发现 {keys} 个 Key，更新 {accounts} 个账号',
+      savedButSyncFailed: '已保存，但同步失败：{error}',
       saveFailed: '保存上游配置失败',
       deleted: '上游配置已删除',
       deleteFailed: '删除上游配置失败',

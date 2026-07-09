@@ -279,7 +279,7 @@
               <textarea
                 v-model.trim="form.access_token"
                 class="input min-h-[92px] font-mono text-xs"
-                :required="!editing"
+                :required="!editing && !form.refresh_token"
                 :placeholder="editing ? t('admin.upstreamConfigs.fields.keepAccessTokenPlaceholder') : ''"
               ></textarea>
             </label>
@@ -288,6 +288,7 @@
               <textarea
                 v-model.trim="form.refresh_token"
                 class="input min-h-[92px] font-mono text-xs"
+                :required="!editing && !form.access_token"
                 :placeholder="editing ? t('admin.upstreamConfigs.fields.keepRefreshTokenPlaceholder') : ''"
               ></textarea>
             </label>
@@ -732,19 +733,38 @@ async function saveConfig() {
       credentials
     }
 
+    let savedConfig
     if (editing.value) {
-      await upstreamAPI.update(editing.value.id, payload)
-      appStore.showSuccess(t('admin.upstreamConfigs.messages.updated'))
+      savedConfig = await upstreamAPI.update(editing.value.id, payload)
     } else {
-      await upstreamAPI.create(payload)
-      appStore.showSuccess(t('admin.upstreamConfigs.messages.created'))
+      savedConfig = await upstreamAPI.create(payload)
     }
     dialogOpen.value = false
+    if (savedConfig?.provider === 'sub2api') {
+      await syncAfterSave(savedConfig.id)
+    } else {
+      appStore.showSuccess(editing.value
+        ? t('admin.upstreamConfigs.messages.updated')
+        : t('admin.upstreamConfigs.messages.created'))
+    }
     await loadConfigs()
   } catch (error: any) {
     appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.saveFailed')))
   } finally {
     saving.value = false
+  }
+}
+
+async function syncAfterSave(id: number) {
+  try {
+    const res = await upstreamAPI.syncKeys(id)
+    const keys = res.key_count ?? res.keys?.length ?? 0
+    const accounts = res.updated_account_count ?? 0
+    appStore.showSuccess(t('admin.upstreamConfigs.messages.savedAndSynced', { keys, accounts }))
+  } catch (error: any) {
+    appStore.showError(t('admin.upstreamConfigs.messages.savedButSyncFailed', {
+      error: apiErrorMessage(error, t('admin.upstreamConfigs.messages.syncFailed'))
+    }))
   }
 }
 
@@ -884,6 +904,7 @@ function tokenCandidateLabel(candidate: ParsedTokenCandidate): string {
 function tokenSourceLabel(candidate: ParsedTokenCandidate): string {
   if (candidate.source === 'bearer') return t('admin.upstreamConfigs.tokenAssistant.sources.bearer')
   if (candidate.source === 'jwt') return t('admin.upstreamConfigs.tokenAssistant.sources.jwt')
+  if (candidate.source === 'raw_refresh') return t('admin.upstreamConfigs.tokenAssistant.sources.rawRefresh')
   return candidate.label
 }
 

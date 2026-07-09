@@ -112,6 +112,16 @@ func (r *upstreamConfigServiceRepo) SaveRefreshedTokens(ctx context.Context, id 
 	defer r.mu.Unlock()
 
 	r.savedTokens = append(r.savedTokens, upstreamConfigSavedToken{id: id, accessToken: accessToken, refreshToken: refreshToken})
+	for i := range r.configs {
+		if r.configs[i].ID != id {
+			continue
+		}
+		if r.configs[i].Credentials == nil {
+			r.configs[i].Credentials = map[string]any{}
+		}
+		r.configs[i].Credentials[AccountCredentialSub2APIAccessToken] = accessToken
+		r.configs[i].Credentials[AccountCredentialSub2APIRefreshToken] = refreshToken
+	}
 	return nil
 }
 
@@ -166,7 +176,7 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	}}}
 	svc := NewUpstreamConfigService(repo, nil, accountRepo)
 
-	keys, err := svc.SyncKeys(context.Background(), configID)
+	keys, _, err := svc.SyncKeys(context.Background(), configID)
 
 	require.NoError(t, err)
 	require.Len(t, keys, 1)
@@ -288,12 +298,40 @@ func TestUpstreamConfigService_SyncFailureDoesNotOverwriteBoundAccountRate(t *te
 	accountRepo := &sub2APIRateSyncAccountRepo{}
 	svc := NewUpstreamConfigService(repo, nil, accountRepo)
 
-	_, err := svc.SyncKeys(context.Background(), configID)
+	_, _, err := svc.SyncKeys(context.Background(), configID)
 
 	require.Error(t, err)
 	require.Empty(t, accountRepo.bulkUpdates)
 	require.Len(t, repo.checks, 1)
 	require.False(t, repo.checks[0].success)
+}
+
+func TestNormalizeAndValidateUpstreamConfig_ManualJWTAllowsAccessOrRefresh(t *testing.T) {
+	base := UpstreamConfig{
+		Name:     "JWT Upstream",
+		Provider: UpstreamProviderSub2API,
+		BaseURL:  "https://upstream.example.com",
+		AuthMode: UpstreamAuthModeManualJWT,
+		Status:   StatusActive,
+	}
+
+	t.Run("access token only", func(t *testing.T) {
+		cfg := base
+		cfg.Credentials = map[string]any{AccountCredentialSub2APIAccessToken: "jwt-token"}
+		require.NoError(t, normalizeAndValidateUpstreamConfig(&cfg, true))
+	})
+
+	t.Run("refresh token only", func(t *testing.T) {
+		cfg := base
+		cfg.Credentials = map[string]any{AccountCredentialSub2APIRefreshToken: "refresh-token"}
+		require.NoError(t, normalizeAndValidateUpstreamConfig(&cfg, true))
+	})
+
+	t.Run("missing both tokens", func(t *testing.T) {
+		cfg := base
+		cfg.Credentials = map[string]any{}
+		require.ErrorContains(t, normalizeAndValidateUpstreamConfig(&cfg, true), "access token or refresh token")
+	})
 }
 
 func upstreamConfigTestFloat64(v float64) *float64 {

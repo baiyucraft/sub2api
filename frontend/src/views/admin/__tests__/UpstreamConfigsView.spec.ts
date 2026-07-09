@@ -229,7 +229,7 @@ describe('UpstreamConfigsView', () => {
     updateMock.mockResolvedValue(upstreamConfig({ id: 10 }))
     removeMock.mockResolvedValue({ message: 'ok' })
     testMock.mockResolvedValue({ ok: true })
-    syncKeysMock.mockResolvedValue({ keys: [{ id: 1 }] })
+    syncKeysMock.mockResolvedValue({ keys: [{ id: 1 }], key_count: 1, updated_account_count: 2 })
     syncAllKeysMock.mockResolvedValue({ results: [{ config_id: 10, name: 'Sub2API Main', success: true, key_count: 3, updated_account_count: 1 }] })
   })
 
@@ -309,6 +309,8 @@ describe('UpstreamConfigsView', () => {
         sub2api_login_password: 'secret-password'
       }
     }))
+    expect(syncKeysMock).toHaveBeenCalledWith(11)
+    expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.savedAndSynced:{"keys":1,"accounts":2}')
   })
 
   it('fills manual JWT fields from local token helper before saving', async () => {
@@ -354,6 +356,35 @@ describe('UpstreamConfigsView', () => {
         sub2api_refresh_token: 'parsed_refresh_token_123456'
       }
     }))
+    expect(syncKeysMock).toHaveBeenCalledWith(11)
+  })
+
+  it('keeps save success visible when the post-save sync fails', async () => {
+    syncKeysMock.mockRejectedValueOnce({
+      response: {
+        data: {
+          detail: 'refresh token invalid'
+        }
+      }
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.get('[data-test="base-dialog"]')
+    const inputs = dialog.findAll('input')
+    await inputs[0].setValue('New Upstream')
+    await inputs[1].setValue('https://new.example.com')
+    await inputs[2].setValue('admin@example.com')
+    await inputs[3].setValue('secret-password')
+    await wrapper.get('form#upstream-config-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createMock).toHaveBeenCalledTimes(1)
+    expect(syncKeysMock).toHaveBeenCalledWith(11)
+    expect(showErrorMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.savedButSyncFailed:{"error":"refresh token invalid"}')
   })
 
   it('uses ConfirmDialog for delete', async () => {
