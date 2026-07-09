@@ -8,10 +8,17 @@ export default {
       name: 'Name',
       provider: 'Type',
       baseUrl: 'Base URL',
+      balance: 'Balance',
       authMode: 'Auth',
       credentials: 'Credentials',
       lastSync: 'Last Sync',
       actions: 'Actions'
+    },
+    balance: {
+      totalRecharged: 'Recharged {amount}',
+      email: 'Upstream email: {email}',
+      syncedAt: 'Balance synced: {time}',
+      error: 'Balance error: {error}'
     },
     providers: {
       sub2api: 'sub2api',
@@ -40,6 +47,7 @@ export default {
       test: 'Test Connection',
       syncKeys: 'Sync Upstream',
       syncAll: 'Sync All',
+      openDashboard: 'Open Upstream Dashboard',
       saving: 'Saving...'
     },
     dialog: {
@@ -111,7 +119,8 @@ export default {
       syncFailed: 'Failed to sync upstream',
       syncAllSuccess: 'Synced {success} upstream(s), found {keys} key(s)',
       syncAllPartial: 'Sync finished: {success} succeeded, {failed} failed, found {keys} key(s)',
-      syncAllFailed: 'Failed to sync all upstreams'
+      syncAllFailed: 'Failed to sync all upstreams',
+      invalidDashboardUrl: 'Invalid upstream Base URL; cannot open dashboard'
     }
   }
 }

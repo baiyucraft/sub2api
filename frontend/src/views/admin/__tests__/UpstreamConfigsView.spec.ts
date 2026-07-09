@@ -82,6 +82,7 @@ const DataTableStub = defineComponent({
         <slot name="cell-name" :row="row" :value="row.name" />
         <slot name="cell-provider" :row="row" :value="row.provider" />
         <slot name="cell-base_url" :row="row" :value="row.base_url" />
+        <slot name="cell-balance" :row="row" />
         <slot name="cell-auth_mode" :row="row" :value="row.auth_mode" />
         <slot name="cell-credentials" :row="row" />
         <slot name="cell-last_success_at" :row="row" :value="row.last_success_at" />
@@ -244,11 +245,36 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="app-layout"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="table-page-layout"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="data-table"]').attributes('data-row-key')).toBe('id')
-    expect(wrapper.get('[data-test="data-table"]').attributes('data-actions-count')).toBe('4')
+    expect(wrapper.get('[data-test="data-table"]').attributes('data-actions-count')).toBe('5')
     expect(wrapper.get('[data-test="columns"]').text()).toContain('actions')
+    expect(wrapper.get('[data-test="columns"]').text()).toContain('balance')
     expect(wrapper.text()).toContain('Sub2API Main')
     expect(wrapper.text()).toContain('https://upstream.example.com')
     expect(wrapper.get('[data-test="pagination-component"]').exists()).toBe(true)
+  })
+
+  it('renders upstream balance from extra and opens sub2api dashboard URL', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    mockList([upstreamConfig({
+      base_url: 'https://upstream.example.com/base?x=1#frag',
+      extra: {
+        sub2api_balance: 12.3456,
+        sub2api_total_recharged: 169.17,
+        sub2api_user_email: 'owner@example.com',
+        sub2api_balance_synced_at: '2026-07-09T01:00:00Z'
+      }
+    })])
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('12.3456')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"169.17"}')
+
+    const buttons = wrapper.findAll('button.table-action-button')
+    await buttons[3].trigger('click')
+
+    expect(openSpy).toHaveBeenCalledWith('https://upstream.example.com/dashboard', '_blank', 'noopener,noreferrer')
+    openSpy.mockRestore()
   })
 
   it('wires pagination events to upstream list API', async () => {

@@ -19,10 +19,11 @@ type upstreamConfigServiceRepo struct {
 	configs []UpstreamConfig
 	keys    []UpstreamKey
 
-	upserts     []UpstreamKey
-	checks      []upstreamConfigCheck
-	savedTokens []upstreamConfigSavedToken
-	mu          sync.Mutex
+	upserts      []UpstreamKey
+	checks       []upstreamConfigCheck
+	savedTokens  []upstreamConfigSavedToken
+	extraUpdates []upstreamConfigExtraUpdate
+	mu           sync.Mutex
 }
 
 type upstreamConfigCheck struct {
@@ -35,6 +36,11 @@ type upstreamConfigSavedToken struct {
 	id           int64
 	accessToken  string
 	refreshToken string
+}
+
+type upstreamConfigExtraUpdate struct {
+	id      int64
+	updates map[string]any
 }
 
 func (r *upstreamConfigServiceRepo) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error) {
@@ -125,6 +131,26 @@ func (r *upstreamConfigServiceRepo) SaveRefreshedTokens(ctx context.Context, id 
 	return nil
 }
 
+func (r *upstreamConfigServiceRepo) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	copied := cloneAnyMap(updates)
+	r.extraUpdates = append(r.extraUpdates, upstreamConfigExtraUpdate{id: id, updates: copied})
+	for i := range r.configs {
+		if r.configs[i].ID != id {
+			continue
+		}
+		if r.configs[i].Extra == nil {
+			r.configs[i].Extra = map[string]any{}
+		}
+		for k, v := range updates {
+			r.configs[i].Extra[k] = v
+		}
+	}
+	return nil
+}
+
 func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -192,6 +218,129 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	require.NotNil(t, accountRepo.bulkUpdates[0].updates.Priority)
 	require.Equal(t, 7, *accountRepo.bulkUpdates[0].updates.Priority)
 	require.Equal(t, "Plus Group", accountRepo.bulkUpdates[0].updates.Extra["sub2api_upstream_group_name"])
+	require.Len(t, repo.checks, 1)
+	require.True(t, repo.checks[0].success)
+}
+
+func TestUpstreamConfigService_SyncKeysRecordsProfileBalanceSnapshot(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
+		case "/api/v1/keys":
+			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1440,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Plus Group","platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/rates":
+			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"10":0.065}}`))
+		case "/api/v1/auth/me":
+			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":27,"email":"owner@example.com","balance":12.34,"total_recharged":169.17}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(7)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{testUpstreamConfig(configID, "Sub2API Main", UpstreamProviderSub2API, StatusActive, server.URL)},
+	}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	_, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Len(t, repo.extraUpdates, 1)
+	updates := repo.extraUpdates[0].updates
+	require.Equal(t, configID, repo.extraUpdates[0].id)
+	require.InDelta(t, 12.34, updates["sub2api_balance"], 1e-12)
+	require.InDelta(t, 169.17, updates["sub2api_total_recharged"], 1e-12)
+	require.Equal(t, "owner@example.com", updates["sub2api_user_email"])
+	require.Equal(t, int64(27), updates["sub2api_user_id"])
+	require.NotEmpty(t, updates["sub2api_balance_synced_at"])
+	require.Equal(t, "", updates["sub2api_balance_last_error"])
+}
+
+func TestUpstreamConfigService_ProfileFailureDoesNotFailKeySyncOrOverwriteBalance(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
+		case "/api/v1/keys":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1440,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Plus Group","platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/rates":
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		case "/api/v1/auth/me":
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(7)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{{
+			ID:       configID,
+			Name:     "Sub2API Main",
+			Provider: UpstreamProviderSub2API,
+			BaseURL:  server.URL,
+			AuthMode: UpstreamAuthModeUserLogin,
+			Credentials: map[string]any{
+				AccountCredentialSub2APILoginEmail:    "admin@example.com",
+				AccountCredentialSub2APILoginPassword: "secret",
+			},
+			Extra:  map[string]any{"sub2api_balance": 88.8},
+			Status: StatusActive,
+		}},
+	}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	_, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Len(t, repo.checks, 1)
+	require.True(t, repo.checks[0].success)
+	require.Len(t, repo.extraUpdates, 1)
+	updates := repo.extraUpdates[0].updates
+	require.NotContains(t, updates, "sub2api_balance")
+	require.Contains(t, updates["sub2api_balance_last_error"], "status 404")
+	require.NotEmpty(t, updates["sub2api_balance_last_error_at"])
+	require.Equal(t, 88.8, repo.configs[0].Extra["sub2api_balance"])
+}
+
+func TestUpstreamConfigService_TestDoesNotRecordProfileBalance(t *testing.T) {
+	profileCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
+		case "/api/v1/keys":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1440,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Plus Group","platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/rates":
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		case "/api/v1/auth/me":
+			profileCalled = true
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(7)
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{testUpstreamConfig(configID, "Sub2API Main", UpstreamProviderSub2API, StatusActive, server.URL)}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	require.NoError(t, svc.Test(context.Background(), configID))
+	require.False(t, profileCalled)
+	require.Empty(t, repo.extraUpdates)
 	require.Len(t, repo.checks, 1)
 	require.True(t, repo.checks[0].success)
 }

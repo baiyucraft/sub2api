@@ -62,7 +62,7 @@
           :data="configs"
           :loading="loading"
           row-key="id"
-          :actions-count="4"
+          :actions-count="5"
           :estimate-row-height="72"
         >
           <template #cell-name="{ row }">
@@ -86,6 +86,24 @@
           <template #cell-base_url="{ value }">
             <div class="max-w-[320px] truncate font-mono text-xs text-gray-700 dark:text-gray-300" :title="value">
               {{ value }}
+            </div>
+          </template>
+
+          <template #cell-balance="{ row }">
+            <div class="min-w-[120px]" :title="balanceTitle(row)">
+              <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
+                {{ formatBalanceAmount(upstreamBalance(row)) }}
+              </div>
+              <div v-if="upstreamTotalRecharged(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+                {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatBalanceAmount(upstreamTotalRecharged(row)) }) }}
+              </div>
+              <div
+                v-if="upstreamBalanceError(row)"
+                class="mt-0.5 max-w-[160px] truncate text-xs text-amber-600 dark:text-amber-400"
+                :title="upstreamBalanceError(row) || ''"
+              >
+                {{ upstreamBalanceError(row) }}
+              </div>
             </div>
           </template>
 
@@ -152,6 +170,16 @@
                 @click="handleTest(row)"
               >
                 <Icon name="play" size="sm" />
+              </button>
+              <button
+                v-if="row.provider === 'sub2api'"
+                type="button"
+                class="table-action-button hover:text-sky-600 dark:hover:text-sky-400"
+                :title="t('admin.upstreamConfigs.actions.openDashboard')"
+                :aria-label="t('admin.upstreamConfigs.actions.openDashboard')"
+                @click="openUpstreamDashboard(row)"
+              >
+                <Icon name="externalLink" size="sm" />
               </button>
               <button
                 type="button"
@@ -501,6 +529,7 @@ const columns = computed<Column[]>(() => [
   { key: 'name', label: t('admin.upstreamConfigs.columns.name') },
   { key: 'provider', label: t('admin.upstreamConfigs.columns.provider') },
   { key: 'base_url', label: t('admin.upstreamConfigs.columns.baseUrl') },
+  { key: 'balance', label: t('admin.upstreamConfigs.columns.balance') },
   { key: 'auth_mode', label: t('admin.upstreamConfigs.columns.authMode') },
   { key: 'credentials', label: t('admin.upstreamConfigs.columns.credentials') },
   { key: 'last_success_at', label: t('admin.upstreamConfigs.columns.lastSync') },
@@ -673,6 +702,28 @@ function buildUpstreamLoginURL(): string | null {
     const url = new URL(form.base_url.trim())
     if (!['http:', 'https:'].includes(url.protocol)) return null
     url.pathname = '/login'
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+function openUpstreamDashboard(item: UpstreamConfig) {
+  const url = buildUpstreamDashboardURL(item)
+  if (!url) {
+    appStore.showError(t('admin.upstreamConfigs.messages.invalidDashboardUrl'))
+    return
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function buildUpstreamDashboardURL(item: UpstreamConfig): string | null {
+  try {
+    const url = new URL((item.base_url || '').trim())
+    if (!['http:', 'https:'].includes(url.protocol)) return null
+    url.pathname = '/dashboard'
     url.search = ''
     url.hash = ''
     return url.toString()
@@ -892,6 +943,53 @@ function credentialLines(item: UpstreamConfig) {
 
 function statusLabel(ok: boolean) {
   return ok ? t('admin.upstreamConfigs.credentialStatus.configured') : t('admin.upstreamConfigs.credentialStatus.missing')
+}
+
+function upstreamBalance(item: UpstreamConfig): number | null {
+  return finiteNumberFromExtra(item.extra?.sub2api_balance)
+}
+
+function upstreamTotalRecharged(item: UpstreamConfig): number | null {
+  return finiteNumberFromExtra(item.extra?.sub2api_total_recharged)
+}
+
+function upstreamBalanceError(item: UpstreamConfig): string {
+  const value = item.extra?.sub2api_balance_last_error
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function upstreamBalanceSyncedAt(item: UpstreamConfig): string {
+  const value = item.extra?.sub2api_balance_synced_at
+  return typeof value === 'string' ? value : ''
+}
+
+function upstreamBalanceEmail(item: UpstreamConfig): string {
+  const value = item.extra?.sub2api_user_email
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function finiteNumberFromExtra(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function formatBalanceAmount(value: number | null): string {
+  if (value === null) return '-'
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4
+  })
+}
+
+function balanceTitle(item: UpstreamConfig): string {
+  const parts: string[] = []
+  const email = upstreamBalanceEmail(item)
+  const syncedAt = upstreamBalanceSyncedAt(item)
+  const error = upstreamBalanceError(item)
+  if (email) parts.push(t('admin.upstreamConfigs.balance.email', { email }))
+  if (syncedAt) parts.push(t('admin.upstreamConfigs.balance.syncedAt', { time: formatTime(syncedAt) }))
+  if (error) parts.push(t('admin.upstreamConfigs.balance.error', { error }))
+  return parts.join('\n')
 }
 
 function tokenCandidateLabel(candidate: ParsedTokenCandidate): string {

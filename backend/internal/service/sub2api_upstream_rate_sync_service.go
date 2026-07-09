@@ -25,6 +25,7 @@ import (
 const (
 	sub2APILoginPath       = "/api/v1/auth/login"
 	sub2APIRefreshPath     = "/api/v1/auth/refresh"
+	sub2APIProfilePath     = "/api/v1/auth/me"
 	sub2APIKeysPath        = "/api/v1/keys"
 	sub2APIKeysFallback    = "/api/v1/api-keys"
 	sub2APIGroupRatesPath  = "/api/v1/groups/rates"
@@ -88,8 +89,23 @@ type sub2APIUpstreamKey struct {
 }
 
 type sub2APIUserLoginSession struct {
-	keys  []sub2APIUpstreamKey
-	rates map[int64]float64
+	keys        []sub2APIUpstreamKey
+	rates       map[int64]float64
+	accessToken string
+}
+
+type sub2APIProfile struct {
+	ID             int64   `json:"id"`
+	Email          string  `json:"email"`
+	Balance        float64 `json:"balance"`
+	TotalRecharged float64 `json:"total_recharged"`
+}
+
+type sub2APIUpstreamSnapshot struct {
+	Keys            []UpstreamKey
+	Profile         *sub2APIProfile
+	ProfileErr      error
+	RefreshedTokens *sub2APIRefreshData
 }
 
 type sub2APISyncTarget struct {
@@ -420,13 +436,21 @@ func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Conte
 }
 
 func testSub2APIUpstreamConfig(ctx context.Context, cfg *UpstreamConfig, proxyURL string) error {
-	_, _, err := syncSub2APIUpstreamKeys(ctx, cfg, proxyURL)
+	_, err := syncSub2APIUpstreamSnapshot(ctx, cfg, proxyURL, false)
 	return err
 }
 
 func syncSub2APIUpstreamKeys(ctx context.Context, cfg *UpstreamConfig, proxyURL string) ([]UpstreamKey, *sub2APIRefreshData, error) {
+	snapshot, err := syncSub2APIUpstreamSnapshot(ctx, cfg, proxyURL, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	return snapshot.Keys, snapshot.RefreshedTokens, nil
+}
+
+func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxyURL string, includeProfile bool) (*sub2APIUpstreamSnapshot, error) {
 	if cfg == nil {
-		return nil, nil, fmt.Errorf("missing upstream config")
+		return nil, fmt.Errorf("missing upstream config")
 	}
 	account := Account{
 		ID:          cfg.ID,
@@ -445,12 +469,12 @@ func syncSub2APIUpstreamKeys(ctx context.Context, cfg *UpstreamConfig, proxyURL 
 	}
 	target, err := newSub2APISyncTarget(account, proxyURL)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	svc := &Sub2APIUpstreamRateSyncService{}
 	session, refreshed, err := svc.fetchUserLoginSession(ctx, target)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	now := time.Now()
 	out := make([]UpstreamKey, 0, len(session.keys))
@@ -461,7 +485,7 @@ func syncSub2APIUpstreamKeys(ctx context.Context, cfg *UpstreamConfig, proxyURL 
 		}
 		rate, _, err := resolveSub2APIEffectiveRate(key, session)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		name := normalizeUpstreamDisplayName(upstreamKey.Name, 100)
 		groupID := effectiveSub2APIGroupID(upstreamKey)
@@ -487,7 +511,19 @@ func syncSub2APIUpstreamKeys(ctx context.Context, cfg *UpstreamConfig, proxyURL 
 			LastSeenAt:        &now,
 		})
 	}
-	return out, refreshed, nil
+	snapshot := &sub2APIUpstreamSnapshot{
+		Keys:            out,
+		RefreshedTokens: refreshed,
+	}
+	if includeProfile {
+		client, clientErr := sub2APIHTTPClient(target.proxyURL)
+		if clientErr != nil {
+			snapshot.ProfileErr = clientErr
+		} else {
+			snapshot.Profile, snapshot.ProfileErr = svc.fetchSub2APIProfile(ctx, client, target.rootURL, session.accessToken)
+		}
+	}
+	return snapshot, nil
 }
 
 func normalizeUpstreamDisplayName(value string, maxRunes int) string {
@@ -517,7 +553,7 @@ func sanitizeStandaloneSub2APIError(err error, credentials map[string]any) strin
 			text = strings.ReplaceAll(text, value, "[REDACTED]")
 		}
 	}
-	return logredact.RedactText(text, "api_key", "jwt", "authorization")
+	return logredact.RedactText(text, "api_key", "jwt", "authorization", "bearer", "token", "access_token", "refresh_token")
 }
 
 func (s *Sub2APIUpstreamRateSyncService) fetchSessionWithToken(ctx context.Context, client *http.Client, rootURL, token string) (*sub2APIUserLoginSession, error) {
@@ -529,7 +565,7 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSessionWithToken(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	return &sub2APIUserLoginSession{keys: keys, rates: rates}, nil
+	return &sub2APIUserLoginSession{keys: keys, rates: rates, accessToken: strings.TrimSpace(token)}, nil
 }
 
 func (t sub2APISyncTarget) groupKey() string {
@@ -724,6 +760,31 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIGroupRates(ctx context.Cont
 		rates[groupID] = rate
 	}
 	return rates, nil
+}
+
+func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIProfile(ctx context.Context, client *http.Client, rootURL, token string) (*sub2APIProfile, error) {
+	endpoint, err := buildSub2APIURL(rootURL, sub2APIProfilePath)
+	if err != nil {
+		return nil, err
+	}
+	var payload sub2APIEnvelope[sub2APIProfile]
+	status, err := s.doJSON(ctx, client, http.MethodGet, endpoint, token, nil, &payload)
+	if err != nil {
+		return nil, fmt.Errorf("get profile failed: %w", err)
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("get profile returned status %d", status)
+	}
+	if payload.Code != 0 {
+		return nil, fmt.Errorf("get profile failed: code %d%s", payload.Code, safeEnvelopeReason(payload.Reason))
+	}
+	if math.IsNaN(payload.Data.Balance) || math.IsInf(payload.Data.Balance, 0) {
+		return nil, fmt.Errorf("get profile returned invalid balance")
+	}
+	if math.IsNaN(payload.Data.TotalRecharged) || math.IsInf(payload.Data.TotalRecharged, 0) {
+		return nil, fmt.Errorf("get profile returned invalid total_recharged")
+	}
+	return &payload.Data, nil
 }
 
 func (s *Sub2APIUpstreamRateSyncService) syncTargetWithSession(ctx context.Context, target sub2APISyncTarget, session *sub2APIUserLoginSession) error {
