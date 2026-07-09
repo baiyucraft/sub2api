@@ -98,10 +98,7 @@
                 {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatUpstreamBalance(row, upstreamTotalRecharged(row)) }) }}
               </div>
               <div v-if="upstreamUsedQuota(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
-                {{ t('admin.upstreamConfigs.balance.usedQuota', {
-                  amount: formatUpstreamBalance(row, upstreamUsedQuota(row)),
-                  total: formatUpstreamBalance(row, upstreamTotalQuota(row))
-                }) }}
+                {{ t('admin.upstreamConfigs.balance.usedQuota', { amount: formatUpstreamBalance(row, upstreamUsedQuota(row)) }) }}
               </div>
               <div
                 v-if="upstreamBalanceError(row)"
@@ -1024,13 +1021,6 @@ function upstreamUsedQuota(item: UpstreamConfig): number | null {
   const snapshot = upstreamProviderSnapshot(item)
   return finiteNumberFromExtra(snapshot?.used_amount)
     ?? convertNewAPIQuotaRaw(item, finiteNumberFromExtra(snapshot?.used_quota))
-}
-
-function upstreamTotalQuota(item: UpstreamConfig): number | null {
-  if (item.provider !== 'newapi') return null
-  const snapshot = upstreamProviderSnapshot(item)
-  return finiteNumberFromExtra(snapshot?.total_amount)
-    ?? convertNewAPIQuotaRaw(item, finiteNumberFromExtra(snapshot?.total_quota))
 }
 
 function upstreamBalanceError(item: UpstreamConfig): string {

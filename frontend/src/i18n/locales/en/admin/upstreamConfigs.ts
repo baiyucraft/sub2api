@@ -16,7 +16,7 @@ export default {
     },
     balance: {
       totalRecharged: 'Recharged {amount}',
-      usedQuota: 'Used {amount} / total {total}',
+      usedQuota: 'Used {amount}',
       rawBalance: 'Raw balance: {amount}',
       rawUsed: 'Raw used: {amount}',
       rawTotal: 'Raw total: {amount}',
