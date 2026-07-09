@@ -1,5 +1,5 @@
 export type ParsedTokenKind = 'access' | 'refresh' | 'unknown'
-export type ParsedTokenSource = 'field' | 'bearer' | 'jwt'
+export type ParsedTokenSource = 'field' | 'bearer' | 'jwt' | 'raw_refresh'
 
 export interface ParsedTokenCandidate {
   id: string
@@ -22,6 +22,7 @@ const JWT_RE = /\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g
 const JWT_FULL_RE = /^eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 const BEARER_RE = /(?:authorization\s*:\s*)?bearer\s+([A-Za-z0-9._~+/=-]{12,})/gi
 const FIELD_RE = /["']?([A-Za-z0-9_./:-]*(?:access_token|refresh_token|sub2api_access_token|sub2api_refresh_token)[A-Za-z0-9_./:-]*)["']?\s*[:=]\s*["']?([A-Za-z0-9._~+/=-]{12,})/gi
+const RAW_SUB2API_REFRESH_RE = /^rt_[0-9a-f]{64}$/
 
 const SENSITIVE_FIELD_KEYS = new Set([
   'access_token',
@@ -58,12 +59,22 @@ export function parseUpstreamTokenPaste(input: string, now = new Date()): Parsed
   collectFromFields(input, addCandidate)
   collectFromBearer(input, addCandidate)
   collectFromJWT(input, addCandidate)
+  collectFromRawSub2APIRefresh(input, addCandidate)
 
   return {
     accessCandidates: candidates.filter((item) => item.kind === 'access'),
     refreshCandidates: candidates.filter((item) => item.kind === 'refresh'),
     unknownCandidates: candidates.filter((item) => item.kind === 'unknown')
   }
+}
+
+function collectFromRawSub2APIRefresh(
+  input: string,
+  addCandidate: (kind: ParsedTokenKind, source: ParsedTokenSource, value: string, label: string) => void
+) {
+  const token = input.trim().replace(/^["']|["']$/g, '')
+  if (!RAW_SUB2API_REFRESH_RE.test(token)) return
+  addCandidate('refresh', 'raw_refresh', token, 'Sub2API refresh token')
 }
 
 function collectFromFields(

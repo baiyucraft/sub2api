@@ -314,8 +314,8 @@ func newSub2APISyncTarget(account Account, proxyURL string) (sub2APISyncTarget, 
 	}
 	adapter := account.Sub2APIRateSyncAdapter()
 	if adapter == AccountSub2APIRateSyncAdapterManualJWT {
-		if accessToken == "" {
-			return sub2APISyncTarget{}, fmt.Errorf("missing sub2api access token")
+		if accessToken == "" && refreshToken == "" {
+			return sub2APISyncTarget{}, fmt.Errorf("missing sub2api access token or refresh token")
 		}
 	} else {
 		if email == "" {
@@ -389,6 +389,17 @@ func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Conte
 		}
 		session, err := s.fetchSessionWithToken(ctx, client, target.rootURL, token)
 		return session, nil, err
+	}
+	if token == "" && target.refreshToken != "" {
+		refreshed, refreshErr := s.refreshSub2APIToken(ctx, client, target)
+		if refreshErr != nil {
+			return nil, nil, fmt.Errorf("refresh sub2api token failed: %w", refreshErr)
+		}
+		session, err := s.fetchSessionWithToken(ctx, client, target.rootURL, refreshed.AccessToken)
+		if err != nil {
+			return nil, nil, err
+		}
+		return session, refreshed, nil
 	}
 	session, err := s.fetchSessionWithToken(ctx, client, target.rootURL, token)
 	if err == nil || !errors.Is(err, errSub2APIAccessTokenMayBeStale) {
@@ -586,7 +597,7 @@ func (s *Sub2APIUpstreamRateSyncService) refreshSub2APIToken(ctx context.Context
 		return nil, fmt.Errorf("refresh returned no access token")
 	}
 	if payload.Data.RefreshToken == "" {
-		return nil, fmt.Errorf("refresh returned no refresh token")
+		payload.Data.RefreshToken = target.refreshToken
 	}
 	return &payload.Data, nil
 }

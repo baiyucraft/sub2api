@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -87,6 +88,7 @@ type UpstreamConfigService struct {
 	repo        UpstreamConfigRepository
 	proxyRepo   ProxyRepository
 	accountRepo AccountRepository
+	syncLocks   sync.Map
 }
 
 type UpstreamConfigSyncResult struct {
@@ -212,19 +214,18 @@ func (s *UpstreamConfigService) Test(ctx context.Context, id int64) error {
 	return s.repo.RecordCheckResult(ctx, id, true, "")
 }
 
-func (s *UpstreamConfigService) SyncKeys(ctx context.Context, id int64) ([]UpstreamKey, error) {
+func (s *UpstreamConfigService) SyncKeys(ctx context.Context, id int64) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
 	cfg, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, UpstreamConfigSyncResult{}, err
 	}
 	if cfg == nil {
-		return nil, ErrUpstreamConfigNotFound
+		return nil, UpstreamConfigSyncResult{}, ErrUpstreamConfigNotFound
 	}
 	if cfg.Provider != UpstreamProviderSub2API {
-		return nil, infraerrors.BadRequest("UPSTREAM_PROVIDER_SYNC_UNSUPPORTED", "automatic sync is only supported for sub2api upstream configs")
+		return nil, UpstreamConfigSyncResult{}, infraerrors.BadRequest("UPSTREAM_PROVIDER_SYNC_UNSUPPORTED", "automatic sync is only supported for sub2api upstream configs")
 	}
-	keys, _, err := s.syncSub2APIConfig(ctx, cfg)
-	return keys, err
+	return s.syncSub2APIConfig(ctx, cfg)
 }
 
 func (s *UpstreamConfigService) SyncActiveSub2APIConfigs(ctx context.Context) []UpstreamConfigSyncResult {
@@ -249,6 +250,16 @@ func (s *UpstreamConfigService) SyncActiveSub2APIConfigs(ctx context.Context) []
 }
 
 func (s *UpstreamConfigService) syncSub2APIConfig(ctx context.Context, cfg *UpstreamConfig) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
+	if cfg != nil && cfg.ID > 0 {
+		unlock := s.lockUpstreamConfigSync(cfg.ID)
+		defer unlock()
+		latest, err := s.repo.GetByID(ctx, cfg.ID)
+		if err != nil {
+			result := UpstreamConfigSyncResult{ConfigID: cfg.ID, Name: cfg.Name, Error: sanitizeStandaloneSub2APIError(err, cfg.Credentials)}
+			return nil, result, err
+		}
+		cfg = latest
+	}
 	result := UpstreamConfigSyncResult{}
 	if cfg != nil {
 		result.ConfigID = cfg.ID
@@ -307,6 +318,16 @@ func (s *UpstreamConfigService) syncSub2APIConfig(ctx context.Context, cfg *Upst
 	result.Success = true
 	_ = s.repo.RecordCheckResult(ctx, cfg.ID, true, "")
 	return localKeys, result, nil
+}
+
+func (s *UpstreamConfigService) lockUpstreamConfigSync(id int64) func() {
+	if s == nil || id <= 0 {
+		return func() {}
+	}
+	actual, _ := s.syncLocks.LoadOrStore(id, &sync.Mutex{})
+	mu := actual.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func (s *UpstreamConfigService) listActiveSub2APIConfigs(ctx context.Context) ([]UpstreamConfig, error) {
@@ -452,8 +473,13 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 		return nil
 	}
 	if config.AuthMode == UpstreamAuthModeManualJWT {
-		if requireSecrets && strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APIAccessToken)) == "" {
-			return infraerrors.BadRequest("UPSTREAM_ACCESS_TOKEN_REQUIRED", "sub2api access token is required")
+		accessToken := strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APIAccessToken))
+		refreshToken := strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APIRefreshToken))
+		if requireSecrets && accessToken == "" && refreshToken == "" {
+			return infraerrors.BadRequest("UPSTREAM_TOKEN_REQUIRED", "sub2api access token or refresh token is required")
+		}
+		if !requireSecrets && accessToken == "" && refreshToken == "" {
+			return infraerrors.BadRequest("UPSTREAM_TOKEN_REQUIRED", "sub2api access token or refresh token is required")
 		}
 		return nil
 	}

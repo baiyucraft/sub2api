@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parseUpstreamTokenPaste } from '../upstreamTokenParser'
 
 const NOW = new Date('2026-07-08T00:00:00Z')
+const RAW_REFRESH_TOKEN = `rt_${'a'.repeat(64)}`
 
 function makeJWT(exp: number) {
   const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
@@ -58,6 +59,47 @@ describe('parseUpstreamTokenPaste', () => {
       source: 'bearer',
       value: 'bearer_token_value_123456'
     })
+  })
+
+  it('parses a bare Sub2API refresh token when pasted alone', () => {
+    const result = parseUpstreamTokenPaste(RAW_REFRESH_TOKEN, NOW)
+
+    expect(result.refreshCandidates).toHaveLength(1)
+    expect(result.refreshCandidates[0]).toMatchObject({
+      kind: 'refresh',
+      source: 'raw_refresh',
+      value: RAW_REFRESH_TOKEN,
+      label: 'Sub2API refresh token'
+    })
+  })
+
+  it('parses a bare Sub2API refresh token with surrounding whitespace or quotes', () => {
+    const result = parseUpstreamTokenPaste(`  "${RAW_REFRESH_TOKEN}"  `, NOW)
+
+    expect(result.refreshCandidates[0]?.value).toBe(RAW_REFRESH_TOKEN)
+  })
+
+  it('keeps explicit refresh token fields as the preferred source', () => {
+    const result = parseUpstreamTokenPaste(`refresh_token=${RAW_REFRESH_TOKEN}`, NOW)
+
+    expect(result.refreshCandidates).toHaveLength(1)
+    expect(result.refreshCandidates[0]).toMatchObject({
+      source: 'field',
+      value: RAW_REFRESH_TOKEN,
+      label: 'refresh_token'
+    })
+  })
+
+  it.each([
+    ['short token', `rt_${'a'.repeat(63)}`],
+    ['long token', `rt_${'a'.repeat(65)}`],
+    ['non-hex token', `rt_${'g'.repeat(64)}`],
+    ['uppercase prefix', `RT_${'a'.repeat(64)}`],
+    ['embedded token', `hello ${RAW_REFRESH_TOKEN} world`]
+  ])('does not parse invalid bare Sub2API refresh token: %s', (_caseName, value) => {
+    const result = parseUpstreamTokenPaste(value, NOW)
+
+    expect(result.refreshCandidates).toHaveLength(0)
   })
 
   it('keeps bare JWTs as unknown candidates and exposes unverified expiry', () => {

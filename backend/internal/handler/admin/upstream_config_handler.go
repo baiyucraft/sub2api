@@ -129,12 +129,16 @@ func (h *UpstreamConfigHandler) SyncKeys(c *gin.Context) {
 	if !ok {
 		return
 	}
-	keys, err := h.service.SyncKeys(c.Request.Context(), id)
+	keys, result, err := h.service.SyncKeys(c.Request.Context(), id)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"keys": sanitizeUpstreamKeys(keys)})
+	response.Success(c, gin.H{
+		"keys":                  sanitizeUpstreamKeys(keys),
+		"key_count":             result.KeyCount,
+		"updated_account_count": result.UpdatedAccountCount,
+	})
 }
 
 func (h *UpstreamConfigHandler) SyncAllKeys(c *gin.Context) {
