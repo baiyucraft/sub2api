@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -268,6 +269,33 @@ func (r *upstreamConfigRepository) SaveRefreshedTokens(ctx context.Context, id i
 		SetCredentials(credentials).
 		Save(ctx)
 	return err
+}
+
+func (r *upstreamConfigRepository) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	payload, err := json.Marshal(updates)
+	if err != nil {
+		return err
+	}
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(
+		ctx,
+		"UPDATE upstream_configs SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL",
+		string(payload), id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrUpstreamConfigNotFound
+	}
+	return nil
 }
 
 func upstreamConfigEntityToService(row *dbent.UpstreamConfig) *service.UpstreamConfig {

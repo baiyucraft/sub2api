@@ -82,6 +82,7 @@ type UpstreamConfigRepository interface {
 	DeleteKey(ctx context.Context, id int64) error
 	RecordCheckResult(ctx context.Context, id int64, success bool, safeErr string) error
 	SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string) error
+	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
 }
 
 type UpstreamConfigService struct {
@@ -281,18 +282,19 @@ func (s *UpstreamConfigService) syncSub2APIConfig(ctx context.Context, cfg *Upst
 		result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
 		return nil, result, err
 	}
-	keys, refreshedTokens, err := syncSub2APIUpstreamKeys(ctx, cfg, proxyURL)
+	snapshot, err := syncSub2APIUpstreamSnapshot(ctx, cfg, proxyURL, true)
 	if err != nil {
 		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
 		result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
 		return nil, result, err
 	}
-	if refreshedTokens != nil {
-		if err := s.repo.SaveRefreshedTokens(ctx, cfg.ID, refreshedTokens.AccessToken, refreshedTokens.RefreshToken); err != nil {
+	if snapshot.RefreshedTokens != nil {
+		if err := s.repo.SaveRefreshedTokens(ctx, cfg.ID, snapshot.RefreshedTokens.AccessToken, snapshot.RefreshedTokens.RefreshToken); err != nil {
 			result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
 			return nil, result, err
 		}
 	}
+	keys := snapshot.Keys
 	for i := range keys {
 		if err := normalizeAndValidateUpstreamKey(&keys[i]); err != nil {
 			result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
@@ -317,7 +319,33 @@ func (s *UpstreamConfigService) syncSub2APIConfig(ctx context.Context, cfg *Upst
 	result.UpdatedAccountCount = updated
 	result.Success = true
 	_ = s.repo.RecordCheckResult(ctx, cfg.ID, true, "")
+	_ = s.recordSub2APIProfileSnapshot(ctx, cfg, snapshot.Profile, snapshot.ProfileErr)
 	return localKeys, result, nil
+}
+
+func (s *UpstreamConfigService) recordSub2APIProfileSnapshot(ctx context.Context, cfg *UpstreamConfig, profile *sub2APIProfile, profileErr error) error {
+	if s == nil || s.repo == nil || cfg == nil || cfg.ID <= 0 {
+		return nil
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if profileErr != nil {
+		return s.repo.UpdateExtra(ctx, cfg.ID, map[string]any{
+			"sub2api_balance_last_error":    sanitizeStandaloneSub2APIError(profileErr, cfg.Credentials),
+			"sub2api_balance_last_error_at": now,
+		})
+	}
+	if profile == nil {
+		return nil
+	}
+	return s.repo.UpdateExtra(ctx, cfg.ID, map[string]any{
+		"sub2api_balance":               profile.Balance,
+		"sub2api_total_recharged":       profile.TotalRecharged,
+		"sub2api_user_email":            strings.TrimSpace(profile.Email),
+		"sub2api_user_id":               profile.ID,
+		"sub2api_balance_synced_at":     now,
+		"sub2api_balance_last_error":    "",
+		"sub2api_balance_last_error_at": "",
+	})
 }
 
 func (s *UpstreamConfigService) lockUpstreamConfigSync(id int64) func() {

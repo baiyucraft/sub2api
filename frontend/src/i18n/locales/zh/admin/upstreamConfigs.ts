@@ -8,10 +8,17 @@ export default {
       name: '名称',
       provider: '类型',
       baseUrl: 'Base URL',
+      balance: '余额',
       authMode: '认证',
       credentials: '凭据',
       lastSync: '最近同步',
       actions: '操作'
+    },
+    balance: {
+      totalRecharged: '累计 {amount}',
+      email: '上游邮箱：{email}',
+      syncedAt: '余额同步：{time}',
+      error: '余额错误：{error}'
     },
     providers: {
       sub2api: 'sub2api',
@@ -40,6 +47,7 @@ export default {
       test: '测试连接',
       syncKeys: '同步上游',
       syncAll: '同步全部',
+      openDashboard: '打开上游后台',
       saving: '保存中...'
     },
     dialog: {
@@ -111,7 +119,8 @@ export default {
       syncFailed: '同步上游失败',
       syncAllSuccess: '已同步 {success} 个上游，共发现 {keys} 个 Key',
       syncAllPartial: '同步完成：成功 {success} 个上游，失败 {failed} 个，共发现 {keys} 个 Key',
-      syncAllFailed: '同步全部上游失败'
+      syncAllFailed: '同步全部上游失败',
+      invalidDashboardUrl: '上游 Base URL 无效，无法打开后台'
     }
   }
 }
