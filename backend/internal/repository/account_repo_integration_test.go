@@ -757,6 +757,47 @@ func (s *AccountRepoSuite) TestTempUnschedulableFieldsLoadedByGetByIDAndGetByIDs
 	s.Require().Equal("", cacheRecorder.setAccounts[0].TempUnschedulableReason)
 }
 
+func (s *AccountRepoSuite) TestGetByIDsHydratesUpstreamBoundCredentials() {
+	cfg := s.client.UpstreamConfig.Create().
+		SetName("repo-upstream").
+		SetProvider(service.UpstreamProviderSub2API).
+		SetBaseURL("https://upstream.example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetCredentials(map[string]any{"access_token": "jwt"}).
+		SetStatus(service.StatusActive).
+		SaveX(s.ctx)
+	upstreamKey := "sk-upstream-bound-getbyids"
+	key := s.client.UpstreamKey.Create().
+		SetUpstreamConfigID(cfg.ID).
+		SetName("pro").
+		SetKey(upstreamKey).
+		SetKeyHash(service.HashUpstreamKey(upstreamKey)).
+		SetPlatform(service.PlatformOpenAI).
+		SetStatus(service.StatusActive).
+		SaveX(s.ctx)
+
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:             "upstream-bound-empty-credentials",
+		Platform:         service.PlatformOpenAI,
+		Type:             service.AccountTypeAPIKey,
+		Status:           service.StatusActive,
+		Credentials:      map[string]any{},
+		UpstreamConfigID: &cfg.ID,
+		UpstreamKeyID:    &key.ID,
+	})
+
+	gotByID, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal("https://upstream.example.com", gotByID.GetCredential("base_url"))
+	s.Require().Equal(upstreamKey, gotByID.GetCredential("api_key"))
+
+	gotByIDs, err := s.repo.GetByIDs(s.ctx, []int64{account.ID})
+	s.Require().NoError(err)
+	s.Require().Len(gotByIDs, 1)
+	s.Require().Equal("https://upstream.example.com", gotByIDs[0].GetCredential("base_url"))
+	s.Require().Equal(upstreamKey, gotByIDs[0].GetCredential("api_key"))
+}
+
 func (s *AccountRepoSuite) TestSetTempUnschedulableSkipsOutboxWhenWindowDoesNotExtend() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-temp-noop"})
 	cacheRecorder := &schedulerCacheRecorder{}

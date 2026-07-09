@@ -203,7 +203,6 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 	entAccounts, err := r.client.Account.
 		Query().
 		Where(dbaccount.IDIn(uniqueIDs...)).
-		WithProxy().
 		All(ctx)
 	if err != nil {
 		return nil, err
@@ -212,40 +211,18 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 		return []*service.Account{}, nil
 	}
 
-	accountIDs := make([]int64, 0, len(entAccounts))
 	entByID := make(map[int64]*dbent.Account, len(entAccounts))
 	for _, acc := range entAccounts {
 		entByID[acc.ID] = acc
-		accountIDs = append(accountIDs, acc.ID)
 	}
 
-	groupsByAccount, groupIDsByAccount, accountGroupsByAccount, err := r.loadAccountGroups(ctx, accountIDs)
+	accounts, err := r.accountsToService(ctx, entAccounts)
 	if err != nil {
 		return nil, err
 	}
-
-	outByID := make(map[int64]*service.Account, len(entAccounts))
-	for _, entAcc := range entAccounts {
-		out := accountEntityToService(entAcc)
-		if out == nil {
-			continue
-		}
-
-		// Prefer the preloaded proxy edge when available.
-		if entAcc.Edges.Proxy != nil {
-			out.Proxy = proxyEntityToService(entAcc.Edges.Proxy)
-		}
-
-		if groups, ok := groupsByAccount[entAcc.ID]; ok {
-			out.Groups = groups
-		}
-		if groupIDs, ok := groupIDsByAccount[entAcc.ID]; ok {
-			out.GroupIDs = groupIDs
-		}
-		if ags, ok := accountGroupsByAccount[entAcc.ID]; ok {
-			out.AccountGroups = ags
-		}
-		outByID[entAcc.ID] = out
+	outByID := make(map[int64]*service.Account, len(accounts))
+	for i := range accounts {
+		outByID[accounts[i].ID] = &accounts[i]
 	}
 
 	// Preserve input order (first occurrence), and ignore missing IDs.
