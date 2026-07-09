@@ -16,7 +16,10 @@ export default {
     },
     balance: {
       totalRecharged: '累计 {amount}',
-      usedQuota: '已用 {amount}',
+      usedQuota: '已用 {amount} / 总额 {total}',
+      rawBalance: '原生剩余额度：{amount}',
+      rawUsed: '原生已用额度：{amount}',
+      rawTotal: '原生总额度：{amount}',
       email: '上游邮箱：{email}',
       syncedAt: '额度同步：{time}',
       error: '额度错误：{error}'

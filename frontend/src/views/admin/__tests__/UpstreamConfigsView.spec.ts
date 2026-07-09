@@ -277,7 +277,7 @@ describe('UpstreamConfigsView', () => {
     openSpy.mockRestore()
   })
 
-  it('renders newapi quota snapshot as quota, not sub2api recharge balance', async () => {
+  it('renders newapi quota snapshot as money, not raw negative quota', async () => {
     mockList([upstreamConfig({
       provider: 'newapi',
       extra: {
@@ -287,8 +287,20 @@ describe('UpstreamConfigsView', () => {
           synced_at: '2026-07-09T01:00:00Z',
           email: 'owner@example.com',
           quota: 86995,
+          quota_raw: 86995,
           used_quota: 4913005,
-          remain_quota: -4826010
+          used_quota_raw: 4913005,
+          remain_quota: 86995,
+          remain_quota_raw: 86995,
+          total_quota: 5000000,
+          total_quota_raw: 5000000,
+          balance_amount: 0.17399,
+          used_amount: 9.82601,
+          total_amount: 10,
+          currency: 'USD',
+          currency_symbol: '$',
+          quota_display_type: 'USD',
+          quota_per_unit: 500000
         }
       }
     })])
@@ -296,8 +308,9 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('-4,826,010')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.usedQuota:{"amount":"4,913,005.00"}')
+    expect(wrapper.text()).toContain('$0.174')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.usedQuota:{"amount":"$9.826","total":"$10.00"}')
+    expect(wrapper.text()).not.toContain('-4,826,010')
     expect(wrapper.text()).not.toContain('admin.upstreamConfigs.balance.totalRecharged')
   })
 
