@@ -3,7 +3,7 @@ export default {
     title: '上游配置',
     description: '集中维护上游中转站登录态、代理和 Key，账号管理只绑定指定上游配置。',
     searchPlaceholder: '搜索名称或 Base URL',
-    sensitiveHint: '这些凭据会保存为高敏上游凭据，仅用于同步 Key、倍率和刷新 JWT；接口不会回显明文密码、JWT、Refresh Token 或 API Key。',
+    sensitiveHint: '这些凭据会保存为高敏上游凭据，仅用于同步 Key、倍率、额度和刷新 JWT；接口不会回显明文密码、JWT、Refresh Token、Cookie 或 API Key。',
     columns: {
       name: '名称',
       provider: '类型',
@@ -16,9 +16,10 @@ export default {
     },
     balance: {
       totalRecharged: '累计 {amount}',
+      usedQuota: '已用 {amount}',
       email: '上游邮箱：{email}',
-      syncedAt: '余额同步：{time}',
-      error: '余额错误：{error}'
+      syncedAt: '额度同步：{time}',
+      error: '额度错误：{error}'
     },
     providers: {
       sub2api: 'sub2api',
@@ -38,6 +39,7 @@ export default {
       configured: '已配置',
       missing: '未配置',
       email: '邮箱 {status}',
+      username: '账号 {status}',
       password: '密码 {status}',
       accessToken: 'JWT {status}',
       refreshToken: 'Refresh {status}'
@@ -90,6 +92,7 @@ export default {
       proxyId: '代理 ID',
       proxyPlaceholder: '留空不使用',
       loginEmail: '登录邮箱',
+      loginUsername: '登录账号',
       loginPassword: '登录密码',
       accessToken: 'Access Token',
       refreshToken: 'Refresh Token',
@@ -111,6 +114,8 @@ export default {
       savedAndSynced: '已保存并同步成功，发现 {keys} 个 Key，更新 {accounts} 个账号',
       savedButSyncFailed: '已保存，但同步失败：{error}',
       saveFailed: '保存上游配置失败',
+      newapiUsernameRequired: 'NewAPI 上游必须填写登录账号',
+      newapiPasswordRequired: 'NewAPI 上游必须填写登录密码',
       deleted: '上游配置已删除',
       deleteFailed: '删除上游配置失败',
       testSuccess: '连接测试成功',

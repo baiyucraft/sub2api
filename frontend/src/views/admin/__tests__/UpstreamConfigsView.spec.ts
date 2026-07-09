@@ -277,6 +277,30 @@ describe('UpstreamConfigsView', () => {
     openSpy.mockRestore()
   })
 
+  it('renders newapi quota snapshot as quota, not sub2api recharge balance', async () => {
+    mockList([upstreamConfig({
+      provider: 'newapi',
+      extra: {
+        upstream_provider_snapshot: {
+          version: 1,
+          provider: 'newapi',
+          synced_at: '2026-07-09T01:00:00Z',
+          email: 'owner@example.com',
+          quota: 86995,
+          used_quota: 4913005,
+          remain_quota: -4826010
+        }
+      }
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('-4,826,010')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.usedQuota:{"amount":"4,913,005.00"}')
+    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.balance.totalRecharged')
+  })
+
   it('wires pagination events to upstream list API', async () => {
     const wrapper = mountView()
     await flushPromises()
@@ -337,6 +361,39 @@ describe('UpstreamConfigsView', () => {
     }))
     expect(syncKeysMock).toHaveBeenCalledWith(11)
     expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.savedAndSynced:{"keys":1,"accounts":2}')
+  })
+
+  it('submits newapi username/password and syncs after save', async () => {
+    createMock.mockResolvedValueOnce(upstreamConfig({ id: 12, provider: 'newapi' }))
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.get('[data-test="base-dialog"]')
+    await dialog.find('select').setValue('newapi')
+    await flushPromises()
+
+    const inputs = dialog.findAll('input')
+    await inputs[0].setValue('NewAPI Upstream')
+    await inputs[1].setValue('https://www.codexapis.com')
+    await inputs[2].setValue('owner@example.com')
+    await inputs[3].setValue('secret-password')
+    await wrapper.get('form#upstream-config-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'NewAPI Upstream',
+      base_url: 'https://www.codexapis.com',
+      provider: 'newapi',
+      auth_mode: 'user_login',
+      credentials: {
+        newapi_login_username: 'owner@example.com',
+        newapi_login_password: 'secret-password'
+      }
+    }))
+    expect(syncKeysMock).toHaveBeenCalledWith(12)
   })
 
   it('fills manual JWT fields from local token helper before saving', async () => {

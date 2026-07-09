@@ -101,6 +101,20 @@ type UpstreamConfigSyncResult struct {
 	Error               string `json:"error,omitempty"`
 }
 
+type upstreamProviderSnapshot struct {
+	Keys            []UpstreamKey
+	RefreshedTokens *sub2APIRefreshData
+	ExtraUpdates    map[string]any
+}
+
+type upstreamProviderAdapter interface {
+	Provider() string
+	ValidateConfig(config *UpstreamConfig, requireSecrets bool) error
+	Test(ctx context.Context, cfg *UpstreamConfig, proxyURL string) error
+	SyncSnapshot(ctx context.Context, cfg *UpstreamConfig, proxyURL string, includeProfile bool) (*upstreamProviderSnapshot, error)
+	SanitizeError(err error, credentials map[string]any) string
+}
+
 func NewUpstreamConfigService(repo UpstreamConfigRepository, proxyRepo ProxyRepository, accountRepo AccountRepository) *UpstreamConfigService {
 	return &UpstreamConfigService{repo: repo, proxyRepo: proxyRepo, accountRepo: accountRepo}
 }
@@ -199,18 +213,20 @@ func (s *UpstreamConfigService) Test(ctx context.Context, id int64) error {
 	if cfg == nil {
 		return ErrUpstreamConfigNotFound
 	}
-	if cfg.Provider != UpstreamProviderSub2API {
-		return infraerrors.BadRequest("UPSTREAM_PROVIDER_SYNC_UNSUPPORTED", "automatic sync is only supported for sub2api upstream configs")
+	adapter, ok := upstreamProviderAdapterFor(cfg.Provider)
+	if !ok {
+		return upstreamProviderUnsupportedError(cfg.Provider)
 	}
 	proxyURL, err := s.resolveUpstreamConfigProxyURL(ctx, cfg)
 	if err != nil {
-		_ = s.repo.RecordCheckResult(ctx, id, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
+		_ = s.repo.RecordCheckResult(ctx, id, false, adapter.SanitizeError(err, cfg.Credentials))
 		return err
 	}
-	err = testSub2APIUpstreamConfig(ctx, cfg, proxyURL)
+	err = adapter.Test(ctx, cfg, proxyURL)
 	if err != nil {
-		_ = s.repo.RecordCheckResult(ctx, id, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
-		return err
+		safeErr := adapter.SanitizeError(err, cfg.Credentials)
+		_ = s.repo.RecordCheckResult(ctx, id, false, safeErr)
+		return upstreamProviderSyncError(cfg.Provider, safeErr)
 	}
 	return s.repo.RecordCheckResult(ctx, id, true, "")
 }
@@ -223,14 +239,19 @@ func (s *UpstreamConfigService) SyncKeys(ctx context.Context, id int64) ([]Upstr
 	if cfg == nil {
 		return nil, UpstreamConfigSyncResult{}, ErrUpstreamConfigNotFound
 	}
-	if cfg.Provider != UpstreamProviderSub2API {
-		return nil, UpstreamConfigSyncResult{}, infraerrors.BadRequest("UPSTREAM_PROVIDER_SYNC_UNSUPPORTED", "automatic sync is only supported for sub2api upstream configs")
-	}
-	return s.syncSub2APIConfig(ctx, cfg)
+	return s.syncProviderConfig(ctx, cfg)
 }
 
 func (s *UpstreamConfigService) SyncActiveSub2APIConfigs(ctx context.Context) []UpstreamConfigSyncResult {
-	configs, listErr := s.listActiveSub2APIConfigs(ctx)
+	return s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API})
+}
+
+func (s *UpstreamConfigService) SyncActiveUpstreamConfigs(ctx context.Context) []UpstreamConfigSyncResult {
+	return s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI})
+}
+
+func (s *UpstreamConfigService) syncActiveUpstreamConfigs(ctx context.Context, providers []string) []UpstreamConfigSyncResult {
+	configs, listErr := s.listActiveUpstreamConfigs(ctx, providers)
 	if listErr != nil {
 		return []UpstreamConfigSyncResult{{
 			Success: false,
@@ -240,23 +261,27 @@ func (s *UpstreamConfigService) SyncActiveSub2APIConfigs(ctx context.Context) []
 	results := make([]UpstreamConfigSyncResult, 0, len(configs))
 	for i := range configs {
 		cfg := configs[i]
-		_, result, err := s.syncSub2APIConfig(ctx, &cfg)
+		_, result, err := s.syncProviderConfig(ctx, &cfg)
 		if err != nil {
 			result.Success = false
-			result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+			if adapter, ok := upstreamProviderAdapterFor(cfg.Provider); ok {
+				result.Error = adapter.SanitizeError(err, cfg.Credentials)
+			} else {
+				result.Error = logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")
+			}
 		}
 		results = append(results, result)
 	}
 	return results
 }
 
-func (s *UpstreamConfigService) syncSub2APIConfig(ctx context.Context, cfg *UpstreamConfig) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
+func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *UpstreamConfig) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
 	if cfg != nil && cfg.ID > 0 {
 		unlock := s.lockUpstreamConfigSync(cfg.ID)
 		defer unlock()
 		latest, err := s.repo.GetByID(ctx, cfg.ID)
 		if err != nil {
-			result := UpstreamConfigSyncResult{ConfigID: cfg.ID, Name: cfg.Name, Error: sanitizeStandaloneSub2APIError(err, cfg.Credentials)}
+			result := UpstreamConfigSyncResult{ConfigID: cfg.ID, Name: cfg.Name, Error: logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")}
 			return nil, result, err
 		}
 		cfg = latest
@@ -271,73 +296,78 @@ func (s *UpstreamConfigService) syncSub2APIConfig(ctx context.Context, cfg *Upst
 		result.Error = err.Error()
 		return nil, result, err
 	}
-	if cfg.Provider != UpstreamProviderSub2API {
-		err := infraerrors.BadRequest("UPSTREAM_PROVIDER_SYNC_UNSUPPORTED", "automatic sync is only supported for sub2api upstream configs")
+	adapter, ok := upstreamProviderAdapterFor(cfg.Provider)
+	if !ok {
+		err := upstreamProviderUnsupportedError(cfg.Provider)
 		result.Error = err.Error()
 		return nil, result, err
 	}
 	proxyURL, err := s.resolveUpstreamConfigProxyURL(ctx, cfg)
 	if err != nil {
-		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
-		result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, adapter.SanitizeError(err, cfg.Credentials))
+		result.Error = adapter.SanitizeError(err, cfg.Credentials)
 		return nil, result, err
 	}
-	snapshot, err := syncSub2APIUpstreamSnapshot(ctx, cfg, proxyURL, true)
+	snapshot, err := adapter.SyncSnapshot(ctx, cfg, proxyURL, true)
 	if err != nil {
-		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, sanitizeStandaloneSub2APIError(err, cfg.Credentials))
-		result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
-		return nil, result, err
+		safeErr := adapter.SanitizeError(err, cfg.Credentials)
+		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, safeErr)
+		result.Error = safeErr
+		return nil, result, upstreamProviderSyncError(cfg.Provider, safeErr)
 	}
 	if snapshot.RefreshedTokens != nil {
 		if err := s.repo.SaveRefreshedTokens(ctx, cfg.ID, snapshot.RefreshedTokens.AccessToken, snapshot.RefreshedTokens.RefreshToken); err != nil {
-			result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
 		}
 	}
 	keys := snapshot.Keys
 	for i := range keys {
 		if err := normalizeAndValidateUpstreamKey(&keys[i]); err != nil {
-			result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
 		}
 		if err := s.repo.UpsertKey(ctx, &keys[i]); err != nil {
-			result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
 		}
 	}
 	localKeys, err := s.repo.ListKeys(ctx, cfg.ID)
 	if err != nil {
-		result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+		result.Error = adapter.SanitizeError(err, cfg.Credentials)
 		return nil, result, err
 	}
 	result.KeyCount = len(keys)
-	updated, err := s.syncBoundAccountRates(ctx, cfg.ID, localKeys)
+	updated, err := s.syncBoundAccountRates(ctx, cfg, localKeys)
 	if err != nil {
-		result.Error = sanitizeStandaloneSub2APIError(err, cfg.Credentials)
+		result.Error = adapter.SanitizeError(err, cfg.Credentials)
 		return nil, result, err
 	}
 	result.UpdatedAccountCount = updated
+	if len(snapshot.ExtraUpdates) > 0 {
+		if err := s.repo.UpdateExtra(ctx, cfg.ID, snapshot.ExtraUpdates); err != nil {
+			result.Error = logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token", "cookie", "session")
+			_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, result.Error)
+			return nil, result, err
+		}
+	}
 	result.Success = true
 	_ = s.repo.RecordCheckResult(ctx, cfg.ID, true, "")
-	_ = s.recordSub2APIProfileSnapshot(ctx, cfg, snapshot.Profile, snapshot.ProfileErr)
 	return localKeys, result, nil
 }
 
-func (s *UpstreamConfigService) recordSub2APIProfileSnapshot(ctx context.Context, cfg *UpstreamConfig, profile *sub2APIProfile, profileErr error) error {
-	if s == nil || s.repo == nil || cfg == nil || cfg.ID <= 0 {
-		return nil
-	}
+func sub2APIProfileExtraUpdates(cfg *UpstreamConfig, profile *sub2APIProfile, profileErr error) map[string]any {
 	now := time.Now().UTC().Format(time.RFC3339)
 	if profileErr != nil {
-		return s.repo.UpdateExtra(ctx, cfg.ID, map[string]any{
+		return map[string]any{
 			"sub2api_balance_last_error":    sanitizeStandaloneSub2APIError(profileErr, cfg.Credentials),
 			"sub2api_balance_last_error_at": now,
-		})
+		}
 	}
 	if profile == nil {
 		return nil
 	}
-	return s.repo.UpdateExtra(ctx, cfg.ID, map[string]any{
+	return map[string]any{
 		"sub2api_balance":               profile.Balance,
 		"sub2api_total_recharged":       profile.TotalRecharged,
 		"sub2api_user_email":            strings.TrimSpace(profile.Email),
@@ -345,7 +375,7 @@ func (s *UpstreamConfigService) recordSub2APIProfileSnapshot(ctx context.Context
 		"sub2api_balance_synced_at":     now,
 		"sub2api_balance_last_error":    "",
 		"sub2api_balance_last_error_at": "",
-	})
+	}
 }
 
 func (s *UpstreamConfigService) lockUpstreamConfigSync(id int64) func() {
@@ -358,26 +388,32 @@ func (s *UpstreamConfigService) lockUpstreamConfigSync(id int64) func() {
 	return mu.Unlock
 }
 
-func (s *UpstreamConfigService) listActiveSub2APIConfigs(ctx context.Context) ([]UpstreamConfig, error) {
+func (s *UpstreamConfigService) listActiveUpstreamConfigs(ctx context.Context, providers []string) ([]UpstreamConfig, error) {
 	const pageSize = 200
 	out := make([]UpstreamConfig, 0)
-	for page := 1; ; page++ {
-		configs, result, err := s.repo.List(ctx, pagination.PaginationParams{
-			Page:     page,
-			PageSize: pageSize,
-		}, UpstreamProviderSub2API, StatusActive, "")
-		if err != nil {
-			return nil, err
+	for _, provider := range providers {
+		if _, ok := upstreamProviderAdapterFor(provider); !ok {
+			continue
 		}
-		out = append(out, configs...)
-		if result == nil || page >= result.Pages || len(configs) == 0 {
-			return out, nil
+		for page := 1; ; page++ {
+			configs, result, err := s.repo.List(ctx, pagination.PaginationParams{
+				Page:     page,
+				PageSize: pageSize,
+			}, provider, StatusActive, "")
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, configs...)
+			if result == nil || page >= result.Pages || len(configs) == 0 {
+				break
+			}
 		}
 	}
+	return out, nil
 }
 
-func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, upstreamConfigID int64, keys []UpstreamKey) (int, error) {
-	if s.accountRepo == nil || upstreamConfigID <= 0 || len(keys) == 0 {
+func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, cfg *UpstreamConfig, keys []UpstreamKey) (int, error) {
+	if s.accountRepo == nil || cfg == nil || cfg.ID <= 0 || len(keys) == 0 {
 		return 0, nil
 	}
 	keyRates := make(map[int64]UpstreamKey, len(keys))
@@ -391,7 +427,7 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, upstr
 		return 0, nil
 	}
 
-	accounts, err := s.listAccountsForUpstreamConfig(ctx, upstreamConfigID)
+	accounts, err := s.listAccountsForUpstreamConfig(ctx, cfg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -412,16 +448,29 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, upstr
 		}
 		priority := Sub2APIUpstreamPriority(multiplier)
 		extra := map[string]any{
-			"sub2api_rate_sync_last_success_at": now,
-			"sub2api_rate_sync_last_error":      "",
-			"sub2api_upstream_platform":         key.Platform,
-			"sub2api_upstream_rate_multiplier":  multiplier,
+			"upstream_rate_sync_last_success_at": now,
+			"upstream_rate_sync_last_error":      "",
+			"upstream_provider":                  cfg.Provider,
+			"upstream_platform":                  key.Platform,
+			"upstream_rate_multiplier":           multiplier,
 		}
 		if key.UpstreamGroupID != nil {
-			extra["sub2api_upstream_group_id"] = *key.UpstreamGroupID
+			extra["upstream_group_id"] = *key.UpstreamGroupID
 		}
 		if strings.TrimSpace(key.UpstreamGroupName) != "" {
-			extra["sub2api_upstream_group_name"] = key.UpstreamGroupName
+			extra["upstream_group_name"] = key.UpstreamGroupName
+		}
+		if cfg.Provider == UpstreamProviderSub2API {
+			extra["sub2api_rate_sync_last_success_at"] = now
+			extra["sub2api_rate_sync_last_error"] = ""
+			extra["sub2api_upstream_platform"] = key.Platform
+			extra["sub2api_upstream_rate_multiplier"] = multiplier
+			if key.UpstreamGroupID != nil {
+				extra["sub2api_upstream_group_id"] = *key.UpstreamGroupID
+			}
+			if strings.TrimSpace(key.UpstreamGroupName) != "" {
+				extra["sub2api_upstream_group_name"] = key.UpstreamGroupName
+			}
 		}
 		if _, err := s.accountRepo.BulkUpdate(ctx, []int64{account.ID}, AccountBulkUpdate{
 			RateMultiplier: &multiplier,
@@ -497,25 +546,11 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 	if config.Extra == nil {
 		config.Extra = map[string]any{}
 	}
-	if config.Provider != UpstreamProviderSub2API {
+	if adapter, ok := upstreamProviderAdapterFor(config.Provider); ok {
+		return adapter.ValidateConfig(config, requireSecrets)
+	}
+	if config.Provider != UpstreamProviderSub2API && config.Provider != UpstreamProviderNewAPI {
 		return nil
-	}
-	if config.AuthMode == UpstreamAuthModeManualJWT {
-		accessToken := strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APIAccessToken))
-		refreshToken := strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APIRefreshToken))
-		if requireSecrets && accessToken == "" && refreshToken == "" {
-			return infraerrors.BadRequest("UPSTREAM_TOKEN_REQUIRED", "sub2api access token or refresh token is required")
-		}
-		if !requireSecrets && accessToken == "" && refreshToken == "" {
-			return infraerrors.BadRequest("UPSTREAM_TOKEN_REQUIRED", "sub2api access token or refresh token is required")
-		}
-		return nil
-	}
-	if strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APILoginEmail)) == "" {
-		return infraerrors.BadRequest("UPSTREAM_LOGIN_EMAIL_REQUIRED", "sub2api login email is required")
-	}
-	if requireSecrets && strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APILoginPassword)) == "" {
-		return infraerrors.BadRequest("UPSTREAM_LOGIN_PASSWORD_REQUIRED", "sub2api login password is required")
 	}
 	return nil
 }
@@ -566,6 +601,77 @@ func normalizeUpstreamAuthMode(mode string) string {
 	default:
 		return UpstreamAuthModeUserLogin
 	}
+}
+
+func upstreamProviderAdapterFor(provider string) (upstreamProviderAdapter, bool) {
+	switch normalizeUpstreamProvider(provider) {
+	case UpstreamProviderSub2API:
+		return sub2APIUpstreamProviderAdapter{}, true
+	case UpstreamProviderNewAPI:
+		return newAPIUpstreamProviderAdapter{}, true
+	default:
+		return nil, false
+	}
+}
+
+func upstreamProviderUnsupportedError(provider string) error {
+	return infraerrors.BadRequest("UPSTREAM_PROVIDER_SYNC_UNSUPPORTED", fmt.Sprintf("automatic sync is not supported for %s upstream configs", normalizeUpstreamProvider(provider)))
+}
+
+func upstreamProviderSyncError(provider, safeErr string) error {
+	safeErr = strings.TrimSpace(safeErr)
+	if safeErr == "" {
+		safeErr = "upstream sync failed"
+	}
+	return infraerrors.New(http.StatusBadGateway, "UPSTREAM_SYNC_FAILED", fmt.Sprintf("%s upstream sync failed: %s", normalizeUpstreamProvider(provider), safeErr))
+}
+
+type sub2APIUpstreamProviderAdapter struct{}
+
+func (sub2APIUpstreamProviderAdapter) Provider() string { return UpstreamProviderSub2API }
+
+func (sub2APIUpstreamProviderAdapter) ValidateConfig(config *UpstreamConfig, requireSecrets bool) error {
+	if config.AuthMode == UpstreamAuthModeManualJWT {
+		accessToken := strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APIAccessToken))
+		refreshToken := strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APIRefreshToken))
+		if requireSecrets && accessToken == "" && refreshToken == "" {
+			return infraerrors.BadRequest("UPSTREAM_TOKEN_REQUIRED", "sub2api access token or refresh token is required")
+		}
+		if !requireSecrets && accessToken == "" && refreshToken == "" {
+			return infraerrors.BadRequest("UPSTREAM_TOKEN_REQUIRED", "sub2api access token or refresh token is required")
+		}
+		return nil
+	}
+	if strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APILoginEmail)) == "" {
+		return infraerrors.BadRequest("UPSTREAM_LOGIN_EMAIL_REQUIRED", "sub2api login email is required")
+	}
+	if requireSecrets && strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialSub2APILoginPassword)) == "" {
+		return infraerrors.BadRequest("UPSTREAM_LOGIN_PASSWORD_REQUIRED", "sub2api login password is required")
+	}
+	return nil
+}
+
+func (sub2APIUpstreamProviderAdapter) Test(ctx context.Context, cfg *UpstreamConfig, proxyURL string) error {
+	return testSub2APIUpstreamConfig(ctx, cfg, proxyURL)
+}
+
+func (sub2APIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *UpstreamConfig, proxyURL string, includeProfile bool) (*upstreamProviderSnapshot, error) {
+	snapshot, err := syncSub2APIUpstreamSnapshot(ctx, cfg, proxyURL, includeProfile)
+	if err != nil {
+		return nil, err
+	}
+	out := &upstreamProviderSnapshot{
+		Keys:            snapshot.Keys,
+		RefreshedTokens: snapshot.RefreshedTokens,
+	}
+	if includeProfile {
+		out.ExtraUpdates = sub2APIProfileExtraUpdates(cfg, snapshot.Profile, snapshot.ProfileErr)
+	}
+	return out, nil
+}
+
+func (sub2APIUpstreamProviderAdapter) SanitizeError(err error, credentials map[string]any) string {
+	return sanitizeStandaloneSub2APIError(err, credentials)
 }
 
 func HashUpstreamKey(key string) string {

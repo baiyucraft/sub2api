@@ -142,7 +142,7 @@ func (h *UpstreamConfigHandler) SyncKeys(c *gin.Context) {
 }
 
 func (h *UpstreamConfigHandler) SyncAllKeys(c *gin.Context) {
-	results := h.service.SyncActiveSub2APIConfigs(c.Request.Context())
+	results := h.service.SyncActiveUpstreamConfigs(c.Request.Context())
 	response.Success(c, gin.H{"results": sanitizeUpstreamSyncResults(results)})
 }
 
@@ -198,7 +198,7 @@ func sanitizeUpstreamSyncResults(results []service.UpstreamConfigSyncResult) []g
 			"success":               results[i].Success,
 			"key_count":             results[i].KeyCount,
 			"updated_account_count": results[i].UpdatedAccountCount,
-			"error":                 logredact.RedactText(results[i].Error, "password", "api_key", "jwt", "authorization", "refresh_token", "access_token"),
+			"error":                 logredact.RedactText(results[i].Error, "password", "api_key", "jwt", "authorization", "refresh_token", "access_token", "cookie", "session"),
 		})
 	}
 	return out
@@ -275,7 +275,7 @@ func redactedUpstreamLastError(value *string) *string {
 	if value == nil {
 		return nil
 	}
-	redacted := logredact.RedactText(*value, "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")
+	redacted := logredact.RedactText(*value, "password", "api_key", "jwt", "authorization", "refresh_token", "access_token", "cookie", "session")
 	return &redacted
 }
 
@@ -318,15 +318,17 @@ func sanitizeUpstreamKey(key *service.UpstreamKey) gin.H {
 }
 
 func redactedUpstreamExtra(extra map[string]any) map[string]any {
-	return logredact.RedactMap(extra, "api_key", "jwt", "token", "key", "secret", "authorization", "bearer")
+	return logredact.RedactMap(extra, "api_key", "jwt", "token", "key", "secret", "authorization", "bearer", "cookie", "session")
 }
 
 func upstreamCredentialsStatus(credentials map[string]any) gin.H {
 	return gin.H{
-		"has_login_email":    strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APILoginEmail])) != "",
-		"has_login_password": strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APILoginPassword])) != "",
-		"has_access_token":   strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APIAccessToken])) != "",
-		"has_refresh_token":  strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APIRefreshToken])) != "",
+		"has_login_email":           strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APILoginEmail])) != "",
+		"has_login_password":        strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APILoginPassword])) != "",
+		"has_access_token":          strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APIAccessToken])) != "",
+		"has_refresh_token":         strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APIRefreshToken])) != "",
+		"has_newapi_login_username": strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPILoginUsername])) != "",
+		"has_newapi_login_password": strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPILoginPassword])) != "",
 	}
 }
 

@@ -205,11 +205,11 @@ func (s *Sub2APIUpstreamRateSyncService) runOnce() {
 	defer cancel()
 
 	if s.upstreamConfigSvc != nil {
-		results := s.upstreamConfigSvc.SyncActiveSub2APIConfigs(ctx)
+		results := s.upstreamConfigSvc.SyncActiveUpstreamConfigs(ctx)
 		for i := range results {
 			result := results[i]
 			if !result.Success {
-				log.Printf("[Sub2APIRateSync] sync upstream config failed: config=%d name=%q err=%s", result.ConfigID, result.Name, result.Error)
+				log.Printf("[UpstreamRateSync] sync upstream config failed: config=%d name=%q err=%s", result.ConfigID, result.Name, result.Error)
 			}
 		}
 		return
