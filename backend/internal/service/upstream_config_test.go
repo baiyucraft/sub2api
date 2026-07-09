@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -19,11 +22,12 @@ type upstreamConfigServiceRepo struct {
 	configs []UpstreamConfig
 	keys    []UpstreamKey
 
-	upserts      []UpstreamKey
-	checks       []upstreamConfigCheck
-	savedTokens  []upstreamConfigSavedToken
-	extraUpdates []upstreamConfigExtraUpdate
-	mu           sync.Mutex
+	upserts        []UpstreamKey
+	checks         []upstreamConfigCheck
+	savedTokens    []upstreamConfigSavedToken
+	extraUpdates   []upstreamConfigExtraUpdate
+	updateExtraErr error
+	mu             sync.Mutex
 }
 
 type upstreamConfigCheck struct {
@@ -148,6 +152,9 @@ func (r *upstreamConfigServiceRepo) UpdateExtra(ctx context.Context, id int64, u
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if r.updateExtraErr != nil {
+		return r.updateExtraErr
+	}
 	copied := cloneAnyMap(updates)
 	r.extraUpdates = append(r.extraUpdates, upstreamConfigExtraUpdate{id: id, updates: copied})
 	for i := range r.configs {
@@ -458,6 +465,365 @@ func TestUpstreamConfigService_SyncActiveSub2APIConfigsOnlySyncsActiveSub2API(t 
 	require.Equal(t, 1, loginCount)
 }
 
+func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *testing.T) {
+	loginCount := 0
+	tokenPages := map[string]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/user/login":
+			loginCount++
+			require.Equal(t, http.MethodPost, r.Method)
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "session-1", Path: "/"})
+			_, _ = w.Write([]byte(`{"success":true,"message":"","data":{"id":4798,"username":"owner"}}`))
+		case "/api/user/self/groups":
+			require.Equal(t, "4798", r.Header.Get("New-Api-User"))
+			require.NotEmpty(t, r.Header.Get("Cookie"))
+			_, _ = w.Write([]byte(`{"success":true,"data":{"gptplus":{"desc":"team","ratio":"0.06"},"gptproo":{"desc":"pro","ratio":0.15}}}`))
+		case "/api/token/":
+			require.Equal(t, "4798", r.Header.Get("New-Api-User"))
+			page := r.URL.Query().Get("p")
+			tokenPages[page]++
+			if page == "0" {
+				items := make([]map[string]any, 0, 100)
+				items = append(items, map[string]any{"id": 14287, "user_id": 4798, "key": "sk-plus", "status": 1, "name": "plus", "group": "gptplus", "used_quota": 0, "remain_quota": 0, "unlimited_quota": true})
+				items = append(items, map[string]any{"id": 9128, "user_id": 4798, "key": "sk-pro", "status": 2, "name": "pro", "group": "gptproo", "used_quota": 4913005, "remain_quota": 0, "unlimited_quota": true})
+				for i := 2; i < 100; i++ {
+					items = append(items, map[string]any{"id": 20000 + i, "user_id": 4798, "key": "sk-fill-" + strconv.Itoa(i), "status": 1, "name": "fill", "group": "unknown"})
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"page": 1, "page_size": 100, "total": 101, "items": items}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"page": 2, "page_size": 100, "total": 101, "items": []map[string]any{{"id": 30101, "user_id": 4798, "key": "sk-last", "status": 1, "name": "last", "group": "gptplus"}}}})
+		case "/api/user/self":
+			require.Equal(t, "4798", r.Header.Get("New-Api-User"))
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798,"email":"owner@example.com","username":"owner","display_name":"Owner","group":"default","quota":86995,"used_quota":4913005,"request_count":701}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(70)
+	keyID := int64(88)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{{
+			ID:       configID,
+			Name:     "NewAPI Main",
+			Provider: UpstreamProviderNewAPI,
+			BaseURL:  server.URL,
+			AuthMode: UpstreamAuthModeUserLogin,
+			Credentials: map[string]any{
+				AccountCredentialNewAPILoginUsername: "owner@example.com",
+				AccountCredentialNewAPILoginPassword: "secret",
+			},
+			Status: StatusActive,
+		}},
+		keys: []UpstreamKey{{
+			ID:               keyID,
+			UpstreamConfigID: configID,
+			Key:              "sk-plus",
+			KeyHash:          HashUpstreamKey("sk-plus"),
+			Platform:         PlatformOpenAI,
+			Status:           StatusActive,
+		}},
+	}
+	accountRepo := &sub2APIRateSyncAccountRepo{accounts: []Account{{
+		ID:               501,
+		Type:             AccountTypeAPIKey,
+		Status:           StatusActive,
+		UpstreamConfigID: &configID,
+		UpstreamKeyID:    &keyID,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, accountRepo)
+
+	keys, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Equal(t, 101, result.KeyCount)
+	require.Equal(t, 1, result.UpdatedAccountCount)
+	require.Equal(t, 1, loginCount)
+	require.Equal(t, 1, tokenPages["0"])
+	require.Equal(t, 1, tokenPages["1"])
+	require.Len(t, keys, 101)
+	require.Len(t, repo.upserts, 101)
+	require.Equal(t, "plus", repo.upserts[0].Name)
+	require.Equal(t, "gptplus", repo.upserts[0].UpstreamGroupName)
+	require.NotNil(t, repo.upserts[0].RateMultiplier)
+	require.InDelta(t, 0.06, *repo.upserts[0].RateMultiplier, 1e-12)
+	require.Equal(t, StatusDisabled, repo.upserts[1].Status)
+	require.Len(t, accountRepo.bulkUpdates, 1)
+	require.InDelta(t, 0.06, *accountRepo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
+	require.Equal(t, 6, *accountRepo.bulkUpdates[0].updates.Priority)
+	require.Len(t, repo.extraUpdates, 1)
+	snapshot, ok := repo.extraUpdates[0].updates["upstream_provider_snapshot"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, UpstreamProviderNewAPI, snapshot["provider"])
+	require.InDelta(t, 86995.0, snapshot["quota"], 1e-12)
+	require.InDelta(t, 4913005.0, snapshot["used_quota"], 1e-12)
+	require.Equal(t, "owner@example.com", snapshot["email"])
+}
+
+func TestUpstreamConfigService_NewAPIProfileFailureDoesNotFailKeySync(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/user/login":
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "session-1", Path: "/"})
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798}}`))
+		case "/api/user/self/groups":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"gptplus":{"desc":"team","ratio":0.06}}}`))
+		case "/api/token/":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"page":1,"page_size":100,"total":1,"items":[{"id":14287,"user_id":4798,"key":"sk-plus","status":1,"name":"plus","group":"gptplus"}]}}`))
+		case "/api/user/self":
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(71)
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID:       configID,
+		Name:     "NewAPI Main",
+		Provider: UpstreamProviderNewAPI,
+		BaseURL:  server.URL,
+		AuthMode: UpstreamAuthModeUserLogin,
+		Credentials: map[string]any{
+			AccountCredentialNewAPILoginUsername: "owner@example.com",
+			AccountCredentialNewAPILoginPassword: "secret",
+		},
+		Extra:  map[string]any{"upstream_provider_snapshot": map[string]any{"quota": 123}},
+		Status: StatusActive,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	_, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Equal(t, 1, result.KeyCount)
+	require.Len(t, repo.extraUpdates, 1)
+	require.NotContains(t, repo.extraUpdates[0].updates, "upstream_provider_snapshot")
+	require.Contains(t, repo.extraUpdates[0].updates["upstream_provider_snapshot_last_error"], "status 404")
+}
+
+func TestUpstreamConfigService_NewAPILoginFailureReturnsSanitizedError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.Equal(t, "/api/user/login", r.URL.Path)
+		_, _ = w.Write([]byte(`{"success":false,"message":"bad owner@example.com secret-password sk-0123456789abcdef cookie=session-secret","data":{}}`))
+	}))
+	defer server.Close()
+
+	configID := int64(73)
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID:       configID,
+		Name:     "NewAPI Main",
+		Provider: UpstreamProviderNewAPI,
+		BaseURL:  server.URL,
+		AuthMode: UpstreamAuthModeUserLogin,
+		Credentials: map[string]any{
+			AccountCredentialNewAPILoginUsername: "owner@example.com",
+			AccountCredentialNewAPILoginPassword: "secret-password",
+		},
+		Status: StatusActive,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	_, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.Error(t, err)
+	require.False(t, result.Success)
+	require.Len(t, repo.checks, 1)
+	for _, text := range []string{err.Error(), result.Error, repo.checks[0].err} {
+		require.NotContains(t, text, "owner@example.com")
+		require.NotContains(t, text, "secret-password")
+		require.NotContains(t, text, "sk-0123456789abcdef")
+		require.NotContains(t, text, "session-secret")
+		require.Contains(t, text, "[REDACTED]")
+		require.Contains(t, text, "sk-***")
+	}
+	require.False(t, repo.checks[0].success)
+}
+
+func TestUpstreamConfigService_NewAPIExtraUpdateFailureFailsSync(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/user/login":
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "session-1", Path: "/"})
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798}}`))
+		case "/api/user/self/groups":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"gptplus":{"ratio":0.06}}}`))
+		case "/api/token/":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"page":1,"page_size":100,"total":1,"items":[{"id":14287,"user_id":4798,"key":"sk-plus","status":1,"name":"plus","group":"gptplus"}]}}`))
+		case "/api/user/self":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798,"email":"owner@example.com","quota":10,"used_quota":4}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(74)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{{
+			ID:       configID,
+			Name:     "NewAPI Main",
+			Provider: UpstreamProviderNewAPI,
+			BaseURL:  server.URL,
+			AuthMode: UpstreamAuthModeUserLogin,
+			Credentials: map[string]any{
+				AccountCredentialNewAPILoginUsername: "owner@example.com",
+				AccountCredentialNewAPILoginPassword: "secret",
+			},
+			Status: StatusActive,
+		}},
+		updateExtraErr: errors.New("database write failed"),
+	}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	_, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.Error(t, err)
+	require.False(t, result.Success)
+	require.Contains(t, result.Error, "database write failed")
+	require.Len(t, repo.checks, 1)
+	require.False(t, repo.checks[0].success)
+}
+
+func TestUpstreamConfigService_NewAPISkipsMaskedKeys(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/user/login":
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "session-1", Path: "/"})
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798}}`))
+		case "/api/user/self/groups":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"gptplus":{"ratio":0.06}}}`))
+		case "/api/token/":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"page":1,"page_size":100,"total":3,"items":[{"id":1,"user_id":4798,"key":"sk-visible","status":1,"name":"visible","group":"gptplus"},{"id":2,"user_id":4798,"key":"sk-********","status":1,"name":"masked","group":"gptplus"},{"id":3,"user_id":4798,"key":"","status":1,"name":"empty","group":"gptplus"}]}}`))
+		case "/api/user/self":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798,"email":"owner@example.com","quota":10,"used_quota":4}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(75)
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID:       configID,
+		Name:     "NewAPI Main",
+		Provider: UpstreamProviderNewAPI,
+		BaseURL:  server.URL,
+		AuthMode: UpstreamAuthModeUserLogin,
+		Credentials: map[string]any{
+			AccountCredentialNewAPILoginUsername: "owner@example.com",
+			AccountCredentialNewAPILoginPassword: "secret",
+		},
+		Status: StatusActive,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	keys, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Equal(t, 1, result.KeyCount)
+	require.Len(t, keys, 1)
+	require.Len(t, repo.upserts, 1)
+	require.Equal(t, "sk-visible", repo.upserts[0].Key)
+}
+
+func TestUpstreamConfigService_NewAPILoginRequiresUserID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		http.SetCookie(w, &http.Cookie{Name: "session", Value: "session-1", Path: "/"})
+		_, _ = w.Write([]byte(`{"success":true,"data":{"username":"owner"}}`))
+	}))
+	defer server.Close()
+
+	configID := int64(72)
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID:       configID,
+		Name:     "NewAPI Main",
+		Provider: UpstreamProviderNewAPI,
+		BaseURL:  server.URL,
+		AuthMode: UpstreamAuthModeUserLogin,
+		Credentials: map[string]any{
+			AccountCredentialNewAPILoginUsername: "owner@example.com",
+			AccountCredentialNewAPILoginPassword: "secret",
+		},
+		Status: StatusActive,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	_, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.Error(t, err)
+	require.False(t, result.Success)
+	require.Contains(t, result.Error, "user id")
+	require.Len(t, repo.checks, 1)
+	require.False(t, repo.checks[0].success)
+}
+
+func TestUpstreamConfigService_SyncActiveUpstreamConfigsIncludesNewAPI(t *testing.T) {
+	sub2LoginCount := 0
+	newAPILoginCount := 0
+	sub2Server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			sub2LoginCount++
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
+		case "/api/v1/keys":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-active","name":"pro","group_id":10,"group":{"id":10,"name":"Pro","platform":"openai","rate_multiplier":0.1}}],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/rates":
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer sub2Server.Close()
+	newAPIServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/user/login":
+			newAPILoginCount++
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "session-1", Path: "/"})
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798}}`))
+		case "/api/user/self/groups":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"gptplus":{"ratio":0.06}}}`))
+		case "/api/token/":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"page":1,"page_size":100,"total":1,"items":[{"id":1,"user_id":4798,"key":"sk-newapi","status":1,"name":"plus","group":"gptplus"}]}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer newAPIServer.Close()
+
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{
+		testUpstreamConfig(1, "active sub2api", UpstreamProviderSub2API, StatusActive, sub2Server.URL),
+		testUpstreamConfig(2, "active newapi", UpstreamProviderNewAPI, StatusActive, newAPIServer.URL),
+		testUpstreamConfig(3, "inactive newapi", UpstreamProviderNewAPI, StatusDisabled, newAPIServer.URL),
+		testUpstreamConfig(4, "other", UpstreamProviderOther, StatusActive, newAPIServer.URL),
+	}}
+	repo.configs[1].Credentials = map[string]any{AccountCredentialNewAPILoginUsername: "owner@example.com", AccountCredentialNewAPILoginPassword: "secret"}
+	repo.configs[2].Credentials = repo.configs[1].Credentials
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	results := svc.SyncActiveUpstreamConfigs(context.Background())
+
+	require.Len(t, results, 2)
+	require.Equal(t, 1, sub2LoginCount)
+	require.Equal(t, 1, newAPILoginCount)
+	require.ElementsMatch(t, []int64{1, 2}, []int64{results[0].ConfigID, results[1].ConfigID})
+}
+
 func testUpstreamConfig(id int64, name, provider, status, baseURL string) UpstreamConfig {
 	return UpstreamConfig{
 		ID:       id,
@@ -559,6 +925,37 @@ func TestNormalizeAndValidateUpstreamConfig_ManualJWTAllowsAccessOrRefresh(t *te
 		cfg := base
 		cfg.Credentials = map[string]any{}
 		require.ErrorContains(t, normalizeAndValidateUpstreamConfig(&cfg, true), "access token or refresh token")
+	})
+}
+
+func TestNormalizeAndValidateUpstreamConfig_NewAPIRequiresUsernameAndPassword(t *testing.T) {
+	base := UpstreamConfig{
+		Name:     "NewAPI Upstream",
+		Provider: UpstreamProviderNewAPI,
+		BaseURL:  "https://newapi.example.com",
+		AuthMode: UpstreamAuthModeUserLogin,
+		Status:   StatusActive,
+	}
+
+	t.Run("missing username", func(t *testing.T) {
+		cfg := base
+		cfg.Credentials = map[string]any{AccountCredentialNewAPILoginPassword: "secret"}
+		require.ErrorContains(t, normalizeAndValidateUpstreamConfig(&cfg, true), "login username")
+	})
+
+	t.Run("missing password", func(t *testing.T) {
+		cfg := base
+		cfg.Credentials = map[string]any{AccountCredentialNewAPILoginUsername: "owner@example.com"}
+		require.ErrorContains(t, normalizeAndValidateUpstreamConfig(&cfg, true), "login password")
+	})
+
+	t.Run("complete credentials", func(t *testing.T) {
+		cfg := base
+		cfg.Credentials = map[string]any{
+			AccountCredentialNewAPILoginUsername: "owner@example.com",
+			AccountCredentialNewAPILoginPassword: "secret",
+		}
+		require.NoError(t, normalizeAndValidateUpstreamConfig(&cfg, true))
 	})
 }
 

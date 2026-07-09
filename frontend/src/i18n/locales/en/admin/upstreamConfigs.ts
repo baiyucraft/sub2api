@@ -3,7 +3,7 @@ export default {
     title: 'Upstream Configs',
     description: 'Maintain upstream relay login state, proxy, and keys in one place; accounts only bind to a selected upstream config.',
     searchPlaceholder: 'Search name or Base URL',
-    sensitiveHint: 'These credentials are stored as highly sensitive upstream secrets and are only used to sync keys, rates, and refresh JWTs. Passwords, JWTs, refresh tokens, and API keys are never returned in plaintext.',
+    sensitiveHint: 'These credentials are stored as highly sensitive upstream secrets and are only used to sync keys, rates, quota, and refresh JWTs. Passwords, JWTs, refresh tokens, cookies, and API keys are never returned in plaintext.',
     columns: {
       name: 'Name',
       provider: 'Type',
@@ -16,9 +16,10 @@ export default {
     },
     balance: {
       totalRecharged: 'Recharged {amount}',
+      usedQuota: 'Used {amount}',
       email: 'Upstream email: {email}',
-      syncedAt: 'Balance synced: {time}',
-      error: 'Balance error: {error}'
+      syncedAt: 'Quota synced: {time}',
+      error: 'Quota error: {error}'
     },
     providers: {
       sub2api: 'sub2api',
@@ -38,6 +39,7 @@ export default {
       configured: 'Configured',
       missing: 'Missing',
       email: 'Email {status}',
+      username: 'Username {status}',
       password: 'Password {status}',
       accessToken: 'JWT {status}',
       refreshToken: 'Refresh {status}'
@@ -90,6 +92,7 @@ export default {
       proxyId: 'Proxy ID',
       proxyPlaceholder: 'Empty means none',
       loginEmail: 'Login Email',
+      loginUsername: 'Login Username',
       loginPassword: 'Login Password',
       accessToken: 'Access Token',
       refreshToken: 'Refresh Token',
@@ -111,6 +114,8 @@ export default {
       savedAndSynced: 'Saved and synced. Found {keys} key(s), updated {accounts} account(s)',
       savedButSyncFailed: 'Saved, but sync failed: {error}',
       saveFailed: 'Failed to save upstream config',
+      newapiUsernameRequired: 'NewAPI upstream requires a login username',
+      newapiPasswordRequired: 'NewAPI upstream requires a login password',
       deleted: 'Upstream config deleted',
       deleteFailed: 'Failed to delete upstream config',
       testSuccess: 'Connection test succeeded',

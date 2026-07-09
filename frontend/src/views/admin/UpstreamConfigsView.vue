@@ -97,6 +97,9 @@
               <div v-if="upstreamTotalRecharged(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
                 {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatBalanceAmount(upstreamTotalRecharged(row)) }) }}
               </div>
+              <div v-if="upstreamUsedQuota(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+                {{ t('admin.upstreamConfigs.balance.usedQuota', { amount: formatBalanceAmount(upstreamUsedQuota(row)) }) }}
+              </div>
               <div
                 v-if="upstreamBalanceError(row)"
                 class="mt-0.5 max-w-[160px] truncate text-xs text-amber-600 dark:text-amber-400"
@@ -172,7 +175,7 @@
                 <Icon name="play" size="sm" />
               </button>
               <button
-                v-if="row.provider === 'sub2api'"
+                v-if="row.provider === 'sub2api' || row.provider === 'newapi'"
                 type="button"
                 class="table-action-button hover:text-sky-600 dark:hover:text-sky-400"
                 :title="t('admin.upstreamConfigs.actions.openDashboard')"
@@ -269,6 +272,30 @@
                 v-model.trim="form.email"
                 class="input"
                 type="email"
+                autocomplete="username"
+                :required="!editing"
+              />
+            </label>
+            <label class="space-y-1">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.loginPassword') }}</span>
+              <input
+                v-model="form.password"
+                class="input"
+                type="password"
+                autocomplete="new-password"
+                :required="!editing"
+                :placeholder="editing ? t('admin.upstreamConfigs.fields.keepPasswordPlaceholder') : ''"
+              />
+            </label>
+          </template>
+
+          <template v-if="form.provider === 'newapi'">
+            <label class="space-y-1">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.loginUsername') }}</span>
+              <input
+                v-model.trim="form.username"
+                class="input"
+                type="text"
                 autocomplete="username"
                 :required="!editing"
               />
@@ -518,6 +545,7 @@ const form = reactive({
   auth_mode: 'user_login' as UpstreamAuthMode,
   proxy_id: null as number | null,
   email: '',
+  username: '',
   password: '',
   access_token: '',
   refresh_token: ''
@@ -641,6 +669,7 @@ function resetForm() {
     auth_mode: 'user_login',
     proxy_id: null,
     email: '',
+    username: '',
     password: '',
     access_token: '',
     refresh_token: ''
@@ -662,6 +691,7 @@ function openEdit(item: UpstreamConfig) {
     auth_mode: item.auth_mode,
     proxy_id: item.proxy_id ?? null,
     email: '',
+    username: '',
     password: '',
     access_token: '',
     refresh_token: ''
@@ -763,6 +793,11 @@ function applyTokenCandidates() {
 
 async function saveConfig() {
   if (saving.value) return
+  const validationError = validateFormBeforeSave()
+  if (validationError) {
+    appStore.showError(validationError)
+    return
+  }
   saving.value = true
   try {
     const credentials: Record<string, string> = {}
@@ -773,6 +808,10 @@ async function saveConfig() {
     if (form.provider === 'sub2api' && form.auth_mode === 'manual_jwt') {
       if (form.access_token) credentials.sub2api_access_token = form.access_token
       if (form.refresh_token) credentials.sub2api_refresh_token = form.refresh_token
+    }
+    if (form.provider === 'newapi') {
+      if (form.username) credentials.newapi_login_username = form.username
+      if (form.password) credentials.newapi_login_password = form.password
     }
 
     const payload = {
@@ -791,7 +830,7 @@ async function saveConfig() {
       savedConfig = await upstreamAPI.create(payload)
     }
     dialogOpen.value = false
-    if (savedConfig?.provider === 'sub2api') {
+    if (savedConfig?.provider === 'sub2api' || savedConfig?.provider === 'newapi') {
       await syncAfterSave(savedConfig.id)
     } else {
       appStore.showSuccess(editing.value
@@ -804,6 +843,18 @@ async function saveConfig() {
   } finally {
     saving.value = false
   }
+}
+
+function validateFormBeforeSave(): string {
+  if (form.provider !== 'newapi') return ''
+  const status = editing.value?.credentials_status || {}
+  if (!form.username && !status.has_newapi_login_username) {
+    return t('admin.upstreamConfigs.messages.newapiUsernameRequired')
+  }
+  if (!form.password && !status.has_newapi_login_password) {
+    return t('admin.upstreamConfigs.messages.newapiPasswordRequired')
+  }
+  return ''
 }
 
 async function syncAfterSave(id: number) {
@@ -929,6 +980,12 @@ function providerBadgeClass(value: UpstreamProvider | string): string {
 
 function credentialLines(item: UpstreamConfig) {
   const status = item.credentials_status || {}
+  if (item.provider === 'newapi') {
+    return [
+      { label: t('admin.upstreamConfigs.credentialStatus.username', { status: statusLabel(!!status.has_newapi_login_username) }), ok: !!status.has_newapi_login_username },
+      { label: t('admin.upstreamConfigs.credentialStatus.password', { status: statusLabel(!!status.has_newapi_login_password) }), ok: !!status.has_newapi_login_password }
+    ]
+  }
   if (item.auth_mode === 'manual_jwt') {
     return [
       { label: t('admin.upstreamConfigs.credentialStatus.accessToken', { status: statusLabel(!!status.has_access_token) }), ok: !!status.has_access_token },
@@ -946,26 +1003,54 @@ function statusLabel(ok: boolean) {
 }
 
 function upstreamBalance(item: UpstreamConfig): number | null {
+  if (item.provider === 'newapi') {
+    return finiteNumberFromExtra(upstreamProviderSnapshot(item)?.remain_quota)
+  }
   return finiteNumberFromExtra(item.extra?.sub2api_balance)
 }
 
 function upstreamTotalRecharged(item: UpstreamConfig): number | null {
+  if (item.provider === 'newapi') return null
   return finiteNumberFromExtra(item.extra?.sub2api_total_recharged)
 }
 
+function upstreamUsedQuota(item: UpstreamConfig): number | null {
+  if (item.provider !== 'newapi') return null
+  return finiteNumberFromExtra(upstreamProviderSnapshot(item)?.used_quota)
+}
+
 function upstreamBalanceError(item: UpstreamConfig): string {
+  if (item.provider === 'newapi') {
+    const value = item.extra?.upstream_provider_snapshot_last_error
+    return typeof value === 'string' ? value.trim() : ''
+  }
   const value = item.extra?.sub2api_balance_last_error
   return typeof value === 'string' ? value.trim() : ''
 }
 
 function upstreamBalanceSyncedAt(item: UpstreamConfig): string {
+  if (item.provider === 'newapi') {
+    const value = upstreamProviderSnapshot(item)?.synced_at
+    return typeof value === 'string' ? value : ''
+  }
   const value = item.extra?.sub2api_balance_synced_at
   return typeof value === 'string' ? value : ''
 }
 
 function upstreamBalanceEmail(item: UpstreamConfig): string {
+  if (item.provider === 'newapi') {
+    const value = upstreamProviderSnapshot(item)?.email
+    return typeof value === 'string' ? value.trim() : ''
+  }
   const value = item.extra?.sub2api_user_email
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function upstreamProviderSnapshot(item: UpstreamConfig): Record<string, unknown> | null {
+  const value = item.extra?.upstream_provider_snapshot
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
 }
 
 function finiteNumberFromExtra(value: unknown): number | null {

@@ -9,6 +9,8 @@ export interface UpstreamCredentialsStatus {
   has_login_password?: boolean
   has_access_token?: boolean
   has_refresh_token?: boolean
+  has_newapi_login_username?: boolean
+  has_newapi_login_password?: boolean
 }
 
 export interface UpstreamKeyStatus {
