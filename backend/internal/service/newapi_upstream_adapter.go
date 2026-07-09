@@ -19,12 +19,13 @@ import (
 )
 
 const (
-	newAPILoginPath       = "/api/user/login"
-	newAPITokensPath      = "/api/token/"
-	newAPIUserGroupsPath  = "/api/user/self/groups"
-	newAPIUserProfilePath = "/api/user/self"
-	newAPIKeysPageSize    = 100
-	newAPIMaxKeyListPages = 1000
+	newAPILoginPath          = "/api/user/login"
+	newAPITokensPath         = "/api/token/"
+	newAPITokenBatchKeysPath = "/api/token/batch/keys"
+	newAPIUserGroupsPath     = "/api/user/self/groups"
+	newAPIUserProfilePath    = "/api/user/self"
+	newAPIKeysPageSize       = 100
+	newAPIMaxKeyListPages    = 1000
 )
 
 var reNewAPISecretKey = regexp.MustCompile(`\bsk-[0-9A-Za-z_-]{8,}\b`)
@@ -71,6 +72,10 @@ type newAPIKeyRow struct {
 	RemainQuota        float64 `json:"remain_quota"`
 	UnlimitedQuota     bool    `json:"unlimited_quota"`
 	ModelLimitsEnabled bool    `json:"model_limits_enabled"`
+}
+
+type newAPIBatchKeysData struct {
+	Keys map[string]string `json:"keys"`
 }
 
 type newAPIUserProfile struct {
@@ -130,10 +135,17 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	if err != nil {
 		return nil, err
 	}
+	fullKeys, err := a.fetchMaskedKeySecrets(ctx, session, rows)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	keys := make([]UpstreamKey, 0, len(rows))
 	for _, row := range rows {
 		key := strings.TrimSpace(row.Key)
+		if isMaskedUpstreamKey(key) {
+			key = strings.TrimSpace(fullKeys[row.ID])
+		}
 		if key == "" || isMaskedUpstreamKey(key) {
 			continue
 		}
@@ -306,6 +318,46 @@ func (a newAPIUpstreamProviderAdapter) fetchKeys(ctx context.Context, session *n
 		}
 	}
 	return nil, fmt.Errorf("newapi token list exceeded max pages")
+}
+
+func (a newAPIUpstreamProviderAdapter) fetchMaskedKeySecrets(ctx context.Context, session *newAPISession, rows []newAPIKeyRow) (map[int64]string, error) {
+	ids := make([]int64, 0)
+	for _, row := range rows {
+		if row.ID <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(row.Key)
+		if key != "" && isMaskedUpstreamKey(key) {
+			ids = append(ids, row.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	endpoint, err := buildSub2APIURL(session.rootURL, newAPITokenBatchKeysPath)
+	if err != nil {
+		return nil, err
+	}
+	var payload newAPIEnvelope[newAPIBatchKeysData]
+	status, err := a.doJSON(ctx, session.client, http.MethodPost, endpoint, session.userID, map[string]any{"ids": ids}, &payload)
+	if err != nil {
+		return nil, fmt.Errorf("newapi fetch token keys failed: %w", err)
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("newapi fetch token keys returned status %d", status)
+	}
+	if !payload.Success {
+		return nil, fmt.Errorf("newapi fetch token keys failed%s", safeNewAPIMessage(payload.Message))
+	}
+	out := make(map[int64]string, len(payload.Data.Keys))
+	for rawID, key := range payload.Data.Keys {
+		id, err := strconv.ParseInt(strings.TrimSpace(rawID), 10, 64)
+		if err != nil || id <= 0 {
+			continue
+		}
+		out[id] = strings.TrimSpace(key)
+	}
+	return out, nil
 }
 
 func (a newAPIUpstreamProviderAdapter) fetchProfile(ctx context.Context, session *newAPISession) (*newAPIUserProfile, error) {
