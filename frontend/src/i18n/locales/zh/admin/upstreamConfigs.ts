@@ -15,8 +15,7 @@ export default {
       actions: '操作'
     },
     balance: {
-      totalRecharged: '累计 {amount}',
-      usedQuota: '已用 {amount}',
+      totalRecharged: '累计充值 {amount}',
       rawBalance: '原生剩余额度：{amount}',
       rawUsed: '原生已用额度：{amount}',
       rawTotal: '原生总额度：{amount}',
