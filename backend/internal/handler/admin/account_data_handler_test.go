@@ -18,11 +18,12 @@ type dataResponse struct {
 }
 
 type dataPayload struct {
-	Type           string        `json:"type"`
-	Version        int           `json:"version"`
-	Proxies        []dataProxy   `json:"proxies"`
-	Accounts       []dataAccount `json:"accounts"`
-	SkippedShadows int           `json:"skipped_shadows"`
+	Type                    string        `json:"type"`
+	Version                 int           `json:"version"`
+	Proxies                 []dataProxy   `json:"proxies"`
+	Accounts                []dataAccount `json:"accounts"`
+	SkippedShadows          int           `json:"skipped_shadows"`
+	SkippedUpstreamAccounts int           `json:"skipped_upstream_accounts"`
 }
 
 type dataProxy struct {
@@ -211,6 +212,27 @@ func TestExportDataExcludesSparkShadow(t *testing.T) {
 	require.Len(t, resp.Data.Accounts, 1, "影子应被排除,仅导出母账号")
 	require.Equal(t, "mother", resp.Data.Accounts[0].Name)
 	require.Equal(t, 1, resp.Data.SkippedShadows, "跳过的影子数量应透出")
+}
+
+func TestExportDataExcludesUpstreamBoundAccount(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	cfgID := int64(10)
+	keyID := int64(20)
+	adminSvc.accounts = []service.Account{
+		{ID: 1, Name: "ordinary", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "sk-local"}},
+		{ID: 2, Name: "可达鸭-pro", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, UpstreamConfigID: &cfgID, UpstreamKeyID: &keyID},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/data?include_proxies=false", nil)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp dataResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data.Accounts, 1)
+	require.Equal(t, "ordinary", resp.Data.Accounts[0].Name)
+	require.Equal(t, 1, resp.Data.SkippedUpstreamAccounts)
 }
 
 func TestExportDataPassesAccountFiltersAndSort(t *testing.T) {

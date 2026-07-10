@@ -3,12 +3,16 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
+	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	dbupstreamconfig "github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -19,6 +23,17 @@ import (
 type upstreamConfigRepository struct {
 	client *dbent.Client
 }
+
+const (
+	upstreamNameBackfillMissingConfigBinding = "missing_upstream_config_binding"
+	upstreamNameBackfillMissingKeyBinding    = "missing_upstream_key_binding"
+	upstreamNameBackfillConfigNotFound       = "upstream_config_not_found"
+	upstreamNameBackfillConfigDeleted        = "upstream_config_deleted"
+	upstreamNameBackfillKeyNotFound          = "upstream_key_not_found"
+	upstreamNameBackfillKeyDeleted           = "upstream_key_deleted"
+	upstreamNameBackfillKeyConfigMismatch    = "upstream_key_config_mismatch"
+	upstreamNameBackfillEmptyName            = "upstream_name_empty"
+)
 
 func NewUpstreamConfigRepository(client *dbent.Client) service.UpstreamConfigRepository {
 	return &upstreamConfigRepository{client: client}
@@ -98,21 +113,40 @@ func (r *upstreamConfigRepository) Create(ctx context.Context, config *service.U
 }
 
 func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.UpstreamConfig) error {
-	builder := r.client.UpstreamConfig.UpdateOneID(config.ID).
-		SetName(config.Name).
-		SetProvider(config.Provider).
-		SetBaseURL(config.BaseURL).
-		SetAuthMode(config.AuthMode).
-		SetCredentials(normalizeJSONMap(config.Credentials)).
-		SetExtra(normalizeJSONMap(config.Extra)).
-		SetStatus(config.Status)
-	if config.ProxyID != nil {
-		builder.SetProxyID(*config.ProxyID)
-	} else {
-		builder.ClearProxyID()
-	}
-	_, err := builder.Save(ctx)
-	return err
+	return r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		if _, err := client.UpstreamConfig.Query().
+			Where(dbupstreamconfig.IDEQ(config.ID)).
+			ForUpdate().
+			Only(txCtx); err != nil {
+			if dbent.IsNotFound(err) {
+				return service.ErrUpstreamConfigNotFound
+			}
+			return err
+		}
+
+		builder := client.UpstreamConfig.UpdateOneID(config.ID).
+			SetName(config.Name).
+			SetProvider(config.Provider).
+			SetBaseURL(config.BaseURL).
+			SetAuthMode(config.AuthMode).
+			SetCredentials(normalizeJSONMap(config.Credentials)).
+			SetExtra(normalizeJSONMap(config.Extra)).
+			SetStatus(config.Status)
+		if config.ProxyID != nil {
+			builder.SetProxyID(*config.ProxyID)
+		} else {
+			builder.ClearProxyID()
+		}
+		if _, err := builder.Save(txCtx); err != nil {
+			return err
+		}
+
+		changedIDs, err := renameAccountsForUpstreamConfig(txCtx, client, config.ID, config.Name)
+		if err != nil {
+			return err
+		}
+		return enqueueUpstreamAccountChanges(txCtx, client, changedIDs)
+	})
 }
 
 func (r *upstreamConfigRepository) Delete(ctx context.Context, id int64) error {
@@ -151,7 +185,33 @@ func (r *upstreamConfigRepository) GetKeyByID(ctx context.Context, id int64) (*s
 }
 
 func (r *upstreamConfigRepository) CreateKey(ctx context.Context, key *service.UpstreamKey) error {
-	builder := r.client.UpstreamKey.Create().
+	return createUpstreamKey(ctx, clientFromContext(ctx, r.client), key)
+}
+
+func (r *upstreamConfigRepository) UpsertKey(ctx context.Context, key *service.UpstreamKey) error {
+	client := clientFromContext(ctx, r.client)
+	existing, err := client.UpstreamKey.Query().
+		Where(
+			dbupstreamkey.UpstreamConfigIDEQ(key.UpstreamConfigID),
+			dbupstreamkey.KeyHashEQ(key.KeyHash),
+		).
+		Only(ctx)
+	if err != nil && !dbent.IsNotFound(err) {
+		return err
+	}
+	if existing == nil {
+		return createUpstreamKey(ctx, client, key)
+	}
+	key.ID = existing.ID
+	return updateUpstreamKey(ctx, client, key)
+}
+
+func (r *upstreamConfigRepository) UpdateKey(ctx context.Context, key *service.UpstreamKey) error {
+	return updateUpstreamKey(ctx, clientFromContext(ctx, r.client), key)
+}
+
+func createUpstreamKey(ctx context.Context, client *dbent.Client, key *service.UpstreamKey) error {
+	builder := client.UpstreamKey.Create().
 		SetUpstreamConfigID(key.UpstreamConfigID).
 		SetName(key.Name).
 		SetKey(key.Key).
@@ -182,25 +242,8 @@ func (r *upstreamConfigRepository) CreateKey(ctx context.Context, key *service.U
 	return nil
 }
 
-func (r *upstreamConfigRepository) UpsertKey(ctx context.Context, key *service.UpstreamKey) error {
-	existing, err := r.client.UpstreamKey.Query().
-		Where(
-			dbupstreamkey.UpstreamConfigIDEQ(key.UpstreamConfigID),
-			dbupstreamkey.KeyHashEQ(key.KeyHash),
-		).
-		Only(ctx)
-	if err != nil && !dbent.IsNotFound(err) {
-		return err
-	}
-	if existing == nil {
-		return r.CreateKey(ctx, key)
-	}
-	key.ID = existing.ID
-	return r.UpdateKey(ctx, key)
-}
-
-func (r *upstreamConfigRepository) UpdateKey(ctx context.Context, key *service.UpstreamKey) error {
-	builder := r.client.UpstreamKey.UpdateOneID(key.ID).
+func updateUpstreamKey(ctx context.Context, client *dbent.Client, key *service.UpstreamKey) error {
+	builder := client.UpstreamKey.UpdateOneID(key.ID).
 		SetUpstreamConfigID(key.UpstreamConfigID).
 		SetName(key.Name).
 		SetKey(key.Key).
@@ -242,6 +285,130 @@ func (r *upstreamConfigRepository) DeleteKey(ctx context.Context, id int64) erro
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_IN_USE", "upstream key is used by accounts")
 	}
 	return r.client.UpstreamKey.DeleteOneID(id).Exec(ctx)
+}
+
+func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, configID int64, keys []service.UpstreamKey, extraUpdates map[string]any, checkedAt time.Time) ([]service.UpstreamKey, int, error) {
+	var (
+		localKeys []service.UpstreamKey
+		updated   int
+	)
+	err := r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		config, err := client.UpstreamConfig.Query().
+			Where(dbupstreamconfig.IDEQ(configID)).
+			ForUpdate().
+			Only(txCtx)
+		if err != nil {
+			if dbent.IsNotFound(err) {
+				return service.ErrUpstreamConfigNotFound
+			}
+			return err
+		}
+
+		for i := range keys {
+			keys[i].UpstreamConfigID = configID
+			existing, queryErr := client.UpstreamKey.Query().
+				Where(
+					dbupstreamkey.UpstreamConfigIDEQ(configID),
+					dbupstreamkey.KeyHashEQ(keys[i].KeyHash),
+				).
+				Only(txCtx)
+			if queryErr != nil && !dbent.IsNotFound(queryErr) {
+				return queryErr
+			}
+			if existing == nil {
+				if err := createUpstreamKey(txCtx, client, &keys[i]); err != nil {
+					return err
+				}
+				continue
+			}
+			keys[i].ID = existing.ID
+			if err := updateUpstreamKey(txCtx, client, &keys[i]); err != nil {
+				return err
+			}
+		}
+
+		keyRows, err := client.UpstreamKey.Query().
+			Where(dbupstreamkey.UpstreamConfigIDEQ(configID)).
+			Order(dbent.Asc(dbupstreamkey.FieldName), dbent.Asc(dbupstreamkey.FieldID)).
+			All(txCtx)
+		if err != nil {
+			return err
+		}
+		localKeys = make([]service.UpstreamKey, 0, len(keyRows))
+		keyByID := make(map[int64]*dbent.UpstreamKey, len(keyRows))
+		for _, row := range keyRows {
+			keyByID[row.ID] = row
+			localKeys = append(localKeys, *upstreamKeyEntityToService(row))
+		}
+
+		accounts, err := client.Account.Query().
+			Where(
+				dbaccount.UpstreamConfigIDEQ(configID),
+				dbaccount.UpstreamKeyIDNotNil(),
+			).
+			Order(dbent.Asc(dbaccount.FieldID)).
+			ForUpdate().
+			All(txCtx)
+		if err != nil {
+			return err
+		}
+		changedIDs := make([]int64, 0, len(accounts))
+		for _, account := range accounts {
+			key := keyByID[*account.UpstreamKeyID]
+			if key == nil || key.UpstreamConfigID != configID {
+				continue
+			}
+			changed, err := syncUpstreamAccount(txCtx, client, account, config, key, checkedAt)
+			if err != nil {
+				return err
+			}
+			if changed {
+				changedIDs = append(changedIDs, account.ID)
+			}
+		}
+
+		mergedExtra := copyJSONMap(config.Extra)
+		if mergedExtra == nil {
+			mergedExtra = map[string]any{}
+		}
+		for key, value := range extraUpdates {
+			mergedExtra[key] = value
+		}
+		if _, err := client.UpstreamConfig.UpdateOneID(configID).
+			SetExtra(mergedExtra).
+			SetLastCheckedAt(checkedAt).
+			SetLastSuccessAt(checkedAt).
+			ClearLastError().
+			Save(txCtx); err != nil {
+			return err
+		}
+		if err := enqueueUpstreamAccountChanges(txCtx, client, changedIDs); err != nil {
+			return err
+		}
+		updated = len(changedIDs)
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return localKeys, updated, nil
+}
+
+func (r *upstreamConfigRepository) PreviewAccountNameBackfill(ctx context.Context) ([]service.UpstreamAccountNameBackfillItem, error) {
+	return loadUpstreamAccountNameBackfill(ctx, r.client, false)
+}
+
+func (r *upstreamConfigRepository) ApplyAccountNameBackfill(ctx context.Context) ([]service.UpstreamAccountNameBackfillItem, error) {
+	var items []service.UpstreamAccountNameBackfillItem
+	err := r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		var err error
+		items, err = loadUpstreamAccountNameBackfill(txCtx, client, true)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (r *upstreamConfigRepository) RecordCheckResult(ctx context.Context, id int64, success bool, safeErr string) error {
@@ -320,6 +487,330 @@ func (r *upstreamConfigRepository) UpdateExtra(ctx context.Context, id int64, up
 		return service.ErrUpstreamConfigNotFound
 	}
 	return nil
+}
+
+func (r *upstreamConfigRepository) withTx(ctx context.Context, fn func(context.Context, *dbent.Client) error) error {
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return fn(ctx, tx.Client())
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		if errors.Is(err, dbent.ErrTxStarted) {
+			return fn(ctx, r.client)
+		}
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := fn(txCtx, tx.Client()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func renameAccountsForUpstreamConfig(ctx context.Context, client *dbent.Client, configID int64, configName string) ([]int64, error) {
+	keys, err := client.UpstreamKey.Query().
+		Where(dbupstreamkey.UpstreamConfigIDEQ(configID)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	keyByID := make(map[int64]*dbent.UpstreamKey, len(keys))
+	for _, key := range keys {
+		keyByID[key.ID] = key
+	}
+	accounts, err := client.Account.Query().
+		Where(
+			dbaccount.UpstreamConfigIDEQ(configID),
+			dbaccount.UpstreamKeyIDNotNil(),
+		).
+		Order(dbent.Asc(dbaccount.FieldID)).
+		ForUpdate().
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	changedIDs := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		key := keyByID[*account.UpstreamKeyID]
+		if key == nil || key.UpstreamConfigID != configID {
+			continue
+		}
+		name, err := service.BuildUpstreamAccountName(configName, key.Name)
+		if err != nil || name == account.Name {
+			continue
+		}
+		if _, err := client.Account.UpdateOneID(account.ID).SetName(name).Save(ctx); err != nil {
+			return nil, err
+		}
+		changedIDs = append(changedIDs, account.ID)
+	}
+	return changedIDs, nil
+}
+
+func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbent.Account, config *dbent.UpstreamConfig, key *dbent.UpstreamKey, checkedAt time.Time) (bool, error) {
+	builder := client.Account.UpdateOneID(account.ID)
+	changed := false
+	if name, err := service.BuildUpstreamAccountName(config.Name, key.Name); err == nil && name != account.Name {
+		builder.SetName(name)
+		changed = true
+	}
+	if key.RateMultiplier != nil && validUpstreamRateMultiplier(*key.RateMultiplier) {
+		multiplier := *key.RateMultiplier
+		priority := service.Sub2APIUpstreamPriority(multiplier)
+		loadFactor := service.AutoUpstreamLoadFactor(priority, account.Concurrency)
+		extra := copyJSONMap(account.Extra)
+		if extra == nil {
+			extra = map[string]any{}
+		}
+		for extraKey, value := range upstreamRateSyncExtra(config, key, checkedAt) {
+			extra[extraKey] = value
+		}
+		builder.
+			SetRateMultiplier(multiplier).
+			SetPriority(priority).
+			SetLoadFactor(loadFactor).
+			SetExtra(extra)
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	if _, err := builder.Save(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func validUpstreamRateMultiplier(multiplier float64) bool {
+	return multiplier >= 0 && !math.IsNaN(multiplier) && !math.IsInf(multiplier, 0)
+}
+
+func upstreamRateSyncExtra(config *dbent.UpstreamConfig, key *dbent.UpstreamKey, checkedAt time.Time) map[string]any {
+	checkedAtText := checkedAt.UTC().Format(time.RFC3339)
+	extra := map[string]any{
+		"upstream_rate_sync_last_success_at": checkedAtText,
+		"upstream_rate_sync_last_error":      "",
+		"upstream_provider":                  config.Provider,
+		"upstream_platform":                  key.Platform,
+		"upstream_rate_multiplier":           *key.RateMultiplier,
+	}
+	if key.UpstreamGroupID != nil {
+		extra["upstream_group_id"] = *key.UpstreamGroupID
+	}
+	if strings.TrimSpace(key.UpstreamGroupName) != "" {
+		extra["upstream_group_name"] = key.UpstreamGroupName
+	}
+	if config.Provider == service.UpstreamProviderSub2API {
+		extra["sub2api_rate_sync_last_success_at"] = checkedAtText
+		extra["sub2api_rate_sync_last_error"] = ""
+		extra["sub2api_upstream_platform"] = key.Platform
+		extra["sub2api_upstream_rate_multiplier"] = *key.RateMultiplier
+		if key.UpstreamGroupID != nil {
+			extra["sub2api_upstream_group_id"] = *key.UpstreamGroupID
+		}
+		if strings.TrimSpace(key.UpstreamGroupName) != "" {
+			extra["sub2api_upstream_group_name"] = key.UpstreamGroupName
+		}
+	}
+	return extra
+}
+
+func enqueueUpstreamAccountChanges(ctx context.Context, exec sqlExecutor, accountIDs []int64) error {
+	if len(accountIDs) == 0 {
+		return nil
+	}
+	accountIDs = uniqueSortedInt64s(accountIDs)
+	return enqueueSchedulerOutbox(ctx, exec, service.SchedulerOutboxEventAccountBulkChanged, nil, nil, map[string]any{
+		"account_ids": accountIDs,
+	})
+}
+
+func loadUpstreamAccountNameBackfill(ctx context.Context, client *dbent.Client, apply bool) ([]service.UpstreamAccountNameBackfillItem, error) {
+	accounts, err := queryUpstreamBoundAccounts(ctx, client, nil, false)
+	if err != nil || len(accounts) == 0 {
+		return nil, err
+	}
+	if apply {
+		if _, _, err := loadUpstreamBindingReferences(ctx, client, accounts, true); err != nil {
+			return nil, err
+		}
+		accountIDs := make([]int64, 0, len(accounts))
+		for _, account := range accounts {
+			accountIDs = append(accountIDs, account.ID)
+		}
+		accounts, err = queryUpstreamBoundAccounts(ctx, client, accountIDs, true)
+		if err != nil || len(accounts) == 0 {
+			return nil, err
+		}
+	}
+	configs, keys, err := loadUpstreamBindingReferences(ctx, client, accounts, apply)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]service.UpstreamAccountNameBackfillItem, 0, len(accounts))
+	changedIDs := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		item := upstreamAccountNameBackfillItem(account, configs, keys)
+		items = append(items, item)
+		if !apply || item.SkipReason != "" || item.OldName == item.NewName {
+			continue
+		}
+		if _, err := client.Account.UpdateOneID(account.ID).SetName(item.NewName).Save(ctx); err != nil {
+			return nil, err
+		}
+		changedIDs = append(changedIDs, account.ID)
+	}
+	if apply {
+		if err := enqueueUpstreamAccountChanges(ctx, client, changedIDs); err != nil {
+			return nil, err
+		}
+	}
+	return items, nil
+}
+
+func queryUpstreamBoundAccounts(ctx context.Context, client *dbent.Client, accountIDs []int64, lock bool) ([]*dbent.Account, error) {
+	query := client.Account.Query().Where(dbaccount.Or(
+		dbaccount.UpstreamConfigIDNotNil(),
+		dbaccount.UpstreamKeyIDNotNil(),
+	))
+	if accountIDs != nil {
+		if len(accountIDs) == 0 {
+			return nil, nil
+		}
+		query = query.Where(dbaccount.IDIn(accountIDs...))
+	}
+	query = query.Order(dbent.Asc(dbaccount.FieldID))
+	if lock {
+		query = query.ForUpdate()
+	}
+	return query.Select(
+		dbaccount.FieldID,
+		dbaccount.FieldName,
+		dbaccount.FieldUpstreamConfigID,
+		dbaccount.FieldUpstreamKeyID,
+	).All(ctx)
+}
+
+func loadUpstreamBindingReferences(ctx context.Context, client *dbent.Client, accounts []*dbent.Account, lock bool) (map[int64]*dbent.UpstreamConfig, map[int64]*dbent.UpstreamKey, error) {
+	configIDs := make([]int64, 0, len(accounts))
+	keyIDs := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		if account.UpstreamConfigID != nil {
+			configIDs = append(configIDs, *account.UpstreamConfigID)
+		}
+		if account.UpstreamKeyID != nil {
+			keyIDs = append(keyIDs, *account.UpstreamKeyID)
+		}
+	}
+	configIDs = uniqueSortedInt64s(configIDs)
+	keyIDs = uniqueSortedInt64s(keyIDs)
+	configs := make(map[int64]*dbent.UpstreamConfig, len(configIDs))
+	keys := make(map[int64]*dbent.UpstreamKey, len(keyIDs))
+	queryCtx := mixins.SkipSoftDelete(ctx)
+	if len(configIDs) > 0 {
+		query := client.UpstreamConfig.Query().
+			Where(dbupstreamconfig.IDIn(configIDs...)).
+			Order(dbent.Asc(dbupstreamconfig.FieldID))
+		if lock {
+			query = query.ForUpdate()
+		}
+		rows, err := query.Select(
+			dbupstreamconfig.FieldID,
+			dbupstreamconfig.FieldName,
+			dbupstreamconfig.FieldDeletedAt,
+		).All(queryCtx)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, row := range rows {
+			configs[row.ID] = row
+		}
+	}
+	if len(keyIDs) > 0 {
+		query := client.UpstreamKey.Query().
+			Where(dbupstreamkey.IDIn(keyIDs...)).
+			Order(dbent.Asc(dbupstreamkey.FieldID))
+		if lock {
+			query = query.ForUpdate()
+		}
+		rows, err := query.Select(
+			dbupstreamkey.FieldID,
+			dbupstreamkey.FieldUpstreamConfigID,
+			dbupstreamkey.FieldName,
+			dbupstreamkey.FieldDeletedAt,
+		).All(queryCtx)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, row := range rows {
+			keys[row.ID] = row
+		}
+	}
+	return configs, keys, nil
+}
+
+func upstreamAccountNameBackfillItem(account *dbent.Account, configs map[int64]*dbent.UpstreamConfig, keys map[int64]*dbent.UpstreamKey) service.UpstreamAccountNameBackfillItem {
+	item := service.UpstreamAccountNameBackfillItem{
+		AccountID:        account.ID,
+		OldName:          account.Name,
+		UpstreamConfigID: account.UpstreamConfigID,
+		UpstreamKeyID:    account.UpstreamKeyID,
+	}
+	if account.UpstreamConfigID == nil {
+		item.SkipReason = upstreamNameBackfillMissingConfigBinding
+		return item
+	}
+	if account.UpstreamKeyID == nil {
+		item.SkipReason = upstreamNameBackfillMissingKeyBinding
+		return item
+	}
+	config := configs[*account.UpstreamConfigID]
+	if config == nil {
+		item.SkipReason = upstreamNameBackfillConfigNotFound
+		return item
+	}
+	if config.DeletedAt != nil {
+		item.SkipReason = upstreamNameBackfillConfigDeleted
+		return item
+	}
+	key := keys[*account.UpstreamKeyID]
+	if key == nil {
+		item.SkipReason = upstreamNameBackfillKeyNotFound
+		return item
+	}
+	if key.DeletedAt != nil {
+		item.SkipReason = upstreamNameBackfillKeyDeleted
+		return item
+	}
+	if key.UpstreamConfigID != config.ID {
+		item.SkipReason = upstreamNameBackfillKeyConfigMismatch
+		return item
+	}
+	name, err := service.BuildUpstreamAccountName(config.Name, key.Name)
+	if err != nil {
+		item.SkipReason = upstreamNameBackfillEmptyName
+		return item
+	}
+	item.NewName = name
+	return item
+}
+
+func uniqueSortedInt64s(values []int64) []int64 {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[int64]struct{}, len(values))
+	out := make([]int64, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 func upstreamConfigEntityToService(row *dbent.UpstreamConfig) *service.UpstreamConfig {

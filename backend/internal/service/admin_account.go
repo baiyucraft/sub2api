@@ -440,7 +440,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		return nil
 	}
 	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck ||
-		input.Concurrency != nil || input.Priority != nil || input.LoadFactor != nil {
+		input.Concurrency != nil || input.Priority != nil || input.LoadFactor != nil || input.Name != "" {
 		if err := loadCachedTargets(); err != nil {
 			return nil, err
 		}
@@ -469,6 +469,14 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			if acc != nil && acc.IsUpstreamBound() {
 				return nil, infraerrors.Newf(http.StatusBadRequest, "UPSTREAM_ACCOUNT_PROXY_INHERITED",
 					"upstream-bound account %d proxy is inherited from upstream config and cannot be set in bulk; manage it on the upstream config", acc.ID)
+			}
+		}
+	}
+	if input.Name != "" {
+		for _, acc := range cachedTargets {
+			if acc != nil && acc.IsUpstreamBound() {
+				return nil, infraerrors.Newf(http.StatusBadRequest, "UPSTREAM_ACCOUNT_NAME_DERIVED",
+					"upstream-bound account %d name is derived from its upstream config and key", acc.ID)
 			}
 		}
 	}
@@ -556,7 +564,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
 		return nil, err
 	}
-
 	if input.Concurrency != nil || input.Priority != nil || input.LoadFactor != nil {
 		for _, acc := range cachedTargets {
 			if acc == nil || !acc.IsUpstreamBound() {

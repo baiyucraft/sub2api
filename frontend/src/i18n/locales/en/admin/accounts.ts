@@ -48,6 +48,7 @@ export default {
       dataExportConfirm: 'Confirm Export',
       dataExported: 'Data exported successfully',
       dataExportedSkippedShadows: 'Data exported. Skipped {count} spark shadow account(s): their scheduling config is not included in the backup; recreate and re-tune them after restore.',
+      dataExportedSkippedUpstreamAccounts: 'Data exported. Skipped {count} upstream-bound account(s): the current backup format cannot safely restore upstream config and key bindings across instances.',
       dataExportFailed: 'Failed to export data',
       dataImportTitle: 'Import Data',
       dataImportHint: 'Upload the exported JSON file to import accounts and proxies.',

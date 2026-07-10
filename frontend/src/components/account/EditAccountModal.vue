@@ -13,7 +13,22 @@
     >
       <div>
         <label class="input-label">{{ t('common.name') }}</label>
-        <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
+        <input
+          v-if="!isUpstreamBoundAccount"
+          v-model="form.name"
+          type="text"
+          required
+          class="input"
+          data-tour="edit-account-form-name"
+        />
+        <input
+          v-else
+          :value="derivedUpstreamAccountName || form.name"
+          type="text"
+          readonly
+          class="input bg-gray-50 text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+          data-tour="edit-account-form-name"
+        />
       </div>
       <div>
         <label class="input-label">{{ t('admin.accounts.notes') }}</label>
@@ -2577,6 +2592,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import UpstreamKeySelector from '@/components/account/UpstreamKeySelector.vue'
+import { buildUpstreamAccountName } from '@/components/account/upstreamAccountName'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import {
@@ -3108,6 +3124,12 @@ const filteredUpstreamKeys = computed(() =>
     return key.id === editUpstreamKeyId.value || !keyPlatform || keyPlatform === props.account?.platform
   })
 )
+
+const derivedUpstreamAccountName = computed(() => {
+  const config = upstreamConfigs.value.find((item) => item.id === editUpstreamConfigId.value)
+  const key = upstreamKeys.value.find((item) => item.id === editUpstreamKeyId.value)
+  return buildUpstreamAccountName(config?.name || '', key?.name || '')
+})
 
 const mixedChannelWarningMessageText = computed(() => {
   if (mixedChannelWarningDetails.value) {
@@ -4050,6 +4072,7 @@ const handleSubmit = async () => {
         return
       }
       updatePayload.type = 'upstream'
+      delete updatePayload.name
       updatePayload.upstream_config_id = editUpstreamConfigId.value
       updatePayload.upstream_key_id = editUpstreamKeyId.value
       updatePayload.proxy_id = 0

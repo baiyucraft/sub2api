@@ -68,7 +68,7 @@ func TestNormalizeUpstreamAccountInputNameBehavior(t *testing.T) {
 		require.Equal(t, "配置名-Key名", input.Name)
 	})
 
-	t.Run("nonblank name is preserved", func(t *testing.T) {
+	t.Run("nonblank name is replaced by authoritative name", func(t *testing.T) {
 		input := &CreateAccountInput{
 			Name:             " custom name ",
 			Type:             AccountTypeUpstream,
@@ -78,8 +78,35 @@ func TestNormalizeUpstreamAccountInputNameBehavior(t *testing.T) {
 		}
 
 		require.NoError(t, svc.normalizeUpstreamAccountInput(context.Background(), input))
-		require.Equal(t, " custom name ", input.Name)
+		require.Equal(t, "配置名-Key名", input.Name)
 	})
+}
+
+func TestNormalizeUpstreamAccountUpdateUsesAuthoritativeName(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "可达鸭", UpstreamProviderSub2API, StatusActive, "https://upstream.example.com")},
+		keys: []UpstreamKey{{
+			ID:               keyID,
+			UpstreamConfigID: cfgID,
+			Name:             "pro",
+			Platform:         PlatformOpenAI,
+		}},
+	}
+	svc := &adminServiceImpl{upstreamConfigRepo: repo}
+	account := &Account{
+		ID:               1,
+		Name:             "可达鸭pro",
+		Type:             AccountTypeAPIKey,
+		Platform:         PlatformOpenAI,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &keyID,
+	}
+	input := &UpdateAccountInput{Name: "手工名称"}
+
+	require.NoError(t, svc.normalizeUpstreamAccountUpdate(context.Background(), account, input))
+	require.Equal(t, "可达鸭-pro", account.Name)
 }
 
 func TestNormalizeUpstreamAccountInputRejectsInvalidNamesAndMismatchedKey(t *testing.T) {

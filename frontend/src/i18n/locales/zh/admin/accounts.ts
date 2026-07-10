@@ -48,6 +48,7 @@ export default {
       dataExportConfirm: '确认导出',
       dataExported: '数据导出成功',
       dataExportedSkippedShadows: '数据已导出。已跳过 {count} 个 spark 影子账号：其调度配置不在备份内，还原后需在重建的影子上重新调优。',
+      dataExportedSkippedUpstreamAccounts: '数据已导出。已跳过 {count} 个上游绑定账号：当前备份格式无法跨实例安全还原上游配置与 Key 绑定。',
       dataExportFailed: '数据导出失败',
       dataImportTitle: '导入数据',
       dataImportHint: '上传导出的 JSON 文件以批量导入账号与代理。',

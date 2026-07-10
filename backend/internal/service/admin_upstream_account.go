@@ -32,7 +32,7 @@ func trimUpstreamNameWhitespace(value string) string {
 	})
 }
 
-func buildUpstreamAccountName(configName, keyName string) (string, error) {
+func BuildUpstreamAccountName(configName, keyName string) (string, error) {
 	configName = trimUpstreamNameWhitespace(configName)
 	if configName == "" {
 		return "", infraerrors.BadRequest("UPSTREAM_CONFIG_NAME_REQUIRED", "upstream config name is required")
@@ -60,6 +60,10 @@ func buildUpstreamAccountName(configName, keyName string) (string, error) {
 	}
 
 	return string(configRunes[:configBudget]) + upstreamAccountNameSeparator + string(keyRunes[:keyBudget]), nil
+}
+
+func buildUpstreamAccountName(configName, keyName string) (string, error) {
+	return BuildUpstreamAccountName(configName, keyName)
 }
 
 func (s *adminServiceImpl) scheduleSub2APIUpstreamRateSync(account *Account) {
@@ -119,9 +123,7 @@ func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, in
 	if err != nil {
 		return err
 	}
-	if trimUpstreamNameWhitespace(input.Name) == "" {
-		input.Name = autoName
-	}
+	input.Name = autoName
 	input.Type = AccountTypeAPIKey
 	if strings.TrimSpace(input.Platform) == "" {
 		input.Platform = key.Platform
@@ -186,6 +188,11 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 	if strings.TrimSpace(key.Platform) != "" && strings.TrimSpace(account.Platform) != "" && !strings.EqualFold(strings.TrimSpace(account.Platform), strings.TrimSpace(key.Platform)) {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_MISMATCH", "upstream key platform does not match account platform")
 	}
+	autoName, err := buildUpstreamAccountName(cfg.Name, key.Name)
+	if err != nil {
+		return err
+	}
+	account.Name = autoName
 	if input.Extra == nil {
 		if account.Extra == nil {
 			account.Extra = map[string]any{}

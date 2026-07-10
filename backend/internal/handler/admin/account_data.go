@@ -32,7 +32,8 @@ type DataPayload struct {
 	Accounts   []DataAccount `json:"accounts"`
 	// SkippedShadows 记录导出时被排除的 spark 影子账号数量(见 ExportData)。仅作可见性提示,
 	// 导入侧忽略该字段;omitempty 保持向后兼容。
-	SkippedShadows int `json:"skipped_shadows,omitempty"`
+	SkippedShadows          int `json:"skipped_shadows,omitempty"`
+	SkippedUpstreamAccounts int `json:"skipped_upstream_accounts,omitempty"`
 }
 
 type DataProxy struct {
@@ -117,10 +118,15 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 	// status,管理员可单独调)随之不进备份,还原后需在重建的影子上重新调优;前端按 skipped_shadows
 	// 提示用户(外审第5轮发现、第6轮裁决:保持排除 + 警告,不做完整往返)。
 	skippedShadows := 0
+	skippedUpstreamAccounts := 0
 	exportable := make([]service.Account, 0, len(accounts))
 	for i := range accounts {
 		if accounts[i].IsCredentialShadow() {
 			skippedShadows++
+			continue
+		}
+		if accounts[i].IsUpstreamBound() {
+			skippedUpstreamAccounts++
 			continue
 		}
 		exportable = append(exportable, accounts[i])
@@ -128,6 +134,9 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 	accounts = exportable
 	if skippedShadows > 0 {
 		slog.Info("export_skipped_spark_shadows", "count", skippedShadows)
+	}
+	if skippedUpstreamAccounts > 0 {
+		slog.Info("export_skipped_upstream_accounts", "count", skippedUpstreamAccounts)
 	}
 
 	includeProxies, err := parseIncludeProxies(c)
@@ -216,10 +225,11 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 	}
 
 	payload := DataPayload{
-		ExportedAt:     time.Now().UTC().Format(time.RFC3339),
-		Proxies:        dataProxies,
-		Accounts:       dataAccounts,
-		SkippedShadows: skippedShadows,
+		ExportedAt:              time.Now().UTC().Format(time.RFC3339),
+		Proxies:                 dataProxies,
+		Accounts:                dataAccounts,
+		SkippedShadows:          skippedShadows,
+		SkippedUpstreamAccounts: skippedUpstreamAccounts,
 	}
 
 	response.Success(c, payload)

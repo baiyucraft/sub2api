@@ -268,6 +268,28 @@ func TestAdminService_BulkUpdateAccounts_AutoLoadFactorForUpstreamBoundOnly(t *t
 	require.Equal(t, 150, *repo.bulkUpdates[1].updates.LoadFactor)
 }
 
+func TestAdminServiceBulkUpdateAccountsRejectsRenameWhenUpstreamBoundAccountIncluded(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, Name: "ordinary"},
+			{ID: 2, Name: "可达鸭-pro", UpstreamConfigID: &cfgID, UpstreamKeyID: &keyID},
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs: []int64{1, 2},
+		Name:       "bulk-name",
+	})
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "UPSTREAM_ACCOUNT_NAME_DERIVED")
+	require.Empty(t, repo.bulkUpdates)
+}
+
 func TestAdminServiceBulkUpdateAccounts_ResolvesIDsFromFilters(t *testing.T) {
 	repo := &accountRepoStubForBulkUpdate{
 		listData: []Account{
