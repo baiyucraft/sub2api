@@ -14,6 +14,7 @@ export default {
         ungrouped: 'Group: ungrouped',
         rate: 'Rate: {rate}x',
         rateOverride: 'Rate: {defaultRate}x -> {dedicatedRate}x',
+        rateDedicated: 'Dedicated rate: {dedicatedRate}x',
         rateUnknown: 'Rate unknown',
         platformUnknown: 'Unknown platform',
         remoteId: 'Upstream ID #{id}',

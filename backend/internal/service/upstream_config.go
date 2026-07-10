@@ -222,7 +222,17 @@ func (s *UpstreamConfigService) Test(ctx context.Context, id int64) error {
 		_ = s.repo.RecordCheckResult(ctx, id, false, adapter.SanitizeError(err, cfg.Credentials))
 		return err
 	}
-	err = adapter.Test(ctx, cfg, proxyURL)
+	if cfg.Provider == UpstreamProviderSub2API {
+		var snapshot *upstreamProviderSnapshot
+		snapshot, err = adapter.SyncSnapshot(ctx, cfg, proxyURL, false)
+		if snapshot != nil && snapshot.RefreshedTokens != nil {
+			if saveErr := s.repo.SaveRefreshedTokens(ctx, cfg.ID, snapshot.RefreshedTokens.AccessToken, snapshot.RefreshedTokens.RefreshToken, snapshot.RefreshedTokens.ExpiresAt); saveErr != nil {
+				err = saveErr
+			}
+		}
+	} else {
+		err = adapter.Test(ctx, cfg, proxyURL)
+	}
 	if err != nil {
 		safeErr := adapter.SanitizeError(err, cfg.Credentials)
 		_ = s.repo.RecordCheckResult(ctx, id, false, safeErr)
@@ -309,17 +319,22 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 		return nil, result, err
 	}
 	snapshot, err := adapter.SyncSnapshot(ctx, cfg, proxyURL, true)
+	if snapshot != nil && snapshot.RefreshedTokens != nil {
+		if saveErr := s.repo.SaveRefreshedTokens(ctx, cfg.ID, snapshot.RefreshedTokens.AccessToken, snapshot.RefreshedTokens.RefreshToken, snapshot.RefreshedTokens.ExpiresAt); saveErr != nil {
+			result.Error = adapter.SanitizeError(saveErr, cfg.Credentials)
+			return nil, result, saveErr
+		}
+	}
 	if err != nil {
 		safeErr := adapter.SanitizeError(err, cfg.Credentials)
 		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, safeErr)
 		result.Error = safeErr
 		return nil, result, upstreamProviderSyncError(cfg.Provider, safeErr)
 	}
-	if snapshot.RefreshedTokens != nil {
-		if err := s.repo.SaveRefreshedTokens(ctx, cfg.ID, snapshot.RefreshedTokens.AccessToken, snapshot.RefreshedTokens.RefreshToken, snapshot.RefreshedTokens.ExpiresAt); err != nil {
-			result.Error = adapter.SanitizeError(err, cfg.Credentials)
-			return nil, result, err
-		}
+	if snapshot == nil {
+		err := fmt.Errorf("upstream provider returned no snapshot")
+		result.Error = adapter.SanitizeError(err, cfg.Credentials)
+		return nil, result, err
 	}
 	keys := snapshot.Keys
 	for i := range keys {
@@ -659,17 +674,17 @@ func (sub2APIUpstreamProviderAdapter) Test(ctx context.Context, cfg *UpstreamCon
 
 func (sub2APIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *UpstreamConfig, proxyURL string, includeProfile bool) (*upstreamProviderSnapshot, error) {
 	snapshot, err := syncSub2APIUpstreamSnapshot(ctx, cfg, proxyURL, includeProfile)
-	if err != nil {
+	if snapshot == nil {
 		return nil, err
 	}
 	out := &upstreamProviderSnapshot{
 		Keys:            snapshot.Keys,
 		RefreshedTokens: snapshot.RefreshedTokens,
 	}
-	if includeProfile {
+	if err == nil && includeProfile {
 		out.ExtraUpdates = sub2APIProfileExtraUpdates(cfg, snapshot.Profile, snapshot.ProfileErr)
 	}
-	return out, nil
+	return out, err
 }
 
 func (sub2APIUpstreamProviderAdapter) SanitizeError(err error, credentials map[string]any) string {

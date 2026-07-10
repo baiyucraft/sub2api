@@ -196,14 +196,19 @@ function groupLabel(key: UpstreamKey): string {
 }
 
 function rateLabel(key: UpstreamKey): string {
-  const defaultRate = numberExtra(key, 'default_rate_multiplier')
-  const dedicatedRate = numberExtra(key, 'dedicated_rate_multiplier')
-  if (hasDedicatedRate(key) && defaultRate != null && dedicatedRate != null) {
-    return t('admin.accounts.upstreamKeySelector.rateOverride', {
-      defaultRate: formatRate(defaultRate),
-      dedicatedRate: formatRate(dedicatedRate)
-    })
-  }
+	const defaultRate = numberExtra(key, 'default_rate_multiplier')
+	const dedicatedRate = numberExtra(key, 'dedicated_rate_multiplier')
+	if (hasDedicatedRate(key) && dedicatedRate != null) {
+		if (defaultRate != null) {
+			return t('admin.accounts.upstreamKeySelector.rateOverride', {
+				defaultRate: formatRate(defaultRate),
+				dedicatedRate: formatRate(dedicatedRate)
+			})
+		}
+		return t('admin.accounts.upstreamKeySelector.rateDedicated', {
+			dedicatedRate: formatRate(dedicatedRate)
+		})
+	}
   if (key.rate_multiplier == null || !Number.isFinite(key.rate_multiplier)) {
     return t('admin.accounts.upstreamKeySelector.rateUnknown')
   }
