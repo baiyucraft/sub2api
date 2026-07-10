@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,10 +29,15 @@ const (
 	sub2APIProfilePath     = "/api/v1/auth/me"
 	sub2APIKeysPath        = "/api/v1/keys"
 	sub2APIKeysFallback    = "/api/v1/api-keys"
+	sub2APIAvailableGroups = "/api/v1/groups/available"
 	sub2APIGroupRatesPath  = "/api/v1/groups/rates"
 	sub2APIKeysPageSize    = 100
 	sub2APIMaxKeyListPages = 1000
+
+	sub2APIBrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 )
+
+const sub2APITokenRefreshSkew = 60 * time.Second
 
 var (
 	errSub2APIEndpointNotFound      = errors.New("sub2api endpoint not found")
@@ -58,13 +64,66 @@ type sub2APIEnvelope[T any] struct {
 }
 
 type sub2APILoginData struct {
-	AccessToken string `json:"access_token"`
-	Requires2FA bool   `json:"requires_2fa"`
+	AccessToken       string `json:"access_token"`
+	AccessTokenCamel  string `json:"accessToken"`
+	RefreshToken      string `json:"refresh_token"`
+	RefreshTokenCamel string `json:"refreshToken"`
+	TokenType         string `json:"token_type"`
+	TokenTypeCamel    string `json:"tokenType"`
+	ExpiresIn         any    `json:"expires_in"`
+	ExpiresInCamel    any    `json:"expiresIn"`
+	Requires2FA       bool   `json:"requires_2fa"`
+	Requires2FACamel  bool   `json:"requires2FA"`
+}
+
+func (d sub2APILoginData) accessToken() string {
+	if token := strings.TrimSpace(d.AccessToken); token != "" {
+		return token
+	}
+	return strings.TrimSpace(d.AccessTokenCamel)
+}
+
+func (d sub2APILoginData) requires2FA() bool {
+	return d.Requires2FA || d.Requires2FACamel
 }
 
 type sub2APIRefreshData struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken       string     `json:"access_token"`
+	AccessTokenCamel  string     `json:"accessToken"`
+	RefreshToken      string     `json:"refresh_token"`
+	RefreshTokenCamel string     `json:"refreshToken"`
+	TokenType         string     `json:"token_type"`
+	TokenTypeCamel    string     `json:"tokenType"`
+	ExpiresIn         any        `json:"expires_in"`
+	ExpiresInCamel    any        `json:"expiresIn"`
+	ExpiresAt         *time.Time `json:"-"`
+}
+
+func (d *sub2APIRefreshData) normalize(fallbackRefreshToken string) {
+	if d == nil {
+		return
+	}
+	if strings.TrimSpace(d.AccessToken) == "" {
+		d.AccessToken = strings.TrimSpace(d.AccessTokenCamel)
+	} else {
+		d.AccessToken = strings.TrimSpace(d.AccessToken)
+	}
+	if strings.TrimSpace(d.RefreshToken) == "" {
+		d.RefreshToken = strings.TrimSpace(d.RefreshTokenCamel)
+	}
+	if strings.TrimSpace(d.RefreshToken) == "" {
+		d.RefreshToken = strings.TrimSpace(fallbackRefreshToken)
+	} else {
+		d.RefreshToken = strings.TrimSpace(d.RefreshToken)
+	}
+	expiresIn, ok := sub2APINonNegativeNumber(d.ExpiresIn)
+	if !ok || expiresIn <= 0 {
+		expiresIn, ok = sub2APINonNegativeNumber(d.ExpiresInCamel)
+	}
+	if ok && expiresIn > 0 {
+		expiresAt := time.Now().UTC().Add(time.Duration(expiresIn * float64(time.Second)))
+		d.ExpiresAt = &expiresAt
+	}
 }
 
 type sub2APIKeyListData struct {
@@ -81,17 +140,26 @@ type sub2APIUpstreamKey struct {
 	Name    string `json:"name"`
 	GroupID *int64 `json:"group_id"`
 	Group   *struct {
-		ID             int64   `json:"id"`
-		Name           string  `json:"name"`
-		Platform       string  `json:"platform"`
-		RateMultiplier float64 `json:"rate_multiplier"`
+		ID             int64    `json:"id"`
+		Name           string   `json:"name"`
+		Platform       string   `json:"platform"`
+		RateMultiplier *float64 `json:"rate_multiplier"`
 	} `json:"group"`
 }
 
 type sub2APIUserLoginSession struct {
 	keys        []sub2APIUpstreamKey
-	rates       map[int64]float64
+	groupRates  map[int64]sub2APIGroupRateInfo
 	accessToken string
+}
+
+type sub2APIGroupRateInfo struct {
+	ID                     int64
+	Name                   string
+	Platform               string
+	DefaultMultiplier      *float64
+	DedicatedMultiplier    *float64
+	HasDedicatedMultiplier bool
 }
 
 type sub2APIProfile struct {
@@ -109,16 +177,17 @@ type sub2APIUpstreamSnapshot struct {
 }
 
 type sub2APISyncTarget struct {
-	account      Account
-	rootURL      string
-	adapter      string
-	email        string
-	password     string
-	accessToken  string
-	refreshToken string
-	apiKey       string
-	proxyID      *int64
-	proxyURL     string
+	account        Account
+	rootURL        string
+	adapter        string
+	email          string
+	password       string
+	accessToken    string
+	refreshToken   string
+	tokenExpiresAt *time.Time
+	apiKey         string
+	proxyID        *int64
+	proxyURL       string
 }
 
 func NewSub2APIUpstreamRateSyncService(accountRepo AccountRepository, proxyRepo ProxyRepository, interval time.Duration) *Sub2APIUpstreamRateSyncService {
@@ -314,6 +383,7 @@ func newSub2APISyncTarget(account Account, proxyURL string) (sub2APISyncTarget, 
 	password := strings.TrimSpace(account.GetCredential(AccountCredentialSub2APILoginPassword))
 	accessToken := strings.TrimSpace(account.GetCredential(AccountCredentialSub2APIAccessToken))
 	refreshToken := strings.TrimSpace(account.GetCredential(AccountCredentialSub2APIRefreshToken))
+	tokenExpiresAt := account.GetCredentialAsTime(AccountCredentialSub2APITokenExpiresAt)
 	if baseURL == "" {
 		return sub2APISyncTarget{}, fmt.Errorf("missing base_url")
 	}
@@ -342,16 +412,17 @@ func newSub2APISyncTarget(account Account, proxyURL string) (sub2APISyncTarget, 
 		}
 	}
 	return sub2APISyncTarget{
-		account:      account,
-		rootURL:      rootURL,
-		adapter:      adapter,
-		email:        email,
-		password:     password,
-		accessToken:  accessToken,
-		refreshToken: refreshToken,
-		apiKey:       apiKey,
-		proxyID:      account.ProxyID,
-		proxyURL:     normalizedProxyURL,
+		account:        account,
+		rootURL:        rootURL,
+		adapter:        adapter,
+		email:          email,
+		password:       password,
+		accessToken:    accessToken,
+		refreshToken:   refreshToken,
+		tokenExpiresAt: tokenExpiresAt,
+		apiKey:         apiKey,
+		proxyID:        account.ProxyID,
+		proxyURL:       normalizedProxyURL,
 	}, nil
 }
 
@@ -416,6 +487,18 @@ func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Conte
 			return nil, nil, err
 		}
 		return session, refreshed, nil
+	}
+	if token != "" && target.refreshToken != "" && target.tokenExpiresAt != nil && time.Until(*target.tokenExpiresAt) <= sub2APITokenRefreshSkew {
+		refreshed, refreshErr := s.refreshSub2APIToken(ctx, client, target)
+		if refreshErr == nil {
+			session, err := s.fetchSessionWithToken(ctx, client, target.rootURL, refreshed.AccessToken)
+			if err == nil {
+				return session, refreshed, nil
+			}
+		}
+		if refreshErr != nil {
+			log.Printf("[Sub2APIRateSync] proactive refresh failed, falling back to access token: base_url=%s err=%v", target.rootURL, sanitizeSub2APISyncError(&target.account, refreshErr))
+		}
 	}
 	session, err := s.fetchSessionWithToken(ctx, client, target.rootURL, token)
 	if err == nil || !errors.Is(err, errSub2APIAccessTokenMayBeStale) {
@@ -491,12 +574,37 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 		groupID := effectiveSub2APIGroupID(upstreamKey)
 		groupName := ""
 		platform := PlatformOpenAI
-		if upstreamKey.Group != nil {
-			groupName = normalizeUpstreamDisplayName(upstreamKey.Group.Name, 100)
-			if strings.TrimSpace(upstreamKey.Group.Platform) != "" {
-				platform = strings.TrimSpace(upstreamKey.Group.Platform)
+		var groupInfo *sub2APIGroupRateInfo
+		if groupID != nil && session.groupRates != nil {
+			if info, ok := session.groupRates[*groupID]; ok {
+				groupInfo = &info
+				groupName = normalizeUpstreamDisplayName(info.Name, 100)
+				if strings.TrimSpace(info.Platform) != "" {
+					platform = strings.TrimSpace(info.Platform)
+				}
 			}
 		}
+		if upstreamKey.Group != nil {
+			if groupName == "" {
+				groupName = normalizeUpstreamDisplayName(upstreamKey.Group.Name, 100)
+			}
+			if platform == PlatformOpenAI && strings.TrimSpace(upstreamKey.Group.Platform) != "" {
+				platform = strings.TrimSpace(upstreamKey.Group.Platform)
+			}
+			if upstreamKey.Group.RateMultiplier != nil {
+				if groupInfo == nil {
+					groupInfo = &sub2APIGroupRateInfo{}
+					if groupID != nil {
+						groupInfo.ID = *groupID
+					}
+				}
+				if groupInfo.DefaultMultiplier == nil {
+					defaultRate := *upstreamKey.Group.RateMultiplier
+					groupInfo.DefaultMultiplier = &defaultRate
+				}
+			}
+		}
+		extra := sub2APIUpstreamKeyRateExtra(groupInfo)
 		out = append(out, UpstreamKey{
 			UpstreamConfigID:  cfg.ID,
 			Name:              name,
@@ -509,6 +617,7 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 			RateMultiplier:    &rate,
 			Status:            StatusActive,
 			LastSeenAt:        &now,
+			Extra:             extra,
 		})
 	}
 	snapshot := &sub2APIUpstreamSnapshot{
@@ -561,11 +670,11 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSessionWithToken(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	rates, err := s.fetchSub2APIGroupRates(ctx, client, rootURL, token)
+	groupRates, err := s.fetchSub2APIMergedGroupRates(ctx, client, rootURL, token)
 	if err != nil {
-		return nil, err
+		log.Printf("[Sub2APIRateSync] group rate table unavailable, falling back to key group rate: base_url=%s err=%v", rootURL, logredact.RedactText(err.Error(), "api_key", "jwt", "authorization", "refresh_token", "access_token"))
 	}
-	return &sub2APIUserLoginSession{keys: keys, rates: rates, accessToken: strings.TrimSpace(token)}, nil
+	return &sub2APIUserLoginSession{keys: keys, groupRates: groupRates, accessToken: strings.TrimSpace(token)}, nil
 }
 
 func (t sub2APISyncTarget) groupKey() string {
@@ -600,13 +709,14 @@ func (s *Sub2APIUpstreamRateSyncService) loginSub2APIUser(ctx context.Context, c
 	if payload.Code != 0 {
 		return "", fmt.Errorf("login failed: code %d%s", payload.Code, safeEnvelopeReason(payload.Reason))
 	}
-	if payload.Data.Requires2FA {
+	if payload.Data.requires2FA() {
 		return "", fmt.Errorf("sub2api login requires 2fa")
 	}
-	if strings.TrimSpace(payload.Data.AccessToken) == "" {
+	accessToken := payload.Data.accessToken()
+	if accessToken == "" {
 		return "", fmt.Errorf("sub2api login returned no access token")
 	}
-	return strings.TrimSpace(payload.Data.AccessToken), nil
+	return accessToken, nil
 }
 
 func (s *Sub2APIUpstreamRateSyncService) refreshSub2APIToken(ctx context.Context, client *http.Client, target sub2APISyncTarget) (*sub2APIRefreshData, error) {
@@ -627,13 +737,9 @@ func (s *Sub2APIUpstreamRateSyncService) refreshSub2APIToken(ctx context.Context
 	if payload.Code != 0 {
 		return nil, fmt.Errorf("refresh failed: code %d%s", payload.Code, safeEnvelopeReason(payload.Reason))
 	}
-	payload.Data.AccessToken = strings.TrimSpace(payload.Data.AccessToken)
-	payload.Data.RefreshToken = strings.TrimSpace(payload.Data.RefreshToken)
+	payload.Data.normalize(target.refreshToken)
 	if payload.Data.AccessToken == "" {
 		return nil, fmt.Errorf("refresh returned no access token")
-	}
-	if payload.Data.RefreshToken == "" {
-		payload.Data.RefreshToken = target.refreshToken
 	}
 	return &payload.Data, nil
 }
@@ -649,11 +755,14 @@ func (s *Sub2APIUpstreamRateSyncService) saveRefreshedSub2APITokens(ctx context.
 		if s.upstreamConfigRepo == nil {
 			return fmt.Errorf("save refreshed sub2api token: missing upstream config repository")
 		}
-		return s.upstreamConfigRepo.SaveRefreshedTokens(ctx, *account.UpstreamConfigID, strings.TrimSpace(tokens.AccessToken), strings.TrimSpace(tokens.RefreshToken))
+		return s.upstreamConfigRepo.SaveRefreshedTokens(ctx, *account.UpstreamConfigID, strings.TrimSpace(tokens.AccessToken), strings.TrimSpace(tokens.RefreshToken), tokens.ExpiresAt)
 	}
 	credentialUpdates := map[string]any{
 		AccountCredentialSub2APIAccessToken:  strings.TrimSpace(tokens.AccessToken),
 		AccountCredentialSub2APIRefreshToken: strings.TrimSpace(tokens.RefreshToken),
+	}
+	if tokens.ExpiresAt != nil {
+		credentialUpdates[AccountCredentialSub2APITokenExpiresAt] = tokens.ExpiresAt.UTC().Format(time.RFC3339)
 	}
 	if _, err := s.accountRepo.BulkUpdate(ctx, []int64{account.ID}, AccountBulkUpdate{Credentials: credentialUpdates}); err != nil {
 		return fmt.Errorf("save refreshed sub2api token: %w", err)
@@ -729,37 +838,282 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIKeysFromPath(ctx context.Co
 	return nil, fmt.Errorf("api key list exceeded max pages")
 }
 
+func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIMergedGroupRates(ctx context.Context, client *http.Client, rootURL, token string) (map[int64]sub2APIGroupRateInfo, error) {
+	groups, availableErr := s.fetchSub2APIAvailableGroups(ctx, client, rootURL, token)
+	if availableErr != nil {
+		log.Printf("[Sub2APIRateSync] /groups/available unavailable, using key group defaults: base_url=%s err=%v", rootURL, logredact.RedactText(availableErr.Error(), "api_key", "jwt", "authorization", "refresh_token", "access_token"))
+		groups = make(map[int64]sub2APIGroupRateInfo)
+	}
+	rates, ratesErr := s.fetchSub2APIGroupRates(ctx, client, rootURL, token)
+	if ratesErr != nil {
+		log.Printf("[Sub2APIRateSync] /groups/rates unavailable, using /groups/available defaults: base_url=%s err=%v", rootURL, logredact.RedactText(ratesErr.Error(), "api_key", "jwt", "authorization", "refresh_token", "access_token"))
+		if availableErr != nil {
+			return nil, fmt.Errorf("group rate endpoints unavailable: available: %v; rates: %v", availableErr, ratesErr)
+		}
+		return groups, nil
+	}
+	for groupID, rate := range rates {
+		info, ok := groups[groupID]
+		if !ok {
+			info = sub2APIGroupRateInfo{ID: groupID}
+		}
+		rateCopy := rate
+		info.DedicatedMultiplier = &rateCopy
+		info.HasDedicatedMultiplier = true
+		groups[groupID] = info
+	}
+	return groups, nil
+}
+
+func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIAvailableGroups(ctx context.Context, client *http.Client, rootURL, token string) (map[int64]sub2APIGroupRateInfo, error) {
+	endpoint, err := buildSub2APIURL(rootURL, sub2APIAvailableGroups)
+	if err != nil {
+		return nil, err
+	}
+	var payload any
+	status, err := s.doJSON(ctx, client, http.MethodGet, endpoint, token, nil, &payload)
+	if err != nil {
+		return nil, fmt.Errorf("list available groups failed: %w", err)
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("list available groups returned status %d", status)
+	}
+	if code, reason, ok := sub2APIEnvelopeCode(payload); ok && code != 0 {
+		return nil, fmt.Errorf("list available groups failed: code %d%s", code, safeEnvelopeReason(reason))
+	}
+	out := make(map[int64]sub2APIGroupRateInfo)
+	for _, item := range sub2APIDataArray(payload) {
+		record, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		groupID, ok := sub2APIInt64Field(record, "id", "group_id", "groupId")
+		if !ok || groupID <= 0 {
+			continue
+		}
+		name := strings.TrimSpace(sub2APIStringField(record, "name"))
+		if name == "" {
+			continue
+		}
+		var defaultRate *float64
+		if rate, ok := sub2APINonNegativeNumberField(record, "rate_multiplier", "rateMultiplier", "multiplier", "rate"); ok {
+			rateCopy := rate
+			defaultRate = &rateCopy
+		}
+		out[groupID] = sub2APIGroupRateInfo{
+			ID:                groupID,
+			Name:              name,
+			Platform:          strings.TrimSpace(sub2APIStringField(record, "platform")),
+			DefaultMultiplier: defaultRate,
+		}
+	}
+	return out, nil
+}
+
 func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIGroupRates(ctx context.Context, client *http.Client, rootURL, token string) (map[int64]float64, error) {
 	endpoint, err := buildSub2APIURL(rootURL, sub2APIGroupRatesPath)
 	if err != nil {
 		return nil, err
 	}
-	var payload sub2APIEnvelope[map[string]float64]
+	var payload any
 	status, err := s.doJSON(ctx, client, http.MethodGet, endpoint, token, nil, &payload)
 	if err != nil {
 		return nil, fmt.Errorf("list group rates failed: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		if status == http.StatusUnauthorized {
-			return nil, errSub2APIAccessTokenMayBeStale
-		}
-		if status == http.StatusForbidden {
-			return nil, fmt.Errorf("sub2api access token was rejected or blocked by upstream")
-		}
 		return nil, fmt.Errorf("list group rates returned status %d", status)
 	}
-	if payload.Code != 0 {
-		return nil, fmt.Errorf("list group rates failed: code %d%s", payload.Code, safeEnvelopeReason(payload.Reason))
+	if code, reason, ok := sub2APIEnvelopeCode(payload); ok && code != 0 {
+		return nil, fmt.Errorf("list group rates failed: code %d%s", code, safeEnvelopeReason(reason))
 	}
-	rates := make(map[int64]float64, len(payload.Data))
-	for rawID, rate := range payload.Data {
-		var groupID int64
-		if _, err := fmt.Sscanf(rawID, "%d", &groupID); err != nil || groupID <= 0 {
-			continue
+	return parseSub2APIGroupRateOverrides(payload), nil
+}
+
+func parseSub2APIGroupRateOverrides(payload any) map[int64]float64 {
+	out := make(map[int64]float64)
+	data := sub2APIEnvelopeData(payload)
+	switch typed := data.(type) {
+	case map[string]any:
+		for rawID, rawRate := range typed {
+			groupID, err := strconv.ParseInt(strings.TrimSpace(rawID), 10, 64)
+			if err != nil || groupID <= 0 {
+				continue
+			}
+			if rate, ok := sub2APINonNegativeNumber(rawRate); ok {
+				out[groupID] = rate
+			}
 		}
-		rates[groupID] = rate
+	case []any:
+		for _, item := range typed {
+			record, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			groupID, ok := sub2APIInt64Field(record, "group_id", "groupId", "id")
+			if !ok || groupID <= 0 {
+				continue
+			}
+			rate, ok := sub2APINonNegativeNumberField(record, "rate_multiplier", "rateMultiplier", "multiplier", "rate")
+			if !ok {
+				continue
+			}
+			out[groupID] = rate
+		}
 	}
-	return rates, nil
+	return out
+}
+
+func sub2APIUpstreamKeyRateExtra(info *sub2APIGroupRateInfo) map[string]any {
+	if info == nil {
+		return map[string]any{}
+	}
+	extra := map[string]any{
+		"has_dedicated_rate_multiplier": info.HasDedicatedMultiplier,
+	}
+	if info.DefaultMultiplier != nil {
+		extra["default_rate_multiplier"] = *info.DefaultMultiplier
+	}
+	if info.DedicatedMultiplier != nil {
+		extra["dedicated_rate_multiplier"] = *info.DedicatedMultiplier
+	}
+	return extra
+}
+
+func sub2APIEnvelopeData(payload any) any {
+	if record, ok := payload.(map[string]any); ok {
+		if data, exists := record["data"]; exists {
+			return data
+		}
+	}
+	return payload
+}
+
+func sub2APIDataArray(payload any) []any {
+	data := sub2APIEnvelopeData(payload)
+	switch typed := data.(type) {
+	case []any:
+		return typed
+	case map[string]any:
+		for _, key := range []string{"items", "list", "records", "groups"} {
+			if items, ok := typed[key].([]any); ok {
+				return items
+			}
+		}
+	}
+	return nil
+}
+
+func sub2APIEnvelopeCode(payload any) (int, string, bool) {
+	record, ok := payload.(map[string]any)
+	if !ok {
+		return 0, "", false
+	}
+	raw, exists := record["code"]
+	if !exists {
+		return 0, "", false
+	}
+	code, ok := sub2APIInt(raw)
+	if !ok {
+		return 0, "", false
+	}
+	reason := sub2APIStringField(record, "reason", "message")
+	return code, reason, true
+}
+
+func sub2APIInt64Field(record map[string]any, keys ...string) (int64, bool) {
+	for _, key := range keys {
+		if value, exists := record[key]; exists {
+			if out, ok := sub2APIInt64(value); ok {
+				return out, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func sub2APIStringField(record map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := record[key].(string); ok && strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func sub2APINonNegativeNumberField(record map[string]any, keys ...string) (float64, bool) {
+	for _, key := range keys {
+		if value, exists := record[key]; exists {
+			if out, ok := sub2APINonNegativeNumber(value); ok {
+				return out, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func sub2APINonNegativeNumber(value any) (float64, bool) {
+	out, ok := sub2APIFloat64(value)
+	if !ok || out < 0 {
+		return 0, false
+	}
+	return out, true
+}
+
+func sub2APIInt(value any) (int, bool) {
+	out, ok := sub2APIInt64(value)
+	if !ok {
+		return 0, false
+	}
+	return int(out), true
+}
+
+func sub2APIInt64(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case float64:
+		if math.IsNaN(typed) || math.IsInf(typed, 0) {
+			return 0, false
+		}
+		return int64(typed), true
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return parsed, true
+		}
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+func sub2APIFloat64(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		if !math.IsNaN(typed) && !math.IsInf(typed, 0) {
+			return typed, true
+		}
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
+			return parsed, true
+		}
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
+			return parsed, true
+		}
+	}
+	return 0, false
 }
 
 func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIProfile(ctx context.Context, client *http.Client, rootURL, token string) (*sub2APIProfile, error) {
@@ -845,16 +1199,33 @@ func resolveSub2APIEffectiveRate(apiKey string, session *sub2APIUserLoginSession
 
 	key := matches[0]
 	groupID := effectiveSub2APIGroupID(key)
-	if groupID == nil || key.Group == nil {
+	if groupID == nil {
 		return 0, "", fmt.Errorf("matched api key is not bound to a group")
 	}
-	multiplier := key.Group.RateMultiplier
-	if session.rates != nil {
-		if userRate, ok := session.rates[*groupID]; ok {
-			multiplier = userRate
+	platform := PlatformOpenAI
+	if key.Group != nil && strings.TrimSpace(key.Group.Platform) != "" {
+		platform = strings.TrimSpace(key.Group.Platform)
+	}
+	if session.groupRates != nil {
+		if info, ok := session.groupRates[*groupID]; ok {
+			if strings.TrimSpace(info.Platform) != "" {
+				platform = strings.TrimSpace(info.Platform)
+			}
+			if info.HasDedicatedMultiplier && info.DedicatedMultiplier != nil {
+				return *info.DedicatedMultiplier, platform, nil
+			}
+			if info.DefaultMultiplier != nil {
+				return *info.DefaultMultiplier, platform, nil
+			}
 		}
 	}
-	return multiplier, key.Group.Platform, nil
+	if key.Group == nil {
+		return 0, "", fmt.Errorf("matched api key group has no rate multiplier")
+	}
+	if key.Group.RateMultiplier == nil {
+		return 0, "", fmt.Errorf("matched api key group has no rate multiplier")
+	}
+	return *key.Group.RateMultiplier, platform, nil
 }
 
 func effectiveSub2APIGroupID(key sub2APIUpstreamKey) *int64 {
@@ -898,7 +1269,7 @@ func (s *Sub2APIUpstreamRateSyncService) doJSON(ctx context.Context, client *htt
 		return 0, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "sub2api-rate-sync/1.0")
+	req.Header.Set("User-Agent", sub2APIBrowserUserAgent)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

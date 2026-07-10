@@ -28,10 +28,11 @@ const (
 	AccountSub2APIRateSyncAdapterUserLogin = "user_login"
 	AccountSub2APIRateSyncAdapterManualJWT = "manual_jwt"
 
-	AccountCredentialSub2APILoginEmail    = "sub2api_login_email"
-	AccountCredentialSub2APILoginPassword = "sub2api_login_password"
-	AccountCredentialSub2APIAccessToken   = "sub2api_access_token"
-	AccountCredentialSub2APIRefreshToken  = "sub2api_refresh_token"
+	AccountCredentialSub2APILoginEmail     = "sub2api_login_email"
+	AccountCredentialSub2APILoginPassword  = "sub2api_login_password"
+	AccountCredentialSub2APIAccessToken    = "sub2api_access_token"
+	AccountCredentialSub2APIRefreshToken   = "sub2api_refresh_token"
+	AccountCredentialSub2APITokenExpiresAt = "sub2api_token_expires_at"
 
 	AccountCredentialNewAPILoginUsername = "newapi_login_username"
 	AccountCredentialNewAPILoginPassword = "newapi_login_password"

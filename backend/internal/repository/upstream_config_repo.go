@@ -257,7 +257,7 @@ func (r *upstreamConfigRepository) RecordCheckResult(ctx context.Context, id int
 	return err
 }
 
-func (r *upstreamConfigRepository) SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string) error {
+func (r *upstreamConfigRepository) SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string, expiresAt *time.Time) error {
 	cfg, err := r.GetByID(ctx, id)
 	if err != nil {
 		return err
@@ -265,6 +265,9 @@ func (r *upstreamConfigRepository) SaveRefreshedTokens(ctx context.Context, id i
 	credentials := normalizeJSONMap(cfg.Credentials)
 	credentials[service.AccountCredentialSub2APIAccessToken] = accessToken
 	credentials[service.AccountCredentialSub2APIRefreshToken] = refreshToken
+	if expiresAt != nil {
+		credentials[service.AccountCredentialSub2APITokenExpiresAt] = expiresAt.UTC().Format(time.RFC3339)
+	}
 	_, err = r.client.UpstreamConfig.UpdateOneID(id).
 		SetCredentials(credentials).
 		Save(ctx)
