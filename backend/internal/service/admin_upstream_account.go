@@ -9,6 +9,59 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
+const (
+	upstreamAccountNameMaxRunes     = 100
+	upstreamAccountConfigNameBudget = 49
+	upstreamAccountKeyNameBudget    = 50
+	upstreamAccountNameSeparator    = "-"
+)
+
+func trimUpstreamNameWhitespace(value string) string {
+	return strings.TrimFunc(value, func(r rune) bool {
+		switch {
+		case r >= '\u0009' && r <= '\u000d':
+			return true
+		case r == '\u0020', r == '\u0085', r == '\u00a0', r == '\u1680',
+			r == '\u2028', r == '\u2029', r == '\u202f', r == '\u205f', r == '\u3000':
+			return true
+		case r >= '\u2000' && r <= '\u200a':
+			return true
+		default:
+			return false
+		}
+	})
+}
+
+func buildUpstreamAccountName(configName, keyName string) (string, error) {
+	configName = trimUpstreamNameWhitespace(configName)
+	if configName == "" {
+		return "", infraerrors.BadRequest("UPSTREAM_CONFIG_NAME_REQUIRED", "upstream config name is required")
+	}
+	keyName = trimUpstreamNameWhitespace(keyName)
+	if keyName == "" {
+		return "", infraerrors.BadRequest("UPSTREAM_KEY_NAME_REQUIRED", "upstream key name is required")
+	}
+
+	configRunes := []rune(configName)
+	keyRunes := []rune(keyName)
+	if len(configRunes)+len(keyRunes)+len([]rune(upstreamAccountNameSeparator)) <= upstreamAccountNameMaxRunes {
+		return configName + upstreamAccountNameSeparator + keyName, nil
+	}
+
+	configBudget := upstreamAccountConfigNameBudget
+	keyBudget := upstreamAccountKeyNameBudget
+	if len(configRunes) < configBudget {
+		keyBudget += configBudget - len(configRunes)
+		configBudget = len(configRunes)
+	}
+	if len(keyRunes) < keyBudget {
+		configBudget += keyBudget - len(keyRunes)
+		keyBudget = len(keyRunes)
+	}
+
+	return string(configRunes[:configBudget]) + upstreamAccountNameSeparator + string(keyRunes[:keyBudget]), nil
+}
+
 func (s *adminServiceImpl) scheduleSub2APIUpstreamRateSync(account *Account) {
 	if s == nil || s.sub2APIRateSync == nil || account == nil || !account.IsSub2APIUpstream() {
 		return
@@ -61,6 +114,13 @@ func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, in
 	cfg, key, err := s.validateUpstreamAccountBinding(ctx, *input.UpstreamConfigID, *input.UpstreamKeyID)
 	if err != nil {
 		return err
+	}
+	autoName, err := buildUpstreamAccountName(cfg.Name, key.Name)
+	if err != nil {
+		return err
+	}
+	if trimUpstreamNameWhitespace(input.Name) == "" {
+		input.Name = autoName
 	}
 	input.Type = AccountTypeAPIKey
 	if strings.TrimSpace(input.Platform) == "" {

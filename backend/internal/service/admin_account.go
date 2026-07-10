@@ -72,6 +72,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := s.normalizeUpstreamAccountInput(ctx, input); err != nil {
 		return nil, err
 	}
+	if trimUpstreamNameWhitespace(input.Name) == "" {
+		return nil, infraerrors.BadRequest("ACCOUNT_NAME_REQUIRED", "account name is required")
+	}
 	// 绑定分组
 	groupIDs := input.GroupIDs
 	// 如果没有指定分组,自动绑定对应平台的默认分组

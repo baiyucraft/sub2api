@@ -45,7 +45,7 @@
       @submit.prevent="handleSubmit"
       class="space-y-5"
     >
-      <div>
+      <div v-if="accountCategory !== 'upstream_config'">
         <label class="input-label">{{ t('admin.accounts.accountName') }}</label>
         <input
           v-model="form.name"
@@ -54,6 +54,7 @@
           class="input"
           :placeholder="t('admin.accounts.enterAccountName')"
           data-tour="account-form-name"
+          data-testid="account-name-input"
         />
       </div>
       <div>
@@ -87,6 +88,7 @@
           <button
             type="button"
             @click="form.platform = 'openai'"
+            data-testid="platform-openai"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'openai'
@@ -286,6 +288,7 @@
           <button
             type="button"
             @click="accountCategory = 'upstream_config'"
+            data-testid="upstream-account-category"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'upstream_config'
@@ -1971,7 +1974,13 @@
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label class="input-label">上游配置</label>
-            <select v-model.number="selectedUpstreamConfigId" class="input" required :disabled="loadingUpstreamConfigs">
+            <select
+              v-model.number="selectedUpstreamConfigId"
+              class="input"
+              required
+              :disabled="loadingUpstreamConfigs"
+              data-testid="upstream-config-select"
+            >
               <option :value="null">{{ loadingUpstreamConfigs ? '加载中...' : '请选择上游配置' }}</option>
               <option v-for="config in upstreamConfigs" :key="config.id" :value="config.id">
                 {{ config.name }} · {{ config.base_url }}
@@ -1985,10 +1994,22 @@
               :keys="filteredUpstreamKeys"
               :disabled="!selectedUpstreamConfigId || loadingUpstreamKeys"
               :placeholder="loadingUpstreamKeys ? '加载中...' : undefined"
+              data-testid="upstream-key-selector"
             />
             <p v-if="selectedUpstreamConfigId && !loadingUpstreamKeys && filteredUpstreamKeys.length === 0" class="input-hint">
               未找到与当前平台匹配的上游 Key，请先到“上游配置”页同步 Key。
             </p>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="input-label">账号名称</label>
+            <input
+              :value="generatedUpstreamAccountName"
+              type="text"
+              readonly
+              class="input bg-gray-50 dark:bg-dark-700"
+              placeholder="选择上游配置和 Key 后自动生成"
+              data-testid="upstream-account-name-preview"
+            />
           </div>
         </div>
       </div>
@@ -3247,7 +3268,7 @@
         <button
           type="submit"
           form="create-account-form"
-          :disabled="submitting"
+          :disabled="submitting || upstreamSelectionLoading"
           class="btn btn-primary"
           data-tour="account-form-submit"
         >
@@ -3598,6 +3619,10 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import UpstreamKeySelector from '@/components/account/UpstreamKeySelector.vue'
+import {
+  buildUpstreamAccountName,
+  createLatestRequestTracker
+} from '@/components/account/upstreamAccountName'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import {
@@ -3749,6 +3774,8 @@ const selectedUpstreamConfigId = ref<number | null>(null)
 const selectedUpstreamKeyId = ref<number | null>(null)
 const loadingUpstreamConfigs = ref(false)
 const loadingUpstreamKeys = ref(false)
+const upstreamConfigsRequestTracker = createLatestRequestTracker()
+const upstreamKeysRequestTracker = createLatestRequestTracker()
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -3760,15 +3787,33 @@ const syncPreviewCredentials = computed(() => {
   }
 })
 
+const selectedUpstreamConfig = computed(() =>
+  upstreamConfigs.value.find(
+    (config) => config.id === selectedUpstreamConfigId.value && config.status === 'active'
+  ) || null
+)
+
 const filteredUpstreamKeys = computed(() =>
   upstreamKeys.value.filter((key) => {
     const keyPlatform = (key.platform || '').trim()
-    return !keyPlatform || keyPlatform === form.platform
+    return (
+      key.upstream_config_id === selectedUpstreamConfigId.value &&
+      (!keyPlatform || keyPlatform === form.platform)
+    )
   })
 )
 
 const selectedUpstreamKey = computed(() =>
-  upstreamKeys.value.find((key) => key.id === selectedUpstreamKeyId.value) || null
+  filteredUpstreamKeys.value.find((key) => key.id === selectedUpstreamKeyId.value) || null
+)
+
+const generatedUpstreamAccountName = computed(() =>
+  buildUpstreamAccountName(selectedUpstreamConfig.value?.name || '', selectedUpstreamKey.value?.name || '')
+)
+
+const upstreamSelectionLoading = computed(() =>
+  accountCategory.value === 'upstream_config' &&
+  (loadingUpstreamConfigs.value || loadingUpstreamKeys.value)
 )
 
 const isAPIKeyCredentialInput = computed(() =>
@@ -4181,31 +4226,55 @@ const canExchangeCode = computed(() => {
 })
 
 const loadUpstreamConfigs = async () => {
+  const requestSequence = upstreamConfigsRequestTracker.begin()
   loadingUpstreamConfigs.value = true
   try {
     const result = await upstreamConfigsAPI.list(1, 200, { status: 'active' })
+    if (!upstreamConfigsRequestTracker.isCurrent(requestSequence) || !props.show) {
+      return
+    }
     upstreamConfigs.value = result.items || []
   } catch (error: any) {
-    upstreamConfigs.value = []
-    appStore.showError(error.message || '加载上游配置失败')
+    if (upstreamConfigsRequestTracker.isCurrent(requestSequence) && props.show) {
+      upstreamConfigs.value = []
+      appStore.showError(error.message || '加载上游配置失败')
+    }
   } finally {
-    loadingUpstreamConfigs.value = false
+    if (upstreamConfigsRequestTracker.isCurrent(requestSequence)) {
+      loadingUpstreamConfigs.value = false
+    }
   }
 }
 
 const loadUpstreamKeys = async (configID: number | null) => {
+  const requestSequence = upstreamKeysRequestTracker.begin()
   upstreamKeys.value = []
   selectedUpstreamKeyId.value = null
   if (!configID) {
+    loadingUpstreamKeys.value = false
     return
   }
   loadingUpstreamKeys.value = true
   try {
-    upstreamKeys.value = await upstreamConfigsAPI.listKeys(configID)
+    const keys = await upstreamConfigsAPI.listKeys(configID)
+    if (
+      !upstreamKeysRequestTracker.isCurrent(requestSequence) ||
+      selectedUpstreamConfigId.value !== configID
+    ) {
+      return
+    }
+    upstreamKeys.value = keys
   } catch (error: any) {
-    appStore.showError(error.message || '加载上游 Key 失败')
+    if (
+      upstreamKeysRequestTracker.isCurrent(requestSequence) &&
+      selectedUpstreamConfigId.value === configID
+    ) {
+      appStore.showError(error.message || '加载上游 Key 失败')
+    }
   } finally {
-    loadingUpstreamKeys.value = false
+    if (upstreamKeysRequestTracker.isCurrent(requestSequence)) {
+      loadingUpstreamKeys.value = false
+    }
   }
 }
 
@@ -4725,6 +4794,10 @@ const resetForm = () => {
   apiKeyValue.value = ''
   upstreamConfigs.value = []
   upstreamKeys.value = []
+  upstreamConfigsRequestTracker.invalidate()
+  upstreamKeysRequestTracker.invalidate()
+  loadingUpstreamConfigs.value = false
+  loadingUpstreamKeys.value = false
   selectedUpstreamConfigId.value = null
   selectedUpstreamKeyId.value = null
   editQuotaLimit.value = null
@@ -5231,16 +5304,22 @@ const handleSubmit = async () => {
   }
 
   if (accountCategory.value === 'upstream_config') {
-    if (!form.name.trim()) {
-      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+    if (upstreamSelectionLoading.value) {
+      appStore.showError('上游配置或 Key 正在加载，请稍候')
       return
     }
-    if (!selectedUpstreamConfigId.value || selectedUpstreamConfigId.value <= 0) {
+    const upstreamConfig = selectedUpstreamConfig.value
+    if (!upstreamConfig) {
       appStore.showError('请选择上游配置')
       return
     }
-    if (!selectedUpstreamKeyId.value || selectedUpstreamKeyId.value <= 0) {
+    const upstreamKey = selectedUpstreamKey.value
+    if (!upstreamKey || upstreamKey.upstream_config_id !== upstreamConfig.id) {
       appStore.showError('请选择上游 Key')
+      return
+    }
+    if (!generatedUpstreamAccountName.value) {
+      appStore.showError('上游 Key 缺少名称，请先在上游命名并同步')
       return
     }
     const platform = effectivePlatform.value
@@ -5250,14 +5329,15 @@ const handleSubmit = async () => {
     }
     await doCreateAccount({
       ...form,
+      name: '',
       platform,
       type: 'upstream' as AccountType,
       credentials,
       extra: buildAPIKeyLikeExtra(),
       proxy_id: null,
       group_ids: form.group_ids,
-      upstream_config_id: selectedUpstreamConfigId.value,
-      upstream_key_id: selectedUpstreamKeyId.value,
+      upstream_config_id: upstreamConfig.id,
+      upstream_key_id: upstreamKey.id,
       auto_pause_on_expired: autoPauseOnExpired.value
     })
     return
