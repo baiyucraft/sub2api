@@ -1633,9 +1633,12 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				Credentials:           item.Credentials,
 				Extra:                 item.Extra,
 				ProxyID:               item.ProxyID,
+				UpstreamConfigID:      item.UpstreamConfigID,
+				UpstreamKeyID:         item.UpstreamKeyID,
 				Concurrency:           item.Concurrency,
 				Priority:              item.Priority,
 				RateMultiplier:        item.RateMultiplier,
+				LoadFactor:            item.LoadFactor,
 				GroupIDs:              item.GroupIDs,
 				ExpiresAt:             item.ExpiresAt,
 				AutoPauseOnExpired:    item.AutoPauseOnExpired,
@@ -1663,7 +1666,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 			h.scheduleOpenAIResponsesProbe(account)
 			success++
 			results = append(results, gin.H{
-				"name":    item.Name,
+				"name":    account.Name,
 				"id":      account.ID,
 				"success": true,
 			})

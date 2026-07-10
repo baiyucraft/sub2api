@@ -101,6 +101,24 @@ type UpstreamConfigSyncResult struct {
 	Error               string `json:"error,omitempty"`
 }
 
+type UpstreamAccountNameBackfillItem struct {
+	AccountID        int64  `json:"account_id"`
+	OldName          string `json:"old_name"`
+	NewName          string `json:"new_name,omitempty"`
+	UpstreamConfigID *int64 `json:"upstream_config_id,omitempty"`
+	UpstreamKeyID    *int64 `json:"upstream_key_id,omitempty"`
+	SkipReason       string `json:"skip_reason,omitempty"`
+}
+
+type upstreamConfigAtomicSyncRepository interface {
+	ApplySyncSnapshot(ctx context.Context, configID int64, keys []UpstreamKey, extraUpdates map[string]any, checkedAt time.Time) ([]UpstreamKey, int, error)
+}
+
+type upstreamAccountNameBackfillRepository interface {
+	PreviewAccountNameBackfill(ctx context.Context) ([]UpstreamAccountNameBackfillItem, error)
+	ApplyAccountNameBackfill(ctx context.Context) ([]UpstreamAccountNameBackfillItem, error)
+}
+
 type upstreamProviderSnapshot struct {
 	Keys            []UpstreamKey
 	RefreshedTokens *sub2APIRefreshData
@@ -185,6 +203,22 @@ func (s *UpstreamConfigService) Delete(ctx context.Context, id int64) error {
 
 func (s *UpstreamConfigService) ListKeys(ctx context.Context, upstreamConfigID int64) ([]UpstreamKey, error) {
 	return s.repo.ListKeys(ctx, upstreamConfigID)
+}
+
+func (s *UpstreamConfigService) PreviewAccountNameBackfill(ctx context.Context) ([]UpstreamAccountNameBackfillItem, error) {
+	repo, ok := s.repo.(upstreamAccountNameBackfillRepository)
+	if !ok {
+		return nil, infraerrors.New(http.StatusServiceUnavailable, "UPSTREAM_ACCOUNT_NAME_BACKFILL_UNAVAILABLE", "upstream account name backfill is unavailable")
+	}
+	return repo.PreviewAccountNameBackfill(ctx)
+}
+
+func (s *UpstreamConfigService) ApplyAccountNameBackfill(ctx context.Context) ([]UpstreamAccountNameBackfillItem, error) {
+	repo, ok := s.repo.(upstreamAccountNameBackfillRepository)
+	if !ok {
+		return nil, infraerrors.New(http.StatusServiceUnavailable, "UPSTREAM_ACCOUNT_NAME_BACKFILL_UNAVAILABLE", "upstream account name backfill is unavailable")
+	}
+	return repo.ApplyAccountNameBackfill(ctx)
 }
 
 func (s *UpstreamConfigService) CreateKey(ctx context.Context, upstreamConfigID int64, key *UpstreamKey) (*UpstreamKey, error) {
@@ -342,6 +376,23 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
 		}
+	}
+	result.KeyCount = len(keys)
+	if atomicRepo, ok := s.repo.(upstreamConfigAtomicSyncRepository); ok {
+		localKeys, updated, applyErr := atomicRepo.ApplySyncSnapshot(ctx, cfg.ID, keys, snapshot.ExtraUpdates, time.Now().UTC())
+		if applyErr != nil {
+			result.Error = adapter.SanitizeError(applyErr, cfg.Credentials)
+			_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, result.Error)
+			return nil, result, applyErr
+		}
+		result.UpdatedAccountCount = updated
+		result.Success = true
+		return localKeys, result, nil
+	}
+
+	// Test doubles and legacy repositories retain the pre-transactional path.
+	// Production repositories implement upstreamConfigAtomicSyncRepository.
+	for i := range keys {
 		if err := s.repo.UpsertKey(ctx, &keys[i]); err != nil {
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
@@ -352,7 +403,6 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 		result.Error = adapter.SanitizeError(err, cfg.Credentials)
 		return nil, result, err
 	}
-	result.KeyCount = len(keys)
 	updated, err := s.syncBoundAccountRates(ctx, cfg, localKeys)
 	if err != nil {
 		result.Error = adapter.SanitizeError(err, cfg.Credentials)

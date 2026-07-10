@@ -395,6 +395,9 @@ describe('EditAccountModal', () => {
     expect(wrapper.text()).toContain('OpenAI upstream key')
     expect(wrapper.text()).toContain('plus')
     expect(wrapper.text()).toContain('0.06')
+    const nameInput = wrapper.get('[data-tour="edit-account-form-name"]')
+    expect(nameInput.attributes('readonly')).toBeDefined()
+    expect((nameInput.element as HTMLInputElement).value).toBe('Sub2API Main-OpenAI upstream key')
     expect(wrapper.find('[data-testid="proxy-selector"]').exists()).toBe(false)
     expect(upstreamConfigsListMock).toHaveBeenCalledWith(1, 200, { status: 'active' })
     expect(upstreamConfigKeysListMock).toHaveBeenCalledWith(10)
@@ -420,6 +423,7 @@ describe('EditAccountModal', () => {
       upstream_key_id: 20,
       proxy_id: 0
     })
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('name')
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {

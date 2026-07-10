@@ -262,6 +262,10 @@ const mergeDataPayloads = (payloads: AdminDataPayload[]): AdminDataPayload => {
     skipped_shadows: payloads.reduce((sum, item) => {
       const count = Number(item.skipped_shadows || 0)
       return Number.isFinite(count) ? sum + count : sum
+    }, 0),
+    skipped_upstream_accounts: payloads.reduce((sum, item) => {
+      const count = Number(item.skipped_upstream_accounts || 0)
+      return Number.isFinite(count) ? sum + count : sum
     }, 0)
   }
 }

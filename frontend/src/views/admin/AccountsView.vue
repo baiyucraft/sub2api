@@ -1650,7 +1650,11 @@ const handleExportData = async () => {
     // 跳过非零时明确提示用户,避免「下载成功但少了账号」的静默丢失。
     if (dataPayload.skipped_shadows && dataPayload.skipped_shadows > 0) {
       appStore.showWarning(t('admin.accounts.dataExportedSkippedShadows', { count: dataPayload.skipped_shadows }))
-    } else {
+    }
+    if (dataPayload.skipped_upstream_accounts && dataPayload.skipped_upstream_accounts > 0) {
+      appStore.showWarning(t('admin.accounts.dataExportedSkippedUpstreamAccounts', { count: dataPayload.skipped_upstream_accounts }))
+    }
+    if (!dataPayload.skipped_shadows && !dataPayload.skipped_upstream_accounts) {
       appStore.showSuccess(t('admin.accounts.dataExported'))
     }
   } catch (error: any) {
