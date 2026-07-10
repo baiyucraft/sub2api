@@ -166,6 +166,42 @@ describe('UpstreamKeySelector', () => {
     expect(wrapper.text()).toContain('admin.accounts.upstreamKeySelector.rateOverride:{"defaultRate":"0.1","dedicatedRate":"0.06"}')
   })
 
+  it('labels a dedicated rate even when the default rate is unavailable', () => {
+    const wrapper = mount(UpstreamKeySelector, {
+      props: {
+        modelValue: 1,
+        keys: [
+          {
+            id: 1,
+            upstream_config_id: 10,
+            name: 'plus',
+            key_status: { has_key: true, suffix: '276d83' },
+            remote_key_id: 11917,
+            upstream_group_id: 44,
+            upstream_group_name: 'Plus',
+            platform: 'openai',
+            rate_multiplier: 0.06,
+            status: 'active',
+            extra: {
+              dedicated_rate_multiplier: 0.06,
+              has_dedicated_rate_multiplier: true
+            },
+            last_seen_at: '2026-07-08T06:00:00Z',
+            created_at: '2026-07-08T05:00:00Z',
+            updated_at: '2026-07-08T06:00:00Z'
+          }
+        ]
+      },
+      global: {
+        stubs: {
+          Icon: true
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.upstreamKeySelector.rateDedicated:{"dedicatedRate":"0.06"}')
+  })
+
   it('falls back to group id and allows searching by that id', async () => {
     const wrapper = mount(UpstreamKeySelector, {
       props: {

@@ -14,6 +14,7 @@ export default {
         ungrouped: '分组: 未分组',
         rate: '倍率: {rate}x',
         rateOverride: '倍率: {defaultRate}x -> {dedicatedRate}x',
+        rateDedicated: '专属倍率: {dedicatedRate}x',
         rateUnknown: '倍率未知',
         platformUnknown: '平台未知',
         remoteId: '上游 ID #{id}',

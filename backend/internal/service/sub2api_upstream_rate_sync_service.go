@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -123,7 +124,34 @@ func (d *sub2APIRefreshData) normalize(fallbackRefreshToken string) {
 	if ok && expiresIn > 0 {
 		expiresAt := time.Now().UTC().Add(time.Duration(expiresIn * float64(time.Second)))
 		d.ExpiresAt = &expiresAt
+	} else {
+		d.ExpiresAt = sub2APIJWTExpiresAt(d.AccessToken)
 	}
+}
+
+func sub2APIJWTExpiresAt(token string) *time.Time {
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil
+	}
+	var claims struct {
+		ExpiresAt json.Number `json:"exp"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	if err := decoder.Decode(&claims); err != nil {
+		return nil
+	}
+	exp, err := claims.ExpiresAt.Int64()
+	if err != nil || exp <= 0 {
+		return nil
+	}
+	expiresAt := time.Unix(exp, 0).UTC()
+	return &expiresAt
 }
 
 type sub2APIKeyListData struct {
@@ -258,13 +286,13 @@ func (s *Sub2APIUpstreamRateSyncService) SyncAccountNow(ctx context.Context, acc
 		return s.recordSyncError(ctx, account, err)
 	}
 	session, refreshedTokens, err := s.fetchUserLoginSession(ctx, target)
+	if refreshedTokens != nil {
+		if saveErr := s.saveRefreshedSub2APITokens(ctx, account, *refreshedTokens); saveErr != nil {
+			return s.recordSyncError(ctx, account, saveErr)
+		}
+	}
 	if err != nil {
 		return s.recordSyncError(ctx, account, err)
-	}
-	if refreshedTokens != nil {
-		if err := s.saveRefreshedSub2APITokens(ctx, account, *refreshedTokens); err != nil {
-			return s.recordSyncError(ctx, account, err)
-		}
 	}
 	return s.syncTargetWithSession(ctx, target, session)
 }
@@ -332,14 +360,6 @@ func (s *Sub2APIUpstreamRateSyncService) runOnce() {
 					continue
 				}
 				session, refreshedTokens, err := s.fetchUserLoginSession(ctx, targets[0])
-				if err != nil {
-					for i := range targets {
-						if recErr := s.recordSyncError(ctx, &targets[i].account, err); recErr != nil {
-							log.Printf("[Sub2APIRateSync] record account error failed: account=%d err=%v", targets[i].account.ID, recErr)
-						}
-					}
-					continue
-				}
 				skipIDs := map[int64]struct{}{}
 				if refreshedTokens != nil {
 					for i := range targets {
@@ -350,6 +370,17 @@ func (s *Sub2APIUpstreamRateSyncService) runOnce() {
 							}
 						}
 					}
+				}
+				if err != nil {
+					for i := range targets {
+						if _, skip := skipIDs[targets[i].account.ID]; skip {
+							continue
+						}
+						if recErr := s.recordSyncError(ctx, &targets[i].account, err); recErr != nil {
+							log.Printf("[Sub2APIRateSync] record account error failed: account=%d err=%v", targets[i].account.ID, recErr)
+						}
+					}
+					continue
 				}
 				for i := range targets {
 					if _, skip := skipIDs[targets[i].account.ID]; skip {
@@ -484,7 +515,7 @@ func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Conte
 		}
 		session, err := s.fetchSessionWithToken(ctx, client, target.rootURL, refreshed.AccessToken)
 		if err != nil {
-			return nil, nil, err
+			return nil, refreshed, err
 		}
 		return session, refreshed, nil
 	}
@@ -495,6 +526,11 @@ func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Conte
 			if err == nil {
 				return session, refreshed, nil
 			}
+			fallbackSession, fallbackErr := s.fetchSessionWithToken(ctx, client, target.rootURL, token)
+			if fallbackErr == nil {
+				return fallbackSession, refreshed, nil
+			}
+			return nil, refreshed, err
 		}
 		if refreshErr != nil {
 			log.Printf("[Sub2APIRateSync] proactive refresh failed, falling back to access token: base_url=%s err=%v", target.rootURL, sanitizeSub2APISyncError(&target.account, refreshErr))
@@ -513,7 +549,7 @@ func (s *Sub2APIUpstreamRateSyncService) fetchUserLoginSession(ctx context.Conte
 	}
 	session, err = s.fetchSessionWithToken(ctx, client, target.rootURL, refreshed.AccessToken)
 	if err != nil {
-		return nil, nil, err
+		return nil, refreshed, err
 	}
 	return session, refreshed, nil
 }
@@ -556,8 +592,9 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 	}
 	svc := &Sub2APIUpstreamRateSyncService{}
 	session, refreshed, err := svc.fetchUserLoginSession(ctx, target)
+	snapshot := &sub2APIUpstreamSnapshot{RefreshedTokens: refreshed}
 	if err != nil {
-		return nil, err
+		return snapshot, err
 	}
 	now := time.Now()
 	out := make([]UpstreamKey, 0, len(session.keys))
@@ -568,7 +605,7 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 		}
 		rate, _, err := resolveSub2APIEffectiveRate(key, session)
 		if err != nil {
-			return nil, err
+			return snapshot, err
 		}
 		name := normalizeUpstreamDisplayName(upstreamKey.Name, 100)
 		groupID := effectiveSub2APIGroupID(upstreamKey)
@@ -620,10 +657,7 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 			Extra:             extra,
 		})
 	}
-	snapshot := &sub2APIUpstreamSnapshot{
-		Keys:            out,
-		RefreshedTokens: refreshed,
-	}
+	snapshot.Keys = out
 	if includeProfile {
 		client, clientErr := sub2APIHTTPClient(target.proxyURL)
 		if clientErr != nil {
@@ -672,6 +706,9 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSessionWithToken(ctx context.Conte
 	}
 	groupRates, err := s.fetchSub2APIMergedGroupRates(ctx, client, rootURL, token)
 	if err != nil {
+		if errors.Is(err, errSub2APIAccessTokenMayBeStale) {
+			return nil, err
+		}
 		log.Printf("[Sub2APIRateSync] group rate table unavailable, falling back to key group rate: base_url=%s err=%v", rootURL, logredact.RedactText(err.Error(), "api_key", "jwt", "authorization", "refresh_token", "access_token"))
 	}
 	return &sub2APIUserLoginSession{keys: keys, groupRates: groupRates, accessToken: strings.TrimSpace(token)}, nil
@@ -763,6 +800,8 @@ func (s *Sub2APIUpstreamRateSyncService) saveRefreshedSub2APITokens(ctx context.
 	}
 	if tokens.ExpiresAt != nil {
 		credentialUpdates[AccountCredentialSub2APITokenExpiresAt] = tokens.ExpiresAt.UTC().Format(time.RFC3339)
+	} else {
+		credentialUpdates[AccountCredentialSub2APITokenExpiresAt] = nil
 	}
 	if _, err := s.accountRepo.BulkUpdate(ctx, []int64{account.ID}, AccountBulkUpdate{Credentials: credentialUpdates}); err != nil {
 		return fmt.Errorf("save refreshed sub2api token: %w", err)
@@ -840,11 +879,17 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIKeysFromPath(ctx context.Co
 
 func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIMergedGroupRates(ctx context.Context, client *http.Client, rootURL, token string) (map[int64]sub2APIGroupRateInfo, error) {
 	groups, availableErr := s.fetchSub2APIAvailableGroups(ctx, client, rootURL, token)
+	if errors.Is(availableErr, errSub2APIAccessTokenMayBeStale) {
+		return nil, availableErr
+	}
 	if availableErr != nil {
 		log.Printf("[Sub2APIRateSync] /groups/available unavailable, using key group defaults: base_url=%s err=%v", rootURL, logredact.RedactText(availableErr.Error(), "api_key", "jwt", "authorization", "refresh_token", "access_token"))
 		groups = make(map[int64]sub2APIGroupRateInfo)
 	}
 	rates, ratesErr := s.fetchSub2APIGroupRates(ctx, client, rootURL, token)
+	if errors.Is(ratesErr, errSub2APIAccessTokenMayBeStale) {
+		return nil, ratesErr
+	}
 	if ratesErr != nil {
 		log.Printf("[Sub2APIRateSync] /groups/rates unavailable, using /groups/available defaults: base_url=%s err=%v", rootURL, logredact.RedactText(ratesErr.Error(), "api_key", "jwt", "authorization", "refresh_token", "access_token"))
 		if availableErr != nil {
@@ -876,6 +921,9 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIAvailableGroups(ctx context
 		return nil, fmt.Errorf("list available groups failed: %w", err)
 	}
 	if status < 200 || status >= 300 {
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+			return nil, errSub2APIAccessTokenMayBeStale
+		}
 		return nil, fmt.Errorf("list available groups returned status %d", status)
 	}
 	if code, reason, ok := sub2APIEnvelopeCode(payload); ok && code != 0 {
@@ -921,6 +969,9 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIGroupRates(ctx context.Cont
 		return nil, fmt.Errorf("list group rates failed: %w", err)
 	}
 	if status < 200 || status >= 300 {
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+			return nil, errSub2APIAccessTokenMayBeStale
+		}
 		return nil, fmt.Errorf("list group rates returned status %d", status)
 	}
 	if code, reason, ok := sub2APIEnvelopeCode(payload); ok && code != 0 {
@@ -1304,6 +1355,9 @@ func normalizeSub2APIBaseURL(baseURL string) (string, error) {
 	}
 	if parsed.Scheme == "" || parsed.Host == "" {
 		return "", fmt.Errorf("invalid base_url")
+	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("base_url must not contain user info")
 	}
 	path := stripSub2APIGatewayPath(parsed.Path)
 	parsed.Path = strings.TrimRight(path, "/")

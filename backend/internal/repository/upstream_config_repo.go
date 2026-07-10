@@ -258,20 +258,41 @@ func (r *upstreamConfigRepository) RecordCheckResult(ctx context.Context, id int
 }
 
 func (r *upstreamConfigRepository) SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string, expiresAt *time.Time) error {
-	cfg, err := r.GetByID(ctx, id)
+	updates := map[string]any{
+		service.AccountCredentialSub2APIAccessToken:  accessToken,
+		service.AccountCredentialSub2APIRefreshToken: refreshToken,
+	}
+	query := "UPDATE upstream_configs SET credentials = (COALESCE(credentials, '{}'::jsonb) || $1::jsonb) - $3, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL"
+	removeKey := service.AccountCredentialSub2APITokenExpiresAt
+	if expiresAt != nil {
+		updates[service.AccountCredentialSub2APITokenExpiresAt] = expiresAt.UTC().Format(time.RFC3339)
+		query = "UPDATE upstream_configs SET credentials = COALESCE(credentials, '{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL"
+		removeKey = ""
+	}
+	payload, err := json.Marshal(updates)
 	if err != nil {
 		return err
 	}
-	credentials := normalizeJSONMap(cfg.Credentials)
-	credentials[service.AccountCredentialSub2APIAccessToken] = accessToken
-	credentials[service.AccountCredentialSub2APIRefreshToken] = refreshToken
-	if expiresAt != nil {
-		credentials[service.AccountCredentialSub2APITokenExpiresAt] = expiresAt.UTC().Format(time.RFC3339)
+	client := clientFromContext(ctx, r.client)
+	var result interface {
+		RowsAffected() (int64, error)
 	}
-	_, err = r.client.UpstreamConfig.UpdateOneID(id).
-		SetCredentials(credentials).
-		Save(ctx)
-	return err
+	if expiresAt != nil {
+		result, err = client.ExecContext(ctx, query, string(payload), id)
+	} else {
+		result, err = client.ExecContext(ctx, query, string(payload), id, removeKey)
+	}
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrUpstreamConfigNotFound
+	}
+	return nil
 }
 
 func (r *upstreamConfigRepository) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {

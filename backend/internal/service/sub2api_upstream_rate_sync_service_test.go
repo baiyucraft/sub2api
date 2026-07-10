@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -972,4 +973,24 @@ func TestSanitizeSub2APISyncErrorRedactsManualJWT(t *testing.T) {
 	require.NotContains(t, got, "sk-secret")
 	require.NotContains(t, got, "jwt-secret")
 	require.NotContains(t, got, "refresh-secret")
+}
+
+func TestSub2APIRefreshDataNormalizeDerivesJWTExpiry(t *testing.T) {
+	expected := time.Now().UTC().Add(45 * time.Minute).Truncate(time.Second)
+	payload := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, expected.Unix())))
+	data := sub2APIRefreshData{
+		AccessToken:  "header." + payload + ".signature",
+		RefreshToken: "refresh-new",
+	}
+
+	data.normalize("refresh-old")
+
+	require.NotNil(t, data.ExpiresAt)
+	require.Equal(t, expected, *data.ExpiresAt)
+}
+
+func TestNormalizeSub2APIBaseURLRejectsUserInfo(t *testing.T) {
+	_, err := normalizeSub2APIBaseURL("https://user:secret@example.com/v1")
+
+	require.ErrorContains(t, err, "must not contain user info")
 }

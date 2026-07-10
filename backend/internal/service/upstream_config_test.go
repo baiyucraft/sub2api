@@ -147,6 +147,8 @@ func (r *upstreamConfigServiceRepo) SaveRefreshedTokens(ctx context.Context, id 
 		r.configs[i].Credentials[AccountCredentialSub2APIRefreshToken] = refreshToken
 		if expiresAt != nil {
 			r.configs[i].Credentials[AccountCredentialSub2APITokenExpiresAt] = expiresAt.UTC().Format(time.RFC3339)
+		} else {
+			delete(r.configs[i].Credentials, AccountCredentialSub2APITokenExpiresAt)
 		}
 	}
 	return nil
@@ -605,6 +607,183 @@ func TestUpstreamConfigService_Sub2APIManualJWTRefreshSavesCamelCaseTokensAndExp
 	require.Equal(t, "jwt-new", repo.configs[0].Credentials[AccountCredentialSub2APIAccessToken])
 	require.Equal(t, "refresh-new", repo.configs[0].Credentials[AccountCredentialSub2APIRefreshToken])
 	require.NotEmpty(t, repo.configs[0].Credentials[AccountCredentialSub2APITokenExpiresAt])
+}
+
+func TestUpstreamConfigService_Sub2APIRefreshPersistsBeforeDownstreamFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/refresh":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-new","refresh_token":"refresh-new"}}`))
+		case "/api/v1/keys":
+			http.Error(w, "temporary failure", http.StatusBadGateway)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(80)
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID:       configID,
+		Name:     "Sub2API Main",
+		Provider: UpstreamProviderSub2API,
+		BaseURL:  server.URL,
+		AuthMode: UpstreamAuthModeManualJWT,
+		Credentials: map[string]any{
+			AccountCredentialSub2APIAccessToken:    "jwt-old",
+			AccountCredentialSub2APIRefreshToken:   "refresh-old",
+			AccountCredentialSub2APITokenExpiresAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
+		},
+		Status: StatusActive,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	_, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.Error(t, err)
+	require.False(t, result.Success)
+	require.Len(t, repo.savedTokens, 1)
+	require.Equal(t, "jwt-new", repo.savedTokens[0].accessToken)
+	require.Equal(t, "refresh-new", repo.savedTokens[0].refreshToken)
+	require.Nil(t, repo.savedTokens[0].expiresAt)
+	_, hasStaleExpiry := repo.configs[0].Credentials[AccountCredentialSub2APITokenExpiresAt]
+	require.False(t, hasStaleExpiry)
+}
+
+func TestUpstreamConfigService_Sub2APIRefreshPersistsWhenRateResolutionFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/refresh":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-new","refresh_token":"refresh-new"}}`))
+		case "/api/v1/keys":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-bound","name":"plus","group_id":10}],"pages":1}}`))
+		case "/api/v1/groups/available":
+			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus","platform":"openai"}]}`))
+		case "/api/v1/groups/rates":
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(83)
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID:       configID,
+		Name:     "Sub2API Main",
+		Provider: UpstreamProviderSub2API,
+		BaseURL:  server.URL,
+		AuthMode: UpstreamAuthModeManualJWT,
+		Credentials: map[string]any{
+			AccountCredentialSub2APIAccessToken:    "jwt-old",
+			AccountCredentialSub2APIRefreshToken:   "refresh-old",
+			AccountCredentialSub2APITokenExpiresAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
+		},
+		Status: StatusActive,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	_, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.Error(t, err)
+	require.False(t, result.Success)
+	require.Len(t, repo.savedTokens, 1)
+	require.Equal(t, "jwt-new", repo.savedTokens[0].accessToken)
+	require.Equal(t, "refresh-new", repo.savedTokens[0].refreshToken)
+}
+
+func TestUpstreamConfigService_TestPersistsRotatedSub2APITokens(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/refresh":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-new","refresh_token":"refresh-new","expires_in":3600}}`))
+		case "/api/v1/keys":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Plus","platform":"openai","rate_multiplier":0.1}}],"pages":1}}`))
+		case "/api/v1/groups/available":
+			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus","platform":"openai","rate_multiplier":0.1}]}`))
+		case "/api/v1/groups/rates":
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(81)
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID:       configID,
+		Name:     "Sub2API Main",
+		Provider: UpstreamProviderSub2API,
+		BaseURL:  server.URL,
+		AuthMode: UpstreamAuthModeManualJWT,
+		Credentials: map[string]any{
+			AccountCredentialSub2APIAccessToken:    "jwt-old",
+			AccountCredentialSub2APIRefreshToken:   "refresh-old",
+			AccountCredentialSub2APITokenExpiresAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
+		},
+		Status: StatusActive,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	require.NoError(t, svc.Test(context.Background(), configID))
+	require.Len(t, repo.savedTokens, 1)
+	require.Equal(t, "jwt-new", repo.savedTokens[0].accessToken)
+	require.Equal(t, "refresh-new", repo.savedTokens[0].refreshToken)
+}
+
+func TestUpstreamConfigService_GroupRateUnauthorizedRefreshesBeforeSync(t *testing.T) {
+	refreshCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		auth := r.Header.Get("Authorization")
+		switch r.URL.Path {
+		case "/api/v1/auth/refresh":
+			refreshCount++
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-new","refresh_token":"refresh-new","expires_in":3600}}`))
+		case "/api/v1/keys":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Plus","platform":"openai","rate_multiplier":0.1}}],"pages":1}}`))
+		case "/api/v1/groups/available":
+			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus","platform":"openai","rate_multiplier":0.1}]}`))
+		case "/api/v1/groups/rates":
+			if auth == "Bearer jwt-old" {
+				http.Error(w, "expired", http.StatusUnauthorized)
+				return
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"10":0.06}}`))
+		case "/api/v1/auth/me":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":1,"email":"u@example.com"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(82)
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID:       configID,
+		Name:     "Sub2API Main",
+		Provider: UpstreamProviderSub2API,
+		BaseURL:  server.URL,
+		AuthMode: UpstreamAuthModeManualJWT,
+		Credentials: map[string]any{
+			AccountCredentialSub2APIAccessToken:  "jwt-old",
+			AccountCredentialSub2APIRefreshToken: "refresh-old",
+		},
+		Status: StatusActive,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	keys, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Equal(t, 1, refreshCount)
+	require.Len(t, repo.savedTokens, 1)
+	require.Len(t, keys, 1)
+	require.InDelta(t, 0.06, *keys[0].RateMultiplier, 1e-12)
 }
 
 func TestUpstreamConfigService_SyncKeysRecordsProfileBalanceSnapshot(t *testing.T) {
