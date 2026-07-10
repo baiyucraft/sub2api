@@ -81,7 +81,7 @@ type UpstreamConfigRepository interface {
 	UpdateKey(ctx context.Context, key *UpstreamKey) error
 	DeleteKey(ctx context.Context, id int64) error
 	RecordCheckResult(ctx context.Context, id int64, success bool, safeErr string) error
-	SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string) error
+	SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string, expiresAt *time.Time) error
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
 }
 
@@ -316,7 +316,7 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 		return nil, result, upstreamProviderSyncError(cfg.Provider, safeErr)
 	}
 	if snapshot.RefreshedTokens != nil {
-		if err := s.repo.SaveRefreshedTokens(ctx, cfg.ID, snapshot.RefreshedTokens.AccessToken, snapshot.RefreshedTokens.RefreshToken); err != nil {
+		if err := s.repo.SaveRefreshedTokens(ctx, cfg.ID, snapshot.RefreshedTokens.AccessToken, snapshot.RefreshedTokens.RefreshToken, snapshot.RefreshedTokens.ExpiresAt); err != nil {
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
 		}

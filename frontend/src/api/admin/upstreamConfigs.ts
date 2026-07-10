@@ -30,6 +30,7 @@ export interface UpstreamKey {
   rate_multiplier?: number | null
   status: string
   last_seen_at?: string | null
+  extra?: Record<string, unknown>
   created_at: string
   updated_at: string
 }

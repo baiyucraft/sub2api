@@ -147,6 +147,9 @@ func TestSub2APIUpstreamRateSync_RunOnceUsesUserLoginAndReusesSession(t *testing
 				return
 			}
 			_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"items":[{"id":2,"key":"sk-upstream-b","group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":0.2}}],"page":2,"page_size":1,"pages":2}}`))
+		case "/api/v1/groups/available":
+			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus","platform":"openai","rate_multiplier":0.2}]}`))
 		case "/api/v1/groups/rates":
 			ratesCount++
 			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
@@ -205,6 +208,9 @@ func TestSub2APIUpstreamRateSync_UsesAccountProxyForUserLoginAndFallback(t *test
 			fallbackCount++
 			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
 			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-upstream","group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/available":
+			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus","platform":"openai","rate_multiplier":0.12}]}`))
 		case "/api/v1/groups/rates":
 			ratesCount++
 			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
@@ -707,19 +713,20 @@ func TestSub2APIUpstreamRateSync_HiddenKeyFailsWithoutSecretInError(t *testing.T
 }
 
 func TestSub2APIUpstreamRateSync_DuplicateKeyFails(t *testing.T) {
+	rate := 0.1
 	session := &sub2APIUserLoginSession{keys: []sub2APIUpstreamKey{
 		{Key: "sk-same", GroupID: ptrSub2APITestInt64(1), Group: &struct {
-			ID             int64   `json:"id"`
-			Name           string  `json:"name"`
-			Platform       string  `json:"platform"`
-			RateMultiplier float64 `json:"rate_multiplier"`
-		}{ID: 1, Platform: "openai", RateMultiplier: 0.1}},
+			ID             int64    `json:"id"`
+			Name           string   `json:"name"`
+			Platform       string   `json:"platform"`
+			RateMultiplier *float64 `json:"rate_multiplier"`
+		}{ID: 1, Platform: "openai", RateMultiplier: &rate}},
 		{Key: "sk-same", GroupID: ptrSub2APITestInt64(1), Group: &struct {
-			ID             int64   `json:"id"`
-			Name           string  `json:"name"`
-			Platform       string  `json:"platform"`
-			RateMultiplier float64 `json:"rate_multiplier"`
-		}{ID: 1, Platform: "openai", RateMultiplier: 0.1}},
+			ID             int64    `json:"id"`
+			Name           string   `json:"name"`
+			Platform       string   `json:"platform"`
+			RateMultiplier *float64 `json:"rate_multiplier"`
+		}{ID: 1, Platform: "openai", RateMultiplier: &rate}},
 	}}
 
 	_, _, err := resolveSub2APIEffectiveRate("sk-same", session)

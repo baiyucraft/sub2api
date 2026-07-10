@@ -40,6 +40,7 @@ type upstreamConfigSavedToken struct {
 	id           int64
 	accessToken  string
 	refreshToken string
+	expiresAt    *time.Time
 }
 
 type upstreamConfigExtraUpdate struct {
@@ -130,11 +131,11 @@ func (r *upstreamConfigServiceRepo) RecordCheckResult(ctx context.Context, id in
 	return nil
 }
 
-func (r *upstreamConfigServiceRepo) SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string) error {
+func (r *upstreamConfigServiceRepo) SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string, expiresAt *time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.savedTokens = append(r.savedTokens, upstreamConfigSavedToken{id: id, accessToken: accessToken, refreshToken: refreshToken})
+	r.savedTokens = append(r.savedTokens, upstreamConfigSavedToken{id: id, accessToken: accessToken, refreshToken: refreshToken, expiresAt: expiresAt})
 	for i := range r.configs {
 		if r.configs[i].ID != id {
 			continue
@@ -144,6 +145,9 @@ func (r *upstreamConfigServiceRepo) SaveRefreshedTokens(ctx context.Context, id 
 		}
 		r.configs[i].Credentials[AccountCredentialSub2APIAccessToken] = accessToken
 		r.configs[i].Credentials[AccountCredentialSub2APIRefreshToken] = refreshToken
+		if expiresAt != nil {
+			r.configs[i].Credentials[AccountCredentialSub2APITokenExpiresAt] = expiresAt.UTC().Format(time.RFC3339)
+		}
 	}
 	return nil
 }
@@ -363,10 +367,14 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v1/auth/login":
+			require.Contains(t, r.Header.Get("User-Agent"), "Mozilla/5.0")
 			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
 		case "/api/v1/keys":
 			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
 			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1440,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Plus Group","platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/available":
+			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus Group","platform":"openai","rate_multiplier":0.12}]}`))
 		case "/api/v1/groups/rates":
 			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
 			_, _ = w.Write([]byte(`{"code":0,"data":{"10":0.065}}`))
@@ -419,6 +427,9 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	require.Equal(t, "Plus Group", repo.upserts[0].UpstreamGroupName)
 	require.NotNil(t, repo.upserts[0].RateMultiplier)
 	require.InDelta(t, 0.065, *repo.upserts[0].RateMultiplier, 1e-12)
+	require.InDelta(t, 0.12, repo.upserts[0].Extra["default_rate_multiplier"], 1e-12)
+	require.InDelta(t, 0.065, repo.upserts[0].Extra["dedicated_rate_multiplier"], 1e-12)
+	require.Equal(t, true, repo.upserts[0].Extra["has_dedicated_rate_multiplier"])
 	require.Len(t, accountRepo.bulkUpdates, 1)
 	require.Equal(t, []int64{101}, accountRepo.bulkUpdates[0].ids)
 	require.NotNil(t, accountRepo.bulkUpdates[0].updates.RateMultiplier)
@@ -430,6 +441,170 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	require.Equal(t, "Plus Group", accountRepo.bulkUpdates[0].updates.Extra["sub2api_upstream_group_name"])
 	require.Len(t, repo.checks, 1)
 	require.True(t, repo.checks[0].success)
+}
+
+func TestUpstreamConfigService_Sub2APIGroupRatesFallbacks(t *testing.T) {
+	t.Run("rates unavailable uses available default", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/api/v1/auth/login":
+				_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
+			case "/api/v1/keys":
+				_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1440,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Key Group","platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
+			case "/api/v1/groups/available":
+				_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Available Group","platform":"openai","rate_multiplier":0.06}]}`))
+			case "/api/v1/groups/rates":
+				http.NotFound(w, r)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer server.Close()
+
+		configID := int64(77)
+		repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{testUpstreamConfig(configID, "Sub2API Main", UpstreamProviderSub2API, StatusActive, server.URL)}}
+		svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+		keys, result, err := svc.SyncKeys(context.Background(), configID)
+
+		require.NoError(t, err)
+		require.True(t, result.Success)
+		require.Len(t, keys, 1)
+		require.InDelta(t, 0.06, *keys[0].RateMultiplier, 1e-12)
+		require.Equal(t, "Available Group", keys[0].UpstreamGroupName)
+		require.Equal(t, false, keys[0].Extra["has_dedicated_rate_multiplier"])
+	})
+
+	t.Run("available unavailable still uses dedicated group rate", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/api/v1/auth/login":
+				_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
+			case "/api/v1/keys":
+				_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1440,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Key Group","platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
+			case "/api/v1/groups/available":
+				http.Error(w, "unavailable", http.StatusInternalServerError)
+			case "/api/v1/groups/rates":
+				_, _ = w.Write([]byte(`{"code":0,"data":{"10":0.06}}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer server.Close()
+
+		configID := int64(78)
+		repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{testUpstreamConfig(configID, "Sub2API Main", UpstreamProviderSub2API, StatusActive, server.URL)}}
+		svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+		keys, result, err := svc.SyncKeys(context.Background(), configID)
+
+		require.NoError(t, err)
+		require.True(t, result.Success)
+		require.Len(t, keys, 1)
+		require.InDelta(t, 0.06, *keys[0].RateMultiplier, 1e-12)
+		require.Equal(t, "Key Group", keys[0].UpstreamGroupName)
+		require.Equal(t, true, keys[0].Extra["has_dedicated_rate_multiplier"])
+		require.InDelta(t, 0.12, keys[0].Extra["default_rate_multiplier"], 1e-12)
+		require.InDelta(t, 0.06, keys[0].Extra["dedicated_rate_multiplier"], 1e-12)
+	})
+}
+
+func TestParseSub2APIGroupRateOverrides(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload any
+		want    map[int64]float64
+	}{
+		{
+			name:    "wrapped map",
+			payload: map[string]any{"data": map[string]any{"1": 0.8, "2": "1.2"}},
+			want:    map[int64]float64{1: 0.8, 2: 1.2},
+		},
+		{
+			name:    "wrapped array snake case",
+			payload: map[string]any{"data": []any{map[string]any{"group_id": 1.0, "rate_multiplier": 0.8}}},
+			want:    map[int64]float64{1: 0.8},
+		},
+		{
+			name:    "unwrapped array camel case",
+			payload: []any{map[string]any{"groupId": "1", "rateMultiplier": "0.8"}},
+			want:    map[int64]float64{1: 0.8},
+		},
+		{
+			name: "invalid entries ignored",
+			payload: map[string]any{"data": []any{
+				map[string]any{"group_id": 1.0, "rate_multiplier": 0.8},
+				map[string]any{"rate_multiplier": 1.0},
+				map[string]any{"group_id": 2.0, "rate_multiplier": -1.0},
+				map[string]any{"group_id": 3.0, "rate_multiplier": "nan"},
+			}},
+			want: map[int64]float64{1: 0.8},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, parseSub2APIGroupRateOverrides(tt.payload))
+		})
+	}
+}
+
+func TestUpstreamConfigService_Sub2APIManualJWTRefreshSavesCamelCaseTokensAndExpiry(t *testing.T) {
+	refreshCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/refresh":
+			refreshCalled = true
+			require.Equal(t, http.MethodPost, r.Method)
+			_, _ = w.Write([]byte(`{"code":0,"data":{"accessToken":"jwt-new","refreshToken":"refresh-new","expiresIn":"3600"}}`))
+		case "/api/v1/keys":
+			require.Equal(t, "Bearer jwt-new", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1440,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Plus Group","platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/available":
+			require.Equal(t, "Bearer jwt-new", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus Group","platform":"openai","rate_multiplier":0.12}]}`))
+		case "/api/v1/groups/rates":
+			require.Equal(t, "Bearer jwt-new", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configID := int64(79)
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID:       configID,
+		Name:     "Sub2API Main",
+		Provider: UpstreamProviderSub2API,
+		BaseURL:  server.URL,
+		AuthMode: UpstreamAuthModeManualJWT,
+		Credentials: map[string]any{
+			AccountCredentialSub2APIAccessToken:    "jwt-old",
+			AccountCredentialSub2APIRefreshToken:   "refresh-old",
+			AccountCredentialSub2APITokenExpiresAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
+		},
+		Status: StatusActive,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	keys, result, err := svc.SyncKeys(context.Background(), configID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.True(t, refreshCalled)
+	require.Len(t, keys, 1)
+	require.Len(t, repo.savedTokens, 1)
+	require.Equal(t, "jwt-new", repo.savedTokens[0].accessToken)
+	require.Equal(t, "refresh-new", repo.savedTokens[0].refreshToken)
+	require.NotNil(t, repo.savedTokens[0].expiresAt)
+	require.True(t, repo.savedTokens[0].expiresAt.After(time.Now().Add(30*time.Minute)))
+	require.Equal(t, "jwt-new", repo.configs[0].Credentials[AccountCredentialSub2APIAccessToken])
+	require.Equal(t, "refresh-new", repo.configs[0].Credentials[AccountCredentialSub2APIRefreshToken])
+	require.NotEmpty(t, repo.configs[0].Credentials[AccountCredentialSub2APITokenExpiresAt])
 }
 
 func TestUpstreamConfigService_SyncKeysRecordsProfileBalanceSnapshot(t *testing.T) {
