@@ -92,13 +92,10 @@
           <template #cell-balance="{ row }">
             <div class="min-w-[120px]" :title="balanceTitle(row)">
               <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                {{ formatUpstreamBalance(row, upstreamBalance(row)) }}
+                {{ formatBalanceAmount(upstreamBalance(row)) }}
               </div>
               <div v-if="upstreamTotalRecharged(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
-                {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatUpstreamBalance(row, upstreamTotalRecharged(row)) }) }}
-              </div>
-              <div v-if="upstreamUsedQuota(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
-                {{ t('admin.upstreamConfigs.balance.usedQuota', { amount: formatUpstreamBalance(row, upstreamUsedQuota(row)) }) }}
+                {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatBalanceAmount(upstreamTotalRecharged(row)) }) }}
               </div>
               <div
                 v-if="upstreamBalanceError(row)"
@@ -1012,15 +1009,23 @@ function upstreamBalance(item: UpstreamConfig): number | null {
 }
 
 function upstreamTotalRecharged(item: UpstreamConfig): number | null {
-  if (item.provider === 'newapi') return null
-  return finiteNumberFromExtra(item.extra?.sub2api_total_recharged)
-}
+  if (item.provider === 'newapi') {
+    const snapshot = upstreamProviderSnapshot(item)
+    const totalAmount = finiteNumberFromExtra(snapshot?.total_amount)
+    if (totalAmount !== null) return totalAmount
 
-function upstreamUsedQuota(item: UpstreamConfig): number | null {
-  if (item.provider !== 'newapi') return null
-  const snapshot = upstreamProviderSnapshot(item)
-  return finiteNumberFromExtra(snapshot?.used_amount)
-    ?? convertNewAPIQuotaRaw(item, finiteNumberFromExtra(snapshot?.used_quota))
+    const balanceAmount = finiteNumberFromExtra(snapshot?.balance_amount)
+    const usedAmount = finiteNumberFromExtra(snapshot?.used_amount)
+    if (balanceAmount !== null && usedAmount !== null) {
+      return balanceAmount + usedAmount
+    }
+
+    return convertNewAPIQuotaRaw(
+      item,
+      finiteNumberFromExtra(snapshot?.total_quota) ?? finiteNumberFromExtra(snapshot?.total_quota_raw)
+    )
+  }
+  return finiteNumberFromExtra(item.extra?.sub2api_total_recharged)
 }
 
 function upstreamBalanceError(item: UpstreamConfig): string {
@@ -1062,34 +1067,12 @@ function finiteNumberFromExtra(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-function formatUpstreamBalance(item: UpstreamConfig, value: number | null): string {
-  if (item.provider === 'newapi') {
-    return formatNewAPIAmount(item, value)
-  }
-  return formatBalanceAmount(value)
-}
-
 function formatBalanceAmount(value: number | null): string {
   if (value === null) return '-'
   return value.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 4
   })
-}
-
-function formatNewAPIAmount(item: UpstreamConfig, value: number | null): string {
-  if (value === null) return '-'
-  const snapshot = upstreamProviderSnapshot(item)
-  const currency = typeof snapshot?.currency === 'string' ? snapshot.currency : 'USD'
-  const symbol = typeof snapshot?.currency_symbol === 'string' ? snapshot.currency_symbol : '$'
-  if (currency === 'TOKENS') {
-    return value.toLocaleString(undefined, { maximumFractionDigits: 0 })
-  }
-  const amount = value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 4
-  })
-  return `${symbol}${amount}`
 }
 
 function convertNewAPIQuotaRaw(item: UpstreamConfig, raw: number | null): number | null {

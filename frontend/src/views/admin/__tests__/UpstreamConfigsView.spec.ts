@@ -308,10 +308,51 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('$0.174')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.usedQuota:{"amount":"$9.826"}')
+    expect(wrapper.text()).toContain('0.174')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"10.00"}')
     expect(wrapper.text()).not.toContain('-4,826,010')
-    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.balance.totalRecharged')
+    expect(wrapper.text()).not.toContain('$')
+  })
+
+  it('keeps zero balances and falls back to balance plus used for newapi total recharged', async () => {
+    mockList([upstreamConfig({
+      provider: 'newapi',
+      extra: {
+        upstream_provider_snapshot: {
+          version: 1,
+          provider: 'newapi',
+          balance_amount: 0,
+          used_amount: 2.5
+        }
+      }
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('0.00')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"2.50"}')
+  })
+
+  it('falls back to converted total quota for legacy newapi snapshots', async () => {
+    mockList([upstreamConfig({
+      provider: 'newapi',
+      extra: {
+        upstream_provider_snapshot: {
+          version: 1,
+          provider: 'newapi',
+          balance_amount: 1,
+          total_quota: 2500000,
+          quota_per_unit: 500000,
+          quota_display_type: 'USD'
+        }
+      }
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"5.00"}')
   })
 
   it('wires pagination events to upstream list API', async () => {
