@@ -20,6 +20,10 @@ const (
 	FieldAPIKeyID = "api_key_id"
 	// FieldAccountID holds the string denoting the account_id field in the database.
 	FieldAccountID = "account_id"
+	// FieldUpstreamConfigID holds the string denoting the upstream_config_id field in the database.
+	FieldUpstreamConfigID = "upstream_config_id"
+	// FieldUpstreamKeyID holds the string denoting the upstream_key_id field in the database.
+	FieldUpstreamKeyID = "upstream_key_id"
 	// FieldRequestID holds the string denoting the request_id field in the database.
 	FieldRequestID = "request_id"
 	// FieldModel holds the string denoting the model field in the database.
@@ -68,6 +72,10 @@ const (
 	FieldRateMultiplier = "rate_multiplier"
 	// FieldAccountRateMultiplier holds the string denoting the account_rate_multiplier field in the database.
 	FieldAccountRateMultiplier = "account_rate_multiplier"
+	// FieldUpstreamCostCurrency holds the string denoting the upstream_cost_currency field in the database.
+	FieldUpstreamCostCurrency = "upstream_cost_currency"
+	// FieldUpstreamCostToCnyRate holds the string denoting the upstream_cost_to_cny_rate field in the database.
+	FieldUpstreamCostToCnyRate = "upstream_cost_to_cny_rate"
 	// FieldBillingType holds the string denoting the billing_type field in the database.
 	FieldBillingType = "billing_type"
 	// FieldStream holds the string denoting the stream field in the database.
@@ -112,6 +120,10 @@ const (
 	EdgeGroup = "group"
 	// EdgeSubscription holds the string denoting the subscription edge name in mutations.
 	EdgeSubscription = "subscription"
+	// EdgeUpstreamConfig holds the string denoting the upstream_config edge name in mutations.
+	EdgeUpstreamConfig = "upstream_config"
+	// EdgeUpstreamKey holds the string denoting the upstream_key edge name in mutations.
+	EdgeUpstreamKey = "upstream_key"
 	// Table holds the table name of the usagelog in the database.
 	Table = "usage_logs"
 	// UserTable is the table that holds the user relation/edge.
@@ -149,6 +161,20 @@ const (
 	SubscriptionInverseTable = "user_subscriptions"
 	// SubscriptionColumn is the table column denoting the subscription relation/edge.
 	SubscriptionColumn = "subscription_id"
+	// UpstreamConfigTable is the table that holds the upstream_config relation/edge.
+	UpstreamConfigTable = "usage_logs"
+	// UpstreamConfigInverseTable is the table name for the UpstreamConfig entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamconfig" package.
+	UpstreamConfigInverseTable = "upstream_configs"
+	// UpstreamConfigColumn is the table column denoting the upstream_config relation/edge.
+	UpstreamConfigColumn = "upstream_config_id"
+	// UpstreamKeyTable is the table that holds the upstream_key relation/edge.
+	UpstreamKeyTable = "usage_logs"
+	// UpstreamKeyInverseTable is the table name for the UpstreamKey entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamkey" package.
+	UpstreamKeyInverseTable = "upstream_keys"
+	// UpstreamKeyColumn is the table column denoting the upstream_key relation/edge.
+	UpstreamKeyColumn = "upstream_key_id"
 )
 
 // Columns holds all SQL columns for usagelog fields.
@@ -157,6 +183,8 @@ var Columns = []string{
 	FieldUserID,
 	FieldAPIKeyID,
 	FieldAccountID,
+	FieldUpstreamConfigID,
+	FieldUpstreamKeyID,
 	FieldRequestID,
 	FieldModel,
 	FieldRequestedModel,
@@ -181,6 +209,8 @@ var Columns = []string{
 	FieldActualCost,
 	FieldRateMultiplier,
 	FieldAccountRateMultiplier,
+	FieldUpstreamCostCurrency,
+	FieldUpstreamCostToCnyRate,
 	FieldBillingType,
 	FieldStream,
 	FieldDurationMs,
@@ -251,6 +281,8 @@ var (
 	DefaultActualCost float64
 	// DefaultRateMultiplier holds the default value on creation for the "rate_multiplier" field.
 	DefaultRateMultiplier float64
+	// UpstreamCostCurrencyValidator is a validator for the "upstream_cost_currency" field. It is called by the builders before save.
+	UpstreamCostCurrencyValidator func(string) error
 	// DefaultBillingType holds the default value on creation for the "billing_type" field.
 	DefaultBillingType int8
 	// DefaultStream holds the default value on creation for the "stream" field.
@@ -300,6 +332,16 @@ func ByAPIKeyID(opts ...sql.OrderTermOption) OrderOption {
 // ByAccountID orders the results by the account_id field.
 func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAccountID, opts...).ToFunc()
+}
+
+// ByUpstreamConfigID orders the results by the upstream_config_id field.
+func ByUpstreamConfigID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamConfigID, opts...).ToFunc()
+}
+
+// ByUpstreamKeyID orders the results by the upstream_key_id field.
+func ByUpstreamKeyID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamKeyID, opts...).ToFunc()
 }
 
 // ByRequestID orders the results by the request_id field.
@@ -422,6 +464,16 @@ func ByAccountRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAccountRateMultiplier, opts...).ToFunc()
 }
 
+// ByUpstreamCostCurrency orders the results by the upstream_cost_currency field.
+func ByUpstreamCostCurrency(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamCostCurrency, opts...).ToFunc()
+}
+
+// ByUpstreamCostToCnyRate orders the results by the upstream_cost_to_cny_rate field.
+func ByUpstreamCostToCnyRate(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamCostToCnyRate, opts...).ToFunc()
+}
+
 // ByBillingType orders the results by the billing_type field.
 func ByBillingType(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldBillingType, opts...).ToFunc()
@@ -536,6 +588,20 @@ func BySubscriptionField(field string, opts ...sql.OrderTermOption) OrderOption 
 		sqlgraph.OrderByNeighborTerms(s, newSubscriptionStep(), sql.OrderByField(field, opts...))
 	}
 }
+
+// ByUpstreamConfigField orders the results by upstream_config field.
+func ByUpstreamConfigField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUpstreamConfigStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByUpstreamKeyField orders the results by upstream_key field.
+func ByUpstreamKeyField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUpstreamKeyStep(), sql.OrderByField(field, opts...))
+	}
+}
 func newUserStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -569,5 +635,19 @@ func newSubscriptionStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(SubscriptionInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, SubscriptionTable, SubscriptionColumn),
+	)
+}
+func newUpstreamConfigStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UpstreamConfigInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, UpstreamConfigTable, UpstreamConfigColumn),
+	)
+}
+func newUpstreamKeyStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UpstreamKeyInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, UpstreamKeyTable, UpstreamKeyColumn),
 	)
 }

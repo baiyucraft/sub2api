@@ -1521,6 +1521,57 @@ var (
 		Columns:    TLSFingerprintProfilesColumns,
 		PrimaryKey: []*schema.Column{TLSFingerprintProfilesColumns[0]},
 	}
+	// UpstreamBalanceSnapshotsColumns holds the columns for the "upstream_balance_snapshots" table.
+	UpstreamBalanceSnapshotsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "provider", Type: field.TypeString, Size: 32},
+		{Name: "balance_raw", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "used_raw", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "total_raw", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "balance_cny", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "used_cny", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "total_recharged_cny", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "currency_source", Type: field.TypeString, Size: 16, Default: ""},
+		{Name: "currency_to_cny_rate", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "currency_rate_source", Type: field.TypeString, Size: 32, Default: ""},
+		{Name: "observed_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "metadata", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "upstream_config_id", Type: field.TypeInt64},
+		{Name: "sync_run_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// UpstreamBalanceSnapshotsTable holds the schema information for the "upstream_balance_snapshots" table.
+	UpstreamBalanceSnapshotsTable = &schema.Table{
+		Name:       "upstream_balance_snapshots",
+		Columns:    UpstreamBalanceSnapshotsColumns,
+		PrimaryKey: []*schema.Column{UpstreamBalanceSnapshotsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "upstream_balance_snapshots_upstream_configs_balance_snapshots",
+				Columns:    []*schema.Column{UpstreamBalanceSnapshotsColumns[14]},
+				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "upstream_balance_snapshots_upstream_sync_runs_balance_snapshots",
+				Columns:    []*schema.Column{UpstreamBalanceSnapshotsColumns[15]},
+				RefColumns: []*schema.Column{UpstreamSyncRunsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "upstreambalancesnapshot_upstream_config_id_observed_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamBalanceSnapshotsColumns[14], UpstreamBalanceSnapshotsColumns[11]},
+			},
+			{
+				Name:    "upstreambalancesnapshot_sync_run_id",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamBalanceSnapshotsColumns[15]},
+			},
+		},
+	}
 	// UpstreamConfigsColumns holds the columns for the "upstream_configs" table.
 	UpstreamConfigsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1533,6 +1584,8 @@ var (
 		{Name: "auth_mode", Type: field.TypeString, Size: 32, Default: "user_login"},
 		{Name: "credentials", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "extra", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "recharge_rate", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "balance_to_cny_rate", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
 		{Name: "last_error", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "last_checked_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
@@ -1547,7 +1600,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "upstream_configs_proxies_proxy",
-				Columns:    []*schema.Column{UpstreamConfigsColumns[14]},
+				Columns:    []*schema.Column{UpstreamConfigsColumns[16]},
 				RefColumns: []*schema.Column{ProxiesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -1561,7 +1614,156 @@ var (
 			{
 				Name:    "upstreamconfig_proxy_id",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamConfigsColumns[14]},
+				Columns: []*schema.Column{UpstreamConfigsColumns[16]},
+			},
+		},
+	}
+	// UpstreamEventsColumns holds the columns for the "upstream_events" table.
+	UpstreamEventsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "event_key", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "event_type", Type: field.TypeString, Size: 64},
+		{Name: "severity", Type: field.TypeString, Size: 20},
+		{Name: "source", Type: field.TypeString, Size: 32},
+		{Name: "message", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "payload", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "occurred_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "account_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "upstream_config_id", Type: field.TypeInt64},
+		{Name: "upstream_key_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "sync_run_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// UpstreamEventsTable holds the schema information for the "upstream_events" table.
+	UpstreamEventsTable = &schema.Table{
+		Name:       "upstream_events",
+		Columns:    UpstreamEventsColumns,
+		PrimaryKey: []*schema.Column{UpstreamEventsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "upstream_events_accounts_upstream_events",
+				Columns:    []*schema.Column{UpstreamEventsColumns[9]},
+				RefColumns: []*schema.Column{AccountsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "upstream_events_upstream_configs_events",
+				Columns:    []*schema.Column{UpstreamEventsColumns[10]},
+				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "upstream_events_upstream_keys_events",
+				Columns:    []*schema.Column{UpstreamEventsColumns[11]},
+				RefColumns: []*schema.Column{UpstreamKeysColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "upstream_events_upstream_sync_runs_events",
+				Columns:    []*schema.Column{UpstreamEventsColumns[12]},
+				RefColumns: []*schema.Column{UpstreamSyncRunsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "upstreamevent_upstream_config_id_event_key",
+				Unique:  true,
+				Columns: []*schema.Column{UpstreamEventsColumns[10], UpstreamEventsColumns[1]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "event_key IS NOT NULL",
+				},
+			},
+			{
+				Name:    "upstreamevent_upstream_config_id_occurred_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamEventsColumns[10], UpstreamEventsColumns[7]},
+			},
+			{
+				Name:    "upstreamevent_upstream_key_id_occurred_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamEventsColumns[11], UpstreamEventsColumns[7]},
+			},
+			{
+				Name:    "upstreamevent_sync_run_id",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamEventsColumns[12]},
+			},
+			{
+				Name:    "upstreamevent_event_type_occurred_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamEventsColumns[2], UpstreamEventsColumns[7]},
+			},
+		},
+	}
+	// UpstreamIncidentsColumns holds the columns for the "upstream_incidents" table.
+	UpstreamIncidentsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "incident_key", Type: field.TypeString, Size: 128},
+		{Name: "incident_type", Type: field.TypeString, Size: 64},
+		{Name: "severity", Type: field.TypeString, Size: 20},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "open"},
+		{Name: "title", Type: field.TypeString, Size: 255},
+		{Name: "description", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "metric_value", Type: field.TypeFloat64, Nullable: true},
+		{Name: "threshold_value", Type: field.TypeFloat64, Nullable: true},
+		{Name: "details", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "occurrence_count", Type: field.TypeInt, Default: 1},
+		{Name: "first_seen_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "last_seen_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "acknowledged_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "resolved_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "upstream_config_id", Type: field.TypeInt64},
+		{Name: "source_event_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "upstream_key_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// UpstreamIncidentsTable holds the schema information for the "upstream_incidents" table.
+	UpstreamIncidentsTable = &schema.Table{
+		Name:       "upstream_incidents",
+		Columns:    UpstreamIncidentsColumns,
+		PrimaryKey: []*schema.Column{UpstreamIncidentsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "upstream_incidents_upstream_configs_incidents",
+				Columns:    []*schema.Column{UpstreamIncidentsColumns[17]},
+				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "upstream_incidents_upstream_events_incidents",
+				Columns:    []*schema.Column{UpstreamIncidentsColumns[18]},
+				RefColumns: []*schema.Column{UpstreamEventsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "upstream_incidents_upstream_keys_incidents",
+				Columns:    []*schema.Column{UpstreamIncidentsColumns[19]},
+				RefColumns: []*schema.Column{UpstreamKeysColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "upstreamincident_upstream_config_id_incident_key",
+				Unique:  true,
+				Columns: []*schema.Column{UpstreamIncidentsColumns[17], UpstreamIncidentsColumns[3]},
+			},
+			{
+				Name:    "upstreamincident_status_severity_last_seen_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamIncidentsColumns[6], UpstreamIncidentsColumns[5], UpstreamIncidentsColumns[14]},
+			},
+			{
+				Name:    "upstreamincident_upstream_key_id",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamIncidentsColumns[19]},
+			},
+			{
+				Name:    "upstreamincident_source_event_id",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamIncidentsColumns[18]},
 			},
 		},
 	}
@@ -1607,6 +1809,103 @@ var (
 				Name:    "upstreamkey_upstream_config_id_key_hash",
 				Unique:  false,
 				Columns: []*schema.Column{UpstreamKeysColumns[15], UpstreamKeysColumns[6]},
+			},
+		},
+	}
+	// UpstreamSyncResultsColumns holds the columns for the "upstream_sync_results" table.
+	UpstreamSyncResultsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "config_name", Type: field.TypeString, Size: 100},
+		{Name: "provider", Type: field.TypeString, Size: 32},
+		{Name: "status", Type: field.TypeString, Size: 20},
+		{Name: "stage", Type: field.TypeString, Size: 32, Default: ""},
+		{Name: "error_code", Type: field.TypeString, Size: 32, Default: ""},
+		{Name: "safe_message", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "retryable", Type: field.TypeBool, Default: false},
+		{Name: "http_status", Type: field.TypeInt, Nullable: true},
+		{Name: "remote_key_count", Type: field.TypeInt, Default: 0},
+		{Name: "persisted_key_count", Type: field.TypeInt, Default: 0},
+		{Name: "fallback_key_count", Type: field.TypeInt, Default: 0},
+		{Name: "unresolved_key_count", Type: field.TypeInt, Default: 0},
+		{Name: "updated_account_count", Type: field.TypeInt, Default: 0},
+		{Name: "warnings", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "duration_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "started_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "finished_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "upstream_config_id", Type: field.TypeInt64},
+		{Name: "sync_run_id", Type: field.TypeInt64},
+	}
+	// UpstreamSyncResultsTable holds the schema information for the "upstream_sync_results" table.
+	UpstreamSyncResultsTable = &schema.Table{
+		Name:       "upstream_sync_results",
+		Columns:    UpstreamSyncResultsColumns,
+		PrimaryKey: []*schema.Column{UpstreamSyncResultsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "upstream_sync_results_upstream_configs_sync_results",
+				Columns:    []*schema.Column{UpstreamSyncResultsColumns[19]},
+				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "upstream_sync_results_upstream_sync_runs_results",
+				Columns:    []*schema.Column{UpstreamSyncResultsColumns[20]},
+				RefColumns: []*schema.Column{UpstreamSyncRunsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "upstreamsyncresult_sync_run_id_upstream_config_id",
+				Unique:  true,
+				Columns: []*schema.Column{UpstreamSyncResultsColumns[20], UpstreamSyncResultsColumns[19]},
+			},
+			{
+				Name:    "upstreamsyncresult_sync_run_id",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamSyncResultsColumns[20]},
+			},
+			{
+				Name:    "upstreamsyncresult_upstream_config_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamSyncResultsColumns[19], UpstreamSyncResultsColumns[18]},
+			},
+			{
+				Name:    "upstreamsyncresult_status_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamSyncResultsColumns[3], UpstreamSyncResultsColumns[18]},
+			},
+		},
+	}
+	// UpstreamSyncRunsColumns holds the columns for the "upstream_sync_runs" table.
+	UpstreamSyncRunsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "trigger", Type: field.TypeString, Size: 32},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "pending"},
+		{Name: "started_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "finished_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "total_configs", Type: field.TypeInt, Default: 0},
+		{Name: "success_configs", Type: field.TypeInt, Default: 0},
+		{Name: "partial_configs", Type: field.TypeInt, Default: 0},
+		{Name: "failed_configs", Type: field.TypeInt, Default: 0},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// UpstreamSyncRunsTable holds the schema information for the "upstream_sync_runs" table.
+	UpstreamSyncRunsTable = &schema.Table{
+		Name:       "upstream_sync_runs",
+		Columns:    UpstreamSyncRunsColumns,
+		PrimaryKey: []*schema.Column{UpstreamSyncRunsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "upstreamsyncrun_status_started_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamSyncRunsColumns[2], UpstreamSyncRunsColumns[3]},
+			},
+			{
+				Name:    "upstreamsyncrun_started_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamSyncRunsColumns[3]},
 			},
 		},
 	}
@@ -1673,6 +1972,8 @@ var (
 		{Name: "actual_cost", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "rate_multiplier", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
 		{Name: "account_rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "upstream_cost_currency", Type: field.TypeString, Nullable: true, Size: 8},
+		{Name: "upstream_cost_to_cny_rate", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "billing_type", Type: field.TypeInt8, Default: 0},
 		{Name: "stream", Type: field.TypeBool, Default: false},
 		{Name: "duration_ms", Type: field.TypeInt, Nullable: true},
@@ -1693,6 +1994,8 @@ var (
 		{Name: "api_key_id", Type: field.TypeInt64},
 		{Name: "account_id", Type: field.TypeInt64},
 		{Name: "group_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "upstream_config_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "upstream_key_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "user_id", Type: field.TypeInt64},
 		{Name: "subscription_id", Type: field.TypeInt64, Nullable: true},
 	}
@@ -1704,31 +2007,43 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "usage_logs_api_keys_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[40]},
+				Columns:    []*schema.Column{UsageLogsColumns[42]},
 				RefColumns: []*schema.Column{APIKeysColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_accounts_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[41]},
+				Columns:    []*schema.Column{UsageLogsColumns[43]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_groups_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[42]},
+				Columns:    []*schema.Column{UsageLogsColumns[44]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
+				Symbol:     "usage_logs_upstream_configs_usage_logs",
+				Columns:    []*schema.Column{UsageLogsColumns[45]},
+				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "usage_logs_upstream_keys_usage_logs",
+				Columns:    []*schema.Column{UsageLogsColumns[46]},
+				RefColumns: []*schema.Column{UpstreamKeysColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
 				Symbol:     "usage_logs_users_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[43]},
+				Columns:    []*schema.Column{UsageLogsColumns[47]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_user_subscriptions_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[44]},
+				Columns:    []*schema.Column{UsageLogsColumns[48]},
 				RefColumns: []*schema.Column{UserSubscriptionsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -1737,32 +2052,32 @@ var (
 			{
 				Name:    "usagelog_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[43]},
+				Columns: []*schema.Column{UsageLogsColumns[47]},
 			},
 			{
 				Name:    "usagelog_api_key_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[40]},
+				Columns: []*schema.Column{UsageLogsColumns[42]},
 			},
 			{
 				Name:    "usagelog_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[41]},
+				Columns: []*schema.Column{UsageLogsColumns[43]},
 			},
 			{
 				Name:    "usagelog_group_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[42]},
+				Columns: []*schema.Column{UsageLogsColumns[44]},
 			},
 			{
 				Name:    "usagelog_subscription_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[44]},
+				Columns: []*schema.Column{UsageLogsColumns[48]},
 			},
 			{
 				Name:    "usagelog_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[39]},
+				Columns: []*schema.Column{UsageLogsColumns[41]},
 			},
 			{
 				Name:    "usagelog_model",
@@ -1782,17 +2097,27 @@ var (
 			{
 				Name:    "usagelog_user_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[43], UsageLogsColumns[39]},
+				Columns: []*schema.Column{UsageLogsColumns[47], UsageLogsColumns[41]},
 			},
 			{
 				Name:    "usagelog_api_key_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[40], UsageLogsColumns[39]},
+				Columns: []*schema.Column{UsageLogsColumns[42], UsageLogsColumns[41]},
+			},
+			{
+				Name:    "usagelog_upstream_config_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{UsageLogsColumns[45], UsageLogsColumns[41]},
+			},
+			{
+				Name:    "usagelog_upstream_key_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{UsageLogsColumns[46], UsageLogsColumns[41]},
 			},
 			{
 				Name:    "usagelog_group_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[42], UsageLogsColumns[39]},
+				Columns: []*schema.Column{UsageLogsColumns[44], UsageLogsColumns[41]},
 			},
 		},
 	}
@@ -2129,8 +2454,13 @@ var (
 		SettingsTable,
 		SubscriptionPlansTable,
 		TLSFingerprintProfilesTable,
+		UpstreamBalanceSnapshotsTable,
 		UpstreamConfigsTable,
+		UpstreamEventsTable,
+		UpstreamIncidentsTable,
 		UpstreamKeysTable,
+		UpstreamSyncResultsTable,
+		UpstreamSyncRunsTable,
 		UsageCleanupTasksTable,
 		UsageLogsTable,
 		UsersTable,
@@ -2257,13 +2587,39 @@ func init() {
 	TLSFingerprintProfilesTable.Annotation = &entsql.Annotation{
 		Table: "tls_fingerprint_profiles",
 	}
+	UpstreamBalanceSnapshotsTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
+	UpstreamBalanceSnapshotsTable.ForeignKeys[1].RefTable = UpstreamSyncRunsTable
+	UpstreamBalanceSnapshotsTable.Annotation = &entsql.Annotation{
+		Table: "upstream_balance_snapshots",
+	}
 	UpstreamConfigsTable.ForeignKeys[0].RefTable = ProxiesTable
 	UpstreamConfigsTable.Annotation = &entsql.Annotation{
 		Table: "upstream_configs",
 	}
+	UpstreamEventsTable.ForeignKeys[0].RefTable = AccountsTable
+	UpstreamEventsTable.ForeignKeys[1].RefTable = UpstreamConfigsTable
+	UpstreamEventsTable.ForeignKeys[2].RefTable = UpstreamKeysTable
+	UpstreamEventsTable.ForeignKeys[3].RefTable = UpstreamSyncRunsTable
+	UpstreamEventsTable.Annotation = &entsql.Annotation{
+		Table: "upstream_events",
+	}
+	UpstreamIncidentsTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
+	UpstreamIncidentsTable.ForeignKeys[1].RefTable = UpstreamEventsTable
+	UpstreamIncidentsTable.ForeignKeys[2].RefTable = UpstreamKeysTable
+	UpstreamIncidentsTable.Annotation = &entsql.Annotation{
+		Table: "upstream_incidents",
+	}
 	UpstreamKeysTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
 	UpstreamKeysTable.Annotation = &entsql.Annotation{
 		Table: "upstream_keys",
+	}
+	UpstreamSyncResultsTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
+	UpstreamSyncResultsTable.ForeignKeys[1].RefTable = UpstreamSyncRunsTable
+	UpstreamSyncResultsTable.Annotation = &entsql.Annotation{
+		Table: "upstream_sync_results",
+	}
+	UpstreamSyncRunsTable.Annotation = &entsql.Annotation{
+		Table: "upstream_sync_runs",
 	}
 	UsageCleanupTasksTable.Annotation = &entsql.Annotation{
 		Table: "usage_cleanup_tasks",
@@ -2271,8 +2627,10 @@ func init() {
 	UsageLogsTable.ForeignKeys[0].RefTable = APIKeysTable
 	UsageLogsTable.ForeignKeys[1].RefTable = AccountsTable
 	UsageLogsTable.ForeignKeys[2].RefTable = GroupsTable
-	UsageLogsTable.ForeignKeys[3].RefTable = UsersTable
-	UsageLogsTable.ForeignKeys[4].RefTable = UserSubscriptionsTable
+	UsageLogsTable.ForeignKeys[3].RefTable = UpstreamConfigsTable
+	UsageLogsTable.ForeignKeys[4].RefTable = UpstreamKeysTable
+	UsageLogsTable.ForeignKeys[5].RefTable = UsersTable
+	UsageLogsTable.ForeignKeys[6].RefTable = UserSubscriptionsTable
 	UsageLogsTable.Annotation = &entsql.Annotation{
 		Table: "usage_logs",
 	}

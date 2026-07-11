@@ -123,7 +123,7 @@ func (a *Account) IsSub2APIUpstream() bool {
 }
 
 func (a *Account) IsUpstreamBound() bool {
-	return a != nil && (a.UpstreamConfigID != nil || a.UpstreamKeyID != nil)
+	return a != nil && a.UpstreamConfigID != nil && a.UpstreamKeyID != nil
 }
 
 func (a *Account) Sub2APIRateSyncAdapter() string {

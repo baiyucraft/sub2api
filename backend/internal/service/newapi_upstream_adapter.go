@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -25,8 +29,18 @@ const (
 	newAPIUserGroupsPath     = "/api/user/self/groups"
 	newAPIUserProfilePath    = "/api/user/self"
 	newAPIStatusPath         = "/api/status"
+	newAPIPricingPath        = "/api/pricing"
 	newAPIKeysPageSize       = 100
 	newAPIMaxKeyListPages    = 1000
+	newAPIMaxRevealWorkers   = 5
+
+	newAPIWarningInvalidRemoteKeyID = "newapi_token_list_invalid_remote_key_id"
+	newAPIWarningTotalChanged       = "newapi_token_list_total_changed"
+	newAPIWarningTotalMismatch      = "newapi_token_list_total_mismatch"
+	newAPIWarningRepeatedPage       = "newapi_token_list_repeated_page"
+	newAPIWarningNoProgress         = "newapi_token_list_no_progress"
+	newAPIWarningPageLimit          = "newapi_token_list_page_limit"
+	newAPIWarningRevealFailed       = "newapi_token_key_reveal_failed"
 )
 
 var reNewAPISecretKey = regexp.MustCompile(`\bsk-[0-9A-Za-z_-]{8,}\b`)
@@ -51,8 +65,9 @@ type newAPISession struct {
 }
 
 type newAPIGroupInfo struct {
-	Desc  string `json:"desc"`
-	Ratio any    `json:"ratio"`
+	Desc      string   `json:"desc"`
+	Ratio     any      `json:"ratio"`
+	Platforms []string `json:"-"`
 }
 
 type newAPIKeyListData struct {
@@ -60,6 +75,37 @@ type newAPIKeyListData struct {
 	PageSize int            `json:"page_size"`
 	Total    int            `json:"total"`
 	Items    []newAPIKeyRow `json:"items"`
+}
+
+type newAPIWireEnvelope struct {
+	Success *bool           `json:"success"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
+}
+
+type newAPIKeyListWireData struct {
+	Page     json.RawMessage `json:"page"`
+	PageSize json.RawMessage `json:"page_size"`
+	Total    json.RawMessage `json:"total"`
+	Items    json.RawMessage `json:"items"`
+}
+
+type newAPIKeyFetchResult struct {
+	Rows     []newAPIKeyRow
+	Partial  bool
+	Warnings []string
+}
+
+type newAPIRevealResult struct {
+	Keys          map[int64]string
+	Partial       bool
+	Warnings      []string
+	FallbackCount int
+}
+
+type newAPIPaginationMode struct {
+	startPage int
+	sizeParam string
 }
 
 type newAPIKeyRow struct {
@@ -77,6 +123,12 @@ type newAPIKeyRow struct {
 
 type newAPIBatchKeysData struct {
 	Keys map[string]string `json:"keys"`
+}
+
+type newAPIPricingData struct {
+	Success     bool              `json:"success"`
+	UsableGroup map[string]string `json:"usable_group"`
+	Data        []map[string]any  `json:"data"`
 }
 
 type newAPIUserProfile struct {
@@ -140,23 +192,30 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	if err != nil {
 		return nil, err
 	}
-	rows, err := a.fetchKeys(ctx, session)
+	a.enrichGroupsFromPricing(ctx, session, groups)
+	keyResult, err := a.fetchKeys(ctx, session)
 	if err != nil {
 		return nil, err
 	}
-	fullKeys, err := a.fetchMaskedKeySecrets(ctx, session, rows)
+	revealResult, err := a.fetchMaskedKeySecrets(ctx, session, keyResult.Rows)
 	if err != nil {
 		return nil, err
 	}
+	warnings := appendNewAPIWarnings(nil, keyResult.Warnings...)
+	warnings = appendNewAPIWarnings(warnings, revealResult.Warnings...)
+	partial := keyResult.Partial || revealResult.Partial
 	now := time.Now()
-	keys := make([]UpstreamKey, 0, len(rows))
-	for _, row := range rows {
+	keys := make([]UpstreamKey, 0, len(keyResult.Rows))
+	unresolvedKeyCount := 0
+	for _, row := range keyResult.Rows {
 		key := strings.TrimSpace(row.Key)
 		if isMaskedUpstreamKey(key) {
-			key = strings.TrimSpace(fullKeys[row.ID])
+			key = strings.TrimSpace(revealResult.Keys[row.ID])
 		}
-		if key == "" || isMaskedUpstreamKey(key) {
-			continue
+		unresolved := key == "" || isMaskedUpstreamKey(key)
+		if unresolved {
+			key = ""
+			unresolvedKeyCount++
 		}
 		group := strings.TrimSpace(row.Group)
 		var rate *float64
@@ -182,27 +241,50 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 		if info, ok := groups[group]; ok && strings.TrimSpace(info.Desc) != "" {
 			extra["newapi_group_desc"] = strings.TrimSpace(info.Desc)
 		}
-		keys = append(keys, UpstreamKey{
+		platform := PlatformOpenAI
+		if info, ok := groups[group]; ok && len(info.Platforms) == 1 {
+			platform = info.Platforms[0]
+		}
+		item := UpstreamKey{
 			UpstreamConfigID:  cfg.ID,
 			Name:              normalizeUpstreamDisplayName(row.Name, 100),
 			Key:               key,
-			KeyHash:           HashUpstreamKey(key),
+			KeyHash:           "",
 			RemoteKeyID:       &row.ID,
 			UpstreamGroupName: normalizeUpstreamDisplayName(group, 100),
-			Platform:          PlatformOpenAI,
+			Platform:          platform,
 			RateMultiplier:    rate,
 			Status:            status,
 			LastSeenAt:        &now,
 			Extra:             extra,
-		})
+		}
+		if key != "" {
+			item.KeyHash = HashUpstreamKey(key)
+		}
+		keys = append(keys, item)
 	}
-	out := &upstreamProviderSnapshot{Keys: keys}
+	extraUpdates := map[string]any{}
 	if includeProfile {
 		profile, profileErr := a.fetchProfile(ctx, session)
 		status, statusErr := a.fetchStatus(ctx, session)
-		out.ExtraUpdates = newAPIProfileExtraUpdates(cfg, profile, profileErr, status, statusErr)
+		if profileErr != nil {
+			partial = true
+			warnings = appendNewAPIWarnings(warnings, "newapi profile snapshot unavailable")
+		}
+		if statusErr != nil {
+			partial = true
+			warnings = appendNewAPIWarnings(warnings, "newapi currency status unavailable")
+		}
+		for key, value := range newAPIProfileExtraUpdates(cfg, profile, profileErr, status, statusErr) {
+			extraUpdates[key] = value
+		}
 	}
-	return out, nil
+	extraUpdates["upstream_provider_snapshot_partial"] = partial
+	extraUpdates["upstream_provider_snapshot_warnings"] = warnings
+	return &upstreamProviderSnapshot{
+		Keys: keys, ExtraUpdates: extraUpdates, Partial: partial || unresolvedKeyCount > 0,
+		Warnings: warnings, FallbackKeyCount: revealResult.FallbackCount,
+	}, nil
 }
 
 func (newAPIUpstreamProviderAdapter) SanitizeError(err error, credentials map[string]any) string {
@@ -292,82 +374,512 @@ func (a newAPIUpstreamProviderAdapter) fetchGroups(ctx context.Context, session 
 	return payload.Data, nil
 }
 
-func (a newAPIUpstreamProviderAdapter) fetchKeys(ctx context.Context, session *newAPISession) ([]newAPIKeyRow, error) {
-	out := make([]newAPIKeyRow, 0)
-	for page := 0; page < newAPIMaxKeyListPages; page++ {
+func (a newAPIUpstreamProviderAdapter) enrichGroupsFromPricing(ctx context.Context, session *newAPISession, groups map[string]newAPIGroupInfo) {
+	if len(groups) == 0 {
+		return
+	}
+	endpoint, err := buildSub2APIURL(session.rootURL, newAPIPricingPath)
+	if err != nil {
+		return
+	}
+	var payload newAPIPricingData
+	status, err := a.doJSON(ctx, session.client, http.MethodGet, endpoint, session.userID, nil, &payload)
+	if err != nil || status < 200 || status >= 300 || !payload.Success {
+		return
+	}
+	for group, desc := range payload.UsableGroup {
+		info, ok := groups[group]
+		if !ok || strings.TrimSpace(info.Desc) != "" {
+			continue
+		}
+		if desc = strings.TrimSpace(desc); desc != "" {
+			info.Desc = desc
+			groups[group] = info
+		}
+	}
+	platformsByGroup := map[string]map[string]struct{}{}
+	for _, record := range payload.Data {
+		platform := normalizeNewAPIPlatform(anyString(record["owner_by"]))
+		if platform == "" {
+			platform = normalizeNewAPIPlatform(anyString(record["ownerBy"]))
+		}
+		if platform == "" {
+			platform = normalizeNewAPIPlatform(anyString(record["platform"]))
+		}
+		if platform == "" {
+			platform = normalizeNewAPIPlatform(anyString(record["vendor"]))
+		}
+		if platform == "" {
+			continue
+		}
+		for _, field := range []string{"enable_groups", "enable_group"} {
+			for _, group := range newAPIStringList(record[field]) {
+				if platformsByGroup[group] == nil {
+					platformsByGroup[group] = map[string]struct{}{}
+				}
+				platformsByGroup[group][platform] = struct{}{}
+			}
+		}
+	}
+	for group, platformSet := range platformsByGroup {
+		info, ok := groups[group]
+		if !ok {
+			continue
+		}
+		for platform := range platformSet {
+			info.Platforms = append(info.Platforms, platform)
+		}
+		sort.Strings(info.Platforms)
+		groups[group] = info
+	}
+}
+
+func normalizeNewAPIPlatform(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case strings.Contains(value, "anthropic"), strings.Contains(value, "claude"):
+		return PlatformAnthropic
+	case strings.Contains(value, "gemini"), strings.Contains(value, "google"):
+		return PlatformGemini
+	case strings.Contains(value, "openai"), strings.Contains(value, "gpt"):
+		return PlatformOpenAI
+	default:
+		return ""
+	}
+}
+
+func newAPIStringList(value any) []string {
+	var raw []string
+	switch typed := value.(type) {
+	case []any:
+		for _, item := range typed {
+			raw = append(raw, anyString(item))
+		}
+	case []string:
+		raw = typed
+	case string:
+		raw = strings.Split(typed, ",")
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (a newAPIUpstreamProviderAdapter) fetchKeys(ctx context.Context, session *newAPISession) (*newAPIKeyFetchResult, error) {
+	result, fallback, err := a.fetchKeysWithMode(ctx, session, newAPIPaginationMode{startPage: 0, sizeParam: "size"}, true)
+	if err != nil {
+		return nil, err
+	}
+	if !fallback {
+		return result, nil
+	}
+	result, _, err = a.fetchKeysWithMode(ctx, session, newAPIPaginationMode{startPage: 1, sizeParam: "page_size"}, false)
+	return result, err
+}
+
+func (a newAPIUpstreamProviderAdapter) fetchKeysWithMode(
+	ctx context.Context,
+	session *newAPISession,
+	mode newAPIPaginationMode,
+	allowFirstPageFallback bool,
+) (*newAPIKeyFetchResult, bool, error) {
+	result := &newAPIKeyFetchResult{Rows: make([]newAPIKeyRow, 0), Warnings: []string{}}
+	seenIDs := make(map[int64]struct{})
+	seenPages := make(map[string]struct{})
+	var rawSeen int64
+	var totalHint int64
+	for pageOffset := 0; pageOffset < newAPIMaxKeyListPages; pageOffset++ {
+		page := mode.startPage + pageOffset
 		endpoint, err := buildSub2APIURL(session.rootURL, newAPITokensPath)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		u, err := url.Parse(endpoint)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		q := u.Query()
 		q.Set("p", strconv.Itoa(page))
-		q.Set("size", strconv.Itoa(newAPIKeysPageSize))
+		q.Set(mode.sizeParam, strconv.Itoa(newAPIKeysPageSize))
 		u.RawQuery = q.Encode()
 
-		var payload newAPIEnvelope[newAPIKeyListData]
+		var payload newAPIWireEnvelope
 		status, err := a.doJSON(ctx, session.client, http.MethodGet, u.String(), session.userID, nil, &payload)
 		if err != nil {
-			return nil, fmt.Errorf("newapi list tokens failed: %w", err)
+			if allowFirstPageFallback && pageOffset == 0 && isNewAPIJSONDecodeError(err) {
+				return nil, true, nil
+			}
+			return nil, false, fmt.Errorf("newapi list tokens failed: %w", err)
+		}
+		if allowFirstPageFallback && pageOffset == 0 && (status == http.StatusBadRequest || status == http.StatusNotFound) {
+			return nil, true, nil
 		}
 		if status < 200 || status >= 300 {
-			return nil, fmt.Errorf("newapi list tokens returned status %d", status)
+			return nil, false, fmt.Errorf("newapi list tokens returned status %d", status)
 		}
-		if !payload.Success {
-			return nil, fmt.Errorf("newapi list tokens failed%s", safeNewAPIMessage(payload.Message))
+		if payload.Success == nil {
+			if allowFirstPageFallback && pageOffset == 0 {
+				return nil, true, nil
+			}
+			return nil, false, fmt.Errorf("newapi list tokens returned incompatible response")
 		}
-		out = append(out, payload.Data.Items...)
-		if payload.Data.Total > 0 && len(out) >= payload.Data.Total {
-			return out, nil
+		if !*payload.Success {
+			return nil, false, fmt.Errorf("newapi list tokens failed%s", safeNewAPIMessage(payload.Message))
 		}
-		if len(payload.Data.Items) < newAPIKeysPageSize {
-			return out, nil
+		items, total, totalPresent, err := parseNewAPIKeyListPage(payload.Data)
+		if err != nil {
+			if allowFirstPageFallback && pageOffset == 0 {
+				return nil, true, nil
+			}
+			return nil, false, fmt.Errorf("newapi list tokens returned incompatible response")
+		}
+
+		if totalPresent && total > 0 {
+			if totalHint == 0 {
+				totalHint = total
+			} else if total != totalHint {
+				markNewAPIPartial(result, newAPIWarningTotalChanged)
+			}
+		}
+
+		fingerprint := newAPIPageFingerprint(items)
+		_, repeatedPage := seenPages[fingerprint]
+		if len(items) > 0 {
+			seenPages[fingerprint] = struct{}{}
+		}
+		newIDs := 0
+		for _, row := range items {
+			if row.ID <= 0 {
+				markNewAPIPartial(result, newAPIWarningInvalidRemoteKeyID)
+				continue
+			}
+			if _, exists := seenIDs[row.ID]; exists {
+				continue
+			}
+			seenIDs[row.ID] = struct{}{}
+			result.Rows = append(result.Rows, row)
+			newIDs++
+		}
+		rawSeen += int64(len(items))
+
+		if len(items) > 0 && repeatedPage {
+			markNewAPIPartial(result, newAPIWarningRepeatedPage)
+			return result, false, nil
+		}
+		if len(items) == newAPIKeysPageSize && newIDs == 0 {
+			markNewAPIPartial(result, newAPIWarningNoProgress)
+			return result, false, nil
+		}
+
+		normalStop := len(items) < newAPIKeysPageSize || (totalHint > 0 && rawSeen >= totalHint)
+		if normalStop {
+			if totalHint > 0 && (rawSeen < totalHint || int64(len(result.Rows)) < totalHint) {
+				markNewAPIPartial(result, newAPIWarningTotalMismatch)
+			}
+			return result, false, nil
+		}
+		if pageOffset == newAPIMaxKeyListPages-1 {
+			markNewAPIPartial(result, newAPIWarningPageLimit)
+			return result, false, nil
 		}
 	}
-	return nil, fmt.Errorf("newapi token list exceeded max pages")
+	return result, false, nil
 }
 
-func (a newAPIUpstreamProviderAdapter) fetchMaskedKeySecrets(ctx context.Context, session *newAPISession, rows []newAPIKeyRow) (map[int64]string, error) {
+func (a newAPIUpstreamProviderAdapter) fetchMaskedKeySecrets(ctx context.Context, session *newAPISession, rows []newAPIKeyRow) (*newAPIRevealResult, error) {
 	ids := make([]int64, 0)
+	seenIDs := make(map[int64]struct{})
 	for _, row := range rows {
 		if row.ID <= 0 {
 			continue
 		}
 		key := strings.TrimSpace(row.Key)
 		if key != "" && isMaskedUpstreamKey(key) {
-			ids = append(ids, row.ID)
+			if _, exists := seenIDs[row.ID]; !exists {
+				seenIDs[row.ID] = struct{}{}
+				ids = append(ids, row.ID)
+			}
 		}
 	}
+	result := &newAPIRevealResult{Keys: make(map[int64]string), Warnings: []string{}}
 	if len(ids) == 0 {
-		return nil, nil
+		return result, nil
 	}
 	endpoint, err := buildSub2APIURL(session.rootURL, newAPITokenBatchKeysPath)
 	if err != nil {
 		return nil, err
 	}
-	var payload newAPIEnvelope[newAPIBatchKeysData]
+	var payload newAPIWireEnvelope
 	status, err := a.doJSON(ctx, session.client, http.MethodPost, endpoint, session.userID, map[string]any{"ids": ids}, &payload)
 	if err != nil {
-		return nil, fmt.Errorf("newapi fetch token keys failed: %w", err)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("newapi fetch token keys request failed")
+	}
+	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented {
+		return a.fetchIndividualKeySecrets(ctx, session, ids, result)
 	}
 	if status < 200 || status >= 300 {
 		return nil, fmt.Errorf("newapi fetch token keys returned status %d", status)
 	}
-	if !payload.Success {
-		return nil, fmt.Errorf("newapi fetch token keys failed%s", safeNewAPIMessage(payload.Message))
+	if payload.Success == nil {
+		return nil, fmt.Errorf("newapi fetch token keys returned incompatible response")
 	}
-	out := make(map[int64]string, len(payload.Data.Keys))
-	for rawID, key := range payload.Data.Keys {
+	if !*payload.Success {
+		if isNewAPIBatchUnsupportedMessage(payload.Message) {
+			return a.fetchIndividualKeySecrets(ctx, session, ids, result)
+		}
+		return nil, fmt.Errorf("newapi fetch token keys failed")
+	}
+	batchKeys, err := parseNewAPIBatchKeys(payload.Data)
+	if err != nil {
+		return nil, fmt.Errorf("newapi fetch token keys returned incompatible response")
+	}
+	wanted := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	for rawID, key := range batchKeys {
 		id, err := strconv.ParseInt(strings.TrimSpace(rawID), 10, 64)
 		if err != nil || id <= 0 {
 			continue
 		}
-		out[id] = strings.TrimSpace(key)
+		if _, ok := wanted[id]; ok && isUsableNewAPIKey(key) {
+			result.Keys[id] = strings.TrimSpace(key)
+		}
 	}
-	return out, nil
+	unresolved := make([]int64, 0)
+	for _, id := range ids {
+		if _, ok := result.Keys[id]; !ok {
+			unresolved = append(unresolved, id)
+		}
+	}
+	if len(unresolved) == 0 {
+		return result, nil
+	}
+	return a.fetchIndividualKeySecrets(ctx, session, unresolved, result)
+}
+
+func (a newAPIUpstreamProviderAdapter) fetchIndividualKeySecrets(
+	ctx context.Context,
+	session *newAPISession,
+	ids []int64,
+	result *newAPIRevealResult,
+) (*newAPIRevealResult, error) {
+	type revealItem struct {
+		key string
+		ok  bool
+	}
+	items := make([]revealItem, len(ids))
+	jobs := make(chan int)
+	workerCount := newAPIMaxRevealWorkers
+	if len(ids) < workerCount {
+		workerCount = len(ids)
+	}
+	var wg sync.WaitGroup
+	wg.Add(workerCount)
+	for worker := 0; worker < workerCount; worker++ {
+		go func() {
+			defer wg.Done()
+			for index := range jobs {
+				items[index].key, items[index].ok = a.fetchIndividualKeySecret(ctx, session, ids[index])
+			}
+		}()
+	}
+	for index := range ids {
+		jobs <- index
+	}
+	close(jobs)
+	wg.Wait()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	for index, id := range ids {
+		if items[index].ok {
+			result.Keys[id] = items[index].key
+			result.FallbackCount++
+			continue
+		}
+		result.Partial = true
+		result.Warnings = appendNewAPIWarnings(result.Warnings, fmt.Sprintf("%s remote_key_id=%d", newAPIWarningRevealFailed, id))
+	}
+	return result, nil
+}
+
+func (a newAPIUpstreamProviderAdapter) fetchIndividualKeySecret(ctx context.Context, session *newAPISession, id int64) (string, bool) {
+	endpoint, err := buildSub2APIURL(session.rootURL, fmt.Sprintf("/api/token/%d/key", id))
+	if err != nil {
+		return "", false
+	}
+	var payload newAPIWireEnvelope
+	status, err := a.doJSON(ctx, session.client, http.MethodGet, endpoint, session.userID, nil, &payload)
+	if err != nil || status < 200 || status >= 300 || payload.Success == nil || !*payload.Success {
+		return "", false
+	}
+	if !isJSONObject(payload.Data) {
+		return "", false
+	}
+	var data struct {
+		Key json.RawMessage `json:"key"`
+	}
+	if err := json.Unmarshal(payload.Data, &data); err != nil || len(data.Key) == 0 || isJSONNull(data.Key) {
+		return "", false
+	}
+	var key string
+	if err := json.Unmarshal(data.Key, &key); err != nil || !isUsableNewAPIKey(key) {
+		return "", false
+	}
+	return strings.TrimSpace(key), true
+}
+
+func parseNewAPIKeyListPage(raw json.RawMessage) ([]newAPIKeyRow, int64, bool, error) {
+	if !isJSONObject(raw) {
+		return nil, 0, false, fmt.Errorf("data must be an object")
+	}
+	var data newAPIKeyListWireData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, 0, false, err
+	}
+	if _, _, err := parseOptionalNewAPIInteger(data.Page); err != nil {
+		return nil, 0, false, fmt.Errorf("invalid page")
+	}
+	if _, _, err := parseOptionalNewAPIInteger(data.PageSize); err != nil {
+		return nil, 0, false, fmt.Errorf("invalid page_size")
+	}
+	total, totalPresent, err := parseOptionalNewAPIInteger(data.Total)
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("invalid total")
+	}
+	if len(data.Items) == 0 || isJSONNull(data.Items) {
+		return nil, 0, false, fmt.Errorf("items must be an array")
+	}
+	var items []newAPIKeyRow
+	if err := json.Unmarshal(data.Items, &items); err != nil || items == nil {
+		return nil, 0, false, fmt.Errorf("items must be an array")
+	}
+	return items, total, totalPresent, nil
+}
+
+func parseNewAPIBatchKeys(raw json.RawMessage) (map[string]string, error) {
+	if !isJSONObject(raw) {
+		return nil, fmt.Errorf("data must be an object")
+	}
+	var data struct {
+		Keys json.RawMessage `json:"keys"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, err
+	}
+	if len(data.Keys) == 0 || isJSONNull(data.Keys) {
+		return map[string]string{}, nil
+	}
+	var keys map[string]string
+	if err := json.Unmarshal(data.Keys, &keys); err != nil || keys == nil {
+		return nil, fmt.Errorf("keys must be an object of strings")
+	}
+	return keys, nil
+}
+
+func parseOptionalNewAPIInteger(raw json.RawMessage) (int64, bool, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return 0, false, nil
+	}
+	if value, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		return value, true, nil
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil || !finiteNewAPINumber(value) || math.Trunc(value) != value || value > math.MaxInt64 || value < math.MinInt64 {
+		return 0, false, fmt.Errorf("not an integer")
+	}
+	return int64(value), true, nil
+}
+
+func newAPIPageFingerprint(items []newAPIKeyRow) string {
+	var builder strings.Builder
+	builder.Grow(len(items) * 12)
+	for _, row := range items {
+		builder.WriteString(strconv.FormatInt(row.ID, 10))
+		builder.WriteByte(',')
+	}
+	return builder.String()
+}
+
+func markNewAPIPartial(result *newAPIKeyFetchResult, warning string) {
+	result.Partial = true
+	result.Warnings = appendNewAPIWarnings(result.Warnings, warning)
+}
+
+func appendNewAPIWarnings(existing []string, warnings ...string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(warnings))
+	for _, warning := range existing {
+		seen[warning] = struct{}{}
+	}
+	for _, warning := range warnings {
+		if warning == "" {
+			continue
+		}
+		if _, ok := seen[warning]; ok {
+			continue
+		}
+		seen[warning] = struct{}{}
+		existing = append(existing, warning)
+	}
+	return existing
+}
+
+func isUsableNewAPIKey(key string) bool {
+	key = strings.TrimSpace(key)
+	return key != "" && !isMaskedUpstreamKey(key)
+}
+
+func isJSONObject(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return len(trimmed) >= 2 && trimmed[0] == '{' && trimmed[len(trimmed)-1] == '}'
+}
+
+func isJSONNull(raw json.RawMessage) bool {
+	return strings.TrimSpace(string(raw)) == "null"
+}
+
+func isNewAPIJSONDecodeError(err error) bool {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	return errors.As(err, &syntaxErr) || errors.As(err, &typeErr) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+}
+
+func isNewAPIBatchUnsupportedMessage(message string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(message)), " "))
+	switch normalized {
+	case "unsupported",
+		"not supported",
+		"not implemented",
+		"method not allowed",
+		"batch reveal unsupported",
+		"batch reveal not supported",
+		"batch reveal is not supported",
+		"batch token key reveal unsupported",
+		"batch token key reveal not supported",
+		"batch token key reveal is not supported",
+		"batch token keys unsupported",
+		"batch token keys not supported",
+		"batch token keys are not supported",
+		"this endpoint is not supported",
+		"不支持",
+		"暂不支持",
+		"未实现",
+		"批量获取令牌密钥不支持",
+		"不支持批量获取令牌密钥",
+		"暂不支持批量获取令牌密钥":
+		return true
+	default:
+		return false
+	}
 }
 
 func (a newAPIUpstreamProviderAdapter) fetchProfile(ctx context.Context, session *newAPISession) (*newAPIUserProfile, error) {
@@ -462,13 +974,13 @@ func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, 
 	if profile == nil {
 		return nil
 	}
-	if statusErr != nil {
-		return map[string]any{
-			"upstream_provider_snapshot_last_error":    newAPIUpstreamProviderAdapter{}.SanitizeError(statusErr, cfg.Credentials),
-			"upstream_provider_snapshot_last_error_at": now,
-		}
-	}
 	amounts := newAPIQuotaAmounts(profile.Quota, profile.UsedQuota, status)
+	lastError := ""
+	lastErrorAt := ""
+	if statusErr != nil {
+		lastError = newAPIUpstreamProviderAdapter{}.SanitizeError(statusErr, cfg.Credentials)
+		lastErrorAt = now
+	}
 	return map[string]any{
 		"upstream_provider_snapshot": map[string]any{
 			"version":                       1,
@@ -500,8 +1012,8 @@ func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, 
 			"request_count":                 profile.RequestCount,
 			"unit":                          "currency",
 		},
-		"upstream_provider_snapshot_last_error":    "",
-		"upstream_provider_snapshot_last_error_at": "",
+		"upstream_provider_snapshot_last_error":    lastError,
+		"upstream_provider_snapshot_last_error_at": lastErrorAt,
 	}
 }
 
@@ -522,7 +1034,7 @@ type newAPIQuotaSnapshotAmounts struct {
 func newAPIQuotaAmounts(balanceRaw, usedRaw float64, status *newAPIStatusData) newAPIQuotaSnapshotAmounts {
 	quotaPerUnit := 500000.0
 	displayType := "USD"
-	usdRate := 1.0
+	usdRate := 0.0
 	customRate := 1.0
 	customSymbol := "¤"
 	if status != nil {

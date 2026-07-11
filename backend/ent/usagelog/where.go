@@ -70,6 +70,16 @@ func AccountID(v int64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldAccountID, v))
 }
 
+// UpstreamConfigID applies equality check predicate on the "upstream_config_id" field. It's identical to UpstreamConfigIDEQ.
+func UpstreamConfigID(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldUpstreamConfigID, v))
+}
+
+// UpstreamKeyID applies equality check predicate on the "upstream_key_id" field. It's identical to UpstreamKeyIDEQ.
+func UpstreamKeyID(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldUpstreamKeyID, v))
+}
+
 // RequestID applies equality check predicate on the "request_id" field. It's identical to RequestIDEQ.
 func RequestID(v string) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldRequestID, v))
@@ -188,6 +198,16 @@ func RateMultiplier(v float64) predicate.UsageLog {
 // AccountRateMultiplier applies equality check predicate on the "account_rate_multiplier" field. It's identical to AccountRateMultiplierEQ.
 func AccountRateMultiplier(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldAccountRateMultiplier, v))
+}
+
+// UpstreamCostCurrency applies equality check predicate on the "upstream_cost_currency" field. It's identical to UpstreamCostCurrencyEQ.
+func UpstreamCostCurrency(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostToCnyRate applies equality check predicate on the "upstream_cost_to_cny_rate" field. It's identical to UpstreamCostToCnyRateEQ.
+func UpstreamCostToCnyRate(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldUpstreamCostToCnyRate, v))
 }
 
 // BillingType applies equality check predicate on the "billing_type" field. It's identical to BillingTypeEQ.
@@ -328,6 +348,66 @@ func AccountIDIn(vs ...int64) predicate.UsageLog {
 // AccountIDNotIn applies the NotIn predicate on the "account_id" field.
 func AccountIDNotIn(vs ...int64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNotIn(FieldAccountID, vs...))
+}
+
+// UpstreamConfigIDEQ applies the EQ predicate on the "upstream_config_id" field.
+func UpstreamConfigIDEQ(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldUpstreamConfigID, v))
+}
+
+// UpstreamConfigIDNEQ applies the NEQ predicate on the "upstream_config_id" field.
+func UpstreamConfigIDNEQ(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldUpstreamConfigID, v))
+}
+
+// UpstreamConfigIDIn applies the In predicate on the "upstream_config_id" field.
+func UpstreamConfigIDIn(vs ...int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldUpstreamConfigID, vs...))
+}
+
+// UpstreamConfigIDNotIn applies the NotIn predicate on the "upstream_config_id" field.
+func UpstreamConfigIDNotIn(vs ...int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldUpstreamConfigID, vs...))
+}
+
+// UpstreamConfigIDIsNil applies the IsNil predicate on the "upstream_config_id" field.
+func UpstreamConfigIDIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldUpstreamConfigID))
+}
+
+// UpstreamConfigIDNotNil applies the NotNil predicate on the "upstream_config_id" field.
+func UpstreamConfigIDNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldUpstreamConfigID))
+}
+
+// UpstreamKeyIDEQ applies the EQ predicate on the "upstream_key_id" field.
+func UpstreamKeyIDEQ(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldUpstreamKeyID, v))
+}
+
+// UpstreamKeyIDNEQ applies the NEQ predicate on the "upstream_key_id" field.
+func UpstreamKeyIDNEQ(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldUpstreamKeyID, v))
+}
+
+// UpstreamKeyIDIn applies the In predicate on the "upstream_key_id" field.
+func UpstreamKeyIDIn(vs ...int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldUpstreamKeyID, vs...))
+}
+
+// UpstreamKeyIDNotIn applies the NotIn predicate on the "upstream_key_id" field.
+func UpstreamKeyIDNotIn(vs ...int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldUpstreamKeyID, vs...))
+}
+
+// UpstreamKeyIDIsNil applies the IsNil predicate on the "upstream_key_id" field.
+func UpstreamKeyIDIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldUpstreamKeyID))
+}
+
+// UpstreamKeyIDNotNil applies the NotNil predicate on the "upstream_key_id" field.
+func UpstreamKeyIDNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldUpstreamKeyID))
 }
 
 // RequestIDEQ applies the EQ predicate on the "request_id" field.
@@ -1515,6 +1595,131 @@ func AccountRateMultiplierNotNil() predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNotNull(FieldAccountRateMultiplier))
 }
 
+// UpstreamCostCurrencyEQ applies the EQ predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyNEQ applies the NEQ predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyIn applies the In predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldUpstreamCostCurrency, vs...))
+}
+
+// UpstreamCostCurrencyNotIn applies the NotIn predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldUpstreamCostCurrency, vs...))
+}
+
+// UpstreamCostCurrencyGT applies the GT predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyGTE applies the GTE predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyLT applies the LT predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyLTE applies the LTE predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyContains applies the Contains predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyHasPrefix applies the HasPrefix predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyHasSuffix applies the HasSuffix predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyIsNil applies the IsNil predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldUpstreamCostCurrency))
+}
+
+// UpstreamCostCurrencyNotNil applies the NotNil predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldUpstreamCostCurrency))
+}
+
+// UpstreamCostCurrencyEqualFold applies the EqualFold predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyContainsFold applies the ContainsFold predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostToCnyRateEQ applies the EQ predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateNEQ applies the NEQ predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateNEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateIn applies the In predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldUpstreamCostToCnyRate, vs...))
+}
+
+// UpstreamCostToCnyRateNotIn applies the NotIn predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateNotIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldUpstreamCostToCnyRate, vs...))
+}
+
+// UpstreamCostToCnyRateGT applies the GT predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateGT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateGTE applies the GTE predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateGTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateLT applies the LT predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateLT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateLTE applies the LTE predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateLTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateIsNil applies the IsNil predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldUpstreamCostToCnyRate))
+}
+
+// UpstreamCostToCnyRateNotNil applies the NotNil predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldUpstreamCostToCnyRate))
+}
+
 // BillingTypeEQ applies the EQ predicate on the "billing_type" field.
 func BillingTypeEQ(v int8) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldBillingType, v))
@@ -2487,6 +2692,52 @@ func HasSubscription() predicate.UsageLog {
 func HasSubscriptionWith(preds ...predicate.UserSubscription) predicate.UsageLog {
 	return predicate.UsageLog(func(s *sql.Selector) {
 		step := newSubscriptionStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasUpstreamConfig applies the HasEdge predicate on the "upstream_config" edge.
+func HasUpstreamConfig() predicate.UsageLog {
+	return predicate.UsageLog(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, UpstreamConfigTable, UpstreamConfigColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUpstreamConfigWith applies the HasEdge predicate on the "upstream_config" edge with a given conditions (other predicates).
+func HasUpstreamConfigWith(preds ...predicate.UpstreamConfig) predicate.UsageLog {
+	return predicate.UsageLog(func(s *sql.Selector) {
+		step := newUpstreamConfigStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasUpstreamKey applies the HasEdge predicate on the "upstream_key" edge.
+func HasUpstreamKey() predicate.UsageLog {
+	return predicate.UsageLog(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, UpstreamKeyTable, UpstreamKeyColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUpstreamKeyWith applies the HasEdge predicate on the "upstream_key" edge with a given conditions (other predicates).
+func HasUpstreamKeyWith(preds ...predicate.UpstreamKey) predicate.UsageLog {
+	return predicate.UsageLog(func(s *sql.Selector) {
+		step := newUpstreamKeyStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

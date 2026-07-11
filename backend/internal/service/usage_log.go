@@ -97,12 +97,14 @@ func ApplyLegacyRequestFields(requestType RequestType, fallbackStream bool, fall
 }
 
 type UsageLog struct {
-	ID        int64
-	UserID    int64
-	APIKeyID  int64
-	AccountID int64
-	RequestID string
-	Model     string
+	ID               int64
+	UserID           int64
+	APIKeyID         int64
+	AccountID        int64
+	UpstreamConfigID *int64
+	UpstreamKeyID    *int64
+	RequestID        string
+	Model            string
 	// RequestedModel is the client-requested model name recorded for stable user/admin display.
 	// Empty should be treated as Model for backward compatibility with historical rows.
 	RequestedModel string
@@ -151,6 +153,11 @@ type UsageLog struct {
 	RateMultiplier    float64
 	// AccountRateMultiplier 账号计费倍率快照（nil 表示历史数据，按 1.0 处理）
 	AccountRateMultiplier *float64
+	// UpstreamCostCurrency and UpstreamCostToCNYRate preserve the upstream cost
+	// conversion basis used when the request was recorded. Nil marks historical
+	// or otherwise unconvertible rows.
+	UpstreamCostCurrency  *string
+	UpstreamCostToCNYRate *float64
 	// AccountStatsCost 账号统计定价预计算费用（nil = 使用默认公式 total_cost × account_rate_multiplier）
 	AccountStatsCost *float64
 

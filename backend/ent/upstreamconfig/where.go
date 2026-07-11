@@ -95,6 +95,16 @@ func ProxyID(v int64) predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(sql.FieldEQ(FieldProxyID, v))
 }
 
+// RechargeRate applies equality check predicate on the "recharge_rate" field. It's identical to RechargeRateEQ.
+func RechargeRate(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEQ(FieldRechargeRate, v))
+}
+
+// BalanceToCnyRate applies equality check predicate on the "balance_to_cny_rate" field. It's identical to BalanceToCnyRateEQ.
+func BalanceToCnyRate(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEQ(FieldBalanceToCnyRate, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(sql.FieldEQ(FieldStatus, v))
@@ -535,6 +545,96 @@ func ProxyIDNotNil() predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(sql.FieldNotNull(FieldProxyID))
 }
 
+// RechargeRateEQ applies the EQ predicate on the "recharge_rate" field.
+func RechargeRateEQ(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEQ(FieldRechargeRate, v))
+}
+
+// RechargeRateNEQ applies the NEQ predicate on the "recharge_rate" field.
+func RechargeRateNEQ(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNEQ(FieldRechargeRate, v))
+}
+
+// RechargeRateIn applies the In predicate on the "recharge_rate" field.
+func RechargeRateIn(vs ...float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldIn(FieldRechargeRate, vs...))
+}
+
+// RechargeRateNotIn applies the NotIn predicate on the "recharge_rate" field.
+func RechargeRateNotIn(vs ...float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNotIn(FieldRechargeRate, vs...))
+}
+
+// RechargeRateGT applies the GT predicate on the "recharge_rate" field.
+func RechargeRateGT(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldGT(FieldRechargeRate, v))
+}
+
+// RechargeRateGTE applies the GTE predicate on the "recharge_rate" field.
+func RechargeRateGTE(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldGTE(FieldRechargeRate, v))
+}
+
+// RechargeRateLT applies the LT predicate on the "recharge_rate" field.
+func RechargeRateLT(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldLT(FieldRechargeRate, v))
+}
+
+// RechargeRateLTE applies the LTE predicate on the "recharge_rate" field.
+func RechargeRateLTE(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldLTE(FieldRechargeRate, v))
+}
+
+// BalanceToCnyRateEQ applies the EQ predicate on the "balance_to_cny_rate" field.
+func BalanceToCnyRateEQ(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEQ(FieldBalanceToCnyRate, v))
+}
+
+// BalanceToCnyRateNEQ applies the NEQ predicate on the "balance_to_cny_rate" field.
+func BalanceToCnyRateNEQ(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNEQ(FieldBalanceToCnyRate, v))
+}
+
+// BalanceToCnyRateIn applies the In predicate on the "balance_to_cny_rate" field.
+func BalanceToCnyRateIn(vs ...float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldIn(FieldBalanceToCnyRate, vs...))
+}
+
+// BalanceToCnyRateNotIn applies the NotIn predicate on the "balance_to_cny_rate" field.
+func BalanceToCnyRateNotIn(vs ...float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNotIn(FieldBalanceToCnyRate, vs...))
+}
+
+// BalanceToCnyRateGT applies the GT predicate on the "balance_to_cny_rate" field.
+func BalanceToCnyRateGT(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldGT(FieldBalanceToCnyRate, v))
+}
+
+// BalanceToCnyRateGTE applies the GTE predicate on the "balance_to_cny_rate" field.
+func BalanceToCnyRateGTE(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldGTE(FieldBalanceToCnyRate, v))
+}
+
+// BalanceToCnyRateLT applies the LT predicate on the "balance_to_cny_rate" field.
+func BalanceToCnyRateLT(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldLT(FieldBalanceToCnyRate, v))
+}
+
+// BalanceToCnyRateLTE applies the LTE predicate on the "balance_to_cny_rate" field.
+func BalanceToCnyRateLTE(v float64) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldLTE(FieldBalanceToCnyRate, v))
+}
+
+// BalanceToCnyRateIsNil applies the IsNil predicate on the "balance_to_cny_rate" field.
+func BalanceToCnyRateIsNil() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldIsNull(FieldBalanceToCnyRate))
+}
+
+// BalanceToCnyRateNotNil applies the NotNil predicate on the "balance_to_cny_rate" field.
+func BalanceToCnyRateNotNil() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNotNull(FieldBalanceToCnyRate))
+}
+
 // StatusEQ applies the EQ predicate on the "status" field.
 func StatusEQ(v string) predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(sql.FieldEQ(FieldStatus, v))
@@ -813,6 +913,121 @@ func HasAccounts() predicate.UpstreamConfig {
 func HasAccountsWith(preds ...predicate.Account) predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(func(s *sql.Selector) {
 		step := newAccountsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasSyncResults applies the HasEdge predicate on the "sync_results" edge.
+func HasSyncResults() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, SyncResultsTable, SyncResultsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasSyncResultsWith applies the HasEdge predicate on the "sync_results" edge with a given conditions (other predicates).
+func HasSyncResultsWith(preds ...predicate.UpstreamSyncResult) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := newSyncResultsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasEvents applies the HasEdge predicate on the "events" edge.
+func HasEvents() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, EventsTable, EventsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasEventsWith applies the HasEdge predicate on the "events" edge with a given conditions (other predicates).
+func HasEventsWith(preds ...predicate.UpstreamEvent) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := newEventsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasIncidents applies the HasEdge predicate on the "incidents" edge.
+func HasIncidents() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, IncidentsTable, IncidentsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasIncidentsWith applies the HasEdge predicate on the "incidents" edge with a given conditions (other predicates).
+func HasIncidentsWith(preds ...predicate.UpstreamIncident) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := newIncidentsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasBalanceSnapshots applies the HasEdge predicate on the "balance_snapshots" edge.
+func HasBalanceSnapshots() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, BalanceSnapshotsTable, BalanceSnapshotsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasBalanceSnapshotsWith applies the HasEdge predicate on the "balance_snapshots" edge with a given conditions (other predicates).
+func HasBalanceSnapshotsWith(preds ...predicate.UpstreamBalanceSnapshot) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := newBalanceSnapshotsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasUsageLogs applies the HasEdge predicate on the "usage_logs" edge.
+func HasUsageLogs() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, UsageLogsTable, UsageLogsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUsageLogsWith applies the HasEdge predicate on the "usage_logs" edge with a given conditions (other predicates).
+func HasUsageLogsWith(preds ...predicate.UsageLog) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := newUsageLogsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

@@ -109,11 +109,16 @@ func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, in
 	if input == nil {
 		return nil
 	}
-	if input.Type != AccountTypeUpstream && (input.UpstreamConfigID == nil || *input.UpstreamConfigID <= 0) {
+	hasConfig := input.UpstreamConfigID != nil && *input.UpstreamConfigID > 0
+	hasKey := input.UpstreamKeyID != nil && *input.UpstreamKeyID > 0
+	if !hasConfig && !hasKey && input.UpstreamConfigID == nil && input.UpstreamKeyID == nil {
 		return nil
 	}
-	if input.UpstreamConfigID == nil || *input.UpstreamConfigID <= 0 || input.UpstreamKeyID == nil || *input.UpstreamKeyID <= 0 {
+	if !hasConfig || !hasKey {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_BINDING_REQUIRED", "upstream config and key are required")
+	}
+	if input.Type != AccountTypeAPIKey {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_TYPE_INVALID", "upstream-bound accounts must use apikey type")
 	}
 	cfg, key, err := s.validateUpstreamAccountBinding(ctx, *input.UpstreamConfigID, *input.UpstreamKeyID)
 	if err != nil {
@@ -124,7 +129,6 @@ func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, in
 		return err
 	}
 	input.Name = autoName
-	input.Type = AccountTypeAPIKey
 	if strings.TrimSpace(input.Platform) == "" {
 		input.Platform = key.Platform
 	} else if strings.TrimSpace(key.Platform) != "" && !strings.EqualFold(strings.TrimSpace(input.Platform), strings.TrimSpace(key.Platform)) {
@@ -146,12 +150,8 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 	if input == nil || account == nil {
 		return nil
 	}
-	clearingBinding := input.Type != AccountTypeUpstream &&
-		input.UpstreamConfigID != nil && *input.UpstreamConfigID <= 0 &&
-		input.UpstreamKeyID != nil && *input.UpstreamKeyID <= 0
-	if input.Type == AccountTypeUpstream {
-		account.Type = AccountTypeAPIKey
-	}
+	hadBinding := account.UpstreamConfigID != nil || account.UpstreamKeyID != nil
+	bindingTouched := input.UpstreamConfigID != nil || input.UpstreamKeyID != nil
 	cfgID := account.UpstreamConfigID
 	keyID := account.UpstreamKeyID
 	if input.UpstreamConfigID != nil {
@@ -169,17 +169,16 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 		}
 	}
 	if cfgID == nil && keyID == nil {
-		if clearingBinding {
+		if hadBinding && bindingTouched {
 			clearUpstreamAccountBinding(account, input)
-			return nil
-		}
-		if input.Type == AccountTypeUpstream || input.UpstreamConfigID != nil || input.UpstreamKeyID != nil {
-			return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_BINDING_REQUIRED", "upstream config and key are required")
 		}
 		return nil
 	}
 	if cfgID == nil || keyID == nil {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_BINDING_REQUIRED", "upstream config and key are required")
+	}
+	if account.Type != AccountTypeAPIKey {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_TYPE_INVALID", "upstream-bound accounts must use apikey type")
 	}
 	cfg, key, err := s.validateUpstreamAccountBinding(ctx, *cfgID, *keyID)
 	if err != nil {
@@ -218,6 +217,14 @@ func clearUpstreamAccountBinding(account *Account, input *UpdateAccountInput) {
 		delete(input.Extra, AccountUpstreamProviderKey)
 		delete(input.Extra, AccountSub2APIRateSyncAdapterKey)
 	}
+}
+
+func sanitizeUpstreamBoundCredentials(account *Account) {
+	if account == nil || !account.IsUpstreamBound() || account.Credentials == nil {
+		return
+	}
+	delete(account.Credentials, "base_url")
+	delete(account.Credentials, "api_key")
 }
 
 func (s *adminServiceImpl) validateUpstreamAccountBinding(ctx context.Context, configID, keyID int64) (*UpstreamConfig, *UpstreamKey, error) {

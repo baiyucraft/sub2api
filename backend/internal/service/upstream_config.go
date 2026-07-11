@@ -31,40 +31,45 @@ var (
 )
 
 type UpstreamConfig struct {
-	ID            int64
-	Name          string
-	Provider      string
-	BaseURL       string
-	AuthMode      string
-	Credentials   map[string]any
-	Extra         map[string]any
-	ProxyID       *int64
-	Status        string
-	LastError     *string
-	LastCheckedAt *time.Time
-	LastSuccessAt *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID                    int64
+	Name                  string
+	Provider              string
+	BaseURL               string
+	AuthMode              string
+	Credentials           map[string]any
+	Extra                 map[string]any
+	ProxyID               *int64
+	ClearProxy            bool
+	RechargeRate          float64
+	BalanceToCNYRate      *float64
+	ClearBalanceToCNYRate bool
+	Status                string
+	LastError             *string
+	LastCheckedAt         *time.Time
+	LastSuccessAt         *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 
 	Keys []*UpstreamKey
 }
 
 type UpstreamKey struct {
-	ID                int64
-	UpstreamConfigID  int64
-	Name              string
-	Key               string
-	KeyHash           string
-	RemoteKeyID       *int64
-	UpstreamGroupID   *int64
-	UpstreamGroupName string
-	Platform          string
-	RateMultiplier    *float64
-	Status            string
-	LastSeenAt        *time.Time
-	Extra             map[string]any
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                      int64
+	UpstreamConfigID        int64
+	Name                    string
+	Key                     string
+	KeyHash                 string
+	RemoteKeyID             *int64
+	UpstreamGroupID         *int64
+	UpstreamGroupName       string
+	Platform                string
+	RateMultiplier          *float64
+	EffectiveCostMultiplier *float64
+	Status                  string
+	LastSeenAt              *time.Time
+	Extra                   map[string]any
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 type UpstreamConfigRepository interface {
@@ -93,12 +98,22 @@ type UpstreamConfigService struct {
 }
 
 type UpstreamConfigSyncResult struct {
-	ConfigID            int64  `json:"config_id"`
-	Name                string `json:"name"`
-	Success             bool   `json:"success"`
-	KeyCount            int    `json:"key_count"`
-	UpdatedAccountCount int    `json:"updated_account_count"`
-	Error               string `json:"error,omitempty"`
+	RunID               int64    `json:"run_id,omitempty"`
+	ConfigID            int64    `json:"config_id"`
+	Name                string   `json:"name"`
+	Provider            string   `json:"provider,omitempty"`
+	Success             bool     `json:"success"`
+	Status              string   `json:"status,omitempty"`
+	Stage               string   `json:"stage,omitempty"`
+	ErrorCode           string   `json:"error_code,omitempty"`
+	Retryable           bool     `json:"retryable,omitempty"`
+	KeyCount            int      `json:"key_count"`
+	FallbackKeyCount    int      `json:"fallback_key_count,omitempty"`
+	UnresolvedKeyCount  int      `json:"unresolved_key_count,omitempty"`
+	UpdatedAccountCount int      `json:"updated_account_count"`
+	Warnings            []string `json:"warnings,omitempty"`
+	DurationMS          int64    `json:"duration_ms,omitempty"`
+	Error               string   `json:"error,omitempty"`
 }
 
 type UpstreamAccountNameBackfillItem struct {
@@ -111,7 +126,11 @@ type UpstreamAccountNameBackfillItem struct {
 }
 
 type upstreamConfigAtomicSyncRepository interface {
-	ApplySyncSnapshot(ctx context.Context, configID int64, keys []UpstreamKey, extraUpdates map[string]any, checkedAt time.Time) ([]UpstreamKey, int, error)
+	ApplySyncSnapshot(ctx context.Context, configID, runID int64, keys []UpstreamKey, extraUpdates map[string]any, checkedAt time.Time) ([]UpstreamKey, int, error)
+}
+
+type upstreamConfigSyncLockRepository interface {
+	WithUpstreamConfigSyncLock(ctx context.Context, configID int64, fn func(context.Context) error) error
 }
 
 type upstreamAccountNameBackfillRepository interface {
@@ -120,9 +139,13 @@ type upstreamAccountNameBackfillRepository interface {
 }
 
 type upstreamProviderSnapshot struct {
-	Keys            []UpstreamKey
-	RefreshedTokens *sub2APIRefreshData
-	ExtraUpdates    map[string]any
+	Keys               []UpstreamKey
+	RefreshedTokens    *sub2APIRefreshData
+	ExtraUpdates       map[string]any
+	Partial            bool
+	Warnings           []string
+	FallbackKeyCount   int
+	UnresolvedKeyCount int
 }
 
 type upstreamProviderAdapter interface {
@@ -138,11 +161,21 @@ func NewUpstreamConfigService(repo UpstreamConfigRepository, proxyRepo ProxyRepo
 }
 
 func (s *UpstreamConfigService) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error) {
-	return s.repo.List(ctx, params, provider, status, search)
+	configs, result, err := s.repo.List(ctx, params, provider, status, search)
+	if err == nil {
+		for i := range configs {
+			applyEffectiveCostMultipliers(&configs[i], configs[i].Keys)
+		}
+	}
+	return configs, result, err
 }
 
 func (s *UpstreamConfigService) GetByID(ctx context.Context, id int64) (*UpstreamConfig, error) {
-	return s.repo.GetByID(ctx, id)
+	config, err := s.repo.GetByID(ctx, id)
+	if err == nil && config != nil {
+		applyEffectiveCostMultipliers(config, config.Keys)
+	}
+	return config, err
 }
 
 func (s *UpstreamConfigService) Create(ctx context.Context, config *UpstreamConfig) (*UpstreamConfig, error) {
@@ -152,7 +185,7 @@ func (s *UpstreamConfigService) Create(ctx context.Context, config *UpstreamConf
 	if err := s.repo.Create(ctx, config); err != nil {
 		return nil, err
 	}
-	return s.repo.GetByID(ctx, config.ID)
+	return s.GetByID(ctx, config.ID)
 }
 
 func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *UpstreamConfig) (*UpstreamConfig, error) {
@@ -167,7 +200,9 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 	current.Provider = normalizeUpstreamProvider(upstreamFirstNonEmpty(patch.Provider, current.Provider))
 	current.BaseURL = upstreamFirstNonEmpty(patch.BaseURL, current.BaseURL)
 	current.AuthMode = normalizeUpstreamAuthMode(upstreamFirstNonEmpty(patch.AuthMode, current.AuthMode))
-	if patch.ProxyID != nil {
+	if patch.ClearProxy {
+		current.ProxyID = nil
+	} else if patch.ProxyID != nil {
 		if *patch.ProxyID == 0 {
 			current.ProxyID = nil
 		} else {
@@ -176,6 +211,18 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 	}
 	if patch.Status != "" {
 		current.Status = patch.Status
+	}
+	if patch.RechargeRate > 0 {
+		current.RechargeRate = patch.RechargeRate
+	}
+	if patch.ClearBalanceToCNYRate {
+		current.BalanceToCNYRate = nil
+	} else if patch.BalanceToCNYRate != nil {
+		if *patch.BalanceToCNYRate == 0 {
+			current.BalanceToCNYRate = nil
+		} else {
+			current.BalanceToCNYRate = patch.BalanceToCNYRate
+		}
 	}
 	current.Credentials = mergePreservingUpstreamSecrets(current.Credentials, patch.Credentials)
 	if patch.Extra != nil {
@@ -187,7 +234,7 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 	if err := s.repo.Update(ctx, current); err != nil {
 		return nil, err
 	}
-	return s.repo.GetByID(ctx, id)
+	return s.GetByID(ctx, id)
 }
 
 func (s *UpstreamConfigService) Delete(ctx context.Context, id int64) error {
@@ -202,7 +249,20 @@ func (s *UpstreamConfigService) Delete(ctx context.Context, id int64) error {
 }
 
 func (s *UpstreamConfigService) ListKeys(ctx context.Context, upstreamConfigID int64) ([]UpstreamKey, error) {
-	return s.repo.ListKeys(ctx, upstreamConfigID)
+	config, err := s.repo.GetByID(ctx, upstreamConfigID)
+	if err != nil {
+		return nil, err
+	}
+	keys, err := s.repo.ListKeys(ctx, upstreamConfigID)
+	if err != nil {
+		return nil, err
+	}
+	ptrs := make([]*UpstreamKey, 0, len(keys))
+	for i := range keys {
+		ptrs = append(ptrs, &keys[i])
+	}
+	applyEffectiveCostMultipliers(config, ptrs)
+	return keys, nil
 }
 
 func (s *UpstreamConfigService) PreviewAccountNameBackfill(ctx context.Context) ([]UpstreamAccountNameBackfillItem, error) {
@@ -283,29 +343,62 @@ func (s *UpstreamConfigService) SyncKeys(ctx context.Context, id int64) ([]Upstr
 	if cfg == nil {
 		return nil, UpstreamConfigSyncResult{}, ErrUpstreamConfigNotFound
 	}
-	return s.syncProviderConfig(ctx, cfg)
+	runID, err := s.beginSyncRun(ctx, UpstreamSyncTriggerManualSingle, 1)
+	if err != nil {
+		return nil, UpstreamConfigSyncResult{}, err
+	}
+	startedAt := time.Now().UTC()
+	keys, result, syncErr := s.syncProviderConfig(ctx, cfg, runID)
+	if auditErr := s.persistSyncResult(ctx, startedAt, result); auditErr != nil {
+		result.Success = false
+		result.Status = UpstreamSyncStatusFailed
+		result.Stage = "persist"
+		result.ErrorCode = "database"
+		result.Retryable = true
+		result.Error = logredact.RedactText(auditErr.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")
+		if syncErr == nil {
+			syncErr = auditErr
+		}
+	}
+	if auditErr := s.finishSyncRun(ctx, runID, []UpstreamConfigSyncResult{result}); auditErr != nil && syncErr == nil {
+		syncErr = auditErr
+	}
+	return keys, result, syncErr
 }
 
 func (s *UpstreamConfigService) SyncActiveSub2APIConfigs(ctx context.Context) []UpstreamConfigSyncResult {
-	return s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API})
+	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API}, UpstreamSyncTriggerScheduled)
+	return scheduledSyncResults(results, err)
 }
 
 func (s *UpstreamConfigService) SyncActiveUpstreamConfigs(ctx context.Context) []UpstreamConfigSyncResult {
-	return s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI})
+	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI}, UpstreamSyncTriggerScheduled)
+	return scheduledSyncResults(results, err)
 }
 
-func (s *UpstreamConfigService) syncActiveUpstreamConfigs(ctx context.Context, providers []string) []UpstreamConfigSyncResult {
+func (s *UpstreamConfigService) SyncActiveUpstreamConfigsManual(ctx context.Context) (int64, []UpstreamConfigSyncResult, error) {
+	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI}, UpstreamSyncTriggerManualBatch)
+	var runID int64
+	if len(results) > 0 {
+		runID = results[0].RunID
+	}
+	return runID, results, err
+}
+
+func (s *UpstreamConfigService) syncActiveUpstreamConfigs(ctx context.Context, providers []string, trigger string) ([]UpstreamConfigSyncResult, error) {
 	configs, listErr := s.listActiveUpstreamConfigs(ctx, providers)
 	if listErr != nil {
-		return []UpstreamConfigSyncResult{{
-			Success: false,
-			Error:   logredact.RedactText(listErr.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token"),
-		}}
+		return nil, listErr
+	}
+	runID, err := s.beginSyncRun(ctx, trigger, len(configs))
+	if err != nil {
+		return nil, err
 	}
 	results := make([]UpstreamConfigSyncResult, 0, len(configs))
 	for i := range configs {
 		cfg := configs[i]
-		_, result, err := s.syncProviderConfig(ctx, &cfg)
+		startedAt := time.Now().UTC()
+		_, result, err := s.syncProviderConfig(ctx, &cfg, runID)
 		if err != nil {
 			result.Success = false
 			if adapter, ok := upstreamProviderAdapterFor(cfg.Provider); ok {
@@ -314,26 +407,70 @@ func (s *UpstreamConfigService) syncActiveUpstreamConfigs(ctx context.Context, p
 				result.Error = logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")
 			}
 		}
+		if err := s.persistSyncResult(ctx, startedAt, result); err != nil {
+			result.Success = false
+			result.Status = UpstreamSyncStatusFailed
+			result.Stage = "persist"
+			result.ErrorCode = "database"
+			result.Retryable = true
+			result.Error = logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")
+			results = append(results, result)
+			_ = s.finishSyncRun(ctx, runID, results)
+			return results, err
+		}
 		results = append(results, result)
 	}
-	return results
+	if err := s.finishSyncRun(ctx, runID, results); err != nil {
+		return results, err
+	}
+	return results, nil
 }
 
-func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *UpstreamConfig) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
+func scheduledSyncResults(results []UpstreamConfigSyncResult, err error) []UpstreamConfigSyncResult {
+	if err == nil {
+		return results
+	}
+	return append(results, UpstreamConfigSyncResult{Status: UpstreamSyncStatusFailed, Error: logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")})
+}
+
+func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *UpstreamConfig, runID int64) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
 	if cfg != nil && cfg.ID > 0 {
 		unlock := s.lockUpstreamConfigSync(cfg.ID)
 		defer unlock()
+		if locker, ok := s.repo.(upstreamConfigSyncLockRepository); ok {
+			var keys []UpstreamKey
+			var result UpstreamConfigSyncResult
+			var syncErr error
+			lockErr := locker.WithUpstreamConfigSyncLock(ctx, cfg.ID, func(lockCtx context.Context) error {
+				keys, result, syncErr = s.syncProviderConfigLocked(lockCtx, cfg, runID)
+				return nil
+			})
+			if lockErr != nil {
+				result = UpstreamConfigSyncResult{RunID: runID, ConfigID: cfg.ID, Name: cfg.Name, Provider: cfg.Provider, Status: UpstreamSyncStatusFailed}
+				result.Error = logredact.RedactText(lockErr.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")
+				result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(lockErr, "auth")
+				return nil, result, lockErr
+			}
+			return keys, result, syncErr
+		}
+	}
+	return s.syncProviderConfigLocked(ctx, cfg, runID)
+}
+
+func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cfg *UpstreamConfig, runID int64) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
+	if cfg != nil && cfg.ID > 0 {
 		latest, err := s.repo.GetByID(ctx, cfg.ID)
 		if err != nil {
-			result := UpstreamConfigSyncResult{ConfigID: cfg.ID, Name: cfg.Name, Error: logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")}
+			result := UpstreamConfigSyncResult{RunID: runID, ConfigID: cfg.ID, Name: cfg.Name, Provider: cfg.Provider, Status: UpstreamSyncStatusFailed, Error: logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")}
 			return nil, result, err
 		}
 		cfg = latest
 	}
-	result := UpstreamConfigSyncResult{}
+	result := UpstreamConfigSyncResult{RunID: runID, Status: UpstreamSyncStatusFailed}
 	if cfg != nil {
 		result.ConfigID = cfg.ID
 		result.Name = cfg.Name
+		result.Provider = cfg.Provider
 	}
 	if cfg == nil {
 		err := fmt.Errorf("missing upstream config")
@@ -350,6 +487,7 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 	if err != nil {
 		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, adapter.SanitizeError(err, cfg.Credentials))
 		result.Error = adapter.SanitizeError(err, cfg.Credentials)
+		result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(err, "proxy")
 		return nil, result, err
 	}
 	snapshot, err := adapter.SyncSnapshot(ctx, cfg, proxyURL, true)
@@ -363,6 +501,7 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 		safeErr := adapter.SanitizeError(err, cfg.Credentials)
 		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, safeErr)
 		result.Error = safeErr
+		result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(err, "auth")
 		return nil, result, upstreamProviderSyncError(cfg.Provider, safeErr)
 	}
 	if snapshot == nil {
@@ -370,7 +509,12 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 		result.Error = adapter.SanitizeError(err, cfg.Credentials)
 		return nil, result, err
 	}
+	s.resolveMaskedSnapshotKeys(ctx, cfg, snapshot)
 	keys := snapshot.Keys
+	snapshot.ExtraUpdates = normalizeProviderBalanceExtra(cfg, snapshot.ExtraUpdates)
+	result.Warnings = append(result.Warnings, snapshot.Warnings...)
+	result.FallbackKeyCount = snapshot.FallbackKeyCount
+	result.UnresolvedKeyCount = snapshot.UnresolvedKeyCount
 	for i := range keys {
 		if err := normalizeAndValidateUpstreamKey(&keys[i]); err != nil {
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
@@ -379,14 +523,19 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 	}
 	result.KeyCount = len(keys)
 	if atomicRepo, ok := s.repo.(upstreamConfigAtomicSyncRepository); ok {
-		localKeys, updated, applyErr := atomicRepo.ApplySyncSnapshot(ctx, cfg.ID, keys, snapshot.ExtraUpdates, time.Now().UTC())
+		localKeys, updated, applyErr := atomicRepo.ApplySyncSnapshot(ctx, cfg.ID, runID, keys, snapshot.ExtraUpdates, time.Now().UTC())
 		if applyErr != nil {
 			result.Error = adapter.SanitizeError(applyErr, cfg.Credentials)
+			result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(applyErr, "persist")
 			_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, result.Error)
 			return nil, result, applyErr
 		}
 		result.UpdatedAccountCount = updated
 		result.Success = true
+		result.Status = UpstreamSyncStatusSucceeded
+		if snapshot.Partial || len(snapshot.Warnings) > 0 || snapshot.UnresolvedKeyCount > 0 {
+			result.Status = UpstreamSyncStatusPartial
+		}
 		return localKeys, result, nil
 	}
 
@@ -417,8 +566,53 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 		}
 	}
 	result.Success = true
+	result.Status = UpstreamSyncStatusSucceeded
+	if snapshot.Partial || len(snapshot.Warnings) > 0 || snapshot.UnresolvedKeyCount > 0 {
+		result.Status = UpstreamSyncStatusPartial
+	}
 	_ = s.repo.RecordCheckResult(ctx, cfg.ID, true, "")
 	return localKeys, result, nil
+}
+
+func (s *UpstreamConfigService) resolveMaskedSnapshotKeys(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) {
+	if s == nil || cfg == nil || snapshot == nil || len(snapshot.Keys) == 0 {
+		return
+	}
+	existing, err := s.repo.ListKeys(ctx, cfg.ID)
+	if err != nil {
+		snapshot.Partial = true
+		snapshot.Warnings = append(snapshot.Warnings, "failed to load local keys for masked-key fallback")
+		return
+	}
+	byRemoteID := make(map[int64]UpstreamKey, len(existing))
+	for _, key := range existing {
+		if key.RemoteKeyID != nil && strings.TrimSpace(key.Key) != "" {
+			byRemoteID[*key.RemoteKeyID] = key
+		}
+	}
+	resolved := make([]UpstreamKey, 0, len(snapshot.Keys))
+	for _, key := range snapshot.Keys {
+		if strings.TrimSpace(key.Key) != "" && !isMaskedUpstreamKey(key.Key) {
+			resolved = append(resolved, key)
+			continue
+		}
+		if key.RemoteKeyID != nil {
+			if old, ok := byRemoteID[*key.RemoteKeyID]; ok {
+				key.Key = old.Key
+				key.KeyHash = old.KeyHash
+				resolved = append(resolved, key)
+				snapshot.FallbackKeyCount++
+				snapshot.Partial = true
+				continue
+			}
+		}
+		snapshot.UnresolvedKeyCount++
+		snapshot.Partial = true
+	}
+	if snapshot.UnresolvedKeyCount > 0 {
+		snapshot.Warnings = append(snapshot.Warnings, fmt.Sprintf("%d masked upstream keys could not be resolved", snapshot.UnresolvedKeyCount))
+	}
+	snapshot.Keys = resolved
 }
 
 func sub2APIProfileExtraUpdates(cfg *UpstreamConfig, profile *sub2APIProfile, profileErr error) map[string]any {
@@ -432,7 +626,7 @@ func sub2APIProfileExtraUpdates(cfg *UpstreamConfig, profile *sub2APIProfile, pr
 	if profile == nil {
 		return nil
 	}
-	return map[string]any{
+	return normalizeProviderBalanceExtra(cfg, map[string]any{
 		"sub2api_balance":               profile.Balance,
 		"sub2api_total_recharged":       profile.TotalRecharged,
 		"sub2api_user_email":            strings.TrimSpace(profile.Email),
@@ -440,7 +634,7 @@ func sub2APIProfileExtraUpdates(cfg *UpstreamConfig, profile *sub2APIProfile, pr
 		"sub2api_balance_synced_at":     now,
 		"sub2api_balance_last_error":    "",
 		"sub2api_balance_last_error_at": "",
-	}
+	})
 }
 
 func (s *UpstreamConfigService) lockUpstreamConfigSync(id int64) func() {
@@ -507,7 +701,11 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, cfg *
 		if !ok || key.RateMultiplier == nil {
 			continue
 		}
-		multiplier := *key.RateMultiplier
+		rechargeRate := cfg.RechargeRate
+		if rechargeRate <= 0 {
+			rechargeRate = 1
+		}
+		multiplier := *key.RateMultiplier * rechargeRate
 		if multiplier < 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
 			continue
 		}
@@ -519,6 +717,8 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, cfg *
 			"upstream_provider":                  cfg.Provider,
 			"upstream_platform":                  key.Platform,
 			"upstream_rate_multiplier":           multiplier,
+			"upstream_source_rate_multiplier":    *key.RateMultiplier,
+			"upstream_recharge_rate":             rechargeRate,
 		}
 		if key.UpstreamGroupID != nil {
 			extra["upstream_group_id"] = *key.UpstreamGroupID
@@ -598,6 +798,9 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 	config.Provider = normalizeUpstreamProvider(config.Provider)
 	config.AuthMode = normalizeUpstreamAuthMode(config.AuthMode)
 	config.BaseURL = strings.TrimSpace(config.BaseURL)
+	if config.RechargeRate == 0 {
+		config.RechargeRate = 1
+	}
 	if config.Status == "" {
 		config.Status = StatusActive
 	}
@@ -606,6 +809,12 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 	}
 	if config.BaseURL == "" {
 		return infraerrors.BadRequest("UPSTREAM_CONFIG_BASE_URL_REQUIRED", "upstream config base url is required")
+	}
+	if config.RechargeRate <= 0 || config.RechargeRate > 100 || math.IsNaN(config.RechargeRate) || math.IsInf(config.RechargeRate, 0) {
+		return infraerrors.BadRequest("UPSTREAM_RECHARGE_RATE_INVALID", "recharge_rate must be greater than 0 and at most 100")
+	}
+	if config.BalanceToCNYRate != nil && (*config.BalanceToCNYRate <= 0 || math.IsNaN(*config.BalanceToCNYRate) || math.IsInf(*config.BalanceToCNYRate, 0)) {
+		return infraerrors.BadRequest("UPSTREAM_CNY_RATE_INVALID", "balance_to_cny_rate must be a positive finite number")
 	}
 	if config.Credentials == nil {
 		config.Credentials = map[string]any{}

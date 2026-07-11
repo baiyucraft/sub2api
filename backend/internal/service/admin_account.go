@@ -148,6 +148,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		account.LoadFactor = input.LoadFactor
 	}
 	account.ApplyUpstreamAutoLoadFactor()
+	sanitizeUpstreamBoundCredentials(account)
 	if err := validateAndNormalizeSub2APIUpstreamCredentials(account); err != nil {
 		return nil, err
 	}
@@ -200,6 +201,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	// Repository hydration injects the shared upstream URL and key for forwarding.
+	// Strip them before applying updates so an unbind cannot persist runtime-only secrets.
+	sanitizeUpstreamBoundCredentials(account)
 	// 安全/身份不变量(影子账号):通用更新路径被 edit/re-auth/refresh/batch 共用,
 	// 必须在此守住,否则仅在创建时的保证可被这些路径绕过。
 	if account.IsCredentialShadow() {
@@ -243,7 +247,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if account.IsCredentialShadow() && input.Credentials != nil {
 		account.Credentials = sanitizeSparkShadowCredentials(input.Credentials)
-	} else if len(input.Credentials) > 0 {
+	} else if input.Credentials != nil {
 		// 敏感子键采用"incoming 没提供就保留"的合并语义：前端响应已脱敏，
 		// 全对象 PUT 编辑时不会再带回 token，避免覆盖时清空已有凭证。
 		account.Credentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
@@ -305,6 +309,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			account.UpstreamKeyID = input.UpstreamKeyID
 		}
 	}
+	sanitizeUpstreamBoundCredentials(account)
 	// 只在指针非 nil 时更新 Concurrency（支持设置为 0）
 	if input.Concurrency != nil {
 		account.Concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)

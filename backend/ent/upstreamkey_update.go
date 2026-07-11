@@ -14,7 +14,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
 
 // UpstreamKeyUpdate is the builder for updating UpstreamKey entities.
@@ -287,6 +290,51 @@ func (_u *UpstreamKeyUpdate) AddAccounts(v ...*Account) *UpstreamKeyUpdate {
 	return _u.AddAccountIDs(ids...)
 }
 
+// AddEventIDs adds the "events" edge to the UpstreamEvent entity by IDs.
+func (_u *UpstreamKeyUpdate) AddEventIDs(ids ...int64) *UpstreamKeyUpdate {
+	_u.mutation.AddEventIDs(ids...)
+	return _u
+}
+
+// AddEvents adds the "events" edges to the UpstreamEvent entity.
+func (_u *UpstreamKeyUpdate) AddEvents(v ...*UpstreamEvent) *UpstreamKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddEventIDs(ids...)
+}
+
+// AddIncidentIDs adds the "incidents" edge to the UpstreamIncident entity by IDs.
+func (_u *UpstreamKeyUpdate) AddIncidentIDs(ids ...int64) *UpstreamKeyUpdate {
+	_u.mutation.AddIncidentIDs(ids...)
+	return _u
+}
+
+// AddIncidents adds the "incidents" edges to the UpstreamIncident entity.
+func (_u *UpstreamKeyUpdate) AddIncidents(v ...*UpstreamIncident) *UpstreamKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddIncidentIDs(ids...)
+}
+
+// AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
+func (_u *UpstreamKeyUpdate) AddUsageLogIDs(ids ...int64) *UpstreamKeyUpdate {
+	_u.mutation.AddUsageLogIDs(ids...)
+	return _u
+}
+
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
+func (_u *UpstreamKeyUpdate) AddUsageLogs(v ...*UsageLog) *UpstreamKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddUsageLogIDs(ids...)
+}
+
 // Mutation returns the UpstreamKeyMutation object of the builder.
 func (_u *UpstreamKeyUpdate) Mutation() *UpstreamKeyMutation {
 	return _u.mutation
@@ -317,6 +365,69 @@ func (_u *UpstreamKeyUpdate) RemoveAccounts(v ...*Account) *UpstreamKeyUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
+}
+
+// ClearEvents clears all "events" edges to the UpstreamEvent entity.
+func (_u *UpstreamKeyUpdate) ClearEvents() *UpstreamKeyUpdate {
+	_u.mutation.ClearEvents()
+	return _u
+}
+
+// RemoveEventIDs removes the "events" edge to UpstreamEvent entities by IDs.
+func (_u *UpstreamKeyUpdate) RemoveEventIDs(ids ...int64) *UpstreamKeyUpdate {
+	_u.mutation.RemoveEventIDs(ids...)
+	return _u
+}
+
+// RemoveEvents removes "events" edges to UpstreamEvent entities.
+func (_u *UpstreamKeyUpdate) RemoveEvents(v ...*UpstreamEvent) *UpstreamKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveEventIDs(ids...)
+}
+
+// ClearIncidents clears all "incidents" edges to the UpstreamIncident entity.
+func (_u *UpstreamKeyUpdate) ClearIncidents() *UpstreamKeyUpdate {
+	_u.mutation.ClearIncidents()
+	return _u
+}
+
+// RemoveIncidentIDs removes the "incidents" edge to UpstreamIncident entities by IDs.
+func (_u *UpstreamKeyUpdate) RemoveIncidentIDs(ids ...int64) *UpstreamKeyUpdate {
+	_u.mutation.RemoveIncidentIDs(ids...)
+	return _u
+}
+
+// RemoveIncidents removes "incidents" edges to UpstreamIncident entities.
+func (_u *UpstreamKeyUpdate) RemoveIncidents(v ...*UpstreamIncident) *UpstreamKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveIncidentIDs(ids...)
+}
+
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
+func (_u *UpstreamKeyUpdate) ClearUsageLogs() *UpstreamKeyUpdate {
+	_u.mutation.ClearUsageLogs()
+	return _u
+}
+
+// RemoveUsageLogIDs removes the "usage_logs" edge to UsageLog entities by IDs.
+func (_u *UpstreamKeyUpdate) RemoveUsageLogIDs(ids ...int64) *UpstreamKeyUpdate {
+	_u.mutation.RemoveUsageLogIDs(ids...)
+	return _u
+}
+
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
+func (_u *UpstreamKeyUpdate) RemoveUsageLogs(v ...*UsageLog) *UpstreamKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveUsageLogIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -536,6 +647,141 @@ func (_u *UpstreamKeyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.EventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.EventsTable,
+			Columns: []string{upstreamkey.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedEventsIDs(); len(nodes) > 0 && !_u.mutation.EventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.EventsTable,
+			Columns: []string{upstreamkey.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.EventsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.EventsTable,
+			Columns: []string{upstreamkey.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.IncidentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.IncidentsTable,
+			Columns: []string{upstreamkey.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedIncidentsIDs(); len(nodes) > 0 && !_u.mutation.IncidentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.IncidentsTable,
+			Columns: []string{upstreamkey.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IncidentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.IncidentsTable,
+			Columns: []string{upstreamkey.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UsageLogsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.UsageLogsTable,
+			Columns: []string{upstreamkey.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedUsageLogsIDs(); len(nodes) > 0 && !_u.mutation.UsageLogsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.UsageLogsTable,
+			Columns: []string{upstreamkey.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UsageLogsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.UsageLogsTable,
+			Columns: []string{upstreamkey.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -820,6 +1066,51 @@ func (_u *UpstreamKeyUpdateOne) AddAccounts(v ...*Account) *UpstreamKeyUpdateOne
 	return _u.AddAccountIDs(ids...)
 }
 
+// AddEventIDs adds the "events" edge to the UpstreamEvent entity by IDs.
+func (_u *UpstreamKeyUpdateOne) AddEventIDs(ids ...int64) *UpstreamKeyUpdateOne {
+	_u.mutation.AddEventIDs(ids...)
+	return _u
+}
+
+// AddEvents adds the "events" edges to the UpstreamEvent entity.
+func (_u *UpstreamKeyUpdateOne) AddEvents(v ...*UpstreamEvent) *UpstreamKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddEventIDs(ids...)
+}
+
+// AddIncidentIDs adds the "incidents" edge to the UpstreamIncident entity by IDs.
+func (_u *UpstreamKeyUpdateOne) AddIncidentIDs(ids ...int64) *UpstreamKeyUpdateOne {
+	_u.mutation.AddIncidentIDs(ids...)
+	return _u
+}
+
+// AddIncidents adds the "incidents" edges to the UpstreamIncident entity.
+func (_u *UpstreamKeyUpdateOne) AddIncidents(v ...*UpstreamIncident) *UpstreamKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddIncidentIDs(ids...)
+}
+
+// AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
+func (_u *UpstreamKeyUpdateOne) AddUsageLogIDs(ids ...int64) *UpstreamKeyUpdateOne {
+	_u.mutation.AddUsageLogIDs(ids...)
+	return _u
+}
+
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
+func (_u *UpstreamKeyUpdateOne) AddUsageLogs(v ...*UsageLog) *UpstreamKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddUsageLogIDs(ids...)
+}
+
 // Mutation returns the UpstreamKeyMutation object of the builder.
 func (_u *UpstreamKeyUpdateOne) Mutation() *UpstreamKeyMutation {
 	return _u.mutation
@@ -850,6 +1141,69 @@ func (_u *UpstreamKeyUpdateOne) RemoveAccounts(v ...*Account) *UpstreamKeyUpdate
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
+}
+
+// ClearEvents clears all "events" edges to the UpstreamEvent entity.
+func (_u *UpstreamKeyUpdateOne) ClearEvents() *UpstreamKeyUpdateOne {
+	_u.mutation.ClearEvents()
+	return _u
+}
+
+// RemoveEventIDs removes the "events" edge to UpstreamEvent entities by IDs.
+func (_u *UpstreamKeyUpdateOne) RemoveEventIDs(ids ...int64) *UpstreamKeyUpdateOne {
+	_u.mutation.RemoveEventIDs(ids...)
+	return _u
+}
+
+// RemoveEvents removes "events" edges to UpstreamEvent entities.
+func (_u *UpstreamKeyUpdateOne) RemoveEvents(v ...*UpstreamEvent) *UpstreamKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveEventIDs(ids...)
+}
+
+// ClearIncidents clears all "incidents" edges to the UpstreamIncident entity.
+func (_u *UpstreamKeyUpdateOne) ClearIncidents() *UpstreamKeyUpdateOne {
+	_u.mutation.ClearIncidents()
+	return _u
+}
+
+// RemoveIncidentIDs removes the "incidents" edge to UpstreamIncident entities by IDs.
+func (_u *UpstreamKeyUpdateOne) RemoveIncidentIDs(ids ...int64) *UpstreamKeyUpdateOne {
+	_u.mutation.RemoveIncidentIDs(ids...)
+	return _u
+}
+
+// RemoveIncidents removes "incidents" edges to UpstreamIncident entities.
+func (_u *UpstreamKeyUpdateOne) RemoveIncidents(v ...*UpstreamIncident) *UpstreamKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveIncidentIDs(ids...)
+}
+
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
+func (_u *UpstreamKeyUpdateOne) ClearUsageLogs() *UpstreamKeyUpdateOne {
+	_u.mutation.ClearUsageLogs()
+	return _u
+}
+
+// RemoveUsageLogIDs removes the "usage_logs" edge to UsageLog entities by IDs.
+func (_u *UpstreamKeyUpdateOne) RemoveUsageLogIDs(ids ...int64) *UpstreamKeyUpdateOne {
+	_u.mutation.RemoveUsageLogIDs(ids...)
+	return _u
+}
+
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
+func (_u *UpstreamKeyUpdateOne) RemoveUsageLogs(v ...*UsageLog) *UpstreamKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveUsageLogIDs(ids...)
 }
 
 // Where appends a list predicates to the UpstreamKeyUpdate builder.
@@ -1099,6 +1453,141 @@ func (_u *UpstreamKeyUpdateOne) sqlSave(ctx context.Context) (_node *UpstreamKey
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.EventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.EventsTable,
+			Columns: []string{upstreamkey.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedEventsIDs(); len(nodes) > 0 && !_u.mutation.EventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.EventsTable,
+			Columns: []string{upstreamkey.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.EventsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.EventsTable,
+			Columns: []string{upstreamkey.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.IncidentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.IncidentsTable,
+			Columns: []string{upstreamkey.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedIncidentsIDs(); len(nodes) > 0 && !_u.mutation.IncidentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.IncidentsTable,
+			Columns: []string{upstreamkey.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IncidentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.IncidentsTable,
+			Columns: []string{upstreamkey.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UsageLogsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.UsageLogsTable,
+			Columns: []string{upstreamkey.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedUsageLogsIDs(); len(nodes) > 0 && !_u.mutation.UsageLogsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.UsageLogsTable,
+			Columns: []string{upstreamkey.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UsageLogsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.UsageLogsTable,
+			Columns: []string{upstreamkey.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

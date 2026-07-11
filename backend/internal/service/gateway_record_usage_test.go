@@ -167,6 +167,62 @@ func TestGatewayServiceRecordUsage_BillingFingerprintFallsBackToContextRequestID
 	require.Equal(t, "local:req-local-123", billingRepo.lastCmd.RequestPayloadHash)
 }
 
+func TestGatewayServiceRecordUsage_SnapshotsUpstreamCostContext(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	upstreamConfigID := int64(801)
+	upstreamKeyID := int64(802)
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "gateway_upstream_snapshot",
+			Usage:     ClaudeUsage{InputTokens: 10, OutputTokens: 6},
+			Model:     "claude-sonnet-4",
+			Duration:  time.Second,
+		},
+		APIKey: &APIKey{ID: 501},
+		User:   &User{ID: 601},
+		Account: &Account{
+			ID:               701,
+			UpstreamConfigID: &upstreamConfigID,
+			UpstreamKeyID:    &upstreamKeyID,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	upstreamConfigID = 901
+	upstreamKeyID = 902
+	require.Equal(t, int64(801), *usageRepo.lastLog.UpstreamConfigID)
+	require.Equal(t, int64(802), *usageRepo.lastLog.UpstreamKeyID)
+	require.Equal(t, "CNY", *usageRepo.lastLog.UpstreamCostCurrency)
+	require.Equal(t, 1.0, *usageRepo.lastLog.UpstreamCostToCNYRate)
+}
+
+func TestGatewayServiceRecordUsage_SetsCNYCostContextWithoutUpstreamBinding(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "gateway_upstream_snapshot_unbound",
+			Usage:     ClaudeUsage{InputTokens: 10, OutputTokens: 6},
+			Model:     "claude-sonnet-4",
+			Duration:  time.Second,
+		},
+		APIKey:  &APIKey{ID: 501},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Nil(t, usageRepo.lastLog.UpstreamConfigID)
+	require.Nil(t, usageRepo.lastLog.UpstreamKeyID)
+	require.Equal(t, "CNY", *usageRepo.lastLog.UpstreamCostCurrency)
+	require.Equal(t, 1.0, *usageRepo.lastLog.UpstreamCostToCNYRate)
+}
+
 func TestGatewayServiceRecordUsage_PreservesRequestedAndUpstreamModels(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})

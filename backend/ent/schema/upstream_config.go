@@ -44,6 +44,13 @@ func (UpstreamConfig) Fields() []ent.Field {
 			Default(func() map[string]any { return map[string]any{} }).
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}),
 		field.Int64("proxy_id").Optional().Nillable(),
+		field.Float("recharge_rate").
+			Default(1).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
+		field.Float("balance_to_cny_rate").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 		field.String("status").MaxLen(20).Default(domain.StatusActive),
 		field.String("last_error").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "text"}),
 		field.Time("last_checked_at").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
@@ -55,6 +62,15 @@ func (UpstreamConfig) Edges() []ent.Edge {
 	return []ent.Edge{
 		edge.To("keys", UpstreamKey.Type),
 		edge.To("accounts", Account.Type),
+		edge.To("sync_results", UpstreamSyncResult.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+		edge.To("events", UpstreamEvent.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+		edge.To("incidents", UpstreamIncident.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+		edge.To("balance_snapshots", UpstreamBalanceSnapshot.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+		edge.To("usage_logs", UsageLog.Type),
 		edge.To("proxy", Proxy.Type).
 			Field("proxy_id").
 			Unique(),

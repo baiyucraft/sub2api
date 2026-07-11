@@ -14,8 +14,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
+	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
 
 // UpstreamConfigUpdate is the builder for updating UpstreamConfig entities.
@@ -145,6 +150,54 @@ func (_u *UpstreamConfigUpdate) ClearProxyID() *UpstreamConfigUpdate {
 	return _u
 }
 
+// SetRechargeRate sets the "recharge_rate" field.
+func (_u *UpstreamConfigUpdate) SetRechargeRate(v float64) *UpstreamConfigUpdate {
+	_u.mutation.ResetRechargeRate()
+	_u.mutation.SetRechargeRate(v)
+	return _u
+}
+
+// SetNillableRechargeRate sets the "recharge_rate" field if the given value is not nil.
+func (_u *UpstreamConfigUpdate) SetNillableRechargeRate(v *float64) *UpstreamConfigUpdate {
+	if v != nil {
+		_u.SetRechargeRate(*v)
+	}
+	return _u
+}
+
+// AddRechargeRate adds value to the "recharge_rate" field.
+func (_u *UpstreamConfigUpdate) AddRechargeRate(v float64) *UpstreamConfigUpdate {
+	_u.mutation.AddRechargeRate(v)
+	return _u
+}
+
+// SetBalanceToCnyRate sets the "balance_to_cny_rate" field.
+func (_u *UpstreamConfigUpdate) SetBalanceToCnyRate(v float64) *UpstreamConfigUpdate {
+	_u.mutation.ResetBalanceToCnyRate()
+	_u.mutation.SetBalanceToCnyRate(v)
+	return _u
+}
+
+// SetNillableBalanceToCnyRate sets the "balance_to_cny_rate" field if the given value is not nil.
+func (_u *UpstreamConfigUpdate) SetNillableBalanceToCnyRate(v *float64) *UpstreamConfigUpdate {
+	if v != nil {
+		_u.SetBalanceToCnyRate(*v)
+	}
+	return _u
+}
+
+// AddBalanceToCnyRate adds value to the "balance_to_cny_rate" field.
+func (_u *UpstreamConfigUpdate) AddBalanceToCnyRate(v float64) *UpstreamConfigUpdate {
+	_u.mutation.AddBalanceToCnyRate(v)
+	return _u
+}
+
+// ClearBalanceToCnyRate clears the value of the "balance_to_cny_rate" field.
+func (_u *UpstreamConfigUpdate) ClearBalanceToCnyRate() *UpstreamConfigUpdate {
+	_u.mutation.ClearBalanceToCnyRate()
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *UpstreamConfigUpdate) SetStatus(v string) *UpstreamConfigUpdate {
 	_u.mutation.SetStatus(v)
@@ -249,6 +302,81 @@ func (_u *UpstreamConfigUpdate) AddAccounts(v ...*Account) *UpstreamConfigUpdate
 	return _u.AddAccountIDs(ids...)
 }
 
+// AddSyncResultIDs adds the "sync_results" edge to the UpstreamSyncResult entity by IDs.
+func (_u *UpstreamConfigUpdate) AddSyncResultIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.AddSyncResultIDs(ids...)
+	return _u
+}
+
+// AddSyncResults adds the "sync_results" edges to the UpstreamSyncResult entity.
+func (_u *UpstreamConfigUpdate) AddSyncResults(v ...*UpstreamSyncResult) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSyncResultIDs(ids...)
+}
+
+// AddEventIDs adds the "events" edge to the UpstreamEvent entity by IDs.
+func (_u *UpstreamConfigUpdate) AddEventIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.AddEventIDs(ids...)
+	return _u
+}
+
+// AddEvents adds the "events" edges to the UpstreamEvent entity.
+func (_u *UpstreamConfigUpdate) AddEvents(v ...*UpstreamEvent) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddEventIDs(ids...)
+}
+
+// AddIncidentIDs adds the "incidents" edge to the UpstreamIncident entity by IDs.
+func (_u *UpstreamConfigUpdate) AddIncidentIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.AddIncidentIDs(ids...)
+	return _u
+}
+
+// AddIncidents adds the "incidents" edges to the UpstreamIncident entity.
+func (_u *UpstreamConfigUpdate) AddIncidents(v ...*UpstreamIncident) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddIncidentIDs(ids...)
+}
+
+// AddBalanceSnapshotIDs adds the "balance_snapshots" edge to the UpstreamBalanceSnapshot entity by IDs.
+func (_u *UpstreamConfigUpdate) AddBalanceSnapshotIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.AddBalanceSnapshotIDs(ids...)
+	return _u
+}
+
+// AddBalanceSnapshots adds the "balance_snapshots" edges to the UpstreamBalanceSnapshot entity.
+func (_u *UpstreamConfigUpdate) AddBalanceSnapshots(v ...*UpstreamBalanceSnapshot) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddBalanceSnapshotIDs(ids...)
+}
+
+// AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
+func (_u *UpstreamConfigUpdate) AddUsageLogIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.AddUsageLogIDs(ids...)
+	return _u
+}
+
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
+func (_u *UpstreamConfigUpdate) AddUsageLogs(v ...*UsageLog) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddUsageLogIDs(ids...)
+}
+
 // SetProxy sets the "proxy" edge to the Proxy entity.
 func (_u *UpstreamConfigUpdate) SetProxy(v *Proxy) *UpstreamConfigUpdate {
 	return _u.SetProxyID(v.ID)
@@ -299,6 +427,111 @@ func (_u *UpstreamConfigUpdate) RemoveAccounts(v ...*Account) *UpstreamConfigUpd
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
+}
+
+// ClearSyncResults clears all "sync_results" edges to the UpstreamSyncResult entity.
+func (_u *UpstreamConfigUpdate) ClearSyncResults() *UpstreamConfigUpdate {
+	_u.mutation.ClearSyncResults()
+	return _u
+}
+
+// RemoveSyncResultIDs removes the "sync_results" edge to UpstreamSyncResult entities by IDs.
+func (_u *UpstreamConfigUpdate) RemoveSyncResultIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.RemoveSyncResultIDs(ids...)
+	return _u
+}
+
+// RemoveSyncResults removes "sync_results" edges to UpstreamSyncResult entities.
+func (_u *UpstreamConfigUpdate) RemoveSyncResults(v ...*UpstreamSyncResult) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSyncResultIDs(ids...)
+}
+
+// ClearEvents clears all "events" edges to the UpstreamEvent entity.
+func (_u *UpstreamConfigUpdate) ClearEvents() *UpstreamConfigUpdate {
+	_u.mutation.ClearEvents()
+	return _u
+}
+
+// RemoveEventIDs removes the "events" edge to UpstreamEvent entities by IDs.
+func (_u *UpstreamConfigUpdate) RemoveEventIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.RemoveEventIDs(ids...)
+	return _u
+}
+
+// RemoveEvents removes "events" edges to UpstreamEvent entities.
+func (_u *UpstreamConfigUpdate) RemoveEvents(v ...*UpstreamEvent) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveEventIDs(ids...)
+}
+
+// ClearIncidents clears all "incidents" edges to the UpstreamIncident entity.
+func (_u *UpstreamConfigUpdate) ClearIncidents() *UpstreamConfigUpdate {
+	_u.mutation.ClearIncidents()
+	return _u
+}
+
+// RemoveIncidentIDs removes the "incidents" edge to UpstreamIncident entities by IDs.
+func (_u *UpstreamConfigUpdate) RemoveIncidentIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.RemoveIncidentIDs(ids...)
+	return _u
+}
+
+// RemoveIncidents removes "incidents" edges to UpstreamIncident entities.
+func (_u *UpstreamConfigUpdate) RemoveIncidents(v ...*UpstreamIncident) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveIncidentIDs(ids...)
+}
+
+// ClearBalanceSnapshots clears all "balance_snapshots" edges to the UpstreamBalanceSnapshot entity.
+func (_u *UpstreamConfigUpdate) ClearBalanceSnapshots() *UpstreamConfigUpdate {
+	_u.mutation.ClearBalanceSnapshots()
+	return _u
+}
+
+// RemoveBalanceSnapshotIDs removes the "balance_snapshots" edge to UpstreamBalanceSnapshot entities by IDs.
+func (_u *UpstreamConfigUpdate) RemoveBalanceSnapshotIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.RemoveBalanceSnapshotIDs(ids...)
+	return _u
+}
+
+// RemoveBalanceSnapshots removes "balance_snapshots" edges to UpstreamBalanceSnapshot entities.
+func (_u *UpstreamConfigUpdate) RemoveBalanceSnapshots(v ...*UpstreamBalanceSnapshot) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveBalanceSnapshotIDs(ids...)
+}
+
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
+func (_u *UpstreamConfigUpdate) ClearUsageLogs() *UpstreamConfigUpdate {
+	_u.mutation.ClearUsageLogs()
+	return _u
+}
+
+// RemoveUsageLogIDs removes the "usage_logs" edge to UsageLog entities by IDs.
+func (_u *UpstreamConfigUpdate) RemoveUsageLogIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.RemoveUsageLogIDs(ids...)
+	return _u
+}
+
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
+func (_u *UpstreamConfigUpdate) RemoveUsageLogs(v ...*UsageLog) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveUsageLogIDs(ids...)
 }
 
 // ClearProxy clears the "proxy" edge to the Proxy entity.
@@ -418,6 +651,21 @@ func (_u *UpstreamConfigUpdate) sqlSave(ctx context.Context) (_node int, err err
 	if value, ok := _u.mutation.Extra(); ok {
 		_spec.SetField(upstreamconfig.FieldExtra, field.TypeJSON, value)
 	}
+	if value, ok := _u.mutation.RechargeRate(); ok {
+		_spec.SetField(upstreamconfig.FieldRechargeRate, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedRechargeRate(); ok {
+		_spec.AddField(upstreamconfig.FieldRechargeRate, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.BalanceToCnyRate(); ok {
+		_spec.SetField(upstreamconfig.FieldBalanceToCnyRate, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedBalanceToCnyRate(); ok {
+		_spec.AddField(upstreamconfig.FieldBalanceToCnyRate, field.TypeFloat64, value)
+	}
+	if _u.mutation.BalanceToCnyRateCleared() {
+		_spec.ClearField(upstreamconfig.FieldBalanceToCnyRate, field.TypeFloat64)
+	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(upstreamconfig.FieldStatus, field.TypeString, value)
 	}
@@ -522,6 +770,231 @@ func (_u *UpstreamConfigUpdate) sqlSave(ctx context.Context) (_node int, err err
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SyncResultsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.SyncResultsTable,
+			Columns: []string{upstreamconfig.SyncResultsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamsyncresult.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSyncResultsIDs(); len(nodes) > 0 && !_u.mutation.SyncResultsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.SyncResultsTable,
+			Columns: []string{upstreamconfig.SyncResultsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamsyncresult.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SyncResultsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.SyncResultsTable,
+			Columns: []string{upstreamconfig.SyncResultsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamsyncresult.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.EventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.EventsTable,
+			Columns: []string{upstreamconfig.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedEventsIDs(); len(nodes) > 0 && !_u.mutation.EventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.EventsTable,
+			Columns: []string{upstreamconfig.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.EventsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.EventsTable,
+			Columns: []string{upstreamconfig.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.IncidentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.IncidentsTable,
+			Columns: []string{upstreamconfig.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedIncidentsIDs(); len(nodes) > 0 && !_u.mutation.IncidentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.IncidentsTable,
+			Columns: []string{upstreamconfig.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IncidentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.IncidentsTable,
+			Columns: []string{upstreamconfig.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.BalanceSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.BalanceSnapshotsTable,
+			Columns: []string{upstreamconfig.BalanceSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreambalancesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedBalanceSnapshotsIDs(); len(nodes) > 0 && !_u.mutation.BalanceSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.BalanceSnapshotsTable,
+			Columns: []string{upstreamconfig.BalanceSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreambalancesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.BalanceSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.BalanceSnapshotsTable,
+			Columns: []string{upstreamconfig.BalanceSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreambalancesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UsageLogsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.UsageLogsTable,
+			Columns: []string{upstreamconfig.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedUsageLogsIDs(); len(nodes) > 0 && !_u.mutation.UsageLogsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.UsageLogsTable,
+			Columns: []string{upstreamconfig.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UsageLogsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.UsageLogsTable,
+			Columns: []string{upstreamconfig.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -692,6 +1165,54 @@ func (_u *UpstreamConfigUpdateOne) ClearProxyID() *UpstreamConfigUpdateOne {
 	return _u
 }
 
+// SetRechargeRate sets the "recharge_rate" field.
+func (_u *UpstreamConfigUpdateOne) SetRechargeRate(v float64) *UpstreamConfigUpdateOne {
+	_u.mutation.ResetRechargeRate()
+	_u.mutation.SetRechargeRate(v)
+	return _u
+}
+
+// SetNillableRechargeRate sets the "recharge_rate" field if the given value is not nil.
+func (_u *UpstreamConfigUpdateOne) SetNillableRechargeRate(v *float64) *UpstreamConfigUpdateOne {
+	if v != nil {
+		_u.SetRechargeRate(*v)
+	}
+	return _u
+}
+
+// AddRechargeRate adds value to the "recharge_rate" field.
+func (_u *UpstreamConfigUpdateOne) AddRechargeRate(v float64) *UpstreamConfigUpdateOne {
+	_u.mutation.AddRechargeRate(v)
+	return _u
+}
+
+// SetBalanceToCnyRate sets the "balance_to_cny_rate" field.
+func (_u *UpstreamConfigUpdateOne) SetBalanceToCnyRate(v float64) *UpstreamConfigUpdateOne {
+	_u.mutation.ResetBalanceToCnyRate()
+	_u.mutation.SetBalanceToCnyRate(v)
+	return _u
+}
+
+// SetNillableBalanceToCnyRate sets the "balance_to_cny_rate" field if the given value is not nil.
+func (_u *UpstreamConfigUpdateOne) SetNillableBalanceToCnyRate(v *float64) *UpstreamConfigUpdateOne {
+	if v != nil {
+		_u.SetBalanceToCnyRate(*v)
+	}
+	return _u
+}
+
+// AddBalanceToCnyRate adds value to the "balance_to_cny_rate" field.
+func (_u *UpstreamConfigUpdateOne) AddBalanceToCnyRate(v float64) *UpstreamConfigUpdateOne {
+	_u.mutation.AddBalanceToCnyRate(v)
+	return _u
+}
+
+// ClearBalanceToCnyRate clears the value of the "balance_to_cny_rate" field.
+func (_u *UpstreamConfigUpdateOne) ClearBalanceToCnyRate() *UpstreamConfigUpdateOne {
+	_u.mutation.ClearBalanceToCnyRate()
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *UpstreamConfigUpdateOne) SetStatus(v string) *UpstreamConfigUpdateOne {
 	_u.mutation.SetStatus(v)
@@ -796,6 +1317,81 @@ func (_u *UpstreamConfigUpdateOne) AddAccounts(v ...*Account) *UpstreamConfigUpd
 	return _u.AddAccountIDs(ids...)
 }
 
+// AddSyncResultIDs adds the "sync_results" edge to the UpstreamSyncResult entity by IDs.
+func (_u *UpstreamConfigUpdateOne) AddSyncResultIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.AddSyncResultIDs(ids...)
+	return _u
+}
+
+// AddSyncResults adds the "sync_results" edges to the UpstreamSyncResult entity.
+func (_u *UpstreamConfigUpdateOne) AddSyncResults(v ...*UpstreamSyncResult) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSyncResultIDs(ids...)
+}
+
+// AddEventIDs adds the "events" edge to the UpstreamEvent entity by IDs.
+func (_u *UpstreamConfigUpdateOne) AddEventIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.AddEventIDs(ids...)
+	return _u
+}
+
+// AddEvents adds the "events" edges to the UpstreamEvent entity.
+func (_u *UpstreamConfigUpdateOne) AddEvents(v ...*UpstreamEvent) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddEventIDs(ids...)
+}
+
+// AddIncidentIDs adds the "incidents" edge to the UpstreamIncident entity by IDs.
+func (_u *UpstreamConfigUpdateOne) AddIncidentIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.AddIncidentIDs(ids...)
+	return _u
+}
+
+// AddIncidents adds the "incidents" edges to the UpstreamIncident entity.
+func (_u *UpstreamConfigUpdateOne) AddIncidents(v ...*UpstreamIncident) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddIncidentIDs(ids...)
+}
+
+// AddBalanceSnapshotIDs adds the "balance_snapshots" edge to the UpstreamBalanceSnapshot entity by IDs.
+func (_u *UpstreamConfigUpdateOne) AddBalanceSnapshotIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.AddBalanceSnapshotIDs(ids...)
+	return _u
+}
+
+// AddBalanceSnapshots adds the "balance_snapshots" edges to the UpstreamBalanceSnapshot entity.
+func (_u *UpstreamConfigUpdateOne) AddBalanceSnapshots(v ...*UpstreamBalanceSnapshot) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddBalanceSnapshotIDs(ids...)
+}
+
+// AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
+func (_u *UpstreamConfigUpdateOne) AddUsageLogIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.AddUsageLogIDs(ids...)
+	return _u
+}
+
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
+func (_u *UpstreamConfigUpdateOne) AddUsageLogs(v ...*UsageLog) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddUsageLogIDs(ids...)
+}
+
 // SetProxy sets the "proxy" edge to the Proxy entity.
 func (_u *UpstreamConfigUpdateOne) SetProxy(v *Proxy) *UpstreamConfigUpdateOne {
 	return _u.SetProxyID(v.ID)
@@ -846,6 +1442,111 @@ func (_u *UpstreamConfigUpdateOne) RemoveAccounts(v ...*Account) *UpstreamConfig
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
+}
+
+// ClearSyncResults clears all "sync_results" edges to the UpstreamSyncResult entity.
+func (_u *UpstreamConfigUpdateOne) ClearSyncResults() *UpstreamConfigUpdateOne {
+	_u.mutation.ClearSyncResults()
+	return _u
+}
+
+// RemoveSyncResultIDs removes the "sync_results" edge to UpstreamSyncResult entities by IDs.
+func (_u *UpstreamConfigUpdateOne) RemoveSyncResultIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.RemoveSyncResultIDs(ids...)
+	return _u
+}
+
+// RemoveSyncResults removes "sync_results" edges to UpstreamSyncResult entities.
+func (_u *UpstreamConfigUpdateOne) RemoveSyncResults(v ...*UpstreamSyncResult) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSyncResultIDs(ids...)
+}
+
+// ClearEvents clears all "events" edges to the UpstreamEvent entity.
+func (_u *UpstreamConfigUpdateOne) ClearEvents() *UpstreamConfigUpdateOne {
+	_u.mutation.ClearEvents()
+	return _u
+}
+
+// RemoveEventIDs removes the "events" edge to UpstreamEvent entities by IDs.
+func (_u *UpstreamConfigUpdateOne) RemoveEventIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.RemoveEventIDs(ids...)
+	return _u
+}
+
+// RemoveEvents removes "events" edges to UpstreamEvent entities.
+func (_u *UpstreamConfigUpdateOne) RemoveEvents(v ...*UpstreamEvent) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveEventIDs(ids...)
+}
+
+// ClearIncidents clears all "incidents" edges to the UpstreamIncident entity.
+func (_u *UpstreamConfigUpdateOne) ClearIncidents() *UpstreamConfigUpdateOne {
+	_u.mutation.ClearIncidents()
+	return _u
+}
+
+// RemoveIncidentIDs removes the "incidents" edge to UpstreamIncident entities by IDs.
+func (_u *UpstreamConfigUpdateOne) RemoveIncidentIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.RemoveIncidentIDs(ids...)
+	return _u
+}
+
+// RemoveIncidents removes "incidents" edges to UpstreamIncident entities.
+func (_u *UpstreamConfigUpdateOne) RemoveIncidents(v ...*UpstreamIncident) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveIncidentIDs(ids...)
+}
+
+// ClearBalanceSnapshots clears all "balance_snapshots" edges to the UpstreamBalanceSnapshot entity.
+func (_u *UpstreamConfigUpdateOne) ClearBalanceSnapshots() *UpstreamConfigUpdateOne {
+	_u.mutation.ClearBalanceSnapshots()
+	return _u
+}
+
+// RemoveBalanceSnapshotIDs removes the "balance_snapshots" edge to UpstreamBalanceSnapshot entities by IDs.
+func (_u *UpstreamConfigUpdateOne) RemoveBalanceSnapshotIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.RemoveBalanceSnapshotIDs(ids...)
+	return _u
+}
+
+// RemoveBalanceSnapshots removes "balance_snapshots" edges to UpstreamBalanceSnapshot entities.
+func (_u *UpstreamConfigUpdateOne) RemoveBalanceSnapshots(v ...*UpstreamBalanceSnapshot) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveBalanceSnapshotIDs(ids...)
+}
+
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
+func (_u *UpstreamConfigUpdateOne) ClearUsageLogs() *UpstreamConfigUpdateOne {
+	_u.mutation.ClearUsageLogs()
+	return _u
+}
+
+// RemoveUsageLogIDs removes the "usage_logs" edge to UsageLog entities by IDs.
+func (_u *UpstreamConfigUpdateOne) RemoveUsageLogIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.RemoveUsageLogIDs(ids...)
+	return _u
+}
+
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
+func (_u *UpstreamConfigUpdateOne) RemoveUsageLogs(v ...*UsageLog) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveUsageLogIDs(ids...)
 }
 
 // ClearProxy clears the "proxy" edge to the Proxy entity.
@@ -995,6 +1696,21 @@ func (_u *UpstreamConfigUpdateOne) sqlSave(ctx context.Context) (_node *Upstream
 	if value, ok := _u.mutation.Extra(); ok {
 		_spec.SetField(upstreamconfig.FieldExtra, field.TypeJSON, value)
 	}
+	if value, ok := _u.mutation.RechargeRate(); ok {
+		_spec.SetField(upstreamconfig.FieldRechargeRate, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedRechargeRate(); ok {
+		_spec.AddField(upstreamconfig.FieldRechargeRate, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.BalanceToCnyRate(); ok {
+		_spec.SetField(upstreamconfig.FieldBalanceToCnyRate, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedBalanceToCnyRate(); ok {
+		_spec.AddField(upstreamconfig.FieldBalanceToCnyRate, field.TypeFloat64, value)
+	}
+	if _u.mutation.BalanceToCnyRateCleared() {
+		_spec.ClearField(upstreamconfig.FieldBalanceToCnyRate, field.TypeFloat64)
+	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(upstreamconfig.FieldStatus, field.TypeString, value)
 	}
@@ -1099,6 +1815,231 @@ func (_u *UpstreamConfigUpdateOne) sqlSave(ctx context.Context) (_node *Upstream
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SyncResultsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.SyncResultsTable,
+			Columns: []string{upstreamconfig.SyncResultsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamsyncresult.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSyncResultsIDs(); len(nodes) > 0 && !_u.mutation.SyncResultsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.SyncResultsTable,
+			Columns: []string{upstreamconfig.SyncResultsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamsyncresult.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SyncResultsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.SyncResultsTable,
+			Columns: []string{upstreamconfig.SyncResultsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamsyncresult.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.EventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.EventsTable,
+			Columns: []string{upstreamconfig.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedEventsIDs(); len(nodes) > 0 && !_u.mutation.EventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.EventsTable,
+			Columns: []string{upstreamconfig.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.EventsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.EventsTable,
+			Columns: []string{upstreamconfig.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.IncidentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.IncidentsTable,
+			Columns: []string{upstreamconfig.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedIncidentsIDs(); len(nodes) > 0 && !_u.mutation.IncidentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.IncidentsTable,
+			Columns: []string{upstreamconfig.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IncidentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.IncidentsTable,
+			Columns: []string{upstreamconfig.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.BalanceSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.BalanceSnapshotsTable,
+			Columns: []string{upstreamconfig.BalanceSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreambalancesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedBalanceSnapshotsIDs(); len(nodes) > 0 && !_u.mutation.BalanceSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.BalanceSnapshotsTable,
+			Columns: []string{upstreamconfig.BalanceSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreambalancesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.BalanceSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.BalanceSnapshotsTable,
+			Columns: []string{upstreamconfig.BalanceSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreambalancesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UsageLogsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.UsageLogsTable,
+			Columns: []string{upstreamconfig.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedUsageLogsIDs(); len(nodes) > 0 && !_u.mutation.UsageLogsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.UsageLogsTable,
+			Columns: []string{upstreamconfig.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UsageLogsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.UsageLogsTable,
+			Columns: []string{upstreamconfig.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

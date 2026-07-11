@@ -14,6 +14,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -71,6 +73,46 @@ func (_u *UsageLogUpdate) SetNillableAccountID(v *int64) *UsageLogUpdate {
 	if v != nil {
 		_u.SetAccountID(*v)
 	}
+	return _u
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (_u *UsageLogUpdate) SetUpstreamConfigID(v int64) *UsageLogUpdate {
+	_u.mutation.SetUpstreamConfigID(v)
+	return _u
+}
+
+// SetNillableUpstreamConfigID sets the "upstream_config_id" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableUpstreamConfigID(v *int64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetUpstreamConfigID(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (_u *UsageLogUpdate) ClearUpstreamConfigID() *UsageLogUpdate {
+	_u.mutation.ClearUpstreamConfigID()
+	return _u
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (_u *UsageLogUpdate) SetUpstreamKeyID(v int64) *UsageLogUpdate {
+	_u.mutation.SetUpstreamKeyID(v)
+	return _u
+}
+
+// SetNillableUpstreamKeyID sets the "upstream_key_id" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableUpstreamKeyID(v *int64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetUpstreamKeyID(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (_u *UsageLogUpdate) ClearUpstreamKeyID() *UsageLogUpdate {
+	_u.mutation.ClearUpstreamKeyID()
 	return _u
 }
 
@@ -569,6 +611,53 @@ func (_u *UsageLogUpdate) ClearAccountRateMultiplier() *UsageLogUpdate {
 	return _u
 }
 
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (_u *UsageLogUpdate) SetUpstreamCostCurrency(v string) *UsageLogUpdate {
+	_u.mutation.SetUpstreamCostCurrency(v)
+	return _u
+}
+
+// SetNillableUpstreamCostCurrency sets the "upstream_cost_currency" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableUpstreamCostCurrency(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetUpstreamCostCurrency(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamCostCurrency clears the value of the "upstream_cost_currency" field.
+func (_u *UsageLogUpdate) ClearUpstreamCostCurrency() *UsageLogUpdate {
+	_u.mutation.ClearUpstreamCostCurrency()
+	return _u
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (_u *UsageLogUpdate) SetUpstreamCostToCnyRate(v float64) *UsageLogUpdate {
+	_u.mutation.ResetUpstreamCostToCnyRate()
+	_u.mutation.SetUpstreamCostToCnyRate(v)
+	return _u
+}
+
+// SetNillableUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableUpstreamCostToCnyRate(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetUpstreamCostToCnyRate(*v)
+	}
+	return _u
+}
+
+// AddUpstreamCostToCnyRate adds value to the "upstream_cost_to_cny_rate" field.
+func (_u *UsageLogUpdate) AddUpstreamCostToCnyRate(v float64) *UsageLogUpdate {
+	_u.mutation.AddUpstreamCostToCnyRate(v)
+	return _u
+}
+
+// ClearUpstreamCostToCnyRate clears the value of the "upstream_cost_to_cny_rate" field.
+func (_u *UsageLogUpdate) ClearUpstreamCostToCnyRate() *UsageLogUpdate {
+	_u.mutation.ClearUpstreamCostToCnyRate()
+	return _u
+}
+
 // SetBillingType sets the "billing_type" field.
 func (_u *UsageLogUpdate) SetBillingType(v int8) *UsageLogUpdate {
 	_u.mutation.ResetBillingType()
@@ -918,6 +1007,16 @@ func (_u *UsageLogUpdate) SetSubscription(v *UserSubscription) *UsageLogUpdate {
 	return _u.SetSubscriptionID(v.ID)
 }
 
+// SetUpstreamConfig sets the "upstream_config" edge to the UpstreamConfig entity.
+func (_u *UsageLogUpdate) SetUpstreamConfig(v *UpstreamConfig) *UsageLogUpdate {
+	return _u.SetUpstreamConfigID(v.ID)
+}
+
+// SetUpstreamKey sets the "upstream_key" edge to the UpstreamKey entity.
+func (_u *UsageLogUpdate) SetUpstreamKey(v *UpstreamKey) *UsageLogUpdate {
+	return _u.SetUpstreamKeyID(v.ID)
+}
+
 // Mutation returns the UsageLogMutation object of the builder.
 func (_u *UsageLogUpdate) Mutation() *UsageLogMutation {
 	return _u.mutation
@@ -950,6 +1049,18 @@ func (_u *UsageLogUpdate) ClearGroup() *UsageLogUpdate {
 // ClearSubscription clears the "subscription" edge to the UserSubscription entity.
 func (_u *UsageLogUpdate) ClearSubscription() *UsageLogUpdate {
 	_u.mutation.ClearSubscription()
+	return _u
+}
+
+// ClearUpstreamConfig clears the "upstream_config" edge to the UpstreamConfig entity.
+func (_u *UsageLogUpdate) ClearUpstreamConfig() *UsageLogUpdate {
+	_u.mutation.ClearUpstreamConfig()
+	return _u
+}
+
+// ClearUpstreamKey clears the "upstream_key" edge to the UpstreamKey entity.
+func (_u *UsageLogUpdate) ClearUpstreamKey() *UsageLogUpdate {
+	_u.mutation.ClearUpstreamKey()
 	return _u
 }
 
@@ -1015,6 +1126,11 @@ func (_u *UsageLogUpdate) check() error {
 	if v, ok := _u.mutation.BillingMode(); ok {
 		if err := usagelog.BillingModeValidator(v); err != nil {
 			return &ValidationError{Name: "billing_mode", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_mode": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.UpstreamCostCurrency(); ok {
+		if err := usagelog.UpstreamCostCurrencyValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_cost_currency", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_cost_currency": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.UserAgent(); ok {
@@ -1207,6 +1323,21 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.AccountRateMultiplierCleared() {
 		_spec.ClearField(usagelog.FieldAccountRateMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.UpstreamCostCurrency(); ok {
+		_spec.SetField(usagelog.FieldUpstreamCostCurrency, field.TypeString, value)
+	}
+	if _u.mutation.UpstreamCostCurrencyCleared() {
+		_spec.ClearField(usagelog.FieldUpstreamCostCurrency, field.TypeString)
+	}
+	if value, ok := _u.mutation.UpstreamCostToCnyRate(); ok {
+		_spec.SetField(usagelog.FieldUpstreamCostToCnyRate, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamCostToCnyRate(); ok {
+		_spec.AddField(usagelog.FieldUpstreamCostToCnyRate, field.TypeFloat64, value)
+	}
+	if _u.mutation.UpstreamCostToCnyRateCleared() {
+		_spec.ClearField(usagelog.FieldUpstreamCostToCnyRate, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.BillingType(); ok {
 		_spec.SetField(usagelog.FieldBillingType, field.TypeInt8, value)
@@ -1452,6 +1583,64 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.UpstreamConfigCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.UpstreamConfigTable,
+			Columns: []string{usagelog.UpstreamConfigColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamconfig.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UpstreamConfigIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.UpstreamConfigTable,
+			Columns: []string{usagelog.UpstreamConfigColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamconfig.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UpstreamKeyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.UpstreamKeyTable,
+			Columns: []string{usagelog.UpstreamKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkey.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UpstreamKeyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.UpstreamKeyTable,
+			Columns: []string{usagelog.UpstreamKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{usagelog.Label}
@@ -1511,6 +1700,46 @@ func (_u *UsageLogUpdateOne) SetNillableAccountID(v *int64) *UsageLogUpdateOne {
 	if v != nil {
 		_u.SetAccountID(*v)
 	}
+	return _u
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (_u *UsageLogUpdateOne) SetUpstreamConfigID(v int64) *UsageLogUpdateOne {
+	_u.mutation.SetUpstreamConfigID(v)
+	return _u
+}
+
+// SetNillableUpstreamConfigID sets the "upstream_config_id" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableUpstreamConfigID(v *int64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetUpstreamConfigID(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (_u *UsageLogUpdateOne) ClearUpstreamConfigID() *UsageLogUpdateOne {
+	_u.mutation.ClearUpstreamConfigID()
+	return _u
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (_u *UsageLogUpdateOne) SetUpstreamKeyID(v int64) *UsageLogUpdateOne {
+	_u.mutation.SetUpstreamKeyID(v)
+	return _u
+}
+
+// SetNillableUpstreamKeyID sets the "upstream_key_id" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableUpstreamKeyID(v *int64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetUpstreamKeyID(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (_u *UsageLogUpdateOne) ClearUpstreamKeyID() *UsageLogUpdateOne {
+	_u.mutation.ClearUpstreamKeyID()
 	return _u
 }
 
@@ -2009,6 +2238,53 @@ func (_u *UsageLogUpdateOne) ClearAccountRateMultiplier() *UsageLogUpdateOne {
 	return _u
 }
 
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (_u *UsageLogUpdateOne) SetUpstreamCostCurrency(v string) *UsageLogUpdateOne {
+	_u.mutation.SetUpstreamCostCurrency(v)
+	return _u
+}
+
+// SetNillableUpstreamCostCurrency sets the "upstream_cost_currency" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableUpstreamCostCurrency(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetUpstreamCostCurrency(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamCostCurrency clears the value of the "upstream_cost_currency" field.
+func (_u *UsageLogUpdateOne) ClearUpstreamCostCurrency() *UsageLogUpdateOne {
+	_u.mutation.ClearUpstreamCostCurrency()
+	return _u
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (_u *UsageLogUpdateOne) SetUpstreamCostToCnyRate(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetUpstreamCostToCnyRate()
+	_u.mutation.SetUpstreamCostToCnyRate(v)
+	return _u
+}
+
+// SetNillableUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableUpstreamCostToCnyRate(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetUpstreamCostToCnyRate(*v)
+	}
+	return _u
+}
+
+// AddUpstreamCostToCnyRate adds value to the "upstream_cost_to_cny_rate" field.
+func (_u *UsageLogUpdateOne) AddUpstreamCostToCnyRate(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddUpstreamCostToCnyRate(v)
+	return _u
+}
+
+// ClearUpstreamCostToCnyRate clears the value of the "upstream_cost_to_cny_rate" field.
+func (_u *UsageLogUpdateOne) ClearUpstreamCostToCnyRate() *UsageLogUpdateOne {
+	_u.mutation.ClearUpstreamCostToCnyRate()
+	return _u
+}
+
 // SetBillingType sets the "billing_type" field.
 func (_u *UsageLogUpdateOne) SetBillingType(v int8) *UsageLogUpdateOne {
 	_u.mutation.ResetBillingType()
@@ -2358,6 +2634,16 @@ func (_u *UsageLogUpdateOne) SetSubscription(v *UserSubscription) *UsageLogUpdat
 	return _u.SetSubscriptionID(v.ID)
 }
 
+// SetUpstreamConfig sets the "upstream_config" edge to the UpstreamConfig entity.
+func (_u *UsageLogUpdateOne) SetUpstreamConfig(v *UpstreamConfig) *UsageLogUpdateOne {
+	return _u.SetUpstreamConfigID(v.ID)
+}
+
+// SetUpstreamKey sets the "upstream_key" edge to the UpstreamKey entity.
+func (_u *UsageLogUpdateOne) SetUpstreamKey(v *UpstreamKey) *UsageLogUpdateOne {
+	return _u.SetUpstreamKeyID(v.ID)
+}
+
 // Mutation returns the UsageLogMutation object of the builder.
 func (_u *UsageLogUpdateOne) Mutation() *UsageLogMutation {
 	return _u.mutation
@@ -2390,6 +2676,18 @@ func (_u *UsageLogUpdateOne) ClearGroup() *UsageLogUpdateOne {
 // ClearSubscription clears the "subscription" edge to the UserSubscription entity.
 func (_u *UsageLogUpdateOne) ClearSubscription() *UsageLogUpdateOne {
 	_u.mutation.ClearSubscription()
+	return _u
+}
+
+// ClearUpstreamConfig clears the "upstream_config" edge to the UpstreamConfig entity.
+func (_u *UsageLogUpdateOne) ClearUpstreamConfig() *UsageLogUpdateOne {
+	_u.mutation.ClearUpstreamConfig()
+	return _u
+}
+
+// ClearUpstreamKey clears the "upstream_key" edge to the UpstreamKey entity.
+func (_u *UsageLogUpdateOne) ClearUpstreamKey() *UsageLogUpdateOne {
+	_u.mutation.ClearUpstreamKey()
 	return _u
 }
 
@@ -2468,6 +2766,11 @@ func (_u *UsageLogUpdateOne) check() error {
 	if v, ok := _u.mutation.BillingMode(); ok {
 		if err := usagelog.BillingModeValidator(v); err != nil {
 			return &ValidationError{Name: "billing_mode", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_mode": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.UpstreamCostCurrency(); ok {
+		if err := usagelog.UpstreamCostCurrencyValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_cost_currency", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_cost_currency": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.UserAgent(); ok {
@@ -2677,6 +2980,21 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if _u.mutation.AccountRateMultiplierCleared() {
 		_spec.ClearField(usagelog.FieldAccountRateMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.UpstreamCostCurrency(); ok {
+		_spec.SetField(usagelog.FieldUpstreamCostCurrency, field.TypeString, value)
+	}
+	if _u.mutation.UpstreamCostCurrencyCleared() {
+		_spec.ClearField(usagelog.FieldUpstreamCostCurrency, field.TypeString)
+	}
+	if value, ok := _u.mutation.UpstreamCostToCnyRate(); ok {
+		_spec.SetField(usagelog.FieldUpstreamCostToCnyRate, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamCostToCnyRate(); ok {
+		_spec.AddField(usagelog.FieldUpstreamCostToCnyRate, field.TypeFloat64, value)
+	}
+	if _u.mutation.UpstreamCostToCnyRateCleared() {
+		_spec.ClearField(usagelog.FieldUpstreamCostToCnyRate, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.BillingType(); ok {
 		_spec.SetField(usagelog.FieldBillingType, field.TypeInt8, value)
@@ -2915,6 +3233,64 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(usersubscription.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UpstreamConfigCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.UpstreamConfigTable,
+			Columns: []string{usagelog.UpstreamConfigColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamconfig.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UpstreamConfigIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.UpstreamConfigTable,
+			Columns: []string{usagelog.UpstreamConfigColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamconfig.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UpstreamKeyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.UpstreamKeyTable,
+			Columns: []string{usagelog.UpstreamKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkey.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UpstreamKeyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.UpstreamKeyTable,
+			Columns: []string{usagelog.UpstreamKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkey.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

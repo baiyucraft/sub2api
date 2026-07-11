@@ -27,6 +27,8 @@ var usageLogInsertArgTypes = [...]string{
 	"bigint",      // user_id
 	"bigint",      // api_key_id
 	"bigint",      // account_id
+	"bigint",      // upstream_config_id
+	"bigint",      // upstream_key_id
 	"text",        // request_id
 	"text",        // model
 	"text",        // requested_model
@@ -49,6 +51,8 @@ var usageLogInsertArgTypes = [...]string{
 	"numeric",     // actual_cost
 	"numeric",     // rate_multiplier
 	"numeric",     // account_rate_multiplier
+	"text",        // upstream_cost_currency
+	"numeric",     // upstream_cost_to_cny_rate
 	"smallint",    // billing_type
 	"smallint",    // request_type
 	"boolean",     // stream
@@ -219,6 +223,8 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			user_id,
 			api_key_id,
 			account_id,
+			upstream_config_id,
+			upstream_key_id,
 			request_id,
 			model,
 			requested_model,
@@ -241,6 +247,8 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			actual_cost,
 			rate_multiplier,
 			account_rate_multiplier,
+			upstream_cost_currency,
+			upstream_cost_to_cny_rate,
 			billing_type,
 			request_type,
 			stream,
@@ -270,12 +278,12 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			account_stats_cost,
 			created_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9,
-			$10, $11, $12, $13,
-			$14, $15, $16, $17,
-			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53
+			$1, $2, $3, $4, $5, $6, $7, $8, $9,
+			$10, $11,
+			$12, $13, $14, $15,
+			$16, $17, $18, $19,
+			$20, $21, $22, $23, $24, $25,
+			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -670,6 +678,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			user_id,
 			api_key_id,
 			account_id,
+			upstream_config_id,
+			upstream_key_id,
 			request_id,
 			model,
 			requested_model,
@@ -692,6 +702,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			actual_cost,
 			rate_multiplier,
 			account_rate_multiplier,
+			upstream_cost_currency,
+			upstream_cost_to_cny_rate,
 			billing_type,
 			request_type,
 			stream,
@@ -722,7 +734,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			created_at
 		) AS (VALUES `)
 
-	args := make([]any, 0, len(keys)*53)
+	args := make([]any, 0, len(keys)*(len(usageLogInsertArgTypes)+1))
 	argPos := 1
 	for idx, key := range keys {
 		if idx > 0 {
@@ -754,6 +766,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				user_id,
 				api_key_id,
 				account_id,
+				upstream_config_id,
+				upstream_key_id,
 				request_id,
 				model,
 				requested_model,
@@ -776,6 +790,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				actual_cost,
 				rate_multiplier,
 				account_rate_multiplier,
+				upstream_cost_currency,
+				upstream_cost_to_cny_rate,
 				billing_type,
 				request_type,
 				stream,
@@ -809,6 +825,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				user_id,
 				api_key_id,
 				account_id,
+				upstream_config_id,
+				upstream_key_id,
 				request_id,
 				model,
 				requested_model,
@@ -831,6 +849,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				actual_cost,
 				rate_multiplier,
 				account_rate_multiplier,
+				upstream_cost_currency,
+				upstream_cost_to_cny_rate,
 				billing_type,
 				request_type,
 				stream,
@@ -904,6 +924,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			user_id,
 			api_key_id,
 			account_id,
+			upstream_config_id,
+			upstream_key_id,
 			request_id,
 			model,
 			requested_model,
@@ -926,6 +948,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			actual_cost,
 			rate_multiplier,
 			account_rate_multiplier,
+			upstream_cost_currency,
+			upstream_cost_to_cny_rate,
 			billing_type,
 			request_type,
 			stream,
@@ -956,7 +980,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			created_at
 		) AS (VALUES `)
 
-	args := make([]any, 0, len(preparedList)*53)
+	args := make([]any, 0, len(preparedList)*len(usageLogInsertArgTypes))
 	argPos := 1
 	for idx, prepared := range preparedList {
 		if idx > 0 {
@@ -985,6 +1009,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			user_id,
 			api_key_id,
 			account_id,
+			upstream_config_id,
+			upstream_key_id,
 			request_id,
 			model,
 			requested_model,
@@ -1007,6 +1033,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			actual_cost,
 			rate_multiplier,
 			account_rate_multiplier,
+			upstream_cost_currency,
+			upstream_cost_to_cny_rate,
 			billing_type,
 			request_type,
 			stream,
@@ -1040,6 +1068,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			user_id,
 			api_key_id,
 			account_id,
+			upstream_config_id,
+			upstream_key_id,
 			request_id,
 			model,
 			requested_model,
@@ -1062,6 +1092,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			actual_cost,
 			rate_multiplier,
 			account_rate_multiplier,
+			upstream_cost_currency,
+			upstream_cost_to_cny_rate,
 			billing_type,
 			request_type,
 			stream,
@@ -1103,6 +1135,8 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			user_id,
 			api_key_id,
 			account_id,
+			upstream_config_id,
+			upstream_key_id,
 			request_id,
 			model,
 			requested_model,
@@ -1125,6 +1159,8 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			actual_cost,
 			rate_multiplier,
 			account_rate_multiplier,
+			upstream_cost_currency,
+			upstream_cost_to_cny_rate,
 			billing_type,
 			request_type,
 			stream,
@@ -1154,12 +1190,12 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			account_stats_cost,
 			created_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9,
-			$10, $11, $12, $13,
-			$14, $15, $16, $17,
-			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53
+			$1, $2, $3, $4, $5, $6, $7, $8, $9,
+			$10, $11,
+			$12, $13, $14, $15,
+			$16, $17, $18, $19,
+			$20, $21, $22, $23, $24, $25,
+			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 	`, prepared.args...)
@@ -1181,6 +1217,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 
 	groupID := nullInt64(log.GroupID)
 	subscriptionID := nullInt64(log.SubscriptionID)
+	upstreamConfigID := nullInt64(log.UpstreamConfigID)
+	upstreamKeyID := nullInt64(log.UpstreamKeyID)
 	duration := nullInt(log.DurationMs)
 	firstToken := nullInt(log.FirstTokenMs)
 	userAgent := nullString(log.UserAgent)
@@ -1205,6 +1243,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 		requestedModel = strings.TrimSpace(log.Model)
 	}
 	upstreamModel := nullString(log.UpstreamModel)
+	upstreamCostCurrency := nullString(log.UpstreamCostCurrency)
 
 	var requestIDArg any
 	if requestID != "" {
@@ -1220,6 +1259,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			log.UserID,
 			log.APIKeyID,
 			log.AccountID,
+			upstreamConfigID,
+			upstreamKeyID,
 			requestIDArg,
 			log.Model,
 			nullString(&requestedModel),
@@ -1242,6 +1283,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			log.ActualCost,
 			rateMultiplier,
 			log.AccountRateMultiplier,
+			upstreamCostCurrency,
+			log.UpstreamCostToCNYRate,
 			log.BillingType,
 			requestType,
 			log.Stream,

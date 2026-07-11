@@ -352,16 +352,24 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerUpstreamConfigRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	admin.GET("/upstream-settings", h.Admin.UpstreamConfig.GetSettings)
+	admin.PUT("/upstream-settings", h.Admin.UpstreamConfig.UpdateSettings)
+	admin.GET("/upstream-sync-runs", h.Admin.UpstreamConfig.ListSyncRuns)
+	admin.GET("/upstream-sync-runs/:runID", h.Admin.UpstreamConfig.GetSyncRun)
+	admin.GET("/upstream-events", h.Admin.UpstreamConfig.ListEvents)
+	admin.GET("/upstream-incidents", h.Admin.UpstreamConfig.ListIncidents)
 	upstreams := admin.Group("/upstream-configs")
 	{
 		upstreams.GET("", h.Admin.UpstreamConfig.List)
 		upstreams.POST("", h.Admin.UpstreamConfig.Create)
 		upstreams.POST("/sync-keys", h.Admin.UpstreamConfig.SyncAllKeys)
+		upstreams.GET("/usage-trend", h.Admin.UpstreamConfig.UsageTrend)
 		upstreams.GET("/:id", h.Admin.UpstreamConfig.GetByID)
 		upstreams.PUT("/:id", h.Admin.UpstreamConfig.Update)
 		upstreams.DELETE("/:id", h.Admin.UpstreamConfig.Delete)
 		upstreams.POST("/:id/test", h.Admin.UpstreamConfig.Test)
 		upstreams.POST("/:id/sync-keys", h.Admin.UpstreamConfig.SyncKeys)
+		upstreams.GET("/:id/balance-history", h.Admin.UpstreamConfig.ListBalanceHistory)
 		upstreams.GET("/:id/keys", h.Admin.UpstreamConfig.ListKeys)
 		upstreams.POST("/:id/keys", h.Admin.UpstreamConfig.CreateKey)
 		upstreams.DELETE("/:id/keys/:keyID", h.Admin.UpstreamConfig.DeleteKey)

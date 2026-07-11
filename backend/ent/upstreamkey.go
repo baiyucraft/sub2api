@@ -61,9 +61,15 @@ type UpstreamKeyEdges struct {
 	Config *UpstreamConfig `json:"config,omitempty"`
 	// Accounts holds the value of the accounts edge.
 	Accounts []*Account `json:"accounts,omitempty"`
+	// Events holds the value of the events edge.
+	Events []*UpstreamEvent `json:"events,omitempty"`
+	// Incidents holds the value of the incidents edge.
+	Incidents []*UpstreamIncident `json:"incidents,omitempty"`
+	// UsageLogs holds the value of the usage_logs edge.
+	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [5]bool
 }
 
 // ConfigOrErr returns the Config value or an error if the edge
@@ -84,6 +90,33 @@ func (e UpstreamKeyEdges) AccountsOrErr() ([]*Account, error) {
 		return e.Accounts, nil
 	}
 	return nil, &NotLoadedError{edge: "accounts"}
+}
+
+// EventsOrErr returns the Events value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamKeyEdges) EventsOrErr() ([]*UpstreamEvent, error) {
+	if e.loadedTypes[2] {
+		return e.Events, nil
+	}
+	return nil, &NotLoadedError{edge: "events"}
+}
+
+// IncidentsOrErr returns the Incidents value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamKeyEdges) IncidentsOrErr() ([]*UpstreamIncident, error) {
+	if e.loadedTypes[3] {
+		return e.Incidents, nil
+	}
+	return nil, &NotLoadedError{edge: "incidents"}
+}
+
+// UsageLogsOrErr returns the UsageLogs value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamKeyEdges) UsageLogsOrErr() ([]*UsageLog, error) {
+	if e.loadedTypes[4] {
+		return e.UsageLogs, nil
+	}
+	return nil, &NotLoadedError{edge: "usage_logs"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -240,6 +273,21 @@ func (_m *UpstreamKey) QueryConfig() *UpstreamConfigQuery {
 // QueryAccounts queries the "accounts" edge of the UpstreamKey entity.
 func (_m *UpstreamKey) QueryAccounts() *AccountQuery {
 	return NewUpstreamKeyClient(_m.config).QueryAccounts(_m)
+}
+
+// QueryEvents queries the "events" edge of the UpstreamKey entity.
+func (_m *UpstreamKey) QueryEvents() *UpstreamEventQuery {
+	return NewUpstreamKeyClient(_m.config).QueryEvents(_m)
+}
+
+// QueryIncidents queries the "incidents" edge of the UpstreamKey entity.
+func (_m *UpstreamKey) QueryIncidents() *UpstreamIncidentQuery {
+	return NewUpstreamKeyClient(_m.config).QueryIncidents(_m)
+}
+
+// QueryUsageLogs queries the "usage_logs" edge of the UpstreamKey entity.
+func (_m *UpstreamKey) QueryUsageLogs() *UsageLogQuery {
+	return NewUpstreamKeyClient(_m.config).QueryUsageLogs(_m)
 }
 
 // Update returns a builder for updating this UpstreamKey.

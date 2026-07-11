@@ -1452,6 +1452,7 @@
             </div>
             <button
               type="button"
+              data-testid="pool-mode-toggle"
               @click="poolModeEnabled = !poolModeEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
@@ -1476,6 +1477,7 @@
             <label class="input-label">{{ t('admin.accounts.poolModeRetryCount') }}</label>
             <input
               v-model.number="poolModeRetryCount"
+              data-testid="pool-mode-retry-count"
               type="number"
               min="0"
               :max="MAX_POOL_MODE_RETRY_COUNT"
@@ -1495,6 +1497,7 @@
             <label class="input-label">{{ t('admin.accounts.poolModeRetryStatusCodes') }}</label>
             <input
               v-model="poolModeRetryStatusCodesInput"
+              data-testid="pool-mode-retry-status-codes"
               type="text"
               class="input"
               :placeholder="DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ')"
@@ -5331,7 +5334,7 @@ const handleSubmit = async () => {
       ...form,
       name: '',
       platform,
-      type: 'upstream' as AccountType,
+      type: 'apikey' as AccountType,
       credentials,
       extra: buildAPIKeyLikeExtra(),
       proxy_id: null,

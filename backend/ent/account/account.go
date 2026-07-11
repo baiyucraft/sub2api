@@ -96,6 +96,8 @@ const (
 	EdgeChildren = "children"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
+	// EdgeUpstreamEvents holds the string denoting the upstream_events edge name in mutations.
+	EdgeUpstreamEvents = "upstream_events"
 	// EdgeAccountGroups holds the string denoting the account_groups edge name in mutations.
 	EdgeAccountGroups = "account_groups"
 	// Table holds the table name of the account in the database.
@@ -141,6 +143,13 @@ const (
 	UsageLogsInverseTable = "usage_logs"
 	// UsageLogsColumn is the table column denoting the usage_logs relation/edge.
 	UsageLogsColumn = "account_id"
+	// UpstreamEventsTable is the table that holds the upstream_events relation/edge.
+	UpstreamEventsTable = "upstream_events"
+	// UpstreamEventsInverseTable is the table name for the UpstreamEvent entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamevent" package.
+	UpstreamEventsInverseTable = "upstream_events"
+	// UpstreamEventsColumn is the table column denoting the upstream_events relation/edge.
+	UpstreamEventsColumn = "account_id"
 	// AccountGroupsTable is the table that holds the account_groups relation/edge.
 	AccountGroupsTable = "account_groups"
 	// AccountGroupsInverseTable is the table name for the AccountGroup entity.
@@ -505,6 +514,20 @@ func ByUsageLogs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByUpstreamEventsCount orders the results by upstream_events count.
+func ByUpstreamEventsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newUpstreamEventsStep(), opts...)
+	}
+}
+
+// ByUpstreamEvents orders the results by upstream_events terms.
+func ByUpstreamEvents(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUpstreamEventsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByAccountGroupsCount orders the results by account_groups count.
 func ByAccountGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -565,6 +588,13 @@ func newUsageLogsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UsageLogsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, UsageLogsTable, UsageLogsColumn),
+	)
+}
+func newUpstreamEventsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UpstreamEventsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, UpstreamEventsTable, UpstreamEventsColumn),
 	)
 }
 func newAccountGroupsStep() *sqlgraph.Step {

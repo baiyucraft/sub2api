@@ -16,21 +16,31 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
+	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
 
 // UpstreamConfigQuery is the builder for querying UpstreamConfig entities.
 type UpstreamConfigQuery struct {
 	config
-	ctx          *QueryContext
-	order        []upstreamconfig.OrderOption
-	inters       []Interceptor
-	predicates   []predicate.UpstreamConfig
-	withKeys     *UpstreamKeyQuery
-	withAccounts *AccountQuery
-	withProxy    *ProxyQuery
-	modifiers    []func(*sql.Selector)
+	ctx                  *QueryContext
+	order                []upstreamconfig.OrderOption
+	inters               []Interceptor
+	predicates           []predicate.UpstreamConfig
+	withKeys             *UpstreamKeyQuery
+	withAccounts         *AccountQuery
+	withSyncResults      *UpstreamSyncResultQuery
+	withEvents           *UpstreamEventQuery
+	withIncidents        *UpstreamIncidentQuery
+	withBalanceSnapshots *UpstreamBalanceSnapshotQuery
+	withUsageLogs        *UsageLogQuery
+	withProxy            *ProxyQuery
+	modifiers            []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -104,6 +114,116 @@ func (_q *UpstreamConfigQuery) QueryAccounts() *AccountQuery {
 			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, selector),
 			sqlgraph.To(account.Table, account.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.AccountsTable, upstreamconfig.AccountsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QuerySyncResults chains the current query on the "sync_results" edge.
+func (_q *UpstreamConfigQuery) QuerySyncResults() *UpstreamSyncResultQuery {
+	query := (&UpstreamSyncResultClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, selector),
+			sqlgraph.To(upstreamsyncresult.Table, upstreamsyncresult.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.SyncResultsTable, upstreamconfig.SyncResultsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryEvents chains the current query on the "events" edge.
+func (_q *UpstreamConfigQuery) QueryEvents() *UpstreamEventQuery {
+	query := (&UpstreamEventClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, selector),
+			sqlgraph.To(upstreamevent.Table, upstreamevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.EventsTable, upstreamconfig.EventsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryIncidents chains the current query on the "incidents" edge.
+func (_q *UpstreamConfigQuery) QueryIncidents() *UpstreamIncidentQuery {
+	query := (&UpstreamIncidentClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, selector),
+			sqlgraph.To(upstreamincident.Table, upstreamincident.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.IncidentsTable, upstreamconfig.IncidentsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryBalanceSnapshots chains the current query on the "balance_snapshots" edge.
+func (_q *UpstreamConfigQuery) QueryBalanceSnapshots() *UpstreamBalanceSnapshotQuery {
+	query := (&UpstreamBalanceSnapshotClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, selector),
+			sqlgraph.To(upstreambalancesnapshot.Table, upstreambalancesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.BalanceSnapshotsTable, upstreamconfig.BalanceSnapshotsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryUsageLogs chains the current query on the "usage_logs" edge.
+func (_q *UpstreamConfigQuery) QueryUsageLogs() *UsageLogQuery {
+	query := (&UsageLogClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, selector),
+			sqlgraph.To(usagelog.Table, usagelog.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.UsageLogsTable, upstreamconfig.UsageLogsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -320,14 +440,19 @@ func (_q *UpstreamConfigQuery) Clone() *UpstreamConfigQuery {
 		return nil
 	}
 	return &UpstreamConfigQuery{
-		config:       _q.config,
-		ctx:          _q.ctx.Clone(),
-		order:        append([]upstreamconfig.OrderOption{}, _q.order...),
-		inters:       append([]Interceptor{}, _q.inters...),
-		predicates:   append([]predicate.UpstreamConfig{}, _q.predicates...),
-		withKeys:     _q.withKeys.Clone(),
-		withAccounts: _q.withAccounts.Clone(),
-		withProxy:    _q.withProxy.Clone(),
+		config:               _q.config,
+		ctx:                  _q.ctx.Clone(),
+		order:                append([]upstreamconfig.OrderOption{}, _q.order...),
+		inters:               append([]Interceptor{}, _q.inters...),
+		predicates:           append([]predicate.UpstreamConfig{}, _q.predicates...),
+		withKeys:             _q.withKeys.Clone(),
+		withAccounts:         _q.withAccounts.Clone(),
+		withSyncResults:      _q.withSyncResults.Clone(),
+		withEvents:           _q.withEvents.Clone(),
+		withIncidents:        _q.withIncidents.Clone(),
+		withBalanceSnapshots: _q.withBalanceSnapshots.Clone(),
+		withUsageLogs:        _q.withUsageLogs.Clone(),
+		withProxy:            _q.withProxy.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -353,6 +478,61 @@ func (_q *UpstreamConfigQuery) WithAccounts(opts ...func(*AccountQuery)) *Upstre
 		opt(query)
 	}
 	_q.withAccounts = query
+	return _q
+}
+
+// WithSyncResults tells the query-builder to eager-load the nodes that are connected to
+// the "sync_results" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UpstreamConfigQuery) WithSyncResults(opts ...func(*UpstreamSyncResultQuery)) *UpstreamConfigQuery {
+	query := (&UpstreamSyncResultClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withSyncResults = query
+	return _q
+}
+
+// WithEvents tells the query-builder to eager-load the nodes that are connected to
+// the "events" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UpstreamConfigQuery) WithEvents(opts ...func(*UpstreamEventQuery)) *UpstreamConfigQuery {
+	query := (&UpstreamEventClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withEvents = query
+	return _q
+}
+
+// WithIncidents tells the query-builder to eager-load the nodes that are connected to
+// the "incidents" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UpstreamConfigQuery) WithIncidents(opts ...func(*UpstreamIncidentQuery)) *UpstreamConfigQuery {
+	query := (&UpstreamIncidentClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withIncidents = query
+	return _q
+}
+
+// WithBalanceSnapshots tells the query-builder to eager-load the nodes that are connected to
+// the "balance_snapshots" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UpstreamConfigQuery) WithBalanceSnapshots(opts ...func(*UpstreamBalanceSnapshotQuery)) *UpstreamConfigQuery {
+	query := (&UpstreamBalanceSnapshotClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withBalanceSnapshots = query
+	return _q
+}
+
+// WithUsageLogs tells the query-builder to eager-load the nodes that are connected to
+// the "usage_logs" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UpstreamConfigQuery) WithUsageLogs(opts ...func(*UsageLogQuery)) *UpstreamConfigQuery {
+	query := (&UsageLogClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withUsageLogs = query
 	return _q
 }
 
@@ -445,9 +625,14 @@ func (_q *UpstreamConfigQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 	var (
 		nodes       = []*UpstreamConfig{}
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [8]bool{
 			_q.withKeys != nil,
 			_q.withAccounts != nil,
+			_q.withSyncResults != nil,
+			_q.withEvents != nil,
+			_q.withIncidents != nil,
+			_q.withBalanceSnapshots != nil,
+			_q.withUsageLogs != nil,
 			_q.withProxy != nil,
 		}
 	)
@@ -483,6 +668,43 @@ func (_q *UpstreamConfigQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 		if err := _q.loadAccounts(ctx, query, nodes,
 			func(n *UpstreamConfig) { n.Edges.Accounts = []*Account{} },
 			func(n *UpstreamConfig, e *Account) { n.Edges.Accounts = append(n.Edges.Accounts, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withSyncResults; query != nil {
+		if err := _q.loadSyncResults(ctx, query, nodes,
+			func(n *UpstreamConfig) { n.Edges.SyncResults = []*UpstreamSyncResult{} },
+			func(n *UpstreamConfig, e *UpstreamSyncResult) { n.Edges.SyncResults = append(n.Edges.SyncResults, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withEvents; query != nil {
+		if err := _q.loadEvents(ctx, query, nodes,
+			func(n *UpstreamConfig) { n.Edges.Events = []*UpstreamEvent{} },
+			func(n *UpstreamConfig, e *UpstreamEvent) { n.Edges.Events = append(n.Edges.Events, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withIncidents; query != nil {
+		if err := _q.loadIncidents(ctx, query, nodes,
+			func(n *UpstreamConfig) { n.Edges.Incidents = []*UpstreamIncident{} },
+			func(n *UpstreamConfig, e *UpstreamIncident) { n.Edges.Incidents = append(n.Edges.Incidents, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withBalanceSnapshots; query != nil {
+		if err := _q.loadBalanceSnapshots(ctx, query, nodes,
+			func(n *UpstreamConfig) { n.Edges.BalanceSnapshots = []*UpstreamBalanceSnapshot{} },
+			func(n *UpstreamConfig, e *UpstreamBalanceSnapshot) {
+				n.Edges.BalanceSnapshots = append(n.Edges.BalanceSnapshots, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withUsageLogs; query != nil {
+		if err := _q.loadUsageLogs(ctx, query, nodes,
+			func(n *UpstreamConfig) { n.Edges.UsageLogs = []*UsageLog{} },
+			func(n *UpstreamConfig, e *UsageLog) { n.Edges.UsageLogs = append(n.Edges.UsageLogs, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -540,6 +762,159 @@ func (_q *UpstreamConfigQuery) loadAccounts(ctx context.Context, query *AccountQ
 	}
 	query.Where(predicate.Account(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(upstreamconfig.AccountsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UpstreamConfigID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "upstream_config_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "upstream_config_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UpstreamConfigQuery) loadSyncResults(ctx context.Context, query *UpstreamSyncResultQuery, nodes []*UpstreamConfig, init func(*UpstreamConfig), assign func(*UpstreamConfig, *UpstreamSyncResult)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*UpstreamConfig)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(upstreamsyncresult.FieldUpstreamConfigID)
+	}
+	query.Where(predicate.UpstreamSyncResult(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(upstreamconfig.SyncResultsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UpstreamConfigID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "upstream_config_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UpstreamConfigQuery) loadEvents(ctx context.Context, query *UpstreamEventQuery, nodes []*UpstreamConfig, init func(*UpstreamConfig), assign func(*UpstreamConfig, *UpstreamEvent)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*UpstreamConfig)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(upstreamevent.FieldUpstreamConfigID)
+	}
+	query.Where(predicate.UpstreamEvent(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(upstreamconfig.EventsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UpstreamConfigID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "upstream_config_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UpstreamConfigQuery) loadIncidents(ctx context.Context, query *UpstreamIncidentQuery, nodes []*UpstreamConfig, init func(*UpstreamConfig), assign func(*UpstreamConfig, *UpstreamIncident)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*UpstreamConfig)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(upstreamincident.FieldUpstreamConfigID)
+	}
+	query.Where(predicate.UpstreamIncident(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(upstreamconfig.IncidentsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UpstreamConfigID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "upstream_config_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UpstreamConfigQuery) loadBalanceSnapshots(ctx context.Context, query *UpstreamBalanceSnapshotQuery, nodes []*UpstreamConfig, init func(*UpstreamConfig), assign func(*UpstreamConfig, *UpstreamBalanceSnapshot)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*UpstreamConfig)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(upstreambalancesnapshot.FieldUpstreamConfigID)
+	}
+	query.Where(predicate.UpstreamBalanceSnapshot(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(upstreamconfig.BalanceSnapshotsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UpstreamConfigID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "upstream_config_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UpstreamConfigQuery) loadUsageLogs(ctx context.Context, query *UsageLogQuery, nodes []*UpstreamConfig, init func(*UpstreamConfig), assign func(*UpstreamConfig, *UsageLog)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*UpstreamConfig)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(usagelog.FieldUpstreamConfigID)
+	}
+	query.Where(predicate.UsageLog(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(upstreamconfig.UsageLogsColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

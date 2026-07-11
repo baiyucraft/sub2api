@@ -109,11 +109,13 @@ type AccountEdges struct {
 	Children []*Account `json:"children,omitempty"`
 	// UsageLogs holds the value of the usage_logs edge.
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
+	// UpstreamEvents holds the value of the upstream_events edge.
+	UpstreamEvents []*UpstreamEvent `json:"upstream_events,omitempty"`
 	// AccountGroups holds the value of the account_groups edge.
 	AccountGroups []*AccountGroup `json:"account_groups,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [8]bool
+	loadedTypes [9]bool
 }
 
 // GroupsOrErr returns the Groups value or an error if the edge
@@ -187,10 +189,19 @@ func (e AccountEdges) UsageLogsOrErr() ([]*UsageLog, error) {
 	return nil, &NotLoadedError{edge: "usage_logs"}
 }
 
+// UpstreamEventsOrErr returns the UpstreamEvents value or an error if the edge
+// was not loaded in eager-loading.
+func (e AccountEdges) UpstreamEventsOrErr() ([]*UpstreamEvent, error) {
+	if e.loadedTypes[7] {
+		return e.UpstreamEvents, nil
+	}
+	return nil, &NotLoadedError{edge: "upstream_events"}
+}
+
 // AccountGroupsOrErr returns the AccountGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) AccountGroupsOrErr() ([]*AccountGroup, error) {
-	if e.loadedTypes[7] {
+	if e.loadedTypes[8] {
 		return e.AccountGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "account_groups"}
@@ -501,6 +512,11 @@ func (_m *Account) QueryChildren() *AccountQuery {
 // QueryUsageLogs queries the "usage_logs" edge of the Account entity.
 func (_m *Account) QueryUsageLogs() *UsageLogQuery {
 	return NewAccountClient(_m.config).QueryUsageLogs(_m)
+}
+
+// QueryUpstreamEvents queries the "upstream_events" edge of the Account entity.
+func (_m *Account) QueryUpstreamEvents() *UpstreamEventQuery {
+	return NewAccountClient(_m.config).QueryUpstreamEvents(_m)
 }
 
 // QueryAccountGroups queries the "account_groups" edge of the Account entity.

@@ -4,7 +4,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import UpstreamConfigsView from '../UpstreamConfigsView.vue'
 
-const { listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock, proxiesMock, showErrorMock, showSuccessMock } = vi.hoisted(() => ({
+const {
+  listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock,
+  getSettingsMock, updateSettingsMock, listSyncRunsMock, getSyncRunMock, listEventsMock,
+  listIncidentsMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock
+} = vi.hoisted(() => ({
   listMock: vi.fn(),
   createMock: vi.fn(),
   updateMock: vi.fn(),
@@ -12,6 +16,13 @@ const { listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, sy
   testMock: vi.fn(),
   syncKeysMock: vi.fn(),
   syncAllKeysMock: vi.fn(),
+  getSettingsMock: vi.fn(),
+  updateSettingsMock: vi.fn(),
+  listSyncRunsMock: vi.fn(),
+  getSyncRunMock: vi.fn(),
+  listEventsMock: vi.fn(),
+  listIncidentsMock: vi.fn(),
+  getUsageTrendMock: vi.fn(),
   proxiesMock: vi.fn(),
   showErrorMock: vi.fn(),
   showSuccessMock: vi.fn()
@@ -25,7 +36,14 @@ vi.mock('@/api/admin/upstreamConfigs', () => ({
     remove: removeMock,
     test: testMock,
     syncKeys: syncKeysMock,
-    syncAllKeys: syncAllKeysMock
+    syncAllKeys: syncAllKeysMock,
+    getSettings: getSettingsMock,
+    updateSettings: updateSettingsMock,
+    listSyncRuns: listSyncRunsMock,
+    getSyncRun: getSyncRunMock,
+    listEvents: listEventsMock,
+    listIncidents: listIncidentsMock,
+    getUsageTrend: getUsageTrendMock
   }
 }))
 
@@ -83,6 +101,7 @@ const DataTableStub = defineComponent({
         <slot name="cell-provider" :row="row" :value="row.provider" />
         <slot name="cell-base_url" :row="row" :value="row.base_url" />
         <slot name="cell-balance" :row="row" />
+        <slot name="cell-rates" :row="row" />
         <slot name="cell-auth_mode" :row="row" :value="row.auth_mode" />
         <slot name="cell-credentials" :row="row" />
         <slot name="cell-last_success_at" :row="row" :value="row.last_success_at" />
@@ -153,6 +172,24 @@ const ProxySelectorStub = defineComponent({
   `
 })
 
+const UpstreamOperationsDrawerStub = defineComponent({
+  props: ['show', 'title', 'subtitle'],
+  emits: ['close'],
+  template: `
+    <div v-if="show" data-test="upstream-operations-drawer">
+      <div data-test="operations-title">{{ title }}</div>
+      <slot name="toolbar" />
+      <slot />
+      <slot name="footer" />
+    </div>
+  `
+})
+
+const UpstreamCostTrendChartStub = defineComponent({
+  props: ['points', 'loading'],
+  template: '<div data-test="cost-trend-chart">{{ points.length }}</div>'
+})
+
 function upstreamConfig(overrides = {}) {
   return {
     id: 10,
@@ -165,6 +202,8 @@ function upstreamConfig(overrides = {}) {
       has_refresh_token: false
     },
     proxy_id: null,
+    recharge_rate: 1,
+    balance_to_cny_rate: null,
     status: 'active',
     last_success_at: null,
     last_error: null,
@@ -196,6 +235,8 @@ function mountView() {
         BaseDialog: BaseDialogStub,
         ConfirmDialog: ConfirmDialogStub,
         ProxySelector: ProxySelectorStub,
+        UpstreamOperationsDrawer: UpstreamOperationsDrawerStub,
+        UpstreamCostTrendChart: UpstreamCostTrendChartStub,
         Icon: true,
         Teleport: true
       }
@@ -213,6 +254,13 @@ describe('UpstreamConfigsView', () => {
     testMock.mockReset()
     syncKeysMock.mockReset()
     syncAllKeysMock.mockReset()
+    getSettingsMock.mockReset()
+    updateSettingsMock.mockReset()
+    listSyncRunsMock.mockReset()
+    getSyncRunMock.mockReset()
+    listEventsMock.mockReset()
+    listIncidentsMock.mockReset()
+    getUsageTrendMock.mockReset()
     proxiesMock.mockReset()
     showErrorMock.mockReset()
     showSuccessMock.mockReset()
@@ -232,6 +280,24 @@ describe('UpstreamConfigsView', () => {
     testMock.mockResolvedValue({ ok: true })
     syncKeysMock.mockResolvedValue({ keys: [{ id: 1 }], key_count: 1, updated_account_count: 2 })
     syncAllKeysMock.mockResolvedValue({ results: [{ config_id: 10, name: 'Sub2API Main', success: true, key_count: 3, updated_account_count: 1 }] })
+    getSettingsMock.mockResolvedValue({ balance_low_threshold_cny: 10 })
+    updateSettingsMock.mockResolvedValue({ balance_low_threshold_cny: 20 })
+    listSyncRunsMock.mockResolvedValue({ items: [], total: 0 })
+    getSyncRunMock.mockResolvedValue({
+      id: 99,
+      trigger: 'manual_batch',
+      status: 'succeeded',
+      total_configs: 1,
+      success_configs: 1,
+      partial_configs: 0,
+      failed_configs: 0,
+      started_at: '2026-07-10T00:00:00Z',
+      finished_at: '2026-07-10T00:00:01Z',
+      results: []
+    })
+    listEventsMock.mockResolvedValue({ items: [], total: 0 })
+    listIncidentsMock.mockResolvedValue({ items: [], total: 0 })
+    getUsageTrendMock.mockResolvedValue({ range: '24h', currency: 'CNY', legacy_attributed_requests: 0, points: [] })
   })
 
   afterEach(() => {
@@ -268,10 +334,9 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('12.3456')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"169.17"}')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥169.17"}')
 
-    const buttons = wrapper.findAll('button.table-action-button')
-    await buttons[3].trigger('click')
+    await wrapper.get('[data-test="open-upstream-dashboard"]').trigger('click')
 
     expect(openSpy).toHaveBeenCalledWith('https://upstream.example.com/dashboard', '_blank', 'noopener,noreferrer')
     openSpy.mockRestore()
@@ -300,7 +365,8 @@ describe('UpstreamConfigsView', () => {
           currency: 'USD',
           currency_symbol: '$',
           quota_display_type: 'USD',
-          quota_per_unit: 500000
+          quota_per_unit: 500000,
+          usd_exchange_rate: 7.2
         }
       }
     })])
@@ -308,8 +374,8 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('0.174')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"10.00"}')
+    expect(wrapper.text()).toContain('¥1.2527')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥72.00"}')
     expect(wrapper.text()).not.toContain('-4,826,010')
     expect(wrapper.text()).not.toContain('$')
   })
@@ -322,7 +388,8 @@ describe('UpstreamConfigsView', () => {
           version: 1,
           provider: 'newapi',
           balance_amount: 0,
-          used_amount: 2.5
+          used_amount: 2.5,
+          currency: 'CNY'
         }
       }
     })])
@@ -331,7 +398,7 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('0.00')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"2.50"}')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥2.50"}')
   })
 
   it('falls back to converted total quota for legacy newapi snapshots', async () => {
@@ -344,7 +411,8 @@ describe('UpstreamConfigsView', () => {
           balance_amount: 1,
           total_quota: 2500000,
           quota_per_unit: 500000,
-          quota_display_type: 'USD'
+          quota_display_type: 'USD',
+          usd_exchange_rate: 7
         }
       }
     })])
@@ -352,7 +420,47 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"5.00"}')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥35.00"}')
+  })
+
+  it('does not label newapi balances as CNY without an explicit exchange rate', async () => {
+    mockList([upstreamConfig({
+      provider: 'newapi',
+      extra: {
+        upstream_provider_snapshot: {
+          balance_amount: 2,
+          total_amount: 10,
+          currency: 'USD'
+        }
+      }
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('¥2.00')
+    expect(wrapper.text()).not.toContain('¥10.00')
+  })
+
+  it('highlights low CNY balance and renders raw and cost rate summaries', async () => {
+    mockList([upstreamConfig({
+      recharge_rate: 2,
+      keys: [
+        { id: 1, rate_multiplier: 0.8, effective_cost_multiplier: 0.35 },
+        { id: 2, rate_multiplier: 1.2, effective_cost_multiplier: 0.55 }
+      ],
+      extra: {
+        balance_cny: 5,
+        total_recharged_cny: 100
+      }
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.lowBalance')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.rates.raw:{"value":"0.8 - 1.2"}')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.rates.cost:{"value":"0.35 - 0.55"}')
   })
 
   it('wires pagination events to upstream list API', async () => {
@@ -394,12 +502,13 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="dialog-title"]').text()).toBe('admin.upstreamConfigs.dialog.createTitle')
 
     const dialog = wrapper.get('[data-test="base-dialog"]')
-    const inputs = dialog.findAll('input')
-    await inputs[0].setValue('New Upstream')
-    await inputs[1].setValue('https://new.example.com')
+    await dialog.get('[data-test="upstream-name-input"]').setValue('New Upstream')
+    await dialog.get('[data-test="upstream-base-url-input"]').setValue('https://new.example.com')
+    await dialog.get('[data-test="recharge-rate-input"]').setValue('1.2')
+    await dialog.get('[data-test="balance-to-cny-rate-input"]').setValue('7.2')
     await wrapper.get('[data-test="proxy-pick"]').trigger('click')
-    await inputs[2].setValue('admin@example.com')
-    await inputs[3].setValue('secret-password')
+    await dialog.get('[data-test="upstream-email-input"]').setValue('admin@example.com')
+    await dialog.get('[data-test="upstream-password-input"]').setValue('secret-password')
     await wrapper.get('form#upstream-config-form').trigger('submit.prevent')
     await flushPromises()
 
@@ -408,6 +517,8 @@ describe('UpstreamConfigsView', () => {
       base_url: 'https://new.example.com',
       provider: 'sub2api',
       proxy_id: 7,
+      recharge_rate: 1.2,
+      balance_to_cny_rate: 7.2,
       credentials: {
         sub2api_login_email: 'admin@example.com',
         sub2api_login_password: 'secret-password'
@@ -429,11 +540,10 @@ describe('UpstreamConfigsView', () => {
     await dialog.find('select').setValue('newapi')
     await flushPromises()
 
-    const inputs = dialog.findAll('input')
-    await inputs[0].setValue('NewAPI Upstream')
-    await inputs[1].setValue('https://www.codexapis.com')
-    await inputs[2].setValue('owner@example.com')
-    await inputs[3].setValue('secret-password')
+    await dialog.get('[data-test="upstream-name-input"]').setValue('NewAPI Upstream')
+    await dialog.get('[data-test="upstream-base-url-input"]').setValue('https://www.codexapis.com')
+    await dialog.get('[data-test="upstream-username-input"]').setValue('owner@example.com')
+    await dialog.get('[data-test="upstream-password-input"]').setValue('secret-password')
     await wrapper.get('form#upstream-config-form').trigger('submit.prevent')
     await flushPromises()
 
@@ -458,9 +568,8 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     const dialog = wrapper.get('[data-test="base-dialog"]')
-    const inputs = dialog.findAll('input')
-    await inputs[0].setValue('JWT Upstream')
-    await inputs[1].setValue('https://jwt.example.com')
+    await dialog.get('[data-test="upstream-name-input"]').setValue('JWT Upstream')
+    await dialog.get('[data-test="upstream-base-url-input"]').setValue('https://jwt.example.com')
 
     const selects = dialog.findAll('select')
     await selects[1].setValue('manual_jwt')
@@ -515,11 +624,10 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     const dialog = wrapper.get('[data-test="base-dialog"]')
-    const inputs = dialog.findAll('input')
-    await inputs[0].setValue('New Upstream')
-    await inputs[1].setValue('https://new.example.com')
-    await inputs[2].setValue('admin@example.com')
-    await inputs[3].setValue('secret-password')
+    await dialog.get('[data-test="upstream-name-input"]').setValue('New Upstream')
+    await dialog.get('[data-test="upstream-base-url-input"]').setValue('https://new.example.com')
+    await dialog.get('[data-test="upstream-email-input"]').setValue('admin@example.com')
+    await dialog.get('[data-test="upstream-password-input"]').setValue('secret-password')
     await wrapper.get('form#upstream-config-form').trigger('submit.prevent')
     await flushPromises()
 
@@ -552,5 +660,63 @@ describe('UpstreamConfigsView', () => {
     expect(syncAllKeysMock).toHaveBeenCalledTimes(1)
     expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.syncAllSuccess:{"success":1,"keys":3}')
     expect(listMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('opens the batch sync result drawer by run_id', async () => {
+    syncAllKeysMock.mockResolvedValueOnce({
+      run_id: 99,
+      results: [{ config_id: 10, name: 'Sub2API Main', success: true, key_count: 3, updated_account_count: 1 }]
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button[title="admin.upstreamConfigs.actions.syncAll"]').trigger('click')
+    await flushPromises()
+
+    expect(getSyncRunMock).toHaveBeenCalledWith(99)
+    expect(wrapper.get('[data-test="upstream-operations-drawer"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="sync-run-detail"]').exists()).toBe(true)
+  })
+
+  it('loads cost trend and switches between 24h, 7d, and 30d', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-cost-trend"]').trigger('click')
+    await flushPromises()
+    expect(getUsageTrendMock).toHaveBeenLastCalledWith(10, '24h')
+
+    await wrapper.get('[data-test="trend-range-7d"]').trigger('click')
+    await flushPromises()
+    expect(getUsageTrendMock).toHaveBeenLastCalledWith(10, '7d')
+
+    await wrapper.get('[data-test="trend-range-30d"]').trigger('click')
+    await flushPromises()
+    expect(getUsageTrendMock).toHaveBeenLastCalledWith(10, '30d')
+  })
+
+  it('loads events and incidents for the selected upstream', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-upstream-events"]').trigger('click')
+    await flushPromises()
+
+    expect(listEventsMock).toHaveBeenCalledWith(10, 50, 0)
+    expect(listIncidentsMock).toHaveBeenCalledWith(10, 'open', 50, 0)
+  })
+
+  it('updates the low balance threshold from upstream settings', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-upstream-settings"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="low-balance-threshold-input"]').setValue('20')
+    await wrapper.get('[data-test="upstream-settings-form"]').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateSettingsMock).toHaveBeenCalledWith({ balance_low_threshold_cny: 20 })
+    expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.settingsSaved')
   })
 })

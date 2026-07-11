@@ -1,13 +1,99 @@
 // Package usagestats provides types for usage statistics and reporting.
 package usagestats
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 const (
 	ModelSourceRequested = "requested"
 	ModelSourceUpstream  = "upstream"
 	ModelSourceMapping   = "mapping"
+
+	UpstreamUsageTrendRange24H = "24h"
+	UpstreamUsageTrendRange7D  = "7d"
+	UpstreamUsageTrendRange30D = "30d"
+	UpstreamUsageTrendCurrency = "CNY"
 )
+
+type UpstreamUsageTrendQuery struct {
+	UpstreamConfigID *int64
+	Range            string
+	Now              time.Time
+}
+
+type UpstreamUsageTrendRangeSpec struct {
+	Range          string
+	StartTime      time.Time
+	EndTime        time.Time
+	BucketUnit     string
+	BucketInterval time.Duration
+	PointCount     int
+}
+
+type UpstreamUsageTrendPoint struct {
+	Bucket           string  `json:"bucket"`
+	Requests         int64   `json:"requests"`
+	UpstreamBaseCost float64 `json:"upstream_base_cost"`
+	UpstreamCost     float64 `json:"upstream_cost"`
+	BilledCost       float64 `json:"billed_cost"`
+	GrossProfit      float64 `json:"gross_profit"`
+	UnconvertedCost  float64 `json:"unconverted_cost"`
+}
+
+type UpstreamUsageTrend struct {
+	Range                    string                    `json:"range"`
+	Currency                 string                    `json:"currency"`
+	LegacyAttributedRequests int64                     `json:"legacy_attributed_requests"`
+	Points                   []UpstreamUsageTrendPoint `json:"points"`
+}
+
+func ResolveUpstreamUsageTrendRange(rangeName string, now time.Time) (UpstreamUsageTrendRangeSpec, error) {
+	rangeName = strings.ToLower(strings.TrimSpace(rangeName))
+	if rangeName == "" {
+		rangeName = UpstreamUsageTrendRange24H
+	}
+	now = now.UTC()
+
+	var spec UpstreamUsageTrendRangeSpec
+	switch rangeName {
+	case UpstreamUsageTrendRange24H:
+		spec = UpstreamUsageTrendRangeSpec{
+			Range:          rangeName,
+			BucketUnit:     "hour",
+			BucketInterval: time.Hour,
+			PointCount:     24,
+		}
+		spec.EndTime = now.Truncate(time.Hour).Add(time.Hour)
+	case UpstreamUsageTrendRange7D:
+		spec = UpstreamUsageTrendRangeSpec{
+			Range:          rangeName,
+			BucketUnit:     "day",
+			BucketInterval: 24 * time.Hour,
+			PointCount:     7,
+		}
+		spec.EndTime = startOfUTCDay(now).Add(24 * time.Hour)
+	case UpstreamUsageTrendRange30D:
+		spec = UpstreamUsageTrendRangeSpec{
+			Range:          rangeName,
+			BucketUnit:     "day",
+			BucketInterval: 24 * time.Hour,
+			PointCount:     30,
+		}
+		spec.EndTime = startOfUTCDay(now).Add(24 * time.Hour)
+	default:
+		return UpstreamUsageTrendRangeSpec{}, fmt.Errorf("unsupported upstream usage trend range %q", rangeName)
+	}
+	spec.StartTime = spec.EndTime.Add(-time.Duration(spec.PointCount) * spec.BucketInterval)
+	return spec, nil
+}
+
+func startOfUTCDay(t time.Time) time.Time {
+	t = t.UTC()
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+}
 
 func IsValidModelSource(source string) bool {
 	switch source {

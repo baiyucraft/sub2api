@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
@@ -19,6 +21,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
+
+const upstreamConfigSyncAdvisoryLockNamespace int64 = 0x73756232
 
 type upstreamConfigRepository struct {
 	client *dbent.Client
@@ -37,6 +41,28 @@ const (
 
 func NewUpstreamConfigRepository(client *dbent.Client) service.UpstreamConfigRepository {
 	return &upstreamConfigRepository{client: client}
+}
+
+func (r *upstreamConfigRepository) WithUpstreamConfigSyncLock(ctx context.Context, configID int64, fn func(context.Context) error) error {
+	driver, ok := r.client.Driver().(*entsql.Driver)
+	if !ok || driver.Dialect() != dialect.Postgres {
+		return fn(ctx)
+	}
+	conn, err := driver.DB().Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	lockID := (upstreamConfigSyncAdvisoryLockNamespace << 32) | (configID & 0xffffffff)
+	var acquired bool
+	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired); err != nil {
+		return err
+	}
+	if !acquired {
+		return infraerrors.New(http.StatusConflict, "UPSTREAM_SYNC_IN_PROGRESS", "upstream config synchronization is already in progress")
+	}
+	defer func() { _, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", lockID) }()
+	return fn(ctx)
 }
 
 func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]service.UpstreamConfig, *pagination.PaginationResult, error) {
@@ -58,6 +84,7 @@ func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.P
 		return nil, nil, err
 	}
 	rows, err := q.
+		WithKeys().
 		Offset(params.Offset()).
 		Limit(params.Limit()).
 		Order(dbent.Desc(dbupstreamconfig.FieldUpdatedAt)).
@@ -67,7 +94,11 @@ func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.P
 	}
 	out := make([]service.UpstreamConfig, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, *upstreamConfigEntityToService(row))
+		item := upstreamConfigEntityToService(row)
+		for _, key := range row.Edges.Keys {
+			item.Keys = append(item.Keys, upstreamKeyEntityToService(key))
+		}
+		out = append(out, *item)
 	}
 	return out, paginationResultFromTotal(int64(total), params), nil
 }
@@ -98,9 +129,13 @@ func (r *upstreamConfigRepository) Create(ctx context.Context, config *service.U
 		SetAuthMode(config.AuthMode).
 		SetCredentials(normalizeJSONMap(config.Credentials)).
 		SetExtra(normalizeJSONMap(config.Extra)).
+		SetRechargeRate(config.RechargeRate).
 		SetStatus(config.Status)
 	if config.ProxyID != nil {
 		builder.SetProxyID(*config.ProxyID)
+	}
+	if config.BalanceToCNYRate != nil {
+		builder.SetBalanceToCnyRate(*config.BalanceToCNYRate)
 	}
 	row, err := builder.Save(ctx)
 	if err != nil {
@@ -114,10 +149,11 @@ func (r *upstreamConfigRepository) Create(ctx context.Context, config *service.U
 
 func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.UpstreamConfig) error {
 	return r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
-		if _, err := client.UpstreamConfig.Query().
+		previous, err := client.UpstreamConfig.Query().
 			Where(dbupstreamconfig.IDEQ(config.ID)).
 			ForUpdate().
-			Only(txCtx); err != nil {
+			Only(txCtx)
+		if err != nil {
 			if dbent.IsNotFound(err) {
 				return service.ErrUpstreamConfigNotFound
 			}
@@ -131,19 +167,36 @@ func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.U
 			SetAuthMode(config.AuthMode).
 			SetCredentials(normalizeJSONMap(config.Credentials)).
 			SetExtra(normalizeJSONMap(config.Extra)).
+			SetRechargeRate(config.RechargeRate).
 			SetStatus(config.Status)
 		if config.ProxyID != nil {
 			builder.SetProxyID(*config.ProxyID)
 		} else {
 			builder.ClearProxyID()
 		}
-		if _, err := builder.Save(txCtx); err != nil {
+		if config.BalanceToCNYRate != nil {
+			builder.SetBalanceToCnyRate(*config.BalanceToCNYRate)
+		} else {
+			builder.ClearBalanceToCnyRate()
+		}
+		updatedConfig, err := builder.Save(txCtx)
+		if err != nil {
 			return err
 		}
 
 		changedIDs, err := renameAccountsForUpstreamConfig(txCtx, client, config.ID, config.Name)
 		if err != nil {
 			return err
+		}
+		if previous.RechargeRate != updatedConfig.RechargeRate {
+			costChangedIDs, err := recalculateUpstreamAccounts(txCtx, client, updatedConfig, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			changedIDs = append(changedIDs, costChangedIDs...)
+			if err := createRechargeRateChangedEvent(txCtx, client, updatedConfig, previous.RechargeRate, updatedConfig.RechargeRate, time.Now().UTC()); err != nil {
+				return err
+			}
 		}
 		return enqueueUpstreamAccountChanges(txCtx, client, changedIDs)
 	})
@@ -190,13 +243,8 @@ func (r *upstreamConfigRepository) CreateKey(ctx context.Context, key *service.U
 
 func (r *upstreamConfigRepository) UpsertKey(ctx context.Context, key *service.UpstreamKey) error {
 	client := clientFromContext(ctx, r.client)
-	existing, err := client.UpstreamKey.Query().
-		Where(
-			dbupstreamkey.UpstreamConfigIDEQ(key.UpstreamConfigID),
-			dbupstreamkey.KeyHashEQ(key.KeyHash),
-		).
-		Only(ctx)
-	if err != nil && !dbent.IsNotFound(err) {
+	existing, err := findUpstreamKeyForUpsert(ctx, client, key)
+	if err != nil {
 		return err
 	}
 	if existing == nil {
@@ -204,6 +252,32 @@ func (r *upstreamConfigRepository) UpsertKey(ctx context.Context, key *service.U
 	}
 	key.ID = existing.ID
 	return updateUpstreamKey(ctx, client, key)
+}
+
+func findUpstreamKeyForUpsert(ctx context.Context, client *dbent.Client, key *service.UpstreamKey) (*dbent.UpstreamKey, error) {
+	if key.RemoteKeyID != nil {
+		existing, err := client.UpstreamKey.Query().Where(
+			dbupstreamkey.UpstreamConfigIDEQ(key.UpstreamConfigID),
+			dbupstreamkey.RemoteKeyIDEQ(*key.RemoteKeyID),
+		).Only(ctx)
+		if err == nil {
+			return existing, nil
+		}
+		if !dbent.IsNotFound(err) {
+			return nil, err
+		}
+	}
+	if strings.TrimSpace(key.KeyHash) == "" {
+		return nil, nil
+	}
+	existing, err := client.UpstreamKey.Query().Where(
+		dbupstreamkey.UpstreamConfigIDEQ(key.UpstreamConfigID),
+		dbupstreamkey.KeyHashEQ(key.KeyHash),
+	).Only(ctx)
+	if dbent.IsNotFound(err) {
+		return nil, nil
+	}
+	return existing, err
 }
 
 func (r *upstreamConfigRepository) UpdateKey(ctx context.Context, key *service.UpstreamKey) error {
@@ -287,7 +361,7 @@ func (r *upstreamConfigRepository) DeleteKey(ctx context.Context, id int64) erro
 	return r.client.UpstreamKey.DeleteOneID(id).Exec(ctx)
 }
 
-func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, configID int64, keys []service.UpstreamKey, extraUpdates map[string]any, checkedAt time.Time) ([]service.UpstreamKey, int, error) {
+func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, configID, runID int64, keys []service.UpstreamKey, extraUpdates map[string]any, checkedAt time.Time) ([]service.UpstreamKey, int, error) {
 	var (
 		localKeys []service.UpstreamKey
 		updated   int
@@ -304,15 +378,11 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			return err
 		}
 
+		oldRates := make(map[int64]*float64)
 		for i := range keys {
 			keys[i].UpstreamConfigID = configID
-			existing, queryErr := client.UpstreamKey.Query().
-				Where(
-					dbupstreamkey.UpstreamConfigIDEQ(configID),
-					dbupstreamkey.KeyHashEQ(keys[i].KeyHash),
-				).
-				Only(txCtx)
-			if queryErr != nil && !dbent.IsNotFound(queryErr) {
+			existing, queryErr := findUpstreamKeyForUpsert(txCtx, client, &keys[i])
+			if queryErr != nil {
 				return queryErr
 			}
 			if existing == nil {
@@ -321,6 +391,7 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 				}
 				continue
 			}
+			oldRates[existing.ID] = existing.RateMultiplier
 			keys[i].ID = existing.ID
 			if err := updateUpstreamKey(txCtx, client, &keys[i]); err != nil {
 				return err
@@ -339,6 +410,11 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 		for _, row := range keyRows {
 			keyByID[row.ID] = row
 			localKeys = append(localKeys, *upstreamKeyEntityToService(row))
+			if old, ok := oldRates[row.ID]; ok && !sameOptionalRate(old, row.RateMultiplier) {
+				if err := createUpstreamRateChangeEvent(txCtx, client, config, row, runID, old, row.RateMultiplier, checkedAt); err != nil {
+					return err
+				}
+			}
 		}
 
 		accounts, err := client.Account.Query().
@@ -358,7 +434,7 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			if key == nil || key.UpstreamConfigID != configID {
 				continue
 			}
-			changed, err := syncUpstreamAccount(txCtx, client, account, config, key, checkedAt)
+			changed, err := syncUpstreamAccount(txCtx, client, account, config, key, extraUpdates, checkedAt)
 			if err != nil {
 				return err
 			}
@@ -367,12 +443,28 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			}
 		}
 
+		if err := persistUpstreamBalanceState(txCtx, client, config, runID, extraUpdates, checkedAt); err != nil {
+			return err
+		}
 		mergedExtra := copyJSONMap(config.Extra)
 		if mergedExtra == nil {
 			mergedExtra = map[string]any{}
 		}
 		for key, value := range extraUpdates {
-			mergedExtra[key] = value
+			if value == nil {
+				delete(mergedExtra, key)
+			} else {
+				mergedExtra[key] = value
+			}
+		}
+		if config.LastError != nil && strings.TrimSpace(*config.LastError) != "" {
+			event := client.UpstreamEvent.Create().SetUpstreamConfigID(configID).SetEventType("sync_recovered").SetSeverity("info").SetSource("sync").SetMessage("Upstream synchronization recovered").SetOccurredAt(checkedAt)
+			if runID > 0 {
+				event.SetSyncRunID(runID)
+			}
+			if err := event.Exec(txCtx); err != nil {
+				return err
+			}
 		}
 		if _, err := client.UpstreamConfig.UpdateOneID(configID).
 			SetExtra(mergedExtra).
@@ -412,16 +504,30 @@ func (r *upstreamConfigRepository) ApplyAccountNameBackfill(ctx context.Context)
 }
 
 func (r *upstreamConfigRepository) RecordCheckResult(ctx context.Context, id int64, success bool, safeErr string) error {
-	now := time.Now()
-	builder := r.client.UpstreamConfig.UpdateOneID(id).
-		SetLastCheckedAt(now)
-	if success {
-		builder.SetLastSuccessAt(now).ClearLastError()
-	} else {
-		builder.SetLastError(safeErr)
-	}
-	_, err := builder.Save(ctx)
-	return err
+	return r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		now := time.Now().UTC()
+		config, err := client.UpstreamConfig.Query().Where(dbupstreamconfig.IDEQ(id)).ForUpdate().Only(txCtx)
+		if err != nil {
+			return err
+		}
+		previousFailed := config.LastError != nil && strings.TrimSpace(*config.LastError) != ""
+		builder := client.UpstreamConfig.UpdateOneID(id).SetLastCheckedAt(now)
+		if success {
+			builder.SetLastSuccessAt(now).ClearLastError()
+		} else {
+			builder.SetLastError(safeErr)
+		}
+		if _, err := builder.Save(txCtx); err != nil {
+			return err
+		}
+		if !success && !previousFailed {
+			return client.UpstreamEvent.Create().SetUpstreamConfigID(id).SetEventType("sync_failed").SetSeverity("error").SetSource("sync").SetMessage("Upstream synchronization failed").SetPayload(map[string]any{"error": safeErr}).SetOccurredAt(now).Exec(txCtx)
+		}
+		if success && previousFailed {
+			return client.UpstreamEvent.Create().SetUpstreamConfigID(id).SetEventType("sync_recovered").SetSeverity("info").SetSource("sync").SetMessage("Upstream synchronization recovered").SetOccurredAt(now).Exec(txCtx)
+		}
+		return nil
+	})
 }
 
 func (r *upstreamConfigRepository) SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string, expiresAt *time.Time) error {
@@ -548,7 +654,7 @@ func renameAccountsForUpstreamConfig(ctx context.Context, client *dbent.Client, 
 	return changedIDs, nil
 }
 
-func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbent.Account, config *dbent.UpstreamConfig, key *dbent.UpstreamKey, checkedAt time.Time) (bool, error) {
+func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbent.Account, config *dbent.UpstreamConfig, key *dbent.UpstreamKey, balanceExtra map[string]any, checkedAt time.Time) (bool, error) {
 	builder := client.Account.UpdateOneID(account.ID)
 	changed := false
 	if name, err := service.BuildUpstreamAccountName(config.Name, key.Name); err == nil && name != account.Name {
@@ -556,14 +662,18 @@ func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbe
 		changed = true
 	}
 	if key.RateMultiplier != nil && validUpstreamRateMultiplier(*key.RateMultiplier) {
-		multiplier := *key.RateMultiplier
+		rechargeRate := config.RechargeRate
+		if rechargeRate <= 0 {
+			rechargeRate = 1
+		}
+		multiplier := *key.RateMultiplier * rechargeRate
 		priority := service.Sub2APIUpstreamPriority(multiplier)
 		loadFactor := service.AutoUpstreamLoadFactor(priority, account.Concurrency)
 		extra := copyJSONMap(account.Extra)
 		if extra == nil {
 			extra = map[string]any{}
 		}
-		for extraKey, value := range upstreamRateSyncExtra(config, key, checkedAt) {
+		for extraKey, value := range upstreamRateSyncExtra(config, key, balanceExtra, checkedAt) {
 			extra[extraKey] = value
 		}
 		builder.
@@ -586,7 +696,7 @@ func validUpstreamRateMultiplier(multiplier float64) bool {
 	return multiplier >= 0 && !math.IsNaN(multiplier) && !math.IsInf(multiplier, 0)
 }
 
-func upstreamRateSyncExtra(config *dbent.UpstreamConfig, key *dbent.UpstreamKey, checkedAt time.Time) map[string]any {
+func upstreamRateSyncExtra(config *dbent.UpstreamConfig, key *dbent.UpstreamKey, balanceExtra map[string]any, checkedAt time.Time) map[string]any {
 	checkedAtText := checkedAt.UTC().Format(time.RFC3339)
 	extra := map[string]any{
 		"upstream_rate_sync_last_success_at": checkedAtText,
@@ -594,12 +704,18 @@ func upstreamRateSyncExtra(config *dbent.UpstreamConfig, key *dbent.UpstreamKey,
 		"upstream_provider":                  config.Provider,
 		"upstream_platform":                  key.Platform,
 		"upstream_rate_multiplier":           *key.RateMultiplier,
+		"upstream_recharge_rate":             config.RechargeRate,
+		"upstream_effective_cost_multiplier": *key.RateMultiplier * config.RechargeRate,
 	}
 	if key.UpstreamGroupID != nil {
 		extra["upstream_group_id"] = *key.UpstreamGroupID
 	}
 	if strings.TrimSpace(key.UpstreamGroupName) != "" {
 		extra["upstream_group_name"] = key.UpstreamGroupName
+	}
+	if rate, ok := numberFromMap(balanceExtra, "currency_to_cny_rate"); ok && rate > 0 {
+		extra["upstream_cost_currency"] = "CNY"
+		extra["upstream_cost_to_cny_rate"] = rate
 	}
 	if config.Provider == service.UpstreamProviderSub2API {
 		extra["sub2api_rate_sync_last_success_at"] = checkedAtText
@@ -818,20 +934,22 @@ func upstreamConfigEntityToService(row *dbent.UpstreamConfig) *service.UpstreamC
 		return nil
 	}
 	return &service.UpstreamConfig{
-		ID:            row.ID,
-		Name:          row.Name,
-		Provider:      row.Provider,
-		BaseURL:       row.BaseURL,
-		AuthMode:      row.AuthMode,
-		Credentials:   copyJSONMap(row.Credentials),
-		Extra:         copyJSONMap(row.Extra),
-		ProxyID:       row.ProxyID,
-		Status:        row.Status,
-		LastError:     row.LastError,
-		LastCheckedAt: row.LastCheckedAt,
-		LastSuccessAt: row.LastSuccessAt,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
+		ID:               row.ID,
+		Name:             row.Name,
+		Provider:         row.Provider,
+		BaseURL:          row.BaseURL,
+		AuthMode:         row.AuthMode,
+		Credentials:      copyJSONMap(row.Credentials),
+		Extra:            copyJSONMap(row.Extra),
+		ProxyID:          row.ProxyID,
+		RechargeRate:     row.RechargeRate,
+		BalanceToCNYRate: row.BalanceToCnyRate,
+		Status:           row.Status,
+		LastError:        row.LastError,
+		LastCheckedAt:    row.LastCheckedAt,
+		LastSuccessAt:    row.LastSuccessAt,
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
 	}
 }
 

@@ -418,12 +418,71 @@ describe('EditAccountModal', () => {
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]).toMatchObject({
-      type: 'upstream',
+      type: 'apikey',
       upstream_config_id: 10,
       upstream_key_id: 20,
       proxy_id: 0
     })
     expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('name')
+  })
+
+  it('rehydrates and updates pool mode for an upstream-bound account', async () => {
+    const account = buildAccount()
+    account.upstream_config_id = 10
+    account.upstream_key_id = 20
+    account.credentials = {
+      base_url: 'https://upstream.example.com',
+      model_mapping: { 'gpt-5.2': 'gpt-5.2' },
+      pool_mode: true,
+      pool_mode_retry_count: 4,
+      pool_mode_retry_status_codes: [429, 503]
+    }
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    expect((wrapper.get('[data-testid="pool-mode-retry-count"]').element as HTMLInputElement).value).toBe('4')
+    expect((wrapper.get('[data-testid="pool-mode-retry-status-codes"]').element as HTMLInputElement).value).toBe('429, 503')
+    await wrapper.get('[data-testid="pool-mode-retry-count"]').setValue('6')
+    await wrapper.get('[data-testid="pool-mode-retry-status-codes"]').setValue('429, 502, 503')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload).toMatchObject({
+      type: 'apikey',
+      credentials: {
+        model_mapping: { 'gpt-5.2': 'gpt-5.2' },
+        pool_mode: true,
+        pool_mode_retry_count: 6,
+        pool_mode_retry_status_codes: [429, 502, 503]
+      }
+    })
+    expect(payload?.credentials).not.toHaveProperty('base_url')
+    expect(payload?.credentials).not.toHaveProperty('api_key')
+  })
+
+  it('removes pool mode fields without restoring upstream secrets', async () => {
+    const account = buildAccount()
+    account.upstream_config_id = 10
+    account.upstream_key_id = 20
+    account.credentials = {
+      base_url: 'https://upstream.example.com',
+      pool_mode: true,
+      pool_mode_retry_count: 4,
+      pool_mode_retry_status_codes: [429]
+    }
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('[data-testid="pool-mode-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials).toEqual({})
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
