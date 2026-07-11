@@ -3123,6 +3123,7 @@ const isUpstreamBoundAccount = computed(() =>
 
 const filteredUpstreamKeys = computed(() =>
   upstreamKeys.value.filter((key) => {
+	if (key.status !== 'active' && key.id !== props.account?.upstream_key_id) return false
     const keyPlatform = (key.platform || '').trim()
     return key.id === editUpstreamKeyId.value || !keyPlatform || keyPlatform === props.account?.platform
   })

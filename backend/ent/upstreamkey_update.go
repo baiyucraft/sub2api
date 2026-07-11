@@ -258,6 +258,47 @@ func (_u *UpstreamKeyUpdate) ClearLastSeenAt() *UpstreamKeyUpdate {
 	return _u
 }
 
+// SetMissingCount sets the "missing_count" field.
+func (_u *UpstreamKeyUpdate) SetMissingCount(v int) *UpstreamKeyUpdate {
+	_u.mutation.ResetMissingCount()
+	_u.mutation.SetMissingCount(v)
+	return _u
+}
+
+// SetNillableMissingCount sets the "missing_count" field if the given value is not nil.
+func (_u *UpstreamKeyUpdate) SetNillableMissingCount(v *int) *UpstreamKeyUpdate {
+	if v != nil {
+		_u.SetMissingCount(*v)
+	}
+	return _u
+}
+
+// AddMissingCount adds value to the "missing_count" field.
+func (_u *UpstreamKeyUpdate) AddMissingCount(v int) *UpstreamKeyUpdate {
+	_u.mutation.AddMissingCount(v)
+	return _u
+}
+
+// SetMissingSince sets the "missing_since" field.
+func (_u *UpstreamKeyUpdate) SetMissingSince(v time.Time) *UpstreamKeyUpdate {
+	_u.mutation.SetMissingSince(v)
+	return _u
+}
+
+// SetNillableMissingSince sets the "missing_since" field if the given value is not nil.
+func (_u *UpstreamKeyUpdate) SetNillableMissingSince(v *time.Time) *UpstreamKeyUpdate {
+	if v != nil {
+		_u.SetMissingSince(*v)
+	}
+	return _u
+}
+
+// ClearMissingSince clears the value of the "missing_since" field.
+func (_u *UpstreamKeyUpdate) ClearMissingSince() *UpstreamKeyUpdate {
+	_u.mutation.ClearMissingSince()
+	return _u
+}
+
 // SetExtra sets the "extra" field.
 func (_u *UpstreamKeyUpdate) SetExtra(v map[string]interface{}) *UpstreamKeyUpdate {
 	_u.mutation.SetExtra(v)
@@ -576,6 +617,18 @@ func (_u *UpstreamKeyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 	}
 	if _u.mutation.LastSeenAtCleared() {
 		_spec.ClearField(upstreamkey.FieldLastSeenAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.MissingCount(); ok {
+		_spec.SetField(upstreamkey.FieldMissingCount, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedMissingCount(); ok {
+		_spec.AddField(upstreamkey.FieldMissingCount, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.MissingSince(); ok {
+		_spec.SetField(upstreamkey.FieldMissingSince, field.TypeTime, value)
+	}
+	if _u.mutation.MissingSinceCleared() {
+		_spec.ClearField(upstreamkey.FieldMissingSince, field.TypeTime)
 	}
 	if value, ok := _u.mutation.Extra(); ok {
 		_spec.SetField(upstreamkey.FieldExtra, field.TypeJSON, value)
@@ -1034,6 +1087,47 @@ func (_u *UpstreamKeyUpdateOne) ClearLastSeenAt() *UpstreamKeyUpdateOne {
 	return _u
 }
 
+// SetMissingCount sets the "missing_count" field.
+func (_u *UpstreamKeyUpdateOne) SetMissingCount(v int) *UpstreamKeyUpdateOne {
+	_u.mutation.ResetMissingCount()
+	_u.mutation.SetMissingCount(v)
+	return _u
+}
+
+// SetNillableMissingCount sets the "missing_count" field if the given value is not nil.
+func (_u *UpstreamKeyUpdateOne) SetNillableMissingCount(v *int) *UpstreamKeyUpdateOne {
+	if v != nil {
+		_u.SetMissingCount(*v)
+	}
+	return _u
+}
+
+// AddMissingCount adds value to the "missing_count" field.
+func (_u *UpstreamKeyUpdateOne) AddMissingCount(v int) *UpstreamKeyUpdateOne {
+	_u.mutation.AddMissingCount(v)
+	return _u
+}
+
+// SetMissingSince sets the "missing_since" field.
+func (_u *UpstreamKeyUpdateOne) SetMissingSince(v time.Time) *UpstreamKeyUpdateOne {
+	_u.mutation.SetMissingSince(v)
+	return _u
+}
+
+// SetNillableMissingSince sets the "missing_since" field if the given value is not nil.
+func (_u *UpstreamKeyUpdateOne) SetNillableMissingSince(v *time.Time) *UpstreamKeyUpdateOne {
+	if v != nil {
+		_u.SetMissingSince(*v)
+	}
+	return _u
+}
+
+// ClearMissingSince clears the value of the "missing_since" field.
+func (_u *UpstreamKeyUpdateOne) ClearMissingSince() *UpstreamKeyUpdateOne {
+	_u.mutation.ClearMissingSince()
+	return _u
+}
+
 // SetExtra sets the "extra" field.
 func (_u *UpstreamKeyUpdateOne) SetExtra(v map[string]interface{}) *UpstreamKeyUpdateOne {
 	_u.mutation.SetExtra(v)
@@ -1382,6 +1476,18 @@ func (_u *UpstreamKeyUpdateOne) sqlSave(ctx context.Context) (_node *UpstreamKey
 	}
 	if _u.mutation.LastSeenAtCleared() {
 		_spec.ClearField(upstreamkey.FieldLastSeenAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.MissingCount(); ok {
+		_spec.SetField(upstreamkey.FieldMissingCount, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedMissingCount(); ok {
+		_spec.AddField(upstreamkey.FieldMissingCount, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.MissingSince(); ok {
+		_spec.SetField(upstreamkey.FieldMissingSince, field.TypeTime, value)
+	}
+	if _u.mutation.MissingSinceCleared() {
+		_spec.ClearField(upstreamkey.FieldMissingSince, field.TypeTime)
 	}
 	if value, ok := _u.mutation.Extra(); ok {
 		_spec.SetField(upstreamkey.FieldExtra, field.TypeJSON, value)

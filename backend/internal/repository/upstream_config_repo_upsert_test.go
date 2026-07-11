@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
@@ -48,6 +49,14 @@ func TestUpsertKeyBackfillsRemoteIDOnExistingHash(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, updated.RemoteKeyID)
 	require.Equal(t, remoteID, *updated.RemoteKeyID)
+}
+
+func TestUpstreamKeyMissingEligible(t *testing.T) {
+	since := time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
+	require.False(t, upstreamKeyMissingEligible(2, &since, since.Add(time.Hour)))
+	require.False(t, upstreamKeyMissingEligible(3, &since, since.Add(29*time.Minute+59*time.Second)))
+	require.True(t, upstreamKeyMissingEligible(3, &since, since.Add(30*time.Minute)))
+	require.False(t, upstreamKeyMissingEligible(10, nil, since.Add(time.Hour)))
 }
 
 func mustCountUpstreamKeys(t *testing.T, ctx context.Context, client *dbent.Client, configID int64) int {

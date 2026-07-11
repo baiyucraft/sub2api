@@ -125,6 +125,16 @@ func LastSeenAt(v time.Time) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEQ(FieldLastSeenAt, v))
 }
 
+// MissingCount applies equality check predicate on the "missing_count" field. It's identical to MissingCountEQ.
+func MissingCount(v int) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldMissingCount, v))
+}
+
+// MissingSince applies equality check predicate on the "missing_since" field. It's identical to MissingSinceEQ.
+func MissingSince(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldMissingSince, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEQ(FieldCreatedAt, v))
@@ -863,6 +873,96 @@ func LastSeenAtIsNil() predicate.UpstreamKey {
 // LastSeenAtNotNil applies the NotNil predicate on the "last_seen_at" field.
 func LastSeenAtNotNil() predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldNotNull(FieldLastSeenAt))
+}
+
+// MissingCountEQ applies the EQ predicate on the "missing_count" field.
+func MissingCountEQ(v int) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldMissingCount, v))
+}
+
+// MissingCountNEQ applies the NEQ predicate on the "missing_count" field.
+func MissingCountNEQ(v int) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNEQ(FieldMissingCount, v))
+}
+
+// MissingCountIn applies the In predicate on the "missing_count" field.
+func MissingCountIn(vs ...int) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIn(FieldMissingCount, vs...))
+}
+
+// MissingCountNotIn applies the NotIn predicate on the "missing_count" field.
+func MissingCountNotIn(vs ...int) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotIn(FieldMissingCount, vs...))
+}
+
+// MissingCountGT applies the GT predicate on the "missing_count" field.
+func MissingCountGT(v int) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGT(FieldMissingCount, v))
+}
+
+// MissingCountGTE applies the GTE predicate on the "missing_count" field.
+func MissingCountGTE(v int) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGTE(FieldMissingCount, v))
+}
+
+// MissingCountLT applies the LT predicate on the "missing_count" field.
+func MissingCountLT(v int) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLT(FieldMissingCount, v))
+}
+
+// MissingCountLTE applies the LTE predicate on the "missing_count" field.
+func MissingCountLTE(v int) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLTE(FieldMissingCount, v))
+}
+
+// MissingSinceEQ applies the EQ predicate on the "missing_since" field.
+func MissingSinceEQ(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldMissingSince, v))
+}
+
+// MissingSinceNEQ applies the NEQ predicate on the "missing_since" field.
+func MissingSinceNEQ(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNEQ(FieldMissingSince, v))
+}
+
+// MissingSinceIn applies the In predicate on the "missing_since" field.
+func MissingSinceIn(vs ...time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIn(FieldMissingSince, vs...))
+}
+
+// MissingSinceNotIn applies the NotIn predicate on the "missing_since" field.
+func MissingSinceNotIn(vs ...time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotIn(FieldMissingSince, vs...))
+}
+
+// MissingSinceGT applies the GT predicate on the "missing_since" field.
+func MissingSinceGT(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGT(FieldMissingSince, v))
+}
+
+// MissingSinceGTE applies the GTE predicate on the "missing_since" field.
+func MissingSinceGTE(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGTE(FieldMissingSince, v))
+}
+
+// MissingSinceLT applies the LT predicate on the "missing_since" field.
+func MissingSinceLT(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLT(FieldMissingSince, v))
+}
+
+// MissingSinceLTE applies the LTE predicate on the "missing_since" field.
+func MissingSinceLTE(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLTE(FieldMissingSince, v))
+}
+
+// MissingSinceIsNil applies the IsNil predicate on the "missing_since" field.
+func MissingSinceIsNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIsNull(FieldMissingSince))
+}
+
+// MissingSinceNotNil applies the NotNil predicate on the "missing_since" field.
+func MissingSinceNotNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotNull(FieldMissingSince))
 }
 
 // HasConfig applies the HasEdge predicate on the "config" edge.

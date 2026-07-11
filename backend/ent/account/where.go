@@ -110,6 +110,16 @@ func UpstreamKeyID(v int64) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldUpstreamKeyID, v))
 }
 
+// UpstreamStalePauseKeyID applies equality check predicate on the "upstream_stale_pause_key_id" field. It's identical to UpstreamStalePauseKeyIDEQ.
+func UpstreamStalePauseKeyID(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamStalePauseKeyID, v))
+}
+
+// UpstreamStalePausedAt applies equality check predicate on the "upstream_stale_paused_at" field. It's identical to UpstreamStalePausedAtEQ.
+func UpstreamStalePausedAt(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamStalePausedAt, v))
+}
+
 // Concurrency applies equality check predicate on the "concurrency" field. It's identical to ConcurrencyEQ.
 func Concurrency(v int) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldConcurrency, v))
@@ -743,6 +753,106 @@ func UpstreamKeyIDIsNil() predicate.Account {
 // UpstreamKeyIDNotNil applies the NotNil predicate on the "upstream_key_id" field.
 func UpstreamKeyIDNotNil() predicate.Account {
 	return predicate.Account(sql.FieldNotNull(FieldUpstreamKeyID))
+}
+
+// UpstreamStalePauseKeyIDEQ applies the EQ predicate on the "upstream_stale_pause_key_id" field.
+func UpstreamStalePauseKeyIDEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamStalePauseKeyID, v))
+}
+
+// UpstreamStalePauseKeyIDNEQ applies the NEQ predicate on the "upstream_stale_pause_key_id" field.
+func UpstreamStalePauseKeyIDNEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldUpstreamStalePauseKeyID, v))
+}
+
+// UpstreamStalePauseKeyIDIn applies the In predicate on the "upstream_stale_pause_key_id" field.
+func UpstreamStalePauseKeyIDIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldUpstreamStalePauseKeyID, vs...))
+}
+
+// UpstreamStalePauseKeyIDNotIn applies the NotIn predicate on the "upstream_stale_pause_key_id" field.
+func UpstreamStalePauseKeyIDNotIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldUpstreamStalePauseKeyID, vs...))
+}
+
+// UpstreamStalePauseKeyIDGT applies the GT predicate on the "upstream_stale_pause_key_id" field.
+func UpstreamStalePauseKeyIDGT(v int64) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldUpstreamStalePauseKeyID, v))
+}
+
+// UpstreamStalePauseKeyIDGTE applies the GTE predicate on the "upstream_stale_pause_key_id" field.
+func UpstreamStalePauseKeyIDGTE(v int64) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldUpstreamStalePauseKeyID, v))
+}
+
+// UpstreamStalePauseKeyIDLT applies the LT predicate on the "upstream_stale_pause_key_id" field.
+func UpstreamStalePauseKeyIDLT(v int64) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldUpstreamStalePauseKeyID, v))
+}
+
+// UpstreamStalePauseKeyIDLTE applies the LTE predicate on the "upstream_stale_pause_key_id" field.
+func UpstreamStalePauseKeyIDLTE(v int64) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldUpstreamStalePauseKeyID, v))
+}
+
+// UpstreamStalePauseKeyIDIsNil applies the IsNil predicate on the "upstream_stale_pause_key_id" field.
+func UpstreamStalePauseKeyIDIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldUpstreamStalePauseKeyID))
+}
+
+// UpstreamStalePauseKeyIDNotNil applies the NotNil predicate on the "upstream_stale_pause_key_id" field.
+func UpstreamStalePauseKeyIDNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldUpstreamStalePauseKeyID))
+}
+
+// UpstreamStalePausedAtEQ applies the EQ predicate on the "upstream_stale_paused_at" field.
+func UpstreamStalePausedAtEQ(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamStalePausedAt, v))
+}
+
+// UpstreamStalePausedAtNEQ applies the NEQ predicate on the "upstream_stale_paused_at" field.
+func UpstreamStalePausedAtNEQ(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldUpstreamStalePausedAt, v))
+}
+
+// UpstreamStalePausedAtIn applies the In predicate on the "upstream_stale_paused_at" field.
+func UpstreamStalePausedAtIn(vs ...time.Time) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldUpstreamStalePausedAt, vs...))
+}
+
+// UpstreamStalePausedAtNotIn applies the NotIn predicate on the "upstream_stale_paused_at" field.
+func UpstreamStalePausedAtNotIn(vs ...time.Time) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldUpstreamStalePausedAt, vs...))
+}
+
+// UpstreamStalePausedAtGT applies the GT predicate on the "upstream_stale_paused_at" field.
+func UpstreamStalePausedAtGT(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldUpstreamStalePausedAt, v))
+}
+
+// UpstreamStalePausedAtGTE applies the GTE predicate on the "upstream_stale_paused_at" field.
+func UpstreamStalePausedAtGTE(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldUpstreamStalePausedAt, v))
+}
+
+// UpstreamStalePausedAtLT applies the LT predicate on the "upstream_stale_paused_at" field.
+func UpstreamStalePausedAtLT(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldUpstreamStalePausedAt, v))
+}
+
+// UpstreamStalePausedAtLTE applies the LTE predicate on the "upstream_stale_paused_at" field.
+func UpstreamStalePausedAtLTE(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldUpstreamStalePausedAt, v))
+}
+
+// UpstreamStalePausedAtIsNil applies the IsNil predicate on the "upstream_stale_paused_at" field.
+func UpstreamStalePausedAtIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldUpstreamStalePausedAt))
+}
+
+// UpstreamStalePausedAtNotNil applies the NotNil predicate on the "upstream_stale_paused_at" field.
+func UpstreamStalePausedAtNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldUpstreamStalePausedAt))
 }
 
 // ConcurrencyEQ applies the EQ predicate on the "concurrency" field.

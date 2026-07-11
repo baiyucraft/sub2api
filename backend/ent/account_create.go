@@ -170,6 +170,34 @@ func (_c *AccountCreate) SetNillableUpstreamKeyID(v *int64) *AccountCreate {
 	return _c
 }
 
+// SetUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field.
+func (_c *AccountCreate) SetUpstreamStalePauseKeyID(v int64) *AccountCreate {
+	_c.mutation.SetUpstreamStalePauseKeyID(v)
+	return _c
+}
+
+// SetNillableUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableUpstreamStalePauseKeyID(v *int64) *AccountCreate {
+	if v != nil {
+		_c.SetUpstreamStalePauseKeyID(*v)
+	}
+	return _c
+}
+
+// SetUpstreamStalePausedAt sets the "upstream_stale_paused_at" field.
+func (_c *AccountCreate) SetUpstreamStalePausedAt(v time.Time) *AccountCreate {
+	_c.mutation.SetUpstreamStalePausedAt(v)
+	return _c
+}
+
+// SetNillableUpstreamStalePausedAt sets the "upstream_stale_paused_at" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableUpstreamStalePausedAt(v *time.Time) *AccountCreate {
+	if v != nil {
+		_c.SetUpstreamStalePausedAt(*v)
+	}
+	return _c
+}
+
 // SetConcurrency sets the "concurrency" field.
 func (_c *AccountCreate) SetConcurrency(v int) *AccountCreate {
 	_c.mutation.SetConcurrency(v)
@@ -781,6 +809,14 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		_spec.SetField(account.FieldProxyFallbackOriginID, field.TypeInt64, value)
 		_node.ProxyFallbackOriginID = &value
 	}
+	if value, ok := _c.mutation.UpstreamStalePauseKeyID(); ok {
+		_spec.SetField(account.FieldUpstreamStalePauseKeyID, field.TypeInt64, value)
+		_node.UpstreamStalePauseKeyID = &value
+	}
+	if value, ok := _c.mutation.UpstreamStalePausedAt(); ok {
+		_spec.SetField(account.FieldUpstreamStalePausedAt, field.TypeTime, value)
+		_node.UpstreamStalePausedAt = &value
+	}
 	if value, ok := _c.mutation.Concurrency(); ok {
 		_spec.SetField(account.FieldConcurrency, field.TypeInt, value)
 		_node.Concurrency = value
@@ -1228,6 +1264,48 @@ func (u *AccountUpsert) UpdateUpstreamKeyID() *AccountUpsert {
 // ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
 func (u *AccountUpsert) ClearUpstreamKeyID() *AccountUpsert {
 	u.SetNull(account.FieldUpstreamKeyID)
+	return u
+}
+
+// SetUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field.
+func (u *AccountUpsert) SetUpstreamStalePauseKeyID(v int64) *AccountUpsert {
+	u.Set(account.FieldUpstreamStalePauseKeyID, v)
+	return u
+}
+
+// UpdateUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateUpstreamStalePauseKeyID() *AccountUpsert {
+	u.SetExcluded(account.FieldUpstreamStalePauseKeyID)
+	return u
+}
+
+// AddUpstreamStalePauseKeyID adds v to the "upstream_stale_pause_key_id" field.
+func (u *AccountUpsert) AddUpstreamStalePauseKeyID(v int64) *AccountUpsert {
+	u.Add(account.FieldUpstreamStalePauseKeyID, v)
+	return u
+}
+
+// ClearUpstreamStalePauseKeyID clears the value of the "upstream_stale_pause_key_id" field.
+func (u *AccountUpsert) ClearUpstreamStalePauseKeyID() *AccountUpsert {
+	u.SetNull(account.FieldUpstreamStalePauseKeyID)
+	return u
+}
+
+// SetUpstreamStalePausedAt sets the "upstream_stale_paused_at" field.
+func (u *AccountUpsert) SetUpstreamStalePausedAt(v time.Time) *AccountUpsert {
+	u.Set(account.FieldUpstreamStalePausedAt, v)
+	return u
+}
+
+// UpdateUpstreamStalePausedAt sets the "upstream_stale_paused_at" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateUpstreamStalePausedAt() *AccountUpsert {
+	u.SetExcluded(account.FieldUpstreamStalePausedAt)
+	return u
+}
+
+// ClearUpstreamStalePausedAt clears the value of the "upstream_stale_paused_at" field.
+func (u *AccountUpsert) ClearUpstreamStalePausedAt() *AccountUpsert {
+	u.SetNull(account.FieldUpstreamStalePausedAt)
 	return u
 }
 
@@ -1832,6 +1910,55 @@ func (u *AccountUpsertOne) UpdateUpstreamKeyID() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearUpstreamKeyID() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearUpstreamKeyID()
+	})
+}
+
+// SetUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field.
+func (u *AccountUpsertOne) SetUpstreamStalePauseKeyID(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetUpstreamStalePauseKeyID(v)
+	})
+}
+
+// AddUpstreamStalePauseKeyID adds v to the "upstream_stale_pause_key_id" field.
+func (u *AccountUpsertOne) AddUpstreamStalePauseKeyID(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddUpstreamStalePauseKeyID(v)
+	})
+}
+
+// UpdateUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateUpstreamStalePauseKeyID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateUpstreamStalePauseKeyID()
+	})
+}
+
+// ClearUpstreamStalePauseKeyID clears the value of the "upstream_stale_pause_key_id" field.
+func (u *AccountUpsertOne) ClearUpstreamStalePauseKeyID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearUpstreamStalePauseKeyID()
+	})
+}
+
+// SetUpstreamStalePausedAt sets the "upstream_stale_paused_at" field.
+func (u *AccountUpsertOne) SetUpstreamStalePausedAt(v time.Time) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetUpstreamStalePausedAt(v)
+	})
+}
+
+// UpdateUpstreamStalePausedAt sets the "upstream_stale_paused_at" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateUpstreamStalePausedAt() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateUpstreamStalePausedAt()
+	})
+}
+
+// ClearUpstreamStalePausedAt clears the value of the "upstream_stale_paused_at" field.
+func (u *AccountUpsertOne) ClearUpstreamStalePausedAt() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearUpstreamStalePausedAt()
 	})
 }
 
@@ -2659,6 +2786,55 @@ func (u *AccountUpsertBulk) UpdateUpstreamKeyID() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearUpstreamKeyID() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearUpstreamKeyID()
+	})
+}
+
+// SetUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field.
+func (u *AccountUpsertBulk) SetUpstreamStalePauseKeyID(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetUpstreamStalePauseKeyID(v)
+	})
+}
+
+// AddUpstreamStalePauseKeyID adds v to the "upstream_stale_pause_key_id" field.
+func (u *AccountUpsertBulk) AddUpstreamStalePauseKeyID(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddUpstreamStalePauseKeyID(v)
+	})
+}
+
+// UpdateUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateUpstreamStalePauseKeyID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateUpstreamStalePauseKeyID()
+	})
+}
+
+// ClearUpstreamStalePauseKeyID clears the value of the "upstream_stale_pause_key_id" field.
+func (u *AccountUpsertBulk) ClearUpstreamStalePauseKeyID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearUpstreamStalePauseKeyID()
+	})
+}
+
+// SetUpstreamStalePausedAt sets the "upstream_stale_paused_at" field.
+func (u *AccountUpsertBulk) SetUpstreamStalePausedAt(v time.Time) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetUpstreamStalePausedAt(v)
+	})
+}
+
+// UpdateUpstreamStalePausedAt sets the "upstream_stale_paused_at" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateUpstreamStalePausedAt() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateUpstreamStalePausedAt()
+	})
+}
+
+// ClearUpstreamStalePausedAt clears the value of the "upstream_stale_paused_at" field.
+func (u *AccountUpsertBulk) ClearUpstreamStalePausedAt() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearUpstreamStalePausedAt()
 	})
 }
 

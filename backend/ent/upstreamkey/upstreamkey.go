@@ -43,6 +43,10 @@ const (
 	FieldStatus = "status"
 	// FieldLastSeenAt holds the string denoting the last_seen_at field in the database.
 	FieldLastSeenAt = "last_seen_at"
+	// FieldMissingCount holds the string denoting the missing_count field in the database.
+	FieldMissingCount = "missing_count"
+	// FieldMissingSince holds the string denoting the missing_since field in the database.
+	FieldMissingSince = "missing_since"
 	// FieldExtra holds the string denoting the extra field in the database.
 	FieldExtra = "extra"
 	// EdgeConfig holds the string denoting the config edge name in mutations.
@@ -111,6 +115,8 @@ var Columns = []string{
 	FieldRateMultiplier,
 	FieldStatus,
 	FieldLastSeenAt,
+	FieldMissingCount,
+	FieldMissingSince,
 	FieldExtra,
 }
 
@@ -156,6 +162,8 @@ var (
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	StatusValidator func(string) error
+	// DefaultMissingCount holds the default value on creation for the "missing_count" field.
+	DefaultMissingCount int
 	// DefaultExtra holds the default value on creation for the "extra" field.
 	DefaultExtra func() map[string]interface{}
 )
@@ -236,6 +244,16 @@ func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 // ByLastSeenAt orders the results by the last_seen_at field.
 func ByLastSeenAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldLastSeenAt, opts...).ToFunc()
+}
+
+// ByMissingCount orders the results by the missing_count field.
+func ByMissingCount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMissingCount, opts...).ToFunc()
+}
+
+// ByMissingSince orders the results by the missing_since field.
+func ByMissingSince(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMissingSince, opts...).ToFunc()
 }
 
 // ByConfigField orders the results by config field.

@@ -32,6 +32,8 @@ export interface UpstreamKey {
   effective_cost_multiplier?: number | null
   status: string
   last_seen_at?: string | null
+  missing_count?: number
+  missing_since?: string | null
   extra?: Record<string, unknown>
   created_at: string
   updated_at: string

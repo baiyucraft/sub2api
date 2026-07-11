@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"sort"
@@ -23,6 +24,11 @@ import (
 )
 
 const upstreamConfigSyncAdvisoryLockNamespace int64 = 0x73756232
+
+const (
+	upstreamKeyMissingThreshold = 3
+	upstreamKeyMissingGrace     = 30 * time.Minute
+)
 
 type upstreamConfigRepository struct {
 	client *dbent.Client
@@ -264,6 +270,40 @@ func (r *upstreamConfigRepository) ListKeys(ctx context.Context, upstreamConfigI
 	return out, nil
 }
 
+func (r *upstreamConfigRepository) ListKeysForMaskedFallback(ctx context.Context, upstreamConfigID int64, remoteKeyIDs []int64) ([]service.UpstreamKey, error) {
+	remoteKeyIDs = uniqueSortedInt64s(remoteKeyIDs)
+	if len(remoteKeyIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.client.UpstreamKey.Query().
+		Where(
+			dbupstreamkey.UpstreamConfigIDEQ(upstreamConfigID),
+			dbupstreamkey.RemoteKeyIDIn(remoteKeyIDs...),
+		).
+		Order(dbent.Desc(dbupstreamkey.FieldDeletedAt), dbent.Desc(dbupstreamkey.FieldID)).
+		All(mixins.SkipSoftDelete(ctx))
+	if err != nil {
+		return nil, err
+	}
+	byRemoteID := make(map[int64]*dbent.UpstreamKey, len(remoteKeyIDs))
+	for _, row := range rows {
+		if row.RemoteKeyID == nil || strings.TrimSpace(row.Key) == "" {
+			continue
+		}
+		current := byRemoteID[*row.RemoteKeyID]
+		if current == nil || (current.DeletedAt != nil && row.DeletedAt == nil) {
+			byRemoteID[*row.RemoteKeyID] = row
+		}
+	}
+	out := make([]service.UpstreamKey, 0, len(byRemoteID))
+	for _, remoteID := range remoteKeyIDs {
+		if row := byRemoteID[remoteID]; row != nil {
+			out = append(out, *upstreamKeyEntityToService(row))
+		}
+	}
+	return out, nil
+}
+
 func (r *upstreamConfigRepository) GetKeyByID(ctx context.Context, id int64) (*service.UpstreamKey, error) {
 	row, err := r.client.UpstreamKey.Query().Where(dbupstreamkey.IDEQ(id)).Only(ctx)
 	if err != nil {
@@ -294,10 +334,18 @@ func (r *upstreamConfigRepository) UpsertKey(ctx context.Context, key *service.U
 
 func findUpstreamKeyForUpsert(ctx context.Context, client *dbent.Client, key *service.UpstreamKey) (*dbent.UpstreamKey, error) {
 	if key.RemoteKeyID != nil {
-		existing, err := client.UpstreamKey.Query().Where(
+		query := client.UpstreamKey.Query().Where(
 			dbupstreamkey.UpstreamConfigIDEQ(key.UpstreamConfigID),
 			dbupstreamkey.RemoteKeyIDEQ(*key.RemoteKeyID),
-		).Only(ctx)
+		)
+		existing, err := query.Clone().Only(ctx)
+		if err == nil {
+			return existing, nil
+		}
+		if !dbent.IsNotFound(err) {
+			return nil, err
+		}
+		existing, err = query.Order(dbent.Desc(dbupstreamkey.FieldDeletedAt), dbent.Desc(dbupstreamkey.FieldID)).First(mixins.SkipSoftDelete(ctx))
 		if err == nil {
 			return existing, nil
 		}
@@ -308,10 +356,18 @@ func findUpstreamKeyForUpsert(ctx context.Context, client *dbent.Client, key *se
 	if strings.TrimSpace(key.KeyHash) == "" {
 		return nil, nil
 	}
-	existing, err := client.UpstreamKey.Query().Where(
+	query := client.UpstreamKey.Query().Where(
 		dbupstreamkey.UpstreamConfigIDEQ(key.UpstreamConfigID),
 		dbupstreamkey.KeyHashEQ(key.KeyHash),
-	).Only(ctx)
+	)
+	existing, err := query.Clone().Only(ctx)
+	if err == nil {
+		return existing, nil
+	}
+	if !dbent.IsNotFound(err) {
+		return nil, err
+	}
+	existing, err = query.Order(dbent.Desc(dbupstreamkey.FieldDeletedAt), dbent.Desc(dbupstreamkey.FieldID)).First(mixins.SkipSoftDelete(ctx))
 	if dbent.IsNotFound(err) {
 		return nil, nil
 	}
@@ -331,6 +387,7 @@ func createUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 		SetUpstreamGroupName(key.UpstreamGroupName).
 		SetPlatform(key.Platform).
 		SetStatus(key.Status).
+		SetMissingCount(key.MissingCount).
 		SetExtra(normalizeJSONMap(key.Extra))
 	if key.RemoteKeyID != nil {
 		builder.SetRemoteKeyID(*key.RemoteKeyID)
@@ -344,6 +401,9 @@ func createUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 	if key.LastSeenAt != nil {
 		builder.SetLastSeenAt(*key.LastSeenAt)
 	}
+	if key.MissingSince != nil {
+		builder.SetMissingSince(*key.MissingSince)
+	}
 	row, err := builder.Save(ctx)
 	if err != nil {
 		return err
@@ -356,6 +416,7 @@ func createUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 
 func updateUpstreamKey(ctx context.Context, client *dbent.Client, key *service.UpstreamKey) error {
 	builder := client.UpstreamKey.UpdateOneID(key.ID).
+		ClearDeletedAt().
 		SetUpstreamConfigID(key.UpstreamConfigID).
 		SetName(key.Name).
 		SetKey(key.Key).
@@ -363,6 +424,7 @@ func updateUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 		SetUpstreamGroupName(key.UpstreamGroupName).
 		SetPlatform(key.Platform).
 		SetStatus(key.Status).
+		SetMissingCount(key.MissingCount).
 		SetExtra(normalizeJSONMap(key.Extra))
 	if key.RemoteKeyID != nil {
 		builder.SetRemoteKeyID(*key.RemoteKeyID)
@@ -384,6 +446,11 @@ func updateUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 	} else {
 		builder.ClearLastSeenAt()
 	}
+	if key.MissingSince != nil {
+		builder.SetMissingSince(*key.MissingSince)
+	} else {
+		builder.ClearMissingSince()
+	}
 	_, err := builder.Save(ctx)
 	return err
 }
@@ -399,10 +466,11 @@ func (r *upstreamConfigRepository) DeleteKey(ctx context.Context, id int64) erro
 	return r.client.UpstreamKey.DeleteOneID(id).Exec(ctx)
 }
 
-func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, configID, runID int64, keys []service.UpstreamKey, extraUpdates map[string]any, checkedAt time.Time) ([]service.UpstreamKey, int, error) {
+func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, configID, runID int64, keys []service.UpstreamKey, extraUpdates map[string]any, checkedAt time.Time, complete bool) ([]service.UpstreamKey, service.UpstreamKeyReconcileResult, int, error) {
 	var (
-		localKeys []service.UpstreamKey
-		updated   int
+		localKeys  []service.UpstreamKey
+		reconciled service.UpstreamKeyReconcileResult
+		updated    int
 	)
 	err := r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
 		config, err := client.UpstreamConfig.Query().
@@ -415,10 +483,25 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			}
 			return err
 		}
+		accounts, err := client.Account.Query().
+			Where(
+				dbaccount.UpstreamConfigIDEQ(configID),
+				dbaccount.UpstreamKeyIDNotNil(),
+			).
+			Order(dbent.Asc(dbaccount.FieldID)).
+			ForUpdate().
+			All(txCtx)
+		if err != nil {
+			return err
+		}
 
 		oldRates := make(map[int64]*float64)
+		seenKeyIDs := make(map[int64]struct{}, len(keys))
+		reconciledAccountIDs := make([]int64, 0)
 		for i := range keys {
 			keys[i].UpstreamConfigID = configID
+			keys[i].MissingCount = 0
+			keys[i].MissingSince = nil
 			existing, queryErr := findUpstreamKeyForUpsert(txCtx, client, &keys[i])
 			if queryErr != nil {
 				return queryErr
@@ -427,13 +510,40 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 				if err := createUpstreamKey(txCtx, client, &keys[i]); err != nil {
 					return err
 				}
+				seenKeyIDs[keys[i].ID] = struct{}{}
 				continue
 			}
+			wasMissing := existing.DeletedAt != nil || existing.MissingCount > 0 || existing.Status == service.UpstreamKeyStatusStale
 			oldRates[existing.ID] = existing.RateMultiplier
 			keys[i].ID = existing.ID
 			if err := updateUpstreamKey(txCtx, client, &keys[i]); err != nil {
 				return err
 			}
+			seenKeyIDs[existing.ID] = struct{}{}
+			if wasMissing {
+				reconciled.Restored++
+				if err := createUpstreamKeyLifecycleEvent(txCtx, client, configID, existing.ID, runID, "key_restored", "info", "Upstream key reappeared and was restored", checkedAt, nil); err != nil {
+					return err
+				}
+			}
+			if keys[i].Status == service.StatusActive && (wasMissing || existing.Status != service.StatusActive) {
+				restoredAccountIDs, err := restoreAccountsPausedForStaleKey(txCtx, client, existing.ID)
+				if err != nil {
+					return err
+				}
+				reconciledAccountIDs = append(reconciledAccountIDs, restoredAccountIDs...)
+			}
+		}
+		if complete {
+			var err error
+			reconciledMissing, pausedAccountIDs, err := reconcileMissingUpstreamKeys(txCtx, client, configID, runID, seenKeyIDs, checkedAt)
+			if err != nil {
+				return err
+			}
+			reconciled.Missing += reconciledMissing.Missing
+			reconciled.Stale += reconciledMissing.Stale
+			reconciled.Deleted += reconciledMissing.Deleted
+			reconciledAccountIDs = append(reconciledAccountIDs, pausedAccountIDs...)
 		}
 
 		keyRows, err := client.UpstreamKey.Query().
@@ -455,17 +565,6 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			}
 		}
 
-		accounts, err := client.Account.Query().
-			Where(
-				dbaccount.UpstreamConfigIDEQ(configID),
-				dbaccount.UpstreamKeyIDNotNil(),
-			).
-			Order(dbent.Asc(dbaccount.FieldID)).
-			ForUpdate().
-			All(txCtx)
-		if err != nil {
-			return err
-		}
 		changedIDs := make([]int64, 0, len(accounts))
 		for _, account := range accounts {
 			key := keyByID[*account.UpstreamKeyID]
@@ -512,16 +611,149 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			Save(txCtx); err != nil {
 			return err
 		}
-		if err := enqueueUpstreamAccountChanges(txCtx, client, changedIDs); err != nil {
+		allChangedIDs := append(changedIDs, reconciledAccountIDs...)
+		allChangedIDs = uniqueSortedInt64s(allChangedIDs)
+		if err := enqueueUpstreamAccountChanges(txCtx, client, allChangedIDs); err != nil {
 			return err
 		}
-		updated = len(changedIDs)
+		updated = len(allChangedIDs)
 		return nil
 	})
 	if err != nil {
-		return nil, 0, err
+		return nil, service.UpstreamKeyReconcileResult{}, 0, err
 	}
-	return localKeys, updated, nil
+	return localKeys, reconciled, updated, nil
+}
+
+func reconcileMissingUpstreamKeys(ctx context.Context, client *dbent.Client, configID, runID int64, seenKeyIDs map[int64]struct{}, checkedAt time.Time) (service.UpstreamKeyReconcileResult, []int64, error) {
+	result := service.UpstreamKeyReconcileResult{}
+	changedAccountIDs := make([]int64, 0)
+	rows, err := client.UpstreamKey.Query().
+		Where(dbupstreamkey.UpstreamConfigIDEQ(configID)).
+		ForUpdate().
+		All(ctx)
+	if err != nil {
+		return result, nil, err
+	}
+	for _, row := range rows {
+		if _, seen := seenKeyIDs[row.ID]; seen {
+			continue
+		}
+		missingCount := row.MissingCount + 1
+		missingSince := row.MissingSince
+		if missingSince == nil {
+			firstMissing := checkedAt
+			missingSince = &firstMissing
+			if err := createUpstreamKeyLifecycleEvent(ctx, client, configID, row.ID, runID, "key_missing_detected", "warning", "Upstream key was absent from a complete synchronization snapshot", checkedAt, map[string]any{"missing_count": missingCount}); err != nil {
+				return result, nil, err
+			}
+		}
+		result.Missing++
+		eligible := upstreamKeyMissingEligible(missingCount, missingSince, checkedAt)
+		if !eligible {
+			if _, err := client.UpstreamKey.UpdateOneID(row.ID).SetMissingCount(missingCount).SetMissingSince(*missingSince).Save(ctx); err != nil {
+				return result, nil, err
+			}
+			continue
+		}
+		accountCount, err := client.Account.Query().Where(dbaccount.UpstreamKeyIDEQ(row.ID)).Count(ctx)
+		if err != nil {
+			return result, nil, err
+		}
+		if accountCount == 0 {
+			if err := createUpstreamKeyLifecycleEvent(ctx, client, configID, row.ID, runID, "key_deleted", "info", "Missing upstream key was soft-deleted after the grace period", checkedAt, map[string]any{"missing_count": missingCount}); err != nil {
+				return result, nil, err
+			}
+			if err := client.UpstreamKey.DeleteOneID(row.ID).Exec(ctx); err != nil {
+				return result, nil, err
+			}
+			result.Deleted++
+			continue
+		}
+		if row.Status != service.UpstreamKeyStatusStale {
+			if _, err := client.UpstreamKey.UpdateOneID(row.ID).SetStatus(service.UpstreamKeyStatusStale).SetMissingCount(missingCount).SetMissingSince(*missingSince).Save(ctx); err != nil {
+				return result, nil, err
+			}
+			if err := createUpstreamKeyLifecycleEvent(ctx, client, configID, row.ID, runID, "key_marked_stale", "warning", "Missing upstream key was marked stale and bound accounts were paused", checkedAt, map[string]any{"missing_count": missingCount, "account_count": accountCount}); err != nil {
+				return result, nil, err
+			}
+			pausedIDs, err := pauseAccountsForStaleKey(ctx, client, row.ID)
+			if err != nil {
+				return result, nil, err
+			}
+			changedAccountIDs = append(changedAccountIDs, pausedIDs...)
+			result.Stale++
+		} else if _, err := client.UpstreamKey.UpdateOneID(row.ID).SetMissingCount(missingCount).Save(ctx); err != nil {
+			return result, nil, err
+		}
+	}
+	return result, changedAccountIDs, nil
+}
+
+func upstreamKeyMissingEligible(missingCount int, missingSince *time.Time, checkedAt time.Time) bool {
+	return missingSince != nil && missingCount >= upstreamKeyMissingThreshold && !checkedAt.Before(missingSince.Add(upstreamKeyMissingGrace))
+}
+
+func createUpstreamKeyLifecycleEvent(ctx context.Context, client *dbent.Client, configID, keyID, runID int64, eventType, severity, message string, occurredAt time.Time, payload map[string]any) error {
+	builder := client.UpstreamEvent.Create().
+		SetUpstreamConfigID(configID).
+		SetUpstreamKeyID(keyID).
+		SetEventType(eventType).
+		SetSeverity(severity).
+		SetSource("sync").
+		SetMessage(message).
+		SetOccurredAt(occurredAt)
+	if runID > 0 {
+		builder.SetSyncRunID(runID)
+		builder.SetEventKey(fmt.Sprintf("key_lifecycle:%d:%s:%d", keyID, eventType, runID))
+	}
+	if len(payload) > 0 {
+		builder.SetPayload(payload)
+	}
+	return builder.Exec(ctx)
+}
+
+func pauseAccountsForStaleKey(ctx context.Context, client *dbent.Client, keyID int64) ([]int64, error) {
+	accounts, err := client.Account.Query().Where(dbaccount.UpstreamKeyIDEQ(keyID)).ForUpdate().All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	changedIDs := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		if account.Schedulable {
+			if _, err := client.Account.UpdateOneID(account.ID).
+				SetSchedulable(false).
+				SetUpstreamStalePauseKeyID(keyID).
+				SetUpstreamStalePausedAt(time.Now().UTC()).
+				Save(ctx); err != nil {
+				return nil, err
+			}
+			changedIDs = append(changedIDs, account.ID)
+		}
+	}
+	return changedIDs, nil
+}
+
+func restoreAccountsPausedForStaleKey(ctx context.Context, client *dbent.Client, keyID int64) ([]int64, error) {
+	accounts, err := client.Account.Query().Where(dbaccount.UpstreamKeyIDEQ(keyID)).ForUpdate().All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	changedIDs := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		if account.UpstreamStalePauseKeyID == nil || *account.UpstreamStalePauseKeyID != keyID || account.Status != service.StatusActive {
+			continue
+		}
+		if _, err := client.Account.UpdateOneID(account.ID).
+			SetSchedulable(true).
+			ClearUpstreamStalePauseKeyID().
+			ClearUpstreamStalePausedAt().
+			Save(ctx); err != nil {
+			return nil, err
+		}
+		changedIDs = append(changedIDs, account.ID)
+	}
+	return changedIDs, nil
 }
 
 func (r *upstreamConfigRepository) PreviewAccountNameBackfill(ctx context.Context) ([]service.UpstreamAccountNameBackfillItem, error) {
@@ -1009,6 +1241,8 @@ func upstreamKeyEntityToService(row *dbent.UpstreamKey) *service.UpstreamKey {
 		RateMultiplier:    row.RateMultiplier,
 		Status:            row.Status,
 		LastSeenAt:        row.LastSeenAt,
+		MissingCount:      row.MissingCount,
+		MissingSince:      row.MissingSince,
 		Extra:             copyJSONMap(row.Extra),
 		CreatedAt:         row.CreatedAt,
 		UpdatedAt:         row.UpdatedAt,

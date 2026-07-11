@@ -102,6 +102,8 @@ func (Account) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("Shared upstream key selected for this account."),
+		field.Int64("upstream_stale_pause_key_id").Optional().Nillable(),
+		field.Time("upstream_stale_paused_at").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 
 		// concurrency: 账户最大并发请求数
 		// 用于限制同一时间对该账户发起的请求数量

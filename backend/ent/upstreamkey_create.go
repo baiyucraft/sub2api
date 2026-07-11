@@ -199,6 +199,34 @@ func (_c *UpstreamKeyCreate) SetNillableLastSeenAt(v *time.Time) *UpstreamKeyCre
 	return _c
 }
 
+// SetMissingCount sets the "missing_count" field.
+func (_c *UpstreamKeyCreate) SetMissingCount(v int) *UpstreamKeyCreate {
+	_c.mutation.SetMissingCount(v)
+	return _c
+}
+
+// SetNillableMissingCount sets the "missing_count" field if the given value is not nil.
+func (_c *UpstreamKeyCreate) SetNillableMissingCount(v *int) *UpstreamKeyCreate {
+	if v != nil {
+		_c.SetMissingCount(*v)
+	}
+	return _c
+}
+
+// SetMissingSince sets the "missing_since" field.
+func (_c *UpstreamKeyCreate) SetMissingSince(v time.Time) *UpstreamKeyCreate {
+	_c.mutation.SetMissingSince(v)
+	return _c
+}
+
+// SetNillableMissingSince sets the "missing_since" field if the given value is not nil.
+func (_c *UpstreamKeyCreate) SetNillableMissingSince(v *time.Time) *UpstreamKeyCreate {
+	if v != nil {
+		_c.SetMissingSince(*v)
+	}
+	return _c
+}
+
 // SetExtra sets the "extra" field.
 func (_c *UpstreamKeyCreate) SetExtra(v map[string]interface{}) *UpstreamKeyCreate {
 	_c.mutation.SetExtra(v)
@@ -343,6 +371,10 @@ func (_c *UpstreamKeyCreate) defaults() error {
 		v := upstreamkey.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.MissingCount(); !ok {
+		v := upstreamkey.DefaultMissingCount
+		_c.mutation.SetMissingCount(v)
+	}
 	if _, ok := _c.mutation.Extra(); !ok {
 		if upstreamkey.DefaultExtra == nil {
 			return fmt.Errorf("ent: uninitialized upstreamkey.DefaultExtra (forgotten import ent/runtime?)")
@@ -406,6 +438,9 @@ func (_c *UpstreamKeyCreate) check() error {
 		if err := upstreamkey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.status": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.MissingCount(); !ok {
+		return &ValidationError{Name: "missing_count", err: errors.New(`ent: missing required field "UpstreamKey.missing_count"`)}
 	}
 	if _, ok := _c.mutation.Extra(); !ok {
 		return &ValidationError{Name: "extra", err: errors.New(`ent: missing required field "UpstreamKey.extra"`)}
@@ -491,6 +526,14 @@ func (_c *UpstreamKeyCreate) createSpec() (*UpstreamKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.LastSeenAt(); ok {
 		_spec.SetField(upstreamkey.FieldLastSeenAt, field.TypeTime, value)
 		_node.LastSeenAt = &value
+	}
+	if value, ok := _c.mutation.MissingCount(); ok {
+		_spec.SetField(upstreamkey.FieldMissingCount, field.TypeInt, value)
+		_node.MissingCount = value
+	}
+	if value, ok := _c.mutation.MissingSince(); ok {
+		_spec.SetField(upstreamkey.FieldMissingSince, field.TypeTime, value)
+		_node.MissingSince = &value
 	}
 	if value, ok := _c.mutation.Extra(); ok {
 		_spec.SetField(upstreamkey.FieldExtra, field.TypeJSON, value)
@@ -833,6 +876,42 @@ func (u *UpstreamKeyUpsert) ClearLastSeenAt() *UpstreamKeyUpsert {
 	return u
 }
 
+// SetMissingCount sets the "missing_count" field.
+func (u *UpstreamKeyUpsert) SetMissingCount(v int) *UpstreamKeyUpsert {
+	u.Set(upstreamkey.FieldMissingCount, v)
+	return u
+}
+
+// UpdateMissingCount sets the "missing_count" field to the value that was provided on create.
+func (u *UpstreamKeyUpsert) UpdateMissingCount() *UpstreamKeyUpsert {
+	u.SetExcluded(upstreamkey.FieldMissingCount)
+	return u
+}
+
+// AddMissingCount adds v to the "missing_count" field.
+func (u *UpstreamKeyUpsert) AddMissingCount(v int) *UpstreamKeyUpsert {
+	u.Add(upstreamkey.FieldMissingCount, v)
+	return u
+}
+
+// SetMissingSince sets the "missing_since" field.
+func (u *UpstreamKeyUpsert) SetMissingSince(v time.Time) *UpstreamKeyUpsert {
+	u.Set(upstreamkey.FieldMissingSince, v)
+	return u
+}
+
+// UpdateMissingSince sets the "missing_since" field to the value that was provided on create.
+func (u *UpstreamKeyUpsert) UpdateMissingSince() *UpstreamKeyUpsert {
+	u.SetExcluded(upstreamkey.FieldMissingSince)
+	return u
+}
+
+// ClearMissingSince clears the value of the "missing_since" field.
+func (u *UpstreamKeyUpsert) ClearMissingSince() *UpstreamKeyUpsert {
+	u.SetNull(upstreamkey.FieldMissingSince)
+	return u
+}
+
 // SetExtra sets the "extra" field.
 func (u *UpstreamKeyUpsert) SetExtra(v map[string]interface{}) *UpstreamKeyUpsert {
 	u.Set(upstreamkey.FieldExtra, v)
@@ -1125,6 +1204,48 @@ func (u *UpstreamKeyUpsertOne) UpdateLastSeenAt() *UpstreamKeyUpsertOne {
 func (u *UpstreamKeyUpsertOne) ClearLastSeenAt() *UpstreamKeyUpsertOne {
 	return u.Update(func(s *UpstreamKeyUpsert) {
 		s.ClearLastSeenAt()
+	})
+}
+
+// SetMissingCount sets the "missing_count" field.
+func (u *UpstreamKeyUpsertOne) SetMissingCount(v int) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetMissingCount(v)
+	})
+}
+
+// AddMissingCount adds v to the "missing_count" field.
+func (u *UpstreamKeyUpsertOne) AddMissingCount(v int) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.AddMissingCount(v)
+	})
+}
+
+// UpdateMissingCount sets the "missing_count" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertOne) UpdateMissingCount() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateMissingCount()
+	})
+}
+
+// SetMissingSince sets the "missing_since" field.
+func (u *UpstreamKeyUpsertOne) SetMissingSince(v time.Time) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetMissingSince(v)
+	})
+}
+
+// UpdateMissingSince sets the "missing_since" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertOne) UpdateMissingSince() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateMissingSince()
+	})
+}
+
+// ClearMissingSince clears the value of the "missing_since" field.
+func (u *UpstreamKeyUpsertOne) ClearMissingSince() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearMissingSince()
 	})
 }
 
@@ -1588,6 +1709,48 @@ func (u *UpstreamKeyUpsertBulk) UpdateLastSeenAt() *UpstreamKeyUpsertBulk {
 func (u *UpstreamKeyUpsertBulk) ClearLastSeenAt() *UpstreamKeyUpsertBulk {
 	return u.Update(func(s *UpstreamKeyUpsert) {
 		s.ClearLastSeenAt()
+	})
+}
+
+// SetMissingCount sets the "missing_count" field.
+func (u *UpstreamKeyUpsertBulk) SetMissingCount(v int) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetMissingCount(v)
+	})
+}
+
+// AddMissingCount adds v to the "missing_count" field.
+func (u *UpstreamKeyUpsertBulk) AddMissingCount(v int) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.AddMissingCount(v)
+	})
+}
+
+// UpdateMissingCount sets the "missing_count" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertBulk) UpdateMissingCount() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateMissingCount()
+	})
+}
+
+// SetMissingSince sets the "missing_since" field.
+func (u *UpstreamKeyUpsertBulk) SetMissingSince(v time.Time) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetMissingSince(v)
+	})
+}
+
+// UpdateMissingSince sets the "missing_since" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertBulk) UpdateMissingSince() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateMissingSince()
+	})
+}
+
+// ClearMissingSince clears the value of the "missing_since" field.
+func (u *UpstreamKeyUpsertBulk) ClearMissingSince() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearMissingSince()
 	})
 }
 

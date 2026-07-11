@@ -45,7 +45,8 @@
               v-for="key in filteredKeys"
               :key="key.id"
               type="button"
-              :class="['select-option', modelValue === key.id && 'select-option-selected']"
+              :class="['select-option', modelValue === key.id && 'select-option-selected', key.status !== 'active' && 'select-option-disabled']"
+              :disabled="key.status !== 'active'"
               @click="selectKey(key.id)"
             >
               <div class="min-w-0 flex-1 text-left">
@@ -55,6 +56,7 @@
                   </span>
                   <span class="meta-pill">{{ groupLabel(key) }}</span>
                   <span class="meta-pill">{{ rateLabel(key) }}</span>
+                  <span v-if="key.status === 'stale'" class="meta-pill meta-pill-warning">{{ t('admin.accounts.upstreamKeySelector.staleBadge') }}</span>
                 </div>
                 <div class="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-dark-400">
                   <span>{{ platformLabel(key) }}</span>
@@ -76,11 +78,16 @@
 
     <div
       v-if="selectedKey"
-      class="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200"
+      :class="selectedKey.status === 'stale'
+        ? 'rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200'
+        : 'rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200'"
     >
       <div class="font-medium">{{ selectedSummaryTitle }}</div>
       <div class="mt-1 text-emerald-700/80 dark:text-emerald-200/80">
         {{ selectedSummaryMeta }}
+      </div>
+      <div v-if="selectedKey.status === 'stale'" class="mt-2 font-medium" data-test="stale-key-warning">
+        {{ t('admin.accounts.upstreamKeySelector.staleWarning') }}
       </div>
     </div>
   </div>
@@ -154,6 +161,8 @@ function toggle() {
 }
 
 function selectKey(id: number) {
+  const key = props.keys.find((item) => item.id === id)
+  if (!key || key.status !== 'active') return
   emit('update:modelValue', id)
   isOpen.value = false
   searchQuery.value = ''
@@ -342,8 +351,16 @@ onUnmounted(() => {
   @apply bg-primary-50 dark:bg-primary-900/20;
 }
 
+.select-option-disabled {
+  @apply cursor-not-allowed opacity-60;
+}
+
 .meta-pill {
   @apply inline-flex flex-shrink-0 items-center rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-dark-600 dark:text-gray-300;
+}
+
+.meta-pill-warning {
+  @apply border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300;
 }
 
 .select-empty {

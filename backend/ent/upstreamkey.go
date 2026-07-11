@@ -47,6 +47,10 @@ type UpstreamKey struct {
 	Status string `json:"status,omitempty"`
 	// LastSeenAt holds the value of the "last_seen_at" field.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	// MissingCount holds the value of the "missing_count" field.
+	MissingCount int `json:"missing_count,omitempty"`
+	// MissingSince holds the value of the "missing_since" field.
+	MissingSince *time.Time `json:"missing_since,omitempty"`
 	// Extra holds the value of the "extra" field.
 	Extra map[string]interface{} `json:"extra,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -128,11 +132,11 @@ func (*UpstreamKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case upstreamkey.FieldRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case upstreamkey.FieldID, upstreamkey.FieldUpstreamConfigID, upstreamkey.FieldRemoteKeyID, upstreamkey.FieldUpstreamGroupID:
+		case upstreamkey.FieldID, upstreamkey.FieldUpstreamConfigID, upstreamkey.FieldRemoteKeyID, upstreamkey.FieldUpstreamGroupID, upstreamkey.FieldMissingCount:
 			values[i] = new(sql.NullInt64)
 		case upstreamkey.FieldName, upstreamkey.FieldKey, upstreamkey.FieldKeyHash, upstreamkey.FieldUpstreamGroupName, upstreamkey.FieldPlatform, upstreamkey.FieldStatus:
 			values[i] = new(sql.NullString)
-		case upstreamkey.FieldCreatedAt, upstreamkey.FieldUpdatedAt, upstreamkey.FieldDeletedAt, upstreamkey.FieldLastSeenAt:
+		case upstreamkey.FieldCreatedAt, upstreamkey.FieldUpdatedAt, upstreamkey.FieldDeletedAt, upstreamkey.FieldLastSeenAt, upstreamkey.FieldMissingSince:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -243,6 +247,19 @@ func (_m *UpstreamKey) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.LastSeenAt = new(time.Time)
 				*_m.LastSeenAt = value.Time
+			}
+		case upstreamkey.FieldMissingCount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field missing_count", values[i])
+			} else if value.Valid {
+				_m.MissingCount = int(value.Int64)
+			}
+		case upstreamkey.FieldMissingSince:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field missing_since", values[i])
+			} else if value.Valid {
+				_m.MissingSince = new(time.Time)
+				*_m.MissingSince = value.Time
 			}
 		case upstreamkey.FieldExtra:
 			if value, ok := values[i].(*[]byte); !ok {
@@ -361,6 +378,14 @@ func (_m *UpstreamKey) String() string {
 	builder.WriteString(", ")
 	if v := _m.LastSeenAt; v != nil {
 		builder.WriteString("last_seen_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("missing_count=")
+	builder.WriteString(fmt.Sprintf("%v", _m.MissingCount))
+	builder.WriteString(", ")
+	if v := _m.MissingSince; v != nil {
+		builder.WriteString("missing_since=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
 	builder.WriteString(", ")

@@ -23,7 +23,9 @@ export default {
         suffixMissing: '尾号未保存',
         neverSeen: '尚未同步',
         lastSeen: '最近同步 {time}',
-        selectedTitle: '已选择: {name}'
+        selectedTitle: '已选择: {name}',
+        staleBadge: '已失效',
+        staleWarning: '该 Key 已不在上游最新同步结果中。当前绑定仅用于迁移，账号已停止调度，不能重新选择此 Key。'
       },
       autoRefresh: '自动刷新',
       enableAutoRefresh: '启用自动刷新',

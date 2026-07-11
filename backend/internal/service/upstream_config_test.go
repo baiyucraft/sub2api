@@ -30,7 +30,18 @@ type upstreamConfigServiceRepo struct {
 	upstreamSettings      UpstreamSettings
 	upstreamSettingsErr   error
 	upstreamSettingsReads int
+	maskedFallbackKeys    []UpstreamKey
 	mu                    sync.Mutex
+}
+
+type upstreamConfigAtomicCaptureRepo struct {
+	*upstreamConfigServiceRepo
+	completeValues []bool
+}
+
+func (r *upstreamConfigAtomicCaptureRepo) ApplySyncSnapshot(_ context.Context, _ int64, _ int64, keys []UpstreamKey, _ map[string]any, _ time.Time, complete bool) ([]UpstreamKey, UpstreamKeyReconcileResult, int, error) {
+	r.completeValues = append(r.completeValues, complete)
+	return keys, UpstreamKeyReconcileResult{}, 0, nil
 }
 
 func (r *upstreamConfigServiceRepo) GetUpstreamSettings(ctx context.Context) (*UpstreamSettings, error) {
@@ -112,6 +123,29 @@ func (r *upstreamConfigServiceRepo) ListKeys(ctx context.Context, upstreamConfig
 	out := make([]UpstreamKey, 0, len(r.keys))
 	for _, key := range r.keys {
 		if key.UpstreamConfigID == upstreamConfigID {
+			out = append(out, cloneUpstreamKey(key))
+		}
+	}
+	return out, nil
+}
+
+func (r *upstreamConfigServiceRepo) ListKeysForMaskedFallback(ctx context.Context, upstreamConfigID int64, remoteKeyIDs []int64) ([]UpstreamKey, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	candidates := r.keys
+	if r.maskedFallbackKeys != nil {
+		candidates = r.maskedFallbackKeys
+	}
+	wanted := make(map[int64]struct{}, len(remoteKeyIDs))
+	for _, id := range remoteKeyIDs {
+		wanted[id] = struct{}{}
+	}
+	out := make([]UpstreamKey, 0, len(candidates))
+	for _, key := range candidates {
+		if key.UpstreamConfigID != upstreamConfigID || key.RemoteKeyID == nil {
+			continue
+		}
+		if _, ok := wanted[*key.RemoteKeyID]; ok {
 			out = append(out, cloneUpstreamKey(key))
 		}
 	}
@@ -554,6 +588,70 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	require.Equal(t, "Plus Group", accountRepo.bulkUpdates[0].updates.Extra["sub2api_upstream_group_name"])
 	require.Len(t, repo.checks, 1)
 	require.True(t, repo.checks[0].success)
+}
+
+func TestUpstreamConfigService_Sub2APIMaskedKeyFallbackControlsCompleteness(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		existingKeys   []UpstreamKey
+		wantComplete   bool
+		wantFallback   int
+		wantUnresolved int
+	}{
+		{
+			name:         "existing remote key resolves masked value",
+			existingKeys: []UpstreamKey{{ID: 9, UpstreamConfigID: 7, RemoteKeyID: ptrSub2APITestInt64(1440), Key: "sk-secret", KeyHash: HashUpstreamKey("sk-secret"), Status: StatusActive}},
+			wantComplete: true,
+			wantFallback: 1,
+		},
+		{
+			name:           "unknown masked key makes snapshot incomplete",
+			wantComplete:   false,
+			wantUnresolved: 1,
+		},
+		{
+			name:         "soft deleted remote key resolves through fallback query",
+			wantComplete: true,
+			wantFallback: 1,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/v1/auth/login":
+					_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
+				case "/api/v1/keys":
+					_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1440,"key":"sk-***","name":"plus","group_id":10,"group":{"id":10,"name":"Plus","platform":"openai","rate_multiplier":0.12}}],"total":1,"page":1,"page_size":100,"pages":1}}`))
+				case "/api/v1/groups/available":
+					_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus","platform":"openai","rate_multiplier":0.12}]}`))
+				case "/api/v1/groups/rates":
+					_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			baseRepo := &upstreamConfigServiceRepo{
+				upstreamSettings: UpstreamSettings{Sub2APINotInCNConfirmed: true},
+				configs:          []UpstreamConfig{{ID: 7, Name: "Sub2API", Provider: UpstreamProviderSub2API, SiteURL: server.URL, AuthMode: UpstreamAuthModeUserLogin, Status: StatusActive, Credentials: map[string]any{AccountCredentialSub2APILoginEmail: "admin@example.com", AccountCredentialSub2APILoginPassword: "secret"}}},
+				keys:             tt.existingKeys,
+			}
+			if tt.name == "soft deleted remote key resolves through fallback query" {
+				baseRepo.maskedFallbackKeys = []UpstreamKey{{ID: 9, UpstreamConfigID: 7, RemoteKeyID: ptrSub2APITestInt64(1440), Key: "sk-tombstone", KeyHash: HashUpstreamKey("sk-tombstone"), Status: StatusActive}}
+			}
+			repo := &upstreamConfigAtomicCaptureRepo{upstreamConfigServiceRepo: baseRepo}
+			svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+			_, result, err := svc.SyncKeys(context.Background(), 7)
+
+			require.NoError(t, err)
+			require.Equal(t, []bool{tt.wantComplete}, repo.completeValues)
+			require.Equal(t, tt.wantFallback, result.FallbackKeyCount)
+			require.Equal(t, tt.wantUnresolved, result.UnresolvedKeyCount)
+		})
+	}
 }
 
 func TestUpstreamConfigService_Sub2APIGroupRatesFallbacks(t *testing.T) {
@@ -1213,6 +1311,40 @@ func TestUpstreamConfigService_NewAPIProfileFailureDoesNotFailKeySync(t *testing
 	require.Len(t, repo.extraUpdates, 1)
 	require.NotContains(t, repo.extraUpdates[0].updates, "upstream_provider_snapshot")
 	require.Contains(t, repo.extraUpdates[0].updates["upstream_provider_snapshot_last_error"], "status 404")
+}
+
+func TestUpstreamConfigService_NewAPIProfileFailureKeepsKeySnapshotAuthoritative(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/user/login":
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "session-1", Path: "/"})
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798}}`))
+		case "/api/user/self/groups":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"gptplus":{"ratio":0.06}}}`))
+		case "/api/token/":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"page":1,"page_size":100,"total":1,"items":[{"id":14287,"key":"sk-plus","status":1,"name":"plus","group":"gptplus"}]}}`))
+		case "/api/user/self", "/api/status":
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	baseRepo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID: 72, Name: "NewAPI", Provider: UpstreamProviderNewAPI, SiteURL: server.URL,
+		AuthMode: UpstreamAuthModeUserLogin, Status: StatusActive,
+		Credentials: map[string]any{AccountCredentialNewAPILoginUsername: "owner", AccountCredentialNewAPILoginPassword: "secret"},
+	}}}
+	repo := &upstreamConfigAtomicCaptureRepo{upstreamConfigServiceRepo: baseRepo}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	_, result, err := svc.SyncKeys(context.Background(), 72)
+
+	require.NoError(t, err)
+	require.Equal(t, UpstreamSyncStatusPartial, result.Status)
+	require.Equal(t, []bool{true}, repo.completeValues)
 }
 
 func TestUpstreamConfigService_NewAPILoginFailureReturnsSanitizedError(t *testing.T) {

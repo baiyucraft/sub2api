@@ -23,7 +23,9 @@ export default {
         suffixMissing: 'Suffix unavailable',
         neverSeen: 'Never synced',
         lastSeen: 'Last synced {time}',
-        selectedTitle: 'Selected: {name}'
+        selectedTitle: 'Selected: {name}',
+        staleBadge: 'Stale',
+        staleWarning: 'This key is absent from the latest upstream snapshots. The existing binding is retained for migration only; the account is paused and this key cannot be selected again.'
       },
       autoRefresh: 'Auto Refresh',
       enableAutoRefresh: 'Enable auto refresh',

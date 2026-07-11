@@ -306,6 +306,32 @@ function buildOpenAISetupTokenAccount() {
   } as any
 }
 
+function buildUpstreamBoundAccount(keyID = 20) {
+  const account = buildAccount()
+  account.upstream_config_id = 10
+  account.upstream_key_id = keyID
+  return account
+}
+
+function buildUpstreamKey(
+  id: number,
+  name: string,
+  status: 'active' | 'stale' = 'active'
+) {
+  return {
+    id,
+    upstream_config_id: 10,
+    name,
+    key_status: { has_key: true, suffix: `key${id}` },
+    upstream_group_name: 'plus',
+    platform: 'openai',
+    rate_multiplier: 0.06,
+    status,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z'
+  }
+}
+
 function mountModal(account = buildAccount()) {
   return mount(EditAccountModal, {
     props: {
@@ -401,6 +427,68 @@ describe('EditAccountModal', () => {
     expect(wrapper.find('[data-testid="proxy-selector"]').exists()).toBe(false)
     expect(upstreamConfigsListMock).toHaveBeenCalledWith(1, 200, { status: 'active' })
     expect(upstreamConfigKeysListMock).toHaveBeenCalledWith(10)
+  })
+
+  it('keeps the original stale key selectable state, warns, and saves the existing binding', async () => {
+    const account = buildUpstreamBoundAccount()
+    upstreamConfigKeysListMock.mockResolvedValue([
+      buildUpstreamKey(20, '原绑定 Key', 'stale'),
+      buildUpstreamKey(21, '其他失效 Key', 'stale'),
+      buildUpstreamKey(22, '可用 Key')
+    ])
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('原绑定 Key')
+    expect(wrapper.text()).not.toContain('其他失效 Key')
+    expect(wrapper.get('[data-test="stale-key-warning"]').text()).toBe(
+      'admin.accounts.upstreamKeySelector.staleWarning'
+    )
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
+      upstream_config_id: 10,
+      upstream_key_id: 20
+    }))
+  })
+
+  it('cannot reselect the original stale key after switching to an active key', async () => {
+    const account = buildUpstreamBoundAccount()
+    upstreamConfigKeysListMock.mockResolvedValue([
+      buildUpstreamKey(20, '原绑定 Key', 'stale'),
+      buildUpstreamKey(21, '其他失效 Key', 'stale'),
+      buildUpstreamKey(22, '可用 Key')
+    ])
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    await wrapper.get('button.select-trigger').trigger('click')
+    const optionFor = (name: string) => wrapper
+      .findAll('button.select-option')
+      .find((option) => option.text().includes(name))
+    expect(optionFor('其他失效 Key')).toBeUndefined()
+    expect(optionFor('原绑定 Key')?.attributes('disabled')).toBeDefined()
+
+    await optionFor('可用 Key')!.trigger('click')
+    expect(wrapper.get('button.select-trigger').text()).toContain('可用 Key')
+
+    await wrapper.get('button.select-trigger').trigger('click')
+    const staleOption = optionFor('原绑定 Key')!
+    expect(staleOption.attributes('disabled')).toBeDefined()
+    await staleOption.trigger('click')
+    expect(wrapper.get('button.select-trigger').text()).toContain('可用 Key')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
+      upstream_config_id: 10,
+      upstream_key_id: 22
+    }))
   })
 
   it('clears account-level proxy when saving an upstream-bound account', async () => {

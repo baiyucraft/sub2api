@@ -47,6 +47,8 @@ func (UpstreamKey) Fields() []ent.Field {
 			Nillable(),
 		field.String("status").MaxLen(20).Default(domain.StatusActive),
 		field.Time("last_seen_at").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		field.Int("missing_count").Default(0),
+		field.Time("missing_since").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 		field.JSON("extra", map[string]any{}).
 			Default(func() map[string]any { return map[string]any{} }).
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}),

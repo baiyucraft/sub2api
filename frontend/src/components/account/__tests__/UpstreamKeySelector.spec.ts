@@ -239,4 +239,36 @@ describe('UpstreamKeySelector', () => {
     expect(wrapper.text()).toContain('plus')
     expect(wrapper.text()).toContain('77db38')
   })
+
+  it('warns for an existing stale binding and refuses to select stale keys', async () => {
+    const wrapper = mount(UpstreamKeySelector, {
+      props: {
+        modelValue: 9,
+        keys: [{
+          id: 9,
+          upstream_config_id: 5,
+          name: '特惠',
+          key_status: { has_key: true, suffix: 'abc123' },
+          remote_key_id: 2144,
+          upstream_group_name: '专享福利',
+          platform: 'openai',
+          rate_multiplier: 0.04,
+          status: 'stale',
+          missing_count: 4,
+          missing_since: '2026-07-11T09:31:35Z',
+          last_seen_at: '2026-07-11T09:31:35Z',
+          created_at: '2026-07-10T00:00:00Z',
+          updated_at: '2026-07-12T00:00:00Z'
+        }]
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.get('[data-test="stale-key-warning"]').text()).toContain('staleWarning')
+    await wrapper.get('button').trigger('click')
+    const option = wrapper.findAll('button').find((button) => button.attributes('disabled') !== undefined)
+    expect(option).toBeTruthy()
+    await option!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
 })
