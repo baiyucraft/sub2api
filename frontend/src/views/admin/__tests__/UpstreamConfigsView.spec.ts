@@ -94,10 +94,11 @@ const TablePageLayoutStub = defineComponent({
 })
 
 const DataTableStub = defineComponent({
-  props: ['columns', 'data', 'rowKey', 'actionsCount'],
+  props: ['columns', 'data', 'rowKey'],
   template: `
-    <div data-test="data-table" :data-row-key="rowKey" :data-actions-count="actionsCount">
+    <div data-test="data-table" :data-row-key="rowKey">
       <div data-test="columns">{{ columns.map((column) => column.key).join(',') }}</div>
+      <div data-test="actions-column-class">{{ columns.find((column) => column.key === 'actions')?.class }}</div>
       <div v-for="row in data" :key="row.id" data-test="row">
         <slot name="cell-name" :row="row" :value="row.name" />
         <slot name="cell-provider" :row="row" :value="row.provider" />
@@ -139,11 +140,12 @@ const SelectStub = defineComponent({
 })
 
 const BaseDialogStub = defineComponent({
-  props: ['show', 'title'],
+  props: ['show', 'title', 'width', 'closeOnEscape', 'showCloseButton'],
   emits: ['close'],
   template: `
-    <div v-if="show" data-test="base-dialog">
+    <div v-if="show" data-test="base-dialog" :data-width="width" :data-close-on-escape="closeOnEscape" :data-show-close-button="showCloseButton">
       <div data-test="dialog-title">{{ title }}</div>
+      <button data-test="dialog-close" @click="$emit('close')">close</button>
       <slot />
       <slot name="footer" />
     </div>
@@ -174,15 +176,14 @@ const ProxySelectorStub = defineComponent({
   `
 })
 
-const UpstreamOperationsDrawerStub = defineComponent({
-  props: ['show', 'title', 'subtitle'],
-  emits: ['close'],
+const UpstreamActionMenuStub = defineComponent({
+  props: ['show', 'anchorEl', 'config', 'width'],
+  emits: ['close', 'test', 'dashboard', 'delete'],
   template: `
-    <div v-if="show" data-test="upstream-operations-drawer">
-      <div data-test="operations-title">{{ title }}</div>
-      <slot name="toolbar" />
-      <slot />
-      <slot name="footer" />
+    <div v-if="show" data-test="upstream-action-menu" :data-width="width">
+      <button data-test="menu-test" @click="$emit('test', config); $emit('close')">test</button>
+      <button data-test="menu-dashboard" @click="$emit('dashboard', config); $emit('close')">dashboard</button>
+      <button data-test="menu-delete" @click="$emit('delete', config); $emit('close')">delete</button>
     </div>
   `
 })
@@ -225,6 +226,12 @@ function mockList(items = [upstreamConfig()], total = items.length) {
   })
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 function mountView() {
   return mount(UpstreamConfigsView, {
     global: {
@@ -237,7 +244,7 @@ function mountView() {
         BaseDialog: BaseDialogStub,
         ConfirmDialog: ConfirmDialogStub,
         ProxySelector: ProxySelectorStub,
-        UpstreamOperationsDrawer: UpstreamOperationsDrawerStub,
+        UpstreamActionMenu: UpstreamActionMenuStub,
         UpstreamCostTrendChart: UpstreamCostTrendChartStub,
         Icon: true,
         Teleport: true
@@ -315,7 +322,9 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="app-layout"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="table-page-layout"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="data-table"]').attributes('data-row-key')).toBe('id')
-    expect(wrapper.get('[data-test="data-table"]').attributes('data-actions-count')).toBe('5')
+    expect(wrapper.get('[data-test="data-table"]').attributes('data-actions-count')).toBeUndefined()
+    expect(wrapper.get('[data-test="more-upstream-actions"]').element.parentElement?.className).toContain('min-w-[220px]')
+    expect(wrapper.get('[data-test="actions-column-class"]').text()).toBe('min-w-[220px]')
     expect(wrapper.get('[data-test="columns"]').text()).toContain('actions')
     expect(wrapper.get('[data-test="columns"]').text()).toContain('balance')
     expect(wrapper.text()).toContain('Sub2API Main')
@@ -340,7 +349,8 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.text()).toContain('12.3456')
     expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥169.17"}')
 
-    await wrapper.get('[data-test="open-upstream-dashboard"]').trigger('click')
+    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
+    await wrapper.get('[data-test="menu-dashboard"]').trigger('click')
 
     expect(openSpy).toHaveBeenCalledWith('https://upstream.example.com/dashboard', '_blank', 'noopener,noreferrer')
     openSpy.mockRestore()
@@ -722,7 +732,8 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    await wrapper.get('button[aria-label="common.delete"]').trigger('click')
+    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
+    await wrapper.get('[data-test="menu-delete"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-test="confirm-dialog"]').exists()).toBe(true)
 
@@ -744,7 +755,7 @@ describe('UpstreamConfigsView', () => {
     expect(listMock).toHaveBeenCalledTimes(2)
   })
 
-  it('opens the batch sync result drawer by run_id', async () => {
+  it('opens the batch sync result dialog by run_id', async () => {
     syncAllKeysMock.mockResolvedValueOnce({
       run_id: 99,
       results: [{ config_id: 10, name: 'Sub2API Main', success: true, key_count: 3, updated_account_count: 1 }]
@@ -756,7 +767,7 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     expect(getSyncRunMock).toHaveBeenCalledWith(99)
-    expect(wrapper.get('[data-test="upstream-operations-drawer"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="base-dialog"]').attributes('data-width')).toBe('extra-wide')
     expect(wrapper.get('[data-test="sync-run-detail"]').exists()).toBe(true)
   })
 
@@ -777,6 +788,46 @@ describe('UpstreamConfigsView', () => {
     expect(getUsageTrendMock).toHaveBeenLastCalledWith(10, '30d')
   })
 
+  it('opens row cost trend with the row id and uses an extra-wide dialog', async () => {
+    mockList([upstreamConfig({ id: 42 })])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="row-cost-trend"]').trigger('click')
+    await flushPromises()
+
+    expect(getUsageTrendMock).toHaveBeenCalledWith(42, '24h')
+    expect(wrapper.get('[data-test="base-dialog"]').attributes('data-width')).toBe('extra-wide')
+  })
+
+  it('loads the complete upstream list while opening a row trend', async () => {
+    listMock
+      .mockReset()
+      .mockResolvedValueOnce({
+        items: [upstreamConfig({ id: 42, name: 'Visible Row' })],
+        total: 1,
+        page: 1,
+        page_size: 20,
+        pages: 1
+      })
+      .mockResolvedValueOnce({
+      items: [upstreamConfig({ id: 42, name: 'Visible Row' }), upstreamConfig({ id: 43, name: 'Another Upstream' })],
+      total: 2,
+      page: 1,
+      page_size: 200,
+      pages: 1
+      })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="row-cost-trend"]').trigger('click')
+    await flushPromises()
+
+    expect(listMock).toHaveBeenLastCalledWith(1, 200, {})
+    expect(wrapper.get('[data-test="trend-upstream-select"]').findAll('option')).toHaveLength(2)
+    expect(getUsageTrendMock).toHaveBeenCalledWith(42, '24h')
+  })
+
   it('loads events and incidents for the selected upstream', async () => {
     const wrapper = mountView()
     await flushPromises()
@@ -787,6 +838,25 @@ describe('UpstreamConfigsView', () => {
     expect(listEventsMock).toHaveBeenCalledWith(10, 50, 0)
     expect(listIncidentsMock).toHaveBeenCalledWith(10, 'open', 50, 0)
     expect(listBalanceHistoryMock).toHaveBeenCalledWith(10, 50, 0)
+    expect(wrapper.get('[data-test="base-dialog"]').attributes('data-width')).toBe('wide')
+  })
+
+  it('loads every operation config page and deduplicates ids', async () => {
+    const firstPage = Array.from({ length: 200 }, (_, index) => upstreamConfig({ id: index + 1, name: `Upstream ${index + 1}` }))
+    listMock
+      .mockResolvedValueOnce({ items: [upstreamConfig()], total: 1, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({ items: firstPage, total: 201, page: 1, page_size: 200, pages: 2 })
+      .mockResolvedValueOnce({ items: [upstreamConfig({ id: 200 }), upstreamConfig({ id: 201 })], total: 201, page: 2, page_size: 200, pages: 2 })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-cost-trend"]').trigger('click')
+    await flushPromises()
+
+    expect(listMock).toHaveBeenNthCalledWith(2, 1, 200, {})
+    expect(listMock).toHaveBeenNthCalledWith(3, 2, 200, {})
+    const options = wrapper.get('[data-test="trend-upstream-select"]').findAll('option')
+    expect(options).toHaveLength(201)
   })
 
   it('renders newapi history as balance plus total used', async () => {
@@ -821,11 +891,31 @@ describe('UpstreamConfigsView', () => {
 
     await wrapper.get('[data-test="open-upstream-settings"]').trigger('click')
     await flushPromises()
+    expect(wrapper.get('[data-test="base-dialog"]').attributes('data-width')).toBe('normal')
     await wrapper.get('[data-test="low-balance-threshold-input"]').setValue('20')
     await wrapper.get('[data-test="upstream-settings-form"]').trigger('submit.prevent')
     await flushPromises()
 
     expect(updateSettingsMock).toHaveBeenCalledWith({ balance_low_threshold_cny: 20 })
     expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.settingsSaved')
+  })
+
+  it('prevents settings dialog close while saving', async () => {
+    const pending = deferred<{ balance_low_threshold_cny: number }>()
+    updateSettingsMock.mockReturnValueOnce(pending.promise)
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-upstream-settings"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="upstream-settings-form"]').trigger('submit.prevent')
+    await wrapper.get('[data-test="dialog-close"]').trigger('click')
+
+    expect(wrapper.get('[data-test="base-dialog"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="base-dialog"]').attributes('data-close-on-escape')).toBe('false')
+    expect(wrapper.get('[data-test="base-dialog"]').attributes('data-show-close-button')).toBe('false')
+
+    pending.resolve({ balance_low_threshold_cny: 10 })
+    await flushPromises()
   })
 })

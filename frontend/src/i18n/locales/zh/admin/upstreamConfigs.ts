@@ -63,6 +63,7 @@ export default {
       syncRuns: '同步记录',
       events: '事件',
       costTrend: '成本趋势',
+      more: '更多',
       settings: '上游设置',
       openDashboard: '打开上游后台',
       saving: '保存中...'

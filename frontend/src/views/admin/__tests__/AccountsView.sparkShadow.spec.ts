@@ -69,7 +69,10 @@ const mountView = () =>
         TablePageLayout: {
           template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
         },
-        DataTable: true,
+        DataTable: {
+          props: ['data'],
+          template: '<div><div v-for="row in (data || [])" :key="row.id"><slot name="cell-actions" :row="row" /></div></div>'
+        },
         Pagination: true,
         ConfirmDialog: true,
         AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
@@ -153,6 +156,30 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     await flushPromises()
 
     expect(createSparkShadow).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('点击更多按钮时把真实触发元素作为 AccountActionMenu anchorEl', async () => {
+    const account = {
+      id: 42,
+      name: 'anchor-account',
+      platform: 'openai',
+      type: 'oauth',
+      status: 'active',
+      schedulable: true
+    }
+    listAccounts.mockResolvedValue({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    const moreButton = wrapper.findAll('button').find(button => button.text().includes('common.more'))
+    expect(moreButton).toBeTruthy()
+
+    await moreButton!.trigger('click')
+    const menu = wrapper.findComponent(AccountActionMenu)
+    expect(menu.props('show')).toBe(true)
+    expect(menu.props('account')).toMatchObject({ id: 42 })
+    expect(menu.props('anchorEl')).toBe(moreButton!.element)
     wrapper.unmount()
   })
 })
