@@ -3,12 +3,30 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"io/fs"
+	"strings"
 	"testing"
 	"testing/fstest"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEmbeddedMigrationsHaveValidExecutionModes(t *testing.T) {
+	entries, err := fs.ReadDir(migrations.FS, ".")
+	require.NoError(t, err)
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		content, err := migrations.FS.ReadFile(entry.Name())
+		require.NoError(t, err, entry.Name())
+		_, err = validateMigrationExecutionMode(entry.Name(), string(content))
+		require.NoError(t, err, entry.Name())
+	}
+}
 
 func TestValidateMigrationExecutionMode(t *testing.T) {
 	t.Run("事务迁移包含CONCURRENTLY会被拒绝", func(t *testing.T) {
@@ -46,6 +64,15 @@ func TestValidateMigrationExecutionMode(t *testing.T) {
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_a ON t(a);
 DROP INDEX CONCURRENTLY IF EXISTS idx_b;
 `)
+		require.True(t, nonTx)
+		require.NoError(t, err)
+	})
+
+	t.Run("索引名中的created不会把DROP误判为CREATE", func(t *testing.T) {
+		nonTx, err := validateMigrationExecutionMode(
+			"001_replace_idx_notx.sql",
+			"DROP INDEX CONCURRENTLY IF EXISTS idx_usage_created_at; CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_created_at ON usage_logs(created_at);",
+		)
 		require.True(t, nonTx)
 		require.NoError(t, err)
 	})
@@ -225,6 +252,48 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_scheduler_outbox_pending_dedu
     WHERE dedup_key IS NOT NULL;
 `),
 		},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_UpstreamRemoteKeyUniqueMigration_PreparesEveryRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(upstreamRemoteKeyUniqueMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectBegin()
+	mock.ExpectExec("(?s)WITH account_refs AS .*UPDATE accounts a").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("(?s)WITH account_refs AS .*UPDATE upstream_keys uk").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+	mock.ExpectQuery("SELECT EXISTS \\(").
+		WithArgs(upstreamRemoteKeyUniqueIndex).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS " + upstreamRemoteKeyUniqueIndex).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS " + upstreamRemoteKeyUniqueIndex).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(upstreamRemoteKeyUniqueMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		upstreamRemoteKeyUniqueMigration: &fstest.MapFile{Data: []byte(`
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_upstream_keys_config_remote_key_id_active
+    ON upstream_keys(upstream_config_id, remote_key_id)
+    WHERE remote_key_id IS NOT NULL AND deleted_at IS NULL;
+`)},
 	}
 
 	err = applyMigrationsFS(context.Background(), db, fsys)

@@ -55,6 +55,53 @@ const paymentOrdersOutTradeNoUniqueMigration = "120_enforce_payment_orders_out_t
 const paymentOrdersOutTradeNoUniqueIndex = "paymentorder_out_trade_no_unique"
 const schedulerOutboxPendingDedupKeyMigration = "153_scheduler_outbox_pending_dedup_key_index_notx.sql"
 const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_key"
+const upstreamRemoteKeyUniqueMigration = "174_upstream_operations_indexes_notx.sql"
+const upstreamRemoteKeyUniqueIndex = "idx_upstream_keys_config_remote_key_id_active"
+
+const rebindDuplicateUpstreamKeysSQL = `
+WITH account_refs AS (
+    SELECT upstream_key_id, COUNT(*) AS ref_count
+    FROM accounts
+    WHERE upstream_key_id IS NOT NULL
+    GROUP BY upstream_key_id
+), ranked AS (
+    SELECT uk.id,
+           FIRST_VALUE(uk.id) OVER (
+               PARTITION BY uk.upstream_config_id, uk.remote_key_id
+               ORDER BY COALESCE(ar.ref_count, 0) DESC, uk.last_seen_at DESC NULLS LAST, uk.id ASC
+           ) AS keeper_key_id,
+           ROW_NUMBER() OVER (
+               PARTITION BY uk.upstream_config_id, uk.remote_key_id
+               ORDER BY COALESCE(ar.ref_count, 0) DESC, uk.last_seen_at DESC NULLS LAST, uk.id ASC
+           ) AS duplicate_rank
+    FROM upstream_keys uk
+    LEFT JOIN account_refs ar ON ar.upstream_key_id = uk.id
+    WHERE uk.remote_key_id IS NOT NULL AND uk.deleted_at IS NULL
+)
+UPDATE accounts a
+SET upstream_key_id = ranked.keeper_key_id, updated_at = NOW()
+FROM ranked
+WHERE a.upstream_key_id = ranked.id AND ranked.duplicate_rank > 1`
+
+const softDeleteDuplicateUpstreamKeysSQL = `
+WITH account_refs AS (
+    SELECT upstream_key_id, COUNT(*) AS ref_count
+    FROM accounts
+    WHERE upstream_key_id IS NOT NULL
+    GROUP BY upstream_key_id
+), ranked AS (
+    SELECT uk.id, ROW_NUMBER() OVER (
+        PARTITION BY uk.upstream_config_id, uk.remote_key_id
+        ORDER BY COALESCE(ar.ref_count, 0) DESC, uk.last_seen_at DESC NULLS LAST, uk.id ASC
+    ) AS duplicate_rank
+    FROM upstream_keys uk
+    LEFT JOIN account_refs ar ON ar.upstream_key_id = uk.id
+    WHERE uk.remote_key_id IS NOT NULL AND uk.deleted_at IS NULL
+)
+UPDATE upstream_keys uk
+SET deleted_at = NOW(), updated_at = NOW()
+FROM ranked
+WHERE ranked.id = uk.id AND ranked.duplicate_rank > 1`
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -264,9 +311,31 @@ func prepareNonTransactionalMigration(ctx context.Context, db *sql.DB, name stri
 		return preparePaymentOrdersOutTradeNoUniqueMigration(ctx, db)
 	case schedulerOutboxPendingDedupKeyMigration:
 		return dropInvalidIndexIfPresent(ctx, db, schedulerOutboxPendingDedupKeyIndex)
+	case upstreamRemoteKeyUniqueMigration:
+		return prepareUpstreamRemoteKeyUniqueMigration(ctx, db)
 	default:
 		return nil
 	}
+}
+
+func prepareUpstreamRemoteKeyUniqueMigration(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin upstream remote key dedupe: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, rebindDuplicateUpstreamKeysSQL); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("rebind duplicate upstream keys: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, softDeleteDuplicateUpstreamKeysSQL); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("soft-delete duplicate upstream keys: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("commit upstream remote key dedupe: %w", err)
+	}
+	return dropInvalidIndexIfPresent(ctx, db, upstreamRemoteKeyUniqueIndex)
 }
 
 func preparePaymentOrdersOutTradeNoUniqueMigration(ctx context.Context, db *sql.DB) error {
@@ -475,8 +544,12 @@ func validateMigrationExecutionMode(name, content string) (bool, error) {
 		}
 
 		if strings.Contains(normalizedStmt, "CONCURRENTLY") {
-			isCreateIndex := strings.Contains(normalizedStmt, "CREATE") && strings.Contains(normalizedStmt, "INDEX")
-			isDropIndex := strings.Contains(normalizedStmt, "DROP") && strings.Contains(normalizedStmt, "INDEX")
+			fields := strings.Fields(normalizedStmt)
+			isCreateIndex := len(fields) >= 2 && fields[0] == "CREATE" && fields[1] == "INDEX"
+			if len(fields) >= 3 && fields[0] == "CREATE" && fields[1] == "UNIQUE" && fields[2] == "INDEX" {
+				isCreateIndex = true
+			}
+			isDropIndex := len(fields) >= 2 && fields[0] == "DROP" && fields[1] == "INDEX"
 			if !isCreateIndex && !isDropIndex {
 				return false, errors.New("*_notx.sql currently only supports CREATE/DROP INDEX CONCURRENTLY statements")
 			}
