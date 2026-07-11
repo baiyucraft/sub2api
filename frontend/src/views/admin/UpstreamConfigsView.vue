@@ -138,8 +138,8 @@
               >
                 {{ formatCNY(upstreamBalanceCNY(row)) }}
               </div>
-              <div v-if="upstreamTotalRechargedCNY(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
-                {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatCNY(upstreamTotalRechargedCNY(row)) }) }}
+              <div v-if="upstreamTotalAmountCNY(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+                {{ t(row.provider === 'newapi' ? 'admin.upstreamConfigs.balance.totalQuota' : 'admin.upstreamConfigs.balance.totalRecharged', { amount: formatCNY(upstreamTotalAmountCNY(row)) }) }}
               </div>
               <div v-if="isLowBalance(row)" class="mt-0.5 text-xs font-medium text-red-600 dark:text-red-400">
                 {{ t('admin.upstreamConfigs.balance.lowBalance') }}
@@ -744,6 +744,12 @@
               </div>
               <div class="mt-1 text-xs text-gray-500 dark:text-dark-400">
                 {{ snapshot.currency_source || '-' }} · {{ snapshot.currency_rate_source || '-' }}
+              </div>
+              <div v-if="snapshot.provider === 'newapi' && snapshot.used_cny != null" class="mt-1 text-xs text-gray-500 dark:text-dark-400">
+                {{ t('admin.upstreamConfigs.balance.totalUsed', { amount: formatCNY(snapshot.used_cny) }) }}
+              </div>
+              <div v-else-if="snapshot.provider === 'sub2api' && snapshot.total_recharged_cny != null" class="mt-1 text-xs text-gray-500 dark:text-dark-400">
+                {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatCNY(snapshot.total_recharged_cny) }) }}
               </div>
             </div>
             <div v-if="!balanceHistory.length" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyBalanceHistory') }}</div>
@@ -1638,21 +1644,25 @@ function credentialStatusLabel(ok: boolean) {
 }
 
 function upstreamBalanceCNY(item: UpstreamConfig): number | null {
-  const normalized = finiteNumberFromExtra(item.extra?.balance_cny)
-  if (normalized !== null) return normalized
-  if (item.provider === 'sub2api') return finiteNumberFromExtra(item.extra?.sub2api_balance)
+  if (item.provider === 'sub2api') {
+    return finiteNumberFromExtra(item.extra?.balance_cny)
+      ?? finiteNumberFromExtra(item.extra?.sub2api_balance)
+  }
   const amount = newAPIAmount(item, 'balance')
   const rate = explicitCNYRate(item)
-  return amount !== null && rate !== null ? amount * rate : null
+  if (amount !== null && rate !== null) return amount * rate
+  return finiteNumberFromExtra(item.extra?.balance_cny)
 }
 
-function upstreamTotalRechargedCNY(item: UpstreamConfig): number | null {
-  const normalized = finiteNumberFromExtra(item.extra?.total_recharged_cny)
-  if (normalized !== null) return normalized
-  if (item.provider === 'sub2api') return finiteNumberFromExtra(item.extra?.sub2api_total_recharged)
+function upstreamTotalAmountCNY(item: UpstreamConfig): number | null {
+  if (item.provider === 'sub2api') {
+    return finiteNumberFromExtra(item.extra?.total_recharged_cny)
+      ?? finiteNumberFromExtra(item.extra?.sub2api_total_recharged)
+  }
   const amount = newAPIAmount(item, 'total')
   const rate = explicitCNYRate(item)
-  return amount !== null && rate !== null ? amount * rate : null
+  if (amount !== null && rate !== null) return amount * rate
+  return finiteNumberFromExtra(item.extra?.total_recharged_cny)
 }
 
 function upstreamBalanceError(item: UpstreamConfig): string {
@@ -1728,9 +1738,18 @@ function convertNewAPIQuotaRaw(item: UpstreamConfig, raw: number | null): number
 function newAPIAmount(item: UpstreamConfig, kind: 'balance' | 'total'): number | null {
   const snapshot = upstreamProviderSnapshot(item)
   if (!snapshot) return null
+  const useBaseAmount = finitePositiveNumber(item.balance_to_cny_rate) !== null
   if (kind === 'balance') {
+    if (useBaseAmount) {
+      return finiteNumberFromExtra(snapshot.base_balance_amount)
+        ?? convertNewAPIQuotaRawBase(item, finiteNumberFromExtra(snapshot.remain_quota_raw) ?? finiteNumberFromExtra(snapshot.quota_raw))
+    }
     return finiteNumberFromExtra(snapshot.balance_amount)
       ?? convertNewAPIQuotaRaw(item, finiteNumberFromExtra(snapshot.remain_quota) ?? finiteNumberFromExtra(snapshot.quota))
+  }
+  if (useBaseAmount) {
+    return finiteNumberFromExtra(snapshot.base_total_amount)
+      ?? convertNewAPIQuotaRawBase(item, finiteNumberFromExtra(snapshot.total_quota_raw) ?? finiteNumberFromExtra(snapshot.total_quota))
   }
   const totalAmount = finiteNumberFromExtra(snapshot.total_amount)
   if (totalAmount !== null) return totalAmount
@@ -1743,9 +1762,15 @@ function newAPIAmount(item: UpstreamConfig, kind: 'balance' | 'total'): number |
   )
 }
 
+function convertNewAPIQuotaRawBase(item: UpstreamConfig, raw: number | null): number | null {
+  if (raw === null) return null
+  const quotaPerUnit = finiteNumberFromExtra(upstreamProviderSnapshot(item)?.quota_per_unit) ?? 500000
+  return quotaPerUnit > 0 ? raw / quotaPerUnit : null
+}
+
 function explicitCNYRate(item: UpstreamConfig): number | null {
-  const normalized = finitePositiveNumber(item.extra?.currency_to_cny_rate)
-  if (normalized !== null) return normalized
+  const override = finitePositiveNumber(item.balance_to_cny_rate)
+  if (override !== null) return override
   const snapshot = upstreamProviderSnapshot(item)
   const currency = typeof snapshot?.currency === 'string'
     ? snapshot.currency.trim().toUpperCase()
@@ -1754,10 +1779,15 @@ function explicitCNYRate(item: UpstreamConfig): number | null {
       : ''
   if (currency === 'CNY') return 1
   if (currency === 'USD') {
-    return finitePositiveNumber(snapshot?.usd_exchange_rate)
-      ?? finitePositiveNumber(item.balance_to_cny_rate)
+    const providerRate = finitePositiveNumber(snapshot?.usd_exchange_rate)
+    if (providerRate !== null) return providerRate
   }
-  return finitePositiveNumber(item.balance_to_cny_rate)
+  const rateSource = typeof item.extra?.currency_rate_source === 'string'
+    ? item.extra.currency_rate_source.trim()
+    : ''
+  return rateSource !== 'admin_override'
+    ? finitePositiveNumber(item.extra?.currency_to_cny_rate)
+    : null
 }
 
 function formatCNY(value: number | null): string {

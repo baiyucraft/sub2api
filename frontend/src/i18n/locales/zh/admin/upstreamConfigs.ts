@@ -17,6 +17,8 @@ export default {
     },
     balance: {
       totalRecharged: '累计充值 {amount}',
+      totalQuota: '累计额度 {amount}',
+      totalUsed: '累计使用 {amount}',
       lowBalance: '低余额',
       rawBalance: '原生剩余额度：{amount}',
       rawUsed: '原生已用额度：{amount}',
@@ -106,7 +108,7 @@ export default {
       rechargeRateHint: '上游余额折算为实际成本的系数；成本倍率 = 原始倍率 × 充值折算率。',
       balanceToCnyRate: '余额兑人民币汇率',
       balanceToCnyRatePlaceholder: '留空使用上游汇率',
-      balanceToCnyRateHint: '仅在上游未提供可靠人民币汇率时使用。',
+      balanceToCnyRateHint: '管理员业务换算汇率，优先于上游返回的展示汇率；留空时使用上游汇率。',
       proxyId: '代理 ID',
       proxyPlaceholder: '留空不使用',
       loginEmail: '登录邮箱',

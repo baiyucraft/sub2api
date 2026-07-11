@@ -1134,6 +1134,7 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 	snapshot, ok := repo.extraUpdates[0].updates["upstream_provider_snapshot"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, UpstreamProviderNewAPI, snapshot["provider"])
+	require.Equal(t, "derived_quota", snapshot["total_amount_semantics"])
 	require.InDelta(t, 86995.0, snapshot["quota"], 1e-12)
 	require.InDelta(t, 4913005.0, snapshot["used_quota"], 1e-12)
 	require.InDelta(t, 86995.0, snapshot["remain_quota"], 1e-12)

@@ -7,7 +7,7 @@ import UpstreamConfigsView from '../UpstreamConfigsView.vue'
 const {
   listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock,
   getSettingsMock, updateSettingsMock, listSyncRunsMock, getSyncRunMock, listEventsMock,
-  listIncidentsMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock
+  listIncidentsMock, listBalanceHistoryMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock
 } = vi.hoisted(() => ({
   listMock: vi.fn(),
   createMock: vi.fn(),
@@ -22,6 +22,7 @@ const {
   getSyncRunMock: vi.fn(),
   listEventsMock: vi.fn(),
   listIncidentsMock: vi.fn(),
+  listBalanceHistoryMock: vi.fn(),
   getUsageTrendMock: vi.fn(),
   proxiesMock: vi.fn(),
   showErrorMock: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock('@/api/admin/upstreamConfigs', () => ({
     getSyncRun: getSyncRunMock,
     listEvents: listEventsMock,
     listIncidents: listIncidentsMock,
+    listBalanceHistory: listBalanceHistoryMock,
     getUsageTrend: getUsageTrendMock
   }
 }))
@@ -260,6 +262,7 @@ describe('UpstreamConfigsView', () => {
     getSyncRunMock.mockReset()
     listEventsMock.mockReset()
     listIncidentsMock.mockReset()
+    listBalanceHistoryMock.mockReset()
     getUsageTrendMock.mockReset()
     proxiesMock.mockReset()
     showErrorMock.mockReset()
@@ -297,6 +300,7 @@ describe('UpstreamConfigsView', () => {
     })
     listEventsMock.mockResolvedValue({ items: [], total: 0 })
     listIncidentsMock.mockResolvedValue({ items: [], total: 0 })
+    listBalanceHistoryMock.mockResolvedValue({ items: [], total: 0 })
     getUsageTrendMock.mockResolvedValue({ range: '24h', currency: 'CNY', legacy_attributed_requests: 0, points: [] })
   })
 
@@ -375,12 +379,90 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('¥1.2527')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥72.00"}')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalQuota:{"amount":"¥72.00"}')
     expect(wrapper.text()).not.toContain('-4,826,010')
     expect(wrapper.text()).not.toContain('$')
   })
 
-  it('keeps zero balances and falls back to balance plus used for newapi total recharged', async () => {
+  it('uses the admin CNY override before the newapi provider display rate', async () => {
+    mockList([upstreamConfig({
+      provider: 'newapi',
+      balance_to_cny_rate: 1,
+      extra: {
+        balance_cny: 0.0791904,
+        total_recharged_cny: 73,
+        upstream_provider_snapshot: {
+          provider: 'newapi',
+          balance_amount: 0.010848,
+          used_amount: 9.989152,
+          total_amount: 10,
+          remain_quota_raw: 5424,
+          used_quota_raw: 4994576,
+          total_quota_raw: 5000000,
+          quota_per_unit: 500000,
+          currency: 'USD',
+          usd_exchange_rate: 7.3
+        }
+      }
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('¥0.0108')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalQuota:{"amount":"¥10.00"}')
+    expect(wrapper.text()).not.toContain('¥73.00')
+  })
+
+  it('restores the provider rate immediately after the admin override is cleared', async () => {
+    mockList([upstreamConfig({
+      provider: 'newapi',
+      balance_to_cny_rate: null,
+      extra: {
+        balance_cny: 0.010848,
+        currency_to_cny_rate: 1,
+        currency_rate_source: 'admin_override',
+        upstream_provider_snapshot: {
+          provider: 'newapi',
+          balance_amount: 0.010848,
+          total_amount: 10,
+          currency: 'USD',
+          usd_exchange_rate: 7.3
+        }
+      }
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('¥0.0792')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalQuota:{"amount":"¥73.00"}')
+  })
+
+  it('uses the last trusted provider rate when a USD snapshot omits its rate', async () => {
+    mockList([upstreamConfig({
+      provider: 'newapi',
+      balance_to_cny_rate: null,
+      extra: {
+        currency_to_cny_rate: 7.3,
+        currency_rate_source: 'provider',
+        upstream_provider_snapshot: {
+          provider: 'newapi',
+          balance_amount: 0.010848,
+          total_amount: 10,
+          currency: 'USD'
+        }
+      }
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('¥0.0792')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalQuota:{"amount":"¥73.00"}')
+  })
+
+  it('keeps zero balances and labels derived newapi totals as total quota', async () => {
     mockList([upstreamConfig({
       provider: 'newapi',
       extra: {
@@ -398,7 +480,7 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('0.00')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥2.50"}')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalQuota:{"amount":"¥2.50"}')
   })
 
   it('falls back to converted total quota for legacy newapi snapshots', async () => {
@@ -420,7 +502,7 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥35.00"}')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalQuota:{"amount":"¥35.00"}')
   })
 
   it('does not label newapi balances as CNY without an explicit exchange rate', async () => {
@@ -704,6 +786,33 @@ describe('UpstreamConfigsView', () => {
 
     expect(listEventsMock).toHaveBeenCalledWith(10, 50, 0)
     expect(listIncidentsMock).toHaveBeenCalledWith(10, 'open', 50, 0)
+    expect(listBalanceHistoryMock).toHaveBeenCalledWith(10, 50, 0)
+  })
+
+  it('renders newapi history as balance plus total used', async () => {
+    mockList([upstreamConfig({ provider: 'newapi' })])
+    listBalanceHistoryMock.mockResolvedValueOnce({
+      items: [{
+        id: 1,
+        config_id: 10,
+        provider: 'newapi',
+        balance_cny: 0.010848,
+        used_cny: 9.989152,
+        total_recharged_cny: 10,
+        currency_source: 'USD',
+        currency_rate_source: 'admin_override',
+        observed_at: '2026-07-11T06:30:40Z'
+      }],
+      total: 1
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-upstream-events"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalUsed:{"amount":"¥9.9892"}')
+    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥10.00"}')
   })
 
   it('updates the low balance threshold from upstream settings', async () => {
