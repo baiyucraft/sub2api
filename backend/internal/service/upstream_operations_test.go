@@ -19,9 +19,29 @@ func TestNormalizeProviderBalanceExtra_Sub2APIUsesCNY(t *testing.T) {
 	require.Equal(t, 1.0, out["currency_to_cny_rate"])
 }
 
-func TestNormalizeProviderBalanceExtra_NewAPIUSDUsesProviderRate(t *testing.T) {
+func TestNormalizeProviderBalanceExtra_NewAPIAdminOverrideWinsProviderRate(t *testing.T) {
 	override := 9.0
 	cfg := &UpstreamConfig{Provider: UpstreamProviderNewAPI, BalanceToCNYRate: &override}
+	out := normalizeProviderBalanceExtra(cfg, map[string]any{
+		"upstream_provider_snapshot": map[string]any{
+			"currency":            "USD",
+			"balance_amount":      10.0,
+			"used_amount":         2.0,
+			"total_amount":        12.0,
+			"base_balance_amount": 10.0,
+			"base_used_amount":    2.0,
+			"base_total_amount":   12.0,
+			"usd_exchange_rate":   7.2,
+		},
+	})
+	require.Equal(t, 90.0, out["balance_cny"])
+	require.Equal(t, 18.0, out["used_cny"])
+	require.Equal(t, 108.0, out["total_recharged_cny"])
+	require.Equal(t, "admin_override", out["currency_rate_source"])
+}
+
+func TestNormalizeProviderBalanceExtra_NewAPIUsesProviderRateWithoutOverride(t *testing.T) {
+	cfg := &UpstreamConfig{Provider: UpstreamProviderNewAPI}
 	out := normalizeProviderBalanceExtra(cfg, map[string]any{
 		"upstream_provider_snapshot": map[string]any{
 			"currency":          "USD",
@@ -37,13 +57,28 @@ func TestNormalizeProviderBalanceExtra_NewAPIUSDUsesProviderRate(t *testing.T) {
 	require.Equal(t, "provider", out["currency_rate_source"])
 }
 
+func TestNormalizeProviderBalanceExtra_NewAPICNYAdminOverrideWins(t *testing.T) {
+	override := 0.5
+	cfg := &UpstreamConfig{Provider: UpstreamProviderNewAPI, BalanceToCNYRate: &override}
+	out := normalizeProviderBalanceExtra(cfg, map[string]any{
+		"upstream_provider_snapshot": map[string]any{
+			"currency":            "CNY",
+			"balance_amount":      73.0,
+			"base_balance_amount": 10.0,
+		},
+	})
+	require.Equal(t, 5.0, out["balance_cny"])
+	require.Equal(t, "admin_override", out["currency_rate_source"])
+}
+
 func TestNormalizeProviderBalanceExtra_CustomUsesAdminOverride(t *testing.T) {
 	override := 0.5
 	cfg := &UpstreamConfig{Provider: UpstreamProviderNewAPI, BalanceToCNYRate: &override}
 	out := normalizeProviderBalanceExtra(cfg, map[string]any{
 		"upstream_provider_snapshot": map[string]any{
-			"currency":       "CUSTOM",
-			"balance_amount": 10.0,
+			"currency":            "CUSTOM",
+			"balance_amount":      20.0,
+			"base_balance_amount": 10.0,
 		},
 	})
 	require.Equal(t, 5.0, out["balance_cny"])
@@ -68,6 +103,7 @@ func TestNewAPIQuotaAmountsDoesNotInventUSDExchangeRate(t *testing.T) {
 	amounts := newAPIQuotaAmounts(500000, 250000, nil)
 	require.Equal(t, "USD", amounts.Currency)
 	require.Equal(t, 1.0, amounts.BalanceAmount)
+	require.Equal(t, 1.0, amounts.BaseBalanceAmount)
 	require.Zero(t, amounts.USDExchangeRate)
 }
 

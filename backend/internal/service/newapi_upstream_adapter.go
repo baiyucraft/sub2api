@@ -1002,6 +1002,10 @@ func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, 
 			"balance_amount":                amounts.BalanceAmount,
 			"used_amount":                   amounts.UsedAmount,
 			"total_amount":                  amounts.TotalAmount,
+			"base_balance_amount":           amounts.BaseBalanceAmount,
+			"base_used_amount":              amounts.BaseUsedAmount,
+			"base_total_amount":             amounts.BaseTotalAmount,
+			"total_amount_semantics":        "derived_quota",
 			"currency":                      amounts.Currency,
 			"currency_symbol":               amounts.Symbol,
 			"quota_display_type":            amounts.DisplayType,
@@ -1018,6 +1022,9 @@ func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, 
 }
 
 type newAPIQuotaSnapshotAmounts struct {
+	BaseBalanceAmount          float64
+	BaseUsedAmount             float64
+	BaseTotalAmount            float64
 	BalanceAmount              float64
 	UsedAmount                 float64
 	TotalAmount                float64
@@ -1080,7 +1087,11 @@ func newAPIQuotaAmounts(balanceRaw, usedRaw float64, status *newAPIStatusData) n
 		return raw / quotaPerUnit * rate
 	}
 	totalRaw := balanceRaw + usedRaw
+	toBaseAmount := func(raw float64) float64 { return raw / quotaPerUnit }
 	return newAPIQuotaSnapshotAmounts{
+		BaseBalanceAmount:          toBaseAmount(balanceRaw),
+		BaseUsedAmount:             toBaseAmount(usedRaw),
+		BaseTotalAmount:            toBaseAmount(totalRaw),
 		BalanceAmount:              toAmount(balanceRaw),
 		UsedAmount:                 toAmount(usedRaw),
 		TotalAmount:                toAmount(totalRaw),

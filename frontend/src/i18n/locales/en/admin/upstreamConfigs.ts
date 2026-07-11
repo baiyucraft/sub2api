@@ -17,6 +17,8 @@ export default {
     },
     balance: {
       totalRecharged: 'Total recharged {amount}',
+      totalQuota: 'Total quota {amount}',
+      totalUsed: 'Total used {amount}',
       lowBalance: 'Low balance',
       rawBalance: 'Raw balance: {amount}',
       rawUsed: 'Raw used: {amount}',
@@ -106,7 +108,7 @@ export default {
       rechargeRateHint: 'Factor converting upstream balance into actual cost. Cost rate = raw rate multiplied by recharge rate.',
       balanceToCnyRate: 'Balance to CNY Rate',
       balanceToCnyRatePlaceholder: 'Use upstream rate when empty',
-      balanceToCnyRateHint: 'Used only when the upstream does not provide a reliable CNY conversion rate.',
+      balanceToCnyRateHint: 'Admin business conversion rate. It overrides upstream display rates; leave empty to use the upstream rate.',
       proxyId: 'Proxy ID',
       proxyPlaceholder: 'Empty means none',
       loginEmail: 'Login Email',

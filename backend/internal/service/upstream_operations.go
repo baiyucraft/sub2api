@@ -365,16 +365,37 @@ func normalizeProviderBalanceExtra(cfg *UpstreamConfig, updates map[string]any) 
 	total, totalOK := finiteAnyFloat(snapshot["total_amount"])
 	rate := 0.0
 	rateSource := ""
-	switch currency {
-	case "CNY":
-		rate, rateSource = 1, "provider"
-	case "USD":
-		if value, ok := finiteAnyFloat(snapshot["usd_exchange_rate"]); ok && value > 0 {
-			rate, rateSource = value, "provider"
-		}
-	}
-	if rate <= 0 && cfg.BalanceToCNYRate != nil && *cfg.BalanceToCNYRate > 0 {
+	if cfg.BalanceToCNYRate != nil && *cfg.BalanceToCNYRate > 0 {
 		rate, rateSource = *cfg.BalanceToCNYRate, "admin_override"
+		balance, balanceOK = finiteAnyFloat(snapshot["base_balance_amount"])
+		used, usedOK = finiteAnyFloat(snapshot["base_used_amount"])
+		total, totalOK = finiteAnyFloat(snapshot["base_total_amount"])
+		if !balanceOK || !usedOK || !totalOK {
+			quotaPerUnit, quotaOK := finiteAnyFloat(snapshot["quota_per_unit"])
+			balanceRaw, balanceRawOK := finiteAnyFloat(snapshot["remain_quota_raw"])
+			usedRaw, usedRawOK := finiteAnyFloat(snapshot["used_quota_raw"])
+			totalRaw, totalRawOK := finiteAnyFloat(snapshot["total_quota_raw"])
+			if quotaOK && quotaPerUnit > 0 {
+				if !balanceOK && balanceRawOK {
+					balance, balanceOK = balanceRaw/quotaPerUnit, true
+				}
+				if !usedOK && usedRawOK {
+					used, usedOK = usedRaw/quotaPerUnit, true
+				}
+				if !totalOK && totalRawOK {
+					total, totalOK = totalRaw/quotaPerUnit, true
+				}
+			}
+		}
+	} else {
+		switch currency {
+		case "CNY":
+			rate, rateSource = 1, "provider"
+		case "USD":
+			if value, ok := finiteAnyFloat(snapshot["usd_exchange_rate"]); ok && value > 0 {
+				rate, rateSource = value, "provider"
+			}
+		}
 	}
 	updates["currency_source"] = currency
 	if rate <= 0 {
