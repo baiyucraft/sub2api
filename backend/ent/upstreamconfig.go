@@ -29,8 +29,10 @@ type UpstreamConfig struct {
 	Name string `json:"name,omitempty"`
 	// Provider holds the value of the "provider" field.
 	Provider string `json:"provider,omitempty"`
-	// BaseURL holds the value of the "base_url" field.
-	BaseURL string `json:"base_url,omitempty"`
+	// SiteURL holds the value of the "site_url" field.
+	SiteURL string `json:"site_url,omitempty"`
+	// APIURL holds the value of the "api_url" field.
+	APIURL *string `json:"api_url,omitempty"`
 	// AuthMode holds the value of the "auth_mode" field.
 	AuthMode string `json:"auth_mode,omitempty"`
 	// Credentials holds the value of the "credentials" field.
@@ -165,7 +167,7 @@ func (*UpstreamConfig) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case upstreamconfig.FieldID, upstreamconfig.FieldProxyID:
 			values[i] = new(sql.NullInt64)
-		case upstreamconfig.FieldName, upstreamconfig.FieldProvider, upstreamconfig.FieldBaseURL, upstreamconfig.FieldAuthMode, upstreamconfig.FieldStatus, upstreamconfig.FieldLastError:
+		case upstreamconfig.FieldName, upstreamconfig.FieldProvider, upstreamconfig.FieldSiteURL, upstreamconfig.FieldAPIURL, upstreamconfig.FieldAuthMode, upstreamconfig.FieldStatus, upstreamconfig.FieldLastError:
 			values[i] = new(sql.NullString)
 		case upstreamconfig.FieldCreatedAt, upstreamconfig.FieldUpdatedAt, upstreamconfig.FieldDeletedAt, upstreamconfig.FieldLastCheckedAt, upstreamconfig.FieldLastSuccessAt:
 			values[i] = new(sql.NullTime)
@@ -221,11 +223,18 @@ func (_m *UpstreamConfig) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Provider = value.String
 			}
-		case upstreamconfig.FieldBaseURL:
+		case upstreamconfig.FieldSiteURL:
 			if value, ok := values[i].(*sql.NullString); !ok {
-				return fmt.Errorf("unexpected type %T for field base_url", values[i])
+				return fmt.Errorf("unexpected type %T for field site_url", values[i])
 			} else if value.Valid {
-				_m.BaseURL = value.String
+				_m.SiteURL = value.String
+			}
+		case upstreamconfig.FieldAPIURL:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field api_url", values[i])
+			} else if value.Valid {
+				_m.APIURL = new(string)
+				*_m.APIURL = value.String
 			}
 		case upstreamconfig.FieldAuthMode:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -389,8 +398,13 @@ func (_m *UpstreamConfig) String() string {
 	builder.WriteString("provider=")
 	builder.WriteString(_m.Provider)
 	builder.WriteString(", ")
-	builder.WriteString("base_url=")
-	builder.WriteString(_m.BaseURL)
+	builder.WriteString("site_url=")
+	builder.WriteString(_m.SiteURL)
+	builder.WriteString(", ")
+	if v := _m.APIURL; v != nil {
+		builder.WriteString("api_url=")
+		builder.WriteString(*v)
+	}
 	builder.WriteString(", ")
 	builder.WriteString("auth_mode=")
 	builder.WriteString(_m.AuthMode)

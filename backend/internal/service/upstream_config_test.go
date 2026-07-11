@@ -479,12 +479,14 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 
 	keyID := int64(1440)
 	configID := int64(7)
+	modelAPIURL := "http://127.0.0.1:1/v1"
 	repo := &upstreamConfigServiceRepo{
 		configs: []UpstreamConfig{{
 			ID:       configID,
 			Name:     "Sub2API Main",
 			Provider: UpstreamProviderSub2API,
-			BaseURL:  server.URL,
+			SiteURL:  server.URL,
+			APIURL:   &modelAPIURL,
 			AuthMode: UpstreamAuthModeUserLogin,
 			Credentials: map[string]any{
 				AccountCredentialSub2APILoginEmail:    "admin@example.com",
@@ -673,7 +675,7 @@ func TestUpstreamConfigService_Sub2APIManualJWTRefreshSavesCamelCaseTokensAndExp
 		ID:       configID,
 		Name:     "Sub2API Main",
 		Provider: UpstreamProviderSub2API,
-		BaseURL:  server.URL,
+		SiteURL:  server.URL,
 		AuthMode: UpstreamAuthModeManualJWT,
 		Credentials: map[string]any{
 			AccountCredentialSub2APIAccessToken:    "jwt-old",
@@ -719,7 +721,7 @@ func TestUpstreamConfigService_Sub2APIRefreshPersistsBeforeDownstreamFailure(t *
 		ID:       configID,
 		Name:     "Sub2API Main",
 		Provider: UpstreamProviderSub2API,
-		BaseURL:  server.URL,
+		SiteURL:  server.URL,
 		AuthMode: UpstreamAuthModeManualJWT,
 		Credentials: map[string]any{
 			AccountCredentialSub2APIAccessToken:    "jwt-old",
@@ -765,7 +767,7 @@ func TestUpstreamConfigService_Sub2APIRefreshPersistsWhenRateResolutionFails(t *
 		ID:       configID,
 		Name:     "Sub2API Main",
 		Provider: UpstreamProviderSub2API,
-		BaseURL:  server.URL,
+		SiteURL:  server.URL,
 		AuthMode: UpstreamAuthModeManualJWT,
 		Credentials: map[string]any{
 			AccountCredentialSub2APIAccessToken:    "jwt-old",
@@ -808,7 +810,7 @@ func TestUpstreamConfigService_TestPersistsRotatedSub2APITokens(t *testing.T) {
 		ID:       configID,
 		Name:     "Sub2API Main",
 		Provider: UpstreamProviderSub2API,
-		BaseURL:  server.URL,
+		SiteURL:  server.URL,
 		AuthMode: UpstreamAuthModeManualJWT,
 		Credentials: map[string]any{
 			AccountCredentialSub2APIAccessToken:    "jwt-old",
@@ -857,7 +859,7 @@ func TestUpstreamConfigService_GroupRateUnauthorizedRefreshesBeforeSync(t *testi
 		ID:       configID,
 		Name:     "Sub2API Main",
 		Provider: UpstreamProviderSub2API,
-		BaseURL:  server.URL,
+		SiteURL:  server.URL,
 		AuthMode: UpstreamAuthModeManualJWT,
 		Credentials: map[string]any{
 			AccountCredentialSub2APIAccessToken:  "jwt-old",
@@ -943,7 +945,7 @@ func TestUpstreamConfigService_ProfileFailureDoesNotFailKeySyncOrOverwriteBalanc
 			ID:       configID,
 			Name:     "Sub2API Main",
 			Provider: UpstreamProviderSub2API,
-			BaseURL:  server.URL,
+			SiteURL:  server.URL,
 			AuthMode: UpstreamAuthModeUserLogin,
 			Credentials: map[string]any{
 				AccountCredentialSub2APILoginEmail:    "admin@example.com",
@@ -1077,12 +1079,14 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 
 	configID := int64(70)
 	keyID := int64(88)
+	modelAPIURL := "http://127.0.0.1:1/v1"
 	repo := &upstreamConfigServiceRepo{
 		configs: []UpstreamConfig{{
 			ID:       configID,
 			Name:     "NewAPI Main",
 			Provider: UpstreamProviderNewAPI,
-			BaseURL:  server.URL,
+			SiteURL:  server.URL,
+			APIURL:   &modelAPIURL,
 			AuthMode: UpstreamAuthModeUserLogin,
 			Credentials: map[string]any{
 				AccountCredentialNewAPILoginUsername: "owner@example.com",
@@ -1172,7 +1176,7 @@ func TestUpstreamConfigService_NewAPIProfileFailureDoesNotFailKeySync(t *testing
 		ID:       configID,
 		Name:     "NewAPI Main",
 		Provider: UpstreamProviderNewAPI,
-		BaseURL:  server.URL,
+		SiteURL:  server.URL,
 		AuthMode: UpstreamAuthModeUserLogin,
 		Credentials: map[string]any{
 			AccountCredentialNewAPILoginUsername: "owner@example.com",
@@ -1206,7 +1210,7 @@ func TestUpstreamConfigService_NewAPILoginFailureReturnsSanitizedError(t *testin
 		ID:       configID,
 		Name:     "NewAPI Main",
 		Provider: UpstreamProviderNewAPI,
-		BaseURL:  server.URL,
+		SiteURL:  server.URL,
 		AuthMode: UpstreamAuthModeUserLogin,
 		Credentials: map[string]any{
 			AccountCredentialNewAPILoginUsername: "owner@example.com",
@@ -1257,7 +1261,7 @@ func TestUpstreamConfigService_NewAPIExtraUpdateFailureFailsSync(t *testing.T) {
 			ID:       configID,
 			Name:     "NewAPI Main",
 			Provider: UpstreamProviderNewAPI,
-			BaseURL:  server.URL,
+			SiteURL:  server.URL,
 			AuthMode: UpstreamAuthModeUserLogin,
 			Credentials: map[string]any{
 				AccountCredentialNewAPILoginUsername: "owner@example.com",
@@ -1306,7 +1310,7 @@ func TestUpstreamConfigService_NewAPIResolvesMaskedKeys(t *testing.T) {
 		ID:       configID,
 		Name:     "NewAPI Main",
 		Provider: UpstreamProviderNewAPI,
-		BaseURL:  server.URL,
+		SiteURL:  server.URL,
 		AuthMode: UpstreamAuthModeUserLogin,
 		Credentials: map[string]any{
 			AccountCredentialNewAPILoginUsername: "owner@example.com",
@@ -1341,7 +1345,7 @@ func TestUpstreamConfigService_NewAPILoginRequiresUserID(t *testing.T) {
 		ID:       configID,
 		Name:     "NewAPI Main",
 		Provider: UpstreamProviderNewAPI,
-		BaseURL:  server.URL,
+		SiteURL:  server.URL,
 		AuthMode: UpstreamAuthModeUserLogin,
 		Credentials: map[string]any{
 			AccountCredentialNewAPILoginUsername: "owner@example.com",
@@ -1418,7 +1422,7 @@ func testUpstreamConfig(id int64, name, provider, status, baseURL string) Upstre
 		ID:       id,
 		Name:     name,
 		Provider: provider,
-		BaseURL:  baseURL,
+		SiteURL:  baseURL,
 		AuthMode: UpstreamAuthModeUserLogin,
 		Credentials: map[string]any{
 			AccountCredentialSub2APILoginEmail:    "admin@example.com",
@@ -1431,6 +1435,10 @@ func testUpstreamConfig(id int64, name, provider, status, baseURL string) Upstre
 func cloneUpstreamConfig(cfg UpstreamConfig) UpstreamConfig {
 	cfg.Credentials = cloneAnyMap(cfg.Credentials)
 	cfg.Extra = cloneAnyMap(cfg.Extra)
+	if cfg.APIURL != nil {
+		apiURL := *cfg.APIURL
+		cfg.APIURL = &apiURL
+	}
 	if len(cfg.Keys) > 0 {
 		cfg.Keys = append([]*UpstreamKey(nil), cfg.Keys...)
 	}
@@ -1493,7 +1501,7 @@ func TestNormalizeAndValidateUpstreamConfig_ManualJWTAllowsAccessOrRefresh(t *te
 	base := UpstreamConfig{
 		Name:     "JWT Upstream",
 		Provider: UpstreamProviderSub2API,
-		BaseURL:  "https://upstream.example.com",
+		SiteURL:  "https://upstream.example.com",
 		AuthMode: UpstreamAuthModeManualJWT,
 		Status:   StatusActive,
 	}
@@ -1521,7 +1529,7 @@ func TestNormalizeAndValidateUpstreamConfig_NewAPIRequiresUsernameAndPassword(t 
 	base := UpstreamConfig{
 		Name:     "NewAPI Upstream",
 		Provider: UpstreamProviderNewAPI,
-		BaseURL:  "https://newapi.example.com",
+		SiteURL:  "https://newapi.example.com",
 		AuthMode: UpstreamAuthModeUserLogin,
 		Status:   StatusActive,
 	}
@@ -1546,6 +1554,64 @@ func TestNormalizeAndValidateUpstreamConfig_NewAPIRequiresUsernameAndPassword(t 
 		}
 		require.NoError(t, normalizeAndValidateUpstreamConfig(&cfg, true))
 	})
+}
+
+func TestNormalizeAndValidateUpstreamConfig_URLs(t *testing.T) {
+	validConfig := func() UpstreamConfig {
+		return UpstreamConfig{
+			Name:        "Other Upstream",
+			Provider:    UpstreamProviderOther,
+			SiteURL:     "https://site.example.com/",
+			Credentials: map[string]any{},
+		}
+	}
+
+	t.Run("requires site url", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.SiteURL = "  "
+		err := normalizeAndValidateUpstreamConfig(&cfg, true)
+		require.ErrorContains(t, err, "site url is required")
+	})
+
+	t.Run("normalizes urls and preserves path", func(t *testing.T) {
+		cfg := validConfig()
+		apiURL := " https://api.example.com/v1/ "
+		cfg.APIURL = &apiURL
+
+		require.NoError(t, normalizeAndValidateUpstreamConfig(&cfg, true))
+		require.Equal(t, "https://site.example.com", cfg.SiteURL)
+		require.NotNil(t, cfg.APIURL)
+		require.Equal(t, "https://api.example.com/v1", *cfg.APIURL)
+		require.Equal(t, "https://api.example.com/v1", cfg.EffectiveAPIURL())
+	})
+
+	t.Run("empty or identical api url falls back to site", func(t *testing.T) {
+		for _, apiURL := range []string{" ", "https://site.example.com/"} {
+			cfg := validConfig()
+			cfg.APIURL = &apiURL
+			require.NoError(t, normalizeAndValidateUpstreamConfig(&cfg, true))
+			require.Nil(t, cfg.APIURL)
+			require.Equal(t, "https://site.example.com", cfg.EffectiveAPIURL())
+		}
+	})
+
+	for name, rawURL := range map[string]string{
+		"unsupported scheme": "ftp://site.example.com",
+		"missing host":       "https:///path",
+		"contains user info": "https://user:secret@site.example.com",
+	} {
+		t.Run("invalid site url "+name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.SiteURL = rawURL
+			require.ErrorContains(t, normalizeAndValidateUpstreamConfig(&cfg, true), "site url is invalid")
+		})
+
+		t.Run("invalid api url "+name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.APIURL = &rawURL
+			require.ErrorContains(t, normalizeAndValidateUpstreamConfig(&cfg, true), "api url is invalid")
+		})
+	}
 }
 
 func upstreamConfigTestFloat64(v float64) *float64 {

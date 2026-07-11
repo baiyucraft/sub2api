@@ -124,7 +124,7 @@ func TestApplyEffectiveCostMultipliers(t *testing.T) {
 }
 
 func TestNormalizeAndValidateUpstreamConfigRejectsInvalidRechargeRate(t *testing.T) {
-	cfg := &UpstreamConfig{Name: "test", Provider: UpstreamProviderOther, BaseURL: "https://example.com", RechargeRate: -1}
+	cfg := &UpstreamConfig{Name: "test", Provider: UpstreamProviderOther, SiteURL: "https://example.com", RechargeRate: -1}
 	err := normalizeAndValidateUpstreamConfig(cfg, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "recharge_rate")

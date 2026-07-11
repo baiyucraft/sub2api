@@ -338,7 +338,7 @@ describe('EditAccountModal', () => {
           id: 10,
           name: 'Sub2API Main',
           provider: 'sub2api',
-          base_url: 'https://upstream.example.com',
+          site_url: 'https://upstream.example.com',
           auth_mode: 'manual_jwt',
           status: 'active',
           created_at: '2026-01-01T00:00:00Z',

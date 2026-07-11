@@ -76,7 +76,8 @@ func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.P
 	if search = strings.TrimSpace(search); search != "" {
 		q = q.Where(dbupstreamconfig.Or(
 			dbupstreamconfig.NameContainsFold(search),
-			dbupstreamconfig.BaseURLContainsFold(search),
+			dbupstreamconfig.SiteURLContainsFold(search),
+			dbupstreamconfig.APIURLContainsFold(search),
 		))
 	}
 	total, err := q.Clone().Count(ctx)
@@ -125,12 +126,15 @@ func (r *upstreamConfigRepository) Create(ctx context.Context, config *service.U
 	builder := r.client.UpstreamConfig.Create().
 		SetName(config.Name).
 		SetProvider(config.Provider).
-		SetBaseURL(config.BaseURL).
+		SetSiteURL(config.SiteURL).
 		SetAuthMode(config.AuthMode).
 		SetCredentials(normalizeJSONMap(config.Credentials)).
 		SetExtra(normalizeJSONMap(config.Extra)).
 		SetRechargeRate(config.RechargeRate).
 		SetStatus(config.Status)
+	if config.APIURL != nil {
+		builder.SetAPIURL(*config.APIURL)
+	}
 	if config.ProxyID != nil {
 		builder.SetProxyID(*config.ProxyID)
 	}
@@ -163,12 +167,17 @@ func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.U
 		builder := client.UpstreamConfig.UpdateOneID(config.ID).
 			SetName(config.Name).
 			SetProvider(config.Provider).
-			SetBaseURL(config.BaseURL).
+			SetSiteURL(config.SiteURL).
 			SetAuthMode(config.AuthMode).
 			SetCredentials(normalizeJSONMap(config.Credentials)).
 			SetExtra(normalizeJSONMap(config.Extra)).
 			SetRechargeRate(config.RechargeRate).
 			SetStatus(config.Status)
+		if config.APIURL != nil {
+			builder.SetAPIURL(*config.APIURL)
+		} else {
+			builder.ClearAPIURL()
+		}
 		if config.ProxyID != nil {
 			builder.SetProxyID(*config.ProxyID)
 		} else {
@@ -188,6 +197,13 @@ func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.U
 		if err != nil {
 			return err
 		}
+		if previous.SiteURL != updatedConfig.SiteURL || stringPointerValue(previous.APIURL) != stringPointerValue(updatedConfig.APIURL) {
+			boundIDs, err := listUpstreamBoundAccountIDs(txCtx, client, config.ID)
+			if err != nil {
+				return err
+			}
+			changedIDs = append(changedIDs, boundIDs...)
+		}
 		if previous.RechargeRate != updatedConfig.RechargeRate {
 			costChangedIDs, err := recalculateUpstreamAccounts(txCtx, client, updatedConfig, time.Now().UTC())
 			if err != nil {
@@ -200,6 +216,28 @@ func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.U
 		}
 		return enqueueUpstreamAccountChanges(txCtx, client, changedIDs)
 	})
+}
+
+func listUpstreamBoundAccountIDs(ctx context.Context, client *dbent.Client, configID int64) ([]int64, error) {
+	accounts, err := client.Account.Query().
+		Where(dbaccount.UpstreamConfigIDEQ(configID)).
+		Select(dbaccount.FieldID).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		ids = append(ids, account.ID)
+	}
+	return ids, nil
+}
+
+func stringPointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (r *upstreamConfigRepository) Delete(ctx context.Context, id int64) error {
@@ -937,7 +975,8 @@ func upstreamConfigEntityToService(row *dbent.UpstreamConfig) *service.UpstreamC
 		ID:               row.ID,
 		Name:             row.Name,
 		Provider:         row.Provider,
-		BaseURL:          row.BaseURL,
+		SiteURL:          row.SiteURL,
+		APIURL:           row.APIURL,
 		AuthMode:         row.AuthMode,
 		Credentials:      copyJSONMap(row.Credentials),
 		Extra:            copyJSONMap(row.Extra),

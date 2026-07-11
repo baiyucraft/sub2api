@@ -119,9 +119,16 @@
             </span>
           </template>
 
-          <template #cell-base_url="{ value }">
-            <div class="max-w-[320px] truncate font-mono text-xs text-gray-700 dark:text-gray-300" :title="value">
-              {{ value }}
+          <template #cell-urls="{ row }">
+            <div class="max-w-[340px] space-y-1 font-mono text-xs text-gray-700 dark:text-gray-300">
+              <div class="flex min-w-0 items-center gap-2" :title="row.site_url">
+                <span class="w-7 flex-none font-sans text-gray-400 dark:text-dark-500">{{ t('admin.upstreamConfigs.address.site') }}</span>
+                <span class="truncate">{{ row.site_url }}</span>
+              </div>
+              <div v-if="row.api_url" class="flex min-w-0 items-center gap-2" :title="row.api_url">
+                <span class="w-7 flex-none font-sans text-gray-400 dark:text-dark-500">{{ t('admin.upstreamConfigs.address.api') }}</span>
+                <span class="truncate">{{ row.api_url }}</span>
+              </div>
             </div>
           </template>
 
@@ -287,71 +294,62 @@
       :show-close-button="!saving"
       @close="handleDialogClose"
     >
-      <form id="upstream-config-form" class="max-h-[65vh] overflow-y-auto pr-1" @submit.prevent="saveConfig">
-        <div class="grid gap-4 md:grid-cols-2">
-          <label class="space-y-1">
-            <span class="input-label">{{ t('admin.upstreamConfigs.fields.name') }}</span>
-            <input v-model.trim="form.name" class="input" data-test="upstream-name-input" required />
-          </label>
-
-          <label class="space-y-1">
-            <span class="input-label">{{ t('admin.upstreamConfigs.fields.provider') }}</span>
-            <Select v-model="form.provider" :options="providerEditOptions" />
-          </label>
-
-          <label class="space-y-1 md:col-span-2">
-            <span class="input-label">{{ t('admin.upstreamConfigs.fields.baseUrl') }}</span>
-            <input
-              v-model.trim="form.base_url"
-              class="input font-mono text-sm"
-              data-test="upstream-base-url-input"
-              required
-              placeholder="https://example.com"
-            />
-          </label>
-
-          <label class="space-y-1">
-            <span class="input-label">{{ t('admin.upstreamConfigs.fields.rechargeRate') }}</span>
-            <input
-              v-model.number="form.recharge_rate"
-              class="input tabular-nums"
-              data-test="recharge-rate-input"
-              type="number"
-              min="0.0001"
-              max="100"
-              step="0.0001"
-              required
-            />
-            <span class="block text-xs text-gray-500 dark:text-dark-400">
-              {{ t('admin.upstreamConfigs.fields.rechargeRateHint') }}
-            </span>
-          </label>
-
-          <label class="space-y-1">
-            <span class="input-label">{{ t('admin.upstreamConfigs.fields.balanceToCnyRate') }}</span>
-            <input
-              v-model.number="form.balance_to_cny_rate"
-              class="input tabular-nums"
-              data-test="balance-to-cny-rate-input"
-              type="number"
-              min="0.0001"
-              step="0.0001"
-              :placeholder="t('admin.upstreamConfigs.fields.balanceToCnyRatePlaceholder')"
-            />
-            <span class="block text-xs text-gray-500 dark:text-dark-400">
-              {{ t('admin.upstreamConfigs.fields.balanceToCnyRateHint') }}
-            </span>
-          </label>
-
-          <label v-if="form.provider === 'sub2api'" class="space-y-1">
-            <span class="input-label">{{ t('admin.upstreamConfigs.fields.authMode') }}</span>
-            <Select v-model="form.auth_mode" :options="authModeOptions" />
-          </label>
-
-          <div class="space-y-1">
-            <span class="input-label">{{ t('admin.upstreamConfigs.fields.proxy') }}</span>
-            <ProxySelector v-model="form.proxy_id" :proxies="proxies" :disabled="loadingProxies" />
+      <form id="upstream-config-form" class="max-h-[68vh] space-y-6 overflow-y-auto pr-1" @submit.prevent="saveConfig">
+        <section class="space-y-4">
+          <div class="border-b border-gray-200 pb-2 dark:border-dark-700">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ t('admin.upstreamConfigs.sections.basicInfo') }}</h3>
           </div>
+          <div class="grid gap-4 md:grid-cols-2">
+            <label class="space-y-1">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.name') }}</span>
+              <input v-model.trim="form.name" class="input" data-test="upstream-name-input" required />
+            </label>
+            <label class="space-y-1">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.provider') }}</span>
+              <Select v-model="form.provider" :options="providerEditOptions" />
+            </label>
+            <label class="space-y-1 md:col-span-2">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.siteUrl') }}</span>
+              <input v-model.trim="form.site_url" class="input font-mono text-sm" data-test="upstream-site-url-input" required placeholder="https://example.com" />
+            </label>
+            <label class="space-y-1 md:col-span-2">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.apiUrl') }}</span>
+              <input v-model.trim="form.api_url" class="input font-mono text-sm" data-test="upstream-api-url-input" placeholder="https://api.example.com/v1" />
+              <span class="block text-xs text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.fields.apiUrlHint') }}</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="space-y-4">
+          <div class="border-b border-gray-200 pb-2 dark:border-dark-700">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ t('admin.upstreamConfigs.sections.connectionAndAuth') }}</h3>
+          </div>
+          <div class="grid gap-4 md:grid-cols-2">
+            <div class="space-y-1 md:col-span-2">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.proxy') }}</span>
+              <ProxySelector v-model="form.proxy_id" :proxies="proxies" :disabled="loadingProxies" />
+            </div>
+
+            <div v-if="form.provider === 'sub2api'" class="space-y-2 md:col-span-2">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.authMode') }}</span>
+              <div class="inline-flex rounded-lg border border-gray-200 p-1 dark:border-dark-700" data-test="upstream-auth-mode-control">
+                <button
+                  v-for="option in authModeOptions"
+                  :key="String(option.value)"
+                  type="button"
+                  :class="[
+                    'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+                    form.auth_mode === option.value
+                      ? 'bg-primary-600 text-white'
+                      : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-700'
+                  ]"
+                  :data-test="`upstream-auth-mode-${option.value}`"
+                  @click="form.auth_mode = option.value as UpstreamAuthMode"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
 
           <template v-if="form.provider === 'sub2api' && form.auth_mode === 'user_login'">
             <label class="space-y-1">
@@ -406,7 +404,7 @@
           </template>
 
           <template v-if="form.provider === 'sub2api' && form.auth_mode === 'manual_jwt'">
-            <div class="md:col-span-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-200">
+            <div class="md:col-span-2 flex flex-wrap items-center justify-between gap-2 border-l-2 border-blue-500 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 dark:bg-blue-900/20 dark:text-blue-200">
               <span class="inline-flex items-center gap-2">
                 <Icon name="key" size="sm" />
                 {{ t('admin.upstreamConfigs.tokenAssistant.inlineHint') }}
@@ -440,12 +438,31 @@
               ></textarea>
             </label>
           </template>
-        </div>
+          </div>
 
-        <div class="mt-4 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
-          <Icon name="shield" size="sm" class="mt-0.5 flex-shrink-0" />
-          <p>{{ t('admin.upstreamConfigs.sensitiveHint') }}</p>
-        </div>
+          <div v-if="form.provider !== 'other'" class="flex gap-2 border-l-2 border-amber-500 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+            <Icon name="shield" size="sm" class="mt-0.5 flex-shrink-0" />
+            <p>{{ t('admin.upstreamConfigs.sensitiveHint') }}</p>
+          </div>
+        </section>
+
+        <section class="space-y-4">
+          <div class="border-b border-gray-200 pb-2 dark:border-dark-700">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ t('admin.upstreamConfigs.sections.costSettings') }}</h3>
+          </div>
+          <div class="grid gap-4 md:grid-cols-2">
+            <label class="space-y-1">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.rechargeRate') }}</span>
+              <input v-model.number="form.recharge_rate" class="input tabular-nums" data-test="recharge-rate-input" type="number" min="0.0001" max="100" step="0.0001" required />
+              <span class="block text-xs text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.fields.rechargeRateHint') }}</span>
+            </label>
+            <label class="space-y-1">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.balanceToCnyRate') }}</span>
+              <input v-model.number="form.balance_to_cny_rate" class="input tabular-nums" data-test="balance-to-cny-rate-input" type="number" min="0.0001" step="0.0001" :placeholder="t('admin.upstreamConfigs.fields.balanceToCnyRatePlaceholder')" />
+              <span class="block text-xs text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.fields.balanceToCnyRateHint') }}</span>
+            </label>
+          </div>
+        </section>
       </form>
 
       <template #footer>
@@ -924,7 +941,8 @@ const pagination = reactive({
 const form = reactive({
   name: '',
   provider: 'sub2api' as UpstreamProvider,
-  base_url: '',
+  site_url: '',
+  api_url: '',
   auth_mode: 'user_login' as UpstreamAuthMode,
   proxy_id: null as number | null,
   email: '',
@@ -941,7 +959,7 @@ let searchTimeout: ReturnType<typeof setTimeout> | null = null
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('admin.upstreamConfigs.columns.name') },
   { key: 'provider', label: t('admin.upstreamConfigs.columns.provider') },
-  { key: 'base_url', label: t('admin.upstreamConfigs.columns.baseUrl') },
+  { key: 'urls', label: t('admin.upstreamConfigs.columns.address') },
   { key: 'balance', label: t('admin.upstreamConfigs.columns.balance') },
   { key: 'rates', label: t('admin.upstreamConfigs.columns.rates') },
   { key: 'auth_mode', label: t('admin.upstreamConfigs.columns.authMode') },
@@ -1056,7 +1074,8 @@ function resetForm() {
   Object.assign(form, {
     name: '',
     provider: 'sub2api',
-    base_url: '',
+    site_url: '',
+    api_url: '',
     auth_mode: 'user_login',
     proxy_id: null,
     email: '',
@@ -1080,7 +1099,8 @@ function openEdit(item: UpstreamConfig) {
   Object.assign(form, {
     name: item.name,
     provider: item.provider,
-    base_url: item.base_url,
+    site_url: item.site_url,
+    api_url: item.api_url ?? '',
     auth_mode: item.auth_mode,
     proxy_id: item.proxy_id ?? null,
     email: '',
@@ -1124,7 +1144,7 @@ function openUpstreamLogin() {
 
 function buildUpstreamLoginURL(): string | null {
   try {
-    const url = new URL(form.base_url.trim())
+    const url = new URL(form.site_url.trim())
     if (!['http:', 'https:'].includes(url.protocol)) return null
     url.pathname = '/login'
     url.search = ''
@@ -1146,7 +1166,7 @@ function openUpstreamDashboard(item: UpstreamConfig) {
 
 function buildUpstreamDashboardURL(item: UpstreamConfig): string | null {
   try {
-    const url = new URL((item.base_url || '').trim())
+    const url = new URL((item.site_url || '').trim())
     if (!['http:', 'https:'].includes(url.protocol)) return null
     url.pathname = '/dashboard'
     url.search = ''
@@ -1212,7 +1232,9 @@ async function saveConfig() {
     const payload = {
       name: form.name,
       provider: form.provider,
-      base_url: form.base_url,
+      site_url: form.site_url,
+      api_url: form.api_url.trim() || null,
+      clear_api_url: Boolean(editing.value && !form.api_url.trim()),
       auth_mode: form.provider === 'sub2api' ? form.auth_mode : 'user_login',
       proxy_id: form.proxy_id,
       clear_proxy: Boolean(editing.value && form.proxy_id === null),

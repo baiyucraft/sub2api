@@ -184,7 +184,7 @@ const activeConfig = (id: number, name: string) => ({
   id,
   name,
   provider: 'sub2api',
-  base_url: `https://upstream-${id}.example.com`,
+  site_url: `https://upstream-${id}.example.com`,
   auth_mode: 'user_login',
   status: 'active',
   created_at: '2026-07-10T00:00:00Z',

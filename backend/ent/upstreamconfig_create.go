@@ -84,9 +84,23 @@ func (_c *UpstreamConfigCreate) SetProvider(v string) *UpstreamConfigCreate {
 	return _c
 }
 
-// SetBaseURL sets the "base_url" field.
-func (_c *UpstreamConfigCreate) SetBaseURL(v string) *UpstreamConfigCreate {
-	_c.mutation.SetBaseURL(v)
+// SetSiteURL sets the "site_url" field.
+func (_c *UpstreamConfigCreate) SetSiteURL(v string) *UpstreamConfigCreate {
+	_c.mutation.SetSiteURL(v)
+	return _c
+}
+
+// SetAPIURL sets the "api_url" field.
+func (_c *UpstreamConfigCreate) SetAPIURL(v string) *UpstreamConfigCreate {
+	_c.mutation.SetAPIURL(v)
+	return _c
+}
+
+// SetNillableAPIURL sets the "api_url" field if the given value is not nil.
+func (_c *UpstreamConfigCreate) SetNillableAPIURL(v *string) *UpstreamConfigCreate {
+	if v != nil {
+		_c.SetAPIURL(*v)
+	}
 	return _c
 }
 
@@ -428,12 +442,17 @@ func (_c *UpstreamConfigCreate) check() error {
 			return &ValidationError{Name: "provider", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.provider": %w`, err)}
 		}
 	}
-	if _, ok := _c.mutation.BaseURL(); !ok {
-		return &ValidationError{Name: "base_url", err: errors.New(`ent: missing required field "UpstreamConfig.base_url"`)}
+	if _, ok := _c.mutation.SiteURL(); !ok {
+		return &ValidationError{Name: "site_url", err: errors.New(`ent: missing required field "UpstreamConfig.site_url"`)}
 	}
-	if v, ok := _c.mutation.BaseURL(); ok {
-		if err := upstreamconfig.BaseURLValidator(v); err != nil {
-			return &ValidationError{Name: "base_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.base_url": %w`, err)}
+	if v, ok := _c.mutation.SiteURL(); ok {
+		if err := upstreamconfig.SiteURLValidator(v); err != nil {
+			return &ValidationError{Name: "site_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.site_url": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.APIURL(); ok {
+		if err := upstreamconfig.APIURLValidator(v); err != nil {
+			return &ValidationError{Name: "api_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.api_url": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.AuthMode(); !ok {
@@ -508,9 +527,13 @@ func (_c *UpstreamConfigCreate) createSpec() (*UpstreamConfig, *sqlgraph.CreateS
 		_spec.SetField(upstreamconfig.FieldProvider, field.TypeString, value)
 		_node.Provider = value
 	}
-	if value, ok := _c.mutation.BaseURL(); ok {
-		_spec.SetField(upstreamconfig.FieldBaseURL, field.TypeString, value)
-		_node.BaseURL = value
+	if value, ok := _c.mutation.SiteURL(); ok {
+		_spec.SetField(upstreamconfig.FieldSiteURL, field.TypeString, value)
+		_node.SiteURL = value
+	}
+	if value, ok := _c.mutation.APIURL(); ok {
+		_spec.SetField(upstreamconfig.FieldAPIURL, field.TypeString, value)
+		_node.APIURL = &value
 	}
 	if value, ok := _c.mutation.AuthMode(); ok {
 		_spec.SetField(upstreamconfig.FieldAuthMode, field.TypeString, value)
@@ -783,15 +806,33 @@ func (u *UpstreamConfigUpsert) UpdateProvider() *UpstreamConfigUpsert {
 	return u
 }
 
-// SetBaseURL sets the "base_url" field.
-func (u *UpstreamConfigUpsert) SetBaseURL(v string) *UpstreamConfigUpsert {
-	u.Set(upstreamconfig.FieldBaseURL, v)
+// SetSiteURL sets the "site_url" field.
+func (u *UpstreamConfigUpsert) SetSiteURL(v string) *UpstreamConfigUpsert {
+	u.Set(upstreamconfig.FieldSiteURL, v)
 	return u
 }
 
-// UpdateBaseURL sets the "base_url" field to the value that was provided on create.
-func (u *UpstreamConfigUpsert) UpdateBaseURL() *UpstreamConfigUpsert {
-	u.SetExcluded(upstreamconfig.FieldBaseURL)
+// UpdateSiteURL sets the "site_url" field to the value that was provided on create.
+func (u *UpstreamConfigUpsert) UpdateSiteURL() *UpstreamConfigUpsert {
+	u.SetExcluded(upstreamconfig.FieldSiteURL)
+	return u
+}
+
+// SetAPIURL sets the "api_url" field.
+func (u *UpstreamConfigUpsert) SetAPIURL(v string) *UpstreamConfigUpsert {
+	u.Set(upstreamconfig.FieldAPIURL, v)
+	return u
+}
+
+// UpdateAPIURL sets the "api_url" field to the value that was provided on create.
+func (u *UpstreamConfigUpsert) UpdateAPIURL() *UpstreamConfigUpsert {
+	u.SetExcluded(upstreamconfig.FieldAPIURL)
+	return u
+}
+
+// ClearAPIURL clears the value of the "api_url" field.
+func (u *UpstreamConfigUpsert) ClearAPIURL() *UpstreamConfigUpsert {
+	u.SetNull(upstreamconfig.FieldAPIURL)
 	return u
 }
 
@@ -1065,17 +1106,38 @@ func (u *UpstreamConfigUpsertOne) UpdateProvider() *UpstreamConfigUpsertOne {
 	})
 }
 
-// SetBaseURL sets the "base_url" field.
-func (u *UpstreamConfigUpsertOne) SetBaseURL(v string) *UpstreamConfigUpsertOne {
+// SetSiteURL sets the "site_url" field.
+func (u *UpstreamConfigUpsertOne) SetSiteURL(v string) *UpstreamConfigUpsertOne {
 	return u.Update(func(s *UpstreamConfigUpsert) {
-		s.SetBaseURL(v)
+		s.SetSiteURL(v)
 	})
 }
 
-// UpdateBaseURL sets the "base_url" field to the value that was provided on create.
-func (u *UpstreamConfigUpsertOne) UpdateBaseURL() *UpstreamConfigUpsertOne {
+// UpdateSiteURL sets the "site_url" field to the value that was provided on create.
+func (u *UpstreamConfigUpsertOne) UpdateSiteURL() *UpstreamConfigUpsertOne {
 	return u.Update(func(s *UpstreamConfigUpsert) {
-		s.UpdateBaseURL()
+		s.UpdateSiteURL()
+	})
+}
+
+// SetAPIURL sets the "api_url" field.
+func (u *UpstreamConfigUpsertOne) SetAPIURL(v string) *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.SetAPIURL(v)
+	})
+}
+
+// UpdateAPIURL sets the "api_url" field to the value that was provided on create.
+func (u *UpstreamConfigUpsertOne) UpdateAPIURL() *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.UpdateAPIURL()
+	})
+}
+
+// ClearAPIURL clears the value of the "api_url" field.
+func (u *UpstreamConfigUpsertOne) ClearAPIURL() *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.ClearAPIURL()
 	})
 }
 
@@ -1542,17 +1604,38 @@ func (u *UpstreamConfigUpsertBulk) UpdateProvider() *UpstreamConfigUpsertBulk {
 	})
 }
 
-// SetBaseURL sets the "base_url" field.
-func (u *UpstreamConfigUpsertBulk) SetBaseURL(v string) *UpstreamConfigUpsertBulk {
+// SetSiteURL sets the "site_url" field.
+func (u *UpstreamConfigUpsertBulk) SetSiteURL(v string) *UpstreamConfigUpsertBulk {
 	return u.Update(func(s *UpstreamConfigUpsert) {
-		s.SetBaseURL(v)
+		s.SetSiteURL(v)
 	})
 }
 
-// UpdateBaseURL sets the "base_url" field to the value that was provided on create.
-func (u *UpstreamConfigUpsertBulk) UpdateBaseURL() *UpstreamConfigUpsertBulk {
+// UpdateSiteURL sets the "site_url" field to the value that was provided on create.
+func (u *UpstreamConfigUpsertBulk) UpdateSiteURL() *UpstreamConfigUpsertBulk {
 	return u.Update(func(s *UpstreamConfigUpsert) {
-		s.UpdateBaseURL()
+		s.UpdateSiteURL()
+	})
+}
+
+// SetAPIURL sets the "api_url" field.
+func (u *UpstreamConfigUpsertBulk) SetAPIURL(v string) *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.SetAPIURL(v)
+	})
+}
+
+// UpdateAPIURL sets the "api_url" field to the value that was provided on create.
+func (u *UpstreamConfigUpsertBulk) UpdateAPIURL() *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.UpdateAPIURL()
+	})
+}
+
+// ClearAPIURL clears the value of the "api_url" field.
+func (u *UpstreamConfigUpsertBulk) ClearAPIURL() *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.ClearAPIURL()
 	})
 }
 

@@ -1972,7 +1972,7 @@
 
       <div v-if="accountCategory === 'upstream_config'" class="space-y-4">
         <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200">
-          上游站点的 Base URL、代理、登录态、JWT 和 refresh token 在“上游配置”页维护。这里仅选择要绑定的站点和上游 Key。
+          上游站点地址、API 地址、代理、登录态、JWT 和 refresh token 在“上游配置”页维护。这里仅选择要绑定的站点和上游 Key。
         </div>
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
@@ -1986,7 +1986,7 @@
             >
               <option :value="null">{{ loadingUpstreamConfigs ? '加载中...' : '请选择上游配置' }}</option>
               <option v-for="config in upstreamConfigs" :key="config.id" :value="config.id">
-                {{ config.name }} · {{ config.base_url }}
+                {{ config.name }} · {{ config.api_url || config.site_url }}
               </option>
             </select>
           </div>

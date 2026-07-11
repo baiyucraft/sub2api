@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +35,9 @@ type UpstreamConfig struct {
 	ID                    int64
 	Name                  string
 	Provider              string
-	BaseURL               string
+	SiteURL               string
+	APIURL                *string
+	ClearAPIURL           bool
 	AuthMode              string
 	Credentials           map[string]any
 	Extra                 map[string]any
@@ -51,6 +54,16 @@ type UpstreamConfig struct {
 	UpdatedAt             time.Time
 
 	Keys []*UpstreamKey
+}
+
+func (c *UpstreamConfig) EffectiveAPIURL() string {
+	if c == nil {
+		return ""
+	}
+	if c.APIURL != nil && strings.TrimSpace(*c.APIURL) != "" {
+		return strings.TrimSpace(*c.APIURL)
+	}
+	return strings.TrimSpace(c.SiteURL)
 }
 
 type UpstreamKey struct {
@@ -198,7 +211,12 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 	}
 	current.Name = upstreamFirstNonEmpty(patch.Name, current.Name)
 	current.Provider = normalizeUpstreamProvider(upstreamFirstNonEmpty(patch.Provider, current.Provider))
-	current.BaseURL = upstreamFirstNonEmpty(patch.BaseURL, current.BaseURL)
+	current.SiteURL = upstreamFirstNonEmpty(patch.SiteURL, current.SiteURL)
+	if patch.ClearAPIURL {
+		current.APIURL = nil
+	} else if patch.APIURL != nil {
+		current.APIURL = patch.APIURL
+	}
 	current.AuthMode = normalizeUpstreamAuthMode(upstreamFirstNonEmpty(patch.AuthMode, current.AuthMode))
 	if patch.ClearProxy {
 		current.ProxyID = nil
@@ -797,7 +815,31 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 	config.Name = strings.TrimSpace(config.Name)
 	config.Provider = normalizeUpstreamProvider(config.Provider)
 	config.AuthMode = normalizeUpstreamAuthMode(config.AuthMode)
-	config.BaseURL = strings.TrimSpace(config.BaseURL)
+	config.SiteURL = strings.TrimSpace(config.SiteURL)
+	if config.SiteURL == "" {
+		return infraerrors.BadRequest("UPSTREAM_CONFIG_SITE_URL_REQUIRED", "upstream config site url is required")
+	}
+	var err error
+	config.SiteURL, err = normalizeUpstreamConfigURL(config.SiteURL)
+	if err != nil {
+		return infraerrors.BadRequest("UPSTREAM_CONFIG_SITE_URL_INVALID", "upstream config site url is invalid")
+	}
+	if config.APIURL != nil {
+		trimmed := strings.TrimSpace(*config.APIURL)
+		if trimmed == "" {
+			config.APIURL = nil
+		} else {
+			normalized, normalizeErr := normalizeUpstreamConfigURL(trimmed)
+			if normalizeErr != nil {
+				return infraerrors.BadRequest("UPSTREAM_CONFIG_API_URL_INVALID", "upstream config api url is invalid")
+			}
+			if normalized == config.SiteURL {
+				config.APIURL = nil
+			} else {
+				config.APIURL = &normalized
+			}
+		}
+	}
 	if config.RechargeRate == 0 {
 		config.RechargeRate = 1
 	}
@@ -806,9 +848,6 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 	}
 	if config.Name == "" {
 		return infraerrors.BadRequest("UPSTREAM_CONFIG_NAME_REQUIRED", "upstream config name is required")
-	}
-	if config.BaseURL == "" {
-		return infraerrors.BadRequest("UPSTREAM_CONFIG_BASE_URL_REQUIRED", "upstream config base url is required")
 	}
 	if config.RechargeRate <= 0 || config.RechargeRate > 100 || math.IsNaN(config.RechargeRate) || math.IsInf(config.RechargeRate, 0) {
 		return infraerrors.BadRequest("UPSTREAM_RECHARGE_RATE_INVALID", "recharge_rate must be greater than 0 and at most 100")
@@ -829,6 +868,15 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 		return nil
 	}
 	return nil
+}
+
+func normalizeUpstreamConfigURL(raw string) (string, error) {
+	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed == nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
+		return "", fmt.Errorf("invalid upstream url")
+	}
+	return trimmed, nil
 }
 
 func normalizeAndValidateUpstreamKey(key *UpstreamKey) error {

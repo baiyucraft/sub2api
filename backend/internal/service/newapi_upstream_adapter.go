@@ -306,7 +306,7 @@ func (newAPIUpstreamProviderAdapter) SanitizeError(err error, credentials map[st
 }
 
 func (a newAPIUpstreamProviderAdapter) login(ctx context.Context, cfg *UpstreamConfig, proxyURL string) (*newAPISession, error) {
-	rootURL, err := normalizeSub2APIBaseURL(cfg.BaseURL)
+	rootURL, err := normalizeSub2APIBaseURL(cfg.SiteURL)
 	if err != nil {
 		return nil, err
 	}

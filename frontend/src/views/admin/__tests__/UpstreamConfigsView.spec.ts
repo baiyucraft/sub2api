@@ -102,7 +102,7 @@ const DataTableStub = defineComponent({
       <div v-for="row in data" :key="row.id" data-test="row">
         <slot name="cell-name" :row="row" :value="row.name" />
         <slot name="cell-provider" :row="row" :value="row.provider" />
-        <slot name="cell-base_url" :row="row" :value="row.base_url" />
+        <slot name="cell-urls" :row="row" :value="row.site_url" />
         <slot name="cell-balance" :row="row" />
         <slot name="cell-rates" :row="row" />
         <slot name="cell-auth_mode" :row="row" :value="row.auth_mode" />
@@ -198,7 +198,7 @@ function upstreamConfig(overrides = {}) {
     id: 10,
     name: 'Sub2API Main',
     provider: 'sub2api',
-    base_url: 'https://upstream.example.com',
+    site_url: 'https://upstream.example.com',
     auth_mode: 'manual_jwt',
     credentials_status: {
       has_access_token: true,
@@ -335,7 +335,7 @@ describe('UpstreamConfigsView', () => {
   it('renders upstream balance from extra and opens sub2api dashboard URL', async () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     mockList([upstreamConfig({
-      base_url: 'https://upstream.example.com/base?x=1#frag',
+      site_url: 'https://upstream.example.com/base?x=1#frag',
       extra: {
         sub2api_balance: 12.3456,
         sub2api_total_recharged: 169.17,
@@ -595,7 +595,8 @@ describe('UpstreamConfigsView', () => {
 
     const dialog = wrapper.get('[data-test="base-dialog"]')
     await dialog.get('[data-test="upstream-name-input"]').setValue('New Upstream')
-    await dialog.get('[data-test="upstream-base-url-input"]').setValue('https://new.example.com')
+    await dialog.get('[data-test="upstream-site-url-input"]').setValue('https://new.example.com')
+    await dialog.get('[data-test="upstream-api-url-input"]').setValue('https://api.new.example.com/v1')
     await dialog.get('[data-test="recharge-rate-input"]').setValue('1.2')
     await dialog.get('[data-test="balance-to-cny-rate-input"]').setValue('7.2')
     await wrapper.get('[data-test="proxy-pick"]').trigger('click')
@@ -606,7 +607,8 @@ describe('UpstreamConfigsView', () => {
 
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
       name: 'New Upstream',
-      base_url: 'https://new.example.com',
+      site_url: 'https://new.example.com',
+      api_url: 'https://api.new.example.com/v1',
       provider: 'sub2api',
       proxy_id: 7,
       recharge_rate: 1.2,
@@ -633,7 +635,7 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     await dialog.get('[data-test="upstream-name-input"]').setValue('NewAPI Upstream')
-    await dialog.get('[data-test="upstream-base-url-input"]').setValue('https://www.codexapis.com')
+    await dialog.get('[data-test="upstream-site-url-input"]').setValue('https://www.codexapis.com')
     await dialog.get('[data-test="upstream-username-input"]').setValue('owner@example.com')
     await dialog.get('[data-test="upstream-password-input"]').setValue('secret-password')
     await wrapper.get('form#upstream-config-form').trigger('submit.prevent')
@@ -641,7 +643,7 @@ describe('UpstreamConfigsView', () => {
 
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
       name: 'NewAPI Upstream',
-      base_url: 'https://www.codexapis.com',
+      site_url: 'https://www.codexapis.com',
       provider: 'newapi',
       auth_mode: 'user_login',
       credentials: {
@@ -650,6 +652,28 @@ describe('UpstreamConfigsView', () => {
       }
     }))
     expect(syncKeysMock).toHaveBeenCalledWith(12)
+  })
+
+  it('clears an existing API URL while preserving the site URL', async () => {
+    mockList([upstreamConfig({ api_url: 'https://api.upstream.example.com/v1' })])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="edit-upstream"]').trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.get('[data-test="base-dialog"]')
+    expect((dialog.get('[data-test="upstream-site-url-input"]').element as HTMLInputElement).value).toBe('https://upstream.example.com')
+    expect((dialog.get('[data-test="upstream-api-url-input"]').element as HTMLInputElement).value).toBe('https://api.upstream.example.com/v1')
+    await dialog.get('[data-test="upstream-api-url-input"]').setValue('')
+    await wrapper.get('form#upstream-config-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateMock).toHaveBeenCalledWith(10, expect.objectContaining({
+      site_url: 'https://upstream.example.com',
+      api_url: null,
+      clear_api_url: true
+    }))
   })
 
   it('fills manual JWT fields from local token helper before saving', async () => {
@@ -661,10 +685,9 @@ describe('UpstreamConfigsView', () => {
 
     const dialog = wrapper.get('[data-test="base-dialog"]')
     await dialog.get('[data-test="upstream-name-input"]').setValue('JWT Upstream')
-    await dialog.get('[data-test="upstream-base-url-input"]').setValue('https://jwt.example.com')
+    await dialog.get('[data-test="upstream-site-url-input"]').setValue('https://jwt.example.com')
 
-    const selects = dialog.findAll('select')
-    await selects[1].setValue('manual_jwt')
+    await dialog.get('[data-test="upstream-auth-mode-manual_jwt"]').trigger('click')
     await flushPromises()
 
     await wrapper.get('[data-test="open-token-assistant"]').trigger('click')
@@ -690,7 +713,7 @@ describe('UpstreamConfigsView', () => {
 
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
       name: 'JWT Upstream',
-      base_url: 'https://jwt.example.com',
+      site_url: 'https://jwt.example.com',
       provider: 'sub2api',
       auth_mode: 'manual_jwt',
       credentials: {
@@ -717,7 +740,7 @@ describe('UpstreamConfigsView', () => {
 
     const dialog = wrapper.get('[data-test="base-dialog"]')
     await dialog.get('[data-test="upstream-name-input"]').setValue('New Upstream')
-    await dialog.get('[data-test="upstream-base-url-input"]').setValue('https://new.example.com')
+    await dialog.get('[data-test="upstream-site-url-input"]').setValue('https://new.example.com')
     await dialog.get('[data-test="upstream-email-input"]').setValue('admin@example.com')
     await dialog.get('[data-test="upstream-password-input"]').setValue('secret-password')
     await wrapper.get('form#upstream-config-form').trigger('submit.prevent')

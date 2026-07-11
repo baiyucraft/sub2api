@@ -90,17 +90,37 @@ func (_u *UpstreamConfigUpdate) SetNillableProvider(v *string) *UpstreamConfigUp
 	return _u
 }
 
-// SetBaseURL sets the "base_url" field.
-func (_u *UpstreamConfigUpdate) SetBaseURL(v string) *UpstreamConfigUpdate {
-	_u.mutation.SetBaseURL(v)
+// SetSiteURL sets the "site_url" field.
+func (_u *UpstreamConfigUpdate) SetSiteURL(v string) *UpstreamConfigUpdate {
+	_u.mutation.SetSiteURL(v)
 	return _u
 }
 
-// SetNillableBaseURL sets the "base_url" field if the given value is not nil.
-func (_u *UpstreamConfigUpdate) SetNillableBaseURL(v *string) *UpstreamConfigUpdate {
+// SetNillableSiteURL sets the "site_url" field if the given value is not nil.
+func (_u *UpstreamConfigUpdate) SetNillableSiteURL(v *string) *UpstreamConfigUpdate {
 	if v != nil {
-		_u.SetBaseURL(*v)
+		_u.SetSiteURL(*v)
 	}
+	return _u
+}
+
+// SetAPIURL sets the "api_url" field.
+func (_u *UpstreamConfigUpdate) SetAPIURL(v string) *UpstreamConfigUpdate {
+	_u.mutation.SetAPIURL(v)
+	return _u
+}
+
+// SetNillableAPIURL sets the "api_url" field if the given value is not nil.
+func (_u *UpstreamConfigUpdate) SetNillableAPIURL(v *string) *UpstreamConfigUpdate {
+	if v != nil {
+		_u.SetAPIURL(*v)
+	}
+	return _u
+}
+
+// ClearAPIURL clears the value of the "api_url" field.
+func (_u *UpstreamConfigUpdate) ClearAPIURL() *UpstreamConfigUpdate {
+	_u.mutation.ClearAPIURL()
 	return _u
 }
 
@@ -594,9 +614,14 @@ func (_u *UpstreamConfigUpdate) check() error {
 			return &ValidationError{Name: "provider", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.provider": %w`, err)}
 		}
 	}
-	if v, ok := _u.mutation.BaseURL(); ok {
-		if err := upstreamconfig.BaseURLValidator(v); err != nil {
-			return &ValidationError{Name: "base_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.base_url": %w`, err)}
+	if v, ok := _u.mutation.SiteURL(); ok {
+		if err := upstreamconfig.SiteURLValidator(v); err != nil {
+			return &ValidationError{Name: "site_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.site_url": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.APIURL(); ok {
+		if err := upstreamconfig.APIURLValidator(v); err != nil {
+			return &ValidationError{Name: "api_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.api_url": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.AuthMode(); ok {
@@ -639,8 +664,14 @@ func (_u *UpstreamConfigUpdate) sqlSave(ctx context.Context) (_node int, err err
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(upstreamconfig.FieldProvider, field.TypeString, value)
 	}
-	if value, ok := _u.mutation.BaseURL(); ok {
-		_spec.SetField(upstreamconfig.FieldBaseURL, field.TypeString, value)
+	if value, ok := _u.mutation.SiteURL(); ok {
+		_spec.SetField(upstreamconfig.FieldSiteURL, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.APIURL(); ok {
+		_spec.SetField(upstreamconfig.FieldAPIURL, field.TypeString, value)
+	}
+	if _u.mutation.APIURLCleared() {
+		_spec.ClearField(upstreamconfig.FieldAPIURL, field.TypeString)
 	}
 	if value, ok := _u.mutation.AuthMode(); ok {
 		_spec.SetField(upstreamconfig.FieldAuthMode, field.TypeString, value)
@@ -1105,17 +1136,37 @@ func (_u *UpstreamConfigUpdateOne) SetNillableProvider(v *string) *UpstreamConfi
 	return _u
 }
 
-// SetBaseURL sets the "base_url" field.
-func (_u *UpstreamConfigUpdateOne) SetBaseURL(v string) *UpstreamConfigUpdateOne {
-	_u.mutation.SetBaseURL(v)
+// SetSiteURL sets the "site_url" field.
+func (_u *UpstreamConfigUpdateOne) SetSiteURL(v string) *UpstreamConfigUpdateOne {
+	_u.mutation.SetSiteURL(v)
 	return _u
 }
 
-// SetNillableBaseURL sets the "base_url" field if the given value is not nil.
-func (_u *UpstreamConfigUpdateOne) SetNillableBaseURL(v *string) *UpstreamConfigUpdateOne {
+// SetNillableSiteURL sets the "site_url" field if the given value is not nil.
+func (_u *UpstreamConfigUpdateOne) SetNillableSiteURL(v *string) *UpstreamConfigUpdateOne {
 	if v != nil {
-		_u.SetBaseURL(*v)
+		_u.SetSiteURL(*v)
 	}
+	return _u
+}
+
+// SetAPIURL sets the "api_url" field.
+func (_u *UpstreamConfigUpdateOne) SetAPIURL(v string) *UpstreamConfigUpdateOne {
+	_u.mutation.SetAPIURL(v)
+	return _u
+}
+
+// SetNillableAPIURL sets the "api_url" field if the given value is not nil.
+func (_u *UpstreamConfigUpdateOne) SetNillableAPIURL(v *string) *UpstreamConfigUpdateOne {
+	if v != nil {
+		_u.SetAPIURL(*v)
+	}
+	return _u
+}
+
+// ClearAPIURL clears the value of the "api_url" field.
+func (_u *UpstreamConfigUpdateOne) ClearAPIURL() *UpstreamConfigUpdateOne {
+	_u.mutation.ClearAPIURL()
 	return _u
 }
 
@@ -1622,9 +1673,14 @@ func (_u *UpstreamConfigUpdateOne) check() error {
 			return &ValidationError{Name: "provider", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.provider": %w`, err)}
 		}
 	}
-	if v, ok := _u.mutation.BaseURL(); ok {
-		if err := upstreamconfig.BaseURLValidator(v); err != nil {
-			return &ValidationError{Name: "base_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.base_url": %w`, err)}
+	if v, ok := _u.mutation.SiteURL(); ok {
+		if err := upstreamconfig.SiteURLValidator(v); err != nil {
+			return &ValidationError{Name: "site_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.site_url": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.APIURL(); ok {
+		if err := upstreamconfig.APIURLValidator(v); err != nil {
+			return &ValidationError{Name: "api_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.api_url": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.AuthMode(); ok {
@@ -1684,8 +1740,14 @@ func (_u *UpstreamConfigUpdateOne) sqlSave(ctx context.Context) (_node *Upstream
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(upstreamconfig.FieldProvider, field.TypeString, value)
 	}
-	if value, ok := _u.mutation.BaseURL(); ok {
-		_spec.SetField(upstreamconfig.FieldBaseURL, field.TypeString, value)
+	if value, ok := _u.mutation.SiteURL(); ok {
+		_spec.SetField(upstreamconfig.FieldSiteURL, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.APIURL(); ok {
+		_spec.SetField(upstreamconfig.FieldAPIURL, field.TypeString, value)
+	}
+	if _u.mutation.APIURLCleared() {
+		_spec.ClearField(upstreamconfig.FieldAPIURL, field.TypeString)
 	}
 	if value, ok := _u.mutation.AuthMode(); ok {
 		_spec.SetField(upstreamconfig.FieldAuthMode, field.TypeString, value)

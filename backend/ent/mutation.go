@@ -42914,7 +42914,8 @@ type UpstreamConfigMutation struct {
 	deleted_at               *time.Time
 	name                     *string
 	provider                 *string
-	base_url                 *string
+	site_url                 *string
+	api_url                  *string
 	auth_mode                *string
 	credentials              *map[string]interface{}
 	extra                    *map[string]interface{}
@@ -43246,40 +43247,89 @@ func (m *UpstreamConfigMutation) ResetProvider() {
 	m.provider = nil
 }
 
-// SetBaseURL sets the "base_url" field.
-func (m *UpstreamConfigMutation) SetBaseURL(s string) {
-	m.base_url = &s
+// SetSiteURL sets the "site_url" field.
+func (m *UpstreamConfigMutation) SetSiteURL(s string) {
+	m.site_url = &s
 }
 
-// BaseURL returns the value of the "base_url" field in the mutation.
-func (m *UpstreamConfigMutation) BaseURL() (r string, exists bool) {
-	v := m.base_url
+// SiteURL returns the value of the "site_url" field in the mutation.
+func (m *UpstreamConfigMutation) SiteURL() (r string, exists bool) {
+	v := m.site_url
 	if v == nil {
 		return
 	}
 	return *v, true
 }
 
-// OldBaseURL returns the old "base_url" field's value of the UpstreamConfig entity.
+// OldSiteURL returns the old "site_url" field's value of the UpstreamConfig entity.
 // If the UpstreamConfig object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UpstreamConfigMutation) OldBaseURL(ctx context.Context) (v string, err error) {
+func (m *UpstreamConfigMutation) OldSiteURL(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldBaseURL is only allowed on UpdateOne operations")
+		return v, errors.New("OldSiteURL is only allowed on UpdateOne operations")
 	}
 	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldBaseURL requires an ID field in the mutation")
+		return v, errors.New("OldSiteURL requires an ID field in the mutation")
 	}
 	oldValue, err := m.oldValue(ctx)
 	if err != nil {
-		return v, fmt.Errorf("querying old value for OldBaseURL: %w", err)
+		return v, fmt.Errorf("querying old value for OldSiteURL: %w", err)
 	}
-	return oldValue.BaseURL, nil
+	return oldValue.SiteURL, nil
 }
 
-// ResetBaseURL resets all changes to the "base_url" field.
-func (m *UpstreamConfigMutation) ResetBaseURL() {
-	m.base_url = nil
+// ResetSiteURL resets all changes to the "site_url" field.
+func (m *UpstreamConfigMutation) ResetSiteURL() {
+	m.site_url = nil
+}
+
+// SetAPIURL sets the "api_url" field.
+func (m *UpstreamConfigMutation) SetAPIURL(s string) {
+	m.api_url = &s
+}
+
+// APIURL returns the value of the "api_url" field in the mutation.
+func (m *UpstreamConfigMutation) APIURL() (r string, exists bool) {
+	v := m.api_url
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAPIURL returns the old "api_url" field's value of the UpstreamConfig entity.
+// If the UpstreamConfig object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamConfigMutation) OldAPIURL(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAPIURL is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAPIURL requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAPIURL: %w", err)
+	}
+	return oldValue.APIURL, nil
+}
+
+// ClearAPIURL clears the value of the "api_url" field.
+func (m *UpstreamConfigMutation) ClearAPIURL() {
+	m.api_url = nil
+	m.clearedFields[upstreamconfig.FieldAPIURL] = struct{}{}
+}
+
+// APIURLCleared returns if the "api_url" field was cleared in this mutation.
+func (m *UpstreamConfigMutation) APIURLCleared() bool {
+	_, ok := m.clearedFields[upstreamconfig.FieldAPIURL]
+	return ok
+}
+
+// ResetAPIURL resets all changes to the "api_url" field.
+func (m *UpstreamConfigMutation) ResetAPIURL() {
+	m.api_url = nil
+	delete(m.clearedFields, upstreamconfig.FieldAPIURL)
 }
 
 // SetAuthMode sets the "auth_mode" field.
@@ -44187,7 +44237,7 @@ func (m *UpstreamConfigMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UpstreamConfigMutation) Fields() []string {
-	fields := make([]string, 0, 16)
+	fields := make([]string, 0, 17)
 	if m.created_at != nil {
 		fields = append(fields, upstreamconfig.FieldCreatedAt)
 	}
@@ -44203,8 +44253,11 @@ func (m *UpstreamConfigMutation) Fields() []string {
 	if m.provider != nil {
 		fields = append(fields, upstreamconfig.FieldProvider)
 	}
-	if m.base_url != nil {
-		fields = append(fields, upstreamconfig.FieldBaseURL)
+	if m.site_url != nil {
+		fields = append(fields, upstreamconfig.FieldSiteURL)
+	}
+	if m.api_url != nil {
+		fields = append(fields, upstreamconfig.FieldAPIURL)
 	}
 	if m.auth_mode != nil {
 		fields = append(fields, upstreamconfig.FieldAuthMode)
@@ -44254,8 +44307,10 @@ func (m *UpstreamConfigMutation) Field(name string) (ent.Value, bool) {
 		return m.Name()
 	case upstreamconfig.FieldProvider:
 		return m.Provider()
-	case upstreamconfig.FieldBaseURL:
-		return m.BaseURL()
+	case upstreamconfig.FieldSiteURL:
+		return m.SiteURL()
+	case upstreamconfig.FieldAPIURL:
+		return m.APIURL()
 	case upstreamconfig.FieldAuthMode:
 		return m.AuthMode()
 	case upstreamconfig.FieldCredentials:
@@ -44295,8 +44350,10 @@ func (m *UpstreamConfigMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldName(ctx)
 	case upstreamconfig.FieldProvider:
 		return m.OldProvider(ctx)
-	case upstreamconfig.FieldBaseURL:
-		return m.OldBaseURL(ctx)
+	case upstreamconfig.FieldSiteURL:
+		return m.OldSiteURL(ctx)
+	case upstreamconfig.FieldAPIURL:
+		return m.OldAPIURL(ctx)
 	case upstreamconfig.FieldAuthMode:
 		return m.OldAuthMode(ctx)
 	case upstreamconfig.FieldCredentials:
@@ -44361,12 +44418,19 @@ func (m *UpstreamConfigMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetProvider(v)
 		return nil
-	case upstreamconfig.FieldBaseURL:
+	case upstreamconfig.FieldSiteURL:
 		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
-		m.SetBaseURL(v)
+		m.SetSiteURL(v)
+		return nil
+	case upstreamconfig.FieldAPIURL:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAPIURL(v)
 		return nil
 	case upstreamconfig.FieldAuthMode:
 		v, ok := value.(string)
@@ -44498,6 +44562,9 @@ func (m *UpstreamConfigMutation) ClearedFields() []string {
 	if m.FieldCleared(upstreamconfig.FieldDeletedAt) {
 		fields = append(fields, upstreamconfig.FieldDeletedAt)
 	}
+	if m.FieldCleared(upstreamconfig.FieldAPIURL) {
+		fields = append(fields, upstreamconfig.FieldAPIURL)
+	}
 	if m.FieldCleared(upstreamconfig.FieldProxyID) {
 		fields = append(fields, upstreamconfig.FieldProxyID)
 	}
@@ -44529,6 +44596,9 @@ func (m *UpstreamConfigMutation) ClearField(name string) error {
 	switch name {
 	case upstreamconfig.FieldDeletedAt:
 		m.ClearDeletedAt()
+		return nil
+	case upstreamconfig.FieldAPIURL:
+		m.ClearAPIURL()
 		return nil
 	case upstreamconfig.FieldProxyID:
 		m.ClearProxyID()
@@ -44568,8 +44638,11 @@ func (m *UpstreamConfigMutation) ResetField(name string) error {
 	case upstreamconfig.FieldProvider:
 		m.ResetProvider()
 		return nil
-	case upstreamconfig.FieldBaseURL:
-		m.ResetBaseURL()
+	case upstreamconfig.FieldSiteURL:
+		m.ResetSiteURL()
+		return nil
+	case upstreamconfig.FieldAPIURL:
+		m.ResetAPIURL()
 		return nil
 	case upstreamconfig.FieldAuthMode:
 		m.ResetAuthMode()

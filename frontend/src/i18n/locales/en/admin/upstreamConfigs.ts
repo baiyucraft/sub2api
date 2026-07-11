@@ -2,12 +2,12 @@ export default {
   upstreamConfigs: {
     title: 'Upstream Configs',
     description: 'Maintain upstream relay login state, proxy, and keys in one place; accounts only bind to a selected upstream config.',
-    searchPlaceholder: 'Search name or Base URL',
+    searchPlaceholder: 'Search name, site, or API URL',
     sensitiveHint: 'These credentials are stored as highly sensitive upstream secrets and are only used to sync keys, rates, quota, and refresh JWTs. Passwords, JWTs, refresh tokens, cookies, and API keys are never returned in plaintext.',
     columns: {
       name: 'Name',
       provider: 'Type',
-      baseUrl: 'Base URL',
+      address: 'Address',
       balance: 'CNY Balance',
       rates: 'Rate Summary',
       authMode: 'Auth',
@@ -36,6 +36,10 @@ export default {
       sub2api: 'sub2api',
       newapi: 'newapi',
       other: 'Other'
+    },
+    address: {
+      site: 'Site',
+      api: 'API'
     },
     filters: {
       allProviders: 'All Types'
@@ -72,6 +76,11 @@ export default {
       createTitle: 'Add Upstream',
       editTitle: 'Edit Upstream Config'
     },
+    sections: {
+      basicInfo: 'Basic Information',
+      connectionAndAuth: 'Connection and Authentication',
+      costSettings: 'Cost Settings'
+    },
     tokenAssistant: {
       open: 'Login Helper',
       title: 'Upstream Login Helper',
@@ -89,7 +98,7 @@ export default {
       noSelection: 'Select at least one token candidate.',
       apply: 'Apply to Form',
       applied: 'Token values filled. Review and save to persist them.',
-      invalidBaseUrl: 'Enter a valid upstream Base URL first.',
+      invalidBaseUrl: 'Enter a valid upstream site URL first.',
       jwtUnverifiedNoExp: 'This JWT candidate was parsed locally; its signature and validity were not verified.',
       jwtExpiresAt: 'Locally parsed JWT expiry: {time}. Signature and permission must still be verified upstream.',
       jwtExpired: 'Local parsing shows this JWT expired at {time}; a refresh token can still be saved if present.',
@@ -102,7 +111,9 @@ export default {
     fields: {
       name: 'Name',
       provider: 'Type',
-      baseUrl: 'Base URL',
+      siteUrl: 'Site URL',
+      apiUrl: 'API URL',
+      apiUrlHint: 'Optional. When empty, model forwarding, model discovery, and derived account connection tests use the site URL.',
       authMode: 'Auth Mode',
       proxy: 'Proxy',
       rechargeRate: 'Recharge Rate',
@@ -148,7 +159,7 @@ export default {
       syncAllSuccess: 'Synced {success} upstream(s), found {keys} key(s)',
       syncAllPartial: 'Sync finished: {success} succeeded, {partial} partial, {failed} failed, found {keys} key(s)',
       syncAllFailed: 'Failed to sync all upstreams',
-      invalidDashboardUrl: 'Invalid upstream Base URL; cannot open dashboard',
+      invalidDashboardUrl: 'Invalid upstream site URL; cannot open dashboard',
       rechargeRateInvalid: 'Recharge rate must be greater than 0 and at most 100',
       balanceToCnyRateInvalid: 'Balance to CNY rate must be a positive number',
       loadSyncRunsFailed: 'Failed to load sync runs',

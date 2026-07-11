@@ -838,7 +838,7 @@ func TestSyncSub2APIUpstreamKeysPreservesNamesAndGroupMetadata(t *testing.T) {
 		ID:       9,
 		Name:     "乔燃",
 		Provider: UpstreamProviderSub2API,
-		BaseURL:  server.URL,
+		SiteURL:  server.URL,
 		AuthMode: UpstreamAuthModeManualJWT,
 		Credentials: map[string]any{
 			AccountCredentialSub2APIAccessToken: "jwt-upstream",

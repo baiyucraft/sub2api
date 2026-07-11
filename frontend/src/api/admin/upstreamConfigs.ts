@@ -41,7 +41,8 @@ export interface UpstreamConfig {
   id: number
   name: string
   provider: UpstreamProvider
-  base_url: string
+  site_url: string
+  api_url?: string | null
   auth_mode: UpstreamAuthMode
   credentials_status?: UpstreamCredentialsStatus
   extra?: Record<string, unknown>
@@ -62,7 +63,9 @@ export interface UpstreamConfig {
 export interface UpstreamConfigPayload {
   name: string
   provider: UpstreamProvider
-  base_url: string
+  site_url: string
+  api_url?: string | null
+  clear_api_url?: boolean
   auth_mode: UpstreamAuthMode
   proxy_id?: number | null
   recharge_rate: number

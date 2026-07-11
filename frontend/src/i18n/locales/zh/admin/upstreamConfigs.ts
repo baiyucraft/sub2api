@@ -2,12 +2,12 @@ export default {
   upstreamConfigs: {
     title: '上游配置',
     description: '集中维护上游中转站登录态、代理和 Key，账号管理只绑定指定上游配置。',
-    searchPlaceholder: '搜索名称或 Base URL',
+    searchPlaceholder: '搜索名称、站点或 API 地址',
     sensitiveHint: '这些凭据会保存为高敏上游凭据，仅用于同步 Key、倍率、额度和刷新 JWT；接口不会回显明文密码、JWT、Refresh Token、Cookie 或 API Key。',
     columns: {
       name: '名称',
       provider: '类型',
-      baseUrl: 'Base URL',
+      address: '地址',
       balance: '人民币余额',
       rates: '倍率摘要',
       authMode: '认证',
@@ -36,6 +36,10 @@ export default {
       sub2api: 'sub2api',
       newapi: 'newapi',
       other: '其他'
+    },
+    address: {
+      site: '站点',
+      api: 'API'
     },
     filters: {
       allProviders: '全部类型'
@@ -72,6 +76,11 @@ export default {
       createTitle: '添加上游',
       editTitle: '编辑上游配置'
     },
+    sections: {
+      basicInfo: '基本信息',
+      connectionAndAuth: '连接与认证',
+      costSettings: '成本设置'
+    },
     tokenAssistant: {
       open: '登录辅助',
       title: '上游登录辅助',
@@ -89,7 +98,7 @@ export default {
       noSelection: '请选择至少一个 Token 候选。',
       apply: '应用到表单',
       applied: 'Token 已回填，请确认后保存。',
-      invalidBaseUrl: '请先填写有效的上游 Base URL。',
+      invalidBaseUrl: '请先填写有效的站点地址。',
       jwtUnverifiedNoExp: '这是本地解析到的 JWT 候选，未验证签名和有效性。',
       jwtExpiresAt: '本地解析的 JWT 过期时间：{time}。签名和权限仍需由上游验证。',
       jwtExpired: '本地解析显示 JWT 已在 {time} 过期；如有 Refresh Token 仍可一并保存。',
@@ -102,7 +111,9 @@ export default {
     fields: {
       name: '名称',
       provider: '类型',
-      baseUrl: 'Base URL',
+      siteUrl: '站点地址',
+      apiUrl: 'API 地址',
+      apiUrlHint: '可选。留空时模型转发、模型探测和衍生账号连接测试使用站点地址。',
       authMode: '认证方式',
       proxy: '代理',
       rechargeRate: '充值倍率',
@@ -148,7 +159,7 @@ export default {
       syncAllSuccess: '已同步 {success} 个上游，共发现 {keys} 个 Key',
       syncAllPartial: '同步完成：成功 {success} 个，部分成功 {partial} 个，失败 {failed} 个，共发现 {keys} 个 Key',
       syncAllFailed: '同步全部上游失败',
-      invalidDashboardUrl: '上游 Base URL 无效，无法打开后台',
+      invalidDashboardUrl: '上游站点地址无效，无法打开后台',
       rechargeRateInvalid: '充值倍率必须大于 0 且不超过 100',
       balanceToCnyRateInvalid: '余额兑人民币汇率必须为正数',
       loadSyncRunsFailed: '加载同步记录失败',

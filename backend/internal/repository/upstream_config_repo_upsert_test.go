@@ -26,7 +26,7 @@ func TestUpsertKeyBackfillsRemoteIDOnExistingHash(t *testing.T) {
 	ctx := context.Background()
 	config, err := client.UpstreamConfig.Create().
 		SetName("test").SetProvider(service.UpstreamProviderNewAPI).
-		SetBaseURL("https://example.com").SetAuthMode(service.UpstreamAuthModeUserLogin).
+		SetSiteURL("https://example.com").SetAuthMode(service.UpstreamAuthModeUserLogin).
 		Save(ctx)
 	require.NoError(t, err)
 	existing, err := client.UpstreamKey.Create().
