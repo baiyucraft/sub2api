@@ -27,6 +27,11 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 
 	t.Run("accepts valid request stores refs and enqueues once", func(t *testing.T) {
 		svc, repo, queue, gemini, _ := newTestBatchImagePublicService(true)
+		configID := int64(701)
+		keyID := int64(702)
+		accountRepo := svc.AccountRepo.(*publicBatchImageAccountRepo)
+		accountRepo.accounts[1].UpstreamConfigID = &configID
+		accountRepo.accounts[1].UpstreamKeyID = &keyID
 
 		got, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "")
 		require.NoError(t, err)
@@ -53,6 +58,10 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		require.Equal(t, "files/gemini_api/output", batchImageDerefString(job.ProviderOutputRef))
 		require.NotNil(t, job.AccountID)
 		require.Equal(t, int64(202), *job.AccountID)
+		require.Equal(t, configID, *job.UpstreamConfigID)
+		require.Equal(t, keyID, *job.UpstreamKeyID)
+		require.Equal(t, "CNY", *job.UpstreamCostCurrency)
+		require.Equal(t, 1.0, *job.UpstreamCostToCNYRate)
 		require.Equal(t, 1, job.PricingSnapshotVersion)
 		require.InDelta(t, 0.25, job.BaseUnitPrice, 1e-12)
 		require.InDelta(t, 1.0, job.GroupRateMultiplier, 1e-12)
@@ -61,6 +70,31 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		require.InDelta(t, 0.6, job.HoldMultiplier, 1e-12)
 		require.InDelta(t, 0.125, job.BillableUnitPrice, 1e-12)
 		require.InDelta(t, 0.15, job.HoldUnitPrice, 1e-12)
+	})
+
+	t.Run("clears incomplete upstream attribution snapshot", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			configID *int64
+			keyID    *int64
+		}{
+			{name: "missing config", configID: nil, keyID: batchImageInt64Ptr(702)},
+			{name: "missing key", configID: batchImageInt64Ptr(701), keyID: nil},
+			{name: "zero config", configID: batchImageInt64Ptr(0), keyID: batchImageInt64Ptr(702)},
+			{name: "negative key", configID: batchImageInt64Ptr(701), keyID: batchImageInt64Ptr(-1)},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				configID, keyID, currency, rate := CaptureUpstreamUsageSnapshot(&Account{
+					UpstreamConfigID: tt.configID,
+					UpstreamKeyID:    tt.keyID,
+				})
+				require.Nil(t, configID)
+				require.Nil(t, keyID)
+				require.Nil(t, currency)
+				require.Nil(t, rate)
+			})
+		}
 	})
 
 	t.Run("combines user group image rate account rate discount and hold margin", func(t *testing.T) {
@@ -738,6 +772,10 @@ func newTestBatchImagePublicService(enabled bool) (*BatchImagePublicService, *fa
 
 func testBatchImageOwner() BatchImageOwner {
 	return BatchImageOwner{UserID: 11, APIKeyID: 22}
+}
+
+func batchImageInt64Ptr(value int64) *int64 {
+	return &value
 }
 
 type fakeBatchImageAuthCacheInvalidator struct {

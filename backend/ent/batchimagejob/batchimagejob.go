@@ -21,6 +21,14 @@ const (
 	FieldAPIKeyID = "api_key_id"
 	// FieldAccountID holds the string denoting the account_id field in the database.
 	FieldAccountID = "account_id"
+	// FieldUpstreamConfigID holds the string denoting the upstream_config_id field in the database.
+	FieldUpstreamConfigID = "upstream_config_id"
+	// FieldUpstreamKeyID holds the string denoting the upstream_key_id field in the database.
+	FieldUpstreamKeyID = "upstream_key_id"
+	// FieldUpstreamCostCurrency holds the string denoting the upstream_cost_currency field in the database.
+	FieldUpstreamCostCurrency = "upstream_cost_currency"
+	// FieldUpstreamCostToCnyRate holds the string denoting the upstream_cost_to_cny_rate field in the database.
+	FieldUpstreamCostToCnyRate = "upstream_cost_to_cny_rate"
 	// FieldProvider holds the string denoting the provider field in the database.
 	FieldProvider = "provider"
 	// FieldModel holds the string denoting the model field in the database.
@@ -104,6 +112,10 @@ var Columns = []string{
 	FieldUserID,
 	FieldAPIKeyID,
 	FieldAccountID,
+	FieldUpstreamConfigID,
+	FieldUpstreamKeyID,
+	FieldUpstreamCostCurrency,
+	FieldUpstreamCostToCnyRate,
 	FieldProvider,
 	FieldModel,
 	FieldTaskName,
@@ -155,6 +167,8 @@ func ValidColumn(column string) bool {
 var (
 	// BatchIDValidator is a validator for the "batch_id" field. It is called by the builders before save.
 	BatchIDValidator func(string) error
+	// UpstreamCostCurrencyValidator is a validator for the "upstream_cost_currency" field. It is called by the builders before save.
+	UpstreamCostCurrencyValidator func(string) error
 	// ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
 	ProviderValidator func(string) error
 	// ModelValidator is a validator for the "model" field. It is called by the builders before save.
@@ -237,6 +251,26 @@ func ByAPIKeyID(opts ...sql.OrderTermOption) OrderOption {
 // ByAccountID orders the results by the account_id field.
 func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAccountID, opts...).ToFunc()
+}
+
+// ByUpstreamConfigID orders the results by the upstream_config_id field.
+func ByUpstreamConfigID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamConfigID, opts...).ToFunc()
+}
+
+// ByUpstreamKeyID orders the results by the upstream_key_id field.
+func ByUpstreamKeyID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamKeyID, opts...).ToFunc()
+}
+
+// ByUpstreamCostCurrency orders the results by the upstream_cost_currency field.
+func ByUpstreamCostCurrency(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamCostCurrency, opts...).ToFunc()
+}
+
+// ByUpstreamCostToCnyRate orders the results by the upstream_cost_to_cny_rate field.
+func ByUpstreamCostToCnyRate(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamCostToCnyRate, opts...).ToFunc()
 }
 
 // ByProvider orders the results by the provider field.

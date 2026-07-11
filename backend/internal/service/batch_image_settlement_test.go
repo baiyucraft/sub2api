@@ -43,6 +43,52 @@ func TestBatchImageSettlementService_SettlesAndChargesSuccessfulImagesOnly(t *te
 	require.NotContains(t, fmt.Sprintf("%+v", billing.captures[0]), "prompt")
 }
 
+func TestBatchImageSettlementService_UsageLogUsesJobUpstreamSnapshot(t *testing.T) {
+	repo := newFakeBatchImageRepository()
+	job := testSettlingBatchImageJob("imgbatch_upstream_snapshot")
+	configID := int64(801)
+	keyID := int64(802)
+	currency := "CNY"
+	rate := 1.0
+	job.UpstreamConfigID = &configID
+	job.UpstreamKeyID = &keyID
+	job.UpstreamCostCurrency = &currency
+	job.UpstreamCostToCNYRate = &rate
+	repo.jobs[job.BatchID] = job
+	usageRepo := &batchImageUsageLogRepoStub{}
+	svc := &BatchImageSettlementService{
+		Repo: repo, BillingRepo: &fakeBatchImageBillingRepo{}, UsageLogRepo: usageRepo,
+		Pricing: &fakeBatchImagePricingResolver{unitPrice: 0.25},
+	}
+
+	_, err := svc.Settle(context.Background(), job.BatchID)
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, configID, *usageRepo.lastLog.UpstreamConfigID)
+	require.Equal(t, keyID, *usageRepo.lastLog.UpstreamKeyID)
+	require.Equal(t, currency, *usageRepo.lastLog.UpstreamCostCurrency)
+	require.Equal(t, rate, *usageRepo.lastLog.UpstreamCostToCNYRate)
+}
+
+func TestBatchImageSettlementService_LegacyJobKeepsUpstreamAttributionEmpty(t *testing.T) {
+	repo := newFakeBatchImageRepository()
+	job := testSettlingBatchImageJob("imgbatch_upstream_legacy")
+	repo.jobs[job.BatchID] = job
+	usageRepo := &batchImageUsageLogRepoStub{}
+	svc := &BatchImageSettlementService{
+		Repo: repo, BillingRepo: &fakeBatchImageBillingRepo{}, UsageLogRepo: usageRepo,
+		Pricing: &fakeBatchImagePricingResolver{unitPrice: 0.25},
+	}
+
+	_, err := svc.Settle(context.Background(), job.BatchID)
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Nil(t, usageRepo.lastLog.UpstreamConfigID)
+	require.Nil(t, usageRepo.lastLog.UpstreamKeyID)
+	require.Nil(t, usageRepo.lastLog.UpstreamCostCurrency)
+	require.Nil(t, usageRepo.lastLog.UpstreamCostToCNYRate)
+}
+
 func TestBatchImageSettlementService_ZeroSuccessCanComplete(t *testing.T) {
 	repo := newFakeBatchImageRepository()
 	job := testSettlingBatchImageJob("imgbatch_zero")
@@ -436,6 +482,16 @@ type fakeBatchImageBillingRepo struct {
 	reserveErr     error
 	captureErr     error
 	releaseErr     error
+}
+
+type batchImageUsageLogRepoStub struct {
+	UsageLogRepository
+	lastLog *UsageLog
+}
+
+func (r *batchImageUsageLogRepoStub) Create(_ context.Context, log *UsageLog) (bool, error) {
+	r.lastLog = log
+	return true, nil
 }
 
 func (r *fakeBatchImageBillingRepo) Apply(_ context.Context, cmd *UsageBillingCommand) (*UsageBillingApplyResult, error) {

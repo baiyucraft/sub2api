@@ -31,6 +31,10 @@ type batchSeenKey struct {
 	platform string
 }
 
+type legacySchedulerBucketLister interface {
+	ListLegacyBuckets(ctx context.Context) ([]SchedulerBucket, error)
+}
+
 type SchedulerSnapshotService struct {
 	cache         SchedulerCache
 	outboxRepo    SchedulerOutboxRepository
@@ -43,6 +47,8 @@ type SchedulerSnapshotService struct {
 	fallbackLimit *fallbackLimiter
 	lagMu         sync.Mutex
 	lagFailures   int
+	initialReady  chan struct{}
+	initialOnce   sync.Once
 }
 
 func NewSchedulerSnapshotService(
@@ -63,6 +69,7 @@ func NewSchedulerSnapshotService(
 		groupRepo:     groupRepo,
 		cfg:           cfg,
 		stopCh:        make(chan struct{}),
+		initialReady:  make(chan struct{}),
 		fallbackLimit: newFallbackLimiter(maxQPS),
 	}
 }
@@ -180,6 +187,7 @@ func (s *SchedulerSnapshotService) UpdateAccountInCache(ctx context.Context, acc
 }
 
 func (s *SchedulerSnapshotService) runInitialRebuild() {
+	defer s.initialOnce.Do(func() { close(s.initialReady) })
 	if s.cache == nil {
 		return
 	}
@@ -188,6 +196,14 @@ func (s *SchedulerSnapshotService) runInitialRebuild() {
 	buckets, err := s.cache.ListBuckets(ctx)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] list buckets failed: %v", err)
+	}
+	if len(buckets) == 0 {
+		if legacyCache, ok := s.cache.(legacySchedulerBucketLister); ok {
+			buckets, err = legacyCache.ListLegacyBuckets(ctx)
+			if err != nil {
+				logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] list legacy buckets failed: %v", err)
+			}
+		}
 	}
 	if len(buckets) == 0 {
 		buckets, err = s.defaultBuckets(ctx)
@@ -202,6 +218,11 @@ func (s *SchedulerSnapshotService) runInitialRebuild() {
 }
 
 func (s *SchedulerSnapshotService) runOutboxWorker(interval time.Duration) {
+	select {
+	case <-s.initialReady:
+	case <-s.stopCh:
+		return
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

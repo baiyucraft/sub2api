@@ -254,6 +254,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	}
 	apiKeyID := owner.APIKeyID
 	accountID := account.ID
+	upstreamConfigID, upstreamKeyID, upstreamCostCurrency, upstreamCostToCNYRate := CaptureUpstreamUsageSnapshot(account)
 	holdID := BatchImageHoldRequestID(batchID)
 	holdAmount := pricingSnapshot.HoldAmount
 	job, err := s.Repo.CreateBatchImageJob(ctx, CreateBatchImageJobParams{
@@ -261,6 +262,10 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		UserID:                  owner.UserID,
 		APIKeyID:                &apiKeyID,
 		AccountID:               &accountID,
+		UpstreamConfigID:        upstreamConfigID,
+		UpstreamKeyID:           upstreamKeyID,
+		UpstreamCostCurrency:    upstreamCostCurrency,
+		UpstreamCostToCNYRate:   upstreamCostToCNYRate,
 		Provider:                provider.Name(),
 		Model:                   normalized.Model,
 		TaskName:                normalized.TaskName,

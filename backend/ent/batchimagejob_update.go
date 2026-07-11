@@ -103,6 +103,107 @@ func (_u *BatchImageJobUpdate) ClearAccountID() *BatchImageJobUpdate {
 	return _u
 }
 
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (_u *BatchImageJobUpdate) SetUpstreamConfigID(v int64) *BatchImageJobUpdate {
+	_u.mutation.ResetUpstreamConfigID()
+	_u.mutation.SetUpstreamConfigID(v)
+	return _u
+}
+
+// SetNillableUpstreamConfigID sets the "upstream_config_id" field if the given value is not nil.
+func (_u *BatchImageJobUpdate) SetNillableUpstreamConfigID(v *int64) *BatchImageJobUpdate {
+	if v != nil {
+		_u.SetUpstreamConfigID(*v)
+	}
+	return _u
+}
+
+// AddUpstreamConfigID adds value to the "upstream_config_id" field.
+func (_u *BatchImageJobUpdate) AddUpstreamConfigID(v int64) *BatchImageJobUpdate {
+	_u.mutation.AddUpstreamConfigID(v)
+	return _u
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (_u *BatchImageJobUpdate) ClearUpstreamConfigID() *BatchImageJobUpdate {
+	_u.mutation.ClearUpstreamConfigID()
+	return _u
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (_u *BatchImageJobUpdate) SetUpstreamKeyID(v int64) *BatchImageJobUpdate {
+	_u.mutation.ResetUpstreamKeyID()
+	_u.mutation.SetUpstreamKeyID(v)
+	return _u
+}
+
+// SetNillableUpstreamKeyID sets the "upstream_key_id" field if the given value is not nil.
+func (_u *BatchImageJobUpdate) SetNillableUpstreamKeyID(v *int64) *BatchImageJobUpdate {
+	if v != nil {
+		_u.SetUpstreamKeyID(*v)
+	}
+	return _u
+}
+
+// AddUpstreamKeyID adds value to the "upstream_key_id" field.
+func (_u *BatchImageJobUpdate) AddUpstreamKeyID(v int64) *BatchImageJobUpdate {
+	_u.mutation.AddUpstreamKeyID(v)
+	return _u
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (_u *BatchImageJobUpdate) ClearUpstreamKeyID() *BatchImageJobUpdate {
+	_u.mutation.ClearUpstreamKeyID()
+	return _u
+}
+
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (_u *BatchImageJobUpdate) SetUpstreamCostCurrency(v string) *BatchImageJobUpdate {
+	_u.mutation.SetUpstreamCostCurrency(v)
+	return _u
+}
+
+// SetNillableUpstreamCostCurrency sets the "upstream_cost_currency" field if the given value is not nil.
+func (_u *BatchImageJobUpdate) SetNillableUpstreamCostCurrency(v *string) *BatchImageJobUpdate {
+	if v != nil {
+		_u.SetUpstreamCostCurrency(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamCostCurrency clears the value of the "upstream_cost_currency" field.
+func (_u *BatchImageJobUpdate) ClearUpstreamCostCurrency() *BatchImageJobUpdate {
+	_u.mutation.ClearUpstreamCostCurrency()
+	return _u
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (_u *BatchImageJobUpdate) SetUpstreamCostToCnyRate(v float64) *BatchImageJobUpdate {
+	_u.mutation.ResetUpstreamCostToCnyRate()
+	_u.mutation.SetUpstreamCostToCnyRate(v)
+	return _u
+}
+
+// SetNillableUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field if the given value is not nil.
+func (_u *BatchImageJobUpdate) SetNillableUpstreamCostToCnyRate(v *float64) *BatchImageJobUpdate {
+	if v != nil {
+		_u.SetUpstreamCostToCnyRate(*v)
+	}
+	return _u
+}
+
+// AddUpstreamCostToCnyRate adds value to the "upstream_cost_to_cny_rate" field.
+func (_u *BatchImageJobUpdate) AddUpstreamCostToCnyRate(v float64) *BatchImageJobUpdate {
+	_u.mutation.AddUpstreamCostToCnyRate(v)
+	return _u
+}
+
+// ClearUpstreamCostToCnyRate clears the value of the "upstream_cost_to_cny_rate" field.
+func (_u *BatchImageJobUpdate) ClearUpstreamCostToCnyRate() *BatchImageJobUpdate {
+	_u.mutation.ClearUpstreamCostToCnyRate()
+	return _u
+}
+
 // SetProvider sets the "provider" field.
 func (_u *BatchImageJobUpdate) SetProvider(v string) *BatchImageJobUpdate {
 	_u.mutation.SetProvider(v)
@@ -823,6 +924,11 @@ func (_u *BatchImageJobUpdate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *BatchImageJobUpdate) check() error {
+	if v, ok := _u.mutation.UpstreamCostCurrency(); ok {
+		if err := batchimagejob.UpstreamCostCurrencyValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_cost_currency", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.upstream_cost_currency": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Provider(); ok {
 		if err := batchimagejob.ProviderValidator(v); err != nil {
 			return &ValidationError{Name: "provider", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.provider": %w`, err)}
@@ -936,6 +1042,39 @@ func (_u *BatchImageJobUpdate) sqlSave(ctx context.Context) (_node int, err erro
 	}
 	if _u.mutation.AccountIDCleared() {
 		_spec.ClearField(batchimagejob.FieldAccountID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UpstreamConfigID(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamConfigID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamConfigID(); ok {
+		_spec.AddField(batchimagejob.FieldUpstreamConfigID, field.TypeInt64, value)
+	}
+	if _u.mutation.UpstreamConfigIDCleared() {
+		_spec.ClearField(batchimagejob.FieldUpstreamConfigID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UpstreamKeyID(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamKeyID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamKeyID(); ok {
+		_spec.AddField(batchimagejob.FieldUpstreamKeyID, field.TypeInt64, value)
+	}
+	if _u.mutation.UpstreamKeyIDCleared() {
+		_spec.ClearField(batchimagejob.FieldUpstreamKeyID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UpstreamCostCurrency(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamCostCurrency, field.TypeString, value)
+	}
+	if _u.mutation.UpstreamCostCurrencyCleared() {
+		_spec.ClearField(batchimagejob.FieldUpstreamCostCurrency, field.TypeString)
+	}
+	if value, ok := _u.mutation.UpstreamCostToCnyRate(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamCostToCnyRate, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamCostToCnyRate(); ok {
+		_spec.AddField(batchimagejob.FieldUpstreamCostToCnyRate, field.TypeFloat64, value)
+	}
+	if _u.mutation.UpstreamCostToCnyRateCleared() {
+		_spec.ClearField(batchimagejob.FieldUpstreamCostToCnyRate, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(batchimagejob.FieldProvider, field.TypeString, value)
@@ -1227,6 +1366,107 @@ func (_u *BatchImageJobUpdateOne) AddAccountID(v int64) *BatchImageJobUpdateOne 
 // ClearAccountID clears the value of the "account_id" field.
 func (_u *BatchImageJobUpdateOne) ClearAccountID() *BatchImageJobUpdateOne {
 	_u.mutation.ClearAccountID()
+	return _u
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (_u *BatchImageJobUpdateOne) SetUpstreamConfigID(v int64) *BatchImageJobUpdateOne {
+	_u.mutation.ResetUpstreamConfigID()
+	_u.mutation.SetUpstreamConfigID(v)
+	return _u
+}
+
+// SetNillableUpstreamConfigID sets the "upstream_config_id" field if the given value is not nil.
+func (_u *BatchImageJobUpdateOne) SetNillableUpstreamConfigID(v *int64) *BatchImageJobUpdateOne {
+	if v != nil {
+		_u.SetUpstreamConfigID(*v)
+	}
+	return _u
+}
+
+// AddUpstreamConfigID adds value to the "upstream_config_id" field.
+func (_u *BatchImageJobUpdateOne) AddUpstreamConfigID(v int64) *BatchImageJobUpdateOne {
+	_u.mutation.AddUpstreamConfigID(v)
+	return _u
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (_u *BatchImageJobUpdateOne) ClearUpstreamConfigID() *BatchImageJobUpdateOne {
+	_u.mutation.ClearUpstreamConfigID()
+	return _u
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (_u *BatchImageJobUpdateOne) SetUpstreamKeyID(v int64) *BatchImageJobUpdateOne {
+	_u.mutation.ResetUpstreamKeyID()
+	_u.mutation.SetUpstreamKeyID(v)
+	return _u
+}
+
+// SetNillableUpstreamKeyID sets the "upstream_key_id" field if the given value is not nil.
+func (_u *BatchImageJobUpdateOne) SetNillableUpstreamKeyID(v *int64) *BatchImageJobUpdateOne {
+	if v != nil {
+		_u.SetUpstreamKeyID(*v)
+	}
+	return _u
+}
+
+// AddUpstreamKeyID adds value to the "upstream_key_id" field.
+func (_u *BatchImageJobUpdateOne) AddUpstreamKeyID(v int64) *BatchImageJobUpdateOne {
+	_u.mutation.AddUpstreamKeyID(v)
+	return _u
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (_u *BatchImageJobUpdateOne) ClearUpstreamKeyID() *BatchImageJobUpdateOne {
+	_u.mutation.ClearUpstreamKeyID()
+	return _u
+}
+
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (_u *BatchImageJobUpdateOne) SetUpstreamCostCurrency(v string) *BatchImageJobUpdateOne {
+	_u.mutation.SetUpstreamCostCurrency(v)
+	return _u
+}
+
+// SetNillableUpstreamCostCurrency sets the "upstream_cost_currency" field if the given value is not nil.
+func (_u *BatchImageJobUpdateOne) SetNillableUpstreamCostCurrency(v *string) *BatchImageJobUpdateOne {
+	if v != nil {
+		_u.SetUpstreamCostCurrency(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamCostCurrency clears the value of the "upstream_cost_currency" field.
+func (_u *BatchImageJobUpdateOne) ClearUpstreamCostCurrency() *BatchImageJobUpdateOne {
+	_u.mutation.ClearUpstreamCostCurrency()
+	return _u
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (_u *BatchImageJobUpdateOne) SetUpstreamCostToCnyRate(v float64) *BatchImageJobUpdateOne {
+	_u.mutation.ResetUpstreamCostToCnyRate()
+	_u.mutation.SetUpstreamCostToCnyRate(v)
+	return _u
+}
+
+// SetNillableUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field if the given value is not nil.
+func (_u *BatchImageJobUpdateOne) SetNillableUpstreamCostToCnyRate(v *float64) *BatchImageJobUpdateOne {
+	if v != nil {
+		_u.SetUpstreamCostToCnyRate(*v)
+	}
+	return _u
+}
+
+// AddUpstreamCostToCnyRate adds value to the "upstream_cost_to_cny_rate" field.
+func (_u *BatchImageJobUpdateOne) AddUpstreamCostToCnyRate(v float64) *BatchImageJobUpdateOne {
+	_u.mutation.AddUpstreamCostToCnyRate(v)
+	return _u
+}
+
+// ClearUpstreamCostToCnyRate clears the value of the "upstream_cost_to_cny_rate" field.
+func (_u *BatchImageJobUpdateOne) ClearUpstreamCostToCnyRate() *BatchImageJobUpdateOne {
+	_u.mutation.ClearUpstreamCostToCnyRate()
 	return _u
 }
 
@@ -1963,6 +2203,11 @@ func (_u *BatchImageJobUpdateOne) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *BatchImageJobUpdateOne) check() error {
+	if v, ok := _u.mutation.UpstreamCostCurrency(); ok {
+		if err := batchimagejob.UpstreamCostCurrencyValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_cost_currency", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.upstream_cost_currency": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Provider(); ok {
 		if err := batchimagejob.ProviderValidator(v); err != nil {
 			return &ValidationError{Name: "provider", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.provider": %w`, err)}
@@ -2093,6 +2338,39 @@ func (_u *BatchImageJobUpdateOne) sqlSave(ctx context.Context) (_node *BatchImag
 	}
 	if _u.mutation.AccountIDCleared() {
 		_spec.ClearField(batchimagejob.FieldAccountID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UpstreamConfigID(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamConfigID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamConfigID(); ok {
+		_spec.AddField(batchimagejob.FieldUpstreamConfigID, field.TypeInt64, value)
+	}
+	if _u.mutation.UpstreamConfigIDCleared() {
+		_spec.ClearField(batchimagejob.FieldUpstreamConfigID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UpstreamKeyID(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamKeyID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamKeyID(); ok {
+		_spec.AddField(batchimagejob.FieldUpstreamKeyID, field.TypeInt64, value)
+	}
+	if _u.mutation.UpstreamKeyIDCleared() {
+		_spec.ClearField(batchimagejob.FieldUpstreamKeyID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UpstreamCostCurrency(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamCostCurrency, field.TypeString, value)
+	}
+	if _u.mutation.UpstreamCostCurrencyCleared() {
+		_spec.ClearField(batchimagejob.FieldUpstreamCostCurrency, field.TypeString)
+	}
+	if value, ok := _u.mutation.UpstreamCostToCnyRate(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamCostToCnyRate, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamCostToCnyRate(); ok {
+		_spec.AddField(batchimagejob.FieldUpstreamCostToCnyRate, field.TypeFloat64, value)
+	}
+	if _u.mutation.UpstreamCostToCnyRateCleared() {
+		_spec.ClearField(batchimagejob.FieldUpstreamCostToCnyRate, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(batchimagejob.FieldProvider, field.TypeString, value)

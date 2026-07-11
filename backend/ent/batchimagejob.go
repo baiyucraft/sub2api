@@ -25,6 +25,14 @@ type BatchImageJob struct {
 	APIKeyID *int64 `json:"api_key_id,omitempty"`
 	// AccountID holds the value of the "account_id" field.
 	AccountID *int64 `json:"account_id,omitempty"`
+	// UpstreamConfigID holds the value of the "upstream_config_id" field.
+	UpstreamConfigID *int64 `json:"upstream_config_id,omitempty"`
+	// UpstreamKeyID holds the value of the "upstream_key_id" field.
+	UpstreamKeyID *int64 `json:"upstream_key_id,omitempty"`
+	// UpstreamCostCurrency holds the value of the "upstream_cost_currency" field.
+	UpstreamCostCurrency *string `json:"upstream_cost_currency,omitempty"`
+	// UpstreamCostToCnyRate holds the value of the "upstream_cost_to_cny_rate" field.
+	UpstreamCostToCnyRate *float64 `json:"upstream_cost_to_cny_rate,omitempty"`
 	// Provider holds the value of the "provider" field.
 	Provider string `json:"provider,omitempty"`
 	// Model holds the value of the "model" field.
@@ -105,11 +113,11 @@ func (*BatchImageJob) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case batchimagejob.FieldEstimatedCost, batchimagejob.FieldHoldAmount, batchimagejob.FieldActualCost:
+		case batchimagejob.FieldUpstreamCostToCnyRate, batchimagejob.FieldEstimatedCost, batchimagejob.FieldHoldAmount, batchimagejob.FieldActualCost:
 			values[i] = new(sql.NullFloat64)
-		case batchimagejob.FieldID, batchimagejob.FieldUserID, batchimagejob.FieldAPIKeyID, batchimagejob.FieldAccountID, batchimagejob.FieldItemCount, batchimagejob.FieldSuccessCount, batchimagejob.FieldFailCount, batchimagejob.FieldCancelledCount, batchimagejob.FieldRetryCount, batchimagejob.FieldVersion:
+		case batchimagejob.FieldID, batchimagejob.FieldUserID, batchimagejob.FieldAPIKeyID, batchimagejob.FieldAccountID, batchimagejob.FieldUpstreamConfigID, batchimagejob.FieldUpstreamKeyID, batchimagejob.FieldItemCount, batchimagejob.FieldSuccessCount, batchimagejob.FieldFailCount, batchimagejob.FieldCancelledCount, batchimagejob.FieldRetryCount, batchimagejob.FieldVersion:
 			values[i] = new(sql.NullInt64)
-		case batchimagejob.FieldBatchID, batchimagejob.FieldProvider, batchimagejob.FieldModel, batchimagejob.FieldTaskName, batchimagejob.FieldStatus, batchimagejob.FieldProviderJobName, batchimagejob.FieldProviderInputRef, batchimagejob.FieldProviderOutputRef, batchimagejob.FieldGcsInputURI, batchimagejob.FieldGcsOutputURI, batchimagejob.FieldCurrency, batchimagejob.FieldHoldID, batchimagejob.FieldIdempotencyKey, batchimagejob.FieldRequestHash, batchimagejob.FieldManifestHash, batchimagejob.FieldLastErrorCode, batchimagejob.FieldLastErrorMessage:
+		case batchimagejob.FieldBatchID, batchimagejob.FieldUpstreamCostCurrency, batchimagejob.FieldProvider, batchimagejob.FieldModel, batchimagejob.FieldTaskName, batchimagejob.FieldStatus, batchimagejob.FieldProviderJobName, batchimagejob.FieldProviderInputRef, batchimagejob.FieldProviderOutputRef, batchimagejob.FieldGcsInputURI, batchimagejob.FieldGcsOutputURI, batchimagejob.FieldCurrency, batchimagejob.FieldHoldID, batchimagejob.FieldIdempotencyKey, batchimagejob.FieldRequestHash, batchimagejob.FieldManifestHash, batchimagejob.FieldLastErrorCode, batchimagejob.FieldLastErrorMessage:
 			values[i] = new(sql.NullString)
 		case batchimagejob.FieldOutputExpiresAt, batchimagejob.FieldInputDeletedAt, batchimagejob.FieldOutputDeletedAt, batchimagejob.FieldDownloadedAt, batchimagejob.FieldUserDeletedAt, batchimagejob.FieldCreatedAt, batchimagejob.FieldUpdatedAt, batchimagejob.FieldSubmittedAt, batchimagejob.FieldStartedAt, batchimagejob.FieldFinishedAt, batchimagejob.FieldSettledAt:
 			values[i] = new(sql.NullTime)
@@ -159,6 +167,34 @@ func (_m *BatchImageJob) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.AccountID = new(int64)
 				*_m.AccountID = value.Int64
+			}
+		case batchimagejob.FieldUpstreamConfigID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_config_id", values[i])
+			} else if value.Valid {
+				_m.UpstreamConfigID = new(int64)
+				*_m.UpstreamConfigID = value.Int64
+			}
+		case batchimagejob.FieldUpstreamKeyID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_key_id", values[i])
+			} else if value.Valid {
+				_m.UpstreamKeyID = new(int64)
+				*_m.UpstreamKeyID = value.Int64
+			}
+		case batchimagejob.FieldUpstreamCostCurrency:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_cost_currency", values[i])
+			} else if value.Valid {
+				_m.UpstreamCostCurrency = new(string)
+				*_m.UpstreamCostCurrency = value.String
+			}
+		case batchimagejob.FieldUpstreamCostToCnyRate:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_cost_to_cny_rate", values[i])
+			} else if value.Valid {
+				_m.UpstreamCostToCnyRate = new(float64)
+				*_m.UpstreamCostToCnyRate = value.Float64
 			}
 		case batchimagejob.FieldProvider:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -447,6 +483,26 @@ func (_m *BatchImageJob) String() string {
 	builder.WriteString(", ")
 	if v := _m.AccountID; v != nil {
 		builder.WriteString("account_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamConfigID; v != nil {
+		builder.WriteString("upstream_config_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamKeyID; v != nil {
+		builder.WriteString("upstream_key_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamCostCurrency; v != nil {
+		builder.WriteString("upstream_cost_currency=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamCostToCnyRate; v != nil {
+		builder.WriteString("upstream_cost_to_cny_rate=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")
