@@ -52,7 +52,7 @@
               type="button"
               class="btn btn-secondary"
               data-test="open-cost-trend"
-              @click="openTrend"
+              @click="openTrend()"
             >
               <Icon name="trendingUp" size="sm" class="mr-2" />
               {{ t('admin.upstreamConfigs.actions.costTrend') }}
@@ -99,7 +99,6 @@
           :data="configs"
           :loading="loading"
           row-key="id"
-          :actions-count="5"
           :estimate-row-height="72"
         >
           <template #cell-name="{ row }">
@@ -202,7 +201,7 @@
           </template>
 
           <template #cell-actions="{ row }">
-            <div class="flex items-center gap-1" @click.stop>
+            <div class="flex min-w-[220px] items-start gap-1" @click.stop>
               <button
                 type="button"
                 class="table-action-button hover:text-primary-600 dark:hover:text-primary-400"
@@ -212,6 +211,7 @@
                 @click="openEdit(row)"
               >
                 <Icon name="edit" size="sm" />
+                <span>{{ t('common.edit') }}</span>
               </button>
               <button
                 type="button"
@@ -223,38 +223,29 @@
                 @click="handleSync(row)"
               >
                 <Icon name="sync" size="sm" :class="isActionBusy(row.id, 'sync') ? 'animate-spin' : ''" />
+                <span>{{ t('admin.upstreamConfigs.actions.syncKeys') }}</span>
               </button>
               <button
                 type="button"
                 class="table-action-button hover:text-blue-600 dark:hover:text-blue-400"
-                data-test="test-upstream"
-                :disabled="isActionBusy(row.id, 'test')"
-                :title="t('admin.upstreamConfigs.actions.test')"
-                :aria-label="t('admin.upstreamConfigs.actions.test')"
-                @click="handleTest(row)"
+                data-test="row-cost-trend"
+                :title="t('admin.upstreamConfigs.actions.costTrend')"
+                :aria-label="t('admin.upstreamConfigs.actions.costTrend')"
+                @click="openTrend(row)"
               >
-                <Icon name="play" size="sm" />
-              </button>
-              <button
-                v-if="row.provider === 'sub2api' || row.provider === 'newapi'"
-                type="button"
-                class="table-action-button hover:text-sky-600 dark:hover:text-sky-400"
-                data-test="open-upstream-dashboard"
-                :title="t('admin.upstreamConfigs.actions.openDashboard')"
-                :aria-label="t('admin.upstreamConfigs.actions.openDashboard')"
-                @click="openUpstreamDashboard(row)"
-              >
-                <Icon name="externalLink" size="sm" />
+                <Icon name="trendingUp" size="sm" />
+                <span>{{ t('admin.upstreamConfigs.actions.costTrend') }}</span>
               </button>
               <button
                 type="button"
-                class="table-action-button hover:text-red-600 dark:hover:text-red-400"
-                data-test="delete-upstream"
-                :title="t('common.delete')"
-                :aria-label="t('common.delete')"
-                @click="askDelete(row)"
+                class="table-action-button hover:text-gray-900 dark:hover:text-white"
+                data-test="more-upstream-actions"
+                :title="t('admin.upstreamConfigs.actions.more')"
+                :aria-label="t('admin.upstreamConfigs.actions.more')"
+                @click="openActionMenu(row, $event)"
               >
-                <Icon name="trash" size="sm" />
+                <Icon name="more" size="sm" />
+                <span>{{ t('admin.upstreamConfigs.actions.more') }}</span>
               </button>
             </div>
           </template>
@@ -574,14 +565,30 @@
       </template>
     </BaseDialog>
 
-    <UpstreamOperationsDrawer
+    <UpstreamActionMenu
+      :show="actionMenu.show"
+      :anchor-el="actionMenu.anchorEl"
+      :config="actionMenu.config"
+      width="normal"
+      @close="closeActionMenu"
+      @test="handleTest"
+      @dashboard="openUpstreamDashboard"
+      @delete="askDelete"
+    />
+
+    <BaseDialog
       :show="operationsDrawerMode !== null"
       :title="operationsDrawerTitle"
-      :subtitle="operationsDrawerSubtitle"
+      :width="operationsDialogWidth"
+      :close-on-escape="!settingsSaving"
+      :show-close-button="!settingsSaving"
       @close="closeOperationsDrawer"
     >
-      <template v-if="operationsDrawerMode === 'syncRuns'" #toolbar>
-        <div class="flex items-center justify-between gap-3">
+      <div v-if="operationsDrawerSubtitle" class="mb-4 text-xs text-gray-500 dark:text-dark-400">
+        {{ operationsDrawerSubtitle }}
+      </div>
+      <template v-if="operationsDrawerMode === 'syncRuns'">
+        <div class="mb-4 flex items-center justify-between gap-3">
           <button
             v-if="selectedSyncRun"
             type="button"
@@ -595,35 +602,31 @@
           <span v-else class="text-xs text-gray-500 dark:text-dark-400">
             {{ t('admin.upstreamConfigs.operations.syncRunsHint') }}
           </span>
-          <button type="button" class="btn btn-secondary btn-sm ml-auto" :disabled="operationsLoading" @click="loadSyncRuns">
-            <Icon name="refresh" size="sm" :class="operationsLoading ? 'mr-1.5 animate-spin' : 'mr-1.5'" />
+          <button type="button" class="btn btn-secondary btn-sm ml-auto" :disabled="operationLoading.syncRuns" @click="loadSyncRuns">
+            <Icon name="refresh" size="sm" :class="operationLoading.syncRuns ? 'mr-1.5 animate-spin' : 'mr-1.5'" />
             {{ t('common.refresh') }}
           </button>
         </div>
       </template>
 
-      <template v-else-if="operationsDrawerMode === 'events'" #toolbar>
-        <div class="flex flex-wrap items-center gap-3">
+      <template v-else-if="operationsDrawerMode === 'events'">
+        <div class="mb-4 flex flex-wrap items-center gap-3">
           <label class="min-w-[220px] flex-1">
             <span class="sr-only">{{ t('admin.upstreamConfigs.operations.selectUpstream') }}</span>
-            <select v-model.number="selectedOperationsConfigId" class="input" data-test="events-upstream-select" @change="loadEventsAndIncidents">
-              <option v-for="item in operationConfigs" :key="item.id" :value="item.id">{{ item.name }}</option>
-            </select>
+            <Select v-model="selectedOperationsConfigId" :options="operationConfigOptions" data-test="events-upstream-select" @change="handleOperationsConfigChange('events')" />
           </label>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="operationsLoading" @click="loadEventsAndIncidents">
-            <Icon name="refresh" size="sm" :class="operationsLoading ? 'mr-1.5 animate-spin' : 'mr-1.5'" />
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="operationLoading.events" @click="loadEventsAndIncidents">
+            <Icon name="refresh" size="sm" :class="operationLoading.events ? 'mr-1.5 animate-spin' : 'mr-1.5'" />
             {{ t('common.refresh') }}
           </button>
         </div>
       </template>
 
-      <template v-else-if="operationsDrawerMode === 'trend'" #toolbar>
-        <div class="flex flex-wrap items-center justify-between gap-3">
+      <template v-else-if="operationsDrawerMode === 'trend'">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
           <label class="min-w-[220px] flex-1">
             <span class="sr-only">{{ t('admin.upstreamConfigs.operations.selectUpstream') }}</span>
-            <select v-model.number="selectedOperationsConfigId" class="input" data-test="trend-upstream-select" @change="loadTrend">
-              <option v-for="item in operationConfigs" :key="item.id" :value="item.id">{{ item.name }}</option>
-            </select>
+            <Select v-model="selectedOperationsConfigId" :options="operationConfigOptions" data-test="trend-upstream-select" @change="handleOperationsConfigChange('trend')" />
           </label>
           <div class="inline-flex rounded-lg border border-gray-200 p-1 dark:border-dark-700" data-test="trend-range-control">
             <button
@@ -646,7 +649,7 @@
       </template>
 
       <template v-if="operationsDrawerMode === 'syncRuns'">
-        <div v-if="operationsLoading" class="drawer-state">{{ t('common.loading') }}</div>
+        <div v-if="operationLoading.syncRuns" class="drawer-state">{{ t('common.loading') }}</div>
         <div v-else-if="selectedSyncRun" class="space-y-4" data-test="sync-run-detail">
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.success') }}</span><strong>{{ selectedSyncRun.success_configs }}</strong></div>
@@ -706,7 +709,7 @@
       </template>
 
       <template v-else-if="operationsDrawerMode === 'events'">
-        <div v-if="operationsLoading" class="drawer-state">{{ t('common.loading') }}</div>
+        <div v-if="operationLoading.events" class="drawer-state">{{ t('common.loading') }}</div>
         <div v-else class="space-y-5">
           <section v-if="incidents.length" class="space-y-3">
             <h3 class="section-title">{{ t('admin.upstreamConfigs.operations.openIncidents') }}</h3>
@@ -769,7 +772,7 @@
             <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.grossProfit') }}</span><strong>{{ formatCNY(trendTotals.grossProfit) }}</strong></div>
             <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.unconvertedCost') }}</span><strong>{{ formatBalanceAmount(trendTotals.unconvertedCost) }}</strong></div>
           </div>
-          <UpstreamCostTrendChart :points="usageTrend?.points || []" :loading="operationsLoading" />
+          <UpstreamCostTrendChart :points="usageTrend?.points || []" :loading="operationLoading.trend" />
           <p v-if="usageTrend?.legacy_attributed_requests" class="text-xs text-amber-600 dark:text-amber-400">
             {{ t('admin.upstreamConfigs.operations.legacyAttributed', { count: usageTrend.legacy_attributed_requests }) }}
           </p>
@@ -777,7 +780,8 @@
       </template>
 
       <template v-else-if="operationsDrawerMode === 'settings'">
-        <form class="space-y-5" data-test="upstream-settings-form" @submit.prevent="saveUpstreamSettings">
+        <div v-if="operationLoading.settings" class="drawer-state">{{ t('common.loading') }}</div>
+        <form v-else class="space-y-5" data-test="upstream-settings-form" @submit.prevent="saveUpstreamSettings">
           <label class="block space-y-2">
             <span class="input-label">{{ t('admin.upstreamConfigs.settings.lowBalanceThreshold') }}</span>
             <input
@@ -799,7 +803,7 @@
           </div>
         </form>
       </template>
-    </UpstreamOperationsDrawer>
+    </BaseDialog>
 
     <ConfirmDialog
       :show="deleteDialogOpen"
@@ -826,7 +830,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import Icon from '@/components/icons/Icon.vue'
-import UpstreamOperationsDrawer from './upstream/UpstreamOperationsDrawer.vue'
+import UpstreamActionMenu from './upstream/UpstreamActionMenu.vue'
 import UpstreamCostTrendChart from './upstream/UpstreamCostTrendChart.vue'
 import type { Column } from '@/components/common/types'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
@@ -860,6 +864,7 @@ const appStore = useAppStore()
 
 const configs = ref<UpstreamConfig[]>([])
 const operationConfigs = ref<UpstreamConfig[]>([])
+const operationConfigsLoaded = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const syncingAll = ref(false)
@@ -869,6 +874,11 @@ const deletingConfig = ref<UpstreamConfig | null>(null)
 const deleteDialogOpen = ref(false)
 const tokenAssistantOpen = ref(false)
 const busyAction = ref<{ id: number; action: RowAction } | null>(null)
+const actionMenu = reactive<{ show: boolean; anchorEl: HTMLElement | null; config: UpstreamConfig | null }>({
+  show: false,
+  anchorEl: null,
+  config: null
+})
 const search = ref('')
 const provider = ref<string>('')
 const proxies = ref<Proxy[]>([])
@@ -877,7 +887,12 @@ const tokenPaste = ref('')
 const selectedAccessTokenId = ref('')
 const selectedRefreshTokenId = ref('')
 const operationsDrawerMode = ref<OperationsDrawerMode | null>(null)
-const operationsLoading = ref(false)
+const operationLoading = reactive<Record<OperationsDrawerMode, boolean>>({
+  syncRuns: false,
+  events: false,
+  trend: false,
+  settings: false
+})
 const selectedOperationsConfigId = ref<number | null>(null)
 const syncRuns = ref<UpstreamSyncRun[]>([])
 const syncRunsTotal = ref(0)
@@ -893,7 +908,12 @@ const usageTrend = ref<UpstreamUsageTrend | null>(null)
 const upstreamSettings = ref<UpstreamSettings>({ balance_low_threshold_cny: 0 })
 const settingsForm = reactive<UpstreamSettings>({ balance_low_threshold_cny: 0 })
 const settingsSaving = ref(false)
-let operationsRequestId = 0
+const operationGeneration: Record<OperationsDrawerMode, number> = {
+  syncRuns: 0,
+  events: 0,
+  trend: 0,
+  settings: 0
+}
 
 const pagination = reactive({
   page: 1,
@@ -927,7 +947,7 @@ const columns = computed<Column[]>(() => [
   { key: 'auth_mode', label: t('admin.upstreamConfigs.columns.authMode') },
   { key: 'credentials', label: t('admin.upstreamConfigs.columns.credentials') },
   { key: 'last_success_at', label: t('admin.upstreamConfigs.columns.lastSync') },
-  { key: 'actions', label: t('admin.upstreamConfigs.columns.actions') }
+  { key: 'actions', label: t('admin.upstreamConfigs.columns.actions'), class: 'min-w-[220px]' }
 ])
 
 const providerFilterOptions = computed<SelectOption[]>(() => [
@@ -947,6 +967,10 @@ const authModeOptions = computed<SelectOption[]>(() => [
   { value: 'user_login', label: t('admin.upstreamConfigs.authModes.userLogin') },
   { value: 'manual_jwt', label: t('admin.upstreamConfigs.authModes.manualJwt') }
 ])
+
+const operationConfigOptions = computed<SelectOption[]>(() =>
+  operationConfigs.value.map((item) => ({ value: item.id, label: item.name }))
+)
 
 const parsedTokenResult = computed(() => parseUpstreamTokenPaste(tokenPaste.value))
 
@@ -1204,6 +1228,7 @@ async function saveConfig() {
     } else {
       savedConfig = await upstreamAPI.create(payload)
     }
+    operationConfigsLoaded.value = false
     dialogOpen.value = false
     if (savedConfig?.provider === 'sub2api' || savedConfig?.provider === 'newapi') {
       await syncAfterSave(savedConfig.id)
@@ -1325,8 +1350,15 @@ const operationsDrawerSubtitle = computed(() => {
   if (operationsDrawerMode.value === 'syncRuns' && selectedSyncRun.value) {
     return t('admin.upstreamConfigs.operations.runSubtitle', { id: selectedSyncRun.value.id })
   }
+  if (operationsDrawerMode.value !== 'events' && operationsDrawerMode.value !== 'trend') return ''
   const config = operationConfigs.value.find((item) => item.id === selectedOperationsConfigId.value)
   return config?.name || ''
+})
+
+const operationsDialogWidth = computed<'normal' | 'wide' | 'extra-wide'>(() => {
+  if (operationsDrawerMode.value === 'events') return 'wide'
+  if (operationsDrawerMode.value === 'settings') return 'normal'
+  return 'extra-wide'
 })
 
 const trendTotals = computed(() => {
@@ -1350,16 +1382,72 @@ function ensureSelectedOperationsConfig() {
 }
 
 async function ensureOperationConfigs() {
-  if (operationConfigs.value.length) return
-  const response = await upstreamAPI.list(1, 200, {})
-  operationConfigs.value = response.items
+  if (operationConfigsLoaded.value) return
+  const byId = new Map<number, UpstreamConfig>()
+  const pageSize = 200
+  let page = 1
+  let total = Number.POSITIVE_INFINITY
+  while (byId.size < total) {
+    const response = await upstreamAPI.list(page, pageSize, {})
+    for (const item of response.items || []) byId.set(item.id, item)
+    total = response.total || byId.size
+    if (!(response.items || []).length || page * pageSize >= total) break
+    page += 1
+  }
+  operationConfigs.value = [...byId.values()]
+  operationConfigsLoaded.value = true
   ensureSelectedOperationsConfig()
 }
 
 function closeOperationsDrawer() {
-  operationsRequestId += 1
+  if (operationsDrawerMode.value === 'settings' && settingsSaving.value) return
+  for (const mode of Object.keys(operationGeneration) as OperationsDrawerMode[]) {
+    operationGeneration[mode] += 1
+    operationLoading[mode] = false
+  }
   operationsDrawerMode.value = null
   selectedSyncRun.value = null
+}
+
+function openActionMenu(config: UpstreamConfig, event: MouseEvent) {
+  actionMenu.show = true
+  actionMenu.anchorEl = event.currentTarget as HTMLElement
+  actionMenu.config = config
+}
+
+function closeActionMenu() {
+  actionMenu.show = false
+  actionMenu.anchorEl = null
+  actionMenu.config = null
+}
+
+function requestToken(mode: OperationsDrawerMode) {
+  const generation = ++operationGeneration[mode]
+  operationLoading[mode] = true
+  return generation
+}
+
+function requestIsCurrent(mode: OperationsDrawerMode, generation: number) {
+  return operationsDrawerMode.value === mode && operationGeneration[mode] === generation
+}
+
+function clearOperationContent(mode: 'events' | 'trend') {
+  if (mode === 'events') {
+    events.value = []
+    eventsTotal.value = 0
+    incidents.value = []
+    balanceHistory.value = []
+    balanceHistoryTotal.value = 0
+    return
+  }
+  usageTrend.value = null
+}
+
+function handleOperationsConfigChange(mode: 'events' | 'trend') {
+  operationGeneration[mode] += 1
+  clearOperationContent(mode)
+  if (mode === 'events') loadEventsAndIncidents()
+  else loadTrend()
 }
 
 async function openSyncRuns() {
@@ -1369,47 +1457,60 @@ async function openSyncRuns() {
 }
 
 async function loadSyncRuns() {
-  const requestId = ++operationsRequestId
-  operationsLoading.value = true
+  const generation = requestToken('syncRuns')
   try {
     const response = await upstreamAPI.listSyncRuns(50, 0)
-    if (requestId !== operationsRequestId) return
+    if (!requestIsCurrent('syncRuns', generation)) return
     syncRuns.value = response.items
     syncRunsTotal.value = response.total
   } catch (error: any) {
-    if (requestId === operationsRequestId) {
+    if (requestIsCurrent('syncRuns', generation)) {
       appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadSyncRunsFailed')))
     }
   } finally {
-    if (requestId === operationsRequestId) operationsLoading.value = false
+    if (requestIsCurrent('syncRuns', generation)) operationLoading.syncRuns = false
   }
 }
 
 async function loadMoreSyncRuns() {
-  const response = await upstreamAPI.listSyncRuns(50, syncRuns.value.length)
-  syncRuns.value.push(...response.items)
-  syncRunsTotal.value = response.total
+  const generation = operationGeneration.syncRuns
+  const offset = syncRuns.value.length
+  operationLoading.syncRuns = true
+  try {
+    const response = await upstreamAPI.listSyncRuns(50, offset)
+    if (!requestIsCurrent('syncRuns', generation) || syncRuns.value.length !== offset) return
+    syncRuns.value.push(...response.items)
+    syncRunsTotal.value = response.total
+  } finally {
+    if (requestIsCurrent('syncRuns', generation)) operationLoading.syncRuns = false
+  }
 }
 
 async function openSyncRunById(runId: number, silent = false) {
-  const requestId = ++operationsRequestId
-  operationsLoading.value = true
+  const generation = requestToken('syncRuns')
   try {
     const run = await upstreamAPI.getSyncRun(runId)
-    if (requestId === operationsRequestId) selectedSyncRun.value = run
+    if (requestIsCurrent('syncRuns', generation)) selectedSyncRun.value = run
   } catch (error: any) {
-    if (requestId === operationsRequestId && !silent) {
+    if (requestIsCurrent('syncRuns', generation) && !silent) {
       appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadSyncRunFailed')))
     }
   } finally {
-    if (requestId === operationsRequestId) operationsLoading.value = false
+    if (requestIsCurrent('syncRuns', generation)) operationLoading.syncRuns = false
   }
 }
 
 async function openSyncRunFromBatch(runId: number, results: UpstreamSyncResult[]) {
   operationsDrawerMode.value = 'syncRuns'
-  await openSyncRunById(runId, true)
-  if (!selectedSyncRun.value) selectedSyncRun.value = syncRunFromBatch(runId, results)
+  const generation = requestToken('syncRuns')
+  try {
+    const run = await upstreamAPI.getSyncRun(runId)
+    if (requestIsCurrent('syncRuns', generation)) selectedSyncRun.value = run
+  } catch {
+    if (requestIsCurrent('syncRuns', generation)) selectedSyncRun.value = syncRunFromBatch(runId, results)
+  } finally {
+    if (requestIsCurrent('syncRuns', generation)) operationLoading.syncRuns = false
+  }
 }
 
 function syncRunFromBatch(runId: number, results: UpstreamSyncResult[]): UpstreamSyncRun {
@@ -1452,55 +1553,87 @@ function syncRunFromBatch(runId: number, results: UpstreamSyncResult[]): Upstrea
 }
 
 async function openEvents() {
-  await ensureOperationConfigs()
-  ensureSelectedOperationsConfig()
+  const generation = ++operationGeneration.events
   operationsDrawerMode.value = 'events'
+  clearOperationContent('events')
+  await ensureOperationConfigs()
+  if (!requestIsCurrent('events', generation)) return
+  ensureSelectedOperationsConfig()
   await loadEventsAndIncidents()
 }
 
 async function loadEventsAndIncidents() {
   if (!selectedOperationsConfigId.value) return
-  const requestId = ++operationsRequestId
-  operationsLoading.value = true
+  const configId = Number(selectedOperationsConfigId.value)
+  const generation = requestToken('events')
   try {
     const [eventResponse, incidentResponse, balanceResponse] = await Promise.all([
-      upstreamAPI.listEvents(selectedOperationsConfigId.value, 50, 0),
-      upstreamAPI.listIncidents(selectedOperationsConfigId.value, 'open', 50, 0),
-      upstreamAPI.listBalanceHistory(selectedOperationsConfigId.value, 50, 0)
+      upstreamAPI.listEvents(configId, 50, 0),
+      upstreamAPI.listIncidents(configId, 'open', 50, 0),
+      upstreamAPI.listBalanceHistory(configId, 50, 0)
     ])
-    if (requestId !== operationsRequestId) return
+    if (!requestIsCurrent('events', generation) || Number(selectedOperationsConfigId.value) !== configId) return
     events.value = eventResponse.items
     eventsTotal.value = eventResponse.total
     incidents.value = incidentResponse.items
     balanceHistory.value = balanceResponse.items
     balanceHistoryTotal.value = balanceResponse.total
   } catch (error: any) {
-    if (requestId === operationsRequestId) {
+    if (requestIsCurrent('events', generation)) {
       appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadEventsFailed')))
     }
   } finally {
-    if (requestId === operationsRequestId) operationsLoading.value = false
+    if (requestIsCurrent('events', generation)) operationLoading.events = false
   }
 }
 
 async function loadMoreEvents() {
   if (!selectedOperationsConfigId.value) return
-  const response = await upstreamAPI.listEvents(selectedOperationsConfigId.value, 50, events.value.length)
-  events.value.push(...response.items)
-  eventsTotal.value = response.total
+  const configId = Number(selectedOperationsConfigId.value)
+  const generation = operationGeneration.events
+  const offset = events.value.length
+  operationLoading.events = true
+  try {
+    const response = await upstreamAPI.listEvents(configId, 50, offset)
+    if (!requestIsCurrent('events', generation) || Number(selectedOperationsConfigId.value) !== configId || events.value.length !== offset) return
+    events.value.push(...response.items)
+    eventsTotal.value = response.total
+  } finally {
+    if (requestIsCurrent('events', generation)) operationLoading.events = false
+  }
 }
 
 async function loadMoreBalanceHistory() {
   if (!selectedOperationsConfigId.value) return
-  const response = await upstreamAPI.listBalanceHistory(selectedOperationsConfigId.value, 50, balanceHistory.value.length)
-  balanceHistory.value.push(...response.items)
-  balanceHistoryTotal.value = response.total
+  const configId = Number(selectedOperationsConfigId.value)
+  const generation = operationGeneration.events
+  const offset = balanceHistory.value.length
+  operationLoading.events = true
+  try {
+    const response = await upstreamAPI.listBalanceHistory(configId, 50, offset)
+    if (!requestIsCurrent('events', generation) || Number(selectedOperationsConfigId.value) !== configId || balanceHistory.value.length !== offset) return
+    balanceHistory.value.push(...response.items)
+    balanceHistoryTotal.value = response.total
+  } finally {
+    if (requestIsCurrent('events', generation)) operationLoading.events = false
+  }
 }
 
-async function openTrend() {
-  await ensureOperationConfigs()
-  ensureSelectedOperationsConfig()
+async function openTrend(config?: UpstreamConfig) {
+  const generation = ++operationGeneration.trend
   operationsDrawerMode.value = 'trend'
+  clearOperationContent('trend')
+  if (config) {
+    if (!operationConfigs.value.some((item) => item.id === config.id)) {
+      operationConfigs.value = [config, ...operationConfigs.value]
+    }
+    selectedOperationsConfigId.value = config.id
+    await Promise.all([loadTrend(), ensureOperationConfigs()])
+    return
+  }
+  await ensureOperationConfigs()
+  if (!requestIsCurrent('trend', generation)) return
+  ensureSelectedOperationsConfig()
   await loadTrend()
 }
 
@@ -1512,18 +1645,19 @@ function setTrendRange(range: UpstreamTrendRange) {
 
 async function loadTrend() {
   if (!selectedOperationsConfigId.value) return
-  const requestId = ++operationsRequestId
-  operationsLoading.value = true
+  const configId = Number(selectedOperationsConfigId.value)
+  const range = trendRange.value
+  const generation = requestToken('trend')
   try {
-    const response = await upstreamAPI.getUsageTrend(selectedOperationsConfigId.value, trendRange.value)
-    if (requestId === operationsRequestId) usageTrend.value = response
+    const response = await upstreamAPI.getUsageTrend(configId, range)
+    if (requestIsCurrent('trend', generation) && Number(selectedOperationsConfigId.value) === configId && trendRange.value === range) usageTrend.value = response
   } catch (error: any) {
-    if (requestId === operationsRequestId) {
+    if (requestIsCurrent('trend', generation)) {
       usageTrend.value = null
       appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadTrendFailed')))
     }
   } finally {
-    if (requestId === operationsRequestId) operationsLoading.value = false
+    if (requestIsCurrent('trend', generation)) operationLoading.trend = false
   }
 }
 
@@ -1533,27 +1667,37 @@ async function openSettings() {
 }
 
 async function loadSettings(silent: boolean) {
+  const generation = ++operationGeneration.settings
+  if (!silent) operationLoading.settings = true
   try {
     const response = await upstreamAPI.getSettings()
+    if (operationGeneration.settings !== generation) return
+    if (!silent && operationsDrawerMode.value !== 'settings') return
     upstreamSettings.value = response
     settingsForm.balance_low_threshold_cny = response.balance_low_threshold_cny
   } catch (error: any) {
-    if (!silent) appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadSettingsFailed')))
+    if (!silent && requestIsCurrent('settings', generation)) appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadSettingsFailed')))
+  } finally {
+    if (!silent && requestIsCurrent('settings', generation)) operationLoading.settings = false
   }
 }
 
 async function saveUpstreamSettings() {
   if (!Number.isFinite(settingsForm.balance_low_threshold_cny) || settingsForm.balance_low_threshold_cny < 0) return
+  const generation = operationGeneration.settings
   settingsSaving.value = true
   try {
     const response = await upstreamAPI.updateSettings({
       balance_low_threshold_cny: settingsForm.balance_low_threshold_cny
     })
+    if (!requestIsCurrent('settings', generation)) return
     upstreamSettings.value = response
     settingsForm.balance_low_threshold_cny = response.balance_low_threshold_cny
     appStore.showSuccess(t('admin.upstreamConfigs.messages.settingsSaved'))
   } catch (error: any) {
-    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.saveSettingsFailed')))
+    if (requestIsCurrent('settings', generation)) {
+      appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.saveSettingsFailed')))
+    }
   } finally {
     settingsSaving.value = false
   }
@@ -1575,6 +1719,7 @@ async function confirmDelete() {
   deleteDialogOpen.value = false
   try {
     await upstreamAPI.remove(item.id)
+    operationConfigsLoaded.value = false
     appStore.showSuccess(t('admin.upstreamConfigs.messages.deleted'))
     if (configs.value.length <= 1 && pagination.page > 1) {
       pagination.page -= 1
@@ -1928,7 +2073,7 @@ function apiErrorMessage(error: any, fallback: string): string {
 
 <style scoped>
 .table-action-button {
-  @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors;
+  @apply inline-flex h-12 w-12 flex-col items-center justify-center gap-1 rounded-lg text-[11px] leading-none text-gray-500 transition-colors;
   @apply hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50;
   @apply dark:text-dark-300 dark:hover:bg-dark-700;
 }

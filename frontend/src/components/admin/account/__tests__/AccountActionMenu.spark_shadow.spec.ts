@@ -42,7 +42,14 @@ function makeAccount(overrides: Partial<Account>): Account {
   }
 }
 
-const position = { top: 100, left: 100 }
+const mountMenu = (account: Account) => {
+  const anchorEl = document.createElement('button')
+  document.body.appendChild(anchorEl)
+  return mount(AccountActionMenu, {
+    props: { show: true, account, anchorEl },
+    attachTo: document.body,
+  })
+}
 
 // AccountActionMenu uses <Teleport to="body">; content is rendered in document.body, not in wrapper.
 const getBodyText = () => document.body.textContent ?? ''
@@ -51,40 +58,28 @@ const getBodyButtons = () => Array.from(document.body.querySelectorAll('button')
 describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it('OpenAI OAuth 母账号（无 parent_account_id）显示「创建 spark 影子」按钮', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: null })
-    const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
-      attachTo: document.body,
-    })
+    const wrapper = mountMenu(account)
     expect(getBodyText()).toContain('admin.accounts.createSparkShadow')
     wrapper.unmount()
   })
 
   it('影子账号（parent_account_id 非 null）隐藏「创建 spark 影子」按钮', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: 42 })
-    const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
-      attachTo: document.body,
-    })
+    const wrapper = mountMenu(account)
     expect(getBodyText()).not.toContain('admin.accounts.createSparkShadow')
     wrapper.unmount()
   })
 
   it('非 OpenAI 账号隐藏「创建 spark 影子」按钮', () => {
     const account = makeAccount({ platform: 'antigravity', type: 'oauth', parent_account_id: null })
-    const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
-      attachTo: document.body,
-    })
+    const wrapper = mountMenu(account)
     expect(getBodyText()).not.toContain('admin.accounts.createSparkShadow')
     wrapper.unmount()
   })
 
   it('影子账号隐藏凭据/隐私类操作(重授权/刷新token/隐私)— 外审 G4', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: 42 })
-    const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
-      attachTo: document.body,
-    })
+    const wrapper = mountMenu(account)
     const body = getBodyText()
     expect(body).not.toContain('admin.accounts.reAuthorize')
     expect(body).not.toContain('admin.accounts.refreshToken')
@@ -94,10 +89,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
 
   it('普通 OpenAI OAuth 母账号仍显示凭据/隐私类操作', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: null })
-    const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
-      attachTo: document.body,
-    })
+    const wrapper = mountMenu(account)
     const body = getBodyText()
     expect(body).toContain('admin.accounts.reAuthorize')
     expect(body).toContain('admin.accounts.setPrivacy')
@@ -106,10 +98,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
 
   it('点击按钮触发 create-spark-shadow 事件并携带 account', async () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: null })
-    const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
-      attachTo: document.body,
-    })
+    const wrapper = mountMenu(account)
 
     // Content is teleported to body — find button by text there
     const sparkBtn = getBodyButtons().find(b => b.textContent?.includes('admin.accounts.createSparkShadow'))
@@ -121,6 +110,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     const emitted = wrapper.emitted('create-spark-shadow')
     expect(emitted).toBeTruthy()
     expect(emitted![0][0]).toMatchObject({ id: account.id, platform: 'openai' })
+    expect(wrapper.emitted('close')).toHaveLength(1)
 
     wrapper.unmount()
   })

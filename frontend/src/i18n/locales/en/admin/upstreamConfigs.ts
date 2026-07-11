@@ -63,6 +63,7 @@ export default {
       syncRuns: 'Sync Runs',
       events: 'Events',
       costTrend: 'Cost Trend',
+      more: 'More',
       settings: 'Upstream Settings',
       openDashboard: 'Open Upstream Dashboard',
       saving: 'Saving...'
