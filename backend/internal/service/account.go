@@ -51,6 +51,8 @@ type Account struct {
 	ProxyFallbackOriginName *string // 仅展示用
 	UpstreamConfigID        *int64
 	UpstreamKeyID           *int64
+	UpstreamStalePauseKeyID *int64
+	UpstreamStalePausedAt   *time.Time
 	Concurrency             int
 	Priority                int
 	// RateMultiplier 账号计费倍率（>=0，允许 0 表示该账号计费为 0）。

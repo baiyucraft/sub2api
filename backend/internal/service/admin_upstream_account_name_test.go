@@ -211,6 +211,47 @@ func TestNormalizeUpstreamAccountUpdateValidatesFinalTypeAndBinding(t *testing.T
 	require.Equal(t, "UPSTREAM_ACCOUNT_TYPE_INVALID", infraerrors.Reason(err))
 }
 
+func TestNormalizeUpstreamAccountRejectsAndPreservesStaleBindings(t *testing.T) {
+	cfgID := int64(10)
+	staleKeyID := int64(20)
+	otherStaleKeyID := int64(21)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "config", UpstreamProviderSub2API, StatusActive, "https://upstream.example.com")},
+		keys: []UpstreamKey{
+			{ID: staleKeyID, UpstreamConfigID: cfgID, Name: "stale", Platform: PlatformOpenAI, Status: UpstreamKeyStatusStale},
+			{ID: otherStaleKeyID, UpstreamConfigID: cfgID, Name: "other-stale", Platform: PlatformOpenAI, Status: UpstreamKeyStatusStale},
+		},
+	}
+	svc := &adminServiceImpl{upstreamConfigRepo: repo}
+
+	createErr := svc.normalizeUpstreamAccountInput(context.Background(), &CreateAccountInput{
+		Type:             AccountTypeAPIKey,
+		Platform:         PlatformOpenAI,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &staleKeyID,
+	})
+	require.Error(t, createErr)
+	require.Equal(t, "UPSTREAM_KEY_INACTIVE", infraerrors.Reason(createErr))
+
+	account := &Account{
+		ID:               1,
+		Name:             "config-stale",
+		Type:             AccountTypeAPIKey,
+		Platform:         PlatformOpenAI,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &staleKeyID,
+	}
+	require.NoError(t, svc.normalizeUpstreamAccountUpdate(context.Background(), account, &UpdateAccountInput{}))
+	require.Equal(t, "config-stale", account.Name)
+
+	switchErr := svc.normalizeUpstreamAccountUpdate(context.Background(), account, &UpdateAccountInput{
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &otherStaleKeyID,
+	})
+	require.Error(t, switchErr)
+	require.Equal(t, "UPSTREAM_KEY_INACTIVE", infraerrors.Reason(switchErr))
+}
+
 type accountNameCreateRepo struct {
 	AccountRepository
 	createCalls int

@@ -124,6 +124,9 @@ func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, in
 	if err != nil {
 		return err
 	}
+	if !upstreamKeyIsActive(key) {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_INACTIVE", "upstream key is not active")
+	}
 	autoName, err := buildUpstreamAccountName(cfg.Name, key.Name)
 	if err != nil {
 		return err
@@ -184,6 +187,9 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 	if err != nil {
 		return err
 	}
+	if !upstreamKeyIsActive(key) && (account.UpstreamKeyID == nil || *account.UpstreamKeyID != key.ID) {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_INACTIVE", "upstream key is not active")
+	}
 	if strings.TrimSpace(key.Platform) != "" && strings.TrimSpace(account.Platform) != "" && !strings.EqualFold(strings.TrimSpace(account.Platform), strings.TrimSpace(key.Platform)) {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_MISMATCH", "upstream key platform does not match account platform")
 	}
@@ -206,6 +212,10 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 	account.Proxy = nil
 	input.ProxyID = nil
 	return nil
+}
+
+func upstreamKeyIsActive(key *UpstreamKey) bool {
+	return key != nil && (strings.TrimSpace(key.Status) == "" || key.Status == StatusActive)
 }
 
 func clearUpstreamAccountBinding(account *Account, input *UpdateAccountInput) {

@@ -498,6 +498,44 @@ func TestSub2APIUpstreamRateSync_HiddenKeyFailsWithoutSecretInError(t *testing.T
 	require.Contains(t, errText, "complete keys")
 }
 
+func TestFetchSub2APIKeysRejectsIncompleteAndRepeatingPages(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload func(page string) string
+		wantErr string
+	}{
+		{
+			name: "total exceeds returned items",
+			payload: func(string) string {
+				return `{"code":0,"data":{"items":[{"id":1,"key":"sk-one"}],"total":2,"page":1,"page_size":100,"pages":1}}`
+			},
+			wantErr: "incomplete",
+		},
+		{
+			name: "repeating page makes no progress",
+			payload: func(string) string {
+				return `{"code":0,"data":{"items":[{"id":1,"key":"sk-one"}],"total":2,"page":1,"page_size":100,"pages":2}}`
+			},
+			wantErr: "no progress",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tt.payload(r.URL.Query().Get("page"))))
+			}))
+			defer server.Close()
+
+			svc := &Sub2APIUpstreamRateSyncService{}
+			_, err := svc.fetchSub2APIKeysFromPath(context.Background(), server.Client(), server.URL, "jwt", "/api/v1/keys")
+
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestSub2APIUpstreamRateSync_DuplicateKeyFails(t *testing.T) {
 	rate := 0.1
 	session := &sub2APIUserLoginSession{keys: []sub2APIUpstreamKey{

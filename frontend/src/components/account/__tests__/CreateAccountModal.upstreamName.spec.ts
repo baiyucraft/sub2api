@@ -191,12 +191,17 @@ const activeConfig = (id: number, name: string) => ({
   updated_at: '2026-07-10T00:00:00Z'
 })
 
-const upstreamKey = (id: number, configID: number, name: string) => ({
+const upstreamKey = (
+  id: number,
+  configID: number,
+  name: string,
+  status: 'active' | 'stale' = 'active'
+) => ({
   id,
   upstream_config_id: configID,
   name,
   platform: 'anthropic',
-  status: 'active',
+  status,
   created_at: '2026-07-10T00:00:00Z',
   updated_at: '2026-07-10T00:00:00Z'
 })
@@ -312,6 +317,49 @@ describe('CreateAccountModal upstream account name', () => {
 
     expect(createAccountMock).not.toHaveBeenCalled()
     expect(showErrorMock).toHaveBeenCalledWith('上游 Key 缺少名称，请先在上游命名并同步')
+  })
+
+  it('only allows selecting active upstream keys', async () => {
+    upstreamConfigKeysListMock.mockResolvedValue([
+      upstreamKey(10, 1, '已失效 Key', 'stale'),
+      upstreamKey(11, 1, '可用 Key')
+    ])
+    const wrapper = await mountOpenedModal()
+
+    await wrapper.get('[data-testid="upstream-config-select"]').setValue('1')
+    await flushPromises()
+
+    const selector = wrapper.getComponent(UpstreamKeySelectorStub)
+    expect(selector.props('keys')).toEqual([
+      expect.objectContaining({ id: 11, status: 'active' })
+    ])
+
+    await wrapper.get('[data-testid="upstream-key-selector"]').trigger('click')
+    await wrapper.get('#create-account-form').trigger('submit')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      upstream_key_id: 11
+    }))
+  })
+
+  it('blocks submission when only stale upstream keys exist', async () => {
+    upstreamConfigKeysListMock.mockResolvedValue([
+      upstreamKey(10, 1, '已失效 Key', 'stale')
+    ])
+    const wrapper = await mountOpenedModal()
+
+    await wrapper.get('[data-testid="upstream-config-select"]').setValue('1')
+    await flushPromises()
+
+    expect(wrapper.getComponent(UpstreamKeySelectorStub).props('keys')).toEqual([])
+    expect(wrapper.find('[data-testid="select-first-upstream-key"]').exists()).toBe(false)
+
+    await wrapper.get('#create-account-form').trigger('submit')
+    await flushPromises()
+
+    expect(createAccountMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith('请选择上游 Key')
   })
 
   it('ignores a stale key response after switching configs', async () => {

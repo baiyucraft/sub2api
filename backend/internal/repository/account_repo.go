@@ -118,6 +118,12 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	if account.UpstreamKeyID != nil {
 		builder.SetUpstreamKeyID(*account.UpstreamKeyID)
 	}
+	if account.UpstreamStalePauseKeyID != nil {
+		builder.SetUpstreamStalePauseKeyID(*account.UpstreamStalePauseKeyID)
+	}
+	if account.UpstreamStalePausedAt != nil {
+		builder.SetUpstreamStalePausedAt(*account.UpstreamStalePausedAt)
+	}
 	if account.LastUsedAt != nil {
 		builder.SetLastUsedAt(*account.LastUsedAt)
 	}
@@ -361,6 +367,16 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 		builder.SetUpstreamKeyID(*account.UpstreamKeyID)
 	} else {
 		builder.ClearUpstreamKeyID()
+	}
+	if account.UpstreamStalePauseKeyID != nil {
+		builder.SetUpstreamStalePauseKeyID(*account.UpstreamStalePauseKeyID)
+	} else {
+		builder.ClearUpstreamStalePauseKeyID()
+	}
+	if account.UpstreamStalePausedAt != nil {
+		builder.SetUpstreamStalePausedAt(*account.UpstreamStalePausedAt)
+	} else {
+		builder.ClearUpstreamStalePausedAt()
 	}
 	if account.LastUsedAt != nil {
 		builder.SetLastUsedAt(*account.LastUsedAt)
@@ -1511,6 +1527,8 @@ func (r *accountRepository) SetSchedulable(ctx context.Context, id int64, schedu
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetSchedulable(schedulable).
+		ClearUpstreamStalePauseKeyID().
+		ClearUpstreamStalePausedAt().
 		Save(ctx)
 	if err != nil {
 		return err
@@ -1678,6 +1696,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		setClauses = append(setClauses, "schedulable = $"+itoa(idx))
 		args = append(args, *updates.Schedulable)
 		idx++
+		setClauses = append(setClauses, "upstream_stale_pause_key_id = NULL", "upstream_stale_paused_at = NULL")
 	}
 	// JSONB 需要合并而非覆盖，使用 raw SQL 保持旧行为。
 	if len(updates.Credentials) > 0 {
@@ -2155,6 +2174,8 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		ProxyFallbackOriginID:   m.ProxyFallbackOriginID,
 		UpstreamConfigID:        m.UpstreamConfigID,
 		UpstreamKeyID:           m.UpstreamKeyID,
+		UpstreamStalePauseKeyID: m.UpstreamStalePauseKeyID,
+		UpstreamStalePausedAt:   m.UpstreamStalePausedAt,
 		Concurrency:             m.Concurrency,
 		Priority:                m.Priority,
 		RateMultiplier:          &rateMultiplier,

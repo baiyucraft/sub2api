@@ -443,6 +443,8 @@ func sanitizeUpstreamKey(key *service.UpstreamKey) gin.H {
 		"effective_cost_multiplier": key.EffectiveCostMultiplier,
 		"status":                    key.Status,
 		"last_seen_at":              key.LastSeenAt,
+		"missing_count":             key.MissingCount,
+		"missing_since":             key.MissingSince,
 		"extra":                     redactedUpstreamExtra(key.Extra),
 		"created_at":                key.CreatedAt,
 		"updated_at":                key.UpdatedAt,

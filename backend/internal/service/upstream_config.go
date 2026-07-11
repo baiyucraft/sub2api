@@ -81,6 +81,8 @@ type UpstreamKey struct {
 	EffectiveCostMultiplier *float64
 	Status                  string
 	LastSeenAt              *time.Time
+	MissingCount            int
+	MissingSince            *time.Time
 	Extra                   map[string]any
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
@@ -125,6 +127,10 @@ type UpstreamConfigSyncResult struct {
 	FallbackKeyCount    int      `json:"fallback_key_count,omitempty"`
 	UnresolvedKeyCount  int      `json:"unresolved_key_count,omitempty"`
 	UpdatedAccountCount int      `json:"updated_account_count"`
+	MissingKeyCount     int      `json:"missing_key_count,omitempty"`
+	StaleKeyCount       int      `json:"stale_key_count,omitempty"`
+	DeletedKeyCount     int      `json:"deleted_key_count,omitempty"`
+	RestoredKeyCount    int      `json:"restored_key_count,omitempty"`
 	Warnings            []string `json:"warnings,omitempty"`
 	DurationMS          int64    `json:"duration_ms,omitempty"`
 	Error               string   `json:"error,omitempty"`
@@ -140,8 +146,21 @@ type UpstreamAccountNameBackfillItem struct {
 }
 
 type upstreamConfigAtomicSyncRepository interface {
-	ApplySyncSnapshot(ctx context.Context, configID, runID int64, keys []UpstreamKey, extraUpdates map[string]any, checkedAt time.Time) ([]UpstreamKey, int, error)
+	ApplySyncSnapshot(ctx context.Context, configID, runID int64, keys []UpstreamKey, extraUpdates map[string]any, checkedAt time.Time, complete bool) ([]UpstreamKey, UpstreamKeyReconcileResult, int, error)
 }
+
+type upstreamMaskedKeyFallbackRepository interface {
+	ListKeysForMaskedFallback(ctx context.Context, upstreamConfigID int64, remoteKeyIDs []int64) ([]UpstreamKey, error)
+}
+
+type UpstreamKeyReconcileResult struct {
+	Missing  int
+	Stale    int
+	Deleted  int
+	Restored int
+}
+
+const UpstreamKeyStatusStale = "stale"
 
 type upstreamConfigSyncLockRepository interface {
 	WithUpstreamConfigSyncLock(ctx context.Context, configID int64, fn func(context.Context) error) error
@@ -154,6 +173,7 @@ type upstreamAccountNameBackfillRepository interface {
 
 type upstreamProviderSnapshot struct {
 	Keys               []UpstreamKey
+	KeysComplete       bool
 	RefreshedTokens    *sub2APIRefreshData
 	ExtraUpdates       map[string]any
 	Partial            bool
@@ -595,7 +615,8 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 	}
 	result.KeyCount = len(keys)
 	if atomicRepo, ok := s.repo.(upstreamConfigAtomicSyncRepository); ok {
-		localKeys, updated, applyErr := atomicRepo.ApplySyncSnapshot(ctx, cfg.ID, runID, keys, snapshot.ExtraUpdates, time.Now().UTC())
+		complete := snapshot.KeysComplete && snapshot.UnresolvedKeyCount == 0
+		localKeys, reconciled, updated, applyErr := atomicRepo.ApplySyncSnapshot(ctx, cfg.ID, runID, keys, snapshot.ExtraUpdates, time.Now().UTC(), complete)
 		if applyErr != nil {
 			result.Error = adapter.SanitizeError(applyErr, cfg.Credentials)
 			result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(applyErr, "persist")
@@ -603,6 +624,10 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 			return nil, result, applyErr
 		}
 		result.UpdatedAccountCount = updated
+		result.MissingKeyCount = reconciled.Missing
+		result.StaleKeyCount = reconciled.Stale
+		result.DeletedKeyCount = reconciled.Deleted
+		result.RestoredKeyCount = reconciled.Restored
 		result.Success = true
 		result.Status = UpstreamSyncStatusSucceeded
 		if snapshot.Partial || len(snapshot.Warnings) > 0 || snapshot.UnresolvedKeyCount > 0 {
@@ -650,9 +675,24 @@ func (s *UpstreamConfigService) resolveMaskedSnapshotKeys(ctx context.Context, c
 	if s == nil || cfg == nil || snapshot == nil || len(snapshot.Keys) == 0 {
 		return
 	}
-	existing, err := s.repo.ListKeys(ctx, cfg.ID)
+	remoteKeyIDs := make([]int64, 0, len(snapshot.Keys))
+	for _, key := range snapshot.Keys {
+		if (strings.TrimSpace(key.Key) == "" || isMaskedUpstreamKey(key.Key)) && key.RemoteKeyID != nil {
+			remoteKeyIDs = append(remoteKeyIDs, *key.RemoteKeyID)
+		}
+	}
+	var (
+		existing []UpstreamKey
+		err      error
+	)
+	if fallbackRepo, ok := s.repo.(upstreamMaskedKeyFallbackRepository); ok {
+		existing, err = fallbackRepo.ListKeysForMaskedFallback(ctx, cfg.ID, remoteKeyIDs)
+	} else {
+		existing, err = s.repo.ListKeys(ctx, cfg.ID)
+	}
 	if err != nil {
 		snapshot.Partial = true
+		snapshot.KeysComplete = false
 		snapshot.Warnings = append(snapshot.Warnings, "failed to load local keys for masked-key fallback")
 		return
 	}
@@ -680,6 +720,7 @@ func (s *UpstreamConfigService) resolveMaskedSnapshotKeys(ctx context.Context, c
 		}
 		snapshot.UnresolvedKeyCount++
 		snapshot.Partial = true
+		snapshot.KeysComplete = false
 	}
 	if snapshot.UnresolvedKeyCount > 0 {
 		snapshot.Warnings = append(snapshot.Warnings, fmt.Sprintf("%d masked upstream keys could not be resolved", snapshot.UnresolvedKeyCount))
@@ -1040,6 +1081,7 @@ func (sub2APIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Ups
 	}
 	out := &upstreamProviderSnapshot{
 		Keys:            snapshot.Keys,
+		KeysComplete:    snapshot.KeysComplete,
 		RefreshedTokens: snapshot.RefreshedTokens,
 	}
 	if err == nil && includeProfile {

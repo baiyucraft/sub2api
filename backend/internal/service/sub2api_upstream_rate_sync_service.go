@@ -155,7 +155,7 @@ func sub2APIJWTExpiresAt(token string) *time.Time {
 
 type sub2APIKeyListData struct {
 	Items    []sub2APIUpstreamKey `json:"items"`
-	Total    int64                `json:"total"`
+	Total    *int64               `json:"total"`
 	Page     int                  `json:"page"`
 	PageSize int                  `json:"page_size"`
 	Pages    int                  `json:"pages"`
@@ -175,9 +175,10 @@ type sub2APIUpstreamKey struct {
 }
 
 type sub2APIUserLoginSession struct {
-	keys        []sub2APIUpstreamKey
-	groupRates  map[int64]sub2APIGroupRateInfo
-	accessToken string
+	keys         []sub2APIUpstreamKey
+	keysComplete bool
+	groupRates   map[int64]sub2APIGroupRateInfo
+	accessToken  string
 }
 
 type sub2APIGroupRateInfo struct {
@@ -198,6 +199,7 @@ type sub2APIProfile struct {
 
 type sub2APIUpstreamSnapshot struct {
 	Keys            []UpstreamKey
+	KeysComplete    bool
 	Profile         *sub2APIProfile
 	ProfileErr      error
 	RefreshedTokens *sub2APIRefreshData
@@ -552,10 +554,7 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 	out := make([]UpstreamKey, 0, len(session.keys))
 	for _, upstreamKey := range session.keys {
 		key := strings.TrimSpace(upstreamKey.Key)
-		if key == "" || strings.Contains(key, "*") {
-			continue
-		}
-		rate, _, err := resolveSub2APIEffectiveRate(key, session)
+		rate, err := resolveSub2APIKeyRate(upstreamKey, session.groupRates)
 		if err != nil {
 			return snapshot, err
 		}
@@ -610,6 +609,7 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 		})
 	}
 	snapshot.Keys = out
+	snapshot.KeysComplete = session.keysComplete
 	if includeProfile {
 		client, clientErr := sub2APIHTTPClient(target.proxyURL)
 		if clientErr != nil {
@@ -652,7 +652,7 @@ func sanitizeStandaloneSub2APIError(err error, credentials map[string]any) strin
 }
 
 func (s *Sub2APIUpstreamRateSyncService) fetchSessionWithToken(ctx context.Context, client *http.Client, rootURL, token string) (*sub2APIUserLoginSession, error) {
-	keys, err := s.fetchSub2APIKeys(ctx, client, rootURL, token)
+	keys, keysComplete, err := s.fetchSub2APIKeys(ctx, client, rootURL, token)
 	if err != nil {
 		return nil, err
 	}
@@ -663,7 +663,7 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSessionWithToken(ctx context.Conte
 		}
 		log.Printf("[Sub2APIRateSync] group rate table unavailable, falling back to key group rate: base_url=%s err=%v", rootURL, logredact.RedactText(err.Error(), "api_key", "jwt", "authorization", "refresh_token", "access_token"))
 	}
-	return &sub2APIUserLoginSession{keys: keys, groupRates: groupRates, accessToken: strings.TrimSpace(token)}, nil
+	return &sub2APIUserLoginSession{keys: keys, keysComplete: keysComplete, groupRates: groupRates, accessToken: strings.TrimSpace(token)}, nil
 }
 
 func (t sub2APISyncTarget) groupKey() string {
@@ -771,16 +771,18 @@ func (s *Sub2APIUpstreamRateSyncService) saveRefreshedSub2APITokens(ctx context.
 	return nil
 }
 
-func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIKeys(ctx context.Context, client *http.Client, rootURL, token string) ([]sub2APIUpstreamKey, error) {
+func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIKeys(ctx context.Context, client *http.Client, rootURL, token string) ([]sub2APIUpstreamKey, bool, error) {
 	keys, err := s.fetchSub2APIKeysFromPath(ctx, client, rootURL, token, sub2APIKeysPath)
 	if errors.Is(err, errSub2APIEndpointNotFound) {
-		return s.fetchSub2APIKeysFromPath(ctx, client, rootURL, token, sub2APIKeysFallback)
+		keys, err = s.fetchSub2APIKeysFromPath(ctx, client, rootURL, token, sub2APIKeysFallback)
 	}
-	return keys, err
+	return keys, err == nil, err
 }
 
 func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIKeysFromPath(ctx context.Context, client *http.Client, rootURL, token, path string) ([]sub2APIUpstreamKey, error) {
 	out := make([]sub2APIUpstreamKey, 0)
+	seenIDs := make(map[int64]struct{})
+	var expectedTotal int64 = -1
 	for page := 1; page <= sub2APIMaxKeyListPages; page++ {
 		endpoint, err := buildSub2APIURL(rootURL, path)
 		if err != nil {
@@ -817,20 +819,77 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIKeysFromPath(ctx context.Co
 		if payload.Code != 0 {
 			return nil, fmt.Errorf("list api keys failed: code %d%s", payload.Code, safeEnvelopeReason(payload.Reason))
 		}
-		out = append(out, payload.Data.Items...)
+		if payload.Data.Total != nil && *payload.Data.Total >= 0 {
+			if expectedTotal >= 0 && *payload.Data.Total != expectedTotal {
+				return nil, fmt.Errorf("api key list total changed across pages")
+			}
+			expectedTotal = *payload.Data.Total
+		}
+		newIDs := 0
+		for _, item := range payload.Data.Items {
+			if item.ID <= 0 {
+				return nil, fmt.Errorf("api key list contains invalid key id")
+			}
+			if _, exists := seenIDs[item.ID]; exists {
+				continue
+			}
+			seenIDs[item.ID] = struct{}{}
+			out = append(out, item)
+			newIDs++
+		}
+		if len(payload.Data.Items) > 0 && newIDs == 0 {
+			return nil, fmt.Errorf("api key list pagination made no progress")
+		}
+		if expectedTotal >= 0 && int64(len(out)) >= expectedTotal {
+			if int64(len(out)) != expectedTotal {
+				return nil, fmt.Errorf("api key list unique count exceeds total")
+			}
+			return out, nil
+		}
 
 		pages := payload.Data.Pages
 		if pages > 0 {
 			if page >= pages {
+				if expectedTotal >= 0 && int64(len(out)) != expectedTotal {
+					return nil, fmt.Errorf("api key list incomplete: got %d of %d", len(out), expectedTotal)
+				}
 				return out, nil
 			}
 			continue
 		}
 		if len(payload.Data.Items) < sub2APIKeysPageSize {
+			if expectedTotal >= 0 && int64(len(out)) != expectedTotal {
+				return nil, fmt.Errorf("api key list incomplete: got %d of %d", len(out), expectedTotal)
+			}
 			return out, nil
 		}
 	}
 	return nil, fmt.Errorf("api key list exceeded max pages")
+}
+
+func resolveSub2APIKeyRate(key sub2APIUpstreamKey, rates map[int64]sub2APIGroupRateInfo) (float64, error) {
+	groupID := effectiveSub2APIGroupID(key)
+	if groupID != nil {
+		if info, ok := rates[*groupID]; ok {
+			if info.HasDedicatedMultiplier && info.DedicatedMultiplier != nil {
+				return validateSub2APIRate(*info.DedicatedMultiplier)
+			}
+			if info.DefaultMultiplier != nil {
+				return validateSub2APIRate(*info.DefaultMultiplier)
+			}
+		}
+	}
+	if key.Group != nil && key.Group.RateMultiplier != nil {
+		return validateSub2APIRate(*key.Group.RateMultiplier)
+	}
+	return 0, fmt.Errorf("api key group has no valid rate multiplier")
+}
+
+func validateSub2APIRate(rate float64) (float64, error) {
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 {
+		return 0, fmt.Errorf("invalid rate multiplier")
+	}
+	return rate, nil
 }
 
 func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIMergedGroupRates(ctx context.Context, client *http.Client, rootURL, token string) (map[int64]sub2APIGroupRateInfo, error) {

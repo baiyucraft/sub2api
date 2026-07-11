@@ -32,7 +32,16 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "accounts", "rate_limit_reset_at", "timestamp with time zone", 0, true)
 	requireColumn(t, tx, "accounts", "overload_until", "timestamp with time zone", 0, true)
 	requireColumn(t, tx, "accounts", "session_window_status", "character varying", 20, true)
+	requireColumn(t, tx, "accounts", "upstream_stale_pause_key_id", "bigint", 0, true)
+	requireColumn(t, tx, "accounts", "upstream_stale_paused_at", "timestamp with time zone", 0, true)
 	requireIndex(t, tx, "accounts", "idx_accounts_autopause_expiry_due")
+	requireIndex(t, tx, "accounts", "idx_accounts_upstream_stale_pause_key")
+	requireTrigger(t, tx, "accounts", "trg_validate_account_upstream_key_binding")
+
+	// upstream_keys: missing-state reconciliation for authoritative snapshots
+	requireColumn(t, tx, "upstream_keys", "missing_count", "integer", 0, false)
+	requireColumn(t, tx, "upstream_keys", "missing_since", "timestamp with time zone", 0, true)
+	requireIndex(t, tx, "upstream_keys", "idx_upstream_keys_config_missing")
 
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)
@@ -175,6 +184,26 @@ SELECT EXISTS (
 `, table, index).Scan(&exists)
 	require.NoError(t, err, "query pg_indexes for %s.%s", table, index)
 	require.True(t, exists, "expected index %s on %s", index, table)
+}
+
+func requireTrigger(t *testing.T, tx *sql.Tx, table, trigger string) {
+	t.Helper()
+
+	var exists bool
+	err := tx.QueryRowContext(context.Background(), `
+SELECT EXISTS (
+	SELECT 1
+	FROM pg_trigger trg
+	JOIN pg_class tbl ON tbl.oid = trg.tgrelid
+	JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+	WHERE ns.nspname = 'public'
+	  AND tbl.relname = $1
+	  AND trg.tgname = $2
+	  AND NOT trg.tgisinternal
+)
+`, table, trigger).Scan(&exists)
+	require.NoError(t, err, "query trigger %s on %s", trigger, table)
+	require.True(t, exists, "expected trigger %s on %s", trigger, table)
 }
 
 func requireIndexAbsent(t *testing.T, tx *sql.Tx, table, index string) {

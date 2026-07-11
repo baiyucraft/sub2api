@@ -3801,6 +3801,7 @@ const filteredUpstreamKeys = computed(() =>
     const keyPlatform = (key.platform || '').trim()
     return (
       key.upstream_config_id === selectedUpstreamConfigId.value &&
+      key.status === 'active' &&
       (!keyPlatform || keyPlatform === form.platform)
     )
   })

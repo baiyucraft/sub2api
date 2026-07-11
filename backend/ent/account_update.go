@@ -221,6 +221,53 @@ func (_u *AccountUpdate) ClearUpstreamKeyID() *AccountUpdate {
 	return _u
 }
 
+// SetUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field.
+func (_u *AccountUpdate) SetUpstreamStalePauseKeyID(v int64) *AccountUpdate {
+	_u.mutation.ResetUpstreamStalePauseKeyID()
+	_u.mutation.SetUpstreamStalePauseKeyID(v)
+	return _u
+}
+
+// SetNillableUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableUpstreamStalePauseKeyID(v *int64) *AccountUpdate {
+	if v != nil {
+		_u.SetUpstreamStalePauseKeyID(*v)
+	}
+	return _u
+}
+
+// AddUpstreamStalePauseKeyID adds value to the "upstream_stale_pause_key_id" field.
+func (_u *AccountUpdate) AddUpstreamStalePauseKeyID(v int64) *AccountUpdate {
+	_u.mutation.AddUpstreamStalePauseKeyID(v)
+	return _u
+}
+
+// ClearUpstreamStalePauseKeyID clears the value of the "upstream_stale_pause_key_id" field.
+func (_u *AccountUpdate) ClearUpstreamStalePauseKeyID() *AccountUpdate {
+	_u.mutation.ClearUpstreamStalePauseKeyID()
+	return _u
+}
+
+// SetUpstreamStalePausedAt sets the "upstream_stale_paused_at" field.
+func (_u *AccountUpdate) SetUpstreamStalePausedAt(v time.Time) *AccountUpdate {
+	_u.mutation.SetUpstreamStalePausedAt(v)
+	return _u
+}
+
+// SetNillableUpstreamStalePausedAt sets the "upstream_stale_paused_at" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableUpstreamStalePausedAt(v *time.Time) *AccountUpdate {
+	if v != nil {
+		_u.SetUpstreamStalePausedAt(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamStalePausedAt clears the value of the "upstream_stale_paused_at" field.
+func (_u *AccountUpdate) ClearUpstreamStalePausedAt() *AccountUpdate {
+	_u.mutation.ClearUpstreamStalePausedAt()
+	return _u
+}
+
 // SetConcurrency sets the "concurrency" field.
 func (_u *AccountUpdate) SetConcurrency(v int) *AccountUpdate {
 	_u.mutation.ResetConcurrency()
@@ -942,6 +989,21 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.ProxyFallbackOriginIDCleared() {
 		_spec.ClearField(account.FieldProxyFallbackOriginID, field.TypeInt64)
 	}
+	if value, ok := _u.mutation.UpstreamStalePauseKeyID(); ok {
+		_spec.SetField(account.FieldUpstreamStalePauseKeyID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamStalePauseKeyID(); ok {
+		_spec.AddField(account.FieldUpstreamStalePauseKeyID, field.TypeInt64, value)
+	}
+	if _u.mutation.UpstreamStalePauseKeyIDCleared() {
+		_spec.ClearField(account.FieldUpstreamStalePauseKeyID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UpstreamStalePausedAt(); ok {
+		_spec.SetField(account.FieldUpstreamStalePausedAt, field.TypeTime, value)
+	}
+	if _u.mutation.UpstreamStalePausedAtCleared() {
+		_spec.ClearField(account.FieldUpstreamStalePausedAt, field.TypeTime)
+	}
 	if value, ok := _u.mutation.Concurrency(); ok {
 		_spec.SetField(account.FieldConcurrency, field.TypeInt, value)
 	}
@@ -1559,6 +1621,53 @@ func (_u *AccountUpdateOne) SetNillableUpstreamKeyID(v *int64) *AccountUpdateOne
 // ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
 func (_u *AccountUpdateOne) ClearUpstreamKeyID() *AccountUpdateOne {
 	_u.mutation.ClearUpstreamKeyID()
+	return _u
+}
+
+// SetUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field.
+func (_u *AccountUpdateOne) SetUpstreamStalePauseKeyID(v int64) *AccountUpdateOne {
+	_u.mutation.ResetUpstreamStalePauseKeyID()
+	_u.mutation.SetUpstreamStalePauseKeyID(v)
+	return _u
+}
+
+// SetNillableUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableUpstreamStalePauseKeyID(v *int64) *AccountUpdateOne {
+	if v != nil {
+		_u.SetUpstreamStalePauseKeyID(*v)
+	}
+	return _u
+}
+
+// AddUpstreamStalePauseKeyID adds value to the "upstream_stale_pause_key_id" field.
+func (_u *AccountUpdateOne) AddUpstreamStalePauseKeyID(v int64) *AccountUpdateOne {
+	_u.mutation.AddUpstreamStalePauseKeyID(v)
+	return _u
+}
+
+// ClearUpstreamStalePauseKeyID clears the value of the "upstream_stale_pause_key_id" field.
+func (_u *AccountUpdateOne) ClearUpstreamStalePauseKeyID() *AccountUpdateOne {
+	_u.mutation.ClearUpstreamStalePauseKeyID()
+	return _u
+}
+
+// SetUpstreamStalePausedAt sets the "upstream_stale_paused_at" field.
+func (_u *AccountUpdateOne) SetUpstreamStalePausedAt(v time.Time) *AccountUpdateOne {
+	_u.mutation.SetUpstreamStalePausedAt(v)
+	return _u
+}
+
+// SetNillableUpstreamStalePausedAt sets the "upstream_stale_paused_at" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableUpstreamStalePausedAt(v *time.Time) *AccountUpdateOne {
+	if v != nil {
+		_u.SetUpstreamStalePausedAt(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamStalePausedAt clears the value of the "upstream_stale_paused_at" field.
+func (_u *AccountUpdateOne) ClearUpstreamStalePausedAt() *AccountUpdateOne {
+	_u.mutation.ClearUpstreamStalePausedAt()
 	return _u
 }
 
@@ -2312,6 +2421,21 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if _u.mutation.ProxyFallbackOriginIDCleared() {
 		_spec.ClearField(account.FieldProxyFallbackOriginID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UpstreamStalePauseKeyID(); ok {
+		_spec.SetField(account.FieldUpstreamStalePauseKeyID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamStalePauseKeyID(); ok {
+		_spec.AddField(account.FieldUpstreamStalePauseKeyID, field.TypeInt64, value)
+	}
+	if _u.mutation.UpstreamStalePauseKeyIDCleared() {
+		_spec.ClearField(account.FieldUpstreamStalePauseKeyID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UpstreamStalePausedAt(); ok {
+		_spec.SetField(account.FieldUpstreamStalePausedAt, field.TypeTime, value)
+	}
+	if _u.mutation.UpstreamStalePausedAtCleared() {
+		_spec.ClearField(account.FieldUpstreamStalePausedAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.Concurrency(); ok {
 		_spec.SetField(account.FieldConcurrency, field.TypeInt, value)

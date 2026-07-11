@@ -2294,67 +2294,70 @@ func (m *APIKeyMutation) ResetEdge(name string) error {
 // AccountMutation represents an operation that mutates the Account nodes in the graph.
 type AccountMutation struct {
 	config
-	op                          Op
-	typ                         string
-	id                          *int64
-	created_at                  *time.Time
-	updated_at                  *time.Time
-	deleted_at                  *time.Time
-	name                        *string
-	notes                       *string
-	platform                    *string
-	_type                       *string
-	credentials                 *map[string]interface{}
-	extra                       *map[string]interface{}
-	proxy_fallback_origin_id    *int64
-	addproxy_fallback_origin_id *int64
-	concurrency                 *int
-	addconcurrency              *int
-	load_factor                 *int
-	addload_factor              *int
-	priority                    *int
-	addpriority                 *int
-	rate_multiplier             *float64
-	addrate_multiplier          *float64
-	status                      *string
-	error_message               *string
-	last_used_at                *time.Time
-	expires_at                  *time.Time
-	auto_pause_on_expired       *bool
-	schedulable                 *bool
-	rate_limited_at             *time.Time
-	rate_limit_reset_at         *time.Time
-	overload_until              *time.Time
-	temp_unschedulable_until    *time.Time
-	temp_unschedulable_reason   *string
-	session_window_start        *time.Time
-	session_window_end          *time.Time
-	session_window_status       *string
-	quota_dimension             *account.QuotaDimension
-	clearedFields               map[string]struct{}
-	groups                      map[int64]struct{}
-	removedgroups               map[int64]struct{}
-	clearedgroups               bool
-	proxy                       *int64
-	clearedproxy                bool
-	upstream_config             *int64
-	clearedupstream_config      bool
-	upstream_key                *int64
-	clearedupstream_key         bool
-	parent                      *int64
-	clearedparent               bool
-	children                    map[int64]struct{}
-	removedchildren             map[int64]struct{}
-	clearedchildren             bool
-	usage_logs                  map[int64]struct{}
-	removedusage_logs           map[int64]struct{}
-	clearedusage_logs           bool
-	upstream_events             map[int64]struct{}
-	removedupstream_events      map[int64]struct{}
-	clearedupstream_events      bool
-	done                        bool
-	oldValue                    func(context.Context) (*Account, error)
-	predicates                  []predicate.Account
+	op                             Op
+	typ                            string
+	id                             *int64
+	created_at                     *time.Time
+	updated_at                     *time.Time
+	deleted_at                     *time.Time
+	name                           *string
+	notes                          *string
+	platform                       *string
+	_type                          *string
+	credentials                    *map[string]interface{}
+	extra                          *map[string]interface{}
+	proxy_fallback_origin_id       *int64
+	addproxy_fallback_origin_id    *int64
+	upstream_stale_pause_key_id    *int64
+	addupstream_stale_pause_key_id *int64
+	upstream_stale_paused_at       *time.Time
+	concurrency                    *int
+	addconcurrency                 *int
+	load_factor                    *int
+	addload_factor                 *int
+	priority                       *int
+	addpriority                    *int
+	rate_multiplier                *float64
+	addrate_multiplier             *float64
+	status                         *string
+	error_message                  *string
+	last_used_at                   *time.Time
+	expires_at                     *time.Time
+	auto_pause_on_expired          *bool
+	schedulable                    *bool
+	rate_limited_at                *time.Time
+	rate_limit_reset_at            *time.Time
+	overload_until                 *time.Time
+	temp_unschedulable_until       *time.Time
+	temp_unschedulable_reason      *string
+	session_window_start           *time.Time
+	session_window_end             *time.Time
+	session_window_status          *string
+	quota_dimension                *account.QuotaDimension
+	clearedFields                  map[string]struct{}
+	groups                         map[int64]struct{}
+	removedgroups                  map[int64]struct{}
+	clearedgroups                  bool
+	proxy                          *int64
+	clearedproxy                   bool
+	upstream_config                *int64
+	clearedupstream_config         bool
+	upstream_key                   *int64
+	clearedupstream_key            bool
+	parent                         *int64
+	clearedparent                  bool
+	children                       map[int64]struct{}
+	removedchildren                map[int64]struct{}
+	clearedchildren                bool
+	usage_logs                     map[int64]struct{}
+	removedusage_logs              map[int64]struct{}
+	clearedusage_logs              bool
+	upstream_events                map[int64]struct{}
+	removedupstream_events         map[int64]struct{}
+	clearedupstream_events         bool
+	done                           bool
+	oldValue                       func(context.Context) (*Account, error)
+	predicates                     []predicate.Account
 }
 
 var _ ent.Mutation = (*AccountMutation)(nil)
@@ -3020,6 +3023,125 @@ func (m *AccountMutation) UpstreamKeyIDCleared() bool {
 func (m *AccountMutation) ResetUpstreamKeyID() {
 	m.upstream_key = nil
 	delete(m.clearedFields, account.FieldUpstreamKeyID)
+}
+
+// SetUpstreamStalePauseKeyID sets the "upstream_stale_pause_key_id" field.
+func (m *AccountMutation) SetUpstreamStalePauseKeyID(i int64) {
+	m.upstream_stale_pause_key_id = &i
+	m.addupstream_stale_pause_key_id = nil
+}
+
+// UpstreamStalePauseKeyID returns the value of the "upstream_stale_pause_key_id" field in the mutation.
+func (m *AccountMutation) UpstreamStalePauseKeyID() (r int64, exists bool) {
+	v := m.upstream_stale_pause_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamStalePauseKeyID returns the old "upstream_stale_pause_key_id" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldUpstreamStalePauseKeyID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamStalePauseKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamStalePauseKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamStalePauseKeyID: %w", err)
+	}
+	return oldValue.UpstreamStalePauseKeyID, nil
+}
+
+// AddUpstreamStalePauseKeyID adds i to the "upstream_stale_pause_key_id" field.
+func (m *AccountMutation) AddUpstreamStalePauseKeyID(i int64) {
+	if m.addupstream_stale_pause_key_id != nil {
+		*m.addupstream_stale_pause_key_id += i
+	} else {
+		m.addupstream_stale_pause_key_id = &i
+	}
+}
+
+// AddedUpstreamStalePauseKeyID returns the value that was added to the "upstream_stale_pause_key_id" field in this mutation.
+func (m *AccountMutation) AddedUpstreamStalePauseKeyID() (r int64, exists bool) {
+	v := m.addupstream_stale_pause_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearUpstreamStalePauseKeyID clears the value of the "upstream_stale_pause_key_id" field.
+func (m *AccountMutation) ClearUpstreamStalePauseKeyID() {
+	m.upstream_stale_pause_key_id = nil
+	m.addupstream_stale_pause_key_id = nil
+	m.clearedFields[account.FieldUpstreamStalePauseKeyID] = struct{}{}
+}
+
+// UpstreamStalePauseKeyIDCleared returns if the "upstream_stale_pause_key_id" field was cleared in this mutation.
+func (m *AccountMutation) UpstreamStalePauseKeyIDCleared() bool {
+	_, ok := m.clearedFields[account.FieldUpstreamStalePauseKeyID]
+	return ok
+}
+
+// ResetUpstreamStalePauseKeyID resets all changes to the "upstream_stale_pause_key_id" field.
+func (m *AccountMutation) ResetUpstreamStalePauseKeyID() {
+	m.upstream_stale_pause_key_id = nil
+	m.addupstream_stale_pause_key_id = nil
+	delete(m.clearedFields, account.FieldUpstreamStalePauseKeyID)
+}
+
+// SetUpstreamStalePausedAt sets the "upstream_stale_paused_at" field.
+func (m *AccountMutation) SetUpstreamStalePausedAt(t time.Time) {
+	m.upstream_stale_paused_at = &t
+}
+
+// UpstreamStalePausedAt returns the value of the "upstream_stale_paused_at" field in the mutation.
+func (m *AccountMutation) UpstreamStalePausedAt() (r time.Time, exists bool) {
+	v := m.upstream_stale_paused_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamStalePausedAt returns the old "upstream_stale_paused_at" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldUpstreamStalePausedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamStalePausedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamStalePausedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamStalePausedAt: %w", err)
+	}
+	return oldValue.UpstreamStalePausedAt, nil
+}
+
+// ClearUpstreamStalePausedAt clears the value of the "upstream_stale_paused_at" field.
+func (m *AccountMutation) ClearUpstreamStalePausedAt() {
+	m.upstream_stale_paused_at = nil
+	m.clearedFields[account.FieldUpstreamStalePausedAt] = struct{}{}
+}
+
+// UpstreamStalePausedAtCleared returns if the "upstream_stale_paused_at" field was cleared in this mutation.
+func (m *AccountMutation) UpstreamStalePausedAtCleared() bool {
+	_, ok := m.clearedFields[account.FieldUpstreamStalePausedAt]
+	return ok
+}
+
+// ResetUpstreamStalePausedAt resets all changes to the "upstream_stale_paused_at" field.
+func (m *AccountMutation) ResetUpstreamStalePausedAt() {
+	m.upstream_stale_paused_at = nil
+	delete(m.clearedFields, account.FieldUpstreamStalePausedAt)
 }
 
 // SetConcurrency sets the "concurrency" field.
@@ -4363,7 +4485,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 33)
+	fields := make([]string, 0, 35)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4402,6 +4524,12 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.upstream_key != nil {
 		fields = append(fields, account.FieldUpstreamKeyID)
+	}
+	if m.upstream_stale_pause_key_id != nil {
+		fields = append(fields, account.FieldUpstreamStalePauseKeyID)
+	}
+	if m.upstream_stale_paused_at != nil {
+		fields = append(fields, account.FieldUpstreamStalePausedAt)
 	}
 	if m.concurrency != nil {
 		fields = append(fields, account.FieldConcurrency)
@@ -4497,6 +4625,10 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.UpstreamConfigID()
 	case account.FieldUpstreamKeyID:
 		return m.UpstreamKeyID()
+	case account.FieldUpstreamStalePauseKeyID:
+		return m.UpstreamStalePauseKeyID()
+	case account.FieldUpstreamStalePausedAt:
+		return m.UpstreamStalePausedAt()
 	case account.FieldConcurrency:
 		return m.Concurrency()
 	case account.FieldLoadFactor:
@@ -4572,6 +4704,10 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldUpstreamConfigID(ctx)
 	case account.FieldUpstreamKeyID:
 		return m.OldUpstreamKeyID(ctx)
+	case account.FieldUpstreamStalePauseKeyID:
+		return m.OldUpstreamStalePauseKeyID(ctx)
+	case account.FieldUpstreamStalePausedAt:
+		return m.OldUpstreamStalePausedAt(ctx)
 	case account.FieldConcurrency:
 		return m.OldConcurrency(ctx)
 	case account.FieldLoadFactor:
@@ -4711,6 +4847,20 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetUpstreamKeyID(v)
+		return nil
+	case account.FieldUpstreamStalePauseKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamStalePauseKeyID(v)
+		return nil
+	case account.FieldUpstreamStalePausedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamStalePausedAt(v)
 		return nil
 	case account.FieldConcurrency:
 		v, ok := value.(int)
@@ -4863,6 +5013,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addproxy_fallback_origin_id != nil {
 		fields = append(fields, account.FieldProxyFallbackOriginID)
 	}
+	if m.addupstream_stale_pause_key_id != nil {
+		fields = append(fields, account.FieldUpstreamStalePauseKeyID)
+	}
 	if m.addconcurrency != nil {
 		fields = append(fields, account.FieldConcurrency)
 	}
@@ -4885,6 +5038,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case account.FieldProxyFallbackOriginID:
 		return m.AddedProxyFallbackOriginID()
+	case account.FieldUpstreamStalePauseKeyID:
+		return m.AddedUpstreamStalePauseKeyID()
 	case account.FieldConcurrency:
 		return m.AddedConcurrency()
 	case account.FieldLoadFactor:
@@ -4908,6 +5063,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddProxyFallbackOriginID(v)
+		return nil
+	case account.FieldUpstreamStalePauseKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUpstreamStalePauseKeyID(v)
 		return nil
 	case account.FieldConcurrency:
 		v, ok := value.(int)
@@ -4962,6 +5124,12 @@ func (m *AccountMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(account.FieldUpstreamKeyID) {
 		fields = append(fields, account.FieldUpstreamKeyID)
+	}
+	if m.FieldCleared(account.FieldUpstreamStalePauseKeyID) {
+		fields = append(fields, account.FieldUpstreamStalePauseKeyID)
+	}
+	if m.FieldCleared(account.FieldUpstreamStalePausedAt) {
+		fields = append(fields, account.FieldUpstreamStalePausedAt)
 	}
 	if m.FieldCleared(account.FieldLoadFactor) {
 		fields = append(fields, account.FieldLoadFactor)
@@ -5033,6 +5201,12 @@ func (m *AccountMutation) ClearField(name string) error {
 		return nil
 	case account.FieldUpstreamKeyID:
 		m.ClearUpstreamKeyID()
+		return nil
+	case account.FieldUpstreamStalePauseKeyID:
+		m.ClearUpstreamStalePauseKeyID()
+		return nil
+	case account.FieldUpstreamStalePausedAt:
+		m.ClearUpstreamStalePausedAt()
 		return nil
 	case account.FieldLoadFactor:
 		m.ClearLoadFactor()
@@ -5119,6 +5293,12 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldUpstreamKeyID:
 		m.ResetUpstreamKeyID()
+		return nil
+	case account.FieldUpstreamStalePauseKeyID:
+		m.ResetUpstreamStalePauseKeyID()
+		return nil
+	case account.FieldUpstreamStalePausedAt:
+		m.ResetUpstreamStalePausedAt()
 		return nil
 	case account.FieldConcurrency:
 		m.ResetConcurrency()
@@ -48005,6 +48185,9 @@ type UpstreamKeyMutation struct {
 	addrate_multiplier   *float64
 	status               *string
 	last_seen_at         *time.Time
+	missing_count        *int
+	addmissing_count     *int
+	missing_since        *time.Time
 	extra                *map[string]interface{}
 	clearedFields        map[string]struct{}
 	_config              *int64
@@ -48756,6 +48939,111 @@ func (m *UpstreamKeyMutation) ResetLastSeenAt() {
 	delete(m.clearedFields, upstreamkey.FieldLastSeenAt)
 }
 
+// SetMissingCount sets the "missing_count" field.
+func (m *UpstreamKeyMutation) SetMissingCount(i int) {
+	m.missing_count = &i
+	m.addmissing_count = nil
+}
+
+// MissingCount returns the value of the "missing_count" field in the mutation.
+func (m *UpstreamKeyMutation) MissingCount() (r int, exists bool) {
+	v := m.missing_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMissingCount returns the old "missing_count" field's value of the UpstreamKey entity.
+// If the UpstreamKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyMutation) OldMissingCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMissingCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMissingCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMissingCount: %w", err)
+	}
+	return oldValue.MissingCount, nil
+}
+
+// AddMissingCount adds i to the "missing_count" field.
+func (m *UpstreamKeyMutation) AddMissingCount(i int) {
+	if m.addmissing_count != nil {
+		*m.addmissing_count += i
+	} else {
+		m.addmissing_count = &i
+	}
+}
+
+// AddedMissingCount returns the value that was added to the "missing_count" field in this mutation.
+func (m *UpstreamKeyMutation) AddedMissingCount() (r int, exists bool) {
+	v := m.addmissing_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetMissingCount resets all changes to the "missing_count" field.
+func (m *UpstreamKeyMutation) ResetMissingCount() {
+	m.missing_count = nil
+	m.addmissing_count = nil
+}
+
+// SetMissingSince sets the "missing_since" field.
+func (m *UpstreamKeyMutation) SetMissingSince(t time.Time) {
+	m.missing_since = &t
+}
+
+// MissingSince returns the value of the "missing_since" field in the mutation.
+func (m *UpstreamKeyMutation) MissingSince() (r time.Time, exists bool) {
+	v := m.missing_since
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMissingSince returns the old "missing_since" field's value of the UpstreamKey entity.
+// If the UpstreamKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyMutation) OldMissingSince(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMissingSince is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMissingSince requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMissingSince: %w", err)
+	}
+	return oldValue.MissingSince, nil
+}
+
+// ClearMissingSince clears the value of the "missing_since" field.
+func (m *UpstreamKeyMutation) ClearMissingSince() {
+	m.missing_since = nil
+	m.clearedFields[upstreamkey.FieldMissingSince] = struct{}{}
+}
+
+// MissingSinceCleared returns if the "missing_since" field was cleared in this mutation.
+func (m *UpstreamKeyMutation) MissingSinceCleared() bool {
+	_, ok := m.clearedFields[upstreamkey.FieldMissingSince]
+	return ok
+}
+
+// ResetMissingSince resets all changes to the "missing_since" field.
+func (m *UpstreamKeyMutation) ResetMissingSince() {
+	m.missing_since = nil
+	delete(m.clearedFields, upstreamkey.FieldMissingSince)
+}
+
 // SetExtra sets the "extra" field.
 func (m *UpstreamKeyMutation) SetExtra(value map[string]interface{}) {
 	m.extra = &value
@@ -49082,7 +49370,7 @@ func (m *UpstreamKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UpstreamKeyMutation) Fields() []string {
-	fields := make([]string, 0, 15)
+	fields := make([]string, 0, 17)
 	if m.created_at != nil {
 		fields = append(fields, upstreamkey.FieldCreatedAt)
 	}
@@ -49125,6 +49413,12 @@ func (m *UpstreamKeyMutation) Fields() []string {
 	if m.last_seen_at != nil {
 		fields = append(fields, upstreamkey.FieldLastSeenAt)
 	}
+	if m.missing_count != nil {
+		fields = append(fields, upstreamkey.FieldMissingCount)
+	}
+	if m.missing_since != nil {
+		fields = append(fields, upstreamkey.FieldMissingSince)
+	}
 	if m.extra != nil {
 		fields = append(fields, upstreamkey.FieldExtra)
 	}
@@ -49164,6 +49458,10 @@ func (m *UpstreamKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.Status()
 	case upstreamkey.FieldLastSeenAt:
 		return m.LastSeenAt()
+	case upstreamkey.FieldMissingCount:
+		return m.MissingCount()
+	case upstreamkey.FieldMissingSince:
+		return m.MissingSince()
 	case upstreamkey.FieldExtra:
 		return m.Extra()
 	}
@@ -49203,6 +49501,10 @@ func (m *UpstreamKeyMutation) OldField(ctx context.Context, name string) (ent.Va
 		return m.OldStatus(ctx)
 	case upstreamkey.FieldLastSeenAt:
 		return m.OldLastSeenAt(ctx)
+	case upstreamkey.FieldMissingCount:
+		return m.OldMissingCount(ctx)
+	case upstreamkey.FieldMissingSince:
+		return m.OldMissingSince(ctx)
 	case upstreamkey.FieldExtra:
 		return m.OldExtra(ctx)
 	}
@@ -49312,6 +49614,20 @@ func (m *UpstreamKeyMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetLastSeenAt(v)
 		return nil
+	case upstreamkey.FieldMissingCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMissingCount(v)
+		return nil
+	case upstreamkey.FieldMissingSince:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMissingSince(v)
+		return nil
 	case upstreamkey.FieldExtra:
 		v, ok := value.(map[string]interface{})
 		if !ok {
@@ -49336,6 +49652,9 @@ func (m *UpstreamKeyMutation) AddedFields() []string {
 	if m.addrate_multiplier != nil {
 		fields = append(fields, upstreamkey.FieldRateMultiplier)
 	}
+	if m.addmissing_count != nil {
+		fields = append(fields, upstreamkey.FieldMissingCount)
+	}
 	return fields
 }
 
@@ -49350,6 +49669,8 @@ func (m *UpstreamKeyMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedUpstreamGroupID()
 	case upstreamkey.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
+	case upstreamkey.FieldMissingCount:
+		return m.AddedMissingCount()
 	}
 	return nil, false
 }
@@ -49380,6 +49701,13 @@ func (m *UpstreamKeyMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddRateMultiplier(v)
 		return nil
+	case upstreamkey.FieldMissingCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMissingCount(v)
+		return nil
 	}
 	return fmt.Errorf("unknown UpstreamKey numeric field %s", name)
 }
@@ -49402,6 +49730,9 @@ func (m *UpstreamKeyMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(upstreamkey.FieldLastSeenAt) {
 		fields = append(fields, upstreamkey.FieldLastSeenAt)
+	}
+	if m.FieldCleared(upstreamkey.FieldMissingSince) {
+		fields = append(fields, upstreamkey.FieldMissingSince)
 	}
 	return fields
 }
@@ -49431,6 +49762,9 @@ func (m *UpstreamKeyMutation) ClearField(name string) error {
 		return nil
 	case upstreamkey.FieldLastSeenAt:
 		m.ClearLastSeenAt()
+		return nil
+	case upstreamkey.FieldMissingSince:
+		m.ClearMissingSince()
 		return nil
 	}
 	return fmt.Errorf("unknown UpstreamKey nullable field %s", name)
@@ -49481,6 +49815,12 @@ func (m *UpstreamKeyMutation) ResetField(name string) error {
 		return nil
 	case upstreamkey.FieldLastSeenAt:
 		m.ResetLastSeenAt()
+		return nil
+	case upstreamkey.FieldMissingCount:
+		m.ResetMissingCount()
+		return nil
+	case upstreamkey.FieldMissingSince:
+		m.ResetMissingSince()
 		return nil
 	case upstreamkey.FieldExtra:
 		m.ResetExtra()

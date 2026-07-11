@@ -42,6 +42,10 @@ const (
 	FieldUpstreamConfigID = "upstream_config_id"
 	// FieldUpstreamKeyID holds the string denoting the upstream_key_id field in the database.
 	FieldUpstreamKeyID = "upstream_key_id"
+	// FieldUpstreamStalePauseKeyID holds the string denoting the upstream_stale_pause_key_id field in the database.
+	FieldUpstreamStalePauseKeyID = "upstream_stale_pause_key_id"
+	// FieldUpstreamStalePausedAt holds the string denoting the upstream_stale_paused_at field in the database.
+	FieldUpstreamStalePausedAt = "upstream_stale_paused_at"
 	// FieldConcurrency holds the string denoting the concurrency field in the database.
 	FieldConcurrency = "concurrency"
 	// FieldLoadFactor holds the string denoting the load_factor field in the database.
@@ -175,6 +179,8 @@ var Columns = []string{
 	FieldProxyFallbackOriginID,
 	FieldUpstreamConfigID,
 	FieldUpstreamKeyID,
+	FieldUpstreamStalePauseKeyID,
+	FieldUpstreamStalePausedAt,
 	FieldConcurrency,
 	FieldLoadFactor,
 	FieldPriority,
@@ -342,6 +348,16 @@ func ByUpstreamConfigID(opts ...sql.OrderTermOption) OrderOption {
 // ByUpstreamKeyID orders the results by the upstream_key_id field.
 func ByUpstreamKeyID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpstreamKeyID, opts...).ToFunc()
+}
+
+// ByUpstreamStalePauseKeyID orders the results by the upstream_stale_pause_key_id field.
+func ByUpstreamStalePauseKeyID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamStalePauseKeyID, opts...).ToFunc()
+}
+
+// ByUpstreamStalePausedAt orders the results by the upstream_stale_paused_at field.
+func ByUpstreamStalePausedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamStalePausedAt, opts...).ToFunc()
 }
 
 // ByConcurrency orders the results by the concurrency field.

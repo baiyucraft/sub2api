@@ -47,6 +47,10 @@ type Account struct {
 	UpstreamConfigID *int64 `json:"upstream_config_id,omitempty"`
 	// Shared upstream key selected for this account.
 	UpstreamKeyID *int64 `json:"upstream_key_id,omitempty"`
+	// UpstreamStalePauseKeyID holds the value of the "upstream_stale_pause_key_id" field.
+	UpstreamStalePauseKeyID *int64 `json:"upstream_stale_pause_key_id,omitempty"`
+	// UpstreamStalePausedAt holds the value of the "upstream_stale_paused_at" field.
+	UpstreamStalePausedAt *time.Time `json:"upstream_stale_paused_at,omitempty"`
 	// Concurrency holds the value of the "concurrency" field.
 	Concurrency int `json:"concurrency,omitempty"`
 	// LoadFactor holds the value of the "load_factor" field.
@@ -218,11 +222,11 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case account.FieldRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldUpstreamConfigID, account.FieldUpstreamKeyID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
+		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldUpstreamConfigID, account.FieldUpstreamKeyID, account.FieldUpstreamStalePauseKeyID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
 			values[i] = new(sql.NullInt64)
 		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus, account.FieldQuotaDimension:
 			values[i] = new(sql.NullString)
-		case account.FieldCreatedAt, account.FieldUpdatedAt, account.FieldDeletedAt, account.FieldLastUsedAt, account.FieldExpiresAt, account.FieldRateLimitedAt, account.FieldRateLimitResetAt, account.FieldOverloadUntil, account.FieldTempUnschedulableUntil, account.FieldSessionWindowStart, account.FieldSessionWindowEnd:
+		case account.FieldCreatedAt, account.FieldUpdatedAt, account.FieldDeletedAt, account.FieldUpstreamStalePausedAt, account.FieldLastUsedAt, account.FieldExpiresAt, account.FieldRateLimitedAt, account.FieldRateLimitResetAt, account.FieldOverloadUntil, account.FieldTempUnschedulableUntil, account.FieldSessionWindowStart, account.FieldSessionWindowEnd:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -332,6 +336,20 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.UpstreamKeyID = new(int64)
 				*_m.UpstreamKeyID = value.Int64
+			}
+		case account.FieldUpstreamStalePauseKeyID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_stale_pause_key_id", values[i])
+			} else if value.Valid {
+				_m.UpstreamStalePauseKeyID = new(int64)
+				*_m.UpstreamStalePauseKeyID = value.Int64
+			}
+		case account.FieldUpstreamStalePausedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_stale_paused_at", values[i])
+			} else if value.Valid {
+				_m.UpstreamStalePausedAt = new(time.Time)
+				*_m.UpstreamStalePausedAt = value.Time
 			}
 		case account.FieldConcurrency:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -596,6 +614,16 @@ func (_m *Account) String() string {
 	if v := _m.UpstreamKeyID; v != nil {
 		builder.WriteString("upstream_key_id=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamStalePauseKeyID; v != nil {
+		builder.WriteString("upstream_stale_pause_key_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamStalePausedAt; v != nil {
+		builder.WriteString("upstream_stale_paused_at=")
+		builder.WriteString(v.Format(time.ANSIC))
 	}
 	builder.WriteString(", ")
 	builder.WriteString("concurrency=")

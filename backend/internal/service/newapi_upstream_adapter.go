@@ -282,7 +282,8 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	extraUpdates["upstream_provider_snapshot_partial"] = partial
 	extraUpdates["upstream_provider_snapshot_warnings"] = warnings
 	return &upstreamProviderSnapshot{
-		Keys: keys, ExtraUpdates: extraUpdates, Partial: partial || unresolvedKeyCount > 0,
+		Keys: keys, KeysComplete: !keyResult.Partial && !revealResult.Partial && unresolvedKeyCount == 0,
+		ExtraUpdates: extraUpdates, Partial: partial || unresolvedKeyCount > 0,
 		Warnings: warnings, FallbackKeyCount: revealResult.FallbackCount,
 	}, nil
 }
