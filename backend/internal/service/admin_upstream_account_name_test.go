@@ -58,7 +58,7 @@ func TestNormalizeUpstreamAccountInputNameBehavior(t *testing.T) {
 	t.Run("blank name generates authoritative name", func(t *testing.T) {
 		input := &CreateAccountInput{
 			Name:             "\u00a0\t",
-			Type:             AccountTypeUpstream,
+			Type:             AccountTypeAPIKey,
 			Platform:         PlatformOpenAI,
 			UpstreamConfigID: &cfgID,
 			UpstreamKeyID:    &keyID,
@@ -71,7 +71,7 @@ func TestNormalizeUpstreamAccountInputNameBehavior(t *testing.T) {
 	t.Run("nonblank name is replaced by authoritative name", func(t *testing.T) {
 		input := &CreateAccountInput{
 			Name:             " custom name ",
-			Type:             AccountTypeUpstream,
+			Type:             AccountTypeAPIKey,
 			Platform:         PlatformOpenAI,
 			UpstreamConfigID: &cfgID,
 			UpstreamKeyID:    &keyID,
@@ -135,7 +135,7 @@ func TestNormalizeUpstreamAccountInputRejectsInvalidNamesAndMismatchedKey(t *tes
 			svc := &adminServiceImpl{upstreamConfigRepo: repo}
 			input := &CreateAccountInput{
 				Name:             "custom",
-				Type:             AccountTypeUpstream,
+				Type:             AccountTypeAPIKey,
 				Platform:         PlatformOpenAI,
 				UpstreamConfigID: &cfgID,
 				UpstreamKeyID:    &keyID,
@@ -147,6 +147,68 @@ func TestNormalizeUpstreamAccountInputRejectsInvalidNamesAndMismatchedKey(t *tes
 			require.Equal(t, 400, infraerrors.Code(err))
 		})
 	}
+}
+
+func TestNormalizeUpstreamAccountInputRejectsLegacyUpstreamType(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "config", UpstreamProviderNewAPI, StatusActive, "https://upstream.example.com")},
+		keys:    []UpstreamKey{{ID: keyID, UpstreamConfigID: cfgID, Name: "key", Platform: PlatformOpenAI}},
+	}
+	svc := &adminServiceImpl{upstreamConfigRepo: repo}
+
+	err := svc.normalizeUpstreamAccountInput(context.Background(), &CreateAccountInput{
+		Type:             AccountTypeUpstream,
+		Platform:         PlatformOpenAI,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &keyID,
+	})
+
+	require.Error(t, err)
+	require.Equal(t, "UPSTREAM_ACCOUNT_TYPE_INVALID", infraerrors.Reason(err))
+}
+
+func TestNormalizeUpstreamAccountInputRequiresCompleteBinding(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	svc := &adminServiceImpl{}
+
+	for _, tt := range []struct {
+		name     string
+		configID *int64
+		keyID    *int64
+	}{
+		{name: "config only", configID: &cfgID},
+		{name: "key only", keyID: &keyID},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := svc.normalizeUpstreamAccountInput(context.Background(), &CreateAccountInput{
+				Type:             AccountTypeAPIKey,
+				Platform:         PlatformOpenAI,
+				UpstreamConfigID: tt.configID,
+				UpstreamKeyID:    tt.keyID,
+			})
+
+			require.Error(t, err)
+			require.Equal(t, "UPSTREAM_ACCOUNT_BINDING_REQUIRED", infraerrors.Reason(err))
+		})
+	}
+}
+
+func TestNormalizeUpstreamAccountUpdateValidatesFinalTypeAndBinding(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	svc := &adminServiceImpl{}
+
+	err := svc.normalizeUpstreamAccountUpdate(context.Background(), &Account{
+		Type:             AccountTypeUpstream,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &keyID,
+	}, &UpdateAccountInput{})
+
+	require.Error(t, err)
+	require.Equal(t, "UPSTREAM_ACCOUNT_TYPE_INVALID", infraerrors.Reason(err))
 }
 
 type accountNameCreateRepo struct {

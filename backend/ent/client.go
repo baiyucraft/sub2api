@@ -45,8 +45,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
+	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -124,10 +129,20 @@ type Client struct {
 	SubscriptionPlan *SubscriptionPlanClient
 	// TLSFingerprintProfile is the client for interacting with the TLSFingerprintProfile builders.
 	TLSFingerprintProfile *TLSFingerprintProfileClient
+	// UpstreamBalanceSnapshot is the client for interacting with the UpstreamBalanceSnapshot builders.
+	UpstreamBalanceSnapshot *UpstreamBalanceSnapshotClient
 	// UpstreamConfig is the client for interacting with the UpstreamConfig builders.
 	UpstreamConfig *UpstreamConfigClient
+	// UpstreamEvent is the client for interacting with the UpstreamEvent builders.
+	UpstreamEvent *UpstreamEventClient
+	// UpstreamIncident is the client for interacting with the UpstreamIncident builders.
+	UpstreamIncident *UpstreamIncidentClient
 	// UpstreamKey is the client for interacting with the UpstreamKey builders.
 	UpstreamKey *UpstreamKeyClient
+	// UpstreamSyncResult is the client for interacting with the UpstreamSyncResult builders.
+	UpstreamSyncResult *UpstreamSyncResultClient
+	// UpstreamSyncRun is the client for interacting with the UpstreamSyncRun builders.
+	UpstreamSyncRun *UpstreamSyncRunClient
 	// UsageCleanupTask is the client for interacting with the UsageCleanupTask builders.
 	UsageCleanupTask *UsageCleanupTaskClient
 	// UsageLog is the client for interacting with the UsageLog builders.
@@ -185,8 +200,13 @@ func (c *Client) init() {
 	c.Setting = NewSettingClient(c.config)
 	c.SubscriptionPlan = NewSubscriptionPlanClient(c.config)
 	c.TLSFingerprintProfile = NewTLSFingerprintProfileClient(c.config)
+	c.UpstreamBalanceSnapshot = NewUpstreamBalanceSnapshotClient(c.config)
 	c.UpstreamConfig = NewUpstreamConfigClient(c.config)
+	c.UpstreamEvent = NewUpstreamEventClient(c.config)
+	c.UpstreamIncident = NewUpstreamIncidentClient(c.config)
 	c.UpstreamKey = NewUpstreamKeyClient(c.config)
+	c.UpstreamSyncResult = NewUpstreamSyncResultClient(c.config)
+	c.UpstreamSyncRun = NewUpstreamSyncRunClient(c.config)
 	c.UsageCleanupTask = NewUsageCleanupTaskClient(c.config)
 	c.UsageLog = NewUsageLogClient(c.config)
 	c.User = NewUserClient(c.config)
@@ -317,8 +337,13 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Setting:                       NewSettingClient(cfg),
 		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
 		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
+		UpstreamBalanceSnapshot:       NewUpstreamBalanceSnapshotClient(cfg),
 		UpstreamConfig:                NewUpstreamConfigClient(cfg),
+		UpstreamEvent:                 NewUpstreamEventClient(cfg),
+		UpstreamIncident:              NewUpstreamIncidentClient(cfg),
 		UpstreamKey:                   NewUpstreamKeyClient(cfg),
+		UpstreamSyncResult:            NewUpstreamSyncResultClient(cfg),
+		UpstreamSyncRun:               NewUpstreamSyncRunClient(cfg),
 		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
 		UsageLog:                      NewUsageLogClient(cfg),
 		User:                          NewUserClient(cfg),
@@ -376,8 +401,13 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Setting:                       NewSettingClient(cfg),
 		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
 		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
+		UpstreamBalanceSnapshot:       NewUpstreamBalanceSnapshotClient(cfg),
 		UpstreamConfig:                NewUpstreamConfigClient(cfg),
+		UpstreamEvent:                 NewUpstreamEventClient(cfg),
+		UpstreamIncident:              NewUpstreamIncidentClient(cfg),
 		UpstreamKey:                   NewUpstreamKeyClient(cfg),
+		UpstreamSyncResult:            NewUpstreamSyncResultClient(cfg),
+		UpstreamSyncRun:               NewUpstreamSyncRunClient(cfg),
 		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
 		UsageLog:                      NewUsageLogClient(cfg),
 		User:                          NewUserClient(cfg),
@@ -423,9 +453,11 @@ func (c *Client) Use(hooks ...Hook) {
 		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
-		c.TLSFingerprintProfile, c.UpstreamConfig, c.UpstreamKey, c.UsageCleanupTask,
-		c.UsageLog, c.User, c.UserAllowedGroup, c.UserAttributeDefinition,
-		c.UserAttributeValue, c.UserPlatformQuota, c.UserSubscription,
+		c.TLSFingerprintProfile, c.UpstreamBalanceSnapshot, c.UpstreamConfig,
+		c.UpstreamEvent, c.UpstreamIncident, c.UpstreamKey, c.UpstreamSyncResult,
+		c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
+		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
+		c.UserSubscription,
 	} {
 		n.Use(hooks...)
 	}
@@ -443,9 +475,11 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
-		c.TLSFingerprintProfile, c.UpstreamConfig, c.UpstreamKey, c.UsageCleanupTask,
-		c.UsageLog, c.User, c.UserAllowedGroup, c.UserAttributeDefinition,
-		c.UserAttributeValue, c.UserPlatformQuota, c.UserSubscription,
+		c.TLSFingerprintProfile, c.UpstreamBalanceSnapshot, c.UpstreamConfig,
+		c.UpstreamEvent, c.UpstreamIncident, c.UpstreamKey, c.UpstreamSyncResult,
+		c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
+		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
+		c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -514,10 +548,20 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.SubscriptionPlan.mutate(ctx, m)
 	case *TLSFingerprintProfileMutation:
 		return c.TLSFingerprintProfile.mutate(ctx, m)
+	case *UpstreamBalanceSnapshotMutation:
+		return c.UpstreamBalanceSnapshot.mutate(ctx, m)
 	case *UpstreamConfigMutation:
 		return c.UpstreamConfig.mutate(ctx, m)
+	case *UpstreamEventMutation:
+		return c.UpstreamEvent.mutate(ctx, m)
+	case *UpstreamIncidentMutation:
+		return c.UpstreamIncident.mutate(ctx, m)
 	case *UpstreamKeyMutation:
 		return c.UpstreamKey.mutate(ctx, m)
+	case *UpstreamSyncResultMutation:
+		return c.UpstreamSyncResult.mutate(ctx, m)
+	case *UpstreamSyncRunMutation:
+		return c.UpstreamSyncRun.mutate(ctx, m)
 	case *UsageCleanupTaskMutation:
 		return c.UsageCleanupTask.mutate(ctx, m)
 	case *UsageLogMutation:
@@ -935,6 +979,22 @@ func (c *AccountClient) QueryUsageLogs(_m *Account) *UsageLogQuery {
 			sqlgraph.From(account.Table, account.FieldID, id),
 			sqlgraph.To(usagelog.Table, usagelog.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, account.UsageLogsTable, account.UsageLogsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUpstreamEvents queries the upstream_events edge of a Account.
+func (c *AccountClient) QueryUpstreamEvents(_m *Account) *UpstreamEventQuery {
+	query := (&UpstreamEventClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, id),
+			sqlgraph.To(upstreamevent.Table, upstreamevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, account.UpstreamEventsTable, account.UpstreamEventsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -5224,6 +5284,171 @@ func (c *TLSFingerprintProfileClient) mutate(ctx context.Context, m *TLSFingerpr
 	}
 }
 
+// UpstreamBalanceSnapshotClient is a client for the UpstreamBalanceSnapshot schema.
+type UpstreamBalanceSnapshotClient struct {
+	config
+}
+
+// NewUpstreamBalanceSnapshotClient returns a client for the UpstreamBalanceSnapshot from the given config.
+func NewUpstreamBalanceSnapshotClient(c config) *UpstreamBalanceSnapshotClient {
+	return &UpstreamBalanceSnapshotClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `upstreambalancesnapshot.Hooks(f(g(h())))`.
+func (c *UpstreamBalanceSnapshotClient) Use(hooks ...Hook) {
+	c.hooks.UpstreamBalanceSnapshot = append(c.hooks.UpstreamBalanceSnapshot, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `upstreambalancesnapshot.Intercept(f(g(h())))`.
+func (c *UpstreamBalanceSnapshotClient) Intercept(interceptors ...Interceptor) {
+	c.inters.UpstreamBalanceSnapshot = append(c.inters.UpstreamBalanceSnapshot, interceptors...)
+}
+
+// Create returns a builder for creating a UpstreamBalanceSnapshot entity.
+func (c *UpstreamBalanceSnapshotClient) Create() *UpstreamBalanceSnapshotCreate {
+	mutation := newUpstreamBalanceSnapshotMutation(c.config, OpCreate)
+	return &UpstreamBalanceSnapshotCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of UpstreamBalanceSnapshot entities.
+func (c *UpstreamBalanceSnapshotClient) CreateBulk(builders ...*UpstreamBalanceSnapshotCreate) *UpstreamBalanceSnapshotCreateBulk {
+	return &UpstreamBalanceSnapshotCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *UpstreamBalanceSnapshotClient) MapCreateBulk(slice any, setFunc func(*UpstreamBalanceSnapshotCreate, int)) *UpstreamBalanceSnapshotCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &UpstreamBalanceSnapshotCreateBulk{err: fmt.Errorf("calling to UpstreamBalanceSnapshotClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*UpstreamBalanceSnapshotCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &UpstreamBalanceSnapshotCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for UpstreamBalanceSnapshot.
+func (c *UpstreamBalanceSnapshotClient) Update() *UpstreamBalanceSnapshotUpdate {
+	mutation := newUpstreamBalanceSnapshotMutation(c.config, OpUpdate)
+	return &UpstreamBalanceSnapshotUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *UpstreamBalanceSnapshotClient) UpdateOne(_m *UpstreamBalanceSnapshot) *UpstreamBalanceSnapshotUpdateOne {
+	mutation := newUpstreamBalanceSnapshotMutation(c.config, OpUpdateOne, withUpstreamBalanceSnapshot(_m))
+	return &UpstreamBalanceSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *UpstreamBalanceSnapshotClient) UpdateOneID(id int64) *UpstreamBalanceSnapshotUpdateOne {
+	mutation := newUpstreamBalanceSnapshotMutation(c.config, OpUpdateOne, withUpstreamBalanceSnapshotID(id))
+	return &UpstreamBalanceSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for UpstreamBalanceSnapshot.
+func (c *UpstreamBalanceSnapshotClient) Delete() *UpstreamBalanceSnapshotDelete {
+	mutation := newUpstreamBalanceSnapshotMutation(c.config, OpDelete)
+	return &UpstreamBalanceSnapshotDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *UpstreamBalanceSnapshotClient) DeleteOne(_m *UpstreamBalanceSnapshot) *UpstreamBalanceSnapshotDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *UpstreamBalanceSnapshotClient) DeleteOneID(id int64) *UpstreamBalanceSnapshotDeleteOne {
+	builder := c.Delete().Where(upstreambalancesnapshot.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &UpstreamBalanceSnapshotDeleteOne{builder}
+}
+
+// Query returns a query builder for UpstreamBalanceSnapshot.
+func (c *UpstreamBalanceSnapshotClient) Query() *UpstreamBalanceSnapshotQuery {
+	return &UpstreamBalanceSnapshotQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeUpstreamBalanceSnapshot},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a UpstreamBalanceSnapshot entity by its id.
+func (c *UpstreamBalanceSnapshotClient) Get(ctx context.Context, id int64) (*UpstreamBalanceSnapshot, error) {
+	return c.Query().Where(upstreambalancesnapshot.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *UpstreamBalanceSnapshotClient) GetX(ctx context.Context, id int64) *UpstreamBalanceSnapshot {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryConfig queries the config edge of a UpstreamBalanceSnapshot.
+func (c *UpstreamBalanceSnapshotClient) QueryConfig(_m *UpstreamBalanceSnapshot) *UpstreamConfigQuery {
+	query := (&UpstreamConfigClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreambalancesnapshot.Table, upstreambalancesnapshot.FieldID, id),
+			sqlgraph.To(upstreamconfig.Table, upstreamconfig.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreambalancesnapshot.ConfigTable, upstreambalancesnapshot.ConfigColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryRun queries the run edge of a UpstreamBalanceSnapshot.
+func (c *UpstreamBalanceSnapshotClient) QueryRun(_m *UpstreamBalanceSnapshot) *UpstreamSyncRunQuery {
+	query := (&UpstreamSyncRunClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreambalancesnapshot.Table, upstreambalancesnapshot.FieldID, id),
+			sqlgraph.To(upstreamsyncrun.Table, upstreamsyncrun.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreambalancesnapshot.RunTable, upstreambalancesnapshot.RunColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *UpstreamBalanceSnapshotClient) Hooks() []Hook {
+	return c.hooks.UpstreamBalanceSnapshot
+}
+
+// Interceptors returns the client interceptors.
+func (c *UpstreamBalanceSnapshotClient) Interceptors() []Interceptor {
+	return c.inters.UpstreamBalanceSnapshot
+}
+
+func (c *UpstreamBalanceSnapshotClient) mutate(ctx context.Context, m *UpstreamBalanceSnapshotMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&UpstreamBalanceSnapshotCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&UpstreamBalanceSnapshotUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&UpstreamBalanceSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&UpstreamBalanceSnapshotDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown UpstreamBalanceSnapshot mutation op: %q", m.Op())
+	}
+}
+
 // UpstreamConfigClient is a client for the UpstreamConfig schema.
 type UpstreamConfigClient struct {
 	config
@@ -5364,6 +5589,86 @@ func (c *UpstreamConfigClient) QueryAccounts(_m *UpstreamConfig) *AccountQuery {
 	return query
 }
 
+// QuerySyncResults queries the sync_results edge of a UpstreamConfig.
+func (c *UpstreamConfigClient) QuerySyncResults(_m *UpstreamConfig) *UpstreamSyncResultQuery {
+	query := (&UpstreamSyncResultClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, id),
+			sqlgraph.To(upstreamsyncresult.Table, upstreamsyncresult.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.SyncResultsTable, upstreamconfig.SyncResultsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryEvents queries the events edge of a UpstreamConfig.
+func (c *UpstreamConfigClient) QueryEvents(_m *UpstreamConfig) *UpstreamEventQuery {
+	query := (&UpstreamEventClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, id),
+			sqlgraph.To(upstreamevent.Table, upstreamevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.EventsTable, upstreamconfig.EventsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryIncidents queries the incidents edge of a UpstreamConfig.
+func (c *UpstreamConfigClient) QueryIncidents(_m *UpstreamConfig) *UpstreamIncidentQuery {
+	query := (&UpstreamIncidentClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, id),
+			sqlgraph.To(upstreamincident.Table, upstreamincident.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.IncidentsTable, upstreamconfig.IncidentsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryBalanceSnapshots queries the balance_snapshots edge of a UpstreamConfig.
+func (c *UpstreamConfigClient) QueryBalanceSnapshots(_m *UpstreamConfig) *UpstreamBalanceSnapshotQuery {
+	query := (&UpstreamBalanceSnapshotClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, id),
+			sqlgraph.To(upstreambalancesnapshot.Table, upstreambalancesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.BalanceSnapshotsTable, upstreamconfig.BalanceSnapshotsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUsageLogs queries the usage_logs edge of a UpstreamConfig.
+func (c *UpstreamConfigClient) QueryUsageLogs(_m *UpstreamConfig) *UsageLogQuery {
+	query := (&UsageLogClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, id),
+			sqlgraph.To(usagelog.Table, usagelog.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.UsageLogsTable, upstreamconfig.UsageLogsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryProxy queries the proxy edge of a UpstreamConfig.
 func (c *UpstreamConfigClient) QueryProxy(_m *UpstreamConfig) *ProxyQuery {
 	query := (&ProxyClient{config: c.config}).Query()
@@ -5404,6 +5709,400 @@ func (c *UpstreamConfigClient) mutate(ctx context.Context, m *UpstreamConfigMuta
 		return (&UpstreamConfigDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown UpstreamConfig mutation op: %q", m.Op())
+	}
+}
+
+// UpstreamEventClient is a client for the UpstreamEvent schema.
+type UpstreamEventClient struct {
+	config
+}
+
+// NewUpstreamEventClient returns a client for the UpstreamEvent from the given config.
+func NewUpstreamEventClient(c config) *UpstreamEventClient {
+	return &UpstreamEventClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `upstreamevent.Hooks(f(g(h())))`.
+func (c *UpstreamEventClient) Use(hooks ...Hook) {
+	c.hooks.UpstreamEvent = append(c.hooks.UpstreamEvent, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `upstreamevent.Intercept(f(g(h())))`.
+func (c *UpstreamEventClient) Intercept(interceptors ...Interceptor) {
+	c.inters.UpstreamEvent = append(c.inters.UpstreamEvent, interceptors...)
+}
+
+// Create returns a builder for creating a UpstreamEvent entity.
+func (c *UpstreamEventClient) Create() *UpstreamEventCreate {
+	mutation := newUpstreamEventMutation(c.config, OpCreate)
+	return &UpstreamEventCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of UpstreamEvent entities.
+func (c *UpstreamEventClient) CreateBulk(builders ...*UpstreamEventCreate) *UpstreamEventCreateBulk {
+	return &UpstreamEventCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *UpstreamEventClient) MapCreateBulk(slice any, setFunc func(*UpstreamEventCreate, int)) *UpstreamEventCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &UpstreamEventCreateBulk{err: fmt.Errorf("calling to UpstreamEventClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*UpstreamEventCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &UpstreamEventCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for UpstreamEvent.
+func (c *UpstreamEventClient) Update() *UpstreamEventUpdate {
+	mutation := newUpstreamEventMutation(c.config, OpUpdate)
+	return &UpstreamEventUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *UpstreamEventClient) UpdateOne(_m *UpstreamEvent) *UpstreamEventUpdateOne {
+	mutation := newUpstreamEventMutation(c.config, OpUpdateOne, withUpstreamEvent(_m))
+	return &UpstreamEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *UpstreamEventClient) UpdateOneID(id int64) *UpstreamEventUpdateOne {
+	mutation := newUpstreamEventMutation(c.config, OpUpdateOne, withUpstreamEventID(id))
+	return &UpstreamEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for UpstreamEvent.
+func (c *UpstreamEventClient) Delete() *UpstreamEventDelete {
+	mutation := newUpstreamEventMutation(c.config, OpDelete)
+	return &UpstreamEventDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *UpstreamEventClient) DeleteOne(_m *UpstreamEvent) *UpstreamEventDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *UpstreamEventClient) DeleteOneID(id int64) *UpstreamEventDeleteOne {
+	builder := c.Delete().Where(upstreamevent.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &UpstreamEventDeleteOne{builder}
+}
+
+// Query returns a query builder for UpstreamEvent.
+func (c *UpstreamEventClient) Query() *UpstreamEventQuery {
+	return &UpstreamEventQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeUpstreamEvent},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a UpstreamEvent entity by its id.
+func (c *UpstreamEventClient) Get(ctx context.Context, id int64) (*UpstreamEvent, error) {
+	return c.Query().Where(upstreamevent.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *UpstreamEventClient) GetX(ctx context.Context, id int64) *UpstreamEvent {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryConfig queries the config edge of a UpstreamEvent.
+func (c *UpstreamEventClient) QueryConfig(_m *UpstreamEvent) *UpstreamConfigQuery {
+	query := (&UpstreamConfigClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamevent.Table, upstreamevent.FieldID, id),
+			sqlgraph.To(upstreamconfig.Table, upstreamconfig.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamevent.ConfigTable, upstreamevent.ConfigColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryKey queries the key edge of a UpstreamEvent.
+func (c *UpstreamEventClient) QueryKey(_m *UpstreamEvent) *UpstreamKeyQuery {
+	query := (&UpstreamKeyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamevent.Table, upstreamevent.FieldID, id),
+			sqlgraph.To(upstreamkey.Table, upstreamkey.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamevent.KeyTable, upstreamevent.KeyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryRun queries the run edge of a UpstreamEvent.
+func (c *UpstreamEventClient) QueryRun(_m *UpstreamEvent) *UpstreamSyncRunQuery {
+	query := (&UpstreamSyncRunClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamevent.Table, upstreamevent.FieldID, id),
+			sqlgraph.To(upstreamsyncrun.Table, upstreamsyncrun.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamevent.RunTable, upstreamevent.RunColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryAccount queries the account edge of a UpstreamEvent.
+func (c *UpstreamEventClient) QueryAccount(_m *UpstreamEvent) *AccountQuery {
+	query := (&AccountClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamevent.Table, upstreamevent.FieldID, id),
+			sqlgraph.To(account.Table, account.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamevent.AccountTable, upstreamevent.AccountColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryIncidents queries the incidents edge of a UpstreamEvent.
+func (c *UpstreamEventClient) QueryIncidents(_m *UpstreamEvent) *UpstreamIncidentQuery {
+	query := (&UpstreamIncidentClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamevent.Table, upstreamevent.FieldID, id),
+			sqlgraph.To(upstreamincident.Table, upstreamincident.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamevent.IncidentsTable, upstreamevent.IncidentsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *UpstreamEventClient) Hooks() []Hook {
+	return c.hooks.UpstreamEvent
+}
+
+// Interceptors returns the client interceptors.
+func (c *UpstreamEventClient) Interceptors() []Interceptor {
+	return c.inters.UpstreamEvent
+}
+
+func (c *UpstreamEventClient) mutate(ctx context.Context, m *UpstreamEventMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&UpstreamEventCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&UpstreamEventUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&UpstreamEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&UpstreamEventDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown UpstreamEvent mutation op: %q", m.Op())
+	}
+}
+
+// UpstreamIncidentClient is a client for the UpstreamIncident schema.
+type UpstreamIncidentClient struct {
+	config
+}
+
+// NewUpstreamIncidentClient returns a client for the UpstreamIncident from the given config.
+func NewUpstreamIncidentClient(c config) *UpstreamIncidentClient {
+	return &UpstreamIncidentClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `upstreamincident.Hooks(f(g(h())))`.
+func (c *UpstreamIncidentClient) Use(hooks ...Hook) {
+	c.hooks.UpstreamIncident = append(c.hooks.UpstreamIncident, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `upstreamincident.Intercept(f(g(h())))`.
+func (c *UpstreamIncidentClient) Intercept(interceptors ...Interceptor) {
+	c.inters.UpstreamIncident = append(c.inters.UpstreamIncident, interceptors...)
+}
+
+// Create returns a builder for creating a UpstreamIncident entity.
+func (c *UpstreamIncidentClient) Create() *UpstreamIncidentCreate {
+	mutation := newUpstreamIncidentMutation(c.config, OpCreate)
+	return &UpstreamIncidentCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of UpstreamIncident entities.
+func (c *UpstreamIncidentClient) CreateBulk(builders ...*UpstreamIncidentCreate) *UpstreamIncidentCreateBulk {
+	return &UpstreamIncidentCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *UpstreamIncidentClient) MapCreateBulk(slice any, setFunc func(*UpstreamIncidentCreate, int)) *UpstreamIncidentCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &UpstreamIncidentCreateBulk{err: fmt.Errorf("calling to UpstreamIncidentClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*UpstreamIncidentCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &UpstreamIncidentCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for UpstreamIncident.
+func (c *UpstreamIncidentClient) Update() *UpstreamIncidentUpdate {
+	mutation := newUpstreamIncidentMutation(c.config, OpUpdate)
+	return &UpstreamIncidentUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *UpstreamIncidentClient) UpdateOne(_m *UpstreamIncident) *UpstreamIncidentUpdateOne {
+	mutation := newUpstreamIncidentMutation(c.config, OpUpdateOne, withUpstreamIncident(_m))
+	return &UpstreamIncidentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *UpstreamIncidentClient) UpdateOneID(id int64) *UpstreamIncidentUpdateOne {
+	mutation := newUpstreamIncidentMutation(c.config, OpUpdateOne, withUpstreamIncidentID(id))
+	return &UpstreamIncidentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for UpstreamIncident.
+func (c *UpstreamIncidentClient) Delete() *UpstreamIncidentDelete {
+	mutation := newUpstreamIncidentMutation(c.config, OpDelete)
+	return &UpstreamIncidentDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *UpstreamIncidentClient) DeleteOne(_m *UpstreamIncident) *UpstreamIncidentDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *UpstreamIncidentClient) DeleteOneID(id int64) *UpstreamIncidentDeleteOne {
+	builder := c.Delete().Where(upstreamincident.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &UpstreamIncidentDeleteOne{builder}
+}
+
+// Query returns a query builder for UpstreamIncident.
+func (c *UpstreamIncidentClient) Query() *UpstreamIncidentQuery {
+	return &UpstreamIncidentQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeUpstreamIncident},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a UpstreamIncident entity by its id.
+func (c *UpstreamIncidentClient) Get(ctx context.Context, id int64) (*UpstreamIncident, error) {
+	return c.Query().Where(upstreamincident.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *UpstreamIncidentClient) GetX(ctx context.Context, id int64) *UpstreamIncident {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryConfig queries the config edge of a UpstreamIncident.
+func (c *UpstreamIncidentClient) QueryConfig(_m *UpstreamIncident) *UpstreamConfigQuery {
+	query := (&UpstreamConfigClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamincident.Table, upstreamincident.FieldID, id),
+			sqlgraph.To(upstreamconfig.Table, upstreamconfig.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamincident.ConfigTable, upstreamincident.ConfigColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QuerySourceEvent queries the source_event edge of a UpstreamIncident.
+func (c *UpstreamIncidentClient) QuerySourceEvent(_m *UpstreamIncident) *UpstreamEventQuery {
+	query := (&UpstreamEventClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamincident.Table, upstreamincident.FieldID, id),
+			sqlgraph.To(upstreamevent.Table, upstreamevent.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamincident.SourceEventTable, upstreamincident.SourceEventColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryKey queries the key edge of a UpstreamIncident.
+func (c *UpstreamIncidentClient) QueryKey(_m *UpstreamIncident) *UpstreamKeyQuery {
+	query := (&UpstreamKeyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamincident.Table, upstreamincident.FieldID, id),
+			sqlgraph.To(upstreamkey.Table, upstreamkey.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamincident.KeyTable, upstreamincident.KeyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *UpstreamIncidentClient) Hooks() []Hook {
+	return c.hooks.UpstreamIncident
+}
+
+// Interceptors returns the client interceptors.
+func (c *UpstreamIncidentClient) Interceptors() []Interceptor {
+	return c.inters.UpstreamIncident
+}
+
+func (c *UpstreamIncidentClient) mutate(ctx context.Context, m *UpstreamIncidentMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&UpstreamIncidentCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&UpstreamIncidentUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&UpstreamIncidentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&UpstreamIncidentDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown UpstreamIncident mutation op: %q", m.Op())
 	}
 }
 
@@ -5547,6 +6246,54 @@ func (c *UpstreamKeyClient) QueryAccounts(_m *UpstreamKey) *AccountQuery {
 	return query
 }
 
+// QueryEvents queries the events edge of a UpstreamKey.
+func (c *UpstreamKeyClient) QueryEvents(_m *UpstreamKey) *UpstreamEventQuery {
+	query := (&UpstreamEventClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamkey.Table, upstreamkey.FieldID, id),
+			sqlgraph.To(upstreamevent.Table, upstreamevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamkey.EventsTable, upstreamkey.EventsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryIncidents queries the incidents edge of a UpstreamKey.
+func (c *UpstreamKeyClient) QueryIncidents(_m *UpstreamKey) *UpstreamIncidentQuery {
+	query := (&UpstreamIncidentClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamkey.Table, upstreamkey.FieldID, id),
+			sqlgraph.To(upstreamincident.Table, upstreamincident.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamkey.IncidentsTable, upstreamkey.IncidentsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUsageLogs queries the usage_logs edge of a UpstreamKey.
+func (c *UpstreamKeyClient) QueryUsageLogs(_m *UpstreamKey) *UsageLogQuery {
+	query := (&UsageLogClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamkey.Table, upstreamkey.FieldID, id),
+			sqlgraph.To(usagelog.Table, usagelog.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamkey.UsageLogsTable, upstreamkey.UsageLogsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *UpstreamKeyClient) Hooks() []Hook {
 	hooks := c.hooks.UpstreamKey
@@ -5571,6 +6318,352 @@ func (c *UpstreamKeyClient) mutate(ctx context.Context, m *UpstreamKeyMutation) 
 		return (&UpstreamKeyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown UpstreamKey mutation op: %q", m.Op())
+	}
+}
+
+// UpstreamSyncResultClient is a client for the UpstreamSyncResult schema.
+type UpstreamSyncResultClient struct {
+	config
+}
+
+// NewUpstreamSyncResultClient returns a client for the UpstreamSyncResult from the given config.
+func NewUpstreamSyncResultClient(c config) *UpstreamSyncResultClient {
+	return &UpstreamSyncResultClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `upstreamsyncresult.Hooks(f(g(h())))`.
+func (c *UpstreamSyncResultClient) Use(hooks ...Hook) {
+	c.hooks.UpstreamSyncResult = append(c.hooks.UpstreamSyncResult, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `upstreamsyncresult.Intercept(f(g(h())))`.
+func (c *UpstreamSyncResultClient) Intercept(interceptors ...Interceptor) {
+	c.inters.UpstreamSyncResult = append(c.inters.UpstreamSyncResult, interceptors...)
+}
+
+// Create returns a builder for creating a UpstreamSyncResult entity.
+func (c *UpstreamSyncResultClient) Create() *UpstreamSyncResultCreate {
+	mutation := newUpstreamSyncResultMutation(c.config, OpCreate)
+	return &UpstreamSyncResultCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of UpstreamSyncResult entities.
+func (c *UpstreamSyncResultClient) CreateBulk(builders ...*UpstreamSyncResultCreate) *UpstreamSyncResultCreateBulk {
+	return &UpstreamSyncResultCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *UpstreamSyncResultClient) MapCreateBulk(slice any, setFunc func(*UpstreamSyncResultCreate, int)) *UpstreamSyncResultCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &UpstreamSyncResultCreateBulk{err: fmt.Errorf("calling to UpstreamSyncResultClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*UpstreamSyncResultCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &UpstreamSyncResultCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for UpstreamSyncResult.
+func (c *UpstreamSyncResultClient) Update() *UpstreamSyncResultUpdate {
+	mutation := newUpstreamSyncResultMutation(c.config, OpUpdate)
+	return &UpstreamSyncResultUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *UpstreamSyncResultClient) UpdateOne(_m *UpstreamSyncResult) *UpstreamSyncResultUpdateOne {
+	mutation := newUpstreamSyncResultMutation(c.config, OpUpdateOne, withUpstreamSyncResult(_m))
+	return &UpstreamSyncResultUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *UpstreamSyncResultClient) UpdateOneID(id int64) *UpstreamSyncResultUpdateOne {
+	mutation := newUpstreamSyncResultMutation(c.config, OpUpdateOne, withUpstreamSyncResultID(id))
+	return &UpstreamSyncResultUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for UpstreamSyncResult.
+func (c *UpstreamSyncResultClient) Delete() *UpstreamSyncResultDelete {
+	mutation := newUpstreamSyncResultMutation(c.config, OpDelete)
+	return &UpstreamSyncResultDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *UpstreamSyncResultClient) DeleteOne(_m *UpstreamSyncResult) *UpstreamSyncResultDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *UpstreamSyncResultClient) DeleteOneID(id int64) *UpstreamSyncResultDeleteOne {
+	builder := c.Delete().Where(upstreamsyncresult.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &UpstreamSyncResultDeleteOne{builder}
+}
+
+// Query returns a query builder for UpstreamSyncResult.
+func (c *UpstreamSyncResultClient) Query() *UpstreamSyncResultQuery {
+	return &UpstreamSyncResultQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeUpstreamSyncResult},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a UpstreamSyncResult entity by its id.
+func (c *UpstreamSyncResultClient) Get(ctx context.Context, id int64) (*UpstreamSyncResult, error) {
+	return c.Query().Where(upstreamsyncresult.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *UpstreamSyncResultClient) GetX(ctx context.Context, id int64) *UpstreamSyncResult {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryRun queries the run edge of a UpstreamSyncResult.
+func (c *UpstreamSyncResultClient) QueryRun(_m *UpstreamSyncResult) *UpstreamSyncRunQuery {
+	query := (&UpstreamSyncRunClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamsyncresult.Table, upstreamsyncresult.FieldID, id),
+			sqlgraph.To(upstreamsyncrun.Table, upstreamsyncrun.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamsyncresult.RunTable, upstreamsyncresult.RunColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryConfig queries the config edge of a UpstreamSyncResult.
+func (c *UpstreamSyncResultClient) QueryConfig(_m *UpstreamSyncResult) *UpstreamConfigQuery {
+	query := (&UpstreamConfigClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamsyncresult.Table, upstreamsyncresult.FieldID, id),
+			sqlgraph.To(upstreamconfig.Table, upstreamconfig.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamsyncresult.ConfigTable, upstreamsyncresult.ConfigColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *UpstreamSyncResultClient) Hooks() []Hook {
+	return c.hooks.UpstreamSyncResult
+}
+
+// Interceptors returns the client interceptors.
+func (c *UpstreamSyncResultClient) Interceptors() []Interceptor {
+	return c.inters.UpstreamSyncResult
+}
+
+func (c *UpstreamSyncResultClient) mutate(ctx context.Context, m *UpstreamSyncResultMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&UpstreamSyncResultCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&UpstreamSyncResultUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&UpstreamSyncResultUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&UpstreamSyncResultDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown UpstreamSyncResult mutation op: %q", m.Op())
+	}
+}
+
+// UpstreamSyncRunClient is a client for the UpstreamSyncRun schema.
+type UpstreamSyncRunClient struct {
+	config
+}
+
+// NewUpstreamSyncRunClient returns a client for the UpstreamSyncRun from the given config.
+func NewUpstreamSyncRunClient(c config) *UpstreamSyncRunClient {
+	return &UpstreamSyncRunClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `upstreamsyncrun.Hooks(f(g(h())))`.
+func (c *UpstreamSyncRunClient) Use(hooks ...Hook) {
+	c.hooks.UpstreamSyncRun = append(c.hooks.UpstreamSyncRun, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `upstreamsyncrun.Intercept(f(g(h())))`.
+func (c *UpstreamSyncRunClient) Intercept(interceptors ...Interceptor) {
+	c.inters.UpstreamSyncRun = append(c.inters.UpstreamSyncRun, interceptors...)
+}
+
+// Create returns a builder for creating a UpstreamSyncRun entity.
+func (c *UpstreamSyncRunClient) Create() *UpstreamSyncRunCreate {
+	mutation := newUpstreamSyncRunMutation(c.config, OpCreate)
+	return &UpstreamSyncRunCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of UpstreamSyncRun entities.
+func (c *UpstreamSyncRunClient) CreateBulk(builders ...*UpstreamSyncRunCreate) *UpstreamSyncRunCreateBulk {
+	return &UpstreamSyncRunCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *UpstreamSyncRunClient) MapCreateBulk(slice any, setFunc func(*UpstreamSyncRunCreate, int)) *UpstreamSyncRunCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &UpstreamSyncRunCreateBulk{err: fmt.Errorf("calling to UpstreamSyncRunClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*UpstreamSyncRunCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &UpstreamSyncRunCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for UpstreamSyncRun.
+func (c *UpstreamSyncRunClient) Update() *UpstreamSyncRunUpdate {
+	mutation := newUpstreamSyncRunMutation(c.config, OpUpdate)
+	return &UpstreamSyncRunUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *UpstreamSyncRunClient) UpdateOne(_m *UpstreamSyncRun) *UpstreamSyncRunUpdateOne {
+	mutation := newUpstreamSyncRunMutation(c.config, OpUpdateOne, withUpstreamSyncRun(_m))
+	return &UpstreamSyncRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *UpstreamSyncRunClient) UpdateOneID(id int64) *UpstreamSyncRunUpdateOne {
+	mutation := newUpstreamSyncRunMutation(c.config, OpUpdateOne, withUpstreamSyncRunID(id))
+	return &UpstreamSyncRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for UpstreamSyncRun.
+func (c *UpstreamSyncRunClient) Delete() *UpstreamSyncRunDelete {
+	mutation := newUpstreamSyncRunMutation(c.config, OpDelete)
+	return &UpstreamSyncRunDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *UpstreamSyncRunClient) DeleteOne(_m *UpstreamSyncRun) *UpstreamSyncRunDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *UpstreamSyncRunClient) DeleteOneID(id int64) *UpstreamSyncRunDeleteOne {
+	builder := c.Delete().Where(upstreamsyncrun.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &UpstreamSyncRunDeleteOne{builder}
+}
+
+// Query returns a query builder for UpstreamSyncRun.
+func (c *UpstreamSyncRunClient) Query() *UpstreamSyncRunQuery {
+	return &UpstreamSyncRunQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeUpstreamSyncRun},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a UpstreamSyncRun entity by its id.
+func (c *UpstreamSyncRunClient) Get(ctx context.Context, id int64) (*UpstreamSyncRun, error) {
+	return c.Query().Where(upstreamsyncrun.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *UpstreamSyncRunClient) GetX(ctx context.Context, id int64) *UpstreamSyncRun {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryResults queries the results edge of a UpstreamSyncRun.
+func (c *UpstreamSyncRunClient) QueryResults(_m *UpstreamSyncRun) *UpstreamSyncResultQuery {
+	query := (&UpstreamSyncResultClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamsyncrun.Table, upstreamsyncrun.FieldID, id),
+			sqlgraph.To(upstreamsyncresult.Table, upstreamsyncresult.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamsyncrun.ResultsTable, upstreamsyncrun.ResultsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryEvents queries the events edge of a UpstreamSyncRun.
+func (c *UpstreamSyncRunClient) QueryEvents(_m *UpstreamSyncRun) *UpstreamEventQuery {
+	query := (&UpstreamEventClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamsyncrun.Table, upstreamsyncrun.FieldID, id),
+			sqlgraph.To(upstreamevent.Table, upstreamevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamsyncrun.EventsTable, upstreamsyncrun.EventsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryBalanceSnapshots queries the balance_snapshots edge of a UpstreamSyncRun.
+func (c *UpstreamSyncRunClient) QueryBalanceSnapshots(_m *UpstreamSyncRun) *UpstreamBalanceSnapshotQuery {
+	query := (&UpstreamBalanceSnapshotClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamsyncrun.Table, upstreamsyncrun.FieldID, id),
+			sqlgraph.To(upstreambalancesnapshot.Table, upstreambalancesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamsyncrun.BalanceSnapshotsTable, upstreamsyncrun.BalanceSnapshotsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *UpstreamSyncRunClient) Hooks() []Hook {
+	return c.hooks.UpstreamSyncRun
+}
+
+// Interceptors returns the client interceptors.
+func (c *UpstreamSyncRunClient) Interceptors() []Interceptor {
+	return c.inters.UpstreamSyncRun
+}
+
+func (c *UpstreamSyncRunClient) mutate(ctx context.Context, m *UpstreamSyncRunMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&UpstreamSyncRunCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&UpstreamSyncRunUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&UpstreamSyncRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&UpstreamSyncRunDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown UpstreamSyncRun mutation op: %q", m.Op())
 	}
 }
 
@@ -5888,6 +6981,38 @@ func (c *UsageLogClient) QuerySubscription(_m *UsageLog) *UserSubscriptionQuery 
 			sqlgraph.From(usagelog.Table, usagelog.FieldID, id),
 			sqlgraph.To(usersubscription.Table, usersubscription.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, true, usagelog.SubscriptionTable, usagelog.SubscriptionColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUpstreamConfig queries the upstream_config edge of a UsageLog.
+func (c *UsageLogClient) QueryUpstreamConfig(_m *UsageLog) *UpstreamConfigQuery {
+	query := (&UpstreamConfigClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(usagelog.Table, usagelog.FieldID, id),
+			sqlgraph.To(upstreamconfig.Table, upstreamconfig.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, usagelog.UpstreamConfigTable, usagelog.UpstreamConfigColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUpstreamKey queries the upstream_key edge of a UsageLog.
+func (c *UsageLogClient) QueryUpstreamKey(_m *UsageLog) *UpstreamKeyQuery {
+	query := (&UpstreamKeyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(usagelog.Table, usagelog.FieldID, id),
+			sqlgraph.To(upstreamkey.Table, upstreamkey.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, usagelog.UpstreamKeyTable, usagelog.UpstreamKeyColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -7071,8 +8196,9 @@ type (
 		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
 		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
 		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
-		UpstreamConfig, UpstreamKey, UsageCleanupTask, UsageLog, User,
-		UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent, UpstreamIncident,
+		UpstreamKey, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask, UsageLog,
+		User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
 		UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
@@ -7083,8 +8209,9 @@ type (
 		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
 		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
 		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
-		UpstreamConfig, UpstreamKey, UsageCleanupTask, UsageLog, User,
-		UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent, UpstreamIncident,
+		UpstreamKey, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask, UsageLog,
+		User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
 		UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )

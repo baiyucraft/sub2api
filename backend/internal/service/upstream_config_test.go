@@ -195,7 +195,7 @@ func TestNormalizeUpstreamAccountInputClearsAccountProxy(t *testing.T) {
 	}
 	svc := &adminServiceImpl{upstreamConfigRepo: repo}
 	input := &CreateAccountInput{
-		Type:             AccountTypeUpstream,
+		Type:             AccountTypeAPIKey,
 		Platform:         PlatformOpenAI,
 		UpstreamConfigID: &cfgID,
 		UpstreamKeyID:    &keyID,
@@ -243,6 +243,87 @@ func TestNormalizeUpstreamAccountUpdateClearsAccountProxy(t *testing.T) {
 	require.Nil(t, input.ProxyID)
 }
 
+func TestAccountIsUpstreamBoundRequiresBothBindingIDs(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+
+	require.False(t, (&Account{UpstreamConfigID: &cfgID}).IsUpstreamBound())
+	require.False(t, (&Account{UpstreamKeyID: &keyID}).IsUpstreamBound())
+	require.True(t, (&Account{UpstreamConfigID: &cfgID, UpstreamKeyID: &keyID}).IsUpstreamBound())
+}
+
+func TestAdminServiceUpdateUpstreamBoundAccountCanClearPoolOnlyCredentials(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	accountID := int64(101)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "NewAPI Main", UpstreamProviderNewAPI, StatusActive, "https://upstream.example.com")},
+		keys: []UpstreamKey{{
+			ID:               keyID,
+			UpstreamConfigID: cfgID,
+			Name:             "pro",
+			Platform:         PlatformOpenAI,
+		}},
+	}
+	accountRepo := newAdminSub2APIRateSyncAccountRepo(&Account{
+		ID:               accountID,
+		Name:             "NewAPI Main-pro",
+		Type:             AccountTypeAPIKey,
+		Platform:         PlatformOpenAI,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &keyID,
+		Credentials: map[string]any{
+			"base_url":                     "https://stale.example.com",
+			"api_key":                      "sk-stale",
+			"pool_mode":                    true,
+			"pool_mode_retry_count":        4,
+			"pool_mode_retry_status_codes": []any{429.0},
+		},
+	})
+	svc := &adminServiceImpl{accountRepo: accountRepo, upstreamConfigRepo: repo}
+
+	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		Credentials: map[string]any{},
+	})
+
+	require.NoError(t, err)
+	require.Empty(t, updated.Credentials)
+}
+
+func TestNormalizeUpstreamAccountInputStripsLocalForwardingSecrets(t *testing.T) {
+	cfgID := int64(10)
+	keyID := int64(20)
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "NewAPI Main", UpstreamProviderNewAPI, StatusActive, "https://upstream.example.com")},
+		keys: []UpstreamKey{{
+			ID:               keyID,
+			UpstreamConfigID: cfgID,
+			Name:             "pro",
+			Platform:         PlatformOpenAI,
+		}},
+	}
+	accountRepo := newAdminSub2APIRateSyncAccountRepo()
+	svc := &adminServiceImpl{accountRepo: accountRepo, upstreamConfigRepo: repo}
+
+	created, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Type:             AccountTypeAPIKey,
+		Platform:         PlatformOpenAI,
+		UpstreamConfigID: &cfgID,
+		UpstreamKeyID:    &keyID,
+		Credentials: map[string]any{
+			"base_url":  "https://stale.example.com",
+			"api_key":   "sk-stale",
+			"pool_mode": true,
+		},
+		SkipDefaultGroupBind: true,
+	})
+
+	require.NoError(t, err)
+	require.NotContains(t, created.Credentials, "base_url")
+	require.NotContains(t, created.Credentials, "api_key")
+	require.Equal(t, true, created.Credentials["pool_mode"])
+}
+
 func TestAdminServiceCreateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
 	cfgID := int64(10)
 	keyID := int64(20)
@@ -266,7 +347,7 @@ func TestAdminServiceCreateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
 
 	account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
 		Name:                 "upstream-bound",
-		Type:                 AccountTypeUpstream,
+		Type:                 AccountTypeAPIKey,
 		Platform:             PlatformOpenAI,
 		UpstreamConfigID:     &cfgID,
 		UpstreamKeyID:        &keyID,
@@ -310,7 +391,11 @@ func TestAdminServiceUpdateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
 		Concurrency:      10,
 		Priority:         50,
 		LoadFactor:       &staleLoadFactor,
-		Extra:            map[string]any{AccountUpstreamProviderKey: UpstreamProviderNewAPI},
+		Credentials: map[string]any{
+			"base_url": "https://upstream.example.com",
+			"api_key":  "sk-upstream",
+		},
+		Extra: map[string]any{AccountUpstreamProviderKey: UpstreamProviderNewAPI},
 	})
 	svc := &adminServiceImpl{accountRepo: accountRepo, upstreamConfigRepo: repo}
 	priority := 21
@@ -345,7 +430,11 @@ func TestAdminServiceUpdateUnboundAccountUsesOrdinaryLoadFactor(t *testing.T) {
 		Concurrency:      100,
 		Priority:         7,
 		LoadFactor:       &staleLoadFactor,
-		Extra:            map[string]any{AccountUpstreamProviderKey: UpstreamProviderNewAPI},
+		Credentials: map[string]any{
+			"base_url": "https://upstream.example.com",
+			"api_key":  "sk-upstream",
+		},
+		Extra: map[string]any{AccountUpstreamProviderKey: UpstreamProviderNewAPI},
 	})
 	svc := &adminServiceImpl{accountRepo: accountRepo}
 	zero := int64(0)
@@ -362,6 +451,8 @@ func TestAdminServiceUpdateUnboundAccountUsesOrdinaryLoadFactor(t *testing.T) {
 	require.Nil(t, updated.UpstreamKeyID)
 	require.NotNil(t, updated.LoadFactor)
 	require.Equal(t, 33, *updated.LoadFactor)
+	require.NotContains(t, updated.Credentials, "base_url")
+	require.NotContains(t, updated.Credentials, "api_key")
 }
 
 func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *testing.T) {

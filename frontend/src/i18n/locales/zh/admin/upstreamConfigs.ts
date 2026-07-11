@@ -8,7 +8,8 @@ export default {
       name: '名称',
       provider: '类型',
       baseUrl: 'Base URL',
-      balance: '余额',
+      balance: '人民币余额',
+      rates: '倍率摘要',
       authMode: '认证',
       credentials: '凭据',
       lastSync: '最近同步',
@@ -16,12 +17,18 @@ export default {
     },
     balance: {
       totalRecharged: '累计充值 {amount}',
+      lowBalance: '低余额',
       rawBalance: '原生剩余额度：{amount}',
       rawUsed: '原生已用额度：{amount}',
       rawTotal: '原生总额度：{amount}',
       email: '上游邮箱：{email}',
       syncedAt: '额度同步：{time}',
       error: '额度错误：{error}'
+    },
+    rates: {
+      raw: '原始倍率 {value}',
+      cost: '成本倍率 {value}',
+      recharge: '充值倍率 {value}x'
     },
     providers: {
       sub2api: 'sub2api',
@@ -51,6 +58,10 @@ export default {
       test: '测试连接',
       syncKeys: '同步上游',
       syncAll: '同步全部',
+      syncRuns: '同步记录',
+      events: '事件',
+      costTrend: '成本趋势',
+      settings: '上游设置',
       openDashboard: '打开上游后台',
       saving: '保存中...'
     },
@@ -91,6 +102,11 @@ export default {
       baseUrl: 'Base URL',
       authMode: '认证方式',
       proxy: '代理',
+      rechargeRate: '充值倍率',
+      rechargeRateHint: '上游余额折算为实际成本的系数；成本倍率 = 原始倍率 × 充值折算率。',
+      balanceToCnyRate: '余额兑人民币汇率',
+      balanceToCnyRatePlaceholder: '留空使用上游汇率',
+      balanceToCnyRateHint: '仅在上游未提供可靠人民币汇率时使用。',
       proxyId: '代理 ID',
       proxyPlaceholder: '留空不使用',
       loginEmail: '登录邮箱',
@@ -114,6 +130,7 @@ export default {
       created: '上游配置已创建',
       updated: '上游配置已更新',
       savedAndSynced: '已保存并同步成功，发现 {keys} 个 Key，更新 {accounts} 个账号',
+      savedAndSyncedPartial: '已保存，但同步仅部分完成：发现 {keys} 个 Key，更新 {accounts} 个账号',
       savedButSyncFailed: '已保存，但同步失败：{error}',
       saveFailed: '保存上游配置失败',
       newapiUsernameRequired: 'NewAPI 上游必须填写登录账号',
@@ -123,11 +140,76 @@ export default {
       testSuccess: '连接测试成功',
       testFailed: '连接测试失败',
       syncSuccess: '已同步上游，发现 {count} 个 Key',
+      syncPartial: '同步仅部分完成，当前可用 {count} 个 Key，请查看同步记录',
       syncFailed: '同步上游失败',
       syncAllSuccess: '已同步 {success} 个上游，共发现 {keys} 个 Key',
-      syncAllPartial: '同步完成：成功 {success} 个上游，失败 {failed} 个，共发现 {keys} 个 Key',
+      syncAllPartial: '同步完成：成功 {success} 个，部分成功 {partial} 个，失败 {failed} 个，共发现 {keys} 个 Key',
       syncAllFailed: '同步全部上游失败',
-      invalidDashboardUrl: '上游 Base URL 无效，无法打开后台'
+      invalidDashboardUrl: '上游 Base URL 无效，无法打开后台',
+      rechargeRateInvalid: '充值倍率必须大于 0 且不超过 100',
+      balanceToCnyRateInvalid: '余额兑人民币汇率必须为正数',
+      loadSyncRunsFailed: '加载同步记录失败',
+      loadSyncRunFailed: '加载同步结果失败',
+      loadEventsFailed: '加载上游事件失败',
+      loadTrendFailed: '加载成本趋势失败',
+      loadSettingsFailed: '加载上游设置失败',
+      settingsSaved: '上游设置已保存',
+      saveSettingsFailed: '保存上游设置失败'
+    },
+    settings: {
+      lowBalanceThreshold: '低余额阈值（人民币）',
+      lowBalanceThresholdHint: '余额低于该值时在上游列表标红；设置为 0 表示关闭提醒。'
+    },
+    operations: {
+      syncRunsTitle: '同步记录',
+      eventsTitle: '上游事件',
+      trendTitle: '成本趋势',
+      settingsTitle: '上游设置',
+      runSubtitle: '批次 #{id}',
+      syncRunsHint: '查看批量或单个上游同步的执行结果。',
+      selectUpstream: '选择上游',
+      success: '成功',
+      partial: '部分成功',
+      failed: '失败',
+      duration: '耗时',
+      requests: '请求数',
+      upstreamCost: '上游成本',
+      billedCost: '计费金额',
+      grossProfit: '毛利',
+      unconvertedCost: '未换算成本',
+      openIncidents: '未恢复事故',
+      recentEvents: '最近事件',
+      emptySyncRuns: '暂无同步记录',
+      emptySyncResults: '该批次暂无结果明细',
+      emptyEvents: '暂无上游事件',
+      emptyBalanceHistory: '暂无余额历史',
+      emptyTrend: '暂无成本趋势数据',
+      balanceHistory: '余额历史',
+      loadMore: '加载更多',
+      syncRunSummary: '共 {total} 个上游：成功 {success}，部分成功 {partial}，失败 {failed}',
+      syncRecordSummary: '远端 Key {remote}，已保存 {persisted}，更新账号 {accounts}',
+      incidentMetric: '当前值 {value}，阈值 {threshold}',
+      legacyAttributed: '其中 {count} 个请求来自旧版归因数据。',
+      status: {
+        succeeded: '成功',
+        partial: '部分成功',
+        failed: '失败',
+        open: '未恢复',
+        resolved: '已恢复',
+        unknown: '未知'
+      },
+      trigger: {
+        manual_single: '手动单个同步',
+        manual_batch: '手动批量同步',
+        scheduled: '定时同步',
+        unknown: '未知触发方式'
+      },
+      trendSeries: {
+        baseCost: '原始上游成本',
+        actualCost: '实际上游成本',
+        billedCost: '计费金额',
+        grossProfit: '毛利'
+      }
     }
   }
 }

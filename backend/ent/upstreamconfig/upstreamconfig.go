@@ -35,6 +35,10 @@ const (
 	FieldExtra = "extra"
 	// FieldProxyID holds the string denoting the proxy_id field in the database.
 	FieldProxyID = "proxy_id"
+	// FieldRechargeRate holds the string denoting the recharge_rate field in the database.
+	FieldRechargeRate = "recharge_rate"
+	// FieldBalanceToCnyRate holds the string denoting the balance_to_cny_rate field in the database.
+	FieldBalanceToCnyRate = "balance_to_cny_rate"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldLastError holds the string denoting the last_error field in the database.
@@ -47,6 +51,16 @@ const (
 	EdgeKeys = "keys"
 	// EdgeAccounts holds the string denoting the accounts edge name in mutations.
 	EdgeAccounts = "accounts"
+	// EdgeSyncResults holds the string denoting the sync_results edge name in mutations.
+	EdgeSyncResults = "sync_results"
+	// EdgeEvents holds the string denoting the events edge name in mutations.
+	EdgeEvents = "events"
+	// EdgeIncidents holds the string denoting the incidents edge name in mutations.
+	EdgeIncidents = "incidents"
+	// EdgeBalanceSnapshots holds the string denoting the balance_snapshots edge name in mutations.
+	EdgeBalanceSnapshots = "balance_snapshots"
+	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
+	EdgeUsageLogs = "usage_logs"
 	// EdgeProxy holds the string denoting the proxy edge name in mutations.
 	EdgeProxy = "proxy"
 	// Table holds the table name of the upstreamconfig in the database.
@@ -65,6 +79,41 @@ const (
 	AccountsInverseTable = "accounts"
 	// AccountsColumn is the table column denoting the accounts relation/edge.
 	AccountsColumn = "upstream_config_id"
+	// SyncResultsTable is the table that holds the sync_results relation/edge.
+	SyncResultsTable = "upstream_sync_results"
+	// SyncResultsInverseTable is the table name for the UpstreamSyncResult entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamsyncresult" package.
+	SyncResultsInverseTable = "upstream_sync_results"
+	// SyncResultsColumn is the table column denoting the sync_results relation/edge.
+	SyncResultsColumn = "upstream_config_id"
+	// EventsTable is the table that holds the events relation/edge.
+	EventsTable = "upstream_events"
+	// EventsInverseTable is the table name for the UpstreamEvent entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamevent" package.
+	EventsInverseTable = "upstream_events"
+	// EventsColumn is the table column denoting the events relation/edge.
+	EventsColumn = "upstream_config_id"
+	// IncidentsTable is the table that holds the incidents relation/edge.
+	IncidentsTable = "upstream_incidents"
+	// IncidentsInverseTable is the table name for the UpstreamIncident entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamincident" package.
+	IncidentsInverseTable = "upstream_incidents"
+	// IncidentsColumn is the table column denoting the incidents relation/edge.
+	IncidentsColumn = "upstream_config_id"
+	// BalanceSnapshotsTable is the table that holds the balance_snapshots relation/edge.
+	BalanceSnapshotsTable = "upstream_balance_snapshots"
+	// BalanceSnapshotsInverseTable is the table name for the UpstreamBalanceSnapshot entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreambalancesnapshot" package.
+	BalanceSnapshotsInverseTable = "upstream_balance_snapshots"
+	// BalanceSnapshotsColumn is the table column denoting the balance_snapshots relation/edge.
+	BalanceSnapshotsColumn = "upstream_config_id"
+	// UsageLogsTable is the table that holds the usage_logs relation/edge.
+	UsageLogsTable = "usage_logs"
+	// UsageLogsInverseTable is the table name for the UsageLog entity.
+	// It exists in this package in order to avoid circular dependency with the "usagelog" package.
+	UsageLogsInverseTable = "usage_logs"
+	// UsageLogsColumn is the table column denoting the usage_logs relation/edge.
+	UsageLogsColumn = "upstream_config_id"
 	// ProxyTable is the table that holds the proxy relation/edge.
 	ProxyTable = "upstream_configs"
 	// ProxyInverseTable is the table name for the Proxy entity.
@@ -87,6 +136,8 @@ var Columns = []string{
 	FieldCredentials,
 	FieldExtra,
 	FieldProxyID,
+	FieldRechargeRate,
+	FieldBalanceToCnyRate,
 	FieldStatus,
 	FieldLastError,
 	FieldLastCheckedAt,
@@ -131,6 +182,8 @@ var (
 	DefaultCredentials func() map[string]interface{}
 	// DefaultExtra holds the default value on creation for the "extra" field.
 	DefaultExtra func() map[string]interface{}
+	// DefaultRechargeRate holds the default value on creation for the "recharge_rate" field.
+	DefaultRechargeRate float64
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -185,6 +238,16 @@ func ByProxyID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProxyID, opts...).ToFunc()
 }
 
+// ByRechargeRate orders the results by the recharge_rate field.
+func ByRechargeRate(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRechargeRate, opts...).ToFunc()
+}
+
+// ByBalanceToCnyRate orders the results by the balance_to_cny_rate field.
+func ByBalanceToCnyRate(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBalanceToCnyRate, opts...).ToFunc()
+}
+
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
@@ -233,6 +296,76 @@ func ByAccounts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// BySyncResultsCount orders the results by sync_results count.
+func BySyncResultsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newSyncResultsStep(), opts...)
+	}
+}
+
+// BySyncResults orders the results by sync_results terms.
+func BySyncResults(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newSyncResultsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByEventsCount orders the results by events count.
+func ByEventsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newEventsStep(), opts...)
+	}
+}
+
+// ByEvents orders the results by events terms.
+func ByEvents(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newEventsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByIncidentsCount orders the results by incidents count.
+func ByIncidentsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newIncidentsStep(), opts...)
+	}
+}
+
+// ByIncidents orders the results by incidents terms.
+func ByIncidents(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newIncidentsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByBalanceSnapshotsCount orders the results by balance_snapshots count.
+func ByBalanceSnapshotsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newBalanceSnapshotsStep(), opts...)
+	}
+}
+
+// ByBalanceSnapshots orders the results by balance_snapshots terms.
+func ByBalanceSnapshots(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newBalanceSnapshotsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByUsageLogsCount orders the results by usage_logs count.
+func ByUsageLogsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newUsageLogsStep(), opts...)
+	}
+}
+
+// ByUsageLogs orders the results by usage_logs terms.
+func ByUsageLogs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUsageLogsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByProxyField orders the results by proxy field.
 func ByProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -251,6 +384,41 @@ func newAccountsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AccountsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, AccountsTable, AccountsColumn),
+	)
+}
+func newSyncResultsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(SyncResultsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, SyncResultsTable, SyncResultsColumn),
+	)
+}
+func newEventsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(EventsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, EventsTable, EventsColumn),
+	)
+}
+func newIncidentsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(IncidentsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, IncidentsTable, IncidentsColumn),
+	)
+}
+func newBalanceSnapshotsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(BalanceSnapshotsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, BalanceSnapshotsTable, BalanceSnapshotsColumn),
+	)
+}
+func newUsageLogsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UsageLogsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, UsageLogsTable, UsageLogsColumn),
 	)
 }
 func newProxyStep() *sqlgraph.Step {

@@ -13,6 +13,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -29,6 +31,10 @@ type UsageLog struct {
 	APIKeyID int64 `json:"api_key_id,omitempty"`
 	// AccountID holds the value of the "account_id" field.
 	AccountID int64 `json:"account_id,omitempty"`
+	// UpstreamConfigID holds the value of the "upstream_config_id" field.
+	UpstreamConfigID *int64 `json:"upstream_config_id,omitempty"`
+	// UpstreamKeyID holds the value of the "upstream_key_id" field.
+	UpstreamKeyID *int64 `json:"upstream_key_id,omitempty"`
 	// RequestID holds the value of the "request_id" field.
 	RequestID string `json:"request_id,omitempty"`
 	// Model holds the value of the "model" field.
@@ -77,6 +83,10 @@ type UsageLog struct {
 	RateMultiplier float64 `json:"rate_multiplier,omitempty"`
 	// AccountRateMultiplier holds the value of the "account_rate_multiplier" field.
 	AccountRateMultiplier *float64 `json:"account_rate_multiplier,omitempty"`
+	// UpstreamCostCurrency holds the value of the "upstream_cost_currency" field.
+	UpstreamCostCurrency *string `json:"upstream_cost_currency,omitempty"`
+	// UpstreamCostToCnyRate holds the value of the "upstream_cost_to_cny_rate" field.
+	UpstreamCostToCnyRate *float64 `json:"upstream_cost_to_cny_rate,omitempty"`
 	// BillingType holds the value of the "billing_type" field.
 	BillingType int8 `json:"billing_type,omitempty"`
 	// Stream holds the value of the "stream" field.
@@ -129,9 +139,13 @@ type UsageLogEdges struct {
 	Group *Group `json:"group,omitempty"`
 	// Subscription holds the value of the subscription edge.
 	Subscription *UserSubscription `json:"subscription,omitempty"`
+	// UpstreamConfig holds the value of the upstream_config edge.
+	UpstreamConfig *UpstreamConfig `json:"upstream_config,omitempty"`
+	// UpstreamKey holds the value of the upstream_key edge.
+	UpstreamKey *UpstreamKey `json:"upstream_key,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [5]bool
+	loadedTypes [7]bool
 }
 
 // UserOrErr returns the User value or an error if the edge
@@ -189,6 +203,28 @@ func (e UsageLogEdges) SubscriptionOrErr() (*UserSubscription, error) {
 	return nil, &NotLoadedError{edge: "subscription"}
 }
 
+// UpstreamConfigOrErr returns the UpstreamConfig value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e UsageLogEdges) UpstreamConfigOrErr() (*UpstreamConfig, error) {
+	if e.UpstreamConfig != nil {
+		return e.UpstreamConfig, nil
+	} else if e.loadedTypes[5] {
+		return nil, &NotFoundError{label: upstreamconfig.Label}
+	}
+	return nil, &NotLoadedError{edge: "upstream_config"}
+}
+
+// UpstreamKeyOrErr returns the UpstreamKey value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e UsageLogEdges) UpstreamKeyOrErr() (*UpstreamKey, error) {
+	if e.UpstreamKey != nil {
+		return e.UpstreamKey, nil
+	} else if e.loadedTypes[6] {
+		return nil, &NotFoundError{label: upstreamkey.Label}
+	}
+	return nil, &NotLoadedError{edge: "upstream_key"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*UsageLog) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -198,11 +234,11 @@ func (*UsageLog) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case usagelog.FieldStream, usagelog.FieldCacheTTLOverridden:
 			values[i] = new(sql.NullBool)
-		case usagelog.FieldInputCost, usagelog.FieldOutputCost, usagelog.FieldCacheCreationCost, usagelog.FieldCacheReadCost, usagelog.FieldTotalCost, usagelog.FieldActualCost, usagelog.FieldRateMultiplier, usagelog.FieldAccountRateMultiplier:
+		case usagelog.FieldInputCost, usagelog.FieldOutputCost, usagelog.FieldCacheCreationCost, usagelog.FieldCacheReadCost, usagelog.FieldTotalCost, usagelog.FieldActualCost, usagelog.FieldRateMultiplier, usagelog.FieldAccountRateMultiplier, usagelog.FieldUpstreamCostToCnyRate:
 			values[i] = new(sql.NullFloat64)
-		case usagelog.FieldID, usagelog.FieldUserID, usagelog.FieldAPIKeyID, usagelog.FieldAccountID, usagelog.FieldChannelID, usagelog.FieldGroupID, usagelog.FieldSubscriptionID, usagelog.FieldInputTokens, usagelog.FieldOutputTokens, usagelog.FieldCacheCreationTokens, usagelog.FieldCacheReadTokens, usagelog.FieldCacheCreation5mTokens, usagelog.FieldCacheCreation1hTokens, usagelog.FieldBillingType, usagelog.FieldDurationMs, usagelog.FieldFirstTokenMs, usagelog.FieldImageCount, usagelog.FieldVideoCount, usagelog.FieldVideoDurationSeconds:
+		case usagelog.FieldID, usagelog.FieldUserID, usagelog.FieldAPIKeyID, usagelog.FieldAccountID, usagelog.FieldUpstreamConfigID, usagelog.FieldUpstreamKeyID, usagelog.FieldChannelID, usagelog.FieldGroupID, usagelog.FieldSubscriptionID, usagelog.FieldInputTokens, usagelog.FieldOutputTokens, usagelog.FieldCacheCreationTokens, usagelog.FieldCacheReadTokens, usagelog.FieldCacheCreation5mTokens, usagelog.FieldCacheCreation1hTokens, usagelog.FieldBillingType, usagelog.FieldDurationMs, usagelog.FieldFirstTokenMs, usagelog.FieldImageCount, usagelog.FieldVideoCount, usagelog.FieldVideoDurationSeconds:
 			values[i] = new(sql.NullInt64)
-		case usagelog.FieldRequestID, usagelog.FieldModel, usagelog.FieldRequestedModel, usagelog.FieldUpstreamModel, usagelog.FieldModelMappingChain, usagelog.FieldBillingTier, usagelog.FieldBillingMode, usagelog.FieldUserAgent, usagelog.FieldIPAddress, usagelog.FieldImageSize, usagelog.FieldImageInputSize, usagelog.FieldImageOutputSize, usagelog.FieldImageSizeSource, usagelog.FieldVideoResolution:
+		case usagelog.FieldRequestID, usagelog.FieldModel, usagelog.FieldRequestedModel, usagelog.FieldUpstreamModel, usagelog.FieldModelMappingChain, usagelog.FieldBillingTier, usagelog.FieldBillingMode, usagelog.FieldUpstreamCostCurrency, usagelog.FieldUserAgent, usagelog.FieldIPAddress, usagelog.FieldImageSize, usagelog.FieldImageInputSize, usagelog.FieldImageOutputSize, usagelog.FieldImageSizeSource, usagelog.FieldVideoResolution:
 			values[i] = new(sql.NullString)
 		case usagelog.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -244,6 +280,20 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field account_id", values[i])
 			} else if value.Valid {
 				_m.AccountID = value.Int64
+			}
+		case usagelog.FieldUpstreamConfigID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_config_id", values[i])
+			} else if value.Valid {
+				_m.UpstreamConfigID = new(int64)
+				*_m.UpstreamConfigID = value.Int64
+			}
+		case usagelog.FieldUpstreamKeyID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_key_id", values[i])
+			} else if value.Valid {
+				_m.UpstreamKeyID = new(int64)
+				*_m.UpstreamKeyID = value.Int64
 			}
 		case usagelog.FieldRequestID:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -398,6 +448,20 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 				_m.AccountRateMultiplier = new(float64)
 				*_m.AccountRateMultiplier = value.Float64
 			}
+		case usagelog.FieldUpstreamCostCurrency:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_cost_currency", values[i])
+			} else if value.Valid {
+				_m.UpstreamCostCurrency = new(string)
+				*_m.UpstreamCostCurrency = value.String
+			}
+		case usagelog.FieldUpstreamCostToCnyRate:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_cost_to_cny_rate", values[i])
+			} else if value.Valid {
+				_m.UpstreamCostToCnyRate = new(float64)
+				*_m.UpstreamCostToCnyRate = value.Float64
+			}
 		case usagelog.FieldBillingType:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field billing_type", values[i])
@@ -550,6 +614,16 @@ func (_m *UsageLog) QuerySubscription() *UserSubscriptionQuery {
 	return NewUsageLogClient(_m.config).QuerySubscription(_m)
 }
 
+// QueryUpstreamConfig queries the "upstream_config" edge of the UsageLog entity.
+func (_m *UsageLog) QueryUpstreamConfig() *UpstreamConfigQuery {
+	return NewUsageLogClient(_m.config).QueryUpstreamConfig(_m)
+}
+
+// QueryUpstreamKey queries the "upstream_key" edge of the UsageLog entity.
+func (_m *UsageLog) QueryUpstreamKey() *UpstreamKeyQuery {
+	return NewUsageLogClient(_m.config).QueryUpstreamKey(_m)
+}
+
 // Update returns a builder for updating this UsageLog.
 // Note that you need to call UsageLog.Unwrap() before calling this method if this UsageLog
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -581,6 +655,16 @@ func (_m *UsageLog) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("account_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.AccountID))
+	builder.WriteString(", ")
+	if v := _m.UpstreamConfigID; v != nil {
+		builder.WriteString("upstream_config_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamKeyID; v != nil {
+		builder.WriteString("upstream_key_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("request_id=")
 	builder.WriteString(_m.RequestID)
@@ -669,6 +753,16 @@ func (_m *UsageLog) String() string {
 	builder.WriteString(", ")
 	if v := _m.AccountRateMultiplier; v != nil {
 		builder.WriteString("account_rate_multiplier=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamCostCurrency; v != nil {
+		builder.WriteString("upstream_cost_currency=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamCostToCnyRate; v != nil {
+		builder.WriteString("upstream_cost_to_cny_rate=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")

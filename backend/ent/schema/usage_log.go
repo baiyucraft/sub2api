@@ -35,6 +35,12 @@ func (UsageLog) Fields() []ent.Field {
 		field.Int64("user_id"),
 		field.Int64("api_key_id"),
 		field.Int64("account_id"),
+		field.Int64("upstream_config_id").
+			Optional().
+			Nillable(),
+		field.Int64("upstream_key_id").
+			Optional().
+			Nillable(),
 		field.String("request_id").
 			MaxLen(64).
 			NotEmpty(),
@@ -106,6 +112,14 @@ func (UsageLog) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
+		field.String("upstream_cost_currency").
+			MaxLen(8).
+			Optional().
+			Nillable(),
+		field.Float("upstream_cost_to_cny_rate").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 
 		// 其他字段
 		field.Int8("billing_type").
@@ -201,6 +215,10 @@ func (UsageLog) Edges() []ent.Edge {
 			Ref("usage_logs").
 			Field("subscription_id").
 			Unique(),
+		edge.From("upstream_config", UpstreamConfig.Type).
+			Ref("usage_logs").Field("upstream_config_id").Unique(),
+		edge.From("upstream_key", UpstreamKey.Type).
+			Ref("usage_logs").Field("upstream_key_id").Unique(),
 	}
 }
 
@@ -219,6 +237,8 @@ func (UsageLog) Indexes() []ent.Index {
 		// 复合索引用于时间范围查询
 		index.Fields("user_id", "created_at"),
 		index.Fields("api_key_id", "created_at"),
+		index.Fields("upstream_config_id", "created_at"),
+		index.Fields("upstream_key_id", "created_at"),
 		// 分组维度时间范围查询（线上由 SQL 迁移创建 group_id IS NOT NULL 的部分索引）
 		index.Fields("group_id", "created_at"),
 	}

@@ -39,6 +39,10 @@ type UpstreamConfig struct {
 	Extra map[string]interface{} `json:"extra,omitempty"`
 	// ProxyID holds the value of the "proxy_id" field.
 	ProxyID *int64 `json:"proxy_id,omitempty"`
+	// RechargeRate holds the value of the "recharge_rate" field.
+	RechargeRate float64 `json:"recharge_rate,omitempty"`
+	// BalanceToCnyRate holds the value of the "balance_to_cny_rate" field.
+	BalanceToCnyRate *float64 `json:"balance_to_cny_rate,omitempty"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`
 	// LastError holds the value of the "last_error" field.
@@ -59,11 +63,21 @@ type UpstreamConfigEdges struct {
 	Keys []*UpstreamKey `json:"keys,omitempty"`
 	// Accounts holds the value of the accounts edge.
 	Accounts []*Account `json:"accounts,omitempty"`
+	// SyncResults holds the value of the sync_results edge.
+	SyncResults []*UpstreamSyncResult `json:"sync_results,omitempty"`
+	// Events holds the value of the events edge.
+	Events []*UpstreamEvent `json:"events,omitempty"`
+	// Incidents holds the value of the incidents edge.
+	Incidents []*UpstreamIncident `json:"incidents,omitempty"`
+	// BalanceSnapshots holds the value of the balance_snapshots edge.
+	BalanceSnapshots []*UpstreamBalanceSnapshot `json:"balance_snapshots,omitempty"`
+	// UsageLogs holds the value of the usage_logs edge.
+	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
 	// Proxy holds the value of the proxy edge.
 	Proxy *Proxy `json:"proxy,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [8]bool
 }
 
 // KeysOrErr returns the Keys value or an error if the edge
@@ -84,12 +98,57 @@ func (e UpstreamConfigEdges) AccountsOrErr() ([]*Account, error) {
 	return nil, &NotLoadedError{edge: "accounts"}
 }
 
+// SyncResultsOrErr returns the SyncResults value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamConfigEdges) SyncResultsOrErr() ([]*UpstreamSyncResult, error) {
+	if e.loadedTypes[2] {
+		return e.SyncResults, nil
+	}
+	return nil, &NotLoadedError{edge: "sync_results"}
+}
+
+// EventsOrErr returns the Events value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamConfigEdges) EventsOrErr() ([]*UpstreamEvent, error) {
+	if e.loadedTypes[3] {
+		return e.Events, nil
+	}
+	return nil, &NotLoadedError{edge: "events"}
+}
+
+// IncidentsOrErr returns the Incidents value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamConfigEdges) IncidentsOrErr() ([]*UpstreamIncident, error) {
+	if e.loadedTypes[4] {
+		return e.Incidents, nil
+	}
+	return nil, &NotLoadedError{edge: "incidents"}
+}
+
+// BalanceSnapshotsOrErr returns the BalanceSnapshots value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamConfigEdges) BalanceSnapshotsOrErr() ([]*UpstreamBalanceSnapshot, error) {
+	if e.loadedTypes[5] {
+		return e.BalanceSnapshots, nil
+	}
+	return nil, &NotLoadedError{edge: "balance_snapshots"}
+}
+
+// UsageLogsOrErr returns the UsageLogs value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamConfigEdges) UsageLogsOrErr() ([]*UsageLog, error) {
+	if e.loadedTypes[6] {
+		return e.UsageLogs, nil
+	}
+	return nil, &NotLoadedError{edge: "usage_logs"}
+}
+
 // ProxyOrErr returns the Proxy value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e UpstreamConfigEdges) ProxyOrErr() (*Proxy, error) {
 	if e.Proxy != nil {
 		return e.Proxy, nil
-	} else if e.loadedTypes[2] {
+	} else if e.loadedTypes[7] {
 		return nil, &NotFoundError{label: proxy.Label}
 	}
 	return nil, &NotLoadedError{edge: "proxy"}
@@ -102,6 +161,8 @@ func (*UpstreamConfig) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case upstreamconfig.FieldCredentials, upstreamconfig.FieldExtra:
 			values[i] = new([]byte)
+		case upstreamconfig.FieldRechargeRate, upstreamconfig.FieldBalanceToCnyRate:
+			values[i] = new(sql.NullFloat64)
 		case upstreamconfig.FieldID, upstreamconfig.FieldProxyID:
 			values[i] = new(sql.NullInt64)
 		case upstreamconfig.FieldName, upstreamconfig.FieldProvider, upstreamconfig.FieldBaseURL, upstreamconfig.FieldAuthMode, upstreamconfig.FieldStatus, upstreamconfig.FieldLastError:
@@ -195,6 +256,19 @@ func (_m *UpstreamConfig) assignValues(columns []string, values []any) error {
 				_m.ProxyID = new(int64)
 				*_m.ProxyID = value.Int64
 			}
+		case upstreamconfig.FieldRechargeRate:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field recharge_rate", values[i])
+			} else if value.Valid {
+				_m.RechargeRate = value.Float64
+			}
+		case upstreamconfig.FieldBalanceToCnyRate:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field balance_to_cny_rate", values[i])
+			} else if value.Valid {
+				_m.BalanceToCnyRate = new(float64)
+				*_m.BalanceToCnyRate = value.Float64
+			}
 		case upstreamconfig.FieldStatus:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field status", values[i])
@@ -243,6 +317,31 @@ func (_m *UpstreamConfig) QueryKeys() *UpstreamKeyQuery {
 // QueryAccounts queries the "accounts" edge of the UpstreamConfig entity.
 func (_m *UpstreamConfig) QueryAccounts() *AccountQuery {
 	return NewUpstreamConfigClient(_m.config).QueryAccounts(_m)
+}
+
+// QuerySyncResults queries the "sync_results" edge of the UpstreamConfig entity.
+func (_m *UpstreamConfig) QuerySyncResults() *UpstreamSyncResultQuery {
+	return NewUpstreamConfigClient(_m.config).QuerySyncResults(_m)
+}
+
+// QueryEvents queries the "events" edge of the UpstreamConfig entity.
+func (_m *UpstreamConfig) QueryEvents() *UpstreamEventQuery {
+	return NewUpstreamConfigClient(_m.config).QueryEvents(_m)
+}
+
+// QueryIncidents queries the "incidents" edge of the UpstreamConfig entity.
+func (_m *UpstreamConfig) QueryIncidents() *UpstreamIncidentQuery {
+	return NewUpstreamConfigClient(_m.config).QueryIncidents(_m)
+}
+
+// QueryBalanceSnapshots queries the "balance_snapshots" edge of the UpstreamConfig entity.
+func (_m *UpstreamConfig) QueryBalanceSnapshots() *UpstreamBalanceSnapshotQuery {
+	return NewUpstreamConfigClient(_m.config).QueryBalanceSnapshots(_m)
+}
+
+// QueryUsageLogs queries the "usage_logs" edge of the UpstreamConfig entity.
+func (_m *UpstreamConfig) QueryUsageLogs() *UsageLogQuery {
+	return NewUpstreamConfigClient(_m.config).QueryUsageLogs(_m)
 }
 
 // QueryProxy queries the "proxy" edge of the UpstreamConfig entity.
@@ -304,6 +403,14 @@ func (_m *UpstreamConfig) String() string {
 	builder.WriteString(", ")
 	if v := _m.ProxyID; v != nil {
 		builder.WriteString("proxy_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("recharge_rate=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RechargeRate))
+	builder.WriteString(", ")
+	if v := _m.BalanceToCnyRate; v != nil {
+		builder.WriteString("balance_to_cny_rate=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")

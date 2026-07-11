@@ -13,8 +13,13 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
+	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
 
 // UpstreamConfigCreate is the builder for creating a UpstreamConfig entity.
@@ -125,6 +130,34 @@ func (_c *UpstreamConfigCreate) SetNillableProxyID(v *int64) *UpstreamConfigCrea
 	return _c
 }
 
+// SetRechargeRate sets the "recharge_rate" field.
+func (_c *UpstreamConfigCreate) SetRechargeRate(v float64) *UpstreamConfigCreate {
+	_c.mutation.SetRechargeRate(v)
+	return _c
+}
+
+// SetNillableRechargeRate sets the "recharge_rate" field if the given value is not nil.
+func (_c *UpstreamConfigCreate) SetNillableRechargeRate(v *float64) *UpstreamConfigCreate {
+	if v != nil {
+		_c.SetRechargeRate(*v)
+	}
+	return _c
+}
+
+// SetBalanceToCnyRate sets the "balance_to_cny_rate" field.
+func (_c *UpstreamConfigCreate) SetBalanceToCnyRate(v float64) *UpstreamConfigCreate {
+	_c.mutation.SetBalanceToCnyRate(v)
+	return _c
+}
+
+// SetNillableBalanceToCnyRate sets the "balance_to_cny_rate" field if the given value is not nil.
+func (_c *UpstreamConfigCreate) SetNillableBalanceToCnyRate(v *float64) *UpstreamConfigCreate {
+	if v != nil {
+		_c.SetBalanceToCnyRate(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *UpstreamConfigCreate) SetStatus(v string) *UpstreamConfigCreate {
 	_c.mutation.SetStatus(v)
@@ -211,6 +244,81 @@ func (_c *UpstreamConfigCreate) AddAccounts(v ...*Account) *UpstreamConfigCreate
 	return _c.AddAccountIDs(ids...)
 }
 
+// AddSyncResultIDs adds the "sync_results" edge to the UpstreamSyncResult entity by IDs.
+func (_c *UpstreamConfigCreate) AddSyncResultIDs(ids ...int64) *UpstreamConfigCreate {
+	_c.mutation.AddSyncResultIDs(ids...)
+	return _c
+}
+
+// AddSyncResults adds the "sync_results" edges to the UpstreamSyncResult entity.
+func (_c *UpstreamConfigCreate) AddSyncResults(v ...*UpstreamSyncResult) *UpstreamConfigCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddSyncResultIDs(ids...)
+}
+
+// AddEventIDs adds the "events" edge to the UpstreamEvent entity by IDs.
+func (_c *UpstreamConfigCreate) AddEventIDs(ids ...int64) *UpstreamConfigCreate {
+	_c.mutation.AddEventIDs(ids...)
+	return _c
+}
+
+// AddEvents adds the "events" edges to the UpstreamEvent entity.
+func (_c *UpstreamConfigCreate) AddEvents(v ...*UpstreamEvent) *UpstreamConfigCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddEventIDs(ids...)
+}
+
+// AddIncidentIDs adds the "incidents" edge to the UpstreamIncident entity by IDs.
+func (_c *UpstreamConfigCreate) AddIncidentIDs(ids ...int64) *UpstreamConfigCreate {
+	_c.mutation.AddIncidentIDs(ids...)
+	return _c
+}
+
+// AddIncidents adds the "incidents" edges to the UpstreamIncident entity.
+func (_c *UpstreamConfigCreate) AddIncidents(v ...*UpstreamIncident) *UpstreamConfigCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddIncidentIDs(ids...)
+}
+
+// AddBalanceSnapshotIDs adds the "balance_snapshots" edge to the UpstreamBalanceSnapshot entity by IDs.
+func (_c *UpstreamConfigCreate) AddBalanceSnapshotIDs(ids ...int64) *UpstreamConfigCreate {
+	_c.mutation.AddBalanceSnapshotIDs(ids...)
+	return _c
+}
+
+// AddBalanceSnapshots adds the "balance_snapshots" edges to the UpstreamBalanceSnapshot entity.
+func (_c *UpstreamConfigCreate) AddBalanceSnapshots(v ...*UpstreamBalanceSnapshot) *UpstreamConfigCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddBalanceSnapshotIDs(ids...)
+}
+
+// AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
+func (_c *UpstreamConfigCreate) AddUsageLogIDs(ids ...int64) *UpstreamConfigCreate {
+	_c.mutation.AddUsageLogIDs(ids...)
+	return _c
+}
+
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
+func (_c *UpstreamConfigCreate) AddUsageLogs(v ...*UsageLog) *UpstreamConfigCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddUsageLogIDs(ids...)
+}
+
 // SetProxy sets the "proxy" edge to the Proxy entity.
 func (_c *UpstreamConfigCreate) SetProxy(v *Proxy) *UpstreamConfigCreate {
 	return _c.SetProxyID(v.ID)
@@ -285,6 +393,10 @@ func (_c *UpstreamConfigCreate) defaults() error {
 		v := upstreamconfig.DefaultExtra()
 		_c.mutation.SetExtra(v)
 	}
+	if _, ok := _c.mutation.RechargeRate(); !ok {
+		v := upstreamconfig.DefaultRechargeRate
+		_c.mutation.SetRechargeRate(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := upstreamconfig.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -337,6 +449,9 @@ func (_c *UpstreamConfigCreate) check() error {
 	}
 	if _, ok := _c.mutation.Extra(); !ok {
 		return &ValidationError{Name: "extra", err: errors.New(`ent: missing required field "UpstreamConfig.extra"`)}
+	}
+	if _, ok := _c.mutation.RechargeRate(); !ok {
+		return &ValidationError{Name: "recharge_rate", err: errors.New(`ent: missing required field "UpstreamConfig.recharge_rate"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "UpstreamConfig.status"`)}
@@ -409,6 +524,14 @@ func (_c *UpstreamConfigCreate) createSpec() (*UpstreamConfig, *sqlgraph.CreateS
 		_spec.SetField(upstreamconfig.FieldExtra, field.TypeJSON, value)
 		_node.Extra = value
 	}
+	if value, ok := _c.mutation.RechargeRate(); ok {
+		_spec.SetField(upstreamconfig.FieldRechargeRate, field.TypeFloat64, value)
+		_node.RechargeRate = value
+	}
+	if value, ok := _c.mutation.BalanceToCnyRate(); ok {
+		_spec.SetField(upstreamconfig.FieldBalanceToCnyRate, field.TypeFloat64, value)
+		_node.BalanceToCnyRate = &value
+	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(upstreamconfig.FieldStatus, field.TypeString, value)
 		_node.Status = value
@@ -450,6 +573,86 @@ func (_c *UpstreamConfigCreate) createSpec() (*UpstreamConfig, *sqlgraph.CreateS
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.SyncResultsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.SyncResultsTable,
+			Columns: []string{upstreamconfig.SyncResultsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamsyncresult.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.EventsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.EventsTable,
+			Columns: []string{upstreamconfig.EventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.IncidentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.IncidentsTable,
+			Columns: []string{upstreamconfig.IncidentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.BalanceSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.BalanceSnapshotsTable,
+			Columns: []string{upstreamconfig.BalanceSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreambalancesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.UsageLogsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.UsageLogsTable,
+			Columns: []string{upstreamconfig.UsageLogsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -643,6 +846,48 @@ func (u *UpstreamConfigUpsert) UpdateProxyID() *UpstreamConfigUpsert {
 // ClearProxyID clears the value of the "proxy_id" field.
 func (u *UpstreamConfigUpsert) ClearProxyID() *UpstreamConfigUpsert {
 	u.SetNull(upstreamconfig.FieldProxyID)
+	return u
+}
+
+// SetRechargeRate sets the "recharge_rate" field.
+func (u *UpstreamConfigUpsert) SetRechargeRate(v float64) *UpstreamConfigUpsert {
+	u.Set(upstreamconfig.FieldRechargeRate, v)
+	return u
+}
+
+// UpdateRechargeRate sets the "recharge_rate" field to the value that was provided on create.
+func (u *UpstreamConfigUpsert) UpdateRechargeRate() *UpstreamConfigUpsert {
+	u.SetExcluded(upstreamconfig.FieldRechargeRate)
+	return u
+}
+
+// AddRechargeRate adds v to the "recharge_rate" field.
+func (u *UpstreamConfigUpsert) AddRechargeRate(v float64) *UpstreamConfigUpsert {
+	u.Add(upstreamconfig.FieldRechargeRate, v)
+	return u
+}
+
+// SetBalanceToCnyRate sets the "balance_to_cny_rate" field.
+func (u *UpstreamConfigUpsert) SetBalanceToCnyRate(v float64) *UpstreamConfigUpsert {
+	u.Set(upstreamconfig.FieldBalanceToCnyRate, v)
+	return u
+}
+
+// UpdateBalanceToCnyRate sets the "balance_to_cny_rate" field to the value that was provided on create.
+func (u *UpstreamConfigUpsert) UpdateBalanceToCnyRate() *UpstreamConfigUpsert {
+	u.SetExcluded(upstreamconfig.FieldBalanceToCnyRate)
+	return u
+}
+
+// AddBalanceToCnyRate adds v to the "balance_to_cny_rate" field.
+func (u *UpstreamConfigUpsert) AddBalanceToCnyRate(v float64) *UpstreamConfigUpsert {
+	u.Add(upstreamconfig.FieldBalanceToCnyRate, v)
+	return u
+}
+
+// ClearBalanceToCnyRate clears the value of the "balance_to_cny_rate" field.
+func (u *UpstreamConfigUpsert) ClearBalanceToCnyRate() *UpstreamConfigUpsert {
+	u.SetNull(upstreamconfig.FieldBalanceToCnyRate)
 	return u
 }
 
@@ -894,6 +1139,55 @@ func (u *UpstreamConfigUpsertOne) UpdateProxyID() *UpstreamConfigUpsertOne {
 func (u *UpstreamConfigUpsertOne) ClearProxyID() *UpstreamConfigUpsertOne {
 	return u.Update(func(s *UpstreamConfigUpsert) {
 		s.ClearProxyID()
+	})
+}
+
+// SetRechargeRate sets the "recharge_rate" field.
+func (u *UpstreamConfigUpsertOne) SetRechargeRate(v float64) *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.SetRechargeRate(v)
+	})
+}
+
+// AddRechargeRate adds v to the "recharge_rate" field.
+func (u *UpstreamConfigUpsertOne) AddRechargeRate(v float64) *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.AddRechargeRate(v)
+	})
+}
+
+// UpdateRechargeRate sets the "recharge_rate" field to the value that was provided on create.
+func (u *UpstreamConfigUpsertOne) UpdateRechargeRate() *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.UpdateRechargeRate()
+	})
+}
+
+// SetBalanceToCnyRate sets the "balance_to_cny_rate" field.
+func (u *UpstreamConfigUpsertOne) SetBalanceToCnyRate(v float64) *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.SetBalanceToCnyRate(v)
+	})
+}
+
+// AddBalanceToCnyRate adds v to the "balance_to_cny_rate" field.
+func (u *UpstreamConfigUpsertOne) AddBalanceToCnyRate(v float64) *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.AddBalanceToCnyRate(v)
+	})
+}
+
+// UpdateBalanceToCnyRate sets the "balance_to_cny_rate" field to the value that was provided on create.
+func (u *UpstreamConfigUpsertOne) UpdateBalanceToCnyRate() *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.UpdateBalanceToCnyRate()
+	})
+}
+
+// ClearBalanceToCnyRate clears the value of the "balance_to_cny_rate" field.
+func (u *UpstreamConfigUpsertOne) ClearBalanceToCnyRate() *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.ClearBalanceToCnyRate()
 	})
 }
 
@@ -1322,6 +1616,55 @@ func (u *UpstreamConfigUpsertBulk) UpdateProxyID() *UpstreamConfigUpsertBulk {
 func (u *UpstreamConfigUpsertBulk) ClearProxyID() *UpstreamConfigUpsertBulk {
 	return u.Update(func(s *UpstreamConfigUpsert) {
 		s.ClearProxyID()
+	})
+}
+
+// SetRechargeRate sets the "recharge_rate" field.
+func (u *UpstreamConfigUpsertBulk) SetRechargeRate(v float64) *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.SetRechargeRate(v)
+	})
+}
+
+// AddRechargeRate adds v to the "recharge_rate" field.
+func (u *UpstreamConfigUpsertBulk) AddRechargeRate(v float64) *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.AddRechargeRate(v)
+	})
+}
+
+// UpdateRechargeRate sets the "recharge_rate" field to the value that was provided on create.
+func (u *UpstreamConfigUpsertBulk) UpdateRechargeRate() *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.UpdateRechargeRate()
+	})
+}
+
+// SetBalanceToCnyRate sets the "balance_to_cny_rate" field.
+func (u *UpstreamConfigUpsertBulk) SetBalanceToCnyRate(v float64) *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.SetBalanceToCnyRate(v)
+	})
+}
+
+// AddBalanceToCnyRate adds v to the "balance_to_cny_rate" field.
+func (u *UpstreamConfigUpsertBulk) AddBalanceToCnyRate(v float64) *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.AddBalanceToCnyRate(v)
+	})
+}
+
+// UpdateBalanceToCnyRate sets the "balance_to_cny_rate" field to the value that was provided on create.
+func (u *UpstreamConfigUpsertBulk) UpdateBalanceToCnyRate() *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.UpdateBalanceToCnyRate()
+	})
+}
+
+// ClearBalanceToCnyRate clears the value of the "balance_to_cny_rate" field.
+func (u *UpstreamConfigUpsertBulk) ClearBalanceToCnyRate() *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.ClearBalanceToCnyRate()
 	})
 }
 

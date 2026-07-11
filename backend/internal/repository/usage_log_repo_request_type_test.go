@@ -44,6 +44,8 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			log.UserID,
 			log.APIKeyID,
 			log.AccountID,
+			sqlmock.AnyArg(), // upstream_config_id
+			sqlmock.AnyArg(), // upstream_key_id
 			log.RequestID,
 			log.Model,
 			log.RequestedModel,
@@ -66,6 +68,8 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			log.ActualCost,
 			log.RateMultiplier,
 			log.AccountRateMultiplier,
+			sqlmock.AnyArg(), // upstream_cost_currency
+			sqlmock.AnyArg(), // upstream_cost_to_cny_rate
 			log.BillingType,
 			int16(service.RequestTypeWSV2),
 			true,
@@ -130,6 +134,8 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			log.UserID,
 			log.APIKeyID,
 			log.AccountID,
+			sqlmock.AnyArg(), // upstream_config_id
+			sqlmock.AnyArg(), // upstream_key_id
 			log.RequestID,
 			log.Model,
 			log.RequestedModel,
@@ -152,6 +158,8 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			log.ActualCost,
 			log.RateMultiplier,
 			log.AccountRateMultiplier,
+			sqlmock.AnyArg(), // upstream_cost_currency
+			sqlmock.AnyArg(), // upstream_cost_to_cny_rate
 			log.BillingType,
 			int16(service.RequestTypeSync),
 			false,
@@ -265,11 +273,11 @@ func TestPrepareUsageLogInsert_PersistsImageSizeMetadata(t *testing.T) {
 		CreatedAt:          time.Date(2025, 1, 6, 12, 0, 0, 0, time.UTC),
 	})
 
-	require.Equal(t, sql.NullString{String: imageSize, Valid: true}, prepared.args[34])
-	require.Equal(t, sql.NullString{String: inputSize, Valid: true}, prepared.args[35])
-	require.Equal(t, sql.NullString{String: outputSize, Valid: true}, prepared.args[36])
-	require.Equal(t, sql.NullString{String: source, Valid: true}, prepared.args[37])
-	breakdownJSON, ok := prepared.args[38].(string)
+	require.Equal(t, sql.NullString{String: imageSize, Valid: true}, prepared.args[38])
+	require.Equal(t, sql.NullString{String: inputSize, Valid: true}, prepared.args[39])
+	require.Equal(t, sql.NullString{String: outputSize, Valid: true}, prepared.args[40])
+	require.Equal(t, sql.NullString{String: source, Valid: true}, prepared.args[41])
+	breakdownJSON, ok := prepared.args[42].(string)
 	require.True(t, ok)
 	require.JSONEq(t, `{"1K":1,"4K":1}`, breakdownJSON)
 }
@@ -780,6 +788,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			int64(13),
 			int64(23),
 			int64(33),
+			sql.NullInt64{Valid: true, Int64: 43},
+			sql.NullInt64{Valid: true, Int64: 53},
 			sql.NullString{Valid: true, String: "req-image-metadata"},
 			"gpt-image-2",
 			sql.NullString{Valid: true, String: "gpt-image-2"},
@@ -791,6 +801,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0.0, 0.0, 0.0, 0.0, 0.8, 0.8,
 			1.0,
 			sql.NullFloat64{},
+			sql.NullString{Valid: true, String: "CNY"},
+			sql.NullFloat64{Valid: true, Float64: 1},
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeSync),
 			false,
@@ -821,6 +833,10 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			now,
 		}})
 		require.NoError(t, err)
+		require.Equal(t, int64(43), *log.UpstreamConfigID)
+		require.Equal(t, int64(53), *log.UpstreamKeyID)
+		require.Equal(t, "CNY", *log.UpstreamCostCurrency)
+		require.Equal(t, 1.0, *log.UpstreamCostToCNYRate)
 		require.Equal(t, 2, log.ImageCount)
 		require.NotNil(t, log.ImageSize)
 		require.Equal(t, "4K", *log.ImageSize)
@@ -836,10 +852,12 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 	t.Run("request_type_ws_v2_overrides_legacy", func(t *testing.T) {
 		now := time.Now().UTC()
 		log, err := scanUsageLog(usageLogScannerStub{values: []any{
-			int64(1),  // id
-			int64(10), // user_id
-			int64(20), // api_key_id
-			int64(30), // account_id
+			int64(1),        // id
+			int64(10),       // user_id
+			int64(20),       // api_key_id
+			int64(30),       // account_id
+			sql.NullInt64{}, // upstream_config_id
+			sql.NullInt64{}, // upstream_key_id
 			sql.NullString{Valid: true, String: "req-1"},
 			"gpt-5", // model
 			sql.NullString{Valid: true, String: "gpt-5"}, // requested_model
@@ -862,6 +880,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0.9,               // actual_cost
 			1.0,               // rate_multiplier
 			sql.NullFloat64{}, // account_rate_multiplier
+			sql.NullString{},  // upstream_cost_currency
+			sql.NullFloat64{}, // upstream_cost_to_cny_rate
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeWSV2),
 			false, // legacy stream
@@ -892,6 +912,10 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			now,
 		}})
 		require.NoError(t, err)
+		require.Nil(t, log.UpstreamConfigID)
+		require.Nil(t, log.UpstreamKeyID)
+		require.Nil(t, log.UpstreamCostCurrency)
+		require.Nil(t, log.UpstreamCostToCNYRate)
 		require.NotNil(t, log.ServiceTier)
 		require.Equal(t, "priority", *log.ServiceTier)
 		require.Equal(t, service.RequestTypeWSV2, log.RequestType)
@@ -906,6 +930,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			int64(11),
 			int64(21),
 			int64(31),
+			sql.NullInt64{},
+			sql.NullInt64{},
 			sql.NullString{Valid: true, String: "req-2"},
 			"gpt-5",
 			sql.NullString{Valid: true, String: "gpt-5"},
@@ -916,6 +942,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0, 0.0, // image_output_tokens, image_output_cost
 			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
 			1.0,
+			sql.NullFloat64{},
+			sql.NullString{},
 			sql.NullFloat64{},
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeUnknown),
@@ -961,6 +989,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			int64(12),
 			int64(22),
 			int64(32),
+			sql.NullInt64{},
+			sql.NullInt64{},
 			sql.NullString{Valid: true, String: "req-3"},
 			"gpt-5.4",
 			sql.NullString{Valid: true, String: "gpt-5.4"},
@@ -971,6 +1001,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0, 0.0, // image_output_tokens, image_output_cost
 			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
 			1.0,
+			sql.NullFloat64{},
+			sql.NullString{},
 			sql.NullFloat64{},
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeSync),

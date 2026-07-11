@@ -1836,6 +1836,29 @@ func HasUsageLogsWith(preds ...predicate.UsageLog) predicate.Account {
 	})
 }
 
+// HasUpstreamEvents applies the HasEdge predicate on the "upstream_events" edge.
+func HasUpstreamEvents() predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, UpstreamEventsTable, UpstreamEventsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUpstreamEventsWith applies the HasEdge predicate on the "upstream_events" edge with a given conditions (other predicates).
+func HasUpstreamEventsWith(preds ...predicate.UpstreamEvent) predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := newUpstreamEventsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasAccountGroups applies the HasEdge predicate on the "account_groups" edge.
 func HasAccountGroups() predicate.Account {
 	return predicate.Account(func(s *sql.Selector) {

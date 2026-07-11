@@ -369,6 +369,18 @@ func (f TLSFingerprintProfileFunc) Mutate(ctx context.Context, m ent.Mutation) (
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.TLSFingerprintProfileMutation", m)
 }
 
+// The UpstreamBalanceSnapshotFunc type is an adapter to allow the use of ordinary
+// function as UpstreamBalanceSnapshot mutator.
+type UpstreamBalanceSnapshotFunc func(context.Context, *ent.UpstreamBalanceSnapshotMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f UpstreamBalanceSnapshotFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.UpstreamBalanceSnapshotMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamBalanceSnapshotMutation", m)
+}
+
 // The UpstreamConfigFunc type is an adapter to allow the use of ordinary
 // function as UpstreamConfig mutator.
 type UpstreamConfigFunc func(context.Context, *ent.UpstreamConfigMutation) (ent.Value, error)
@@ -381,6 +393,30 @@ func (f UpstreamConfigFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Val
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamConfigMutation", m)
 }
 
+// The UpstreamEventFunc type is an adapter to allow the use of ordinary
+// function as UpstreamEvent mutator.
+type UpstreamEventFunc func(context.Context, *ent.UpstreamEventMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f UpstreamEventFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.UpstreamEventMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamEventMutation", m)
+}
+
+// The UpstreamIncidentFunc type is an adapter to allow the use of ordinary
+// function as UpstreamIncident mutator.
+type UpstreamIncidentFunc func(context.Context, *ent.UpstreamIncidentMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f UpstreamIncidentFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.UpstreamIncidentMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamIncidentMutation", m)
+}
+
 // The UpstreamKeyFunc type is an adapter to allow the use of ordinary
 // function as UpstreamKey mutator.
 type UpstreamKeyFunc func(context.Context, *ent.UpstreamKeyMutation) (ent.Value, error)
@@ -391,6 +427,30 @@ func (f UpstreamKeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamKeyMutation", m)
+}
+
+// The UpstreamSyncResultFunc type is an adapter to allow the use of ordinary
+// function as UpstreamSyncResult mutator.
+type UpstreamSyncResultFunc func(context.Context, *ent.UpstreamSyncResultMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f UpstreamSyncResultFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.UpstreamSyncResultMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamSyncResultMutation", m)
+}
+
+// The UpstreamSyncRunFunc type is an adapter to allow the use of ordinary
+// function as UpstreamSyncRun mutator.
+type UpstreamSyncRunFunc func(context.Context, *ent.UpstreamSyncRunMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f UpstreamSyncRunFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.UpstreamSyncRunMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamSyncRunMutation", m)
 }
 
 // The UsageCleanupTaskFunc type is an adapter to allow the use of ordinary

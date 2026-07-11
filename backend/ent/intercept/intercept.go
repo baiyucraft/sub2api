@@ -39,8 +39,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
+	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -917,6 +922,33 @@ func (f TraverseTLSFingerprintProfile) Traverse(ctx context.Context, q ent.Query
 	return fmt.Errorf("unexpected query type %T. expect *ent.TLSFingerprintProfileQuery", q)
 }
 
+// The UpstreamBalanceSnapshotFunc type is an adapter to allow the use of ordinary function as a Querier.
+type UpstreamBalanceSnapshotFunc func(context.Context, *ent.UpstreamBalanceSnapshotQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f UpstreamBalanceSnapshotFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.UpstreamBalanceSnapshotQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamBalanceSnapshotQuery", q)
+}
+
+// The TraverseUpstreamBalanceSnapshot type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseUpstreamBalanceSnapshot func(context.Context, *ent.UpstreamBalanceSnapshotQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseUpstreamBalanceSnapshot) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseUpstreamBalanceSnapshot) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.UpstreamBalanceSnapshotQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamBalanceSnapshotQuery", q)
+}
+
 // The UpstreamConfigFunc type is an adapter to allow the use of ordinary function as a Querier.
 type UpstreamConfigFunc func(context.Context, *ent.UpstreamConfigQuery) (ent.Value, error)
 
@@ -944,6 +976,60 @@ func (f TraverseUpstreamConfig) Traverse(ctx context.Context, q ent.Query) error
 	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamConfigQuery", q)
 }
 
+// The UpstreamEventFunc type is an adapter to allow the use of ordinary function as a Querier.
+type UpstreamEventFunc func(context.Context, *ent.UpstreamEventQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f UpstreamEventFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.UpstreamEventQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamEventQuery", q)
+}
+
+// The TraverseUpstreamEvent type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseUpstreamEvent func(context.Context, *ent.UpstreamEventQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseUpstreamEvent) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseUpstreamEvent) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.UpstreamEventQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamEventQuery", q)
+}
+
+// The UpstreamIncidentFunc type is an adapter to allow the use of ordinary function as a Querier.
+type UpstreamIncidentFunc func(context.Context, *ent.UpstreamIncidentQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f UpstreamIncidentFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.UpstreamIncidentQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamIncidentQuery", q)
+}
+
+// The TraverseUpstreamIncident type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseUpstreamIncident func(context.Context, *ent.UpstreamIncidentQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseUpstreamIncident) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseUpstreamIncident) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.UpstreamIncidentQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamIncidentQuery", q)
+}
+
 // The UpstreamKeyFunc type is an adapter to allow the use of ordinary function as a Querier.
 type UpstreamKeyFunc func(context.Context, *ent.UpstreamKeyQuery) (ent.Value, error)
 
@@ -969,6 +1055,60 @@ func (f TraverseUpstreamKey) Traverse(ctx context.Context, q ent.Query) error {
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamKeyQuery", q)
+}
+
+// The UpstreamSyncResultFunc type is an adapter to allow the use of ordinary function as a Querier.
+type UpstreamSyncResultFunc func(context.Context, *ent.UpstreamSyncResultQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f UpstreamSyncResultFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.UpstreamSyncResultQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamSyncResultQuery", q)
+}
+
+// The TraverseUpstreamSyncResult type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseUpstreamSyncResult func(context.Context, *ent.UpstreamSyncResultQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseUpstreamSyncResult) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseUpstreamSyncResult) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.UpstreamSyncResultQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamSyncResultQuery", q)
+}
+
+// The UpstreamSyncRunFunc type is an adapter to allow the use of ordinary function as a Querier.
+type UpstreamSyncRunFunc func(context.Context, *ent.UpstreamSyncRunQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f UpstreamSyncRunFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.UpstreamSyncRunQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamSyncRunQuery", q)
+}
+
+// The TraverseUpstreamSyncRun type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseUpstreamSyncRun func(context.Context, *ent.UpstreamSyncRunQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseUpstreamSyncRun) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseUpstreamSyncRun) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.UpstreamSyncRunQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamSyncRunQuery", q)
 }
 
 // The UsageCleanupTaskFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -1250,10 +1390,20 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.SubscriptionPlanQuery, predicate.SubscriptionPlan, subscriptionplan.OrderOption]{typ: ent.TypeSubscriptionPlan, tq: q}, nil
 	case *ent.TLSFingerprintProfileQuery:
 		return &query[*ent.TLSFingerprintProfileQuery, predicate.TLSFingerprintProfile, tlsfingerprintprofile.OrderOption]{typ: ent.TypeTLSFingerprintProfile, tq: q}, nil
+	case *ent.UpstreamBalanceSnapshotQuery:
+		return &query[*ent.UpstreamBalanceSnapshotQuery, predicate.UpstreamBalanceSnapshot, upstreambalancesnapshot.OrderOption]{typ: ent.TypeUpstreamBalanceSnapshot, tq: q}, nil
 	case *ent.UpstreamConfigQuery:
 		return &query[*ent.UpstreamConfigQuery, predicate.UpstreamConfig, upstreamconfig.OrderOption]{typ: ent.TypeUpstreamConfig, tq: q}, nil
+	case *ent.UpstreamEventQuery:
+		return &query[*ent.UpstreamEventQuery, predicate.UpstreamEvent, upstreamevent.OrderOption]{typ: ent.TypeUpstreamEvent, tq: q}, nil
+	case *ent.UpstreamIncidentQuery:
+		return &query[*ent.UpstreamIncidentQuery, predicate.UpstreamIncident, upstreamincident.OrderOption]{typ: ent.TypeUpstreamIncident, tq: q}, nil
 	case *ent.UpstreamKeyQuery:
 		return &query[*ent.UpstreamKeyQuery, predicate.UpstreamKey, upstreamkey.OrderOption]{typ: ent.TypeUpstreamKey, tq: q}, nil
+	case *ent.UpstreamSyncResultQuery:
+		return &query[*ent.UpstreamSyncResultQuery, predicate.UpstreamSyncResult, upstreamsyncresult.OrderOption]{typ: ent.TypeUpstreamSyncResult, tq: q}, nil
+	case *ent.UpstreamSyncRunQuery:
+		return &query[*ent.UpstreamSyncRunQuery, predicate.UpstreamSyncRun, upstreamsyncrun.OrderOption]{typ: ent.TypeUpstreamSyncRun, tq: q}, nil
 	case *ent.UsageCleanupTaskQuery:
 		return &query[*ent.UsageCleanupTaskQuery, predicate.UsageCleanupTask, usagecleanuptask.OrderOption]{typ: ent.TypeUsageCleanupTask, tq: q}, nil
 	case *ent.UsageLogQuery:

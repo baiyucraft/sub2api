@@ -20,14 +20,22 @@ func NewUpstreamConfigHandler(service *service.UpstreamConfigService) *UpstreamC
 }
 
 type upstreamConfigRequest struct {
-	Name        string         `json:"name"`
-	Provider    string         `json:"provider"`
-	BaseURL     string         `json:"base_url"`
-	AuthMode    string         `json:"auth_mode"`
-	Credentials map[string]any `json:"credentials"`
-	Extra       map[string]any `json:"extra"`
-	ProxyID     *int64         `json:"proxy_id"`
-	Status      string         `json:"status"`
+	Name                  string         `json:"name"`
+	Provider              string         `json:"provider"`
+	BaseURL               string         `json:"base_url"`
+	AuthMode              string         `json:"auth_mode"`
+	Credentials           map[string]any `json:"credentials"`
+	Extra                 map[string]any `json:"extra"`
+	ProxyID               *int64         `json:"proxy_id"`
+	ClearProxy            bool           `json:"clear_proxy"`
+	RechargeRate          *float64       `json:"recharge_rate"`
+	BalanceToCNYRate      *float64       `json:"balance_to_cny_rate"`
+	ClearBalanceToCNYRate bool           `json:"clear_balance_to_cny_rate"`
+	Status                string         `json:"status"`
+}
+
+type upstreamSettingsRequest struct {
+	BalanceLowThresholdCNY float64 `json:"balance_low_threshold_cny"`
 }
 
 type upstreamKeyRequest struct {
@@ -135,15 +143,113 @@ func (h *UpstreamConfigHandler) SyncKeys(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{
+		"run_id":                result.RunID,
 		"keys":                  sanitizeUpstreamKeys(keys),
 		"key_count":             result.KeyCount,
 		"updated_account_count": result.UpdatedAccountCount,
+		"result":                sanitizeUpstreamSyncResult(result),
 	})
 }
 
 func (h *UpstreamConfigHandler) SyncAllKeys(c *gin.Context) {
-	results := h.service.SyncActiveUpstreamConfigs(c.Request.Context())
-	response.Success(c, gin.H{"results": sanitizeUpstreamSyncResults(results)})
+	runID, results, err := h.service.SyncActiveUpstreamConfigsManual(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"run_id": runID, "results": sanitizeUpstreamSyncResults(results)})
+}
+
+func (h *UpstreamConfigHandler) GetSettings(c *gin.Context) {
+	settings, err := h.service.GetUpstreamSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+func (h *UpstreamConfigHandler) UpdateSettings(c *gin.Context) {
+	var req upstreamSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	settings := service.UpstreamSettings{BalanceLowThresholdCNY: req.BalanceLowThresholdCNY}
+	if err := h.service.UpdateUpstreamSettings(c.Request.Context(), settings); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+func (h *UpstreamConfigHandler) ListSyncRuns(c *gin.Context) {
+	page, pageSize := response.ParsePagination(c)
+	items, total, err := h.service.ListSyncRuns(c.Request.Context(), pageSize, (page-1)*pageSize)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Paginated(c, items, total, page, pageSize)
+}
+
+func (h *UpstreamConfigHandler) GetSyncRun(c *gin.Context) {
+	id, ok := parseUpstreamIDParam(c, "runID")
+	if !ok {
+		return
+	}
+	item, err := h.service.GetSyncRun(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *UpstreamConfigHandler) ListEvents(c *gin.Context) {
+	page, pageSize := response.ParsePagination(c)
+	configID, _ := strconv.ParseInt(c.Query("config_id"), 10, 64)
+	items, total, err := h.service.ListEvents(c.Request.Context(), configID, pageSize, (page-1)*pageSize)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Paginated(c, items, total, page, pageSize)
+}
+
+func (h *UpstreamConfigHandler) ListIncidents(c *gin.Context) {
+	page, pageSize := response.ParsePagination(c)
+	configID, _ := strconv.ParseInt(c.Query("config_id"), 10, 64)
+	items, total, err := h.service.ListIncidents(c.Request.Context(), configID, c.Query("status"), pageSize, (page-1)*pageSize)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Paginated(c, items, total, page, pageSize)
+}
+
+func (h *UpstreamConfigHandler) ListBalanceHistory(c *gin.Context) {
+	id, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	page, pageSize := response.ParsePagination(c)
+	items, total, err := h.service.ListBalanceHistory(c.Request.Context(), id, pageSize, (page-1)*pageSize)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Paginated(c, items, total, page, pageSize)
+}
+
+func (h *UpstreamConfigHandler) UsageTrend(c *gin.Context) {
+	configID, _ := strconv.ParseInt(c.Query("config_id"), 10, 64)
+	trend, err := h.service.GetUsageTrend(c.Request.Context(), configID, c.Query("range"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, trend)
 }
 
 func (h *UpstreamConfigHandler) ListKeys(c *gin.Context) {
@@ -192,16 +298,21 @@ func (h *UpstreamConfigHandler) DeleteKey(c *gin.Context) {
 func sanitizeUpstreamSyncResults(results []service.UpstreamConfigSyncResult) []gin.H {
 	out := make([]gin.H, 0, len(results))
 	for i := range results {
-		out = append(out, gin.H{
-			"config_id":             results[i].ConfigID,
-			"name":                  results[i].Name,
-			"success":               results[i].Success,
-			"key_count":             results[i].KeyCount,
-			"updated_account_count": results[i].UpdatedAccountCount,
-			"error":                 logredact.RedactText(results[i].Error, "password", "api_key", "jwt", "authorization", "refresh_token", "access_token", "cookie", "session"),
-		})
+		out = append(out, sanitizeUpstreamSyncResult(results[i]))
 	}
 	return out
+}
+
+func sanitizeUpstreamSyncResult(result service.UpstreamConfigSyncResult) gin.H {
+	return gin.H{
+		"run_id": result.RunID, "config_id": result.ConfigID, "name": result.Name,
+		"provider": result.Provider, "success": result.Success, "status": result.Status,
+		"stage": result.Stage, "error_code": result.ErrorCode, "retryable": result.Retryable,
+		"key_count": result.KeyCount, "fallback_key_count": result.FallbackKeyCount,
+		"unresolved_key_count": result.UnresolvedKeyCount, "updated_account_count": result.UpdatedAccountCount,
+		"warnings": result.Warnings, "duration_ms": result.DurationMS,
+		"error": logredact.RedactText(result.Error, "password", "api_key", "jwt", "authorization", "refresh_token", "access_token", "cookie", "session"),
+	}
 }
 
 func parseUpstreamIDParam(c *gin.Context, name string) (int64, bool) {
@@ -222,7 +333,16 @@ func upstreamConfigFromRequest(req upstreamConfigRequest) *service.UpstreamConfi
 		Credentials: req.Credentials,
 		Extra:       req.Extra,
 		ProxyID:     req.ProxyID,
-		Status:      req.Status,
+		ClearProxy:  req.ClearProxy,
+		RechargeRate: func() float64 {
+			if req.RechargeRate != nil {
+				return *req.RechargeRate
+			}
+			return 0
+		}(),
+		BalanceToCNYRate:      req.BalanceToCNYRate,
+		ClearBalanceToCNYRate: req.ClearBalanceToCNYRate,
+		Status:                req.Status,
 	}
 }
 
@@ -253,21 +373,23 @@ func sanitizeUpstreamConfig(config *service.UpstreamConfig) gin.H {
 		return nil
 	}
 	return gin.H{
-		"id":                 config.ID,
-		"name":               config.Name,
-		"provider":           config.Provider,
-		"base_url":           config.BaseURL,
-		"auth_mode":          config.AuthMode,
-		"credentials_status": upstreamCredentialsStatus(config.Credentials),
-		"extra":              redactedUpstreamExtra(config.Extra),
-		"proxy_id":           config.ProxyID,
-		"status":             config.Status,
-		"last_error":         redactedUpstreamLastError(config.LastError),
-		"last_checked_at":    config.LastCheckedAt,
-		"last_success_at":    config.LastSuccessAt,
-		"created_at":         config.CreatedAt,
-		"updated_at":         config.UpdatedAt,
-		"keys":               sanitizeUpstreamKeyPtrs(config.Keys),
+		"id":                  config.ID,
+		"name":                config.Name,
+		"provider":            config.Provider,
+		"base_url":            config.BaseURL,
+		"auth_mode":           config.AuthMode,
+		"credentials_status":  upstreamCredentialsStatus(config.Credentials),
+		"extra":               redactedUpstreamExtra(config.Extra),
+		"proxy_id":            config.ProxyID,
+		"recharge_rate":       config.RechargeRate,
+		"balance_to_cny_rate": config.BalanceToCNYRate,
+		"status":              config.Status,
+		"last_error":          redactedUpstreamLastError(config.LastError),
+		"last_checked_at":     config.LastCheckedAt,
+		"last_success_at":     config.LastSuccessAt,
+		"created_at":          config.CreatedAt,
+		"updated_at":          config.UpdatedAt,
+		"keys":                sanitizeUpstreamKeyPtrs(config.Keys),
 	}
 }
 
@@ -300,20 +422,21 @@ func sanitizeUpstreamKey(key *service.UpstreamKey) gin.H {
 		return nil
 	}
 	return gin.H{
-		"id":                  key.ID,
-		"upstream_config_id":  key.UpstreamConfigID,
-		"name":                key.Name,
-		"key_status":          gin.H{"has_key": strings.TrimSpace(key.Key) != "", "suffix": keySuffix(key.Key)},
-		"remote_key_id":       key.RemoteKeyID,
-		"upstream_group_id":   key.UpstreamGroupID,
-		"upstream_group_name": key.UpstreamGroupName,
-		"platform":            key.Platform,
-		"rate_multiplier":     key.RateMultiplier,
-		"status":              key.Status,
-		"last_seen_at":        key.LastSeenAt,
-		"extra":               redactedUpstreamExtra(key.Extra),
-		"created_at":          key.CreatedAt,
-		"updated_at":          key.UpdatedAt,
+		"id":                        key.ID,
+		"upstream_config_id":        key.UpstreamConfigID,
+		"name":                      key.Name,
+		"key_status":                gin.H{"has_key": strings.TrimSpace(key.Key) != "", "suffix": keySuffix(key.Key)},
+		"remote_key_id":             key.RemoteKeyID,
+		"upstream_group_id":         key.UpstreamGroupID,
+		"upstream_group_name":       key.UpstreamGroupName,
+		"platform":                  key.Platform,
+		"rate_multiplier":           key.RateMultiplier,
+		"effective_cost_multiplier": key.EffectiveCostMultiplier,
+		"status":                    key.Status,
+		"last_seen_at":              key.LastSeenAt,
+		"extra":                     redactedUpstreamExtra(key.Extra),
+		"created_at":                key.CreatedAt,
+		"updated_at":                key.UpdatedAt,
 	}
 }
 
@@ -342,7 +465,7 @@ func stringFromAny(v any) string {
 func keySuffix(key string) string {
 	key = strings.TrimSpace(key)
 	if len(key) <= 6 {
-		return key
+		return "***"
 	}
 	return key[len(key)-6:]
 }

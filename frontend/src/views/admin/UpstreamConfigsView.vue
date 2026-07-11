@@ -33,6 +33,43 @@
             <button
               type="button"
               class="btn btn-secondary"
+              data-test="open-sync-runs"
+              @click="openSyncRuns"
+            >
+              <Icon name="clock" size="sm" class="mr-2" />
+              {{ t('admin.upstreamConfigs.actions.syncRuns') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-test="open-upstream-events"
+              @click="openEvents"
+            >
+              <Icon name="bell" size="sm" class="mr-2" />
+              {{ t('admin.upstreamConfigs.actions.events') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-test="open-cost-trend"
+              @click="openTrend"
+            >
+              <Icon name="trendingUp" size="sm" class="mr-2" />
+              {{ t('admin.upstreamConfigs.actions.costTrend') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary px-3"
+              data-test="open-upstream-settings"
+              :title="t('admin.upstreamConfigs.actions.settings')"
+              :aria-label="t('admin.upstreamConfigs.actions.settings')"
+              @click="openSettings"
+            >
+              <Icon name="cog" size="md" />
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary"
               :disabled="syncingAll"
               :title="t('admin.upstreamConfigs.actions.syncAll')"
               @click="handleSyncAll"
@@ -91,11 +128,21 @@
 
           <template #cell-balance="{ row }">
             <div class="min-w-[120px]" :title="balanceTitle(row)">
-              <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                {{ formatBalanceAmount(upstreamBalance(row)) }}
+              <div
+                :class="[
+                  'text-sm font-semibold tabular-nums',
+                  isLowBalance(row)
+                    ? 'text-red-600 dark:text-red-400'
+                    : 'text-gray-900 dark:text-gray-100'
+                ]"
+              >
+                {{ formatCNY(upstreamBalanceCNY(row)) }}
               </div>
-              <div v-if="upstreamTotalRecharged(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
-                {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatBalanceAmount(upstreamTotalRecharged(row)) }) }}
+              <div v-if="upstreamTotalRechargedCNY(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+                {{ t('admin.upstreamConfigs.balance.totalRecharged', { amount: formatCNY(upstreamTotalRechargedCNY(row)) }) }}
+              </div>
+              <div v-if="isLowBalance(row)" class="mt-0.5 text-xs font-medium text-red-600 dark:text-red-400">
+                {{ t('admin.upstreamConfigs.balance.lowBalance') }}
               </div>
               <div
                 v-if="upstreamBalanceError(row)"
@@ -103,6 +150,20 @@
                 :title="upstreamBalanceError(row) || ''"
               >
                 {{ upstreamBalanceError(row) }}
+              </div>
+            </div>
+          </template>
+
+          <template #cell-rates="{ row }">
+            <div class="min-w-[145px] text-xs tabular-nums">
+              <div class="text-gray-700 dark:text-gray-300">
+                {{ t('admin.upstreamConfigs.rates.raw', { value: rateRangeLabel(rawRateRange(row)) }) }}
+              </div>
+              <div class="mt-1 text-gray-500 dark:text-dark-400">
+                {{ t('admin.upstreamConfigs.rates.cost', { value: rateRangeLabel(costRateRange(row)) }) }}
+              </div>
+              <div class="mt-1 text-[11px] text-gray-400 dark:text-dark-500">
+                {{ t('admin.upstreamConfigs.rates.recharge', { value: formatRate(row.recharge_rate || 1) }) }}
               </div>
             </div>
           </template>
@@ -145,6 +206,7 @@
               <button
                 type="button"
                 class="table-action-button hover:text-primary-600 dark:hover:text-primary-400"
+                data-test="edit-upstream"
                 :title="t('common.edit')"
                 :aria-label="t('common.edit')"
                 @click="openEdit(row)"
@@ -154,6 +216,7 @@
               <button
                 type="button"
                 class="table-action-button hover:text-emerald-600 dark:hover:text-emerald-400"
+                data-test="sync-upstream"
                 :disabled="syncingAll || isActionBusy(row.id, 'sync')"
                 :title="t('admin.upstreamConfigs.actions.syncKeys')"
                 :aria-label="t('admin.upstreamConfigs.actions.syncKeys')"
@@ -164,6 +227,7 @@
               <button
                 type="button"
                 class="table-action-button hover:text-blue-600 dark:hover:text-blue-400"
+                data-test="test-upstream"
                 :disabled="isActionBusy(row.id, 'test')"
                 :title="t('admin.upstreamConfigs.actions.test')"
                 :aria-label="t('admin.upstreamConfigs.actions.test')"
@@ -175,6 +239,7 @@
                 v-if="row.provider === 'sub2api' || row.provider === 'newapi'"
                 type="button"
                 class="table-action-button hover:text-sky-600 dark:hover:text-sky-400"
+                data-test="open-upstream-dashboard"
                 :title="t('admin.upstreamConfigs.actions.openDashboard')"
                 :aria-label="t('admin.upstreamConfigs.actions.openDashboard')"
                 @click="openUpstreamDashboard(row)"
@@ -184,6 +249,7 @@
               <button
                 type="button"
                 class="table-action-button hover:text-red-600 dark:hover:text-red-400"
+                data-test="delete-upstream"
                 :title="t('common.delete')"
                 :aria-label="t('common.delete')"
                 @click="askDelete(row)"
@@ -234,7 +300,7 @@
         <div class="grid gap-4 md:grid-cols-2">
           <label class="space-y-1">
             <span class="input-label">{{ t('admin.upstreamConfigs.fields.name') }}</span>
-            <input v-model.trim="form.name" class="input" required />
+            <input v-model.trim="form.name" class="input" data-test="upstream-name-input" required />
           </label>
 
           <label class="space-y-1">
@@ -247,9 +313,43 @@
             <input
               v-model.trim="form.base_url"
               class="input font-mono text-sm"
+              data-test="upstream-base-url-input"
               required
               placeholder="https://example.com"
             />
+          </label>
+
+          <label class="space-y-1">
+            <span class="input-label">{{ t('admin.upstreamConfigs.fields.rechargeRate') }}</span>
+            <input
+              v-model.number="form.recharge_rate"
+              class="input tabular-nums"
+              data-test="recharge-rate-input"
+              type="number"
+              min="0.0001"
+              max="100"
+              step="0.0001"
+              required
+            />
+            <span class="block text-xs text-gray-500 dark:text-dark-400">
+              {{ t('admin.upstreamConfigs.fields.rechargeRateHint') }}
+            </span>
+          </label>
+
+          <label class="space-y-1">
+            <span class="input-label">{{ t('admin.upstreamConfigs.fields.balanceToCnyRate') }}</span>
+            <input
+              v-model.number="form.balance_to_cny_rate"
+              class="input tabular-nums"
+              data-test="balance-to-cny-rate-input"
+              type="number"
+              min="0.0001"
+              step="0.0001"
+              :placeholder="t('admin.upstreamConfigs.fields.balanceToCnyRatePlaceholder')"
+            />
+            <span class="block text-xs text-gray-500 dark:text-dark-400">
+              {{ t('admin.upstreamConfigs.fields.balanceToCnyRateHint') }}
+            </span>
           </label>
 
           <label v-if="form.provider === 'sub2api'" class="space-y-1">
@@ -268,6 +368,7 @@
               <input
                 v-model.trim="form.email"
                 class="input"
+                data-test="upstream-email-input"
                 type="email"
                 autocomplete="username"
                 :required="!editing"
@@ -278,6 +379,7 @@
               <input
                 v-model="form.password"
                 class="input"
+                data-test="upstream-password-input"
                 type="password"
                 autocomplete="new-password"
                 :required="!editing"
@@ -292,6 +394,7 @@
               <input
                 v-model.trim="form.username"
                 class="input"
+                data-test="upstream-username-input"
                 type="text"
                 autocomplete="username"
                 :required="!editing"
@@ -302,6 +405,7 @@
               <input
                 v-model="form.password"
                 class="input"
+                data-test="upstream-password-input"
                 type="password"
                 autocomplete="new-password"
                 :required="!editing"
@@ -470,6 +574,227 @@
       </template>
     </BaseDialog>
 
+    <UpstreamOperationsDrawer
+      :show="operationsDrawerMode !== null"
+      :title="operationsDrawerTitle"
+      :subtitle="operationsDrawerSubtitle"
+      @close="closeOperationsDrawer"
+    >
+      <template v-if="operationsDrawerMode === 'syncRuns'" #toolbar>
+        <div class="flex items-center justify-between gap-3">
+          <button
+            v-if="selectedSyncRun"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            data-test="back-to-sync-runs"
+            @click="selectedSyncRun = null"
+          >
+            <Icon name="arrowLeft" size="sm" class="mr-1.5" />
+            {{ t('common.back') }}
+          </button>
+          <span v-else class="text-xs text-gray-500 dark:text-dark-400">
+            {{ t('admin.upstreamConfigs.operations.syncRunsHint') }}
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm ml-auto" :disabled="operationsLoading" @click="loadSyncRuns">
+            <Icon name="refresh" size="sm" :class="operationsLoading ? 'mr-1.5 animate-spin' : 'mr-1.5'" />
+            {{ t('common.refresh') }}
+          </button>
+        </div>
+      </template>
+
+      <template v-else-if="operationsDrawerMode === 'events'" #toolbar>
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="min-w-[220px] flex-1">
+            <span class="sr-only">{{ t('admin.upstreamConfigs.operations.selectUpstream') }}</span>
+            <select v-model.number="selectedOperationsConfigId" class="input" data-test="events-upstream-select" @change="loadEventsAndIncidents">
+              <option v-for="item in operationConfigs" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+          </label>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="operationsLoading" @click="loadEventsAndIncidents">
+            <Icon name="refresh" size="sm" :class="operationsLoading ? 'mr-1.5 animate-spin' : 'mr-1.5'" />
+            {{ t('common.refresh') }}
+          </button>
+        </div>
+      </template>
+
+      <template v-else-if="operationsDrawerMode === 'trend'" #toolbar>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <label class="min-w-[220px] flex-1">
+            <span class="sr-only">{{ t('admin.upstreamConfigs.operations.selectUpstream') }}</span>
+            <select v-model.number="selectedOperationsConfigId" class="input" data-test="trend-upstream-select" @change="loadTrend">
+              <option v-for="item in operationConfigs" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+          </label>
+          <div class="inline-flex rounded-lg border border-gray-200 p-1 dark:border-dark-700" data-test="trend-range-control">
+            <button
+              v-for="range in trendRanges"
+              :key="range"
+              type="button"
+              :class="[
+                'min-w-12 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                trendRange === range
+                  ? 'bg-primary-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-700'
+              ]"
+              :data-test="`trend-range-${range}`"
+              @click="setTrendRange(range)"
+            >
+              {{ range }}
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <template v-if="operationsDrawerMode === 'syncRuns'">
+        <div v-if="operationsLoading" class="drawer-state">{{ t('common.loading') }}</div>
+        <div v-else-if="selectedSyncRun" class="space-y-4" data-test="sync-run-detail">
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.success') }}</span><strong>{{ selectedSyncRun.success_configs }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.partial') }}</span><strong>{{ selectedSyncRun.partial_configs }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.failed') }}</span><strong>{{ selectedSyncRun.failed_configs }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.duration') }}</span><strong>{{ syncRunDuration(selectedSyncRun) }}</strong></div>
+          </div>
+          <div v-for="record in selectedSyncRun.results || []" :key="record.id" class="operation-row">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="font-medium text-gray-900 dark:text-gray-100">{{ record.config_name }}</div>
+                <div class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ record.stage || record.provider }} · {{ record.duration_ms }}ms</div>
+              </div>
+              <span :class="statusBadgeClass(record.status)">{{ statusLabel(record.status) }}</span>
+            </div>
+            <p v-if="record.safe_message" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ record.safe_message }}</p>
+            <div class="mt-2 text-xs text-gray-500 dark:text-dark-400">
+              {{ t('admin.upstreamConfigs.operations.syncRecordSummary', {
+                remote: record.remote_key_count,
+                persisted: record.persisted_key_count,
+                accounts: record.updated_account_count
+              }) }}
+            </div>
+          </div>
+          <div v-if="!(selectedSyncRun.results || []).length" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptySyncResults') }}</div>
+        </div>
+        <div v-else class="space-y-3">
+          <button
+            v-for="run in syncRuns"
+            :key="run.id"
+            type="button"
+            class="operation-row block w-full text-left hover:border-primary-300 dark:hover:border-primary-700"
+            :data-test="`sync-run-${run.id}`"
+            @click="openSyncRunById(run.id)"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="font-medium text-gray-900 dark:text-gray-100">#{{ run.id }} · {{ syncTriggerLabel(run.trigger) }}</div>
+                <div class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ formatTime(run.started_at) }}</div>
+              </div>
+              <span :class="statusBadgeClass(run.status)">{{ statusLabel(run.status) }}</span>
+            </div>
+            <div class="mt-2 text-xs text-gray-500 dark:text-dark-400">
+              {{ t('admin.upstreamConfigs.operations.syncRunSummary', {
+                total: run.total_configs,
+                success: run.success_configs,
+                partial: run.partial_configs,
+                failed: run.failed_configs
+              }) }}
+            </div>
+          </button>
+          <div v-if="!syncRuns.length" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptySyncRuns') }}</div>
+          <button v-if="syncRuns.length < syncRunsTotal" type="button" class="btn btn-secondary w-full" @click="loadMoreSyncRuns">
+            {{ t('admin.upstreamConfigs.operations.loadMore') }}
+          </button>
+        </div>
+      </template>
+
+      <template v-else-if="operationsDrawerMode === 'events'">
+        <div v-if="operationsLoading" class="drawer-state">{{ t('common.loading') }}</div>
+        <div v-else class="space-y-5">
+          <section v-if="incidents.length" class="space-y-3">
+            <h3 class="section-title">{{ t('admin.upstreamConfigs.operations.openIncidents') }}</h3>
+            <div v-for="incident in incidents" :key="incident.id" class="operation-row border-red-200 bg-red-50/40 dark:border-red-900/50 dark:bg-red-900/10">
+              <div class="flex items-start justify-between gap-3">
+                <div class="font-medium text-red-700 dark:text-red-300">{{ incident.type }}</div>
+                <span :class="statusBadgeClass(incident.status)">{{ statusLabel(incident.status) }}</span>
+              </div>
+              <div class="mt-2 text-xs text-gray-600 dark:text-dark-300">{{ formatIncidentMetric(incident) }}</div>
+            </div>
+          </section>
+          <section class="space-y-3">
+            <h3 class="section-title">{{ t('admin.upstreamConfigs.operations.recentEvents') }}</h3>
+            <div v-for="event in events" :key="event.id" class="operation-row">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="font-medium text-gray-900 dark:text-gray-100">{{ event.type }}</div>
+                  <p class="mt-1 text-sm text-gray-600 dark:text-dark-300">{{ event.message }}</p>
+                </div>
+                <span :class="severityBadgeClass(event.severity)">{{ event.severity }}</span>
+              </div>
+              <div class="mt-2 text-xs text-gray-500 dark:text-dark-400">{{ formatTime(event.created_at) }}</div>
+            </div>
+            <div v-if="!events.length" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyEvents') }}</div>
+            <button v-if="events.length < eventsTotal" type="button" class="btn btn-secondary w-full" @click="loadMoreEvents">
+              {{ t('admin.upstreamConfigs.operations.loadMore') }}
+            </button>
+          </section>
+          <section class="space-y-3">
+            <h3 class="section-title">{{ t('admin.upstreamConfigs.operations.balanceHistory') }}</h3>
+            <div v-for="snapshot in balanceHistory" :key="snapshot.id" class="operation-row">
+              <div class="flex items-center justify-between gap-3">
+                <span class="font-medium text-gray-900 dark:text-gray-100">{{ formatCNY(snapshot.balance_cny ?? null) }}</span>
+                <span class="text-xs text-gray-500 dark:text-dark-400">{{ formatTime(snapshot.observed_at) }}</span>
+              </div>
+              <div class="mt-1 text-xs text-gray-500 dark:text-dark-400">
+                {{ snapshot.currency_source || '-' }} · {{ snapshot.currency_rate_source || '-' }}
+              </div>
+            </div>
+            <div v-if="!balanceHistory.length" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyBalanceHistory') }}</div>
+            <button v-if="balanceHistory.length < balanceHistoryTotal" type="button" class="btn btn-secondary w-full" @click="loadMoreBalanceHistory">
+              {{ t('admin.upstreamConfigs.operations.loadMore') }}
+            </button>
+          </section>
+        </div>
+      </template>
+
+      <template v-else-if="operationsDrawerMode === 'trend'">
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.requests') }}</span><strong>{{ trendRequests }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.upstreamCost') }}</span><strong>{{ formatCNY(trendTotals.upstreamCost) }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.billedCost') }}</span><strong>{{ formatCNY(trendTotals.billedCost) }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.grossProfit') }}</span><strong>{{ formatCNY(trendTotals.grossProfit) }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.unconvertedCost') }}</span><strong>{{ formatBalanceAmount(trendTotals.unconvertedCost) }}</strong></div>
+          </div>
+          <UpstreamCostTrendChart :points="usageTrend?.points || []" :loading="operationsLoading" />
+          <p v-if="usageTrend?.legacy_attributed_requests" class="text-xs text-amber-600 dark:text-amber-400">
+            {{ t('admin.upstreamConfigs.operations.legacyAttributed', { count: usageTrend.legacy_attributed_requests }) }}
+          </p>
+        </div>
+      </template>
+
+      <template v-else-if="operationsDrawerMode === 'settings'">
+        <form class="space-y-5" data-test="upstream-settings-form" @submit.prevent="saveUpstreamSettings">
+          <label class="block space-y-2">
+            <span class="input-label">{{ t('admin.upstreamConfigs.settings.lowBalanceThreshold') }}</span>
+            <input
+              v-model.number="settingsForm.balance_low_threshold_cny"
+              class="input tabular-nums"
+              data-test="low-balance-threshold-input"
+              type="number"
+              min="0"
+              step="0.01"
+              required
+            />
+            <span class="block text-xs text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.settings.lowBalanceThresholdHint') }}</span>
+          </label>
+          <div class="flex justify-end">
+            <button type="submit" class="btn btn-primary" :disabled="settingsSaving">
+              <Icon v-if="settingsSaving" name="refresh" size="sm" class="mr-2 animate-spin" />
+              {{ t('common.save') }}
+            </button>
+          </div>
+        </form>
+      </template>
+    </UpstreamOperationsDrawer>
+
     <ConfirmDialog
       :show="deleteDialogOpen"
       :title="t('admin.upstreamConfigs.delete.title')"
@@ -495,10 +820,24 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import Icon from '@/components/icons/Icon.vue'
+import UpstreamOperationsDrawer from './upstream/UpstreamOperationsDrawer.vue'
+import UpstreamCostTrendChart from './upstream/UpstreamCostTrendChart.vue'
 import type { Column } from '@/components/common/types'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminAPI } from '@/api/admin'
-import upstreamAPI, { type UpstreamAuthMode, type UpstreamConfig, type UpstreamProvider } from '@/api/admin/upstreamConfigs'
+import upstreamAPI, {
+  type UpstreamAuthMode,
+  type UpstreamConfig,
+  type UpstreamBalanceSnapshot,
+  type UpstreamEvent,
+  type UpstreamIncident,
+  type UpstreamProvider,
+  type UpstreamSettings,
+  type UpstreamSyncRun,
+  type UpstreamSyncResult,
+  type UpstreamTrendRange,
+  type UpstreamUsageTrend
+} from '@/api/admin/upstreamConfigs'
 import { useAppStore } from '@/stores/app'
 import type { Proxy } from '@/types'
 import {
@@ -507,11 +846,14 @@ import {
 } from '@/utils/upstreamTokenParser'
 
 type RowAction = 'test' | 'sync'
+type OperationsDrawerMode = 'syncRuns' | 'events' | 'trend' | 'settings'
+type RateRange = { min: number; max: number } | null
 
 const { t } = useI18n()
 const appStore = useAppStore()
 
 const configs = ref<UpstreamConfig[]>([])
+const operationConfigs = ref<UpstreamConfig[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const syncingAll = ref(false)
@@ -528,6 +870,24 @@ const loadingProxies = ref(false)
 const tokenPaste = ref('')
 const selectedAccessTokenId = ref('')
 const selectedRefreshTokenId = ref('')
+const operationsDrawerMode = ref<OperationsDrawerMode | null>(null)
+const operationsLoading = ref(false)
+const selectedOperationsConfigId = ref<number | null>(null)
+const syncRuns = ref<UpstreamSyncRun[]>([])
+const syncRunsTotal = ref(0)
+const selectedSyncRun = ref<UpstreamSyncRun | null>(null)
+const events = ref<UpstreamEvent[]>([])
+const eventsTotal = ref(0)
+const incidents = ref<UpstreamIncident[]>([])
+const balanceHistory = ref<UpstreamBalanceSnapshot[]>([])
+const balanceHistoryTotal = ref(0)
+const trendRange = ref<UpstreamTrendRange>('24h')
+const trendRanges: UpstreamTrendRange[] = ['24h', '7d', '30d']
+const usageTrend = ref<UpstreamUsageTrend | null>(null)
+const upstreamSettings = ref<UpstreamSettings>({ balance_low_threshold_cny: 0 })
+const settingsForm = reactive<UpstreamSettings>({ balance_low_threshold_cny: 0 })
+const settingsSaving = ref(false)
+let operationsRequestId = 0
 
 const pagination = reactive({
   page: 1,
@@ -545,7 +905,9 @@ const form = reactive({
   username: '',
   password: '',
   access_token: '',
-  refresh_token: ''
+  refresh_token: '',
+  recharge_rate: 1,
+  balance_to_cny_rate: null as number | null
 })
 
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -555,6 +917,7 @@ const columns = computed<Column[]>(() => [
   { key: 'provider', label: t('admin.upstreamConfigs.columns.provider') },
   { key: 'base_url', label: t('admin.upstreamConfigs.columns.baseUrl') },
   { key: 'balance', label: t('admin.upstreamConfigs.columns.balance') },
+  { key: 'rates', label: t('admin.upstreamConfigs.columns.rates') },
   { key: 'auth_mode', label: t('admin.upstreamConfigs.columns.authMode') },
   { key: 'credentials', label: t('admin.upstreamConfigs.columns.credentials') },
   { key: 'last_success_at', label: t('admin.upstreamConfigs.columns.lastSync') },
@@ -601,6 +964,7 @@ const canApplyTokenCandidates = computed(() =>
 onMounted(() => {
   loadConfigs()
   loadProxies()
+  loadSettings(true)
 })
 
 onUnmounted(() => {
@@ -669,7 +1033,9 @@ function resetForm() {
     username: '',
     password: '',
     access_token: '',
-    refresh_token: ''
+    refresh_token: '',
+    recharge_rate: 1,
+    balance_to_cny_rate: null as number | null
   })
 }
 
@@ -691,7 +1057,9 @@ function openEdit(item: UpstreamConfig) {
     username: '',
     password: '',
     access_token: '',
-    refresh_token: ''
+    refresh_token: '',
+    recharge_rate: item.recharge_rate || 1,
+    balance_to_cny_rate: item.balance_to_cny_rate ?? null
   })
   dialogOpen.value = true
 }
@@ -817,6 +1185,10 @@ async function saveConfig() {
       base_url: form.base_url,
       auth_mode: form.provider === 'sub2api' ? form.auth_mode : 'user_login',
       proxy_id: form.proxy_id,
+      clear_proxy: Boolean(editing.value && form.proxy_id === null),
+      recharge_rate: form.recharge_rate,
+      balance_to_cny_rate: finitePositiveNumber(form.balance_to_cny_rate),
+      clear_balance_to_cny_rate: Boolean(editing.value && form.balance_to_cny_rate === null),
       credentials
     }
 
@@ -843,6 +1215,12 @@ async function saveConfig() {
 }
 
 function validateFormBeforeSave(): string {
+  if (!Number.isFinite(form.recharge_rate) || form.recharge_rate <= 0 || form.recharge_rate > 100) {
+    return t('admin.upstreamConfigs.messages.rechargeRateInvalid')
+  }
+  if (form.balance_to_cny_rate !== null && finitePositiveNumber(form.balance_to_cny_rate) === null) {
+    return t('admin.upstreamConfigs.messages.balanceToCnyRateInvalid')
+  }
   if (form.provider !== 'newapi') return ''
   const status = editing.value?.credentials_status || {}
   if (!form.username && !status.has_newapi_login_username) {
@@ -859,7 +1237,11 @@ async function syncAfterSave(id: number) {
     const res = await upstreamAPI.syncKeys(id)
     const keys = res.key_count ?? res.keys?.length ?? 0
     const accounts = res.updated_account_count ?? 0
-    appStore.showSuccess(t('admin.upstreamConfigs.messages.savedAndSynced', { keys, accounts }))
+    if (res.result?.status === 'partial') {
+      appStore.showError(t('admin.upstreamConfigs.messages.savedAndSyncedPartial', { keys, accounts }))
+    } else {
+      appStore.showSuccess(t('admin.upstreamConfigs.messages.savedAndSynced', { keys, accounts }))
+    }
   } catch (error: any) {
     appStore.showError(t('admin.upstreamConfigs.messages.savedButSyncFailed', {
       error: apiErrorMessage(error, t('admin.upstreamConfigs.messages.syncFailed'))
@@ -885,7 +1267,11 @@ async function handleSync(item: UpstreamConfig) {
   try {
     const res = await upstreamAPI.syncKeys(item.id)
     const count = res.keys?.length || 0
-    appStore.showSuccess(t('admin.upstreamConfigs.messages.syncSuccess', { count }))
+    if (res.result?.status === 'partial') {
+      appStore.showError(t('admin.upstreamConfigs.messages.syncPartial', { count }))
+    } else {
+      appStore.showSuccess(t('admin.upstreamConfigs.messages.syncSuccess', { count }))
+    }
     await loadConfigs()
   } catch (error: any) {
     appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.syncFailed')))
@@ -899,19 +1285,271 @@ async function handleSyncAll() {
   try {
     const res = await upstreamAPI.syncAllKeys()
     const results = res.results || []
-    const success = results.filter((item) => item.success).length
-    const failed = results.length - success
+    const normalizedStatuses = results.map((item) => item.status || (item.success ? 'succeeded' : 'failed'))
+    const success = normalizedStatuses.filter((status) => status === 'succeeded').length
+    const partial = normalizedStatuses.filter((status) => status === 'partial').length
+    const failed = normalizedStatuses.filter((status) => status !== 'succeeded' && status !== 'partial').length
     const keys = results.reduce((sum, item) => sum + (item.key_count || 0), 0)
-    if (failed > 0) {
-      appStore.showError(t('admin.upstreamConfigs.messages.syncAllPartial', { success, failed, keys }))
+    if (failed > 0 || partial > 0) {
+      appStore.showError(t('admin.upstreamConfigs.messages.syncAllPartial', { success, partial, failed, keys }))
     } else {
       appStore.showSuccess(t('admin.upstreamConfigs.messages.syncAllSuccess', { success, keys }))
+    }
+    const runId = res.run_id || results.find((item) => item.run_id)?.run_id
+    if (runId) {
+      await openSyncRunFromBatch(runId, results)
     }
     await loadConfigs()
   } catch (error: any) {
     appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.syncAllFailed')))
   } finally {
     syncingAll.value = false
+  }
+}
+
+const operationsDrawerTitle = computed(() => {
+  if (operationsDrawerMode.value === 'syncRuns') return t('admin.upstreamConfigs.operations.syncRunsTitle')
+  if (operationsDrawerMode.value === 'events') return t('admin.upstreamConfigs.operations.eventsTitle')
+  if (operationsDrawerMode.value === 'trend') return t('admin.upstreamConfigs.operations.trendTitle')
+  if (operationsDrawerMode.value === 'settings') return t('admin.upstreamConfigs.operations.settingsTitle')
+  return ''
+})
+
+const operationsDrawerSubtitle = computed(() => {
+  if (operationsDrawerMode.value === 'syncRuns' && selectedSyncRun.value) {
+    return t('admin.upstreamConfigs.operations.runSubtitle', { id: selectedSyncRun.value.id })
+  }
+  const config = operationConfigs.value.find((item) => item.id === selectedOperationsConfigId.value)
+  return config?.name || ''
+})
+
+const trendTotals = computed(() => {
+  const points = usageTrend.value?.points || []
+  return points.reduce((total, point) => ({
+    upstreamCost: total.upstreamCost + point.upstream_cost,
+    billedCost: total.billedCost + point.billed_cost,
+    grossProfit: total.grossProfit + point.gross_profit,
+    unconvertedCost: total.unconvertedCost + point.unconverted_cost
+  }), { upstreamCost: 0, billedCost: 0, grossProfit: 0, unconvertedCost: 0 })
+})
+
+const trendRequests = computed(() =>
+  (usageTrend.value?.points || []).reduce((sum, point) => sum + point.requests, 0).toLocaleString()
+)
+
+function ensureSelectedOperationsConfig() {
+  if (!operationConfigs.value.some((item) => item.id === selectedOperationsConfigId.value)) {
+    selectedOperationsConfigId.value = operationConfigs.value[0]?.id || null
+  }
+}
+
+async function ensureOperationConfigs() {
+  if (operationConfigs.value.length) return
+  const response = await upstreamAPI.list(1, 200, {})
+  operationConfigs.value = response.items
+  ensureSelectedOperationsConfig()
+}
+
+function closeOperationsDrawer() {
+  operationsRequestId += 1
+  operationsDrawerMode.value = null
+  selectedSyncRun.value = null
+}
+
+async function openSyncRuns() {
+  operationsDrawerMode.value = 'syncRuns'
+  selectedSyncRun.value = null
+  await loadSyncRuns()
+}
+
+async function loadSyncRuns() {
+  const requestId = ++operationsRequestId
+  operationsLoading.value = true
+  try {
+    const response = await upstreamAPI.listSyncRuns(50, 0)
+    if (requestId !== operationsRequestId) return
+    syncRuns.value = response.items
+    syncRunsTotal.value = response.total
+  } catch (error: any) {
+    if (requestId === operationsRequestId) {
+      appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadSyncRunsFailed')))
+    }
+  } finally {
+    if (requestId === operationsRequestId) operationsLoading.value = false
+  }
+}
+
+async function loadMoreSyncRuns() {
+  const response = await upstreamAPI.listSyncRuns(50, syncRuns.value.length)
+  syncRuns.value.push(...response.items)
+  syncRunsTotal.value = response.total
+}
+
+async function openSyncRunById(runId: number, silent = false) {
+  const requestId = ++operationsRequestId
+  operationsLoading.value = true
+  try {
+    const run = await upstreamAPI.getSyncRun(runId)
+    if (requestId === operationsRequestId) selectedSyncRun.value = run
+  } catch (error: any) {
+    if (requestId === operationsRequestId && !silent) {
+      appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadSyncRunFailed')))
+    }
+  } finally {
+    if (requestId === operationsRequestId) operationsLoading.value = false
+  }
+}
+
+async function openSyncRunFromBatch(runId: number, results: UpstreamSyncResult[]) {
+  operationsDrawerMode.value = 'syncRuns'
+  await openSyncRunById(runId, true)
+  if (!selectedSyncRun.value) selectedSyncRun.value = syncRunFromBatch(runId, results)
+}
+
+function syncRunFromBatch(runId: number, results: UpstreamSyncResult[]): UpstreamSyncRun {
+  const normalizedStatuses = results.map((item) => item.status || (item.success ? 'succeeded' : 'failed'))
+  const success = normalizedStatuses.filter((status) => status === 'succeeded').length
+  const partial = normalizedStatuses.filter((status) => status === 'partial').length
+  const failed = results.length - success - partial
+  return {
+    id: runId,
+    trigger: 'manual_batch',
+    status: failed || partial ? 'partial' : 'succeeded',
+    total_configs: results.length,
+    success_configs: success,
+    partial_configs: partial,
+    failed_configs: failed,
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    results: results.map((item, index) => ({
+      id: index + 1,
+      run_id: runId,
+      config_id: item.config_id,
+      config_name: item.name,
+      provider: item.provider || '',
+      status: item.status || (item.success ? 'succeeded' : 'failed'),
+      stage: item.stage,
+      error_code: item.error_code,
+      safe_message: item.error,
+      retryable: !!item.retryable,
+      remote_key_count: item.key_count,
+      persisted_key_count: item.key_count,
+      fallback_key_count: item.fallback_key_count || 0,
+      unresolved_key_count: item.unresolved_key_count || 0,
+      updated_account_count: item.updated_account_count,
+      warnings: item.warnings,
+      duration_ms: item.duration_ms || 0,
+      started_at: new Date().toISOString(),
+      finished_at: new Date().toISOString()
+    }))
+  }
+}
+
+async function openEvents() {
+  await ensureOperationConfigs()
+  ensureSelectedOperationsConfig()
+  operationsDrawerMode.value = 'events'
+  await loadEventsAndIncidents()
+}
+
+async function loadEventsAndIncidents() {
+  if (!selectedOperationsConfigId.value) return
+  const requestId = ++operationsRequestId
+  operationsLoading.value = true
+  try {
+    const [eventResponse, incidentResponse, balanceResponse] = await Promise.all([
+      upstreamAPI.listEvents(selectedOperationsConfigId.value, 50, 0),
+      upstreamAPI.listIncidents(selectedOperationsConfigId.value, 'open', 50, 0),
+      upstreamAPI.listBalanceHistory(selectedOperationsConfigId.value, 50, 0)
+    ])
+    if (requestId !== operationsRequestId) return
+    events.value = eventResponse.items
+    eventsTotal.value = eventResponse.total
+    incidents.value = incidentResponse.items
+    balanceHistory.value = balanceResponse.items
+    balanceHistoryTotal.value = balanceResponse.total
+  } catch (error: any) {
+    if (requestId === operationsRequestId) {
+      appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadEventsFailed')))
+    }
+  } finally {
+    if (requestId === operationsRequestId) operationsLoading.value = false
+  }
+}
+
+async function loadMoreEvents() {
+  if (!selectedOperationsConfigId.value) return
+  const response = await upstreamAPI.listEvents(selectedOperationsConfigId.value, 50, events.value.length)
+  events.value.push(...response.items)
+  eventsTotal.value = response.total
+}
+
+async function loadMoreBalanceHistory() {
+  if (!selectedOperationsConfigId.value) return
+  const response = await upstreamAPI.listBalanceHistory(selectedOperationsConfigId.value, 50, balanceHistory.value.length)
+  balanceHistory.value.push(...response.items)
+  balanceHistoryTotal.value = response.total
+}
+
+async function openTrend() {
+  await ensureOperationConfigs()
+  ensureSelectedOperationsConfig()
+  operationsDrawerMode.value = 'trend'
+  await loadTrend()
+}
+
+function setTrendRange(range: UpstreamTrendRange) {
+  if (trendRange.value === range) return
+  trendRange.value = range
+  loadTrend()
+}
+
+async function loadTrend() {
+  if (!selectedOperationsConfigId.value) return
+  const requestId = ++operationsRequestId
+  operationsLoading.value = true
+  try {
+    const response = await upstreamAPI.getUsageTrend(selectedOperationsConfigId.value, trendRange.value)
+    if (requestId === operationsRequestId) usageTrend.value = response
+  } catch (error: any) {
+    if (requestId === operationsRequestId) {
+      usageTrend.value = null
+      appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadTrendFailed')))
+    }
+  } finally {
+    if (requestId === operationsRequestId) operationsLoading.value = false
+  }
+}
+
+async function openSettings() {
+  operationsDrawerMode.value = 'settings'
+  await loadSettings(false)
+}
+
+async function loadSettings(silent: boolean) {
+  try {
+    const response = await upstreamAPI.getSettings()
+    upstreamSettings.value = response
+    settingsForm.balance_low_threshold_cny = response.balance_low_threshold_cny
+  } catch (error: any) {
+    if (!silent) appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadSettingsFailed')))
+  }
+}
+
+async function saveUpstreamSettings() {
+  if (!Number.isFinite(settingsForm.balance_low_threshold_cny) || settingsForm.balance_low_threshold_cny < 0) return
+  settingsSaving.value = true
+  try {
+    const response = await upstreamAPI.updateSettings({
+      balance_low_threshold_cny: settingsForm.balance_low_threshold_cny
+    })
+    upstreamSettings.value = response
+    settingsForm.balance_low_threshold_cny = response.balance_low_threshold_cny
+    appStore.showSuccess(t('admin.upstreamConfigs.messages.settingsSaved'))
+  } catch (error: any) {
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.saveSettingsFailed')))
+  } finally {
+    settingsSaving.value = false
   }
 }
 
@@ -979,53 +1617,42 @@ function credentialLines(item: UpstreamConfig) {
   const status = item.credentials_status || {}
   if (item.provider === 'newapi') {
     return [
-      { label: t('admin.upstreamConfigs.credentialStatus.username', { status: statusLabel(!!status.has_newapi_login_username) }), ok: !!status.has_newapi_login_username },
-      { label: t('admin.upstreamConfigs.credentialStatus.password', { status: statusLabel(!!status.has_newapi_login_password) }), ok: !!status.has_newapi_login_password }
+      { label: t('admin.upstreamConfigs.credentialStatus.username', { status: credentialStatusLabel(!!status.has_newapi_login_username) }), ok: !!status.has_newapi_login_username },
+      { label: t('admin.upstreamConfigs.credentialStatus.password', { status: credentialStatusLabel(!!status.has_newapi_login_password) }), ok: !!status.has_newapi_login_password }
     ]
   }
   if (item.auth_mode === 'manual_jwt') {
     return [
-      { label: t('admin.upstreamConfigs.credentialStatus.accessToken', { status: statusLabel(!!status.has_access_token) }), ok: !!status.has_access_token },
-      { label: t('admin.upstreamConfigs.credentialStatus.refreshToken', { status: statusLabel(!!status.has_refresh_token) }), ok: !!status.has_refresh_token }
+      { label: t('admin.upstreamConfigs.credentialStatus.accessToken', { status: credentialStatusLabel(!!status.has_access_token) }), ok: !!status.has_access_token },
+      { label: t('admin.upstreamConfigs.credentialStatus.refreshToken', { status: credentialStatusLabel(!!status.has_refresh_token) }), ok: !!status.has_refresh_token }
     ]
   }
   return [
-    { label: t('admin.upstreamConfigs.credentialStatus.email', { status: statusLabel(!!status.has_login_email) }), ok: !!status.has_login_email },
-    { label: t('admin.upstreamConfigs.credentialStatus.password', { status: statusLabel(!!status.has_login_password) }), ok: !!status.has_login_password }
+    { label: t('admin.upstreamConfigs.credentialStatus.email', { status: credentialStatusLabel(!!status.has_login_email) }), ok: !!status.has_login_email },
+    { label: t('admin.upstreamConfigs.credentialStatus.password', { status: credentialStatusLabel(!!status.has_login_password) }), ok: !!status.has_login_password }
   ]
 }
 
-function statusLabel(ok: boolean) {
+function credentialStatusLabel(ok: boolean) {
   return ok ? t('admin.upstreamConfigs.credentialStatus.configured') : t('admin.upstreamConfigs.credentialStatus.missing')
 }
 
-function upstreamBalance(item: UpstreamConfig): number | null {
-  if (item.provider === 'newapi') {
-    const snapshot = upstreamProviderSnapshot(item)
-    return finiteNumberFromExtra(snapshot?.balance_amount)
-      ?? convertNewAPIQuotaRaw(item, finiteNumberFromExtra(snapshot?.remain_quota) ?? finiteNumberFromExtra(snapshot?.quota))
-  }
-  return finiteNumberFromExtra(item.extra?.sub2api_balance)
+function upstreamBalanceCNY(item: UpstreamConfig): number | null {
+  const normalized = finiteNumberFromExtra(item.extra?.balance_cny)
+  if (normalized !== null) return normalized
+  if (item.provider === 'sub2api') return finiteNumberFromExtra(item.extra?.sub2api_balance)
+  const amount = newAPIAmount(item, 'balance')
+  const rate = explicitCNYRate(item)
+  return amount !== null && rate !== null ? amount * rate : null
 }
 
-function upstreamTotalRecharged(item: UpstreamConfig): number | null {
-  if (item.provider === 'newapi') {
-    const snapshot = upstreamProviderSnapshot(item)
-    const totalAmount = finiteNumberFromExtra(snapshot?.total_amount)
-    if (totalAmount !== null) return totalAmount
-
-    const balanceAmount = finiteNumberFromExtra(snapshot?.balance_amount)
-    const usedAmount = finiteNumberFromExtra(snapshot?.used_amount)
-    if (balanceAmount !== null && usedAmount !== null) {
-      return balanceAmount + usedAmount
-    }
-
-    return convertNewAPIQuotaRaw(
-      item,
-      finiteNumberFromExtra(snapshot?.total_quota) ?? finiteNumberFromExtra(snapshot?.total_quota_raw)
-    )
-  }
-  return finiteNumberFromExtra(item.extra?.sub2api_total_recharged)
+function upstreamTotalRechargedCNY(item: UpstreamConfig): number | null {
+  const normalized = finiteNumberFromExtra(item.extra?.total_recharged_cny)
+  if (normalized !== null) return normalized
+  if (item.provider === 'sub2api') return finiteNumberFromExtra(item.extra?.sub2api_total_recharged)
+  const amount = newAPIAmount(item, 'total')
+  const rate = explicitCNYRate(item)
+  return amount !== null && rate !== null ? amount * rate : null
 }
 
 function upstreamBalanceError(item: UpstreamConfig): string {
@@ -1067,6 +1694,11 @@ function finiteNumberFromExtra(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function finitePositiveNumber(value: unknown): number | null {
+  const parsed = finiteNumberFromExtra(value)
+  return parsed !== null && parsed > 0 ? parsed : null
+}
+
 function formatBalanceAmount(value: number | null): string {
   if (value === null) return '-'
   return value.toLocaleString(undefined, {
@@ -1083,16 +1715,91 @@ function convertNewAPIQuotaRaw(item: UpstreamConfig, raw: number | null): number
   const displayType = typeof snapshot?.quota_display_type === 'string'
     ? snapshot.quota_display_type.toUpperCase()
     : 'USD'
-  if (displayType === 'TOKENS') return raw
-  if (displayType === 'CNY') {
-    const rate = finiteNumberFromExtra(snapshot?.usd_exchange_rate) ?? 1
-    return raw / quotaPerUnit * rate
-  }
+  if (displayType === 'TOKENS') return null
+  if (displayType === 'CNY') return raw / quotaPerUnit
   if (displayType === 'CUSTOM') {
     const rate = finiteNumberFromExtra(snapshot?.custom_currency_exchange_rate) ?? 1
     return raw / quotaPerUnit * rate
   }
-  return raw / quotaPerUnit
+  if (displayType === 'USD') return raw / quotaPerUnit
+  return null
+}
+
+function newAPIAmount(item: UpstreamConfig, kind: 'balance' | 'total'): number | null {
+  const snapshot = upstreamProviderSnapshot(item)
+  if (!snapshot) return null
+  if (kind === 'balance') {
+    return finiteNumberFromExtra(snapshot.balance_amount)
+      ?? convertNewAPIQuotaRaw(item, finiteNumberFromExtra(snapshot.remain_quota) ?? finiteNumberFromExtra(snapshot.quota))
+  }
+  const totalAmount = finiteNumberFromExtra(snapshot.total_amount)
+  if (totalAmount !== null) return totalAmount
+  const balanceAmount = finiteNumberFromExtra(snapshot.balance_amount)
+  const usedAmount = finiteNumberFromExtra(snapshot.used_amount)
+  if (balanceAmount !== null && usedAmount !== null) return balanceAmount + usedAmount
+  return convertNewAPIQuotaRaw(
+    item,
+    finiteNumberFromExtra(snapshot.total_quota) ?? finiteNumberFromExtra(snapshot.total_quota_raw)
+  )
+}
+
+function explicitCNYRate(item: UpstreamConfig): number | null {
+  const normalized = finitePositiveNumber(item.extra?.currency_to_cny_rate)
+  if (normalized !== null) return normalized
+  const snapshot = upstreamProviderSnapshot(item)
+  const currency = typeof snapshot?.currency === 'string'
+    ? snapshot.currency.trim().toUpperCase()
+    : typeof snapshot?.quota_display_type === 'string'
+      ? snapshot.quota_display_type.trim().toUpperCase()
+      : ''
+  if (currency === 'CNY') return 1
+  if (currency === 'USD') {
+    return finitePositiveNumber(snapshot?.usd_exchange_rate)
+      ?? finitePositiveNumber(item.balance_to_cny_rate)
+  }
+  return finitePositiveNumber(item.balance_to_cny_rate)
+}
+
+function formatCNY(value: number | null): string {
+  if (value === null) return '-'
+  return `¥${formatBalanceAmount(value)}`
+}
+
+function isLowBalance(item: UpstreamConfig): boolean {
+  const balance = upstreamBalanceCNY(item)
+  const threshold = upstreamSettings.value.balance_low_threshold_cny
+  return balance !== null && threshold > 0 && balance < threshold
+}
+
+function rawRateRange(item: UpstreamConfig): RateRange {
+  const values = (item.keys || [])
+    .map((key) => finitePositiveNumber(key.rate_multiplier))
+    .filter((value): value is number => value !== null)
+  if (!values.length) return null
+  return { min: Math.min(...values), max: Math.max(...values) }
+}
+
+function costRateRange(item: UpstreamConfig): RateRange {
+  const effectiveValues = (item.keys || [])
+    .map((key) => finitePositiveNumber(key.effective_cost_multiplier))
+    .filter((value): value is number => value !== null)
+  if (effectiveValues.length) {
+    return { min: Math.min(...effectiveValues), max: Math.max(...effectiveValues) }
+  }
+  const raw = rawRateRange(item)
+  const rechargeRate = finitePositiveNumber(item.recharge_rate) || 1
+  return raw ? { min: raw.min * rechargeRate, max: raw.max * rechargeRate } : null
+}
+
+function rateRangeLabel(range: RateRange): string {
+  if (!range) return '-'
+  const min = formatRate(range.min)
+  const max = formatRate(range.max)
+  return min === max ? min : `${min} - ${max}`
+}
+
+function formatRate(value: number): string {
+  return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })
 }
 
 function balanceTitle(item: UpstreamConfig): string {
@@ -1113,6 +1820,44 @@ function balanceTitle(item: UpstreamConfig): string {
   if (syncedAt) parts.push(t('admin.upstreamConfigs.balance.syncedAt', { time: formatTime(syncedAt) }))
   if (error) parts.push(t('admin.upstreamConfigs.balance.error', { error }))
   return parts.join('\n')
+}
+
+function statusLabel(status: string): string {
+  const key = ['succeeded', 'partial', 'failed', 'open', 'resolved'].includes(status) ? status : 'unknown'
+  return t(`admin.upstreamConfigs.operations.status.${key}`)
+}
+
+function statusBadgeClass(status: string): string {
+  const base = 'inline-flex rounded-full px-2 py-1 text-xs font-medium'
+  if (status === 'succeeded' || status === 'resolved') return `${base} bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300`
+  if (status === 'partial') return `${base} bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300`
+  if (status === 'failed' || status === 'open') return `${base} bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300`
+  return `${base} bg-gray-100 text-gray-700 dark:bg-dark-700 dark:text-dark-200`
+}
+
+function severityBadgeClass(severity: string): string {
+  return statusBadgeClass(severity === 'error' || severity === 'critical' ? 'failed' : severity === 'warning' ? 'partial' : '')
+}
+
+function syncTriggerLabel(trigger: string): string {
+  const key = ['manual_single', 'manual_batch', 'scheduled'].includes(trigger) ? trigger : 'unknown'
+  return t(`admin.upstreamConfigs.operations.trigger.${key}`)
+}
+
+function syncRunDuration(run: UpstreamSyncRun): string {
+  if (!run.finished_at) return '-'
+  const duration = new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()
+  if (!Number.isFinite(duration) || duration < 0) return '-'
+  return duration < 1000 ? `${duration}ms` : `${(duration / 1000).toFixed(1)}s`
+}
+
+function formatIncidentMetric(incident: UpstreamIncident): string {
+  if (incident.metric_value === null || incident.metric_value === undefined) return formatTime(incident.last_observed_at)
+  if (incident.threshold_value === null || incident.threshold_value === undefined) return String(incident.metric_value)
+  return t('admin.upstreamConfigs.operations.incidentMetric', {
+    value: incident.metric_value,
+    threshold: incident.threshold_value
+  })
 }
 
 function tokenCandidateLabel(candidate: ParsedTokenCandidate): string {
@@ -1156,5 +1901,29 @@ function apiErrorMessage(error: any, fallback: string): string {
   @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors;
   @apply hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50;
   @apply dark:text-dark-300 dark:hover:bg-dark-700;
+}
+
+.drawer-state {
+  @apply flex min-h-40 items-center justify-center text-sm text-gray-500 dark:text-dark-400;
+}
+
+.operation-row {
+  @apply rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800;
+}
+
+.metric-block {
+  @apply rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-700 dark:bg-dark-800;
+}
+
+.metric-block span {
+  @apply block text-xs text-gray-500 dark:text-dark-400;
+}
+
+.metric-block strong {
+  @apply mt-1 block text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100;
+}
+
+.section-title {
+  @apply text-sm font-semibold text-gray-900 dark:text-gray-100;
 }
 </style>

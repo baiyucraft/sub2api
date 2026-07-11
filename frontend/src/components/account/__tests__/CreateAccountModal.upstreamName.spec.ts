@@ -267,9 +267,36 @@ describe('CreateAccountModal upstream account name', () => {
 
     expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
       name: '',
-      type: 'upstream',
+      type: 'apikey',
       upstream_config_id: 1,
-      upstream_key_id: 10
+      upstream_key_id: 10,
+      credentials: expect.not.objectContaining({
+        pool_mode: expect.anything()
+      })
+    }))
+  })
+
+  it('submits pool mode settings for an upstream-bound account', async () => {
+    const wrapper = await mountOpenedModal()
+
+    await wrapper.get('[data-testid="pool-mode-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="pool-mode-retry-count"]').setValue('5')
+    await wrapper.get('[data-testid="pool-mode-retry-status-codes"]').setValue('429, 503')
+    await wrapper.get('[data-testid="upstream-config-select"]').setValue('1')
+    await flushPromises()
+    await wrapper.get('[data-testid="upstream-key-selector"]').trigger('click')
+    await wrapper.get('#create-account-form').trigger('submit')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'apikey',
+      upstream_config_id: 1,
+      upstream_key_id: 10,
+      credentials: expect.objectContaining({
+        pool_mode: true,
+        pool_mode_retry_count: 5,
+        pool_mode_retry_status_codes: [429, 503]
+      })
     }))
   })
 

@@ -74,10 +74,20 @@ type Tx struct {
 	SubscriptionPlan *SubscriptionPlanClient
 	// TLSFingerprintProfile is the client for interacting with the TLSFingerprintProfile builders.
 	TLSFingerprintProfile *TLSFingerprintProfileClient
+	// UpstreamBalanceSnapshot is the client for interacting with the UpstreamBalanceSnapshot builders.
+	UpstreamBalanceSnapshot *UpstreamBalanceSnapshotClient
 	// UpstreamConfig is the client for interacting with the UpstreamConfig builders.
 	UpstreamConfig *UpstreamConfigClient
+	// UpstreamEvent is the client for interacting with the UpstreamEvent builders.
+	UpstreamEvent *UpstreamEventClient
+	// UpstreamIncident is the client for interacting with the UpstreamIncident builders.
+	UpstreamIncident *UpstreamIncidentClient
 	// UpstreamKey is the client for interacting with the UpstreamKey builders.
 	UpstreamKey *UpstreamKeyClient
+	// UpstreamSyncResult is the client for interacting with the UpstreamSyncResult builders.
+	UpstreamSyncResult *UpstreamSyncResultClient
+	// UpstreamSyncRun is the client for interacting with the UpstreamSyncRun builders.
+	UpstreamSyncRun *UpstreamSyncRunClient
 	// UsageCleanupTask is the client for interacting with the UsageCleanupTask builders.
 	UsageCleanupTask *UsageCleanupTaskClient
 	// UsageLog is the client for interacting with the UsageLog builders.
@@ -255,8 +265,13 @@ func (tx *Tx) init() {
 	tx.Setting = NewSettingClient(tx.config)
 	tx.SubscriptionPlan = NewSubscriptionPlanClient(tx.config)
 	tx.TLSFingerprintProfile = NewTLSFingerprintProfileClient(tx.config)
+	tx.UpstreamBalanceSnapshot = NewUpstreamBalanceSnapshotClient(tx.config)
 	tx.UpstreamConfig = NewUpstreamConfigClient(tx.config)
+	tx.UpstreamEvent = NewUpstreamEventClient(tx.config)
+	tx.UpstreamIncident = NewUpstreamIncidentClient(tx.config)
 	tx.UpstreamKey = NewUpstreamKeyClient(tx.config)
+	tx.UpstreamSyncResult = NewUpstreamSyncResultClient(tx.config)
+	tx.UpstreamSyncRun = NewUpstreamSyncRunClient(tx.config)
 	tx.UsageCleanupTask = NewUsageCleanupTaskClient(tx.config)
 	tx.UsageLog = NewUsageLogClient(tx.config)
 	tx.User = NewUserClient(tx.config)

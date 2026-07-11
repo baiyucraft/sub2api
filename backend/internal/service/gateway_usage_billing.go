@@ -896,10 +896,16 @@ func (s *GatewayService) buildRecordUsageLog(
 ) *UsageLog {
 	durationMs := int(result.Duration.Milliseconds())
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
+	upstreamConfigID := cloneUpstreamSnapshotInt64Ptr(account.UpstreamConfigID)
+	upstreamKeyID := cloneUpstreamSnapshotInt64Ptr(account.UpstreamKeyID)
+	upstreamCostCurrency := "CNY"
+	upstreamCostToCNYRate := 1.0
 	usageLog := &UsageLog{
 		UserID:                user.ID,
 		APIKeyID:              apiKey.ID,
 		AccountID:             account.ID,
+		UpstreamConfigID:      upstreamConfigID,
+		UpstreamKeyID:         upstreamKeyID,
 		RequestID:             requestID,
 		Model:                 result.Model,
 		RequestedModel:        requestedModel,
@@ -916,6 +922,8 @@ func (s *GatewayService) buildRecordUsageLog(
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
 		RateMultiplier:        multiplier,
 		AccountRateMultiplier: &accountRateMultiplier,
+		UpstreamCostCurrency:  &upstreamCostCurrency,
+		UpstreamCostToCNYRate: &upstreamCostToCNYRate,
 		BillingType:           billingType,
 		BillingMode:           resolveBillingMode(result, cost),
 		Stream:                result.Stream,
@@ -950,6 +958,14 @@ func (s *GatewayService) buildRecordUsageLog(
 	}
 
 	return usageLog
+}
+
+func cloneUpstreamSnapshotInt64Ptr(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 // resolveBillingMode 根据计费结果和请求类型确定计费模式。

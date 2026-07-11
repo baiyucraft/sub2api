@@ -14,6 +14,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -42,6 +44,34 @@ func (_c *UsageLogCreate) SetAPIKeyID(v int64) *UsageLogCreate {
 // SetAccountID sets the "account_id" field.
 func (_c *UsageLogCreate) SetAccountID(v int64) *UsageLogCreate {
 	_c.mutation.SetAccountID(v)
+	return _c
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (_c *UsageLogCreate) SetUpstreamConfigID(v int64) *UsageLogCreate {
+	_c.mutation.SetUpstreamConfigID(v)
+	return _c
+}
+
+// SetNillableUpstreamConfigID sets the "upstream_config_id" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableUpstreamConfigID(v *int64) *UsageLogCreate {
+	if v != nil {
+		_c.SetUpstreamConfigID(*v)
+	}
+	return _c
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (_c *UsageLogCreate) SetUpstreamKeyID(v int64) *UsageLogCreate {
+	_c.mutation.SetUpstreamKeyID(v)
+	return _c
+}
+
+// SetNillableUpstreamKeyID sets the "upstream_key_id" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableUpstreamKeyID(v *int64) *UsageLogCreate {
+	if v != nil {
+		_c.SetUpstreamKeyID(*v)
+	}
 	return _c
 }
 
@@ -365,6 +395,34 @@ func (_c *UsageLogCreate) SetNillableAccountRateMultiplier(v *float64) *UsageLog
 	return _c
 }
 
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (_c *UsageLogCreate) SetUpstreamCostCurrency(v string) *UsageLogCreate {
+	_c.mutation.SetUpstreamCostCurrency(v)
+	return _c
+}
+
+// SetNillableUpstreamCostCurrency sets the "upstream_cost_currency" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableUpstreamCostCurrency(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetUpstreamCostCurrency(*v)
+	}
+	return _c
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (_c *UsageLogCreate) SetUpstreamCostToCnyRate(v float64) *UsageLogCreate {
+	_c.mutation.SetUpstreamCostToCnyRate(v)
+	return _c
+}
+
+// SetNillableUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableUpstreamCostToCnyRate(v *float64) *UsageLogCreate {
+	if v != nil {
+		_c.SetUpstreamCostToCnyRate(*v)
+	}
+	return _c
+}
+
 // SetBillingType sets the "billing_type" field.
 func (_c *UsageLogCreate) SetBillingType(v int8) *UsageLogCreate {
 	_c.mutation.SetBillingType(v)
@@ -620,6 +678,16 @@ func (_c *UsageLogCreate) SetSubscription(v *UserSubscription) *UsageLogCreate {
 	return _c.SetSubscriptionID(v.ID)
 }
 
+// SetUpstreamConfig sets the "upstream_config" edge to the UpstreamConfig entity.
+func (_c *UsageLogCreate) SetUpstreamConfig(v *UpstreamConfig) *UsageLogCreate {
+	return _c.SetUpstreamConfigID(v.ID)
+}
+
+// SetUpstreamKey sets the "upstream_key" edge to the UpstreamKey entity.
+func (_c *UsageLogCreate) SetUpstreamKey(v *UpstreamKey) *UsageLogCreate {
+	return _c.SetUpstreamKeyID(v.ID)
+}
+
 // Mutation returns the UsageLogMutation object of the builder.
 func (_c *UsageLogCreate) Mutation() *UsageLogMutation {
 	return _c.mutation
@@ -824,6 +892,11 @@ func (_c *UsageLogCreate) check() error {
 	if _, ok := _c.mutation.RateMultiplier(); !ok {
 		return &ValidationError{Name: "rate_multiplier", err: errors.New(`ent: missing required field "UsageLog.rate_multiplier"`)}
 	}
+	if v, ok := _c.mutation.UpstreamCostCurrency(); ok {
+		if err := usagelog.UpstreamCostCurrencyValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_cost_currency", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_cost_currency": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.BillingType(); !ok {
 		return &ValidationError{Name: "billing_type", err: errors.New(`ent: missing required field "UsageLog.billing_type"`)}
 	}
@@ -1001,6 +1074,14 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_spec.SetField(usagelog.FieldAccountRateMultiplier, field.TypeFloat64, value)
 		_node.AccountRateMultiplier = &value
 	}
+	if value, ok := _c.mutation.UpstreamCostCurrency(); ok {
+		_spec.SetField(usagelog.FieldUpstreamCostCurrency, field.TypeString, value)
+		_node.UpstreamCostCurrency = &value
+	}
+	if value, ok := _c.mutation.UpstreamCostToCnyRate(); ok {
+		_spec.SetField(usagelog.FieldUpstreamCostToCnyRate, field.TypeFloat64, value)
+		_node.UpstreamCostToCnyRate = &value
+	}
 	if value, ok := _c.mutation.BillingType(); ok {
 		_spec.SetField(usagelog.FieldBillingType, field.TypeInt8, value)
 		_node.BillingType = value
@@ -1154,6 +1235,40 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_node.SubscriptionID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
+	if nodes := _c.mutation.UpstreamConfigIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.UpstreamConfigTable,
+			Columns: []string{usagelog.UpstreamConfigColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamconfig.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.UpstreamConfigID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.UpstreamKeyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.UpstreamKeyTable,
+			Columns: []string{usagelog.UpstreamKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.UpstreamKeyID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -1239,6 +1354,42 @@ func (u *UsageLogUpsert) SetAccountID(v int64) *UsageLogUpsert {
 // UpdateAccountID sets the "account_id" field to the value that was provided on create.
 func (u *UsageLogUpsert) UpdateAccountID() *UsageLogUpsert {
 	u.SetExcluded(usagelog.FieldAccountID)
+	return u
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (u *UsageLogUpsert) SetUpstreamConfigID(v int64) *UsageLogUpsert {
+	u.Set(usagelog.FieldUpstreamConfigID, v)
+	return u
+}
+
+// UpdateUpstreamConfigID sets the "upstream_config_id" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateUpstreamConfigID() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldUpstreamConfigID)
+	return u
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (u *UsageLogUpsert) ClearUpstreamConfigID() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldUpstreamConfigID)
+	return u
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (u *UsageLogUpsert) SetUpstreamKeyID(v int64) *UsageLogUpsert {
+	u.Set(usagelog.FieldUpstreamKeyID, v)
+	return u
+}
+
+// UpdateUpstreamKeyID sets the "upstream_key_id" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateUpstreamKeyID() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldUpstreamKeyID)
+	return u
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (u *UsageLogUpsert) ClearUpstreamKeyID() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldUpstreamKeyID)
 	return u
 }
 
@@ -1674,6 +1825,48 @@ func (u *UsageLogUpsert) ClearAccountRateMultiplier() *UsageLogUpsert {
 	return u
 }
 
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (u *UsageLogUpsert) SetUpstreamCostCurrency(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldUpstreamCostCurrency, v)
+	return u
+}
+
+// UpdateUpstreamCostCurrency sets the "upstream_cost_currency" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateUpstreamCostCurrency() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldUpstreamCostCurrency)
+	return u
+}
+
+// ClearUpstreamCostCurrency clears the value of the "upstream_cost_currency" field.
+func (u *UsageLogUpsert) ClearUpstreamCostCurrency() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldUpstreamCostCurrency)
+	return u
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (u *UsageLogUpsert) SetUpstreamCostToCnyRate(v float64) *UsageLogUpsert {
+	u.Set(usagelog.FieldUpstreamCostToCnyRate, v)
+	return u
+}
+
+// UpdateUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateUpstreamCostToCnyRate() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldUpstreamCostToCnyRate)
+	return u
+}
+
+// AddUpstreamCostToCnyRate adds v to the "upstream_cost_to_cny_rate" field.
+func (u *UsageLogUpsert) AddUpstreamCostToCnyRate(v float64) *UsageLogUpsert {
+	u.Add(usagelog.FieldUpstreamCostToCnyRate, v)
+	return u
+}
+
+// ClearUpstreamCostToCnyRate clears the value of the "upstream_cost_to_cny_rate" field.
+func (u *UsageLogUpsert) ClearUpstreamCostToCnyRate() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldUpstreamCostToCnyRate)
+	return u
+}
+
 // SetBillingType sets the "billing_type" field.
 func (u *UsageLogUpsert) SetBillingType(v int8) *UsageLogUpsert {
 	u.Set(usagelog.FieldBillingType, v)
@@ -2052,6 +2245,48 @@ func (u *UsageLogUpsertOne) SetAccountID(v int64) *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) UpdateAccountID() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateAccountID()
+	})
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (u *UsageLogUpsertOne) SetUpstreamConfigID(v int64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetUpstreamConfigID(v)
+	})
+}
+
+// UpdateUpstreamConfigID sets the "upstream_config_id" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateUpstreamConfigID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateUpstreamConfigID()
+	})
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (u *UsageLogUpsertOne) ClearUpstreamConfigID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearUpstreamConfigID()
+	})
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (u *UsageLogUpsertOne) SetUpstreamKeyID(v int64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetUpstreamKeyID(v)
+	})
+}
+
+// UpdateUpstreamKeyID sets the "upstream_key_id" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateUpstreamKeyID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateUpstreamKeyID()
+	})
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (u *UsageLogUpsertOne) ClearUpstreamKeyID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearUpstreamKeyID()
 	})
 }
 
@@ -2556,6 +2791,55 @@ func (u *UsageLogUpsertOne) UpdateAccountRateMultiplier() *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) ClearAccountRateMultiplier() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearAccountRateMultiplier()
+	})
+}
+
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (u *UsageLogUpsertOne) SetUpstreamCostCurrency(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetUpstreamCostCurrency(v)
+	})
+}
+
+// UpdateUpstreamCostCurrency sets the "upstream_cost_currency" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateUpstreamCostCurrency() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateUpstreamCostCurrency()
+	})
+}
+
+// ClearUpstreamCostCurrency clears the value of the "upstream_cost_currency" field.
+func (u *UsageLogUpsertOne) ClearUpstreamCostCurrency() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearUpstreamCostCurrency()
+	})
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (u *UsageLogUpsertOne) SetUpstreamCostToCnyRate(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetUpstreamCostToCnyRate(v)
+	})
+}
+
+// AddUpstreamCostToCnyRate adds v to the "upstream_cost_to_cny_rate" field.
+func (u *UsageLogUpsertOne) AddUpstreamCostToCnyRate(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddUpstreamCostToCnyRate(v)
+	})
+}
+
+// UpdateUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateUpstreamCostToCnyRate() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateUpstreamCostToCnyRate()
+	})
+}
+
+// ClearUpstreamCostToCnyRate clears the value of the "upstream_cost_to_cny_rate" field.
+func (u *UsageLogUpsertOne) ClearUpstreamCostToCnyRate() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearUpstreamCostToCnyRate()
 	})
 }
 
@@ -3155,6 +3439,48 @@ func (u *UsageLogUpsertBulk) UpdateAccountID() *UsageLogUpsertBulk {
 	})
 }
 
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (u *UsageLogUpsertBulk) SetUpstreamConfigID(v int64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetUpstreamConfigID(v)
+	})
+}
+
+// UpdateUpstreamConfigID sets the "upstream_config_id" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateUpstreamConfigID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateUpstreamConfigID()
+	})
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (u *UsageLogUpsertBulk) ClearUpstreamConfigID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearUpstreamConfigID()
+	})
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (u *UsageLogUpsertBulk) SetUpstreamKeyID(v int64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetUpstreamKeyID(v)
+	})
+}
+
+// UpdateUpstreamKeyID sets the "upstream_key_id" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateUpstreamKeyID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateUpstreamKeyID()
+	})
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (u *UsageLogUpsertBulk) ClearUpstreamKeyID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearUpstreamKeyID()
+	})
+}
+
 // SetRequestID sets the "request_id" field.
 func (u *UsageLogUpsertBulk) SetRequestID(v string) *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
@@ -3656,6 +3982,55 @@ func (u *UsageLogUpsertBulk) UpdateAccountRateMultiplier() *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) ClearAccountRateMultiplier() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearAccountRateMultiplier()
+	})
+}
+
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (u *UsageLogUpsertBulk) SetUpstreamCostCurrency(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetUpstreamCostCurrency(v)
+	})
+}
+
+// UpdateUpstreamCostCurrency sets the "upstream_cost_currency" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateUpstreamCostCurrency() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateUpstreamCostCurrency()
+	})
+}
+
+// ClearUpstreamCostCurrency clears the value of the "upstream_cost_currency" field.
+func (u *UsageLogUpsertBulk) ClearUpstreamCostCurrency() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearUpstreamCostCurrency()
+	})
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (u *UsageLogUpsertBulk) SetUpstreamCostToCnyRate(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetUpstreamCostToCnyRate(v)
+	})
+}
+
+// AddUpstreamCostToCnyRate adds v to the "upstream_cost_to_cny_rate" field.
+func (u *UsageLogUpsertBulk) AddUpstreamCostToCnyRate(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddUpstreamCostToCnyRate(v)
+	})
+}
+
+// UpdateUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateUpstreamCostToCnyRate() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateUpstreamCostToCnyRate()
+	})
+}
+
+// ClearUpstreamCostToCnyRate clears the value of the "upstream_cost_to_cny_rate" field.
+func (u *UsageLogUpsertBulk) ClearUpstreamCostToCnyRate() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearUpstreamCostToCnyRate()
 	})
 }
 

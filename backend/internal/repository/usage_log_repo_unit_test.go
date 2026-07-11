@@ -3,6 +3,7 @@
 package repository
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
@@ -44,24 +45,44 @@ func TestSafeDateFormat(t *testing.T) {
 }
 
 func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
+	upstreamConfigID := int64(41)
+	upstreamKeyID := int64(42)
+	currency := "CNY"
+	toCNYRate := 1.0
 	log := &service.UsageLog{
-		UserID:       1,
-		APIKeyID:     2,
-		AccountID:    3,
-		RequestID:    "req-batch-no-update",
-		Model:        "gpt-5",
-		InputTokens:  10,
-		OutputTokens: 5,
-		TotalCost:    1.2,
-		ActualCost:   1.2,
-		CreatedAt:    time.Now().UTC(),
+		UserID:                1,
+		APIKeyID:              2,
+		AccountID:             3,
+		UpstreamConfigID:      &upstreamConfigID,
+		UpstreamKeyID:         &upstreamKeyID,
+		UpstreamCostCurrency:  &currency,
+		UpstreamCostToCNYRate: &toCNYRate,
+		RequestID:             "req-batch-no-update",
+		Model:                 "gpt-5",
+		InputTokens:           10,
+		OutputTokens:          5,
+		TotalCost:             1.2,
+		ActualCost:            1.2,
+		CreatedAt:             time.Now().UTC(),
 	}
 	prepared := prepareUsageLogInsert(log)
 
-	query, _ := buildUsageLogBatchInsertQuery([]string{usageLogBatchKey(log.RequestID, log.APIKeyID)}, map[string]usageLogInsertPrepared{
+	query, args := buildUsageLogBatchInsertQuery([]string{usageLogBatchKey(log.RequestID, log.APIKeyID)}, map[string]usageLogInsertPrepared{
 		usageLogBatchKey(log.RequestID, log.APIKeyID): prepared,
 	})
 
 	require.Contains(t, query, "ON CONFLICT (request_id, api_key_id) DO NOTHING")
 	require.NotContains(t, strings.ToUpper(query), "DO UPDATE")
+	require.Len(t, usageLogInsertArgTypes, 57)
+	require.Len(t, prepared.args, 57)
+	require.Len(t, args, 58)
+	require.Equal(t, sql.NullInt64{Int64: upstreamConfigID, Valid: true}, prepared.args[3])
+	require.Equal(t, sql.NullInt64{Int64: upstreamKeyID, Valid: true}, prepared.args[4])
+	require.Equal(t, sql.NullString{String: currency, Valid: true}, prepared.args[27])
+	require.Equal(t, &toCNYRate, prepared.args[28])
+	require.Equal(t, 3, strings.Count(query, "upstream_config_id"))
+	require.Equal(t, 3, strings.Count(query, "upstream_key_id"))
+	require.Equal(t, 3, strings.Count(query, "upstream_cost_currency"))
+	require.Equal(t, 3, strings.Count(query, "upstream_cost_to_cny_rate"))
+	require.Contains(t, query, "$58::timestamptz")
 }
