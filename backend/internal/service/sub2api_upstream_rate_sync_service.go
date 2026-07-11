@@ -478,7 +478,7 @@ func (s *Sub2APIUpstreamRateSyncService) newSub2APISyncTarget(ctx context.Contex
 	if account.Credentials == nil {
 		account.Credentials = map[string]any{}
 	}
-	account.Credentials["base_url"] = cfg.BaseURL
+	account.Credentials["base_url"] = cfg.SiteURL
 	account.Credentials["api_key"] = key.Key
 	for k, v := range cfg.Credentials {
 		account.Credentials[k] = v
@@ -576,7 +576,7 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 		Name:        cfg.Name,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
-		Credentials: map[string]any{"base_url": cfg.BaseURL, "api_key": "sync-only"},
+		Credentials: map[string]any{"base_url": cfg.SiteURL, "api_key": "sync-only"},
 		Extra: map[string]any{
 			AccountUpstreamProviderKey:       cfg.Provider,
 			AccountSub2APIRateSyncAdapterKey: cfg.AuthMode,

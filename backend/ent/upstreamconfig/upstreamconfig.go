@@ -25,8 +25,10 @@ const (
 	FieldName = "name"
 	// FieldProvider holds the string denoting the provider field in the database.
 	FieldProvider = "provider"
-	// FieldBaseURL holds the string denoting the base_url field in the database.
-	FieldBaseURL = "base_url"
+	// FieldSiteURL holds the string denoting the site_url field in the database.
+	FieldSiteURL = "site_url"
+	// FieldAPIURL holds the string denoting the api_url field in the database.
+	FieldAPIURL = "api_url"
 	// FieldAuthMode holds the string denoting the auth_mode field in the database.
 	FieldAuthMode = "auth_mode"
 	// FieldCredentials holds the string denoting the credentials field in the database.
@@ -131,7 +133,8 @@ var Columns = []string{
 	FieldDeletedAt,
 	FieldName,
 	FieldProvider,
-	FieldBaseURL,
+	FieldSiteURL,
+	FieldAPIURL,
 	FieldAuthMode,
 	FieldCredentials,
 	FieldExtra,
@@ -172,8 +175,10 @@ var (
 	NameValidator func(string) error
 	// ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
 	ProviderValidator func(string) error
-	// BaseURLValidator is a validator for the "base_url" field. It is called by the builders before save.
-	BaseURLValidator func(string) error
+	// SiteURLValidator is a validator for the "site_url" field. It is called by the builders before save.
+	SiteURLValidator func(string) error
+	// APIURLValidator is a validator for the "api_url" field. It is called by the builders before save.
+	APIURLValidator func(string) error
 	// DefaultAuthMode holds the default value on creation for the "auth_mode" field.
 	DefaultAuthMode string
 	// AuthModeValidator is a validator for the "auth_mode" field. It is called by the builders before save.
@@ -223,9 +228,14 @@ func ByProvider(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProvider, opts...).ToFunc()
 }
 
-// ByBaseURL orders the results by the base_url field.
-func ByBaseURL(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldBaseURL, opts...).ToFunc()
+// BySiteURL orders the results by the site_url field.
+func BySiteURL(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSiteURL, opts...).ToFunc()
+}
+
+// ByAPIURL orders the results by the api_url field.
+func ByAPIURL(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAPIURL, opts...).ToFunc()
 }
 
 // ByAuthMode orders the results by the auth_mode field.

@@ -35,7 +35,8 @@ func (UpstreamConfig) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("name").MaxLen(100).NotEmpty(),
 		field.String("provider").MaxLen(32).NotEmpty(),
-		field.String("base_url").MaxLen(512).NotEmpty(),
+		field.String("site_url").MaxLen(512).NotEmpty(),
+		field.String("api_url").MaxLen(512).Optional().Nillable(),
 		field.String("auth_mode").MaxLen(32).Default("user_login"),
 		field.JSON("credentials", map[string]any{}).
 			Default(func() map[string]any { return map[string]any{} }).

@@ -80,9 +80,14 @@ func Provider(v string) predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(sql.FieldEQ(FieldProvider, v))
 }
 
-// BaseURL applies equality check predicate on the "base_url" field. It's identical to BaseURLEQ.
-func BaseURL(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldEQ(FieldBaseURL, v))
+// SiteURL applies equality check predicate on the "site_url" field. It's identical to SiteURLEQ.
+func SiteURL(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEQ(FieldSiteURL, v))
+}
+
+// APIURL applies equality check predicate on the "api_url" field. It's identical to APIURLEQ.
+func APIURL(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEQ(FieldAPIURL, v))
 }
 
 // AuthMode applies equality check predicate on the "auth_mode" field. It's identical to AuthModeEQ.
@@ -385,69 +390,144 @@ func ProviderContainsFold(v string) predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(sql.FieldContainsFold(FieldProvider, v))
 }
 
-// BaseURLEQ applies the EQ predicate on the "base_url" field.
-func BaseURLEQ(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldEQ(FieldBaseURL, v))
+// SiteURLEQ applies the EQ predicate on the "site_url" field.
+func SiteURLEQ(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEQ(FieldSiteURL, v))
 }
 
-// BaseURLNEQ applies the NEQ predicate on the "base_url" field.
-func BaseURLNEQ(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldNEQ(FieldBaseURL, v))
+// SiteURLNEQ applies the NEQ predicate on the "site_url" field.
+func SiteURLNEQ(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNEQ(FieldSiteURL, v))
 }
 
-// BaseURLIn applies the In predicate on the "base_url" field.
-func BaseURLIn(vs ...string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldIn(FieldBaseURL, vs...))
+// SiteURLIn applies the In predicate on the "site_url" field.
+func SiteURLIn(vs ...string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldIn(FieldSiteURL, vs...))
 }
 
-// BaseURLNotIn applies the NotIn predicate on the "base_url" field.
-func BaseURLNotIn(vs ...string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldNotIn(FieldBaseURL, vs...))
+// SiteURLNotIn applies the NotIn predicate on the "site_url" field.
+func SiteURLNotIn(vs ...string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNotIn(FieldSiteURL, vs...))
 }
 
-// BaseURLGT applies the GT predicate on the "base_url" field.
-func BaseURLGT(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldGT(FieldBaseURL, v))
+// SiteURLGT applies the GT predicate on the "site_url" field.
+func SiteURLGT(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldGT(FieldSiteURL, v))
 }
 
-// BaseURLGTE applies the GTE predicate on the "base_url" field.
-func BaseURLGTE(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldGTE(FieldBaseURL, v))
+// SiteURLGTE applies the GTE predicate on the "site_url" field.
+func SiteURLGTE(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldGTE(FieldSiteURL, v))
 }
 
-// BaseURLLT applies the LT predicate on the "base_url" field.
-func BaseURLLT(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldLT(FieldBaseURL, v))
+// SiteURLLT applies the LT predicate on the "site_url" field.
+func SiteURLLT(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldLT(FieldSiteURL, v))
 }
 
-// BaseURLLTE applies the LTE predicate on the "base_url" field.
-func BaseURLLTE(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldLTE(FieldBaseURL, v))
+// SiteURLLTE applies the LTE predicate on the "site_url" field.
+func SiteURLLTE(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldLTE(FieldSiteURL, v))
 }
 
-// BaseURLContains applies the Contains predicate on the "base_url" field.
-func BaseURLContains(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldContains(FieldBaseURL, v))
+// SiteURLContains applies the Contains predicate on the "site_url" field.
+func SiteURLContains(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldContains(FieldSiteURL, v))
 }
 
-// BaseURLHasPrefix applies the HasPrefix predicate on the "base_url" field.
-func BaseURLHasPrefix(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldHasPrefix(FieldBaseURL, v))
+// SiteURLHasPrefix applies the HasPrefix predicate on the "site_url" field.
+func SiteURLHasPrefix(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldHasPrefix(FieldSiteURL, v))
 }
 
-// BaseURLHasSuffix applies the HasSuffix predicate on the "base_url" field.
-func BaseURLHasSuffix(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldHasSuffix(FieldBaseURL, v))
+// SiteURLHasSuffix applies the HasSuffix predicate on the "site_url" field.
+func SiteURLHasSuffix(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldHasSuffix(FieldSiteURL, v))
 }
 
-// BaseURLEqualFold applies the EqualFold predicate on the "base_url" field.
-func BaseURLEqualFold(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldEqualFold(FieldBaseURL, v))
+// SiteURLEqualFold applies the EqualFold predicate on the "site_url" field.
+func SiteURLEqualFold(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEqualFold(FieldSiteURL, v))
 }
 
-// BaseURLContainsFold applies the ContainsFold predicate on the "base_url" field.
-func BaseURLContainsFold(v string) predicate.UpstreamConfig {
-	return predicate.UpstreamConfig(sql.FieldContainsFold(FieldBaseURL, v))
+// SiteURLContainsFold applies the ContainsFold predicate on the "site_url" field.
+func SiteURLContainsFold(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldContainsFold(FieldSiteURL, v))
+}
+
+// APIURLEQ applies the EQ predicate on the "api_url" field.
+func APIURLEQ(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEQ(FieldAPIURL, v))
+}
+
+// APIURLNEQ applies the NEQ predicate on the "api_url" field.
+func APIURLNEQ(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNEQ(FieldAPIURL, v))
+}
+
+// APIURLIn applies the In predicate on the "api_url" field.
+func APIURLIn(vs ...string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldIn(FieldAPIURL, vs...))
+}
+
+// APIURLNotIn applies the NotIn predicate on the "api_url" field.
+func APIURLNotIn(vs ...string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNotIn(FieldAPIURL, vs...))
+}
+
+// APIURLGT applies the GT predicate on the "api_url" field.
+func APIURLGT(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldGT(FieldAPIURL, v))
+}
+
+// APIURLGTE applies the GTE predicate on the "api_url" field.
+func APIURLGTE(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldGTE(FieldAPIURL, v))
+}
+
+// APIURLLT applies the LT predicate on the "api_url" field.
+func APIURLLT(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldLT(FieldAPIURL, v))
+}
+
+// APIURLLTE applies the LTE predicate on the "api_url" field.
+func APIURLLTE(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldLTE(FieldAPIURL, v))
+}
+
+// APIURLContains applies the Contains predicate on the "api_url" field.
+func APIURLContains(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldContains(FieldAPIURL, v))
+}
+
+// APIURLHasPrefix applies the HasPrefix predicate on the "api_url" field.
+func APIURLHasPrefix(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldHasPrefix(FieldAPIURL, v))
+}
+
+// APIURLHasSuffix applies the HasSuffix predicate on the "api_url" field.
+func APIURLHasSuffix(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldHasSuffix(FieldAPIURL, v))
+}
+
+// APIURLIsNil applies the IsNil predicate on the "api_url" field.
+func APIURLIsNil() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldIsNull(FieldAPIURL))
+}
+
+// APIURLNotNil applies the NotNil predicate on the "api_url" field.
+func APIURLNotNil() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNotNull(FieldAPIURL))
+}
+
+// APIURLEqualFold applies the EqualFold predicate on the "api_url" field.
+func APIURLEqualFold(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEqualFold(FieldAPIURL, v))
+}
+
+// APIURLContainsFold applies the ContainsFold predicate on the "api_url" field.
+func APIURLContainsFold(v string) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldContainsFold(FieldAPIURL, v))
 }
 
 // AuthModeEQ applies the EQ predicate on the "auth_mode" field.

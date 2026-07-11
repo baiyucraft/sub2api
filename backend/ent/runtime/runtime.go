@@ -1889,44 +1889,48 @@ func init() {
 			return nil
 		}
 	}()
-	// upstreamconfigDescBaseURL is the schema descriptor for base_url field.
-	upstreamconfigDescBaseURL := upstreamconfigFields[2].Descriptor()
-	// upstreamconfig.BaseURLValidator is a validator for the "base_url" field. It is called by the builders before save.
-	upstreamconfig.BaseURLValidator = func() func(string) error {
-		validators := upstreamconfigDescBaseURL.Validators
+	// upstreamconfigDescSiteURL is the schema descriptor for site_url field.
+	upstreamconfigDescSiteURL := upstreamconfigFields[2].Descriptor()
+	// upstreamconfig.SiteURLValidator is a validator for the "site_url" field. It is called by the builders before save.
+	upstreamconfig.SiteURLValidator = func() func(string) error {
+		validators := upstreamconfigDescSiteURL.Validators
 		fns := [...]func(string) error{
 			validators[0].(func(string) error),
 			validators[1].(func(string) error),
 		}
-		return func(base_url string) error {
+		return func(site_url string) error {
 			for _, fn := range fns {
-				if err := fn(base_url); err != nil {
+				if err := fn(site_url); err != nil {
 					return err
 				}
 			}
 			return nil
 		}
 	}()
+	// upstreamconfigDescAPIURL is the schema descriptor for api_url field.
+	upstreamconfigDescAPIURL := upstreamconfigFields[3].Descriptor()
+	// upstreamconfig.APIURLValidator is a validator for the "api_url" field. It is called by the builders before save.
+	upstreamconfig.APIURLValidator = upstreamconfigDescAPIURL.Validators[0].(func(string) error)
 	// upstreamconfigDescAuthMode is the schema descriptor for auth_mode field.
-	upstreamconfigDescAuthMode := upstreamconfigFields[3].Descriptor()
+	upstreamconfigDescAuthMode := upstreamconfigFields[4].Descriptor()
 	// upstreamconfig.DefaultAuthMode holds the default value on creation for the auth_mode field.
 	upstreamconfig.DefaultAuthMode = upstreamconfigDescAuthMode.Default.(string)
 	// upstreamconfig.AuthModeValidator is a validator for the "auth_mode" field. It is called by the builders before save.
 	upstreamconfig.AuthModeValidator = upstreamconfigDescAuthMode.Validators[0].(func(string) error)
 	// upstreamconfigDescCredentials is the schema descriptor for credentials field.
-	upstreamconfigDescCredentials := upstreamconfigFields[4].Descriptor()
+	upstreamconfigDescCredentials := upstreamconfigFields[5].Descriptor()
 	// upstreamconfig.DefaultCredentials holds the default value on creation for the credentials field.
 	upstreamconfig.DefaultCredentials = upstreamconfigDescCredentials.Default.(func() map[string]interface{})
 	// upstreamconfigDescExtra is the schema descriptor for extra field.
-	upstreamconfigDescExtra := upstreamconfigFields[5].Descriptor()
+	upstreamconfigDescExtra := upstreamconfigFields[6].Descriptor()
 	// upstreamconfig.DefaultExtra holds the default value on creation for the extra field.
 	upstreamconfig.DefaultExtra = upstreamconfigDescExtra.Default.(func() map[string]interface{})
 	// upstreamconfigDescRechargeRate is the schema descriptor for recharge_rate field.
-	upstreamconfigDescRechargeRate := upstreamconfigFields[7].Descriptor()
+	upstreamconfigDescRechargeRate := upstreamconfigFields[8].Descriptor()
 	// upstreamconfig.DefaultRechargeRate holds the default value on creation for the recharge_rate field.
 	upstreamconfig.DefaultRechargeRate = upstreamconfigDescRechargeRate.Default.(float64)
 	// upstreamconfigDescStatus is the schema descriptor for status field.
-	upstreamconfigDescStatus := upstreamconfigFields[9].Descriptor()
+	upstreamconfigDescStatus := upstreamconfigFields[10].Descriptor()
 	// upstreamconfig.DefaultStatus holds the default value on creation for the status field.
 	upstreamconfig.DefaultStatus = upstreamconfigDescStatus.Default.(string)
 	// upstreamconfig.StatusValidator is a validator for the "status" field. It is called by the builders before save.

@@ -1865,7 +1865,7 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 				if out.Credentials == nil {
 					out.Credentials = map[string]any{}
 				}
-				out.Credentials["base_url"] = cfg.BaseURL
+				out.Credentials["base_url"] = cfg.EffectiveAPIURL()
 				if out.Extra == nil {
 					out.Extra = map[string]any{}
 				}

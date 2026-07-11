@@ -1584,7 +1584,8 @@ var (
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "name", Type: field.TypeString, Size: 100},
 		{Name: "provider", Type: field.TypeString, Size: 32},
-		{Name: "base_url", Type: field.TypeString, Size: 512},
+		{Name: "site_url", Type: field.TypeString, Size: 512},
+		{Name: "api_url", Type: field.TypeString, Nullable: true, Size: 512},
 		{Name: "auth_mode", Type: field.TypeString, Size: 32, Default: "user_login"},
 		{Name: "credentials", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "extra", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
@@ -1604,7 +1605,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "upstream_configs_proxies_proxy",
-				Columns:    []*schema.Column{UpstreamConfigsColumns[16]},
+				Columns:    []*schema.Column{UpstreamConfigsColumns[17]},
 				RefColumns: []*schema.Column{ProxiesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -1618,7 +1619,7 @@ var (
 			{
 				Name:    "upstreamconfig_proxy_id",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamConfigsColumns[16]},
+				Columns: []*schema.Column{UpstreamConfigsColumns[17]},
 			},
 		},
 	}

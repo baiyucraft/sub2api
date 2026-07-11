@@ -761,7 +761,7 @@ func (s *AccountRepoSuite) TestGetByIDsHydratesUpstreamBoundCredentials() {
 	cfg := s.client.UpstreamConfig.Create().
 		SetName("repo-upstream").
 		SetProvider(service.UpstreamProviderSub2API).
-		SetBaseURL("https://upstream.example.com").
+		SetSiteURL("https://upstream.example.com").
 		SetAuthMode(service.UpstreamAuthModeManualJWT).
 		SetCredentials(map[string]any{"access_token": "jwt"}).
 		SetStatus(service.StatusActive).
@@ -805,7 +805,7 @@ func (s *AccountRepoSuite) TestUpstreamBoundAccountProxyOnlyComesFromUpstreamCon
 	cfgNoProxy := s.client.UpstreamConfig.Create().
 		SetName("repo-upstream-no-proxy").
 		SetProvider(service.UpstreamProviderSub2API).
-		SetBaseURL("https://upstream-no-proxy.example.com").
+		SetSiteURL("https://upstream-no-proxy.example.com").
 		SetAuthMode(service.UpstreamAuthModeManualJWT).
 		SetCredentials(map[string]any{"access_token": "jwt"}).
 		SetStatus(service.StatusActive).
@@ -813,7 +813,7 @@ func (s *AccountRepoSuite) TestUpstreamBoundAccountProxyOnlyComesFromUpstreamCon
 	cfgWithProxy := s.client.UpstreamConfig.Create().
 		SetName("repo-upstream-with-proxy").
 		SetProvider(service.UpstreamProviderSub2API).
-		SetBaseURL("https://upstream-with-proxy.example.com").
+		SetSiteURL("https://upstream-with-proxy.example.com").
 		SetAuthMode(service.UpstreamAuthModeManualJWT).
 		SetCredentials(map[string]any{"access_token": "jwt"}).
 		SetProxyID(cfgProxy.ID).

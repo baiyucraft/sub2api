@@ -22,7 +22,9 @@ func NewUpstreamConfigHandler(service *service.UpstreamConfigService) *UpstreamC
 type upstreamConfigRequest struct {
 	Name                  string         `json:"name"`
 	Provider              string         `json:"provider"`
-	BaseURL               string         `json:"base_url"`
+	SiteURL               string         `json:"site_url"`
+	APIURL                *string        `json:"api_url"`
+	ClearAPIURL           bool           `json:"clear_api_url"`
 	AuthMode              string         `json:"auth_mode"`
 	Credentials           map[string]any `json:"credentials"`
 	Extra                 map[string]any `json:"extra"`
@@ -328,7 +330,9 @@ func upstreamConfigFromRequest(req upstreamConfigRequest) *service.UpstreamConfi
 	return &service.UpstreamConfig{
 		Name:        req.Name,
 		Provider:    req.Provider,
-		BaseURL:     req.BaseURL,
+		SiteURL:     req.SiteURL,
+		APIURL:      req.APIURL,
+		ClearAPIURL: req.ClearAPIURL,
 		AuthMode:    req.AuthMode,
 		Credentials: req.Credentials,
 		Extra:       req.Extra,
@@ -376,7 +380,8 @@ func sanitizeUpstreamConfig(config *service.UpstreamConfig) gin.H {
 		"id":                  config.ID,
 		"name":                config.Name,
 		"provider":            config.Provider,
-		"base_url":            config.BaseURL,
+		"site_url":            config.SiteURL,
+		"api_url":             config.APIURL,
 		"auth_mode":           config.AuthMode,
 		"credentials_status":  upstreamCredentialsStatus(config.Credentials),
 		"extra":               redactedUpstreamExtra(config.Extra),

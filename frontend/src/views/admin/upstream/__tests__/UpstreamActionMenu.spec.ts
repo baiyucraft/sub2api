@@ -22,7 +22,7 @@ function config(provider = 'sub2api') {
     id: 7,
     name: 'Main',
     provider,
-    base_url: 'https://upstream.example.com',
+    site_url: 'https://upstream.example.com',
     auth_mode: 'manual_jwt',
     recharge_rate: 1,
     status: 'active',
