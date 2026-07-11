@@ -798,6 +798,9 @@
 
       <template v-else-if="operationsDrawerMode === 'settings'">
         <div v-if="operationLoading.settings" class="drawer-state">{{ t('common.loading') }}</div>
+        <div v-else-if="!settingsLoaded" class="drawer-state" data-test="upstream-settings-unavailable">
+          {{ t('admin.upstreamConfigs.messages.loadSettingsFailed') }}
+        </div>
         <form v-else class="space-y-5" data-test="upstream-settings-form" @submit.prevent="saveUpstreamSettings">
           <label class="block space-y-2">
             <span class="input-label">{{ t('admin.upstreamConfigs.settings.lowBalanceThreshold') }}</span>
@@ -811,6 +814,18 @@
               required
             />
             <span class="block text-xs text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.settings.lowBalanceThresholdHint') }}</span>
+          </label>
+          <label class="flex cursor-pointer items-start gap-3 border-t border-gray-200 pt-5 dark:border-dark-700">
+            <input
+              v-model="settingsForm.sub2api_not_in_cn_confirmed"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+              data-test="sub2api-not-in-cn-confirmed"
+            />
+            <span class="min-w-0">
+              <span class="block text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('admin.upstreamConfigs.settings.sub2apiNotInCNConfirmed') }}</span>
+              <span class="mt-1 block text-xs leading-5 text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.settings.sub2apiNotInCNConfirmedHint') }}</span>
+            </span>
           </label>
           <div class="flex justify-end">
             <button type="submit" class="btn btn-primary" :disabled="settingsSaving">
@@ -922,8 +937,9 @@ const balanceHistoryTotal = ref(0)
 const trendRange = ref<UpstreamTrendRange>('24h')
 const trendRanges: UpstreamTrendRange[] = ['24h', '7d', '30d']
 const usageTrend = ref<UpstreamUsageTrend | null>(null)
-const upstreamSettings = ref<UpstreamSettings>({ balance_low_threshold_cny: 0 })
-const settingsForm = reactive<UpstreamSettings>({ balance_low_threshold_cny: 0 })
+const upstreamSettings = ref<UpstreamSettings>({ balance_low_threshold_cny: 0, sub2api_not_in_cn_confirmed: false })
+const settingsForm = reactive<UpstreamSettings>({ balance_low_threshold_cny: 0, sub2api_not_in_cn_confirmed: false })
+const settingsLoaded = ref(false)
 const settingsSaving = ref(false)
 const operationGeneration: Record<OperationsDrawerMode, number> = {
   syncRuns: 0,
@@ -1685,6 +1701,7 @@ async function loadTrend() {
 
 async function openSettings() {
   operationsDrawerMode.value = 'settings'
+  settingsLoaded.value = false
   await loadSettings(false)
 }
 
@@ -1697,7 +1714,10 @@ async function loadSettings(silent: boolean) {
     if (!silent && operationsDrawerMode.value !== 'settings') return
     upstreamSettings.value = response
     settingsForm.balance_low_threshold_cny = response.balance_low_threshold_cny
+    settingsForm.sub2api_not_in_cn_confirmed = response.sub2api_not_in_cn_confirmed
+    settingsLoaded.value = true
   } catch (error: any) {
+    if (operationGeneration.settings === generation) settingsLoaded.value = false
     if (!silent && requestIsCurrent('settings', generation)) appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadSettingsFailed')))
   } finally {
     if (!silent && requestIsCurrent('settings', generation)) operationLoading.settings = false
@@ -1705,16 +1725,19 @@ async function loadSettings(silent: boolean) {
 }
 
 async function saveUpstreamSettings() {
+  if (!settingsLoaded.value) return
   if (!Number.isFinite(settingsForm.balance_low_threshold_cny) || settingsForm.balance_low_threshold_cny < 0) return
   const generation = operationGeneration.settings
   settingsSaving.value = true
   try {
     const response = await upstreamAPI.updateSettings({
-      balance_low_threshold_cny: settingsForm.balance_low_threshold_cny
+      balance_low_threshold_cny: settingsForm.balance_low_threshold_cny,
+      sub2api_not_in_cn_confirmed: settingsForm.sub2api_not_in_cn_confirmed
     })
     if (!requestIsCurrent('settings', generation)) return
     upstreamSettings.value = response
     settingsForm.balance_low_threshold_cny = response.balance_low_threshold_cny
+    settingsForm.sub2api_not_in_cn_confirmed = response.sub2api_not_in_cn_confirmed
     appStore.showSuccess(t('admin.upstreamConfigs.messages.settingsSaved'))
   } catch (error: any) {
     if (requestIsCurrent('settings', generation)) {

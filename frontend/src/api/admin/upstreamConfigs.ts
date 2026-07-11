@@ -96,6 +96,7 @@ export interface UpstreamSyncResult {
 
 export interface UpstreamSettings {
   balance_low_threshold_cny: number
+  sub2api_not_in_cn_confirmed: boolean
 }
 
 export interface UpstreamSyncRecord {

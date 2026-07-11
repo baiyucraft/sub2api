@@ -172,7 +172,9 @@ export default {
     },
     settings: {
       lowBalanceThreshold: '低余额阈值（人民币）',
-      lowBalanceThresholdHint: '余额低于该值时在上游列表标红；设置为 0 表示关闭提醒。'
+      lowBalanceThresholdHint: '余额低于该值时在上游列表标红；设置为 0 表示关闭提醒。',
+      sub2apiNotInCNConfirmed: '确认所有 Sub2API 账密登录均符合非中国大陆地区要求',
+      sub2apiNotInCNConfirmedHint: '开启后，系统会在所有 Sub2API 上游的账密登录请求中，向第三方站点发送“确认不位于中国大陆”的声明。请仅在你确认所有相关登录均符合该要求时开启。'
     },
     operations: {
       syncRunsTitle: '同步记录',

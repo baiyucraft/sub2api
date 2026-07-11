@@ -50,6 +50,28 @@ type sub2APIRateSyncProxyRepo struct {
 	mu        sync.Mutex
 }
 
+type sub2APIRateSyncUpstreamRepo struct {
+	UpstreamConfigRepository
+
+	settings *UpstreamSettings
+	err      error
+}
+
+func (r *sub2APIRateSyncUpstreamRepo) GetUpstreamSettings(ctx context.Context) (*UpstreamSettings, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.settings == nil {
+		return &UpstreamSettings{}, nil
+	}
+	settings := *r.settings
+	return &settings, nil
+}
+
+func enableLegacySub2APICompliance(svc *Sub2APIUpstreamRateSyncService) {
+	svc.SetUpstreamConfigRepository(&sub2APIRateSyncUpstreamRepo{settings: &UpstreamSettings{Sub2APINotInCNConfirmed: true}})
+}
+
 func (r *sub2APIRateSyncProxyRepo) ListByIDs(ctx context.Context, ids []int64) ([]Proxy, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -128,68 +150,23 @@ func TestSub2APIUpstreamPriority(t *testing.T) {
 	require.Equal(t, 7, Sub2APIUpstreamPriority(0.065))
 }
 
-func TestSub2APIUpstreamRateSync_RunOnceUsesUserLoginAndReusesSession(t *testing.T) {
-	loginCount := 0
-	keysCount := 0
-	ratesCount := 0
+func TestSub2APIUpstreamRateSync_RunOnceDoesNotUseDeprecatedAccountScanFallback(t *testing.T) {
+	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/api/v1/auth/login":
-			loginCount++
-			require.Equal(t, http.MethodPost, r.Method)
-			_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"access_token":"jwt-upstream"}}`))
-		case "/api/v1/keys":
-			keysCount++
-			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
-			page := r.URL.Query().Get("page")
-			if page == "1" {
-				_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"items":[{"id":1,"key":"sk-upstream-a","group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":0.2}}],"page":1,"page_size":1,"pages":2}}`))
-				return
-			}
-			_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"items":[{"id":2,"key":"sk-upstream-b","group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":0.2}}],"page":2,"page_size":1,"pages":2}}`))
-		case "/api/v1/groups/available":
-			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
-			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus","platform":"openai","rate_multiplier":0.2}]}`))
-		case "/api/v1/groups/rates":
-			ratesCount++
-			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
-			_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"10":0.065}}`))
-		default:
-			http.NotFound(w, r)
-		}
+		requestCount++
+		http.NotFound(w, r)
 	}))
 	defer server.Close()
 
 	repo := &sub2APIRateSyncAccountRepo{accounts: []Account{
-		newSub2APIRateSyncAccount(1, server.URL+"/v1", "sk-upstream-a"),
-		newSub2APIRateSyncAccount(2, server.URL+"/v1", "sk-upstream-b"),
-		{
-			ID:          3,
-			Type:        AccountTypeAPIKey,
-			Credentials: map[string]any{"base_url": server.URL, "api_key": "sk-newapi"},
-			Extra:       map[string]any{AccountUpstreamProviderKey: AccountUpstreamProviderNewAPI},
-		},
+		newSub2APIRateSyncAccount(1, server.URL, "sk-upstream"),
 	}}
 	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
-	svc.concurrency = 1
 
 	svc.runOnce()
 
-	require.Equal(t, 1, loginCount)
-	require.Equal(t, 2, keysCount)
-	require.Equal(t, 1, ratesCount)
-	require.Len(t, repo.bulkUpdates, 2)
-	for _, update := range repo.bulkUpdates {
-		require.NotNil(t, update.updates.RateMultiplier)
-		require.InDelta(t, 0.065, *update.updates.RateMultiplier, 1e-12)
-		require.NotNil(t, update.updates.Priority)
-		require.Equal(t, 7, *update.updates.Priority)
-		require.NotNil(t, update.updates.LoadFactor)
-		require.Equal(t, 150, *update.updates.LoadFactor)
-		require.Equal(t, "openai", update.updates.Extra["sub2api_upstream_platform"])
-		require.Empty(t, update.updates.Extra["sub2api_rate_sync_last_error"])
-	}
+	require.Zero(t, requestCount)
+	require.Empty(t, repo.bulkUpdates)
 	require.Empty(t, repo.extraUpdates)
 }
 
@@ -232,6 +209,7 @@ func TestSub2APIUpstreamRateSync_UsesAccountProxyForUserLoginAndFallback(t *test
 		proxyID: proxyFromTestServer(t, proxyID, proxyServer),
 	}}
 	svc := NewSub2APIUpstreamRateSyncService(repo, proxyRepo, time.Minute)
+	enableLegacySub2APICompliance(svc)
 
 	err := svc.SyncAccountNow(context.Background(), &account)
 
@@ -265,6 +243,7 @@ func TestSub2APIUpstreamRateSync_KeysFallback(t *testing.T) {
 
 	repo := &sub2APIRateSyncAccountRepo{}
 	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
+	enableLegacySub2APICompliance(svc)
 
 	err := svc.SyncAccountNow(context.Background(), ptrAccount(newSub2APIRateSyncAccount(42, server.URL+"/v1", "sk-upstream")))
 
@@ -306,6 +285,26 @@ func TestSub2APIUpstreamRateSync_ManualJWTSkipsLogin(t *testing.T) {
 	require.InDelta(t, 0.12, *repo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.Equal(t, 12, *repo.bulkUpdates[0].updates.Priority)
 	require.Equal(t, 100, *repo.bulkUpdates[0].updates.LoadFactor)
+}
+
+func TestSub2APIUpstreamRateSync_LegacyUserLoginFailsClosedWhenComplianceSettingsUnavailable(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	repo := &sub2APIRateSyncAccountRepo{}
+	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
+	account := newSub2APIRateSyncAccount(42, server.URL, "sk-upstream")
+
+	err := svc.SyncAccountNow(context.Background(), &account)
+
+	require.ErrorContains(t, err, "compliance settings")
+	require.Zero(t, requestCount)
+	require.Empty(t, repo.bulkUpdates)
+	require.Len(t, repo.extraUpdates, 1)
 }
 
 func TestSub2APIUpstreamRateSync_ManualJWTRefreshesExpiredTokenAndRetries(t *testing.T) {
@@ -440,169 +439,6 @@ func TestSub2APIUpstreamRateSync_ManualJWTRefreshFailureDoesNotUpdateRateOrToken
 	require.NotContains(t, errText, "sk-secret")
 }
 
-func TestSub2APIUpstreamRateSync_ManualJWTRefreshesOnceForGroupedAccountsAndSavesAll(t *testing.T) {
-	refreshCount := 0
-	keysCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/api/v1/auth/login":
-			t.Fatal("manual jwt sync must not call login")
-		case "/api/v1/auth/refresh":
-			refreshCount++
-			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-new","refresh_token":"refresh-new"}}`))
-		case "/api/v1/keys":
-			keysCount++
-			switch r.Header.Get("Authorization") {
-			case "Bearer jwt-old-a":
-				http.Error(w, `{"code":401}`, http.StatusUnauthorized)
-			case "Bearer jwt-new":
-				_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-a","group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":0.1}},{"id":2,"key":"sk-b","group_id":20,"group":{"id":20,"platform":"openai","rate_multiplier":0.2}}],"page":1,"page_size":100,"pages":1}}`))
-			default:
-				t.Fatalf("unexpected auth header %q", r.Header.Get("Authorization"))
-			}
-		case "/api/v1/groups/rates":
-			require.Equal(t, "Bearer jwt-new", r.Header.Get("Authorization"))
-			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	repo := &sub2APIRateSyncAccountRepo{accounts: []Account{
-		newSub2APIManualJWTRefreshRateSyncAccount(1, server.URL, "sk-a", "jwt-old-a", "refresh-shared"),
-		newSub2APIManualJWTRefreshRateSyncAccount(2, server.URL, "sk-b", "jwt-old-b", "refresh-shared"),
-	}}
-	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
-	svc.concurrency = 1
-
-	svc.runOnce()
-
-	require.Equal(t, 1, refreshCount)
-	require.Equal(t, 2, keysCount)
-	require.Empty(t, repo.extraUpdates)
-	tokenUpdates := map[int64]map[string]any{}
-	rateUpdates := map[int64]float64{}
-	for _, update := range repo.bulkUpdates {
-		if len(update.updates.Credentials) > 0 {
-			tokenUpdates[update.ids[0]] = update.updates.Credentials
-			continue
-		}
-		if update.updates.RateMultiplier != nil {
-			rateUpdates[update.ids[0]] = *update.updates.RateMultiplier
-		}
-	}
-	require.Len(t, tokenUpdates, 2)
-	for _, id := range []int64{1, 2} {
-		require.Equal(t, "jwt-new", tokenUpdates[id][AccountCredentialSub2APIAccessToken])
-		require.Equal(t, "refresh-new", tokenUpdates[id][AccountCredentialSub2APIRefreshToken])
-	}
-	require.InDelta(t, 0.1, rateUpdates[1], 1e-12)
-	require.InDelta(t, 0.2, rateUpdates[2], 1e-12)
-}
-
-func TestSub2APIUpstreamRateSync_ManualJWTGroupsByProxy(t *testing.T) {
-	keysCountByProxy := map[string]int{}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		proxyID := r.Header.Get("X-Test-Proxy-ID")
-		switch r.URL.Path {
-		case "/api/v1/auth/login":
-			t.Fatal("manual jwt sync must not call login")
-		case "/api/v1/keys":
-			keysCountByProxy[proxyID]++
-			key := "sk-a"
-			rate := "0.1"
-			if proxyID == "proxy-b" {
-				key = "sk-b"
-				rate = "0.2"
-			}
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"code":0,"data":{"items":[{"id":1,"key":%q,"group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":%s}}],"page":1,"page_size":100,"pages":1}}`, key, rate)))
-		case "/api/v1/groups/rates":
-			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	proxyA := newSub2APITestHTTPProxy(t, "proxy-a")
-	defer proxyA.Close()
-	proxyB := newSub2APITestHTTPProxy(t, "proxy-b")
-	defer proxyB.Close()
-	proxyAID := int64(10)
-	proxyBID := int64(20)
-	accountA := newSub2APIManualJWTRateSyncAccount(1, server.URL, "sk-a", "same-jwt")
-	accountA.ProxyID = &proxyAID
-	accountB := newSub2APIManualJWTRateSyncAccount(2, server.URL, "sk-b", "same-jwt")
-	accountB.ProxyID = &proxyBID
-	repo := &sub2APIRateSyncAccountRepo{accounts: []Account{accountA, accountB}}
-	proxyRepo := &sub2APIRateSyncProxyRepo{proxies: map[int64]Proxy{
-		proxyAID: proxyFromTestServer(t, proxyAID, proxyA),
-		proxyBID: proxyFromTestServer(t, proxyBID, proxyB),
-	}}
-	svc := NewSub2APIUpstreamRateSyncService(repo, proxyRepo, time.Minute)
-	svc.concurrency = 1
-
-	svc.runOnce()
-
-	require.Equal(t, map[string]int{"proxy-a": 1, "proxy-b": 1}, keysCountByProxy)
-	require.Equal(t, 1, proxyRepo.listCalls)
-	require.Len(t, repo.bulkUpdates, 2)
-	require.Empty(t, repo.extraUpdates)
-	byID := map[int64]float64{}
-	for _, update := range repo.bulkUpdates {
-		byID[update.ids[0]] = *update.updates.RateMultiplier
-	}
-	require.InDelta(t, 0.1, byID[1], 1e-12)
-	require.InDelta(t, 0.2, byID[2], 1e-12)
-}
-
-func TestSub2APIUpstreamRateSync_ManualJWTGroupsByToken(t *testing.T) {
-	keysCountByToken := map[string]int{}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		switch r.URL.Path {
-		case "/api/v1/auth/login":
-			t.Fatal("manual jwt sync must not call login")
-		case "/api/v1/keys":
-			keysCountByToken[token]++
-			key := "sk-a"
-			rate := "0.1"
-			if token == "jwt-b" {
-				key = "sk-b"
-				rate = "0.2"
-			}
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"code":0,"data":{"items":[{"id":1,"key":%q,"group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":%s}}],"page":1,"page_size":100,"pages":1}}`, key, rate)))
-		case "/api/v1/groups/rates":
-			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	repo := &sub2APIRateSyncAccountRepo{accounts: []Account{
-		newSub2APIManualJWTRateSyncAccount(1, server.URL, "sk-a", "jwt-a"),
-		newSub2APIManualJWTRateSyncAccount(2, server.URL, "sk-b", "jwt-b"),
-	}}
-	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
-	svc.concurrency = 1
-
-	svc.runOnce()
-
-	require.Equal(t, map[string]int{"jwt-a": 1, "jwt-b": 1}, keysCountByToken)
-	require.Len(t, repo.bulkUpdates, 2)
-	byID := map[int64]float64{}
-	for _, update := range repo.bulkUpdates {
-		byID[update.ids[0]] = *update.updates.RateMultiplier
-	}
-	require.InDelta(t, 0.1, byID[1], 1e-12)
-	require.InDelta(t, 0.2, byID[2], 1e-12)
-}
-
 func TestSub2APIUpstreamRateSync_ManualJWTExpiredHintDoesNotLeakToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -630,58 +466,6 @@ func TestSub2APIUpstreamRateSync_ManualJWTExpiredHintDoesNotLeakToken(t *testing
 	require.NotContains(t, errText, "sk-secret")
 }
 
-func TestSub2APIUpstreamRateSync_FailureDoesNotUpdateRateOrPriority(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/api/v1/auth/login":
-			_, _ = w.Write([]byte(`{"code":0,"data":{"requires_2fa":true}}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	repo := &sub2APIRateSyncAccountRepo{accounts: []Account{
-		newSub2APIRateSyncAccount(9, server.URL, "sk-upstream"),
-	}}
-	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
-	svc.concurrency = 1
-
-	svc.runOnce()
-
-	require.Empty(t, repo.bulkUpdates)
-	require.Len(t, repo.extraUpdates, 1)
-	require.Equal(t, int64(9), repo.extraUpdates[0].id)
-	require.Contains(t, repo.extraUpdates[0].updates["sub2api_rate_sync_last_error"], "2fa")
-	require.NotEmpty(t, repo.extraUpdates[0].updates["sub2api_rate_sync_last_error_at"])
-}
-
-func TestSub2APIUpstreamRateSync_ProxyResolveFailureDoesNotFallBackDirect(t *testing.T) {
-	requestCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
-		http.NotFound(w, r)
-	}))
-	defer server.Close()
-
-	proxyID := int64(404)
-	account := newSub2APIManualJWTRateSyncAccount(9, server.URL, "sk-upstream", "manual-jwt")
-	account.ProxyID = &proxyID
-	repo := &sub2APIRateSyncAccountRepo{accounts: []Account{account}}
-	proxyRepo := &sub2APIRateSyncProxyRepo{proxies: map[int64]Proxy{}}
-	svc := NewSub2APIUpstreamRateSyncService(repo, proxyRepo, time.Minute)
-	svc.concurrency = 1
-
-	svc.runOnce()
-
-	require.Equal(t, 0, requestCount)
-	require.Empty(t, repo.bulkUpdates)
-	require.Len(t, repo.extraUpdates, 1)
-	require.Equal(t, int64(9), repo.extraUpdates[0].id)
-	require.Contains(t, repo.extraUpdates[0].updates["sub2api_rate_sync_last_error"], "proxy")
-}
-
 func TestSub2APIUpstreamRateSync_HiddenKeyFailsWithoutSecretInError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -700,6 +484,7 @@ func TestSub2APIUpstreamRateSync_HiddenKeyFailsWithoutSecretInError(t *testing.T
 
 	repo := &sub2APIRateSyncAccountRepo{}
 	svc := NewSub2APIUpstreamRateSyncService(repo, nil, time.Minute)
+	enableLegacySub2APICompliance(svc)
 	account := newSub2APIRateSyncAccount(11, server.URL, "sk-upstream-secret")
 
 	err := svc.SyncAccountNow(context.Background(), &account)

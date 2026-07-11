@@ -172,7 +172,9 @@ export default {
     },
     settings: {
       lowBalanceThreshold: 'Low Balance Threshold (CNY)',
-      lowBalanceThresholdHint: 'Balances below this value are highlighted in red. Set to 0 to disable the warning.'
+      lowBalanceThresholdHint: 'Balances below this value are highlighted in red. Set to 0 to disable the warning.',
+      sub2apiNotInCNConfirmed: 'Confirm all Sub2API password logins meet the non-mainland-China requirement',
+      sub2apiNotInCNConfirmedHint: 'When enabled, the system sends a “not located in mainland China” declaration to third-party sites for every Sub2API email/password login. Enable it only after confirming all affected logins meet that requirement.'
     },
     operations: {
       syncRunsTitle: 'Sync Runs',

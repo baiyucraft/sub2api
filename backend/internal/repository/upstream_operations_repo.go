@@ -20,35 +20,49 @@ import (
 )
 
 func (r *upstreamConfigRepository) GetUpstreamSettings(ctx context.Context) (*service.UpstreamSettings, error) {
-	value, err := r.client.Setting.Query().Where(func(s *entsql.Selector) {
-		s.Where(entsql.EQ(s.C("key"), service.SettingKeyUpstreamBalanceLowThresholdCNY))
-	}).Only(ctx)
+	rows, err := r.client.Setting.Query().Where(func(s *entsql.Selector) {
+		s.Where(entsql.In(s.C("key"),
+			service.SettingKeyUpstreamBalanceLowThresholdCNY,
+			service.SettingKeyUpstreamSub2APINotInCNConfirmed,
+		))
+	}).All(ctx)
 	if err != nil {
-		if dbent.IsNotFound(err) {
-			return &service.UpstreamSettings{}, nil
-		}
 		return nil, err
 	}
-	threshold, _ := strconv.ParseFloat(strings.TrimSpace(value.Value), 64)
-	return &service.UpstreamSettings{BalanceLowThresholdCNY: threshold}, nil
+	settings := &service.UpstreamSettings{}
+	for _, row := range rows {
+		switch row.Key {
+		case service.SettingKeyUpstreamBalanceLowThresholdCNY:
+			settings.BalanceLowThresholdCNY, _ = strconv.ParseFloat(strings.TrimSpace(row.Value), 64)
+		case service.SettingKeyUpstreamSub2APINotInCNConfirmed:
+			settings.Sub2APINotInCNConfirmed, _ = strconv.ParseBool(strings.TrimSpace(row.Value))
+		}
+	}
+	return settings, nil
 }
 
 func (r *upstreamConfigRepository) UpdateUpstreamSettings(ctx context.Context, settings service.UpstreamSettings) error {
 	return r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
-		if err := client.Setting.Create().
-			SetKey(service.SettingKeyUpstreamBalanceLowThresholdCNY).
-			SetValue(strconv.FormatFloat(settings.BalanceLowThresholdCNY, 'f', 8, 64)).
-			SetUpdatedAt(time.Now().UTC()).
-			OnConflictColumns("key").
-			UpdateNewValues().
-			Exec(txCtx); err != nil {
-			return err
+		now := time.Now().UTC()
+		values := map[string]string{
+			service.SettingKeyUpstreamBalanceLowThresholdCNY:  strconv.FormatFloat(settings.BalanceLowThresholdCNY, 'f', 8, 64),
+			service.SettingKeyUpstreamSub2APINotInCNConfirmed: strconv.FormatBool(settings.Sub2APINotInCNConfirmed),
+		}
+		for key, value := range values {
+			if err := client.Setting.Create().
+				SetKey(key).
+				SetValue(value).
+				SetUpdatedAt(now).
+				OnConflictColumns("key").
+				UpdateNewValues().
+				Exec(txCtx); err != nil {
+				return err
+			}
 		}
 		configs, err := client.UpstreamConfig.Query().All(txCtx)
 		if err != nil {
 			return err
 		}
-		now := time.Now().UTC()
 		for _, config := range configs {
 			balance, ok := numberFromMap(config.Extra, "balance_cny")
 			if !ok {

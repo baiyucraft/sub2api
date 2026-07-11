@@ -37,7 +37,8 @@ type upstreamConfigRequest struct {
 }
 
 type upstreamSettingsRequest struct {
-	BalanceLowThresholdCNY float64 `json:"balance_low_threshold_cny"`
+	BalanceLowThresholdCNY  float64 `json:"balance_low_threshold_cny"`
+	Sub2APINotInCNConfirmed bool    `json:"sub2api_not_in_cn_confirmed"`
 }
 
 type upstreamKeyRequest struct {
@@ -177,7 +178,10 @@ func (h *UpstreamConfigHandler) UpdateSettings(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	settings := service.UpstreamSettings{BalanceLowThresholdCNY: req.BalanceLowThresholdCNY}
+	settings := service.UpstreamSettings{
+		BalanceLowThresholdCNY:  req.BalanceLowThresholdCNY,
+		Sub2APINotInCNConfirmed: req.Sub2APINotInCNConfirmed,
+	}
 	if err := h.service.UpdateUpstreamSettings(c.Request.Context(), settings); err != nil {
 		response.ErrorFrom(c, err)
 		return

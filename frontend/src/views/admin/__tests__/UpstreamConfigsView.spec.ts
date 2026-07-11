@@ -290,8 +290,8 @@ describe('UpstreamConfigsView', () => {
     testMock.mockResolvedValue({ ok: true })
     syncKeysMock.mockResolvedValue({ keys: [{ id: 1 }], key_count: 1, updated_account_count: 2 })
     syncAllKeysMock.mockResolvedValue({ results: [{ config_id: 10, name: 'Sub2API Main', success: true, key_count: 3, updated_account_count: 1 }] })
-    getSettingsMock.mockResolvedValue({ balance_low_threshold_cny: 10 })
-    updateSettingsMock.mockResolvedValue({ balance_low_threshold_cny: 20 })
+    getSettingsMock.mockResolvedValue({ balance_low_threshold_cny: 10, sub2api_not_in_cn_confirmed: false })
+    updateSettingsMock.mockResolvedValue({ balance_low_threshold_cny: 20, sub2api_not_in_cn_confirmed: true })
     listSyncRunsMock.mockResolvedValue({ items: [], total: 0 })
     getSyncRunMock.mockResolvedValue({
       id: 99,
@@ -908,23 +908,63 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.text()).not.toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥10.00"}')
   })
 
-  it('updates the low balance threshold from upstream settings', async () => {
+  it('updates all upstream settings including the compliance declaration', async () => {
     const wrapper = mountView()
     await flushPromises()
 
     await wrapper.get('[data-test="open-upstream-settings"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-test="base-dialog"]').attributes('data-width')).toBe('normal')
+    expect((wrapper.get('[data-test="sub2api-not-in-cn-confirmed"]').element as HTMLInputElement).checked).toBe(false)
     await wrapper.get('[data-test="low-balance-threshold-input"]').setValue('20')
+    await wrapper.get('[data-test="sub2api-not-in-cn-confirmed"]').setValue(true)
     await wrapper.get('[data-test="upstream-settings-form"]').trigger('submit.prevent')
     await flushPromises()
 
-    expect(updateSettingsMock).toHaveBeenCalledWith({ balance_low_threshold_cny: 20 })
+    expect(updateSettingsMock).toHaveBeenCalledWith({
+      balance_low_threshold_cny: 20,
+      sub2api_not_in_cn_confirmed: true
+    })
     expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.settingsSaved')
   })
 
+  it('explicitly saves a false compliance declaration', async () => {
+    getSettingsMock.mockResolvedValue({ balance_low_threshold_cny: 10, sub2api_not_in_cn_confirmed: true })
+    updateSettingsMock.mockResolvedValueOnce({ balance_low_threshold_cny: 10, sub2api_not_in_cn_confirmed: false })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-upstream-settings"]').trigger('click')
+    await flushPromises()
+    const checkbox = wrapper.get('[data-test="sub2api-not-in-cn-confirmed"]')
+    expect((checkbox.element as HTMLInputElement).checked).toBe(true)
+    await checkbox.setValue(false)
+    await wrapper.get('[data-test="upstream-settings-form"]').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateSettingsMock).toHaveBeenCalledWith({
+      balance_low_threshold_cny: 10,
+      sub2api_not_in_cn_confirmed: false
+    })
+  })
+
+  it('does not expose or submit stale settings when reloading fails', async () => {
+    getSettingsMock
+      .mockResolvedValueOnce({ balance_low_threshold_cny: 10, sub2api_not_in_cn_confirmed: true })
+      .mockRejectedValueOnce(new Error('settings unavailable'))
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-upstream-settings"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="upstream-settings-form"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="upstream-settings-unavailable"]').exists()).toBe(true)
+    expect(updateSettingsMock).not.toHaveBeenCalled()
+  })
+
   it('prevents settings dialog close while saving', async () => {
-    const pending = deferred<{ balance_low_threshold_cny: number }>()
+    const pending = deferred<{ balance_low_threshold_cny: number; sub2api_not_in_cn_confirmed: boolean }>()
     updateSettingsMock.mockReturnValueOnce(pending.promise)
     const wrapper = mountView()
     await flushPromises()
@@ -938,7 +978,7 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="base-dialog"]').attributes('data-close-on-escape')).toBe('false')
     expect(wrapper.get('[data-test="base-dialog"]').attributes('data-show-close-button')).toBe('false')
 
-    pending.resolve({ balance_low_threshold_cny: 10 })
+    pending.resolve({ balance_low_threshold_cny: 10, sub2api_not_in_cn_confirmed: false })
     await flushPromises()
   })
 })
