@@ -103,7 +103,7 @@ Before changing compose, create a timestamped backup directory under the deploy 
 - current image/container information
 - a PostgreSQL `dumpall`
 - sha256 checksums for backup artifacts
-- a CSV snapshot of `type=apikey` accounts whose `extra.upstream_provider = 'sub2api'`, including `id`, `name`, `rate_multiplier`, `priority`, and sync-related `extra` fields
+- a CSV snapshot of normalized upstream-bound accounts matching `type = 'apikey' AND upstream_config_id IS NOT NULL AND upstream_key_id IS NOT NULL`, including `id`, `name`, `concurrency`, `load_factor`, `rate_multiplier`, `priority`, `upstream_config_id`, and `upstream_key_id`
 
 If the database dump or checksum generation fails, stop before deployment and keep the existing `backups/latest` unchanged.
 
