@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 )
@@ -205,17 +204,18 @@ type sub2APIUpstreamSnapshot struct {
 }
 
 type sub2APISyncTarget struct {
-	account        Account
-	rootURL        string
-	adapter        string
-	email          string
-	password       string
-	accessToken    string
-	refreshToken   string
-	tokenExpiresAt *time.Time
-	apiKey         string
-	proxyID        *int64
-	proxyURL       string
+	account          Account
+	rootURL          string
+	adapter          string
+	email            string
+	password         string
+	notInCNConfirmed bool
+	accessToken      string
+	refreshToken     string
+	tokenExpiresAt   *time.Time
+	apiKey           string
+	proxyID          *int64
+	proxyURL         string
 }
 
 func NewSub2APIUpstreamRateSyncService(accountRepo AccountRepository, proxyRepo ProxyRepository, interval time.Duration) *Sub2APIUpstreamRateSyncService {
@@ -312,99 +312,7 @@ func (s *Sub2APIUpstreamRateSyncService) runOnce() {
 		return
 	}
 
-	accounts, _, err := s.accountRepo.ListWithFilters(ctx, pagination.PaginationParams{
-		Page:     1,
-		PageSize: 10000,
-	}, "", AccountTypeAPIKey, "", "", 0, "")
-	if err != nil {
-		log.Printf("[Sub2APIRateSync] list accounts failed: %v", err)
-		return
-	}
-
-	proxyURLs, proxyErrors := s.resolveAccountProxyURLs(ctx, accounts)
-	groups := make(map[string][]sub2APISyncTarget)
-	for i := range accounts {
-		if !accounts[i].IsSub2APIUpstream() {
-			continue
-		}
-		if accounts[i].ProxyID != nil {
-			if err := proxyErrors[*accounts[i].ProxyID]; err != nil {
-				if recErr := s.recordSyncError(ctx, &accounts[i], err); recErr != nil {
-					log.Printf("[Sub2APIRateSync] record account error failed: account=%d err=%v", accounts[i].ID, recErr)
-				}
-				continue
-			}
-		}
-		target, err := s.newSub2APISyncTarget(ctx, accounts[i], proxyURLs[proxyIDValue(accounts[i].ProxyID)])
-		if err != nil {
-			if recErr := s.recordSyncError(ctx, &accounts[i], err); recErr != nil {
-				log.Printf("[Sub2APIRateSync] record account error failed: account=%d err=%v", accounts[i].ID, recErr)
-			}
-			continue
-		}
-		groups[target.groupKey()] = append(groups[target.groupKey()], target)
-	}
-
-	jobs := make(chan []sub2APISyncTarget)
-	var wg sync.WaitGroup
-	workers := s.concurrency
-	if workers <= 0 {
-		workers = 5
-	}
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for targets := range jobs {
-				if len(targets) == 0 {
-					continue
-				}
-				session, refreshedTokens, err := s.fetchUserLoginSession(ctx, targets[0])
-				skipIDs := map[int64]struct{}{}
-				if refreshedTokens != nil {
-					for i := range targets {
-						if err := s.saveRefreshedSub2APITokens(ctx, &targets[i].account, *refreshedTokens); err != nil {
-							skipIDs[targets[i].account.ID] = struct{}{}
-							if recErr := s.recordSyncError(ctx, &targets[i].account, err); recErr != nil {
-								log.Printf("[Sub2APIRateSync] record account error failed: account=%d err=%v", targets[i].account.ID, recErr)
-							}
-						}
-					}
-				}
-				if err != nil {
-					for i := range targets {
-						if _, skip := skipIDs[targets[i].account.ID]; skip {
-							continue
-						}
-						if recErr := s.recordSyncError(ctx, &targets[i].account, err); recErr != nil {
-							log.Printf("[Sub2APIRateSync] record account error failed: account=%d err=%v", targets[i].account.ID, recErr)
-						}
-					}
-					continue
-				}
-				for i := range targets {
-					if _, skip := skipIDs[targets[i].account.ID]; skip {
-						continue
-					}
-					if err := s.syncTargetWithSession(ctx, targets[i], session); err != nil {
-						log.Printf("[Sub2APIRateSync] sync account failed: account=%d err=%v", targets[i].account.ID, err)
-					}
-				}
-			}
-		}()
-	}
-
-	for _, targets := range groups {
-		select {
-		case jobs <- targets:
-		case <-ctx.Done():
-			close(jobs)
-			wg.Wait()
-			return
-		}
-	}
-	close(jobs)
-	wg.Wait()
+	log.Printf("[UpstreamRateSync] upstream config service is unavailable; skipping deprecated account-scan fallback")
 }
 
 func newSub2APISyncTarget(account Account, proxyURL string) (sub2APISyncTarget, error) {
@@ -443,22 +351,51 @@ func newSub2APISyncTarget(account Account, proxyURL string) (sub2APISyncTarget, 
 		}
 	}
 	return sub2APISyncTarget{
-		account:        account,
-		rootURL:        rootURL,
-		adapter:        adapter,
-		email:          email,
-		password:       password,
-		accessToken:    accessToken,
-		refreshToken:   refreshToken,
-		tokenExpiresAt: tokenExpiresAt,
-		apiKey:         apiKey,
-		proxyID:        account.ProxyID,
-		proxyURL:       normalizedProxyURL,
+		account:          account,
+		rootURL:          rootURL,
+		adapter:          adapter,
+		email:            email,
+		password:         password,
+		notInCNConfirmed: upstreamCredentialBool(account.Credentials[SettingKeyUpstreamSub2APINotInCNConfirmed]),
+		accessToken:      accessToken,
+		refreshToken:     refreshToken,
+		tokenExpiresAt:   tokenExpiresAt,
+		apiKey:           apiKey,
+		proxyID:          account.ProxyID,
+		proxyURL:         normalizedProxyURL,
 	}, nil
+}
+
+func upstreamCredentialBool(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		parsed, _ := strconv.ParseBool(strings.TrimSpace(typed))
+		return parsed
+	default:
+		return false
+	}
 }
 
 func (s *Sub2APIUpstreamRateSyncService) newSub2APISyncTarget(ctx context.Context, account Account, proxyURL string) (sub2APISyncTarget, error) {
 	if account.UpstreamConfigID == nil || account.UpstreamKeyID == nil {
+		if account.Sub2APIRateSyncAdapter() == AccountSub2APIRateSyncAdapterUserLogin {
+			reader, ok := s.upstreamConfigRepo.(UpstreamSettingsReader)
+			if !ok {
+				return sub2APISyncTarget{}, fmt.Errorf("upstream compliance settings are unavailable")
+			}
+			settings, err := reader.GetUpstreamSettings(ctx)
+			if err != nil {
+				return sub2APISyncTarget{}, fmt.Errorf("failed to read upstream compliance settings")
+			}
+			if settings != nil {
+				if account.Credentials == nil {
+					account.Credentials = make(map[string]any)
+				}
+				account.Credentials[SettingKeyUpstreamSub2APINotInCNConfirmed] = settings.Sub2APINotInCNConfirmed
+			}
+		}
 		return newSub2APISyncTarget(account, proxyURL)
 	}
 	if s == nil || s.upstreamConfigRepo == nil {
@@ -475,6 +412,19 @@ func (s *Sub2APIUpstreamRateSyncService) newSub2APISyncTarget(ctx context.Contex
 	if cfg == nil || key == nil || key.UpstreamConfigID != cfg.ID {
 		return sub2APISyncTarget{}, fmt.Errorf("invalid upstream binding")
 	}
+	if cfg.Provider == UpstreamProviderSub2API && cfg.AuthMode == UpstreamAuthModeUserLogin {
+		reader, ok := s.upstreamConfigRepo.(UpstreamSettingsReader)
+		if !ok {
+			return sub2APISyncTarget{}, fmt.Errorf("upstream compliance settings are unavailable")
+		}
+		settings, settingsErr := reader.GetUpstreamSettings(ctx)
+		if settingsErr != nil {
+			return sub2APISyncTarget{}, fmt.Errorf("failed to read upstream compliance settings")
+		}
+		if settings != nil {
+			cfg.Sub2APINotInCNConfirmed = settings.Sub2APINotInCNConfirmed
+		}
+	}
 	if account.Credentials == nil {
 		account.Credentials = map[string]any{}
 	}
@@ -483,6 +433,7 @@ func (s *Sub2APIUpstreamRateSyncService) newSub2APISyncTarget(ctx context.Contex
 	for k, v := range cfg.Credentials {
 		account.Credentials[k] = v
 	}
+	account.Credentials[SettingKeyUpstreamSub2APINotInCNConfirmed] = cfg.Sub2APINotInCNConfirmed
 	if account.Extra == nil {
 		account.Extra = map[string]any{}
 	}
@@ -586,6 +537,7 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 	for k, v := range cfg.Credentials {
 		account.Credentials[k] = v
 	}
+	account.Credentials[SettingKeyUpstreamSub2APINotInCNConfirmed] = cfg.Sub2APINotInCNConfirmed
 	target, err := newSub2APISyncTarget(account, proxyURL)
 	if err != nil {
 		return nil, err
@@ -733,10 +685,14 @@ func (s *Sub2APIUpstreamRateSyncService) loginSub2APIUser(ctx context.Context, c
 		return "", err
 	}
 	var payload sub2APIEnvelope[sub2APILoginData]
-	status, err := s.doJSON(ctx, client, http.MethodPost, endpoint, "", map[string]string{
+	body := map[string]any{
 		"email":    target.email,
 		"password": target.password,
-	}, &payload)
+	}
+	if target.notInCNConfirmed {
+		body["not_in_cn_confirmed"] = true
+	}
+	status, err := s.doJSON(ctx, client, http.MethodPost, endpoint, "", body, &payload)
 	if err != nil {
 		return "", fmt.Errorf("login request failed: %w", err)
 	}

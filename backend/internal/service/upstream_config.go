@@ -32,26 +32,27 @@ var (
 )
 
 type UpstreamConfig struct {
-	ID                    int64
-	Name                  string
-	Provider              string
-	SiteURL               string
-	APIURL                *string
-	ClearAPIURL           bool
-	AuthMode              string
-	Credentials           map[string]any
-	Extra                 map[string]any
-	ProxyID               *int64
-	ClearProxy            bool
-	RechargeRate          float64
-	BalanceToCNYRate      *float64
-	ClearBalanceToCNYRate bool
-	Status                string
-	LastError             *string
-	LastCheckedAt         *time.Time
-	LastSuccessAt         *time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ID                      int64
+	Name                    string
+	Provider                string
+	SiteURL                 string
+	APIURL                  *string
+	ClearAPIURL             bool
+	Sub2APINotInCNConfirmed bool
+	AuthMode                string
+	Credentials             map[string]any
+	Extra                   map[string]any
+	ProxyID                 *int64
+	ClearProxy              bool
+	RechargeRate            float64
+	BalanceToCNYRate        *float64
+	ClearBalanceToCNYRate   bool
+	Status                  string
+	LastError               *string
+	LastCheckedAt           *time.Time
+	LastSuccessAt           *time.Time
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 
 	Keys []*UpstreamKey
 }
@@ -171,6 +172,36 @@ type upstreamProviderAdapter interface {
 
 func NewUpstreamConfigService(repo UpstreamConfigRepository, proxyRepo ProxyRepository, accountRepo AccountRepository) *UpstreamConfigService {
 	return &UpstreamConfigService{repo: repo, proxyRepo: proxyRepo, accountRepo: accountRepo}
+}
+
+func (s *UpstreamConfigService) readUpstreamSettings(ctx context.Context) (*UpstreamSettings, error) {
+	reader, ok := s.repo.(UpstreamSettingsReader)
+	if !ok {
+		return nil, infraerrors.ServiceUnavailable("UPSTREAM_SETTINGS_UNAVAILABLE", "upstream compliance settings are unavailable")
+	}
+	settings, err := reader.GetUpstreamSettings(ctx)
+	if err != nil {
+		return nil, infraerrors.ServiceUnavailable("UPSTREAM_SETTINGS_UNAVAILABLE", "failed to read upstream compliance settings")
+	}
+	if settings == nil {
+		settings = &UpstreamSettings{}
+	}
+	return settings, nil
+}
+
+func (s *UpstreamConfigService) applySub2APIComplianceSettings(ctx context.Context, cfg *UpstreamConfig, settings *UpstreamSettings) error {
+	if cfg == nil || cfg.Provider != UpstreamProviderSub2API || cfg.AuthMode != UpstreamAuthModeUserLogin {
+		return nil
+	}
+	if settings == nil {
+		var err error
+		settings, err = s.readUpstreamSettings(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	cfg.Sub2APINotInCNConfirmed = settings.Sub2APINotInCNConfirmed
+	return nil
 }
 
 func (s *UpstreamConfigService) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error) {
@@ -325,6 +356,9 @@ func (s *UpstreamConfigService) Test(ctx context.Context, id int64) error {
 	if cfg == nil {
 		return ErrUpstreamConfigNotFound
 	}
+	if err := s.applySub2APIComplianceSettings(ctx, cfg, nil); err != nil {
+		return err
+	}
 	adapter, ok := upstreamProviderAdapterFor(cfg.Provider)
 	if !ok {
 		return upstreamProviderUnsupportedError(cfg.Provider)
@@ -361,12 +395,16 @@ func (s *UpstreamConfigService) SyncKeys(ctx context.Context, id int64) ([]Upstr
 	if cfg == nil {
 		return nil, UpstreamConfigSyncResult{}, ErrUpstreamConfigNotFound
 	}
+	settings, err := s.readUpstreamSettings(ctx)
+	if err != nil && cfg.Provider == UpstreamProviderSub2API && cfg.AuthMode == UpstreamAuthModeUserLogin {
+		return nil, UpstreamConfigSyncResult{}, err
+	}
 	runID, err := s.beginSyncRun(ctx, UpstreamSyncTriggerManualSingle, 1)
 	if err != nil {
 		return nil, UpstreamConfigSyncResult{}, err
 	}
 	startedAt := time.Now().UTC()
-	keys, result, syncErr := s.syncProviderConfig(ctx, cfg, runID)
+	keys, result, syncErr := s.syncProviderConfig(ctx, cfg, runID, settings)
 	if auditErr := s.persistSyncResult(ctx, startedAt, result); auditErr != nil {
 		result.Success = false
 		result.Status = UpstreamSyncStatusFailed
@@ -412,11 +450,19 @@ func (s *UpstreamConfigService) syncActiveUpstreamConfigs(ctx context.Context, p
 	if err != nil {
 		return nil, err
 	}
+	settings, settingsErr := s.readUpstreamSettings(ctx)
 	results := make([]UpstreamConfigSyncResult, 0, len(configs))
 	for i := range configs {
 		cfg := configs[i]
 		startedAt := time.Now().UTC()
-		_, result, err := s.syncProviderConfig(ctx, &cfg, runID)
+		var err error
+		var result UpstreamConfigSyncResult
+		if settingsErr != nil && cfg.Provider == UpstreamProviderSub2API && cfg.AuthMode == UpstreamAuthModeUserLogin {
+			err = settingsErr
+			result = UpstreamConfigSyncResult{RunID: runID, ConfigID: cfg.ID, Name: cfg.Name, Provider: cfg.Provider, Status: UpstreamSyncStatusFailed}
+		} else {
+			_, result, err = s.syncProviderConfig(ctx, &cfg, runID, settings)
+		}
 		if err != nil {
 			result.Success = false
 			if adapter, ok := upstreamProviderAdapterFor(cfg.Provider); ok {
@@ -451,7 +497,7 @@ func scheduledSyncResults(results []UpstreamConfigSyncResult, err error) []Upstr
 	return append(results, UpstreamConfigSyncResult{Status: UpstreamSyncStatusFailed, Error: logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")})
 }
 
-func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *UpstreamConfig, runID int64) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
+func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *UpstreamConfig, runID int64, settings *UpstreamSettings) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
 	if cfg != nil && cfg.ID > 0 {
 		unlock := s.lockUpstreamConfigSync(cfg.ID)
 		defer unlock()
@@ -460,7 +506,7 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 			var result UpstreamConfigSyncResult
 			var syncErr error
 			lockErr := locker.WithUpstreamConfigSyncLock(ctx, cfg.ID, func(lockCtx context.Context) error {
-				keys, result, syncErr = s.syncProviderConfigLocked(lockCtx, cfg, runID)
+				keys, result, syncErr = s.syncProviderConfigLocked(lockCtx, cfg, runID, settings)
 				return nil
 			})
 			if lockErr != nil {
@@ -472,10 +518,10 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 			return keys, result, syncErr
 		}
 	}
-	return s.syncProviderConfigLocked(ctx, cfg, runID)
+	return s.syncProviderConfigLocked(ctx, cfg, runID, settings)
 }
 
-func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cfg *UpstreamConfig, runID int64) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
+func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cfg *UpstreamConfig, runID int64, settings *UpstreamSettings) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
 	if cfg != nil && cfg.ID > 0 {
 		latest, err := s.repo.GetByID(ctx, cfg.ID)
 		if err != nil {
@@ -483,6 +529,14 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 			return nil, result, err
 		}
 		cfg = latest
+	}
+	if err := s.applySub2APIComplianceSettings(ctx, cfg, settings); err != nil {
+		result := UpstreamConfigSyncResult{RunID: runID, Status: UpstreamSyncStatusFailed}
+		if cfg != nil {
+			result.ConfigID, result.Name, result.Provider = cfg.ID, cfg.Name, cfg.Provider
+		}
+		result.Error = logredact.RedactText(err.Error())
+		return nil, result, err
 	}
 	result := UpstreamConfigSyncResult{RunID: runID, Status: UpstreamSyncStatusFailed}
 	if cfg != nil {

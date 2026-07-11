@@ -22,12 +22,26 @@ type upstreamConfigServiceRepo struct {
 	configs []UpstreamConfig
 	keys    []UpstreamKey
 
-	upserts        []UpstreamKey
-	checks         []upstreamConfigCheck
-	savedTokens    []upstreamConfigSavedToken
-	extraUpdates   []upstreamConfigExtraUpdate
-	updateExtraErr error
-	mu             sync.Mutex
+	upserts               []UpstreamKey
+	checks                []upstreamConfigCheck
+	savedTokens           []upstreamConfigSavedToken
+	extraUpdates          []upstreamConfigExtraUpdate
+	updateExtraErr        error
+	upstreamSettings      UpstreamSettings
+	upstreamSettingsErr   error
+	upstreamSettingsReads int
+	mu                    sync.Mutex
+}
+
+func (r *upstreamConfigServiceRepo) GetUpstreamSettings(ctx context.Context) (*UpstreamSettings, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.upstreamSettingsReads++
+	if r.upstreamSettingsErr != nil {
+		return nil, r.upstreamSettingsErr
+	}
+	settings := r.upstreamSettings
+	return &settings, nil
 }
 
 type upstreamConfigCheck struct {
@@ -456,11 +470,13 @@ func TestAdminServiceUpdateUnboundAccountUsesOrdinaryLoadFactor(t *testing.T) {
 }
 
 func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *testing.T) {
+	var loginBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v1/auth/login":
 			require.Contains(t, r.Header.Get("User-Agent"), "Mozilla/5.0")
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&loginBody))
 			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
 		case "/api/v1/keys":
 			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
@@ -481,6 +497,7 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	configID := int64(7)
 	modelAPIURL := "http://127.0.0.1:1/v1"
 	repo := &upstreamConfigServiceRepo{
+		upstreamSettings: UpstreamSettings{Sub2APINotInCNConfirmed: true},
 		configs: []UpstreamConfig{{
 			ID:       configID,
 			Name:     "Sub2API Main",
@@ -516,6 +533,7 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	keys, _, err := svc.SyncKeys(context.Background(), configID)
 
 	require.NoError(t, err)
+	require.Equal(t, true, loginBody["not_in_cn_confirmed"])
 	require.Len(t, keys, 1)
 	require.Len(t, repo.upserts, 1)
 	require.Equal(t, "plus", repo.upserts[0].Name)
@@ -1612,6 +1630,69 @@ func TestNormalizeAndValidateUpstreamConfig_URLs(t *testing.T) {
 			require.ErrorContains(t, normalizeAndValidateUpstreamConfig(&cfg, true), "api url is invalid")
 		})
 	}
+}
+
+func TestUpstreamConfigService_Sub2APILoginOmitsComplianceDeclarationByDefault(t *testing.T) {
+	var loginBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&loginBody))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
+		case "/api/v1/keys":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/available":
+			_, _ = w.Write([]byte(`{"code":0,"data":[]}`))
+		case "/api/v1/groups/rates":
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{
+		testUpstreamConfig(88, "Sub2API Main", UpstreamProviderSub2API, StatusActive, server.URL),
+	}}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+	_, _, err := svc.SyncKeys(context.Background(), 88)
+	require.NoError(t, err)
+	require.NotContains(t, loginBody, "not_in_cn_confirmed")
+}
+
+func TestUpstreamConfigService_ComplianceSettingsFailureBlocksLoginButNotJWT(t *testing.T) {
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{
+			testUpstreamConfig(91, "Login", UpstreamProviderSub2API, StatusActive, "https://login.example.com"),
+			{
+				ID: 92, Name: "JWT", Provider: UpstreamProviderSub2API, SiteURL: "https://jwt.example.com",
+				AuthMode: UpstreamAuthModeManualJWT, Status: StatusActive,
+				Credentials: map[string]any{AccountCredentialSub2APIAccessToken: "jwt-token"},
+			},
+		},
+		upstreamSettingsErr: errors.New("database unavailable"),
+	}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+
+	_, _, err := svc.SyncKeys(context.Background(), 91)
+	require.ErrorContains(t, err, "compliance settings")
+
+	_, _, err = svc.SyncKeys(context.Background(), 92)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "compliance settings")
+}
+
+func TestUpstreamConfigService_BatchReadsComplianceSettingsOnce(t *testing.T) {
+	repo := &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{
+			testUpstreamConfig(101, "One", UpstreamProviderSub2API, StatusActive, "https://one.example.com"),
+			testUpstreamConfig(102, "Two", UpstreamProviderSub2API, StatusActive, "https://two.example.com"),
+		},
+	}
+	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
+	_ = svc.SyncActiveUpstreamConfigs(context.Background())
+	require.Equal(t, 1, repo.upstreamSettingsReads)
 }
 
 func upstreamConfigTestFloat64(v float64) *float64 {

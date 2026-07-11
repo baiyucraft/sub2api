@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	SettingKeyUpstreamBalanceLowThresholdCNY = "upstream_balance_low_threshold_cny"
+	SettingKeyUpstreamBalanceLowThresholdCNY  = "upstream_balance_low_threshold_cny"
+	SettingKeyUpstreamSub2APINotInCNConfirmed = "upstream_sub2api_not_in_cn_confirmed"
 
 	UpstreamSyncTriggerManualSingle = "manual_single"
 	UpstreamSyncTriggerManualBatch  = "manual_batch"
@@ -24,7 +25,12 @@ const (
 )
 
 type UpstreamSettings struct {
-	BalanceLowThresholdCNY float64 `json:"balance_low_threshold_cny"`
+	BalanceLowThresholdCNY  float64 `json:"balance_low_threshold_cny"`
+	Sub2APINotInCNConfirmed bool    `json:"sub2api_not_in_cn_confirmed"`
+}
+
+type UpstreamSettingsReader interface {
+	GetUpstreamSettings(ctx context.Context) (*UpstreamSettings, error)
 }
 
 type UpstreamSyncRun struct {
