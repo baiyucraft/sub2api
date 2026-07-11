@@ -74,6 +74,26 @@ func AccountID(v int64) predicate.BatchImageJob {
 	return predicate.BatchImageJob(sql.FieldEQ(FieldAccountID, v))
 }
 
+// UpstreamConfigID applies equality check predicate on the "upstream_config_id" field. It's identical to UpstreamConfigIDEQ.
+func UpstreamConfigID(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldUpstreamConfigID, v))
+}
+
+// UpstreamKeyID applies equality check predicate on the "upstream_key_id" field. It's identical to UpstreamKeyIDEQ.
+func UpstreamKeyID(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldUpstreamKeyID, v))
+}
+
+// UpstreamCostCurrency applies equality check predicate on the "upstream_cost_currency" field. It's identical to UpstreamCostCurrencyEQ.
+func UpstreamCostCurrency(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostToCnyRate applies equality check predicate on the "upstream_cost_to_cny_rate" field. It's identical to UpstreamCostToCnyRateEQ.
+func UpstreamCostToCnyRate(v float64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldUpstreamCostToCnyRate, v))
+}
+
 // Provider applies equality check predicate on the "provider" field. It's identical to ProviderEQ.
 func Provider(v string) predicate.BatchImageJob {
 	return predicate.BatchImageJob(sql.FieldEQ(FieldProvider, v))
@@ -457,6 +477,231 @@ func AccountIDIsNil() predicate.BatchImageJob {
 // AccountIDNotNil applies the NotNil predicate on the "account_id" field.
 func AccountIDNotNil() predicate.BatchImageJob {
 	return predicate.BatchImageJob(sql.FieldNotNull(FieldAccountID))
+}
+
+// UpstreamConfigIDEQ applies the EQ predicate on the "upstream_config_id" field.
+func UpstreamConfigIDEQ(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldUpstreamConfigID, v))
+}
+
+// UpstreamConfigIDNEQ applies the NEQ predicate on the "upstream_config_id" field.
+func UpstreamConfigIDNEQ(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNEQ(FieldUpstreamConfigID, v))
+}
+
+// UpstreamConfigIDIn applies the In predicate on the "upstream_config_id" field.
+func UpstreamConfigIDIn(vs ...int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIn(FieldUpstreamConfigID, vs...))
+}
+
+// UpstreamConfigIDNotIn applies the NotIn predicate on the "upstream_config_id" field.
+func UpstreamConfigIDNotIn(vs ...int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotIn(FieldUpstreamConfigID, vs...))
+}
+
+// UpstreamConfigIDGT applies the GT predicate on the "upstream_config_id" field.
+func UpstreamConfigIDGT(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGT(FieldUpstreamConfigID, v))
+}
+
+// UpstreamConfigIDGTE applies the GTE predicate on the "upstream_config_id" field.
+func UpstreamConfigIDGTE(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGTE(FieldUpstreamConfigID, v))
+}
+
+// UpstreamConfigIDLT applies the LT predicate on the "upstream_config_id" field.
+func UpstreamConfigIDLT(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLT(FieldUpstreamConfigID, v))
+}
+
+// UpstreamConfigIDLTE applies the LTE predicate on the "upstream_config_id" field.
+func UpstreamConfigIDLTE(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLTE(FieldUpstreamConfigID, v))
+}
+
+// UpstreamConfigIDIsNil applies the IsNil predicate on the "upstream_config_id" field.
+func UpstreamConfigIDIsNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIsNull(FieldUpstreamConfigID))
+}
+
+// UpstreamConfigIDNotNil applies the NotNil predicate on the "upstream_config_id" field.
+func UpstreamConfigIDNotNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotNull(FieldUpstreamConfigID))
+}
+
+// UpstreamKeyIDEQ applies the EQ predicate on the "upstream_key_id" field.
+func UpstreamKeyIDEQ(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldUpstreamKeyID, v))
+}
+
+// UpstreamKeyIDNEQ applies the NEQ predicate on the "upstream_key_id" field.
+func UpstreamKeyIDNEQ(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNEQ(FieldUpstreamKeyID, v))
+}
+
+// UpstreamKeyIDIn applies the In predicate on the "upstream_key_id" field.
+func UpstreamKeyIDIn(vs ...int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIn(FieldUpstreamKeyID, vs...))
+}
+
+// UpstreamKeyIDNotIn applies the NotIn predicate on the "upstream_key_id" field.
+func UpstreamKeyIDNotIn(vs ...int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotIn(FieldUpstreamKeyID, vs...))
+}
+
+// UpstreamKeyIDGT applies the GT predicate on the "upstream_key_id" field.
+func UpstreamKeyIDGT(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGT(FieldUpstreamKeyID, v))
+}
+
+// UpstreamKeyIDGTE applies the GTE predicate on the "upstream_key_id" field.
+func UpstreamKeyIDGTE(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGTE(FieldUpstreamKeyID, v))
+}
+
+// UpstreamKeyIDLT applies the LT predicate on the "upstream_key_id" field.
+func UpstreamKeyIDLT(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLT(FieldUpstreamKeyID, v))
+}
+
+// UpstreamKeyIDLTE applies the LTE predicate on the "upstream_key_id" field.
+func UpstreamKeyIDLTE(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLTE(FieldUpstreamKeyID, v))
+}
+
+// UpstreamKeyIDIsNil applies the IsNil predicate on the "upstream_key_id" field.
+func UpstreamKeyIDIsNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIsNull(FieldUpstreamKeyID))
+}
+
+// UpstreamKeyIDNotNil applies the NotNil predicate on the "upstream_key_id" field.
+func UpstreamKeyIDNotNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotNull(FieldUpstreamKeyID))
+}
+
+// UpstreamCostCurrencyEQ applies the EQ predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyEQ(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyNEQ applies the NEQ predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyNEQ(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNEQ(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyIn applies the In predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyIn(vs ...string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIn(FieldUpstreamCostCurrency, vs...))
+}
+
+// UpstreamCostCurrencyNotIn applies the NotIn predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyNotIn(vs ...string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotIn(FieldUpstreamCostCurrency, vs...))
+}
+
+// UpstreamCostCurrencyGT applies the GT predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyGT(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGT(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyGTE applies the GTE predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyGTE(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGTE(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyLT applies the LT predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyLT(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLT(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyLTE applies the LTE predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyLTE(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLTE(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyContains applies the Contains predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyContains(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldContains(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyHasPrefix applies the HasPrefix predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyHasPrefix(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldHasPrefix(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyHasSuffix applies the HasSuffix predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyHasSuffix(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldHasSuffix(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyIsNil applies the IsNil predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyIsNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIsNull(FieldUpstreamCostCurrency))
+}
+
+// UpstreamCostCurrencyNotNil applies the NotNil predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyNotNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotNull(FieldUpstreamCostCurrency))
+}
+
+// UpstreamCostCurrencyEqualFold applies the EqualFold predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyEqualFold(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEqualFold(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostCurrencyContainsFold applies the ContainsFold predicate on the "upstream_cost_currency" field.
+func UpstreamCostCurrencyContainsFold(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldContainsFold(FieldUpstreamCostCurrency, v))
+}
+
+// UpstreamCostToCnyRateEQ applies the EQ predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateEQ(v float64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateNEQ applies the NEQ predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateNEQ(v float64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNEQ(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateIn applies the In predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateIn(vs ...float64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIn(FieldUpstreamCostToCnyRate, vs...))
+}
+
+// UpstreamCostToCnyRateNotIn applies the NotIn predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateNotIn(vs ...float64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotIn(FieldUpstreamCostToCnyRate, vs...))
+}
+
+// UpstreamCostToCnyRateGT applies the GT predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateGT(v float64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGT(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateGTE applies the GTE predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateGTE(v float64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGTE(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateLT applies the LT predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateLT(v float64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLT(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateLTE applies the LTE predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateLTE(v float64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLTE(FieldUpstreamCostToCnyRate, v))
+}
+
+// UpstreamCostToCnyRateIsNil applies the IsNil predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateIsNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIsNull(FieldUpstreamCostToCnyRate))
+}
+
+// UpstreamCostToCnyRateNotNil applies the NotNil predicate on the "upstream_cost_to_cny_rate" field.
+func UpstreamCostToCnyRateNotNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotNull(FieldUpstreamCostToCnyRate))
 }
 
 // ProviderEQ applies the EQ predicate on the "provider" field.

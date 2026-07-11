@@ -196,6 +196,38 @@ type UsageLog struct {
 	Subscription *UserSubscription
 }
 
+// ApplyUpstreamUsageSnapshot records the request-time upstream binding and
+// cost denomination. Partial bindings are deliberately treated as unbound so
+// usage rows never claim a precise upstream attribution they cannot prove.
+func ApplyUpstreamUsageSnapshot(log *UsageLog, account *Account) {
+	if log == nil {
+		return
+	}
+	configID, keyID, currency, toCNYRate := CaptureUpstreamUsageSnapshot(account)
+	if configID == nil {
+		return
+	}
+	log.UpstreamConfigID = configID
+	log.UpstreamKeyID = keyID
+	log.UpstreamCostCurrency = currency
+	log.UpstreamCostToCNYRate = toCNYRate
+}
+
+// CaptureUpstreamUsageSnapshot returns an immutable request-time attribution.
+// The CNY/1 values describe the cost denomination, not the upstream balance
+// display currency.
+func CaptureUpstreamUsageSnapshot(account *Account) (*int64, *int64, *string, *float64) {
+	if account == nil || account.UpstreamConfigID == nil || account.UpstreamKeyID == nil ||
+		*account.UpstreamConfigID <= 0 || *account.UpstreamKeyID <= 0 {
+		return nil, nil, nil, nil
+	}
+	configID := *account.UpstreamConfigID
+	keyID := *account.UpstreamKeyID
+	currency := "CNY"
+	toCNYRate := 1.0
+	return &configID, &keyID, &currency, &toCNYRate
+}
+
 func (u *UsageLog) TotalTokens() int {
 	return u.InputTokens + u.OutputTokens + u.CacheCreationTokens + u.CacheReadTokens
 }

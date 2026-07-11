@@ -742,7 +742,9 @@ func (r *batchImageRepository) AppendBatchImageEvent(ctx context.Context, batchI
 func createBatchImageJobWithSQL(ctx context.Context, sqlq batchImageSQLExecutor, params service.CreateBatchImageJobParams) (*service.BatchImageJob, error) {
 	return scanBatchImageJob(sqlq.QueryRowContext(ctx, `
 INSERT INTO batch_image_jobs (
-    batch_id, user_id, api_key_id, account_id, provider, model, task_name, parent_batch_id, status,
+    batch_id, user_id, api_key_id, account_id,
+    upstream_config_id, upstream_key_id, upstream_cost_currency, upstream_cost_to_cny_rate,
+    provider, model, task_name, parent_batch_id, status,
     provider_job_name, provider_input_ref, provider_output_ref, gcs_input_uri, gcs_output_uri,
     item_count, success_count, fail_count, cancelled_count,
     estimated_cost, hold_amount, actual_cost,
@@ -752,18 +754,22 @@ INSERT INTO batch_image_jobs (
     currency, hold_id,
     idempotency_key, request_hash, manifest_hash, retry_count, output_expires_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9,
-    $10, $11, $12, $13, $14,
-    $15, $16, $17, $18,
-    $19, $20, $21,
-    $22, $23, $24,
-    $25, $26, $27, $28,
-    $29,
-    $30, $31,
-    $32, $33, $34, $35, $36
+    $1, $2, $3, $4,
+    $5, $6, $7, $8,
+    $9, $10, $11, $12, $13,
+    $14, $15, $16, $17, $18,
+    $19, $20, $21, $22,
+    $23, $24, $25,
+    $26, $27, $28,
+    $29, $30, $31, $32,
+    $33,
+    $34, $35,
+    $36, $37, $38, $39, $40
 )
 RETURNING `+batchImageJobColumns,
-		params.BatchID, params.UserID, params.APIKeyID, params.AccountID, params.Provider, params.Model, params.TaskName, params.ParentBatchID, params.Status,
+		params.BatchID, params.UserID, params.APIKeyID, params.AccountID,
+		params.UpstreamConfigID, params.UpstreamKeyID, params.UpstreamCostCurrency, params.UpstreamCostToCNYRate,
+		params.Provider, params.Model, params.TaskName, params.ParentBatchID, params.Status,
 		params.ProviderJobName, params.ProviderInputRef, params.ProviderOutputRef, params.GCSInputURI, params.GCSOutputURI,
 		params.ItemCount, params.SuccessCount, params.FailCount, params.CancelledCount,
 		params.EstimatedCost, params.HoldAmount, params.ActualCost,
@@ -816,7 +822,9 @@ type rowScanner interface {
 }
 
 const batchImageJobColumns = `
-id, batch_id, user_id, api_key_id, account_id, provider, model, task_name, parent_batch_id, status,
+id, batch_id, user_id, api_key_id, account_id,
+upstream_config_id, upstream_key_id, upstream_cost_currency, upstream_cost_to_cny_rate,
+provider, model, task_name, parent_batch_id, status,
 provider_job_name, provider_input_ref, provider_output_ref, gcs_input_uri, gcs_output_uri,
 item_count, success_count, fail_count, cancelled_count,
 estimated_cost, hold_amount, actual_cost,
@@ -833,7 +841,9 @@ const batchImageJobSelectSQL = `SELECT ` + batchImageJobColumns + ` FROM batch_i
 
 func scanBatchImageJob(row rowScanner) (*service.BatchImageJob, error) {
 	var job service.BatchImageJob
-	var apiKeyID, accountID sql.NullInt64
+	var apiKeyID, accountID, upstreamConfigID, upstreamKeyID sql.NullInt64
+	var upstreamCostCurrency sql.NullString
+	var upstreamCostToCNYRate sql.NullFloat64
 	var providerJobName, providerInputRef, providerOutputRef, gcsInputURI, gcsOutputURI sql.NullString
 	var parentBatchID sql.NullString
 	var holdAmount, actualCost sql.NullFloat64
@@ -843,7 +853,9 @@ func scanBatchImageJob(row rowScanner) (*service.BatchImageJob, error) {
 	var submittedAt, startedAt, finishedAt, settledAt sql.NullTime
 
 	err := row.Scan(
-		&job.ID, &job.BatchID, &job.UserID, &apiKeyID, &accountID, &job.Provider, &job.Model, &job.TaskName, &parentBatchID, &job.Status,
+		&job.ID, &job.BatchID, &job.UserID, &apiKeyID, &accountID,
+		&upstreamConfigID, &upstreamKeyID, &upstreamCostCurrency, &upstreamCostToCNYRate,
+		&job.Provider, &job.Model, &job.TaskName, &parentBatchID, &job.Status,
 		&providerJobName, &providerInputRef, &providerOutputRef, &gcsInputURI, &gcsOutputURI,
 		&job.ItemCount, &job.SuccessCount, &job.FailCount, &job.CancelledCount,
 		&job.EstimatedCost, &holdAmount, &actualCost,
@@ -862,6 +874,10 @@ func scanBatchImageJob(row rowScanner) (*service.BatchImageJob, error) {
 
 	job.APIKeyID = batchImageNullInt64Ptr(apiKeyID)
 	job.AccountID = batchImageNullInt64Ptr(accountID)
+	job.UpstreamConfigID = batchImageNullInt64Ptr(upstreamConfigID)
+	job.UpstreamKeyID = batchImageNullInt64Ptr(upstreamKeyID)
+	job.UpstreamCostCurrency = batchImageNullStringPtr(upstreamCostCurrency)
+	job.UpstreamCostToCNYRate = batchImageNullFloat64Ptr(upstreamCostToCNYRate)
 	job.ProviderJobName = batchImageNullStringPtr(providerJobName)
 	job.ProviderInputRef = batchImageNullStringPtr(providerInputRef)
 	job.ProviderOutputRef = batchImageNullStringPtr(providerOutputRef)

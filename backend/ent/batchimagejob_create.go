@@ -62,6 +62,62 @@ func (_c *BatchImageJobCreate) SetNillableAccountID(v *int64) *BatchImageJobCrea
 	return _c
 }
 
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (_c *BatchImageJobCreate) SetUpstreamConfigID(v int64) *BatchImageJobCreate {
+	_c.mutation.SetUpstreamConfigID(v)
+	return _c
+}
+
+// SetNillableUpstreamConfigID sets the "upstream_config_id" field if the given value is not nil.
+func (_c *BatchImageJobCreate) SetNillableUpstreamConfigID(v *int64) *BatchImageJobCreate {
+	if v != nil {
+		_c.SetUpstreamConfigID(*v)
+	}
+	return _c
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (_c *BatchImageJobCreate) SetUpstreamKeyID(v int64) *BatchImageJobCreate {
+	_c.mutation.SetUpstreamKeyID(v)
+	return _c
+}
+
+// SetNillableUpstreamKeyID sets the "upstream_key_id" field if the given value is not nil.
+func (_c *BatchImageJobCreate) SetNillableUpstreamKeyID(v *int64) *BatchImageJobCreate {
+	if v != nil {
+		_c.SetUpstreamKeyID(*v)
+	}
+	return _c
+}
+
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (_c *BatchImageJobCreate) SetUpstreamCostCurrency(v string) *BatchImageJobCreate {
+	_c.mutation.SetUpstreamCostCurrency(v)
+	return _c
+}
+
+// SetNillableUpstreamCostCurrency sets the "upstream_cost_currency" field if the given value is not nil.
+func (_c *BatchImageJobCreate) SetNillableUpstreamCostCurrency(v *string) *BatchImageJobCreate {
+	if v != nil {
+		_c.SetUpstreamCostCurrency(*v)
+	}
+	return _c
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (_c *BatchImageJobCreate) SetUpstreamCostToCnyRate(v float64) *BatchImageJobCreate {
+	_c.mutation.SetUpstreamCostToCnyRate(v)
+	return _c
+}
+
+// SetNillableUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field if the given value is not nil.
+func (_c *BatchImageJobCreate) SetNillableUpstreamCostToCnyRate(v *float64) *BatchImageJobCreate {
+	if v != nil {
+		_c.SetUpstreamCostToCnyRate(*v)
+	}
+	return _c
+}
+
 // SetProvider sets the "provider" field.
 func (_c *BatchImageJobCreate) SetProvider(v string) *BatchImageJobCreate {
 	_c.mutation.SetProvider(v)
@@ -636,6 +692,11 @@ func (_c *BatchImageJobCreate) check() error {
 	if _, ok := _c.mutation.UserID(); !ok {
 		return &ValidationError{Name: "user_id", err: errors.New(`ent: missing required field "BatchImageJob.user_id"`)}
 	}
+	if v, ok := _c.mutation.UpstreamCostCurrency(); ok {
+		if err := batchimagejob.UpstreamCostCurrencyValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_cost_currency", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.upstream_cost_currency": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Provider(); !ok {
 		return &ValidationError{Name: "provider", err: errors.New(`ent: missing required field "BatchImageJob.provider"`)}
 	}
@@ -795,6 +856,22 @@ func (_c *BatchImageJobCreate) createSpec() (*BatchImageJob, *sqlgraph.CreateSpe
 	if value, ok := _c.mutation.AccountID(); ok {
 		_spec.SetField(batchimagejob.FieldAccountID, field.TypeInt64, value)
 		_node.AccountID = &value
+	}
+	if value, ok := _c.mutation.UpstreamConfigID(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamConfigID, field.TypeInt64, value)
+		_node.UpstreamConfigID = &value
+	}
+	if value, ok := _c.mutation.UpstreamKeyID(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamKeyID, field.TypeInt64, value)
+		_node.UpstreamKeyID = &value
+	}
+	if value, ok := _c.mutation.UpstreamCostCurrency(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamCostCurrency, field.TypeString, value)
+		_node.UpstreamCostCurrency = &value
+	}
+	if value, ok := _c.mutation.UpstreamCostToCnyRate(); ok {
+		_spec.SetField(batchimagejob.FieldUpstreamCostToCnyRate, field.TypeFloat64, value)
+		_node.UpstreamCostToCnyRate = &value
 	}
 	if value, ok := _c.mutation.Provider(); ok {
 		_spec.SetField(batchimagejob.FieldProvider, field.TypeString, value)
@@ -1055,6 +1132,96 @@ func (u *BatchImageJobUpsert) AddAccountID(v int64) *BatchImageJobUpsert {
 // ClearAccountID clears the value of the "account_id" field.
 func (u *BatchImageJobUpsert) ClearAccountID() *BatchImageJobUpsert {
 	u.SetNull(batchimagejob.FieldAccountID)
+	return u
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (u *BatchImageJobUpsert) SetUpstreamConfigID(v int64) *BatchImageJobUpsert {
+	u.Set(batchimagejob.FieldUpstreamConfigID, v)
+	return u
+}
+
+// UpdateUpstreamConfigID sets the "upstream_config_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsert) UpdateUpstreamConfigID() *BatchImageJobUpsert {
+	u.SetExcluded(batchimagejob.FieldUpstreamConfigID)
+	return u
+}
+
+// AddUpstreamConfigID adds v to the "upstream_config_id" field.
+func (u *BatchImageJobUpsert) AddUpstreamConfigID(v int64) *BatchImageJobUpsert {
+	u.Add(batchimagejob.FieldUpstreamConfigID, v)
+	return u
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (u *BatchImageJobUpsert) ClearUpstreamConfigID() *BatchImageJobUpsert {
+	u.SetNull(batchimagejob.FieldUpstreamConfigID)
+	return u
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (u *BatchImageJobUpsert) SetUpstreamKeyID(v int64) *BatchImageJobUpsert {
+	u.Set(batchimagejob.FieldUpstreamKeyID, v)
+	return u
+}
+
+// UpdateUpstreamKeyID sets the "upstream_key_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsert) UpdateUpstreamKeyID() *BatchImageJobUpsert {
+	u.SetExcluded(batchimagejob.FieldUpstreamKeyID)
+	return u
+}
+
+// AddUpstreamKeyID adds v to the "upstream_key_id" field.
+func (u *BatchImageJobUpsert) AddUpstreamKeyID(v int64) *BatchImageJobUpsert {
+	u.Add(batchimagejob.FieldUpstreamKeyID, v)
+	return u
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (u *BatchImageJobUpsert) ClearUpstreamKeyID() *BatchImageJobUpsert {
+	u.SetNull(batchimagejob.FieldUpstreamKeyID)
+	return u
+}
+
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (u *BatchImageJobUpsert) SetUpstreamCostCurrency(v string) *BatchImageJobUpsert {
+	u.Set(batchimagejob.FieldUpstreamCostCurrency, v)
+	return u
+}
+
+// UpdateUpstreamCostCurrency sets the "upstream_cost_currency" field to the value that was provided on create.
+func (u *BatchImageJobUpsert) UpdateUpstreamCostCurrency() *BatchImageJobUpsert {
+	u.SetExcluded(batchimagejob.FieldUpstreamCostCurrency)
+	return u
+}
+
+// ClearUpstreamCostCurrency clears the value of the "upstream_cost_currency" field.
+func (u *BatchImageJobUpsert) ClearUpstreamCostCurrency() *BatchImageJobUpsert {
+	u.SetNull(batchimagejob.FieldUpstreamCostCurrency)
+	return u
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (u *BatchImageJobUpsert) SetUpstreamCostToCnyRate(v float64) *BatchImageJobUpsert {
+	u.Set(batchimagejob.FieldUpstreamCostToCnyRate, v)
+	return u
+}
+
+// UpdateUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field to the value that was provided on create.
+func (u *BatchImageJobUpsert) UpdateUpstreamCostToCnyRate() *BatchImageJobUpsert {
+	u.SetExcluded(batchimagejob.FieldUpstreamCostToCnyRate)
+	return u
+}
+
+// AddUpstreamCostToCnyRate adds v to the "upstream_cost_to_cny_rate" field.
+func (u *BatchImageJobUpsert) AddUpstreamCostToCnyRate(v float64) *BatchImageJobUpsert {
+	u.Add(batchimagejob.FieldUpstreamCostToCnyRate, v)
+	return u
+}
+
+// ClearUpstreamCostToCnyRate clears the value of the "upstream_cost_to_cny_rate" field.
+func (u *BatchImageJobUpsert) ClearUpstreamCostToCnyRate() *BatchImageJobUpsert {
+	u.SetNull(batchimagejob.FieldUpstreamCostToCnyRate)
 	return u
 }
 
@@ -1786,6 +1953,111 @@ func (u *BatchImageJobUpsertOne) UpdateAccountID() *BatchImageJobUpsertOne {
 func (u *BatchImageJobUpsertOne) ClearAccountID() *BatchImageJobUpsertOne {
 	return u.Update(func(s *BatchImageJobUpsert) {
 		s.ClearAccountID()
+	})
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (u *BatchImageJobUpsertOne) SetUpstreamConfigID(v int64) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetUpstreamConfigID(v)
+	})
+}
+
+// AddUpstreamConfigID adds v to the "upstream_config_id" field.
+func (u *BatchImageJobUpsertOne) AddUpstreamConfigID(v int64) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.AddUpstreamConfigID(v)
+	})
+}
+
+// UpdateUpstreamConfigID sets the "upstream_config_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsertOne) UpdateUpstreamConfigID() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateUpstreamConfigID()
+	})
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (u *BatchImageJobUpsertOne) ClearUpstreamConfigID() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearUpstreamConfigID()
+	})
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (u *BatchImageJobUpsertOne) SetUpstreamKeyID(v int64) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetUpstreamKeyID(v)
+	})
+}
+
+// AddUpstreamKeyID adds v to the "upstream_key_id" field.
+func (u *BatchImageJobUpsertOne) AddUpstreamKeyID(v int64) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.AddUpstreamKeyID(v)
+	})
+}
+
+// UpdateUpstreamKeyID sets the "upstream_key_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsertOne) UpdateUpstreamKeyID() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateUpstreamKeyID()
+	})
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (u *BatchImageJobUpsertOne) ClearUpstreamKeyID() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearUpstreamKeyID()
+	})
+}
+
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (u *BatchImageJobUpsertOne) SetUpstreamCostCurrency(v string) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetUpstreamCostCurrency(v)
+	})
+}
+
+// UpdateUpstreamCostCurrency sets the "upstream_cost_currency" field to the value that was provided on create.
+func (u *BatchImageJobUpsertOne) UpdateUpstreamCostCurrency() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateUpstreamCostCurrency()
+	})
+}
+
+// ClearUpstreamCostCurrency clears the value of the "upstream_cost_currency" field.
+func (u *BatchImageJobUpsertOne) ClearUpstreamCostCurrency() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearUpstreamCostCurrency()
+	})
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (u *BatchImageJobUpsertOne) SetUpstreamCostToCnyRate(v float64) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetUpstreamCostToCnyRate(v)
+	})
+}
+
+// AddUpstreamCostToCnyRate adds v to the "upstream_cost_to_cny_rate" field.
+func (u *BatchImageJobUpsertOne) AddUpstreamCostToCnyRate(v float64) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.AddUpstreamCostToCnyRate(v)
+	})
+}
+
+// UpdateUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field to the value that was provided on create.
+func (u *BatchImageJobUpsertOne) UpdateUpstreamCostToCnyRate() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateUpstreamCostToCnyRate()
+	})
+}
+
+// ClearUpstreamCostToCnyRate clears the value of the "upstream_cost_to_cny_rate" field.
+func (u *BatchImageJobUpsertOne) ClearUpstreamCostToCnyRate() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearUpstreamCostToCnyRate()
 	})
 }
 
@@ -2784,6 +3056,111 @@ func (u *BatchImageJobUpsertBulk) UpdateAccountID() *BatchImageJobUpsertBulk {
 func (u *BatchImageJobUpsertBulk) ClearAccountID() *BatchImageJobUpsertBulk {
 	return u.Update(func(s *BatchImageJobUpsert) {
 		s.ClearAccountID()
+	})
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (u *BatchImageJobUpsertBulk) SetUpstreamConfigID(v int64) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetUpstreamConfigID(v)
+	})
+}
+
+// AddUpstreamConfigID adds v to the "upstream_config_id" field.
+func (u *BatchImageJobUpsertBulk) AddUpstreamConfigID(v int64) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.AddUpstreamConfigID(v)
+	})
+}
+
+// UpdateUpstreamConfigID sets the "upstream_config_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsertBulk) UpdateUpstreamConfigID() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateUpstreamConfigID()
+	})
+}
+
+// ClearUpstreamConfigID clears the value of the "upstream_config_id" field.
+func (u *BatchImageJobUpsertBulk) ClearUpstreamConfigID() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearUpstreamConfigID()
+	})
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (u *BatchImageJobUpsertBulk) SetUpstreamKeyID(v int64) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetUpstreamKeyID(v)
+	})
+}
+
+// AddUpstreamKeyID adds v to the "upstream_key_id" field.
+func (u *BatchImageJobUpsertBulk) AddUpstreamKeyID(v int64) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.AddUpstreamKeyID(v)
+	})
+}
+
+// UpdateUpstreamKeyID sets the "upstream_key_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsertBulk) UpdateUpstreamKeyID() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateUpstreamKeyID()
+	})
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (u *BatchImageJobUpsertBulk) ClearUpstreamKeyID() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearUpstreamKeyID()
+	})
+}
+
+// SetUpstreamCostCurrency sets the "upstream_cost_currency" field.
+func (u *BatchImageJobUpsertBulk) SetUpstreamCostCurrency(v string) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetUpstreamCostCurrency(v)
+	})
+}
+
+// UpdateUpstreamCostCurrency sets the "upstream_cost_currency" field to the value that was provided on create.
+func (u *BatchImageJobUpsertBulk) UpdateUpstreamCostCurrency() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateUpstreamCostCurrency()
+	})
+}
+
+// ClearUpstreamCostCurrency clears the value of the "upstream_cost_currency" field.
+func (u *BatchImageJobUpsertBulk) ClearUpstreamCostCurrency() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearUpstreamCostCurrency()
+	})
+}
+
+// SetUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field.
+func (u *BatchImageJobUpsertBulk) SetUpstreamCostToCnyRate(v float64) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetUpstreamCostToCnyRate(v)
+	})
+}
+
+// AddUpstreamCostToCnyRate adds v to the "upstream_cost_to_cny_rate" field.
+func (u *BatchImageJobUpsertBulk) AddUpstreamCostToCnyRate(v float64) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.AddUpstreamCostToCnyRate(v)
+	})
+}
+
+// UpdateUpstreamCostToCnyRate sets the "upstream_cost_to_cny_rate" field to the value that was provided on create.
+func (u *BatchImageJobUpsertBulk) UpdateUpstreamCostToCnyRate() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateUpstreamCostToCnyRate()
+	})
+}
+
+// ClearUpstreamCostToCnyRate clears the value of the "upstream_cost_to_cny_rate" field.
+func (u *BatchImageJobUpsertBulk) ClearUpstreamCostToCnyRate() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearUpstreamCostToCnyRate()
 	})
 }
 

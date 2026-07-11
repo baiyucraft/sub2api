@@ -12,15 +12,16 @@ import (
 )
 
 const (
-	schedulerBucketSetKey       = "sched:buckets"
-	schedulerOutboxWatermarkKey = "sched:outbox:watermark"
-	schedulerAccountPrefix      = "sched:acc:"
-	schedulerAccountMetaPrefix  = "sched:meta:"
-	schedulerActivePrefix       = "sched:active:"
-	schedulerReadyPrefix        = "sched:ready:"
-	schedulerVersionPrefix      = "sched:ver:"
-	schedulerSnapshotPrefix     = "sched:"
-	schedulerLockPrefix         = "sched:lock:"
+	schedulerLegacyBucketSetKey = "sched:buckets"
+	schedulerBucketSetKey       = "sched:v2:buckets"
+	schedulerOutboxWatermarkKey = "sched:v2:outbox:watermark"
+	schedulerAccountPrefix      = "sched:v2:acc:"
+	schedulerAccountMetaPrefix  = "sched:v2:meta:"
+	schedulerActivePrefix       = "sched:v2:active:"
+	schedulerReadyPrefix        = "sched:v2:ready:"
+	schedulerVersionPrefix      = "sched:v2:ver:"
+	schedulerSnapshotPrefix     = "sched:v2:"
+	schedulerLockPrefix         = "sched:v2:lock:"
 
 	defaultSchedulerSnapshotMGetChunkSize  = 128
 	defaultSchedulerSnapshotWriteChunkSize = 256
@@ -35,9 +36,9 @@ var (
 	// 仅当新版本号 >= 当前激活版本时才切换，防止并发写入导致版本回滚。
 	// 旧快照使用 EXPIRE 设置宽限期而非立即 DEL，避免与 reader 竞态。
 	//
-	// KEYS[1] = activeKey     (sched:active:{bucket})
-	// KEYS[2] = readyKey      (sched:ready:{bucket})
-	// KEYS[3] = bucketSetKey  (sched:buckets)
+	// KEYS[1] = activeKey     (sched:v2:active:{bucket})
+	// KEYS[2] = readyKey      (sched:v2:ready:{bucket})
+	// KEYS[3] = bucketSetKey  (sched:v2:buckets)
 	// KEYS[4] = snapshotKey   (新写入的快照 key)
 	// ARGV[1] = 新版本号字符串
 	// ARGV[2] = bucket 字符串 (用于 SADD)
@@ -288,7 +289,17 @@ func (c *schedulerCache) UnlockBucket(ctx context.Context, bucket service.Schedu
 }
 
 func (c *schedulerCache) ListBuckets(ctx context.Context) ([]service.SchedulerBucket, error) {
-	raw, err := c.rdb.SMembers(ctx, schedulerBucketSetKey).Result()
+	return c.listBuckets(ctx, schedulerBucketSetKey)
+}
+
+// ListLegacyBuckets is used only during the v1-to-v2 startup upgrade. The
+// legacy set supplies topology; account and snapshot payloads remain isolated.
+func (c *schedulerCache) ListLegacyBuckets(ctx context.Context) ([]service.SchedulerBucket, error) {
+	return c.listBuckets(ctx, schedulerLegacyBucketSetKey)
+}
+
+func (c *schedulerCache) listBuckets(ctx context.Context, key string) ([]service.SchedulerBucket, error) {
+	raw, err := c.rdb.SMembers(ctx, key).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -451,6 +462,8 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		SessionWindowStatus:     account.SessionWindowStatus,
 		ParentAccountID:         account.ParentAccountID,
 		QuotaDimension:          account.QuotaDimension,
+		UpstreamConfigID:        account.UpstreamConfigID,
+		UpstreamKeyID:           account.UpstreamKeyID,
 		AccountGroups:           filterSchedulerAccountGroups(account.AccountGroups),
 		GroupIDs:                filterSchedulerGroupIDs(account.GroupIDs, account.AccountGroups),
 		Credentials:             filterSchedulerCredentials(account.Credentials),

@@ -25,19 +25,38 @@ func TestBatchImageRepository_CreateJobAndDuplicates(t *testing.T) {
 	tx := testTx(t)
 	repo := newBatchImageRepositoryWithSQL(tx)
 	batchID := batchImageTestID(t, "create")
+	upstreamConfigID := int64(701)
+	upstreamKeyID := int64(702)
+	upstreamCostCurrency := "CNY"
+	upstreamCostToCNYRate := 1.0
 
 	job, err := repo.CreateBatchImageJob(ctx, service.CreateBatchImageJobParams{
-		BatchID:       batchID,
-		UserID:        1001,
-		Provider:      service.BatchImageProviderGeminiAPI,
-		Model:         "gemini-2.5-flash-image",
-		ItemCount:     2,
-		EstimatedCost: 0.02,
+		BatchID:               batchID,
+		UserID:                1001,
+		UpstreamConfigID:      &upstreamConfigID,
+		UpstreamKeyID:         &upstreamKeyID,
+		UpstreamCostCurrency:  &upstreamCostCurrency,
+		UpstreamCostToCNYRate: &upstreamCostToCNYRate,
+		Provider:              service.BatchImageProviderGeminiAPI,
+		Model:                 "gemini-2.5-flash-image",
+		ItemCount:             2,
+		EstimatedCost:         0.02,
 	})
 	require.NoError(t, err)
 	require.Equal(t, batchID, job.BatchID)
 	require.Equal(t, service.BatchImageJobStatusCreated, job.Status)
 	require.Equal(t, "USD", job.Currency)
+	require.Equal(t, upstreamConfigID, *job.UpstreamConfigID)
+	require.Equal(t, upstreamKeyID, *job.UpstreamKeyID)
+	require.Equal(t, upstreamCostCurrency, *job.UpstreamCostCurrency)
+	require.Equal(t, upstreamCostToCNYRate, *job.UpstreamCostToCNYRate)
+
+	roundTrip, err := repo.GetBatchImageJobByBatchID(ctx, batchID)
+	require.NoError(t, err)
+	require.Equal(t, upstreamConfigID, *roundTrip.UpstreamConfigID)
+	require.Equal(t, upstreamKeyID, *roundTrip.UpstreamKeyID)
+	require.Equal(t, upstreamCostCurrency, *roundTrip.UpstreamCostCurrency)
+	require.Equal(t, upstreamCostToCNYRate, *roundTrip.UpstreamCostToCNYRate)
 
 	_, err = repo.CreateBatchImageJob(ctx, service.CreateBatchImageJobParams{
 		BatchID:   batchID,
@@ -48,6 +67,25 @@ func TestBatchImageRepository_CreateJobAndDuplicates(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, service.ErrBatchImageJobExists))
+}
+
+func TestBatchImageRepository_LegacyJobKeepsUpstreamSnapshotNull(t *testing.T) {
+	ctx := context.Background()
+	tx := testTx(t)
+	repo := newBatchImageRepositoryWithSQL(tx)
+
+	job, err := repo.CreateBatchImageJob(ctx, service.CreateBatchImageJobParams{
+		BatchID:   batchImageTestID(t, "legacy-upstream"),
+		UserID:    1001,
+		Provider:  service.BatchImageProviderGeminiAPI,
+		Model:     "gemini-2.5-flash-image",
+		ItemCount: 1,
+	})
+	require.NoError(t, err)
+	require.Nil(t, job.UpstreamConfigID)
+	require.Nil(t, job.UpstreamKeyID)
+	require.Nil(t, job.UpstreamCostCurrency)
+	require.Nil(t, job.UpstreamCostToCNYRate)
 }
 
 func TestBatchImageRepository_InvalidProvider(t *testing.T) {

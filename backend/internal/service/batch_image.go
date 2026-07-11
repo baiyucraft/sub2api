@@ -99,21 +99,25 @@ var (
 )
 
 type BatchImageJob struct {
-	ID                int64
-	BatchID           string
-	UserID            int64
-	APIKeyID          *int64
-	AccountID         *int64
-	Provider          string
-	Model             string
-	TaskName          string
-	ParentBatchID     *string
-	Status            string
-	ProviderJobName   *string
-	ProviderInputRef  *string
-	ProviderOutputRef *string
-	GCSInputURI       *string
-	GCSOutputURI      *string
+	ID                    int64
+	BatchID               string
+	UserID                int64
+	APIKeyID              *int64
+	AccountID             *int64
+	UpstreamConfigID      *int64
+	UpstreamKeyID         *int64
+	UpstreamCostCurrency  *string
+	UpstreamCostToCNYRate *float64
+	Provider              string
+	Model                 string
+	TaskName              string
+	ParentBatchID         *string
+	Status                string
+	ProviderJobName       *string
+	ProviderInputRef      *string
+	ProviderOutputRef     *string
+	GCSInputURI           *string
+	GCSOutputURI          *string
 
 	ItemCount      int
 	SuccessCount   int
@@ -159,20 +163,24 @@ type BatchImageJob struct {
 }
 
 type CreateBatchImageJobParams struct {
-	BatchID           string
-	UserID            int64
-	APIKeyID          *int64
-	AccountID         *int64
-	Provider          string
-	Model             string
-	TaskName          string
-	ParentBatchID     *string
-	Status            string
-	ProviderJobName   *string
-	ProviderInputRef  *string
-	ProviderOutputRef *string
-	GCSInputURI       *string
-	GCSOutputURI      *string
+	BatchID               string
+	UserID                int64
+	APIKeyID              *int64
+	AccountID             *int64
+	UpstreamConfigID      *int64
+	UpstreamKeyID         *int64
+	UpstreamCostCurrency  *string
+	UpstreamCostToCNYRate *float64
+	Provider              string
+	Model                 string
+	TaskName              string
+	ParentBatchID         *string
+	Status                string
+	ProviderJobName       *string
+	ProviderInputRef      *string
+	ProviderOutputRef     *string
+	GCSInputURI           *string
+	GCSOutputURI          *string
 
 	ItemCount      int
 	SuccessCount   int
