@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
 )
@@ -30,6 +31,7 @@ type UpstreamSyncRunQuery struct {
 	withResults          *UpstreamSyncResultQuery
 	withEvents           *UpstreamEventQuery
 	withBalanceSnapshots *UpstreamBalanceSnapshotQuery
+	withKeyRateSnapshots *UpstreamKeyRateSnapshotQuery
 	modifiers            []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -126,6 +128,28 @@ func (_q *UpstreamSyncRunQuery) QueryBalanceSnapshots() *UpstreamBalanceSnapshot
 			sqlgraph.From(upstreamsyncrun.Table, upstreamsyncrun.FieldID, selector),
 			sqlgraph.To(upstreambalancesnapshot.Table, upstreambalancesnapshot.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, upstreamsyncrun.BalanceSnapshotsTable, upstreamsyncrun.BalanceSnapshotsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryKeyRateSnapshots chains the current query on the "key_rate_snapshots" edge.
+func (_q *UpstreamSyncRunQuery) QueryKeyRateSnapshots() *UpstreamKeyRateSnapshotQuery {
+	query := (&UpstreamKeyRateSnapshotClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamsyncrun.Table, upstreamsyncrun.FieldID, selector),
+			sqlgraph.To(upstreamkeyratesnapshot.Table, upstreamkeyratesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamsyncrun.KeyRateSnapshotsTable, upstreamsyncrun.KeyRateSnapshotsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -328,6 +352,7 @@ func (_q *UpstreamSyncRunQuery) Clone() *UpstreamSyncRunQuery {
 		withResults:          _q.withResults.Clone(),
 		withEvents:           _q.withEvents.Clone(),
 		withBalanceSnapshots: _q.withBalanceSnapshots.Clone(),
+		withKeyRateSnapshots: _q.withKeyRateSnapshots.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -364,6 +389,17 @@ func (_q *UpstreamSyncRunQuery) WithBalanceSnapshots(opts ...func(*UpstreamBalan
 		opt(query)
 	}
 	_q.withBalanceSnapshots = query
+	return _q
+}
+
+// WithKeyRateSnapshots tells the query-builder to eager-load the nodes that are connected to
+// the "key_rate_snapshots" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UpstreamSyncRunQuery) WithKeyRateSnapshots(opts ...func(*UpstreamKeyRateSnapshotQuery)) *UpstreamSyncRunQuery {
+	query := (&UpstreamKeyRateSnapshotClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withKeyRateSnapshots = query
 	return _q
 }
 
@@ -445,10 +481,11 @@ func (_q *UpstreamSyncRunQuery) sqlAll(ctx context.Context, hooks ...queryHook) 
 	var (
 		nodes       = []*UpstreamSyncRun{}
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [4]bool{
 			_q.withResults != nil,
 			_q.withEvents != nil,
 			_q.withBalanceSnapshots != nil,
+			_q.withKeyRateSnapshots != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -491,6 +528,15 @@ func (_q *UpstreamSyncRunQuery) sqlAll(ctx context.Context, hooks ...queryHook) 
 			func(n *UpstreamSyncRun) { n.Edges.BalanceSnapshots = []*UpstreamBalanceSnapshot{} },
 			func(n *UpstreamSyncRun, e *UpstreamBalanceSnapshot) {
 				n.Edges.BalanceSnapshots = append(n.Edges.BalanceSnapshots, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withKeyRateSnapshots; query != nil {
+		if err := _q.loadKeyRateSnapshots(ctx, query, nodes,
+			func(n *UpstreamSyncRun) { n.Edges.KeyRateSnapshots = []*UpstreamKeyRateSnapshot{} },
+			func(n *UpstreamSyncRun, e *UpstreamKeyRateSnapshot) {
+				n.Edges.KeyRateSnapshots = append(n.Edges.KeyRateSnapshots, e)
 			}); err != nil {
 			return nil, err
 		}
@@ -576,6 +622,39 @@ func (_q *UpstreamSyncRunQuery) loadBalanceSnapshots(ctx context.Context, query 
 	}
 	query.Where(predicate.UpstreamBalanceSnapshot(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(upstreamsyncrun.BalanceSnapshotsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.SyncRunID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "sync_run_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "sync_run_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UpstreamSyncRunQuery) loadKeyRateSnapshots(ctx context.Context, query *UpstreamKeyRateSnapshotQuery, nodes []*UpstreamSyncRun, init func(*UpstreamSyncRun), assign func(*UpstreamSyncRun, *UpstreamKeyRateSnapshot)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*UpstreamSyncRun)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(upstreamkeyratesnapshot.FieldSyncRunID)
+	}
+	query.Where(predicate.UpstreamKeyRateSnapshot(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(upstreamsyncrun.KeyRateSnapshotsColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

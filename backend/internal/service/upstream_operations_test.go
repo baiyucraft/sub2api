@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -135,4 +136,21 @@ func TestClassifyUpstreamSyncFailure(t *testing.T) {
 	require.Equal(t, "keys_page", stage)
 	require.Equal(t, "upstream", code)
 	require.True(t, retryable)
+
+	stage, code, retryable = classifyUpstreamSyncFailure(errors.New("newapi login returned status 401"), "keys_page")
+	require.Equal(t, "auth", stage)
+	require.Equal(t, "auth", code)
+	require.False(t, retryable)
+
+	stage, code, retryable = classifyUpstreamSyncFailure(errors.New("newapi get today usage returned incompatible response"), "keys_page")
+	require.Equal(t, "profile", stage)
+	require.Equal(t, "protocol", code)
+	require.False(t, retryable)
+}
+
+func TestGetKeyRateTrendRejectsUnsupportedRangeBeforeRepositoryAccess(t *testing.T) {
+	svc := NewUpstreamConfigService(nil, nil, nil)
+	_, err := svc.GetKeyRateTrend(context.Background(), 1, 2, "90d")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "range must be one of 24h, 7d, 30d")
 }

@@ -7,7 +7,8 @@ import UpstreamConfigsView from '../UpstreamConfigsView.vue'
 const {
   listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock,
   getSettingsMock, updateSettingsMock, listSyncRunsMock, getSyncRunMock, listEventsMock,
-  listIncidentsMock, listBalanceHistoryMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock
+  listIncidentsMock, listBalanceHistoryMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock,
+  listKeyRateTrendKeysMock, getKeyRateTrendMock
 } = vi.hoisted(() => ({
   listMock: vi.fn(),
   createMock: vi.fn(),
@@ -24,6 +25,8 @@ const {
   listIncidentsMock: vi.fn(),
   listBalanceHistoryMock: vi.fn(),
   getUsageTrendMock: vi.fn(),
+  listKeyRateTrendKeysMock: vi.fn(),
+  getKeyRateTrendMock: vi.fn(),
   proxiesMock: vi.fn(),
   showErrorMock: vi.fn(),
   showSuccessMock: vi.fn()
@@ -45,7 +48,9 @@ vi.mock('@/api/admin/upstreamConfigs', () => ({
     listEvents: listEventsMock,
     listIncidents: listIncidentsMock,
     listBalanceHistory: listBalanceHistoryMock,
-    getUsageTrend: getUsageTrendMock
+    getUsageTrend: getUsageTrendMock,
+    listKeyRateTrendKeys: listKeyRateTrendKeysMock,
+    getKeyRateTrend: getKeyRateTrendMock
   }
 }))
 
@@ -193,6 +198,11 @@ const UpstreamCostTrendChartStub = defineComponent({
   template: '<div data-test="cost-trend-chart">{{ points.length }}</div>'
 })
 
+const UpstreamKeyRateTrendChartStub = defineComponent({
+  props: ['points', 'loading'],
+  template: '<div data-test="key-rate-trend-chart">{{ points.length }}</div>'
+})
+
 function upstreamConfig(overrides = {}) {
   return {
     id: 10,
@@ -246,6 +256,7 @@ function mountView() {
         ProxySelector: ProxySelectorStub,
         UpstreamActionMenu: UpstreamActionMenuStub,
         UpstreamCostTrendChart: UpstreamCostTrendChartStub,
+        UpstreamKeyRateTrendChart: UpstreamKeyRateTrendChartStub,
         Icon: true,
         Teleport: true
       }
@@ -271,6 +282,8 @@ describe('UpstreamConfigsView', () => {
     listIncidentsMock.mockReset()
     listBalanceHistoryMock.mockReset()
     getUsageTrendMock.mockReset()
+    listKeyRateTrendKeysMock.mockReset()
+    getKeyRateTrendMock.mockReset()
     proxiesMock.mockReset()
     showErrorMock.mockReset()
     showSuccessMock.mockReset()
@@ -309,6 +322,12 @@ describe('UpstreamConfigsView', () => {
     listIncidentsMock.mockResolvedValue({ items: [], total: 0 })
     listBalanceHistoryMock.mockResolvedValue({ items: [], total: 0 })
     getUsageTrendMock.mockResolvedValue({ range: '24h', currency: 'CNY', legacy_attributed_requests: 0, points: [] })
+    listKeyRateTrendKeysMock.mockResolvedValue([{ key_id: 7, name: 'Primary', status: 'active', current_raw_rate: 1.2, current_effective_rate: 0.96 }])
+    getKeyRateTrendMock.mockResolvedValue({
+      range: '24h', config_id: 10, key_id: 7, key_name: 'Primary',
+      current_raw_rate: 1.2, current_effective_rate: 0.96,
+      points: [], changes: []
+    })
   })
 
   afterEach(() => {
@@ -323,8 +342,8 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="table-page-layout"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="data-table"]').attributes('data-row-key')).toBe('id')
     expect(wrapper.get('[data-test="data-table"]').attributes('data-actions-count')).toBeUndefined()
-    expect(wrapper.get('[data-test="more-upstream-actions"]').element.parentElement?.className).toContain('min-w-[220px]')
-    expect(wrapper.get('[data-test="actions-column-class"]').text()).toBe('min-w-[220px]')
+    expect(wrapper.get('[data-test="more-upstream-actions"]').element.parentElement?.className).toContain('min-w-[300px]')
+    expect(wrapper.get('[data-test="actions-column-class"]').text()).toBe('min-w-[300px]')
     expect(wrapper.get('[data-test="columns"]').text()).toContain('actions')
     expect(wrapper.get('[data-test="columns"]').text()).toContain('balance')
     expect(wrapper.text()).toContain('Sub2API Main')
@@ -809,6 +828,48 @@ describe('UpstreamConfigsView', () => {
     await wrapper.get('[data-test="trend-range-30d"]').trigger('click')
     await flushPromises()
     expect(getUsageTrendMock).toHaveBeenLastCalledWith(10, '30d')
+  })
+
+  it('loads a single key rate trend and switches ranges', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-rate-trend"]').trigger('click')
+    await flushPromises()
+
+    expect(listKeyRateTrendKeysMock).toHaveBeenCalledWith(10)
+    expect(getKeyRateTrendMock).toHaveBeenLastCalledWith(10, 7, '24h')
+    expect(wrapper.get('[data-test="key-rate-trend-chart"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="rate-trend-range-7d"]').trigger('click')
+    await flushPromises()
+    expect(getKeyRateTrendMock).toHaveBeenLastCalledWith(10, 7, '7d')
+  })
+
+  it('submits NewAPI cookie authentication without exposing saved credentials', async () => {
+    createMock.mockResolvedValueOnce(upstreamConfig({ id: 12, provider: 'newapi', auth_mode: 'cookie' }))
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button.btn-primary').trigger('click')
+    const dialog = wrapper.get('[data-test="base-dialog"]')
+    await dialog.findAll('select')[0].setValue('newapi')
+    await dialog.get('[data-test="upstream-auth-mode-cookie"]').trigger('click')
+    await dialog.get('[data-test="upstream-name-input"]').setValue('NewAPI Cookie')
+    await dialog.get('[data-test="upstream-site-url-input"]').setValue('https://newapi.example.com')
+    await dialog.get('[data-test="upstream-newapi-user-id-input"]').setValue('7')
+    await dialog.get('[data-test="upstream-newapi-cookie-input"]').setValue('session=secret')
+    await dialog.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'newapi',
+      auth_mode: 'cookie',
+      credentials: {
+        newapi_cookie: 'session=secret',
+        newapi_user_id: '7'
+      }
+    }))
   })
 
   it('opens row cost trend with the row id and uses an extra-wide dialog', async () => {

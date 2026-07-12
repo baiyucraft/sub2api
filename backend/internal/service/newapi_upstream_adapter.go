@@ -28,6 +28,7 @@ const (
 	newAPITokenBatchKeysPath = "/api/token/batch/keys"
 	newAPIUserGroupsPath     = "/api/user/self/groups"
 	newAPIUserProfilePath    = "/api/user/self"
+	newAPIUserStatPath       = "/api/log/self/stat"
 	newAPIStatusPath         = "/api/status"
 	newAPIPricingPath        = "/api/pricing"
 	newAPIKeysPageSize       = 100
@@ -62,6 +63,23 @@ type newAPISession struct {
 	rootURL string
 	userID  int64
 	client  *http.Client
+}
+
+type newAPIAuthTransport struct {
+	base        http.RoundTripper
+	cookie      string
+	accessToken string
+}
+
+func (t newAPIAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.Header = req.Header.Clone()
+	if t.cookie != "" {
+		clone.Header.Set("Cookie", t.cookie)
+	} else if t.accessToken != "" {
+		clone.Header.Set("Authorization", t.accessToken)
+	}
+	return t.base.RoundTrip(clone)
 }
 
 type newAPIGroupInfo struct {
@@ -150,19 +168,42 @@ type newAPIStatusData struct {
 	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
 }
 
+type newAPIUsageStat struct {
+	Quota float64 `json:"quota"`
+}
+
 func (newAPIUpstreamProviderAdapter) Provider() string { return UpstreamProviderNewAPI }
 
 func (newAPIUpstreamProviderAdapter) ValidateConfig(config *UpstreamConfig, requireSecrets bool) error {
 	username := strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialNewAPILoginUsername))
 	password := strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialNewAPILoginPassword))
-	if username == "" {
-		return infraBadRequest("UPSTREAM_NEWAPI_USERNAME_REQUIRED", "newapi login username is required")
+	cookie := strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialNewAPICookie))
+	accessToken := strings.TrimSpace(stringCredential(config.Credentials, AccountCredentialNewAPIAccessToken))
+	if cookie != "" && accessToken != "" {
+		return infraBadRequest("UPSTREAM_NEWAPI_AUTH_CONFLICT", "newapi cookie and access token are mutually exclusive")
 	}
-	if requireSecrets && password == "" {
-		return infraBadRequest("UPSTREAM_NEWAPI_PASSWORD_REQUIRED", "newapi login password is required")
-	}
-	if !requireSecrets && password == "" {
-		return infraBadRequest("UPSTREAM_NEWAPI_PASSWORD_REQUIRED", "newapi login password is required")
+	switch config.AuthMode {
+	case UpstreamAuthModeCookie:
+		if cookie == "" {
+			return infraBadRequest("UPSTREAM_NEWAPI_COOKIE_REQUIRED", "newapi cookie is required")
+		}
+		if _, err := newAPIConfiguredUserID(config.Credentials); err != nil {
+			return err
+		}
+	case UpstreamAuthModeAccessToken:
+		if accessToken == "" {
+			return infraBadRequest("UPSTREAM_NEWAPI_ACCESS_TOKEN_REQUIRED", "newapi access token is required")
+		}
+		if _, err := newAPIConfiguredUserID(config.Credentials); err != nil {
+			return err
+		}
+	default:
+		if username == "" {
+			return infraBadRequest("UPSTREAM_NEWAPI_USERNAME_REQUIRED", "newapi login username is required")
+		}
+		if password == "" {
+			return infraBadRequest("UPSTREAM_NEWAPI_PASSWORD_REQUIRED", "newapi login password is required")
+		}
 	}
 	return nil
 }
@@ -204,6 +245,19 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	warnings := appendNewAPIWarnings(nil, keyResult.Warnings...)
 	warnings = appendNewAPIWarnings(warnings, revealResult.Warnings...)
 	partial := keyResult.Partial || revealResult.Partial
+	groupsComplete := true
+	for _, row := range keyResult.Rows {
+		group := strings.TrimSpace(row.Group)
+		if group == "" {
+			continue
+		}
+		if _, exists := groups[group]; !exists {
+			groupsComplete = false
+			partial = true
+			warnings = appendNewAPIWarnings(warnings, "newapi group snapshot does not cover all returned keys")
+			break
+		}
+	}
 	now := time.Now()
 	keys := make([]UpstreamKey, 0, len(keyResult.Rows))
 	unresolvedKeyCount := 0
@@ -267,6 +321,7 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	if includeProfile {
 		profile, profileErr := a.fetchProfile(ctx, session)
 		status, statusErr := a.fetchStatus(ctx, session)
+		todayUsage, todayUsageErr := a.fetchTodayUsage(ctx, session)
 		if profileErr != nil {
 			partial = true
 			warnings = appendNewAPIWarnings(warnings, "newapi profile snapshot unavailable")
@@ -275,8 +330,22 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 			partial = true
 			warnings = appendNewAPIWarnings(warnings, "newapi currency status unavailable")
 		}
+		if todayUsageErr != nil {
+			partial = true
+			warnings = appendNewAPIWarnings(warnings, "newapi today usage snapshot unavailable")
+		}
 		for key, value := range newAPIProfileExtraUpdates(cfg, profile, profileErr, status, statusErr) {
 			extraUpdates[key] = value
+		}
+		if snapshot, ok := extraUpdates["upstream_provider_snapshot"].(map[string]any); ok {
+			snapshot["groups"] = newAPIGroupSnapshot(groups)
+			snapshot["groups_complete"] = groupsComplete
+			if todayUsageErr == nil && todayUsage != nil && finiteNewAPINumber(todayUsage.Quota) {
+				amounts := newAPIQuotaAmounts(todayUsage.Quota, 0, status)
+				snapshot["today_used_quota"] = todayUsage.Quota
+				snapshot["today_used_amount"] = amounts.BalanceAmount
+				snapshot["base_today_used_amount"] = amounts.BaseBalanceAmount
+			}
 		}
 	}
 	extraUpdates["upstream_provider_snapshot_partial"] = partial
@@ -288,6 +357,23 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	}, nil
 }
 
+func newAPIGroupSnapshot(groups map[string]newAPIGroupInfo) map[string]any {
+	out := make(map[string]any, len(groups))
+	for name, info := range groups {
+		entry := map[string]any{"description": strings.TrimSpace(info.Desc)}
+		if ratio, ok := parseNewAPIRatio(info.Ratio); ok {
+			entry["ratio"] = ratio
+		} else {
+			entry["ratio_status"] = "unavailable"
+		}
+		if len(info.Platforms) > 0 {
+			entry["platforms"] = append([]string(nil), info.Platforms...)
+		}
+		out[name] = entry
+	}
+	return out
+}
+
 func (newAPIUpstreamProviderAdapter) SanitizeError(err error, credentials map[string]any) string {
 	if err == nil {
 		return ""
@@ -296,6 +382,8 @@ func (newAPIUpstreamProviderAdapter) SanitizeError(err error, credentials map[st
 	for _, key := range []string{
 		AccountCredentialNewAPILoginUsername,
 		AccountCredentialNewAPILoginPassword,
+		AccountCredentialNewAPICookie,
+		AccountCredentialNewAPIAccessToken,
 	} {
 		value := strings.TrimSpace(stringCredential(credentials, key))
 		if value != "" {
@@ -315,9 +403,27 @@ func (a newAPIUpstreamProviderAdapter) login(ctx context.Context, cfg *UpstreamC
 	if err != nil {
 		return nil, err
 	}
-	client, err := sub2APIHTTPClient(normalizedProxyURL)
+	sharedClient, err := sub2APIHTTPClient(normalizedProxyURL)
 	if err != nil {
 		return nil, err
+	}
+	clientCopy := *sharedClient
+	client := &clientCopy
+	baseTransport := client.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	if cfg.AuthMode == UpstreamAuthModeCookie || cfg.AuthMode == UpstreamAuthModeAccessToken {
+		userID, userErr := newAPIConfiguredUserID(cfg.Credentials)
+		if userErr != nil {
+			return nil, userErr
+		}
+		client.Transport = newAPIAuthTransport{
+			base:        baseTransport,
+			cookie:      strings.TrimSpace(stringCredential(cfg.Credentials, AccountCredentialNewAPICookie)),
+			accessToken: strings.TrimSpace(stringCredential(cfg.Credentials, AccountCredentialNewAPIAccessToken)),
+		}
+		return &newAPISession{rootURL: rootURL, userID: userID, client: client}, nil
 	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -354,6 +460,15 @@ func (a newAPIUpstreamProviderAdapter) login(ctx context.Context, cfg *UpstreamC
 		return nil, fmt.Errorf("newapi login returned no session cookie")
 	}
 	return &newAPISession{rootURL: rootURL, userID: payload.Data.ID, client: client}, nil
+}
+
+func newAPIConfiguredUserID(credentials map[string]any) (int64, error) {
+	raw := strings.TrimSpace(stringCredential(credentials, AccountCredentialNewAPIUserID))
+	userID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || userID <= 0 {
+		return 0, infraBadRequest("UPSTREAM_NEWAPI_USER_ID_REQUIRED", "newapi user id must be a positive integer")
+	}
+	return userID, nil
 }
 
 func (a newAPIUpstreamProviderAdapter) fetchGroups(ctx context.Context, session *newAPISession) (map[string]newAPIGroupInfo, error) {
@@ -920,6 +1035,39 @@ func (a newAPIUpstreamProviderAdapter) fetchStatus(ctx context.Context, session 
 	}
 	if !payload.Success {
 		return nil, fmt.Errorf("newapi get status failed%s", safeNewAPIMessage(payload.Message))
+	}
+	return &payload.Data, nil
+}
+
+func (a newAPIUpstreamProviderAdapter) fetchTodayUsage(ctx context.Context, session *newAPISession) (*newAPIUsageStat, error) {
+	endpoint, err := buildSub2APIURL(session.rootURL, newAPIUserStatPath)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	q.Set("type", "0")
+	q.Set("token_name", "")
+	q.Set("model_name", "")
+	q.Set("start_timestamp", strconv.FormatInt(start, 10))
+	q.Set("end_timestamp", strconv.FormatInt(now.Unix(), 10))
+	q.Set("group", "")
+	u.RawQuery = q.Encode()
+	var payload newAPIEnvelope[newAPIUsageStat]
+	status, err := a.doJSON(ctx, session.client, http.MethodGet, u.String(), session.userID, nil, &payload)
+	if err != nil {
+		return nil, fmt.Errorf("newapi get today usage failed: %w", err)
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("newapi get today usage returned status %d", status)
+	}
+	if !payload.Success || !finiteNewAPINumber(payload.Data.Quota) {
+		return nil, fmt.Errorf("newapi get today usage returned incompatible response")
 	}
 	return &payload.Data, nil
 }

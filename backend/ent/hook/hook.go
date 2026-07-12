@@ -429,6 +429,18 @@ func (f UpstreamKeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamKeyMutation", m)
 }
 
+// The UpstreamKeyRateSnapshotFunc type is an adapter to allow the use of ordinary
+// function as UpstreamKeyRateSnapshot mutator.
+type UpstreamKeyRateSnapshotFunc func(context.Context, *ent.UpstreamKeyRateSnapshotMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f UpstreamKeyRateSnapshotFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.UpstreamKeyRateSnapshotMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamKeyRateSnapshotMutation", m)
+}
+
 // The UpstreamSyncResultFunc type is an adapter to allow the use of ordinary
 // function as UpstreamSyncResult mutator.
 type UpstreamSyncResultFunc func(context.Context, *ent.UpstreamSyncResultMutation) (ent.Value, error)

@@ -59,6 +59,15 @@
             </button>
             <button
               type="button"
+              class="btn btn-secondary"
+              data-test="open-rate-trend"
+              @click="openRateTrend()"
+            >
+              <Icon name="trendingUp" size="sm" class="mr-2" />
+              {{ t('admin.upstreamConfigs.actions.rateTrend') }}
+            </button>
+            <button
+              type="button"
               class="btn btn-secondary px-3"
               data-test="open-upstream-settings"
               :title="t('admin.upstreamConfigs.actions.settings')"
@@ -208,7 +217,7 @@
           </template>
 
           <template #cell-actions="{ row }">
-            <div class="flex min-w-[220px] items-start gap-1" @click.stop>
+            <div class="flex min-w-[300px] items-start gap-1" @click.stop>
               <button
                 type="button"
                 class="table-action-button hover:text-primary-600 dark:hover:text-primary-400"
@@ -242,6 +251,17 @@
               >
                 <Icon name="trendingUp" size="sm" />
                 <span>{{ t('admin.upstreamConfigs.actions.costTrend') }}</span>
+              </button>
+              <button
+                type="button"
+                class="table-action-button hover:text-indigo-600 dark:hover:text-indigo-400"
+                data-test="row-rate-trend"
+                :title="t('admin.upstreamConfigs.actions.rateTrend')"
+                :aria-label="t('admin.upstreamConfigs.actions.rateTrend')"
+                @click="openRateTrend(row)"
+              >
+                <Icon name="chart" size="sm" />
+                <span>{{ t('admin.upstreamConfigs.actions.rateTrend') }}</span>
               </button>
               <button
                 type="button"
@@ -330,7 +350,7 @@
               <ProxySelector v-model="form.proxy_id" :proxies="proxies" :disabled="loadingProxies" />
             </div>
 
-            <div v-if="form.provider === 'sub2api'" class="space-y-2 md:col-span-2">
+            <div v-if="form.provider !== 'other'" class="space-y-2 md:col-span-2">
               <span class="input-label">{{ t('admin.upstreamConfigs.fields.authMode') }}</span>
               <div class="inline-flex rounded-lg border border-gray-200 p-1 dark:border-dark-700" data-test="upstream-auth-mode-control">
                 <button
@@ -377,7 +397,7 @@
             </label>
           </template>
 
-          <template v-if="form.provider === 'newapi'">
+          <template v-if="form.provider === 'newapi' && form.auth_mode === 'user_login'">
             <label class="space-y-1">
               <span class="input-label">{{ t('admin.upstreamConfigs.fields.loginUsername') }}</span>
               <input
@@ -400,6 +420,54 @@
                 :required="!editing"
                 :placeholder="editing ? t('admin.upstreamConfigs.fields.keepPasswordPlaceholder') : ''"
               />
+            </label>
+          </template>
+
+          <template v-if="form.provider === 'newapi' && form.auth_mode === 'cookie'">
+            <label class="space-y-1">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.newapiUserId') }}</span>
+              <input
+                v-model.trim="form.newapi_user_id"
+                class="input font-mono"
+                data-test="upstream-newapi-user-id-input"
+                inputmode="numeric"
+                :required="!editing"
+                :placeholder="editing ? t('admin.upstreamConfigs.fields.keepUserIdPlaceholder') : ''"
+              />
+            </label>
+            <label class="space-y-1 md:col-span-2">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.cookie') }}</span>
+              <textarea
+                v-model.trim="form.cookie"
+                class="input min-h-[92px] font-mono text-xs"
+                data-test="upstream-newapi-cookie-input"
+                :required="!editing"
+                :placeholder="editing ? t('admin.upstreamConfigs.fields.keepCookiePlaceholder') : ''"
+              ></textarea>
+            </label>
+          </template>
+
+          <template v-if="form.provider === 'newapi' && form.auth_mode === 'access_token'">
+            <label class="space-y-1">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.newapiUserId') }}</span>
+              <input
+                v-model.trim="form.newapi_user_id"
+                class="input font-mono"
+                data-test="upstream-newapi-user-id-input"
+                inputmode="numeric"
+                :required="!editing"
+                :placeholder="editing ? t('admin.upstreamConfigs.fields.keepUserIdPlaceholder') : ''"
+              />
+            </label>
+            <label class="space-y-1 md:col-span-2">
+              <span class="input-label">{{ t('admin.upstreamConfigs.fields.newapiAccessToken') }}</span>
+              <textarea
+                v-model.trim="form.newapi_access_token"
+                class="input min-h-[92px] font-mono text-xs"
+                data-test="upstream-newapi-access-token-input"
+                :required="!editing"
+                :placeholder="editing ? t('admin.upstreamConfigs.fields.keepNewapiAccessTokenPlaceholder') : ''"
+              ></textarea>
             </label>
           </template>
 
@@ -665,6 +733,36 @@
         </div>
       </template>
 
+      <template v-else-if="operationsDrawerMode === 'rateTrend'">
+        <div class="mb-4 flex flex-wrap items-center gap-3">
+          <label class="min-w-[220px] flex-1">
+            <span class="sr-only">{{ t('admin.upstreamConfigs.operations.selectUpstream') }}</span>
+            <Select v-model="selectedOperationsConfigId" :options="operationConfigOptions" data-test="rate-trend-upstream-select" @change="handleOperationsConfigChange('rateTrend')" />
+          </label>
+          <label class="min-w-[220px] flex-1">
+            <span class="sr-only">{{ t('admin.upstreamConfigs.operations.selectKey') }}</span>
+            <Select v-model="selectedRateKeyId" :options="rateKeyOptions" data-test="rate-trend-key-select" @change="loadKeyRateTrend()" />
+          </label>
+          <div class="inline-flex rounded-lg border border-gray-200 p-1 dark:border-dark-700" data-test="rate-trend-range-control">
+            <button
+              v-for="range in trendRanges"
+              :key="range"
+              type="button"
+              :class="[
+                'min-w-12 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                rateTrendRange === range
+                  ? 'bg-primary-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-700'
+              ]"
+              :data-test="`rate-trend-range-${range}`"
+              @click="setRateTrendRange(range)"
+            >
+              {{ range }}
+            </button>
+          </div>
+        </div>
+      </template>
+
       <template v-if="operationsDrawerMode === 'syncRuns'">
         <div v-if="operationLoading.syncRuns" class="drawer-state">{{ t('common.loading') }}</div>
         <div v-else-if="selectedSyncRun" class="space-y-4" data-test="sync-run-detail">
@@ -796,6 +894,34 @@
         </div>
       </template>
 
+      <template v-else-if="operationsDrawerMode === 'rateTrend'">
+        <div v-if="operationLoading.rateTrend" class="drawer-state">{{ t('common.loading') }}</div>
+        <div v-else-if="!selectedRateKeyId" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyRateKeys') }}</div>
+        <div v-else class="space-y-4">
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.currentRawRate') }}</span><strong>{{ formatRateValue(keyRateTrend?.current_raw_rate) }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.currentEffectiveRate') }}</span><strong>{{ formatRateValue(keyRateTrend?.current_effective_rate) }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.previousRate') }}</span><strong>{{ formatRateValue(keyRateTrend?.previous_raw_rate) }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.lastChanged') }}</span><strong>{{ formatTime(keyRateTrend?.last_changed_at || null) }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.observedSince') }}</span><strong>{{ formatTime(keyRateTrend?.first_observed_at || null) }}</strong></div>
+          </div>
+          <UpstreamKeyRateTrendChart :points="keyRateTrend?.points || []" :loading="operationLoading.rateTrend" />
+          <section class="space-y-3">
+            <h3 class="section-title">{{ t('admin.upstreamConfigs.operations.rateChanges') }}</h3>
+            <div v-for="change in keyRateTrend?.changes || []" :key="`${change.type}-${change.occurred_at}`" class="operation-row">
+              <div class="flex items-center justify-between gap-3">
+                <span class="font-medium text-gray-900 dark:text-gray-100">{{ change.type }}</span>
+                <span class="text-xs text-gray-500 dark:text-dark-400">{{ formatTime(change.occurred_at) }}</span>
+              </div>
+              <div class="mt-1 text-xs text-gray-600 dark:text-dark-300">
+                {{ formatRateValue(change.old_raw_rate) }} → {{ formatRateValue(change.new_raw_rate) }}
+              </div>
+            </div>
+            <div v-if="!(keyRateTrend?.changes || []).length" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyRateChanges') }}</div>
+          </section>
+        </div>
+      </template>
+
       <template v-else-if="operationsDrawerMode === 'settings'">
         <div v-if="operationLoading.settings" class="drawer-state">{{ t('common.loading') }}</div>
         <div v-else-if="!settingsLoaded" class="drawer-state" data-test="upstream-settings-unavailable">
@@ -851,7 +977,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -864,6 +990,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UpstreamActionMenu from './upstream/UpstreamActionMenu.vue'
 import UpstreamCostTrendChart from './upstream/UpstreamCostTrendChart.vue'
+import UpstreamKeyRateTrendChart from './upstream/UpstreamKeyRateTrendChart.vue'
 import type { Column } from '@/components/common/types'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminAPI } from '@/api/admin'
@@ -878,7 +1005,9 @@ import upstreamAPI, {
   type UpstreamSyncRun,
   type UpstreamSyncResult,
   type UpstreamTrendRange,
-  type UpstreamUsageTrend
+  type UpstreamUsageTrend,
+  type UpstreamKeyRateCatalogItem,
+  type UpstreamKeyRateTrend
 } from '@/api/admin/upstreamConfigs'
 import { useAppStore } from '@/stores/app'
 import type { Proxy } from '@/types'
@@ -888,7 +1017,7 @@ import {
 } from '@/utils/upstreamTokenParser'
 
 type RowAction = 'test' | 'sync'
-type OperationsDrawerMode = 'syncRuns' | 'events' | 'trend' | 'settings'
+type OperationsDrawerMode = 'syncRuns' | 'events' | 'trend' | 'rateTrend' | 'settings'
 type RateRange = { min: number; max: number } | null
 
 const { t } = useI18n()
@@ -923,6 +1052,7 @@ const operationLoading = reactive<Record<OperationsDrawerMode, boolean>>({
   syncRuns: false,
   events: false,
   trend: false,
+  rateTrend: false,
   settings: false
 })
 const selectedOperationsConfigId = ref<number | null>(null)
@@ -937,6 +1067,10 @@ const balanceHistoryTotal = ref(0)
 const trendRange = ref<UpstreamTrendRange>('24h')
 const trendRanges: UpstreamTrendRange[] = ['24h', '7d', '30d']
 const usageTrend = ref<UpstreamUsageTrend | null>(null)
+const rateTrendRange = ref<UpstreamTrendRange>('24h')
+const rateTrendKeys = ref<UpstreamKeyRateCatalogItem[]>([])
+const selectedRateKeyId = ref<number | null>(null)
+const keyRateTrend = ref<UpstreamKeyRateTrend | null>(null)
 const upstreamSettings = ref<UpstreamSettings>({ balance_low_threshold_cny: 0, sub2api_not_in_cn_confirmed: false })
 const settingsForm = reactive<UpstreamSettings>({ balance_low_threshold_cny: 0, sub2api_not_in_cn_confirmed: false })
 const settingsLoaded = ref(false)
@@ -945,6 +1079,7 @@ const operationGeneration: Record<OperationsDrawerMode, number> = {
   syncRuns: 0,
   events: 0,
   trend: 0,
+  rateTrend: 0,
   settings: 0
 }
 
@@ -964,6 +1099,9 @@ const form = reactive({
   email: '',
   username: '',
   password: '',
+  cookie: '',
+  newapi_access_token: '',
+  newapi_user_id: '',
   access_token: '',
   refresh_token: '',
   recharge_rate: 1,
@@ -981,7 +1119,7 @@ const columns = computed<Column[]>(() => [
   { key: 'auth_mode', label: t('admin.upstreamConfigs.columns.authMode') },
   { key: 'credentials', label: t('admin.upstreamConfigs.columns.credentials') },
   { key: 'last_success_at', label: t('admin.upstreamConfigs.columns.lastSync') },
-  { key: 'actions', label: t('admin.upstreamConfigs.columns.actions'), class: 'min-w-[220px]' }
+  { key: 'actions', label: t('admin.upstreamConfigs.columns.actions'), class: 'min-w-[300px]' }
 ])
 
 const providerFilterOptions = computed<SelectOption[]>(() => [
@@ -997,13 +1135,34 @@ const providerEditOptions = computed<SelectOption[]>(() => [
   { value: 'other', label: providerLabel('other') }
 ])
 
-const authModeOptions = computed<SelectOption[]>(() => [
-  { value: 'user_login', label: t('admin.upstreamConfigs.authModes.userLogin') },
-  { value: 'manual_jwt', label: t('admin.upstreamConfigs.authModes.manualJwt') }
-])
+const authModeOptions = computed<SelectOption[]>(() => form.provider === 'newapi'
+  ? [
+      { value: 'user_login', label: t('admin.upstreamConfigs.authModes.userLogin') },
+      { value: 'cookie', label: t('admin.upstreamConfigs.authModes.cookie') },
+      { value: 'access_token', label: t('admin.upstreamConfigs.authModes.accessToken') }
+    ]
+  : [
+      { value: 'user_login', label: t('admin.upstreamConfigs.authModes.userLogin') },
+      { value: 'manual_jwt', label: t('admin.upstreamConfigs.authModes.manualJwt') }
+    ])
+
+watch(() => form.provider, (value) => {
+  if (value === 'newapi' && !['user_login', 'cookie', 'access_token'].includes(form.auth_mode)) {
+    form.auth_mode = 'user_login'
+  } else if (value === 'sub2api' && !['user_login', 'manual_jwt'].includes(form.auth_mode)) {
+    form.auth_mode = 'user_login'
+  }
+})
 
 const operationConfigOptions = computed<SelectOption[]>(() =>
   operationConfigs.value.map((item) => ({ value: item.id, label: item.name }))
+)
+
+const rateKeyOptions = computed<SelectOption[]>(() =>
+  rateTrendKeys.value.map((key) => ({
+    value: key.key_id,
+    label: `${key.status === 'deleted' || key.deleted_at ? `${t('admin.upstreamConfigs.rateTrend.deletedKey')} ` : ''}${key.name || t('admin.upstreamConfigs.rateTrend.unnamedKey')} · #${key.key_id}${key.remote_key_id ? ` / remote #${key.remote_key_id}` : ''} · ${formatRateValue(key.current_raw_rate)}`
+  }))
 )
 
 const parsedTokenResult = computed(() => parseUpstreamTokenPaste(tokenPaste.value))
@@ -1097,6 +1256,9 @@ function resetForm() {
     email: '',
     username: '',
     password: '',
+    cookie: '',
+    newapi_access_token: '',
+    newapi_user_id: '',
     access_token: '',
     refresh_token: '',
     recharge_rate: 1,
@@ -1122,6 +1284,9 @@ function openEdit(item: UpstreamConfig) {
     email: '',
     username: '',
     password: '',
+    cookie: '',
+    newapi_access_token: '',
+    newapi_user_id: '',
     access_token: '',
     refresh_token: '',
     recharge_rate: item.recharge_rate || 1,
@@ -1240,9 +1405,17 @@ async function saveConfig() {
       if (form.access_token) credentials.sub2api_access_token = form.access_token
       if (form.refresh_token) credentials.sub2api_refresh_token = form.refresh_token
     }
-    if (form.provider === 'newapi') {
+    if (form.provider === 'newapi' && form.auth_mode === 'user_login') {
       if (form.username) credentials.newapi_login_username = form.username
       if (form.password) credentials.newapi_login_password = form.password
+    }
+    if (form.provider === 'newapi' && form.auth_mode === 'cookie') {
+      if (form.cookie) credentials.newapi_cookie = form.cookie
+      if (form.newapi_user_id) credentials.newapi_user_id = form.newapi_user_id
+    }
+    if (form.provider === 'newapi' && form.auth_mode === 'access_token') {
+      if (form.newapi_access_token) credentials.newapi_access_token = form.newapi_access_token
+      if (form.newapi_user_id) credentials.newapi_user_id = form.newapi_user_id
     }
 
     const payload = {
@@ -1251,7 +1424,7 @@ async function saveConfig() {
       site_url: form.site_url,
       api_url: form.api_url.trim() || null,
       clear_api_url: Boolean(editing.value && !form.api_url.trim()),
-      auth_mode: form.provider === 'sub2api' ? form.auth_mode : 'user_login',
+      auth_mode: form.provider === 'other' ? 'user_login' : form.auth_mode,
       proxy_id: form.proxy_id,
       clear_proxy: Boolean(editing.value && form.proxy_id === null),
       recharge_rate: form.recharge_rate,
@@ -1292,12 +1465,18 @@ function validateFormBeforeSave(): string {
   }
   if (form.provider !== 'newapi') return ''
   const status = editing.value?.credentials_status || {}
-  if (!form.username && !status.has_newapi_login_username) {
-    return t('admin.upstreamConfigs.messages.newapiUsernameRequired')
+  if (form.auth_mode === 'cookie') {
+    if (!form.newapi_user_id && !status.has_newapi_user_id) return t('admin.upstreamConfigs.messages.newapiUserIdRequired')
+    if (!form.cookie && !status.has_newapi_cookie) return t('admin.upstreamConfigs.messages.newapiCookieRequired')
+    return ''
   }
-  if (!form.password && !status.has_newapi_login_password) {
-    return t('admin.upstreamConfigs.messages.newapiPasswordRequired')
+  if (form.auth_mode === 'access_token') {
+    if (!form.newapi_user_id && !status.has_newapi_user_id) return t('admin.upstreamConfigs.messages.newapiUserIdRequired')
+    if (!form.newapi_access_token && !status.has_newapi_access_token) return t('admin.upstreamConfigs.messages.newapiAccessTokenRequired')
+    return ''
   }
+  if (!form.username && !status.has_newapi_login_username) return t('admin.upstreamConfigs.messages.newapiUsernameRequired')
+  if (!form.password && !status.has_newapi_login_password) return t('admin.upstreamConfigs.messages.newapiPasswordRequired')
   return ''
 }
 
@@ -1380,6 +1559,7 @@ const operationsDrawerTitle = computed(() => {
   if (operationsDrawerMode.value === 'syncRuns') return t('admin.upstreamConfigs.operations.syncRunsTitle')
   if (operationsDrawerMode.value === 'events') return t('admin.upstreamConfigs.operations.eventsTitle')
   if (operationsDrawerMode.value === 'trend') return t('admin.upstreamConfigs.operations.trendTitle')
+  if (operationsDrawerMode.value === 'rateTrend') return t('admin.upstreamConfigs.operations.rateTrendTitle')
   if (operationsDrawerMode.value === 'settings') return t('admin.upstreamConfigs.operations.settingsTitle')
   return ''
 })
@@ -1388,7 +1568,7 @@ const operationsDrawerSubtitle = computed(() => {
   if (operationsDrawerMode.value === 'syncRuns' && selectedSyncRun.value) {
     return t('admin.upstreamConfigs.operations.runSubtitle', { id: selectedSyncRun.value.id })
   }
-  if (operationsDrawerMode.value !== 'events' && operationsDrawerMode.value !== 'trend') return ''
+  if (operationsDrawerMode.value !== 'events' && operationsDrawerMode.value !== 'trend' && operationsDrawerMode.value !== 'rateTrend') return ''
   const config = operationConfigs.value.find((item) => item.id === selectedOperationsConfigId.value)
   return config?.name || ''
 })
@@ -1469,7 +1649,7 @@ function requestIsCurrent(mode: OperationsDrawerMode, generation: number) {
   return operationsDrawerMode.value === mode && operationGeneration[mode] === generation
 }
 
-function clearOperationContent(mode: 'events' | 'trend') {
+function clearOperationContent(mode: 'events' | 'trend' | 'rateTrend') {
   if (mode === 'events') {
     events.value = []
     eventsTotal.value = 0
@@ -1478,14 +1658,21 @@ function clearOperationContent(mode: 'events' | 'trend') {
     balanceHistoryTotal.value = 0
     return
   }
-  usageTrend.value = null
+  if (mode === 'trend') {
+    usageTrend.value = null
+    return
+  }
+  rateTrendKeys.value = []
+  selectedRateKeyId.value = null
+  keyRateTrend.value = null
 }
 
-function handleOperationsConfigChange(mode: 'events' | 'trend') {
+function handleOperationsConfigChange(mode: 'events' | 'trend' | 'rateTrend') {
   operationGeneration[mode] += 1
   clearOperationContent(mode)
   if (mode === 'events') loadEventsAndIncidents()
-  else loadTrend()
+  else if (mode === 'trend') loadTrend()
+  else loadRateTrendKeys()
 }
 
 async function openSyncRuns() {
@@ -1699,6 +1886,78 @@ async function loadTrend() {
   }
 }
 
+async function openRateTrend(config?: UpstreamConfig) {
+  const generation = ++operationGeneration.rateTrend
+  operationsDrawerMode.value = 'rateTrend'
+  clearOperationContent('rateTrend')
+  if (config) {
+    if (!operationConfigs.value.some((item) => item.id === config.id)) {
+      operationConfigs.value = [config, ...operationConfigs.value]
+    }
+    selectedOperationsConfigId.value = config.id
+    await Promise.all([loadRateTrendKeys(), ensureOperationConfigs()])
+    return
+  }
+  await ensureOperationConfigs()
+  if (!requestIsCurrent('rateTrend', generation)) return
+  ensureSelectedOperationsConfig()
+  await loadRateTrendKeys()
+}
+
+async function loadRateTrendKeys() {
+  if (!selectedOperationsConfigId.value) return
+  const configId = Number(selectedOperationsConfigId.value)
+  const generation = requestToken('rateTrend')
+  try {
+    const keys = await upstreamAPI.listKeyRateTrendKeys(configId)
+    if (!requestIsCurrent('rateTrend', generation) || Number(selectedOperationsConfigId.value) !== configId) return
+    rateTrendKeys.value = keys
+    if (!keys.some((key) => key.key_id === selectedRateKeyId.value)) {
+      selectedRateKeyId.value = keys[0]?.key_id || null
+    }
+    if (selectedRateKeyId.value) await loadKeyRateTrend(generation)
+  } catch (error: any) {
+    if (requestIsCurrent('rateTrend', generation)) {
+      rateTrendKeys.value = []
+      selectedRateKeyId.value = null
+      keyRateTrend.value = null
+      appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadRateTrendFailed')))
+    }
+  } finally {
+    if (requestIsCurrent('rateTrend', generation)) operationLoading.rateTrend = false
+  }
+}
+
+async function loadKeyRateTrend(existingGeneration?: number) {
+  if (!selectedOperationsConfigId.value || !selectedRateKeyId.value) {
+    keyRateTrend.value = null
+    return
+  }
+  const configId = Number(selectedOperationsConfigId.value)
+  const keyId = Number(selectedRateKeyId.value)
+  const range = rateTrendRange.value
+  const generation = existingGeneration ?? requestToken('rateTrend')
+  try {
+    const response = await upstreamAPI.getKeyRateTrend(configId, keyId, range)
+    if (requestIsCurrent('rateTrend', generation) && Number(selectedOperationsConfigId.value) === configId && Number(selectedRateKeyId.value) === keyId && rateTrendRange.value === range) {
+      keyRateTrend.value = response
+    }
+  } catch (error: any) {
+    if (requestIsCurrent('rateTrend', generation)) {
+      keyRateTrend.value = null
+      appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadRateTrendFailed')))
+    }
+  } finally {
+    if (requestIsCurrent('rateTrend', generation)) operationLoading.rateTrend = false
+  }
+}
+
+function setRateTrendRange(range: UpstreamTrendRange) {
+  if (rateTrendRange.value === range) return
+  rateTrendRange.value = range
+  loadKeyRateTrend()
+}
+
 async function openSettings() {
   operationsDrawerMode.value = 'settings'
   settingsLoaded.value = false
@@ -1793,9 +2052,10 @@ function providerLabel(value: UpstreamProvider | string): string {
 }
 
 function authModeLabel(value: UpstreamAuthMode | string): string {
-  return value === 'manual_jwt'
-    ? t('admin.upstreamConfigs.authModes.manualJwtShort')
-    : t('admin.upstreamConfigs.authModes.userLoginShort')
+  if (value === 'manual_jwt') return t('admin.upstreamConfigs.authModes.manualJwtShort')
+  if (value === 'cookie') return t('admin.upstreamConfigs.authModes.cookieShort')
+  if (value === 'access_token') return t('admin.upstreamConfigs.authModes.accessTokenShort')
+  return t('admin.upstreamConfigs.authModes.userLoginShort')
 }
 
 function providerBadgeClass(value: UpstreamProvider | string): string {
@@ -1812,6 +2072,18 @@ function providerBadgeClass(value: UpstreamProvider | string): string {
 function credentialLines(item: UpstreamConfig) {
   const status = item.credentials_status || {}
   if (item.provider === 'newapi') {
+    if (item.auth_mode === 'cookie') {
+      return [
+        { label: t('admin.upstreamConfigs.credentialStatus.userId', { status: credentialStatusLabel(!!status.has_newapi_user_id) }), ok: !!status.has_newapi_user_id },
+        { label: t('admin.upstreamConfigs.credentialStatus.cookie', { status: credentialStatusLabel(!!status.has_newapi_cookie) }), ok: !!status.has_newapi_cookie }
+      ]
+    }
+    if (item.auth_mode === 'access_token') {
+      return [
+        { label: t('admin.upstreamConfigs.credentialStatus.userId', { status: credentialStatusLabel(!!status.has_newapi_user_id) }), ok: !!status.has_newapi_user_id },
+        { label: t('admin.upstreamConfigs.credentialStatus.newapiAccessToken', { status: credentialStatusLabel(!!status.has_newapi_access_token) }), ok: !!status.has_newapi_access_token }
+      ]
+    }
     return [
       { label: t('admin.upstreamConfigs.credentialStatus.username', { status: credentialStatusLabel(!!status.has_newapi_login_username) }), ok: !!status.has_newapi_login_username },
       { label: t('admin.upstreamConfigs.credentialStatus.password', { status: credentialStatusLabel(!!status.has_newapi_login_password) }), ok: !!status.has_newapi_login_password }
@@ -2020,6 +2292,10 @@ function rateRangeLabel(range: RateRange): string {
 
 function formatRate(value: number): string {
   return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })
+}
+
+function formatRateValue(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? '-' : formatRate(value)
 }
 
 function balanceTitle(item: UpstreamConfig): string {

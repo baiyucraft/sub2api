@@ -38,6 +38,8 @@ const (
 	EdgeEvents = "events"
 	// EdgeBalanceSnapshots holds the string denoting the balance_snapshots edge name in mutations.
 	EdgeBalanceSnapshots = "balance_snapshots"
+	// EdgeKeyRateSnapshots holds the string denoting the key_rate_snapshots edge name in mutations.
+	EdgeKeyRateSnapshots = "key_rate_snapshots"
 	// Table holds the table name of the upstreamsyncrun in the database.
 	Table = "upstream_sync_runs"
 	// ResultsTable is the table that holds the results relation/edge.
@@ -61,6 +63,13 @@ const (
 	BalanceSnapshotsInverseTable = "upstream_balance_snapshots"
 	// BalanceSnapshotsColumn is the table column denoting the balance_snapshots relation/edge.
 	BalanceSnapshotsColumn = "sync_run_id"
+	// KeyRateSnapshotsTable is the table that holds the key_rate_snapshots relation/edge.
+	KeyRateSnapshotsTable = "upstream_key_rate_snapshots"
+	// KeyRateSnapshotsInverseTable is the table name for the UpstreamKeyRateSnapshot entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamkeyratesnapshot" package.
+	KeyRateSnapshotsInverseTable = "upstream_key_rate_snapshots"
+	// KeyRateSnapshotsColumn is the table column denoting the key_rate_snapshots relation/edge.
+	KeyRateSnapshotsColumn = "sync_run_id"
 )
 
 // Columns holds all SQL columns for upstreamsyncrun fields.
@@ -200,6 +209,20 @@ func ByBalanceSnapshots(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption 
 		sqlgraph.OrderByNeighborTerms(s, newBalanceSnapshotsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByKeyRateSnapshotsCount orders the results by key_rate_snapshots count.
+func ByKeyRateSnapshotsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newKeyRateSnapshotsStep(), opts...)
+	}
+}
+
+// ByKeyRateSnapshots orders the results by key_rate_snapshots terms.
+func ByKeyRateSnapshots(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newKeyRateSnapshotsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newResultsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -219,5 +242,12 @@ func newBalanceSnapshotsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(BalanceSnapshotsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, BalanceSnapshotsTable, BalanceSnapshotsColumn),
+	)
+}
+func newKeyRateSnapshotsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(KeyRateSnapshotsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, KeyRateSnapshotsTable, KeyRateSnapshotsColumn),
 	)
 }

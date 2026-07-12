@@ -44,6 +44,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
@@ -1057,6 +1058,33 @@ func (f TraverseUpstreamKey) Traverse(ctx context.Context, q ent.Query) error {
 	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamKeyQuery", q)
 }
 
+// The UpstreamKeyRateSnapshotFunc type is an adapter to allow the use of ordinary function as a Querier.
+type UpstreamKeyRateSnapshotFunc func(context.Context, *ent.UpstreamKeyRateSnapshotQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f UpstreamKeyRateSnapshotFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.UpstreamKeyRateSnapshotQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamKeyRateSnapshotQuery", q)
+}
+
+// The TraverseUpstreamKeyRateSnapshot type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseUpstreamKeyRateSnapshot func(context.Context, *ent.UpstreamKeyRateSnapshotQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseUpstreamKeyRateSnapshot) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseUpstreamKeyRateSnapshot) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.UpstreamKeyRateSnapshotQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamKeyRateSnapshotQuery", q)
+}
+
 // The UpstreamSyncResultFunc type is an adapter to allow the use of ordinary function as a Querier.
 type UpstreamSyncResultFunc func(context.Context, *ent.UpstreamSyncResultQuery) (ent.Value, error)
 
@@ -1400,6 +1428,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.UpstreamIncidentQuery, predicate.UpstreamIncident, upstreamincident.OrderOption]{typ: ent.TypeUpstreamIncident, tq: q}, nil
 	case *ent.UpstreamKeyQuery:
 		return &query[*ent.UpstreamKeyQuery, predicate.UpstreamKey, upstreamkey.OrderOption]{typ: ent.TypeUpstreamKey, tq: q}, nil
+	case *ent.UpstreamKeyRateSnapshotQuery:
+		return &query[*ent.UpstreamKeyRateSnapshotQuery, predicate.UpstreamKeyRateSnapshot, upstreamkeyratesnapshot.OrderOption]{typ: ent.TypeUpstreamKeyRateSnapshot, tq: q}, nil
 	case *ent.UpstreamSyncResultQuery:
 		return &query[*ent.UpstreamSyncResultQuery, predicate.UpstreamSyncResult, upstreamsyncresult.OrderOption]{typ: ent.TypeUpstreamSyncResult, tq: q}, nil
 	case *ent.UpstreamSyncRunQuery:

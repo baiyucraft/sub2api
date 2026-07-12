@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
 )
@@ -222,6 +223,21 @@ func (_u *UpstreamSyncRunUpdate) AddBalanceSnapshots(v ...*UpstreamBalanceSnapsh
 	return _u.AddBalanceSnapshotIDs(ids...)
 }
 
+// AddKeyRateSnapshotIDs adds the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (_u *UpstreamSyncRunUpdate) AddKeyRateSnapshotIDs(ids ...int64) *UpstreamSyncRunUpdate {
+	_u.mutation.AddKeyRateSnapshotIDs(ids...)
+	return _u
+}
+
+// AddKeyRateSnapshots adds the "key_rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamSyncRunUpdate) AddKeyRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamSyncRunUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddKeyRateSnapshotIDs(ids...)
+}
+
 // Mutation returns the UpstreamSyncRunMutation object of the builder.
 func (_u *UpstreamSyncRunUpdate) Mutation() *UpstreamSyncRunMutation {
 	return _u.mutation
@@ -288,6 +304,27 @@ func (_u *UpstreamSyncRunUpdate) RemoveBalanceSnapshots(v ...*UpstreamBalanceSna
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveBalanceSnapshotIDs(ids...)
+}
+
+// ClearKeyRateSnapshots clears all "key_rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamSyncRunUpdate) ClearKeyRateSnapshots() *UpstreamSyncRunUpdate {
+	_u.mutation.ClearKeyRateSnapshots()
+	return _u
+}
+
+// RemoveKeyRateSnapshotIDs removes the "key_rate_snapshots" edge to UpstreamKeyRateSnapshot entities by IDs.
+func (_u *UpstreamSyncRunUpdate) RemoveKeyRateSnapshotIDs(ids ...int64) *UpstreamSyncRunUpdate {
+	_u.mutation.RemoveKeyRateSnapshotIDs(ids...)
+	return _u
+}
+
+// RemoveKeyRateSnapshots removes "key_rate_snapshots" edges to UpstreamKeyRateSnapshot entities.
+func (_u *UpstreamSyncRunUpdate) RemoveKeyRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamSyncRunUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveKeyRateSnapshotIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -518,6 +555,51 @@ func (_u *UpstreamSyncRunUpdate) sqlSave(ctx context.Context) (_node int, err er
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.KeyRateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamsyncrun.KeyRateSnapshotsTable,
+			Columns: []string{upstreamsyncrun.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedKeyRateSnapshotsIDs(); len(nodes) > 0 && !_u.mutation.KeyRateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamsyncrun.KeyRateSnapshotsTable,
+			Columns: []string{upstreamsyncrun.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.KeyRateSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamsyncrun.KeyRateSnapshotsTable,
+			Columns: []string{upstreamsyncrun.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{upstreamsyncrun.Label}
@@ -729,6 +811,21 @@ func (_u *UpstreamSyncRunUpdateOne) AddBalanceSnapshots(v ...*UpstreamBalanceSna
 	return _u.AddBalanceSnapshotIDs(ids...)
 }
 
+// AddKeyRateSnapshotIDs adds the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (_u *UpstreamSyncRunUpdateOne) AddKeyRateSnapshotIDs(ids ...int64) *UpstreamSyncRunUpdateOne {
+	_u.mutation.AddKeyRateSnapshotIDs(ids...)
+	return _u
+}
+
+// AddKeyRateSnapshots adds the "key_rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamSyncRunUpdateOne) AddKeyRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamSyncRunUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddKeyRateSnapshotIDs(ids...)
+}
+
 // Mutation returns the UpstreamSyncRunMutation object of the builder.
 func (_u *UpstreamSyncRunUpdateOne) Mutation() *UpstreamSyncRunMutation {
 	return _u.mutation
@@ -795,6 +892,27 @@ func (_u *UpstreamSyncRunUpdateOne) RemoveBalanceSnapshots(v ...*UpstreamBalance
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveBalanceSnapshotIDs(ids...)
+}
+
+// ClearKeyRateSnapshots clears all "key_rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamSyncRunUpdateOne) ClearKeyRateSnapshots() *UpstreamSyncRunUpdateOne {
+	_u.mutation.ClearKeyRateSnapshots()
+	return _u
+}
+
+// RemoveKeyRateSnapshotIDs removes the "key_rate_snapshots" edge to UpstreamKeyRateSnapshot entities by IDs.
+func (_u *UpstreamSyncRunUpdateOne) RemoveKeyRateSnapshotIDs(ids ...int64) *UpstreamSyncRunUpdateOne {
+	_u.mutation.RemoveKeyRateSnapshotIDs(ids...)
+	return _u
+}
+
+// RemoveKeyRateSnapshots removes "key_rate_snapshots" edges to UpstreamKeyRateSnapshot entities.
+func (_u *UpstreamSyncRunUpdateOne) RemoveKeyRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamSyncRunUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveKeyRateSnapshotIDs(ids...)
 }
 
 // Where appends a list predicates to the UpstreamSyncRunUpdate builder.
@@ -1048,6 +1166,51 @@ func (_u *UpstreamSyncRunUpdateOne) sqlSave(ctx context.Context) (_node *Upstrea
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(upstreambalancesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.KeyRateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamsyncrun.KeyRateSnapshotsTable,
+			Columns: []string{upstreamsyncrun.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedKeyRateSnapshotsIDs(); len(nodes) > 0 && !_u.mutation.KeyRateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamsyncrun.KeyRateSnapshotsTable,
+			Columns: []string{upstreamsyncrun.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.KeyRateSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamsyncrun.KeyRateSnapshotsTable,
+			Columns: []string{upstreamsyncrun.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

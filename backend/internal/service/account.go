@@ -36,6 +36,9 @@ const (
 
 	AccountCredentialNewAPILoginUsername = "newapi_login_username"
 	AccountCredentialNewAPILoginPassword = "newapi_login_password"
+	AccountCredentialNewAPICookie        = "newapi_cookie"
+	AccountCredentialNewAPIAccessToken   = "newapi_access_token"
+	AccountCredentialNewAPIUserID        = "newapi_user_id"
 )
 
 type Account struct {

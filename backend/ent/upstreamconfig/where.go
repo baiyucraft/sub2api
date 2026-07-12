@@ -1093,6 +1093,29 @@ func HasBalanceSnapshotsWith(preds ...predicate.UpstreamBalanceSnapshot) predica
 	})
 }
 
+// HasKeyRateSnapshots applies the HasEdge predicate on the "key_rate_snapshots" edge.
+func HasKeyRateSnapshots() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, KeyRateSnapshotsTable, KeyRateSnapshotsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasKeyRateSnapshotsWith applies the HasEdge predicate on the "key_rate_snapshots" edge with a given conditions (other predicates).
+func HasKeyRateSnapshotsWith(preds ...predicate.UpstreamKeyRateSnapshot) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := newKeyRateSnapshotsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasUsageLogs applies the HasEdge predicate on the "usage_logs" edge.
 func HasUsageLogs() predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(func(s *sql.Selector) {

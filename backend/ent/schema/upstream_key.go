@@ -65,6 +65,8 @@ func (UpstreamKey) Edges() []ent.Edge {
 		edge.To("accounts", Account.Type),
 		edge.To("events", UpstreamEvent.Type),
 		edge.To("incidents", UpstreamIncident.Type),
+		edge.To("rate_snapshots", UpstreamKeyRateSnapshot.Type).
+			Annotations(entsql.OnDelete(entsql.SetNull)),
 		edge.To("usage_logs", UsageLog.Type),
 	}
 }

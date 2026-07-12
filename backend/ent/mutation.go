@@ -48,6 +48,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
@@ -105,6 +106,7 @@ const (
 	TypeUpstreamEvent                 = "UpstreamEvent"
 	TypeUpstreamIncident              = "UpstreamIncident"
 	TypeUpstreamKey                   = "UpstreamKey"
+	TypeUpstreamKeyRateSnapshot       = "UpstreamKeyRateSnapshot"
 	TypeUpstreamSyncResult            = "UpstreamSyncResult"
 	TypeUpstreamSyncRun               = "UpstreamSyncRun"
 	TypeUsageCleanupTask              = "UsageCleanupTask"
@@ -43086,54 +43088,57 @@ func (m *UpstreamBalanceSnapshotMutation) ResetEdge(name string) error {
 // UpstreamConfigMutation represents an operation that mutates the UpstreamConfig nodes in the graph.
 type UpstreamConfigMutation struct {
 	config
-	op                       Op
-	typ                      string
-	id                       *int64
-	created_at               *time.Time
-	updated_at               *time.Time
-	deleted_at               *time.Time
-	name                     *string
-	provider                 *string
-	site_url                 *string
-	api_url                  *string
-	auth_mode                *string
-	credentials              *map[string]interface{}
-	extra                    *map[string]interface{}
-	recharge_rate            *float64
-	addrecharge_rate         *float64
-	balance_to_cny_rate      *float64
-	addbalance_to_cny_rate   *float64
-	status                   *string
-	last_error               *string
-	last_checked_at          *time.Time
-	last_success_at          *time.Time
-	clearedFields            map[string]struct{}
-	keys                     map[int64]struct{}
-	removedkeys              map[int64]struct{}
-	clearedkeys              bool
-	accounts                 map[int64]struct{}
-	removedaccounts          map[int64]struct{}
-	clearedaccounts          bool
-	sync_results             map[int64]struct{}
-	removedsync_results      map[int64]struct{}
-	clearedsync_results      bool
-	events                   map[int64]struct{}
-	removedevents            map[int64]struct{}
-	clearedevents            bool
-	incidents                map[int64]struct{}
-	removedincidents         map[int64]struct{}
-	clearedincidents         bool
-	balance_snapshots        map[int64]struct{}
-	removedbalance_snapshots map[int64]struct{}
-	clearedbalance_snapshots bool
-	usage_logs               map[int64]struct{}
-	removedusage_logs        map[int64]struct{}
-	clearedusage_logs        bool
-	proxy                    *int64
-	clearedproxy             bool
-	done                     bool
-	oldValue                 func(context.Context) (*UpstreamConfig, error)
-	predicates               []predicate.UpstreamConfig
+	op                        Op
+	typ                       string
+	id                        *int64
+	created_at                *time.Time
+	updated_at                *time.Time
+	deleted_at                *time.Time
+	name                      *string
+	provider                  *string
+	site_url                  *string
+	api_url                   *string
+	auth_mode                 *string
+	credentials               *map[string]interface{}
+	extra                     *map[string]interface{}
+	recharge_rate             *float64
+	addrecharge_rate          *float64
+	balance_to_cny_rate       *float64
+	addbalance_to_cny_rate    *float64
+	status                    *string
+	last_error                *string
+	last_checked_at           *time.Time
+	last_success_at           *time.Time
+	clearedFields             map[string]struct{}
+	keys                      map[int64]struct{}
+	removedkeys               map[int64]struct{}
+	clearedkeys               bool
+	accounts                  map[int64]struct{}
+	removedaccounts           map[int64]struct{}
+	clearedaccounts           bool
+	sync_results              map[int64]struct{}
+	removedsync_results       map[int64]struct{}
+	clearedsync_results       bool
+	events                    map[int64]struct{}
+	removedevents             map[int64]struct{}
+	clearedevents             bool
+	incidents                 map[int64]struct{}
+	removedincidents          map[int64]struct{}
+	clearedincidents          bool
+	balance_snapshots         map[int64]struct{}
+	removedbalance_snapshots  map[int64]struct{}
+	clearedbalance_snapshots  bool
+	key_rate_snapshots        map[int64]struct{}
+	removedkey_rate_snapshots map[int64]struct{}
+	clearedkey_rate_snapshots bool
+	usage_logs                map[int64]struct{}
+	removedusage_logs         map[int64]struct{}
+	clearedusage_logs         bool
+	proxy                     *int64
+	clearedproxy              bool
+	done                      bool
+	oldValue                  func(context.Context) (*UpstreamConfig, error)
+	predicates                []predicate.UpstreamConfig
 }
 
 var _ ent.Mutation = (*UpstreamConfigMutation)(nil)
@@ -44302,6 +44307,60 @@ func (m *UpstreamConfigMutation) ResetBalanceSnapshots() {
 	m.removedbalance_snapshots = nil
 }
 
+// AddKeyRateSnapshotIDs adds the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by ids.
+func (m *UpstreamConfigMutation) AddKeyRateSnapshotIDs(ids ...int64) {
+	if m.key_rate_snapshots == nil {
+		m.key_rate_snapshots = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.key_rate_snapshots[ids[i]] = struct{}{}
+	}
+}
+
+// ClearKeyRateSnapshots clears the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity.
+func (m *UpstreamConfigMutation) ClearKeyRateSnapshots() {
+	m.clearedkey_rate_snapshots = true
+}
+
+// KeyRateSnapshotsCleared reports if the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity was cleared.
+func (m *UpstreamConfigMutation) KeyRateSnapshotsCleared() bool {
+	return m.clearedkey_rate_snapshots
+}
+
+// RemoveKeyRateSnapshotIDs removes the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (m *UpstreamConfigMutation) RemoveKeyRateSnapshotIDs(ids ...int64) {
+	if m.removedkey_rate_snapshots == nil {
+		m.removedkey_rate_snapshots = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.key_rate_snapshots, ids[i])
+		m.removedkey_rate_snapshots[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedKeyRateSnapshots returns the removed IDs of the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity.
+func (m *UpstreamConfigMutation) RemovedKeyRateSnapshotsIDs() (ids []int64) {
+	for id := range m.removedkey_rate_snapshots {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// KeyRateSnapshotsIDs returns the "key_rate_snapshots" edge IDs in the mutation.
+func (m *UpstreamConfigMutation) KeyRateSnapshotsIDs() (ids []int64) {
+	for id := range m.key_rate_snapshots {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetKeyRateSnapshots resets all changes to the "key_rate_snapshots" edge.
+func (m *UpstreamConfigMutation) ResetKeyRateSnapshots() {
+	m.key_rate_snapshots = nil
+	m.clearedkey_rate_snapshots = false
+	m.removedkey_rate_snapshots = nil
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by ids.
 func (m *UpstreamConfigMutation) AddUsageLogIDs(ids ...int64) {
 	if m.usage_logs == nil {
@@ -44860,7 +44919,7 @@ func (m *UpstreamConfigMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *UpstreamConfigMutation) AddedEdges() []string {
-	edges := make([]string, 0, 8)
+	edges := make([]string, 0, 9)
 	if m.keys != nil {
 		edges = append(edges, upstreamconfig.EdgeKeys)
 	}
@@ -44878,6 +44937,9 @@ func (m *UpstreamConfigMutation) AddedEdges() []string {
 	}
 	if m.balance_snapshots != nil {
 		edges = append(edges, upstreamconfig.EdgeBalanceSnapshots)
+	}
+	if m.key_rate_snapshots != nil {
+		edges = append(edges, upstreamconfig.EdgeKeyRateSnapshots)
 	}
 	if m.usage_logs != nil {
 		edges = append(edges, upstreamconfig.EdgeUsageLogs)
@@ -44928,6 +44990,12 @@ func (m *UpstreamConfigMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case upstreamconfig.EdgeKeyRateSnapshots:
+		ids := make([]ent.Value, 0, len(m.key_rate_snapshots))
+		for id := range m.key_rate_snapshots {
+			ids = append(ids, id)
+		}
+		return ids
 	case upstreamconfig.EdgeUsageLogs:
 		ids := make([]ent.Value, 0, len(m.usage_logs))
 		for id := range m.usage_logs {
@@ -44944,7 +45012,7 @@ func (m *UpstreamConfigMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *UpstreamConfigMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 8)
+	edges := make([]string, 0, 9)
 	if m.removedkeys != nil {
 		edges = append(edges, upstreamconfig.EdgeKeys)
 	}
@@ -44962,6 +45030,9 @@ func (m *UpstreamConfigMutation) RemovedEdges() []string {
 	}
 	if m.removedbalance_snapshots != nil {
 		edges = append(edges, upstreamconfig.EdgeBalanceSnapshots)
+	}
+	if m.removedkey_rate_snapshots != nil {
+		edges = append(edges, upstreamconfig.EdgeKeyRateSnapshots)
 	}
 	if m.removedusage_logs != nil {
 		edges = append(edges, upstreamconfig.EdgeUsageLogs)
@@ -45009,6 +45080,12 @@ func (m *UpstreamConfigMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case upstreamconfig.EdgeKeyRateSnapshots:
+		ids := make([]ent.Value, 0, len(m.removedkey_rate_snapshots))
+		for id := range m.removedkey_rate_snapshots {
+			ids = append(ids, id)
+		}
+		return ids
 	case upstreamconfig.EdgeUsageLogs:
 		ids := make([]ent.Value, 0, len(m.removedusage_logs))
 		for id := range m.removedusage_logs {
@@ -45021,7 +45098,7 @@ func (m *UpstreamConfigMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *UpstreamConfigMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 8)
+	edges := make([]string, 0, 9)
 	if m.clearedkeys {
 		edges = append(edges, upstreamconfig.EdgeKeys)
 	}
@@ -45039,6 +45116,9 @@ func (m *UpstreamConfigMutation) ClearedEdges() []string {
 	}
 	if m.clearedbalance_snapshots {
 		edges = append(edges, upstreamconfig.EdgeBalanceSnapshots)
+	}
+	if m.clearedkey_rate_snapshots {
+		edges = append(edges, upstreamconfig.EdgeKeyRateSnapshots)
 	}
 	if m.clearedusage_logs {
 		edges = append(edges, upstreamconfig.EdgeUsageLogs)
@@ -45065,6 +45145,8 @@ func (m *UpstreamConfigMutation) EdgeCleared(name string) bool {
 		return m.clearedincidents
 	case upstreamconfig.EdgeBalanceSnapshots:
 		return m.clearedbalance_snapshots
+	case upstreamconfig.EdgeKeyRateSnapshots:
+		return m.clearedkey_rate_snapshots
 	case upstreamconfig.EdgeUsageLogs:
 		return m.clearedusage_logs
 	case upstreamconfig.EdgeProxy:
@@ -45105,6 +45187,9 @@ func (m *UpstreamConfigMutation) ResetEdge(name string) error {
 		return nil
 	case upstreamconfig.EdgeBalanceSnapshots:
 		m.ResetBalanceSnapshots()
+		return nil
+	case upstreamconfig.EdgeKeyRateSnapshots:
+		m.ResetKeyRateSnapshots()
 		return nil
 	case upstreamconfig.EdgeUsageLogs:
 		m.ResetUsageLogs()
@@ -48166,47 +48251,50 @@ func (m *UpstreamIncidentMutation) ResetEdge(name string) error {
 // UpstreamKeyMutation represents an operation that mutates the UpstreamKey nodes in the graph.
 type UpstreamKeyMutation struct {
 	config
-	op                   Op
-	typ                  string
-	id                   *int64
-	created_at           *time.Time
-	updated_at           *time.Time
-	deleted_at           *time.Time
-	name                 *string
-	key                  *string
-	key_hash             *string
-	remote_key_id        *int64
-	addremote_key_id     *int64
-	upstream_group_id    *int64
-	addupstream_group_id *int64
-	upstream_group_name  *string
-	platform             *string
-	rate_multiplier      *float64
-	addrate_multiplier   *float64
-	status               *string
-	last_seen_at         *time.Time
-	missing_count        *int
-	addmissing_count     *int
-	missing_since        *time.Time
-	extra                *map[string]interface{}
-	clearedFields        map[string]struct{}
-	_config              *int64
-	cleared_config       bool
-	accounts             map[int64]struct{}
-	removedaccounts      map[int64]struct{}
-	clearedaccounts      bool
-	events               map[int64]struct{}
-	removedevents        map[int64]struct{}
-	clearedevents        bool
-	incidents            map[int64]struct{}
-	removedincidents     map[int64]struct{}
-	clearedincidents     bool
-	usage_logs           map[int64]struct{}
-	removedusage_logs    map[int64]struct{}
-	clearedusage_logs    bool
-	done                 bool
-	oldValue             func(context.Context) (*UpstreamKey, error)
-	predicates           []predicate.UpstreamKey
+	op                    Op
+	typ                   string
+	id                    *int64
+	created_at            *time.Time
+	updated_at            *time.Time
+	deleted_at            *time.Time
+	name                  *string
+	key                   *string
+	key_hash              *string
+	remote_key_id         *int64
+	addremote_key_id      *int64
+	upstream_group_id     *int64
+	addupstream_group_id  *int64
+	upstream_group_name   *string
+	platform              *string
+	rate_multiplier       *float64
+	addrate_multiplier    *float64
+	status                *string
+	last_seen_at          *time.Time
+	missing_count         *int
+	addmissing_count      *int
+	missing_since         *time.Time
+	extra                 *map[string]interface{}
+	clearedFields         map[string]struct{}
+	_config               *int64
+	cleared_config        bool
+	accounts              map[int64]struct{}
+	removedaccounts       map[int64]struct{}
+	clearedaccounts       bool
+	events                map[int64]struct{}
+	removedevents         map[int64]struct{}
+	clearedevents         bool
+	incidents             map[int64]struct{}
+	removedincidents      map[int64]struct{}
+	clearedincidents      bool
+	rate_snapshots        map[int64]struct{}
+	removedrate_snapshots map[int64]struct{}
+	clearedrate_snapshots bool
+	usage_logs            map[int64]struct{}
+	removedusage_logs     map[int64]struct{}
+	clearedusage_logs     bool
+	done                  bool
+	oldValue              func(context.Context) (*UpstreamKey, error)
+	predicates            []predicate.UpstreamKey
 }
 
 var _ ent.Mutation = (*UpstreamKeyMutation)(nil)
@@ -49282,6 +49370,60 @@ func (m *UpstreamKeyMutation) ResetIncidents() {
 	m.removedincidents = nil
 }
 
+// AddRateSnapshotIDs adds the "rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by ids.
+func (m *UpstreamKeyMutation) AddRateSnapshotIDs(ids ...int64) {
+	if m.rate_snapshots == nil {
+		m.rate_snapshots = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.rate_snapshots[ids[i]] = struct{}{}
+	}
+}
+
+// ClearRateSnapshots clears the "rate_snapshots" edge to the UpstreamKeyRateSnapshot entity.
+func (m *UpstreamKeyMutation) ClearRateSnapshots() {
+	m.clearedrate_snapshots = true
+}
+
+// RateSnapshotsCleared reports if the "rate_snapshots" edge to the UpstreamKeyRateSnapshot entity was cleared.
+func (m *UpstreamKeyMutation) RateSnapshotsCleared() bool {
+	return m.clearedrate_snapshots
+}
+
+// RemoveRateSnapshotIDs removes the "rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (m *UpstreamKeyMutation) RemoveRateSnapshotIDs(ids ...int64) {
+	if m.removedrate_snapshots == nil {
+		m.removedrate_snapshots = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.rate_snapshots, ids[i])
+		m.removedrate_snapshots[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedRateSnapshots returns the removed IDs of the "rate_snapshots" edge to the UpstreamKeyRateSnapshot entity.
+func (m *UpstreamKeyMutation) RemovedRateSnapshotsIDs() (ids []int64) {
+	for id := range m.removedrate_snapshots {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// RateSnapshotsIDs returns the "rate_snapshots" edge IDs in the mutation.
+func (m *UpstreamKeyMutation) RateSnapshotsIDs() (ids []int64) {
+	for id := range m.rate_snapshots {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetRateSnapshots resets all changes to the "rate_snapshots" edge.
+func (m *UpstreamKeyMutation) ResetRateSnapshots() {
+	m.rate_snapshots = nil
+	m.clearedrate_snapshots = false
+	m.removedrate_snapshots = nil
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by ids.
 func (m *UpstreamKeyMutation) AddUsageLogIDs(ids ...int64) {
 	if m.usage_logs == nil {
@@ -49831,7 +49973,7 @@ func (m *UpstreamKeyMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *UpstreamKeyMutation) AddedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m._config != nil {
 		edges = append(edges, upstreamkey.EdgeConfig)
 	}
@@ -49843,6 +49985,9 @@ func (m *UpstreamKeyMutation) AddedEdges() []string {
 	}
 	if m.incidents != nil {
 		edges = append(edges, upstreamkey.EdgeIncidents)
+	}
+	if m.rate_snapshots != nil {
+		edges = append(edges, upstreamkey.EdgeRateSnapshots)
 	}
 	if m.usage_logs != nil {
 		edges = append(edges, upstreamkey.EdgeUsageLogs)
@@ -49876,6 +50021,12 @@ func (m *UpstreamKeyMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case upstreamkey.EdgeRateSnapshots:
+		ids := make([]ent.Value, 0, len(m.rate_snapshots))
+		for id := range m.rate_snapshots {
+			ids = append(ids, id)
+		}
+		return ids
 	case upstreamkey.EdgeUsageLogs:
 		ids := make([]ent.Value, 0, len(m.usage_logs))
 		for id := range m.usage_logs {
@@ -49888,7 +50039,7 @@ func (m *UpstreamKeyMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *UpstreamKeyMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.removedaccounts != nil {
 		edges = append(edges, upstreamkey.EdgeAccounts)
 	}
@@ -49897,6 +50048,9 @@ func (m *UpstreamKeyMutation) RemovedEdges() []string {
 	}
 	if m.removedincidents != nil {
 		edges = append(edges, upstreamkey.EdgeIncidents)
+	}
+	if m.removedrate_snapshots != nil {
+		edges = append(edges, upstreamkey.EdgeRateSnapshots)
 	}
 	if m.removedusage_logs != nil {
 		edges = append(edges, upstreamkey.EdgeUsageLogs)
@@ -49926,6 +50080,12 @@ func (m *UpstreamKeyMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case upstreamkey.EdgeRateSnapshots:
+		ids := make([]ent.Value, 0, len(m.removedrate_snapshots))
+		for id := range m.removedrate_snapshots {
+			ids = append(ids, id)
+		}
+		return ids
 	case upstreamkey.EdgeUsageLogs:
 		ids := make([]ent.Value, 0, len(m.removedusage_logs))
 		for id := range m.removedusage_logs {
@@ -49938,7 +50098,7 @@ func (m *UpstreamKeyMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *UpstreamKeyMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.cleared_config {
 		edges = append(edges, upstreamkey.EdgeConfig)
 	}
@@ -49950,6 +50110,9 @@ func (m *UpstreamKeyMutation) ClearedEdges() []string {
 	}
 	if m.clearedincidents {
 		edges = append(edges, upstreamkey.EdgeIncidents)
+	}
+	if m.clearedrate_snapshots {
+		edges = append(edges, upstreamkey.EdgeRateSnapshots)
 	}
 	if m.clearedusage_logs {
 		edges = append(edges, upstreamkey.EdgeUsageLogs)
@@ -49969,6 +50132,8 @@ func (m *UpstreamKeyMutation) EdgeCleared(name string) bool {
 		return m.clearedevents
 	case upstreamkey.EdgeIncidents:
 		return m.clearedincidents
+	case upstreamkey.EdgeRateSnapshots:
+		return m.clearedrate_snapshots
 	case upstreamkey.EdgeUsageLogs:
 		return m.clearedusage_logs
 	}
@@ -50002,11 +50167,1369 @@ func (m *UpstreamKeyMutation) ResetEdge(name string) error {
 	case upstreamkey.EdgeIncidents:
 		m.ResetIncidents()
 		return nil
+	case upstreamkey.EdgeRateSnapshots:
+		m.ResetRateSnapshots()
+		return nil
 	case upstreamkey.EdgeUsageLogs:
 		m.ResetUsageLogs()
 		return nil
 	}
 	return fmt.Errorf("unknown UpstreamKey edge %s", name)
+}
+
+// UpstreamKeyRateSnapshotMutation represents an operation that mutates the UpstreamKeyRateSnapshot nodes in the graph.
+type UpstreamKeyRateSnapshotMutation struct {
+	config
+	op                           Op
+	typ                          string
+	id                           *int64
+	remote_key_id                *int64
+	addremote_key_id             *int64
+	key_name_snapshot            *string
+	key_hash_snapshot            *string
+	provider                     *string
+	raw_rate_multiplier          *float64
+	addraw_rate_multiplier       *float64
+	recharge_rate                *float64
+	addrecharge_rate             *float64
+	effective_cost_multiplier    *float64
+	addeffective_cost_multiplier *float64
+	source                       *string
+	observed_at                  *time.Time
+	created_at                   *time.Time
+	clearedFields                map[string]struct{}
+	_config                      *int64
+	cleared_config               bool
+	key                          *int64
+	clearedkey                   bool
+	run                          *int64
+	clearedrun                   bool
+	done                         bool
+	oldValue                     func(context.Context) (*UpstreamKeyRateSnapshot, error)
+	predicates                   []predicate.UpstreamKeyRateSnapshot
+}
+
+var _ ent.Mutation = (*UpstreamKeyRateSnapshotMutation)(nil)
+
+// upstreamkeyratesnapshotOption allows management of the mutation configuration using functional options.
+type upstreamkeyratesnapshotOption func(*UpstreamKeyRateSnapshotMutation)
+
+// newUpstreamKeyRateSnapshotMutation creates new mutation for the UpstreamKeyRateSnapshot entity.
+func newUpstreamKeyRateSnapshotMutation(c config, op Op, opts ...upstreamkeyratesnapshotOption) *UpstreamKeyRateSnapshotMutation {
+	m := &UpstreamKeyRateSnapshotMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeUpstreamKeyRateSnapshot,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withUpstreamKeyRateSnapshotID sets the ID field of the mutation.
+func withUpstreamKeyRateSnapshotID(id int64) upstreamkeyratesnapshotOption {
+	return func(m *UpstreamKeyRateSnapshotMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *UpstreamKeyRateSnapshot
+		)
+		m.oldValue = func(ctx context.Context) (*UpstreamKeyRateSnapshot, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().UpstreamKeyRateSnapshot.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withUpstreamKeyRateSnapshot sets the old UpstreamKeyRateSnapshot of the mutation.
+func withUpstreamKeyRateSnapshot(node *UpstreamKeyRateSnapshot) upstreamkeyratesnapshotOption {
+	return func(m *UpstreamKeyRateSnapshotMutation) {
+		m.oldValue = func(context.Context) (*UpstreamKeyRateSnapshot, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m UpstreamKeyRateSnapshotMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m UpstreamKeyRateSnapshotMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *UpstreamKeyRateSnapshotMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().UpstreamKeyRateSnapshot.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetUpstreamConfigID(i int64) {
+	m._config = &i
+}
+
+// UpstreamConfigID returns the value of the "upstream_config_id" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) UpstreamConfigID() (r int64, exists bool) {
+	v := m._config
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamConfigID returns the old "upstream_config_id" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldUpstreamConfigID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamConfigID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamConfigID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamConfigID: %w", err)
+	}
+	return oldValue.UpstreamConfigID, nil
+}
+
+// ResetUpstreamConfigID resets all changes to the "upstream_config_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetUpstreamConfigID() {
+	m._config = nil
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetUpstreamKeyID(i int64) {
+	m.key = &i
+}
+
+// UpstreamKeyID returns the value of the "upstream_key_id" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) UpstreamKeyID() (r int64, exists bool) {
+	v := m.key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamKeyID returns the old "upstream_key_id" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldUpstreamKeyID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamKeyID: %w", err)
+	}
+	return oldValue.UpstreamKeyID, nil
+}
+
+// ClearUpstreamKeyID clears the value of the "upstream_key_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) ClearUpstreamKeyID() {
+	m.key = nil
+	m.clearedFields[upstreamkeyratesnapshot.FieldUpstreamKeyID] = struct{}{}
+}
+
+// UpstreamKeyIDCleared returns if the "upstream_key_id" field was cleared in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) UpstreamKeyIDCleared() bool {
+	_, ok := m.clearedFields[upstreamkeyratesnapshot.FieldUpstreamKeyID]
+	return ok
+}
+
+// ResetUpstreamKeyID resets all changes to the "upstream_key_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetUpstreamKeyID() {
+	m.key = nil
+	delete(m.clearedFields, upstreamkeyratesnapshot.FieldUpstreamKeyID)
+}
+
+// SetRemoteKeyID sets the "remote_key_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetRemoteKeyID(i int64) {
+	m.remote_key_id = &i
+	m.addremote_key_id = nil
+}
+
+// RemoteKeyID returns the value of the "remote_key_id" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) RemoteKeyID() (r int64, exists bool) {
+	v := m.remote_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRemoteKeyID returns the old "remote_key_id" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldRemoteKeyID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRemoteKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRemoteKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRemoteKeyID: %w", err)
+	}
+	return oldValue.RemoteKeyID, nil
+}
+
+// AddRemoteKeyID adds i to the "remote_key_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) AddRemoteKeyID(i int64) {
+	if m.addremote_key_id != nil {
+		*m.addremote_key_id += i
+	} else {
+		m.addremote_key_id = &i
+	}
+}
+
+// AddedRemoteKeyID returns the value that was added to the "remote_key_id" field in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) AddedRemoteKeyID() (r int64, exists bool) {
+	v := m.addremote_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearRemoteKeyID clears the value of the "remote_key_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) ClearRemoteKeyID() {
+	m.remote_key_id = nil
+	m.addremote_key_id = nil
+	m.clearedFields[upstreamkeyratesnapshot.FieldRemoteKeyID] = struct{}{}
+}
+
+// RemoteKeyIDCleared returns if the "remote_key_id" field was cleared in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) RemoteKeyIDCleared() bool {
+	_, ok := m.clearedFields[upstreamkeyratesnapshot.FieldRemoteKeyID]
+	return ok
+}
+
+// ResetRemoteKeyID resets all changes to the "remote_key_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetRemoteKeyID() {
+	m.remote_key_id = nil
+	m.addremote_key_id = nil
+	delete(m.clearedFields, upstreamkeyratesnapshot.FieldRemoteKeyID)
+}
+
+// SetKeyNameSnapshot sets the "key_name_snapshot" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetKeyNameSnapshot(s string) {
+	m.key_name_snapshot = &s
+}
+
+// KeyNameSnapshot returns the value of the "key_name_snapshot" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) KeyNameSnapshot() (r string, exists bool) {
+	v := m.key_name_snapshot
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKeyNameSnapshot returns the old "key_name_snapshot" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldKeyNameSnapshot(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKeyNameSnapshot is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKeyNameSnapshot requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKeyNameSnapshot: %w", err)
+	}
+	return oldValue.KeyNameSnapshot, nil
+}
+
+// ResetKeyNameSnapshot resets all changes to the "key_name_snapshot" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetKeyNameSnapshot() {
+	m.key_name_snapshot = nil
+}
+
+// SetKeyHashSnapshot sets the "key_hash_snapshot" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetKeyHashSnapshot(s string) {
+	m.key_hash_snapshot = &s
+}
+
+// KeyHashSnapshot returns the value of the "key_hash_snapshot" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) KeyHashSnapshot() (r string, exists bool) {
+	v := m.key_hash_snapshot
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKeyHashSnapshot returns the old "key_hash_snapshot" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldKeyHashSnapshot(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKeyHashSnapshot is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKeyHashSnapshot requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKeyHashSnapshot: %w", err)
+	}
+	return oldValue.KeyHashSnapshot, nil
+}
+
+// ResetKeyHashSnapshot resets all changes to the "key_hash_snapshot" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetKeyHashSnapshot() {
+	m.key_hash_snapshot = nil
+}
+
+// SetSyncRunID sets the "sync_run_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetSyncRunID(i int64) {
+	m.run = &i
+}
+
+// SyncRunID returns the value of the "sync_run_id" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) SyncRunID() (r int64, exists bool) {
+	v := m.run
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSyncRunID returns the old "sync_run_id" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldSyncRunID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSyncRunID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSyncRunID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSyncRunID: %w", err)
+	}
+	return oldValue.SyncRunID, nil
+}
+
+// ClearSyncRunID clears the value of the "sync_run_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) ClearSyncRunID() {
+	m.run = nil
+	m.clearedFields[upstreamkeyratesnapshot.FieldSyncRunID] = struct{}{}
+}
+
+// SyncRunIDCleared returns if the "sync_run_id" field was cleared in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) SyncRunIDCleared() bool {
+	_, ok := m.clearedFields[upstreamkeyratesnapshot.FieldSyncRunID]
+	return ok
+}
+
+// ResetSyncRunID resets all changes to the "sync_run_id" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetSyncRunID() {
+	m.run = nil
+	delete(m.clearedFields, upstreamkeyratesnapshot.FieldSyncRunID)
+}
+
+// SetProvider sets the "provider" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetProvider(s string) {
+	m.provider = &s
+}
+
+// Provider returns the value of the "provider" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) Provider() (r string, exists bool) {
+	v := m.provider
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProvider returns the old "provider" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldProvider(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProvider is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProvider requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProvider: %w", err)
+	}
+	return oldValue.Provider, nil
+}
+
+// ResetProvider resets all changes to the "provider" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetProvider() {
+	m.provider = nil
+}
+
+// SetRawRateMultiplier sets the "raw_rate_multiplier" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetRawRateMultiplier(f float64) {
+	m.raw_rate_multiplier = &f
+	m.addraw_rate_multiplier = nil
+}
+
+// RawRateMultiplier returns the value of the "raw_rate_multiplier" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) RawRateMultiplier() (r float64, exists bool) {
+	v := m.raw_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRawRateMultiplier returns the old "raw_rate_multiplier" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldRawRateMultiplier(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRawRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRawRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRawRateMultiplier: %w", err)
+	}
+	return oldValue.RawRateMultiplier, nil
+}
+
+// AddRawRateMultiplier adds f to the "raw_rate_multiplier" field.
+func (m *UpstreamKeyRateSnapshotMutation) AddRawRateMultiplier(f float64) {
+	if m.addraw_rate_multiplier != nil {
+		*m.addraw_rate_multiplier += f
+	} else {
+		m.addraw_rate_multiplier = &f
+	}
+}
+
+// AddedRawRateMultiplier returns the value that was added to the "raw_rate_multiplier" field in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) AddedRawRateMultiplier() (r float64, exists bool) {
+	v := m.addraw_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRawRateMultiplier resets all changes to the "raw_rate_multiplier" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetRawRateMultiplier() {
+	m.raw_rate_multiplier = nil
+	m.addraw_rate_multiplier = nil
+}
+
+// SetRechargeRate sets the "recharge_rate" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetRechargeRate(f float64) {
+	m.recharge_rate = &f
+	m.addrecharge_rate = nil
+}
+
+// RechargeRate returns the value of the "recharge_rate" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) RechargeRate() (r float64, exists bool) {
+	v := m.recharge_rate
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRechargeRate returns the old "recharge_rate" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldRechargeRate(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRechargeRate is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRechargeRate requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRechargeRate: %w", err)
+	}
+	return oldValue.RechargeRate, nil
+}
+
+// AddRechargeRate adds f to the "recharge_rate" field.
+func (m *UpstreamKeyRateSnapshotMutation) AddRechargeRate(f float64) {
+	if m.addrecharge_rate != nil {
+		*m.addrecharge_rate += f
+	} else {
+		m.addrecharge_rate = &f
+	}
+}
+
+// AddedRechargeRate returns the value that was added to the "recharge_rate" field in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) AddedRechargeRate() (r float64, exists bool) {
+	v := m.addrecharge_rate
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRechargeRate resets all changes to the "recharge_rate" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetRechargeRate() {
+	m.recharge_rate = nil
+	m.addrecharge_rate = nil
+}
+
+// SetEffectiveCostMultiplier sets the "effective_cost_multiplier" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetEffectiveCostMultiplier(f float64) {
+	m.effective_cost_multiplier = &f
+	m.addeffective_cost_multiplier = nil
+}
+
+// EffectiveCostMultiplier returns the value of the "effective_cost_multiplier" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) EffectiveCostMultiplier() (r float64, exists bool) {
+	v := m.effective_cost_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEffectiveCostMultiplier returns the old "effective_cost_multiplier" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldEffectiveCostMultiplier(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEffectiveCostMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEffectiveCostMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEffectiveCostMultiplier: %w", err)
+	}
+	return oldValue.EffectiveCostMultiplier, nil
+}
+
+// AddEffectiveCostMultiplier adds f to the "effective_cost_multiplier" field.
+func (m *UpstreamKeyRateSnapshotMutation) AddEffectiveCostMultiplier(f float64) {
+	if m.addeffective_cost_multiplier != nil {
+		*m.addeffective_cost_multiplier += f
+	} else {
+		m.addeffective_cost_multiplier = &f
+	}
+}
+
+// AddedEffectiveCostMultiplier returns the value that was added to the "effective_cost_multiplier" field in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) AddedEffectiveCostMultiplier() (r float64, exists bool) {
+	v := m.addeffective_cost_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetEffectiveCostMultiplier resets all changes to the "effective_cost_multiplier" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetEffectiveCostMultiplier() {
+	m.effective_cost_multiplier = nil
+	m.addeffective_cost_multiplier = nil
+}
+
+// SetSource sets the "source" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetSource(s string) {
+	m.source = &s
+}
+
+// Source returns the value of the "source" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) Source() (r string, exists bool) {
+	v := m.source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSource returns the old "source" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldSource(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSource: %w", err)
+	}
+	return oldValue.Source, nil
+}
+
+// ResetSource resets all changes to the "source" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetSource() {
+	m.source = nil
+}
+
+// SetObservedAt sets the "observed_at" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetObservedAt(t time.Time) {
+	m.observed_at = &t
+}
+
+// ObservedAt returns the value of the "observed_at" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) ObservedAt() (r time.Time, exists bool) {
+	v := m.observed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldObservedAt returns the old "observed_at" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldObservedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldObservedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldObservedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldObservedAt: %w", err)
+	}
+	return oldValue.ObservedAt, nil
+}
+
+// ResetObservedAt resets all changes to the "observed_at" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetObservedAt() {
+	m.observed_at = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *UpstreamKeyRateSnapshotMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the UpstreamKeyRateSnapshot entity.
+// If the UpstreamKeyRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyRateSnapshotMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *UpstreamKeyRateSnapshotMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetConfigID sets the "config" edge to the UpstreamConfig entity by id.
+func (m *UpstreamKeyRateSnapshotMutation) SetConfigID(id int64) {
+	m._config = &id
+}
+
+// ClearConfig clears the "config" edge to the UpstreamConfig entity.
+func (m *UpstreamKeyRateSnapshotMutation) ClearConfig() {
+	m.cleared_config = true
+	m.clearedFields[upstreamkeyratesnapshot.FieldUpstreamConfigID] = struct{}{}
+}
+
+// ConfigCleared reports if the "config" edge to the UpstreamConfig entity was cleared.
+func (m *UpstreamKeyRateSnapshotMutation) ConfigCleared() bool {
+	return m.cleared_config
+}
+
+// ConfigID returns the "config" edge ID in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) ConfigID() (id int64, exists bool) {
+	if m._config != nil {
+		return *m._config, true
+	}
+	return
+}
+
+// ConfigIDs returns the "config" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ConfigID instead. It exists only for internal usage by the builders.
+func (m *UpstreamKeyRateSnapshotMutation) ConfigIDs() (ids []int64) {
+	if id := m._config; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetConfig resets all changes to the "config" edge.
+func (m *UpstreamKeyRateSnapshotMutation) ResetConfig() {
+	m._config = nil
+	m.cleared_config = false
+}
+
+// SetKeyID sets the "key" edge to the UpstreamKey entity by id.
+func (m *UpstreamKeyRateSnapshotMutation) SetKeyID(id int64) {
+	m.key = &id
+}
+
+// ClearKey clears the "key" edge to the UpstreamKey entity.
+func (m *UpstreamKeyRateSnapshotMutation) ClearKey() {
+	m.clearedkey = true
+	m.clearedFields[upstreamkeyratesnapshot.FieldUpstreamKeyID] = struct{}{}
+}
+
+// KeyCleared reports if the "key" edge to the UpstreamKey entity was cleared.
+func (m *UpstreamKeyRateSnapshotMutation) KeyCleared() bool {
+	return m.UpstreamKeyIDCleared() || m.clearedkey
+}
+
+// KeyID returns the "key" edge ID in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) KeyID() (id int64, exists bool) {
+	if m.key != nil {
+		return *m.key, true
+	}
+	return
+}
+
+// KeyIDs returns the "key" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// KeyID instead. It exists only for internal usage by the builders.
+func (m *UpstreamKeyRateSnapshotMutation) KeyIDs() (ids []int64) {
+	if id := m.key; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetKey resets all changes to the "key" edge.
+func (m *UpstreamKeyRateSnapshotMutation) ResetKey() {
+	m.key = nil
+	m.clearedkey = false
+}
+
+// SetRunID sets the "run" edge to the UpstreamSyncRun entity by id.
+func (m *UpstreamKeyRateSnapshotMutation) SetRunID(id int64) {
+	m.run = &id
+}
+
+// ClearRun clears the "run" edge to the UpstreamSyncRun entity.
+func (m *UpstreamKeyRateSnapshotMutation) ClearRun() {
+	m.clearedrun = true
+	m.clearedFields[upstreamkeyratesnapshot.FieldSyncRunID] = struct{}{}
+}
+
+// RunCleared reports if the "run" edge to the UpstreamSyncRun entity was cleared.
+func (m *UpstreamKeyRateSnapshotMutation) RunCleared() bool {
+	return m.SyncRunIDCleared() || m.clearedrun
+}
+
+// RunID returns the "run" edge ID in the mutation.
+func (m *UpstreamKeyRateSnapshotMutation) RunID() (id int64, exists bool) {
+	if m.run != nil {
+		return *m.run, true
+	}
+	return
+}
+
+// RunIDs returns the "run" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// RunID instead. It exists only for internal usage by the builders.
+func (m *UpstreamKeyRateSnapshotMutation) RunIDs() (ids []int64) {
+	if id := m.run; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetRun resets all changes to the "run" edge.
+func (m *UpstreamKeyRateSnapshotMutation) ResetRun() {
+	m.run = nil
+	m.clearedrun = false
+}
+
+// Where appends a list predicates to the UpstreamKeyRateSnapshotMutation builder.
+func (m *UpstreamKeyRateSnapshotMutation) Where(ps ...predicate.UpstreamKeyRateSnapshot) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the UpstreamKeyRateSnapshotMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *UpstreamKeyRateSnapshotMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.UpstreamKeyRateSnapshot, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *UpstreamKeyRateSnapshotMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *UpstreamKeyRateSnapshotMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (UpstreamKeyRateSnapshot).
+func (m *UpstreamKeyRateSnapshotMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *UpstreamKeyRateSnapshotMutation) Fields() []string {
+	fields := make([]string, 0, 13)
+	if m._config != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldUpstreamConfigID)
+	}
+	if m.key != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldUpstreamKeyID)
+	}
+	if m.remote_key_id != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldRemoteKeyID)
+	}
+	if m.key_name_snapshot != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldKeyNameSnapshot)
+	}
+	if m.key_hash_snapshot != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldKeyHashSnapshot)
+	}
+	if m.run != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldSyncRunID)
+	}
+	if m.provider != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldProvider)
+	}
+	if m.raw_rate_multiplier != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldRawRateMultiplier)
+	}
+	if m.recharge_rate != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldRechargeRate)
+	}
+	if m.effective_cost_multiplier != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldEffectiveCostMultiplier)
+	}
+	if m.source != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldSource)
+	}
+	if m.observed_at != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldObservedAt)
+	}
+	if m.created_at != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *UpstreamKeyRateSnapshotMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case upstreamkeyratesnapshot.FieldUpstreamConfigID:
+		return m.UpstreamConfigID()
+	case upstreamkeyratesnapshot.FieldUpstreamKeyID:
+		return m.UpstreamKeyID()
+	case upstreamkeyratesnapshot.FieldRemoteKeyID:
+		return m.RemoteKeyID()
+	case upstreamkeyratesnapshot.FieldKeyNameSnapshot:
+		return m.KeyNameSnapshot()
+	case upstreamkeyratesnapshot.FieldKeyHashSnapshot:
+		return m.KeyHashSnapshot()
+	case upstreamkeyratesnapshot.FieldSyncRunID:
+		return m.SyncRunID()
+	case upstreamkeyratesnapshot.FieldProvider:
+		return m.Provider()
+	case upstreamkeyratesnapshot.FieldRawRateMultiplier:
+		return m.RawRateMultiplier()
+	case upstreamkeyratesnapshot.FieldRechargeRate:
+		return m.RechargeRate()
+	case upstreamkeyratesnapshot.FieldEffectiveCostMultiplier:
+		return m.EffectiveCostMultiplier()
+	case upstreamkeyratesnapshot.FieldSource:
+		return m.Source()
+	case upstreamkeyratesnapshot.FieldObservedAt:
+		return m.ObservedAt()
+	case upstreamkeyratesnapshot.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *UpstreamKeyRateSnapshotMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case upstreamkeyratesnapshot.FieldUpstreamConfigID:
+		return m.OldUpstreamConfigID(ctx)
+	case upstreamkeyratesnapshot.FieldUpstreamKeyID:
+		return m.OldUpstreamKeyID(ctx)
+	case upstreamkeyratesnapshot.FieldRemoteKeyID:
+		return m.OldRemoteKeyID(ctx)
+	case upstreamkeyratesnapshot.FieldKeyNameSnapshot:
+		return m.OldKeyNameSnapshot(ctx)
+	case upstreamkeyratesnapshot.FieldKeyHashSnapshot:
+		return m.OldKeyHashSnapshot(ctx)
+	case upstreamkeyratesnapshot.FieldSyncRunID:
+		return m.OldSyncRunID(ctx)
+	case upstreamkeyratesnapshot.FieldProvider:
+		return m.OldProvider(ctx)
+	case upstreamkeyratesnapshot.FieldRawRateMultiplier:
+		return m.OldRawRateMultiplier(ctx)
+	case upstreamkeyratesnapshot.FieldRechargeRate:
+		return m.OldRechargeRate(ctx)
+	case upstreamkeyratesnapshot.FieldEffectiveCostMultiplier:
+		return m.OldEffectiveCostMultiplier(ctx)
+	case upstreamkeyratesnapshot.FieldSource:
+		return m.OldSource(ctx)
+	case upstreamkeyratesnapshot.FieldObservedAt:
+		return m.OldObservedAt(ctx)
+	case upstreamkeyratesnapshot.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown UpstreamKeyRateSnapshot field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UpstreamKeyRateSnapshotMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case upstreamkeyratesnapshot.FieldUpstreamConfigID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamConfigID(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldUpstreamKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamKeyID(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldRemoteKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRemoteKeyID(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldKeyNameSnapshot:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKeyNameSnapshot(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldKeyHashSnapshot:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKeyHashSnapshot(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldSyncRunID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSyncRunID(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldProvider:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProvider(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldRawRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRawRateMultiplier(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldRechargeRate:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRechargeRate(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldEffectiveCostMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEffectiveCostMultiplier(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSource(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldObservedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetObservedAt(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyRateSnapshot field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) AddedFields() []string {
+	var fields []string
+	if m.addremote_key_id != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldRemoteKeyID)
+	}
+	if m.addraw_rate_multiplier != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldRawRateMultiplier)
+	}
+	if m.addrecharge_rate != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldRechargeRate)
+	}
+	if m.addeffective_cost_multiplier != nil {
+		fields = append(fields, upstreamkeyratesnapshot.FieldEffectiveCostMultiplier)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *UpstreamKeyRateSnapshotMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case upstreamkeyratesnapshot.FieldRemoteKeyID:
+		return m.AddedRemoteKeyID()
+	case upstreamkeyratesnapshot.FieldRawRateMultiplier:
+		return m.AddedRawRateMultiplier()
+	case upstreamkeyratesnapshot.FieldRechargeRate:
+		return m.AddedRechargeRate()
+	case upstreamkeyratesnapshot.FieldEffectiveCostMultiplier:
+		return m.AddedEffectiveCostMultiplier()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UpstreamKeyRateSnapshotMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case upstreamkeyratesnapshot.FieldRemoteKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRemoteKeyID(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldRawRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRawRateMultiplier(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldRechargeRate:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRechargeRate(v)
+		return nil
+	case upstreamkeyratesnapshot.FieldEffectiveCostMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddEffectiveCostMultiplier(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyRateSnapshot numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *UpstreamKeyRateSnapshotMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(upstreamkeyratesnapshot.FieldUpstreamKeyID) {
+		fields = append(fields, upstreamkeyratesnapshot.FieldUpstreamKeyID)
+	}
+	if m.FieldCleared(upstreamkeyratesnapshot.FieldRemoteKeyID) {
+		fields = append(fields, upstreamkeyratesnapshot.FieldRemoteKeyID)
+	}
+	if m.FieldCleared(upstreamkeyratesnapshot.FieldSyncRunID) {
+		fields = append(fields, upstreamkeyratesnapshot.FieldSyncRunID)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *UpstreamKeyRateSnapshotMutation) ClearField(name string) error {
+	switch name {
+	case upstreamkeyratesnapshot.FieldUpstreamKeyID:
+		m.ClearUpstreamKeyID()
+		return nil
+	case upstreamkeyratesnapshot.FieldRemoteKeyID:
+		m.ClearRemoteKeyID()
+		return nil
+	case upstreamkeyratesnapshot.FieldSyncRunID:
+		m.ClearSyncRunID()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyRateSnapshot nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *UpstreamKeyRateSnapshotMutation) ResetField(name string) error {
+	switch name {
+	case upstreamkeyratesnapshot.FieldUpstreamConfigID:
+		m.ResetUpstreamConfigID()
+		return nil
+	case upstreamkeyratesnapshot.FieldUpstreamKeyID:
+		m.ResetUpstreamKeyID()
+		return nil
+	case upstreamkeyratesnapshot.FieldRemoteKeyID:
+		m.ResetRemoteKeyID()
+		return nil
+	case upstreamkeyratesnapshot.FieldKeyNameSnapshot:
+		m.ResetKeyNameSnapshot()
+		return nil
+	case upstreamkeyratesnapshot.FieldKeyHashSnapshot:
+		m.ResetKeyHashSnapshot()
+		return nil
+	case upstreamkeyratesnapshot.FieldSyncRunID:
+		m.ResetSyncRunID()
+		return nil
+	case upstreamkeyratesnapshot.FieldProvider:
+		m.ResetProvider()
+		return nil
+	case upstreamkeyratesnapshot.FieldRawRateMultiplier:
+		m.ResetRawRateMultiplier()
+		return nil
+	case upstreamkeyratesnapshot.FieldRechargeRate:
+		m.ResetRechargeRate()
+		return nil
+	case upstreamkeyratesnapshot.FieldEffectiveCostMultiplier:
+		m.ResetEffectiveCostMultiplier()
+		return nil
+	case upstreamkeyratesnapshot.FieldSource:
+		m.ResetSource()
+		return nil
+	case upstreamkeyratesnapshot.FieldObservedAt:
+		m.ResetObservedAt()
+		return nil
+	case upstreamkeyratesnapshot.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyRateSnapshot field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) AddedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m._config != nil {
+		edges = append(edges, upstreamkeyratesnapshot.EdgeConfig)
+	}
+	if m.key != nil {
+		edges = append(edges, upstreamkeyratesnapshot.EdgeKey)
+	}
+	if m.run != nil {
+		edges = append(edges, upstreamkeyratesnapshot.EdgeRun)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case upstreamkeyratesnapshot.EdgeConfig:
+		if id := m._config; id != nil {
+			return []ent.Value{*id}
+		}
+	case upstreamkeyratesnapshot.EdgeKey:
+		if id := m.key; id != nil {
+			return []ent.Value{*id}
+		}
+	case upstreamkeyratesnapshot.EdgeRun:
+		if id := m.run; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 3)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.cleared_config {
+		edges = append(edges, upstreamkeyratesnapshot.EdgeConfig)
+	}
+	if m.clearedkey {
+		edges = append(edges, upstreamkeyratesnapshot.EdgeKey)
+	}
+	if m.clearedrun {
+		edges = append(edges, upstreamkeyratesnapshot.EdgeRun)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *UpstreamKeyRateSnapshotMutation) EdgeCleared(name string) bool {
+	switch name {
+	case upstreamkeyratesnapshot.EdgeConfig:
+		return m.cleared_config
+	case upstreamkeyratesnapshot.EdgeKey:
+		return m.clearedkey
+	case upstreamkeyratesnapshot.EdgeRun:
+		return m.clearedrun
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *UpstreamKeyRateSnapshotMutation) ClearEdge(name string) error {
+	switch name {
+	case upstreamkeyratesnapshot.EdgeConfig:
+		m.ClearConfig()
+		return nil
+	case upstreamkeyratesnapshot.EdgeKey:
+		m.ClearKey()
+		return nil
+	case upstreamkeyratesnapshot.EdgeRun:
+		m.ClearRun()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyRateSnapshot unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *UpstreamKeyRateSnapshotMutation) ResetEdge(name string) error {
+	switch name {
+	case upstreamkeyratesnapshot.EdgeConfig:
+		m.ResetConfig()
+		return nil
+	case upstreamkeyratesnapshot.EdgeKey:
+		m.ResetKey()
+		return nil
+	case upstreamkeyratesnapshot.EdgeRun:
+		m.ResetRun()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyRateSnapshot edge %s", name)
 }
 
 // UpstreamSyncResultMutation represents an operation that mutates the UpstreamSyncResult nodes in the graph.
@@ -51782,35 +53305,38 @@ func (m *UpstreamSyncResultMutation) ResetEdge(name string) error {
 // UpstreamSyncRunMutation represents an operation that mutates the UpstreamSyncRun nodes in the graph.
 type UpstreamSyncRunMutation struct {
 	config
-	op                       Op
-	typ                      string
-	id                       *int64
-	trigger                  *string
-	status                   *string
-	started_at               *time.Time
-	finished_at              *time.Time
-	total_configs            *int
-	addtotal_configs         *int
-	success_configs          *int
-	addsuccess_configs       *int
-	partial_configs          *int
-	addpartial_configs       *int
-	failed_configs           *int
-	addfailed_configs        *int
-	created_at               *time.Time
-	clearedFields            map[string]struct{}
-	results                  map[int64]struct{}
-	removedresults           map[int64]struct{}
-	clearedresults           bool
-	events                   map[int64]struct{}
-	removedevents            map[int64]struct{}
-	clearedevents            bool
-	balance_snapshots        map[int64]struct{}
-	removedbalance_snapshots map[int64]struct{}
-	clearedbalance_snapshots bool
-	done                     bool
-	oldValue                 func(context.Context) (*UpstreamSyncRun, error)
-	predicates               []predicate.UpstreamSyncRun
+	op                        Op
+	typ                       string
+	id                        *int64
+	trigger                   *string
+	status                    *string
+	started_at                *time.Time
+	finished_at               *time.Time
+	total_configs             *int
+	addtotal_configs          *int
+	success_configs           *int
+	addsuccess_configs        *int
+	partial_configs           *int
+	addpartial_configs        *int
+	failed_configs            *int
+	addfailed_configs         *int
+	created_at                *time.Time
+	clearedFields             map[string]struct{}
+	results                   map[int64]struct{}
+	removedresults            map[int64]struct{}
+	clearedresults            bool
+	events                    map[int64]struct{}
+	removedevents             map[int64]struct{}
+	clearedevents             bool
+	balance_snapshots         map[int64]struct{}
+	removedbalance_snapshots  map[int64]struct{}
+	clearedbalance_snapshots  bool
+	key_rate_snapshots        map[int64]struct{}
+	removedkey_rate_snapshots map[int64]struct{}
+	clearedkey_rate_snapshots bool
+	done                      bool
+	oldValue                  func(context.Context) (*UpstreamSyncRun, error)
+	predicates                []predicate.UpstreamSyncRun
 }
 
 var _ ent.Mutation = (*UpstreamSyncRunMutation)(nil)
@@ -52490,6 +54016,60 @@ func (m *UpstreamSyncRunMutation) ResetBalanceSnapshots() {
 	m.removedbalance_snapshots = nil
 }
 
+// AddKeyRateSnapshotIDs adds the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by ids.
+func (m *UpstreamSyncRunMutation) AddKeyRateSnapshotIDs(ids ...int64) {
+	if m.key_rate_snapshots == nil {
+		m.key_rate_snapshots = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.key_rate_snapshots[ids[i]] = struct{}{}
+	}
+}
+
+// ClearKeyRateSnapshots clears the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity.
+func (m *UpstreamSyncRunMutation) ClearKeyRateSnapshots() {
+	m.clearedkey_rate_snapshots = true
+}
+
+// KeyRateSnapshotsCleared reports if the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity was cleared.
+func (m *UpstreamSyncRunMutation) KeyRateSnapshotsCleared() bool {
+	return m.clearedkey_rate_snapshots
+}
+
+// RemoveKeyRateSnapshotIDs removes the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (m *UpstreamSyncRunMutation) RemoveKeyRateSnapshotIDs(ids ...int64) {
+	if m.removedkey_rate_snapshots == nil {
+		m.removedkey_rate_snapshots = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.key_rate_snapshots, ids[i])
+		m.removedkey_rate_snapshots[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedKeyRateSnapshots returns the removed IDs of the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity.
+func (m *UpstreamSyncRunMutation) RemovedKeyRateSnapshotsIDs() (ids []int64) {
+	for id := range m.removedkey_rate_snapshots {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// KeyRateSnapshotsIDs returns the "key_rate_snapshots" edge IDs in the mutation.
+func (m *UpstreamSyncRunMutation) KeyRateSnapshotsIDs() (ids []int64) {
+	for id := range m.key_rate_snapshots {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetKeyRateSnapshots resets all changes to the "key_rate_snapshots" edge.
+func (m *UpstreamSyncRunMutation) ResetKeyRateSnapshots() {
+	m.key_rate_snapshots = nil
+	m.clearedkey_rate_snapshots = false
+	m.removedkey_rate_snapshots = nil
+}
+
 // Where appends a list predicates to the UpstreamSyncRunMutation builder.
 func (m *UpstreamSyncRunMutation) Where(ps ...predicate.UpstreamSyncRun) {
 	m.predicates = append(m.predicates, ps...)
@@ -52819,7 +54399,7 @@ func (m *UpstreamSyncRunMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *UpstreamSyncRunMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.results != nil {
 		edges = append(edges, upstreamsyncrun.EdgeResults)
 	}
@@ -52828,6 +54408,9 @@ func (m *UpstreamSyncRunMutation) AddedEdges() []string {
 	}
 	if m.balance_snapshots != nil {
 		edges = append(edges, upstreamsyncrun.EdgeBalanceSnapshots)
+	}
+	if m.key_rate_snapshots != nil {
+		edges = append(edges, upstreamsyncrun.EdgeKeyRateSnapshots)
 	}
 	return edges
 }
@@ -52854,13 +54437,19 @@ func (m *UpstreamSyncRunMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case upstreamsyncrun.EdgeKeyRateSnapshots:
+		ids := make([]ent.Value, 0, len(m.key_rate_snapshots))
+		for id := range m.key_rate_snapshots {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *UpstreamSyncRunMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.removedresults != nil {
 		edges = append(edges, upstreamsyncrun.EdgeResults)
 	}
@@ -52869,6 +54458,9 @@ func (m *UpstreamSyncRunMutation) RemovedEdges() []string {
 	}
 	if m.removedbalance_snapshots != nil {
 		edges = append(edges, upstreamsyncrun.EdgeBalanceSnapshots)
+	}
+	if m.removedkey_rate_snapshots != nil {
+		edges = append(edges, upstreamsyncrun.EdgeKeyRateSnapshots)
 	}
 	return edges
 }
@@ -52895,13 +54487,19 @@ func (m *UpstreamSyncRunMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case upstreamsyncrun.EdgeKeyRateSnapshots:
+		ids := make([]ent.Value, 0, len(m.removedkey_rate_snapshots))
+		for id := range m.removedkey_rate_snapshots {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *UpstreamSyncRunMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.clearedresults {
 		edges = append(edges, upstreamsyncrun.EdgeResults)
 	}
@@ -52910,6 +54508,9 @@ func (m *UpstreamSyncRunMutation) ClearedEdges() []string {
 	}
 	if m.clearedbalance_snapshots {
 		edges = append(edges, upstreamsyncrun.EdgeBalanceSnapshots)
+	}
+	if m.clearedkey_rate_snapshots {
+		edges = append(edges, upstreamsyncrun.EdgeKeyRateSnapshots)
 	}
 	return edges
 }
@@ -52924,6 +54525,8 @@ func (m *UpstreamSyncRunMutation) EdgeCleared(name string) bool {
 		return m.clearedevents
 	case upstreamsyncrun.EdgeBalanceSnapshots:
 		return m.clearedbalance_snapshots
+	case upstreamsyncrun.EdgeKeyRateSnapshots:
+		return m.clearedkey_rate_snapshots
 	}
 	return false
 }
@@ -52948,6 +54551,9 @@ func (m *UpstreamSyncRunMutation) ResetEdge(name string) error {
 		return nil
 	case upstreamsyncrun.EdgeBalanceSnapshots:
 		m.ResetBalanceSnapshots()
+		return nil
+	case upstreamsyncrun.EdgeKeyRateSnapshots:
+		m.ResetKeyRateSnapshots()
 		return nil
 	}
 	return fmt.Errorf("unknown UpstreamSyncRun edge %s", name)

@@ -50,6 +50,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
@@ -139,6 +140,8 @@ type Client struct {
 	UpstreamIncident *UpstreamIncidentClient
 	// UpstreamKey is the client for interacting with the UpstreamKey builders.
 	UpstreamKey *UpstreamKeyClient
+	// UpstreamKeyRateSnapshot is the client for interacting with the UpstreamKeyRateSnapshot builders.
+	UpstreamKeyRateSnapshot *UpstreamKeyRateSnapshotClient
 	// UpstreamSyncResult is the client for interacting with the UpstreamSyncResult builders.
 	UpstreamSyncResult *UpstreamSyncResultClient
 	// UpstreamSyncRun is the client for interacting with the UpstreamSyncRun builders.
@@ -205,6 +208,7 @@ func (c *Client) init() {
 	c.UpstreamEvent = NewUpstreamEventClient(c.config)
 	c.UpstreamIncident = NewUpstreamIncidentClient(c.config)
 	c.UpstreamKey = NewUpstreamKeyClient(c.config)
+	c.UpstreamKeyRateSnapshot = NewUpstreamKeyRateSnapshotClient(c.config)
 	c.UpstreamSyncResult = NewUpstreamSyncResultClient(c.config)
 	c.UpstreamSyncRun = NewUpstreamSyncRunClient(c.config)
 	c.UsageCleanupTask = NewUsageCleanupTaskClient(c.config)
@@ -342,6 +346,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		UpstreamEvent:                 NewUpstreamEventClient(cfg),
 		UpstreamIncident:              NewUpstreamIncidentClient(cfg),
 		UpstreamKey:                   NewUpstreamKeyClient(cfg),
+		UpstreamKeyRateSnapshot:       NewUpstreamKeyRateSnapshotClient(cfg),
 		UpstreamSyncResult:            NewUpstreamSyncResultClient(cfg),
 		UpstreamSyncRun:               NewUpstreamSyncRunClient(cfg),
 		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
@@ -406,6 +411,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		UpstreamEvent:                 NewUpstreamEventClient(cfg),
 		UpstreamIncident:              NewUpstreamIncidentClient(cfg),
 		UpstreamKey:                   NewUpstreamKeyClient(cfg),
+		UpstreamKeyRateSnapshot:       NewUpstreamKeyRateSnapshotClient(cfg),
 		UpstreamSyncResult:            NewUpstreamSyncResultClient(cfg),
 		UpstreamSyncRun:               NewUpstreamSyncRunClient(cfg),
 		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
@@ -454,10 +460,10 @@ func (c *Client) Use(hooks ...Hook) {
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
 		c.TLSFingerprintProfile, c.UpstreamBalanceSnapshot, c.UpstreamConfig,
-		c.UpstreamEvent, c.UpstreamIncident, c.UpstreamKey, c.UpstreamSyncResult,
-		c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
-		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
-		c.UserSubscription,
+		c.UpstreamEvent, c.UpstreamIncident, c.UpstreamKey, c.UpstreamKeyRateSnapshot,
+		c.UpstreamSyncResult, c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog,
+		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Use(hooks...)
 	}
@@ -476,10 +482,10 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
 		c.TLSFingerprintProfile, c.UpstreamBalanceSnapshot, c.UpstreamConfig,
-		c.UpstreamEvent, c.UpstreamIncident, c.UpstreamKey, c.UpstreamSyncResult,
-		c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
-		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
-		c.UserSubscription,
+		c.UpstreamEvent, c.UpstreamIncident, c.UpstreamKey, c.UpstreamKeyRateSnapshot,
+		c.UpstreamSyncResult, c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog,
+		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -558,6 +564,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.UpstreamIncident.mutate(ctx, m)
 	case *UpstreamKeyMutation:
 		return c.UpstreamKey.mutate(ctx, m)
+	case *UpstreamKeyRateSnapshotMutation:
+		return c.UpstreamKeyRateSnapshot.mutate(ctx, m)
 	case *UpstreamSyncResultMutation:
 		return c.UpstreamSyncResult.mutate(ctx, m)
 	case *UpstreamSyncRunMutation:
@@ -5653,6 +5661,22 @@ func (c *UpstreamConfigClient) QueryBalanceSnapshots(_m *UpstreamConfig) *Upstre
 	return query
 }
 
+// QueryKeyRateSnapshots queries the key_rate_snapshots edge of a UpstreamConfig.
+func (c *UpstreamConfigClient) QueryKeyRateSnapshots(_m *UpstreamConfig) *UpstreamKeyRateSnapshotQuery {
+	query := (&UpstreamKeyRateSnapshotClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, id),
+			sqlgraph.To(upstreamkeyratesnapshot.Table, upstreamkeyratesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.KeyRateSnapshotsTable, upstreamconfig.KeyRateSnapshotsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryUsageLogs queries the usage_logs edge of a UpstreamConfig.
 func (c *UpstreamConfigClient) QueryUsageLogs(_m *UpstreamConfig) *UsageLogQuery {
 	query := (&UsageLogClient{config: c.config}).Query()
@@ -6278,6 +6302,22 @@ func (c *UpstreamKeyClient) QueryIncidents(_m *UpstreamKey) *UpstreamIncidentQue
 	return query
 }
 
+// QueryRateSnapshots queries the rate_snapshots edge of a UpstreamKey.
+func (c *UpstreamKeyClient) QueryRateSnapshots(_m *UpstreamKey) *UpstreamKeyRateSnapshotQuery {
+	query := (&UpstreamKeyRateSnapshotClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamkey.Table, upstreamkey.FieldID, id),
+			sqlgraph.To(upstreamkeyratesnapshot.Table, upstreamkeyratesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamkey.RateSnapshotsTable, upstreamkey.RateSnapshotsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryUsageLogs queries the usage_logs edge of a UpstreamKey.
 func (c *UpstreamKeyClient) QueryUsageLogs(_m *UpstreamKey) *UsageLogQuery {
 	query := (&UsageLogClient{config: c.config}).Query()
@@ -6318,6 +6358,187 @@ func (c *UpstreamKeyClient) mutate(ctx context.Context, m *UpstreamKeyMutation) 
 		return (&UpstreamKeyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown UpstreamKey mutation op: %q", m.Op())
+	}
+}
+
+// UpstreamKeyRateSnapshotClient is a client for the UpstreamKeyRateSnapshot schema.
+type UpstreamKeyRateSnapshotClient struct {
+	config
+}
+
+// NewUpstreamKeyRateSnapshotClient returns a client for the UpstreamKeyRateSnapshot from the given config.
+func NewUpstreamKeyRateSnapshotClient(c config) *UpstreamKeyRateSnapshotClient {
+	return &UpstreamKeyRateSnapshotClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `upstreamkeyratesnapshot.Hooks(f(g(h())))`.
+func (c *UpstreamKeyRateSnapshotClient) Use(hooks ...Hook) {
+	c.hooks.UpstreamKeyRateSnapshot = append(c.hooks.UpstreamKeyRateSnapshot, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `upstreamkeyratesnapshot.Intercept(f(g(h())))`.
+func (c *UpstreamKeyRateSnapshotClient) Intercept(interceptors ...Interceptor) {
+	c.inters.UpstreamKeyRateSnapshot = append(c.inters.UpstreamKeyRateSnapshot, interceptors...)
+}
+
+// Create returns a builder for creating a UpstreamKeyRateSnapshot entity.
+func (c *UpstreamKeyRateSnapshotClient) Create() *UpstreamKeyRateSnapshotCreate {
+	mutation := newUpstreamKeyRateSnapshotMutation(c.config, OpCreate)
+	return &UpstreamKeyRateSnapshotCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of UpstreamKeyRateSnapshot entities.
+func (c *UpstreamKeyRateSnapshotClient) CreateBulk(builders ...*UpstreamKeyRateSnapshotCreate) *UpstreamKeyRateSnapshotCreateBulk {
+	return &UpstreamKeyRateSnapshotCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *UpstreamKeyRateSnapshotClient) MapCreateBulk(slice any, setFunc func(*UpstreamKeyRateSnapshotCreate, int)) *UpstreamKeyRateSnapshotCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &UpstreamKeyRateSnapshotCreateBulk{err: fmt.Errorf("calling to UpstreamKeyRateSnapshotClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*UpstreamKeyRateSnapshotCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &UpstreamKeyRateSnapshotCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for UpstreamKeyRateSnapshot.
+func (c *UpstreamKeyRateSnapshotClient) Update() *UpstreamKeyRateSnapshotUpdate {
+	mutation := newUpstreamKeyRateSnapshotMutation(c.config, OpUpdate)
+	return &UpstreamKeyRateSnapshotUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *UpstreamKeyRateSnapshotClient) UpdateOne(_m *UpstreamKeyRateSnapshot) *UpstreamKeyRateSnapshotUpdateOne {
+	mutation := newUpstreamKeyRateSnapshotMutation(c.config, OpUpdateOne, withUpstreamKeyRateSnapshot(_m))
+	return &UpstreamKeyRateSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *UpstreamKeyRateSnapshotClient) UpdateOneID(id int64) *UpstreamKeyRateSnapshotUpdateOne {
+	mutation := newUpstreamKeyRateSnapshotMutation(c.config, OpUpdateOne, withUpstreamKeyRateSnapshotID(id))
+	return &UpstreamKeyRateSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for UpstreamKeyRateSnapshot.
+func (c *UpstreamKeyRateSnapshotClient) Delete() *UpstreamKeyRateSnapshotDelete {
+	mutation := newUpstreamKeyRateSnapshotMutation(c.config, OpDelete)
+	return &UpstreamKeyRateSnapshotDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *UpstreamKeyRateSnapshotClient) DeleteOne(_m *UpstreamKeyRateSnapshot) *UpstreamKeyRateSnapshotDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *UpstreamKeyRateSnapshotClient) DeleteOneID(id int64) *UpstreamKeyRateSnapshotDeleteOne {
+	builder := c.Delete().Where(upstreamkeyratesnapshot.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &UpstreamKeyRateSnapshotDeleteOne{builder}
+}
+
+// Query returns a query builder for UpstreamKeyRateSnapshot.
+func (c *UpstreamKeyRateSnapshotClient) Query() *UpstreamKeyRateSnapshotQuery {
+	return &UpstreamKeyRateSnapshotQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeUpstreamKeyRateSnapshot},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a UpstreamKeyRateSnapshot entity by its id.
+func (c *UpstreamKeyRateSnapshotClient) Get(ctx context.Context, id int64) (*UpstreamKeyRateSnapshot, error) {
+	return c.Query().Where(upstreamkeyratesnapshot.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *UpstreamKeyRateSnapshotClient) GetX(ctx context.Context, id int64) *UpstreamKeyRateSnapshot {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryConfig queries the config edge of a UpstreamKeyRateSnapshot.
+func (c *UpstreamKeyRateSnapshotClient) QueryConfig(_m *UpstreamKeyRateSnapshot) *UpstreamConfigQuery {
+	query := (&UpstreamConfigClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamkeyratesnapshot.Table, upstreamkeyratesnapshot.FieldID, id),
+			sqlgraph.To(upstreamconfig.Table, upstreamconfig.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamkeyratesnapshot.ConfigTable, upstreamkeyratesnapshot.ConfigColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryKey queries the key edge of a UpstreamKeyRateSnapshot.
+func (c *UpstreamKeyRateSnapshotClient) QueryKey(_m *UpstreamKeyRateSnapshot) *UpstreamKeyQuery {
+	query := (&UpstreamKeyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamkeyratesnapshot.Table, upstreamkeyratesnapshot.FieldID, id),
+			sqlgraph.To(upstreamkey.Table, upstreamkey.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamkeyratesnapshot.KeyTable, upstreamkeyratesnapshot.KeyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryRun queries the run edge of a UpstreamKeyRateSnapshot.
+func (c *UpstreamKeyRateSnapshotClient) QueryRun(_m *UpstreamKeyRateSnapshot) *UpstreamSyncRunQuery {
+	query := (&UpstreamSyncRunClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamkeyratesnapshot.Table, upstreamkeyratesnapshot.FieldID, id),
+			sqlgraph.To(upstreamsyncrun.Table, upstreamsyncrun.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamkeyratesnapshot.RunTable, upstreamkeyratesnapshot.RunColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *UpstreamKeyRateSnapshotClient) Hooks() []Hook {
+	return c.hooks.UpstreamKeyRateSnapshot
+}
+
+// Interceptors returns the client interceptors.
+func (c *UpstreamKeyRateSnapshotClient) Interceptors() []Interceptor {
+	return c.inters.UpstreamKeyRateSnapshot
+}
+
+func (c *UpstreamKeyRateSnapshotClient) mutate(ctx context.Context, m *UpstreamKeyRateSnapshotMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&UpstreamKeyRateSnapshotCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&UpstreamKeyRateSnapshotUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&UpstreamKeyRateSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&UpstreamKeyRateSnapshotDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown UpstreamKeyRateSnapshot mutation op: %q", m.Op())
 	}
 }
 
@@ -6635,6 +6856,22 @@ func (c *UpstreamSyncRunClient) QueryBalanceSnapshots(_m *UpstreamSyncRun) *Upst
 			sqlgraph.From(upstreamsyncrun.Table, upstreamsyncrun.FieldID, id),
 			sqlgraph.To(upstreambalancesnapshot.Table, upstreambalancesnapshot.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, upstreamsyncrun.BalanceSnapshotsTable, upstreamsyncrun.BalanceSnapshotsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryKeyRateSnapshots queries the key_rate_snapshots edge of a UpstreamSyncRun.
+func (c *UpstreamSyncRunClient) QueryKeyRateSnapshots(_m *UpstreamSyncRun) *UpstreamKeyRateSnapshotQuery {
+	query := (&UpstreamKeyRateSnapshotClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamsyncrun.Table, upstreamsyncrun.FieldID, id),
+			sqlgraph.To(upstreamkeyratesnapshot.Table, upstreamkeyratesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamsyncrun.KeyRateSnapshotsTable, upstreamsyncrun.KeyRateSnapshotsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -8197,9 +8434,9 @@ type (
 		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
 		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
 		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent, UpstreamIncident,
-		UpstreamKey, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask, UsageLog,
-		User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
-		UserPlatformQuota, UserSubscription []ent.Hook
+		UpstreamKey, UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
@@ -8210,9 +8447,9 @@ type (
 		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
 		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
 		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent, UpstreamIncident,
-		UpstreamKey, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask, UsageLog,
-		User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
-		UserPlatformQuota, UserSubscription []ent.Interceptor
+		UpstreamKey, UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )
 

@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
 
@@ -287,6 +288,21 @@ func (_c *UpstreamKeyCreate) AddIncidents(v ...*UpstreamIncident) *UpstreamKeyCr
 		ids[i] = v[i].ID
 	}
 	return _c.AddIncidentIDs(ids...)
+}
+
+// AddRateSnapshotIDs adds the "rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (_c *UpstreamKeyCreate) AddRateSnapshotIDs(ids ...int64) *UpstreamKeyCreate {
+	_c.mutation.AddRateSnapshotIDs(ids...)
+	return _c
+}
+
+// AddRateSnapshots adds the "rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_c *UpstreamKeyCreate) AddRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamKeyCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddRateSnapshotIDs(ids...)
 }
 
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
@@ -597,6 +613,22 @@ func (_c *UpstreamKeyCreate) createSpec() (*UpstreamKey, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.RateSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.RateSnapshotsTable,
+			Columns: []string{upstreamkey.RateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

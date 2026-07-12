@@ -47,8 +47,12 @@ export default {
     authModes: {
       userLogin: 'Email / Password',
       manualJwt: 'Manual JWT',
+      cookie: 'Cookie',
+      accessToken: 'Access Token',
       userLoginShort: 'Login',
-      manualJwtShort: 'JWT'
+      manualJwtShort: 'JWT',
+      cookieShort: 'Cookie',
+      accessTokenShort: 'Token'
     },
     credentialStatus: {
       configured: 'Configured',
@@ -57,7 +61,10 @@ export default {
       username: 'Username {status}',
       password: 'Password {status}',
       accessToken: 'JWT {status}',
-      refreshToken: 'Refresh {status}'
+      refreshToken: 'Refresh {status}',
+      cookie: 'Cookie {status}',
+      newapiAccessToken: 'Access Token {status}',
+      userId: 'User ID {status}'
     },
     actions: {
       create: 'Add Upstream',
@@ -67,6 +74,7 @@ export default {
       syncRuns: 'Sync Runs',
       events: 'Events',
       costTrend: 'Cost Trend',
+      rateTrend: 'Rate Trend',
       more: 'More',
       settings: 'Upstream Settings',
       openDashboard: 'Open Upstream Dashboard',
@@ -126,11 +134,17 @@ export default {
       loginEmail: 'Login Email',
       loginUsername: 'Login Username',
       loginPassword: 'Login Password',
+      newapiUserId: 'NewAPI User ID',
+      cookie: 'Cookie',
+      newapiAccessToken: 'NewAPI Access Token',
       accessToken: 'Access Token',
       refreshToken: 'Refresh Token',
       keepPasswordPlaceholder: 'Leave blank to keep saved password',
       keepAccessTokenPlaceholder: 'Leave blank to keep saved JWT',
-      keepRefreshTokenPlaceholder: 'Leave blank to keep saved refresh token'
+      keepRefreshTokenPlaceholder: 'Leave blank to keep saved refresh token',
+      keepUserIdPlaceholder: 'Leave blank to keep saved user ID',
+      keepCookiePlaceholder: 'Leave blank to keep saved cookie',
+      keepNewapiAccessTokenPlaceholder: 'Leave blank to keep saved Access Token'
     },
     emptyTitle: 'No upstream configs',
     emptyDescription: 'Create an upstream site, then bind accounts to keys from that site in account management.',
@@ -149,6 +163,9 @@ export default {
       saveFailed: 'Failed to save upstream config',
       newapiUsernameRequired: 'NewAPI upstream requires a login username',
       newapiPasswordRequired: 'NewAPI upstream requires a login password',
+      newapiUserIdRequired: 'NewAPI Cookie or Access Token mode requires a user ID',
+      newapiCookieRequired: 'NewAPI Cookie mode requires a cookie',
+      newapiAccessTokenRequired: 'NewAPI Access Token mode requires a token',
       deleted: 'Upstream config deleted',
       deleteFailed: 'Failed to delete upstream config',
       testSuccess: 'Connection test succeeded',
@@ -166,6 +183,7 @@ export default {
       loadSyncRunFailed: 'Failed to load sync run results',
       loadEventsFailed: 'Failed to load upstream events',
       loadTrendFailed: 'Failed to load cost trend',
+      loadRateTrendFailed: 'Failed to load key rate trend',
       loadSettingsFailed: 'Failed to load upstream settings',
       settingsSaved: 'Upstream settings saved',
       saveSettingsFailed: 'Failed to save upstream settings'
@@ -180,10 +198,14 @@ export default {
       syncRunsTitle: 'Sync Runs',
       eventsTitle: 'Upstream Events',
       trendTitle: 'Cost Trend',
+      rateTrendTitle: 'Key Rate Trend',
+      deletedKey: '[Deleted]',
+      unnamedKey: 'Unnamed key',
       settingsTitle: 'Upstream Settings',
       runSubtitle: 'Run #{id}',
       syncRunsHint: 'Inspect batch and single-upstream synchronization results.',
       selectUpstream: 'Select upstream',
+      selectKey: 'Select key',
       success: 'Succeeded',
       partial: 'Partial',
       failed: 'Failed',
@@ -200,6 +222,15 @@ export default {
       emptyEvents: 'No upstream events',
       emptyBalanceHistory: 'No balance history',
       emptyTrend: 'No cost trend data',
+      emptyRateTrend: 'No rate trend data',
+      emptyRateKeys: 'No key rate history is available for this upstream',
+      emptyRateChanges: 'No rate changes',
+      currentRawRate: 'Current Raw Rate',
+      currentEffectiveRate: 'Current Cost Rate',
+      previousRate: 'Previous Raw Rate',
+      lastChanged: 'Last Changed',
+      observedSince: 'Observed Since',
+      rateChanges: 'Rate Changes',
       balanceHistory: 'Balance History',
       loadMore: 'Load More',
       syncRunSummary: '{total} upstreams: {success} succeeded, {partial} partial, {failed} failed',
@@ -225,6 +256,10 @@ export default {
         actualCost: 'Actual Upstream Cost',
         billedCost: 'Billed Cost',
         grossProfit: 'Gross Profit'
+      },
+      rateSeries: {
+        raw: 'Raw Rate',
+        effective: 'Effective Cost Rate'
       }
     }
   }

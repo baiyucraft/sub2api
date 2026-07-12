@@ -57,6 +57,8 @@ const (
 	EdgeEvents = "events"
 	// EdgeIncidents holds the string denoting the incidents edge name in mutations.
 	EdgeIncidents = "incidents"
+	// EdgeRateSnapshots holds the string denoting the rate_snapshots edge name in mutations.
+	EdgeRateSnapshots = "rate_snapshots"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
 	// Table holds the table name of the upstreamkey in the database.
@@ -89,6 +91,13 @@ const (
 	IncidentsInverseTable = "upstream_incidents"
 	// IncidentsColumn is the table column denoting the incidents relation/edge.
 	IncidentsColumn = "upstream_key_id"
+	// RateSnapshotsTable is the table that holds the rate_snapshots relation/edge.
+	RateSnapshotsTable = "upstream_key_rate_snapshots"
+	// RateSnapshotsInverseTable is the table name for the UpstreamKeyRateSnapshot entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamkeyratesnapshot" package.
+	RateSnapshotsInverseTable = "upstream_key_rate_snapshots"
+	// RateSnapshotsColumn is the table column denoting the rate_snapshots relation/edge.
+	RateSnapshotsColumn = "upstream_key_id"
 	// UsageLogsTable is the table that holds the usage_logs relation/edge.
 	UsageLogsTable = "usage_logs"
 	// UsageLogsInverseTable is the table name for the UsageLog entity.
@@ -305,6 +314,20 @@ func ByIncidents(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByRateSnapshotsCount orders the results by rate_snapshots count.
+func ByRateSnapshotsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newRateSnapshotsStep(), opts...)
+	}
+}
+
+// ByRateSnapshots orders the results by rate_snapshots terms.
+func ByRateSnapshots(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newRateSnapshotsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByUsageLogsCount orders the results by usage_logs count.
 func ByUsageLogsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -344,6 +367,13 @@ func newIncidentsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(IncidentsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, IncidentsTable, IncidentsColumn),
+	)
+}
+func newRateSnapshotsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(RateSnapshotsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, RateSnapshotsTable, RateSnapshotsColumn),
 	)
 }
 func newUsageLogsStep() *sqlgraph.Step {

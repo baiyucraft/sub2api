@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -101,6 +102,28 @@ func (r *upstreamConfigServiceRepo) GetByID(ctx context.Context, id int64) (*Ups
 		}
 	}
 	return nil, ErrUpstreamConfigNotFound
+}
+
+func (r *upstreamConfigServiceRepo) Create(_ context.Context, config *UpstreamConfig) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if config.ID == 0 {
+		config.ID = int64(len(r.configs) + 1)
+	}
+	r.configs = append(r.configs, cloneUpstreamConfig(*config))
+	return nil
+}
+
+func (r *upstreamConfigServiceRepo) Update(_ context.Context, config *UpstreamConfig) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.configs {
+		if r.configs[i].ID == config.ID {
+			r.configs[i] = cloneUpstreamConfig(*config)
+			return nil
+		}
+	}
+	return ErrUpstreamConfigNotFound
 }
 
 func (r *upstreamConfigServiceRepo) GetKeyByID(ctx context.Context, id int64) (*UpstreamKey, error) {
@@ -1187,6 +1210,8 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798,"email":"owner@example.com","username":"owner","display_name":"Owner","group":"default","quota":86995,"used_quota":4913005,"request_count":701}}`))
 		case "/api/status":
 			_, _ = w.Write([]byte(`{"success":true,"data":{"quota_display_type":"USD","quota_per_unit":500000,"usd_exchange_rate":7.3,"custom_currency_symbol":"¤","custom_currency_exchange_rate":1}}`))
+		case "/api/log/self/stat":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"quota":250000}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -1266,6 +1291,11 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 	require.Equal(t, "$", snapshot["currency_symbol"])
 	require.InDelta(t, 500000.0, snapshot["quota_per_unit"], 1e-12)
 	require.Equal(t, "owner@example.com", snapshot["email"])
+	require.InDelta(t, 250000.0, snapshot["today_used_quota"], 1e-12)
+	require.InDelta(t, 0.5, snapshot["today_used_amount"], 1e-12)
+	groups, ok := snapshot["groups"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, groups, "gptplus")
 }
 
 func TestUpstreamConfigService_NewAPIProfileFailureDoesNotFailKeySync(t *testing.T) {
@@ -1704,6 +1734,177 @@ func TestNormalizeAndValidateUpstreamConfig_NewAPIRequiresUsernameAndPassword(t 
 		}
 		require.NoError(t, normalizeAndValidateUpstreamConfig(&cfg, true))
 	})
+
+	t.Run("cookie credentials", func(t *testing.T) {
+		cfg := base
+		cfg.AuthMode = UpstreamAuthModeCookie
+		cfg.Credentials = map[string]any{
+			AccountCredentialNewAPICookie: "session=secret",
+			AccountCredentialNewAPIUserID: "4798",
+		}
+		require.NoError(t, normalizeAndValidateUpstreamConfig(&cfg, true))
+	})
+
+	t.Run("access token credentials", func(t *testing.T) {
+		cfg := base
+		cfg.AuthMode = UpstreamAuthModeAccessToken
+		cfg.Credentials = map[string]any{
+			AccountCredentialNewAPIAccessToken: "system-token",
+			AccountCredentialNewAPIUserID:      "4798",
+		}
+		require.NoError(t, normalizeAndValidateUpstreamConfig(&cfg, true))
+	})
+
+	t.Run("cookie and token conflict", func(t *testing.T) {
+		cfg := base
+		cfg.AuthMode = UpstreamAuthModeCookie
+		cfg.Credentials = map[string]any{
+			AccountCredentialNewAPICookie:      "session=secret",
+			AccountCredentialNewAPIAccessToken: "system-token",
+			AccountCredentialNewAPIUserID:      "4798",
+		}
+		require.ErrorContains(t, normalizeAndValidateUpstreamConfig(&cfg, true), "mutually exclusive")
+	})
+}
+
+func TestPruneUpstreamProviderCredentialsRemovesStaleProviderSecrets(t *testing.T) {
+	credentials := map[string]any{
+		AccountCredentialSub2APILoginEmail:     "sub@example.com",
+		AccountCredentialSub2APILoginPassword:  "sub-secret",
+		AccountCredentialSub2APIAccessToken:    "sub-token",
+		AccountCredentialSub2APIRefreshToken:   "sub-refresh",
+		AccountCredentialSub2APITokenExpiresAt: "later",
+		AccountCredentialNewAPILoginUsername:   "newapi@example.com",
+		AccountCredentialNewAPILoginPassword:   "new-secret",
+		AccountCredentialNewAPICookie:          "cookie-secret",
+		AccountCredentialNewAPIAccessToken:     "access-secret",
+		AccountCredentialNewAPIUserID:          "123",
+	}
+
+	pruneUpstreamProviderCredentials(credentials, UpstreamProviderSub2API, UpstreamAuthModeUserLogin)
+	require.Equal(t, "sub@example.com", credentials[AccountCredentialSub2APILoginEmail])
+	require.NotContains(t, credentials, AccountCredentialNewAPILoginUsername)
+	require.NotContains(t, credentials, AccountCredentialNewAPICookie)
+
+	newAPICredentials := map[string]any{
+		AccountCredentialSub2APILoginEmail:   "sub@example.com",
+		AccountCredentialSub2APIAccessToken:  "sub-token",
+		AccountCredentialNewAPICookie:        "cookie-secret",
+		AccountCredentialNewAPIAccessToken:   "access-secret",
+		AccountCredentialNewAPILoginPassword: "new-secret",
+	}
+	pruneUpstreamProviderCredentials(newAPICredentials, UpstreamProviderNewAPI, UpstreamAuthModeCookie)
+	require.NotContains(t, newAPICredentials, AccountCredentialSub2APILoginEmail)
+	require.NotContains(t, newAPICredentials, AccountCredentialSub2APIAccessToken)
+	require.Equal(t, "cookie-secret", newAPICredentials[AccountCredentialNewAPICookie])
+	require.NotContains(t, newAPICredentials, AccountCredentialNewAPIAccessToken)
+	require.NotContains(t, newAPICredentials, AccountCredentialNewAPILoginPassword)
+}
+
+func TestUpstreamConfigServiceCreatePrunesCredentialsAndRejectsInvalidProviderMode(t *testing.T) {
+	repo := &upstreamConfigServiceRepo{}
+	svc := NewUpstreamConfigService(repo, nil, nil)
+	created, err := svc.Create(context.Background(), &UpstreamConfig{
+		Name:     "NewAPI",
+		Provider: UpstreamProviderNewAPI,
+		SiteURL:  "https://newapi.example.com",
+		AuthMode: UpstreamAuthModeCookie,
+		Credentials: map[string]any{
+			AccountCredentialNewAPICookie:        "session=secret",
+			AccountCredentialNewAPIUserID:        "123",
+			AccountCredentialNewAPILoginUsername: "stale-user",
+			AccountCredentialSub2APIAccessToken:  "stale-token",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "session=secret", created.Credentials[AccountCredentialNewAPICookie])
+	require.NotContains(t, created.Credentials, AccountCredentialNewAPILoginUsername)
+	require.NotContains(t, created.Credentials, AccountCredentialSub2APIAccessToken)
+
+	_, err = svc.Create(context.Background(), &UpstreamConfig{
+		Name:        "Invalid",
+		Provider:    UpstreamProviderSub2API,
+		SiteURL:     "https://sub2api.example.com",
+		AuthMode:    UpstreamAuthModeCookie,
+		Credentials: map[string]any{AccountCredentialNewAPICookie: "session=secret"},
+	})
+	require.ErrorContains(t, err, "auth mode")
+}
+
+func TestNewAPIUpstreamProviderAdapter_StaticAuthHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, credentialKey, credentialValue, expectedHeader, unexpectedHeader string
+	}{
+		{"cookie", UpstreamAuthModeCookie, AccountCredentialNewAPICookie, "session=secret", "Cookie", "Authorization"},
+		{"access token", UpstreamAuthModeAccessToken, AccountCredentialNewAPIAccessToken, "system-token", "Authorization", "Cookie"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "4798", r.Header.Get("New-Api-User"))
+				require.Equal(t, tc.credentialValue, r.Header.Get(tc.expectedHeader))
+				require.Empty(t, r.Header.Get(tc.unexpectedHeader))
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/user/self/groups":
+					_, _ = w.Write([]byte(`{"success":true,"data":{"default":{"ratio":1}}}`))
+				case "/api/token/":
+					_, _ = w.Write([]byte(`{"success":true,"data":{"page":1,"page_size":100,"total":0,"items":[]}}`))
+				case "/api/user/self":
+					_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798,"quota":10,"used_quota":5}}`))
+				case "/api/status":
+					_, _ = w.Write([]byte(`{"success":true,"data":{"quota_per_unit":500000}}`))
+				case "/api/log/self/stat":
+					_, _ = w.Write([]byte(`{"success":true,"data":{"quota":2}}`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			cfg := &UpstreamConfig{ID: 1, Name: "NewAPI", Provider: UpstreamProviderNewAPI, SiteURL: server.URL, AuthMode: tc.mode, Credentials: map[string]any{tc.credentialKey: tc.credentialValue, AccountCredentialNewAPIUserID: "4798"}}
+			snapshot, err := (newAPIUpstreamProviderAdapter{}).SyncSnapshot(context.Background(), cfg, "", true)
+			require.NoError(t, err)
+			require.NotNil(t, snapshot)
+		})
+	}
+}
+
+func TestNewAPIUpstreamProviderAdapterMarksGroupSnapshotIncompleteWhenKeysReferenceUnknownGroup(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/user/self/groups":
+			_, _ = w.Write([]byte(`{"success":true,"data":{}}`))
+		case "/api/token/":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"page":1,"page_size":100,"total":1,"items":[{"id":42,"user_id":4798,"name":"key","key":"sk-visible","group":"default","status":1}]}}`))
+		case "/api/token/batch/keys":
+			_, _ = w.Write([]byte(`{"success":true,"data":{}}`))
+		case "/api/user/self":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798,"quota":10,"used_quota":5}}`))
+		case "/api/status":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"quota_per_unit":500000}}`))
+		case "/api/log/self/stat":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"quota":2}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cfg := &UpstreamConfig{ID: 1, Name: "NewAPI", Provider: UpstreamProviderNewAPI, SiteURL: server.URL, AuthMode: UpstreamAuthModeCookie, Credentials: map[string]any{AccountCredentialNewAPICookie: "session=secret", AccountCredentialNewAPIUserID: "4798"}}
+	snapshot, err := (newAPIUpstreamProviderAdapter{}).SyncSnapshot(context.Background(), cfg, "", true)
+	require.NoError(t, err)
+	require.True(t, snapshot.Partial)
+	providerSnapshot := snapshot.ExtraUpdates["upstream_provider_snapshot"].(map[string]any)
+	require.Equal(t, false, providerSnapshot["groups_complete"])
+}
+
+func TestNewAPIUpstreamProviderAdapter_SanitizeStaticCredentials(t *testing.T) {
+	credentials := map[string]any{
+		AccountCredentialNewAPICookie:      "session=top-secret-cookie",
+		AccountCredentialNewAPIAccessToken: "top-secret-token",
+	}
+	got := (newAPIUpstreamProviderAdapter{}).SanitizeError(fmt.Errorf("cookie=%s token=%s", credentials[AccountCredentialNewAPICookie], credentials[AccountCredentialNewAPIAccessToken]), credentials)
+	require.NotContains(t, got, "top-secret-cookie")
+	require.NotContains(t, got, "top-secret-token")
 }
 
 func TestNormalizeAndValidateUpstreamConfig_URLs(t *testing.T) {
