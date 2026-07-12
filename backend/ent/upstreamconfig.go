@@ -73,13 +73,15 @@ type UpstreamConfigEdges struct {
 	Incidents []*UpstreamIncident `json:"incidents,omitempty"`
 	// BalanceSnapshots holds the value of the balance_snapshots edge.
 	BalanceSnapshots []*UpstreamBalanceSnapshot `json:"balance_snapshots,omitempty"`
+	// KeyRateSnapshots holds the value of the key_rate_snapshots edge.
+	KeyRateSnapshots []*UpstreamKeyRateSnapshot `json:"key_rate_snapshots,omitempty"`
 	// UsageLogs holds the value of the usage_logs edge.
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
 	// Proxy holds the value of the proxy edge.
 	Proxy *Proxy `json:"proxy,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [8]bool
+	loadedTypes [9]bool
 }
 
 // KeysOrErr returns the Keys value or an error if the edge
@@ -136,10 +138,19 @@ func (e UpstreamConfigEdges) BalanceSnapshotsOrErr() ([]*UpstreamBalanceSnapshot
 	return nil, &NotLoadedError{edge: "balance_snapshots"}
 }
 
+// KeyRateSnapshotsOrErr returns the KeyRateSnapshots value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamConfigEdges) KeyRateSnapshotsOrErr() ([]*UpstreamKeyRateSnapshot, error) {
+	if e.loadedTypes[6] {
+		return e.KeyRateSnapshots, nil
+	}
+	return nil, &NotLoadedError{edge: "key_rate_snapshots"}
+}
+
 // UsageLogsOrErr returns the UsageLogs value or an error if the edge
 // was not loaded in eager-loading.
 func (e UpstreamConfigEdges) UsageLogsOrErr() ([]*UsageLog, error) {
-	if e.loadedTypes[6] {
+	if e.loadedTypes[7] {
 		return e.UsageLogs, nil
 	}
 	return nil, &NotLoadedError{edge: "usage_logs"}
@@ -150,7 +161,7 @@ func (e UpstreamConfigEdges) UsageLogsOrErr() ([]*UsageLog, error) {
 func (e UpstreamConfigEdges) ProxyOrErr() (*Proxy, error) {
 	if e.Proxy != nil {
 		return e.Proxy, nil
-	} else if e.loadedTypes[7] {
+	} else if e.loadedTypes[8] {
 		return nil, &NotFoundError{label: proxy.Label}
 	}
 	return nil, &NotLoadedError{edge: "proxy"}
@@ -346,6 +357,11 @@ func (_m *UpstreamConfig) QueryIncidents() *UpstreamIncidentQuery {
 // QueryBalanceSnapshots queries the "balance_snapshots" edge of the UpstreamConfig entity.
 func (_m *UpstreamConfig) QueryBalanceSnapshots() *UpstreamBalanceSnapshotQuery {
 	return NewUpstreamConfigClient(_m.config).QueryBalanceSnapshots(_m)
+}
+
+// QueryKeyRateSnapshots queries the "key_rate_snapshots" edge of the UpstreamConfig entity.
+func (_m *UpstreamConfig) QueryKeyRateSnapshots() *UpstreamKeyRateSnapshotQuery {
+	return NewUpstreamConfigClient(_m.config).QueryKeyRateSnapshots(_m)
 }
 
 // QueryUsageLogs queries the "usage_logs" edge of the UpstreamConfig entity.

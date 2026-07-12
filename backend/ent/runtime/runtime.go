@@ -41,6 +41,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
@@ -2079,6 +2080,38 @@ func init() {
 	upstreamkeyDescExtra := upstreamkeyFields[13].Descriptor()
 	// upstreamkey.DefaultExtra holds the default value on creation for the extra field.
 	upstreamkey.DefaultExtra = upstreamkeyDescExtra.Default.(func() map[string]interface{})
+	upstreamkeyratesnapshotFields := schema.UpstreamKeyRateSnapshot{}.Fields()
+	_ = upstreamkeyratesnapshotFields
+	// upstreamkeyratesnapshotDescKeyNameSnapshot is the schema descriptor for key_name_snapshot field.
+	upstreamkeyratesnapshotDescKeyNameSnapshot := upstreamkeyratesnapshotFields[3].Descriptor()
+	// upstreamkeyratesnapshot.DefaultKeyNameSnapshot holds the default value on creation for the key_name_snapshot field.
+	upstreamkeyratesnapshot.DefaultKeyNameSnapshot = upstreamkeyratesnapshotDescKeyNameSnapshot.Default.(string)
+	// upstreamkeyratesnapshot.KeyNameSnapshotValidator is a validator for the "key_name_snapshot" field. It is called by the builders before save.
+	upstreamkeyratesnapshot.KeyNameSnapshotValidator = upstreamkeyratesnapshotDescKeyNameSnapshot.Validators[0].(func(string) error)
+	// upstreamkeyratesnapshotDescKeyHashSnapshot is the schema descriptor for key_hash_snapshot field.
+	upstreamkeyratesnapshotDescKeyHashSnapshot := upstreamkeyratesnapshotFields[4].Descriptor()
+	// upstreamkeyratesnapshot.DefaultKeyHashSnapshot holds the default value on creation for the key_hash_snapshot field.
+	upstreamkeyratesnapshot.DefaultKeyHashSnapshot = upstreamkeyratesnapshotDescKeyHashSnapshot.Default.(string)
+	// upstreamkeyratesnapshot.KeyHashSnapshotValidator is a validator for the "key_hash_snapshot" field. It is called by the builders before save.
+	upstreamkeyratesnapshot.KeyHashSnapshotValidator = upstreamkeyratesnapshotDescKeyHashSnapshot.Validators[0].(func(string) error)
+	// upstreamkeyratesnapshotDescProvider is the schema descriptor for provider field.
+	upstreamkeyratesnapshotDescProvider := upstreamkeyratesnapshotFields[6].Descriptor()
+	// upstreamkeyratesnapshot.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
+	upstreamkeyratesnapshot.ProviderValidator = upstreamkeyratesnapshotDescProvider.Validators[0].(func(string) error)
+	// upstreamkeyratesnapshotDescSource is the schema descriptor for source field.
+	upstreamkeyratesnapshotDescSource := upstreamkeyratesnapshotFields[10].Descriptor()
+	// upstreamkeyratesnapshot.DefaultSource holds the default value on creation for the source field.
+	upstreamkeyratesnapshot.DefaultSource = upstreamkeyratesnapshotDescSource.Default.(string)
+	// upstreamkeyratesnapshot.SourceValidator is a validator for the "source" field. It is called by the builders before save.
+	upstreamkeyratesnapshot.SourceValidator = upstreamkeyratesnapshotDescSource.Validators[0].(func(string) error)
+	// upstreamkeyratesnapshotDescObservedAt is the schema descriptor for observed_at field.
+	upstreamkeyratesnapshotDescObservedAt := upstreamkeyratesnapshotFields[11].Descriptor()
+	// upstreamkeyratesnapshot.DefaultObservedAt holds the default value on creation for the observed_at field.
+	upstreamkeyratesnapshot.DefaultObservedAt = upstreamkeyratesnapshotDescObservedAt.Default.(func() time.Time)
+	// upstreamkeyratesnapshotDescCreatedAt is the schema descriptor for created_at field.
+	upstreamkeyratesnapshotDescCreatedAt := upstreamkeyratesnapshotFields[12].Descriptor()
+	// upstreamkeyratesnapshot.DefaultCreatedAt holds the default value on creation for the created_at field.
+	upstreamkeyratesnapshot.DefaultCreatedAt = upstreamkeyratesnapshotDescCreatedAt.Default.(func() time.Time)
 	upstreamsyncresultFields := schema.UpstreamSyncResult{}.Fields()
 	_ = upstreamsyncresultFields
 	// upstreamsyncresultDescConfigName is the schema descriptor for config_name field.

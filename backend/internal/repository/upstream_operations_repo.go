@@ -15,6 +15,7 @@ import (
 	dbupstreambalancesnapshot "github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	dbupstreamevent "github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	dbupstreamincident "github.com/Wei-Shaw/sub2api/ent/upstreamincident"
+	dbupstreamkeyratesnapshot "github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	dbupstreamsyncrun "github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -239,23 +240,6 @@ func (r *upstreamConfigRepository) ListUpstreamBalanceHistory(ctx context.Contex
 	return out, int64(total), nil
 }
 
-func sameOptionalRate(left, right *float64) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return math.Abs(*left-*right) < 0.0000000001
-}
-
-func createUpstreamRateChangeEvent(ctx context.Context, client *dbent.Client, config *dbent.UpstreamConfig, key *dbent.UpstreamKey, runID int64, old, current *float64, at time.Time) error {
-	builder := client.UpstreamEvent.Create().SetUpstreamConfigID(config.ID).SetUpstreamKeyID(key.ID).
-		SetEventType("rate_changed").SetSeverity("info").SetSource("sync").
-		SetMessage("Upstream key rate multiplier changed").SetPayload(map[string]any{"old_rate": old, "new_rate": current, "recharge_rate": config.RechargeRate}).SetOccurredAt(at)
-	if runID > 0 {
-		builder.SetSyncRunID(runID)
-	}
-	return builder.Exec(ctx)
-}
-
 func createRechargeRateChangedEvent(ctx context.Context, client *dbent.Client, config *dbent.UpstreamConfig, old, current float64, at time.Time) error {
 	return client.UpstreamEvent.Create().SetUpstreamConfigID(config.ID).SetEventType("recharge_rate_changed").SetSeverity("info").SetSource("admin").SetMessage("Upstream recharge rate changed").SetPayload(map[string]any{"old_rate": old, "new_rate": current}).SetOccurredAt(at).Exec(ctx)
 }
@@ -419,6 +403,9 @@ func (r *upstreamConfigRepository) CleanupUpstreamOperationHistory(ctx context.C
 		return err
 	}
 	if _, err := client.UpstreamBalanceSnapshot.Delete().Where(dbupstreambalancesnapshot.ObservedAtLT(now.AddDate(0, 0, -90))).Exec(ctx); err != nil {
+		return err
+	}
+	if _, err := client.UpstreamKeyRateSnapshot.Delete().Where(dbupstreamkeyratesnapshot.ObservedAtLT(now.AddDate(0, 0, -90))).Exec(ctx); err != nil {
 		return err
 	}
 	_, err := client.UpstreamIncident.Delete().Where(dbupstreamincident.StatusEQ("resolved"), dbupstreamincident.ResolvedAtNotNil(), dbupstreamincident.ResolvedAtLT(now.AddDate(0, 0, -90))).Exec(ctx)

@@ -1821,6 +1821,74 @@ var (
 			},
 		},
 	}
+	// UpstreamKeyRateSnapshotsColumns holds the columns for the "upstream_key_rate_snapshots" table.
+	UpstreamKeyRateSnapshotsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "remote_key_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "key_name_snapshot", Type: field.TypeString, Size: 100, Default: ""},
+		{Name: "key_hash_snapshot", Type: field.TypeString, Size: 128, Default: ""},
+		{Name: "provider", Type: field.TypeString, Size: 32},
+		{Name: "raw_rate_multiplier", Type: field.TypeFloat64, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "recharge_rate", Type: field.TypeFloat64, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "effective_cost_multiplier", Type: field.TypeFloat64, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "source", Type: field.TypeString, Size: 32, Default: "sync"},
+		{Name: "observed_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "upstream_config_id", Type: field.TypeInt64},
+		{Name: "upstream_key_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "sync_run_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// UpstreamKeyRateSnapshotsTable holds the schema information for the "upstream_key_rate_snapshots" table.
+	UpstreamKeyRateSnapshotsTable = &schema.Table{
+		Name:       "upstream_key_rate_snapshots",
+		Columns:    UpstreamKeyRateSnapshotsColumns,
+		PrimaryKey: []*schema.Column{UpstreamKeyRateSnapshotsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "upstream_key_rate_snapshots_upstream_configs_key_rate_snapshots",
+				Columns:    []*schema.Column{UpstreamKeyRateSnapshotsColumns[11]},
+				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "upstream_key_rate_snapshots_upstream_keys_rate_snapshots",
+				Columns:    []*schema.Column{UpstreamKeyRateSnapshotsColumns[12]},
+				RefColumns: []*schema.Column{UpstreamKeysColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "upstream_key_rate_snapshots_upstream_sync_runs_key_rate_snapshots",
+				Columns:    []*schema.Column{UpstreamKeyRateSnapshotsColumns[13]},
+				RefColumns: []*schema.Column{UpstreamSyncRunsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "upstreamkeyratesnapshot_upstream_key_id_sync_run_id",
+				Unique:  true,
+				Columns: []*schema.Column{UpstreamKeyRateSnapshotsColumns[12], UpstreamKeyRateSnapshotsColumns[13]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "upstream_key_id IS NOT NULL AND sync_run_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "upstreamkeyratesnapshot_upstream_config_id_observed_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamKeyRateSnapshotsColumns[11], UpstreamKeyRateSnapshotsColumns[9]},
+			},
+			{
+				Name:    "upstreamkeyratesnapshot_upstream_key_id_observed_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamKeyRateSnapshotsColumns[12], UpstreamKeyRateSnapshotsColumns[9]},
+			},
+			{
+				Name:    "upstreamkeyratesnapshot_sync_run_id",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamKeyRateSnapshotsColumns[13]},
+			},
+		},
+	}
 	// UpstreamSyncResultsColumns holds the columns for the "upstream_sync_results" table.
 	UpstreamSyncResultsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2468,6 +2536,7 @@ var (
 		UpstreamEventsTable,
 		UpstreamIncidentsTable,
 		UpstreamKeysTable,
+		UpstreamKeyRateSnapshotsTable,
 		UpstreamSyncResultsTable,
 		UpstreamSyncRunsTable,
 		UsageCleanupTasksTable,
@@ -2621,6 +2690,12 @@ func init() {
 	UpstreamKeysTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
 	UpstreamKeysTable.Annotation = &entsql.Annotation{
 		Table: "upstream_keys",
+	}
+	UpstreamKeyRateSnapshotsTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
+	UpstreamKeyRateSnapshotsTable.ForeignKeys[1].RefTable = UpstreamKeysTable
+	UpstreamKeyRateSnapshotsTable.ForeignKeys[2].RefTable = UpstreamSyncRunsTable
+	UpstreamKeyRateSnapshotsTable.Annotation = &entsql.Annotation{
+		Table: "upstream_key_rate_snapshots",
 	}
 	UpstreamSyncResultsTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
 	UpstreamSyncResultsTable.ForeignKeys[1].RefTable = UpstreamSyncRunsTable

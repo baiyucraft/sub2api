@@ -49,9 +49,11 @@ type UpstreamSyncRunEdges struct {
 	Events []*UpstreamEvent `json:"events,omitempty"`
 	// BalanceSnapshots holds the value of the balance_snapshots edge.
 	BalanceSnapshots []*UpstreamBalanceSnapshot `json:"balance_snapshots,omitempty"`
+	// KeyRateSnapshots holds the value of the key_rate_snapshots edge.
+	KeyRateSnapshots []*UpstreamKeyRateSnapshot `json:"key_rate_snapshots,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // ResultsOrErr returns the Results value or an error if the edge
@@ -79,6 +81,15 @@ func (e UpstreamSyncRunEdges) BalanceSnapshotsOrErr() ([]*UpstreamBalanceSnapsho
 		return e.BalanceSnapshots, nil
 	}
 	return nil, &NotLoadedError{edge: "balance_snapshots"}
+}
+
+// KeyRateSnapshotsOrErr returns the KeyRateSnapshots value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamSyncRunEdges) KeyRateSnapshotsOrErr() ([]*UpstreamKeyRateSnapshot, error) {
+	if e.loadedTypes[3] {
+		return e.KeyRateSnapshots, nil
+	}
+	return nil, &NotLoadedError{edge: "key_rate_snapshots"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -194,6 +205,11 @@ func (_m *UpstreamSyncRun) QueryEvents() *UpstreamEventQuery {
 // QueryBalanceSnapshots queries the "balance_snapshots" edge of the UpstreamSyncRun entity.
 func (_m *UpstreamSyncRun) QueryBalanceSnapshots() *UpstreamBalanceSnapshotQuery {
 	return NewUpstreamSyncRunClient(_m.config).QueryBalanceSnapshots(_m)
+}
+
+// QueryKeyRateSnapshots queries the "key_rate_snapshots" edge of the UpstreamSyncRun entity.
+func (_m *UpstreamSyncRun) QueryKeyRateSnapshots() *UpstreamKeyRateSnapshotQuery {
+	return NewUpstreamSyncRunClient(_m.config).QueryKeyRateSnapshots(_m)
 }
 
 // Update returns a builder for updating this UpstreamSyncRun.

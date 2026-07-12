@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
 )
@@ -178,6 +179,21 @@ func (_c *UpstreamSyncRunCreate) AddBalanceSnapshots(v ...*UpstreamBalanceSnapsh
 		ids[i] = v[i].ID
 	}
 	return _c.AddBalanceSnapshotIDs(ids...)
+}
+
+// AddKeyRateSnapshotIDs adds the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (_c *UpstreamSyncRunCreate) AddKeyRateSnapshotIDs(ids ...int64) *UpstreamSyncRunCreate {
+	_c.mutation.AddKeyRateSnapshotIDs(ids...)
+	return _c
+}
+
+// AddKeyRateSnapshots adds the "key_rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_c *UpstreamSyncRunCreate) AddKeyRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamSyncRunCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddKeyRateSnapshotIDs(ids...)
 }
 
 // Mutation returns the UpstreamSyncRunMutation object of the builder.
@@ -381,6 +397,22 @@ func (_c *UpstreamSyncRunCreate) createSpec() (*UpstreamSyncRun, *sqlgraph.Creat
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(upstreambalancesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.KeyRateSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamsyncrun.KeyRateSnapshotsTable,
+			Columns: []string{upstreamsyncrun.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

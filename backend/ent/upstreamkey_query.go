@@ -19,22 +19,24 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
 
 // UpstreamKeyQuery is the builder for querying UpstreamKey entities.
 type UpstreamKeyQuery struct {
 	config
-	ctx           *QueryContext
-	order         []upstreamkey.OrderOption
-	inters        []Interceptor
-	predicates    []predicate.UpstreamKey
-	withConfig    *UpstreamConfigQuery
-	withAccounts  *AccountQuery
-	withEvents    *UpstreamEventQuery
-	withIncidents *UpstreamIncidentQuery
-	withUsageLogs *UsageLogQuery
-	modifiers     []func(*sql.Selector)
+	ctx               *QueryContext
+	order             []upstreamkey.OrderOption
+	inters            []Interceptor
+	predicates        []predicate.UpstreamKey
+	withConfig        *UpstreamConfigQuery
+	withAccounts      *AccountQuery
+	withEvents        *UpstreamEventQuery
+	withIncidents     *UpstreamIncidentQuery
+	withRateSnapshots *UpstreamKeyRateSnapshotQuery
+	withUsageLogs     *UsageLogQuery
+	modifiers         []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -152,6 +154,28 @@ func (_q *UpstreamKeyQuery) QueryIncidents() *UpstreamIncidentQuery {
 			sqlgraph.From(upstreamkey.Table, upstreamkey.FieldID, selector),
 			sqlgraph.To(upstreamincident.Table, upstreamincident.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, upstreamkey.IncidentsTable, upstreamkey.IncidentsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryRateSnapshots chains the current query on the "rate_snapshots" edge.
+func (_q *UpstreamKeyQuery) QueryRateSnapshots() *UpstreamKeyRateSnapshotQuery {
+	query := (&UpstreamKeyRateSnapshotClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamkey.Table, upstreamkey.FieldID, selector),
+			sqlgraph.To(upstreamkeyratesnapshot.Table, upstreamkeyratesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamkey.RateSnapshotsTable, upstreamkey.RateSnapshotsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -368,16 +392,17 @@ func (_q *UpstreamKeyQuery) Clone() *UpstreamKeyQuery {
 		return nil
 	}
 	return &UpstreamKeyQuery{
-		config:        _q.config,
-		ctx:           _q.ctx.Clone(),
-		order:         append([]upstreamkey.OrderOption{}, _q.order...),
-		inters:        append([]Interceptor{}, _q.inters...),
-		predicates:    append([]predicate.UpstreamKey{}, _q.predicates...),
-		withConfig:    _q.withConfig.Clone(),
-		withAccounts:  _q.withAccounts.Clone(),
-		withEvents:    _q.withEvents.Clone(),
-		withIncidents: _q.withIncidents.Clone(),
-		withUsageLogs: _q.withUsageLogs.Clone(),
+		config:            _q.config,
+		ctx:               _q.ctx.Clone(),
+		order:             append([]upstreamkey.OrderOption{}, _q.order...),
+		inters:            append([]Interceptor{}, _q.inters...),
+		predicates:        append([]predicate.UpstreamKey{}, _q.predicates...),
+		withConfig:        _q.withConfig.Clone(),
+		withAccounts:      _q.withAccounts.Clone(),
+		withEvents:        _q.withEvents.Clone(),
+		withIncidents:     _q.withIncidents.Clone(),
+		withRateSnapshots: _q.withRateSnapshots.Clone(),
+		withUsageLogs:     _q.withUsageLogs.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -425,6 +450,17 @@ func (_q *UpstreamKeyQuery) WithIncidents(opts ...func(*UpstreamIncidentQuery)) 
 		opt(query)
 	}
 	_q.withIncidents = query
+	return _q
+}
+
+// WithRateSnapshots tells the query-builder to eager-load the nodes that are connected to
+// the "rate_snapshots" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UpstreamKeyQuery) WithRateSnapshots(opts ...func(*UpstreamKeyRateSnapshotQuery)) *UpstreamKeyQuery {
+	query := (&UpstreamKeyRateSnapshotClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withRateSnapshots = query
 	return _q
 }
 
@@ -517,11 +553,12 @@ func (_q *UpstreamKeyQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 	var (
 		nodes       = []*UpstreamKey{}
 		_spec       = _q.querySpec()
-		loadedTypes = [5]bool{
+		loadedTypes = [6]bool{
 			_q.withConfig != nil,
 			_q.withAccounts != nil,
 			_q.withEvents != nil,
 			_q.withIncidents != nil,
+			_q.withRateSnapshots != nil,
 			_q.withUsageLogs != nil,
 		}
 	)
@@ -570,6 +607,15 @@ func (_q *UpstreamKeyQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 		if err := _q.loadIncidents(ctx, query, nodes,
 			func(n *UpstreamKey) { n.Edges.Incidents = []*UpstreamIncident{} },
 			func(n *UpstreamKey, e *UpstreamIncident) { n.Edges.Incidents = append(n.Edges.Incidents, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withRateSnapshots; query != nil {
+		if err := _q.loadRateSnapshots(ctx, query, nodes,
+			func(n *UpstreamKey) { n.Edges.RateSnapshots = []*UpstreamKeyRateSnapshot{} },
+			func(n *UpstreamKey, e *UpstreamKeyRateSnapshot) {
+				n.Edges.RateSnapshots = append(n.Edges.RateSnapshots, e)
+			}); err != nil {
 			return nil, err
 		}
 	}
@@ -693,6 +739,39 @@ func (_q *UpstreamKeyQuery) loadIncidents(ctx context.Context, query *UpstreamIn
 	}
 	query.Where(predicate.UpstreamIncident(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(upstreamkey.IncidentsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UpstreamKeyID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "upstream_key_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "upstream_key_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UpstreamKeyQuery) loadRateSnapshots(ctx context.Context, query *UpstreamKeyRateSnapshotQuery, nodes []*UpstreamKey, init func(*UpstreamKey), assign func(*UpstreamKey, *UpstreamKeyRateSnapshot)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*UpstreamKey)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(upstreamkeyratesnapshot.FieldUpstreamKeyID)
+	}
+	query.Where(predicate.UpstreamKeyRateSnapshot(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(upstreamkey.RateSnapshotsColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

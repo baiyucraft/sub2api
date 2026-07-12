@@ -15,6 +15,8 @@ var SensitiveCredentialKeys = []string{
 	AccountCredentialSub2APIRefreshToken,
 	// NewAPI 上游登录密码（用于公开用户接口同步 Key 与倍率）
 	AccountCredentialNewAPILoginPassword,
+	AccountCredentialNewAPICookie,
+	AccountCredentialNewAPIAccessToken,
 	// 云服务凭据
 	"aws_secret_access_key", "aws_session_token",
 	"service_account_json", "service_account", "private_key",

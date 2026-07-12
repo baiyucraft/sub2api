@@ -47,8 +47,12 @@ export default {
     authModes: {
       userLogin: '账密登录',
       manualJwt: '手动 JWT',
+      cookie: 'Cookie',
+      accessToken: 'Access Token',
       userLoginShort: '账密',
-      manualJwtShort: 'JWT'
+      manualJwtShort: 'JWT',
+      cookieShort: 'Cookie',
+      accessTokenShort: 'Token'
     },
     credentialStatus: {
       configured: '已配置',
@@ -57,7 +61,10 @@ export default {
       username: '账号 {status}',
       password: '密码 {status}',
       accessToken: 'JWT {status}',
-      refreshToken: 'Refresh {status}'
+      refreshToken: 'Refresh {status}',
+      cookie: 'Cookie {status}',
+      newapiAccessToken: 'Access Token {status}',
+      userId: '用户 ID {status}'
     },
     actions: {
       create: '添加上游',
@@ -67,6 +74,7 @@ export default {
       syncRuns: '同步记录',
       events: '事件',
       costTrend: '成本趋势',
+      rateTrend: '倍率趋势',
       more: '更多',
       settings: '上游设置',
       openDashboard: '打开上游后台',
@@ -126,11 +134,17 @@ export default {
       loginEmail: '登录邮箱',
       loginUsername: '登录账号',
       loginPassword: '登录密码',
+      newapiUserId: 'NewAPI 用户 ID',
+      cookie: 'Cookie',
+      newapiAccessToken: 'NewAPI Access Token',
       accessToken: 'Access Token',
       refreshToken: 'Refresh Token',
       keepPasswordPlaceholder: '留空保留旧密码',
       keepAccessTokenPlaceholder: '留空保留旧 JWT',
-      keepRefreshTokenPlaceholder: '留空保留旧 refresh token'
+      keepRefreshTokenPlaceholder: '留空保留旧 refresh token',
+      keepUserIdPlaceholder: '留空保留旧用户 ID',
+      keepCookiePlaceholder: '留空保留旧 Cookie',
+      keepNewapiAccessTokenPlaceholder: '留空保留旧 Access Token'
     },
     emptyTitle: '暂无上游配置',
     emptyDescription: '新增一个上游站点后，账号管理可以直接绑定该站点下的 Key。',
@@ -149,6 +163,9 @@ export default {
       saveFailed: '保存上游配置失败',
       newapiUsernameRequired: 'NewAPI 上游必须填写登录账号',
       newapiPasswordRequired: 'NewAPI 上游必须填写登录密码',
+      newapiUserIdRequired: 'NewAPI Cookie 或 Access Token 模式必须填写用户 ID',
+      newapiCookieRequired: 'NewAPI Cookie 模式必须填写 Cookie',
+      newapiAccessTokenRequired: 'NewAPI Access Token 模式必须填写 Token',
       deleted: '上游配置已删除',
       deleteFailed: '删除上游配置失败',
       testSuccess: '连接测试成功',
@@ -166,6 +183,7 @@ export default {
       loadSyncRunFailed: '加载同步结果失败',
       loadEventsFailed: '加载上游事件失败',
       loadTrendFailed: '加载成本趋势失败',
+      loadRateTrendFailed: '加载 Key 倍率趋势失败',
       loadSettingsFailed: '加载上游设置失败',
       settingsSaved: '上游设置已保存',
       saveSettingsFailed: '保存上游设置失败'
@@ -180,10 +198,14 @@ export default {
       syncRunsTitle: '同步记录',
       eventsTitle: '上游事件',
       trendTitle: '成本趋势',
+      rateTrendTitle: 'Key 倍率趋势',
+      deletedKey: '[已删除]',
+      unnamedKey: '未命名 Key',
       settingsTitle: '上游设置',
       runSubtitle: '批次 #{id}',
       syncRunsHint: '查看批量或单个上游同步的执行结果。',
       selectUpstream: '选择上游',
+      selectKey: '选择 Key',
       success: '成功',
       partial: '部分成功',
       failed: '失败',
@@ -200,6 +222,15 @@ export default {
       emptyEvents: '暂无上游事件',
       emptyBalanceHistory: '暂无余额历史',
       emptyTrend: '暂无成本趋势数据',
+      emptyRateTrend: '暂无倍率趋势数据',
+      emptyRateKeys: '该上游暂无可查看的 Key 倍率历史',
+      emptyRateChanges: '暂无倍率变化记录',
+      currentRawRate: '当前原始倍率',
+      currentEffectiveRate: '当前成本倍率',
+      previousRate: '上次原始倍率',
+      lastChanged: '最近变化',
+      observedSince: '首次观测',
+      rateChanges: '倍率变化记录',
       balanceHistory: '余额历史',
       loadMore: '加载更多',
       syncRunSummary: '共 {total} 个上游：成功 {success}，部分成功 {partial}，失败 {failed}',
@@ -225,6 +256,10 @@ export default {
         actualCost: '实际上游成本',
         billedCost: '计费金额',
         grossProfit: '毛利'
+      },
+      rateSeries: {
+        raw: '原始倍率',
+        effective: '有效成本倍率'
       }
     }
   }

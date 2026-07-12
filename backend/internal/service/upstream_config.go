@@ -22,8 +22,10 @@ const (
 	UpstreamProviderNewAPI  = AccountUpstreamProviderNewAPI
 	UpstreamProviderOther   = AccountUpstreamProviderOther
 
-	UpstreamAuthModeUserLogin = AccountSub2APIRateSyncAdapterUserLogin
-	UpstreamAuthModeManualJWT = AccountSub2APIRateSyncAdapterManualJWT
+	UpstreamAuthModeUserLogin   = AccountSub2APIRateSyncAdapterUserLogin
+	UpstreamAuthModeManualJWT   = AccountSub2APIRateSyncAdapterManualJWT
+	UpstreamAuthModeCookie      = "cookie"
+	UpstreamAuthModeAccessToken = "access_token"
 )
 
 var (
@@ -243,6 +245,11 @@ func (s *UpstreamConfigService) GetByID(ctx context.Context, id int64) (*Upstrea
 }
 
 func (s *UpstreamConfigService) Create(ctx context.Context, config *UpstreamConfig) (*UpstreamConfig, error) {
+	if config != nil {
+		config.Provider = normalizeUpstreamProvider(config.Provider)
+		config.AuthMode = normalizeUpstreamAuthMode(config.AuthMode)
+		pruneUpstreamProviderCredentials(config.Credentials, config.Provider, config.AuthMode)
+	}
 	if err := normalizeAndValidateUpstreamConfig(config, true); err != nil {
 		return nil, err
 	}
@@ -294,6 +301,7 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 		}
 	}
 	current.Credentials = mergePreservingUpstreamSecrets(current.Credentials, patch.Credentials)
+	pruneUpstreamProviderCredentials(current.Credentials, current.Provider, current.AuthMode)
 	if patch.Extra != nil {
 		current.Extra = patch.Extra
 	}
@@ -304,6 +312,76 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 		return nil, err
 	}
 	return s.GetByID(ctx, id)
+}
+
+// pruneUpstreamProviderCredentials removes credentials that no longer belong to
+// the selected provider or authentication mode. This prevents stale secrets
+// from remaining encrypted in a config after a provider switch.
+func pruneUpstreamProviderCredentials(credentials map[string]any, provider, authMode string) {
+	if credentials == nil {
+		return
+	}
+	if provider != UpstreamProviderSub2API {
+		for _, key := range []string{
+			AccountCredentialSub2APILoginEmail,
+			AccountCredentialSub2APILoginPassword,
+			AccountCredentialSub2APIAccessToken,
+			AccountCredentialSub2APIRefreshToken,
+			AccountCredentialSub2APITokenExpiresAt,
+		} {
+			delete(credentials, key)
+		}
+	}
+	if provider != UpstreamProviderNewAPI {
+		for _, key := range []string{
+			AccountCredentialNewAPILoginUsername,
+			AccountCredentialNewAPILoginPassword,
+			AccountCredentialNewAPICookie,
+			AccountCredentialNewAPIAccessToken,
+			AccountCredentialNewAPIUserID,
+		} {
+			delete(credentials, key)
+		}
+	} else {
+		pruneNewAPIAuthenticationCredentials(credentials, authMode)
+	}
+	if provider == UpstreamProviderSub2API {
+		pruneSub2APIAuthenticationCredentials(credentials, authMode)
+	}
+}
+
+func pruneSub2APIAuthenticationCredentials(credentials map[string]any, authMode string) {
+	if credentials == nil {
+		return
+	}
+	if authMode == UpstreamAuthModeManualJWT {
+		delete(credentials, AccountCredentialSub2APILoginEmail)
+		delete(credentials, AccountCredentialSub2APILoginPassword)
+		return
+	}
+	delete(credentials, AccountCredentialSub2APIAccessToken)
+	delete(credentials, AccountCredentialSub2APIRefreshToken)
+	delete(credentials, AccountCredentialSub2APITokenExpiresAt)
+}
+
+func pruneNewAPIAuthenticationCredentials(credentials map[string]any, authMode string) {
+	if credentials == nil {
+		return
+	}
+	switch authMode {
+	case UpstreamAuthModeCookie:
+		delete(credentials, AccountCredentialNewAPILoginUsername)
+		delete(credentials, AccountCredentialNewAPIAccessToken)
+		delete(credentials, AccountCredentialNewAPILoginPassword)
+	case UpstreamAuthModeAccessToken:
+		delete(credentials, AccountCredentialNewAPILoginUsername)
+		delete(credentials, AccountCredentialNewAPICookie)
+		delete(credentials, AccountCredentialNewAPILoginPassword)
+	default:
+		delete(credentials, AccountCredentialNewAPICookie)
+		delete(credentials, AccountCredentialNewAPIAccessToken)
+		delete(credentials, AccountCredentialNewAPIUserID)
+	}
 }
 
 func (s *UpstreamConfigService) Delete(ctx context.Context, id int64) error {
@@ -956,11 +1034,30 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 	if config.Extra == nil {
 		config.Extra = map[string]any{}
 	}
+	if err := validateUpstreamProviderAuthMode(config.Provider, config.AuthMode); err != nil {
+		return err
+	}
 	if adapter, ok := upstreamProviderAdapterFor(config.Provider); ok {
 		return adapter.ValidateConfig(config, requireSecrets)
 	}
 	if config.Provider != UpstreamProviderSub2API && config.Provider != UpstreamProviderNewAPI {
 		return nil
+	}
+	return nil
+}
+
+func validateUpstreamProviderAuthMode(provider, authMode string) error {
+	valid := false
+	switch provider {
+	case UpstreamProviderSub2API:
+		valid = authMode == UpstreamAuthModeUserLogin || authMode == UpstreamAuthModeManualJWT
+	case UpstreamProviderNewAPI:
+		valid = authMode == UpstreamAuthModeUserLogin || authMode == UpstreamAuthModeCookie || authMode == UpstreamAuthModeAccessToken
+	default:
+		return nil
+	}
+	if !valid {
+		return infraerrors.BadRequest("UPSTREAM_AUTH_MODE_INVALID", "upstream auth mode is not supported by the selected provider")
 	}
 	return nil
 }
@@ -1017,6 +1114,10 @@ func normalizeUpstreamAuthMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case UpstreamAuthModeManualJWT:
 		return UpstreamAuthModeManualJWT
+	case UpstreamAuthModeCookie:
+		return UpstreamAuthModeCookie
+	case UpstreamAuthModeAccessToken:
+		return UpstreamAuthModeAccessToken
 	default:
 		return UpstreamAuthModeUserLogin
 	}

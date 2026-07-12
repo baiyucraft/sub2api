@@ -2,7 +2,7 @@ import { apiClient } from '../client'
 import type { PaginatedResponse } from '@/types'
 
 export type UpstreamProvider = 'sub2api' | 'newapi' | 'other'
-export type UpstreamAuthMode = 'user_login' | 'manual_jwt'
+export type UpstreamAuthMode = 'user_login' | 'manual_jwt' | 'cookie' | 'access_token'
 export type UpstreamTrendRange = '24h' | '7d' | '30d'
 
 export interface UpstreamCredentialsStatus {
@@ -12,6 +12,9 @@ export interface UpstreamCredentialsStatus {
   has_refresh_token?: boolean
   has_newapi_login_username?: boolean
   has_newapi_login_password?: boolean
+  has_newapi_cookie?: boolean
+  has_newapi_access_token?: boolean
+  has_newapi_user_id?: boolean
 }
 
 export interface UpstreamKeyStatus {
@@ -198,6 +201,49 @@ export interface UpstreamUsageTrend {
   points: UpstreamUsageTrendPoint[]
 }
 
+export interface UpstreamKeyRateTrendPoint {
+  bucket: string
+  raw_rate_multiplier: number
+  effective_cost_multiplier: number
+}
+
+export interface UpstreamKeyRateChange {
+  type: string
+  old_raw_rate?: number | null
+  new_raw_rate?: number | null
+  old_effective_rate?: number | null
+  new_effective_rate?: number | null
+  occurred_at: string
+}
+
+export interface UpstreamKeyRateTrend {
+  range: UpstreamTrendRange
+  config_id: number
+  key_id: number
+  remote_key_id?: number | null
+  key_name: string
+  current_raw_rate?: number | null
+  current_effective_rate?: number | null
+  previous_raw_rate?: number | null
+  previous_effective_rate?: number | null
+  first_observed_at?: string | null
+  last_changed_at?: string | null
+  points: UpstreamKeyRateTrendPoint[]
+  changes: UpstreamKeyRateChange[]
+}
+
+export interface UpstreamKeyRateCatalogItem {
+  key_id: number
+  name: string
+  remote_key_id?: number | null
+  status: string
+  deleted_at?: string | null
+  current_raw_rate?: number | null
+  current_effective_rate?: number | null
+  last_observed_at?: string | null
+  last_changed_at?: string | null
+}
+
 export interface UpstreamOperationsList<T> {
   items: T[]
   total: number
@@ -304,6 +350,18 @@ export async function getUsageTrend(configId: number, range: UpstreamTrendRange)
   return data
 }
 
+export async function getKeyRateTrend(configId: number, keyId: number, range: UpstreamTrendRange): Promise<UpstreamKeyRateTrend> {
+  const { data } = await apiClient.get<UpstreamKeyRateTrend>(`/admin/upstream-configs/${configId}/keys/${keyId}/rate-trend`, {
+    params: { range }
+  })
+  return data
+}
+
+export async function listKeyRateTrendKeys(configId: number): Promise<UpstreamKeyRateCatalogItem[]> {
+  const { data } = await apiClient.get<UpstreamKeyRateCatalogItem[]>(`/admin/upstream-configs/${configId}/keys/rate-trend-keys`)
+  return data
+}
+
 export async function listBalanceHistory(
   configId: number,
   limit = 50,
@@ -357,6 +415,8 @@ export default {
   listEvents,
   listIncidents,
   getUsageTrend,
+  getKeyRateTrend,
+  listKeyRateTrendKeys,
   listBalanceHistory,
   listKeys,
   createKey,

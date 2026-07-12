@@ -130,6 +130,63 @@ type UpstreamUsageTrend struct {
 	Points                   []UpstreamUsageTrendPoint `json:"points"`
 }
 
+// UpstreamKeyRateSnapshot is a non-secret observation of one upstream key's rate.
+type UpstreamKeyRateSnapshot struct {
+	ID                      int64     `json:"id"`
+	ConfigID                int64     `json:"config_id"`
+	KeyID                   *int64    `json:"key_id,omitempty"`
+	RemoteKeyID             *int64    `json:"remote_key_id,omitempty"`
+	KeyName                 string    `json:"key_name"`
+	RawRateMultiplier       float64   `json:"raw_rate_multiplier"`
+	RechargeRate            float64   `json:"recharge_rate"`
+	EffectiveCostMultiplier float64   `json:"effective_cost_multiplier"`
+	Source                  string    `json:"source"`
+	ObservedAt              time.Time `json:"observed_at"`
+}
+
+type UpstreamKeyRateChange struct {
+	Type         string    `json:"type"`
+	OldRawRate   *float64  `json:"old_raw_rate,omitempty"`
+	NewRawRate   *float64  `json:"new_raw_rate,omitempty"`
+	OldEffective *float64  `json:"old_effective_rate,omitempty"`
+	NewEffective *float64  `json:"new_effective_rate,omitempty"`
+	OccurredAt   time.Time `json:"occurred_at"`
+}
+
+type UpstreamKeyRateTrendPoint struct {
+	Bucket                  string  `json:"bucket"`
+	RawRateMultiplier       float64 `json:"raw_rate_multiplier"`
+	EffectiveCostMultiplier float64 `json:"effective_cost_multiplier"`
+}
+
+type UpstreamKeyRateTrend struct {
+	Range                 string                      `json:"range"`
+	ConfigID              int64                       `json:"config_id"`
+	KeyID                 int64                       `json:"key_id"`
+	RemoteKeyID           *int64                      `json:"remote_key_id,omitempty"`
+	KeyName               string                      `json:"key_name"`
+	CurrentRawRate        *float64                    `json:"current_raw_rate,omitempty"`
+	CurrentEffectiveRate  *float64                    `json:"current_effective_rate,omitempty"`
+	PreviousRawRate       *float64                    `json:"previous_raw_rate,omitempty"`
+	PreviousEffectiveRate *float64                    `json:"previous_effective_rate,omitempty"`
+	FirstObservedAt       *time.Time                  `json:"first_observed_at,omitempty"`
+	LastChangedAt         *time.Time                  `json:"last_changed_at,omitempty"`
+	Points                []UpstreamKeyRateTrendPoint `json:"points"`
+	Changes               []UpstreamKeyRateChange     `json:"changes"`
+}
+
+type UpstreamKeyRateCatalogItem struct {
+	KeyID                int64      `json:"key_id"`
+	Name                 string     `json:"name"`
+	RemoteKeyID          *int64     `json:"remote_key_id,omitempty"`
+	Status               string     `json:"status"`
+	DeletedAt            *time.Time `json:"deleted_at,omitempty"`
+	CurrentRawRate       *float64   `json:"current_raw_rate,omitempty"`
+	CurrentEffectiveRate *float64   `json:"current_effective_rate,omitempty"`
+	LastObservedAt       *time.Time `json:"last_observed_at,omitempty"`
+	LastChangedAt        *time.Time `json:"last_changed_at,omitempty"`
+}
+
 type UpstreamOperationsRepository interface {
 	GetUpstreamSettings(ctx context.Context) (*UpstreamSettings, error)
 	UpdateUpstreamSettings(ctx context.Context, settings UpstreamSettings) error
@@ -142,6 +199,8 @@ type UpstreamOperationsRepository interface {
 	ListUpstreamIncidents(ctx context.Context, configID int64, status string, limit, offset int) ([]UpstreamIncident, int64, error)
 	ListUpstreamBalanceHistory(ctx context.Context, configID int64, limit, offset int) ([]UpstreamBalanceSnapshot, int64, error)
 	GetUpstreamUsageTrend(ctx context.Context, configID int64, rangeName string, now time.Time) (*UpstreamUsageTrend, error)
+	GetUpstreamKeyRateTrend(ctx context.Context, configID, keyID int64, rangeName string, now time.Time) (*UpstreamKeyRateTrend, error)
+	ListUpstreamKeyRateTrendKeys(ctx context.Context, configID int64) ([]UpstreamKeyRateCatalogItem, error)
 	CleanupUpstreamOperationHistory(ctx context.Context, now time.Time) error
 }
 
@@ -225,6 +284,35 @@ func (s *UpstreamConfigService) GetUsageTrend(ctx context.Context, configID int6
 		return nil, err
 	}
 	return repo.GetUpstreamUsageTrend(ctx, configID, rangeName, time.Now().UTC())
+}
+
+func (s *UpstreamConfigService) GetKeyRateTrend(ctx context.Context, configID, keyID int64, rangeName string) (*UpstreamKeyRateTrend, error) {
+	rangeName = strings.ToLower(strings.TrimSpace(rangeName))
+	if rangeName == "" {
+		rangeName = "24h"
+	}
+	if rangeName != "24h" && rangeName != "7d" && rangeName != "30d" {
+		return nil, infraerrors.BadRequest("UPSTREAM_RATE_TREND_RANGE_INVALID", "range must be one of 24h, 7d, 30d")
+	}
+	if configID <= 0 || keyID <= 0 {
+		return nil, infraerrors.BadRequest("UPSTREAM_RATE_TREND_ID_INVALID", "config_id and key_id must be positive")
+	}
+	repo, err := s.operationsRepo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.GetUpstreamKeyRateTrend(ctx, configID, keyID, rangeName, time.Now().UTC())
+}
+
+func (s *UpstreamConfigService) ListKeyRateTrendKeys(ctx context.Context, configID int64) ([]UpstreamKeyRateCatalogItem, error) {
+	if configID <= 0 {
+		return nil, infraerrors.BadRequest("UPSTREAM_RATE_TREND_CONFIG_INVALID", "config_id must be positive")
+	}
+	repo, err := s.operationsRepo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.ListUpstreamKeyRateTrendKeys(ctx, configID)
 }
 
 func (s *UpstreamConfigService) beginSyncRun(ctx context.Context, trigger string, total int) (int64, error) {
@@ -327,6 +415,8 @@ func classifyUpstreamSyncFailure(err error, fallbackStage string) (stage, code s
 		return stage, "network", true
 	case strings.Contains(text, "status 5"), strings.Contains(text, "bad gateway"):
 		return stage, "upstream", true
+	case strings.Contains(text, "profile"), strings.Contains(text, "quota"), strings.Contains(text, "usage"), strings.Contains(text, "incompatible response"):
+		return "profile", "protocol", false
 	case stage == "persist", stage == "account_apply":
 		return stage, "database", true
 	default:

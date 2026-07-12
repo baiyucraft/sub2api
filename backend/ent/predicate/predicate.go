@@ -111,6 +111,9 @@ type UpstreamIncident func(*sql.Selector)
 // UpstreamKey is the predicate function for upstreamkey builders.
 type UpstreamKey func(*sql.Selector)
 
+// UpstreamKeyRateSnapshot is the predicate function for upstreamkeyratesnapshot builders.
+type UpstreamKeyRateSnapshot func(*sql.Selector)
+
 // UpstreamSyncResult is the predicate function for upstreamsyncresult builders.
 type UpstreamSyncResult func(*sql.Selector)
 

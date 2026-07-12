@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
 
@@ -361,6 +362,21 @@ func (_u *UpstreamKeyUpdate) AddIncidents(v ...*UpstreamIncident) *UpstreamKeyUp
 	return _u.AddIncidentIDs(ids...)
 }
 
+// AddRateSnapshotIDs adds the "rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (_u *UpstreamKeyUpdate) AddRateSnapshotIDs(ids ...int64) *UpstreamKeyUpdate {
+	_u.mutation.AddRateSnapshotIDs(ids...)
+	return _u
+}
+
+// AddRateSnapshots adds the "rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamKeyUpdate) AddRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddRateSnapshotIDs(ids...)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *UpstreamKeyUpdate) AddUsageLogIDs(ids ...int64) *UpstreamKeyUpdate {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -448,6 +464,27 @@ func (_u *UpstreamKeyUpdate) RemoveIncidents(v ...*UpstreamIncident) *UpstreamKe
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveIncidentIDs(ids...)
+}
+
+// ClearRateSnapshots clears all "rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamKeyUpdate) ClearRateSnapshots() *UpstreamKeyUpdate {
+	_u.mutation.ClearRateSnapshots()
+	return _u
+}
+
+// RemoveRateSnapshotIDs removes the "rate_snapshots" edge to UpstreamKeyRateSnapshot entities by IDs.
+func (_u *UpstreamKeyUpdate) RemoveRateSnapshotIDs(ids ...int64) *UpstreamKeyUpdate {
+	_u.mutation.RemoveRateSnapshotIDs(ids...)
+	return _u
+}
+
+// RemoveRateSnapshots removes "rate_snapshots" edges to UpstreamKeyRateSnapshot entities.
+func (_u *UpstreamKeyUpdate) RemoveRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveRateSnapshotIDs(ids...)
 }
 
 // ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
@@ -790,6 +827,51 @@ func (_u *UpstreamKeyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.RateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.RateSnapshotsTable,
+			Columns: []string{upstreamkey.RateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedRateSnapshotsIDs(); len(nodes) > 0 && !_u.mutation.RateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.RateSnapshotsTable,
+			Columns: []string{upstreamkey.RateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RateSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.RateSnapshotsTable,
+			Columns: []string{upstreamkey.RateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -1190,6 +1272,21 @@ func (_u *UpstreamKeyUpdateOne) AddIncidents(v ...*UpstreamIncident) *UpstreamKe
 	return _u.AddIncidentIDs(ids...)
 }
 
+// AddRateSnapshotIDs adds the "rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (_u *UpstreamKeyUpdateOne) AddRateSnapshotIDs(ids ...int64) *UpstreamKeyUpdateOne {
+	_u.mutation.AddRateSnapshotIDs(ids...)
+	return _u
+}
+
+// AddRateSnapshots adds the "rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamKeyUpdateOne) AddRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddRateSnapshotIDs(ids...)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *UpstreamKeyUpdateOne) AddUsageLogIDs(ids ...int64) *UpstreamKeyUpdateOne {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -1277,6 +1374,27 @@ func (_u *UpstreamKeyUpdateOne) RemoveIncidents(v ...*UpstreamIncident) *Upstrea
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveIncidentIDs(ids...)
+}
+
+// ClearRateSnapshots clears all "rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamKeyUpdateOne) ClearRateSnapshots() *UpstreamKeyUpdateOne {
+	_u.mutation.ClearRateSnapshots()
+	return _u
+}
+
+// RemoveRateSnapshotIDs removes the "rate_snapshots" edge to UpstreamKeyRateSnapshot entities by IDs.
+func (_u *UpstreamKeyUpdateOne) RemoveRateSnapshotIDs(ids ...int64) *UpstreamKeyUpdateOne {
+	_u.mutation.RemoveRateSnapshotIDs(ids...)
+	return _u
+}
+
+// RemoveRateSnapshots removes "rate_snapshots" edges to UpstreamKeyRateSnapshot entities.
+func (_u *UpstreamKeyUpdateOne) RemoveRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveRateSnapshotIDs(ids...)
 }
 
 // ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
@@ -1649,6 +1767,51 @@ func (_u *UpstreamKeyUpdateOne) sqlSave(ctx context.Context) (_node *UpstreamKey
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(upstreamincident.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.RateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.RateSnapshotsTable,
+			Columns: []string{upstreamkey.RateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedRateSnapshotsIDs(); len(nodes) > 0 && !_u.mutation.RateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.RateSnapshotsTable,
+			Columns: []string{upstreamkey.RateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RateSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamkey.RateSnapshotsTable,
+			Columns: []string{upstreamkey.RateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

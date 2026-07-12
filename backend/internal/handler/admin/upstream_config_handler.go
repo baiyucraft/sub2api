@@ -271,6 +271,36 @@ func (h *UpstreamConfigHandler) ListKeys(c *gin.Context) {
 	response.Success(c, sanitizeUpstreamKeys(keys))
 }
 
+func (h *UpstreamConfigHandler) KeyRateTrend(c *gin.Context) {
+	configID, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	keyID, ok := parseUpstreamIDParam(c, "keyID")
+	if !ok {
+		return
+	}
+	trend, err := h.service.GetKeyRateTrend(c.Request.Context(), configID, keyID, c.Query("range"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, trend)
+}
+
+func (h *UpstreamConfigHandler) KeyRateTrendKeys(c *gin.Context) {
+	configID, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	items, err := h.service.ListKeyRateTrendKeys(c.Request.Context(), configID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, items)
+}
+
 func (h *UpstreamConfigHandler) CreateKey(c *gin.Context) {
 	id, ok := parseUpstreamIDParam(c, "id")
 	if !ok {
@@ -463,6 +493,9 @@ func upstreamCredentialsStatus(credentials map[string]any) gin.H {
 		"has_refresh_token":         strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APIRefreshToken])) != "",
 		"has_newapi_login_username": strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPILoginUsername])) != "",
 		"has_newapi_login_password": strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPILoginPassword])) != "",
+		"has_newapi_cookie":         strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPICookie])) != "",
+		"has_newapi_access_token":   strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPIAccessToken])) != "",
+		"has_newapi_user_id":        strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPIUserID])) != "",
 	}
 }
 

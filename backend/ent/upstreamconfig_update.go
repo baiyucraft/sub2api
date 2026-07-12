@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
@@ -382,6 +383,21 @@ func (_u *UpstreamConfigUpdate) AddBalanceSnapshots(v ...*UpstreamBalanceSnapsho
 	return _u.AddBalanceSnapshotIDs(ids...)
 }
 
+// AddKeyRateSnapshotIDs adds the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (_u *UpstreamConfigUpdate) AddKeyRateSnapshotIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.AddKeyRateSnapshotIDs(ids...)
+	return _u
+}
+
+// AddKeyRateSnapshots adds the "key_rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamConfigUpdate) AddKeyRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddKeyRateSnapshotIDs(ids...)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *UpstreamConfigUpdate) AddUsageLogIDs(ids ...int64) *UpstreamConfigUpdate {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -531,6 +547,27 @@ func (_u *UpstreamConfigUpdate) RemoveBalanceSnapshots(v ...*UpstreamBalanceSnap
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveBalanceSnapshotIDs(ids...)
+}
+
+// ClearKeyRateSnapshots clears all "key_rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamConfigUpdate) ClearKeyRateSnapshots() *UpstreamConfigUpdate {
+	_u.mutation.ClearKeyRateSnapshots()
+	return _u
+}
+
+// RemoveKeyRateSnapshotIDs removes the "key_rate_snapshots" edge to UpstreamKeyRateSnapshot entities by IDs.
+func (_u *UpstreamConfigUpdate) RemoveKeyRateSnapshotIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.RemoveKeyRateSnapshotIDs(ids...)
+	return _u
+}
+
+// RemoveKeyRateSnapshots removes "key_rate_snapshots" edges to UpstreamKeyRateSnapshot entities.
+func (_u *UpstreamConfigUpdate) RemoveKeyRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveKeyRateSnapshotIDs(ids...)
 }
 
 // ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
@@ -988,6 +1025,51 @@ func (_u *UpstreamConfigUpdate) sqlSave(ctx context.Context) (_node int, err err
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.KeyRateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.KeyRateSnapshotsTable,
+			Columns: []string{upstreamconfig.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedKeyRateSnapshotsIDs(); len(nodes) > 0 && !_u.mutation.KeyRateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.KeyRateSnapshotsTable,
+			Columns: []string{upstreamconfig.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.KeyRateSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.KeyRateSnapshotsTable,
+			Columns: []string{upstreamconfig.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _u.mutation.UsageLogsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -1428,6 +1510,21 @@ func (_u *UpstreamConfigUpdateOne) AddBalanceSnapshots(v ...*UpstreamBalanceSnap
 	return _u.AddBalanceSnapshotIDs(ids...)
 }
 
+// AddKeyRateSnapshotIDs adds the "key_rate_snapshots" edge to the UpstreamKeyRateSnapshot entity by IDs.
+func (_u *UpstreamConfigUpdateOne) AddKeyRateSnapshotIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.AddKeyRateSnapshotIDs(ids...)
+	return _u
+}
+
+// AddKeyRateSnapshots adds the "key_rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamConfigUpdateOne) AddKeyRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddKeyRateSnapshotIDs(ids...)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *UpstreamConfigUpdateOne) AddUsageLogIDs(ids ...int64) *UpstreamConfigUpdateOne {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -1577,6 +1674,27 @@ func (_u *UpstreamConfigUpdateOne) RemoveBalanceSnapshots(v ...*UpstreamBalanceS
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveBalanceSnapshotIDs(ids...)
+}
+
+// ClearKeyRateSnapshots clears all "key_rate_snapshots" edges to the UpstreamKeyRateSnapshot entity.
+func (_u *UpstreamConfigUpdateOne) ClearKeyRateSnapshots() *UpstreamConfigUpdateOne {
+	_u.mutation.ClearKeyRateSnapshots()
+	return _u
+}
+
+// RemoveKeyRateSnapshotIDs removes the "key_rate_snapshots" edge to UpstreamKeyRateSnapshot entities by IDs.
+func (_u *UpstreamConfigUpdateOne) RemoveKeyRateSnapshotIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.RemoveKeyRateSnapshotIDs(ids...)
+	return _u
+}
+
+// RemoveKeyRateSnapshots removes "key_rate_snapshots" edges to UpstreamKeyRateSnapshot entities.
+func (_u *UpstreamConfigUpdateOne) RemoveKeyRateSnapshots(v ...*UpstreamKeyRateSnapshot) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveKeyRateSnapshotIDs(ids...)
 }
 
 // ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
@@ -2057,6 +2175,51 @@ func (_u *UpstreamConfigUpdateOne) sqlSave(ctx context.Context) (_node *Upstream
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(upstreambalancesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.KeyRateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.KeyRateSnapshotsTable,
+			Columns: []string{upstreamconfig.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedKeyRateSnapshotsIDs(); len(nodes) > 0 && !_u.mutation.KeyRateSnapshotsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.KeyRateSnapshotsTable,
+			Columns: []string{upstreamconfig.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.KeyRateSnapshotsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.KeyRateSnapshotsTable,
+			Columns: []string{upstreamconfig.KeyRateSnapshotsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamkeyratesnapshot.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

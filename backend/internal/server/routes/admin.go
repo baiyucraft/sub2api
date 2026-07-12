@@ -371,6 +371,8 @@ func registerUpstreamConfigRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		upstreams.POST("/:id/sync-keys", h.Admin.UpstreamConfig.SyncKeys)
 		upstreams.GET("/:id/balance-history", h.Admin.UpstreamConfig.ListBalanceHistory)
 		upstreams.GET("/:id/keys", h.Admin.UpstreamConfig.ListKeys)
+		upstreams.GET("/:id/keys/rate-trend-keys", h.Admin.UpstreamConfig.KeyRateTrendKeys)
+		upstreams.GET("/:id/keys/:keyID/rate-trend", h.Admin.UpstreamConfig.KeyRateTrend)
 		upstreams.POST("/:id/keys", h.Admin.UpstreamConfig.CreateKey)
 		upstreams.DELETE("/:id/keys/:keyID", h.Admin.UpstreamConfig.DeleteKey)
 	}

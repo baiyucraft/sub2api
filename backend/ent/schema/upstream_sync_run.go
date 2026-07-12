@@ -47,6 +47,8 @@ func (UpstreamSyncRun) Edges() []ent.Edge {
 			Annotations(entsql.OnDelete(entsql.Cascade)),
 		edge.To("events", UpstreamEvent.Type),
 		edge.To("balance_snapshots", UpstreamBalanceSnapshot.Type),
+		edge.To("key_rate_snapshots", UpstreamKeyRateSnapshot.Type).
+			Annotations(entsql.OnDelete(entsql.SetNull)),
 	}
 }
 

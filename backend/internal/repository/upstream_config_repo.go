@@ -17,6 +17,7 @@ import (
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	dbupstreamconfig "github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
+	dbupstreamevent "github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -495,7 +496,6 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			return err
 		}
 
-		oldRates := make(map[int64]*float64)
 		seenKeyIDs := make(map[int64]struct{}, len(keys))
 		reconciledAccountIDs := make([]int64, 0)
 		for i := range keys {
@@ -514,7 +514,6 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 				continue
 			}
 			wasMissing := existing.DeletedAt != nil || existing.MissingCount > 0 || existing.Status == service.UpstreamKeyStatusStale
-			oldRates[existing.ID] = existing.RateMultiplier
 			keys[i].ID = existing.ID
 			if err := updateUpstreamKey(txCtx, client, &keys[i]); err != nil {
 				return err
@@ -558,11 +557,9 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 		for _, row := range keyRows {
 			keyByID[row.ID] = row
 			localKeys = append(localKeys, *upstreamKeyEntityToService(row))
-			if old, ok := oldRates[row.ID]; ok && !sameOptionalRate(old, row.RateMultiplier) {
-				if err := createUpstreamRateChangeEvent(txCtx, client, config, row, runID, old, row.RateMultiplier, checkedAt); err != nil {
-					return err
-				}
-			}
+		}
+		if err := persistUpstreamKeyRateSnapshots(txCtx, client, config, runID, keys, checkedAt); err != nil {
+			return err
 		}
 
 		changedIDs := make([]int64, 0, len(accounts))
@@ -581,6 +578,9 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 		}
 
 		if err := persistUpstreamBalanceState(txCtx, client, config, runID, extraUpdates, checkedAt); err != nil {
+			return err
+		}
+		if err := createNewAPIGroupStructureEvents(txCtx, client, config, runID, extraUpdates, checkedAt); err != nil {
 			return err
 		}
 		mergedExtra := copyJSONMap(config.Extra)
@@ -623,6 +623,89 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 		return nil, service.UpstreamKeyReconcileResult{}, 0, err
 	}
 	return localKeys, reconciled, updated, nil
+}
+
+func createNewAPIGroupStructureEvents(ctx context.Context, client *dbent.Client, config *dbent.UpstreamConfig, runID int64, updates map[string]any, at time.Time) error {
+	if config == nil || config.Provider != service.UpstreamProviderNewAPI {
+		return nil
+	}
+	oldSnapshot, _ := config.Extra["upstream_provider_snapshot"].(map[string]any)
+	newSnapshot, _ := updates["upstream_provider_snapshot"].(map[string]any)
+	oldGroupsComplete, _ := oldSnapshot["groups_complete"].(bool)
+	newGroupsComplete, _ := newSnapshot["groups_complete"].(bool)
+	if !oldGroupsComplete || !newGroupsComplete {
+		return nil
+	}
+	oldGroups := jsonObjectMap(oldSnapshot["groups"])
+	newGroups := jsonObjectMap(newSnapshot["groups"])
+	for _, name := range sortedMapKeys(newGroups) {
+		newEntry := jsonObjectMap(newGroups[name])
+		oldRaw, existed := oldGroups[name]
+		if !existed {
+			if err := createNewAPIGroupEvent(ctx, client, config.ID, runID, "group_added", name, nil, newEntry, at); err != nil {
+				return err
+			}
+			continue
+		}
+		oldEntry := jsonObjectMap(oldRaw)
+		oldRatio, oldOK := numberFromMap(oldEntry, "ratio")
+		newRatio, newOK := numberFromMap(newEntry, "ratio")
+		if oldOK && newOK && oldRatio != newRatio {
+			if err := createNewAPIGroupEvent(ctx, client, config.ID, runID, "group_rate_changed", name, oldRatio, newRatio, at); err != nil {
+				return err
+			}
+		}
+	}
+	for _, name := range sortedMapKeys(oldGroups) {
+		if _, exists := newGroups[name]; exists {
+			continue
+		}
+		if err := createNewAPIGroupEvent(ctx, client, config.ID, runID, "group_removed", name, jsonObjectMap(oldGroups[name]), nil, at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func createNewAPIGroupEvent(ctx context.Context, client *dbent.Client, configID, runID int64, eventType, group string, oldValue, newValue any, at time.Time) error {
+	eventKey := fmt.Sprintf("newapi_group:%s:%s:%d", group, eventType, runID)
+	b := client.UpstreamEvent.Create().SetUpstreamConfigID(configID).SetEventType(eventType).SetSeverity("info").SetSource("sync").SetMessage("NewAPI group structure changed").SetPayload(map[string]any{"group": group, "old_value": oldValue, "new_value": newValue}).SetOccurredAt(at)
+	if runID > 0 {
+		b.SetSyncRunID(runID).SetEventKey(eventKey)
+		return b.OnConflict(
+			entsql.ConflictColumns(dbupstreamevent.FieldUpstreamConfigID, dbupstreamevent.FieldEventKey),
+			entsql.ConflictWhere(entsql.NotNull(dbupstreamevent.FieldEventKey)),
+			entsql.DoNothing(),
+		).Exec(ctx)
+	}
+	return b.Exec(ctx)
+}
+
+func jsonObjectMap(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	if typed, ok := value.(map[string]any); ok {
+		return typed
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+	return out
+}
+
+func sortedMapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func reconcileMissingUpstreamKeys(ctx context.Context, client *dbent.Client, configID, runID int64, seenKeyIDs map[int64]struct{}, checkedAt time.Time) (service.UpstreamKeyReconcileResult, []int64, error) {

@@ -69,11 +69,13 @@ type UpstreamKeyEdges struct {
 	Events []*UpstreamEvent `json:"events,omitempty"`
 	// Incidents holds the value of the incidents edge.
 	Incidents []*UpstreamIncident `json:"incidents,omitempty"`
+	// RateSnapshots holds the value of the rate_snapshots edge.
+	RateSnapshots []*UpstreamKeyRateSnapshot `json:"rate_snapshots,omitempty"`
 	// UsageLogs holds the value of the usage_logs edge.
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [5]bool
+	loadedTypes [6]bool
 }
 
 // ConfigOrErr returns the Config value or an error if the edge
@@ -114,10 +116,19 @@ func (e UpstreamKeyEdges) IncidentsOrErr() ([]*UpstreamIncident, error) {
 	return nil, &NotLoadedError{edge: "incidents"}
 }
 
+// RateSnapshotsOrErr returns the RateSnapshots value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamKeyEdges) RateSnapshotsOrErr() ([]*UpstreamKeyRateSnapshot, error) {
+	if e.loadedTypes[4] {
+		return e.RateSnapshots, nil
+	}
+	return nil, &NotLoadedError{edge: "rate_snapshots"}
+}
+
 // UsageLogsOrErr returns the UsageLogs value or an error if the edge
 // was not loaded in eager-loading.
 func (e UpstreamKeyEdges) UsageLogsOrErr() ([]*UsageLog, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[5] {
 		return e.UsageLogs, nil
 	}
 	return nil, &NotLoadedError{edge: "usage_logs"}
@@ -300,6 +311,11 @@ func (_m *UpstreamKey) QueryEvents() *UpstreamEventQuery {
 // QueryIncidents queries the "incidents" edge of the UpstreamKey entity.
 func (_m *UpstreamKey) QueryIncidents() *UpstreamIncidentQuery {
 	return NewUpstreamKeyClient(_m.config).QueryIncidents(_m)
+}
+
+// QueryRateSnapshots queries the "rate_snapshots" edge of the UpstreamKey entity.
+func (_m *UpstreamKey) QueryRateSnapshots() *UpstreamKeyRateSnapshotQuery {
+	return NewUpstreamKeyClient(_m.config).QueryRateSnapshots(_m)
 }
 
 // QueryUsageLogs queries the "usage_logs" edge of the UpstreamKey entity.

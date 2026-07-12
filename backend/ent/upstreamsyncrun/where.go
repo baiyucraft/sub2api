@@ -589,6 +589,29 @@ func HasBalanceSnapshotsWith(preds ...predicate.UpstreamBalanceSnapshot) predica
 	})
 }
 
+// HasKeyRateSnapshots applies the HasEdge predicate on the "key_rate_snapshots" edge.
+func HasKeyRateSnapshots() predicate.UpstreamSyncRun {
+	return predicate.UpstreamSyncRun(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, KeyRateSnapshotsTable, KeyRateSnapshotsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasKeyRateSnapshotsWith applies the HasEdge predicate on the "key_rate_snapshots" edge with a given conditions (other predicates).
+func HasKeyRateSnapshotsWith(preds ...predicate.UpstreamKeyRateSnapshot) predicate.UpstreamSyncRun {
+	return predicate.UpstreamSyncRun(func(s *sql.Selector) {
+		step := newKeyRateSnapshotsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.UpstreamSyncRun) predicate.UpstreamSyncRun {
 	return predicate.UpstreamSyncRun(sql.AndPredicates(predicates...))
