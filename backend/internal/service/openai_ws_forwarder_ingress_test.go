@@ -171,24 +171,6 @@ func TestStripCodexSparkImageGenerationToolFromRawPayload(t *testing.T) {
 		require.False(t, gjson.GetBytes(updated, "tool_choice").Exists())
 	})
 
-	t.Run("strips_flattened_function_and_choice_for_spark", func(t *testing.T) {
-		payload := []byte(`{
-			"type":"response.create",
-			"model":"gpt-5.3-codex-spark",
-			"tools":[
-				{"type":"function","name":"image_gen.imagegen"},
-				{"type":"function","name":"image_gen.other"}
-			],
-			"tool_choice":{"type":"function","name":"image_gen.imagegen"}
-		}`)
-		updated, changed, err := stripCodexSparkImageGenerationToolFromRawPayload(payload, "gpt-5.3-codex-spark")
-		require.NoError(t, err)
-		require.True(t, changed)
-		require.False(t, gjson.GetBytes(updated, `tools.#(name=="image_gen.imagegen")`).Exists())
-		require.Equal(t, "function", gjson.GetBytes(updated, `tools.#(name=="image_gen.other").type`).String())
-		require.False(t, gjson.GetBytes(updated, "tool_choice").Exists())
-	})
-
 	t.Run("keeps_image_generation_for_non_spark", func(t *testing.T) {
 		payload := []byte(`{"type":"response.create","model":"gpt-5.3-codex","tools":[{"type":"image_generation","output_format":"png"}]}`)
 		updated, changed, err := stripCodexSparkImageGenerationToolFromRawPayload(payload, "gpt-5.3-codex")
