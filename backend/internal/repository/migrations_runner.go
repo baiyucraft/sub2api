@@ -57,6 +57,8 @@ const schedulerOutboxPendingDedupKeyMigration = "153_scheduler_outbox_pending_de
 const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_key"
 const upstreamRemoteKeyUniqueMigration = "174_upstream_operations_indexes_notx.sql"
 const upstreamRemoteKeyUniqueIndex = "idx_upstream_keys_config_remote_key_id_active"
+const latestAPIKeyIPIndexMigration = "180_add_usage_logs_api_key_latest_ip_index_notx.sql"
+const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
 
 const rebindDuplicateUpstreamKeysSQL = `
 WITH account_refs AS (
@@ -313,6 +315,8 @@ func prepareNonTransactionalMigration(ctx context.Context, db *sql.DB, name stri
 		return dropInvalidIndexIfPresent(ctx, db, schedulerOutboxPendingDedupKeyIndex)
 	case upstreamRemoteKeyUniqueMigration:
 		return prepareUpstreamRemoteKeyUniqueMigration(ctx, db)
+	case latestAPIKeyIPIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, latestAPIKeyIPIndex)
 	default:
 		return nil
 	}
