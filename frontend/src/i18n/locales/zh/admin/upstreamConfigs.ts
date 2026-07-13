@@ -8,14 +8,15 @@ export default {
       name: '名称',
       provider: '类型',
       address: '地址',
-      balance: '人民币余额',
-      upstreamConcurrency: '上游总并发',
+      balance: '余额',
+      upstreamConcurrency: '并发',
       rates: '倍率摘要',
       authMode: '认证',
       credentials: '凭据',
       lastSync: '最近同步',
       actions: '操作'
     },
+    columnSettings: '列设置',
     balance: {
       totalRecharged: '累计充值 {amount}',
       totalQuota: '累计额度 {amount}',

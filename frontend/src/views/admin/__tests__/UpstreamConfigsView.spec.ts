@@ -111,14 +111,14 @@ const DataTableStub = defineComponent({
       </div>
       <div v-for="row in data" :key="row.id" data-test="row">
         <slot name="cell-name" :row="row" :value="row.name" />
-        <slot name="cell-provider" :row="row" :value="row.provider" />
-        <slot name="cell-urls" :row="row" :value="row.site_url" />
-        <slot name="cell-balance" :row="row" />
-        <slot name="cell-upstream_concurrency" :row="row" />
-        <slot name="cell-rates" :row="row" />
-        <slot name="cell-auth_mode" :row="row" :value="row.auth_mode" />
-        <slot name="cell-credentials" :row="row" />
-        <slot name="cell-last_success_at" :row="row" :value="row.last_success_at" />
+        <slot v-if="columns.find((column) => column.key === 'provider')" name="cell-provider" :row="row" :value="row.provider" />
+        <slot v-if="columns.find((column) => column.key === 'urls')" name="cell-urls" :row="row" :value="row.site_url" />
+        <slot v-if="columns.find((column) => column.key === 'balance')" name="cell-balance" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'upstream_concurrency')" name="cell-upstream_concurrency" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'rates')" name="cell-rates" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'auth_mode')" name="cell-auth_mode" :row="row" :value="row.auth_mode" />
+        <slot v-if="columns.find((column) => column.key === 'credentials')" name="cell-credentials" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'last_success_at')" name="cell-last_success_at" :row="row" :value="row.last_success_at" />
         <slot name="cell-actions" :row="row" />
       </div>
       <slot v-if="!data.length" name="empty" />
@@ -272,6 +272,7 @@ function mountView() {
 
 describe('UpstreamConfigsView', () => {
   beforeEach(() => {
+    localStorage.clear()
     vi.useRealTimers()
     listMock.mockReset()
     createMock.mockReset()
@@ -337,6 +338,7 @@ describe('UpstreamConfigsView', () => {
   })
 
   afterEach(() => {
+    localStorage.clear()
     vi.useRealTimers()
   })
 
@@ -351,7 +353,7 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="more-upstream-actions"]').element.parentElement?.className).toContain('min-w-[300px]')
     expect(wrapper.get('[data-test="actions-column-class"]').text()).toBe('min-w-[300px]')
     expect(wrapper.get('[data-test="columns"]').text()).toBe(
-      'name,provider,urls,balance,upstream_concurrency,rates,auth_mode,credentials,last_success_at,actions'
+      'name,provider,urls,balance,upstream_concurrency,auth_mode,credentials,last_success_at,actions'
     )
     expect(wrapper.get('[data-test="upstream-concurrency-header"] span').attributes('title')).toBe(
       'admin.upstreamConfigs.concurrency.headerTitle'
@@ -359,6 +361,90 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.text()).toContain('Sub2API Main')
     expect(wrapper.text()).toContain('https://upstream.example.com')
     expect(wrapper.get('[data-test="pagination-component"]').exists()).toBe(true)
+  })
+
+  it('uses localized balance and concurrency column labels', () => {
+    expect(zhUpstreamConfigs.upstreamConfigs.columns.balance).toBe('余额')
+    expect(zhUpstreamConfigs.upstreamConfigs.columns.upstreamConcurrency).toBe('并发')
+    expect(enUpstreamConfigs.upstreamConfigs.columns.balance).toBe('Balance')
+    expect(enUpstreamConfigs.upstreamConfigs.columns.upstreamConcurrency).toBe('Concurrency')
+  })
+
+  it('shows rates when toggled and restores the current-version preference', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button[title="admin.upstreamConfigs.columnSettings"]').trigger('click')
+    const ratesToggle = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.upstreamConfigs.columns.rates')
+    )
+    expect(ratesToggle).toBeTruthy()
+    await ratesToggle!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="columns"]').text()).toContain('rates')
+    expect(localStorage.getItem('upstream-config-hidden-columns')).toBe('[]')
+    expect(localStorage.getItem('upstream-config-hidden-columns-version')).toBe('1')
+
+    wrapper.unmount()
+    const remounted = mountView()
+    await flushPromises()
+    expect(remounted.get('[data-test="columns"]').text()).toContain('rates')
+  })
+
+  it('normalizes saved columns and never hides fixed columns', async () => {
+    localStorage.setItem(
+      'upstream-config-hidden-columns',
+      JSON.stringify(['credentials', 'unknown', 'name', 'actions', 'provider'])
+    )
+    localStorage.setItem('upstream-config-hidden-columns-version', '1')
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="columns"]').text()).toBe(
+      'name,urls,balance,upstream_concurrency,rates,auth_mode,last_success_at,actions'
+    )
+    expect(localStorage.getItem('upstream-config-hidden-columns')).toBe(
+      JSON.stringify(['provider', 'credentials'])
+    )
+  })
+
+  it('adds the default hidden rates column once when upgrading old preferences', async () => {
+    localStorage.setItem('upstream-config-hidden-columns', JSON.stringify(['balance']))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="columns"]').text()).not.toContain('balance')
+    expect(wrapper.get('[data-test="columns"]').text()).not.toContain('rates')
+    expect(localStorage.getItem('upstream-config-hidden-columns')).toBe(
+      JSON.stringify(['balance', 'rates'])
+    )
+    expect(localStorage.getItem('upstream-config-hidden-columns-version')).toBe('1')
+  })
+
+  it('falls back to the default hidden rates column for invalid preferences', async () => {
+    localStorage.setItem('upstream-config-hidden-columns', '{invalid')
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="columns"]').text()).not.toContain('rates')
+    expect(localStorage.getItem('upstream-config-hidden-columns')).toBe(JSON.stringify(['rates']))
+  })
+
+  it('closes column settings when clicking outside', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button[title="admin.upstreamConfigs.columnSettings"]').trigger('click')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.columns.rates')
+
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.columns.rates')
   })
 
   it('renders every upstream concurrency snapshot state', async () => {
@@ -442,6 +528,7 @@ describe('UpstreamConfigsView', () => {
       'admin.upstreamConfigs.concurrency.stale:{"value":"admin.upstreamConfigs.concurrency.newapiReported:{\\"count\\":\\"0042\\"}"}'
     ])
     expect(cells[0].attributes('title')).toBe('admin.upstreamConfigs.concurrency.headerTitle')
+    expect(cells[0].find('div > div').classes()).not.toContain('font-semibold')
     expect(cells[3].attributes('title')).toContain('admin.upstreamConfigs.concurrency.lastObservedAt')
     expect(cells[3].attributes('title')).toContain('admin.upstreamConfigs.concurrency.lastCheckedAt')
     expect(zhUpstreamConfigs.upstreamConfigs.concurrency.unsupported).toBe('--（未提供）')
@@ -653,6 +740,8 @@ describe('UpstreamConfigsView', () => {
   })
 
   it('highlights low CNY balance and renders raw and cost rate summaries', async () => {
+    localStorage.setItem('upstream-config-hidden-columns', JSON.stringify([]))
+    localStorage.setItem('upstream-config-hidden-columns-version', '1')
     mockList([upstreamConfig({
       recharge_rate: 2,
       keys: [
