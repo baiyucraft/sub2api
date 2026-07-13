@@ -416,7 +416,7 @@ func upstreamConfigFromRequest(req upstreamConfigRequest) *service.UpstreamConfi
 }
 
 func upstreamKeyFromRequest(req upstreamKeyRequest) *service.UpstreamKey {
-	return &service.UpstreamKey{
+	key := &service.UpstreamKey{
 		Name:              req.Name,
 		Key:               req.Key,
 		RemoteKeyID:       req.RemoteKeyID,
@@ -427,6 +427,11 @@ func upstreamKeyFromRequest(req upstreamKeyRequest) *service.UpstreamKey {
 		Status:            req.Status,
 		Extra:             req.Extra,
 	}
+	if req.Platform != nil && strings.TrimSpace(*req.Platform) != "" {
+		key.PlatformSource = service.UpstreamKeyPlatformSourceManual
+		key.PlatformDetectionStatus = service.UpstreamKeyPlatformDetectionUnresolved
+	}
+	return key
 }
 
 func sanitizeUpstreamConfigs(configs []service.UpstreamConfig) []gin.H {

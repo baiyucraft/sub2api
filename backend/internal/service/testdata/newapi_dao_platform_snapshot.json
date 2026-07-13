@@ -1,0 +1,43 @@
+{
+  "name": "dao",
+  "groups": {
+    "cc-max": {"ratio": 1, "desc": "cc-max pool"},
+    "gptplus": {"ratio": 0.03, "desc": "plus pool"},
+    "gptproo": {"ratio": 0.15, "desc": "pro pool"},
+    "kiro-pro": {"ratio": 0.2, "desc": "kiro-pro pool"}
+  },
+  "pricing": [
+    {"model_name":"claude-fable-5","enable_groups":["cc-max"]},
+    {"model_name":"claude-haiku-4-5","enable_groups":["cc-max"]},
+    {"model_name":"claude-haiku-4-5-20251001","enable_groups":["kiro-pro","cc-max"]},
+    {"model_name":"claude-opus-4-6","enable_groups":["kiro-pro","cc-max"]},
+    {"model_name":"claude-opus-4-7","enable_groups":["kiro-pro","cc-max"]},
+    {"model_name":"claude-opus-4-8","enable_groups":["kiro-pro","cc-max"]},
+    {"model_name":"claude-sonnet-4-6","enable_groups":["kiro-pro","cc-max"]},
+    {"model_name":"claude-sonnet-5","enable_groups":["cc-max"]},
+    {"model_name":"codex-auto-review","enable_groups":["gptplus","gptproo"]},
+    {"model_name":"gpt-5.3-codex-openai-compact","enable_groups":["gptproo"]},
+    {"model_name":"gpt-5.3-codex-spark","enable_groups":["gptproo"]},
+    {"model_name":"gpt-5.4","enable_groups":["gptplus","gptproo"]},
+    {"model_name":"gpt-5.4-mini","enable_groups":["gptplus","gptproo"]},
+    {"model_name":"gpt-5.4-openai-compact","enable_groups":["gptproo","gptplus"]},
+    {"model_name":"gpt-5.5","enable_groups":["gptplus","gptproo"]},
+    {"model_name":"gpt-5.5-openai-compact","enable_groups":["gptplus","gptproo"]},
+    {"model_name":"gpt-5.6-luna","enable_groups":["gptplus","gptproo"]},
+    {"model_name":"gpt-5.6-sol","enable_groups":["gptplus","gptproo"]},
+    {"model_name":"gpt-5.6-terra","enable_groups":["gptplus","gptproo"]},
+    {"model_name":"gpt-image-2","enable_groups":["gptproo"]}
+  ],
+  "tokens": [
+    {"id":9128,"key":"sk-fixture-pro","name":"pro","group":"gptproo","status":1,"model_limits_enabled":false,"model_limits":""},
+    {"id":14287,"key":"sk-fixture-plus","name":"plus","group":"gptplus","status":1,"model_limits_enabled":false,"model_limits":""},
+    {"id":14790,"key":"sk-fixture-kiro","name":"kiro","group":"kiro-pro","status":1,"model_limits_enabled":false,"model_limits":""},
+    {"id":14791,"key":"sk-fixture-ccmax","name":"ccmax","group":"cc-max","status":1,"model_limits_enabled":false,"model_limits":""}
+  ],
+  "expected": [
+    {"name":"pro","group":"gptproo","platform":"openai"},
+    {"name":"plus","group":"gptplus","platform":"openai"},
+    {"name":"kiro","group":"kiro-pro","platform":"anthropic"},
+    {"name":"ccmax","group":"cc-max","platform":"anthropic"}
+  ]
+}

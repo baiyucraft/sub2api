@@ -1,0 +1,57 @@
+{
+  "name": "sunai",
+  "groups": {
+    "Claude-MAX": {"ratio": 0.8, "desc": "Claude MAX pool"},
+    "Claude-awsq": {"ratio": 0.18, "desc": "Kiro channel"},
+    "Codex福利分组": {"ratio": 0.01, "desc": "Codex benefit"},
+    "Gemini": {"ratio": 0.35, "desc": "Gemini"},
+    "Grok-Xai": {"ratio": 0.05, "desc": "Grok pool"},
+    "codex-Pro": {"ratio": 0.18, "desc": "Pro pool"}
+  },
+  "pricing": [
+    {"model_name":"claude-fable-5","enable_groups":["Claude-MAX","Claude-awsq"]},
+    {"model_name":"claude-haiku-4-5","enable_groups":["Claude-MAX"]},
+    {"model_name":"claude-haiku-4-5-20251001","enable_groups":["Claude-awsq","Claude-MAX"]},
+    {"model_name":"claude-opus-4-6","enable_groups":["Claude-MAX","Claude-awsq"]},
+    {"model_name":"claude-opus-4-7","enable_groups":["Claude-MAX","Claude-awsq"]},
+    {"model_name":"claude-opus-4-8","enable_groups":["Claude-awsq","Claude-MAX"]},
+    {"model_name":"claude-sonnet-4-6","enable_groups":["Claude-MAX","Claude-awsq"]},
+    {"model_name":"claude-sonnet-5","enable_groups":["Claude-MAX"]},
+    {"model_name":"codex-auto-review","enable_groups":["Codex福利分组","codex-Pro"]},
+    {"model_name":"gpt-5.4","enable_groups":["codex-Pro","Codex福利分组"]},
+    {"model_name":"gpt-5.4-mini","enable_groups":["codex-Pro","Codex福利分组"]},
+    {"model_name":"gpt-5.4-openai-compact","enable_groups":["codex-Pro"]},
+    {"model_name":"gpt-5.5","enable_groups":["codex-Pro","Codex福利分组"]},
+    {"model_name":"gpt-5.5-openai-compact","enable_groups":["codex-Pro"]},
+    {"model_name":"gpt-5.6-luna","enable_groups":["codex-Pro","Codex福利分组"]},
+    {"model_name":"gpt-5.6-sol","enable_groups":["Codex福利分组","codex-Pro"]},
+    {"model_name":"gpt-5.6-terra","enable_groups":["Codex福利分组","codex-Pro"]},
+    {"model_name":"gemini-2.5-flash","enable_groups":["Gemini"]},
+    {"model_name":"gemini-2.5-flash-lite","enable_groups":["Gemini"]},
+    {"model_name":"gemini-2.5-pro","enable_groups":["Gemini"]},
+    {"model_name":"gemini-3-flash-agent","enable_groups":["Gemini"]},
+    {"model_name":"gemini-3-flash-preview","enable_groups":["Gemini"]},
+    {"model_name":"gemini-3-pro-preview","enable_groups":["Gemini"]},
+    {"model_name":"gemini-3.1-flash-lite-preview","enable_groups":["Gemini"]},
+    {"model_name":"gemini-3.1-pro-preview","enable_groups":["Gemini"]},
+    {"model_name":"gemini-3.5-flash","enable_groups":["Gemini"]},
+    {"model_name":"grok-4.5","enable_groups":["Grok-Xai"]},
+    {"model_name":"grok-composer-2.5-fast","enable_groups":["Grok-Xai"]}
+  ],
+  "tokens": [
+    {"id":1400,"key":"sk-fixture-ccmax","name":"ccmax","group":"Claude-MAX","status":1,"model_limits_enabled":false,"model_limits":""},
+    {"id":1439,"key":"sk-fixture-kiro","name":"kiro","group":"Claude-awsq","status":1,"model_limits_enabled":false,"model_limits":""},
+    {"id":1440,"key":"sk-fixture-plus","name":"plus","group":"Codex福利分组","status":1,"model_limits_enabled":false,"model_limits":""},
+    {"id":1441,"key":"sk-fixture-pro","name":"pro","group":"codex-Pro","status":1,"model_limits_enabled":false,"model_limits":""},
+    {"id":1442,"key":"sk-fixture-grok","name":"grok","group":"Grok-Xai","status":1,"model_limits_enabled":false,"model_limits":""},
+    {"id":1443,"key":"sk-fixture-gemini","name":"gemini","group":"Gemini","status":1,"model_limits_enabled":false,"model_limits":""}
+  ],
+  "expected": [
+    {"name":"ccmax","group":"Claude-MAX","platform":"anthropic"},
+    {"name":"kiro","group":"Claude-awsq","platform":"anthropic"},
+    {"name":"plus","group":"Codex福利分组","platform":"openai"},
+    {"name":"pro","group":"codex-Pro","platform":"openai"},
+    {"name":"gemini","group":"Gemini","platform":"gemini"},
+    {"name":"grok","group":"Grok-Xai","platform":"grok"}
+  ]
+}

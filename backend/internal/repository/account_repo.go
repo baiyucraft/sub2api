@@ -525,6 +525,14 @@ func validateUpstreamAccountBindingForWrite(ctx context.Context, client *dbent.C
 	if key.Platform == nil || strings.TrimSpace(*key.Platform) == "" {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_UNASSIGNED", "upstream key platform must be assigned before binding an account")
 	}
+	if key.PlatformSource != service.UpstreamKeyPlatformSourceManual {
+		switch key.PlatformDetectionStatus {
+		case service.UpstreamKeyPlatformDetectionUnresolved,
+			service.UpstreamKeyPlatformDetectionAmbiguous,
+			service.UpstreamKeyPlatformDetectionConflict:
+			return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_UNRESOLVED", "upstream key platform must be resolved before binding an account")
+		}
+	}
 	if *key.Platform != account.Platform {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_MISMATCH", "upstream key platform does not match account platform")
 	}
