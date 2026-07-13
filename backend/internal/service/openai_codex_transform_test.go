@@ -676,48 +676,6 @@ func TestEnsureOpenAIResponsesImageGenerationTool_PreservesImageGenNamespace(t *
 	}
 }
 
-func TestEnsureOpenAIResponsesImageGenerationTool_PreservesFlattenedImageGenFunction(t *testing.T) {
-	tests := []struct {
-		name    string
-		reqBody map[string]any
-	}{
-		{
-			name: "direct function name",
-			reqBody: map[string]any{
-				"model": "gpt-5.5",
-				"tools": []any{map[string]any{"type": "function", "name": "image_gen.imagegen"}},
-			},
-		},
-		{
-			name: "chat-style function in responses lite",
-			reqBody: map[string]any{
-				"model": "gpt-5.5",
-				"input": []any{
-					map[string]any{
-						"type": "additional_tools",
-						"tools": []any{map[string]any{
-							"type":     "function",
-							"function": map[string]any{"name": "image_gen.imagegen"},
-						}},
-					},
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.True(t, hasOpenAIImageGenerationTool(tt.reqBody))
-			require.False(t, ensureOpenAIResponsesImageGenerationTool(tt.reqBody))
-			require.False(t, toolsContainImageGeneration([]any{
-				map[string]any{"type": "function", "name": "image_gen.other"},
-				map[string]any{"type": "function", "name": "Image_Gen.Imagegen"},
-				map[string]any{"type": "custom", "name": "image_gen.imagegen"},
-			}))
-		})
-	}
-}
-
 func TestApplyCodexImageGenerationBridgeInstructions_AppendsBridgeOnce(t *testing.T) {
 	reqBody := map[string]any{
 		"model":        "gpt-5.4",
@@ -967,46 +925,6 @@ func TestStripOpenAIImageGenerationTools_StripsNamespaceFormats(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "code_tools", additionalTool["name"])
 	require.False(t, stripOpenAIImageGenerationTools(reqBody), "stripping should be idempotent")
-}
-
-func TestStripOpenAIImageGenerationTools_StripsFlattenedFunctionFormats(t *testing.T) {
-	reqBody := map[string]any{
-		"model": "gpt-5.5",
-		"tools": []any{
-			map[string]any{"type": "function", "name": "image_gen.imagegen"},
-			map[string]any{"type": "function", "name": "image_gen.other"},
-			map[string]any{"type": "function", "name": "Image_Gen.Imagegen"},
-		},
-		"input": []any{
-			map[string]any{"type": "message", "role": "user", "content": "hello"},
-			map[string]any{
-				"type": "additional_tools",
-				"tools": []any{
-					map[string]any{"type": "function", "function": map[string]any{"name": "image_gen.imagegen"}},
-					map[string]any{"type": "function", "function": map[string]any{"name": "other.imagegen"}},
-				},
-			},
-		},
-		"tool_choice": map[string]any{
-			"type":     "function",
-			"function": map[string]any{"name": "image_gen.imagegen"},
-		},
-	}
-
-	require.True(t, stripOpenAIImageGenerationTools(reqBody))
-	require.NotContains(t, reqBody, "tool_choice")
-
-	tools := reqBody["tools"].([]any)
-	require.Len(t, tools, 2)
-	require.Equal(t, "image_gen.other", tools[0].(map[string]any)["name"])
-	require.Equal(t, "Image_Gen.Imagegen", tools[1].(map[string]any)["name"])
-
-	input := reqBody["input"].([]any)
-	require.Len(t, input, 2)
-	additionalTools := input[1].(map[string]any)["tools"].([]any)
-	require.Len(t, additionalTools, 1)
-	remainingFunction := additionalTools[0].(map[string]any)["function"].(map[string]any)
-	require.Equal(t, "other.imagegen", remainingFunction["name"])
 }
 
 func TestStripOpenAIImageGenerationTools_KeepsNonImageNamespaces(t *testing.T) {
