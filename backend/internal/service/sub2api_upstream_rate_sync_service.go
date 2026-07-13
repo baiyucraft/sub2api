@@ -191,10 +191,11 @@ type sub2APIGroupRateInfo struct {
 }
 
 type sub2APIProfile struct {
-	ID             int64   `json:"id"`
-	Email          string  `json:"email"`
-	Balance        float64 `json:"balance"`
-	TotalRecharged float64 `json:"total_recharged"`
+	ID             int64           `json:"id"`
+	Email          string          `json:"email"`
+	Balance        float64         `json:"balance"`
+	TotalRecharged float64         `json:"total_recharged"`
+	Concurrency    json.RawMessage `json:"concurrency"`
 }
 
 type sub2APIUpstreamSnapshot struct {
@@ -1187,7 +1188,7 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIProfile(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	var payload sub2APIEnvelope[sub2APIProfile]
+	var payload sub2APIEnvelope[*sub2APIProfile]
 	status, err := s.doJSON(ctx, client, http.MethodGet, endpoint, token, nil, &payload)
 	if err != nil {
 		return nil, fmt.Errorf("get profile failed: %w", err)
@@ -1198,13 +1199,16 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIProfile(ctx context.Context
 	if payload.Code != 0 {
 		return nil, fmt.Errorf("get profile failed: code %d%s", payload.Code, safeEnvelopeReason(payload.Reason))
 	}
+	if payload.Data == nil {
+		return nil, fmt.Errorf("get profile returned null data")
+	}
 	if math.IsNaN(payload.Data.Balance) || math.IsInf(payload.Data.Balance, 0) {
 		return nil, fmt.Errorf("get profile returned invalid balance")
 	}
 	if math.IsNaN(payload.Data.TotalRecharged) || math.IsInf(payload.Data.TotalRecharged, 0) {
 		return nil, fmt.Errorf("get profile returned invalid total_recharged")
 	}
-	return &payload.Data, nil
+	return payload.Data, nil
 }
 
 func (s *Sub2APIUpstreamRateSyncService) syncTargetWithSession(ctx context.Context, target sub2APISyncTarget, session *sub2APIUserLoginSession) error {

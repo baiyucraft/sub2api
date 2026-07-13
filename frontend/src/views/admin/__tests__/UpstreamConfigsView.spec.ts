@@ -3,6 +3,8 @@ import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import UpstreamConfigsView from '../UpstreamConfigsView.vue'
+import enUpstreamConfigs from '@/i18n/locales/en/admin/upstreamConfigs'
+import zhUpstreamConfigs from '@/i18n/locales/zh/admin/upstreamConfigs'
 
 const {
   listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock,
@@ -104,11 +106,15 @@ const DataTableStub = defineComponent({
     <div data-test="data-table" :data-row-key="rowKey">
       <div data-test="columns">{{ columns.map((column) => column.key).join(',') }}</div>
       <div data-test="actions-column-class">{{ columns.find((column) => column.key === 'actions')?.class }}</div>
+      <div data-test="upstream-concurrency-header">
+        <slot name="header-upstream_concurrency" :column="columns.find((column) => column.key === 'upstream_concurrency')" />
+      </div>
       <div v-for="row in data" :key="row.id" data-test="row">
         <slot name="cell-name" :row="row" :value="row.name" />
         <slot name="cell-provider" :row="row" :value="row.provider" />
         <slot name="cell-urls" :row="row" :value="row.site_url" />
         <slot name="cell-balance" :row="row" />
+        <slot name="cell-upstream_concurrency" :row="row" />
         <slot name="cell-rates" :row="row" />
         <slot name="cell-auth_mode" :row="row" :value="row.auth_mode" />
         <slot name="cell-credentials" :row="row" />
@@ -344,11 +350,104 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="data-table"]').attributes('data-actions-count')).toBeUndefined()
     expect(wrapper.get('[data-test="more-upstream-actions"]').element.parentElement?.className).toContain('min-w-[300px]')
     expect(wrapper.get('[data-test="actions-column-class"]').text()).toBe('min-w-[300px]')
-    expect(wrapper.get('[data-test="columns"]').text()).toContain('actions')
-    expect(wrapper.get('[data-test="columns"]').text()).toContain('balance')
+    expect(wrapper.get('[data-test="columns"]').text()).toBe(
+      'name,provider,urls,balance,upstream_concurrency,rates,auth_mode,credentials,last_success_at,actions'
+    )
+    expect(wrapper.get('[data-test="upstream-concurrency-header"] span').attributes('title')).toBe(
+      'admin.upstreamConfigs.concurrency.headerTitle'
+    )
     expect(wrapper.text()).toContain('Sub2API Main')
     expect(wrapper.text()).toContain('https://upstream.example.com')
     expect(wrapper.get('[data-test="pagination-component"]').exists()).toBe(true)
+  })
+
+  it('renders every upstream concurrency snapshot state', async () => {
+    mockList([
+      upstreamConfig({
+        id: 1,
+        extra: { upstream_concurrency_snapshot: { status: 'current', semantics: 'limited', limit: '9223372036854775807' } }
+      }),
+      upstreamConfig({
+        id: 2,
+        extra: { upstream_concurrency_snapshot: { status: 'current', semantics: 'unlimited', raw_value: 0 } }
+      }),
+      upstreamConfig({
+        id: 3,
+        provider: 'newapi',
+        extra: { upstream_concurrency_snapshot: { status: 'current', semantics: 'provider_defined', raw_value: '0042' } }
+      }),
+      upstreamConfig({
+        id: 4,
+        extra: {
+          upstream_concurrency_snapshot: {
+            status: 'stale',
+            semantics: 'limited',
+            limit: '6000',
+            observed_at: '2026-07-12T01:00:00Z',
+            last_checked_at: '2026-07-13T02:00:00Z'
+          }
+        }
+      }),
+      upstreamConfig({
+        id: 5,
+        extra: { upstream_concurrency_snapshot: { status: 'unsupported' } }
+      }),
+      upstreamConfig({
+        id: 6,
+        extra: {
+          upstream_concurrency_snapshot: {
+            status: 'stale',
+            last_checked_at: '2026-07-13T03:00:00Z'
+          }
+        }
+      }),
+      upstreamConfig({
+        id: 7,
+        extra: {
+          upstream_concurrency_snapshot: {
+            status: 'stale',
+            semantics: 'unlimited',
+            raw_value: '0',
+            observed_at: '2026-07-12T01:00:00Z',
+            last_checked_at: '2026-07-13T02:00:00Z'
+          }
+        }
+      }),
+      upstreamConfig({
+        id: 8,
+        provider: 'newapi',
+        extra: {
+          upstream_concurrency_snapshot: {
+            status: 'stale',
+            semantics: 'provider_defined',
+            raw_value: '0042',
+            observed_at: '2026-07-12T01:00:00Z',
+            last_checked_at: '2026-07-13T02:00:00Z'
+          }
+        }
+      })
+    ])
+    const wrapper = mountView()
+    await flushPromises()
+
+    const cells = wrapper.findAll('[data-test="upstream-concurrency"]')
+    expect(cells.map((cell) => cell.text())).toEqual([
+      'admin.upstreamConfigs.concurrency.limited:{"count":"9,223,372,036,854,775,807"}',
+      'admin.upstreamConfigs.concurrency.unlimited',
+      'admin.upstreamConfigs.concurrency.newapiReported:{"count":"0042"}',
+      'admin.upstreamConfigs.concurrency.stale:{"value":"6,000"}',
+      'admin.upstreamConfigs.concurrency.unsupported',
+      'admin.upstreamConfigs.concurrency.initialFailure',
+      'admin.upstreamConfigs.concurrency.stale:{"value":"admin.upstreamConfigs.concurrency.unlimited"}',
+      'admin.upstreamConfigs.concurrency.stale:{"value":"admin.upstreamConfigs.concurrency.newapiReported:{\\"count\\":\\"0042\\"}"}'
+    ])
+    expect(cells[0].attributes('title')).toBe('admin.upstreamConfigs.concurrency.headerTitle')
+    expect(cells[3].attributes('title')).toContain('admin.upstreamConfigs.concurrency.lastObservedAt')
+    expect(cells[3].attributes('title')).toContain('admin.upstreamConfigs.concurrency.lastCheckedAt')
+    expect(zhUpstreamConfigs.upstreamConfigs.concurrency.unsupported).toBe('--（未提供）')
+    expect(zhUpstreamConfigs.upstreamConfigs.concurrency.initialFailure).toBe('--（同步失败）')
+    expect(enUpstreamConfigs.upstreamConfigs.concurrency.unsupported).toBe('-- (Not provided)')
+    expect(enUpstreamConfigs.upstreamConfigs.concurrency.initialFailure).toBe('-- (Sync failed)')
   })
 
   it('renders upstream balance from extra and opens sub2api dashboard URL', async () => {

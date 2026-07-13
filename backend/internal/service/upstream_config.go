@@ -806,18 +806,23 @@ func (s *UpstreamConfigService) resolveMaskedSnapshotKeys(ctx context.Context, c
 	snapshot.Keys = resolved
 }
 
-func sub2APIProfileExtraUpdates(cfg *UpstreamConfig, profile *sub2APIProfile, profileErr error) map[string]any {
+func sub2APIProfileExtraUpdates(cfg *UpstreamConfig, profile *sub2APIProfile, profileErr error) (map[string]any, string) {
 	now := time.Now().UTC().Format(time.RFC3339)
+	if profile == nil && profileErr == nil {
+		profileErr = fmt.Errorf("sub2api profile returned null data")
+	}
 	if profileErr != nil {
-		return map[string]any{
+		updates := map[string]any{
 			"sub2api_balance_last_error":    sanitizeStandaloneSub2APIError(profileErr, cfg.Credentials),
 			"sub2api_balance_last_error_at": now,
 		}
+		concurrencyUpdates, warning := upstreamConcurrencySnapshotUpdates(cfg, UpstreamProviderSub2API, nil, profileErr)
+		for key, value := range concurrencyUpdates {
+			updates[key] = value
+		}
+		return updates, warning
 	}
-	if profile == nil {
-		return nil
-	}
-	return normalizeProviderBalanceExtra(cfg, map[string]any{
+	updates := normalizeProviderBalanceExtra(cfg, map[string]any{
 		"sub2api_balance":               profile.Balance,
 		"sub2api_total_recharged":       profile.TotalRecharged,
 		"sub2api_user_email":            strings.TrimSpace(profile.Email),
@@ -826,6 +831,11 @@ func sub2APIProfileExtraUpdates(cfg *UpstreamConfig, profile *sub2APIProfile, pr
 		"sub2api_balance_last_error":    "",
 		"sub2api_balance_last_error_at": "",
 	})
+	concurrencyUpdates, warning := upstreamConcurrencySnapshotUpdates(cfg, UpstreamProviderSub2API, profile.Concurrency, nil)
+	for key, value := range concurrencyUpdates {
+		updates[key] = value
+	}
+	return updates, warning
 }
 
 func (s *UpstreamConfigService) lockUpstreamConfigSync(id int64) func() {
@@ -1186,7 +1196,11 @@ func (sub2APIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Ups
 		RefreshedTokens: snapshot.RefreshedTokens,
 	}
 	if err == nil && includeProfile {
-		out.ExtraUpdates = sub2APIProfileExtraUpdates(cfg, snapshot.Profile, snapshot.ProfileErr)
+		var warning string
+		out.ExtraUpdates, warning = sub2APIProfileExtraUpdates(cfg, snapshot.Profile, snapshot.ProfileErr)
+		if warning != "" {
+			out.Warnings = append(out.Warnings, warning)
+		}
 	}
 	return out, err
 }

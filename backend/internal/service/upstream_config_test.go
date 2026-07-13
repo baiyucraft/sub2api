@@ -1071,7 +1071,7 @@ func TestUpstreamConfigService_ProfileFailureDoesNotFailKeySyncOrOverwriteBalanc
 		case "/api/v1/groups/rates":
 			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
 		case "/api/v1/auth/me":
-			http.NotFound(w, r)
+			_, _ = w.Write([]byte(`{"code":0,"data":null}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -1105,9 +1105,12 @@ func TestUpstreamConfigService_ProfileFailureDoesNotFailKeySyncOrOverwriteBalanc
 	require.Len(t, repo.extraUpdates, 1)
 	updates := repo.extraUpdates[0].updates
 	require.NotContains(t, updates, "sub2api_balance")
-	require.Contains(t, updates["sub2api_balance_last_error"], "status 404")
+	require.Contains(t, updates["sub2api_balance_last_error"], "null data")
 	require.NotEmpty(t, updates["sub2api_balance_last_error_at"])
 	require.Equal(t, 88.8, repo.configs[0].Extra["sub2api_balance"])
+	concurrencySnapshot := requireConcurrencySnapshot(t, updates)
+	require.Equal(t, upstreamConcurrencyStatusStale, concurrencySnapshot["status"])
+	require.Equal(t, upstreamConcurrencySemanticsUnknown, concurrencySnapshot["semantics"])
 }
 
 func TestUpstreamConfigService_TestDoesNotRecordProfileBalance(t *testing.T) {
@@ -1207,7 +1210,7 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"page": 2, "page_size": 100, "total": 101, "items": []map[string]any{{"id": 30101, "user_id": 4798, "key": "sk-last", "status": 1, "name": "last", "group": "gptplus"}}}})
 		case "/api/user/self":
 			require.Equal(t, "4798", r.Header.Get("New-Api-User"))
-			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798,"email":"owner@example.com","username":"owner","display_name":"Owner","group":"default","quota":86995,"used_quota":4913005,"request_count":701}}`))
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":4798,"email":"owner@example.com","username":"owner","display_name":"Owner","group":"default","quota":86995,"used_quota":4913005,"request_count":701,"concurrency":"32"}}`))
 		case "/api/status":
 			_, _ = w.Write([]byte(`{"success":true,"data":{"quota_display_type":"USD","quota_per_unit":500000,"usd_exchange_rate":7.3,"custom_currency_symbol":"¤","custom_currency_exchange_rate":1}}`))
 		case "/api/log/self/stat":
@@ -1296,6 +1299,11 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 	groups, ok := snapshot["groups"].(map[string]any)
 	require.True(t, ok)
 	require.Contains(t, groups, "gptplus")
+	concurrencySnapshot := requireConcurrencySnapshot(t, repo.extraUpdates[0].updates)
+	require.Equal(t, upstreamConcurrencyStatusCurrent, concurrencySnapshot["status"])
+	require.Equal(t, upstreamConcurrencySemanticsProviderDefined, concurrencySnapshot["semantics"])
+	require.Equal(t, "32", concurrencySnapshot["raw_value"])
+	require.NotContains(t, concurrencySnapshot, "limit")
 }
 
 func TestUpstreamConfigService_NewAPIProfileFailureDoesNotFailKeySync(t *testing.T) {
@@ -1310,7 +1318,7 @@ func TestUpstreamConfigService_NewAPIProfileFailureDoesNotFailKeySync(t *testing
 		case "/api/token/":
 			_, _ = w.Write([]byte(`{"success":true,"data":{"page":1,"page_size":100,"total":1,"items":[{"id":14287,"user_id":4798,"key":"sk-plus","status":1,"name":"plus","group":"gptplus"}]}}`))
 		case "/api/user/self":
-			http.NotFound(w, r)
+			_, _ = w.Write([]byte(`{"success":true,"data":null}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -1328,7 +1336,12 @@ func TestUpstreamConfigService_NewAPIProfileFailureDoesNotFailKeySync(t *testing
 			AccountCredentialNewAPILoginUsername: "owner@example.com",
 			AccountCredentialNewAPILoginPassword: "secret",
 		},
-		Extra:  map[string]any{"upstream_provider_snapshot": map[string]any{"quota": 123}},
+		Extra: map[string]any{
+			"upstream_provider_snapshot": map[string]any{"quota": 123},
+			upstreamConcurrencySnapshotKey: map[string]any{
+				"version": 1, "provider": UpstreamProviderNewAPI, "status": upstreamConcurrencyStatusCurrent, "semantics": upstreamConcurrencySemanticsProviderDefined, "raw_value": "12", "observed_at": "earlier",
+			},
+		},
 		Status: StatusActive,
 	}}}
 	svc := NewUpstreamConfigService(repo, nil, &sub2APIRateSyncAccountRepo{})
@@ -1340,7 +1353,14 @@ func TestUpstreamConfigService_NewAPIProfileFailureDoesNotFailKeySync(t *testing
 	require.Equal(t, 1, result.KeyCount)
 	require.Len(t, repo.extraUpdates, 1)
 	require.NotContains(t, repo.extraUpdates[0].updates, "upstream_provider_snapshot")
-	require.Contains(t, repo.extraUpdates[0].updates["upstream_provider_snapshot_last_error"], "status 404")
+	require.Contains(t, repo.extraUpdates[0].updates["upstream_provider_snapshot_last_error"], "null data")
+	providerSnapshot := repo.configs[0].Extra["upstream_provider_snapshot"].(map[string]any)
+	require.Equal(t, 123, providerSnapshot["quota"])
+	concurrencySnapshot := requireConcurrencySnapshot(t, repo.extraUpdates[0].updates)
+	require.Equal(t, upstreamConcurrencyStatusStale, concurrencySnapshot["status"])
+	require.Equal(t, upstreamConcurrencySemanticsProviderDefined, concurrencySnapshot["semantics"])
+	require.Equal(t, "12", concurrencySnapshot["raw_value"])
+	require.Equal(t, "earlier", concurrencySnapshot["observed_at"])
 }
 
 func TestUpstreamConfigService_NewAPIProfileFailureKeepsKeySnapshotAuthoritative(t *testing.T) {
