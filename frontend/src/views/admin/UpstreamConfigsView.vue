@@ -110,6 +110,12 @@
           row-key="id"
           :estimate-row-height="72"
         >
+          <template #header-upstream_concurrency>
+            <span :title="t('admin.upstreamConfigs.concurrency.headerTitle')">
+              {{ t('admin.upstreamConfigs.columns.upstreamConcurrency') }}
+            </span>
+          </template>
+
           <template #cell-name="{ row }">
             <div class="min-w-0">
               <div class="font-medium text-gray-900 dark:text-gray-100">{{ row.name }}</div>
@@ -165,6 +171,23 @@
                 :title="upstreamBalanceError(row) || ''"
               >
                 {{ upstreamBalanceError(row) }}
+              </div>
+            </div>
+          </template>
+
+          <template #cell-upstream_concurrency="{ row }">
+            <div
+              class="min-w-[112px]"
+              data-test="upstream-concurrency"
+              :title="upstreamConcurrencyTitle(row)"
+            >
+              <div
+                :class="[
+                  'text-sm font-semibold tabular-nums',
+                  upstreamConcurrencyTextClass(row)
+                ]"
+              >
+                {{ upstreamConcurrencyLabel(row) }}
               </div>
             </div>
           </template>
@@ -1115,6 +1138,7 @@ const columns = computed<Column[]>(() => [
   { key: 'provider', label: t('admin.upstreamConfigs.columns.provider') },
   { key: 'urls', label: t('admin.upstreamConfigs.columns.address') },
   { key: 'balance', label: t('admin.upstreamConfigs.columns.balance') },
+  { key: 'upstream_concurrency', label: t('admin.upstreamConfigs.columns.upstreamConcurrency') },
   { key: 'rates', label: t('admin.upstreamConfigs.columns.rates') },
   { key: 'auth_mode', label: t('admin.upstreamConfigs.columns.authMode') },
   { key: 'credentials', label: t('admin.upstreamConfigs.columns.credentials') },
@@ -2159,6 +2183,108 @@ function upstreamProviderSnapshot(item: UpstreamConfig): Record<string, unknown>
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null
+}
+
+type UpstreamConcurrencyState = 'limited' | 'providerDefined' | 'unlimited' | 'stale' | 'unsupported' | 'initialFailure'
+
+interface UpstreamConcurrencyDisplay {
+  state: UpstreamConcurrencyState
+  value: string | null
+}
+
+function upstreamConcurrencySnapshot(item: UpstreamConfig): Record<string, unknown> | null {
+  const value = item.extra?.upstream_concurrency_snapshot
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function upstreamConcurrencyInteger(value: unknown, preserveString = false): string | null {
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    if (preserveString) return value
+    const normalized = value.replace(/^0+(?=\d)/, '')
+    return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  }
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+    return value.toLocaleString()
+  }
+  return null
+}
+
+function upstreamConcurrencyDisplay(item: UpstreamConfig): UpstreamConcurrencyDisplay {
+  const snapshot = upstreamConcurrencySnapshot(item)
+  if (!snapshot) return { state: 'unsupported', value: null }
+
+  const status = typeof snapshot.status === 'string' ? snapshot.status.trim().toLowerCase() : ''
+  const semantics = typeof snapshot.semantics === 'string' ? snapshot.semantics.trim().toLowerCase() : ''
+  if (status === 'stale') {
+    const staleValue = semantics === 'provider_defined'
+      ? (() => {
+          const value = upstreamConcurrencyInteger(snapshot.raw_value, true)
+          return value === null ? null : t('admin.upstreamConfigs.concurrency.newapiReported', { count: value })
+        })()
+      : semantics === 'limited'
+        ? upstreamConcurrencyInteger(snapshot.limit)
+        : semantics === 'unlimited'
+          ? t('admin.upstreamConfigs.concurrency.unlimited')
+          : null
+    return { state: staleValue === null ? 'initialFailure' : 'stale', value: staleValue }
+  }
+  if (status === 'unsupported') return { state: 'unsupported', value: null }
+  if (status !== 'current') return { state: 'unsupported', value: null }
+  if (semantics === 'unlimited') return { state: 'unlimited', value: null }
+  if (semantics === 'limited') {
+    const value = upstreamConcurrencyInteger(snapshot.limit)
+    return value === null
+      ? { state: 'unsupported', value: null }
+      : { state: 'limited', value }
+  }
+  if (semantics === 'provider_defined') {
+    const value = upstreamConcurrencyInteger(snapshot.raw_value, true)
+    return value === null
+      ? { state: 'unsupported', value: null }
+      : { state: 'providerDefined', value }
+  }
+  return { state: 'unsupported', value: null }
+}
+
+function upstreamConcurrencyLabel(item: UpstreamConfig): string {
+  const display = upstreamConcurrencyDisplay(item)
+  if (display.state === 'unlimited') return t('admin.upstreamConfigs.concurrency.unlimited')
+  if (display.state === 'stale' && display.value !== null) {
+    return t('admin.upstreamConfigs.concurrency.stale', { value: display.value })
+  }
+  if (display.state === 'initialFailure') return t('admin.upstreamConfigs.concurrency.initialFailure')
+  if (display.state === 'unsupported' || display.value === null) {
+    return t('admin.upstreamConfigs.concurrency.unsupported')
+  }
+  return display.state === 'providerDefined'
+    ? t('admin.upstreamConfigs.concurrency.newapiReported', { count: display.value })
+    : t('admin.upstreamConfigs.concurrency.limited', { count: display.value })
+}
+
+function upstreamConcurrencyTextClass(item: UpstreamConfig): string {
+  const state = upstreamConcurrencyDisplay(item).state
+  if (state === 'stale' || state === 'initialFailure') return 'text-amber-600 dark:text-amber-400'
+  if (state === 'unsupported') return 'text-gray-400 dark:text-dark-500'
+  return 'text-gray-900 dark:text-gray-100'
+}
+
+function upstreamConcurrencyTitle(item: UpstreamConfig): string {
+  const snapshot = upstreamConcurrencySnapshot(item)
+  const status = typeof snapshot?.status === 'string' ? snapshot.status.trim().toLowerCase() : ''
+  if (status !== 'stale') return t('admin.upstreamConfigs.concurrency.headerTitle')
+
+  const parts: string[] = []
+  const observedAt = typeof snapshot?.observed_at === 'string' ? snapshot.observed_at.trim() : ''
+  const lastCheckedAt = typeof snapshot?.last_checked_at === 'string' ? snapshot.last_checked_at.trim() : ''
+  if (observedAt) {
+    parts.push(t('admin.upstreamConfigs.concurrency.lastObservedAt', { time: formatTime(observedAt) }))
+  }
+  if (lastCheckedAt) {
+    parts.push(t('admin.upstreamConfigs.concurrency.lastCheckedAt', { time: formatTime(lastCheckedAt) }))
+  }
+  return parts.join('\n') || t('admin.upstreamConfigs.concurrency.headerTitle')
 }
 
 function finiteNumberFromExtra(value: unknown): number | null {

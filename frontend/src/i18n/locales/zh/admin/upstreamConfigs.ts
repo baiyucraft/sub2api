@@ -9,6 +9,7 @@ export default {
       provider: '类型',
       address: '地址',
       balance: '人民币余额',
+      upstreamConcurrency: '上游总并发',
       rates: '倍率摘要',
       authMode: '认证',
       credentials: '凭据',
@@ -26,6 +27,17 @@ export default {
       email: '上游邮箱：{email}',
       syncedAt: '额度同步：{time}',
       error: '额度错误：{error}'
+    },
+    concurrency: {
+      headerTitle: '上游用户级总并发，不是本地账号并发',
+      limited: '{count}',
+      unlimited: '无限制',
+      newapiReported: '上游返回 {count}',
+      stale: '{value}（已过期）',
+      unsupported: '--（未提供）',
+      initialFailure: '--（同步失败）',
+      lastObservedAt: '最后有效时间：{time}',
+      lastCheckedAt: '最后检查时间：{time}'
     },
     rates: {
       raw: '原始倍率 {value}',

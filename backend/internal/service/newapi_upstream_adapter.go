@@ -150,14 +150,15 @@ type newAPIPricingData struct {
 }
 
 type newAPIUserProfile struct {
-	ID           int64   `json:"id"`
-	Email        string  `json:"email"`
-	Username     string  `json:"username"`
-	DisplayName  string  `json:"display_name"`
-	Group        string  `json:"group"`
-	Quota        float64 `json:"quota"`
-	UsedQuota    float64 `json:"used_quota"`
-	RequestCount float64 `json:"request_count"`
+	ID           int64           `json:"id"`
+	Email        string          `json:"email"`
+	Username     string          `json:"username"`
+	DisplayName  string          `json:"display_name"`
+	Group        string          `json:"group"`
+	Quota        float64         `json:"quota"`
+	UsedQuota    float64         `json:"used_quota"`
+	RequestCount float64         `json:"request_count"`
+	Concurrency  json.RawMessage `json:"concurrency"`
 }
 
 type newAPIStatusData struct {
@@ -334,7 +335,12 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 			partial = true
 			warnings = appendNewAPIWarnings(warnings, "newapi today usage snapshot unavailable")
 		}
-		for key, value := range newAPIProfileExtraUpdates(cfg, profile, profileErr, status, statusErr) {
+		profileUpdates, concurrencyWarning := newAPIProfileExtraUpdates(cfg, profile, profileErr, status, statusErr)
+		warnings = appendNewAPIWarnings(warnings, concurrencyWarning)
+		if concurrencyWarning != "" {
+			partial = true
+		}
+		for key, value := range profileUpdates {
 			extraUpdates[key] = value
 		}
 		if snapshot, ok := extraUpdates["upstream_provider_snapshot"].(map[string]any); ok {
@@ -1003,7 +1009,7 @@ func (a newAPIUpstreamProviderAdapter) fetchProfile(ctx context.Context, session
 	if err != nil {
 		return nil, err
 	}
-	var payload newAPIEnvelope[newAPIUserProfile]
+	var payload newAPIEnvelope[*newAPIUserProfile]
 	status, err := a.doJSON(ctx, session.client, http.MethodGet, endpoint, session.userID, nil, &payload)
 	if err != nil {
 		return nil, fmt.Errorf("newapi get profile failed: %w", err)
@@ -1014,10 +1020,13 @@ func (a newAPIUpstreamProviderAdapter) fetchProfile(ctx context.Context, session
 	if !payload.Success {
 		return nil, fmt.Errorf("newapi get profile failed%s", safeNewAPIMessage(payload.Message))
 	}
+	if payload.Data == nil {
+		return nil, fmt.Errorf("newapi get profile returned null data")
+	}
 	if !finiteNewAPINumber(payload.Data.Quota) || !finiteNewAPINumber(payload.Data.UsedQuota) {
 		return nil, fmt.Errorf("newapi get profile returned invalid quota")
 	}
-	return &payload.Data, nil
+	return payload.Data, nil
 }
 
 func (a newAPIUpstreamProviderAdapter) fetchStatus(ctx context.Context, session *newAPISession) (*newAPIStatusData, error) {
@@ -1112,16 +1121,21 @@ func (newAPIUpstreamProviderAdapter) doJSON(ctx context.Context, client *http.Cl
 	return resp.StatusCode, nil
 }
 
-func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, profileErr error, status *newAPIStatusData, statusErr error) map[string]any {
+func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, profileErr error, status *newAPIStatusData, statusErr error) (map[string]any, string) {
 	now := time.Now().UTC().Format(time.RFC3339)
+	if profile == nil && profileErr == nil {
+		profileErr = fmt.Errorf("newapi profile returned null data")
+	}
 	if profileErr != nil {
-		return map[string]any{
+		updates := map[string]any{
 			"upstream_provider_snapshot_last_error":    newAPIUpstreamProviderAdapter{}.SanitizeError(profileErr, cfg.Credentials),
 			"upstream_provider_snapshot_last_error_at": now,
 		}
-	}
-	if profile == nil {
-		return nil
+		concurrencyUpdates, warning := upstreamConcurrencySnapshotUpdates(cfg, UpstreamProviderNewAPI, nil, profileErr)
+		for key, value := range concurrencyUpdates {
+			updates[key] = value
+		}
+		return updates, warning
 	}
 	amounts := newAPIQuotaAmounts(profile.Quota, profile.UsedQuota, status)
 	lastError := ""
@@ -1130,7 +1144,7 @@ func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, 
 		lastError = newAPIUpstreamProviderAdapter{}.SanitizeError(statusErr, cfg.Credentials)
 		lastErrorAt = now
 	}
-	return map[string]any{
+	updates := map[string]any{
 		"upstream_provider_snapshot": map[string]any{
 			"version":                       1,
 			"provider":                      UpstreamProviderNewAPI,
@@ -1168,6 +1182,11 @@ func newAPIProfileExtraUpdates(cfg *UpstreamConfig, profile *newAPIUserProfile, 
 		"upstream_provider_snapshot_last_error":    lastError,
 		"upstream_provider_snapshot_last_error_at": lastErrorAt,
 	}
+	concurrencyUpdates, warning := upstreamConcurrencySnapshotUpdates(cfg, UpstreamProviderNewAPI, profile.Concurrency, nil)
+	for key, value := range concurrencyUpdates {
+		updates[key] = value
+	}
+	return updates, warning
 }
 
 type newAPIQuotaSnapshotAmounts struct {
