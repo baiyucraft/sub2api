@@ -9,6 +9,7 @@ import (
 const (
 	openAIResponsesEndpoint          = "/v1/responses"
 	openAIResponsesCompactEndpoint   = "/v1/responses/compact"
+	openAIImageGenFunctionName       = "image_gen.imagegen"
 	imageGenerationPermissionMessage = "Image generation is not enabled for this group"
 )
 
@@ -93,11 +94,9 @@ func openAIJSONToolsContainImageGeneration(tools gjson.Result) bool {
 	}
 	found := false
 	tools.ForEach(func(_, item gjson.Result) bool {
-		if isOpenAIImageGenerationType(openAIJSONString(item.Get("type"))) {
-			found = true
-			return false
-		}
-		if isImageGenNamespaceTool(item) {
+		if isOpenAIImageGenerationType(openAIJSONString(item.Get("type"))) ||
+			isImageGenNamespaceTool(item) ||
+			isImageGenFlattenedFunctionTool(item) {
 			found = true
 			return false
 		}
@@ -114,6 +113,10 @@ func isOpenAIImageGenNamespaceName(value string) bool {
 	return strings.TrimSpace(value) == "image_gen"
 }
 
+func isOpenAIImageGenFunctionName(value string) bool {
+	return strings.TrimSpace(value) == openAIImageGenFunctionName
+}
+
 // isImageGenNamespaceTool detects the Codex namespace-style image generation
 // tool declaration: { "type": "namespace", "name": "image_gen", ... }.
 // Codex /image uses this instead of the flat { "type": "image_generation" }.
@@ -122,10 +125,19 @@ func isImageGenNamespaceTool(tool gjson.Result) bool {
 		isOpenAIImageGenNamespaceName(openAIJSONString(tool.Get("name")))
 }
 
+// isImageGenFlattenedFunctionTool detects both flattened function encodings
+// emitted by Codex-compatible clients.
+func isImageGenFlattenedFunctionTool(tool gjson.Result) bool {
+	if openAIJSONString(tool.Get("type")) != "function" {
+		return false
+	}
+	return isOpenAIImageGenFunctionName(openAIJSONString(tool.Get("name"))) ||
+		isOpenAIImageGenFunctionName(openAIJSONString(tool.Get("function.name")))
+}
+
 // openAIJSONInputContainsImageGenTool scans Responses input items for
-// additional_tools entries that declare the image_gen namespace. This covers
-// the "Responses Lite" format where tools are embedded inside input items
-// rather than top-level tools.
+// additional_tools entries that declare a supported image generation tool.
+// This covers Responses Lite, where tools are embedded inside input items.
 func openAIJSONInputContainsImageGenTool(input gjson.Result) bool {
 	if !input.IsArray() {
 		return false
@@ -192,6 +204,9 @@ func openAIJSONToolChoiceSelectsImageGeneration(choice gjson.Result) bool {
 			isOpenAIImageGenNamespaceName(openAIJSONString(choice.Get("namespace")))) {
 		return true
 	}
+	if isImageGenFlattenedFunctionTool(choice) {
+		return true
+	}
 	if tool := choice.Get("tool"); tool.IsObject() && openAIJSONToolChoiceSelectsImageGeneration(tool) {
 		return true
 	}
@@ -213,6 +228,9 @@ func openAIAnyToolChoiceSelectsImageGeneration(choice any) bool {
 		if choiceType == "namespace" &&
 			(isOpenAIImageGenNamespaceName(firstNonEmptyString(v["name"])) ||
 				isOpenAIImageGenNamespaceName(firstNonEmptyString(v["namespace"]))) {
+			return true
+		}
+		if isImageGenFlattenedFunctionToolMap(v) {
 			return true
 		}
 		if tool, ok := v["tool"].(map[string]any); ok && openAIAnyToolChoiceSelectsImageGeneration(tool) {
