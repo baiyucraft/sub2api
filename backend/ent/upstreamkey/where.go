@@ -110,6 +110,26 @@ func Platform(v string) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEQ(FieldPlatform, v))
 }
 
+// PlatformSource applies equality check predicate on the "platform_source" field. It's identical to PlatformSourceEQ.
+func PlatformSource(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldPlatformSource, v))
+}
+
+// DetectedPlatform applies equality check predicate on the "detected_platform" field. It's identical to DetectedPlatformEQ.
+func DetectedPlatform(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldDetectedPlatform, v))
+}
+
+// PlatformDetectionStatus applies equality check predicate on the "platform_detection_status" field. It's identical to PlatformDetectionStatusEQ.
+func PlatformDetectionStatus(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectedAt applies equality check predicate on the "platform_detected_at" field. It's identical to PlatformDetectedAtEQ.
+func PlatformDetectedAt(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldPlatformDetectedAt, v))
+}
+
 // RateMultiplier applies equality check predicate on the "rate_multiplier" field. It's identical to RateMultiplierEQ.
 func RateMultiplier(v float64) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEQ(FieldRateMultiplier, v))
@@ -700,6 +720,16 @@ func PlatformHasSuffix(v string) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldHasSuffix(FieldPlatform, v))
 }
 
+// PlatformIsNil applies the IsNil predicate on the "platform" field.
+func PlatformIsNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIsNull(FieldPlatform))
+}
+
+// PlatformNotNil applies the NotNil predicate on the "platform" field.
+func PlatformNotNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotNull(FieldPlatform))
+}
+
 // PlatformEqualFold applies the EqualFold predicate on the "platform" field.
 func PlatformEqualFold(v string) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEqualFold(FieldPlatform, v))
@@ -708,6 +738,261 @@ func PlatformEqualFold(v string) predicate.UpstreamKey {
 // PlatformContainsFold applies the ContainsFold predicate on the "platform" field.
 func PlatformContainsFold(v string) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldContainsFold(FieldPlatform, v))
+}
+
+// PlatformSourceEQ applies the EQ predicate on the "platform_source" field.
+func PlatformSourceEQ(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldPlatformSource, v))
+}
+
+// PlatformSourceNEQ applies the NEQ predicate on the "platform_source" field.
+func PlatformSourceNEQ(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNEQ(FieldPlatformSource, v))
+}
+
+// PlatformSourceIn applies the In predicate on the "platform_source" field.
+func PlatformSourceIn(vs ...string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIn(FieldPlatformSource, vs...))
+}
+
+// PlatformSourceNotIn applies the NotIn predicate on the "platform_source" field.
+func PlatformSourceNotIn(vs ...string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotIn(FieldPlatformSource, vs...))
+}
+
+// PlatformSourceGT applies the GT predicate on the "platform_source" field.
+func PlatformSourceGT(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGT(FieldPlatformSource, v))
+}
+
+// PlatformSourceGTE applies the GTE predicate on the "platform_source" field.
+func PlatformSourceGTE(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGTE(FieldPlatformSource, v))
+}
+
+// PlatformSourceLT applies the LT predicate on the "platform_source" field.
+func PlatformSourceLT(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLT(FieldPlatformSource, v))
+}
+
+// PlatformSourceLTE applies the LTE predicate on the "platform_source" field.
+func PlatformSourceLTE(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLTE(FieldPlatformSource, v))
+}
+
+// PlatformSourceContains applies the Contains predicate on the "platform_source" field.
+func PlatformSourceContains(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldContains(FieldPlatformSource, v))
+}
+
+// PlatformSourceHasPrefix applies the HasPrefix predicate on the "platform_source" field.
+func PlatformSourceHasPrefix(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldHasPrefix(FieldPlatformSource, v))
+}
+
+// PlatformSourceHasSuffix applies the HasSuffix predicate on the "platform_source" field.
+func PlatformSourceHasSuffix(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldHasSuffix(FieldPlatformSource, v))
+}
+
+// PlatformSourceEqualFold applies the EqualFold predicate on the "platform_source" field.
+func PlatformSourceEqualFold(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEqualFold(FieldPlatformSource, v))
+}
+
+// PlatformSourceContainsFold applies the ContainsFold predicate on the "platform_source" field.
+func PlatformSourceContainsFold(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldContainsFold(FieldPlatformSource, v))
+}
+
+// DetectedPlatformEQ applies the EQ predicate on the "detected_platform" field.
+func DetectedPlatformEQ(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldDetectedPlatform, v))
+}
+
+// DetectedPlatformNEQ applies the NEQ predicate on the "detected_platform" field.
+func DetectedPlatformNEQ(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNEQ(FieldDetectedPlatform, v))
+}
+
+// DetectedPlatformIn applies the In predicate on the "detected_platform" field.
+func DetectedPlatformIn(vs ...string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIn(FieldDetectedPlatform, vs...))
+}
+
+// DetectedPlatformNotIn applies the NotIn predicate on the "detected_platform" field.
+func DetectedPlatformNotIn(vs ...string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotIn(FieldDetectedPlatform, vs...))
+}
+
+// DetectedPlatformGT applies the GT predicate on the "detected_platform" field.
+func DetectedPlatformGT(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGT(FieldDetectedPlatform, v))
+}
+
+// DetectedPlatformGTE applies the GTE predicate on the "detected_platform" field.
+func DetectedPlatformGTE(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGTE(FieldDetectedPlatform, v))
+}
+
+// DetectedPlatformLT applies the LT predicate on the "detected_platform" field.
+func DetectedPlatformLT(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLT(FieldDetectedPlatform, v))
+}
+
+// DetectedPlatformLTE applies the LTE predicate on the "detected_platform" field.
+func DetectedPlatformLTE(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLTE(FieldDetectedPlatform, v))
+}
+
+// DetectedPlatformContains applies the Contains predicate on the "detected_platform" field.
+func DetectedPlatformContains(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldContains(FieldDetectedPlatform, v))
+}
+
+// DetectedPlatformHasPrefix applies the HasPrefix predicate on the "detected_platform" field.
+func DetectedPlatformHasPrefix(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldHasPrefix(FieldDetectedPlatform, v))
+}
+
+// DetectedPlatformHasSuffix applies the HasSuffix predicate on the "detected_platform" field.
+func DetectedPlatformHasSuffix(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldHasSuffix(FieldDetectedPlatform, v))
+}
+
+// DetectedPlatformIsNil applies the IsNil predicate on the "detected_platform" field.
+func DetectedPlatformIsNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIsNull(FieldDetectedPlatform))
+}
+
+// DetectedPlatformNotNil applies the NotNil predicate on the "detected_platform" field.
+func DetectedPlatformNotNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotNull(FieldDetectedPlatform))
+}
+
+// DetectedPlatformEqualFold applies the EqualFold predicate on the "detected_platform" field.
+func DetectedPlatformEqualFold(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEqualFold(FieldDetectedPlatform, v))
+}
+
+// DetectedPlatformContainsFold applies the ContainsFold predicate on the "detected_platform" field.
+func DetectedPlatformContainsFold(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldContainsFold(FieldDetectedPlatform, v))
+}
+
+// PlatformDetectionStatusEQ applies the EQ predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusEQ(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectionStatusNEQ applies the NEQ predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusNEQ(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNEQ(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectionStatusIn applies the In predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusIn(vs ...string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIn(FieldPlatformDetectionStatus, vs...))
+}
+
+// PlatformDetectionStatusNotIn applies the NotIn predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusNotIn(vs ...string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotIn(FieldPlatformDetectionStatus, vs...))
+}
+
+// PlatformDetectionStatusGT applies the GT predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusGT(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGT(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectionStatusGTE applies the GTE predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusGTE(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGTE(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectionStatusLT applies the LT predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusLT(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLT(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectionStatusLTE applies the LTE predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusLTE(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLTE(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectionStatusContains applies the Contains predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusContains(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldContains(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectionStatusHasPrefix applies the HasPrefix predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusHasPrefix(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldHasPrefix(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectionStatusHasSuffix applies the HasSuffix predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusHasSuffix(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldHasSuffix(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectionStatusEqualFold applies the EqualFold predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusEqualFold(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEqualFold(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectionStatusContainsFold applies the ContainsFold predicate on the "platform_detection_status" field.
+func PlatformDetectionStatusContainsFold(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldContainsFold(FieldPlatformDetectionStatus, v))
+}
+
+// PlatformDetectedAtEQ applies the EQ predicate on the "platform_detected_at" field.
+func PlatformDetectedAtEQ(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldPlatformDetectedAt, v))
+}
+
+// PlatformDetectedAtNEQ applies the NEQ predicate on the "platform_detected_at" field.
+func PlatformDetectedAtNEQ(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNEQ(FieldPlatformDetectedAt, v))
+}
+
+// PlatformDetectedAtIn applies the In predicate on the "platform_detected_at" field.
+func PlatformDetectedAtIn(vs ...time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIn(FieldPlatformDetectedAt, vs...))
+}
+
+// PlatformDetectedAtNotIn applies the NotIn predicate on the "platform_detected_at" field.
+func PlatformDetectedAtNotIn(vs ...time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotIn(FieldPlatformDetectedAt, vs...))
+}
+
+// PlatformDetectedAtGT applies the GT predicate on the "platform_detected_at" field.
+func PlatformDetectedAtGT(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGT(FieldPlatformDetectedAt, v))
+}
+
+// PlatformDetectedAtGTE applies the GTE predicate on the "platform_detected_at" field.
+func PlatformDetectedAtGTE(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGTE(FieldPlatformDetectedAt, v))
+}
+
+// PlatformDetectedAtLT applies the LT predicate on the "platform_detected_at" field.
+func PlatformDetectedAtLT(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLT(FieldPlatformDetectedAt, v))
+}
+
+// PlatformDetectedAtLTE applies the LTE predicate on the "platform_detected_at" field.
+func PlatformDetectedAtLTE(v time.Time) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLTE(FieldPlatformDetectedAt, v))
+}
+
+// PlatformDetectedAtIsNil applies the IsNil predicate on the "platform_detected_at" field.
+func PlatformDetectedAtIsNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIsNull(FieldPlatformDetectedAt))
+}
+
+// PlatformDetectedAtNotNil applies the NotNil predicate on the "platform_detected_at" field.
+func PlatformDetectedAtNotNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotNull(FieldPlatformDetectedAt))
 }
 
 // RateMultiplierEQ applies the EQ predicate on the "rate_multiplier" field.

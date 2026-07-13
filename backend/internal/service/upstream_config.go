@@ -33,6 +33,19 @@ var (
 	ErrUpstreamKeyNotFound    = infraerrors.NotFound("UPSTREAM_KEY_NOT_FOUND", "upstream key not found")
 )
 
+const (
+	UpstreamKeyPlatformSourceLegacy     = "legacy"
+	UpstreamKeyPlatformSourceAuto       = "auto"
+	UpstreamKeyPlatformSourceManual     = "manual"
+	UpstreamKeyPlatformSourceUnassigned = "unassigned"
+
+	UpstreamKeyPlatformDetectionLegacy     = "legacy"
+	UpstreamKeyPlatformDetectionDetected   = "detected"
+	UpstreamKeyPlatformDetectionUnresolved = "unresolved"
+	UpstreamKeyPlatformDetectionAmbiguous  = "ambiguous"
+	UpstreamKeyPlatformDetectionConflict   = "conflict"
+)
+
 type UpstreamConfig struct {
 	ID                      int64
 	Name                    string
@@ -78,7 +91,12 @@ type UpstreamKey struct {
 	RemoteKeyID             *int64
 	UpstreamGroupID         *int64
 	UpstreamGroupName       string
-	Platform                string
+	Platform                *string
+	PlatformSource          string
+	DetectedPlatform        *string
+	PlatformDetectionStatus string
+	PlatformDetectedAt      *time.Time
+	BoundAccountCount       int
 	RateMultiplier          *float64
 	EffectiveCostMultiplier *float64
 	Status                  string
@@ -103,9 +121,16 @@ type UpstreamConfigRepository interface {
 	UpsertKey(ctx context.Context, key *UpstreamKey) error
 	UpdateKey(ctx context.Context, key *UpstreamKey) error
 	DeleteKey(ctx context.Context, id int64) error
+	UpdateKeyPlatform(ctx context.Context, upstreamConfigID, keyID int64, platform string, expectedUpdatedAt time.Time, disableBoundAccounts bool) (*UpstreamKey, error)
 	RecordCheckResult(ctx context.Context, id int64, success bool, safeErr string) error
 	SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string, expiresAt *time.Time) error
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
+}
+
+type UpdateUpstreamKeyPlatformRequest struct {
+	Platform             string
+	ExpectedUpdatedAt    time.Time
+	DisableBoundAccounts bool
 }
 
 type UpstreamConfigService struct {
@@ -444,6 +469,17 @@ func (s *UpstreamConfigService) CreateKey(ctx context.Context, upstreamConfigID 
 
 func (s *UpstreamConfigService) DeleteKey(ctx context.Context, id int64) error {
 	return s.repo.DeleteKey(ctx, id)
+}
+
+func (s *UpstreamConfigService) UpdateKeyPlatform(ctx context.Context, upstreamConfigID, keyID int64, req UpdateUpstreamKeyPlatformRequest) (*UpstreamKey, error) {
+	platform := strings.ToLower(strings.TrimSpace(req.Platform))
+	if !isAssignableUpstreamKeyPlatform(platform) {
+		return nil, infraerrors.BadRequest("UPSTREAM_KEY_PLATFORM_INVALID", "upstream key platform is invalid")
+	}
+	if req.ExpectedUpdatedAt.IsZero() {
+		return nil, infraerrors.BadRequest("UPSTREAM_KEY_EXPECTED_UPDATED_AT_REQUIRED", "expected_updated_at is required")
+	}
+	return s.repo.UpdateKeyPlatform(ctx, upstreamConfigID, keyID, platform, req.ExpectedUpdatedAt.UTC(), req.DisableBoundAccounts)
 }
 
 func (s *UpstreamConfigService) Test(ctx context.Context, id int64) error {
@@ -1087,9 +1123,26 @@ func normalizeAndValidateUpstreamKey(key *UpstreamKey) error {
 	}
 	key.Name = strings.TrimSpace(key.Name)
 	key.Key = strings.TrimSpace(key.Key)
-	key.Platform = strings.TrimSpace(key.Platform)
-	if key.Platform == "" {
-		key.Platform = PlatformOpenAI
+	if key.Platform != nil {
+		platform := strings.ToLower(strings.TrimSpace(*key.Platform))
+		if platform == "" {
+			key.Platform = nil
+		} else {
+			if !isAssignableUpstreamKeyPlatform(platform) {
+				return infraerrors.BadRequest("UPSTREAM_KEY_PLATFORM_INVALID", "upstream key platform is invalid")
+			}
+			key.Platform = &platform
+		}
+	}
+	if key.PlatformSource == "" {
+		if key.Platform == nil {
+			key.PlatformSource = UpstreamKeyPlatformSourceUnassigned
+		} else {
+			key.PlatformSource = UpstreamKeyPlatformSourceLegacy
+		}
+	}
+	if key.PlatformDetectionStatus == "" {
+		key.PlatformDetectionStatus = UpstreamKeyPlatformDetectionLegacy
 	}
 	if key.Status == "" {
 		key.Status = StatusActive
@@ -1107,6 +1160,15 @@ func normalizeAndValidateUpstreamKey(key *UpstreamKey) error {
 		return infraerrors.BadRequest("UPSTREAM_KEY_RATE_INVALID", "upstream key rate multiplier is invalid")
 	}
 	return nil
+}
+
+func isAssignableUpstreamKeyPlatform(platform string) bool {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformGrok:
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeUpstreamProvider(provider string) string {

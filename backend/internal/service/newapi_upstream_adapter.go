@@ -42,9 +42,22 @@ const (
 	newAPIWarningNoProgress         = "newapi_token_list_no_progress"
 	newAPIWarningPageLimit          = "newapi_token_list_page_limit"
 	newAPIWarningRevealFailed       = "newapi_token_key_reveal_failed"
+	newAPIWarningPlatformPartial    = "newapi_platform_detection_partial"
+
+	newAPIPlatformEvidenceUnique   = "unique"
+	newAPIPlatformEvidenceMultiple = "multiple"
+	newAPIPlatformEvidenceUnknown  = "unknown"
+	newAPIPlatformEvidencePartial  = "partial"
+
+	newAPIPlatformSourceModelLimits      = "model_limits"
+	newAPIPlatformSourcePricing          = "pricing"
+	newAPIPlatformSourcePricingOwner     = "pricing_owner"
+	newAPIPlatformSourcePricingModelName = "pricing_model_name"
+	newAPIPlatformSourcePricingMixed     = "pricing_mixed"
 )
 
 var reNewAPISecretKey = regexp.MustCompile(`\bsk-[0-9A-Za-z_-]{8,}\b`)
+var reNewAPIModelNameToken = regexp.MustCompile(`[a-z0-9]+`)
 
 type newAPIUpstreamProviderAdapter struct{}
 
@@ -83,9 +96,24 @@ func (t newAPIAuthTransport) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 type newAPIGroupInfo struct {
-	Desc      string   `json:"desc"`
-	Ratio     any      `json:"ratio"`
-	Platforms []string `json:"-"`
+	Desc             string                 `json:"desc"`
+	Ratio            any                    `json:"ratio"`
+	Platforms        []string               `json:"-"`
+	PlatformEvidence newAPIPlatformEvidence `json:"-"`
+}
+
+type newAPIPlatformEvidence struct {
+	Status     string
+	Candidates []string
+	Source     string
+	DetectedAt time.Time
+}
+
+type newAPIPlatformEvidenceAccumulator struct {
+	candidates map[string]struct{}
+	sources    map[string]struct{}
+	partial    bool
+	unknown    bool
 }
 
 type newAPIKeyListData struct {
@@ -127,16 +155,17 @@ type newAPIPaginationMode struct {
 }
 
 type newAPIKeyRow struct {
-	ID                 int64   `json:"id"`
-	UserID             int64   `json:"user_id"`
-	Key                string  `json:"key"`
-	Status             int     `json:"status"`
-	Name               string  `json:"name"`
-	Group              string  `json:"group"`
-	UsedQuota          float64 `json:"used_quota"`
-	RemainQuota        float64 `json:"remain_quota"`
-	UnlimitedQuota     bool    `json:"unlimited_quota"`
-	ModelLimitsEnabled bool    `json:"model_limits_enabled"`
+	ID                 int64           `json:"id"`
+	UserID             int64           `json:"user_id"`
+	Key                string          `json:"key"`
+	Status             int             `json:"status"`
+	Name               string          `json:"name"`
+	Group              string          `json:"group"`
+	UsedQuota          float64         `json:"used_quota"`
+	RemainQuota        float64         `json:"remain_quota"`
+	UnlimitedQuota     bool            `json:"unlimited_quota"`
+	ModelLimitsEnabled bool            `json:"model_limits_enabled"`
+	ModelLimits        json.RawMessage `json:"model_limits"`
 }
 
 type newAPIBatchKeysData struct {
@@ -234,7 +263,8 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	if err != nil {
 		return nil, err
 	}
-	a.enrichGroupsFromPricing(ctx, session, groups)
+	platformDetectedAt := time.Now().UTC()
+	a.enrichGroupsFromPricing(ctx, session, groups, platformDetectedAt)
 	keyResult, err := a.fetchKeys(ctx, session)
 	if err != nil {
 		return nil, err
@@ -296,22 +326,34 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 		if info, ok := groups[group]; ok && strings.TrimSpace(info.Desc) != "" {
 			extra["newapi_group_desc"] = strings.TrimSpace(info.Desc)
 		}
-		platform := PlatformOpenAI
-		if info, ok := groups[group]; ok && len(info.Platforms) == 1 {
-			platform = info.Platforms[0]
+		evidence := newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricing, platformDetectedAt)
+		if info, ok := groups[group]; ok {
+			evidence = info.PlatformEvidence
 		}
+		if modelEvidence, used := newAPIModelLimitsPlatformEvidence(row, platformDetectedAt); used {
+			evidence = modelEvidence
+		}
+		if evidence.Status == newAPIPlatformEvidencePartial {
+			partial = true
+			warnings = appendNewAPIWarnings(warnings, newAPIWarningPlatformPartial)
+		}
+		extra["newapi_platform_evidence"] = evidence.Map()
+		detectedPlatform := evidence.DetectedPlatform()
+		detectedAt := evidence.DetectedAt
 		item := UpstreamKey{
-			UpstreamConfigID:  cfg.ID,
-			Name:              normalizeUpstreamDisplayName(row.Name, 100),
-			Key:               key,
-			KeyHash:           "",
-			RemoteKeyID:       &row.ID,
-			UpstreamGroupName: normalizeUpstreamDisplayName(group, 100),
-			Platform:          platform,
-			RateMultiplier:    rate,
-			Status:            status,
-			LastSeenAt:        &now,
-			Extra:             extra,
+			UpstreamConfigID:        cfg.ID,
+			Name:                    normalizeUpstreamDisplayName(row.Name, 100),
+			Key:                     key,
+			KeyHash:                 "",
+			RemoteKeyID:             &row.ID,
+			UpstreamGroupName:       normalizeUpstreamDisplayName(group, 100),
+			DetectedPlatform:        detectedPlatform,
+			PlatformDetectionStatus: evidence.UpstreamDetectionStatus(),
+			PlatformDetectedAt:      &detectedAt,
+			RateMultiplier:          rate,
+			Status:                  status,
+			LastSeenAt:              &now,
+			Extra:                   extra,
 		}
 		if key != "" {
 			item.KeyHash = HashUpstreamKey(key)
@@ -375,6 +417,7 @@ func newAPIGroupSnapshot(groups map[string]newAPIGroupInfo) map[string]any {
 		if len(info.Platforms) > 0 {
 			entry["platforms"] = append([]string(nil), info.Platforms...)
 		}
+		entry["platform_evidence"] = info.PlatformEvidence.Map()
 		out[name] = entry
 	}
 	return out
@@ -496,10 +539,11 @@ func (a newAPIUpstreamProviderAdapter) fetchGroups(ctx context.Context, session 
 	return payload.Data, nil
 }
 
-func (a newAPIUpstreamProviderAdapter) enrichGroupsFromPricing(ctx context.Context, session *newAPISession, groups map[string]newAPIGroupInfo) {
+func (a newAPIUpstreamProviderAdapter) enrichGroupsFromPricing(ctx context.Context, session *newAPISession, groups map[string]newAPIGroupInfo, detectedAt time.Time) {
 	if len(groups) == 0 {
 		return
 	}
+	setNewAPIGroupPlatformEvidence(groups, newAPIPartialPlatformEvidence(newAPIPlatformSourcePricing, detectedAt))
 	endpoint, err := buildSub2APIURL(session.rootURL, newAPIPricingPath)
 	if err != nil {
 		return
@@ -519,41 +563,79 @@ func (a newAPIUpstreamProviderAdapter) enrichGroupsFromPricing(ctx context.Conte
 			groups[group] = info
 		}
 	}
-	platformsByGroup := map[string]map[string]struct{}{}
+	byGroup := make(map[string]*newAPIPlatformEvidenceAccumulator)
 	for _, record := range payload.Data {
-		platform := normalizeNewAPIPlatform(anyString(record["owner_by"]))
-		if platform == "" {
-			platform = normalizeNewAPIPlatform(anyString(record["ownerBy"]))
-		}
-		if platform == "" {
-			platform = normalizeNewAPIPlatform(anyString(record["platform"]))
-		}
-		if platform == "" {
-			platform = normalizeNewAPIPlatform(anyString(record["vendor"]))
-		}
-		if platform == "" {
-			continue
-		}
+		evidence := newAPIPricingRecordPlatformEvidence(record, detectedAt)
 		for _, field := range []string{"enable_groups", "enable_group"} {
 			for _, group := range newAPIStringList(record[field]) {
-				if platformsByGroup[group] == nil {
-					platformsByGroup[group] = map[string]struct{}{}
+				if _, ok := groups[group]; !ok {
+					continue
 				}
-				platformsByGroup[group][platform] = struct{}{}
+				if byGroup[group] == nil {
+					byGroup[group] = newAPIPlatformAccumulator()
+				}
+				byGroup[group].Add(evidence)
 			}
 		}
 	}
-	for group, platformSet := range platformsByGroup {
-		info, ok := groups[group]
-		if !ok {
-			continue
+	for group, info := range groups {
+		evidence := newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricing, detectedAt)
+		if accumulator := byGroup[group]; accumulator != nil {
+			evidence = accumulator.Evidence(detectedAt)
 		}
-		for platform := range platformSet {
-			info.Platforms = append(info.Platforms, platform)
-		}
-		sort.Strings(info.Platforms)
+		info.Platforms = append([]string(nil), evidence.Candidates...)
+		info.PlatformEvidence = evidence
 		groups[group] = info
 	}
+}
+
+func setNewAPIGroupPlatformEvidence(groups map[string]newAPIGroupInfo, evidence newAPIPlatformEvidence) {
+	for group, info := range groups {
+		info.Platforms = append([]string(nil), evidence.Candidates...)
+		info.PlatformEvidence = evidence.Clone()
+		groups[group] = info
+	}
+}
+
+func newAPIPricingRecordPlatformEvidence(record map[string]any, detectedAt time.Time) newAPIPlatformEvidence {
+	explicitCandidates := make(map[string]struct{})
+	hasExplicitValue := false
+	hasUnknownExplicitValue := false
+	for _, field := range []string{"owner_by", "ownerBy", "platform", "vendor"} {
+		owner, nonempty := newAPIRecordString(record, field)
+		if !nonempty {
+			continue
+		}
+		hasExplicitValue = true
+		if platform := normalizeNewAPIPlatform(owner); platform != "" {
+			explicitCandidates[platform] = struct{}{}
+		} else {
+			hasUnknownExplicitValue = true
+		}
+	}
+	if hasExplicitValue {
+		candidates := sortedNewAPIPlatforms(explicitCandidates)
+		if len(candidates) == 0 {
+			return newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricingOwner, detectedAt)
+		}
+		return newAPIPlatformEvidenceFromCandidates(candidates, hasUnknownExplicitValue, newAPIPlatformSourcePricingOwner, detectedAt)
+	}
+
+	modelName, nonempty := newAPIRecordString(record, "model_name")
+	if !nonempty {
+		return newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricingModelName, detectedAt)
+	}
+	candidates := newAPIPlatformsFromModelName(modelName)
+	return newAPIPlatformEvidenceFromCandidates(candidates, len(candidates) > 1, newAPIPlatformSourcePricingModelName, detectedAt)
+}
+
+func newAPIRecordString(record map[string]any, field string) (string, bool) {
+	value, ok := record[field]
+	if !ok || value == nil {
+		return "", false
+	}
+	text := strings.TrimSpace(anyString(value))
+	return text, text != ""
 }
 
 func normalizeNewAPIPlatform(value string) string {
@@ -563,10 +645,239 @@ func normalizeNewAPIPlatform(value string) string {
 		return PlatformAnthropic
 	case strings.Contains(value, "gemini"), strings.Contains(value, "google"):
 		return PlatformGemini
+	case strings.Contains(value, "grok"), strings.Contains(value, "xai"), strings.Contains(value, "x.ai"):
+		return PlatformGrok
 	case strings.Contains(value, "openai"), strings.Contains(value, "gpt"):
 		return PlatformOpenAI
 	default:
 		return ""
+	}
+}
+
+func newAPIPlatformsFromModelName(value string) []string {
+	candidates := make(map[string]struct{})
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	for _, token := range reNewAPIModelNameToken.FindAllString(normalized, -1) {
+		switch token {
+		case "anthropic", "claude":
+			candidates[PlatformAnthropic] = struct{}{}
+		case "gemini", "google":
+			candidates[PlatformGemini] = struct{}{}
+		case "openai", "gpt", "chatgpt", "codex", "dall", "whisper", "tts", "o1", "o3", "o4":
+			candidates[PlatformOpenAI] = struct{}{}
+		case "grok", "xai":
+			candidates[PlatformGrok] = struct{}{}
+		}
+	}
+	// Some NewAPI forks publish compact model identifiers such as gpt4o and
+	// claude3. Accept only known prefixes followed by a digit or separator so
+	// unrelated words like "gptproxy" do not become platform evidence.
+	for _, rule := range []struct {
+		prefix   string
+		platform string
+	}{
+		{"claude", PlatformAnthropic},
+		{"anthropic", PlatformAnthropic},
+		{"gpt", PlatformOpenAI},
+		{"codex", PlatformOpenAI},
+		{"gemini", PlatformGemini},
+		{"grok", PlatformGrok},
+	} {
+		if newAPIModelHasStrictPrefix(normalized, rule.prefix) {
+			candidates[rule.platform] = struct{}{}
+		}
+	}
+	return sortedNewAPIPlatforms(candidates)
+}
+
+func newAPIModelHasStrictPrefix(value, prefix string) bool {
+	for _, token := range reNewAPIModelNameToken.FindAllString(value, -1) {
+		if !strings.HasPrefix(token, prefix) || len(token) == len(prefix) {
+			continue
+		}
+		next := token[len(prefix)]
+		if next >= '0' && next <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+func newAPIModelLimitsPlatformEvidence(row newAPIKeyRow, detectedAt time.Time) (newAPIPlatformEvidence, bool) {
+	if !row.ModelLimitsEnabled {
+		return newAPIPlatformEvidence{}, false
+	}
+	models, err := parseNewAPIModelLimits(row.ModelLimits)
+	if err != nil {
+		return newAPIPartialPlatformEvidence(newAPIPlatformSourceModelLimits, detectedAt), true
+	}
+
+	candidates := make(map[string]struct{})
+	for _, model := range models {
+		platforms := newAPIPlatformsFromModelName(model)
+		for _, platform := range platforms {
+			candidates[platform] = struct{}{}
+		}
+	}
+	if len(candidates) == 0 {
+		return newAPIPlatformEvidence{}, false
+	}
+	return newAPIPlatformEvidenceFromCandidates(sortedNewAPIPlatforms(candidates), false, newAPIPlatformSourceModelLimits, detectedAt), true
+}
+
+func parseNewAPIModelLimits(raw json.RawMessage) ([]string, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, fmt.Errorf("model_limits is required when enabled")
+	}
+
+	var values []string
+	switch trimmed[0] {
+	case '"':
+		var value string
+		if err := json.Unmarshal(trimmed, &value); err != nil {
+			return nil, err
+		}
+		values = strings.Split(value, ",")
+	case '[':
+		if err := json.Unmarshal(trimmed, &values); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("model_limits must be a string or string array")
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("model_limits must not be empty")
+	}
+
+	models := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		model := strings.TrimSpace(value)
+		if model == "" || strings.Contains(model, ",") {
+			return nil, fmt.Errorf("model_limits contains an invalid model")
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		models = append(models, model)
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("model_limits must not be empty")
+	}
+	return models, nil
+}
+
+func newAPIUnknownPlatformEvidence(source string, detectedAt time.Time) newAPIPlatformEvidence {
+	return newAPIPlatformEvidence{Status: newAPIPlatformEvidenceUnknown, Candidates: []string{}, Source: source, DetectedAt: detectedAt}
+}
+
+func newAPIPartialPlatformEvidence(source string, detectedAt time.Time) newAPIPlatformEvidence {
+	return newAPIPlatformEvidence{Status: newAPIPlatformEvidencePartial, Candidates: []string{}, Source: source, DetectedAt: detectedAt}
+}
+
+func newAPIPlatformEvidenceFromCandidates(candidates []string, partial bool, source string, detectedAt time.Time) newAPIPlatformEvidence {
+	set := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if candidate = strings.TrimSpace(candidate); candidate != "" {
+			set[candidate] = struct{}{}
+		}
+	}
+	ordered := sortedNewAPIPlatforms(set)
+	status := newAPIPlatformEvidenceUnknown
+	switch {
+	case partial:
+		status = newAPIPlatformEvidencePartial
+	case len(ordered) == 1:
+		status = newAPIPlatformEvidenceUnique
+	case len(ordered) > 1:
+		status = newAPIPlatformEvidenceMultiple
+	}
+	return newAPIPlatformEvidence{Status: status, Candidates: ordered, Source: source, DetectedAt: detectedAt}
+}
+
+func newAPIPlatformAccumulator() *newAPIPlatformEvidenceAccumulator {
+	return &newAPIPlatformEvidenceAccumulator{
+		candidates: make(map[string]struct{}),
+		sources:    make(map[string]struct{}),
+	}
+}
+
+func (a *newAPIPlatformEvidenceAccumulator) Add(evidence newAPIPlatformEvidence) {
+	if a == nil {
+		return
+	}
+	for _, candidate := range evidence.Candidates {
+		a.candidates[candidate] = struct{}{}
+	}
+	if evidence.Source != "" {
+		a.sources[evidence.Source] = struct{}{}
+	}
+	if evidence.Status == newAPIPlatformEvidencePartial {
+		a.partial = true
+	} else if evidence.Status == newAPIPlatformEvidenceUnknown {
+		a.unknown = true
+	}
+}
+
+func (a *newAPIPlatformEvidenceAccumulator) Evidence(detectedAt time.Time) newAPIPlatformEvidence {
+	if a == nil {
+		return newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricing, detectedAt)
+	}
+	source := newAPIPlatformSourcePricing
+	if len(a.sources) == 1 {
+		for value := range a.sources {
+			source = value
+		}
+	} else if len(a.sources) > 1 {
+		source = newAPIPlatformSourcePricingMixed
+	}
+	partial := a.partial || (a.unknown && len(a.candidates) > 0)
+	return newAPIPlatformEvidenceFromCandidates(sortedNewAPIPlatforms(a.candidates), partial, source, detectedAt)
+}
+
+func sortedNewAPIPlatforms(values map[string]struct{}) []string {
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (e newAPIPlatformEvidence) DetectedPlatform() *string {
+	if e.Status == newAPIPlatformEvidenceUnique && len(e.Candidates) == 1 {
+		platform := e.Candidates[0]
+		return &platform
+	}
+	return nil
+}
+
+func (e newAPIPlatformEvidence) UpstreamDetectionStatus() string {
+	switch e.Status {
+	case newAPIPlatformEvidenceUnique:
+		return UpstreamKeyPlatformDetectionDetected
+	case newAPIPlatformEvidenceMultiple:
+		return UpstreamKeyPlatformDetectionAmbiguous
+	case newAPIPlatformEvidencePartial:
+		return UpstreamKeyPlatformDetectionLegacy
+	default:
+		return UpstreamKeyPlatformDetectionUnresolved
+	}
+}
+
+func (e newAPIPlatformEvidence) Clone() newAPIPlatformEvidence {
+	e.Candidates = append([]string{}, e.Candidates...)
+	return e
+}
+
+func (e newAPIPlatformEvidence) Map() map[string]any {
+	return map[string]any{
+		"status":      e.Status,
+		"candidates":  append([]string{}, e.Candidates...),
+		"source":      e.Source,
+		"detected_at": e.DetectedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 

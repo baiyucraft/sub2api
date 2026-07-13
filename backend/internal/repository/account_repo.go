@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,7 @@ import (
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
 	dbupstreamconfig "github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -88,7 +90,31 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 		return service.ErrAccountNilInput
 	}
 
-	builder := r.client.Account.Create().
+	var created *dbent.Account
+	err := r.withAccountWriteTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
+		if err := validateUpstreamAccountBindingForWrite(txCtx, txClient, account); err != nil {
+			return err
+		}
+
+		var err error
+		created, err = buildAccountCreate(txClient, account).Save(txCtx)
+		if err != nil {
+			return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+		}
+		return enqueueSchedulerOutbox(txCtx, txClient, service.SchedulerOutboxEventAccountChanged, &created.ID, nil, buildSchedulerGroupPayload(account.GroupIDs))
+	})
+	if err != nil {
+		return err
+	}
+
+	account.ID = created.ID
+	account.CreatedAt = created.CreatedAt
+	account.UpdatedAt = created.UpdatedAt
+	return nil
+}
+
+func buildAccountCreate(client *dbent.Client, account *service.Account) *dbent.AccountCreate {
+	builder := client.Account.Create().
 		SetName(account.Name).
 		SetNillableNotes(account.Notes).
 		SetPlatform(account.Platform).
@@ -153,19 +179,7 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	if account.ParentAccountID != nil {
 		builder.SetParentAccountID(*account.ParentAccountID)
 	}
-
-	created, err := builder.Save(ctx)
-	if err != nil {
-		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
-	}
-
-	account.ID = created.ID
-	account.CreatedAt = created.CreatedAt
-	account.UpdatedAt = created.UpdatedAt
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
-		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account create failed: account=%d err=%v", account.ID, err)
-	}
-	return nil
+	return builder
 }
 
 func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Account, error) {
@@ -330,7 +344,32 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 		schedulable = false
 	}
 
-	builder := r.client.Account.UpdateOneID(account.ID).
+	var updated *dbent.Account
+	err := r.withAccountWriteTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
+		if err := validateUpstreamAccountBindingForWrite(txCtx, txClient, account); err != nil {
+			return err
+		}
+
+		var err error
+		updated, err = buildAccountUpdate(txClient, account, schedulable).Save(txCtx)
+		if err != nil {
+			return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+		}
+		return enqueueSchedulerOutbox(txCtx, txClient, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs))
+	})
+	if err != nil {
+		return err
+	}
+
+	account.UpdatedAt = updated.UpdatedAt
+	// 普通账号编辑（如 model_mapping / credentials）也需要立即刷新单账号快照，
+	// 否则网关在 outbox worker 延迟或异常时仍可能读到旧配置。
+	r.syncSchedulerAccountSnapshot(ctx, account.ID)
+	return nil
+}
+
+func buildAccountUpdate(client *dbent.Client, account *service.Account, schedulable bool) *dbent.AccountUpdateOne {
+	builder := client.Account.UpdateOneID(account.ID).
 		SetName(account.Name).
 		SetNillableNotes(account.Notes).
 		SetPlatform(account.Platform).
@@ -424,18 +463,71 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 
 	builder.SetQuotaDimension(dbaccount.QuotaDimension(account.QuotaDimensionOrDefault()))
 	builder.SetNillableParentAccountID(account.ParentAccountID)
+	return builder
+}
 
-	updated, err := builder.Save(ctx)
+func (r *accountRepository) withAccountWriteTx(ctx context.Context, fn func(context.Context, *dbent.Client) error) error {
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return fn(ctx, tx.Client())
+	}
+	tx, err := r.client.Tx(ctx)
 	if err != nil {
-		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+		if errors.Is(err, dbent.ErrTxStarted) {
+			return fn(ctx, r.client)
+		}
+		return err
 	}
-	account.UpdatedAt = updated.UpdatedAt
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
-		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account update failed: account=%d err=%v", account.ID, err)
+	defer func() { _ = tx.Rollback() }()
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := fn(txCtx, tx.Client()); err != nil {
+		return err
 	}
-	// 普通账号编辑（如 model_mapping / credentials）也需要立即刷新单账号快照，
-	// 否则网关在 outbox worker 延迟或异常时仍可能读到旧配置。
-	r.syncSchedulerAccountSnapshot(ctx, account.ID)
+	return tx.Commit()
+}
+
+func validateUpstreamAccountBindingForWrite(ctx context.Context, client *dbent.Client, account *service.Account) error {
+	hasConfig := account.UpstreamConfigID != nil
+	hasKey := account.UpstreamKeyID != nil
+	if !hasConfig && !hasKey {
+		return nil
+	}
+	if !hasConfig || !hasKey {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_BINDING_REQUIRED", "upstream config and key are required")
+	}
+
+	_, err := client.UpstreamConfig.Query().
+		Where(
+			dbupstreamconfig.IDEQ(*account.UpstreamConfigID),
+			dbupstreamconfig.DeletedAtIsNil(),
+		).
+		ForUpdate().
+		Only(ctx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrUpstreamConfigNotFound, nil)
+	}
+
+	key, err := client.UpstreamKey.Query().
+		Where(
+			dbupstreamkey.IDEQ(*account.UpstreamKeyID),
+			dbupstreamkey.DeletedAtIsNil(),
+		).
+		ForUpdate().
+		Only(ctx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrUpstreamKeyNotFound, nil)
+	}
+	if key.UpstreamConfigID != *account.UpstreamConfigID {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_CONFIG_MISMATCH", "upstream key does not belong to the selected config")
+	}
+	if key.Status != service.StatusActive {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_INACTIVE", "upstream key is not active")
+	}
+	if key.Platform == nil || strings.TrimSpace(*key.Platform) == "" {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_UNASSIGNED", "upstream key platform must be assigned before binding an account")
+	}
+	if *key.Platform != account.Platform {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_MISMATCH", "upstream key platform does not match account platform")
+	}
 	return nil
 }
 
