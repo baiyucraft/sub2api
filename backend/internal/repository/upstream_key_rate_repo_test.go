@@ -33,7 +33,7 @@ func TestApplySyncSnapshotPersistsRateBaselineAndChangesWithoutSecrets(t *testin
 
 	apply := func(runID int64, rate float64, at time.Time, complete bool) []service.UpstreamKey {
 		runID = createRateTrendRun(t, ctx, client, runID, at)
-		keys := []service.UpstreamKey{{Name: "primary", Key: secret, KeyHash: service.HashUpstreamKey(secret), RemoteKeyID: &remoteID, Platform: service.PlatformOpenAI, RateMultiplier: &rate, Status: service.StatusActive, LastSeenAt: &at}}
+		keys := []service.UpstreamKey{{Name: "primary", Key: secret, KeyHash: service.HashUpstreamKey(secret), RemoteKeyID: &remoteID, Platform: repoStringPtr(service.PlatformOpenAI), RateMultiplier: &rate, Status: service.StatusActive, LastSeenAt: &at}}
 		local, _, _, err := repo.ApplySyncSnapshot(ctx, config.ID, runID, keys, nil, at, complete)
 		require.NoError(t, err)
 		return local
@@ -85,8 +85,8 @@ func TestApplySyncSnapshotOnlySnapshotsTrustedReturnedKeys(t *testing.T) {
 	runID := createRateTrendRun(t, ctx, client, 2001, now)
 	rate := 1.1
 	keys := []service.UpstreamKey{
-		{Name: "valid", Key: "sk-valid", KeyHash: service.HashUpstreamKey("sk-valid"), Platform: service.PlatformOpenAI, RateMultiplier: &rate, Status: service.StatusActive, LastSeenAt: &now},
-		{Name: "missing-rate", Key: "sk-missing", KeyHash: service.HashUpstreamKey("sk-missing"), Platform: service.PlatformOpenAI, Status: service.StatusActive, LastSeenAt: &now},
+		{Name: "valid", Key: "sk-valid", KeyHash: service.HashUpstreamKey("sk-valid"), Platform: repoStringPtr(service.PlatformOpenAI), RateMultiplier: &rate, Status: service.StatusActive, LastSeenAt: &now},
+		{Name: "missing-rate", Key: "sk-missing", KeyHash: service.HashUpstreamKey("sk-missing"), Platform: repoStringPtr(service.PlatformOpenAI), Status: service.StatusActive, LastSeenAt: &now},
 	}
 	local, reconciled, _, err := repo.ApplySyncSnapshot(ctx, config.ID, runID, keys, nil, now, false)
 	require.NoError(t, err)
@@ -119,7 +119,7 @@ func TestGetUpstreamKeyRateTrendUsesLastObservationPerBucketAndSupportsSoftDelet
 	}{{1, now.Add(-2*time.Hour + 5*time.Minute)}, {1.2, now.Add(-2*time.Hour + 50*time.Minute)}, {1.3, now.Add(-30 * time.Minute)}} {
 		runID := int64(3001 + index)
 		runID = createRateTrendRun(t, ctx, client, runID, item.at)
-		keys := []service.UpstreamKey{{Name: "trend", Key: "sk-trend", KeyHash: service.HashUpstreamKey("sk-trend"), Platform: service.PlatformOpenAI, RateMultiplier: &item.rate, Status: service.StatusActive, LastSeenAt: &item.at}}
+		keys := []service.UpstreamKey{{Name: "trend", Key: "sk-trend", KeyHash: service.HashUpstreamKey("sk-trend"), Platform: repoStringPtr(service.PlatformOpenAI), RateMultiplier: &item.rate, Status: service.StatusActive, LastSeenAt: &item.at}}
 		local, _, _, err := repo.ApplySyncSnapshot(ctx, config.ID, runID, keys, nil, item.at, true)
 		require.NoError(t, err)
 		keyID = local[0].ID

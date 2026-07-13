@@ -712,9 +712,142 @@
       width="normal"
       @close="closeActionMenu"
       @test="handleTest"
+      @key-platforms="openKeyPlatforms"
       @dashboard="openUpstreamDashboard"
       @delete="askDelete"
     />
+
+    <BaseDialog
+      :show="keyPlatformsDialogOpen"
+      :title="t('admin.upstreamConfigs.keyPlatforms.title')"
+      width="extra-wide"
+      :close-on-escape="!keyPlatformSaving"
+      :show-close-button="!keyPlatformSaving"
+      @close="closeKeyPlatformsDialog"
+    >
+      <div class="space-y-4" data-test="key-platforms-dialog">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-gray-900 dark:text-gray-100">
+              {{ keyPlatformsConfig?.name || '' }}
+            </p>
+            <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-dark-400">
+              {{ t('admin.upstreamConfigs.keyPlatforms.description') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary flex-none px-3"
+            data-test="refresh-key-platforms"
+            :disabled="keyPlatformsLoading || keyPlatformSaving"
+            :title="t('common.refresh')"
+            @click="loadKeyPlatforms"
+          >
+            <Icon name="refresh" size="md" :class="keyPlatformsLoading ? 'animate-spin' : ''" />
+          </button>
+        </div>
+
+        <DataTable
+          :columns="keyPlatformColumns"
+          :data="keyPlatformKeys"
+          :loading="keyPlatformsLoading"
+          row-key="id"
+          :estimate-row-height="72"
+        >
+          <template #cell-key="{ row }">
+            <div class="min-w-[180px]">
+              <div class="font-medium text-gray-900 dark:text-gray-100">
+                {{ row.name || t('admin.upstreamConfigs.keyPlatforms.unnamedKey') }}
+              </div>
+              <div class="mt-1 font-mono text-xs text-gray-500 dark:text-dark-400">
+                #{{ row.id }}<span v-if="row.key_status?.suffix"> · ••••{{ row.key_status.suffix }}</span>
+              </div>
+            </div>
+          </template>
+
+          <template #cell-group="{ row }">
+            <div v-if="row.upstream_group_id || row.upstream_group_name" class="min-w-[130px] text-sm text-gray-700 dark:text-gray-300">
+              <div>{{ row.upstream_group_name || t('admin.upstreamConfigs.keyPlatforms.unnamedGroup') }}</div>
+              <div v-if="row.upstream_group_id" class="mt-1 text-xs text-gray-500 dark:text-dark-400">#{{ row.upstream_group_id }}</div>
+            </div>
+            <span v-else class="text-sm text-gray-500 dark:text-dark-400">
+              {{ t('admin.upstreamConfigs.keyPlatforms.unassignedGroup') }}
+            </span>
+          </template>
+
+          <template #cell-detected_platform="{ row }">
+            <span
+              v-if="normalizeKeyPlatform(row.detected_platform)"
+              class="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 dark:bg-sky-900/20 dark:text-sky-300"
+            >
+              {{ keyPlatformLabel(row.detected_platform) }}
+            </span>
+            <span v-else class="text-sm text-gray-500 dark:text-dark-400">
+              {{ t('admin.upstreamConfigs.keyPlatforms.notDetected') }}
+            </span>
+          </template>
+
+          <template #cell-platform="{ row }">
+            <div class="min-w-[150px] space-y-1.5">
+              <Select
+                :model-value="keyPlatformSelection(row)"
+                :options="keyPlatformOptions"
+                :placeholder="t('admin.upstreamConfigs.keyPlatforms.unassignedPlatform')"
+                :disabled="isKeyPlatformUpdating(row.id)"
+                :data-test="`key-platform-select-${row.id}`"
+                @change="handleKeyPlatformChange(row, $event)"
+              />
+              <p
+                v-if="keyPlatformStatus(row) === 'conflict'"
+                class="text-xs font-medium text-red-600 dark:text-red-400"
+              >
+                {{ t('admin.upstreamConfigs.keyPlatforms.conflict') }}
+              </p>
+            </div>
+          </template>
+
+          <template #cell-source="{ row }">
+            <span class="text-sm text-gray-600 dark:text-dark-300">
+              {{ keyPlatformSourceLabel(row.platform_source) }}
+            </span>
+          </template>
+
+          <template #cell-bound_account_count="{ row }">
+            <span class="text-sm font-medium tabular-nums text-gray-900 dark:text-gray-100">
+              {{ normalizedBoundAccountCount(row.bound_account_count) }}
+            </span>
+          </template>
+
+          <template #cell-status="{ row }">
+            <span :class="keyPlatformStatusClass(row)">
+              {{ keyPlatformStatusLabel(row) }}
+            </span>
+          </template>
+
+          <template #empty>
+            <div class="flex flex-col items-center py-10 text-center">
+              <Icon name="key" size="xl" class="mb-3 text-gray-400 dark:text-dark-500" />
+              <p class="text-sm font-medium text-gray-900 dark:text-gray-100">
+                {{ t('admin.upstreamConfigs.keyPlatforms.empty') }}
+              </p>
+            </div>
+          </template>
+        </DataTable>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="keyPlatformSaving"
+            @click="closeKeyPlatformsDialog"
+          >
+            {{ t('common.close') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
 
     <BaseDialog
       :show="operationsDrawerMode !== null"
@@ -1028,6 +1161,19 @@
       @confirm="confirmDelete"
       @cancel="cancelDelete"
     />
+    <ConfirmDialog
+      :show="pendingKeyPlatformConflict !== null"
+      :title="t('admin.upstreamConfigs.keyPlatforms.disableBindingsTitle')"
+      :message="t('admin.upstreamConfigs.keyPlatforms.disableBindingsMessage', {
+        count: pendingKeyPlatformConflict?.boundAccountCount || 0,
+        platform: keyPlatformLabel(pendingKeyPlatformConflict?.platform)
+      })"
+      :confirm-text="t('admin.upstreamConfigs.keyPlatforms.disableBindingsConfirm')"
+      :cancel-text="t('common.cancel')"
+      :danger="true"
+      @confirm="confirmKeyPlatformConflict"
+      @cancel="cancelKeyPlatformConflict"
+    />
   </AppLayout>
 </template>
 
@@ -1061,11 +1207,14 @@ import upstreamAPI, {
   type UpstreamSyncResult,
   type UpstreamTrendRange,
   type UpstreamUsageTrend,
+  type UpstreamKey,
+  type UpstreamKeyPlatform,
   type UpstreamKeyRateCatalogItem,
   type UpstreamKeyRateTrend
 } from '@/api/admin/upstreamConfigs'
 import { useAppStore } from '@/stores/app'
 import type { Proxy } from '@/types'
+import { extractApiErrorCode, extractApiErrorMetadata } from '@/utils/apiError'
 import {
   parseUpstreamTokenPaste,
   type ParsedTokenCandidate
@@ -1101,6 +1250,18 @@ const actionMenu = reactive<{ show: boolean; anchorEl: HTMLElement | null; confi
   anchorEl: null,
   config: null
 })
+const keyPlatformsDialogOpen = ref(false)
+const keyPlatformsConfig = ref<UpstreamConfig | null>(null)
+const keyPlatformKeys = ref<UpstreamKey[]>([])
+const keyPlatformsLoading = ref(false)
+const updatingKeyPlatformIds = ref<Set<number>>(new Set())
+const keyPlatformSelections = reactive<Record<number, UpstreamKeyPlatform | null>>({})
+const pendingKeyPlatformConflict = ref<{
+  key: UpstreamKey
+  platform: UpstreamKeyPlatform
+  boundAccountCount: number
+} | null>(null)
+let keyPlatformsRequestGeneration = 0
 const search = ref('')
 const provider = ref<string>('')
 const proxies = ref<Proxy[]>([])
@@ -1183,6 +1344,25 @@ const allColumns = computed<Column[]>(() => [
   { key: 'last_success_at', label: t('admin.upstreamConfigs.columns.lastSync') },
   { key: 'actions', label: t('admin.upstreamConfigs.columns.actions'), class: 'min-w-[300px]' }
 ])
+
+const keyPlatformColumns = computed<Column[]>(() => [
+  { key: 'key', label: t('admin.upstreamConfigs.keyPlatforms.columns.key') },
+  { key: 'group', label: t('admin.upstreamConfigs.keyPlatforms.columns.group') },
+  { key: 'detected_platform', label: t('admin.upstreamConfigs.keyPlatforms.columns.detected') },
+  { key: 'platform', label: t('admin.upstreamConfigs.keyPlatforms.columns.current') },
+  { key: 'source', label: t('admin.upstreamConfigs.keyPlatforms.columns.source') },
+  { key: 'bound_account_count', label: t('admin.upstreamConfigs.keyPlatforms.columns.bindings') },
+  { key: 'status', label: t('admin.upstreamConfigs.keyPlatforms.columns.status') }
+])
+
+const keyPlatformOptions = computed<SelectOption[]>(() =>
+  (['openai', 'anthropic', 'gemini', 'grok'] as UpstreamKeyPlatform[]).map((platform) => ({
+    value: platform,
+    label: keyPlatformLabel(platform)
+  }))
+)
+
+const keyPlatformSaving = computed(() => updatingKeyPlatformIds.value.size > 0)
 
 const toggleableColumns = computed(() =>
   allColumns.value.filter((column) => !ALWAYS_VISIBLE_COLUMNS.has(column.key))
@@ -1799,6 +1979,188 @@ function closeActionMenu() {
   actionMenu.show = false
   actionMenu.anchorEl = null
   actionMenu.config = null
+}
+
+async function openKeyPlatforms(item: UpstreamConfig) {
+  keyPlatformsConfig.value = item
+  keyPlatformsDialogOpen.value = true
+  await loadKeyPlatforms()
+}
+
+async function loadKeyPlatforms() {
+  const config = keyPlatformsConfig.value
+  if (!config) return
+
+  const generation = ++keyPlatformsRequestGeneration
+  keyPlatformsLoading.value = true
+  try {
+    const keys = await upstreamAPI.listKeys(config.id)
+    if (generation !== keyPlatformsRequestGeneration || !keyPlatformsDialogOpen.value) return
+    keyPlatformKeys.value = keys || []
+    resetKeyPlatformSelections(keyPlatformKeys.value)
+  } catch (error: any) {
+    if (generation !== keyPlatformsRequestGeneration || !keyPlatformsDialogOpen.value) return
+    keyPlatformKeys.value = []
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.keyPlatforms.loadFailed')))
+  } finally {
+    if (generation === keyPlatformsRequestGeneration) keyPlatformsLoading.value = false
+  }
+}
+
+function closeKeyPlatformsDialog() {
+  if (keyPlatformSaving.value) return
+  keyPlatformsRequestGeneration += 1
+  keyPlatformsLoading.value = false
+  keyPlatformsDialogOpen.value = false
+  keyPlatformsConfig.value = null
+  keyPlatformKeys.value = []
+  pendingKeyPlatformConflict.value = null
+  resetKeyPlatformSelections([])
+}
+
+function resetKeyPlatformSelections(keys: UpstreamKey[]) {
+  for (const key of Object.keys(keyPlatformSelections)) delete keyPlatformSelections[Number(key)]
+  for (const key of keys) keyPlatformSelections[key.id] = normalizeKeyPlatform(key.platform)
+}
+
+function normalizeKeyPlatform(value: unknown): UpstreamKeyPlatform | null {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  return ['openai', 'anthropic', 'gemini', 'grok'].includes(normalized)
+    ? normalized as UpstreamKeyPlatform
+    : null
+}
+
+function keyPlatformSelection(key: UpstreamKey): UpstreamKeyPlatform | null {
+  return keyPlatformSelections[key.id] ?? normalizeKeyPlatform(key.platform)
+}
+
+function keyPlatformLabel(value: unknown): string {
+  const platform = normalizeKeyPlatform(value)
+  return platform
+    ? t(`admin.upstreamConfigs.keyPlatforms.platforms.${platform}`)
+    : t('admin.upstreamConfigs.keyPlatforms.unassignedPlatform')
+}
+
+function keyPlatformSourceLabel(source: unknown): string {
+  const normalized = typeof source === 'string' ? source.trim().toLowerCase() : ''
+  const knownSources = new Set(['manual', 'auto', 'legacy', 'unassigned'])
+  return knownSources.has(normalized)
+    ? t(`admin.upstreamConfigs.keyPlatforms.sources.${normalized}`)
+    : t('admin.upstreamConfigs.keyPlatforms.sources.unknown')
+}
+
+function normalizedBoundAccountCount(value: unknown): number {
+  const count = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(count) && count > 0 ? Math.trunc(count) : 0
+}
+
+function keyPlatformStatus(key: UpstreamKey): 'legacy' | 'detected' | 'unresolved' | 'ambiguous' | 'conflict' | 'unassigned' | 'unknown' {
+  const status = String(key.platform_detection_status || '').trim().toLowerCase()
+  if (status === 'legacy' || status === 'detected' || status === 'unresolved' || status === 'ambiguous' || status === 'conflict') {
+    return status
+  }
+  if (!normalizeKeyPlatform(key.platform)) return 'unassigned'
+  return 'unknown'
+}
+
+function keyPlatformStatusLabel(key: UpstreamKey): string {
+  return t(`admin.upstreamConfigs.keyPlatforms.status.${keyPlatformStatus(key)}`)
+}
+
+function keyPlatformStatusClass(key: UpstreamKey): string {
+  const base = 'inline-flex rounded-full px-2.5 py-1 text-xs font-medium'
+  const status = keyPlatformStatus(key)
+  if (status === 'conflict') return `${base} bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300`
+  if (status === 'ambiguous' || status === 'unresolved' || status === 'unassigned') {
+    return `${base} bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300`
+  }
+  if (status === 'detected') return `${base} bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300`
+  return `${base} bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-dark-300`
+}
+
+function isKeyPlatformUpdating(keyId: number): boolean {
+  return updatingKeyPlatformIds.value.has(keyId)
+}
+
+function setKeyPlatformUpdating(keyId: number, updating: boolean) {
+  const next = new Set(updatingKeyPlatformIds.value)
+  if (updating) next.add(keyId)
+  else next.delete(keyId)
+  updatingKeyPlatformIds.value = next
+}
+
+async function handleKeyPlatformChange(key: UpstreamKey, value: string | number | boolean | null) {
+  const platform = normalizeKeyPlatform(value)
+  if (!platform || isKeyPlatformUpdating(key.id)) {
+    keyPlatformSelections[key.id] = normalizeKeyPlatform(key.platform)
+    return
+  }
+  if (platform === normalizeKeyPlatform(key.platform)) return
+  keyPlatformSelections[key.id] = platform
+  await saveKeyPlatform(key, platform, false)
+}
+
+async function saveKeyPlatform(key: UpstreamKey, platform: UpstreamKeyPlatform, disableBoundAccounts: boolean) {
+  const config = keyPlatformsConfig.value
+  if (!config) return
+  setKeyPlatformUpdating(key.id, true)
+  try {
+    const updated = await upstreamAPI.updateKeyPlatform(config.id, key.id, {
+      platform,
+      expected_updated_at: key.updated_at,
+      ...(disableBoundAccounts ? { disable_bound_accounts: true } : {})
+    })
+    const next = { ...key, ...(updated || {}), platform }
+    const index = keyPlatformKeys.value.findIndex((item) => item.id === key.id)
+    if (index >= 0) keyPlatformKeys.value.splice(index, 1, next)
+    keyPlatformSelections[key.id] = normalizeKeyPlatform(next.platform)
+    appStore.showSuccess(t('admin.upstreamConfigs.keyPlatforms.updated'))
+  } catch (error: any) {
+    const errorCode = extractApiErrorCode(error)
+    const errorStatus = error?.status ?? error?.response?.status
+    if (!disableBoundAccounts && errorStatus === 409 && errorCode === 'UPSTREAM_KEY_PLATFORM_BOUND_ACCOUNT_CONFLICT') {
+      pendingKeyPlatformConflict.value = {
+        key,
+        platform,
+        boundAccountCount: conflictBoundAccountCount(error, key)
+      }
+      return
+    }
+    keyPlatformSelections[key.id] = normalizeKeyPlatform(key.platform)
+    if (errorStatus === 409 && errorCode === 'UPSTREAM_KEY_PLATFORM_STALE') {
+      appStore.showError(t('admin.upstreamConfigs.keyPlatforms.stale'))
+      await loadKeyPlatforms()
+      return
+    }
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.keyPlatforms.updateFailed')))
+  } finally {
+    setKeyPlatformUpdating(key.id, false)
+  }
+}
+
+function conflictBoundAccountCount(error: any, key: UpstreamKey): number {
+  const metadata = extractApiErrorMetadata(error)
+  const data = error?.response?.data
+  return normalizedBoundAccountCount(
+    metadata?.bound_account_count ??
+    data?.metadata?.bound_account_count ??
+    data?.details?.bound_account_count ??
+    data?.bound_account_count ??
+    key.bound_account_count
+  )
+}
+
+async function confirmKeyPlatformConflict() {
+  const pending = pendingKeyPlatformConflict.value
+  if (!pending) return
+  pendingKeyPlatformConflict.value = null
+  await saveKeyPlatform(pending.key, pending.platform, true)
+}
+
+function cancelKeyPlatformConflict() {
+  const pending = pendingKeyPlatformConflict.value
+  if (pending) keyPlatformSelections[pending.key.id] = normalizeKeyPlatform(pending.key.platform)
+  pendingKeyPlatformConflict.value = null
 }
 
 function requestToken(mode: OperationsDrawerMode) {

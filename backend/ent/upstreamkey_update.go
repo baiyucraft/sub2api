@@ -198,6 +198,80 @@ func (_u *UpstreamKeyUpdate) SetNillablePlatform(v *string) *UpstreamKeyUpdate {
 	return _u
 }
 
+// ClearPlatform clears the value of the "platform" field.
+func (_u *UpstreamKeyUpdate) ClearPlatform() *UpstreamKeyUpdate {
+	_u.mutation.ClearPlatform()
+	return _u
+}
+
+// SetPlatformSource sets the "platform_source" field.
+func (_u *UpstreamKeyUpdate) SetPlatformSource(v string) *UpstreamKeyUpdate {
+	_u.mutation.SetPlatformSource(v)
+	return _u
+}
+
+// SetNillablePlatformSource sets the "platform_source" field if the given value is not nil.
+func (_u *UpstreamKeyUpdate) SetNillablePlatformSource(v *string) *UpstreamKeyUpdate {
+	if v != nil {
+		_u.SetPlatformSource(*v)
+	}
+	return _u
+}
+
+// SetDetectedPlatform sets the "detected_platform" field.
+func (_u *UpstreamKeyUpdate) SetDetectedPlatform(v string) *UpstreamKeyUpdate {
+	_u.mutation.SetDetectedPlatform(v)
+	return _u
+}
+
+// SetNillableDetectedPlatform sets the "detected_platform" field if the given value is not nil.
+func (_u *UpstreamKeyUpdate) SetNillableDetectedPlatform(v *string) *UpstreamKeyUpdate {
+	if v != nil {
+		_u.SetDetectedPlatform(*v)
+	}
+	return _u
+}
+
+// ClearDetectedPlatform clears the value of the "detected_platform" field.
+func (_u *UpstreamKeyUpdate) ClearDetectedPlatform() *UpstreamKeyUpdate {
+	_u.mutation.ClearDetectedPlatform()
+	return _u
+}
+
+// SetPlatformDetectionStatus sets the "platform_detection_status" field.
+func (_u *UpstreamKeyUpdate) SetPlatformDetectionStatus(v string) *UpstreamKeyUpdate {
+	_u.mutation.SetPlatformDetectionStatus(v)
+	return _u
+}
+
+// SetNillablePlatformDetectionStatus sets the "platform_detection_status" field if the given value is not nil.
+func (_u *UpstreamKeyUpdate) SetNillablePlatformDetectionStatus(v *string) *UpstreamKeyUpdate {
+	if v != nil {
+		_u.SetPlatformDetectionStatus(*v)
+	}
+	return _u
+}
+
+// SetPlatformDetectedAt sets the "platform_detected_at" field.
+func (_u *UpstreamKeyUpdate) SetPlatformDetectedAt(v time.Time) *UpstreamKeyUpdate {
+	_u.mutation.SetPlatformDetectedAt(v)
+	return _u
+}
+
+// SetNillablePlatformDetectedAt sets the "platform_detected_at" field if the given value is not nil.
+func (_u *UpstreamKeyUpdate) SetNillablePlatformDetectedAt(v *time.Time) *UpstreamKeyUpdate {
+	if v != nil {
+		_u.SetPlatformDetectedAt(*v)
+	}
+	return _u
+}
+
+// ClearPlatformDetectedAt clears the value of the "platform_detected_at" field.
+func (_u *UpstreamKeyUpdate) ClearPlatformDetectedAt() *UpstreamKeyUpdate {
+	_u.mutation.ClearPlatformDetectedAt()
+	return _u
+}
+
 // SetRateMultiplier sets the "rate_multiplier" field.
 func (_u *UpstreamKeyUpdate) SetRateMultiplier(v float64) *UpstreamKeyUpdate {
 	_u.mutation.ResetRateMultiplier()
@@ -572,6 +646,21 @@ func (_u *UpstreamKeyUpdate) check() error {
 			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.PlatformSource(); ok {
+		if err := upstreamkey.PlatformSourceValidator(v); err != nil {
+			return &ValidationError{Name: "platform_source", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform_source": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.DetectedPlatform(); ok {
+		if err := upstreamkey.DetectedPlatformValidator(v); err != nil {
+			return &ValidationError{Name: "detected_platform", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.detected_platform": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.PlatformDetectionStatus(); ok {
+		if err := upstreamkey.PlatformDetectionStatusValidator(v); err != nil {
+			return &ValidationError{Name: "platform_detection_status", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform_detection_status": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := upstreamkey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.status": %w`, err)}
@@ -636,6 +725,27 @@ func (_u *UpstreamKeyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 	}
 	if value, ok := _u.mutation.Platform(); ok {
 		_spec.SetField(upstreamkey.FieldPlatform, field.TypeString, value)
+	}
+	if _u.mutation.PlatformCleared() {
+		_spec.ClearField(upstreamkey.FieldPlatform, field.TypeString)
+	}
+	if value, ok := _u.mutation.PlatformSource(); ok {
+		_spec.SetField(upstreamkey.FieldPlatformSource, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.DetectedPlatform(); ok {
+		_spec.SetField(upstreamkey.FieldDetectedPlatform, field.TypeString, value)
+	}
+	if _u.mutation.DetectedPlatformCleared() {
+		_spec.ClearField(upstreamkey.FieldDetectedPlatform, field.TypeString)
+	}
+	if value, ok := _u.mutation.PlatformDetectionStatus(); ok {
+		_spec.SetField(upstreamkey.FieldPlatformDetectionStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.PlatformDetectedAt(); ok {
+		_spec.SetField(upstreamkey.FieldPlatformDetectedAt, field.TypeTime, value)
+	}
+	if _u.mutation.PlatformDetectedAtCleared() {
+		_spec.ClearField(upstreamkey.FieldPlatformDetectedAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.RateMultiplier(); ok {
 		_spec.SetField(upstreamkey.FieldRateMultiplier, field.TypeFloat64, value)
@@ -1108,6 +1218,80 @@ func (_u *UpstreamKeyUpdateOne) SetNillablePlatform(v *string) *UpstreamKeyUpdat
 	return _u
 }
 
+// ClearPlatform clears the value of the "platform" field.
+func (_u *UpstreamKeyUpdateOne) ClearPlatform() *UpstreamKeyUpdateOne {
+	_u.mutation.ClearPlatform()
+	return _u
+}
+
+// SetPlatformSource sets the "platform_source" field.
+func (_u *UpstreamKeyUpdateOne) SetPlatformSource(v string) *UpstreamKeyUpdateOne {
+	_u.mutation.SetPlatformSource(v)
+	return _u
+}
+
+// SetNillablePlatformSource sets the "platform_source" field if the given value is not nil.
+func (_u *UpstreamKeyUpdateOne) SetNillablePlatformSource(v *string) *UpstreamKeyUpdateOne {
+	if v != nil {
+		_u.SetPlatformSource(*v)
+	}
+	return _u
+}
+
+// SetDetectedPlatform sets the "detected_platform" field.
+func (_u *UpstreamKeyUpdateOne) SetDetectedPlatform(v string) *UpstreamKeyUpdateOne {
+	_u.mutation.SetDetectedPlatform(v)
+	return _u
+}
+
+// SetNillableDetectedPlatform sets the "detected_platform" field if the given value is not nil.
+func (_u *UpstreamKeyUpdateOne) SetNillableDetectedPlatform(v *string) *UpstreamKeyUpdateOne {
+	if v != nil {
+		_u.SetDetectedPlatform(*v)
+	}
+	return _u
+}
+
+// ClearDetectedPlatform clears the value of the "detected_platform" field.
+func (_u *UpstreamKeyUpdateOne) ClearDetectedPlatform() *UpstreamKeyUpdateOne {
+	_u.mutation.ClearDetectedPlatform()
+	return _u
+}
+
+// SetPlatformDetectionStatus sets the "platform_detection_status" field.
+func (_u *UpstreamKeyUpdateOne) SetPlatformDetectionStatus(v string) *UpstreamKeyUpdateOne {
+	_u.mutation.SetPlatformDetectionStatus(v)
+	return _u
+}
+
+// SetNillablePlatformDetectionStatus sets the "platform_detection_status" field if the given value is not nil.
+func (_u *UpstreamKeyUpdateOne) SetNillablePlatformDetectionStatus(v *string) *UpstreamKeyUpdateOne {
+	if v != nil {
+		_u.SetPlatformDetectionStatus(*v)
+	}
+	return _u
+}
+
+// SetPlatformDetectedAt sets the "platform_detected_at" field.
+func (_u *UpstreamKeyUpdateOne) SetPlatformDetectedAt(v time.Time) *UpstreamKeyUpdateOne {
+	_u.mutation.SetPlatformDetectedAt(v)
+	return _u
+}
+
+// SetNillablePlatformDetectedAt sets the "platform_detected_at" field if the given value is not nil.
+func (_u *UpstreamKeyUpdateOne) SetNillablePlatformDetectedAt(v *time.Time) *UpstreamKeyUpdateOne {
+	if v != nil {
+		_u.SetPlatformDetectedAt(*v)
+	}
+	return _u
+}
+
+// ClearPlatformDetectedAt clears the value of the "platform_detected_at" field.
+func (_u *UpstreamKeyUpdateOne) ClearPlatformDetectedAt() *UpstreamKeyUpdateOne {
+	_u.mutation.ClearPlatformDetectedAt()
+	return _u
+}
+
 // SetRateMultiplier sets the "rate_multiplier" field.
 func (_u *UpstreamKeyUpdateOne) SetRateMultiplier(v float64) *UpstreamKeyUpdateOne {
 	_u.mutation.ResetRateMultiplier()
@@ -1495,6 +1679,21 @@ func (_u *UpstreamKeyUpdateOne) check() error {
 			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.PlatformSource(); ok {
+		if err := upstreamkey.PlatformSourceValidator(v); err != nil {
+			return &ValidationError{Name: "platform_source", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform_source": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.DetectedPlatform(); ok {
+		if err := upstreamkey.DetectedPlatformValidator(v); err != nil {
+			return &ValidationError{Name: "detected_platform", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.detected_platform": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.PlatformDetectionStatus(); ok {
+		if err := upstreamkey.PlatformDetectionStatusValidator(v); err != nil {
+			return &ValidationError{Name: "platform_detection_status", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform_detection_status": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := upstreamkey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.status": %w`, err)}
@@ -1576,6 +1775,27 @@ func (_u *UpstreamKeyUpdateOne) sqlSave(ctx context.Context) (_node *UpstreamKey
 	}
 	if value, ok := _u.mutation.Platform(); ok {
 		_spec.SetField(upstreamkey.FieldPlatform, field.TypeString, value)
+	}
+	if _u.mutation.PlatformCleared() {
+		_spec.ClearField(upstreamkey.FieldPlatform, field.TypeString)
+	}
+	if value, ok := _u.mutation.PlatformSource(); ok {
+		_spec.SetField(upstreamkey.FieldPlatformSource, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.DetectedPlatform(); ok {
+		_spec.SetField(upstreamkey.FieldDetectedPlatform, field.TypeString, value)
+	}
+	if _u.mutation.DetectedPlatformCleared() {
+		_spec.ClearField(upstreamkey.FieldDetectedPlatform, field.TypeString)
+	}
+	if value, ok := _u.mutation.PlatformDetectionStatus(); ok {
+		_spec.SetField(upstreamkey.FieldPlatformDetectionStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.PlatformDetectedAt(); ok {
+		_spec.SetField(upstreamkey.FieldPlatformDetectedAt, field.TypeTime, value)
+	}
+	if _u.mutation.PlatformDetectedAtCleared() {
+		_spec.ClearField(upstreamkey.FieldPlatformDetectedAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.RateMultiplier(); ok {
 		_spec.SetField(upstreamkey.FieldRateMultiplier, field.TypeFloat64, value)

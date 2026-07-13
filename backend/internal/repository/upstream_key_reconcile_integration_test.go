@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -38,8 +39,8 @@ func TestApplySyncSnapshotReconcilesMissingKeysAndRespectsManualPause(t *testing
 	remoteBound := int64(90002)
 	now := time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
 	keys := []service.UpstreamKey{
-		{UpstreamConfigID: config.ID, Name: "unbound", Key: "sk-unbound", KeyHash: service.HashUpstreamKey("sk-unbound"), RemoteKeyID: &remoteUnbound, Platform: service.PlatformOpenAI, Status: service.StatusActive, LastSeenAt: &now},
-		{UpstreamConfigID: config.ID, Name: "bound", Key: "sk-bound", KeyHash: service.HashUpstreamKey("sk-bound"), RemoteKeyID: &remoteBound, Platform: service.PlatformOpenAI, Status: service.StatusActive, LastSeenAt: &now},
+		{UpstreamConfigID: config.ID, Name: "unbound", Key: "sk-unbound", KeyHash: service.HashUpstreamKey("sk-unbound"), RemoteKeyID: &remoteUnbound, Platform: repoStringPtr(service.PlatformOpenAI), Status: service.StatusActive, LastSeenAt: &now},
+		{UpstreamConfigID: config.ID, Name: "bound", Key: "sk-bound", KeyHash: service.HashUpstreamKey("sk-bound"), RemoteKeyID: &remoteBound, Platform: repoStringPtr(service.PlatformOpenAI), Status: service.StatusActive, LastSeenAt: &now},
 	}
 	localKeys, _, _, err := repo.ApplySyncSnapshot(ctx, config.ID, 0, keys, nil, now, true)
 	require.NoError(t, err)
@@ -105,8 +106,8 @@ func TestApplySyncSnapshotReconcilesMissingKeysAndRespectsManualPause(t *testing
 
 	restoreAt := now.Add(50 * time.Minute)
 	restoredKeys := []service.UpstreamKey{
-		{UpstreamConfigID: config.ID, Name: "unbound", Key: "sk-unbound", KeyHash: service.HashUpstreamKey("sk-unbound"), RemoteKeyID: &remoteUnbound, Platform: service.PlatformOpenAI, Status: service.StatusActive, LastSeenAt: &restoreAt},
-		{UpstreamConfigID: config.ID, Name: "bound", Key: "sk-bound", KeyHash: service.HashUpstreamKey("sk-bound"), RemoteKeyID: &remoteBound, Platform: service.PlatformOpenAI, Status: service.StatusActive, LastSeenAt: &restoreAt},
+		{UpstreamConfigID: config.ID, Name: "unbound", Key: "sk-unbound", KeyHash: service.HashUpstreamKey("sk-unbound"), RemoteKeyID: &remoteUnbound, Platform: repoStringPtr(service.PlatformOpenAI), Status: service.StatusActive, LastSeenAt: &restoreAt},
+		{UpstreamConfigID: config.ID, Name: "bound", Key: "sk-bound", KeyHash: service.HashUpstreamKey("sk-bound"), RemoteKeyID: &remoteBound, Platform: repoStringPtr(service.PlatformOpenAI), Status: service.StatusActive, LastSeenAt: &restoreAt},
 	}
 	localKeys, reconciled, updated, err = repo.ApplySyncSnapshot(ctx, config.ID, 0, restoredKeys, nil, restoreAt, true)
 	require.NoError(t, err)
@@ -145,7 +146,7 @@ func TestApplySyncSnapshotDoesNotCountMissingKeysForIncompleteSnapshot(t *testin
 	})
 	remoteID := int64(91001)
 	now := time.Now().UTC()
-	keys := []service.UpstreamKey{{UpstreamConfigID: config.ID, Name: "key", Key: "sk-key", KeyHash: service.HashUpstreamKey("sk-key"), RemoteKeyID: &remoteID, Platform: service.PlatformOpenAI, Status: service.StatusActive, LastSeenAt: &now}}
+	keys := []service.UpstreamKey{{UpstreamConfigID: config.ID, Name: "key", Key: "sk-key", KeyHash: service.HashUpstreamKey("sk-key"), RemoteKeyID: &remoteID, Platform: repoStringPtr(service.PlatformOpenAI), Status: service.StatusActive, LastSeenAt: &now}}
 	localKeys, _, _, err := repo.ApplySyncSnapshot(ctx, config.ID, 0, keys, nil, now, true)
 	require.NoError(t, err)
 	require.Len(t, localKeys, 1)
@@ -156,6 +157,75 @@ func TestApplySyncSnapshotDoesNotCountMissingKeysForIncompleteSnapshot(t *testin
 	require.NoError(t, err)
 	require.Zero(t, key.MissingCount)
 	require.Nil(t, key.MissingSince)
+}
+
+func TestApplySyncSnapshotPreservesManualPlatformAndFlagsDetectionConflict(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := &upstreamConfigRepository{client: client}
+	config, err := client.UpstreamConfig.Create().SetName(fmt.Sprintf("platform-manual-%d", time.Now().UnixNano())).SetProvider(service.UpstreamProviderNewAPI).SetSiteURL("https://example.com").SetAuthMode(service.UpstreamAuthModeCookie).Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_events WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_keys WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_configs WHERE id = $1", config.ID)
+	})
+	remoteID := int64(94001)
+	key, err := client.UpstreamKey.Create().SetUpstreamConfigID(config.ID).SetRemoteKeyID(remoteID).SetName("manual").SetKey("sk-manual").SetKeyHash(service.HashUpstreamKey("sk-manual")).SetPlatform(service.PlatformOpenAI).SetPlatformSource(service.UpstreamKeyPlatformSourceManual).SetPlatformDetectionStatus(service.UpstreamKeyPlatformDetectionDetected).SetStatus(service.StatusActive).Save(ctx)
+	require.NoError(t, err)
+	detectedAt := time.Now().UTC()
+	incoming := []service.UpstreamKey{{UpstreamConfigID: config.ID, Name: "manual", Key: "sk-manual", KeyHash: service.HashUpstreamKey("sk-manual"), RemoteKeyID: &remoteID, DetectedPlatform: repoStringPtr(service.PlatformAnthropic), PlatformDetectionStatus: service.UpstreamKeyPlatformDetectionDetected, PlatformDetectedAt: &detectedAt, Status: service.StatusActive, LastSeenAt: &detectedAt}}
+
+	_, _, _, err = repo.ApplySyncSnapshot(ctx, config.ID, 0, incoming, nil, detectedAt, true)
+	require.NoError(t, err)
+	updated, err := client.UpstreamKey.Get(ctx, key.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.PlatformOpenAI, *updated.Platform)
+	require.Equal(t, service.UpstreamKeyPlatformSourceManual, updated.PlatformSource)
+	require.Equal(t, service.PlatformAnthropic, *updated.DetectedPlatform)
+	require.Equal(t, service.UpstreamKeyPlatformDetectionConflict, updated.PlatformDetectionStatus)
+}
+
+func TestApplySyncSnapshotAutoConflictDisablesEveryMismatchedAccount(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := &upstreamConfigRepository{client: client}
+	config, err := client.UpstreamConfig.Create().SetName(fmt.Sprintf("platform-auto-%d", time.Now().UnixNano())).SetProvider(service.UpstreamProviderNewAPI).SetSiteURL("https://example.com").SetAuthMode(service.UpstreamAuthModeCookie).Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_events WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_keys WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_configs WHERE id = $1", config.ID)
+	})
+	remoteID := int64(94002)
+	key, err := client.UpstreamKey.Create().SetUpstreamConfigID(config.ID).SetRemoteKeyID(remoteID).SetName("auto").SetKey("sk-auto").SetKeyHash(service.HashUpstreamKey("sk-auto")).SetPlatform(service.PlatformOpenAI).SetPlatformSource(service.UpstreamKeyPlatformSourceAuto).SetPlatformDetectionStatus(service.UpstreamKeyPlatformDetectionDetected).SetStatus(service.StatusActive).Save(ctx)
+	require.NoError(t, err)
+	for _, platform := range []string{service.PlatformOpenAI, service.PlatformGemini} {
+		_, err = client.Account.Create().SetName(fmt.Sprintf("auto-%s", platform)).SetPlatform(platform).SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{}).SetExtra(map[string]any{}).SetConcurrency(100).SetPriority(1).SetStatus(service.StatusActive).SetSchedulable(true).SetUpstreamConfigID(config.ID).SetUpstreamKeyID(key.ID).Save(ctx)
+		require.NoError(t, err)
+	}
+	detectedAt := time.Now().UTC()
+	incoming := []service.UpstreamKey{{UpstreamConfigID: config.ID, Name: "auto", Key: "sk-auto", KeyHash: service.HashUpstreamKey("sk-auto"), RemoteKeyID: &remoteID, DetectedPlatform: repoStringPtr(service.PlatformAnthropic), PlatformDetectionStatus: service.UpstreamKeyPlatformDetectionDetected, PlatformDetectedAt: &detectedAt, Status: service.StatusActive, LastSeenAt: &detectedAt}}
+
+	_, _, changed, err := repo.ApplySyncSnapshot(ctx, config.ID, 0, incoming, nil, detectedAt, true)
+	require.NoError(t, err)
+	require.Equal(t, 2, changed)
+	updated, err := client.UpstreamKey.Get(ctx, key.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.PlatformOpenAI, *updated.Platform)
+	require.Equal(t, service.UpstreamKeyPlatformDetectionConflict, updated.PlatformDetectionStatus)
+	accounts, err := client.Account.Query().Where(dbaccount.UpstreamKeyIDEQ(key.ID)).All(ctx)
+	require.NoError(t, err)
+	for _, account := range accounts {
+		if account.UpstreamKeyID != nil && *account.UpstreamKeyID == key.ID {
+			require.Equal(t, service.StatusDisabled, account.Status)
+			require.False(t, account.Schedulable)
+		}
+	}
+	var outboxCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type = $1", service.SchedulerOutboxEventAccountBulkChanged).Scan(&outboxCount))
+	require.GreaterOrEqual(t, outboxCount, 1)
 }
 
 func TestApplySyncSnapshotReconcilesLegacyKeyWithoutRemoteID(t *testing.T) {

@@ -89,9 +89,59 @@ export default {
       costTrend: '成本趋势',
       rateTrend: '倍率趋势',
       more: '更多',
+      keyPlatforms: 'Key 平台',
       settings: '上游设置',
       openDashboard: '打开上游后台',
       saving: '保存中...'
+    },
+    keyPlatforms: {
+      title: 'Key 平台管理',
+      description: '查看服务端检测证据，并为每个上游 Key 单选一个路由平台。',
+      columns: {
+        key: 'Key',
+        group: '分组',
+        detected: '检测',
+        current: '当前',
+        source: '来源',
+        bindings: '绑定数',
+        status: '状态'
+      },
+      platforms: {
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        gemini: 'Gemini',
+        grok: 'Grok'
+      },
+      sources: {
+        manual: '手动指定',
+        auto: '自动分配',
+        legacy: '历史数据',
+        unassigned: '未分配',
+        unknown: '未知'
+      },
+      status: {
+        legacy: '历史状态',
+        detected: '已检测',
+        unresolved: '无法判断',
+        ambiguous: '多平台冲突',
+        conflict: '冲突',
+        unassigned: '未分配',
+        unknown: '未知'
+      },
+      unnamedKey: '未命名 Key',
+      unnamedGroup: '未命名分组',
+      unassignedGroup: '未分配',
+      unassignedPlatform: '未分配',
+      notDetected: '未检测',
+      conflict: '检测证据与当前分配冲突',
+      empty: '暂无上游 Key',
+      loadFailed: '加载 Key 平台失败',
+      updated: 'Key 平台已更新',
+      updateFailed: '更新 Key 平台失败',
+      stale: '该 Key 在编辑期间已发生变化，已加载最新数据，请确认后重试。',
+      disableBindingsTitle: '停用绑定账号？',
+      disableBindingsMessage: '将该 Key 改为 {platform} 会与 {count} 个绑定账号冲突。是否停用这些账号并重试？',
+      disableBindingsConfirm: '停用并重试'
     },
     dialog: {
       createTitle: '添加上游',

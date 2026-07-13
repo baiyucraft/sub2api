@@ -41,6 +41,14 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	// upstream_keys: missing-state reconciliation for authoritative snapshots
 	requireColumn(t, tx, "upstream_keys", "missing_count", "integer", 0, false)
 	requireColumn(t, tx, "upstream_keys", "missing_since", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "upstream_keys", "platform", "character varying", 50, true)
+	requireColumn(t, tx, "upstream_keys", "platform_source", "character varying", 16, false)
+	requireColumn(t, tx, "upstream_keys", "detected_platform", "character varying", 50, true)
+	requireColumn(t, tx, "upstream_keys", "platform_detection_status", "character varying", 16, false)
+	requireColumn(t, tx, "upstream_keys", "platform_detected_at", "timestamp with time zone", 0, true)
+	requireConstraintDefinitionContains(t, tx, "upstream_keys", "upstream_keys_platform_valid", "platform", "'anthropic'", "'openai'", "'gemini'", "'grok'")
+	requireConstraintDefinitionContains(t, tx, "upstream_keys", "upstream_keys_platform_source_valid", "platform_source", "'legacy'", "'auto'", "'manual'", "'unassigned'")
+	requireConstraintDefinitionContains(t, tx, "upstream_keys", "upstream_keys_platform_detection_status_valid", "platform_detection_status", "'legacy'", "'detected'", "'unresolved'", "'ambiguous'", "'conflict'")
 	requireIndex(t, tx, "upstream_keys", "idx_upstream_keys_config_missing")
 
 	// api_keys: key length should be 128

@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,7 +93,9 @@ func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.P
 		return nil, nil, err
 	}
 	rows, err := q.
-		WithKeys().
+		WithKeys(func(q *dbent.UpstreamKeyQuery) {
+			q.WithAccounts(func(aq *dbent.AccountQuery) { aq.Select(dbaccount.FieldID) })
+		}).
 		Offset(params.Offset()).
 		Limit(params.Limit()).
 		Order(dbent.Desc(dbupstreamconfig.FieldUpdatedAt)).
@@ -114,7 +117,9 @@ func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.P
 func (r *upstreamConfigRepository) GetByID(ctx context.Context, id int64) (*service.UpstreamConfig, error) {
 	row, err := r.client.UpstreamConfig.Query().
 		Where(dbupstreamconfig.IDEQ(id)).
-		WithKeys().
+		WithKeys(func(q *dbent.UpstreamKeyQuery) {
+			q.WithAccounts(func(aq *dbent.AccountQuery) { aq.Select(dbaccount.FieldID) })
+		}).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -259,6 +264,7 @@ func (r *upstreamConfigRepository) CountAccounts(ctx context.Context, id int64) 
 func (r *upstreamConfigRepository) ListKeys(ctx context.Context, upstreamConfigID int64) ([]service.UpstreamKey, error) {
 	rows, err := r.client.UpstreamKey.Query().
 		Where(dbupstreamkey.UpstreamConfigIDEQ(upstreamConfigID)).
+		WithAccounts(func(q *dbent.AccountQuery) { q.Select(dbaccount.FieldID) }).
 		Order(dbent.Asc(dbupstreamkey.FieldName), dbent.Asc(dbupstreamkey.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -306,7 +312,7 @@ func (r *upstreamConfigRepository) ListKeysForMaskedFallback(ctx context.Context
 }
 
 func (r *upstreamConfigRepository) GetKeyByID(ctx context.Context, id int64) (*service.UpstreamKey, error) {
-	row, err := r.client.UpstreamKey.Query().Where(dbupstreamkey.IDEQ(id)).Only(ctx)
+	row, err := r.client.UpstreamKey.Query().Where(dbupstreamkey.IDEQ(id)).WithAccounts(func(q *dbent.AccountQuery) { q.Select(dbaccount.FieldID) }).Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
 			return nil, service.ErrUpstreamKeyNotFound
@@ -386,7 +392,11 @@ func createUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 		SetKey(key.Key).
 		SetKeyHash(key.KeyHash).
 		SetUpstreamGroupName(key.UpstreamGroupName).
-		SetPlatform(key.Platform).
+		SetNillablePlatform(key.Platform).
+		SetPlatformSource(key.PlatformSource).
+		SetNillableDetectedPlatform(key.DetectedPlatform).
+		SetPlatformDetectionStatus(key.PlatformDetectionStatus).
+		SetNillablePlatformDetectedAt(key.PlatformDetectedAt).
 		SetStatus(key.Status).
 		SetMissingCount(key.MissingCount).
 		SetExtra(normalizeJSONMap(key.Extra))
@@ -423,10 +433,25 @@ func updateUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 		SetKey(key.Key).
 		SetKeyHash(key.KeyHash).
 		SetUpstreamGroupName(key.UpstreamGroupName).
-		SetPlatform(key.Platform).
+		SetNillablePlatform(key.Platform).
+		SetPlatformSource(key.PlatformSource).
+		SetPlatformDetectionStatus(key.PlatformDetectionStatus).
 		SetStatus(key.Status).
 		SetMissingCount(key.MissingCount).
 		SetExtra(normalizeJSONMap(key.Extra))
+	if key.Platform == nil {
+		builder.ClearPlatform()
+	}
+	if key.DetectedPlatform != nil {
+		builder.SetDetectedPlatform(*key.DetectedPlatform)
+	} else {
+		builder.ClearDetectedPlatform()
+	}
+	if key.PlatformDetectedAt != nil {
+		builder.SetPlatformDetectedAt(*key.PlatformDetectedAt)
+	} else {
+		builder.ClearPlatformDetectedAt()
+	}
 	if key.RemoteKeyID != nil {
 		builder.SetRemoteKeyID(*key.RemoteKeyID)
 	} else {
@@ -467,6 +492,94 @@ func (r *upstreamConfigRepository) DeleteKey(ctx context.Context, id int64) erro
 	return r.client.UpstreamKey.DeleteOneID(id).Exec(ctx)
 }
 
+func (r *upstreamConfigRepository) UpdateKeyPlatform(ctx context.Context, configID, keyID int64, platform string, expectedUpdatedAt time.Time, disableBoundAccounts bool) (*service.UpstreamKey, error) {
+	var result *service.UpstreamKey
+	err := r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		if _, err := client.UpstreamConfig.Query().Where(dbupstreamconfig.IDEQ(configID)).ForUpdate().Only(txCtx); err != nil {
+			if dbent.IsNotFound(err) {
+				return service.ErrUpstreamConfigNotFound
+			}
+			return err
+		}
+		key, err := client.UpstreamKey.Query().Where(dbupstreamkey.IDEQ(keyID), dbupstreamkey.UpstreamConfigIDEQ(configID)).ForUpdate().Only(txCtx)
+		if err != nil {
+			if dbent.IsNotFound(err) {
+				return service.ErrUpstreamKeyNotFound
+			}
+			return err
+		}
+		if !key.UpdatedAt.Equal(expectedUpdatedAt) {
+			return infraerrors.Conflict("UPSTREAM_KEY_PLATFORM_STALE", "upstream key changed; reload before updating its platform").WithMetadata(map[string]string{
+				"current_updated_at": key.UpdatedAt.UTC().Format(time.RFC3339Nano),
+			})
+		}
+		accounts, err := client.Account.Query().Where(dbaccount.UpstreamKeyIDEQ(keyID)).Order(dbent.Asc(dbaccount.FieldID)).ForUpdate().All(txCtx)
+		if err != nil {
+			return err
+		}
+		mismatched := make([]*dbent.Account, 0)
+		for _, account := range accounts {
+			if !strings.EqualFold(strings.TrimSpace(account.Platform), platform) {
+				mismatched = append(mismatched, account)
+			}
+		}
+		if len(mismatched) > 0 && !disableBoundAccounts {
+			summaries := make([]string, 0, len(mismatched))
+			for _, account := range mismatched {
+				summaries = append(summaries, fmt.Sprintf("%d:%s:%s", account.ID, sanitizeAccountSummaryName(account.Name), account.Platform))
+			}
+			return infraerrors.Conflict("UPSTREAM_KEY_PLATFORM_BOUND_ACCOUNT_CONFLICT", "changing platform requires disabling incompatible bound accounts").WithMetadata(map[string]string{
+				"bound_account_count": strconv.Itoa(len(mismatched)),
+				"bound_accounts":      strings.Join(summaries, ","),
+			})
+		}
+		changedIDs := make([]int64, 0, len(mismatched))
+		for _, account := range mismatched {
+			if account.Status != service.StatusDisabled || account.Schedulable {
+				if _, err := client.Account.UpdateOneID(account.ID).SetStatus(service.StatusDisabled).SetSchedulable(false).Save(txCtx); err != nil {
+					return err
+				}
+				changedIDs = append(changedIDs, account.ID)
+			}
+		}
+		status := key.PlatformDetectionStatus
+		if key.DetectedPlatform != nil && !strings.EqualFold(strings.TrimSpace(*key.DetectedPlatform), platform) {
+			status = service.UpstreamKeyPlatformDetectionConflict
+		} else if key.DetectedPlatform != nil {
+			status = service.UpstreamKeyPlatformDetectionDetected
+		}
+		updated, err := client.UpstreamKey.UpdateOneID(keyID).
+			SetPlatform(platform).
+			SetPlatformSource(service.UpstreamKeyPlatformSourceManual).
+			SetPlatformDetectionStatus(status).
+			Save(txCtx)
+		if err != nil {
+			return err
+		}
+		event := client.UpstreamEvent.Create().SetUpstreamConfigID(configID).SetUpstreamKeyID(keyID).SetEventType("key_platform_changed").SetSeverity("info").SetSource("admin").SetMessage("Upstream key platform was assigned by an administrator").SetPayload(map[string]any{
+			"old_platform": key.Platform, "new_platform": platform, "disabled_account_count": len(changedIDs),
+		}).SetOccurredAt(time.Now().UTC())
+		if err := event.Exec(txCtx); err != nil {
+			return err
+		}
+		if err := enqueueUpstreamAccountChanges(txCtx, client, changedIDs); err != nil {
+			return err
+		}
+		updated.Edges.Accounts = accounts
+		result = upstreamKeyEntityToService(updated)
+		return nil
+	})
+	return result, err
+}
+
+func sanitizeAccountSummaryName(name string) string {
+	name = strings.TrimSpace(name)
+	if len([]rune(name)) <= 32 {
+		return name
+	}
+	return string([]rune(name)[:32])
+}
+
 func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, configID, runID int64, keys []service.UpstreamKey, extraUpdates map[string]any, checkedAt time.Time, complete bool) ([]service.UpstreamKey, service.UpstreamKeyReconcileResult, int, error) {
 	var (
 		localKeys  []service.UpstreamKey
@@ -484,6 +597,15 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			}
 			return err
 		}
+		// Keep lock order stable across sync and manual platform updates.
+		lockedKeys, err := client.UpstreamKey.Query().
+			Where(dbupstreamkey.UpstreamConfigIDEQ(configID)).
+			Order(dbent.Asc(dbupstreamkey.FieldID)).
+			ForUpdate().
+			All(mixins.SkipSoftDelete(txCtx))
+		if err != nil {
+			return err
+		}
 		accounts, err := client.Account.Query().
 			Where(
 				dbaccount.UpstreamConfigIDEQ(configID),
@@ -494,6 +616,16 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			All(txCtx)
 		if err != nil {
 			return err
+		}
+		lockedKeyByID := make(map[int64]*dbent.UpstreamKey, len(lockedKeys))
+		accountsByKeyID := make(map[int64][]*dbent.Account)
+		for _, key := range lockedKeys {
+			lockedKeyByID[key.ID] = key
+		}
+		for _, account := range accounts {
+			if account.UpstreamKeyID != nil {
+				accountsByKeyID[*account.UpstreamKeyID] = append(accountsByKeyID[*account.UpstreamKeyID], account)
+			}
 		}
 
 		seenKeyIDs := make(map[int64]struct{}, len(keys))
@@ -507,14 +639,24 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 				return queryErr
 			}
 			if existing == nil {
+				mergeNewUpstreamKeyPlatform(&keys[i])
 				if err := createUpstreamKey(txCtx, client, &keys[i]); err != nil {
 					return err
 				}
 				seenKeyIDs[keys[i].ID] = struct{}{}
 				continue
 			}
+			existing = lockedKeyByID[existing.ID]
+			if existing == nil {
+				return fmt.Errorf("upstream key %d was not locked", keys[i].ID)
+			}
 			wasMissing := existing.DeletedAt != nil || existing.MissingCount > 0 || existing.Status == service.UpstreamKeyStatusStale
 			keys[i].ID = existing.ID
+			platformChangedAccountIDs, err := mergeSyncedUpstreamKeyPlatform(txCtx, client, configID, runID, &keys[i], existing, accountsByKeyID[existing.ID], checkedAt)
+			if err != nil {
+				return err
+			}
+			reconciledAccountIDs = append(reconciledAccountIDs, platformChangedAccountIDs...)
 			if err := updateUpstreamKey(txCtx, client, &keys[i]); err != nil {
 				return err
 			}
@@ -623,6 +765,110 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 		return nil, service.UpstreamKeyReconcileResult{}, 0, err
 	}
 	return localKeys, reconciled, updated, nil
+}
+
+func mergeNewUpstreamKeyPlatform(key *service.UpstreamKey) {
+	if key == nil {
+		return
+	}
+	if key.PlatformDetectionStatus == service.UpstreamKeyPlatformDetectionDetected && key.DetectedPlatform != nil {
+		key.Platform = copyStringPointer(key.DetectedPlatform)
+		key.PlatformSource = service.UpstreamKeyPlatformSourceAuto
+		return
+	}
+	key.Platform = nil
+	key.PlatformSource = service.UpstreamKeyPlatformSourceUnassigned
+}
+
+func mergeSyncedUpstreamKeyPlatform(ctx context.Context, client *dbent.Client, configID, runID int64, key *service.UpstreamKey, existing *dbent.UpstreamKey, accounts []*dbent.Account, checkedAt time.Time) ([]int64, error) {
+	if key == nil || existing == nil {
+		return nil, nil
+	}
+	// A partial provider snapshot carries no authoritative platform decision.
+	if key.PlatformDetectionStatus == "" || key.PlatformDetectionStatus == service.UpstreamKeyPlatformDetectionLegacy {
+		copyExistingUpstreamKeyPlatform(key, existing)
+		return nil, nil
+	}
+	key.PlatformDetectedAt = &checkedAt
+	if existing.PlatformSource == service.UpstreamKeyPlatformSourceManual {
+		key.Platform = copyStringPointer(existing.Platform)
+		key.PlatformSource = service.UpstreamKeyPlatformSourceManual
+		if key.DetectedPlatform != nil && !sameOptionalPlatform(existing.Platform, key.DetectedPlatform) {
+			key.PlatformDetectionStatus = service.UpstreamKeyPlatformDetectionConflict
+		}
+		return nil, nil
+	}
+	if key.PlatformDetectionStatus != service.UpstreamKeyPlatformDetectionDetected || key.DetectedPlatform == nil {
+		if len(accounts) > 0 {
+			key.Platform = copyStringPointer(existing.Platform)
+			key.PlatformSource = existing.PlatformSource
+			return nil, nil
+		}
+		key.Platform = nil
+		key.PlatformSource = service.UpstreamKeyPlatformSourceUnassigned
+		return nil, nil
+	}
+
+	candidate := strings.ToLower(strings.TrimSpace(*key.DetectedPlatform))
+	mismatched := make([]*dbent.Account, 0)
+	for _, account := range accounts {
+		if !strings.EqualFold(strings.TrimSpace(account.Platform), candidate) {
+			mismatched = append(mismatched, account)
+		}
+	}
+	if len(mismatched) == 0 {
+		key.Platform = &candidate
+		key.PlatformSource = service.UpstreamKeyPlatformSourceAuto
+		return nil, nil
+	}
+
+	// Existing bindings make an automatic platform switch destructive. Preserve the
+	// current assignment, disable every incompatible account, and require review.
+	key.Platform = copyStringPointer(existing.Platform)
+	key.PlatformSource = existing.PlatformSource
+	key.PlatformDetectionStatus = service.UpstreamKeyPlatformDetectionConflict
+	disabledIDs := make([]int64, 0, len(mismatched))
+	for _, account := range mismatched {
+		if account.Status != service.StatusDisabled || account.Schedulable {
+			if _, err := client.Account.UpdateOneID(account.ID).SetStatus(service.StatusDisabled).SetSchedulable(false).Save(ctx); err != nil {
+				return nil, err
+			}
+			disabledIDs = append(disabledIDs, account.ID)
+		}
+	}
+	if len(disabledIDs) > 0 {
+		payload := map[string]any{
+			"detected_platform": candidate,
+			"account_count":     len(disabledIDs),
+		}
+		if err := createUpstreamKeyLifecycleEvent(ctx, client, configID, existing.ID, runID, "key_platform_conflict", "warning", "Upstream key platform conflicts with bound accounts", checkedAt, payload); err != nil {
+			return nil, err
+		}
+	}
+	return disabledIDs, nil
+}
+
+func copyExistingUpstreamKeyPlatform(key *service.UpstreamKey, existing *dbent.UpstreamKey) {
+	key.Platform = copyStringPointer(existing.Platform)
+	key.PlatformSource = existing.PlatformSource
+	key.DetectedPlatform = copyStringPointer(existing.DetectedPlatform)
+	key.PlatformDetectionStatus = existing.PlatformDetectionStatus
+	key.PlatformDetectedAt = existing.PlatformDetectedAt
+}
+
+func copyStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	return &copyValue
+}
+
+func sameOptionalPlatform(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return strings.EqualFold(strings.TrimSpace(*left), strings.TrimSpace(*right))
 }
 
 func createNewAPIGroupStructureEvents(ctx context.Context, client *dbent.Client, config *dbent.UpstreamConfig, runID int64, updates map[string]any, at time.Time) error {
@@ -1312,22 +1558,27 @@ func upstreamKeyEntityToService(row *dbent.UpstreamKey) *service.UpstreamKey {
 		return nil
 	}
 	return &service.UpstreamKey{
-		ID:                row.ID,
-		UpstreamConfigID:  row.UpstreamConfigID,
-		Name:              row.Name,
-		Key:               row.Key,
-		KeyHash:           row.KeyHash,
-		RemoteKeyID:       row.RemoteKeyID,
-		UpstreamGroupID:   row.UpstreamGroupID,
-		UpstreamGroupName: row.UpstreamGroupName,
-		Platform:          row.Platform,
-		RateMultiplier:    row.RateMultiplier,
-		Status:            row.Status,
-		LastSeenAt:        row.LastSeenAt,
-		MissingCount:      row.MissingCount,
-		MissingSince:      row.MissingSince,
-		Extra:             copyJSONMap(row.Extra),
-		CreatedAt:         row.CreatedAt,
-		UpdatedAt:         row.UpdatedAt,
+		ID:                      row.ID,
+		UpstreamConfigID:        row.UpstreamConfigID,
+		Name:                    row.Name,
+		Key:                     row.Key,
+		KeyHash:                 row.KeyHash,
+		RemoteKeyID:             row.RemoteKeyID,
+		UpstreamGroupID:         row.UpstreamGroupID,
+		UpstreamGroupName:       row.UpstreamGroupName,
+		Platform:                row.Platform,
+		PlatformSource:          row.PlatformSource,
+		DetectedPlatform:        row.DetectedPlatform,
+		PlatformDetectionStatus: row.PlatformDetectionStatus,
+		PlatformDetectedAt:      row.PlatformDetectedAt,
+		BoundAccountCount:       len(row.Edges.Accounts),
+		RateMultiplier:          row.RateMultiplier,
+		Status:                  row.Status,
+		LastSeenAt:              row.LastSeenAt,
+		MissingCount:            row.MissingCount,
+		MissingSince:            row.MissingSince,
+		Extra:                   copyJSONMap(row.Extra),
+		CreatedAt:               row.CreatedAt,
+		UpdatedAt:               row.UpdatedAt,
 	}
 }

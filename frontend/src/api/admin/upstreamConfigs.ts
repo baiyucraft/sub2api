@@ -4,6 +4,7 @@ import type { PaginatedResponse } from '@/types'
 export type UpstreamProvider = 'sub2api' | 'newapi' | 'other'
 export type UpstreamAuthMode = 'user_login' | 'manual_jwt' | 'cookie' | 'access_token'
 export type UpstreamTrendRange = '24h' | '7d' | '30d'
+export type UpstreamKeyPlatform = 'openai' | 'anthropic' | 'gemini' | 'grok'
 
 export interface UpstreamCredentialsStatus {
   has_login_email?: boolean
@@ -30,7 +31,12 @@ export interface UpstreamKey {
   remote_key_id?: number | null
   upstream_group_id?: number | null
   upstream_group_name?: string
-  platform: string
+  platform: UpstreamKeyPlatform | null
+  detected_platform?: UpstreamKeyPlatform | null
+  platform_source?: string | null
+  platform_detection_status?: string | null
+  platform_detected_at?: string | null
+  bound_account_count?: number
   rate_multiplier?: number | null
   effective_cost_multiplier?: number | null
   status: string
@@ -256,6 +262,12 @@ export interface UpstreamKeyPayload {
   rate_multiplier?: number | null
 }
 
+export interface UpdateUpstreamKeyPlatformPayload {
+  platform: UpstreamKeyPlatform
+  expected_updated_at: string
+  disable_bound_accounts?: boolean
+}
+
 export async function list(
   page = 1,
   pageSize = 20,
@@ -399,6 +411,18 @@ export async function removeKey(id: number, keyId: number): Promise<{ message: s
   return data
 }
 
+export async function updateKeyPlatform(
+  id: number,
+  keyId: number,
+  payload: UpdateUpstreamKeyPlatformPayload
+): Promise<UpstreamKey> {
+  const { data } = await apiClient.put<UpstreamKey>(
+    `/admin/upstream-configs/${id}/keys/${keyId}/platform`,
+    payload
+  )
+  return data
+}
+
 export default {
   list,
   getById,
@@ -420,5 +444,6 @@ export default {
   listBalanceHistory,
   listKeys,
   createKey,
-  removeKey
+  removeKey,
+  updateKeyPlatform
 }

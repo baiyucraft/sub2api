@@ -48358,50 +48358,54 @@ func (m *UpstreamIncidentMutation) ResetEdge(name string) error {
 // UpstreamKeyMutation represents an operation that mutates the UpstreamKey nodes in the graph.
 type UpstreamKeyMutation struct {
 	config
-	op                    Op
-	typ                   string
-	id                    *int64
-	created_at            *time.Time
-	updated_at            *time.Time
-	deleted_at            *time.Time
-	name                  *string
-	key                   *string
-	key_hash              *string
-	remote_key_id         *int64
-	addremote_key_id      *int64
-	upstream_group_id     *int64
-	addupstream_group_id  *int64
-	upstream_group_name   *string
-	platform              *string
-	rate_multiplier       *float64
-	addrate_multiplier    *float64
-	status                *string
-	last_seen_at          *time.Time
-	missing_count         *int
-	addmissing_count      *int
-	missing_since         *time.Time
-	extra                 *map[string]interface{}
-	clearedFields         map[string]struct{}
-	_config               *int64
-	cleared_config        bool
-	accounts              map[int64]struct{}
-	removedaccounts       map[int64]struct{}
-	clearedaccounts       bool
-	events                map[int64]struct{}
-	removedevents         map[int64]struct{}
-	clearedevents         bool
-	incidents             map[int64]struct{}
-	removedincidents      map[int64]struct{}
-	clearedincidents      bool
-	rate_snapshots        map[int64]struct{}
-	removedrate_snapshots map[int64]struct{}
-	clearedrate_snapshots bool
-	usage_logs            map[int64]struct{}
-	removedusage_logs     map[int64]struct{}
-	clearedusage_logs     bool
-	done                  bool
-	oldValue              func(context.Context) (*UpstreamKey, error)
-	predicates            []predicate.UpstreamKey
+	op                        Op
+	typ                       string
+	id                        *int64
+	created_at                *time.Time
+	updated_at                *time.Time
+	deleted_at                *time.Time
+	name                      *string
+	key                       *string
+	key_hash                  *string
+	remote_key_id             *int64
+	addremote_key_id          *int64
+	upstream_group_id         *int64
+	addupstream_group_id      *int64
+	upstream_group_name       *string
+	platform                  *string
+	platform_source           *string
+	detected_platform         *string
+	platform_detection_status *string
+	platform_detected_at      *time.Time
+	rate_multiplier           *float64
+	addrate_multiplier        *float64
+	status                    *string
+	last_seen_at              *time.Time
+	missing_count             *int
+	addmissing_count          *int
+	missing_since             *time.Time
+	extra                     *map[string]interface{}
+	clearedFields             map[string]struct{}
+	_config                   *int64
+	cleared_config            bool
+	accounts                  map[int64]struct{}
+	removedaccounts           map[int64]struct{}
+	clearedaccounts           bool
+	events                    map[int64]struct{}
+	removedevents             map[int64]struct{}
+	clearedevents             bool
+	incidents                 map[int64]struct{}
+	removedincidents          map[int64]struct{}
+	clearedincidents          bool
+	rate_snapshots            map[int64]struct{}
+	removedrate_snapshots     map[int64]struct{}
+	clearedrate_snapshots     bool
+	usage_logs                map[int64]struct{}
+	removedusage_logs         map[int64]struct{}
+	clearedusage_logs         bool
+	done                      bool
+	oldValue                  func(context.Context) (*UpstreamKey, error)
+	predicates                []predicate.UpstreamKey
 }
 
 var _ ent.Mutation = (*UpstreamKeyMutation)(nil)
@@ -48960,7 +48964,7 @@ func (m *UpstreamKeyMutation) Platform() (r string, exists bool) {
 // OldPlatform returns the old "platform" field's value of the UpstreamKey entity.
 // If the UpstreamKey object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UpstreamKeyMutation) OldPlatform(ctx context.Context) (v string, err error) {
+func (m *UpstreamKeyMutation) OldPlatform(ctx context.Context) (v *string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldPlatform is only allowed on UpdateOne operations")
 	}
@@ -48974,9 +48978,192 @@ func (m *UpstreamKeyMutation) OldPlatform(ctx context.Context) (v string, err er
 	return oldValue.Platform, nil
 }
 
+// ClearPlatform clears the value of the "platform" field.
+func (m *UpstreamKeyMutation) ClearPlatform() {
+	m.platform = nil
+	m.clearedFields[upstreamkey.FieldPlatform] = struct{}{}
+}
+
+// PlatformCleared returns if the "platform" field was cleared in this mutation.
+func (m *UpstreamKeyMutation) PlatformCleared() bool {
+	_, ok := m.clearedFields[upstreamkey.FieldPlatform]
+	return ok
+}
+
 // ResetPlatform resets all changes to the "platform" field.
 func (m *UpstreamKeyMutation) ResetPlatform() {
 	m.platform = nil
+	delete(m.clearedFields, upstreamkey.FieldPlatform)
+}
+
+// SetPlatformSource sets the "platform_source" field.
+func (m *UpstreamKeyMutation) SetPlatformSource(s string) {
+	m.platform_source = &s
+}
+
+// PlatformSource returns the value of the "platform_source" field in the mutation.
+func (m *UpstreamKeyMutation) PlatformSource() (r string, exists bool) {
+	v := m.platform_source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPlatformSource returns the old "platform_source" field's value of the UpstreamKey entity.
+// If the UpstreamKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyMutation) OldPlatformSource(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPlatformSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPlatformSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPlatformSource: %w", err)
+	}
+	return oldValue.PlatformSource, nil
+}
+
+// ResetPlatformSource resets all changes to the "platform_source" field.
+func (m *UpstreamKeyMutation) ResetPlatformSource() {
+	m.platform_source = nil
+}
+
+// SetDetectedPlatform sets the "detected_platform" field.
+func (m *UpstreamKeyMutation) SetDetectedPlatform(s string) {
+	m.detected_platform = &s
+}
+
+// DetectedPlatform returns the value of the "detected_platform" field in the mutation.
+func (m *UpstreamKeyMutation) DetectedPlatform() (r string, exists bool) {
+	v := m.detected_platform
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDetectedPlatform returns the old "detected_platform" field's value of the UpstreamKey entity.
+// If the UpstreamKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyMutation) OldDetectedPlatform(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDetectedPlatform is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDetectedPlatform requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDetectedPlatform: %w", err)
+	}
+	return oldValue.DetectedPlatform, nil
+}
+
+// ClearDetectedPlatform clears the value of the "detected_platform" field.
+func (m *UpstreamKeyMutation) ClearDetectedPlatform() {
+	m.detected_platform = nil
+	m.clearedFields[upstreamkey.FieldDetectedPlatform] = struct{}{}
+}
+
+// DetectedPlatformCleared returns if the "detected_platform" field was cleared in this mutation.
+func (m *UpstreamKeyMutation) DetectedPlatformCleared() bool {
+	_, ok := m.clearedFields[upstreamkey.FieldDetectedPlatform]
+	return ok
+}
+
+// ResetDetectedPlatform resets all changes to the "detected_platform" field.
+func (m *UpstreamKeyMutation) ResetDetectedPlatform() {
+	m.detected_platform = nil
+	delete(m.clearedFields, upstreamkey.FieldDetectedPlatform)
+}
+
+// SetPlatformDetectionStatus sets the "platform_detection_status" field.
+func (m *UpstreamKeyMutation) SetPlatformDetectionStatus(s string) {
+	m.platform_detection_status = &s
+}
+
+// PlatformDetectionStatus returns the value of the "platform_detection_status" field in the mutation.
+func (m *UpstreamKeyMutation) PlatformDetectionStatus() (r string, exists bool) {
+	v := m.platform_detection_status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPlatformDetectionStatus returns the old "platform_detection_status" field's value of the UpstreamKey entity.
+// If the UpstreamKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyMutation) OldPlatformDetectionStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPlatformDetectionStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPlatformDetectionStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPlatformDetectionStatus: %w", err)
+	}
+	return oldValue.PlatformDetectionStatus, nil
+}
+
+// ResetPlatformDetectionStatus resets all changes to the "platform_detection_status" field.
+func (m *UpstreamKeyMutation) ResetPlatformDetectionStatus() {
+	m.platform_detection_status = nil
+}
+
+// SetPlatformDetectedAt sets the "platform_detected_at" field.
+func (m *UpstreamKeyMutation) SetPlatformDetectedAt(t time.Time) {
+	m.platform_detected_at = &t
+}
+
+// PlatformDetectedAt returns the value of the "platform_detected_at" field in the mutation.
+func (m *UpstreamKeyMutation) PlatformDetectedAt() (r time.Time, exists bool) {
+	v := m.platform_detected_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPlatformDetectedAt returns the old "platform_detected_at" field's value of the UpstreamKey entity.
+// If the UpstreamKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyMutation) OldPlatformDetectedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPlatformDetectedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPlatformDetectedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPlatformDetectedAt: %w", err)
+	}
+	return oldValue.PlatformDetectedAt, nil
+}
+
+// ClearPlatformDetectedAt clears the value of the "platform_detected_at" field.
+func (m *UpstreamKeyMutation) ClearPlatformDetectedAt() {
+	m.platform_detected_at = nil
+	m.clearedFields[upstreamkey.FieldPlatformDetectedAt] = struct{}{}
+}
+
+// PlatformDetectedAtCleared returns if the "platform_detected_at" field was cleared in this mutation.
+func (m *UpstreamKeyMutation) PlatformDetectedAtCleared() bool {
+	_, ok := m.clearedFields[upstreamkey.FieldPlatformDetectedAt]
+	return ok
+}
+
+// ResetPlatformDetectedAt resets all changes to the "platform_detected_at" field.
+func (m *UpstreamKeyMutation) ResetPlatformDetectedAt() {
+	m.platform_detected_at = nil
+	delete(m.clearedFields, upstreamkey.FieldPlatformDetectedAt)
 }
 
 // SetRateMultiplier sets the "rate_multiplier" field.
@@ -49619,7 +49806,7 @@ func (m *UpstreamKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UpstreamKeyMutation) Fields() []string {
-	fields := make([]string, 0, 17)
+	fields := make([]string, 0, 21)
 	if m.created_at != nil {
 		fields = append(fields, upstreamkey.FieldCreatedAt)
 	}
@@ -49652,6 +49839,18 @@ func (m *UpstreamKeyMutation) Fields() []string {
 	}
 	if m.platform != nil {
 		fields = append(fields, upstreamkey.FieldPlatform)
+	}
+	if m.platform_source != nil {
+		fields = append(fields, upstreamkey.FieldPlatformSource)
+	}
+	if m.detected_platform != nil {
+		fields = append(fields, upstreamkey.FieldDetectedPlatform)
+	}
+	if m.platform_detection_status != nil {
+		fields = append(fields, upstreamkey.FieldPlatformDetectionStatus)
+	}
+	if m.platform_detected_at != nil {
+		fields = append(fields, upstreamkey.FieldPlatformDetectedAt)
 	}
 	if m.rate_multiplier != nil {
 		fields = append(fields, upstreamkey.FieldRateMultiplier)
@@ -49701,6 +49900,14 @@ func (m *UpstreamKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.UpstreamGroupName()
 	case upstreamkey.FieldPlatform:
 		return m.Platform()
+	case upstreamkey.FieldPlatformSource:
+		return m.PlatformSource()
+	case upstreamkey.FieldDetectedPlatform:
+		return m.DetectedPlatform()
+	case upstreamkey.FieldPlatformDetectionStatus:
+		return m.PlatformDetectionStatus()
+	case upstreamkey.FieldPlatformDetectedAt:
+		return m.PlatformDetectedAt()
 	case upstreamkey.FieldRateMultiplier:
 		return m.RateMultiplier()
 	case upstreamkey.FieldStatus:
@@ -49744,6 +49951,14 @@ func (m *UpstreamKeyMutation) OldField(ctx context.Context, name string) (ent.Va
 		return m.OldUpstreamGroupName(ctx)
 	case upstreamkey.FieldPlatform:
 		return m.OldPlatform(ctx)
+	case upstreamkey.FieldPlatformSource:
+		return m.OldPlatformSource(ctx)
+	case upstreamkey.FieldDetectedPlatform:
+		return m.OldDetectedPlatform(ctx)
+	case upstreamkey.FieldPlatformDetectionStatus:
+		return m.OldPlatformDetectionStatus(ctx)
+	case upstreamkey.FieldPlatformDetectedAt:
+		return m.OldPlatformDetectedAt(ctx)
 	case upstreamkey.FieldRateMultiplier:
 		return m.OldRateMultiplier(ctx)
 	case upstreamkey.FieldStatus:
@@ -49841,6 +50056,34 @@ func (m *UpstreamKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetPlatform(v)
+		return nil
+	case upstreamkey.FieldPlatformSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPlatformSource(v)
+		return nil
+	case upstreamkey.FieldDetectedPlatform:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDetectedPlatform(v)
+		return nil
+	case upstreamkey.FieldPlatformDetectionStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPlatformDetectionStatus(v)
+		return nil
+	case upstreamkey.FieldPlatformDetectedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPlatformDetectedAt(v)
 		return nil
 	case upstreamkey.FieldRateMultiplier:
 		v, ok := value.(float64)
@@ -49974,6 +50217,15 @@ func (m *UpstreamKeyMutation) ClearedFields() []string {
 	if m.FieldCleared(upstreamkey.FieldUpstreamGroupID) {
 		fields = append(fields, upstreamkey.FieldUpstreamGroupID)
 	}
+	if m.FieldCleared(upstreamkey.FieldPlatform) {
+		fields = append(fields, upstreamkey.FieldPlatform)
+	}
+	if m.FieldCleared(upstreamkey.FieldDetectedPlatform) {
+		fields = append(fields, upstreamkey.FieldDetectedPlatform)
+	}
+	if m.FieldCleared(upstreamkey.FieldPlatformDetectedAt) {
+		fields = append(fields, upstreamkey.FieldPlatformDetectedAt)
+	}
 	if m.FieldCleared(upstreamkey.FieldRateMultiplier) {
 		fields = append(fields, upstreamkey.FieldRateMultiplier)
 	}
@@ -50005,6 +50257,15 @@ func (m *UpstreamKeyMutation) ClearField(name string) error {
 		return nil
 	case upstreamkey.FieldUpstreamGroupID:
 		m.ClearUpstreamGroupID()
+		return nil
+	case upstreamkey.FieldPlatform:
+		m.ClearPlatform()
+		return nil
+	case upstreamkey.FieldDetectedPlatform:
+		m.ClearDetectedPlatform()
+		return nil
+	case upstreamkey.FieldPlatformDetectedAt:
+		m.ClearPlatformDetectedAt()
 		return nil
 	case upstreamkey.FieldRateMultiplier:
 		m.ClearRateMultiplier()
@@ -50055,6 +50316,18 @@ func (m *UpstreamKeyMutation) ResetField(name string) error {
 		return nil
 	case upstreamkey.FieldPlatform:
 		m.ResetPlatform()
+		return nil
+	case upstreamkey.FieldPlatformSource:
+		m.ResetPlatformSource()
+		return nil
+	case upstreamkey.FieldDetectedPlatform:
+		m.ResetDetectedPlatform()
+		return nil
+	case upstreamkey.FieldPlatformDetectionStatus:
+		m.ResetPlatformDetectionStatus()
+		return nil
+	case upstreamkey.FieldPlatformDetectedAt:
+		m.ResetPlatformDetectedAt()
 		return nil
 	case upstreamkey.FieldRateMultiplier:
 		m.ResetRateMultiplier()

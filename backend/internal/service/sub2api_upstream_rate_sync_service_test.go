@@ -677,7 +677,8 @@ func TestSyncSub2APIUpstreamKeysPreservesNamesAndGroupMetadata(t *testing.T) {
 	require.Equal(t, "ChatGPT-Plus【高并发-特惠通道】", keys[0].UpstreamGroupName)
 	require.NotNil(t, keys[0].UpstreamGroupID)
 	require.Equal(t, int64(44), *keys[0].UpstreamGroupID)
-	require.Equal(t, "openai", keys[0].Platform)
+	require.NotNil(t, keys[0].Platform)
+	require.Equal(t, "openai", *keys[0].Platform)
 	require.NotNil(t, keys[0].RateMultiplier)
 	require.Equal(t, 0.03, *keys[0].RateMultiplier)
 

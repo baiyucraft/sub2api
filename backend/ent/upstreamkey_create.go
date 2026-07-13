@@ -158,6 +158,62 @@ func (_c *UpstreamKeyCreate) SetNillablePlatform(v *string) *UpstreamKeyCreate {
 	return _c
 }
 
+// SetPlatformSource sets the "platform_source" field.
+func (_c *UpstreamKeyCreate) SetPlatformSource(v string) *UpstreamKeyCreate {
+	_c.mutation.SetPlatformSource(v)
+	return _c
+}
+
+// SetNillablePlatformSource sets the "platform_source" field if the given value is not nil.
+func (_c *UpstreamKeyCreate) SetNillablePlatformSource(v *string) *UpstreamKeyCreate {
+	if v != nil {
+		_c.SetPlatformSource(*v)
+	}
+	return _c
+}
+
+// SetDetectedPlatform sets the "detected_platform" field.
+func (_c *UpstreamKeyCreate) SetDetectedPlatform(v string) *UpstreamKeyCreate {
+	_c.mutation.SetDetectedPlatform(v)
+	return _c
+}
+
+// SetNillableDetectedPlatform sets the "detected_platform" field if the given value is not nil.
+func (_c *UpstreamKeyCreate) SetNillableDetectedPlatform(v *string) *UpstreamKeyCreate {
+	if v != nil {
+		_c.SetDetectedPlatform(*v)
+	}
+	return _c
+}
+
+// SetPlatformDetectionStatus sets the "platform_detection_status" field.
+func (_c *UpstreamKeyCreate) SetPlatformDetectionStatus(v string) *UpstreamKeyCreate {
+	_c.mutation.SetPlatformDetectionStatus(v)
+	return _c
+}
+
+// SetNillablePlatformDetectionStatus sets the "platform_detection_status" field if the given value is not nil.
+func (_c *UpstreamKeyCreate) SetNillablePlatformDetectionStatus(v *string) *UpstreamKeyCreate {
+	if v != nil {
+		_c.SetPlatformDetectionStatus(*v)
+	}
+	return _c
+}
+
+// SetPlatformDetectedAt sets the "platform_detected_at" field.
+func (_c *UpstreamKeyCreate) SetPlatformDetectedAt(v time.Time) *UpstreamKeyCreate {
+	_c.mutation.SetPlatformDetectedAt(v)
+	return _c
+}
+
+// SetNillablePlatformDetectedAt sets the "platform_detected_at" field if the given value is not nil.
+func (_c *UpstreamKeyCreate) SetNillablePlatformDetectedAt(v *time.Time) *UpstreamKeyCreate {
+	if v != nil {
+		_c.SetPlatformDetectedAt(*v)
+	}
+	return _c
+}
+
 // SetRateMultiplier sets the "rate_multiplier" field.
 func (_c *UpstreamKeyCreate) SetRateMultiplier(v float64) *UpstreamKeyCreate {
 	_c.mutation.SetRateMultiplier(v)
@@ -379,9 +435,13 @@ func (_c *UpstreamKeyCreate) defaults() error {
 		v := upstreamkey.DefaultUpstreamGroupName
 		_c.mutation.SetUpstreamGroupName(v)
 	}
-	if _, ok := _c.mutation.Platform(); !ok {
-		v := upstreamkey.DefaultPlatform
-		_c.mutation.SetPlatform(v)
+	if _, ok := _c.mutation.PlatformSource(); !ok {
+		v := upstreamkey.DefaultPlatformSource
+		_c.mutation.SetPlatformSource(v)
+	}
+	if _, ok := _c.mutation.PlatformDetectionStatus(); !ok {
+		v := upstreamkey.DefaultPlatformDetectionStatus
+		_c.mutation.SetPlatformDetectionStatus(v)
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := upstreamkey.DefaultStatus
@@ -439,12 +499,30 @@ func (_c *UpstreamKeyCreate) check() error {
 			return &ValidationError{Name: "upstream_group_name", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.upstream_group_name": %w`, err)}
 		}
 	}
-	if _, ok := _c.mutation.Platform(); !ok {
-		return &ValidationError{Name: "platform", err: errors.New(`ent: missing required field "UpstreamKey.platform"`)}
-	}
 	if v, ok := _c.mutation.Platform(); ok {
 		if err := upstreamkey.PlatformValidator(v); err != nil {
 			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.PlatformSource(); !ok {
+		return &ValidationError{Name: "platform_source", err: errors.New(`ent: missing required field "UpstreamKey.platform_source"`)}
+	}
+	if v, ok := _c.mutation.PlatformSource(); ok {
+		if err := upstreamkey.PlatformSourceValidator(v); err != nil {
+			return &ValidationError{Name: "platform_source", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform_source": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.DetectedPlatform(); ok {
+		if err := upstreamkey.DetectedPlatformValidator(v); err != nil {
+			return &ValidationError{Name: "detected_platform", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.detected_platform": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.PlatformDetectionStatus(); !ok {
+		return &ValidationError{Name: "platform_detection_status", err: errors.New(`ent: missing required field "UpstreamKey.platform_detection_status"`)}
+	}
+	if v, ok := _c.mutation.PlatformDetectionStatus(); ok {
+		if err := upstreamkey.PlatformDetectionStatusValidator(v); err != nil {
+			return &ValidationError{Name: "platform_detection_status", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform_detection_status": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
@@ -529,7 +607,23 @@ func (_c *UpstreamKeyCreate) createSpec() (*UpstreamKey, *sqlgraph.CreateSpec) {
 	}
 	if value, ok := _c.mutation.Platform(); ok {
 		_spec.SetField(upstreamkey.FieldPlatform, field.TypeString, value)
-		_node.Platform = value
+		_node.Platform = &value
+	}
+	if value, ok := _c.mutation.PlatformSource(); ok {
+		_spec.SetField(upstreamkey.FieldPlatformSource, field.TypeString, value)
+		_node.PlatformSource = value
+	}
+	if value, ok := _c.mutation.DetectedPlatform(); ok {
+		_spec.SetField(upstreamkey.FieldDetectedPlatform, field.TypeString, value)
+		_node.DetectedPlatform = &value
+	}
+	if value, ok := _c.mutation.PlatformDetectionStatus(); ok {
+		_spec.SetField(upstreamkey.FieldPlatformDetectionStatus, field.TypeString, value)
+		_node.PlatformDetectionStatus = value
+	}
+	if value, ok := _c.mutation.PlatformDetectedAt(); ok {
+		_spec.SetField(upstreamkey.FieldPlatformDetectedAt, field.TypeTime, value)
+		_node.PlatformDetectedAt = &value
 	}
 	if value, ok := _c.mutation.RateMultiplier(); ok {
 		_spec.SetField(upstreamkey.FieldRateMultiplier, field.TypeFloat64, value)
@@ -854,6 +948,72 @@ func (u *UpstreamKeyUpsert) UpdatePlatform() *UpstreamKeyUpsert {
 	return u
 }
 
+// ClearPlatform clears the value of the "platform" field.
+func (u *UpstreamKeyUpsert) ClearPlatform() *UpstreamKeyUpsert {
+	u.SetNull(upstreamkey.FieldPlatform)
+	return u
+}
+
+// SetPlatformSource sets the "platform_source" field.
+func (u *UpstreamKeyUpsert) SetPlatformSource(v string) *UpstreamKeyUpsert {
+	u.Set(upstreamkey.FieldPlatformSource, v)
+	return u
+}
+
+// UpdatePlatformSource sets the "platform_source" field to the value that was provided on create.
+func (u *UpstreamKeyUpsert) UpdatePlatformSource() *UpstreamKeyUpsert {
+	u.SetExcluded(upstreamkey.FieldPlatformSource)
+	return u
+}
+
+// SetDetectedPlatform sets the "detected_platform" field.
+func (u *UpstreamKeyUpsert) SetDetectedPlatform(v string) *UpstreamKeyUpsert {
+	u.Set(upstreamkey.FieldDetectedPlatform, v)
+	return u
+}
+
+// UpdateDetectedPlatform sets the "detected_platform" field to the value that was provided on create.
+func (u *UpstreamKeyUpsert) UpdateDetectedPlatform() *UpstreamKeyUpsert {
+	u.SetExcluded(upstreamkey.FieldDetectedPlatform)
+	return u
+}
+
+// ClearDetectedPlatform clears the value of the "detected_platform" field.
+func (u *UpstreamKeyUpsert) ClearDetectedPlatform() *UpstreamKeyUpsert {
+	u.SetNull(upstreamkey.FieldDetectedPlatform)
+	return u
+}
+
+// SetPlatformDetectionStatus sets the "platform_detection_status" field.
+func (u *UpstreamKeyUpsert) SetPlatformDetectionStatus(v string) *UpstreamKeyUpsert {
+	u.Set(upstreamkey.FieldPlatformDetectionStatus, v)
+	return u
+}
+
+// UpdatePlatformDetectionStatus sets the "platform_detection_status" field to the value that was provided on create.
+func (u *UpstreamKeyUpsert) UpdatePlatformDetectionStatus() *UpstreamKeyUpsert {
+	u.SetExcluded(upstreamkey.FieldPlatformDetectionStatus)
+	return u
+}
+
+// SetPlatformDetectedAt sets the "platform_detected_at" field.
+func (u *UpstreamKeyUpsert) SetPlatformDetectedAt(v time.Time) *UpstreamKeyUpsert {
+	u.Set(upstreamkey.FieldPlatformDetectedAt, v)
+	return u
+}
+
+// UpdatePlatformDetectedAt sets the "platform_detected_at" field to the value that was provided on create.
+func (u *UpstreamKeyUpsert) UpdatePlatformDetectedAt() *UpstreamKeyUpsert {
+	u.SetExcluded(upstreamkey.FieldPlatformDetectedAt)
+	return u
+}
+
+// ClearPlatformDetectedAt clears the value of the "platform_detected_at" field.
+func (u *UpstreamKeyUpsert) ClearPlatformDetectedAt() *UpstreamKeyUpsert {
+	u.SetNull(upstreamkey.FieldPlatformDetectedAt)
+	return u
+}
+
 // SetRateMultiplier sets the "rate_multiplier" field.
 func (u *UpstreamKeyUpsert) SetRateMultiplier(v float64) *UpstreamKeyUpsert {
 	u.Set(upstreamkey.FieldRateMultiplier, v)
@@ -1173,6 +1333,83 @@ func (u *UpstreamKeyUpsertOne) SetPlatform(v string) *UpstreamKeyUpsertOne {
 func (u *UpstreamKeyUpsertOne) UpdatePlatform() *UpstreamKeyUpsertOne {
 	return u.Update(func(s *UpstreamKeyUpsert) {
 		s.UpdatePlatform()
+	})
+}
+
+// ClearPlatform clears the value of the "platform" field.
+func (u *UpstreamKeyUpsertOne) ClearPlatform() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearPlatform()
+	})
+}
+
+// SetPlatformSource sets the "platform_source" field.
+func (u *UpstreamKeyUpsertOne) SetPlatformSource(v string) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetPlatformSource(v)
+	})
+}
+
+// UpdatePlatformSource sets the "platform_source" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertOne) UpdatePlatformSource() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdatePlatformSource()
+	})
+}
+
+// SetDetectedPlatform sets the "detected_platform" field.
+func (u *UpstreamKeyUpsertOne) SetDetectedPlatform(v string) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetDetectedPlatform(v)
+	})
+}
+
+// UpdateDetectedPlatform sets the "detected_platform" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertOne) UpdateDetectedPlatform() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateDetectedPlatform()
+	})
+}
+
+// ClearDetectedPlatform clears the value of the "detected_platform" field.
+func (u *UpstreamKeyUpsertOne) ClearDetectedPlatform() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearDetectedPlatform()
+	})
+}
+
+// SetPlatformDetectionStatus sets the "platform_detection_status" field.
+func (u *UpstreamKeyUpsertOne) SetPlatformDetectionStatus(v string) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetPlatformDetectionStatus(v)
+	})
+}
+
+// UpdatePlatformDetectionStatus sets the "platform_detection_status" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertOne) UpdatePlatformDetectionStatus() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdatePlatformDetectionStatus()
+	})
+}
+
+// SetPlatformDetectedAt sets the "platform_detected_at" field.
+func (u *UpstreamKeyUpsertOne) SetPlatformDetectedAt(v time.Time) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetPlatformDetectedAt(v)
+	})
+}
+
+// UpdatePlatformDetectedAt sets the "platform_detected_at" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertOne) UpdatePlatformDetectedAt() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdatePlatformDetectedAt()
+	})
+}
+
+// ClearPlatformDetectedAt clears the value of the "platform_detected_at" field.
+func (u *UpstreamKeyUpsertOne) ClearPlatformDetectedAt() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearPlatformDetectedAt()
 	})
 }
 
@@ -1678,6 +1915,83 @@ func (u *UpstreamKeyUpsertBulk) SetPlatform(v string) *UpstreamKeyUpsertBulk {
 func (u *UpstreamKeyUpsertBulk) UpdatePlatform() *UpstreamKeyUpsertBulk {
 	return u.Update(func(s *UpstreamKeyUpsert) {
 		s.UpdatePlatform()
+	})
+}
+
+// ClearPlatform clears the value of the "platform" field.
+func (u *UpstreamKeyUpsertBulk) ClearPlatform() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearPlatform()
+	})
+}
+
+// SetPlatformSource sets the "platform_source" field.
+func (u *UpstreamKeyUpsertBulk) SetPlatformSource(v string) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetPlatformSource(v)
+	})
+}
+
+// UpdatePlatformSource sets the "platform_source" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertBulk) UpdatePlatformSource() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdatePlatformSource()
+	})
+}
+
+// SetDetectedPlatform sets the "detected_platform" field.
+func (u *UpstreamKeyUpsertBulk) SetDetectedPlatform(v string) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetDetectedPlatform(v)
+	})
+}
+
+// UpdateDetectedPlatform sets the "detected_platform" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertBulk) UpdateDetectedPlatform() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateDetectedPlatform()
+	})
+}
+
+// ClearDetectedPlatform clears the value of the "detected_platform" field.
+func (u *UpstreamKeyUpsertBulk) ClearDetectedPlatform() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearDetectedPlatform()
+	})
+}
+
+// SetPlatformDetectionStatus sets the "platform_detection_status" field.
+func (u *UpstreamKeyUpsertBulk) SetPlatformDetectionStatus(v string) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetPlatformDetectionStatus(v)
+	})
+}
+
+// UpdatePlatformDetectionStatus sets the "platform_detection_status" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertBulk) UpdatePlatformDetectionStatus() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdatePlatformDetectionStatus()
+	})
+}
+
+// SetPlatformDetectedAt sets the "platform_detected_at" field.
+func (u *UpstreamKeyUpsertBulk) SetPlatformDetectedAt(v time.Time) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetPlatformDetectedAt(v)
+	})
+}
+
+// UpdatePlatformDetectedAt sets the "platform_detected_at" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertBulk) UpdatePlatformDetectedAt() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdatePlatformDetectedAt()
+	})
+}
+
+// ClearPlatformDetectedAt clears the value of the "platform_detected_at" field.
+func (u *UpstreamKeyUpsertBulk) ClearPlatformDetectedAt() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearPlatformDetectedAt()
 	})
 }
 

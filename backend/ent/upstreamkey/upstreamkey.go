@@ -37,6 +37,14 @@ const (
 	FieldUpstreamGroupName = "upstream_group_name"
 	// FieldPlatform holds the string denoting the platform field in the database.
 	FieldPlatform = "platform"
+	// FieldPlatformSource holds the string denoting the platform_source field in the database.
+	FieldPlatformSource = "platform_source"
+	// FieldDetectedPlatform holds the string denoting the detected_platform field in the database.
+	FieldDetectedPlatform = "detected_platform"
+	// FieldPlatformDetectionStatus holds the string denoting the platform_detection_status field in the database.
+	FieldPlatformDetectionStatus = "platform_detection_status"
+	// FieldPlatformDetectedAt holds the string denoting the platform_detected_at field in the database.
+	FieldPlatformDetectedAt = "platform_detected_at"
 	// FieldRateMultiplier holds the string denoting the rate_multiplier field in the database.
 	FieldRateMultiplier = "rate_multiplier"
 	// FieldStatus holds the string denoting the status field in the database.
@@ -121,6 +129,10 @@ var Columns = []string{
 	FieldUpstreamGroupID,
 	FieldUpstreamGroupName,
 	FieldPlatform,
+	FieldPlatformSource,
+	FieldDetectedPlatform,
+	FieldPlatformDetectionStatus,
+	FieldPlatformDetectedAt,
 	FieldRateMultiplier,
 	FieldStatus,
 	FieldLastSeenAt,
@@ -163,10 +175,18 @@ var (
 	DefaultUpstreamGroupName string
 	// UpstreamGroupNameValidator is a validator for the "upstream_group_name" field. It is called by the builders before save.
 	UpstreamGroupNameValidator func(string) error
-	// DefaultPlatform holds the default value on creation for the "platform" field.
-	DefaultPlatform string
 	// PlatformValidator is a validator for the "platform" field. It is called by the builders before save.
 	PlatformValidator func(string) error
+	// DefaultPlatformSource holds the default value on creation for the "platform_source" field.
+	DefaultPlatformSource string
+	// PlatformSourceValidator is a validator for the "platform_source" field. It is called by the builders before save.
+	PlatformSourceValidator func(string) error
+	// DetectedPlatformValidator is a validator for the "detected_platform" field. It is called by the builders before save.
+	DetectedPlatformValidator func(string) error
+	// DefaultPlatformDetectionStatus holds the default value on creation for the "platform_detection_status" field.
+	DefaultPlatformDetectionStatus string
+	// PlatformDetectionStatusValidator is a validator for the "platform_detection_status" field. It is called by the builders before save.
+	PlatformDetectionStatusValidator func(string) error
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -238,6 +258,26 @@ func ByUpstreamGroupName(opts ...sql.OrderTermOption) OrderOption {
 // ByPlatform orders the results by the platform field.
 func ByPlatform(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldPlatform, opts...).ToFunc()
+}
+
+// ByPlatformSource orders the results by the platform_source field.
+func ByPlatformSource(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPlatformSource, opts...).ToFunc()
+}
+
+// ByDetectedPlatform orders the results by the detected_platform field.
+func ByDetectedPlatform(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDetectedPlatform, opts...).ToFunc()
+}
+
+// ByPlatformDetectionStatus orders the results by the platform_detection_status field.
+func ByPlatformDetectionStatus(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPlatformDetectionStatus, opts...).ToFunc()
+}
+
+// ByPlatformDetectedAt orders the results by the platform_detected_at field.
+func ByPlatformDetectedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPlatformDetectedAt, opts...).ToFunc()
 }
 
 // ByRateMultiplier orders the results by the rate_multiplier field.

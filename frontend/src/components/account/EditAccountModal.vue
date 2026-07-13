@@ -66,6 +66,8 @@
             <UpstreamKeySelector
               v-model="editUpstreamKeyId"
               :keys="filteredUpstreamKeys"
+              :platform="props.account?.platform || ''"
+              :assigned-key-id="props.account?.upstream_key_id"
               :disabled="!editUpstreamConfigId || loadingUpstreamKeys"
               :placeholder="loadingUpstreamKeys ? '加载中...' : undefined"
             />
@@ -3155,9 +3157,11 @@ const isUpstreamBoundAccount = computed(() =>
 
 const filteredUpstreamKeys = computed(() =>
   upstreamKeys.value.filter((key) => {
-	if (key.status !== 'active' && key.id !== props.account?.upstream_key_id) return false
     const keyPlatform = (key.platform || '').trim()
-    return key.id === editUpstreamKeyId.value || !keyPlatform || keyPlatform === props.account?.platform
+    return (
+      keyPlatform === props.account?.platform &&
+      (key.status === 'active' || key.id === props.account?.upstream_key_id)
+    )
   })
 )
 

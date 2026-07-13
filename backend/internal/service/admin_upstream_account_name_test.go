@@ -50,7 +50,7 @@ func TestNormalizeUpstreamAccountInputNameBehavior(t *testing.T) {
 			ID:               keyID,
 			UpstreamConfigID: cfgID,
 			Name:             "\u3000Key名\u00a0",
-			Platform:         PlatformOpenAI,
+			Platform:         upstreamPlatformPtr(PlatformOpenAI),
 		}},
 	}
 	svc := &adminServiceImpl{upstreamConfigRepo: repo}
@@ -91,7 +91,7 @@ func TestNormalizeUpstreamAccountUpdateUsesAuthoritativeName(t *testing.T) {
 			ID:               keyID,
 			UpstreamConfigID: cfgID,
 			Name:             "pro",
-			Platform:         PlatformOpenAI,
+			Platform:         upstreamPlatformPtr(PlatformOpenAI),
 		}},
 	}
 	svc := &adminServiceImpl{upstreamConfigRepo: repo}
@@ -130,7 +130,7 @@ func TestNormalizeUpstreamAccountInputRejectsInvalidNamesAndMismatchedKey(t *tes
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &upstreamConfigServiceRepo{
 				configs: []UpstreamConfig{testUpstreamConfig(cfgID, tt.configName, UpstreamProviderNewAPI, StatusActive, "https://upstream.example.com")},
-				keys:    []UpstreamKey{{ID: keyID, UpstreamConfigID: tt.keyCfgID, Name: tt.keyName, Platform: PlatformOpenAI}},
+				keys:    []UpstreamKey{{ID: keyID, UpstreamConfigID: tt.keyCfgID, Name: tt.keyName, Platform: upstreamPlatformPtr(PlatformOpenAI)}},
 			}
 			svc := &adminServiceImpl{upstreamConfigRepo: repo}
 			input := &CreateAccountInput{
@@ -154,7 +154,7 @@ func TestNormalizeUpstreamAccountInputRejectsLegacyUpstreamType(t *testing.T) {
 	keyID := int64(20)
 	repo := &upstreamConfigServiceRepo{
 		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "config", UpstreamProviderNewAPI, StatusActive, "https://upstream.example.com")},
-		keys:    []UpstreamKey{{ID: keyID, UpstreamConfigID: cfgID, Name: "key", Platform: PlatformOpenAI}},
+		keys:    []UpstreamKey{{ID: keyID, UpstreamConfigID: cfgID, Name: "key", Platform: upstreamPlatformPtr(PlatformOpenAI)}},
 	}
 	svc := &adminServiceImpl{upstreamConfigRepo: repo}
 
@@ -218,8 +218,8 @@ func TestNormalizeUpstreamAccountRejectsAndPreservesStaleBindings(t *testing.T) 
 	repo := &upstreamConfigServiceRepo{
 		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "config", UpstreamProviderSub2API, StatusActive, "https://upstream.example.com")},
 		keys: []UpstreamKey{
-			{ID: staleKeyID, UpstreamConfigID: cfgID, Name: "stale", Platform: PlatformOpenAI, Status: UpstreamKeyStatusStale},
-			{ID: otherStaleKeyID, UpstreamConfigID: cfgID, Name: "other-stale", Platform: PlatformOpenAI, Status: UpstreamKeyStatusStale},
+			{ID: staleKeyID, UpstreamConfigID: cfgID, Name: "stale", Platform: upstreamPlatformPtr(PlatformOpenAI), Status: UpstreamKeyStatusStale},
+			{ID: otherStaleKeyID, UpstreamConfigID: cfgID, Name: "other-stale", Platform: upstreamPlatformPtr(PlatformOpenAI), Status: UpstreamKeyStatusStale},
 		},
 	}
 	svc := &adminServiceImpl{upstreamConfigRepo: repo}

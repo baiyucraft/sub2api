@@ -40,7 +40,7 @@ func TestUpsertKeyBackfillsRemoteIDOnExistingHash(t *testing.T) {
 	incoming := &service.UpstreamKey{
 		UpstreamConfigID: config.ID, Name: "new", Key: "sk-secret",
 		KeyHash: service.HashUpstreamKey("sk-secret"), RemoteKeyID: &remoteID,
-		Platform: service.PlatformOpenAI, Status: service.StatusActive,
+		Platform: repoStringPtr(service.PlatformOpenAI), Status: service.StatusActive,
 	}
 	require.NoError(t, repo.UpsertKey(ctx, incoming))
 	require.Equal(t, existing.ID, incoming.ID)

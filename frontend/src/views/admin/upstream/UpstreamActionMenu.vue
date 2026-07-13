@@ -6,6 +6,10 @@
           <Icon name="play" size="sm" class="text-emerald-500" />
           {{ t('admin.upstreamConfigs.actions.test') }}
         </button>
+        <button role="menuitem" class="menu-item" @click="emitAndClose('keyPlatforms', close)">
+          <Icon name="key" size="sm" class="text-violet-500" />
+          {{ t('admin.upstreamConfigs.actions.keyPlatforms') }}
+        </button>
         <button
           v-if="supportsDashboard"
           role="menuitem"
@@ -44,6 +48,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   close: []
   test: [config: UpstreamConfig]
+  keyPlatforms: [config: UpstreamConfig]
   dashboard: [config: UpstreamConfig]
   delete: [config: UpstreamConfig]
 }>()
@@ -51,9 +56,10 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const supportsDashboard = computed(() => props.config?.provider === 'sub2api' || props.config?.provider === 'newapi')
 
-function emitAndClose(event: 'test' | 'dashboard' | 'delete', close: () => void) {
+function emitAndClose(event: 'test' | 'keyPlatforms' | 'dashboard' | 'delete', close: () => void) {
   if (!props.config) return
   if (event === 'test') emit('test', props.config)
+  else if (event === 'keyPlatforms') emit('keyPlatforms', props.config)
   else if (event === 'dashboard') emit('dashboard', props.config)
   else emit('delete', props.config)
   close()

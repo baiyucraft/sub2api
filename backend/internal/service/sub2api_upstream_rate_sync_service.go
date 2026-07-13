@@ -594,19 +594,24 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 			}
 		}
 		extra := sub2APIUpstreamKeyRateExtra(groupInfo)
+		platformValue := strings.ToLower(strings.TrimSpace(platform))
 		out = append(out, UpstreamKey{
-			UpstreamConfigID:  cfg.ID,
-			Name:              name,
-			Key:               key,
-			KeyHash:           HashUpstreamKey(key),
-			RemoteKeyID:       &upstreamKey.ID,
-			UpstreamGroupID:   groupID,
-			UpstreamGroupName: groupName,
-			Platform:          platform,
-			RateMultiplier:    &rate,
-			Status:            StatusActive,
-			LastSeenAt:        &now,
-			Extra:             extra,
+			UpstreamConfigID:        cfg.ID,
+			Name:                    name,
+			Key:                     key,
+			KeyHash:                 HashUpstreamKey(key),
+			RemoteKeyID:             &upstreamKey.ID,
+			UpstreamGroupID:         groupID,
+			UpstreamGroupName:       groupName,
+			Platform:                &platformValue,
+			PlatformSource:          UpstreamKeyPlatformSourceAuto,
+			DetectedPlatform:        &platformValue,
+			PlatformDetectionStatus: UpstreamKeyPlatformDetectionDetected,
+			PlatformDetectedAt:      &now,
+			RateMultiplier:          &rate,
+			Status:                  StatusActive,
+			LastSeenAt:              &now,
+			Extra:                   extra,
 		})
 	}
 	snapshot.Keys = out

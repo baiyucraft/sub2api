@@ -3,6 +3,7 @@ package admin
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -47,10 +48,16 @@ type upstreamKeyRequest struct {
 	RemoteKeyID       *int64         `json:"remote_key_id"`
 	UpstreamGroupID   *int64         `json:"upstream_group_id"`
 	UpstreamGroupName string         `json:"upstream_group_name"`
-	Platform          string         `json:"platform"`
+	Platform          *string        `json:"platform"`
 	RateMultiplier    *float64       `json:"rate_multiplier"`
 	Status            string         `json:"status"`
 	Extra             map[string]any `json:"extra"`
+}
+
+type updateUpstreamKeyPlatformRequest struct {
+	Platform             string    `json:"platform" binding:"required"`
+	ExpectedUpdatedAt    time.Time `json:"expected_updated_at" binding:"required"`
+	DisableBoundAccounts bool      `json:"disable_bound_accounts"`
 }
 
 func (h *UpstreamConfigHandler) List(c *gin.Context) {
@@ -331,6 +338,30 @@ func (h *UpstreamConfigHandler) DeleteKey(c *gin.Context) {
 	response.Success(c, gin.H{"message": "upstream key deleted"})
 }
 
+func (h *UpstreamConfigHandler) UpdateKeyPlatform(c *gin.Context) {
+	configID, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	keyID, ok := parseUpstreamIDParam(c, "keyID")
+	if !ok {
+		return
+	}
+	var req updateUpstreamKeyPlatformRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	key, err := h.service.UpdateKeyPlatform(c.Request.Context(), configID, keyID, service.UpdateUpstreamKeyPlatformRequest{
+		Platform: req.Platform, ExpectedUpdatedAt: req.ExpectedUpdatedAt, DisableBoundAccounts: req.DisableBoundAccounts,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, sanitizeUpstreamKey(key))
+}
+
 func sanitizeUpstreamSyncResults(results []service.UpstreamConfigSyncResult) []gin.H {
 	out := make([]gin.H, 0, len(results))
 	for i := range results {
@@ -469,6 +500,11 @@ func sanitizeUpstreamKey(key *service.UpstreamKey) gin.H {
 		"upstream_group_id":         key.UpstreamGroupID,
 		"upstream_group_name":       key.UpstreamGroupName,
 		"platform":                  key.Platform,
+		"platform_source":           key.PlatformSource,
+		"detected_platform":         key.DetectedPlatform,
+		"platform_detection_status": key.PlatformDetectionStatus,
+		"platform_detected_at":      key.PlatformDetectedAt,
+		"bound_account_count":       key.BoundAccountCount,
 		"rate_multiplier":           key.RateMultiplier,
 		"effective_cost_multiplier": key.EffectiveCostMultiplier,
 		"status":                    key.Status,

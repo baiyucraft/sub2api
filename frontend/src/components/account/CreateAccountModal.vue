@@ -2023,6 +2023,7 @@
             <UpstreamKeySelector
               v-model="selectedUpstreamKeyId"
               :keys="filteredUpstreamKeys"
+              :platform="form.platform"
               :disabled="!selectedUpstreamConfigId || loadingUpstreamKeys"
               :placeholder="loadingUpstreamKeys ? '加载中...' : undefined"
               data-testid="upstream-key-selector"
@@ -3830,7 +3831,7 @@ const filteredUpstreamKeys = computed(() =>
     return (
       key.upstream_config_id === selectedUpstreamConfigId.value &&
       key.status === 'active' &&
-      (!keyPlatform || keyPlatform === form.platform)
+      keyPlatform === form.platform
     )
   })
 )

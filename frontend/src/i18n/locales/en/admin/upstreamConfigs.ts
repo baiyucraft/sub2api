@@ -89,9 +89,59 @@ export default {
       costTrend: 'Cost Trend',
       rateTrend: 'Rate Trend',
       more: 'More',
+      keyPlatforms: 'Key Platforms',
       settings: 'Upstream Settings',
       openDashboard: 'Open Upstream Dashboard',
       saving: 'Saving...'
+    },
+    keyPlatforms: {
+      title: 'Key Platforms',
+      description: 'Review server-detected evidence and assign exactly one routing platform to each upstream key.',
+      columns: {
+        key: 'Key',
+        group: 'Group',
+        detected: 'Detected',
+        current: 'Current',
+        source: 'Source',
+        bindings: 'Bindings',
+        status: 'Status'
+      },
+      platforms: {
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        gemini: 'Gemini',
+        grok: 'Grok'
+      },
+      sources: {
+        manual: 'Manual',
+        auto: 'Automatic',
+        legacy: 'Legacy',
+        unassigned: 'Unassigned',
+        unknown: 'Unknown'
+      },
+      status: {
+        legacy: 'Legacy',
+        detected: 'Detected',
+        unresolved: 'Unresolved',
+        ambiguous: 'Ambiguous',
+        conflict: 'Conflict',
+        unassigned: 'Unassigned',
+        unknown: 'Unknown'
+      },
+      unnamedKey: 'Unnamed key',
+      unnamedGroup: 'Unnamed group',
+      unassignedGroup: 'Unassigned',
+      unassignedPlatform: 'Unassigned',
+      notDetected: 'Not detected',
+      conflict: 'Detected evidence conflicts with the current assignment',
+      empty: 'No upstream keys',
+      loadFailed: 'Failed to load key platforms',
+      updated: 'Key platform updated',
+      updateFailed: 'Failed to update key platform',
+      stale: 'This key changed while you were editing. The latest data has been loaded; review it and try again.',
+      disableBindingsTitle: 'Disable bound accounts?',
+      disableBindingsMessage: 'Changing this key to {platform} conflicts with {count} bound account(s). Disable those accounts and retry?',
+      disableBindingsConfirm: 'Disable and retry'
     },
     dialog: {
       createTitle: 'Add Upstream',
