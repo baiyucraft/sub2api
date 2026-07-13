@@ -95,6 +95,38 @@
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
+            <div ref="columnDropdownRef" class="relative">
+              <button
+                type="button"
+                class="btn btn-secondary"
+                :title="t('admin.upstreamConfigs.columnSettings')"
+                @click="showColumnDropdown = !showColumnDropdown"
+              >
+                <Icon name="grid" size="md" class="mr-2" />
+                <span class="hidden md:inline">{{ t('admin.upstreamConfigs.columnSettings') }}</span>
+              </button>
+              <div
+                v-if="showColumnDropdown"
+                class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+              >
+                <button
+                  v-for="column in toggleableColumns"
+                  :key="column.key"
+                  type="button"
+                  class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                  @click="toggleColumn(column.key)"
+                >
+                  <span>{{ column.label }}</span>
+                  <Icon
+                    v-if="isColumnVisible(column.key)"
+                    name="check"
+                    size="sm"
+                    class="text-primary-500"
+                    :stroke-width="2"
+                  />
+                </button>
+              </div>
+            </div>
             <button type="button" class="btn btn-primary" @click="openCreate">
               {{ t('admin.upstreamConfigs.actions.create') }}
             </button>
@@ -183,7 +215,7 @@
             >
               <div
                 :class="[
-                  'text-sm font-semibold tabular-nums',
+                  'text-sm tabular-nums',
                   upstreamConcurrencyTextClass(row)
                 ]"
               >
@@ -1043,6 +1075,12 @@ type RowAction = 'test' | 'sync'
 type OperationsDrawerMode = 'syncRuns' | 'events' | 'trend' | 'rateTrend' | 'settings'
 type RateRange = { min: number; max: number } | null
 
+const ALWAYS_VISIBLE_COLUMNS = new Set(['name', 'actions'])
+const HIDDEN_COLUMNS_KEY = 'upstream-config-hidden-columns'
+const HIDDEN_COLUMNS_VERSION_KEY = 'upstream-config-hidden-columns-version'
+const HIDDEN_COLUMNS_CURRENT_VERSION = '1'
+const DEFAULT_HIDDEN_COLUMNS = ['rates']
+
 const { t } = useI18n()
 const appStore = useAppStore()
 
@@ -1133,7 +1171,7 @@ const form = reactive({
 
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
 
-const columns = computed<Column[]>(() => [
+const allColumns = computed<Column[]>(() => [
   { key: 'name', label: t('admin.upstreamConfigs.columns.name') },
   { key: 'provider', label: t('admin.upstreamConfigs.columns.provider') },
   { key: 'urls', label: t('admin.upstreamConfigs.columns.address') },
@@ -1145,6 +1183,97 @@ const columns = computed<Column[]>(() => [
   { key: 'last_success_at', label: t('admin.upstreamConfigs.columns.lastSync') },
   { key: 'actions', label: t('admin.upstreamConfigs.columns.actions'), class: 'min-w-[300px]' }
 ])
+
+const toggleableColumns = computed(() =>
+  allColumns.value.filter((column) => !ALWAYS_VISIBLE_COLUMNS.has(column.key))
+)
+const hiddenColumns = reactive<Set<string>>(new Set())
+const showColumnDropdown = ref(false)
+const columnDropdownRef = ref<HTMLElement | null>(null)
+
+const getValidHiddenColumnKeys = () =>
+  new Set(toggleableColumns.value.map((column) => column.key))
+
+const orderedHiddenColumnKeys = () => {
+  const validKeys = getValidHiddenColumnKeys()
+  return allColumns.value
+    .map((column) => column.key)
+    .filter((key) => validKeys.has(key) && hiddenColumns.has(key))
+}
+
+const saveColumnsToStorage = () => {
+  try {
+    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify(orderedHiddenColumnKeys()))
+    localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
+  } catch (error) {
+    console.error('Failed to save upstream config column settings:', error)
+  }
+}
+
+const loadSavedColumns = () => {
+  hiddenColumns.clear()
+  const validKeys = getValidHiddenColumnKeys()
+  let shouldUseDefaults = false
+
+  try {
+    const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
+    const savedVersion = localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)
+
+    if (!saved) {
+      shouldUseDefaults = true
+    } else {
+      const parsed: unknown = JSON.parse(saved)
+      if (!Array.isArray(parsed)) {
+        shouldUseDefaults = true
+      } else {
+        parsed
+          .filter((key): key is string => typeof key === 'string' && validKeys.has(key))
+          .forEach((key) => hiddenColumns.add(key))
+
+        if (savedVersion !== HIDDEN_COLUMNS_CURRENT_VERSION) {
+          DEFAULT_HIDDEN_COLUMNS.forEach((key) => {
+            if (validKeys.has(key)) hiddenColumns.add(key)
+          })
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load upstream config column settings:', error)
+    shouldUseDefaults = true
+  }
+
+  if (shouldUseDefaults) {
+    hiddenColumns.clear()
+    DEFAULT_HIDDEN_COLUMNS.forEach((key) => {
+      if (validKeys.has(key)) hiddenColumns.add(key)
+    })
+  }
+
+  saveColumnsToStorage()
+}
+
+const isColumnVisible = (key: string) => !hiddenColumns.has(key)
+
+const toggleColumn = (key: string) => {
+  if (!getValidHiddenColumnKeys().has(key)) return
+
+  if (hiddenColumns.has(key)) {
+    hiddenColumns.delete(key)
+  } else {
+    hiddenColumns.add(key)
+  }
+  saveColumnsToStorage()
+}
+
+const columns = computed<Column[]>(() =>
+  allColumns.value.filter(
+    (column) => ALWAYS_VISIBLE_COLUMNS.has(column.key) || !hiddenColumns.has(column.key)
+  )
+)
+
+if (typeof window !== 'undefined') {
+  loadSavedColumns()
+}
 
 const providerFilterOptions = computed<SelectOption[]>(() => [
   { value: '', label: t('admin.upstreamConfigs.filters.allProviders') },
@@ -1212,11 +1341,20 @@ onMounted(() => {
   loadConfigs()
   loadProxies()
   loadSettings(true)
+  document.addEventListener('click', handleClickOutside)
 })
 
 onUnmounted(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
+  document.removeEventListener('click', handleClickOutside)
 })
+
+function handleClickOutside(event: MouseEvent) {
+  const target = event.target as Node
+  if (columnDropdownRef.value && !columnDropdownRef.value.contains(target)) {
+    showColumnDropdown.value = false
+  }
+}
 
 async function loadConfigs() {
   loading.value = true
