@@ -9,6 +9,7 @@ export default {
       provider: 'Type',
       address: 'Address',
       balance: 'CNY Balance',
+      upstreamConcurrency: 'Upstream Concurrency',
       rates: 'Rate Summary',
       authMode: 'Auth',
       credentials: 'Credentials',
@@ -26,6 +27,17 @@ export default {
       email: 'Upstream email: {email}',
       syncedAt: 'Quota synced: {time}',
       error: 'Quota error: {error}'
+    },
+    concurrency: {
+      headerTitle: 'Total upstream user concurrency, not local account concurrency',
+      limited: '{count}',
+      unlimited: 'Unlimited',
+      newapiReported: 'Upstream reports {count}',
+      stale: '{value} (Expired)',
+      unsupported: '-- (Not provided)',
+      initialFailure: '-- (Sync failed)',
+      lastObservedAt: 'Last valid time: {time}',
+      lastCheckedAt: 'Last checked time: {time}'
     },
     rates: {
       raw: 'Raw rate {value}',
