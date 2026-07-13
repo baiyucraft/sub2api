@@ -8,14 +8,15 @@ export default {
       name: 'Name',
       provider: 'Type',
       address: 'Address',
-      balance: 'CNY Balance',
-      upstreamConcurrency: 'Upstream Concurrency',
+      balance: 'Balance',
+      upstreamConcurrency: 'Concurrency',
       rates: 'Rate Summary',
       authMode: 'Auth',
       credentials: 'Credentials',
       lastSync: 'Last Sync',
       actions: 'Actions'
     },
+    columnSettings: 'Column Settings',
     balance: {
       totalRecharged: 'Total recharged {amount}',
       totalQuota: 'Total quota {amount}',
