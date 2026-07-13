@@ -243,7 +243,9 @@ func TestApplySyncSnapshotIncompletePlatformEvidencePreservesAssignmentAndAccoun
 	remoteID := int64(94003)
 	key, err := client.UpstreamKey.Create().SetUpstreamConfigID(config.ID).SetRemoteKeyID(remoteID).SetName("partial").SetKey("sk-partial").SetKeyHash(service.HashUpstreamKey("sk-partial")).SetPlatform(service.PlatformOpenAI).SetPlatformSource(service.UpstreamKeyPlatformSourceAuto).SetDetectedPlatform(service.PlatformOpenAI).SetPlatformDetectionStatus(service.UpstreamKeyPlatformDetectionDetected).SetStatus(service.StatusActive).Save(ctx)
 	require.NoError(t, err)
-	account, err := client.Account.Create().SetName("partial-openai").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{}).SetExtra(map[string]any{}).SetConcurrency(100).SetPriority(1).SetStatus(service.StatusActive).SetSchedulable(true).SetUpstreamConfigID(config.ID).SetUpstreamKeyID(key.ID).Save(ctx)
+	accountName, err := service.BuildUpstreamAccountName(config.Name, key.Name)
+	require.NoError(t, err)
+	account, err := client.Account.Create().SetName(accountName).SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{}).SetExtra(map[string]any{}).SetConcurrency(100).SetPriority(1).SetStatus(service.StatusActive).SetSchedulable(true).SetUpstreamConfigID(config.ID).SetUpstreamKeyID(key.ID).Save(ctx)
 	require.NoError(t, err)
 	detectedAt := time.Now().UTC()
 	incoming := []service.UpstreamKey{{UpstreamConfigID: config.ID, Name: "partial", Key: "sk-partial", KeyHash: service.HashUpstreamKey("sk-partial"), RemoteKeyID: &remoteID, DetectedPlatform: repoStringPtr(service.PlatformAnthropic), PlatformDetectionStatus: service.UpstreamKeyPlatformDetectionDetected, PlatformDetectedAt: &detectedAt, Status: service.StatusActive, LastSeenAt: &detectedAt, Extra: map[string]any{"newapi_platform_evidence": map[string]any{"status": "unique", "candidates": []string{service.PlatformAnthropic}}}}}
