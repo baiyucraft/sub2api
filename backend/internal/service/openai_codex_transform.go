@@ -621,24 +621,12 @@ func toolsContainImageGeneration(rawTools any) bool {
 
 func isOpenAIImageGenerationToolMap(tool map[string]any) bool {
 	return isOpenAIImageGenerationType(firstNonEmptyString(tool["type"])) ||
-		isImageGenNamespaceToolMap(tool) ||
-		isImageGenFlattenedFunctionToolMap(tool)
+		isImageGenNamespaceToolMap(tool)
 }
 
 func isImageGenNamespaceToolMap(tool map[string]any) bool {
 	return strings.TrimSpace(firstNonEmptyString(tool["type"])) == "namespace" &&
 		isOpenAIImageGenNamespaceName(firstNonEmptyString(tool["name"]))
-}
-
-func isImageGenFlattenedFunctionToolMap(tool map[string]any) bool {
-	if strings.TrimSpace(firstNonEmptyString(tool["type"])) != "function" {
-		return false
-	}
-	if isOpenAIImageGenFunctionName(firstNonEmptyString(tool["name"])) {
-		return true
-	}
-	function, ok := tool["function"].(map[string]any)
-	return ok && isOpenAIImageGenFunctionName(firstNonEmptyString(function["name"]))
 }
 
 func inputContainsImageGenerationTool(rawInput any) bool {

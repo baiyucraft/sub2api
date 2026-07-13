@@ -91,41 +91,6 @@ func TestIsImageGenerationIntent(t *testing.T) {
 			want:     true,
 		},
 		{
-			name:     "flattened image_gen function in top-level tools",
-			endpoint: "/v1/responses",
-			model:    "gpt-5.5",
-			body:     []byte(`{"model":"gpt-5.5","tools":[{"type":"function","name":"image_gen.imagegen"}]}`),
-			want:     true,
-		},
-		{
-			name:     "chat-style flattened image_gen function in additional_tools",
-			endpoint: "/v1/responses",
-			model:    "gpt-5.5",
-			body:     []byte(`{"model":"gpt-5.5","input":[{"type":"additional_tools","tools":[{"type":"function","function":{"name":"image_gen.imagegen"}}]}]}`),
-			want:     true,
-		},
-		{
-			name:     "similar flattened function name is not flagged",
-			endpoint: "/v1/responses",
-			model:    "gpt-5.5",
-			body:     []byte(`{"model":"gpt-5.5","tools":[{"type":"function","name":"image_gen.other"}]}`),
-			want:     false,
-		},
-		{
-			name:     "flattened function name is case-sensitive",
-			endpoint: "/v1/responses",
-			model:    "gpt-5.5",
-			body:     []byte(`{"model":"gpt-5.5","tools":[{"type":"function","name":"Image_Gen.Imagegen"}]}`),
-			want:     false,
-		},
-		{
-			name:     "flattened name on non-function tool is not flagged",
-			endpoint: "/v1/responses",
-			model:    "gpt-5.5",
-			body:     []byte(`{"model":"gpt-5.5","tools":[{"type":"custom","name":"image_gen.imagegen"}]}`),
-			want:     false,
-		},
-		{
 			name:     "non-image namespace tool is not flagged",
 			endpoint: "/v1/responses",
 			model:    "gpt-5.5",
@@ -189,31 +154,6 @@ func TestIsImageGenerationIntentMap_NamespaceImageGen(t *testing.T) {
 				},
 			},
 			want: false,
-		},
-		{
-			name: "flattened image_gen function",
-			reqBody: map[string]any{
-				"model": "gpt-5.5",
-				"tools": []any{
-					map[string]any{"type": "function", "name": "image_gen.imagegen"},
-				},
-			},
-			want: true,
-		},
-		{
-			name: "chat-style flattened image_gen function in additional_tools",
-			reqBody: map[string]any{
-				"model": "gpt-5.5",
-				"input": []any{
-					map[string]any{
-						"type": "additional_tools",
-						"tools": []any{
-							map[string]any{"type": "function", "function": map[string]any{"name": "image_gen.imagegen"}},
-						},
-					},
-				},
-			},
-			want: true,
 		},
 		{
 			name: "namespace image_gen tool choice",
