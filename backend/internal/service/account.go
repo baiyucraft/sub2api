@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"math"
+	"net/url"
 	"reflect"
 	"sort"
 	"strconv"
@@ -1357,10 +1358,37 @@ func (a *Account) GetGrokBaseURL() string {
 		return ""
 	}
 	baseURL := a.GetCredential("base_url")
+	if a.IsGrokOAuth() {
+		if strings.TrimSpace(baseURL) == "" || isOfficialGrokAPIBaseURL(baseURL) {
+			return xai.DefaultCLIBaseURL
+		}
+	}
 	if baseURL != "" {
 		return baseURL
 	}
 	return xai.DefaultBaseURL
+}
+
+func isOfficialGrokAPIBaseURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed == nil || parsed.Opaque != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	defaultURL, err := url.Parse(xai.DefaultBaseURL)
+	if err != nil {
+		return false
+	}
+	if !strings.EqualFold(parsed.Scheme, defaultURL.Scheme) || !strings.EqualFold(parsed.Hostname(), defaultURL.Hostname()) {
+		return false
+	}
+	if port := parsed.Port(); port != "" {
+		portNumber, err := strconv.Atoi(port)
+		if err != nil || portNumber != 443 {
+			return false
+		}
+	}
+	path := strings.TrimRight(parsed.Path, "/")
+	return path == "" || path == strings.TrimRight(defaultURL.Path, "/")
 }
 
 func (a *Account) GetGrokAccessToken() string {
