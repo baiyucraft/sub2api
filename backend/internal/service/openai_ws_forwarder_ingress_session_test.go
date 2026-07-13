@@ -403,7 +403,8 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_FollowupCreateCa
 	require.Equal(t, "resp_omit_model_1", gjson.Get(requestToJSONString(captureConn.writes[1]), "previous_response_id").String())
 }
 
-func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_InjectsCodexImageBridge(t *testing.T) {
+func proxyCodexImageBridgeWebSocketPayload(t *testing.T, requestBody string) string {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
 	cfg := &config.Config{}
@@ -512,7 +513,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_InjectsCodexImag
 	}()
 
 	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
-	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.5","stream":false,"input":"draw a cat"}`))
+	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(requestBody))
 	cancelWrite()
 	require.NoError(t, err)
 
@@ -533,11 +534,47 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_InjectsCodexImag
 	}
 
 	require.Len(t, captureConn.writes, 1)
-	upstreamPayload := requestToJSONString(captureConn.writes[0])
+	return requestToJSONString(captureConn.writes[0])
+}
+
+func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_InjectsCodexImageBridge(t *testing.T) {
+	upstreamPayload := proxyCodexImageBridgeWebSocketPayload(t, `{"type":"response.create","model":"gpt-5.5","stream":false,"input":"draw a cat"}`)
+
 	require.True(t, gjson.Get(upstreamPayload, `tools.#(type=="image_generation")`).Exists())
 	require.Equal(t, "png", gjson.Get(upstreamPayload, `tools.#(type=="image_generation").output_format`).String())
 	require.Equal(t, "auto", gjson.Get(upstreamPayload, "tool_choice").String())
 	require.Contains(t, gjson.Get(upstreamPayload, "instructions").String(), "image_generation")
+}
+
+func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_DoesNotInjectHostedToolAlongsideFlattenedImageGenFunction(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		preservedPath  string
+		preservedValue string
+	}{
+		{
+			name:           "direct function name",
+			body:           `{"type":"response.create","model":"gpt-5.5","stream":false,"tools":[{"type":"function","name":"image_gen.imagegen"}],"input":"draw a cat"}`,
+			preservedPath:  `tools.#(name=="image_gen.imagegen").type`,
+			preservedValue: "function",
+		},
+		{
+			name:           "chat-style function in additional_tools",
+			body:           `{"type":"response.create","model":"gpt-5.5","stream":false,"input":[{"type":"message","role":"user","content":"draw a cat"},{"type":"additional_tools","tools":[{"type":"function","function":{"name":"image_gen.imagegen"}}]}]}`,
+			preservedPath:  `input.#(type=="additional_tools").tools.0.function.name`,
+			preservedValue: "image_gen.imagegen",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstreamPayload := proxyCodexImageBridgeWebSocketPayload(t, tt.body)
+
+			require.False(t, gjson.Get(upstreamPayload, `tools.#(type=="image_generation")`).Exists())
+			require.Equal(t, tt.preservedValue, gjson.Get(upstreamPayload, tt.preservedPath).String())
+		})
+	}
 }
 
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_DedicatedModeDoesNotReuseConnAcrossSessions(t *testing.T) {

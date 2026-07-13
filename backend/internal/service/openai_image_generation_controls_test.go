@@ -321,6 +321,69 @@ func TestOpenAIGatewayServiceForward_CodexBridgeDoesNotInjectHostedToolAlongside
 	require.Equal(t, "namespace", gjson.GetBytes(upstream.lastBody, `input.#(type=="additional_tools").tools.#(name=="image_gen").type`).String())
 }
 
+func TestOpenAIGatewayServiceForward_CodexBridgeDoesNotInjectHostedToolAlongsideFlattenedImageGenFunction(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		preservedPath  string
+		preservedValue string
+	}{
+		{
+			name:           "direct function name",
+			body:           `{"model":"gpt-5.5","stream":false,"tools":[{"type":"function","name":"image_gen.imagegen"}],"input":"draw a cat"}`,
+			preservedPath:  `tools.#(name=="image_gen.imagegen").type`,
+			preservedValue: "function",
+		},
+		{
+			name:           "chat-style function in additional_tools",
+			body:           `{"model":"gpt-5.5","stream":false,"input":[{"type":"message","role":"user","content":"draw a cat"},{"type":"additional_tools","tools":[{"type":"function","function":{"name":"image_gen.imagegen"}}]}]}`,
+			preservedPath:  `input.#(type=="additional_tools").tools.0.function.name`,
+			preservedValue: "image_gen.imagegen",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"id":"resp_flattened_image","model":"gpt-5.5","usage":{"input_tokens":1,"output_tokens":1}}`)),
+			}}
+			svc := newOpenAIImageGenerationControlTestService(upstream)
+			svc.cfg.Gateway.CodexImageGenerationBridgeEnabled = true
+			c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
+
+			result, err := svc.Forward(context.Background(), c, newOpenAIImageGenerationControlTestAccount(), []byte(tt.body))
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists())
+			require.Equal(t, tt.preservedValue, gjson.GetBytes(upstream.lastBody, tt.preservedPath).String())
+		})
+	}
+}
+
+func TestOpenAIGatewayServiceForward_CompactPreservesFlattenedImageGenFunctionWithoutHostedTool(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"cmp_flattened","usage":{"input_tokens":1,"output_tokens":1}}`)),
+	}}
+	svc := newOpenAIImageGenerationControlTestService(upstream)
+	svc.cfg.Gateway.CodexImageGenerationBridgeEnabled = true
+	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
+	c.Request.URL.Path = "/v1/responses/compact"
+
+	result, err := svc.Forward(context.Background(), c, newOpenAIImageGenerationControlTestAccount(), []byte(`{"model":"gpt-5.5","tools":[{"type":"function","name":"image_gen.imagegen"}],"input":"draw"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists())
+	require.Equal(t, "function", gjson.GetBytes(upstream.lastBody, `tools.#(name=="image_gen.imagegen").type`).String())
+}
+
 func TestOpenAIGatewayServiceForward_CodexBridgePreservesExistingToolChoice(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
