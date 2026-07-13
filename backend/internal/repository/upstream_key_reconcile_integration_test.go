@@ -201,8 +201,8 @@ func TestApplySyncSnapshotAutoConflictDisablesEveryMismatchedAccount(t *testing.
 	remoteID := int64(94002)
 	key, err := client.UpstreamKey.Create().SetUpstreamConfigID(config.ID).SetRemoteKeyID(remoteID).SetName("auto").SetKey("sk-auto").SetKeyHash(service.HashUpstreamKey("sk-auto")).SetPlatform(service.PlatformOpenAI).SetPlatformSource(service.UpstreamKeyPlatformSourceAuto).SetPlatformDetectionStatus(service.UpstreamKeyPlatformDetectionDetected).SetStatus(service.StatusActive).Save(ctx)
 	require.NoError(t, err)
-	for _, platform := range []string{service.PlatformOpenAI, service.PlatformGemini} {
-		_, err = client.Account.Create().SetName(fmt.Sprintf("auto-%s", platform)).SetPlatform(platform).SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{}).SetExtra(map[string]any{}).SetConcurrency(100).SetPriority(1).SetStatus(service.StatusActive).SetSchedulable(true).SetUpstreamConfigID(config.ID).SetUpstreamKeyID(key.ID).Save(ctx)
+	for index := range 2 {
+		_, err = client.Account.Create().SetName(fmt.Sprintf("auto-openai-%d", index)).SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{}).SetExtra(map[string]any{}).SetConcurrency(100).SetPriority(1).SetStatus(service.StatusActive).SetSchedulable(true).SetUpstreamConfigID(config.ID).SetUpstreamKeyID(key.ID).Save(ctx)
 		require.NoError(t, err)
 	}
 	detectedAt := time.Now().UTC()
@@ -226,6 +226,41 @@ func TestApplySyncSnapshotAutoConflictDisablesEveryMismatchedAccount(t *testing.
 	var outboxCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type = $1", service.SchedulerOutboxEventAccountBulkChanged).Scan(&outboxCount))
 	require.GreaterOrEqual(t, outboxCount, 1)
+}
+
+func TestApplySyncSnapshotIncompletePlatformEvidencePreservesAssignmentAndAccounts(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := &upstreamConfigRepository{client: client}
+	config, err := client.UpstreamConfig.Create().SetName(fmt.Sprintf("platform-partial-%d", time.Now().UnixNano())).SetProvider(service.UpstreamProviderNewAPI).SetSiteURL("https://example.com").SetAuthMode(service.UpstreamAuthModeCookie).Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_events WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_keys WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_configs WHERE id = $1", config.ID)
+	})
+	remoteID := int64(94003)
+	key, err := client.UpstreamKey.Create().SetUpstreamConfigID(config.ID).SetRemoteKeyID(remoteID).SetName("partial").SetKey("sk-partial").SetKeyHash(service.HashUpstreamKey("sk-partial")).SetPlatform(service.PlatformOpenAI).SetPlatformSource(service.UpstreamKeyPlatformSourceAuto).SetDetectedPlatform(service.PlatformOpenAI).SetPlatformDetectionStatus(service.UpstreamKeyPlatformDetectionDetected).SetStatus(service.StatusActive).Save(ctx)
+	require.NoError(t, err)
+	account, err := client.Account.Create().SetName("partial-openai").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{}).SetExtra(map[string]any{}).SetConcurrency(100).SetPriority(1).SetStatus(service.StatusActive).SetSchedulable(true).SetUpstreamConfigID(config.ID).SetUpstreamKeyID(key.ID).Save(ctx)
+	require.NoError(t, err)
+	detectedAt := time.Now().UTC()
+	incoming := []service.UpstreamKey{{UpstreamConfigID: config.ID, Name: "partial", Key: "sk-partial", KeyHash: service.HashUpstreamKey("sk-partial"), RemoteKeyID: &remoteID, DetectedPlatform: repoStringPtr(service.PlatformAnthropic), PlatformDetectionStatus: service.UpstreamKeyPlatformDetectionDetected, PlatformDetectedAt: &detectedAt, Status: service.StatusActive, LastSeenAt: &detectedAt, Extra: map[string]any{"newapi_platform_evidence": map[string]any{"status": "unique", "candidates": []string{service.PlatformAnthropic}}}}}
+
+	_, _, changed, err := repo.ApplySyncSnapshot(ctx, config.ID, 0, incoming, nil, detectedAt, false)
+	require.NoError(t, err)
+	require.Zero(t, changed)
+	updatedKey, err := client.UpstreamKey.Get(ctx, key.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.PlatformOpenAI, *updatedKey.Platform)
+	require.Equal(t, service.UpstreamKeyPlatformSourceAuto, updatedKey.PlatformSource)
+	require.Equal(t, service.PlatformOpenAI, *updatedKey.DetectedPlatform)
+	require.Equal(t, service.UpstreamKeyPlatformDetectionDetected, updatedKey.PlatformDetectionStatus)
+	updatedAccount, err := client.Account.Get(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.StatusActive, updatedAccount.Status)
+	require.True(t, updatedAccount.Schedulable)
 }
 
 func TestApplySyncSnapshotReconcilesLegacyKeyWithoutRemoteID(t *testing.T) {

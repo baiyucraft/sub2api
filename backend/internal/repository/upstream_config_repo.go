@@ -634,6 +634,16 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			keys[i].UpstreamConfigID = configID
 			keys[i].MissingCount = 0
 			keys[i].MissingSince = nil
+			if !complete && config.Provider == service.UpstreamProviderNewAPI {
+				// Partial key snapshots are not authoritative platform evidence. Keep
+				// the raw evidence in Extra for diagnostics, but never change a
+				// platform assignment or disable accounts from an incomplete view.
+				keys[i].Platform = nil
+				keys[i].PlatformSource = service.UpstreamKeyPlatformSourceUnassigned
+				keys[i].DetectedPlatform = nil
+				keys[i].PlatformDetectionStatus = service.UpstreamKeyPlatformDetectionLegacy
+				keys[i].PlatformDetectedAt = nil
+			}
 			existing, queryErr := findUpstreamKeyForUpsert(txCtx, client, &keys[i])
 			if queryErr != nil {
 				return queryErr

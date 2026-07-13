@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -143,6 +144,68 @@ func TestNewAPIKnownUpstreamPricingFixtures(t *testing.T) {
 			}, detectedAt)
 			require.Equal(t, newAPIPlatformEvidenceUnique, evidence.Status)
 			require.Equal(t, []string{tt.platform}, evidence.Candidates)
+		})
+	}
+}
+
+func TestNewAPIKnownUpstreamSnapshotsClassifyKeysByGroupPricing(t *testing.T) {
+	for _, filename := range []string{"testdata/newapi_dao_platform_snapshot.json", "testdata/newapi_sunai_platform_snapshot.json"} {
+		raw, err := os.ReadFile(filename)
+		require.NoError(t, err)
+		var fixture struct {
+			Name     string                     `json:"name"`
+			Groups   map[string]newAPIGroupInfo `json:"groups"`
+			Pricing  []map[string]any           `json:"pricing"`
+			Tokens   []map[string]any           `json:"tokens"`
+			Expected []struct {
+				Name     string `json:"name"`
+				Group    string `json:"group"`
+				Platform string `json:"platform"`
+			} `json:"expected"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &fixture))
+
+		t.Run(fixture.Name, func(t *testing.T) {
+			expected := make(map[string]struct{ group, platform string }, len(fixture.Expected))
+			for _, item := range fixture.Expected {
+				require.NotEmpty(t, item.Name)
+				_, duplicate := expected[item.Name]
+				require.False(t, duplicate, "duplicate expected key %q", item.Name)
+				expected[item.Name] = struct{ group, platform string }{item.Group, item.Platform}
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/user/self/groups":
+					_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": fixture.Groups})
+				case "/api/pricing":
+					_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": fixture.Pricing})
+				case "/api/token/":
+					_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"page": 0, "page_size": 100, "total": len(fixture.Tokens), "items": fixture.Tokens}})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			snapshot, err := (newAPIUpstreamProviderAdapter{}).SyncSnapshot(context.Background(), &UpstreamConfig{
+				ID: 99, Name: fixture.Name, Provider: UpstreamProviderNewAPI,
+				SiteURL: server.URL, AuthMode: UpstreamAuthModeCookie,
+				Credentials: map[string]any{
+					AccountCredentialNewAPICookie: "session=fixture",
+					AccountCredentialNewAPIUserID: "4798",
+				},
+			}, "", false)
+			require.NoError(t, err)
+			require.True(t, snapshot.KeysComplete)
+			require.False(t, snapshot.Partial)
+			require.Len(t, snapshot.Keys, len(fixture.Expected))
+			for _, key := range snapshot.Keys {
+				want, ok := expected[key.Name]
+				require.True(t, ok, "unexpected key %q", key.Name)
+				require.Equal(t, want.group, key.UpstreamGroupName)
+				assertNewAPIDetectedPlatform(t, key, want.platform, UpstreamKeyPlatformDetectionDetected)
+			}
 		})
 	}
 }

@@ -45,8 +45,8 @@
               v-for="key in filteredKeys"
               :key="key.id"
               type="button"
-              :class="['select-option', modelValue === key.id && 'select-option-selected', key.status !== 'active' && 'select-option-disabled']"
-              :disabled="key.status !== 'active'"
+              :class="['select-option', modelValue === key.id && 'select-option-selected', !keyIsBindable(key) && 'select-option-disabled']"
+              :disabled="!keyIsBindable(key)"
               @click="selectKey(key.id)"
             >
               <div class="min-w-0 flex-1 text-left">
@@ -133,7 +133,7 @@ const searchPlaceholder = computed(() => props.searchPlaceholder || t('admin.acc
 
 const availableKeys = computed(() => props.keys.filter((key) =>
   keyMatchesPlatform(key, props.platform) &&
-  (key.status === 'active' || key.id === props.assignedKeyId)
+  (keyIsBindable(key) || key.id === props.assignedKeyId)
 ))
 
 const selectedKey = computed(() => availableKeys.value.find((key) => key.id === props.modelValue) || null)
@@ -170,10 +170,17 @@ function toggle() {
 
 function selectKey(id: number) {
   const key = availableKeys.value.find((item) => item.id === id)
-  if (!key || key.status !== 'active') return
+  if (!key || !keyIsBindable(key)) return
   emit('update:modelValue', id)
   isOpen.value = false
   searchQuery.value = ''
+}
+
+function keyIsBindable(key: UpstreamKey): boolean {
+  if (key.status !== 'active') return false
+  if ((key.platform_source || '').trim().toLowerCase() === 'manual') return true
+  const detectionStatus = (key.platform_detection_status || '').trim().toLowerCase()
+  return !['unresolved', 'ambiguous', 'conflict'].includes(detectionStatus)
 }
 
 function keyMatchesPlatform(key: UpstreamKey, platform: string): boolean {
