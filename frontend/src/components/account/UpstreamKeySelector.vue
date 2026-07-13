@@ -104,12 +104,15 @@ const { t } = useI18n()
 const props = withDefaults(defineProps<{
   modelValue: number | null
   keys: UpstreamKey[]
+  platform: string
+  assignedKeyId?: number | null
   disabled?: boolean
   placeholder?: string
   emptyText?: string
   searchPlaceholder?: string
 }>(), {
   disabled: false,
+  assignedKeyId: null,
   placeholder: '',
   emptyText: '',
   searchPlaceholder: ''
@@ -128,12 +131,17 @@ const placeholder = computed(() => props.placeholder || t('admin.accounts.upstre
 const emptyText = computed(() => props.emptyText || t('admin.accounts.upstreamKeySelector.empty'))
 const searchPlaceholder = computed(() => props.searchPlaceholder || t('admin.accounts.upstreamKeySelector.searchPlaceholder'))
 
-const selectedKey = computed(() => props.keys.find((key) => key.id === props.modelValue) || null)
+const availableKeys = computed(() => props.keys.filter((key) =>
+  keyMatchesPlatform(key, props.platform) &&
+  (key.status === 'active' || key.id === props.assignedKeyId)
+))
+
+const selectedKey = computed(() => availableKeys.value.find((key) => key.id === props.modelValue) || null)
 
 const filteredKeys = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
-  if (!query) return props.keys
-  return props.keys.filter((key) => optionSearchText(key).includes(query))
+  if (!query) return availableKeys.value
+  return availableKeys.value.filter((key) => optionSearchText(key).includes(query))
 })
 
 const selectedSummaryTitle = computed(() => {
@@ -161,11 +169,17 @@ function toggle() {
 }
 
 function selectKey(id: number) {
-  const key = props.keys.find((item) => item.id === id)
+  const key = availableKeys.value.find((item) => item.id === id)
   if (!key || key.status !== 'active') return
   emit('update:modelValue', id)
   isOpen.value = false
   searchQuery.value = ''
+}
+
+function keyMatchesPlatform(key: UpstreamKey, platform: string): boolean {
+  const keyPlatform = (key.platform || '').trim().toLowerCase()
+  const currentPlatform = platform.trim().toLowerCase()
+  return keyPlatform !== '' && currentPlatform !== '' && keyPlatform === currentPlatform
 }
 
 function optionTitle(key: UpstreamKey): string {

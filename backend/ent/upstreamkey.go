@@ -40,7 +40,15 @@ type UpstreamKey struct {
 	// UpstreamGroupName holds the value of the "upstream_group_name" field.
 	UpstreamGroupName string `json:"upstream_group_name,omitempty"`
 	// Platform holds the value of the "platform" field.
-	Platform string `json:"platform,omitempty"`
+	Platform *string `json:"platform,omitempty"`
+	// PlatformSource holds the value of the "platform_source" field.
+	PlatformSource string `json:"platform_source,omitempty"`
+	// DetectedPlatform holds the value of the "detected_platform" field.
+	DetectedPlatform *string `json:"detected_platform,omitempty"`
+	// PlatformDetectionStatus holds the value of the "platform_detection_status" field.
+	PlatformDetectionStatus string `json:"platform_detection_status,omitempty"`
+	// PlatformDetectedAt holds the value of the "platform_detected_at" field.
+	PlatformDetectedAt *time.Time `json:"platform_detected_at,omitempty"`
 	// RateMultiplier holds the value of the "rate_multiplier" field.
 	RateMultiplier *float64 `json:"rate_multiplier,omitempty"`
 	// Status holds the value of the "status" field.
@@ -145,9 +153,9 @@ func (*UpstreamKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case upstreamkey.FieldID, upstreamkey.FieldUpstreamConfigID, upstreamkey.FieldRemoteKeyID, upstreamkey.FieldUpstreamGroupID, upstreamkey.FieldMissingCount:
 			values[i] = new(sql.NullInt64)
-		case upstreamkey.FieldName, upstreamkey.FieldKey, upstreamkey.FieldKeyHash, upstreamkey.FieldUpstreamGroupName, upstreamkey.FieldPlatform, upstreamkey.FieldStatus:
+		case upstreamkey.FieldName, upstreamkey.FieldKey, upstreamkey.FieldKeyHash, upstreamkey.FieldUpstreamGroupName, upstreamkey.FieldPlatform, upstreamkey.FieldPlatformSource, upstreamkey.FieldDetectedPlatform, upstreamkey.FieldPlatformDetectionStatus, upstreamkey.FieldStatus:
 			values[i] = new(sql.NullString)
-		case upstreamkey.FieldCreatedAt, upstreamkey.FieldUpdatedAt, upstreamkey.FieldDeletedAt, upstreamkey.FieldLastSeenAt, upstreamkey.FieldMissingSince:
+		case upstreamkey.FieldCreatedAt, upstreamkey.FieldUpdatedAt, upstreamkey.FieldDeletedAt, upstreamkey.FieldPlatformDetectedAt, upstreamkey.FieldLastSeenAt, upstreamkey.FieldMissingSince:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -237,7 +245,34 @@ func (_m *UpstreamKey) assignValues(columns []string, values []any) error {
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field platform", values[i])
 			} else if value.Valid {
-				_m.Platform = value.String
+				_m.Platform = new(string)
+				*_m.Platform = value.String
+			}
+		case upstreamkey.FieldPlatformSource:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field platform_source", values[i])
+			} else if value.Valid {
+				_m.PlatformSource = value.String
+			}
+		case upstreamkey.FieldDetectedPlatform:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field detected_platform", values[i])
+			} else if value.Valid {
+				_m.DetectedPlatform = new(string)
+				*_m.DetectedPlatform = value.String
+			}
+		case upstreamkey.FieldPlatformDetectionStatus:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field platform_detection_status", values[i])
+			} else if value.Valid {
+				_m.PlatformDetectionStatus = value.String
+			}
+		case upstreamkey.FieldPlatformDetectedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field platform_detected_at", values[i])
+			} else if value.Valid {
+				_m.PlatformDetectedAt = new(time.Time)
+				*_m.PlatformDetectedAt = value.Time
 			}
 		case upstreamkey.FieldRateMultiplier:
 			if value, ok := values[i].(*sql.NullFloat64); !ok {
@@ -381,8 +416,26 @@ func (_m *UpstreamKey) String() string {
 	builder.WriteString("upstream_group_name=")
 	builder.WriteString(_m.UpstreamGroupName)
 	builder.WriteString(", ")
-	builder.WriteString("platform=")
-	builder.WriteString(_m.Platform)
+	if v := _m.Platform; v != nil {
+		builder.WriteString("platform=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	builder.WriteString("platform_source=")
+	builder.WriteString(_m.PlatformSource)
+	builder.WriteString(", ")
+	if v := _m.DetectedPlatform; v != nil {
+		builder.WriteString("detected_platform=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	builder.WriteString("platform_detection_status=")
+	builder.WriteString(_m.PlatformDetectionStatus)
+	builder.WriteString(", ")
+	if v := _m.PlatformDetectedAt; v != nil {
+		builder.WriteString("platform_detected_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
 	builder.WriteString(", ")
 	if v := _m.RateMultiplier; v != nil {
 		builder.WriteString("rate_multiplier=")

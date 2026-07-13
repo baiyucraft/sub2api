@@ -10,7 +10,7 @@ const {
   listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock,
   getSettingsMock, updateSettingsMock, listSyncRunsMock, getSyncRunMock, listEventsMock,
   listIncidentsMock, listBalanceHistoryMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock,
-  listKeyRateTrendKeysMock, getKeyRateTrendMock
+  listKeyRateTrendKeysMock, getKeyRateTrendMock, listKeysMock, updateKeyPlatformMock
 } = vi.hoisted(() => ({
   listMock: vi.fn(),
   createMock: vi.fn(),
@@ -29,6 +29,8 @@ const {
   getUsageTrendMock: vi.fn(),
   listKeyRateTrendKeysMock: vi.fn(),
   getKeyRateTrendMock: vi.fn(),
+  listKeysMock: vi.fn(),
+  updateKeyPlatformMock: vi.fn(),
   proxiesMock: vi.fn(),
   showErrorMock: vi.fn(),
   showSuccessMock: vi.fn()
@@ -52,7 +54,9 @@ vi.mock('@/api/admin/upstreamConfigs', () => ({
     listBalanceHistory: listBalanceHistoryMock,
     getUsageTrend: getUsageTrendMock,
     listKeyRateTrendKeys: listKeyRateTrendKeysMock,
-    getKeyRateTrend: getKeyRateTrendMock
+    getKeyRateTrend: getKeyRateTrendMock,
+    listKeys: listKeysMock,
+    updateKeyPlatform: updateKeyPlatformMock
   }
 }))
 
@@ -119,6 +123,13 @@ const DataTableStub = defineComponent({
         <slot v-if="columns.find((column) => column.key === 'auth_mode')" name="cell-auth_mode" :row="row" :value="row.auth_mode" />
         <slot v-if="columns.find((column) => column.key === 'credentials')" name="cell-credentials" :row="row" />
         <slot v-if="columns.find((column) => column.key === 'last_success_at')" name="cell-last_success_at" :row="row" :value="row.last_success_at" />
+        <slot v-if="columns.find((column) => column.key === 'key')" name="cell-key" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'group')" name="cell-group" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'detected_platform')" name="cell-detected_platform" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'platform')" name="cell-platform" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'source')" name="cell-source" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'bound_account_count')" name="cell-bound_account_count" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'status')" name="cell-status" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div>
       <slot v-if="!data.length" name="empty" />
@@ -189,10 +200,11 @@ const ProxySelectorStub = defineComponent({
 
 const UpstreamActionMenuStub = defineComponent({
   props: ['show', 'anchorEl', 'config', 'width'],
-  emits: ['close', 'test', 'dashboard', 'delete'],
+  emits: ['close', 'test', 'keyPlatforms', 'dashboard', 'delete'],
   template: `
     <div v-if="show" data-test="upstream-action-menu" :data-width="width">
       <button data-test="menu-test" @click="$emit('test', config); $emit('close')">test</button>
+      <button data-test="menu-key-platforms" @click="$emit('keyPlatforms', config); $emit('close')">platforms</button>
       <button data-test="menu-dashboard" @click="$emit('dashboard', config); $emit('close')">dashboard</button>
       <button data-test="menu-delete" @click="$emit('delete', config); $emit('close')">delete</button>
     </div>
@@ -291,6 +303,8 @@ describe('UpstreamConfigsView', () => {
     getUsageTrendMock.mockReset()
     listKeyRateTrendKeysMock.mockReset()
     getKeyRateTrendMock.mockReset()
+    listKeysMock.mockReset()
+    updateKeyPlatformMock.mockReset()
     proxiesMock.mockReset()
     showErrorMock.mockReset()
     showSuccessMock.mockReset()
@@ -335,6 +349,8 @@ describe('UpstreamConfigsView', () => {
       current_raw_rate: 1.2, current_effective_rate: 0.96,
       points: [], changes: []
     })
+    listKeysMock.mockResolvedValue([])
+    updateKeyPlatformMock.mockResolvedValue({ id: 21, platform: 'anthropic' })
   })
 
   afterEach(() => {
@@ -1229,5 +1245,209 @@ describe('UpstreamConfigsView', () => {
 
     pending.resolve({ balance_low_threshold_cny: 10, sub2api_not_in_cn_confirmed: false })
     await flushPromises()
+  })
+
+  it('opens the extra-wide key platform table from the row action menu', async () => {
+    listKeysMock.mockResolvedValueOnce([{
+      id: 21,
+      upstream_config_id: 10,
+      name: 'Primary key',
+      key_status: { has_key: true, suffix: '1234' },
+      upstream_group_id: null,
+      upstream_group_name: '',
+      detected_platform: 'anthropic',
+      platform: 'openai',
+      platform_source: 'auto',
+      platform_detection_status: 'detected',
+      bound_account_count: 2,
+      status: 'active',
+      created_at: '',
+      updated_at: '2026-07-14T01:02:03Z'
+    }])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
+    await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
+    await flushPromises()
+
+    expect(listKeysMock).toHaveBeenCalledWith(10)
+    expect(
+      wrapper.get('[data-test="key-platforms-dialog"]').element
+        .closest('[data-test="base-dialog"]')
+        ?.getAttribute('data-width')
+    ).toBe('extra-wide')
+    const platformTable = wrapper.findAll('[data-test="data-table"]').find((table) =>
+      table.get('[data-test="columns"]').text().startsWith('key,group,detected_platform')
+    )
+    expect(platformTable?.get('[data-test="columns"]').text()).toBe(
+      'key,group,detected_platform,platform,source,bound_account_count,status'
+    )
+    expect(wrapper.text()).toContain('••••1234')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.keyPlatforms.unassignedGroup')
+    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.keyPlatforms.status.conflict')
+  })
+
+  it('updates a key platform without disabling bindings on the normal path', async () => {
+    listKeysMock.mockResolvedValueOnce([{
+      id: 21,
+      upstream_config_id: 10,
+      name: 'Primary key',
+      platform: 'openai',
+      detected_platform: 'anthropic',
+      bound_account_count: 0,
+      status: 'active',
+      created_at: '',
+      updated_at: '2026-07-14T01:02:03Z'
+    }])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
+    await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="key-platform-select-21"]').setValue('anthropic')
+    await flushPromises()
+
+    expect(updateKeyPlatformMock).toHaveBeenCalledTimes(1)
+    expect(updateKeyPlatformMock).toHaveBeenCalledWith(10, 21, {
+      platform: 'anthropic',
+      expected_updated_at: '2026-07-14T01:02:03Z'
+    })
+    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
+    expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.keyPlatforms.updated')
+  })
+
+  it('renders unassigned and explicit conflict states from backend evidence', async () => {
+    listKeysMock.mockResolvedValueOnce([
+      {
+        id: 21,
+        upstream_config_id: 10,
+        name: 'Unassigned key',
+        platform: null,
+        platform_source: 'unassigned',
+        platform_detection_status: 'unresolved',
+        bound_account_count: 0,
+        status: 'active',
+        created_at: '',
+        updated_at: '2026-07-14T01:02:03Z'
+      },
+      {
+        id: 22,
+        upstream_config_id: 10,
+        name: 'Conflicting key',
+        platform: 'openai',
+        detected_platform: 'anthropic',
+        platform_source: 'manual',
+        platform_detection_status: 'conflict',
+        bound_account_count: 1,
+        status: 'active',
+        created_at: '',
+        updated_at: '2026-07-14T01:02:04Z'
+      }
+    ])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
+    await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="key-platform-select-21"]').attributes('placeholder')).toBe(
+      'admin.upstreamConfigs.keyPlatforms.unassignedPlatform'
+    )
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.keyPlatforms.sources.unassigned')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.keyPlatforms.status.unresolved')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.keyPlatforms.status.conflict')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.keyPlatforms.conflict')
+  })
+
+  it('requires confirmation before retrying a 409 with bound-account disabling', async () => {
+    listKeysMock.mockResolvedValueOnce([{
+      id: 21,
+      upstream_config_id: 10,
+      name: 'Primary key',
+      platform: 'openai',
+      detected_platform: 'anthropic',
+      bound_account_count: 2,
+      status: 'active',
+      created_at: '',
+      updated_at: '2026-07-14T01:02:03Z'
+    }])
+    updateKeyPlatformMock
+      .mockRejectedValueOnce({
+        status: 409,
+        reason: 'UPSTREAM_KEY_PLATFORM_BOUND_ACCOUNT_CONFLICT',
+        metadata: { bound_account_count: '3' }
+      })
+      .mockResolvedValueOnce({ id: 21, platform: 'anthropic', bound_account_count: 0, status: 'active' })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
+    await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="key-platform-select-21"]').setValue('anthropic')
+    await flushPromises()
+
+    expect(updateKeyPlatformMock).toHaveBeenNthCalledWith(1, 10, 21, {
+      platform: 'anthropic',
+      expected_updated_at: '2026-07-14T01:02:03Z'
+    })
+    expect(wrapper.get('[data-test="confirm-dialog"]').text()).toContain('"count":3')
+    expect(updateKeyPlatformMock).toHaveBeenCalledTimes(1)
+
+    await wrapper.get('[data-test="confirm-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(updateKeyPlatformMock).toHaveBeenNthCalledWith(2, 10, 21, {
+      platform: 'anthropic',
+      expected_updated_at: '2026-07-14T01:02:03Z',
+      disable_bound_accounts: true
+    })
+    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
+  })
+
+  it('reloads a stale 409 instead of offering a destructive retry', async () => {
+    const staleKey = {
+      id: 21,
+      upstream_config_id: 10,
+      name: 'Primary key',
+      platform: 'openai',
+      detected_platform: 'anthropic',
+      bound_account_count: 2,
+      status: 'active',
+      created_at: '',
+      updated_at: '2026-07-14T01:02:03Z'
+    }
+    listKeysMock
+      .mockResolvedValueOnce([staleKey])
+      .mockResolvedValueOnce([{ ...staleKey, platform: 'gemini', updated_at: '2026-07-14T01:03:00Z' }])
+    updateKeyPlatformMock.mockRejectedValueOnce({
+      status: 409,
+      reason: 'UPSTREAM_KEY_PLATFORM_STALE',
+      metadata: { current_updated_at: '2026-07-14T01:03:00Z' }
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
+    await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="key-platform-select-21"]').setValue('anthropic')
+    await flushPromises()
+
+    expect(updateKeyPlatformMock).toHaveBeenCalledTimes(1)
+    expect(listKeysMock).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
+    expect(showErrorMock).toHaveBeenCalledWith('admin.upstreamConfigs.keyPlatforms.stale')
+  })
+
+  it('provides complete key platform locale labels in both languages', () => {
+    expect(zhUpstreamConfigs.upstreamConfigs.actions.keyPlatforms).toBe('Key 平台')
+    expect(zhUpstreamConfigs.upstreamConfigs.keyPlatforms.unassignedGroup).toBe('未分配')
+    expect(zhUpstreamConfigs.upstreamConfigs.keyPlatforms.status.conflict).toBe('冲突')
+    expect(enUpstreamConfigs.upstreamConfigs.actions.keyPlatforms).toBe('Key Platforms')
+    expect(enUpstreamConfigs.upstreamConfigs.keyPlatforms.disableBindingsConfirm).toBe('Disable and retry')
   })
 })

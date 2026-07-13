@@ -127,14 +127,17 @@ func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, in
 	if !upstreamKeyIsActive(key) {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_INACTIVE", "upstream key is not active")
 	}
+	if key.Platform == nil || strings.TrimSpace(*key.Platform) == "" {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_UNASSIGNED", "upstream key platform must be assigned before binding an account")
+	}
 	autoName, err := buildUpstreamAccountName(cfg.Name, key.Name)
 	if err != nil {
 		return err
 	}
 	input.Name = autoName
 	if strings.TrimSpace(input.Platform) == "" {
-		input.Platform = key.Platform
-	} else if strings.TrimSpace(key.Platform) != "" && !strings.EqualFold(strings.TrimSpace(input.Platform), strings.TrimSpace(key.Platform)) {
+		input.Platform = strings.TrimSpace(*key.Platform)
+	} else if !strings.EqualFold(strings.TrimSpace(input.Platform), strings.TrimSpace(*key.Platform)) {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_MISMATCH", "upstream key platform does not match account platform")
 	}
 	if input.Credentials == nil {
@@ -190,7 +193,10 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 	if !upstreamKeyIsActive(key) && (account.UpstreamKeyID == nil || *account.UpstreamKeyID != key.ID) {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_INACTIVE", "upstream key is not active")
 	}
-	if strings.TrimSpace(key.Platform) != "" && strings.TrimSpace(account.Platform) != "" && !strings.EqualFold(strings.TrimSpace(account.Platform), strings.TrimSpace(key.Platform)) {
+	if key.Platform == nil || strings.TrimSpace(*key.Platform) == "" {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_UNASSIGNED", "upstream key platform must be assigned before binding an account")
+	}
+	if strings.TrimSpace(account.Platform) != "" && !strings.EqualFold(strings.TrimSpace(account.Platform), strings.TrimSpace(*key.Platform)) {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_MISMATCH", "upstream key platform does not match account platform")
 	}
 	autoName, err := buildUpstreamAccountName(cfg.Name, key.Name)

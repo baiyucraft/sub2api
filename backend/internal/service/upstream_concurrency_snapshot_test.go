@@ -289,7 +289,7 @@ func TestUpstreamConfigServiceNewAPIInvalidConcurrencyWarnsWithoutChangingAccoun
 			},
 		}},
 		keys: []UpstreamKey{{
-			ID: keyID, UpstreamConfigID: configID, Key: "sk-plus", KeyHash: HashUpstreamKey("sk-plus"), Platform: PlatformOpenAI, Status: StatusActive,
+			ID: keyID, UpstreamConfigID: configID, Key: "sk-plus", KeyHash: HashUpstreamKey("sk-plus"), Platform: upstreamPlatformPtr(PlatformOpenAI), Status: StatusActive,
 		}},
 	}
 	accountRepo := &sub2APIRateSyncAccountRepo{accounts: []Account{{

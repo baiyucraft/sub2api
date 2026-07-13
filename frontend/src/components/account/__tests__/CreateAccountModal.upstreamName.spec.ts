@@ -163,6 +163,7 @@ const UpstreamKeySelectorStub = defineComponent({
   name: 'UpstreamKeySelector',
   props: {
     modelValue: { type: Number, default: null },
+    platform: String,
     keys: { type: Array, default: () => [] },
     disabled: Boolean
   },
@@ -195,12 +196,13 @@ const upstreamKey = (
   id: number,
   configID: number,
   name: string,
-  status: 'active' | 'stale' = 'active'
+  status: 'active' | 'stale' = 'active',
+  platform: string | null = 'anthropic'
 ) => ({
   id,
   upstream_config_id: configID,
   name,
-  platform: 'anthropic',
+  platform,
   status,
   created_at: '2026-07-10T00:00:00Z',
   updated_at: '2026-07-10T00:00:00Z'
@@ -340,6 +342,34 @@ describe('CreateAccountModal upstream account name', () => {
 
     expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
       upstream_key_id: 11
+    }))
+  })
+
+  it('only offers active keys assigned to the current platform', async () => {
+    upstreamConfigKeysListMock.mockResolvedValue([
+      upstreamKey(10, 1, '当前平台 Key'),
+      upstreamKey(11, 1, '其他平台 Key', 'active', 'openai'),
+      upstreamKey(12, 1, '未知平台 Key', 'active', null),
+      upstreamKey(13, 1, '当前平台失效 Key', 'stale')
+    ])
+    const wrapper = await mountOpenedModal()
+
+    await wrapper.get('[data-testid="upstream-config-select"]').setValue('1')
+    await flushPromises()
+
+    const selector = wrapper.getComponent(UpstreamKeySelectorStub)
+    expect(selector.props('platform')).toBe('anthropic')
+    expect(selector.props('keys')).toEqual([
+      expect.objectContaining({ id: 10, platform: 'anthropic', status: 'active' })
+    ])
+
+    await wrapper.get('[data-testid="upstream-key-selector"]').trigger('click')
+    await wrapper.get('#create-account-form').trigger('submit')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'anthropic',
+      upstream_key_id: 10
     }))
   })
 

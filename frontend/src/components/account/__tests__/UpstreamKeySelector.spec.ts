@@ -19,6 +19,7 @@ describe('UpstreamKeySelector', () => {
     const wrapper = mount(UpstreamKeySelector, {
       props: {
         modelValue: 20,
+        platform: 'openai',
         keys: [
           {
             id: 20,
@@ -61,6 +62,7 @@ describe('UpstreamKeySelector', () => {
     const wrapper = mount(UpstreamKeySelector, {
       props: {
         modelValue: null,
+        platform: 'openai',
         keys: [
           {
             id: 21,
@@ -96,6 +98,7 @@ describe('UpstreamKeySelector', () => {
     const wrapper = mount(UpstreamKeySelector, {
       props: {
         modelValue: 1,
+        platform: 'openai',
         keys: [
           {
             id: 1,
@@ -133,6 +136,7 @@ describe('UpstreamKeySelector', () => {
     const wrapper = mount(UpstreamKeySelector, {
       props: {
         modelValue: 1,
+        platform: 'openai',
         keys: [
           {
             id: 1,
@@ -170,6 +174,7 @@ describe('UpstreamKeySelector', () => {
     const wrapper = mount(UpstreamKeySelector, {
       props: {
         modelValue: 1,
+        platform: 'openai',
         keys: [
           {
             id: 1,
@@ -206,6 +211,7 @@ describe('UpstreamKeySelector', () => {
     const wrapper = mount(UpstreamKeySelector, {
       props: {
         modelValue: null,
+        platform: 'openai',
         keys: [
           {
             id: 1,
@@ -244,6 +250,8 @@ describe('UpstreamKeySelector', () => {
     const wrapper = mount(UpstreamKeySelector, {
       props: {
         modelValue: 9,
+        platform: 'openai',
+        assignedKeyId: 9,
         keys: [{
           id: 9,
           upstream_config_id: 5,
@@ -270,5 +278,46 @@ describe('UpstreamKeySelector', () => {
     expect(option).toBeTruthy()
     await option!.trigger('click')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('only exposes active or currently bound keys for the exact platform', async () => {
+    const key = (id: number, platform: string | null, status = 'active') => ({
+      id,
+      upstream_config_id: 5,
+      name: `key-${id}`,
+      platform,
+      status,
+      created_at: '2026-07-10T00:00:00Z',
+      updated_at: '2026-07-10T00:00:00Z'
+    })
+    const wrapper = mount(UpstreamKeySelector, {
+      props: {
+        modelValue: 4,
+        platform: 'openai',
+        assignedKeyId: 4,
+        keys: [
+          key(1, 'openai'),
+          key(2, 'anthropic'),
+          key(3, null),
+          key(4, 'openai', 'stale'),
+          key(5, 'openai', 'stale')
+        ] as any
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.text()).toContain('key-4')
+    await wrapper.get('button.select-trigger').trigger('click')
+
+    const text = wrapper.text()
+    expect(text).toContain('key-1')
+    expect(text).toContain('key-4')
+    expect(text).not.toContain('key-2')
+    expect(text).not.toContain('key-3')
+    expect(text).not.toContain('key-5')
+
+    const activeOption = wrapper.findAll('button.select-option').find((option) => option.text().includes('key-1'))
+    await activeOption!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[1]])
   })
 })

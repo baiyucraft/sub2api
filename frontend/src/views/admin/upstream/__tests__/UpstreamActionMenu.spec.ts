@@ -42,18 +42,18 @@ describe('UpstreamActionMenu', () => {
     expect(wrapper.get('[data-test="action-menu"]').attributes('data-has-anchor')).toBe('true')
   })
 
-  it('emits test, dashboard, and delete with the config and closes each action', async () => {
+  it('emits test, keyPlatforms, dashboard, and delete with the config and closes each action', async () => {
     const item = config()
     const wrapper = mount(UpstreamActionMenu, {
       props: { show: true, anchorEl: document.body, config: item as any },
       global: { stubs: { ActionMenu: ActionMenuStub, Icon: true } }
     })
 
-    for (const [index, event] of ['test', 'dashboard', 'delete'].entries()) {
+    for (const [index, event] of ['test', 'keyPlatforms', 'dashboard', 'delete'].entries()) {
       await wrapper.findAll('[role="menuitem"]')[index].trigger('click')
       expect(wrapper.emitted(event)?.[0]).toEqual([item])
     }
-    expect(wrapper.emitted('close')).toHaveLength(3)
+    expect(wrapper.emitted('close')).toHaveLength(4)
   })
 
   it('hides the dashboard action for unsupported providers', () => {
@@ -62,7 +62,8 @@ describe('UpstreamActionMenu', () => {
       global: { stubs: { ActionMenu: ActionMenuStub, Icon: true } }
     })
 
-    expect(wrapper.findAll('[role="menuitem"]')).toHaveLength(2)
+    expect(wrapper.findAll('[role="menuitem"]')).toHaveLength(3)
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.actions.keyPlatforms')
     expect(wrapper.text()).not.toContain('admin.upstreamConfigs.actions.openDashboard')
   })
 })

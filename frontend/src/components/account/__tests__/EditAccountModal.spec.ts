@@ -328,7 +328,8 @@ function buildUpstreamBoundAccount(keyID = 20) {
 function buildUpstreamKey(
   id: number,
   name: string,
-  status: 'active' | 'stale' = 'active'
+  status: 'active' | 'stale' = 'active',
+  platform: string | null = 'openai'
 ) {
   return {
     id,
@@ -336,7 +337,7 @@ function buildUpstreamKey(
     name,
     key_status: { has_key: true, suffix: `key${id}` },
     upstream_group_name: 'plus',
-    platform: 'openai',
+    platform,
     rate_multiplier: 0.06,
     status,
     created_at: '2026-01-01T00:00:00Z',
@@ -501,6 +502,28 @@ describe('EditAccountModal', () => {
       upstream_config_id: 10,
       upstream_key_id: 22
     }))
+  })
+
+  it('only shows the original binding or active keys assigned to the account platform', async () => {
+    const account = buildUpstreamBoundAccount()
+    upstreamConfigKeysListMock.mockResolvedValue([
+      buildUpstreamKey(20, '原绑定 Key', 'stale'),
+      buildUpstreamKey(21, '同平台可用 Key'),
+      buildUpstreamKey(22, '其他平台 Key', 'active', 'anthropic'),
+      buildUpstreamKey(23, '未知平台 Key', 'active', null),
+      buildUpstreamKey(24, '其他同平台失效 Key', 'stale')
+    ])
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('原绑定 Key')
+    await wrapper.get('button.select-trigger').trigger('click')
+    const text = wrapper.text()
+    expect(text).toContain('同平台可用 Key')
+    expect(text).not.toContain('其他平台 Key')
+    expect(text).not.toContain('未知平台 Key')
+    expect(text).not.toContain('其他同平台失效 Key')
   })
 
   it('clears account-level proxy when saving an upstream-bound account', async () => {
