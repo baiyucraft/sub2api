@@ -320,4 +320,47 @@ describe('UpstreamKeySelector', () => {
     await activeOption!.trigger('click')
     expect(wrapper.emitted('update:modelValue')).toEqual([[1]])
   })
+
+  it('hides unresolved automatic keys but allows a manual conflict assignment', async () => {
+    const wrapper = mount(UpstreamKeySelector, {
+      props: {
+        modelValue: null,
+        platform: 'openai',
+        keys: [
+          {
+            id: 1,
+            upstream_config_id: 5,
+            name: 'ambiguous-auto',
+            platform: 'openai',
+            platform_source: 'auto',
+            platform_detection_status: 'ambiguous',
+            status: 'active',
+            created_at: '2026-07-10T00:00:00Z',
+            updated_at: '2026-07-10T00:00:00Z'
+          },
+          {
+            id: 2,
+            upstream_config_id: 5,
+            name: 'manual-conflict',
+            platform: 'openai',
+            platform_source: 'manual',
+            platform_detection_status: 'conflict',
+            status: 'active',
+            created_at: '2026-07-10T00:00:00Z',
+            updated_at: '2026-07-10T00:00:00Z'
+          }
+        ] as any
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    await wrapper.get('button.select-trigger').trigger('click')
+    const options = wrapper.findAll('button.select-option')
+    const manual = options.find((option) => option.text().includes('manual-conflict'))
+    expect(options.some((option) => option.text().includes('ambiguous-auto'))).toBe(false)
+    expect(manual?.attributes('disabled')).toBeUndefined()
+
+    await manual!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[2]])
+  })
 })

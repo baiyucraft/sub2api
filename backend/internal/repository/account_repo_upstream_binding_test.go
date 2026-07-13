@@ -183,6 +183,15 @@ func TestAccountRepositoryCreateRejectsInvalidUpstreamBinding(t *testing.T) {
 			},
 			wantReason: "UPSTREAM_KEY_PLATFORM_MISMATCH",
 		},
+		{
+			name:    "ambiguous automatic platform is not bindable",
+			account: boundAccount(0, 11, 22, service.PlatformOpenAI),
+			expectLock: func(mock sqlmock.Sqlmock) {
+				expectUpstreamConfigLock(mock, 11, true)
+				expectUpstreamKeyLockWithDetection(mock, 22, 11, service.StatusActive, ptrString(service.PlatformOpenAI), service.UpstreamKeyPlatformSourceAuto, service.UpstreamKeyPlatformDetectionAmbiguous, true)
+			},
+			wantReason: "UPSTREAM_KEY_PLATFORM_UNRESOLVED",
+		},
 	}
 
 	for _, tt := range tests {
@@ -213,6 +222,22 @@ func TestAccountRepositoryUpdateRejectsInvalidUpstreamBindingBeforeWrite(t *test
 
 	err := repo.Update(context.Background(), account)
 	require.Equal(t, "UPSTREAM_KEY_INACTIVE", infraerrors.Reason(err))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAccountRepositoryCreateAllowsManualPlatformDespiteDetectionConflict(t *testing.T) {
+	repo, mock := newAccountWriteMock(t)
+	account := boundAccount(0, 11, 22, service.PlatformOpenAI)
+
+	mock.ExpectBegin()
+	expectUpstreamConfigLock(mock, 11, true)
+	expectUpstreamKeyLockWithDetection(mock, 22, 11, service.StatusActive, ptrString(service.PlatformOpenAI), service.UpstreamKeyPlatformSourceManual, service.UpstreamKeyPlatformDetectionConflict, true)
+	expectAccountCreate(mock, 501)
+	expectSchedulerAccountOutbox(mock, nil)
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.Create(context.Background(), account))
+	require.Equal(t, int64(501), account.ID)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -260,6 +285,10 @@ func expectUpstreamConfigLock(mock sqlmock.Sqlmock, id int64, found bool) {
 }
 
 func expectUpstreamKeyLock(mock sqlmock.Sqlmock, id, configID int64, status string, platform *string, found bool) {
+	expectUpstreamKeyLockWithDetection(mock, id, configID, status, platform, service.UpstreamKeyPlatformSourceManual, service.UpstreamKeyPlatformDetectionDetected, found)
+}
+
+func expectUpstreamKeyLockWithDetection(mock sqlmock.Sqlmock, id, configID int64, status string, platform *string, source, detectionStatus string, found bool) {
 	rows := sqlmock.NewRows(dbupstreamkey.Columns)
 	if found {
 		now := time.Now()
@@ -267,7 +296,7 @@ func expectUpstreamKeyLock(mock sqlmock.Sqlmock, id, configID int64, status stri
 		if platform != nil {
 			platformValue = *platform
 		}
-		rows.AddRow(id, now, now, nil, configID, "key", "test-secret", "test-hash", nil, nil, "", platformValue, service.UpstreamKeyPlatformSourceManual, nil, service.UpstreamKeyPlatformDetectionDetected, nil, nil, status, nil, 0, nil, []byte("{}"))
+		rows.AddRow(id, now, now, nil, configID, "key", "test-secret", "test-hash", nil, nil, "", platformValue, source, nil, detectionStatus, nil, nil, status, nil, 0, nil, []byte("{}"))
 	}
 	mock.ExpectQuery(`SELECT .* FROM "upstream_keys".*"deleted_at" IS NULL.*FOR UPDATE`).WillReturnRows(rows)
 }
