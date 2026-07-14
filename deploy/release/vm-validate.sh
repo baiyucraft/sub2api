@@ -90,8 +90,12 @@ docker build --network=host --progress=plain --target backend-builder \
   --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.5-alpine \
   --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
   --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t "$test_tag" . >/dev/null 2>&1
-docker run --rm --network host "$test_tag" sh -lc \
-  'go test ./internal/service -run "TestNormalizeUpstreamActualRate|TestUpstreamKeyRateDTOJSONUsesSingleActualRateContract" -count=1' >/dev/null 2>&1
+if ! docker run --rm --network host "$test_tag" /usr/local/go/bin/go test ./internal/service \
+  -run 'TestNormalizeUpstreamActualRate|TestUpstreamKeyRateDTOJSONUsesSingleActualRateContract' -count=1 >/dev/null 2>&1; then
+  docker image rm "$test_tag" >/dev/null 2>&1 || true
+  rm -f "$state_dir/candidate.tar.gz"
+  exit 1
+fi
 docker image rm "$test_tag" >/dev/null 2>&1
 
 restore_required=false
