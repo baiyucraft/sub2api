@@ -75,6 +75,7 @@ var usageLogInsertArgTypes = [...]string{
 	"text",        // inbound_endpoint
 	"text",        // upstream_endpoint
 	"boolean",     // cache_ttl_overridden
+	"boolean",     // long_context_billing_applied
 	"bigint",      // channel_id
 	"text",        // model_mapping_chain
 	"text",        // billing_tier
@@ -271,6 +272,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			inbound_endpoint,
 			upstream_endpoint,
 			cache_ttl_overridden,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -279,11 +281,11 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9,
-			$10, $11,
-			$12, $13, $14, $15,
-			$16, $17, $18, $19,
-			$20, $21, $22, $23, $24, $25,
-			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
+			$10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
+			$20, $21, $22, $23, $24, $25, $26, $27, $28, $29,
+			$30, $31, $32, $33, $34, $35, $36, $37, $38, $39,
+			$40, $41, $42, $43, $44, $45, $46, $47, $48, $49,
+			$50, $51, $52, $53, $54, $55, $56, $57, $58
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -726,6 +728,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			inbound_endpoint,
 			upstream_endpoint,
 			cache_ttl_overridden,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -814,6 +817,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				inbound_endpoint,
 				upstream_endpoint,
 				cache_ttl_overridden,
+				long_context_billing_applied,
 				channel_id,
 				model_mapping_chain,
 				billing_tier,
@@ -873,6 +877,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				inbound_endpoint,
 				upstream_endpoint,
 				cache_ttl_overridden,
+				long_context_billing_applied,
 				channel_id,
 				model_mapping_chain,
 				billing_tier,
@@ -972,6 +977,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			inbound_endpoint,
 			upstream_endpoint,
 			cache_ttl_overridden,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -1057,6 +1063,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			inbound_endpoint,
 			upstream_endpoint,
 			cache_ttl_overridden,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -1116,6 +1123,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			inbound_endpoint,
 			upstream_endpoint,
 			cache_ttl_overridden,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -1183,6 +1191,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			inbound_endpoint,
 			upstream_endpoint,
 			cache_ttl_overridden,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -1191,11 +1200,11 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9,
-			$10, $11,
-			$12, $13, $14, $15,
-			$16, $17, $18, $19,
-			$20, $21, $22, $23, $24, $25,
-			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
+			$10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
+			$20, $21, $22, $23, $24, $25, $26, $27, $28, $29,
+			$30, $31, $32, $33, $34, $35, $36, $37, $38, $39,
+			$40, $41, $42, $43, $44, $45, $46, $47, $48, $49,
+			$50, $51, $52, $53, $54, $55, $56, $57, $58
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 	`, prepared.args...)
@@ -1307,6 +1316,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			inboundEndpoint,
 			upstreamEndpoint,
 			log.CacheTTLOverridden,
+			log.LongContextBillingApplied,
 			channelID,
 			modelMappingChain,
 			billingTier,
