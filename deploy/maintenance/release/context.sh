@@ -6,7 +6,6 @@ release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 release_id=${BASH_REMATCH[1]}
 [[ -d $release_dir && ! -L $release_dir ]]
 [[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]]
-[[ -d $release_dir/.claimed && ! -L $release_dir/.claimed ]]
 active_claim=/opt/sub2api/releases/.active-release
 [[ -d $active_claim && ! -L $active_claim ]]
 [[ $(<"$active_claim/release_id") == "$release_id" ]]
