@@ -25,11 +25,11 @@ func persistUpstreamKeyRateSnapshots(ctx context.Context, client *dbent.Client, 
 		rechargeRate = 1
 	}
 	for _, key := range keys {
-		if key.ID <= 0 || key.RateMultiplier == nil || !validUpstreamRateMultiplier(*key.RateMultiplier) {
+		if key.ID <= 0 || key.SourceRateMultiplier == nil || key.RateMultiplier == nil || !validUpstreamRateMultiplier(*key.RateMultiplier) {
 			continue
 		}
-		rawRate := *key.RateMultiplier
-		effectiveRate := rawRate * rechargeRate
+		rawRate := *key.SourceRateMultiplier
+		effectiveRate := *key.RateMultiplier
 		if !validUpstreamRateMultiplier(effectiveRate) {
 			continue
 		}
@@ -71,13 +71,8 @@ func persistUpstreamKeyRateSnapshots(ctx context.Context, client *dbent.Client, 
 		if previous == nil {
 			continue
 		}
-		if !sameRate(previous.RawRateMultiplier, rawRate) {
-			if err := createKeyRateChangeEvent(ctx, client, config.ID, key.ID, runID, "key_rate_changed", previous.RawRateMultiplier, rawRate, previous.EffectiveCostMultiplier, effectiveRate, observedAt); err != nil {
-				return err
-			}
-		}
 		if !sameRate(previous.EffectiveCostMultiplier, effectiveRate) {
-			if err := createKeyRateChangeEvent(ctx, client, config.ID, key.ID, runID, "key_effective_rate_changed", previous.RawRateMultiplier, rawRate, previous.EffectiveCostMultiplier, effectiveRate, observedAt); err != nil {
+			if err := createActualRateChangeEvent(ctx, client, config.ID, key.ID, runID, previous.EffectiveCostMultiplier, effectiveRate, observedAt); err != nil {
 				return err
 			}
 		}
@@ -85,24 +80,25 @@ func persistUpstreamKeyRateSnapshots(ctx context.Context, client *dbent.Client, 
 	return nil
 }
 
-func createKeyRateChangeEvent(ctx context.Context, client *dbent.Client, configID, keyID, runID int64, eventType string, oldRaw, newRaw, oldEffective, newEffective float64, occurredAt time.Time) error {
-	eventKey := fmt.Sprintf("%s:%d:%d", eventType, keyID, runID)
-	return client.UpstreamEvent.Create().
+func createActualRateChangeEvent(ctx context.Context, client *dbent.Client, configID, keyID, runID int64, oldRate, newRate float64, occurredAt time.Time) error {
+	eventKey := fmt.Sprintf("key_actual_rate_changed:%d:%d:%d", keyID, runID, occurredAt.UnixNano())
+	builder := client.UpstreamEvent.Create().
 		SetUpstreamConfigID(configID).
 		SetUpstreamKeyID(keyID).
-		SetSyncRunID(runID).
 		SetEventKey(eventKey).
-		SetEventType(eventType).
+		SetEventType("key_actual_rate_changed").
 		SetSeverity("info").
 		SetSource("sync").
-		SetMessage("Upstream key rate multiplier changed").
+		SetMessage("Upstream key actual rate multiplier changed").
 		SetPayload(map[string]any{
-			"old_raw_rate":       oldRaw,
-			"new_raw_rate":       newRaw,
-			"old_effective_rate": oldEffective,
-			"new_effective_rate": newEffective,
+			"old_rate": oldRate,
+			"new_rate": newRate,
 		}).
-		SetOccurredAt(occurredAt).
+		SetOccurredAt(occurredAt)
+	if runID > 0 {
+		builder.SetSyncRunID(runID)
+	}
+	return builder.
 		OnConflict(
 			sql.ConflictColumns(dbupstreamevent.FieldUpstreamConfigID, dbupstreamevent.FieldEventKey),
 			sql.ConflictWhere(sql.NotNull(dbupstreamevent.FieldEventKey)),
@@ -150,12 +146,10 @@ func (r *upstreamConfigRepository) GetUpstreamKeyRateTrend(ctx context.Context, 
 	first := rows[0].ObservedAt
 	trend.FirstObservedAt = &first
 	current := rows[len(rows)-1]
-	trend.CurrentRawRate = floatPtr(current.RawRateMultiplier)
-	trend.CurrentEffectiveRate = floatPtr(current.EffectiveCostMultiplier)
+	trend.CurrentRate = floatPtr(current.EffectiveCostMultiplier)
 	if len(rows) > 1 {
 		previous := rows[len(rows)-2]
-		trend.PreviousRawRate = floatPtr(previous.RawRateMultiplier)
-		trend.PreviousEffectiveRate = floatPtr(previous.EffectiveCostMultiplier)
+		trend.PreviousRate = floatPtr(previous.EffectiveCostMultiplier)
 	}
 	start := now.Add(-rateTrendRange(rangeName))
 	points := make(map[time.Time]service.UpstreamKeyRateTrendPoint)
@@ -164,14 +158,14 @@ func (r *upstreamConfigRepository) GetUpstreamKeyRateTrend(ctx context.Context, 
 			continue
 		}
 		bucket := rateTrendBucket(row.ObservedAt, rangeName)
-		points[bucket] = service.UpstreamKeyRateTrendPoint{Bucket: bucket.UTC().Format(time.RFC3339), RawRateMultiplier: row.RawRateMultiplier, EffectiveCostMultiplier: row.EffectiveCostMultiplier}
+		points[bucket] = service.UpstreamKeyRateTrendPoint{Bucket: bucket.UTC().Format(time.RFC3339), RateMultiplier: row.EffectiveCostMultiplier}
 	}
 	for _, point := range points {
 		trend.Points = append(trend.Points, point)
 	}
 	sort.Slice(trend.Points, func(i, j int) bool { return trend.Points[i].Bucket < trend.Points[j].Bucket })
 	events, err := r.client.UpstreamEvent.Query().
-		Where(dbupstreamevent.UpstreamConfigIDEQ(configID), dbupstreamevent.UpstreamKeyIDEQ(keyID), dbupstreamevent.EventTypeIn("key_rate_changed", "key_effective_rate_changed")).
+		Where(dbupstreamevent.UpstreamConfigIDEQ(configID), dbupstreamevent.UpstreamKeyIDEQ(keyID), dbupstreamevent.EventTypeIn("key_rate_changed", "key_effective_rate_changed", "key_actual_rate_changed")).
 		Order(dbent.Desc(dbupstreamevent.FieldOccurredAt), dbent.Desc(dbupstreamevent.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -182,18 +176,8 @@ func (r *upstreamConfigRepository) GetUpstreamKeyRateTrend(ctx context.Context, 
 			continue
 		}
 		change := service.UpstreamKeyRateChange{Type: event.EventType, OccurredAt: event.OccurredAt}
-		if value, ok := numberFromMap(event.Payload, "old_raw_rate"); ok {
-			change.OldRawRate = floatPtr(value)
-		}
-		if value, ok := numberFromMap(event.Payload, "new_raw_rate"); ok {
-			change.NewRawRate = floatPtr(value)
-		}
-		if value, ok := numberFromMap(event.Payload, "old_effective_rate"); ok {
-			change.OldEffective = floatPtr(value)
-		}
-		if value, ok := numberFromMap(event.Payload, "new_effective_rate"); ok {
-			change.NewEffective = floatPtr(value)
-		}
+		change.OldRate = rateFromEventPayload(event.Payload, "old_rate", "old_effective_rate")
+		change.NewRate = rateFromEventPayload(event.Payload, "new_rate", "new_effective_rate")
 		trend.Changes = append(trend.Changes, change)
 		if trend.LastChangedAt == nil {
 			at := event.OccurredAt
@@ -204,7 +188,7 @@ func (r *upstreamConfigRepository) GetUpstreamKeyRateTrend(ctx context.Context, 
 }
 
 func (r *upstreamConfigRepository) ListUpstreamKeyRateTrendKeys(ctx context.Context, configID int64) ([]service.UpstreamKeyRateCatalogItem, error) {
-	config, err := r.client.UpstreamConfig.Get(ctx, configID)
+	_, err := r.client.UpstreamConfig.Get(ctx, configID)
 	if err != nil {
 		if dbent.IsNotFound(err) {
 			return nil, service.ErrUpstreamConfigNotFound
@@ -229,7 +213,7 @@ func (r *upstreamConfigRepository) ListUpstreamKeyRateTrendKeys(ctx context.Cont
 		}
 	}
 	lastChanged := make(map[int64]time.Time)
-	events, err := r.client.UpstreamEvent.Query().Where(dbupstreamevent.UpstreamConfigIDEQ(configID), dbupstreamevent.UpstreamKeyIDNotNil(), dbupstreamevent.EventTypeIn("key_rate_changed", "key_effective_rate_changed")).Order(dbent.Desc(dbupstreamevent.FieldOccurredAt)).All(ctx)
+	events, err := r.client.UpstreamEvent.Query().Where(dbupstreamevent.UpstreamConfigIDEQ(configID), dbupstreamevent.UpstreamKeyIDNotNil(), dbupstreamevent.EventTypeIn("key_rate_changed", "key_effective_rate_changed", "key_actual_rate_changed")).Order(dbent.Desc(dbupstreamevent.FieldOccurredAt)).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -240,10 +224,6 @@ func (r *upstreamConfigRepository) ListUpstreamKeyRateTrendKeys(ctx context.Cont
 			}
 		}
 	}
-	rechargeRate := config.RechargeRate
-	if rechargeRate <= 0 || math.IsNaN(rechargeRate) || math.IsInf(rechargeRate, 0) {
-		rechargeRate = 1
-	}
 	items := make([]service.UpstreamKeyRateCatalogItem, 0, len(keys))
 	for _, key := range keys {
 		item := service.UpstreamKeyRateCatalogItem{KeyID: key.ID, Name: key.Name, RemoteKeyID: key.RemoteKeyID, Status: key.Status, DeletedAt: key.DeletedAt}
@@ -251,16 +231,11 @@ func (r *upstreamConfigRepository) ListUpstreamKeyRateTrendKeys(ctx context.Cont
 			item.Status = "deleted"
 		}
 		if snapshot := latest[key.ID]; snapshot != nil {
-			item.CurrentRawRate = floatPtr(snapshot.RawRateMultiplier)
-			item.CurrentEffectiveRate = floatPtr(snapshot.EffectiveCostMultiplier)
+			item.CurrentRate = floatPtr(snapshot.EffectiveCostMultiplier)
 			observed := snapshot.ObservedAt
 			item.LastObservedAt = &observed
 		} else if key.RateMultiplier != nil && validUpstreamRateMultiplier(*key.RateMultiplier) {
-			item.CurrentRawRate = floatPtr(*key.RateMultiplier)
-			effective := *key.RateMultiplier * rechargeRate
-			if validUpstreamRateMultiplier(effective) {
-				item.CurrentEffectiveRate = floatPtr(effective)
-			}
+			item.CurrentRate = floatPtr(*key.RateMultiplier)
 		}
 		if changed, exists := lastChanged[key.ID]; exists {
 			item.LastChangedAt = &changed
@@ -268,6 +243,15 @@ func (r *upstreamConfigRepository) ListUpstreamKeyRateTrendKeys(ctx context.Cont
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+func rateFromEventPayload(payload map[string]any, keys ...string) *float64 {
+	for _, key := range keys {
+		if value, ok := numberFromMap(payload, key); ok {
+			return floatPtr(value)
+		}
+	}
+	return nil
 }
 
 func rateTrendRange(name string) time.Duration {

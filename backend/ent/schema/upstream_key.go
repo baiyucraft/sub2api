@@ -49,6 +49,11 @@ func (UpstreamKey) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Optional().
 			Nillable(),
+		field.Float("source_rate_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
+			Optional().
+			Nillable().
+			StructTag(`json:"-"`),
 		field.String("status").MaxLen(20).Default(domain.StatusActive),
 		field.Time("last_seen_at").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 		field.Int("missing_count").Default(0),

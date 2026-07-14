@@ -38,7 +38,6 @@ export interface UpstreamKey {
   platform_detected_at?: string | null
   bound_account_count?: number
   rate_multiplier?: number | null
-  effective_cost_multiplier?: number | null
   status: string
   last_seen_at?: string | null
   missing_count?: number
@@ -209,16 +208,13 @@ export interface UpstreamUsageTrend {
 
 export interface UpstreamKeyRateTrendPoint {
   bucket: string
-  raw_rate_multiplier: number
-  effective_cost_multiplier: number
+  rate_multiplier: number
 }
 
 export interface UpstreamKeyRateChange {
   type: string
-  old_raw_rate?: number | null
-  new_raw_rate?: number | null
-  old_effective_rate?: number | null
-  new_effective_rate?: number | null
+  old_rate?: number | null
+  new_rate?: number | null
   occurred_at: string
 }
 
@@ -228,10 +224,8 @@ export interface UpstreamKeyRateTrend {
   key_id: number
   remote_key_id?: number | null
   key_name: string
-  current_raw_rate?: number | null
-  current_effective_rate?: number | null
-  previous_raw_rate?: number | null
-  previous_effective_rate?: number | null
+  current_rate?: number | null
+  previous_rate?: number | null
   first_observed_at?: string | null
   last_changed_at?: string | null
   points: UpstreamKeyRateTrendPoint[]
@@ -244,8 +238,7 @@ export interface UpstreamKeyRateCatalogItem {
   remote_key_id?: number | null
   status: string
   deleted_at?: string | null
-  current_raw_rate?: number | null
-  current_effective_rate?: number | null
+  current_rate?: number | null
   last_observed_at?: string | null
   last_changed_at?: string | null
 }
@@ -253,13 +246,6 @@ export interface UpstreamKeyRateCatalogItem {
 export interface UpstreamOperationsList<T> {
   items: T[]
   total: number
-}
-
-export interface UpstreamKeyPayload {
-  name?: string
-  key: string
-  platform?: string
-  rate_multiplier?: number | null
 }
 
 export interface UpdateUpstreamKeyPlatformPayload {
@@ -401,11 +387,6 @@ export async function listKeys(id: number): Promise<UpstreamKey[]> {
   return data
 }
 
-export async function createKey(id: number, payload: UpstreamKeyPayload): Promise<UpstreamKey> {
-  const { data } = await apiClient.post<UpstreamKey>(`/admin/upstream-configs/${id}/keys`, payload)
-  return data
-}
-
 export async function removeKey(id: number, keyId: number): Promise<{ message: string }> {
   const { data } = await apiClient.delete<{ message: string }>(`/admin/upstream-configs/${id}/keys/${keyId}`)
   return data
@@ -443,7 +424,6 @@ export default {
   listKeyRateTrendKeys,
   listBalanceHistory,
   listKeys,
-  createKey,
   removeKey,
   updateKeyPlatform
 }

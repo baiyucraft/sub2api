@@ -263,6 +263,10 @@ describe('CreateAccountModal upstream account name', () => {
     const wrapper = await mountOpenedModal()
 
     expect(wrapper.find('[data-testid="account-name-input"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('admin.accounts.concurrency')
+    expect(wrapper.text()).not.toContain('admin.accounts.loadFactor')
+    expect(wrapper.text()).not.toContain('admin.accounts.priority')
+    expect(wrapper.text()).not.toContain('admin.accounts.billingRateMultiplier')
     await wrapper.get('[data-testid="upstream-config-select"]').setValue('1')
     await flushPromises()
     await wrapper.get('[data-testid="upstream-key-selector"]').trigger('click')

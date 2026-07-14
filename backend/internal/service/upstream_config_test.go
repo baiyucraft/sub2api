@@ -133,6 +133,10 @@ func (r *upstreamConfigServiceRepo) GetKeyByID(ctx context.Context, id int64) (*
 	for _, key := range r.keys {
 		if key.ID == id {
 			out := cloneUpstreamKey(key)
+			if out.RateMultiplier == nil {
+				defaultRate := 1.0
+				out.RateMultiplier = &defaultRate
+			}
 			return &out, nil
 		}
 	}
@@ -432,7 +436,10 @@ func TestAdminServiceCreateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
 	require.Equal(t, AccountTypeAPIKey, account.Type)
 	require.Equal(t, 80, account.Concurrency)
 	require.NotNil(t, account.LoadFactor)
-	require.Equal(t, 120, *account.LoadFactor)
+	require.Equal(t, 100, account.Priority)
+	require.NotNil(t, account.RateMultiplier)
+	require.Equal(t, 1.0, *account.RateMultiplier)
+	require.Equal(t, 40, *account.LoadFactor)
 }
 
 func TestAdminServiceUpdateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
@@ -469,21 +476,19 @@ func TestAdminServiceUpdateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
 		Extra: map[string]any{AccountUpstreamProviderKey: UpstreamProviderNewAPI},
 	})
 	svc := &adminServiceImpl{accountRepo: accountRepo, upstreamConfigRepo: repo}
-	priority := 21
 	concurrency := 40
-	incomingLoadFactor := 999999
 
 	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
-		Priority:    &priority,
 		Concurrency: &concurrency,
-		LoadFactor:  &incomingLoadFactor,
 	})
 
 	require.NoError(t, err)
 	require.Equal(t, 40, updated.Concurrency)
-	require.Equal(t, 21, updated.Priority)
+	require.Equal(t, 100, updated.Priority)
+	require.NotNil(t, updated.RateMultiplier)
+	require.Equal(t, 1.0, *updated.RateMultiplier)
 	require.NotNil(t, updated.LoadFactor)
-	require.Equal(t, 30, *updated.LoadFactor)
+	require.Equal(t, 20, *updated.LoadFactor)
 }
 
 func TestAdminServiceUpdateUnboundAccountUsesOrdinaryLoadFactor(t *testing.T) {
@@ -597,9 +602,9 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	require.Equal(t, "Plus Group", repo.upserts[0].UpstreamGroupName)
 	require.NotNil(t, repo.upserts[0].RateMultiplier)
 	require.InDelta(t, 0.065, *repo.upserts[0].RateMultiplier, 1e-12)
-	require.InDelta(t, 0.12, repo.upserts[0].Extra["default_rate_multiplier"], 1e-12)
-	require.InDelta(t, 0.065, repo.upserts[0].Extra["dedicated_rate_multiplier"], 1e-12)
-	require.Equal(t, true, repo.upserts[0].Extra["has_dedicated_rate_multiplier"])
+	require.NotContains(t, repo.upserts[0].Extra, "default_rate_multiplier")
+	require.NotContains(t, repo.upserts[0].Extra, "dedicated_rate_multiplier")
+	require.NotContains(t, repo.upserts[0].Extra, "has_dedicated_rate_multiplier")
 	require.Len(t, accountRepo.bulkUpdates, 1)
 	require.Equal(t, []int64{101}, accountRepo.bulkUpdates[0].ids)
 	require.NotNil(t, accountRepo.bulkUpdates[0].updates.RateMultiplier)
@@ -707,7 +712,7 @@ func TestUpstreamConfigService_Sub2APIGroupRatesFallbacks(t *testing.T) {
 		require.Len(t, keys, 1)
 		require.InDelta(t, 0.06, *keys[0].RateMultiplier, 1e-12)
 		require.Equal(t, "Available Group", keys[0].UpstreamGroupName)
-		require.Equal(t, false, keys[0].Extra["has_dedicated_rate_multiplier"])
+		require.NotContains(t, keys[0].Extra, "has_dedicated_rate_multiplier")
 	})
 
 	t.Run("available unavailable still uses dedicated group rate", func(t *testing.T) {
@@ -739,9 +744,9 @@ func TestUpstreamConfigService_Sub2APIGroupRatesFallbacks(t *testing.T) {
 		require.Len(t, keys, 1)
 		require.InDelta(t, 0.06, *keys[0].RateMultiplier, 1e-12)
 		require.Equal(t, "Key Group", keys[0].UpstreamGroupName)
-		require.Equal(t, true, keys[0].Extra["has_dedicated_rate_multiplier"])
-		require.InDelta(t, 0.12, keys[0].Extra["default_rate_multiplier"], 1e-12)
-		require.InDelta(t, 0.06, keys[0].Extra["dedicated_rate_multiplier"], 1e-12)
+		require.NotContains(t, keys[0].Extra, "has_dedicated_rate_multiplier")
+		require.NotContains(t, keys[0].Extra, "default_rate_multiplier")
+		require.NotContains(t, keys[0].Extra, "dedicated_rate_multiplier")
 	})
 }
 
@@ -1327,11 +1332,12 @@ func TestUpstreamConfigService_NewAPIProfileFailureDoesNotFailKeySync(t *testing
 
 	configID := int64(71)
 	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
-		ID:       configID,
-		Name:     "NewAPI Main",
-		Provider: UpstreamProviderNewAPI,
-		SiteURL:  server.URL,
-		AuthMode: UpstreamAuthModeUserLogin,
+		ID:           configID,
+		Name:         "NewAPI Main",
+		Provider:     UpstreamProviderNewAPI,
+		SiteURL:      server.URL,
+		AuthMode:     UpstreamAuthModeUserLogin,
+		RechargeRate: 1,
 		Credentials: map[string]any{
 			AccountCredentialNewAPILoginUsername: "owner@example.com",
 			AccountCredentialNewAPILoginPassword: "secret",

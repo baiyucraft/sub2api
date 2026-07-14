@@ -33,7 +33,7 @@ func TestApplySyncSnapshotPersistsRateBaselineAndChangesWithoutSecrets(t *testin
 
 	apply := func(runID int64, rate float64, at time.Time, complete bool) []service.UpstreamKey {
 		runID = createRateTrendRun(t, ctx, client, runID, at)
-		keys := []service.UpstreamKey{{Name: "primary", Key: secret, KeyHash: service.HashUpstreamKey(secret), RemoteKeyID: &remoteID, Platform: repoStringPtr(service.PlatformOpenAI), RateMultiplier: &rate, Status: service.StatusActive, LastSeenAt: &at}}
+		keys := []service.UpstreamKey{{Name: "primary", Key: secret, KeyHash: service.HashUpstreamKey(secret), RemoteKeyID: &remoteID, Platform: repoStringPtr(service.PlatformOpenAI), SourceRateMultiplier: &rate, Status: service.StatusActive, LastSeenAt: &at}}
 		local, _, _, err := repo.ApplySyncSnapshot(ctx, config.ID, runID, keys, nil, at, complete)
 		require.NoError(t, err)
 		return local
@@ -51,13 +51,13 @@ func TestApplySyncSnapshotPersistsRateBaselineAndChangesWithoutSecrets(t *testin
 
 	apply(1003, 1.25, start.Add(2*time.Hour), true)
 	require.Equal(t, 3, countRateSnapshots(t, ctx, client, keyID))
-	require.Equal(t, 2, countRateEvents(t, ctx, client, keyID))
+	require.Equal(t, 1, countRateEvents(t, ctx, client, keyID))
 
 	_, err := client.UpstreamConfig.UpdateOneID(config.ID).SetRechargeRate(0.5).Save(ctx)
 	require.NoError(t, err)
 	apply(1004, 1.25, start.Add(3*time.Hour), true)
 	require.Equal(t, 4, countRateSnapshots(t, ctx, client, keyID))
-	require.Equal(t, 3, countRateEvents(t, ctx, client, keyID))
+	require.Equal(t, 2, countRateEvents(t, ctx, client, keyID))
 
 	snapshots, err := client.UpstreamKeyRateSnapshot.Query().Where(dbupstreamkeyratesnapshot.UpstreamKeyIDEQ(keyID)).All(ctx)
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestApplySyncSnapshotOnlySnapshotsTrustedReturnedKeys(t *testing.T) {
 	runID := createRateTrendRun(t, ctx, client, 2001, now)
 	rate := 1.1
 	keys := []service.UpstreamKey{
-		{Name: "valid", Key: "sk-valid", KeyHash: service.HashUpstreamKey("sk-valid"), Platform: repoStringPtr(service.PlatformOpenAI), RateMultiplier: &rate, Status: service.StatusActive, LastSeenAt: &now},
+		{Name: "valid", Key: "sk-valid", KeyHash: service.HashUpstreamKey("sk-valid"), Platform: repoStringPtr(service.PlatformOpenAI), SourceRateMultiplier: &rate, Status: service.StatusActive, LastSeenAt: &now},
 		{Name: "missing-rate", Key: "sk-missing", KeyHash: service.HashUpstreamKey("sk-missing"), Platform: repoStringPtr(service.PlatformOpenAI), Status: service.StatusActive, LastSeenAt: &now},
 	}
 	local, reconciled, _, err := repo.ApplySyncSnapshot(ctx, config.ID, runID, keys, nil, now, false)
@@ -119,7 +119,7 @@ func TestGetUpstreamKeyRateTrendUsesLastObservationPerBucketAndSupportsSoftDelet
 	}{{1, now.Add(-2*time.Hour + 5*time.Minute)}, {1.2, now.Add(-2*time.Hour + 50*time.Minute)}, {1.3, now.Add(-30 * time.Minute)}} {
 		runID := int64(3001 + index)
 		runID = createRateTrendRun(t, ctx, client, runID, item.at)
-		keys := []service.UpstreamKey{{Name: "trend", Key: "sk-trend", KeyHash: service.HashUpstreamKey("sk-trend"), Platform: repoStringPtr(service.PlatformOpenAI), RateMultiplier: &item.rate, Status: service.StatusActive, LastSeenAt: &item.at}}
+		keys := []service.UpstreamKey{{Name: "trend", Key: "sk-trend", KeyHash: service.HashUpstreamKey("sk-trend"), Platform: repoStringPtr(service.PlatformOpenAI), SourceRateMultiplier: &item.rate, Status: service.StatusActive, LastSeenAt: &item.at}}
 		local, _, _, err := repo.ApplySyncSnapshot(ctx, config.ID, runID, keys, nil, item.at, true)
 		require.NoError(t, err)
 		keyID = local[0].ID
@@ -130,15 +130,86 @@ func TestGetUpstreamKeyRateTrendUsesLastObservationPerBucketAndSupportsSoftDelet
 	require.NoError(t, err)
 	require.Equal(t, "trend", trend.KeyName)
 	require.Len(t, trend.Points, 2)
-	require.InDelta(t, 1.2, trend.Points[0].RawRateMultiplier, 1e-12)
-	require.InDelta(t, 1.3, *trend.CurrentRawRate, 1e-12)
-	require.InDelta(t, 1.2, *trend.PreviousRawRate, 1e-12)
+	require.InDelta(t, 1.2, trend.Points[0].RateMultiplier, 1e-12)
+	require.InDelta(t, 1.3, *trend.CurrentRate, 1e-12)
+	require.InDelta(t, 1.2, *trend.PreviousRate, 1e-12)
 	require.NotNil(t, trend.FirstObservedAt)
 	require.NotNil(t, trend.LastChangedAt)
-	require.Len(t, trend.Changes, 3)
+	require.Len(t, trend.Changes, 2)
 
 	_, err = repo.GetUpstreamKeyRateTrend(ctx, config.ID+1, keyID, "24h", now)
 	require.ErrorIs(t, err, service.ErrUpstreamKeyNotFound)
+}
+
+func TestGetUpstreamKeyRateTrendProjectsEffectiveSnapshotsAndCompatibleEvents(t *testing.T) {
+	ctx := context.Background()
+	client := newRateTrendTestClient(t)
+	repo := &upstreamConfigRepository{client: client}
+	config := createRateTrendConfig(t, ctx, client)
+	key, err := client.UpstreamKey.Create().SetUpstreamConfigID(config.ID).SetName("effective").SetKey("sk-effective").SetKeyHash(service.HashUpstreamKey("sk-effective")).Save(ctx)
+	require.NoError(t, err)
+	now := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+
+	for index, snapshot := range []struct{ raw, effective float64 }{{2, 0.5}, {3, 0.75}} {
+		_, err = client.UpstreamKeyRateSnapshot.Create().
+			SetUpstreamConfigID(config.ID).
+			SetUpstreamKeyID(key.ID).
+			SetProvider(config.Provider).
+			SetRawRateMultiplier(snapshot.raw).
+			SetRechargeRate(0.25).
+			SetEffectiveCostMultiplier(snapshot.effective).
+			SetObservedAt(now.Add(time.Duration(index-2) * time.Hour)).
+			Save(ctx)
+		require.NoError(t, err)
+	}
+	for index, event := range []struct {
+		payload map[string]any
+	}{{map[string]any{"old_effective_rate": 0.4, "new_effective_rate": 0.5, "old_raw_rate": 1.6, "new_raw_rate": 2.0}}, {map[string]any{"old_rate": 0.5, "new_rate": 0.75}}} {
+		_, err = client.UpstreamEvent.Create().
+			SetUpstreamConfigID(config.ID).
+			SetUpstreamKeyID(key.ID).
+			SetEventType("key_actual_rate_changed").
+			SetSeverity("info").
+			SetPayload(event.payload).
+			SetOccurredAt(now.Add(time.Duration(index-2) * time.Hour)).
+			Save(ctx)
+		require.NoError(t, err)
+	}
+
+	trend, err := repo.GetUpstreamKeyRateTrend(ctx, config.ID, key.ID, "24h", now)
+	require.NoError(t, err)
+	require.InDelta(t, 0.75, *trend.CurrentRate, 1e-12)
+	require.InDelta(t, 0.5, *trend.PreviousRate, 1e-12)
+	require.InDelta(t, 0.5, trend.Points[0].RateMultiplier, 1e-12)
+	require.InDelta(t, 0.75, trend.Points[1].RateMultiplier, 1e-12)
+	require.InDelta(t, 0.5, *trend.Changes[0].OldRate, 1e-12)
+	require.InDelta(t, 0.75, *trend.Changes[0].NewRate, 1e-12)
+	require.InDelta(t, 0.4, *trend.Changes[1].OldRate, 1e-12)
+	require.InDelta(t, 0.5, *trend.Changes[1].NewRate, 1e-12)
+}
+
+func TestListUpstreamKeyRateTrendKeysUsesPersistedActualRateWithoutReapplyingRechargeRate(t *testing.T) {
+	ctx := context.Background()
+	client := newRateTrendTestClient(t)
+	repo := &upstreamConfigRepository{client: client}
+	config := createRateTrendConfig(t, ctx, client)
+	_, err := client.UpstreamConfig.UpdateOneID(config.ID).SetRechargeRate(0.5).Save(ctx)
+	require.NoError(t, err)
+	key, err := client.UpstreamKey.Create().
+		SetUpstreamConfigID(config.ID).
+		SetName("catalog").
+		SetKey("sk-catalog").
+		SetKeyHash(service.HashUpstreamKey("sk-catalog")).
+		SetSourceRateMultiplier(0.8).
+		SetRateMultiplier(0.4).
+		Save(ctx)
+	require.NoError(t, err)
+
+	items, err := repo.ListUpstreamKeyRateTrendKeys(ctx, config.ID)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, key.ID, items[0].KeyID)
+	require.InDelta(t, 0.4, *items[0].CurrentRate, 1e-12)
 }
 
 func TestCleanupUpstreamOperationHistoryRemovesRateSnapshotsAfterNinetyDays(t *testing.T) {
@@ -223,7 +294,7 @@ func countRateSnapshots(t *testing.T, ctx context.Context, client *dbent.Client,
 
 func countRateEvents(t *testing.T, ctx context.Context, client *dbent.Client, keyID int64) int {
 	t.Helper()
-	count, err := client.UpstreamEvent.Query().Where(dbupstreamevent.UpstreamKeyIDEQ(keyID), dbupstreamevent.EventTypeIn("key_rate_changed", "key_effective_rate_changed")).Count(ctx)
+	count, err := client.UpstreamEvent.Query().Where(dbupstreamevent.UpstreamKeyIDEQ(keyID), dbupstreamevent.EventTypeIn("key_rate_changed", "key_effective_rate_changed", "key_actual_rate_changed")).Count(ctx)
 	require.NoError(t, err)
 	return count
 }

@@ -15,13 +15,21 @@ func TestKeySuffixNeverReturnsShortSecret(t *testing.T) {
 
 func TestSanitizeUpstreamKeyIncludesMissingState(t *testing.T) {
 	missingSince := time.Date(2026, 7, 12, 10, 30, 0, 0, time.UTC)
+	rate := 0.42
+	sourceRate := 0.84
 	got := sanitizeUpstreamKey(&service.UpstreamKey{
-		ID:           42,
-		Status:       service.UpstreamKeyStatusStale,
-		MissingCount: 3,
-		MissingSince: &missingSince,
+		ID:                   42,
+		RateMultiplier:       &rate,
+		SourceRateMultiplier: &sourceRate,
+		Status:               service.UpstreamKeyStatusStale,
+		MissingCount:         3,
+		MissingSince:         &missingSince,
 	})
 
+	require.Equal(t, &rate, got["rate_multiplier"])
+	require.NotContains(t, got, "effective_cost_multiplier")
+	require.NotContains(t, got, "raw_rate_multiplier")
+	require.NotContains(t, got, "rate_multiplier_source")
 	require.Equal(t, service.UpstreamKeyStatusStale, got["status"])
 	require.Equal(t, 3, got["missing_count"])
 	require.Equal(t, &missingSince, got["missing_since"])

@@ -228,6 +228,20 @@ func (_c *UpstreamKeyCreate) SetNillableRateMultiplier(v *float64) *UpstreamKeyC
 	return _c
 }
 
+// SetSourceRateMultiplier sets the "source_rate_multiplier" field.
+func (_c *UpstreamKeyCreate) SetSourceRateMultiplier(v float64) *UpstreamKeyCreate {
+	_c.mutation.SetSourceRateMultiplier(v)
+	return _c
+}
+
+// SetNillableSourceRateMultiplier sets the "source_rate_multiplier" field if the given value is not nil.
+func (_c *UpstreamKeyCreate) SetNillableSourceRateMultiplier(v *float64) *UpstreamKeyCreate {
+	if v != nil {
+		_c.SetSourceRateMultiplier(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *UpstreamKeyCreate) SetStatus(v string) *UpstreamKeyCreate {
 	_c.mutation.SetStatus(v)
@@ -628,6 +642,10 @@ func (_c *UpstreamKeyCreate) createSpec() (*UpstreamKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RateMultiplier(); ok {
 		_spec.SetField(upstreamkey.FieldRateMultiplier, field.TypeFloat64, value)
 		_node.RateMultiplier = &value
+	}
+	if value, ok := _c.mutation.SourceRateMultiplier(); ok {
+		_spec.SetField(upstreamkey.FieldSourceRateMultiplier, field.TypeFloat64, value)
+		_node.SourceRateMultiplier = &value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(upstreamkey.FieldStatus, field.TypeString, value)
@@ -1038,6 +1056,30 @@ func (u *UpstreamKeyUpsert) ClearRateMultiplier() *UpstreamKeyUpsert {
 	return u
 }
 
+// SetSourceRateMultiplier sets the "source_rate_multiplier" field.
+func (u *UpstreamKeyUpsert) SetSourceRateMultiplier(v float64) *UpstreamKeyUpsert {
+	u.Set(upstreamkey.FieldSourceRateMultiplier, v)
+	return u
+}
+
+// UpdateSourceRateMultiplier sets the "source_rate_multiplier" field to the value that was provided on create.
+func (u *UpstreamKeyUpsert) UpdateSourceRateMultiplier() *UpstreamKeyUpsert {
+	u.SetExcluded(upstreamkey.FieldSourceRateMultiplier)
+	return u
+}
+
+// AddSourceRateMultiplier adds v to the "source_rate_multiplier" field.
+func (u *UpstreamKeyUpsert) AddSourceRateMultiplier(v float64) *UpstreamKeyUpsert {
+	u.Add(upstreamkey.FieldSourceRateMultiplier, v)
+	return u
+}
+
+// ClearSourceRateMultiplier clears the value of the "source_rate_multiplier" field.
+func (u *UpstreamKeyUpsert) ClearSourceRateMultiplier() *UpstreamKeyUpsert {
+	u.SetNull(upstreamkey.FieldSourceRateMultiplier)
+	return u
+}
+
 // SetStatus sets the "status" field.
 func (u *UpstreamKeyUpsert) SetStatus(v string) *UpstreamKeyUpsert {
 	u.Set(upstreamkey.FieldStatus, v)
@@ -1438,6 +1480,34 @@ func (u *UpstreamKeyUpsertOne) UpdateRateMultiplier() *UpstreamKeyUpsertOne {
 func (u *UpstreamKeyUpsertOne) ClearRateMultiplier() *UpstreamKeyUpsertOne {
 	return u.Update(func(s *UpstreamKeyUpsert) {
 		s.ClearRateMultiplier()
+	})
+}
+
+// SetSourceRateMultiplier sets the "source_rate_multiplier" field.
+func (u *UpstreamKeyUpsertOne) SetSourceRateMultiplier(v float64) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetSourceRateMultiplier(v)
+	})
+}
+
+// AddSourceRateMultiplier adds v to the "source_rate_multiplier" field.
+func (u *UpstreamKeyUpsertOne) AddSourceRateMultiplier(v float64) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.AddSourceRateMultiplier(v)
+	})
+}
+
+// UpdateSourceRateMultiplier sets the "source_rate_multiplier" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertOne) UpdateSourceRateMultiplier() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateSourceRateMultiplier()
+	})
+}
+
+// ClearSourceRateMultiplier clears the value of the "source_rate_multiplier" field.
+func (u *UpstreamKeyUpsertOne) ClearSourceRateMultiplier() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearSourceRateMultiplier()
 	})
 }
 
@@ -2020,6 +2090,34 @@ func (u *UpstreamKeyUpsertBulk) UpdateRateMultiplier() *UpstreamKeyUpsertBulk {
 func (u *UpstreamKeyUpsertBulk) ClearRateMultiplier() *UpstreamKeyUpsertBulk {
 	return u.Update(func(s *UpstreamKeyUpsert) {
 		s.ClearRateMultiplier()
+	})
+}
+
+// SetSourceRateMultiplier sets the "source_rate_multiplier" field.
+func (u *UpstreamKeyUpsertBulk) SetSourceRateMultiplier(v float64) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetSourceRateMultiplier(v)
+	})
+}
+
+// AddSourceRateMultiplier adds v to the "source_rate_multiplier" field.
+func (u *UpstreamKeyUpsertBulk) AddSourceRateMultiplier(v float64) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.AddSourceRateMultiplier(v)
+	})
+}
+
+// UpdateSourceRateMultiplier sets the "source_rate_multiplier" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertBulk) UpdateSourceRateMultiplier() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateSourceRateMultiplier()
+	})
+}
+
+// ClearSourceRateMultiplier clears the value of the "source_rate_multiplier" field.
+func (u *UpstreamKeyUpsertBulk) ClearSourceRateMultiplier() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearSourceRateMultiplier()
 	})
 }
 

@@ -152,12 +152,18 @@ const SelectStub = defineComponent({
   props: ['modelValue', 'options'],
   emits: ['update:modelValue', 'change'],
   template: `
-    <select
-      :value="modelValue"
-      @change="$emit('update:modelValue', $event.target.value); $emit('change', $event.target.value, null)"
-    >
-      <option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}</option>
-    </select>
+    <div>
+      <slot name="selected" :option="options.find((option) => option.value === modelValue) || null" />
+      <select
+        :value="modelValue"
+        @change="$emit('update:modelValue', $event.target.value); $emit('change', $event.target.value, null)"
+      >
+        <option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}</option>
+      </select>
+      <div v-for="option in options" :key="'slot-' + option.value" data-test="select-option-slot">
+        <slot name="option" :option="option" :selected="option.value === modelValue" />
+      </div>
+    </div>
   `
 })
 
@@ -343,10 +349,10 @@ describe('UpstreamConfigsView', () => {
     listIncidentsMock.mockResolvedValue({ items: [], total: 0 })
     listBalanceHistoryMock.mockResolvedValue({ items: [], total: 0 })
     getUsageTrendMock.mockResolvedValue({ range: '24h', currency: 'CNY', legacy_attributed_requests: 0, points: [] })
-    listKeyRateTrendKeysMock.mockResolvedValue([{ key_id: 7, name: 'Primary', status: 'active', current_raw_rate: 1.2, current_effective_rate: 0.96 }])
+    listKeyRateTrendKeysMock.mockResolvedValue([{ key_id: 7, name: 'Primary', status: 'active', current_rate: 1.2 }])
     getKeyRateTrendMock.mockResolvedValue({
       range: '24h', config_id: 10, key_id: 7, key_name: 'Primary',
-      current_raw_rate: 1.2, current_effective_rate: 0.96,
+      current_rate: 1.2, previous_rate: 1.1,
       points: [], changes: []
     })
     listKeysMock.mockResolvedValue([])
@@ -755,14 +761,14 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.text()).not.toContain('¥10.00')
   })
 
-  it('highlights low CNY balance and renders raw and cost rate summaries', async () => {
+  it('highlights low CNY balance and renders only the key rate multiplier summary', async () => {
     localStorage.setItem('upstream-config-hidden-columns', JSON.stringify([]))
     localStorage.setItem('upstream-config-hidden-columns-version', '1')
     mockList([upstreamConfig({
       recharge_rate: 2,
       keys: [
-        { id: 1, rate_multiplier: 0.8, effective_cost_multiplier: 0.35 },
-        { id: 2, rate_multiplier: 1.2, effective_cost_multiplier: 0.55 }
+        { id: 1, rate_multiplier: 0.8 },
+        { id: 2, rate_multiplier: 1.2 }
       ],
       extra: {
         balance_cny: 5,
@@ -774,8 +780,10 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.lowBalance')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.rates.raw:{"value":"0.8 - 1.2"}')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.rates.cost:{"value":"0.35 - 0.55"}')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.rates.rateMultiplier:{"value":"0.8 - 1.2"}')
+    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.rates.raw')
+    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.rates.cost')
+    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.rates.recharge')
   })
 
   it('wires pagination events to upstream list API', async () => {
@@ -1285,6 +1293,10 @@ describe('UpstreamConfigsView', () => {
     )
     expect(wrapper.text()).toContain('••••1234')
     expect(wrapper.text()).toContain('admin.upstreamConfigs.keyPlatforms.unassignedGroup')
+    expect(wrapper.findAll('[data-test="platform-badge"]').some((badge) =>
+      badge.attributes('data-platform') === 'anthropic'
+    )).toBe(true)
+    expect(wrapper.find('[data-test="selected-platform-check"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('admin.upstreamConfigs.keyPlatforms.status.conflict')
   })
 
@@ -1306,7 +1318,7 @@ describe('UpstreamConfigsView', () => {
     await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
     await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
     await flushPromises()
-    await wrapper.get('[data-test="key-platform-select-21"]').setValue('anthropic')
+    await wrapper.get('[data-test="key-platform-select-21"] select').setValue('anthropic')
     await flushPromises()
 
     expect(updateKeyPlatformMock).toHaveBeenCalledTimes(1)
@@ -1387,7 +1399,7 @@ describe('UpstreamConfigsView', () => {
     await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
     await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
     await flushPromises()
-    await wrapper.get('[data-test="key-platform-select-21"]').setValue('anthropic')
+    await wrapper.get('[data-test="key-platform-select-21"] select').setValue('anthropic')
     await flushPromises()
 
     expect(updateKeyPlatformMock).toHaveBeenNthCalledWith(1, 10, 21, {
@@ -1434,7 +1446,7 @@ describe('UpstreamConfigsView', () => {
     await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
     await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
     await flushPromises()
-    await wrapper.get('[data-test="key-platform-select-21"]').setValue('anthropic')
+    await wrapper.get('[data-test="key-platform-select-21"] select').setValue('anthropic')
     await flushPromises()
 
     expect(updateKeyPlatformMock).toHaveBeenCalledTimes(1)

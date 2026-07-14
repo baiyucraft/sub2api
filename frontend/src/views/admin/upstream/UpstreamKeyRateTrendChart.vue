@@ -38,8 +38,7 @@ const gridColor = computed(() => dark.value ? '#374151' : '#e5e7eb')
 const chartData = computed(() => ({
   labels: props.points.map((point) => formatBucket(point.bucket)),
   datasets: [
-    dataset(t('admin.upstreamConfigs.operations.rateSeries.raw'), props.points.map((point) => point.raw_rate_multiplier), '#2563eb'),
-    dataset(t('admin.upstreamConfigs.operations.rateSeries.effective'), props.points.map((point) => point.effective_cost_multiplier), '#ef4444')
+    dataset(t('admin.upstreamConfigs.operations.rateSeries.rateMultiplier'), props.points.map((point) => point.rate_multiplier), '#2563eb')
   ]
 }))
 

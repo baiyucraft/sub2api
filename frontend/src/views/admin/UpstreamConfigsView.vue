@@ -227,13 +227,7 @@
           <template #cell-rates="{ row }">
             <div class="min-w-[145px] text-xs tabular-nums">
               <div class="text-gray-700 dark:text-gray-300">
-                {{ t('admin.upstreamConfigs.rates.raw', { value: rateRangeLabel(rawRateRange(row)) }) }}
-              </div>
-              <div class="mt-1 text-gray-500 dark:text-dark-400">
-                {{ t('admin.upstreamConfigs.rates.cost', { value: rateRangeLabel(costRateRange(row)) }) }}
-              </div>
-              <div class="mt-1 text-[11px] text-gray-400 dark:text-dark-500">
-                {{ t('admin.upstreamConfigs.rates.recharge', { value: formatRate(row.recharge_rate || 1) }) }}
+                {{ t('admin.upstreamConfigs.rates.rateMultiplier', { value: rateRangeLabel(rateMultiplierRange(row)) }) }}
               </div>
             </div>
           </template>
@@ -776,12 +770,11 @@
           </template>
 
           <template #cell-detected_platform="{ row }">
-            <span
+            <PlatformBadge
               v-if="normalizeKeyPlatform(row.detected_platform)"
-              class="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 dark:bg-sky-900/20 dark:text-sky-300"
-            >
-              {{ keyPlatformLabel(row.detected_platform) }}
-            </span>
+              :platform="normalizeKeyPlatform(row.detected_platform)"
+              :label="keyPlatformLabel(row.detected_platform)"
+            />
             <span v-else class="text-sm text-gray-500 dark:text-dark-400">
               {{ t('admin.upstreamConfigs.keyPlatforms.notDetected') }}
             </span>
@@ -796,7 +789,27 @@
                 :disabled="isKeyPlatformUpdating(row.id)"
                 :data-test="`key-platform-select-${row.id}`"
                 @change="handleKeyPlatformChange(row, $event)"
-              />
+              >
+                <template #selected="{ option }">
+                  <PlatformBadge
+                    v-if="option"
+                    :platform="String(option.value)"
+                    :label="String(option.label)"
+                  />
+                  <span v-else>{{ t('admin.upstreamConfigs.keyPlatforms.unassignedPlatform') }}</span>
+                </template>
+                <template #option="{ option, selected }">
+                  <PlatformBadge :platform="String(option.value)" :label="String(option.label)" />
+                  <Icon
+                    v-if="selected"
+                    name="check"
+                    size="sm"
+                    class="text-primary-500"
+                    data-test="selected-platform-check"
+                    :stroke-width="2"
+                  />
+                </template>
+              </Select>
               <p
                 v-if="keyPlatformStatus(row) === 'conflict'"
                 class="text-xs font-medium text-red-600 dark:text-red-400"
@@ -1086,10 +1099,9 @@
         <div v-if="operationLoading.rateTrend" class="drawer-state">{{ t('common.loading') }}</div>
         <div v-else-if="!selectedRateKeyId" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyRateKeys') }}</div>
         <div v-else class="space-y-4">
-          <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.currentRawRate') }}</span><strong>{{ formatRateValue(keyRateTrend?.current_raw_rate) }}</strong></div>
-            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.currentEffectiveRate') }}</span><strong>{{ formatRateValue(keyRateTrend?.current_effective_rate) }}</strong></div>
-            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.previousRate') }}</span><strong>{{ formatRateValue(keyRateTrend?.previous_raw_rate) }}</strong></div>
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.currentRate') }}</span><strong>{{ formatRateValue(keyRateTrend?.current_rate) }}</strong></div>
+            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.previousRate') }}</span><strong>{{ formatRateValue(keyRateTrend?.previous_rate) }}</strong></div>
             <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.lastChanged') }}</span><strong>{{ formatTime(keyRateTrend?.last_changed_at || null) }}</strong></div>
             <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.observedSince') }}</span><strong>{{ formatTime(keyRateTrend?.first_observed_at || null) }}</strong></div>
           </div>
@@ -1102,7 +1114,7 @@
                 <span class="text-xs text-gray-500 dark:text-dark-400">{{ formatTime(change.occurred_at) }}</span>
               </div>
               <div class="mt-1 text-xs text-gray-600 dark:text-dark-300">
-                {{ formatRateValue(change.old_raw_rate) }} → {{ formatRateValue(change.new_raw_rate) }}
+                {{ formatRateValue(change.old_rate) }} → {{ formatRateValue(change.new_rate) }}
               </div>
             </div>
             <div v-if="!(keyRateTrend?.changes || []).length" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyRateChanges') }}</div>
@@ -1187,6 +1199,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
+import PlatformBadge from '@/components/common/PlatformBadge.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UpstreamActionMenu from './upstream/UpstreamActionMenu.vue'
@@ -1494,7 +1507,7 @@ const operationConfigOptions = computed<SelectOption[]>(() =>
 const rateKeyOptions = computed<SelectOption[]>(() =>
   rateTrendKeys.value.map((key) => ({
     value: key.key_id,
-    label: `${key.status === 'deleted' || key.deleted_at ? `${t('admin.upstreamConfigs.rateTrend.deletedKey')} ` : ''}${key.name || t('admin.upstreamConfigs.rateTrend.unnamedKey')} · #${key.key_id}${key.remote_key_id ? ` / remote #${key.remote_key_id}` : ''} · ${formatRateValue(key.current_raw_rate)}`
+    label: `${key.status === 'deleted' || key.deleted_at ? `${t('admin.upstreamConfigs.rateTrend.deletedKey')} ` : ''}${key.name || t('admin.upstreamConfigs.rateTrend.unnamedKey')} · #${key.key_id}${key.remote_key_id ? ` / remote #${key.remote_key_id}` : ''} · ${formatRateValue(key.current_rate)}`
   }))
 )
 
@@ -2889,24 +2902,12 @@ function isLowBalance(item: UpstreamConfig): boolean {
   return balance !== null && threshold > 0 && balance < threshold
 }
 
-function rawRateRange(item: UpstreamConfig): RateRange {
+function rateMultiplierRange(item: UpstreamConfig): RateRange {
   const values = (item.keys || [])
     .map((key) => finitePositiveNumber(key.rate_multiplier))
     .filter((value): value is number => value !== null)
   if (!values.length) return null
   return { min: Math.min(...values), max: Math.max(...values) }
-}
-
-function costRateRange(item: UpstreamConfig): RateRange {
-  const effectiveValues = (item.keys || [])
-    .map((key) => finitePositiveNumber(key.effective_cost_multiplier))
-    .filter((value): value is number => value !== null)
-  if (effectiveValues.length) {
-    return { min: Math.min(...effectiveValues), max: Math.max(...effectiveValues) }
-  }
-  const raw = rawRateRange(item)
-  const rechargeRate = finitePositiveNumber(item.recharge_rate) || 1
-  return raw ? { min: raw.min * rechargeRate, max: raw.max * rechargeRate } : null
 }
 
 function rateRangeLabel(range: RateRange): string {

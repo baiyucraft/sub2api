@@ -18,8 +18,8 @@ export default {
     },
     columnSettings: 'Column Settings',
     balance: {
-      totalRecharged: 'Total recharged {amount}',
-      totalQuota: 'Total quota {amount}',
+      totalRecharged: 'Recharge {amount}',
+      totalQuota: 'Recharge {amount}',
       totalUsed: 'Total used {amount}',
       lowBalance: 'Low balance',
       rawBalance: 'Raw balance: {amount}',
@@ -41,9 +41,7 @@ export default {
       lastCheckedAt: 'Last checked time: {time}'
     },
     rates: {
-      raw: 'Raw rate {value}',
-      cost: 'Cost rate {value}',
-      recharge: 'Recharge rate {value}x'
+      rateMultiplier: 'Actual rate {value}'
     },
     providers: {
       sub2api: 'sub2api',
@@ -288,9 +286,8 @@ export default {
       emptyRateTrend: 'No rate trend data',
       emptyRateKeys: 'No key rate history is available for this upstream',
       emptyRateChanges: 'No rate changes',
-      currentRawRate: 'Current Raw Rate',
-      currentEffectiveRate: 'Current Cost Rate',
-      previousRate: 'Previous Raw Rate',
+      currentRate: 'Current Rate',
+      previousRate: 'Previous Rate',
       lastChanged: 'Last Changed',
       observedSince: 'Observed Since',
       rateChanges: 'Rate Changes',
@@ -321,8 +318,7 @@ export default {
         grossProfit: 'Gross Profit'
       },
       rateSeries: {
-        raw: 'Raw Rate',
-        effective: 'Effective Cost Rate'
+        rateMultiplier: 'Rate Multiplier'
       }
     }
   }

@@ -205,44 +205,56 @@ func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.U
 			return err
 		}
 
-		changedIDs, err := renameAccountsForUpstreamConfig(txCtx, client, config.ID, config.Name)
+		nameChanged := previous.Name != updatedConfig.Name
+		urlChanged := previous.SiteURL != updatedConfig.SiteURL || stringPointerValue(previous.APIURL) != stringPointerValue(updatedConfig.APIURL)
+		rechargeRateChanged := previous.RechargeRate != updatedConfig.RechargeRate
+		if !nameChanged && !urlChanged && !rechargeRateChanged {
+			return nil
+		}
+
+		keys, err := client.UpstreamKey.Query().
+			Where(dbupstreamkey.UpstreamConfigIDEQ(config.ID)).
+			Order(dbent.Asc(dbupstreamkey.FieldID)).
+			ForUpdate().
+			All(txCtx)
 		if err != nil {
 			return err
 		}
-		if previous.SiteURL != updatedConfig.SiteURL || stringPointerValue(previous.APIURL) != stringPointerValue(updatedConfig.APIURL) {
-			boundIDs, err := listUpstreamBoundAccountIDs(txCtx, client, config.ID)
+		accounts, err := client.Account.Query().
+			Where(dbaccount.UpstreamConfigIDEQ(config.ID)).
+			Order(dbent.Asc(dbaccount.FieldID)).
+			ForUpdate().
+			All(txCtx)
+		if err != nil {
+			return err
+		}
+
+		changedIDs := make([]int64, 0, len(accounts))
+		if nameChanged {
+			renamedIDs, err := renameLockedAccountsForUpstreamConfig(txCtx, client, config.ID, config.Name, keys, accounts)
 			if err != nil {
 				return err
 			}
-			changedIDs = append(changedIDs, boundIDs...)
+			changedIDs = append(changedIDs, renamedIDs...)
 		}
-		if previous.RechargeRate != updatedConfig.RechargeRate {
-			costChangedIDs, err := recalculateUpstreamAccounts(txCtx, client, updatedConfig, time.Now().UTC())
+		if urlChanged {
+			for _, account := range accounts {
+				changedIDs = append(changedIDs, account.ID)
+			}
+		}
+		if rechargeRateChanged {
+			changedAt := time.Now().UTC()
+			costChangedIDs, err := recalculateLockedUpstreamAccounts(txCtx, client, updatedConfig, keys, accounts, changedAt)
 			if err != nil {
 				return err
 			}
 			changedIDs = append(changedIDs, costChangedIDs...)
-			if err := createRechargeRateChangedEvent(txCtx, client, updatedConfig, previous.RechargeRate, updatedConfig.RechargeRate, time.Now().UTC()); err != nil {
+			if err := createRechargeRateChangedEvent(txCtx, client, updatedConfig, previous.RechargeRate, updatedConfig.RechargeRate, changedAt); err != nil {
 				return err
 			}
 		}
 		return enqueueUpstreamAccountChanges(txCtx, client, changedIDs)
 	})
-}
-
-func listUpstreamBoundAccountIDs(ctx context.Context, client *dbent.Client, configID int64) ([]int64, error) {
-	accounts, err := client.Account.Query().
-		Where(dbaccount.UpstreamConfigIDEQ(configID)).
-		Select(dbaccount.FieldID).
-		All(ctx)
-	if err != nil {
-		return nil, err
-	}
-	ids := make([]int64, 0, len(accounts))
-	for _, account := range accounts {
-		ids = append(ids, account.ID)
-	}
-	return ids, nil
 }
 
 func stringPointerValue(value *string) string {
@@ -320,10 +332,6 @@ func (r *upstreamConfigRepository) GetKeyByID(ctx context.Context, id int64) (*s
 		return nil, err
 	}
 	return upstreamKeyEntityToService(row), nil
-}
-
-func (r *upstreamConfigRepository) CreateKey(ctx context.Context, key *service.UpstreamKey) error {
-	return createUpstreamKey(ctx, clientFromContext(ctx, r.client), key)
 }
 
 func (r *upstreamConfigRepository) UpsertKey(ctx context.Context, key *service.UpstreamKey) error {
@@ -409,6 +417,9 @@ func createUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 	if key.RateMultiplier != nil {
 		builder.SetRateMultiplier(*key.RateMultiplier)
 	}
+	if key.SourceRateMultiplier != nil {
+		builder.SetSourceRateMultiplier(*key.SourceRateMultiplier)
+	}
 	if key.LastSeenAt != nil {
 		builder.SetLastSeenAt(*key.LastSeenAt)
 	}
@@ -466,6 +477,11 @@ func updateUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 		builder.SetRateMultiplier(*key.RateMultiplier)
 	} else {
 		builder.ClearRateMultiplier()
+	}
+	if key.SourceRateMultiplier != nil {
+		builder.SetSourceRateMultiplier(*key.SourceRateMultiplier)
+	} else {
+		builder.ClearSourceRateMultiplier()
 	}
 	if key.LastSeenAt != nil {
 		builder.SetLastSeenAt(*key.LastSeenAt)
@@ -632,6 +648,15 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 		reconciledAccountIDs := make([]int64, 0)
 		for i := range keys {
 			keys[i].UpstreamConfigID = configID
+			if keys[i].SourceRateMultiplier != nil {
+				actualRate, rateErr := service.NormalizeUpstreamActualRate(*keys[i].SourceRateMultiplier, config.RechargeRate)
+				if rateErr != nil {
+					return rateErr
+				}
+				keys[i].RateMultiplier = &actualRate
+			} else {
+				keys[i].RateMultiplier = nil
+			}
 			keys[i].MissingCount = 0
 			keys[i].MissingSince = nil
 			if !complete && config.Provider == service.UpstreamProviderNewAPI {
@@ -1223,30 +1248,16 @@ func (r *upstreamConfigRepository) withTx(ctx context.Context, fn func(context.C
 	return tx.Commit()
 }
 
-func renameAccountsForUpstreamConfig(ctx context.Context, client *dbent.Client, configID int64, configName string) ([]int64, error) {
-	keys, err := client.UpstreamKey.Query().
-		Where(dbupstreamkey.UpstreamConfigIDEQ(configID)).
-		All(ctx)
-	if err != nil {
-		return nil, err
-	}
+func renameLockedAccountsForUpstreamConfig(ctx context.Context, client *dbent.Client, configID int64, configName string, keys []*dbent.UpstreamKey, accounts []*dbent.Account) ([]int64, error) {
 	keyByID := make(map[int64]*dbent.UpstreamKey, len(keys))
 	for _, key := range keys {
 		keyByID[key.ID] = key
 	}
-	accounts, err := client.Account.Query().
-		Where(
-			dbaccount.UpstreamConfigIDEQ(configID),
-			dbaccount.UpstreamKeyIDNotNil(),
-		).
-		Order(dbent.Asc(dbaccount.FieldID)).
-		ForUpdate().
-		All(ctx)
-	if err != nil {
-		return nil, err
-	}
 	changedIDs := make([]int64, 0, len(accounts))
 	for _, account := range accounts {
+		if account.UpstreamKeyID == nil {
+			continue
+		}
 		key := keyByID[*account.UpstreamKeyID]
 		if key == nil || key.UpstreamConfigID != configID {
 			continue
@@ -1271,11 +1282,7 @@ func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbe
 		changed = true
 	}
 	if key.RateMultiplier != nil && validUpstreamRateMultiplier(*key.RateMultiplier) {
-		rechargeRate := config.RechargeRate
-		if rechargeRate <= 0 {
-			rechargeRate = 1
-		}
-		multiplier := *key.RateMultiplier * rechargeRate
+		multiplier := *key.RateMultiplier
 		priority := service.Sub2APIUpstreamPriority(multiplier)
 		loadFactor := service.AutoUpstreamLoadFactor(priority, account.Concurrency)
 		extra := copyJSONMap(account.Extra)
@@ -1312,9 +1319,6 @@ func upstreamRateSyncExtra(config *dbent.UpstreamConfig, key *dbent.UpstreamKey,
 		"upstream_rate_sync_last_error":      "",
 		"upstream_provider":                  config.Provider,
 		"upstream_platform":                  key.Platform,
-		"upstream_rate_multiplier":           *key.RateMultiplier,
-		"upstream_recharge_rate":             config.RechargeRate,
-		"upstream_effective_cost_multiplier": *key.RateMultiplier * config.RechargeRate,
 	}
 	if key.UpstreamGroupID != nil {
 		extra["upstream_group_id"] = *key.UpstreamGroupID
@@ -1330,7 +1334,6 @@ func upstreamRateSyncExtra(config *dbent.UpstreamConfig, key *dbent.UpstreamKey,
 		extra["sub2api_rate_sync_last_success_at"] = checkedAtText
 		extra["sub2api_rate_sync_last_error"] = ""
 		extra["sub2api_upstream_platform"] = key.Platform
-		extra["sub2api_upstream_rate_multiplier"] = *key.RateMultiplier
 		if key.UpstreamGroupID != nil {
 			extra["sub2api_upstream_group_id"] = *key.UpstreamGroupID
 		}
@@ -1583,6 +1586,7 @@ func upstreamKeyEntityToService(row *dbent.UpstreamKey) *service.UpstreamKey {
 		PlatformDetectedAt:      row.PlatformDetectedAt,
 		BoundAccountCount:       len(row.Edges.Accounts),
 		RateMultiplier:          row.RateMultiplier,
+		SourceRateMultiplier:    row.SourceRateMultiplier,
 		Status:                  row.Status,
 		LastSeenAt:              row.LastSeenAt,
 		MissingCount:            row.MissingCount,

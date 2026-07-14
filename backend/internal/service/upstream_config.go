@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
@@ -98,7 +100,7 @@ type UpstreamKey struct {
 	PlatformDetectedAt      *time.Time
 	BoundAccountCount       int
 	RateMultiplier          *float64
-	EffectiveCostMultiplier *float64
+	SourceRateMultiplier    *float64
 	Status                  string
 	LastSeenAt              *time.Time
 	MissingCount            int
@@ -117,7 +119,6 @@ type UpstreamConfigRepository interface {
 	CountAccounts(ctx context.Context, id int64) (int64, error)
 	ListKeys(ctx context.Context, upstreamConfigID int64) ([]UpstreamKey, error)
 	GetKeyByID(ctx context.Context, id int64) (*UpstreamKey, error)
-	CreateKey(ctx context.Context, key *UpstreamKey) error
 	UpsertKey(ctx context.Context, key *UpstreamKey) error
 	UpdateKey(ctx context.Context, key *UpstreamKey) error
 	DeleteKey(ctx context.Context, id int64) error
@@ -125,6 +126,29 @@ type UpstreamConfigRepository interface {
 	RecordCheckResult(ctx context.Context, id int64, success bool, safeErr string) error
 	SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string, expiresAt *time.Time) error
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
+}
+
+const MaxUpstreamActualRate = 999999.9999
+
+// NormalizeUpstreamActualRate is the single authority for persisted upstream cost rates.
+func NormalizeUpstreamActualRate(sourceRate, rechargeRate float64) (float64, error) {
+	if sourceRate < 0 || math.IsNaN(sourceRate) || math.IsInf(sourceRate, 0) {
+		return 0, infraerrors.BadRequest("UPSTREAM_KEY_RATE_INVALID", "upstream source rate multiplier is invalid")
+	}
+	if rechargeRate == 0 {
+		rechargeRate = 1
+	}
+	if rechargeRate < 0 || rechargeRate > 100 || math.IsNaN(rechargeRate) || math.IsInf(rechargeRate, 0) {
+		return 0, infraerrors.BadRequest("UPSTREAM_RECHARGE_RATE_INVALID", "recharge_rate must be greater than 0 and at most 100")
+	}
+	actual := decimal.NewFromFloat(sourceRate).
+		Mul(decimal.NewFromFloat(rechargeRate)).
+		Round(4).
+		InexactFloat64()
+	if actual < 0 || actual > MaxUpstreamActualRate || math.IsNaN(actual) || math.IsInf(actual, 0) {
+		return 0, infraerrors.BadRequest("UPSTREAM_ACTUAL_RATE_INVALID", "upstream actual rate multiplier is out of range")
+	}
+	return actual, nil
 }
 
 type UpdateUpstreamKeyPlatformRequest struct {
@@ -252,21 +276,11 @@ func (s *UpstreamConfigService) applySub2APIComplianceSettings(ctx context.Conte
 }
 
 func (s *UpstreamConfigService) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error) {
-	configs, result, err := s.repo.List(ctx, params, provider, status, search)
-	if err == nil {
-		for i := range configs {
-			applyEffectiveCostMultipliers(&configs[i], configs[i].Keys)
-		}
-	}
-	return configs, result, err
+	return s.repo.List(ctx, params, provider, status, search)
 }
 
 func (s *UpstreamConfigService) GetByID(ctx context.Context, id int64) (*UpstreamConfig, error) {
-	config, err := s.repo.GetByID(ctx, id)
-	if err == nil && config != nil {
-		applyEffectiveCostMultipliers(config, config.Keys)
-	}
-	return config, err
+	return s.repo.GetByID(ctx, id)
 }
 
 func (s *UpstreamConfigService) Create(ctx context.Context, config *UpstreamConfig) (*UpstreamConfig, error) {
@@ -421,19 +435,13 @@ func (s *UpstreamConfigService) Delete(ctx context.Context, id int64) error {
 }
 
 func (s *UpstreamConfigService) ListKeys(ctx context.Context, upstreamConfigID int64) ([]UpstreamKey, error) {
-	config, err := s.repo.GetByID(ctx, upstreamConfigID)
-	if err != nil {
+	if _, err := s.repo.GetByID(ctx, upstreamConfigID); err != nil {
 		return nil, err
 	}
 	keys, err := s.repo.ListKeys(ctx, upstreamConfigID)
 	if err != nil {
 		return nil, err
 	}
-	ptrs := make([]*UpstreamKey, 0, len(keys))
-	for i := range keys {
-		ptrs = append(ptrs, &keys[i])
-	}
-	applyEffectiveCostMultipliers(config, ptrs)
 	return keys, nil
 }
 
@@ -451,20 +459,6 @@ func (s *UpstreamConfigService) ApplyAccountNameBackfill(ctx context.Context) ([
 		return nil, infraerrors.New(http.StatusServiceUnavailable, "UPSTREAM_ACCOUNT_NAME_BACKFILL_UNAVAILABLE", "upstream account name backfill is unavailable")
 	}
 	return repo.ApplyAccountNameBackfill(ctx)
-}
-
-func (s *UpstreamConfigService) CreateKey(ctx context.Context, upstreamConfigID int64, key *UpstreamKey) (*UpstreamKey, error) {
-	if key == nil {
-		return nil, infraerrors.BadRequest("UPSTREAM_KEY_REQUIRED", "upstream key is required")
-	}
-	key.UpstreamConfigID = upstreamConfigID
-	if err := normalizeAndValidateUpstreamKey(key); err != nil {
-		return nil, err
-	}
-	if err := s.repo.CreateKey(ctx, key); err != nil {
-		return nil, err
-	}
-	return s.repo.GetKeyByID(ctx, key.ID)
 }
 
 func (s *UpstreamConfigService) DeleteKey(ctx context.Context, id int64) error {
@@ -722,6 +716,16 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 	result.FallbackKeyCount = snapshot.FallbackKeyCount
 	result.UnresolvedKeyCount = snapshot.UnresolvedKeyCount
 	for i := range keys {
+		if keys[i].SourceRateMultiplier != nil {
+			actualRate, rateErr := NormalizeUpstreamActualRate(*keys[i].SourceRateMultiplier, cfg.RechargeRate)
+			if rateErr != nil {
+				result.Error = adapter.SanitizeError(rateErr, cfg.Credentials)
+				return nil, result, rateErr
+			}
+			keys[i].RateMultiplier = &actualRate
+		} else {
+			keys[i].RateMultiplier = nil
+		}
 		if err := normalizeAndValidateUpstreamKey(&keys[i]); err != nil {
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
@@ -938,11 +942,7 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, cfg *
 		if !ok || key.RateMultiplier == nil {
 			continue
 		}
-		rechargeRate := cfg.RechargeRate
-		if rechargeRate <= 0 {
-			rechargeRate = 1
-		}
-		multiplier := *key.RateMultiplier * rechargeRate
+		multiplier := *key.RateMultiplier
 		if multiplier < 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
 			continue
 		}
@@ -953,9 +953,6 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, cfg *
 			"upstream_rate_sync_last_error":      "",
 			"upstream_provider":                  cfg.Provider,
 			"upstream_platform":                  key.Platform,
-			"upstream_rate_multiplier":           multiplier,
-			"upstream_source_rate_multiplier":    *key.RateMultiplier,
-			"upstream_recharge_rate":             rechargeRate,
 		}
 		if key.UpstreamGroupID != nil {
 			extra["upstream_group_id"] = *key.UpstreamGroupID
@@ -967,7 +964,6 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, cfg *
 			extra["sub2api_rate_sync_last_success_at"] = now
 			extra["sub2api_rate_sync_last_error"] = ""
 			extra["sub2api_upstream_platform"] = key.Platform
-			extra["sub2api_upstream_rate_multiplier"] = multiplier
 			if key.UpstreamGroupID != nil {
 				extra["sub2api_upstream_group_id"] = *key.UpstreamGroupID
 			}
@@ -1156,8 +1152,8 @@ func normalizeAndValidateUpstreamKey(key *UpstreamKey) error {
 	if key.KeyHash == "" {
 		key.KeyHash = HashUpstreamKey(key.Key)
 	}
-	if key.RateMultiplier != nil && (*key.RateMultiplier < 0 || math.IsNaN(*key.RateMultiplier) || math.IsInf(*key.RateMultiplier, 0)) {
-		return infraerrors.BadRequest("UPSTREAM_KEY_RATE_INVALID", "upstream key rate multiplier is invalid")
+	if key.SourceRateMultiplier != nil && (*key.SourceRateMultiplier < 0 || math.IsNaN(*key.SourceRateMultiplier) || math.IsInf(*key.SourceRateMultiplier, 0)) {
+		return infraerrors.BadRequest("UPSTREAM_KEY_RATE_INVALID", "upstream source rate multiplier is invalid")
 	}
 	return nil
 }
