@@ -445,7 +445,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		return nil
 	}
 	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck ||
-		input.Concurrency != nil || input.Priority != nil || input.LoadFactor != nil || input.Name != "" {
+		input.Concurrency != nil || input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil || input.Name != "" {
 		if err := loadCachedTargets(); err != nil {
 			return nil, err
 		}
@@ -482,6 +482,14 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			if acc != nil && acc.IsUpstreamBound() {
 				return nil, infraerrors.Newf(http.StatusBadRequest, "UPSTREAM_ACCOUNT_NAME_DERIVED",
 					"upstream-bound account %d name is derived from its upstream config and key", acc.ID)
+			}
+		}
+	}
+	if input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil {
+		for _, acc := range cachedTargets {
+			if acc != nil && acc.IsUpstreamBound() {
+				return nil, infraerrors.Newf(http.StatusBadRequest, "UPSTREAM_ACCOUNT_RATE_DERIVED",
+					"upstream-bound account %d rate, priority, and load factor are derived from its upstream key", acc.ID)
 			}
 		}
 	}
@@ -569,15 +577,12 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
 		return nil, err
 	}
-	if input.Concurrency != nil || input.Priority != nil || input.LoadFactor != nil {
+	if input.Concurrency != nil {
 		for _, acc := range cachedTargets {
 			if acc == nil || !acc.IsUpstreamBound() {
 				continue
 			}
 			priority := acc.Priority
-			if input.Priority != nil {
-				priority = *input.Priority
-			}
 			concurrency := acc.Concurrency
 			if input.Concurrency != nil {
 				concurrency = *input.Concurrency

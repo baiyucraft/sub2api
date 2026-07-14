@@ -47,6 +47,8 @@ const (
 	FieldPlatformDetectedAt = "platform_detected_at"
 	// FieldRateMultiplier holds the string denoting the rate_multiplier field in the database.
 	FieldRateMultiplier = "rate_multiplier"
+	// FieldSourceRateMultiplier holds the string denoting the source_rate_multiplier field in the database.
+	FieldSourceRateMultiplier = "source_rate_multiplier"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldLastSeenAt holds the string denoting the last_seen_at field in the database.
@@ -134,6 +136,7 @@ var Columns = []string{
 	FieldPlatformDetectionStatus,
 	FieldPlatformDetectedAt,
 	FieldRateMultiplier,
+	FieldSourceRateMultiplier,
 	FieldStatus,
 	FieldLastSeenAt,
 	FieldMissingCount,
@@ -283,6 +286,11 @@ func ByPlatformDetectedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByRateMultiplier orders the results by the rate_multiplier field.
 func ByRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRateMultiplier, opts...).ToFunc()
+}
+
+// BySourceRateMultiplier orders the results by the source_rate_multiplier field.
+func BySourceRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSourceRateMultiplier, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.

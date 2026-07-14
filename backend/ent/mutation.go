@@ -48379,6 +48379,8 @@ type UpstreamKeyMutation struct {
 	platform_detected_at      *time.Time
 	rate_multiplier           *float64
 	addrate_multiplier        *float64
+	source_rate_multiplier    *float64
+	addsource_rate_multiplier *float64
 	status                    *string
 	last_seen_at              *time.Time
 	missing_count             *int
@@ -49236,6 +49238,76 @@ func (m *UpstreamKeyMutation) ResetRateMultiplier() {
 	delete(m.clearedFields, upstreamkey.FieldRateMultiplier)
 }
 
+// SetSourceRateMultiplier sets the "source_rate_multiplier" field.
+func (m *UpstreamKeyMutation) SetSourceRateMultiplier(f float64) {
+	m.source_rate_multiplier = &f
+	m.addsource_rate_multiplier = nil
+}
+
+// SourceRateMultiplier returns the value of the "source_rate_multiplier" field in the mutation.
+func (m *UpstreamKeyMutation) SourceRateMultiplier() (r float64, exists bool) {
+	v := m.source_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceRateMultiplier returns the old "source_rate_multiplier" field's value of the UpstreamKey entity.
+// If the UpstreamKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyMutation) OldSourceRateMultiplier(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceRateMultiplier: %w", err)
+	}
+	return oldValue.SourceRateMultiplier, nil
+}
+
+// AddSourceRateMultiplier adds f to the "source_rate_multiplier" field.
+func (m *UpstreamKeyMutation) AddSourceRateMultiplier(f float64) {
+	if m.addsource_rate_multiplier != nil {
+		*m.addsource_rate_multiplier += f
+	} else {
+		m.addsource_rate_multiplier = &f
+	}
+}
+
+// AddedSourceRateMultiplier returns the value that was added to the "source_rate_multiplier" field in this mutation.
+func (m *UpstreamKeyMutation) AddedSourceRateMultiplier() (r float64, exists bool) {
+	v := m.addsource_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearSourceRateMultiplier clears the value of the "source_rate_multiplier" field.
+func (m *UpstreamKeyMutation) ClearSourceRateMultiplier() {
+	m.source_rate_multiplier = nil
+	m.addsource_rate_multiplier = nil
+	m.clearedFields[upstreamkey.FieldSourceRateMultiplier] = struct{}{}
+}
+
+// SourceRateMultiplierCleared returns if the "source_rate_multiplier" field was cleared in this mutation.
+func (m *UpstreamKeyMutation) SourceRateMultiplierCleared() bool {
+	_, ok := m.clearedFields[upstreamkey.FieldSourceRateMultiplier]
+	return ok
+}
+
+// ResetSourceRateMultiplier resets all changes to the "source_rate_multiplier" field.
+func (m *UpstreamKeyMutation) ResetSourceRateMultiplier() {
+	m.source_rate_multiplier = nil
+	m.addsource_rate_multiplier = nil
+	delete(m.clearedFields, upstreamkey.FieldSourceRateMultiplier)
+}
+
 // SetStatus sets the "status" field.
 func (m *UpstreamKeyMutation) SetStatus(s string) {
 	m.status = &s
@@ -49806,7 +49878,7 @@ func (m *UpstreamKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UpstreamKeyMutation) Fields() []string {
-	fields := make([]string, 0, 21)
+	fields := make([]string, 0, 22)
 	if m.created_at != nil {
 		fields = append(fields, upstreamkey.FieldCreatedAt)
 	}
@@ -49854,6 +49926,9 @@ func (m *UpstreamKeyMutation) Fields() []string {
 	}
 	if m.rate_multiplier != nil {
 		fields = append(fields, upstreamkey.FieldRateMultiplier)
+	}
+	if m.source_rate_multiplier != nil {
+		fields = append(fields, upstreamkey.FieldSourceRateMultiplier)
 	}
 	if m.status != nil {
 		fields = append(fields, upstreamkey.FieldStatus)
@@ -49910,6 +49985,8 @@ func (m *UpstreamKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.PlatformDetectedAt()
 	case upstreamkey.FieldRateMultiplier:
 		return m.RateMultiplier()
+	case upstreamkey.FieldSourceRateMultiplier:
+		return m.SourceRateMultiplier()
 	case upstreamkey.FieldStatus:
 		return m.Status()
 	case upstreamkey.FieldLastSeenAt:
@@ -49961,6 +50038,8 @@ func (m *UpstreamKeyMutation) OldField(ctx context.Context, name string) (ent.Va
 		return m.OldPlatformDetectedAt(ctx)
 	case upstreamkey.FieldRateMultiplier:
 		return m.OldRateMultiplier(ctx)
+	case upstreamkey.FieldSourceRateMultiplier:
+		return m.OldSourceRateMultiplier(ctx)
 	case upstreamkey.FieldStatus:
 		return m.OldStatus(ctx)
 	case upstreamkey.FieldLastSeenAt:
@@ -50092,6 +50171,13 @@ func (m *UpstreamKeyMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRateMultiplier(v)
 		return nil
+	case upstreamkey.FieldSourceRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceRateMultiplier(v)
+		return nil
 	case upstreamkey.FieldStatus:
 		v, ok := value.(string)
 		if !ok {
@@ -50144,6 +50230,9 @@ func (m *UpstreamKeyMutation) AddedFields() []string {
 	if m.addrate_multiplier != nil {
 		fields = append(fields, upstreamkey.FieldRateMultiplier)
 	}
+	if m.addsource_rate_multiplier != nil {
+		fields = append(fields, upstreamkey.FieldSourceRateMultiplier)
+	}
 	if m.addmissing_count != nil {
 		fields = append(fields, upstreamkey.FieldMissingCount)
 	}
@@ -50161,6 +50250,8 @@ func (m *UpstreamKeyMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedUpstreamGroupID()
 	case upstreamkey.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
+	case upstreamkey.FieldSourceRateMultiplier:
+		return m.AddedSourceRateMultiplier()
 	case upstreamkey.FieldMissingCount:
 		return m.AddedMissingCount()
 	}
@@ -50192,6 +50283,13 @@ func (m *UpstreamKeyMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddRateMultiplier(v)
+		return nil
+	case upstreamkey.FieldSourceRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSourceRateMultiplier(v)
 		return nil
 	case upstreamkey.FieldMissingCount:
 		v, ok := value.(int)
@@ -50228,6 +50326,9 @@ func (m *UpstreamKeyMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(upstreamkey.FieldRateMultiplier) {
 		fields = append(fields, upstreamkey.FieldRateMultiplier)
+	}
+	if m.FieldCleared(upstreamkey.FieldSourceRateMultiplier) {
+		fields = append(fields, upstreamkey.FieldSourceRateMultiplier)
 	}
 	if m.FieldCleared(upstreamkey.FieldLastSeenAt) {
 		fields = append(fields, upstreamkey.FieldLastSeenAt)
@@ -50269,6 +50370,9 @@ func (m *UpstreamKeyMutation) ClearField(name string) error {
 		return nil
 	case upstreamkey.FieldRateMultiplier:
 		m.ClearRateMultiplier()
+		return nil
+	case upstreamkey.FieldSourceRateMultiplier:
+		m.ClearSourceRateMultiplier()
 		return nil
 	case upstreamkey.FieldLastSeenAt:
 		m.ClearLastSeenAt()
@@ -50331,6 +50435,9 @@ func (m *UpstreamKeyMutation) ResetField(name string) error {
 		return nil
 	case upstreamkey.FieldRateMultiplier:
 		m.ResetRateMultiplier()
+		return nil
+	case upstreamkey.FieldSourceRateMultiplier:
+		m.ResetSourceRateMultiplier()
 		return nil
 	case upstreamkey.FieldStatus:
 		m.ResetStatus()

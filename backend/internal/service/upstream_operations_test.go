@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -115,20 +116,35 @@ func TestNormalizeNewAPIPlatform(t *testing.T) {
 	require.Empty(t, normalizeNewAPIPlatform("unknown vendor"))
 }
 
-func TestApplyEffectiveCostMultipliers(t *testing.T) {
-	rate := 0.065
-	key := &UpstreamKey{RateMultiplier: &rate}
-	applyEffectiveCostMultipliers(&UpstreamConfig{RechargeRate: 0.8}, []*UpstreamKey{key})
-	require.NotNil(t, key.EffectiveCostMultiplier)
-	require.InDelta(t, 0.052, *key.EffectiveCostMultiplier, 1e-12)
-	require.Equal(t, 5, Sub2APIUpstreamPriority(*key.EffectiveCostMultiplier))
-}
-
 func TestNormalizeAndValidateUpstreamConfigRejectsInvalidRechargeRate(t *testing.T) {
 	cfg := &UpstreamConfig{Name: "test", Provider: UpstreamProviderOther, SiteURL: "https://example.com", RechargeRate: -1}
 	err := normalizeAndValidateUpstreamConfig(cfg, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "recharge_rate")
+}
+
+func TestNormalizeUpstreamActualRate(t *testing.T) {
+	actual, err := NormalizeUpstreamActualRate(8, 0.1)
+	require.NoError(t, err)
+	require.Equal(t, 0.8, actual)
+
+	actual, err = NormalizeUpstreamActualRate(0.06555, 1)
+	require.NoError(t, err)
+	require.Equal(t, 0.0656, actual)
+
+	actual, err = NormalizeUpstreamActualRate(0.145, 1)
+	require.NoError(t, err)
+	require.Equal(t, 0.145, actual)
+	require.Equal(t, 15, Sub2APIUpstreamPriority(actual))
+
+	actual, err = NormalizeUpstreamActualRate(0.12, 0)
+	require.NoError(t, err)
+	require.Equal(t, 0.12, actual)
+
+	_, err = NormalizeUpstreamActualRate(-1, 1)
+	require.Error(t, err)
+	_, err = NormalizeUpstreamActualRate(MaxUpstreamActualRate, 100)
+	require.Error(t, err)
 }
 
 func TestClassifyUpstreamSyncFailure(t *testing.T) {
@@ -153,4 +169,51 @@ func TestGetKeyRateTrendRejectsUnsupportedRangeBeforeRepositoryAccess(t *testing
 	_, err := svc.GetKeyRateTrend(context.Background(), 1, 2, "90d")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "range must be one of 24h, 7d, 30d")
+}
+
+func TestProjectUpstreamEventsProjectsOnlyEffectiveRates(t *testing.T) {
+	events := []UpstreamEvent{
+		{ID: 1, ConfigID: 2, Type: "key_rate_changed", Severity: "info", Message: "legacy", Payload: map[string]any{
+			"old_raw_rate": 1.0, "new_raw_rate": 2.0, "old_effective_rate": 0.5, "new_effective_rate": 1.0,
+		}},
+		{ID: 2, ConfigID: 2, Type: "key_actual_rate_changed", Payload: map[string]any{"old_rate": 0.7, "new_rate": 0.8, "secret": "drop"}},
+		{ID: 3, ConfigID: 2, Type: "key_rate_changed", Payload: map[string]any{"old_raw_rate": 3.0, "new_raw_rate": 4.0}},
+		{ID: 4, ConfigID: 2, Type: "group_removed", Payload: map[string]any{"group_id": 9.0}},
+	}
+
+	got := projectUpstreamEvents(events)
+	require.Equal(t, events[0].ID, got[0].ID)
+	require.Equal(t, events[0].Severity, got[0].Severity)
+	require.Equal(t, events[0].Message, got[0].Message)
+	require.Equal(t, map[string]any{"old_rate": 0.5, "new_rate": 1.0}, got[0].Payload)
+	require.Equal(t, map[string]any{"old_rate": 0.7, "new_rate": 0.8}, got[1].Payload)
+	require.Nil(t, got[2].Payload)
+	require.Equal(t, events[3].Payload, got[3].Payload)
+	require.Contains(t, events[0].Payload, "old_raw_rate")
+
+	encoded, err := json.Marshal(got[:3])
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "raw_rate")
+	require.NotContains(t, string(encoded), "effective_rate")
+	require.NotContains(t, string(encoded), "secret")
+}
+
+func TestUpstreamKeyRateDTOJSONUsesSingleActualRateContract(t *testing.T) {
+	current, previous, oldRate, newRate := 0.8, 0.7, 0.6, 0.8
+	encoded, err := json.Marshal(UpstreamKeyRateTrend{
+		CurrentRate:  &current,
+		PreviousRate: &previous,
+		Points:       []UpstreamKeyRateTrendPoint{{Bucket: "2026-07-14T00:00:00Z", RateMultiplier: current}},
+		Changes:      []UpstreamKeyRateChange{{OldRate: &oldRate, NewRate: &newRate}},
+	})
+	require.NoError(t, err)
+	contract := string(encoded)
+	require.Contains(t, contract, `"current_rate":0.8`)
+	require.Contains(t, contract, `"previous_rate":0.7`)
+	require.Contains(t, contract, `"rate_multiplier":0.8`)
+	require.Contains(t, contract, `"old_rate":0.6`)
+	require.Contains(t, contract, `"new_rate":0.8`)
+	for _, forbidden := range []string{"raw_rate", "effective_rate", "effective_cost_multiplier", "source_rate", "recharge_rate"} {
+		require.NotContains(t, contract, forbidden)
+	}
 }

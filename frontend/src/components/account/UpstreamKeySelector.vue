@@ -226,19 +226,6 @@ function groupLabel(key: UpstreamKey): string {
 }
 
 function rateLabel(key: UpstreamKey): string {
-	const defaultRate = numberExtra(key, 'default_rate_multiplier')
-	const dedicatedRate = numberExtra(key, 'dedicated_rate_multiplier')
-	if (hasDedicatedRate(key) && dedicatedRate != null) {
-		if (defaultRate != null) {
-			return t('admin.accounts.upstreamKeySelector.rateOverride', {
-				defaultRate: formatRate(defaultRate),
-				dedicatedRate: formatRate(dedicatedRate)
-			})
-		}
-		return t('admin.accounts.upstreamKeySelector.rateDedicated', {
-			dedicatedRate: formatRate(dedicatedRate)
-		})
-	}
   if (key.rate_multiplier == null || !Number.isFinite(key.rate_multiplier)) {
     return t('admin.accounts.upstreamKeySelector.rateUnknown')
   }
@@ -281,20 +268,6 @@ function formatDate(value: string): string {
   return date.toLocaleString()
 }
 
-function hasDedicatedRate(key: UpstreamKey): boolean {
-  return key.extra?.has_dedicated_rate_multiplier === true
-}
-
-function numberExtra(key: UpstreamKey, name: string): number | null {
-  const value = key.extra?.[name]
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return null
-}
-
 function optionSearchText(key: UpstreamKey): string {
   return [
     keyName(key),
@@ -303,8 +276,6 @@ function optionSearchText(key: UpstreamKey): string {
     key.upstream_group_id == null ? '' : String(key.upstream_group_id),
     key.platform || '',
     key.rate_multiplier == null ? '' : String(key.rate_multiplier),
-    numberExtra(key, 'default_rate_multiplier') == null ? '' : String(numberExtra(key, 'default_rate_multiplier')),
-    numberExtra(key, 'dedicated_rate_multiplier') == null ? '' : String(numberExtra(key, 'dedicated_rate_multiplier')),
     key.key_status?.suffix || '',
     key.remote_key_id == null ? '' : String(key.remote_key_id)
   ].join(' ').toLowerCase()

@@ -42,18 +42,6 @@ type upstreamSettingsRequest struct {
 	Sub2APINotInCNConfirmed bool    `json:"sub2api_not_in_cn_confirmed"`
 }
 
-type upstreamKeyRequest struct {
-	Name              string         `json:"name"`
-	Key               string         `json:"key"`
-	RemoteKeyID       *int64         `json:"remote_key_id"`
-	UpstreamGroupID   *int64         `json:"upstream_group_id"`
-	UpstreamGroupName string         `json:"upstream_group_name"`
-	Platform          *string        `json:"platform"`
-	RateMultiplier    *float64       `json:"rate_multiplier"`
-	Status            string         `json:"status"`
-	Extra             map[string]any `json:"extra"`
-}
-
 type updateUpstreamKeyPlatformRequest struct {
 	Platform             string    `json:"platform" binding:"required"`
 	ExpectedUpdatedAt    time.Time `json:"expected_updated_at" binding:"required"`
@@ -308,24 +296,6 @@ func (h *UpstreamConfigHandler) KeyRateTrendKeys(c *gin.Context) {
 	response.Success(c, items)
 }
 
-func (h *UpstreamConfigHandler) CreateKey(c *gin.Context) {
-	id, ok := parseUpstreamIDParam(c, "id")
-	if !ok {
-		return
-	}
-	var req upstreamKeyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	key, err := h.service.CreateKey(c.Request.Context(), id, upstreamKeyFromRequest(req))
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, sanitizeUpstreamKey(key))
-}
-
 func (h *UpstreamConfigHandler) DeleteKey(c *gin.Context) {
 	id, ok := parseUpstreamIDParam(c, "keyID")
 	if !ok {
@@ -415,25 +385,6 @@ func upstreamConfigFromRequest(req upstreamConfigRequest) *service.UpstreamConfi
 	}
 }
 
-func upstreamKeyFromRequest(req upstreamKeyRequest) *service.UpstreamKey {
-	key := &service.UpstreamKey{
-		Name:              req.Name,
-		Key:               req.Key,
-		RemoteKeyID:       req.RemoteKeyID,
-		UpstreamGroupID:   req.UpstreamGroupID,
-		UpstreamGroupName: req.UpstreamGroupName,
-		Platform:          req.Platform,
-		RateMultiplier:    req.RateMultiplier,
-		Status:            req.Status,
-		Extra:             req.Extra,
-	}
-	if req.Platform != nil && strings.TrimSpace(*req.Platform) != "" {
-		key.PlatformSource = service.UpstreamKeyPlatformSourceManual
-		key.PlatformDetectionStatus = service.UpstreamKeyPlatformDetectionUnresolved
-	}
-	return key
-}
-
 func sanitizeUpstreamConfigs(configs []service.UpstreamConfig) []gin.H {
 	out := make([]gin.H, 0, len(configs))
 	for i := range configs {
@@ -511,7 +462,6 @@ func sanitizeUpstreamKey(key *service.UpstreamKey) gin.H {
 		"platform_detected_at":      key.PlatformDetectedAt,
 		"bound_account_count":       key.BoundAccountCount,
 		"rate_multiplier":           key.RateMultiplier,
-		"effective_cost_multiplier": key.EffectiveCostMultiplier,
 		"status":                    key.Status,
 		"last_seen_at":              key.LastSeenAt,
 		"missing_count":             key.MissingCount,

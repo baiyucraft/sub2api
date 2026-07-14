@@ -11,7 +11,6 @@ import (
 
 	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
-	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	dbupstreambalancesnapshot "github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	dbupstreamevent "github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	dbupstreamincident "github.com/Wei-Shaw/sub2api/ent/upstreamincident"
@@ -244,14 +243,42 @@ func createRechargeRateChangedEvent(ctx context.Context, client *dbent.Client, c
 	return client.UpstreamEvent.Create().SetUpstreamConfigID(config.ID).SetEventType("recharge_rate_changed").SetSeverity("info").SetSource("admin").SetMessage("Upstream recharge rate changed").SetPayload(map[string]any{"old_rate": old, "new_rate": current}).SetOccurredAt(at).Exec(ctx)
 }
 
-func recalculateUpstreamAccounts(ctx context.Context, client *dbent.Client, config *dbent.UpstreamConfig, at time.Time) ([]int64, error) {
-	accounts, err := client.Account.Query().Where(dbaccount.UpstreamConfigIDEQ(config.ID), dbaccount.UpstreamKeyIDNotNil()).ForUpdate().All(ctx)
-	if err != nil {
-		return nil, err
-	}
-	keys, err := client.UpstreamKey.Query().Where(func(s *entsql.Selector) { s.Where(entsql.EQ(s.C("upstream_config_id"), config.ID)) }).All(ctx)
-	if err != nil {
-		return nil, err
+func recalculateLockedUpstreamAccounts(ctx context.Context, client *dbent.Client, config *dbent.UpstreamConfig, keys []*dbent.UpstreamKey, accounts []*dbent.Account, at time.Time) ([]int64, error) {
+	for _, key := range keys {
+		if key.SourceRateMultiplier == nil {
+			continue
+		}
+		actual, rateErr := service.NormalizeUpstreamActualRate(*key.SourceRateMultiplier, config.RechargeRate)
+		if rateErr != nil {
+			return nil, rateErr
+		}
+		previous := key.RateMultiplier
+		if previous != nil && sameRate(*previous, actual) {
+			continue
+		}
+		if _, err := client.UpstreamKey.UpdateOneID(key.ID).SetRateMultiplier(actual).Save(ctx); err != nil {
+			return nil, err
+		}
+		key.RateMultiplier = &actual
+		if err := client.UpstreamKeyRateSnapshot.Create().
+			SetUpstreamConfigID(config.ID).
+			SetUpstreamKeyID(key.ID).
+			SetKeyNameSnapshot(key.Name).
+			SetKeyHashSnapshot(key.KeyHash).
+			SetProvider(config.Provider).
+			SetRawRateMultiplier(*key.SourceRateMultiplier).
+			SetRechargeRate(config.RechargeRate).
+			SetEffectiveCostMultiplier(actual).
+			SetSource("recharge_rate_change").
+			SetObservedAt(at).
+			Exec(ctx); err != nil {
+			return nil, err
+		}
+		if previous != nil {
+			if err := createActualRateChangeEvent(ctx, client, config.ID, key.ID, 0, *previous, actual, at); err != nil {
+				return nil, err
+			}
+		}
 	}
 	byID := make(map[int64]*dbent.UpstreamKey, len(keys))
 	for _, key := range keys {
@@ -259,6 +286,9 @@ func recalculateUpstreamAccounts(ctx context.Context, client *dbent.Client, conf
 	}
 	changed := make([]int64, 0, len(accounts))
 	for _, account := range accounts {
+		if account.UpstreamKeyID == nil {
+			continue
+		}
 		key := byID[*account.UpstreamKeyID]
 		if key == nil {
 			continue

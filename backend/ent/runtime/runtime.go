@@ -2081,17 +2081,17 @@ func init() {
 	// upstreamkey.PlatformDetectionStatusValidator is a validator for the "platform_detection_status" field. It is called by the builders before save.
 	upstreamkey.PlatformDetectionStatusValidator = upstreamkeyDescPlatformDetectionStatus.Validators[0].(func(string) error)
 	// upstreamkeyDescStatus is the schema descriptor for status field.
-	upstreamkeyDescStatus := upstreamkeyFields[13].Descriptor()
+	upstreamkeyDescStatus := upstreamkeyFields[14].Descriptor()
 	// upstreamkey.DefaultStatus holds the default value on creation for the status field.
 	upstreamkey.DefaultStatus = upstreamkeyDescStatus.Default.(string)
 	// upstreamkey.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	upstreamkey.StatusValidator = upstreamkeyDescStatus.Validators[0].(func(string) error)
 	// upstreamkeyDescMissingCount is the schema descriptor for missing_count field.
-	upstreamkeyDescMissingCount := upstreamkeyFields[15].Descriptor()
+	upstreamkeyDescMissingCount := upstreamkeyFields[16].Descriptor()
 	// upstreamkey.DefaultMissingCount holds the default value on creation for the missing_count field.
 	upstreamkey.DefaultMissingCount = upstreamkeyDescMissingCount.Default.(int)
 	// upstreamkeyDescExtra is the schema descriptor for extra field.
-	upstreamkeyDescExtra := upstreamkeyFields[17].Descriptor()
+	upstreamkeyDescExtra := upstreamkeyFields[18].Descriptor()
 	// upstreamkey.DefaultExtra holds the default value on creation for the extra field.
 	upstreamkey.DefaultExtra = upstreamkeyDescExtra.Default.(func() map[string]interface{})
 	upstreamkeyratesnapshotFields := schema.UpstreamKeyRateSnapshot{}.Fields()

@@ -350,7 +350,7 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 			DetectedPlatform:        detectedPlatform,
 			PlatformDetectionStatus: evidence.UpstreamDetectionStatus(),
 			PlatformDetectedAt:      &detectedAt,
-			RateMultiplier:          rate,
+			SourceRateMultiplier:    rate,
 			Status:                  status,
 			LastSeenAt:              &now,
 			Extra:                   extra,
@@ -409,11 +409,6 @@ func newAPIGroupSnapshot(groups map[string]newAPIGroupInfo) map[string]any {
 	out := make(map[string]any, len(groups))
 	for name, info := range groups {
 		entry := map[string]any{"description": strings.TrimSpace(info.Desc)}
-		if ratio, ok := parseNewAPIRatio(info.Ratio); ok {
-			entry["ratio"] = ratio
-		} else {
-			entry["ratio_status"] = "unavailable"
-		}
 		if len(info.Platforms) > 0 {
 			entry["platforms"] = append([]string(nil), info.Platforms...)
 		}
