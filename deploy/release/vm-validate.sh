@@ -126,8 +126,11 @@ restore_vm() (
     docker stop sub2api-dev >/dev/null 2>&1 || true
   fi
   docker exec sub2api-postgres sh -lc 'psql -X -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='"'"'sub2api_dev'"'"' AND pid <> pg_backend_pid();" >/dev/null'
-  docker exec sub2api-postgres sh -lc 'dropdb --if-exists -U "${POSTGRES_USER:-postgres}" sub2api_dev && createdb -U "${POSTGRES_USER:-postgres}" sub2api_dev'
-  docker exec -i sub2api-postgres sh -lc 'pg_restore --exit-on-error --no-owner -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' < "$state_dir/backup/postgres.dump"
+  docker exec sub2api-postgres sh -lc 'dropdb --if-exists -U "${POSTGRES_USER:-postgres}" sub2api_dev'
+  docker exec -i -e DB_OWNER="$(<"$state_dir/backup/database-owner")" sub2api-postgres sh -lc 'psql -X -v ON_ERROR_STOP=1 -v db_owner="$DB_OWNER" -U "${POSTGRES_USER:-postgres}" -d postgres' >/dev/null <<'SQL'
+SELECT format('CREATE DATABASE sub2api_dev OWNER %I', :'db_owner') \gexec
+SQL
+  docker exec -i sub2api-postgres sh -lc 'pg_restore --exit-on-error -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' < "$state_dir/backup/postgres.dump"
   docker stop sub2api-redis >/dev/null
   find "$redis_source" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
   cp -a "$state_dir/backup/redis-data/." "$redis_source/"
@@ -187,6 +190,8 @@ trap on_failure ERR INT TERM
 
 mark_stage development_backup
 docker stop sub2api-dev >/dev/null
+docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r' > "$state_dir/backup/database-owner"
+[[ -s $state_dir/backup/database-owner ]]
 docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 6 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/backup/postgres.dump"
 [[ -s $state_dir/backup/postgres.dump ]]
 docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT '"'"'accounts='"'"'||count(*) FROM accounts UNION ALL SELECT '"'"'users='"'"'||count(*) FROM users UNION ALL SELECT '"'"'upstream_configs='"'"'||count(*) FROM upstream_configs UNION ALL SELECT '"'"'upstream_keys='"'"'||count(*) FROM upstream_keys"' > "$state_dir/backup/core-counts.txt"
@@ -226,6 +231,7 @@ for _ in $(seq 1 90); do
 done
 [[ $(docker inspect -f '{{.Image}}' sub2api-dev) == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
+mark_stage migration_assertions
 migration_checksum=$(jq -er '.migration_sha256["182_upstream_actual_rate_multiplier.sql"]' "$manifest")
 recorded_checksum=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT checksum FROM schema_migrations WHERE filename='"'"'182_upstream_actual_rate_multiplier.sql'"'"'"')
 [[ $recorded_checksum == "$migration_checksum" ]]
