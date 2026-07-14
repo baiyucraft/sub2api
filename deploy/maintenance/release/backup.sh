@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-source "$release_dir/assets/context.sh"
+source /opt/sub2api/releases/.active-release/assets/context.sh
 backup_root=${BACKUP_ROOT:-$deploy_dir/backups/automated}
 recipient_file=${AGE_RECIPIENT_FILE:-/root/.config/sub2api-backup/age-recipient.txt}
 upload_key=${BACKUP_UPLOAD_KEY:-/root/.ssh/sub2api_backup_upload}

@@ -5,7 +5,7 @@ deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 minimum_free_bytes=${MINIMUM_FREE_BYTES:-10737418240}
 canary_key_file=${CANARY_KEY_FILE:-/root/.config/sub2api-release/canary-api-key}
-source "$release_dir/assets/context.sh"
+source /opt/sub2api/releases/.active-release/assets/context.sh
 [[ ! -e $release_dir/.consumed ]]
 [[ -f $canary_key_file && ! -L $canary_key_file && $(stat -c '%a' "$canary_key_file") == 600 ]]
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]

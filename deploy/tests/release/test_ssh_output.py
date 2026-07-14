@@ -45,6 +45,7 @@ class SSHOutputTest(unittest.TestCase):
     def runner(self, stdout: bytes, stderr: bytes = b"") -> SSHRunner:
         instance = object.__new__(SSHRunner)
         instance.connect = lambda name: FakeClient(stdout, stderr)
+        instance.temp_dirs = set()
         return instance
 
     def test_accepts_only_declared_fields(self) -> None:
@@ -65,6 +66,11 @@ class SSHOutputTest(unittest.TestCase):
         runner = self.runner(b"temp_dir=/tmp/escape\n")
         with self.assertRaisesRegex(RuntimeError, "invalid temporary"):
             runner.create_temp_dir("vm", "/opt/release", "stage")
+
+    def test_sftp_rejects_unregistered_path(self) -> None:
+        runner = self.runner(b"")
+        with self.assertRaisesRegex(RuntimeError, "outside a registered"):
+            runner.upload("vm", b"data", "/tmp/predictable")
 
 
 if __name__ == "__main__":

@@ -39,7 +39,9 @@ def bootstrap_trust() -> None:
         if downloaded.exists():
             downloaded.unlink()
         try:
-            runner.download_file("local_vm", "/opt/sub2api-release-signer/vm-gate-ed25519.pub", downloaded)
+            signer_copy = f"{remote_dir}/vm-gate-ed25519.pub"
+            runner.run("local_vm", f"install -m 400 /opt/sub2api-release-signer/vm-gate-ed25519.pub {signer_copy} && printf 'public_key_staged=true\\n'", {"public_key_staged"})
+            runner.download_file("local_vm", signer_copy, downloaded)
             if sha256_file(downloaded) != values["public_key_sha256"]:
                 raise RuntimeError("downloaded VM public key checksum differs")
             if not TRUSTED_KEY.is_file():

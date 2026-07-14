@@ -148,6 +148,8 @@ on_failure() {
   else
     resume_vm_without_restore || exit 125
   fi
+  rm -rf "$state_dir/backup"
+  rm -f "$state_dir/candidate.tar.gz"
   exit "$code"
 }
 trap on_failure ERR INT TERM
