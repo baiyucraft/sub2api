@@ -88,165 +88,84 @@ candidate_size=$(docker image inspect -f '{{.Size}}' "$tag")
 [[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 free_after_build=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
 [[ $free_after_build -gt 2147483648 ]]
-docker save "$candidate_image_id" | gzip -1 > "$state_dir/candidate.tar.gz"
-candidate_archive_sha=$(sha256sum "$state_dir/candidate.tar.gz" | awk '{print $1}')
-
-mark_stage focused_tests
-docker build --network=host --progress=plain --target backend-builder \
-  --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
-  --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.5-alpine \
-  --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
-  --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t "$test_tag" . >/dev/null 2>&1
-if ! docker run --rm --network host "$test_tag" /usr/local/go/bin/go test ./internal/service \
-  -run 'TestNormalizeUpstreamActualRate|TestUpstreamKeyRateDTOJSONUsesSingleActualRateContract' -count=1 >/dev/null 2>&1; then
-  docker image rm "$test_tag" >/dev/null 2>&1 || true
-  docker image rm "$tag" >/dev/null 2>&1 || true
-  rm -f "$state_dir/candidate.tar.gz"
-  exit 1
-fi
-docker image rm "$test_tag" >/dev/null 2>&1
-
-restore_required=false
-redis_source=""
-wait_redis_ready() {
-  for _ in $(seq 1 60); do
-    if [[ $(docker inspect -f '{{.State.Status}}' sub2api-redis) == running ]] &&
-       [[ $(docker exec sub2api-redis sh -lc 'export REDISCLI_AUTH="${REDIS_PASSWORD:-}"; redis-cli --no-auth-warning PING' 2>/dev/null | tr -d '\r') == PONG ]]; then
-      return 0
-    fi
-    sleep 1
-  done
-  return 1
+probe_suffix=${release_id//[^a-zA-Z0-9]/}
+probe_db="sub2api_probe_${probe_suffix:0:24}"
+probe_dir="$state_dir/probe-data"
+probe_redis="sub2api-probe-redis-${probe_suffix:0:12}"
+probe_app="sub2api-probe-app-${probe_suffix:0:12}"
+probe_network=$(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}' sub2api-postgres)
+redis_image=$(docker inspect -f '{{.Config.Image}}' sub2api-redis)
+database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
+cleanup_probe() {
+  docker rm -f "$probe_app" "$probe_redis" >/dev/null 2>&1 || true
+  docker exec sub2api-postgres sh -lc "dropdb --if-exists -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1 || true
+  rm -rf "$probe_dir" "$state_dir/probe.dump"
 }
-restore_vm() (
-  set -Eeuo pipefail
-  if docker inspect sub2api-dev-pre-release >/dev/null 2>&1; then
-    docker rm -f sub2api-dev >/dev/null 2>&1 || true
-    docker rename sub2api-dev-pre-release sub2api-dev
-  else
-    docker stop sub2api-dev >/dev/null 2>&1 || true
-  fi
-  docker exec sub2api-postgres sh -lc 'psql -X -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='"'"'sub2api_dev'"'"' AND pid <> pg_backend_pid();" >/dev/null'
-  docker exec sub2api-postgres sh -lc 'dropdb --if-exists -U "${POSTGRES_USER:-postgres}" sub2api_dev'
-  docker exec -i -e DB_OWNER="$(<"$state_dir/backup/database-owner")" sub2api-postgres sh -lc 'psql -X -v ON_ERROR_STOP=1 -v db_owner="$DB_OWNER" -U "${POSTGRES_USER:-postgres}" -d postgres' >/dev/null <<'SQL'
-SELECT format('CREATE DATABASE sub2api_dev OWNER %I', :'db_owner') \gexec
-SQL
-  docker exec -i sub2api-postgres sh -lc 'pg_restore --exit-on-error -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' < "$state_dir/backup/postgres.dump"
-  docker stop sub2api-redis >/dev/null
-  find "$redis_source" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-  cp -a "$state_dir/backup/redis-data/." "$redis_source/"
-  (cd "$redis_source" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$state_dir/backup/redis-data-restored.sha256"
-  diff -u "$state_dir/backup/redis-data.sha256" "$state_dir/backup/redis-data-restored.sha256" >/dev/null
-  docker start sub2api-redis >/dev/null
-  wait_redis_ready
-  [[ $(docker exec sub2api-redis sh -lc 'export REDISCLI_AUTH="${REDIS_PASSWORD:-}"; redis-cli --no-auth-warning DBSIZE' | tr -d '\r') == "$(<"$state_dir/backup/redis-dbsize")" ]]
-  find "$data_dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-  cp -a "$state_dir/backup/data-dev/." "$data_dir/"
-  (cd "$data_dir" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$state_dir/backup/data-dev-restored.sha256"
-  diff -u "$state_dir/backup/data-dev.sha256" "$state_dir/backup/data-dev-restored.sha256" >/dev/null
-  docker start sub2api-dev >/dev/null
-  for _ in $(seq 1 90); do
-    [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-dev) == healthy ]] && break
-    sleep 2
-  done
-  [[ $(docker inspect -f '{{.Image}}' sub2api-dev) == "$old_image_id" ]]
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
-  [[ $(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$server_port/health") == 200 ]]
-  [[ $(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT COUNT(*) FROM schema_migrations WHERE filename='"'"'182_upstream_actual_rate_multiplier.sql'"'"'"') == 0 ]]
-  docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT '"'"'accounts='"'"'||count(*) FROM accounts UNION ALL SELECT '"'"'users='"'"'||count(*) FROM users UNION ALL SELECT '"'"'upstream_configs='"'"'||count(*) FROM upstream_configs UNION ALL SELECT '"'"'upstream_keys='"'"'||count(*) FROM upstream_keys"' > "$state_dir/backup/core-counts-restored.txt"
-  diff -u "$state_dir/backup/core-counts.txt" "$state_dir/backup/core-counts-restored.txt" >/dev/null
-  docker exec -i sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/backup/core-content-digests-restored.txt" <<'SQL'
-SELECT 'accounts='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM accounts t
-UNION ALL SELECT 'users='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM users t
-UNION ALL SELECT 'upstream_configs='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM upstream_configs t
-UNION ALL SELECT 'upstream_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM upstream_keys t;
-SQL
-  diff -u "$state_dir/backup/core-content-digests.txt" "$state_dir/backup/core-content-digests-restored.txt" >/dev/null
-)
-resume_vm_without_restore() (
-  set -Eeuo pipefail
-  docker start sub2api-redis >/dev/null 2>&1 || true
-  wait_redis_ready
-  docker start sub2api-dev >/dev/null 2>&1 || true
-  for _ in $(seq 1 90); do
-    [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-dev) == healthy ]] && break
-    sleep 2
-  done
-  [[ $(docker inspect -f '{{.Image}}' sub2api-dev) == "$old_image_id" ]]
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
-)
 on_failure() {
   code=$?
   trap - ERR INT TERM
-  if [[ $restore_required == true ]]; then
-    restore_vm || exit 125
-  else
-    resume_vm_without_restore || exit 125
-  fi
-  rm -rf "$state_dir/backup"
+  cleanup_probe
   rm -f "$state_dir/candidate.tar.gz"
-  docker image rm "$test_tag" >/dev/null 2>&1 || true
   docker image rm "$tag" >/dev/null 2>&1 || true
   exit "$code"
 }
 trap on_failure ERR INT TERM
 
-mark_stage development_backup
-docker stop sub2api-dev >/dev/null
-docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r' > "$state_dir/backup/database-owner"
-[[ -s $state_dir/backup/database-owner ]]
-docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 6 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/backup/postgres.dump"
-[[ -s $state_dir/backup/postgres.dump ]]
-docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT '"'"'accounts='"'"'||count(*) FROM accounts UNION ALL SELECT '"'"'users='"'"'||count(*) FROM users UNION ALL SELECT '"'"'upstream_configs='"'"'||count(*) FROM upstream_configs UNION ALL SELECT '"'"'upstream_keys='"'"'||count(*) FROM upstream_keys"' > "$state_dir/backup/core-counts.txt"
-docker exec -i sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/backup/core-content-digests.txt" <<'SQL'
-SELECT 'accounts='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM accounts t
-UNION ALL SELECT 'users='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM users t
-UNION ALL SELECT 'upstream_configs='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM upstream_configs t
-UNION ALL SELECT 'upstream_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM upstream_keys t;
+mark_stage isolated_database
+install -d -m 700 "$probe_dir"
+docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 1 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/probe.dump"
+docker exec -i -e DB_OWNER="$database_owner" sub2api-postgres sh -lc 'psql -X -v ON_ERROR_STOP=1 -v db_owner="$DB_OWNER" -U "${POSTGRES_USER:-postgres}" -d postgres' >/dev/null <<SQL
+SELECT format('CREATE DATABASE %I OWNER %I', '$probe_db', :'db_owner') \gexec
 SQL
-docker exec sub2api-redis sh -lc 'export REDISCLI_AUTH="${REDIS_PASSWORD:-}"; redis-cli --no-auth-warning BGSAVE >/dev/null || true; for i in $(seq 1 120); do value=$(redis-cli --no-auth-warning INFO persistence | tr -d "\r"); progress=$(printf "%s\n" "$value" | awk -F: '"'"'$1=="rdb_bgsave_in_progress"{print $2}'"'"'); status=$(printf "%s\n" "$value" | awk -F: '"'"'$1=="rdb_last_bgsave_status"{print $2}'"'"'); [ "$progress" = 0 ] && [ "$status" = ok ] && exit 0; sleep 1; done; exit 1'
-redis_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' sub2api-redis)
-[[ -n $redis_source && -d $redis_source ]]
-docker exec sub2api-redis sh -lc 'export REDISCLI_AUTH="${REDIS_PASSWORD:-}"; redis-cli --no-auth-warning DBSIZE' | tr -d '\r' > "$state_dir/backup/redis-dbsize"
-docker stop sub2api-redis >/dev/null
-cp -a "$redis_source/." "$state_dir/backup/redis-data"
-(cd "$state_dir/backup/redis-data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$state_dir/backup/redis-data.sha256"
-docker start sub2api-redis >/dev/null
-wait_redis_ready
-cp -a "$data_dir" "$state_dir/backup/data-dev"
-(cd "$data_dir" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$state_dir/backup/data-dev.sha256"
-printf '%s\n' "$old_image_id" > "$state_dir/backup/old-image-id"
-printf '%s\n' "$old_image_ref" > "$state_dir/backup/old-image-ref"
-(cd "$state_dir/backup" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+docker exec -i sub2api-postgres sh -lc "pg_restore --exit-on-error -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$state_dir/probe.dump" >/dev/null
+cp -a "$data_dir/." "$probe_dir/"
+sed -i "/^database:/,/^[^[:space:]]/ s/^[[:space:]]*dbname:[[:space:]]*.*/  dbname: $probe_db/" "$probe_dir/config.yaml"
+sed -i '/^database:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: sub2api-postgres/' "$probe_dir/config.yaml"
 
-restore_required=true
+mark_stage isolated_redis
+docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis "$redis_image" redis-server --save '' --appendonly no >/dev/null
+for _ in $(seq 1 30); do
+  [[ $(docker exec "$probe_redis" redis-cli PING 2>/dev/null | tr -d '\r') == PONG ]] && break
+  sleep 1
+done
+[[ $(docker exec "$probe_redis" redis-cli PING 2>/dev/null | tr -d '\r') == PONG ]]
+sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: probe-redis/' "$probe_dir/config.yaml"
+sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*port:[[:space:]]*.*/  port: 6379/' "$probe_dir/config.yaml"
+sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*password:[[:space:]]*.*/  password: ""/' "$probe_dir/config.yaml"
+sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*db:[[:space:]]*.*/  db: 0/' "$probe_dir/config.yaml"
+
 mark_stage migrate_candidate
-docker rename sub2api-dev sub2api-dev-pre-release
-docker run --rm --network host -v "$data_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >/dev/null 2>&1
+docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >/dev/null 2>&1
 mark_stage candidate_health
-docker run -d --name sub2api-dev --restart unless-stopped --network host \
+docker run -d --name "$probe_app" --network "$probe_network" \
   --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
-  --health-interval 30s --health-timeout 10s --health-start-period 10s --health-retries 3 \
-  -v "$data_dir:/app/data" "$candidate_image_id" >/dev/null
-for _ in $(seq 1 90); do
-  [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-dev) == healthy ]] && break
+  --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
+  -v "$probe_dir:/app/data" "$candidate_image_id" >/dev/null
+for _ in $(seq 1 30); do
+  [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]] && break
   sleep 2
 done
-[[ $(docker inspect -f '{{.Image}}' sub2api-dev) == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
+[[ $(docker inspect -f '{{.Image}}' "$probe_app") == "$candidate_image_id" ]]
+[[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]]
+
 mark_stage migration_assertions
 migration_checksum=$(jq -er '.migration_sha256["182_upstream_actual_rate_multiplier.sql"]' "$manifest")
-recorded_checksum=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT checksum FROM schema_migrations WHERE filename='"'"'182_upstream_actual_rate_multiplier.sql'"'"'"')
+recorded_checksum=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT checksum FROM schema_migrations WHERE filename='182_upstream_actual_rate_multiplier.sql'\"")
 [[ $recorded_checksum == "$migration_checksum" ]]
-[[ $(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.priority IS DISTINCT FROM ROUND(k.rate_multiplier*100)::int)"') == 0 ]]
-[[ $(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT COUNT(*) FROM accounts WHERE extra ?| ARRAY['"'"'upstream_rate_multiplier'"'"','"'"'upstream_source_rate_multiplier'"'"','"'"'upstream_recharge_rate'"'"','"'"'upstream_effective_cost_multiplier'"'"','"'"'sub2api_upstream_rate_multiplier'"'"']"') == 0 ]]
-integration_verified=true
+[[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.priority IS DISTINCT FROM ROUND(k.rate_multiplier*100)::int)\"") == 0 ]]
+[[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts WHERE extra ?| ARRAY['upstream_rate_multiplier','upstream_source_rate_multiplier','upstream_recharge_rate','upstream_effective_cost_multiplier','sub2api_upstream_rate_multiplier']\"") == 0 ]]
 
-trap - ERR INT TERM
-mark_stage restore_development
-restore_vm || exit 125
-restore_required=false
+mark_stage isolated_cleanup
+cleanup_probe
+[[ $(docker inspect -f '{{.Image}}' sub2api-dev) == "$old_image_id" ]]
+[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
+[[ $(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT COUNT(*) FROM schema_migrations WHERE filename='"'"'182_upstream_actual_rate_multiplier.sql'"'"'"') == 0 ]]
+integration_verified=true
 vm_restore_verified=true
+
+docker save "$candidate_image_id" | gzip -1 > "$state_dir/candidate.tar.gz"
+candidate_archive_sha=$(sha256sum "$state_dir/candidate.tar.gz" | awk '{print $1}')
+trap - ERR INT TERM
 
 mark_stage gate_signing
 jq -n --slurpfile manifest "$manifest" \
