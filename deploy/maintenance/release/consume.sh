@@ -10,4 +10,6 @@ source /opt/sub2api/releases/.active-release/assets/context.sh
 printf 'release_id=%s\ncandidate_image_id=%s\nconsumed_at=%s\n' "$release_id" "$candidate_image_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$release_dir/.claimed/marker"
 chmod 400 "$release_dir/.claimed/marker"
 mv -T -- "$release_dir/.claimed" "$release_dir/.consumed"
+rm -rf "$active_claim"
+[[ ! -e $active_claim && ! -L $active_claim ]]
 printf 'gate_consumed=true\n'

@@ -21,11 +21,11 @@ chmod 400 "$active_claim/release_id"
 (cd "$release_dir" && sha256sum -c ASSET_SHA256SUMS >/dev/null)
 install -m 400 "$release_dir/gate.json" "$active_claim/gate.json"
 install -m 400 "$release_dir/gate.sig" "$active_claim/gate.sig"
-ln "$release_dir/candidate.tar.gz" "$active_claim/candidate.tar.gz"
+mv -T -- "$release_dir/candidate.tar.gz" "$active_claim/candidate.tar.gz"
 install -d -m 700 "$active_claim/assets"
 for path in "$release_dir"/assets/*; do
   [[ -f $path && ! -L $path ]]
-  ln "$path" "$active_claim/assets/$(basename -- "$path")"
+  install -m 500 "$path" "$active_claim/assets/$(basename -- "$path")"
 done
 (cd "$active_claim" && find gate.json gate.sig candidate.tar.gz assets -type f -print0 | sort -z | xargs -0 sha256sum > CLAIM_SHA256SUMS && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
 chmod 400 "$active_claim/CLAIM_SHA256SUMS"
