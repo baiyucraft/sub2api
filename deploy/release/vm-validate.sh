@@ -20,6 +20,7 @@ commit=$(jq -er '.commit_sha' "$manifest")
 release_id=$(jq -er '.release_id' "$manifest")
 version=0.1.153-baiyu
 tag="sub2api:baiyu-$version-$commit"
+test_tag="sub2api:vm-test-$commit"
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 [[ $release_id =~ ^182-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $(jq -er '.profile' "$manifest") == 182 ]]
@@ -84,9 +85,14 @@ free_after_build=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' |
 docker save "$candidate_image_id" | gzip -1 > "$state_dir/candidate.tar.gz"
 candidate_archive_sha=$(sha256sum "$state_dir/candidate.tar.gz" | awk '{print $1}')
 
-docker run --rm --network host -v "$source_dir:/src:ro" -v sub2api-vm-go-mod:/go/pkg/mod -v sub2api-vm-go-build:/root/.cache/go-build -w /src/backend \
-  docker.m.daocloud.io/library/golang:1.26.5-alpine sh -lc \
+docker build --network=host --progress=plain --target backend-builder \
+  --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
+  --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.5-alpine \
+  --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
+  --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t "$test_tag" . >/dev/null 2>&1
+docker run --rm --network host "$test_tag" sh -lc \
   'go test ./internal/service -run "TestNormalizeUpstreamActualRate|TestUpstreamKeyRateDTOJSONUsesSingleActualRateContract" -count=1' >/dev/null 2>&1
+docker image rm "$test_tag" >/dev/null 2>&1
 
 restore_required=false
 redis_source=""
