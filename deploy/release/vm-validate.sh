@@ -93,11 +93,13 @@ probe_db="sub2api_probe_${probe_suffix:0:24}"
 probe_dir="$state_dir/probe-data"
 probe_redis="sub2api-probe-redis-${probe_suffix:0:12}"
 probe_app="sub2api-probe-app-${probe_suffix:0:12}"
-probe_network=$(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}' sub2api-postgres)
+probe_network="sub2api-probe-net-${probe_suffix:0:12}"
 redis_image=$(docker inspect -f '{{.Config.Image}}' sub2api-redis)
 database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
 cleanup_probe() {
   docker rm -f "$probe_app" "$probe_redis" >/dev/null 2>&1 || true
+  docker network disconnect -f "$probe_network" sub2api-postgres >/dev/null 2>&1 || true
+  docker network rm "$probe_network" >/dev/null 2>&1 || true
   docker exec sub2api-postgres sh -lc "dropdb --if-exists -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1 || true
   rm -rf "$probe_dir" "$state_dir/probe.dump"
 }
@@ -113,6 +115,8 @@ trap on_failure ERR INT TERM
 
 mark_stage isolated_database
 install -d -m 700 "$probe_dir"
+docker network create "$probe_network" >/dev/null
+docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres
 docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 1 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/probe.dump"
 docker exec -i -e DB_OWNER="$database_owner" sub2api-postgres sh -lc 'psql -X -v ON_ERROR_STOP=1 -v db_owner="$DB_OWNER" -U "${POSTGRES_USER:-postgres}" -d postgres' >/dev/null <<SQL
 SELECT format('CREATE DATABASE %I OWNER %I', '$probe_db', :'db_owner') \gexec
