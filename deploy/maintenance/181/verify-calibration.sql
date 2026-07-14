@@ -78,8 +78,10 @@ BEGIN
      WHERE a.key_name IS NULL
         OR a.group_name IS DISTINCT FROM e.group_name
         OR a.platform IS DISTINCT FROM e.platform
-        OR a.platform_source NOT IN ('auto', 'manual')
-        OR a.platform_detection_status NOT IN ('detected', 'conflict')
+        OR NOT (
+            (a.platform_source = 'auto' AND a.platform_detection_status = 'detected')
+         OR (a.platform_source = 'manual' AND a.platform_detection_status IN ('detected', 'conflict'))
+        )
         OR a.status IS DISTINCT FROM 'active';
     IF mismatch_count <> 0 THEN
         RAISE EXCEPTION 'calibration verification failed: % expected key mappings are missing or incorrect', mismatch_count;
