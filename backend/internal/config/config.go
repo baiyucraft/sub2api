@@ -88,12 +88,19 @@ type Config struct {
 	UsageCleanup            UsageCleanupConfig            `mapstructure:"usage_cleanup"`
 	Concurrency             ConcurrencyConfig             `mapstructure:"concurrency"`
 	TokenRefresh            TokenRefreshConfig            `mapstructure:"token_refresh"`
+	UpstreamSync            UpstreamSyncConfig            `mapstructure:"upstream_sync"`
 	RunMode                 string                        `mapstructure:"run_mode" yaml:"run_mode"`
 	Timezone                string                        `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
+}
+
+// UpstreamSyncConfig controls background upstream synchronization. Manual admin
+// synchronization remains available when AutoEnabled is false.
+type UpstreamSyncConfig struct {
+	AutoEnabled bool `mapstructure:"auto_enabled" yaml:"auto_enabled"`
 }
 
 type LogConfig struct {
@@ -1608,6 +1615,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 }
 
 func setDefaults() {
+	viper.SetDefault("upstream_sync.auto_enabled", true)
 	viper.SetDefault("run_mode", RunModeStandard)
 
 	// Server

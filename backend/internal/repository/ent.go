@@ -97,3 +97,26 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 
 	return client, drv.DB(), nil
 }
+
+// RunMigrations applies the embedded SQL migrations without initializing Ent,
+// Redis, HTTP servers, or background services. It is intended for coordinated
+// maintenance windows where application writes must remain frozen.
+func RunMigrations(cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is required")
+	}
+	if err := timezone.Init(cfg.Timezone); err != nil {
+		return err
+	}
+
+	drv, err := entsql.Open(dialect.Postgres, cfg.Database.DSNWithTimezone(cfg.Timezone))
+	if err != nil {
+		return err
+	}
+	defer drv.Close()
+	applyDBPoolSettings(drv.DB(), cfg)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	return applyMigrationsFS(ctx, drv.DB(), migrations.FS)
+}
