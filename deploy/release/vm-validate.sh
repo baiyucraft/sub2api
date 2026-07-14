@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv rm sed seq sha256sum sleep sort ss stat tr xargs)
+for command_name in "${required_commands[@]}"; do
+  command -v "$command_name" >/dev/null 2>&1 || exit 127
+done
+docker info >/dev/null 2>&1
+git --version >/dev/null 2>&1
+
 manifest=${1:?manifest path is required}
 output_dir=${2:?output directory is required}
 source_dir=/opt/sub2api-src
