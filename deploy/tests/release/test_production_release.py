@@ -156,6 +156,17 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("install -m 500 \"$path\"", script)
         self.assertNotIn("$release_dir/.claimed", script)
 
+    def test_context_reads_release_id_in_prepared_format(self) -> None:
+        context = self.script("context.sh")
+        self.assertIn('grep -Fxq "release_id=$release_id" "$active_claim/release_id"', context)
+
+    def test_cleanup_supports_failure_before_recovery_point(self) -> None:
+        cleanup = self.script("cleanup-state.sh")
+        self.assertIn("if [[ -d $state_dir && ! -L $state_dir ]]", cleanup)
+        self.assertIn("[[ ! -e $state_dir && ! -L $state_dir ]]", cleanup)
+        self.assertIn("schema_migrations WHERE filename='$migration'", cleanup)
+        self.assertIn("systemctl is-enabled sub2api-backup.timer", cleanup)
+
     def test_consume_atomically_commits_active_claim(self) -> None:
         script = self.script("consume.sh")
         self.assertIn('mv -T -- "$active_claim" "$release_dir/.consumed"', script)

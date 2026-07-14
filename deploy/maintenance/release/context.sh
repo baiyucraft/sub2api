@@ -8,7 +8,7 @@ release_id=${BASH_REMATCH[1]}
 [[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]]
 active_claim=/opt/sub2api/releases/.active-release
 [[ -d $active_claim && ! -L $active_claim ]]
-[[ $(<"$active_claim/release_id") == "$release_id" ]]
+grep -Fxq "release_id=$release_id" "$active_claim/release_id"
 [[ -f $active_claim/gate.json && ! -L $active_claim/gate.json ]]
 (cd "$active_claim" && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
 assets_dir="$active_claim/assets"
