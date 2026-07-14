@@ -5,6 +5,7 @@
 - [运维原则](#运维原则)
 - [状态记录格式](#状态记录格式)
 - [白名单采集](#白名单采集)
+- [Windows SOCKS SSH](#windows-socks-ssh)
 - [日常检查矩阵](#日常检查矩阵)
 - [发布前巡检](#发布前巡检)
 - [发布中巡检](#发布中巡检)
@@ -55,6 +56,25 @@ freshness: fresh | stale | unknown
 - 完整容器 environment、完整 `docker inspect`、展开后的 Compose。
 - `systemctl cat` 原始内容、宽泛日志和可能含凭据的请求体。
 
+## Windows SOCKS SSH
+
+RackNerd 的 Windows 巡检优先使用 skill 自带的固定脚本：
+
+```text
+python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status.py --config .ssh.local
+```
+
+运行约束：
+
+- 依赖必须与 `scripts/requirements-readonly-status.txt` 精确一致；缺失或不一致时停止。只允许在获批的本地受控环境预装，生产巡检期间禁止临时联网安装。
+- 脚本只接受当前本机 `connect.exe -S ... %h %p` SOCKS5 形式，只解析 endpoint，绝不执行 `proxy_command`。
+- 不把 OpenSSH `ProxyCommand` 原样传给 Windows Paramiko。Paramiko 的 subprocess pipe 不能按 Unix socket 使用 `select()`，且不会替 OpenSSH 展开 `%h/%p`。
+- 使用 PySocks socket 后，SSH host key 仍按 RackNerd 原始 `host:port` 从用户 `known_hosts` 校验；未知或不匹配立即停止，禁止 `AutoAddPolicy`。
+- 禁止直连 fallback。代理失败写 `unknown`；直连超时不能证明应用故障。
+- 脚本只输出固定枚举、HTTP code 和 image ID。任何 stderr、异常详情、host、user、代理 endpoint、密钥路径或原始远端输出都不得进入报告。
+
+代理连接、SSH 认证、内部应用检查和公网 HTTPS 是不同层。某层失败只报告该层，不能用公网 200 掩盖内部未知，也不能用 SSH 客户端错误宣告业务下线。
+
 采集应从源头使用字段级 allowlist，不要先抓完整输出再事后打码。
 
 ## 日常检查矩阵
@@ -98,11 +118,11 @@ freshness: fresh | stale | unknown
 发布前重新检查：
 
 1. Git 状态、完整 SHA、fork 推送和最终 diff 分类。
-2. RackNerd/VM fixed worktree marker、origin、clean 状态。
-3. 当前生产 `pre_switch_image_id` 和可用 `older_fallback_image_id`。
+2. 应用产物发布检查 RackNerd/VM fixed worktree marker、origin、clean 状态；运维资产按分类写 `not_applicable`。
+3. 应用产物发布记录当前生产 `pre_switch_image_id` 和可用的 `older_fallback_image_id`；运维资产不伪造镜像字段。
 4. PostgreSQL、Redis、应用和入口 health。
 5. 备份 service/timer、远端 checksum 和空间。
-6. VM Docker 空间：导入前至少 image size 加 `2 GiB`，导入后至少 `2 GiB`。
+6. 需要 VM/image 的类别检查 Docker 空间：导入前至少 image size 加 `2 GiB`，导入后至少 `2 GiB`。
 7. 当前状态均带本次 `checked_at`，旧快照不直接继承。
 
 ## 发布中巡检

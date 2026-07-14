@@ -5,6 +5,7 @@
 - [报告元数据](#报告元数据)
 - [变更与门禁](#变更与门禁)
 - [代码与镜像](#代码与镜像)
+- [运维资产](#运维资产)
 - [VM 验证](#vm-验证)
 - [生产备份与恢复点](#生产备份与恢复点)
 - [生产切换与验收](#生产切换与验收)
@@ -18,7 +19,7 @@
 
 ```text
 task_id:
-task_type: release | rollback | backup | restore | drill | status
+task_type: release | rollback | backup | restore | drill | status | ops-change
 started_at:
 finished_at:
 reported_at:
@@ -29,7 +30,7 @@ state_rechecked_in_this_task: true | false
 ## 变更与门禁
 
 ```text
-change_class: frontend-direct | dev-gated | build-chain
+change_class: ops-readonly-assets | ops-control-assets | frontend-direct | dev-gated | build-chain
 vm_gate_required: true | false
 vm_gate_status: pass | fail | not_required | not_checked
 classification_basis: 最终 diff 的脱敏摘要
@@ -41,17 +42,35 @@ rollback_mode: image-only | coordinated-data-restore | not_applicable
 
 ```text
 commit_sha: 完整 40 位 SHA
-image_tag: full-SHA tag
-candidate_image_id: sha256:...
-pre_switch_image_id: sha256:...
-older_fallback_image_id: sha256:... | not_available
-build_host: racknerd | vm
-source_worktree: 固定逻辑路径
-build_started_at:
-build_finished_at:
-image_size:
-transfer_sha256:
-source_load_tag_id_equal: pass | fail | not_checked
+image_tag: full-SHA tag | not_applicable
+candidate_image_id: sha256:... | not_applicable
+pre_switch_image_id: sha256:... | not_applicable
+older_fallback_image_id: sha256:... | not_available | not_applicable
+build_host: racknerd | vm | not_applicable
+source_worktree: 固定逻辑路径 | not_applicable
+build_started_at: value | not_applicable
+build_finished_at: value | not_applicable
+image_size: value | not_applicable
+transfer_sha256: value | not_applicable
+source_load_tag_id_equal: pass | fail | not_checked | not_applicable
+```
+
+`not_applicable` 仅允许用于经过证明的 `ops-readonly-assets` 和不涉及应用镜像的 `ops-control-assets`。其他类别不得用它跳过镜像身份。
+
+## 运维资产
+
+适用时填写：
+
+```text
+remote_write_performed: true | false
+user_confirmation: pass | not_required | missing
+asset_test_status: pass | fail | not_checked
+strict_review_status: pass | fail | not_checked
+target_asset_checksum_before: value | not_applicable | not_checked
+target_asset_checksum_after: value | not_applicable | not_checked
+rollback_asset_status: pass | fail | not_applicable | not_checked
+affected_service_status: pass | fail | not_applicable | not_checked
+readonly_status_check: pass | fail | not_checked
 ```
 
 ## VM 验证
@@ -97,9 +116,9 @@ no_restart_path_proven: true | false | not_applicable | unknown
 ## 生产切换与验收
 
 ```text
-compose_backup_path:
-compose_backup_sha256:
-running_image_after_switch:
+compose_backup_path: value | not_applicable
+compose_backup_sha256: value | not_applicable
+running_image_after_switch: value | not_applicable
 application_health: pass | fail | not_checked
 racknerd_direct_health: pass | fail | not_checked
 dmit_health: pass | fail | not_checked

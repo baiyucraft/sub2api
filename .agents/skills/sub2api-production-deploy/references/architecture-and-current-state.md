@@ -106,7 +106,7 @@ freshness: fresh | stale | unknown
 | --- | --- | --- | --- | --- | --- | --- |
 | 本地 VM | `2026-07-12T11:05:31Z` | SSH allowlist：容器 health、监听端口、磁盘、固定路径 | `stale` | `sub2api-dev` healthy；VM 本地 PG/Redis 监听；根文件系统约 90% 使用 | `degraded` | 磁盘余量约 4.9 GiB，构建或导入前必须重新检查空间 |
 | DMIT | `2026-07-12T11:05:33Z` | SSH allowlist：service active/enabled、端口、版本、磁盘 | `stale` | HAProxy active/enabled；监听 `80/443/1030`；Nginx inactive | `degraded` | 未将 Nginx inactive 自动解释为故障；必须通过 DMIT HTTPS 实测确认线路 |
-| RackNerd | `2026-07-12T11:05Z` | 配置的 Windows SOCKS ProxyCommand 连接尝试 | `stale` | 代理连接失败，未取得服务器字段 | `unknown` | 客户端没有记录秒级时间；不得沿用旧快照推断生产健康 |
+| RackNerd | `2026-07-14T05:00:13Z` | 固定白名单 PySocks + Paramiko SSH 检查 | `stale` | 应用 running/healthy；内部 health 200；Nginx active；备份 timer active/enabled；service inactive | `healthy` | 使用原始 RackNerd host key 校验；新任务仍须重新采集 |
 | 47.85.205.94 | `2026-07-12T11:05:41Z` | SSH allowlist：artifact 元数据、端口、磁盘、容器摘要 | `stale` | 可读取近期 `.age` 与 `.sha256` artifact；磁盘约 64% 使用 | `degraded` | 本次未做完整 PG/Redis 恢复演练，也未记录外部告警 URL |
 
 ## 状态时效规则

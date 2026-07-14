@@ -4,6 +4,7 @@
 
 - [文档用途](#文档用途)
 - [生产前置检查](#生产前置检查)
+- [运维资产变更](#运维资产变更)
 - [备份门禁](#备份门禁)
 - [镜像切换](#镜像切换)
 - [双路径验收](#双路径验收)
@@ -19,16 +20,32 @@
 
 远程写操作前必须先给出计划并获得用户确认。确认后：
 
+以下清单用于应用产物发布。运维资产先按下一节分流，只执行适用项，不得伪造 candidate 或 VM 结果。
+
 1. 检查本地 Git 状态，保留无关改动。
 2. 记录完整 40 位 commit SHA，并推送到用户 fork。
-3. 记录 change class、是否需要 VM gate、构建主机和 `candidate_image_id`。
+3. 记录 change class、是否需要 VM gate；应用产物记录构建主机和 `candidate_image_id`，运维资产明确记录 `not_applicable`。
 4. 检查 RackNerd 与 VM 的固定 worktree、marker、origin 和 clean 状态。
 5. 记录当前生产 image 为 `pre_switch_image_id`。
 6. 记录可用的更早稳定镜像为 `older_fallback_image_id`。
 7. 保存当前 Compose 文件并计算 SHA-256。
 8. 确认生产 PostgreSQL、Redis 和当前应用健康。
 
-candidate 构建、传输和验证期间，生产旧容器继续运行。
+应用 candidate 构建、传输和验证期间，生产旧容器继续运行。
+
+## 运维资产变更
+
+`ops-readonly-assets` 只执行本地校验、review、提交推送和固定字段只读巡检。不得借该类别上传文件、控制服务或修改生产；无需应用镜像、Compose 备份或数据库恢复点。
+
+`ops-control-assets` 不自动等于应用发布。若已证明资产不进入应用构建和运行时，可以不构建或切换应用镜像，但必须：
+
+1. 在任何远程写前取得用户确认。
+2. 根据影响面完成备份、停写、恢复点和回滚方案。
+3. 保存目标文件旧 checksum 和恢复副本，不覆盖唯一可恢复版本。
+4. 只更新获批资产或执行获批维护动作，不顺带 recreate 应用、PostgreSQL 或 Redis。
+5. 验证目标 checksum、服务状态、备份行为和适用的健康路径。
+
+任何 `deploy/`、build、install、Compose、Docker 或 systemd 自动化是否影响当前运行路径无法证明时，改按 `dev-gated` 或 `build-chain`，不得使用本节绕过镜像门禁。
 
 ## 备份门禁
 
@@ -66,6 +83,8 @@ candidate 构建、传输和验证期间，生产旧容器继续运行。
 
 ## 镜像切换
 
+本节仅适用于应用产物类别。`ops-readonly-assets` 和不涉及应用镜像的 `ops-control-assets` 记录 `image_switch=not_applicable`。
+
 切换前重新确认：
 
 - full-SHA tag 指向已验证的 `candidate_image_id`。
@@ -98,6 +117,11 @@ candidate 构建、传输和验证期间，生产旧容器继续运行。
 - 登录页面和变更页面。
 - 静态资源加载。
 - 浏览器 console 无新增错误。
+
+运维资产额外检查：
+
+- `ops-readonly-assets` 只报告本次重新采集的白名单状态。
+- `ops-control-assets` 验证受影响的 unit、timer、备份、checksum、回滚入口和适用的双路径健康。
 
 只通过 direct 而未通过 DMIT，不能报告“生产完全健康”。
 

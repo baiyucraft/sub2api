@@ -4,6 +4,7 @@
 
 - [分类原则](#分类原则)
 - [分类决策](#分类决策)
+- [运维资产](#运维资产)
 - [严格纯前端](#严格纯前端)
 - [构建链改动](#构建链改动)
 - [开发门禁改动](#开发门禁改动)
@@ -15,12 +16,19 @@
 
 分类只看最终 diff，不看分支名、提交来源、用户口述或“看起来只是前端”的文件名。无法确定时采用更严格的分类。远程写操作仍需先给出计划并获得用户确认。
 
-所有类别都必须保留生产旧容器，直到 candidate 构建、镜像身份检查、必要的 VM 验证和备份门禁完成。
+应用产物类别必须保留生产旧容器，直到 candidate 构建、镜像身份检查、必要的 VM 验证和备份门禁完成。运维资产类别不生成 candidate，但必须完成本节定义的测试、确认和现场验证。
 
 ## 分类决策
 
 ```text
 最终 diff
+  |
+  +-- 仅 skill 文档或固定字段只读巡检？ -> ops-readonly-assets
+  |
+  +-- 仅维护/备份/服务控制资产，且不进入应用构建或运行时？
+  |       |
+  |       +-- 是 -> ops-control-assets
+  |       +-- 无法证明 -> dev-gated 或 build-chain
   |
   +-- 所有文件均在 frontend/ 且只含纯 UI？
   |       |
@@ -40,6 +48,12 @@
 frontend-direct:
   RackNerd 完整构建 -> RackNerd 生产切换
 
+ops-readonly-assets:
+  本地验证 -> review -> commit/push -> 固定字段只读巡检
+
+ops-control-assets:
+  本地/隔离验证 -> review -> 用户确认 -> 目标资产更新或维护操作 -> 现场验收
+
 普通 dev-gated:
   RackNerd 完整构建 -> 按 image ID 传 VM -> sub2api-dev 验证
                     -> 使用同一 image ID 切换 RackNerd
@@ -50,6 +64,39 @@ build-chain:
 ```
 
 禁止为了“重新构建”而破坏同一镜像身份；验证通过的镜像就是生产候选。
+
+## 运维资产
+
+### `ops-readonly-assets`
+
+只有以下条件全部成立才适用：
+
+- 最终 diff 仅包含 skill 文档、reference、测试，或固定字段的只读巡检脚本。
+- 脚本不接受任意远程命令，不写远端文件，不修改数据，不控制服务，不读取或输出 secret。
+- 不进入 Dockerfile、Compose、应用二进制、systemd unit、生产安装流程或自动备份入口。
+- 对最终 diff 执行引用检查、脚本测试、严格 review、skill 校验和 `git diff --check`。
+
+该类别不构建镜像、不切换应用、不创建数据库恢复点。提交推送后只做适用的只读健康检查；镜像、VM、迁移和切换字段写 `not_applicable`，不能伪造 candidate。
+
+### `ops-control-assets`
+
+任何具备以下能力的资产至少属于本类别：
+
+- 远程写文件、修改配置、数据或备份。
+- stop/start/restart/mask/unmask systemd 或容器。
+- 执行 migration、恢复、清理、晋升或生产维护动作。
+- 位于 `deploy/` 且不能证明属于应用构建链，但可供人工操作生产。
+
+`rg` 未发现运行时引用不能把控制脚本降级为只读资产。该类别只有在证明不进入应用构建、镜像或运行时后，才可免应用镜像构建和切换；仍必须：
+
+1. 给出生产写操作方案并获得用户确认。
+2. 执行 shell/Python 语法、故障注入、幂等和失败恢复测试。
+3. 经过严格 reviewer 批准。
+4. 按影响面执行备份、恢复点、停写和回滚门禁。
+5. 更新目标资产时记录旧文件 checksum、目标 checksum 和恢复步骤。
+6. 现场验证受影响服务、备份和双路径健康。
+
+涉及 Dockerfile、Compose、build/install 脚本、当前自动化入口或应用 runtime 的变更，不属于纯运维资产，必须回到 `build-chain` 或 `dev-gated`。任何不确定情况从严处理。
 
 ## 严格纯前端
 
@@ -103,7 +150,7 @@ VM 构建规则：
 
 ## 完整构建流水线
 
-所有类别，包括 `frontend-direct`，都必须经过仓库根 `Dockerfile` 的完整多阶段流水线：
+所有应用产物类别，包括 `frontend-direct`，都必须经过仓库根 `Dockerfile` 的完整多阶段流水线：
 
 ```text
 frontend source
