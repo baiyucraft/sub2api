@@ -21,6 +21,7 @@ PROFILES = {
         "minimum_rack_free_bytes": 10737418240,
         "minimum_backup_free_bytes": 5368709120,
         "minimum_free_after_bytes": 2147483648,
+        "canary_api_key_id": 2,
     }
 }
 
