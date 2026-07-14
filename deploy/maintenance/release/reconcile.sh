@@ -12,4 +12,6 @@ source /opt/sub2api/releases/.active-release/assets/context.sh
 printf 'release_id=%s\nrecovered_at=%s\n' "$release_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$release_dir/.claimed/marker"
 chmod 400 "$release_dir/.claimed/marker"
 mv -T -- "$release_dir/.claimed" "$release_dir/.recovered"
+rm -rf "$active_claim"
+[[ ! -e $active_claim && ! -L $active_claim ]]
 printf 'release_claim_reconciled=true\n'
