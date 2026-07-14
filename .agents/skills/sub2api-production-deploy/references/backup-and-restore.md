@@ -7,6 +7,8 @@
 - [三类恢复资产](#三类恢复资产)
 - [每日备份](#每日备份)
 - [不兼容迁移恢复点](#不兼容迁移恢复点)
+- [受限接收与原子晋升](#受限接收与原子晋升)
+- [备份 Unit 维护模式](#备份-unit-维护模式)
 - [版本基线状态机](#版本基线状态机)
 - [恢复演练](#恢复演练)
 - [RPO、RTO 与保留](#rpo-rto-与保留)
@@ -95,6 +97,40 @@ DMIT
 7. 无法证明 no-restart 路径时停止发布，不得用普通 service 碰运气。
 
 回滚必须同时恢复 PostgreSQL、Redis、配置和 `pre_switch_image_id`，禁止只回退 Compose。
+
+## 受限接收与原子晋升
+
+受限上传 receiver 的 transport 命名规则与发布恢复点的语义名称是两层协议，不能混为一个字段：
+
+```text
+生产生成 encrypted artifact
+  -> receiver 接受标准 transport name
+  -> 校验 transport checksum
+  -> 备份机映射 immutable release name
+  -> exact-content bundle 原子晋升
+```
+
+执行要求：
+
+- 上传前先核验 receiver 实际允许的 transport class 和文件名；不得反复用不被接受的 release 名碰撞接口。
+- maintenance 输出同时记录 transport name、release name 和 SHA-256，但不得记录 secret。
+- 晋升 bundle 必须精确包含 artifact、artifact checksum、manifest 和 bundle checksum；拒绝额外文件、重复字段、symlink 和路径穿越。
+- artifact、checksum 和 manifest 全部在同父目录 staging 中验证后，用一次目录 rename 原子提交；禁止逐个移动 artifact/checksum。
+- 已存在目标只有在 exact-content 校验完全一致时才视为幂等成功；冲突目标立即停止。
+- 原子提交后，stdout 断开等报告错误不能把已经提交的状态伪装成未提交；最终报告从现场重新核验 bundle。
+
+## 备份 Unit 维护模式
+
+当 unit 文件位于 `/etc/systemd/system` 时，`systemctl mask --runtime` 只写 `/run`，不能可靠覆盖 persistent unit。停写维护必须使用经过审计的 persistent mask/restore 流程：
+
+1. 修改前严格校验固定 state root、直接子目录、canonical path，并拒绝 symlink 和 `..`。
+2. 先快照全部 unit 文件及 `is-enabled/is-active` 状态，生成并验证 checksum，再修改 systemd。
+3. 同时 stop 所有相关 unit，把 persistent unit 替换为 `/dev/null`，`daemon-reload` 后验证 inactive + masked。
+4. mask 任一步失败时恢复全部原文件和原状态；恢复失败时必须 fail-closed，重新 mask，不能留下混合状态。
+5. restore 前验证 snapshot、marker 和全部文件，任一步失败时重新 mask，使同一 state 目录可重试。
+6. committed/restored marker 只在全部验收后原子写入；重复调用必须做现场幂等验收。
+
+禁止手工分步删除两个 unit、禁止无快照 unmask、禁止在备份完成前恢复 timer。
 
 ## 版本基线状态机
 
