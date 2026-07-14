@@ -100,6 +100,7 @@ docker build --network=host --progress=plain --target backend-builder \
 if ! docker run --rm --network host "$test_tag" /usr/local/go/bin/go test ./internal/service \
   -run 'TestNormalizeUpstreamActualRate|TestUpstreamKeyRateDTOJSONUsesSingleActualRateContract' -count=1 >/dev/null 2>&1; then
   docker image rm "$test_tag" >/dev/null 2>&1 || true
+  docker image rm "$tag" >/dev/null 2>&1 || true
   rm -f "$state_dir/candidate.tar.gz"
   exit 1
 fi
@@ -184,6 +185,8 @@ on_failure() {
   fi
   rm -rf "$state_dir/backup"
   rm -f "$state_dir/candidate.tar.gz"
+  docker image rm "$test_tag" >/dev/null 2>&1 || true
+  docker image rm "$tag" >/dev/null 2>&1 || true
   exit "$code"
 }
 trap on_failure ERR INT TERM
