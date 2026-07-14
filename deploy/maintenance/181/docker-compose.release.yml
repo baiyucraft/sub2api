@@ -1,0 +1,5 @@
+services:
+  sub2api:
+    image: ${SUB2API_RELEASE_IMAGE:?SUB2API_RELEASE_IMAGE is required}
+    environment:
+      UPSTREAM_SYNC_AUTO_ENABLED: ${UPSTREAM_SYNC_AUTO_ENABLED:-false}

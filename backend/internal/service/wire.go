@@ -212,10 +212,13 @@ func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpirySe
 	return svc
 }
 
-func ProvideSub2APIUpstreamRateSyncService(accountRepo AccountRepository, upstreamConfigRepo UpstreamConfigRepository, proxyRepo ProxyRepository, upstreamConfigSvc *UpstreamConfigService) *Sub2APIUpstreamRateSyncService {
+func ProvideSub2APIUpstreamRateSyncService(accountRepo AccountRepository, upstreamConfigRepo UpstreamConfigRepository, proxyRepo ProxyRepository, upstreamConfigSvc *UpstreamConfigService, cfg *config.Config) *Sub2APIUpstreamRateSyncService {
 	svc := NewSub2APIUpstreamRateSyncService(accountRepo, proxyRepo, 10*time.Minute)
 	svc.SetUpstreamConfigRepository(upstreamConfigRepo)
 	svc.SetUpstreamConfigService(upstreamConfigSvc)
+	if cfg != nil {
+		svc.SetAutoSyncEnabled(cfg.UpstreamSync.AutoEnabled)
+	}
 	svc.Start()
 	return svc
 }

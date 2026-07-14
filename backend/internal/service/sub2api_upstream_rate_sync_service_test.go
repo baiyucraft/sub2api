@@ -170,6 +170,24 @@ func TestSub2APIUpstreamRateSync_RunOnceDoesNotUseDeprecatedAccountScanFallback(
 	require.Empty(t, repo.extraUpdates)
 }
 
+func TestSub2APIUpstreamRateSync_StartDisabledDoesNotLaunchBackgroundWorker(t *testing.T) {
+	svc := NewSub2APIUpstreamRateSyncService(&sub2APIRateSyncAccountRepo{}, nil, time.Minute)
+	svc.SetAutoSyncEnabled(false)
+
+	svc.Start()
+	done := make(chan struct{})
+	go func() {
+		svc.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("disabled upstream auto sync launched a background worker")
+	}
+}
+
 func TestSub2APIUpstreamRateSync_UsesAccountProxyForUserLoginAndFallback(t *testing.T) {
 	var loginCount, keysCount, fallbackCount, ratesCount int
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

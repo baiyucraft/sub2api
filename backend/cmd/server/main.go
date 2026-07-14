@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/setup"
 	"github.com/Wei-Shaw/sub2api/internal/web"
@@ -58,11 +59,23 @@ func main() {
 
 	// Parse command line flags
 	setupMode := flag.Bool("setup", false, "Run setup wizard in CLI mode")
+	migrateOnly := flag.Bool("migrate-only", false, "Apply database migrations and exit")
 	showVersion := flag.Bool("version", false, "Show version information")
 	flag.Parse()
 
 	if *showVersion {
 		log.Printf("Sub2API %s (commit: %s, built: %s)\n", Version, Commit, Date)
+		return
+	}
+	if *migrateOnly {
+		cfg, err := config.LoadForBootstrap()
+		if err != nil {
+			log.Fatalf("Failed to load migration config: %v", err)
+		}
+		if err := repository.RunMigrations(cfg); err != nil {
+			log.Fatalf("Migration failed: %v", err)
+		}
+		log.Println("Database migrations completed")
 		return
 	}
 

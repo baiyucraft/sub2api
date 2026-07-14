@@ -177,7 +177,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	proxyExitInfoProber := repository.NewProxyExitInfoProber(configConfig)
 	proxyLatencyCache := repository.NewProxyLatencyCache(redisClient)
 	upstreamConfigService := service.NewUpstreamConfigService(upstreamConfigRepository, proxyRepository, accountRepository)
-	sub2APIUpstreamRateSyncService := service.ProvideSub2APIUpstreamRateSyncService(accountRepository, upstreamConfigRepository, proxyRepository, upstreamConfigService)
+	sub2APIUpstreamRateSyncService := service.ProvideSub2APIUpstreamRateSyncService(accountRepository, upstreamConfigRepository, proxyRepository, upstreamConfigService, configConfig)
 	adminService := service.NewAdminService(userRepository, groupRepository, accountRepository, upstreamConfigRepository, proxyRepository, apiKeyRepository, redeemCodeRepository, userGroupRateRepository, userRPMCache, billingCacheService, proxyExitInfoProber, proxyLatencyCache, apiKeyAuthCacheInvalidator, client, settingService, subscriptionService, userSubscriptionRepository, privacyClientFactory, openAIGatewayService, sub2APIUpstreamRateSyncService)
 	adminUserHandler := admin.NewUserHandler(adminService, concurrencyService, serviceUserPlatformQuotaRepository, billingCache)
 	groupCapacityService := service.NewGroupCapacityService(accountRepository, groupRepository, concurrencyService, sessionLimitCache, rpmCache)

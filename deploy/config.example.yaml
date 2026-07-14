@@ -648,6 +648,11 @@ token_refresh:
   # 是否允许 OpenAI 刷新流程同步覆盖 linked_openai_account_id 关联的 Sora 账号 token
   sync_linked_sora_accounts: false
 
+# Upstream background synchronization. Set UPSTREAM_SYNC_AUTO_ENABLED=false
+# during maintenance; explicit admin synchronization remains available.
+upstream_sync:
+  auto_enabled: true
+
 # =============================================================================
 # API Key Auth Cache Configuration
 # API Key 认证缓存配置

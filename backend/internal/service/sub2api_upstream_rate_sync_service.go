@@ -51,6 +51,7 @@ type Sub2APIUpstreamRateSyncService struct {
 	proxyRepo          ProxyRepository
 	interval           time.Duration
 	concurrency        int
+	autoSyncEnabled    bool
 	stopCh             chan struct{}
 	stopOnce           sync.Once
 	wg                 sync.WaitGroup
@@ -223,11 +224,20 @@ type sub2APISyncTarget struct {
 
 func NewSub2APIUpstreamRateSyncService(accountRepo AccountRepository, proxyRepo ProxyRepository, interval time.Duration) *Sub2APIUpstreamRateSyncService {
 	return &Sub2APIUpstreamRateSyncService{
-		accountRepo: accountRepo,
-		proxyRepo:   proxyRepo,
-		interval:    interval,
-		concurrency: 5,
-		stopCh:      make(chan struct{}),
+		accountRepo:     accountRepo,
+		proxyRepo:       proxyRepo,
+		interval:        interval,
+		concurrency:     5,
+		autoSyncEnabled: true,
+		stopCh:          make(chan struct{}),
+	}
+}
+
+// SetAutoSyncEnabled controls only startup and periodic synchronization.
+// Explicit admin-triggered synchronization remains available during maintenance.
+func (s *Sub2APIUpstreamRateSyncService) SetAutoSyncEnabled(enabled bool) {
+	if s != nil {
+		s.autoSyncEnabled = enabled
 	}
 }
 
@@ -244,7 +254,7 @@ func (s *Sub2APIUpstreamRateSyncService) SetUpstreamConfigService(svc *UpstreamC
 }
 
 func (s *Sub2APIUpstreamRateSyncService) Start() {
-	if s == nil || s.accountRepo == nil || s.interval <= 0 {
+	if s == nil || s.accountRepo == nil || s.interval <= 0 || !s.autoSyncEnabled {
 		return
 	}
 	s.wg.Add(1)
