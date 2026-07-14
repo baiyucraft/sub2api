@@ -200,12 +200,15 @@ class ReleaseClaimScriptTest(unittest.TestCase):
     def test_freeze_creates_release_state_root(self) -> None:
         freeze = self.script("freeze-backup.sh")
         self.assertIn("install -d -m 700 /opt/sub2api/backups/release-state", freeze)
+        self.assertIn("docker compose stop -t 30 sub2api >/dev/null 2>&1", self.script("freeze.sh"))
 
     def test_backup_reads_redis_requirepass_without_cli_secret(self) -> None:
         backup = self.script("backup.sh")
         self.assertIn('index("--requirepass")', backup)
         self.assertIn('printf \'%s\\n\' "$redis_password" | docker exec -i', backup)
         self.assertNotIn("redis-cli -a", backup)
+        self.assertIn("docker compose stop -t 30 redis >/dev/null 2>&1", backup)
+        self.assertIn("docker compose start redis >/dev/null 2>&1", backup)
 
     def test_cleanup_handles_backup_failure_before_recovery_point(self) -> None:
         cleanup = self.script("cleanup-state.sh")

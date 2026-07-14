@@ -26,7 +26,7 @@ redis_password=$(docker inspect sub2api-redis | jq -er '
 
 cleanup() {
   code=$?
-  if [[ $redis_stopped == true ]]; then (cd "$deploy_dir" && docker compose start redis >/dev/null) || true; fi
+  if [[ $redis_stopped == true ]]; then (cd "$deploy_dir" && docker compose start redis >/dev/null 2>&1) || true; fi
   rm -rf "$work" "$plain"
   exit "$code"
 }
@@ -71,10 +71,10 @@ done
 [[ $in_progress == 0 && $last_status == ok ]]
 redis_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' sub2api-redis)
 [[ -n $redis_source && -d $redis_source ]]
-docker compose stop -t 30 redis >/dev/null
+docker compose stop -t 30 redis >/dev/null 2>&1
 redis_stopped=true
 cp -a "$redis_source/." "$work/redis/"
-docker compose start redis >/dev/null
+docker compose start redis >/dev/null 2>&1
 redis_stopped=false
 for _ in $(seq 1 60); do
   [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]] && break
