@@ -17,6 +17,7 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.atomic import atomic_write, canonical_json
 from release.gate import verify_gate
+from release.manifest import migration_checksums
 from release.profiles import get_profile
 from release.state import RunLock, RunState
 
@@ -66,6 +67,17 @@ class ReleaseCoreTest(unittest.TestCase):
             state.transition("vm", "failed")
             with self.assertRaisesRegex(RuntimeError, "terminal"):
                 state.transition("vm", "running")
+
+    def test_migration_checksum_matches_runner_trimmed_content(self) -> None:
+        profile = {"migrations": ["migration.sql"]}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            migration = root / "backend" / "migrations" / "migration.sql"
+            migration.parent.mkdir(parents=True)
+            migration.write_text("\nSELECT 1;\n\n", encoding="utf-8")
+            with mock.patch("release.manifest.workspace_root", return_value=root):
+                checksums = migration_checksums(profile)
+        self.assertEqual(checksums["migration.sql"], hashlib.sha256(b"SELECT 1;").hexdigest())
 
     def test_gate_rejects_archive_replacement_and_expiry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
