@@ -132,59 +132,50 @@ type UpstreamUsageTrend struct {
 
 // UpstreamKeyRateSnapshot is a non-secret observation of one upstream key's rate.
 type UpstreamKeyRateSnapshot struct {
-	ID                      int64     `json:"id"`
-	ConfigID                int64     `json:"config_id"`
-	KeyID                   *int64    `json:"key_id,omitempty"`
-	RemoteKeyID             *int64    `json:"remote_key_id,omitempty"`
-	KeyName                 string    `json:"key_name"`
-	RawRateMultiplier       float64   `json:"raw_rate_multiplier"`
-	RechargeRate            float64   `json:"recharge_rate"`
-	EffectiveCostMultiplier float64   `json:"effective_cost_multiplier"`
-	Source                  string    `json:"source"`
-	ObservedAt              time.Time `json:"observed_at"`
+	ID             int64     `json:"id"`
+	ConfigID       int64     `json:"config_id"`
+	KeyID          *int64    `json:"key_id,omitempty"`
+	RemoteKeyID    *int64    `json:"remote_key_id,omitempty"`
+	KeyName        string    `json:"key_name"`
+	RateMultiplier float64   `json:"rate_multiplier"`
+	ObservedAt     time.Time `json:"observed_at"`
 }
 
 type UpstreamKeyRateChange struct {
-	Type         string    `json:"type"`
-	OldRawRate   *float64  `json:"old_raw_rate,omitempty"`
-	NewRawRate   *float64  `json:"new_raw_rate,omitempty"`
-	OldEffective *float64  `json:"old_effective_rate,omitempty"`
-	NewEffective *float64  `json:"new_effective_rate,omitempty"`
-	OccurredAt   time.Time `json:"occurred_at"`
+	Type       string    `json:"type"`
+	OldRate    *float64  `json:"old_rate,omitempty"`
+	NewRate    *float64  `json:"new_rate,omitempty"`
+	OccurredAt time.Time `json:"occurred_at"`
 }
 
 type UpstreamKeyRateTrendPoint struct {
-	Bucket                  string  `json:"bucket"`
-	RawRateMultiplier       float64 `json:"raw_rate_multiplier"`
-	EffectiveCostMultiplier float64 `json:"effective_cost_multiplier"`
+	Bucket         string  `json:"bucket"`
+	RateMultiplier float64 `json:"rate_multiplier"`
 }
 
 type UpstreamKeyRateTrend struct {
-	Range                 string                      `json:"range"`
-	ConfigID              int64                       `json:"config_id"`
-	KeyID                 int64                       `json:"key_id"`
-	RemoteKeyID           *int64                      `json:"remote_key_id,omitempty"`
-	KeyName               string                      `json:"key_name"`
-	CurrentRawRate        *float64                    `json:"current_raw_rate,omitempty"`
-	CurrentEffectiveRate  *float64                    `json:"current_effective_rate,omitempty"`
-	PreviousRawRate       *float64                    `json:"previous_raw_rate,omitempty"`
-	PreviousEffectiveRate *float64                    `json:"previous_effective_rate,omitempty"`
-	FirstObservedAt       *time.Time                  `json:"first_observed_at,omitempty"`
-	LastChangedAt         *time.Time                  `json:"last_changed_at,omitempty"`
-	Points                []UpstreamKeyRateTrendPoint `json:"points"`
-	Changes               []UpstreamKeyRateChange     `json:"changes"`
+	Range           string                      `json:"range"`
+	ConfigID        int64                       `json:"config_id"`
+	KeyID           int64                       `json:"key_id"`
+	RemoteKeyID     *int64                      `json:"remote_key_id,omitempty"`
+	KeyName         string                      `json:"key_name"`
+	CurrentRate     *float64                    `json:"current_rate,omitempty"`
+	PreviousRate    *float64                    `json:"previous_rate,omitempty"`
+	FirstObservedAt *time.Time                  `json:"first_observed_at,omitempty"`
+	LastChangedAt   *time.Time                  `json:"last_changed_at,omitempty"`
+	Points          []UpstreamKeyRateTrendPoint `json:"points"`
+	Changes         []UpstreamKeyRateChange     `json:"changes"`
 }
 
 type UpstreamKeyRateCatalogItem struct {
-	KeyID                int64      `json:"key_id"`
-	Name                 string     `json:"name"`
-	RemoteKeyID          *int64     `json:"remote_key_id,omitempty"`
-	Status               string     `json:"status"`
-	DeletedAt            *time.Time `json:"deleted_at,omitempty"`
-	CurrentRawRate       *float64   `json:"current_raw_rate,omitempty"`
-	CurrentEffectiveRate *float64   `json:"current_effective_rate,omitempty"`
-	LastObservedAt       *time.Time `json:"last_observed_at,omitempty"`
-	LastChangedAt        *time.Time `json:"last_changed_at,omitempty"`
+	KeyID          int64      `json:"key_id"`
+	Name           string     `json:"name"`
+	RemoteKeyID    *int64     `json:"remote_key_id,omitempty"`
+	Status         string     `json:"status"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	CurrentRate    *float64   `json:"current_rate,omitempty"`
+	LastObservedAt *time.Time `json:"last_observed_at,omitempty"`
+	LastChangedAt  *time.Time `json:"last_changed_at,omitempty"`
 }
 
 type UpstreamOperationsRepository interface {
@@ -252,7 +243,50 @@ func (s *UpstreamConfigService) ListEvents(ctx context.Context, configID int64, 
 	if err != nil {
 		return nil, 0, err
 	}
-	return repo.ListUpstreamEvents(ctx, configID, boundedLimit(limit), upstreamMaxInt(offset, 0))
+	items, total, err := repo.ListUpstreamEvents(ctx, configID, boundedLimit(limit), upstreamMaxInt(offset, 0))
+	if err != nil {
+		return nil, 0, err
+	}
+	return projectUpstreamEvents(items), total, nil
+}
+
+func projectUpstreamEvents(events []UpstreamEvent) []UpstreamEvent {
+	projected := make([]UpstreamEvent, len(events))
+	for i := range events {
+		projected[i] = events[i]
+		if !isKeyRateEvent(events[i].Type) {
+			continue
+		}
+		projected[i].Payload = projectKeyRateEventPayload(events[i].Payload)
+	}
+	return projected
+}
+
+func isKeyRateEvent(eventType string) bool {
+	return eventType == "key_rate_changed" || eventType == "key_effective_rate_changed" || eventType == "key_actual_rate_changed"
+}
+
+func projectKeyRateEventPayload(payload map[string]any) map[string]any {
+	projected := make(map[string]any, 2)
+	if value, ok := eventRateValue(payload, "old_rate", "old_effective_rate"); ok {
+		projected["old_rate"] = value
+	}
+	if value, ok := eventRateValue(payload, "new_rate", "new_effective_rate"); ok {
+		projected["new_rate"] = value
+	}
+	if len(projected) == 0 {
+		return nil
+	}
+	return projected
+}
+
+func eventRateValue(payload map[string]any, keys ...string) (float64, bool) {
+	for _, key := range keys {
+		if value, ok := finiteAnyFloat(payload[key]); ok {
+			return value, true
+		}
+	}
+	return 0, false
 }
 
 func (s *UpstreamConfigService) ListIncidents(ctx context.Context, configID int64, status string, limit, offset int) ([]UpstreamIncident, int64, error) {
@@ -529,26 +563,6 @@ func upstreamCostToCNYRate(cfg *UpstreamConfig, extra map[string]any) (float64, 
 		return *cfg.BalanceToCNYRate, true
 	}
 	return 0, false
-}
-
-func applyEffectiveCostMultipliers(config *UpstreamConfig, keys []*UpstreamKey) {
-	if config == nil {
-		return
-	}
-	rechargeRate := config.RechargeRate
-	if rechargeRate <= 0 {
-		rechargeRate = 1
-	}
-	for _, key := range keys {
-		if key == nil || key.RateMultiplier == nil {
-			continue
-		}
-		value := *key.RateMultiplier * rechargeRate
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			continue
-		}
-		key.EffectiveCostMultiplier = &value
-	}
 }
 
 func finiteAnyFloat(value any) (float64, bool) {

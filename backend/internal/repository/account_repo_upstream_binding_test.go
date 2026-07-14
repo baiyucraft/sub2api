@@ -41,8 +41,10 @@ func TestAccountRepositoryUpdateBoundLocksConfigThenKeyAndCommitsOutbox(t *testi
 	account := boundAccount(101, 11, 22, service.PlatformOpenAI)
 
 	mock.ExpectBegin()
+	expectAccountBindingRead(mock, account, false)
 	expectUpstreamConfigLock(mock, 11, true)
 	expectUpstreamKeyLock(mock, 22, 11, service.StatusActive, ptrString(service.PlatformOpenAI), true)
+	expectAccountBindingRead(mock, account, true)
 	expectAccountUpdate(mock, account)
 	expectSchedulerAccountOutbox(mock, nil)
 	mock.ExpectCommit()
@@ -70,6 +72,8 @@ func TestAccountRepositoryUpdateOrdinaryAccountSkipsUpstreamLocks(t *testing.T) 
 	account := baseAccount(102, service.PlatformAnthropic)
 
 	mock.ExpectBegin()
+	expectAccountBindingRead(mock, account, false)
+	expectAccountBindingRead(mock, account, true)
 	expectAccountUpdate(mock, account)
 	expectSchedulerAccountOutbox(mock, nil)
 	mock.ExpectCommit()
@@ -102,8 +106,10 @@ func TestAccountRepositoryUpdateRollsBackAccountWhenOutboxFails(t *testing.T) {
 	outboxErr := errors.New("outbox unavailable")
 
 	mock.ExpectBegin()
+	expectAccountBindingRead(mock, account, false)
 	expectUpstreamConfigLock(mock, 11, true)
 	expectUpstreamKeyLock(mock, 22, 11, service.StatusActive, ptrString(service.PlatformOpenAI), true)
+	expectAccountBindingRead(mock, account, true)
 	expectAccountUpdate(mock, account)
 	expectSchedulerAccountOutbox(mock, outboxErr)
 	mock.ExpectRollback()
@@ -216,8 +222,10 @@ func TestAccountRepositoryUpdateRejectsInvalidUpstreamBindingBeforeWrite(t *test
 	account := boundAccount(104, 11, 22, service.PlatformOpenAI)
 
 	mock.ExpectBegin()
+	expectAccountBindingRead(mock, account, false)
 	expectUpstreamConfigLock(mock, 11, true)
 	expectUpstreamKeyLock(mock, 22, 11, service.StatusDisabled, ptrString(service.PlatformOpenAI), true)
+	expectAccountBindingRead(mock, account, true)
 	mock.ExpectRollback()
 
 	err := repo.Update(context.Background(), account)
@@ -296,7 +304,7 @@ func expectUpstreamKeyLockWithDetection(mock sqlmock.Sqlmock, id, configID int64
 		if platform != nil {
 			platformValue = *platform
 		}
-		rows.AddRow(id, now, now, nil, configID, "key", "test-secret", "test-hash", nil, nil, "", platformValue, source, nil, detectionStatus, nil, nil, status, nil, 0, nil, []byte("{}"))
+		rows.AddRow(id, now, now, nil, configID, "key", "test-secret", "test-hash", nil, nil, "", platformValue, source, nil, detectionStatus, nil, 1.0, 1.0, status, nil, 0, nil, []byte("{}"))
 	}
 	mock.ExpectQuery(`SELECT .* FROM "upstream_keys".*"deleted_at" IS NULL.*FOR UPDATE`).WillReturnRows(rows)
 }
@@ -325,6 +333,27 @@ func expectAccountUpdate(mock sqlmock.Sqlmock, account *service.Account) {
 			false, account.Schedulable, nil, nil, nil, nil, nil, nil, nil, nil, nil, dbaccount.QuotaDimensionGlobal,
 		),
 	)
+}
+
+func expectAccountBindingRead(mock sqlmock.Sqlmock, account *service.Account, forUpdate bool) {
+	query := `SELECT .* FROM "accounts" WHERE "accounts"\."id" = .*`
+	if forUpdate {
+		query += `FOR UPDATE`
+	}
+	now := time.Now()
+	var configID, keyID any
+	if account.UpstreamConfigID != nil {
+		configID = *account.UpstreamConfigID
+	}
+	if account.UpstreamKeyID != nil {
+		keyID = *account.UpstreamKeyID
+	}
+	mock.ExpectQuery(query).WillReturnRows(sqlmock.NewRows(dbaccount.Columns).AddRow(
+		account.ID, now, now, nil, account.Name, nil, account.Platform, account.Type,
+		[]byte("{}"), []byte("{}"), nil, nil, configID, keyID,
+		nil, nil, account.Concurrency, nil, account.Priority, 1.0, account.Status, "", nil, nil,
+		false, account.Schedulable, nil, nil, nil, nil, nil, nil, nil, nil, nil, dbaccount.QuotaDimensionGlobal,
+	))
 }
 
 func expectSchedulerAccountOutbox(mock sqlmock.Sqlmock, err error) {

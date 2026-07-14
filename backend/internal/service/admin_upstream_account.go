@@ -130,6 +130,9 @@ func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, in
 	if key.Platform == nil || strings.TrimSpace(*key.Platform) == "" {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_UNASSIGNED", "upstream key platform must be assigned before binding an account")
 	}
+	if key.RateMultiplier == nil {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_RATE_UNAVAILABLE", "upstream key actual rate is unavailable")
+	}
 	autoName, err := buildUpstreamAccountName(cfg.Name, key.Name)
 	if err != nil {
 		return err
@@ -148,6 +151,12 @@ func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, in
 	}
 	input.Extra[AccountUpstreamProviderKey] = cfg.Provider
 	input.Extra[AccountSub2APIRateSyncAdapterKey] = cfg.AuthMode
+	actualRate := *key.RateMultiplier
+	priority := Sub2APIUpstreamPriority(actualRate)
+	loadFactor := AutoUpstreamLoadFactor(priority, normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency))
+	input.RateMultiplier = &actualRate
+	input.Priority = priority
+	input.LoadFactor = &loadFactor
 	input.ProxyID = nil
 	return nil
 }
@@ -196,6 +205,12 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 	if key.Platform == nil || strings.TrimSpace(*key.Platform) == "" {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_UNASSIGNED", "upstream key platform must be assigned before binding an account")
 	}
+	if key.RateMultiplier == nil {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_RATE_UNAVAILABLE", "upstream key actual rate is unavailable")
+	}
+	if input.RateMultiplier != nil || input.Priority != nil || input.LoadFactor != nil {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_RATE_DERIVED", "upstream account rate, priority, and load factor are derived from the upstream key")
+	}
 	if strings.TrimSpace(account.Platform) != "" && !strings.EqualFold(strings.TrimSpace(account.Platform), strings.TrimSpace(*key.Platform)) {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_MISMATCH", "upstream key platform does not match account platform")
 	}
@@ -204,6 +219,16 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 		return err
 	}
 	account.Name = autoName
+	actualRate := *key.RateMultiplier
+	priority := Sub2APIUpstreamPriority(actualRate)
+	concurrency := account.Concurrency
+	if input.Concurrency != nil {
+		concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)
+	}
+	loadFactor := AutoUpstreamLoadFactor(priority, concurrency)
+	input.RateMultiplier = &actualRate
+	input.Priority = &priority
+	input.LoadFactor = &loadFactor
 	if input.Extra == nil {
 		if account.Extra == nil {
 			account.Extra = map[string]any{}

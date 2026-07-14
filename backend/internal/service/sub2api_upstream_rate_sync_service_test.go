@@ -148,6 +148,7 @@ func TestSub2APIUpstreamPriority(t *testing.T) {
 	require.Equal(t, 10, Sub2APIUpstreamPriority(0.1))
 	require.Equal(t, 6, Sub2APIUpstreamPriority(0.06))
 	require.Equal(t, 7, Sub2APIUpstreamPriority(0.065))
+	require.Equal(t, 15, Sub2APIUpstreamPriority(0.145))
 }
 
 func TestSub2APIUpstreamRateSync_RunOnceDoesNotUseDeprecatedAccountScanFallback(t *testing.T) {
@@ -697,8 +698,9 @@ func TestSyncSub2APIUpstreamKeysPreservesNamesAndGroupMetadata(t *testing.T) {
 	require.Equal(t, int64(44), *keys[0].UpstreamGroupID)
 	require.NotNil(t, keys[0].Platform)
 	require.Equal(t, "openai", *keys[0].Platform)
-	require.NotNil(t, keys[0].RateMultiplier)
-	require.Equal(t, 0.03, *keys[0].RateMultiplier)
+	require.Nil(t, keys[0].RateMultiplier)
+	require.NotNil(t, keys[0].SourceRateMultiplier)
+	require.Equal(t, 0.03, *keys[0].SourceRateMultiplier)
 
 	require.Equal(t, "plus", keys[1].Name)
 	require.NotNil(t, keys[1].UpstreamGroupID)

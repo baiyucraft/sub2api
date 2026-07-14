@@ -2854,7 +2854,7 @@
         <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
       </div>
 
-      <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div :class="accountCategory === 'upstream_config' ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-2 gap-4 lg:grid-cols-4'">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
           <input v-model.number="form.concurrency" type="number" min="1" class="input"
@@ -2867,14 +2867,7 @@
             @input="form.load_factor = (form.load_factor &amp;&amp; form.load_factor >= 1) ? form.load_factor : null" />
           <p class="input-hint">{{ t('admin.accounts.loadFactorHint') }}</p>
         </div>
-        <div v-else>
-          <label class="input-label">{{ t('admin.accounts.loadFactor') }}</label>
-          <div class="input flex items-center text-sm text-gray-600 dark:text-dark-300">
-            {{ t('admin.accounts.upstreamAutoLoadFactor') }}
-          </div>
-          <p class="input-hint">{{ t('admin.accounts.upstreamAutoLoadFactorHint') }}</p>
-        </div>
-        <div>
+        <div v-if="accountCategory !== 'upstream_config'">
           <label class="input-label">{{ t('admin.accounts.priority') }}</label>
           <input
             v-model.number="form.priority"
@@ -2885,7 +2878,7 @@
           />
           <p class="input-hint">{{ t('admin.accounts.priorityHint') }}</p>
         </div>
-        <div>
+        <div v-if="accountCategory !== 'upstream_config'">
           <label class="input-label">{{ t('admin.accounts.billingRateMultiplier') }}</label>
           <input v-model.number="form.rate_multiplier" type="number" min="0" step="0.001" class="input" />
           <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>

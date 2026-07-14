@@ -1793,6 +1793,7 @@ var (
 		{Name: "platform_detection_status", Type: field.TypeString, Size: 16, Default: "legacy"},
 		{Name: "platform_detected_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "source_rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
 		{Name: "last_seen_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "missing_count", Type: field.TypeInt, Default: 0},
@@ -1808,7 +1809,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "upstream_keys_upstream_configs_keys",
-				Columns:    []*schema.Column{UpstreamKeysColumns[21]},
+				Columns:    []*schema.Column{UpstreamKeysColumns[22]},
 				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -1817,12 +1818,12 @@ var (
 			{
 				Name:    "upstreamkey_upstream_config_id",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamKeysColumns[21]},
+				Columns: []*schema.Column{UpstreamKeysColumns[22]},
 			},
 			{
 				Name:    "upstreamkey_upstream_config_id_key_hash",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamKeysColumns[21], UpstreamKeysColumns[6]},
+				Columns: []*schema.Column{UpstreamKeysColumns[22], UpstreamKeysColumns[6]},
 			},
 		},
 	}

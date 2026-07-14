@@ -18,8 +18,8 @@ export default {
     },
     columnSettings: '列设置',
     balance: {
-      totalRecharged: '累计充值 {amount}',
-      totalQuota: '累计额度 {amount}',
+      totalRecharged: '充值 {amount}',
+      totalQuota: '充值 {amount}',
       totalUsed: '累计使用 {amount}',
       lowBalance: '低余额',
       rawBalance: '原生剩余额度：{amount}',
@@ -41,9 +41,7 @@ export default {
       lastCheckedAt: '最后检查时间：{time}'
     },
     rates: {
-      raw: '原始倍率 {value}',
-      cost: '成本倍率 {value}',
-      recharge: '充值倍率 {value}x'
+      rateMultiplier: '实际倍率 {value}'
     },
     providers: {
       sub2api: 'sub2api',
@@ -288,9 +286,8 @@ export default {
       emptyRateTrend: '暂无倍率趋势数据',
       emptyRateKeys: '该上游暂无可查看的 Key 倍率历史',
       emptyRateChanges: '暂无倍率变化记录',
-      currentRawRate: '当前原始倍率',
-      currentEffectiveRate: '当前成本倍率',
-      previousRate: '上次原始倍率',
+      currentRate: '当前倍率',
+      previousRate: '上次倍率',
       lastChanged: '最近变化',
       observedSince: '首次观测',
       rateChanges: '倍率变化记录',
@@ -321,8 +318,7 @@ export default {
         grossProfit: '毛利'
       },
       rateSeries: {
-        raw: '原始倍率',
-        effective: '有效成本倍率'
+        rateMultiplier: '倍率'
       }
     }
   }

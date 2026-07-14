@@ -346,7 +346,7 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 
 	var updated *dbent.Account
 	err := r.withAccountWriteTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
-		if err := validateUpstreamAccountBindingForWrite(txCtx, txClient, account); err != nil {
+		if err := lockAndValidateUpstreamAccountUpdate(txCtx, txClient, account); err != nil {
 			return err
 		}
 
@@ -366,6 +366,82 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 	// 否则网关在 outbox worker 延迟或异常时仍可能读到旧配置。
 	r.syncSchedulerAccountSnapshot(ctx, account.ID)
 	return nil
+}
+
+func lockAndValidateUpstreamAccountUpdate(ctx context.Context, client *dbent.Client, account *service.Account) error {
+	current, err := client.Account.Query().Where(dbaccount.IDEQ(account.ID)).Only(ctx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	configIDs := uniqueSortedInt64s(compactInt64Pointers(current.UpstreamConfigID, account.UpstreamConfigID))
+	keyIDs := uniqueSortedInt64s(compactInt64Pointers(current.UpstreamKeyID, account.UpstreamKeyID))
+	if len(configIDs) > 0 {
+		rows, lockErr := client.UpstreamConfig.Query().
+			Where(dbupstreamconfig.IDIn(configIDs...), dbupstreamconfig.DeletedAtIsNil()).
+			Order(dbent.Asc(dbupstreamconfig.FieldID)).
+			ForUpdate().
+			All(ctx)
+		if lockErr != nil {
+			return lockErr
+		}
+		if len(rows) != len(configIDs) {
+			return service.ErrUpstreamConfigNotFound
+		}
+	}
+	var targetKey *dbent.UpstreamKey
+	if len(keyIDs) > 0 {
+		rows, lockErr := client.UpstreamKey.Query().
+			Where(dbupstreamkey.IDIn(keyIDs...), dbupstreamkey.DeletedAtIsNil()).
+			Order(dbent.Asc(dbupstreamkey.FieldID)).
+			ForUpdate().
+			All(ctx)
+		if lockErr != nil {
+			return lockErr
+		}
+		if len(rows) != len(keyIDs) {
+			return service.ErrUpstreamKeyNotFound
+		}
+		if account.UpstreamKeyID != nil {
+			for _, key := range rows {
+				if key.ID == *account.UpstreamKeyID {
+					targetKey = key
+					break
+				}
+			}
+		}
+	}
+	locked, err := client.Account.Query().Where(dbaccount.IDEQ(account.ID)).ForUpdate().Only(ctx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	if pointerInt64Value(locked.UpstreamConfigID) != pointerInt64Value(current.UpstreamConfigID) ||
+		pointerInt64Value(locked.UpstreamKeyID) != pointerInt64Value(current.UpstreamKeyID) {
+		return infraerrors.Conflict("UPSTREAM_ACCOUNT_BINDING_STALE", "upstream account binding changed; reload and retry")
+	}
+	if account.UpstreamConfigID == nil && account.UpstreamKeyID == nil {
+		return nil
+	}
+	if targetKey == nil {
+		return service.ErrUpstreamKeyNotFound
+	}
+	return validateLockedUpstreamAccountBinding(account, targetKey)
+}
+
+func compactInt64Pointers(values ...*int64) []int64 {
+	out := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value != nil && *value > 0 {
+			out = append(out, *value)
+		}
+	}
+	return out
+}
+
+func pointerInt64Value(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func buildAccountUpdate(client *dbent.Client, account *service.Account, schedulable bool) *dbent.AccountUpdateOne {
@@ -516,6 +592,10 @@ func validateUpstreamAccountBindingForWrite(ctx context.Context, client *dbent.C
 	if err != nil {
 		return translatePersistenceError(err, service.ErrUpstreamKeyNotFound, nil)
 	}
+	return validateLockedUpstreamAccountBinding(account, key)
+}
+
+func validateLockedUpstreamAccountBinding(account *service.Account, key *dbent.UpstreamKey) error {
 	if key.UpstreamConfigID != *account.UpstreamConfigID {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_CONFIG_MISMATCH", "upstream key does not belong to the selected config")
 	}
@@ -533,9 +613,18 @@ func validateUpstreamAccountBindingForWrite(ctx context.Context, client *dbent.C
 			return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_UNRESOLVED", "upstream key platform must be resolved before binding an account")
 		}
 	}
+	if key.RateMultiplier == nil {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_RATE_UNAVAILABLE", "upstream key actual rate is unavailable")
+	}
 	if *key.Platform != account.Platform {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_MISMATCH", "upstream key platform does not match account platform")
 	}
+	actualRate := *key.RateMultiplier
+	priority := service.Sub2APIUpstreamPriority(actualRate)
+	loadFactor := service.AutoUpstreamLoadFactor(priority, account.Concurrency)
+	account.RateMultiplier = &actualRate
+	account.Priority = priority
+	account.LoadFactor = &loadFactor
 	return nil
 }
 
@@ -1859,31 +1948,96 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	query := "UPDATE accounts SET " + joinClauses(setClauses, ", ") + " WHERE id = ANY($" + itoa(idx) + ") AND deleted_at IS NULL"
 	args = append(args, pq.Array(ids))
 
-	result, err := r.sql.ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
-	}
-	rows, err := result.RowsAffected()
+	var rows int64
+	err := r.withAccountWriteTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		if err := lockBulkUpdateUpstreamReferences(txCtx, client, ids); err != nil {
+			return err
+		}
+		result, execErr := client.ExecContext(txCtx, query, args...)
+		if execErr != nil {
+			return execErr
+		}
+		rows, execErr = result.RowsAffected()
+		if execErr != nil {
+			return execErr
+		}
+		if rows == 0 {
+			return nil
+		}
+		return enqueueSchedulerOutbox(txCtx, client, service.SchedulerOutboxEventAccountBulkChanged, nil, nil, map[string]any{"account_ids": ids})
+	})
 	if err != nil {
 		return 0, err
 	}
 	if rows > 0 {
-		payload := map[string]any{"account_ids": ids}
-		if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountBulkChanged, nil, nil, payload); err != nil {
-			logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue bulk update failed: err=%v", err)
-		}
-		shouldSync := false
-		if updates.Status != nil && (*updates.Status == service.StatusError || *updates.Status == service.StatusDisabled) {
-			shouldSync = true
-		}
-		if updates.Schedulable != nil && !*updates.Schedulable {
-			shouldSync = true
-		}
+		shouldSync := updates.Status != nil && (*updates.Status == service.StatusError || *updates.Status == service.StatusDisabled)
+		shouldSync = shouldSync || updates.Schedulable != nil && !*updates.Schedulable
 		if shouldSync {
 			r.syncSchedulerAccountSnapshots(ctx, ids)
 		}
 	}
 	return rows, nil
+}
+
+func lockBulkUpdateUpstreamReferences(ctx context.Context, client *dbent.Client, ids []int64) error {
+	accounts, err := client.Account.Query().
+		Where(dbaccount.IDIn(ids...), dbaccount.DeletedAtIsNil()).
+		Order(dbent.Asc(dbaccount.FieldID)).
+		All(ctx)
+	if err != nil {
+		return err
+	}
+	configIDs := make([]int64, 0, len(accounts))
+	keyIDs := make([]int64, 0, len(accounts))
+	bindings := make(map[int64][2]int64, len(accounts))
+	for _, account := range accounts {
+		if account.UpstreamConfigID == nil && account.UpstreamKeyID == nil {
+			continue
+		}
+		if account.UpstreamConfigID == nil || account.UpstreamKeyID == nil {
+			return infraerrors.Conflict("UPSTREAM_ACCOUNT_BINDING_STALE", "upstream account binding is incomplete; reload and retry")
+		}
+		configIDs = append(configIDs, *account.UpstreamConfigID)
+		keyIDs = append(keyIDs, *account.UpstreamKeyID)
+		bindings[account.ID] = [2]int64{*account.UpstreamConfigID, *account.UpstreamKeyID}
+	}
+	configIDs = uniqueSortedInt64s(configIDs)
+	keyIDs = uniqueSortedInt64s(keyIDs)
+	if len(configIDs) > 0 {
+		locked, lockErr := client.UpstreamConfig.Query().Where(dbupstreamconfig.IDIn(configIDs...), dbupstreamconfig.DeletedAtIsNil()).Order(dbent.Asc(dbupstreamconfig.FieldID)).ForUpdate().All(ctx)
+		if lockErr != nil {
+			return lockErr
+		}
+		if len(locked) != len(configIDs) {
+			return service.ErrUpstreamConfigNotFound
+		}
+	}
+	if len(keyIDs) > 0 {
+		locked, lockErr := client.UpstreamKey.Query().Where(dbupstreamkey.IDIn(keyIDs...), dbupstreamkey.DeletedAtIsNil()).Order(dbent.Asc(dbupstreamkey.FieldID)).ForUpdate().All(ctx)
+		if lockErr != nil {
+			return lockErr
+		}
+		if len(locked) != len(keyIDs) {
+			return service.ErrUpstreamKeyNotFound
+		}
+	}
+	lockedAccounts, err := client.Account.Query().Where(dbaccount.IDIn(ids...), dbaccount.DeletedAtIsNil()).Order(dbent.Asc(dbaccount.FieldID)).ForUpdate().All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, account := range lockedAccounts {
+		binding, ok := bindings[account.ID]
+		if !ok {
+			if account.UpstreamConfigID != nil || account.UpstreamKeyID != nil {
+				return infraerrors.Conflict("UPSTREAM_ACCOUNT_BINDING_STALE", "upstream account binding changed; reload and retry")
+			}
+			continue
+		}
+		if account.UpstreamConfigID == nil || account.UpstreamKeyID == nil || *account.UpstreamConfigID != binding[0] || *account.UpstreamKeyID != binding[1] {
+			return infraerrors.Conflict("UPSTREAM_ACCOUNT_BINDING_STALE", "upstream account binding changed; reload and retry")
+		}
+	}
+	return nil
 }
 
 type accountGroupQueryOptions struct {

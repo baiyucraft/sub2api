@@ -438,6 +438,10 @@ describe('EditAccountModal', () => {
     expect(nameInput.attributes('readonly')).toBeDefined()
     expect((nameInput.element as HTMLInputElement).value).toBe('Sub2API Main-OpenAI upstream key')
     expect(wrapper.find('[data-testid="proxy-selector"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('admin.accounts.concurrency')
+    expect(wrapper.text()).not.toContain('admin.accounts.loadFactor')
+    expect(wrapper.text()).not.toContain('admin.accounts.priority')
+    expect(wrapper.text()).not.toContain('admin.accounts.billingRateMultiplier')
     expect(upstreamConfigsListMock).toHaveBeenCalledWith(1, 200, { status: 'active' })
     expect(upstreamConfigKeysListMock).toHaveBeenCalledWith(10)
   })
@@ -462,10 +466,17 @@ describe('EditAccountModal', () => {
 
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
-    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
-      upstream_config_id: 10,
-      upstream_key_id: 20
-    }))
+    expect(updateAccountMock).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        upstream_config_id: 10,
+        upstream_key_id: 20
+      })
+    )
+    const payload = updateAccountMock.mock.calls[0][1]
+    expect(payload).not.toHaveProperty('rate_multiplier')
+    expect(payload).not.toHaveProperty('priority')
+    expect(payload).not.toHaveProperty('load_factor')
   })
 
   it('cannot reselect the original stale key after switching to an active key', async () => {

@@ -135,6 +135,11 @@ func RateMultiplier(v float64) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEQ(FieldRateMultiplier, v))
 }
 
+// SourceRateMultiplier applies equality check predicate on the "source_rate_multiplier" field. It's identical to SourceRateMultiplierEQ.
+func SourceRateMultiplier(v float64) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldSourceRateMultiplier, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEQ(FieldStatus, v))
@@ -1043,6 +1048,56 @@ func RateMultiplierIsNil() predicate.UpstreamKey {
 // RateMultiplierNotNil applies the NotNil predicate on the "rate_multiplier" field.
 func RateMultiplierNotNil() predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldNotNull(FieldRateMultiplier))
+}
+
+// SourceRateMultiplierEQ applies the EQ predicate on the "source_rate_multiplier" field.
+func SourceRateMultiplierEQ(v float64) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldSourceRateMultiplier, v))
+}
+
+// SourceRateMultiplierNEQ applies the NEQ predicate on the "source_rate_multiplier" field.
+func SourceRateMultiplierNEQ(v float64) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNEQ(FieldSourceRateMultiplier, v))
+}
+
+// SourceRateMultiplierIn applies the In predicate on the "source_rate_multiplier" field.
+func SourceRateMultiplierIn(vs ...float64) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIn(FieldSourceRateMultiplier, vs...))
+}
+
+// SourceRateMultiplierNotIn applies the NotIn predicate on the "source_rate_multiplier" field.
+func SourceRateMultiplierNotIn(vs ...float64) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotIn(FieldSourceRateMultiplier, vs...))
+}
+
+// SourceRateMultiplierGT applies the GT predicate on the "source_rate_multiplier" field.
+func SourceRateMultiplierGT(v float64) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGT(FieldSourceRateMultiplier, v))
+}
+
+// SourceRateMultiplierGTE applies the GTE predicate on the "source_rate_multiplier" field.
+func SourceRateMultiplierGTE(v float64) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGTE(FieldSourceRateMultiplier, v))
+}
+
+// SourceRateMultiplierLT applies the LT predicate on the "source_rate_multiplier" field.
+func SourceRateMultiplierLT(v float64) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLT(FieldSourceRateMultiplier, v))
+}
+
+// SourceRateMultiplierLTE applies the LTE predicate on the "source_rate_multiplier" field.
+func SourceRateMultiplierLTE(v float64) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLTE(FieldSourceRateMultiplier, v))
+}
+
+// SourceRateMultiplierIsNil applies the IsNil predicate on the "source_rate_multiplier" field.
+func SourceRateMultiplierIsNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIsNull(FieldSourceRateMultiplier))
+}
+
+// SourceRateMultiplierNotNil applies the NotNil predicate on the "source_rate_multiplier" field.
+func SourceRateMultiplierNotNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotNull(FieldSourceRateMultiplier))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

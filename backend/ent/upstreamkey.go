@@ -51,6 +51,8 @@ type UpstreamKey struct {
 	PlatformDetectedAt *time.Time `json:"platform_detected_at,omitempty"`
 	// RateMultiplier holds the value of the "rate_multiplier" field.
 	RateMultiplier *float64 `json:"rate_multiplier,omitempty"`
+	// SourceRateMultiplier holds the value of the "source_rate_multiplier" field.
+	SourceRateMultiplier *float64 `json:"-"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`
 	// LastSeenAt holds the value of the "last_seen_at" field.
@@ -149,7 +151,7 @@ func (*UpstreamKey) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case upstreamkey.FieldExtra:
 			values[i] = new([]byte)
-		case upstreamkey.FieldRateMultiplier:
+		case upstreamkey.FieldRateMultiplier, upstreamkey.FieldSourceRateMultiplier:
 			values[i] = new(sql.NullFloat64)
 		case upstreamkey.FieldID, upstreamkey.FieldUpstreamConfigID, upstreamkey.FieldRemoteKeyID, upstreamkey.FieldUpstreamGroupID, upstreamkey.FieldMissingCount:
 			values[i] = new(sql.NullInt64)
@@ -280,6 +282,13 @@ func (_m *UpstreamKey) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.RateMultiplier = new(float64)
 				*_m.RateMultiplier = value.Float64
+			}
+		case upstreamkey.FieldSourceRateMultiplier:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field source_rate_multiplier", values[i])
+			} else if value.Valid {
+				_m.SourceRateMultiplier = new(float64)
+				*_m.SourceRateMultiplier = value.Float64
 			}
 		case upstreamkey.FieldStatus:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -439,6 +448,11 @@ func (_m *UpstreamKey) String() string {
 	builder.WriteString(", ")
 	if v := _m.RateMultiplier; v != nil {
 		builder.WriteString("rate_multiplier=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.SourceRateMultiplier; v != nil {
+		builder.WriteString("source_rate_multiplier=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")

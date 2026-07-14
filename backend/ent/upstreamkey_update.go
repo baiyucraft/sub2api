@@ -299,6 +299,33 @@ func (_u *UpstreamKeyUpdate) ClearRateMultiplier() *UpstreamKeyUpdate {
 	return _u
 }
 
+// SetSourceRateMultiplier sets the "source_rate_multiplier" field.
+func (_u *UpstreamKeyUpdate) SetSourceRateMultiplier(v float64) *UpstreamKeyUpdate {
+	_u.mutation.ResetSourceRateMultiplier()
+	_u.mutation.SetSourceRateMultiplier(v)
+	return _u
+}
+
+// SetNillableSourceRateMultiplier sets the "source_rate_multiplier" field if the given value is not nil.
+func (_u *UpstreamKeyUpdate) SetNillableSourceRateMultiplier(v *float64) *UpstreamKeyUpdate {
+	if v != nil {
+		_u.SetSourceRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddSourceRateMultiplier adds value to the "source_rate_multiplier" field.
+func (_u *UpstreamKeyUpdate) AddSourceRateMultiplier(v float64) *UpstreamKeyUpdate {
+	_u.mutation.AddSourceRateMultiplier(v)
+	return _u
+}
+
+// ClearSourceRateMultiplier clears the value of the "source_rate_multiplier" field.
+func (_u *UpstreamKeyUpdate) ClearSourceRateMultiplier() *UpstreamKeyUpdate {
+	_u.mutation.ClearSourceRateMultiplier()
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *UpstreamKeyUpdate) SetStatus(v string) *UpstreamKeyUpdate {
 	_u.mutation.SetStatus(v)
@@ -755,6 +782,15 @@ func (_u *UpstreamKeyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 	}
 	if _u.mutation.RateMultiplierCleared() {
 		_spec.ClearField(upstreamkey.FieldRateMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SourceRateMultiplier(); ok {
+		_spec.SetField(upstreamkey.FieldSourceRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSourceRateMultiplier(); ok {
+		_spec.AddField(upstreamkey.FieldSourceRateMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.SourceRateMultiplierCleared() {
+		_spec.ClearField(upstreamkey.FieldSourceRateMultiplier, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(upstreamkey.FieldStatus, field.TypeString, value)
@@ -1319,6 +1355,33 @@ func (_u *UpstreamKeyUpdateOne) ClearRateMultiplier() *UpstreamKeyUpdateOne {
 	return _u
 }
 
+// SetSourceRateMultiplier sets the "source_rate_multiplier" field.
+func (_u *UpstreamKeyUpdateOne) SetSourceRateMultiplier(v float64) *UpstreamKeyUpdateOne {
+	_u.mutation.ResetSourceRateMultiplier()
+	_u.mutation.SetSourceRateMultiplier(v)
+	return _u
+}
+
+// SetNillableSourceRateMultiplier sets the "source_rate_multiplier" field if the given value is not nil.
+func (_u *UpstreamKeyUpdateOne) SetNillableSourceRateMultiplier(v *float64) *UpstreamKeyUpdateOne {
+	if v != nil {
+		_u.SetSourceRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddSourceRateMultiplier adds value to the "source_rate_multiplier" field.
+func (_u *UpstreamKeyUpdateOne) AddSourceRateMultiplier(v float64) *UpstreamKeyUpdateOne {
+	_u.mutation.AddSourceRateMultiplier(v)
+	return _u
+}
+
+// ClearSourceRateMultiplier clears the value of the "source_rate_multiplier" field.
+func (_u *UpstreamKeyUpdateOne) ClearSourceRateMultiplier() *UpstreamKeyUpdateOne {
+	_u.mutation.ClearSourceRateMultiplier()
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *UpstreamKeyUpdateOne) SetStatus(v string) *UpstreamKeyUpdateOne {
 	_u.mutation.SetStatus(v)
@@ -1805,6 +1868,15 @@ func (_u *UpstreamKeyUpdateOne) sqlSave(ctx context.Context) (_node *UpstreamKey
 	}
 	if _u.mutation.RateMultiplierCleared() {
 		_spec.ClearField(upstreamkey.FieldRateMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SourceRateMultiplier(); ok {
+		_spec.SetField(upstreamkey.FieldSourceRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSourceRateMultiplier(); ok {
+		_spec.AddField(upstreamkey.FieldSourceRateMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.SourceRateMultiplierCleared() {
+		_spec.ClearField(upstreamkey.FieldSourceRateMultiplier, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(upstreamkey.FieldStatus, field.TypeString, value)

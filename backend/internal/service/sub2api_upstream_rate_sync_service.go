@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
@@ -285,6 +287,9 @@ func (s *Sub2APIUpstreamRateSyncService) Stop() {
 
 func (s *Sub2APIUpstreamRateSyncService) SyncAccountNow(ctx context.Context, account *Account) error {
 	if s == nil || s.accountRepo == nil || account == nil || !account.IsSub2APIUpstream() {
+		return nil
+	}
+	if account.IsUpstreamBound() {
 		return nil
 	}
 	if ctx == nil {
@@ -603,7 +608,7 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 				}
 			}
 		}
-		extra := sub2APIUpstreamKeyRateExtra(groupInfo)
+		extra := map[string]any{}
 		platformValue := strings.ToLower(strings.TrimSpace(platform))
 		out = append(out, UpstreamKey{
 			UpstreamConfigID:        cfg.ID,
@@ -618,7 +623,7 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 			DetectedPlatform:        &platformValue,
 			PlatformDetectionStatus: UpstreamKeyPlatformDetectionDetected,
 			PlatformDetectedAt:      &now,
-			RateMultiplier:          &rate,
+			SourceRateMultiplier:    &rate,
 			Status:                  StatusActive,
 			LastSeenAt:              &now,
 			Extra:                   extra,
@@ -1045,22 +1050,6 @@ func parseSub2APIGroupRateOverrides(payload any) map[int64]float64 {
 	return out
 }
 
-func sub2APIUpstreamKeyRateExtra(info *sub2APIGroupRateInfo) map[string]any {
-	if info == nil {
-		return map[string]any{}
-	}
-	extra := map[string]any{
-		"has_dedicated_rate_multiplier": info.HasDedicatedMultiplier,
-	}
-	if info.DefaultMultiplier != nil {
-		extra["default_rate_multiplier"] = *info.DefaultMultiplier
-	}
-	if info.DedicatedMultiplier != nil {
-		extra["dedicated_rate_multiplier"] = *info.DedicatedMultiplier
-	}
-	return extra
-}
-
 func sub2APIEnvelopeData(payload any) any {
 	if record, ok := payload.(map[string]any); ok {
 		if data, exists := record["data"]; exists {
@@ -1247,7 +1236,6 @@ func (s *Sub2APIUpstreamRateSyncService) syncTargetWithSession(ctx context.Conte
 			"sub2api_rate_sync_last_success_at": now,
 			"sub2api_rate_sync_last_error":      "",
 			"sub2api_upstream_platform":         platform,
-			"sub2api_upstream_rate_multiplier":  multiplier,
 		},
 	})
 	if err != nil {
@@ -1555,5 +1543,5 @@ func maskSub2APIEmail(email string) string {
 }
 
 func Sub2APIUpstreamPriority(rateMultiplier float64) int {
-	return int(math.Round(rateMultiplier * 100))
+	return int(decimal.NewFromFloat(rateMultiplier).Mul(decimal.NewFromInt(100)).Round(0).IntPart())
 }
