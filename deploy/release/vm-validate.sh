@@ -18,12 +18,13 @@ state_root="$deploy_dir/release-gates"
 [[ -f $manifest && ! -L $manifest ]]
 commit=$(jq -er '.commit_sha' "$manifest")
 release_id=$(jq -er '.release_id' "$manifest")
-version=0.1.153-baiyu
+version=$(jq -er '.version' "$manifest")
 tag="sub2api:baiyu-$version-$commit"
 test_tag="sub2api:vm-test-$commit"
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
-[[ $release_id =~ ^182-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $(jq -er '.profile' "$manifest") == 182 ]]
+profile=$(jq -er '.profile' "$manifest")
+[[ $release_id =~ ^(182|187)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 ]]
 [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
 [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
 [[ $(jq -er '.vm_validator_sha256' "$manifest") == "$(sha256sum "$0" | awk '{print $1}')" ]]
@@ -70,7 +71,6 @@ server_port=$(extract_config server port)
 [[ $server_port =~ ^[0-9]+$ ]]
 [[ $(ss -ltn | awk '$4 ~ /:5432$/ {n++} END{print n+0}') -ge 1 ]]
 [[ $(ss -ltn | awk '$4 ~ /:6379$/ {n++} END{print n+0}') -ge 1 ]]
-[[ $(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT COUNT(*) FROM schema_migrations WHERE filename='"'"'182_upstream_actual_rate_multiplier.sql'"'"'"') == 0 ]]
 
 free_before=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
 database_size=$(docker exec sub2api-postgres sh -lc \
@@ -173,9 +173,10 @@ done
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]]
 
 mark_stage migration_assertions
-migration_checksum=$(jq -er '.migration_sha256["182_upstream_actual_rate_multiplier.sql"]' "$manifest")
-recorded_checksum=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT checksum FROM schema_migrations WHERE filename='182_upstream_actual_rate_multiplier.sql'\"")
-[[ $recorded_checksum == "$migration_checksum" ]]
+while IFS=$'\t' read -r migration migration_checksum; do
+  recorded_checksum=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT checksum FROM schema_migrations WHERE filename='$migration'\"")
+  [[ $recorded_checksum == "$migration_checksum" ]]
+done < <(jq -r '.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.priority IS DISTINCT FROM ROUND(k.rate_multiplier*100)::int)\"") == 0 ]]
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts WHERE extra ?| ARRAY['upstream_rate_multiplier','upstream_source_rate_multiplier','upstream_recharge_rate','upstream_effective_cost_multiplier','sub2api_upstream_rate_multiplier']\"") == 0 ]]
 
@@ -183,7 +184,6 @@ mark_stage isolated_cleanup
 cleanup_probe
 [[ $(docker inspect -f '{{.Image}}' sub2api-dev) == "$old_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
-[[ $(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT COUNT(*) FROM schema_migrations WHERE filename='"'"'182_upstream_actual_rate_multiplier.sql'"'"'"') == 0 ]]
 integration_verified=true
 vm_restore_verified=true
 

@@ -134,6 +134,34 @@ func (_c *UpstreamBalanceSnapshotCreate) SetNillableTotalRechargedCny(v *float64
 	return _c
 }
 
+// SetRechargeRate sets the "recharge_rate" field.
+func (_c *UpstreamBalanceSnapshotCreate) SetRechargeRate(v float64) *UpstreamBalanceSnapshotCreate {
+	_c.mutation.SetRechargeRate(v)
+	return _c
+}
+
+// SetNillableRechargeRate sets the "recharge_rate" field if the given value is not nil.
+func (_c *UpstreamBalanceSnapshotCreate) SetNillableRechargeRate(v *float64) *UpstreamBalanceSnapshotCreate {
+	if v != nil {
+		_c.SetRechargeRate(*v)
+	}
+	return _c
+}
+
+// SetBalanceFormulaVersion sets the "balance_formula_version" field.
+func (_c *UpstreamBalanceSnapshotCreate) SetBalanceFormulaVersion(v int) *UpstreamBalanceSnapshotCreate {
+	_c.mutation.SetBalanceFormulaVersion(v)
+	return _c
+}
+
+// SetNillableBalanceFormulaVersion sets the "balance_formula_version" field if the given value is not nil.
+func (_c *UpstreamBalanceSnapshotCreate) SetNillableBalanceFormulaVersion(v *int) *UpstreamBalanceSnapshotCreate {
+	if v != nil {
+		_c.SetBalanceFormulaVersion(*v)
+	}
+	return _c
+}
+
 // SetCurrencySource sets the "currency_source" field.
 func (_c *UpstreamBalanceSnapshotCreate) SetCurrencySource(v string) *UpstreamBalanceSnapshotCreate {
 	_c.mutation.SetCurrencySource(v)
@@ -275,6 +303,10 @@ func (_c *UpstreamBalanceSnapshotCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *UpstreamBalanceSnapshotCreate) defaults() {
+	if _, ok := _c.mutation.BalanceFormulaVersion(); !ok {
+		v := upstreambalancesnapshot.DefaultBalanceFormulaVersion
+		_c.mutation.SetBalanceFormulaVersion(v)
+	}
 	if _, ok := _c.mutation.CurrencySource(); !ok {
 		v := upstreambalancesnapshot.DefaultCurrencySource
 		_c.mutation.SetCurrencySource(v)
@@ -309,6 +341,9 @@ func (_c *UpstreamBalanceSnapshotCreate) check() error {
 		if err := upstreambalancesnapshot.ProviderValidator(v); err != nil {
 			return &ValidationError{Name: "provider", err: fmt.Errorf(`ent: validator failed for field "UpstreamBalanceSnapshot.provider": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.BalanceFormulaVersion(); !ok {
+		return &ValidationError{Name: "balance_formula_version", err: errors.New(`ent: missing required field "UpstreamBalanceSnapshot.balance_formula_version"`)}
 	}
 	if _, ok := _c.mutation.CurrencySource(); !ok {
 		return &ValidationError{Name: "currency_source", err: errors.New(`ent: missing required field "UpstreamBalanceSnapshot.currency_source"`)}
@@ -392,6 +427,14 @@ func (_c *UpstreamBalanceSnapshotCreate) createSpec() (*UpstreamBalanceSnapshot,
 	if value, ok := _c.mutation.TotalRechargedCny(); ok {
 		_spec.SetField(upstreambalancesnapshot.FieldTotalRechargedCny, field.TypeFloat64, value)
 		_node.TotalRechargedCny = &value
+	}
+	if value, ok := _c.mutation.RechargeRate(); ok {
+		_spec.SetField(upstreambalancesnapshot.FieldRechargeRate, field.TypeFloat64, value)
+		_node.RechargeRate = &value
+	}
+	if value, ok := _c.mutation.BalanceFormulaVersion(); ok {
+		_spec.SetField(upstreambalancesnapshot.FieldBalanceFormulaVersion, field.TypeInt, value)
+		_node.BalanceFormulaVersion = value
 	}
 	if value, ok := _c.mutation.CurrencySource(); ok {
 		_spec.SetField(upstreambalancesnapshot.FieldCurrencySource, field.TypeString, value)
@@ -540,6 +583,12 @@ func (u *UpstreamBalanceSnapshotUpsertOne) UpdateNewValues() *UpstreamBalanceSna
 		}
 		if _, exists := u.create.mutation.TotalRechargedCny(); exists {
 			s.SetIgnore(upstreambalancesnapshot.FieldTotalRechargedCny)
+		}
+		if _, exists := u.create.mutation.RechargeRate(); exists {
+			s.SetIgnore(upstreambalancesnapshot.FieldRechargeRate)
+		}
+		if _, exists := u.create.mutation.BalanceFormulaVersion(); exists {
+			s.SetIgnore(upstreambalancesnapshot.FieldBalanceFormulaVersion)
 		}
 		if _, exists := u.create.mutation.CurrencySource(); exists {
 			s.SetIgnore(upstreambalancesnapshot.FieldCurrencySource)
@@ -792,6 +841,12 @@ func (u *UpstreamBalanceSnapshotUpsertBulk) UpdateNewValues() *UpstreamBalanceSn
 			}
 			if _, exists := b.mutation.TotalRechargedCny(); exists {
 				s.SetIgnore(upstreambalancesnapshot.FieldTotalRechargedCny)
+			}
+			if _, exists := b.mutation.RechargeRate(); exists {
+				s.SetIgnore(upstreambalancesnapshot.FieldRechargeRate)
+			}
+			if _, exists := b.mutation.BalanceFormulaVersion(); exists {
+				s.SetIgnore(upstreambalancesnapshot.FieldBalanceFormulaVersion)
 			}
 			if _, exists := b.mutation.CurrencySource(); exists {
 				s.SetIgnore(upstreambalancesnapshot.FieldCurrencySource)

@@ -20,6 +20,7 @@ const (
 
 type UpstreamUsageTrendQuery struct {
 	UpstreamConfigID *int64
+	GroupIDs         []int64
 	Range            string
 	Now              time.Time
 }
@@ -36,7 +37,7 @@ type UpstreamUsageTrendRangeSpec struct {
 type UpstreamUsageTrendPoint struct {
 	Bucket           string  `json:"bucket"`
 	Requests         int64   `json:"requests"`
-	UpstreamBaseCost float64 `json:"upstream_base_cost"`
+	UpstreamBaseCost float64 `json:"-"`
 	UpstreamCost     float64 `json:"upstream_cost"`
 	BilledCost       float64 `json:"billed_cost"`
 	GrossProfit      float64 `json:"gross_profit"`

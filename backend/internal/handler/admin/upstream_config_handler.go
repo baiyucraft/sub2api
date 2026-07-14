@@ -40,6 +40,7 @@ type upstreamConfigRequest struct {
 type upstreamSettingsRequest struct {
 	BalanceLowThresholdCNY  float64 `json:"balance_low_threshold_cny"`
 	Sub2APINotInCNConfirmed bool    `json:"sub2api_not_in_cn_confirmed"`
+	CostIncludedGroupIDs    []int64 `json:"cost_included_group_ids"`
 }
 
 type updateUpstreamKeyPlatformRequest struct {
@@ -176,6 +177,7 @@ func (h *UpstreamConfigHandler) UpdateSettings(c *gin.Context) {
 	settings := service.UpstreamSettings{
 		BalanceLowThresholdCNY:  req.BalanceLowThresholdCNY,
 		Sub2APINotInCNConfirmed: req.Sub2APINotInCNConfirmed,
+		CostIncludedGroupIDs:    req.CostIncludedGroupIDs,
 	}
 	if err := h.service.UpdateUpstreamSettings(c.Request.Context(), settings); err != nil {
 		response.ErrorFrom(c, err)
@@ -245,7 +247,26 @@ func (h *UpstreamConfigHandler) ListBalanceHistory(c *gin.Context) {
 
 func (h *UpstreamConfigHandler) UsageTrend(c *gin.Context) {
 	configID, _ := strconv.ParseInt(c.Query("config_id"), 10, 64)
-	trend, err := h.service.GetUsageTrend(c.Request.Context(), configID, c.Query("range"))
+	var groupIDs []int64
+	if raw, provided := c.GetQuery("group_ids"); provided {
+		if strings.TrimSpace(raw) != "" {
+			for _, part := range strings.Split(raw, ",") {
+				id, parseErr := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+				if parseErr != nil || id <= 0 {
+					response.BadRequest(c, "group_ids must contain positive integers")
+					return
+				}
+				groupIDs = append(groupIDs, id)
+			}
+		}
+	}
+	var trend *service.UpstreamUsageTrend
+	var err error
+	if _, provided := c.GetQuery("group_ids"); provided {
+		trend, err = h.service.GetUsageTrend(c.Request.Context(), configID, c.Query("range"), groupIDs)
+	} else {
+		trend, err = h.service.GetUsageTrend(c.Request.Context(), configID, c.Query("range"))
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

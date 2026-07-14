@@ -6,7 +6,7 @@ release_id=${RELEASE_ID:?RELEASE_ID is required}
 transport_name=${TRANSPORT_ARTIFACT_NAME:?TRANSPORT_ARTIFACT_NAME is required}
 artifact_sha=${ARTIFACT_SHA256:?ARTIFACT_SHA256 is required}
 minimum_free_bytes=${MINIMUM_FREE_BYTES:-5368709120}
-[[ $release_id =~ ^182-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $release_id =~ ^(182|187)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $transport_name =~ ^sub2api-[0-9]{8}T[0-9]{6}Z\.tar\.age$ ]]
 [[ $artifact_sha =~ ^[0-9a-f]{64}$ ]]
 [[ -d $backup_root && ! -L $backup_root ]]
@@ -21,7 +21,8 @@ grep -Eq "^${artifact_sha}[[:space:]]+\*?${transport_name}$" "$source_checksum"
 [[ $(sha256sum "$source_artifact" | awk '{print $1}') == "$artifact_sha" ]]
 free_bytes=$(df -PB1 "$backup_root" | awk 'NR==2{print $4}')
 (( free_bytes >= minimum_free_bytes ))
-release_root="$backup_root/releases/182"
+profile=${release_id%%-*}
+release_root="$backup_root/releases/$profile"
 install -d -m 700 "$backup_root/releases" "$release_root"
 target="$release_root/$release_id"
 staging="$release_root/.$release_id.staging.$$"

@@ -100,6 +100,16 @@ func TotalRechargedCny(v float64) predicate.UpstreamBalanceSnapshot {
 	return predicate.UpstreamBalanceSnapshot(sql.FieldEQ(FieldTotalRechargedCny, v))
 }
 
+// RechargeRate applies equality check predicate on the "recharge_rate" field. It's identical to RechargeRateEQ.
+func RechargeRate(v float64) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldEQ(FieldRechargeRate, v))
+}
+
+// BalanceFormulaVersion applies equality check predicate on the "balance_formula_version" field. It's identical to BalanceFormulaVersionEQ.
+func BalanceFormulaVersion(v int) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldEQ(FieldBalanceFormulaVersion, v))
+}
+
 // CurrencySource applies equality check predicate on the "currency_source" field. It's identical to CurrencySourceEQ.
 func CurrencySource(v string) predicate.UpstreamBalanceSnapshot {
 	return predicate.UpstreamBalanceSnapshot(sql.FieldEQ(FieldCurrencySource, v))
@@ -538,6 +548,96 @@ func TotalRechargedCnyIsNil() predicate.UpstreamBalanceSnapshot {
 // TotalRechargedCnyNotNil applies the NotNil predicate on the "total_recharged_cny" field.
 func TotalRechargedCnyNotNil() predicate.UpstreamBalanceSnapshot {
 	return predicate.UpstreamBalanceSnapshot(sql.FieldNotNull(FieldTotalRechargedCny))
+}
+
+// RechargeRateEQ applies the EQ predicate on the "recharge_rate" field.
+func RechargeRateEQ(v float64) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldEQ(FieldRechargeRate, v))
+}
+
+// RechargeRateNEQ applies the NEQ predicate on the "recharge_rate" field.
+func RechargeRateNEQ(v float64) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldNEQ(FieldRechargeRate, v))
+}
+
+// RechargeRateIn applies the In predicate on the "recharge_rate" field.
+func RechargeRateIn(vs ...float64) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldIn(FieldRechargeRate, vs...))
+}
+
+// RechargeRateNotIn applies the NotIn predicate on the "recharge_rate" field.
+func RechargeRateNotIn(vs ...float64) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldNotIn(FieldRechargeRate, vs...))
+}
+
+// RechargeRateGT applies the GT predicate on the "recharge_rate" field.
+func RechargeRateGT(v float64) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldGT(FieldRechargeRate, v))
+}
+
+// RechargeRateGTE applies the GTE predicate on the "recharge_rate" field.
+func RechargeRateGTE(v float64) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldGTE(FieldRechargeRate, v))
+}
+
+// RechargeRateLT applies the LT predicate on the "recharge_rate" field.
+func RechargeRateLT(v float64) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldLT(FieldRechargeRate, v))
+}
+
+// RechargeRateLTE applies the LTE predicate on the "recharge_rate" field.
+func RechargeRateLTE(v float64) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldLTE(FieldRechargeRate, v))
+}
+
+// RechargeRateIsNil applies the IsNil predicate on the "recharge_rate" field.
+func RechargeRateIsNil() predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldIsNull(FieldRechargeRate))
+}
+
+// RechargeRateNotNil applies the NotNil predicate on the "recharge_rate" field.
+func RechargeRateNotNil() predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldNotNull(FieldRechargeRate))
+}
+
+// BalanceFormulaVersionEQ applies the EQ predicate on the "balance_formula_version" field.
+func BalanceFormulaVersionEQ(v int) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldEQ(FieldBalanceFormulaVersion, v))
+}
+
+// BalanceFormulaVersionNEQ applies the NEQ predicate on the "balance_formula_version" field.
+func BalanceFormulaVersionNEQ(v int) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldNEQ(FieldBalanceFormulaVersion, v))
+}
+
+// BalanceFormulaVersionIn applies the In predicate on the "balance_formula_version" field.
+func BalanceFormulaVersionIn(vs ...int) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldIn(FieldBalanceFormulaVersion, vs...))
+}
+
+// BalanceFormulaVersionNotIn applies the NotIn predicate on the "balance_formula_version" field.
+func BalanceFormulaVersionNotIn(vs ...int) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldNotIn(FieldBalanceFormulaVersion, vs...))
+}
+
+// BalanceFormulaVersionGT applies the GT predicate on the "balance_formula_version" field.
+func BalanceFormulaVersionGT(v int) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldGT(FieldBalanceFormulaVersion, v))
+}
+
+// BalanceFormulaVersionGTE applies the GTE predicate on the "balance_formula_version" field.
+func BalanceFormulaVersionGTE(v int) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldGTE(FieldBalanceFormulaVersion, v))
+}
+
+// BalanceFormulaVersionLT applies the LT predicate on the "balance_formula_version" field.
+func BalanceFormulaVersionLT(v int) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldLT(FieldBalanceFormulaVersion, v))
+}
+
+// BalanceFormulaVersionLTE applies the LTE predicate on the "balance_formula_version" field.
+func BalanceFormulaVersionLTE(v int) predicate.UpstreamBalanceSnapshot {
+	return predicate.UpstreamBalanceSnapshot(sql.FieldLTE(FieldBalanceFormulaVersion, v))
 }
 
 // CurrencySourceEQ applies the EQ predicate on the "currency_source" field.

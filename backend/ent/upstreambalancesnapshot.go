@@ -38,6 +38,10 @@ type UpstreamBalanceSnapshot struct {
 	UsedCny *float64 `json:"used_cny,omitempty"`
 	// TotalRechargedCny holds the value of the "total_recharged_cny" field.
 	TotalRechargedCny *float64 `json:"total_recharged_cny,omitempty"`
+	// RechargeRate holds the value of the "recharge_rate" field.
+	RechargeRate *float64 `json:"recharge_rate,omitempty"`
+	// BalanceFormulaVersion holds the value of the "balance_formula_version" field.
+	BalanceFormulaVersion int `json:"balance_formula_version,omitempty"`
 	// CurrencySource holds the value of the "currency_source" field.
 	CurrencySource string `json:"currency_source,omitempty"`
 	// CurrencyToCnyRate holds the value of the "currency_to_cny_rate" field.
@@ -96,9 +100,9 @@ func (*UpstreamBalanceSnapshot) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case upstreambalancesnapshot.FieldMetadata:
 			values[i] = new([]byte)
-		case upstreambalancesnapshot.FieldBalanceRaw, upstreambalancesnapshot.FieldUsedRaw, upstreambalancesnapshot.FieldTotalRaw, upstreambalancesnapshot.FieldBalanceCny, upstreambalancesnapshot.FieldUsedCny, upstreambalancesnapshot.FieldTotalRechargedCny, upstreambalancesnapshot.FieldCurrencyToCnyRate:
+		case upstreambalancesnapshot.FieldBalanceRaw, upstreambalancesnapshot.FieldUsedRaw, upstreambalancesnapshot.FieldTotalRaw, upstreambalancesnapshot.FieldBalanceCny, upstreambalancesnapshot.FieldUsedCny, upstreambalancesnapshot.FieldTotalRechargedCny, upstreambalancesnapshot.FieldRechargeRate, upstreambalancesnapshot.FieldCurrencyToCnyRate:
 			values[i] = new(sql.NullFloat64)
-		case upstreambalancesnapshot.FieldID, upstreambalancesnapshot.FieldUpstreamConfigID, upstreambalancesnapshot.FieldSyncRunID:
+		case upstreambalancesnapshot.FieldID, upstreambalancesnapshot.FieldUpstreamConfigID, upstreambalancesnapshot.FieldSyncRunID, upstreambalancesnapshot.FieldBalanceFormulaVersion:
 			values[i] = new(sql.NullInt64)
 		case upstreambalancesnapshot.FieldProvider, upstreambalancesnapshot.FieldCurrencySource, upstreambalancesnapshot.FieldCurrencyRateSource:
 			values[i] = new(sql.NullString)
@@ -185,6 +189,19 @@ func (_m *UpstreamBalanceSnapshot) assignValues(columns []string, values []any) 
 			} else if value.Valid {
 				_m.TotalRechargedCny = new(float64)
 				*_m.TotalRechargedCny = value.Float64
+			}
+		case upstreambalancesnapshot.FieldRechargeRate:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field recharge_rate", values[i])
+			} else if value.Valid {
+				_m.RechargeRate = new(float64)
+				*_m.RechargeRate = value.Float64
+			}
+		case upstreambalancesnapshot.FieldBalanceFormulaVersion:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field balance_formula_version", values[i])
+			} else if value.Valid {
+				_m.BalanceFormulaVersion = int(value.Int64)
 			}
 		case upstreambalancesnapshot.FieldCurrencySource:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -311,6 +328,14 @@ func (_m *UpstreamBalanceSnapshot) String() string {
 		builder.WriteString("total_recharged_cny=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
+	builder.WriteString(", ")
+	if v := _m.RechargeRate; v != nil {
+		builder.WriteString("recharge_rate=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("balance_formula_version=")
+	builder.WriteString(fmt.Sprintf("%v", _m.BalanceFormulaVersion))
 	builder.WriteString(", ")
 	builder.WriteString("currency_source=")
 	builder.WriteString(_m.CurrencySource)
