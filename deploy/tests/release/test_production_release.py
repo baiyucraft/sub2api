@@ -56,6 +56,25 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertFalse(release.frozen)
         self.assertFalse(release.units_masked)
 
+    def test_recovery_detects_committed_remote_freeze(self) -> None:
+        release = self.release()
+        release.frozen = False
+        release.units_masked = False
+        release.remote_writes_frozen = mock.Mock(return_value=True)
+        release.run_remote.side_effect = [
+            {"old_application_resumed": "true", "running_image_id": "old"},
+            {"plaintext_state_removed": "true"},
+            {"release_claim_reconciled": "true"},
+        ]
+        release.recover()
+        self.assertIn("resume-old.sh", release.run_remote.call_args_list[0].args[1])
+        self.assertEqual(release.result["status"], "recovered")
+
+    def test_remote_freeze_probe_is_fail_closed(self) -> None:
+        release = self.release()
+        release.run_remote = mock.Mock(side_effect=RuntimeError("ssh interrupted"))
+        self.assertIsNone(release.remote_writes_frozen())
+
     def test_post_migration_failure_runs_coordinated_restore(self) -> None:
         release = self.release()
         release.migration_started = True
@@ -75,6 +94,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         release = self.release()
         release.frozen = False
         release.units_masked = False
+        release.remote_writes_frozen = mock.Mock(return_value=False)
         release.run_remote = mock.Mock(side_effect=[{"plaintext_state_removed": "true"}, RuntimeError("reply lost"), {"release_claim_reconciled": "true"}])
         release.recover()
         self.assertIn(".recovered/marker", release.run_remote.call_args_list[2].args[1])
@@ -180,6 +200,18 @@ class ReleaseClaimScriptTest(unittest.TestCase):
     def test_freeze_creates_release_state_root(self) -> None:
         freeze = self.script("freeze-backup.sh")
         self.assertIn("install -d -m 700 /opt/sub2api/backups/release-state", freeze)
+
+    def test_backup_reads_redis_requirepass_without_cli_secret(self) -> None:
+        backup = self.script("backup.sh")
+        self.assertIn('index("--requirepass")', backup)
+        self.assertIn('printf \'%s\\n\' "$redis_password" | docker exec -i', backup)
+        self.assertNotIn("redis-cli -a", backup)
+
+    def test_cleanup_handles_backup_failure_before_recovery_point(self) -> None:
+        cleanup = self.script("cleanup-state.sh")
+        self.assertIn("sha256sum -c SHA256SUMS", cleanup)
+        self.assertIn('rm -rf -- "$state_dir"', cleanup)
+        self.assertIn("restored.committed", cleanup)
 
     def test_consume_atomically_commits_active_claim(self) -> None:
         script = self.script("consume.sh")

@@ -251,6 +251,11 @@ class ProductionRelease:
 
     def recover(self) -> None:
         self.stage("recovery_started")
+        if not self.migration_started and not self.frozen:
+            remote_frozen = self.remote_writes_frozen()
+            if remote_frozen is None:
+                raise RuntimeError("remote write-freeze state is unknown")
+            self.frozen = remote_frozen
         if self.migration_started:
             env = quoted_env({"RELEASE_DIR": self.release_dir})
             values = self.run_remote(
@@ -300,6 +305,17 @@ class ProductionRelease:
         values.update(reconciled)
         self.result["status"] = "recovered"
         self.stage("recovered", values)
+
+    def remote_writes_frozen(self) -> bool | None:
+        try:
+            values = self.run_remote(
+                "racknerd",
+                f"if test -f {self.state_dir}/pre-image-id && test -f {self.state_dir}/SHA256SUMS && test $(docker inspect -f '{{{{.State.Status}}}}' sub2api) != running && test $(systemctl is-active nginx 2>/dev/null || true) != active; then printf 'writes_frozen=true\\n'; else printf 'writes_frozen=false\\n'; fi",
+                {"writes_frozen"},
+            )
+        except BaseException:
+            return None
+        return values.get("writes_frozen") == "true"
 
     def remote_units_masked(self) -> bool | None:
         try:
