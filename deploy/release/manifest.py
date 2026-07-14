@@ -73,7 +73,10 @@ def release_asset_checksums() -> dict[str, str]:
 
 def migration_checksums(profile: dict[str, Any]) -> dict[str, str]:
     root = workspace_root()
-    return {name: sha256_file(root / "backend" / "migrations" / name) for name in profile["migrations"]}
+    return {
+        name: hashlib.sha256((root / "backend" / "migrations" / name).read_text(encoding="utf-8").strip().encode()).hexdigest()
+        for name in profile["migrations"]
+    }
 
 
 def create_manifest(commit: str, profile: dict[str, Any], release_id: str) -> dict[str, Any]:
