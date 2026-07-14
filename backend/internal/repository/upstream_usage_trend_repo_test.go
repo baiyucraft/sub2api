@@ -10,6 +10,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,6 +25,7 @@ func newUpstreamTrendSQLMock(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 func TestUpstreamUsageTrendSQLPreservesCostAndAttributionSemantics(t *testing.T) {
 	compactSQL := strings.Join(strings.Fields(upstreamUsageTrendSQL), " ")
 	require.Contains(t, compactSQL, "COALESCE(ul.upstream_config_id, a.upstream_config_id)")
+	require.Contains(t, compactSQL, "ul.group_id = ANY(p.group_ids)")
 	require.Contains(t, compactSQL, "ul.upstream_config_id IS NULL AND a.upstream_config_id IS NOT NULL")
 	require.Contains(t, compactSQL, "COALESCE(ul.account_stats_cost, ul.total_cost) AS upstream_base_cost")
 	require.Contains(t, compactSQL, "COALESCE(ul.account_rate_multiplier, 1) AS account_rate_multiplier")
@@ -39,6 +41,7 @@ func TestQueryUpstreamUsageTrendFiltersConfigAndScansCosts(t *testing.T) {
 	db, mock := newUpstreamTrendSQLMock(t)
 	now := time.Date(2026, 7, 10, 6, 35, 0, 0, time.UTC)
 	configID := int64(42)
+	groupIDs := []int64{2, 5}
 	bucket := time.Date(2026, 7, 9, 7, 0, 0, 0, time.UTC)
 
 	mock.ExpectQuery(`WITH params AS`).
@@ -48,6 +51,7 @@ func TestQueryUpstreamUsageTrendFiltersConfigAndScansCosts(t *testing.T) {
 			"1 hour",
 			"hour",
 			&configID,
+			pq.Array(groupIDs),
 		).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"bucket_start", "requests", "upstream_base_cost", "upstream_cost",
@@ -56,6 +60,7 @@ func TestQueryUpstreamUsageTrendFiltersConfigAndScansCosts(t *testing.T) {
 
 	trend, err := QueryUpstreamUsageTrend(context.Background(), db, usagestats.UpstreamUsageTrendQuery{
 		UpstreamConfigID: &configID,
+		GroupIDs:         groupIDs,
 		Range:            usagestats.UpstreamUsageTrendRange24H,
 		Now:              now,
 	})
@@ -85,6 +90,7 @@ func TestQueryUpstreamUsageTrendSupportsUnfilteredDailyRange(t *testing.T) {
 			time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC),
 			"1 day",
 			"day",
+			nil,
 			nil,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{

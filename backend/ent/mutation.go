@@ -41591,37 +41591,41 @@ func (m *TLSFingerprintProfileMutation) ResetEdge(name string) error {
 // UpstreamBalanceSnapshotMutation represents an operation that mutates the UpstreamBalanceSnapshot nodes in the graph.
 type UpstreamBalanceSnapshotMutation struct {
 	config
-	op                      Op
-	typ                     string
-	id                      *int64
-	provider                *string
-	balance_raw             *float64
-	addbalance_raw          *float64
-	used_raw                *float64
-	addused_raw             *float64
-	total_raw               *float64
-	addtotal_raw            *float64
-	balance_cny             *float64
-	addbalance_cny          *float64
-	used_cny                *float64
-	addused_cny             *float64
-	total_recharged_cny     *float64
-	addtotal_recharged_cny  *float64
-	currency_source         *string
-	currency_to_cny_rate    *float64
-	addcurrency_to_cny_rate *float64
-	currency_rate_source    *string
-	observed_at             *time.Time
-	metadata                *map[string]interface{}
-	created_at              *time.Time
-	clearedFields           map[string]struct{}
-	_config                 *int64
-	cleared_config          bool
-	run                     *int64
-	clearedrun              bool
-	done                    bool
-	oldValue                func(context.Context) (*UpstreamBalanceSnapshot, error)
-	predicates              []predicate.UpstreamBalanceSnapshot
+	op                         Op
+	typ                        string
+	id                         *int64
+	provider                   *string
+	balance_raw                *float64
+	addbalance_raw             *float64
+	used_raw                   *float64
+	addused_raw                *float64
+	total_raw                  *float64
+	addtotal_raw               *float64
+	balance_cny                *float64
+	addbalance_cny             *float64
+	used_cny                   *float64
+	addused_cny                *float64
+	total_recharged_cny        *float64
+	addtotal_recharged_cny     *float64
+	recharge_rate              *float64
+	addrecharge_rate           *float64
+	balance_formula_version    *int
+	addbalance_formula_version *int
+	currency_source            *string
+	currency_to_cny_rate       *float64
+	addcurrency_to_cny_rate    *float64
+	currency_rate_source       *string
+	observed_at                *time.Time
+	metadata                   *map[string]interface{}
+	created_at                 *time.Time
+	clearedFields              map[string]struct{}
+	_config                    *int64
+	cleared_config             bool
+	run                        *int64
+	clearedrun                 bool
+	done                       bool
+	oldValue                   func(context.Context) (*UpstreamBalanceSnapshot, error)
+	predicates                 []predicate.UpstreamBalanceSnapshot
 }
 
 var _ ent.Mutation = (*UpstreamBalanceSnapshotMutation)(nil)
@@ -42263,6 +42267,132 @@ func (m *UpstreamBalanceSnapshotMutation) ResetTotalRechargedCny() {
 	delete(m.clearedFields, upstreambalancesnapshot.FieldTotalRechargedCny)
 }
 
+// SetRechargeRate sets the "recharge_rate" field.
+func (m *UpstreamBalanceSnapshotMutation) SetRechargeRate(f float64) {
+	m.recharge_rate = &f
+	m.addrecharge_rate = nil
+}
+
+// RechargeRate returns the value of the "recharge_rate" field in the mutation.
+func (m *UpstreamBalanceSnapshotMutation) RechargeRate() (r float64, exists bool) {
+	v := m.recharge_rate
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRechargeRate returns the old "recharge_rate" field's value of the UpstreamBalanceSnapshot entity.
+// If the UpstreamBalanceSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamBalanceSnapshotMutation) OldRechargeRate(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRechargeRate is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRechargeRate requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRechargeRate: %w", err)
+	}
+	return oldValue.RechargeRate, nil
+}
+
+// AddRechargeRate adds f to the "recharge_rate" field.
+func (m *UpstreamBalanceSnapshotMutation) AddRechargeRate(f float64) {
+	if m.addrecharge_rate != nil {
+		*m.addrecharge_rate += f
+	} else {
+		m.addrecharge_rate = &f
+	}
+}
+
+// AddedRechargeRate returns the value that was added to the "recharge_rate" field in this mutation.
+func (m *UpstreamBalanceSnapshotMutation) AddedRechargeRate() (r float64, exists bool) {
+	v := m.addrecharge_rate
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearRechargeRate clears the value of the "recharge_rate" field.
+func (m *UpstreamBalanceSnapshotMutation) ClearRechargeRate() {
+	m.recharge_rate = nil
+	m.addrecharge_rate = nil
+	m.clearedFields[upstreambalancesnapshot.FieldRechargeRate] = struct{}{}
+}
+
+// RechargeRateCleared returns if the "recharge_rate" field was cleared in this mutation.
+func (m *UpstreamBalanceSnapshotMutation) RechargeRateCleared() bool {
+	_, ok := m.clearedFields[upstreambalancesnapshot.FieldRechargeRate]
+	return ok
+}
+
+// ResetRechargeRate resets all changes to the "recharge_rate" field.
+func (m *UpstreamBalanceSnapshotMutation) ResetRechargeRate() {
+	m.recharge_rate = nil
+	m.addrecharge_rate = nil
+	delete(m.clearedFields, upstreambalancesnapshot.FieldRechargeRate)
+}
+
+// SetBalanceFormulaVersion sets the "balance_formula_version" field.
+func (m *UpstreamBalanceSnapshotMutation) SetBalanceFormulaVersion(i int) {
+	m.balance_formula_version = &i
+	m.addbalance_formula_version = nil
+}
+
+// BalanceFormulaVersion returns the value of the "balance_formula_version" field in the mutation.
+func (m *UpstreamBalanceSnapshotMutation) BalanceFormulaVersion() (r int, exists bool) {
+	v := m.balance_formula_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBalanceFormulaVersion returns the old "balance_formula_version" field's value of the UpstreamBalanceSnapshot entity.
+// If the UpstreamBalanceSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamBalanceSnapshotMutation) OldBalanceFormulaVersion(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBalanceFormulaVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBalanceFormulaVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBalanceFormulaVersion: %w", err)
+	}
+	return oldValue.BalanceFormulaVersion, nil
+}
+
+// AddBalanceFormulaVersion adds i to the "balance_formula_version" field.
+func (m *UpstreamBalanceSnapshotMutation) AddBalanceFormulaVersion(i int) {
+	if m.addbalance_formula_version != nil {
+		*m.addbalance_formula_version += i
+	} else {
+		m.addbalance_formula_version = &i
+	}
+}
+
+// AddedBalanceFormulaVersion returns the value that was added to the "balance_formula_version" field in this mutation.
+func (m *UpstreamBalanceSnapshotMutation) AddedBalanceFormulaVersion() (r int, exists bool) {
+	v := m.addbalance_formula_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBalanceFormulaVersion resets all changes to the "balance_formula_version" field.
+func (m *UpstreamBalanceSnapshotMutation) ResetBalanceFormulaVersion() {
+	m.balance_formula_version = nil
+	m.addbalance_formula_version = nil
+}
+
 // SetCurrencySource sets the "currency_source" field.
 func (m *UpstreamBalanceSnapshotMutation) SetCurrencySource(s string) {
 	m.currency_source = &s
@@ -42627,7 +42757,7 @@ func (m *UpstreamBalanceSnapshotMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UpstreamBalanceSnapshotMutation) Fields() []string {
-	fields := make([]string, 0, 15)
+	fields := make([]string, 0, 17)
 	if m._config != nil {
 		fields = append(fields, upstreambalancesnapshot.FieldUpstreamConfigID)
 	}
@@ -42654,6 +42784,12 @@ func (m *UpstreamBalanceSnapshotMutation) Fields() []string {
 	}
 	if m.total_recharged_cny != nil {
 		fields = append(fields, upstreambalancesnapshot.FieldTotalRechargedCny)
+	}
+	if m.recharge_rate != nil {
+		fields = append(fields, upstreambalancesnapshot.FieldRechargeRate)
+	}
+	if m.balance_formula_version != nil {
+		fields = append(fields, upstreambalancesnapshot.FieldBalanceFormulaVersion)
 	}
 	if m.currency_source != nil {
 		fields = append(fields, upstreambalancesnapshot.FieldCurrencySource)
@@ -42699,6 +42835,10 @@ func (m *UpstreamBalanceSnapshotMutation) Field(name string) (ent.Value, bool) {
 		return m.UsedCny()
 	case upstreambalancesnapshot.FieldTotalRechargedCny:
 		return m.TotalRechargedCny()
+	case upstreambalancesnapshot.FieldRechargeRate:
+		return m.RechargeRate()
+	case upstreambalancesnapshot.FieldBalanceFormulaVersion:
+		return m.BalanceFormulaVersion()
 	case upstreambalancesnapshot.FieldCurrencySource:
 		return m.CurrencySource()
 	case upstreambalancesnapshot.FieldCurrencyToCnyRate:
@@ -42738,6 +42878,10 @@ func (m *UpstreamBalanceSnapshotMutation) OldField(ctx context.Context, name str
 		return m.OldUsedCny(ctx)
 	case upstreambalancesnapshot.FieldTotalRechargedCny:
 		return m.OldTotalRechargedCny(ctx)
+	case upstreambalancesnapshot.FieldRechargeRate:
+		return m.OldRechargeRate(ctx)
+	case upstreambalancesnapshot.FieldBalanceFormulaVersion:
+		return m.OldBalanceFormulaVersion(ctx)
 	case upstreambalancesnapshot.FieldCurrencySource:
 		return m.OldCurrencySource(ctx)
 	case upstreambalancesnapshot.FieldCurrencyToCnyRate:
@@ -42822,6 +42966,20 @@ func (m *UpstreamBalanceSnapshotMutation) SetField(name string, value ent.Value)
 		}
 		m.SetTotalRechargedCny(v)
 		return nil
+	case upstreambalancesnapshot.FieldRechargeRate:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRechargeRate(v)
+		return nil
+	case upstreambalancesnapshot.FieldBalanceFormulaVersion:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBalanceFormulaVersion(v)
+		return nil
 	case upstreambalancesnapshot.FieldCurrencySource:
 		v, ok := value.(string)
 		if !ok {
@@ -42890,6 +43048,12 @@ func (m *UpstreamBalanceSnapshotMutation) AddedFields() []string {
 	if m.addtotal_recharged_cny != nil {
 		fields = append(fields, upstreambalancesnapshot.FieldTotalRechargedCny)
 	}
+	if m.addrecharge_rate != nil {
+		fields = append(fields, upstreambalancesnapshot.FieldRechargeRate)
+	}
+	if m.addbalance_formula_version != nil {
+		fields = append(fields, upstreambalancesnapshot.FieldBalanceFormulaVersion)
+	}
 	if m.addcurrency_to_cny_rate != nil {
 		fields = append(fields, upstreambalancesnapshot.FieldCurrencyToCnyRate)
 	}
@@ -42913,6 +43077,10 @@ func (m *UpstreamBalanceSnapshotMutation) AddedField(name string) (ent.Value, bo
 		return m.AddedUsedCny()
 	case upstreambalancesnapshot.FieldTotalRechargedCny:
 		return m.AddedTotalRechargedCny()
+	case upstreambalancesnapshot.FieldRechargeRate:
+		return m.AddedRechargeRate()
+	case upstreambalancesnapshot.FieldBalanceFormulaVersion:
+		return m.AddedBalanceFormulaVersion()
 	case upstreambalancesnapshot.FieldCurrencyToCnyRate:
 		return m.AddedCurrencyToCnyRate()
 	}
@@ -42966,6 +43134,20 @@ func (m *UpstreamBalanceSnapshotMutation) AddField(name string, value ent.Value)
 		}
 		m.AddTotalRechargedCny(v)
 		return nil
+	case upstreambalancesnapshot.FieldRechargeRate:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRechargeRate(v)
+		return nil
+	case upstreambalancesnapshot.FieldBalanceFormulaVersion:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBalanceFormulaVersion(v)
+		return nil
 	case upstreambalancesnapshot.FieldCurrencyToCnyRate:
 		v, ok := value.(float64)
 		if !ok {
@@ -43001,6 +43183,9 @@ func (m *UpstreamBalanceSnapshotMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(upstreambalancesnapshot.FieldTotalRechargedCny) {
 		fields = append(fields, upstreambalancesnapshot.FieldTotalRechargedCny)
+	}
+	if m.FieldCleared(upstreambalancesnapshot.FieldRechargeRate) {
+		fields = append(fields, upstreambalancesnapshot.FieldRechargeRate)
 	}
 	if m.FieldCleared(upstreambalancesnapshot.FieldCurrencyToCnyRate) {
 		fields = append(fields, upstreambalancesnapshot.FieldCurrencyToCnyRate)
@@ -43040,6 +43225,9 @@ func (m *UpstreamBalanceSnapshotMutation) ClearField(name string) error {
 	case upstreambalancesnapshot.FieldTotalRechargedCny:
 		m.ClearTotalRechargedCny()
 		return nil
+	case upstreambalancesnapshot.FieldRechargeRate:
+		m.ClearRechargeRate()
+		return nil
 	case upstreambalancesnapshot.FieldCurrencyToCnyRate:
 		m.ClearCurrencyToCnyRate()
 		return nil
@@ -43077,6 +43265,12 @@ func (m *UpstreamBalanceSnapshotMutation) ResetField(name string) error {
 		return nil
 	case upstreambalancesnapshot.FieldTotalRechargedCny:
 		m.ResetTotalRechargedCny()
+		return nil
+	case upstreambalancesnapshot.FieldRechargeRate:
+		m.ResetRechargeRate()
+		return nil
+	case upstreambalancesnapshot.FieldBalanceFormulaVersion:
+		m.ResetBalanceFormulaVersion()
 		return nil
 	case upstreambalancesnapshot.FieldCurrencySource:
 		m.ResetCurrencySource()

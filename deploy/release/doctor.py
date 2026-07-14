@@ -84,8 +84,12 @@ printf 'vm_ready=true\nvm_free_bytes=%s\nvm_database_bytes=%s\n' "$free_bytes" "
     def check_racknerd(self) -> dict[str, str]:
         profile = self.profile
         trust_sha = sha256_file(TRUSTED_KEY)
-        migration_name = profile["migrations"][0]
-        migration_sha = migration_checksums(profile)[migration_name]
+        migration_sha_by_name = migration_checksums(profile)
+        migration_checks = "\n".join(
+            f'''migration_row=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='{name}'")
+if [[ -z $migration_row ]]; then production_migration_status=absent; else [[ $migration_row == '{name}|{migration_sha_by_name[name]}' ]]; fi'''
+            for name in profile["migrations"]
+        )
         script = f"""
 set -Eeuo pipefail
 for command in docker jq age flock nginx curl ssh; do command -v "$command" >/dev/null; done
@@ -109,8 +113,8 @@ redis_password=$(docker inspect sub2api-redis | jq -er '((.[0].Config.Entrypoint
 test -n "$redis_password"
 printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning PING' | grep -Fxq PONG
 docker exec sub2api-postgres pg_dump -U sub2api -d sub2api -Fc --schema-only >/dev/null
-migration_row=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='{migration_name}'")
-if [[ -z $migration_row ]]; then production_migration_status=absent; else [[ $migration_row == '{migration_name}|{migration_sha}' ]] && production_migration_status=verified; fi
+production_migration_status=verified
+{migration_checks}
 test -r /etc/nginx/nginx.conf && test -r /etc/letsencrypt/live/{profile['public_domain']}/fullchain.pem
 test -f /root/.ssh/sub2api_backup_upload && test ! -L /root/.ssh/sub2api_backup_upload
 set +e

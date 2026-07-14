@@ -22,13 +22,15 @@ backup_exec=$(systemctl show sub2api-backup.service -p ExecStart --value)
 backup_path=$(sed -n 's/.*path=\([^ ;}]*\).*/\1/p' <<<"$backup_exec" | head -n1)
 [[ -f $backup_path && ! -L $backup_path ]]
 grep -Fq '/run/lock/sub2api-backup-global.lock' "$backup_path"
-migration_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
-if [[ -z $migration_state ]]; then
-  migration_status=absent
-else
-  [[ $migration_state == "$migration|$migration_checksum" ]]
-  migration_status=verified
-fi
+migration_status=verified
+while IFS=$'\t' read -r migration migration_checksum; do
+  migration_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
+  if [[ -z $migration_state ]]; then
+    migration_status=absent
+  else
+    [[ $migration_state == "$migration|$migration_checksum" ]]
+  fi
+done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
 (( free_bytes >= minimum_free_bytes ))
 compose_json=$(docker compose config --format json)

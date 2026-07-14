@@ -4,7 +4,7 @@ set -Eeuo pipefail
 release_id=${RELEASE_ID:?RELEASE_ID is required}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 trust_key=${TRUST_KEY:-/opt/sub2api-release-trust/vm-gate-ed25519.pub}
-[[ $release_id =~ ^182-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $release_id =~ ^(182|187)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $release_dir == "/opt/sub2api/releases/$release_id" ]]
 [[ -d $release_dir && ! -L $release_dir ]]
 active_claim=/opt/sub2api/releases/.active-release
@@ -37,7 +37,8 @@ openssl pkeyutl -verify -pubin -inkey "$trust_key" -rawin \
   -in "$active_claim/gate.json" -sigfile "$active_claim/gate.sig" >/dev/null
 gate="$active_claim/gate.json"
 [[ $(jq -er '.manifest.release_id' "$gate") == "$release_id" ]]
-[[ $(jq -er '.manifest.profile' "$gate") == 182 ]]
+profile=$(jq -er '.manifest.profile' "$gate")
+[[ $profile == 182 || $profile == 187 ]]
 [[ $(jq -er '.manifest.origin' "$gate") == https://github.com/baiyucraft/sub2api.git ]]
 [[ $(jq -er '.manifest.vm_identity' "$gate") == sub2api-dev ]]
 [[ $(jq -er '.evidence.integration_verified' "$gate") == true ]]
@@ -66,7 +67,8 @@ done < <(jq -r '.manifest.release_asset_sha256 | to_entries[] | [.key,.value] | 
 candidate_image_id=$(jq -er '.evidence.candidate_image_id' "$gate")
 candidate_sha=$(jq -er '.evidence.candidate_archive_sha256' "$gate")
 commit=$(jq -er '.manifest.commit_sha' "$gate")
-candidate_tag="sub2api:baiyu-0.1.153-baiyu-$commit"
+version=$(jq -er '.manifest.version' "$gate")
+candidate_tag="sub2api:baiyu-$version-$commit"
 [[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 [[ $candidate_sha =~ ^[0-9a-f]{64}$ ]]
 [[ $(sha256sum "$active_claim/candidate.tar.gz" | awk '{print $1}') == "$candidate_sha" ]]

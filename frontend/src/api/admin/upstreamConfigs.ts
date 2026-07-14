@@ -107,6 +107,7 @@ export interface UpstreamSyncResult {
 export interface UpstreamSettings {
   balance_low_threshold_cny: number
   sub2api_not_in_cn_confirmed: boolean
+  cost_included_group_ids?: number[]
 }
 
 export interface UpstreamSyncRecord {
@@ -176,15 +177,14 @@ export interface UpstreamBalanceSnapshot {
   config_id: number
   run_id?: number | null
   provider: string
-  balance_raw?: number | null
-  used_raw?: number | null
-  total_raw?: number | null
   balance_cny?: number | null
   used_cny?: number | null
   total_recharged_cny?: number | null
   currency_source: string
   currency_to_cny_rate?: number | null
   currency_rate_source: string
+  recharge_rate?: number | null
+  balance_formula_version?: number
   metadata?: Record<string, unknown>
   observed_at: string
 }
@@ -192,7 +192,6 @@ export interface UpstreamBalanceSnapshot {
 export interface UpstreamUsageTrendPoint {
   bucket: string
   requests: number
-  upstream_base_cost: number
   upstream_cost: number
   billed_cost: number
   gross_profit: number
@@ -341,9 +340,9 @@ export async function listIncidents(
   return normalizeOperationsList(data)
 }
 
-export async function getUsageTrend(configId: number, range: UpstreamTrendRange): Promise<UpstreamUsageTrend> {
+export async function getUsageTrend(configId: number, range: UpstreamTrendRange, groupIds?: number[]): Promise<UpstreamUsageTrend> {
   const { data } = await apiClient.get<UpstreamUsageTrend>('/admin/upstream-configs/usage-trend', {
-    params: { config_id: configId, range }
+    params: { config_id: configId, range, group_ids: groupIds ? groupIds.join(',') : undefined }
   })
   return data
 }

@@ -13,7 +13,7 @@ import (
 func TestMigration175EnforcesOpenAILongContextBillingWriteInvariant(t *testing.T) {
 	tx := testTx(t)
 	ctx := context.Background()
-	migrationSQL, err := dbmigrations.FS.ReadFile("175_default_openai_long_context_billing.sql")
+	migrationSQL, err := dbmigrations.FS.ReadFile("185_default_openai_long_context_billing.sql")
 	require.NoError(t, err)
 	_, err = tx.ExecContext(ctx, `
 DROP TRIGGER IF EXISTS accounts_propagate_openai_long_context_billing_extra ON accounts;

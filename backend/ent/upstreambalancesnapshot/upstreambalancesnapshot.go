@@ -32,6 +32,10 @@ const (
 	FieldUsedCny = "used_cny"
 	// FieldTotalRechargedCny holds the string denoting the total_recharged_cny field in the database.
 	FieldTotalRechargedCny = "total_recharged_cny"
+	// FieldRechargeRate holds the string denoting the recharge_rate field in the database.
+	FieldRechargeRate = "recharge_rate"
+	// FieldBalanceFormulaVersion holds the string denoting the balance_formula_version field in the database.
+	FieldBalanceFormulaVersion = "balance_formula_version"
 	// FieldCurrencySource holds the string denoting the currency_source field in the database.
 	FieldCurrencySource = "currency_source"
 	// FieldCurrencyToCnyRate holds the string denoting the currency_to_cny_rate field in the database.
@@ -78,6 +82,8 @@ var Columns = []string{
 	FieldBalanceCny,
 	FieldUsedCny,
 	FieldTotalRechargedCny,
+	FieldRechargeRate,
+	FieldBalanceFormulaVersion,
 	FieldCurrencySource,
 	FieldCurrencyToCnyRate,
 	FieldCurrencyRateSource,
@@ -99,6 +105,8 @@ func ValidColumn(column string) bool {
 var (
 	// ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
 	ProviderValidator func(string) error
+	// DefaultBalanceFormulaVersion holds the default value on creation for the "balance_formula_version" field.
+	DefaultBalanceFormulaVersion int
 	// DefaultCurrencySource holds the default value on creation for the "currency_source" field.
 	DefaultCurrencySource string
 	// CurrencySourceValidator is a validator for the "currency_source" field. It is called by the builders before save.
@@ -166,6 +174,16 @@ func ByUsedCny(opts ...sql.OrderTermOption) OrderOption {
 // ByTotalRechargedCny orders the results by the total_recharged_cny field.
 func ByTotalRechargedCny(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTotalRechargedCny, opts...).ToFunc()
+}
+
+// ByRechargeRate orders the results by the recharge_rate field.
+func ByRechargeRate(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRechargeRate, opts...).ToFunc()
+}
+
+// ByBalanceFormulaVersion orders the results by the balance_formula_version field.
+func ByBalanceFormulaVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBalanceFormulaVersion, opts...).ToFunc()
 }
 
 // ByCurrencySource orders the results by the currency_source field.

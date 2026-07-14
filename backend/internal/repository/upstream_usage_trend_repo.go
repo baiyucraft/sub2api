@@ -7,6 +7,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
 )
 
 type UpstreamUsageTrendQuerier interface {
@@ -20,7 +21,8 @@ const upstreamUsageTrendSQL = `
 			$2::timestamptz AS end_time,
 			$3::interval AS bucket_interval,
 			$4::text AS bucket_unit,
-			$5::bigint AS upstream_config_id
+			$5::bigint AS upstream_config_id,
+			$6::bigint[] AS group_ids
 	),
 	buckets AS (
 		SELECT generate_series(
@@ -50,6 +52,10 @@ const upstreamUsageTrendSQL = `
 		  AND (
 			p.upstream_config_id IS NULL
 			OR COALESCE(ul.upstream_config_id, a.upstream_config_id) = p.upstream_config_id
+		  )
+		  AND (
+			p.group_ids IS NULL
+			OR ul.group_id = ANY(p.group_ids)
 		  )
 	),
 	aggregated AS (
@@ -100,6 +106,7 @@ func QueryUpstreamUsageTrend(ctx context.Context, sqlq UpstreamUsageTrendQuerier
 		interval,
 		spec.BucketUnit,
 		query.UpstreamConfigID,
+		pq.Array(query.GroupIDs),
 	)
 	if err != nil {
 		return nil, err
@@ -145,12 +152,17 @@ func QueryUpstreamUsageTrend(ctx context.Context, sqlq UpstreamUsageTrendQuerier
 }
 
 func (r *upstreamConfigRepository) GetUpstreamUsageTrend(ctx context.Context, configID int64, rangeName string, now time.Time) (*service.UpstreamUsageTrend, error) {
+	return r.GetUpstreamUsageTrendWithGroups(ctx, configID, rangeName, now, nil)
+}
+
+func (r *upstreamConfigRepository) GetUpstreamUsageTrendWithGroups(ctx context.Context, configID int64, rangeName string, now time.Time, groupIDs []int64) (*service.UpstreamUsageTrend, error) {
 	var configFilter *int64
 	if configID > 0 {
 		configFilter = &configID
 	}
 	trend, err := QueryUpstreamUsageTrend(ctx, r.client, usagestats.UpstreamUsageTrendQuery{
 		UpstreamConfigID: configFilter,
+		GroupIDs:         groupIDs,
 		Range:            rangeName,
 		Now:              now,
 	})

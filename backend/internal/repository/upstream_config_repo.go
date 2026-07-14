@@ -252,6 +252,9 @@ func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.U
 			if err := createRechargeRateChangedEvent(txCtx, client, updatedConfig, previous.RechargeRate, updatedConfig.RechargeRate, changedAt); err != nil {
 				return err
 			}
+			if err := recalculateLockedUpstreamBalance(txCtx, client, previous, previous.RechargeRate, updatedConfig.RechargeRate, changedAt); err != nil {
+				return err
+			}
 		}
 		return enqueueUpstreamAccountChanges(txCtx, client, changedIDs)
 	})

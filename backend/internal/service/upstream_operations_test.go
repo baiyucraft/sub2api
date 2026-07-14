@@ -21,6 +21,26 @@ func TestNormalizeProviderBalanceExtra_Sub2APIUsesCNY(t *testing.T) {
 	require.Equal(t, 1.0, out["currency_to_cny_rate"])
 }
 
+func TestNormalizeProviderBalanceExtra_AppliesRechargeRate(t *testing.T) {
+	cfg := &UpstreamConfig{Provider: UpstreamProviderSub2API, RechargeRate: 0.1}
+	out := normalizeProviderBalanceExtra(cfg, map[string]any{
+		"sub2api_balance":         100.0,
+		"sub2api_total_recharged": 550.0,
+	})
+	require.Equal(t, 10.0, out["balance_cny"])
+	require.Equal(t, 45.0, out["used_cny"])
+	require.Equal(t, 55.0, out["total_recharged_cny"])
+	require.Equal(t, 0.1, out["recharge_rate"])
+	require.Equal(t, 2, out["balance_formula_version"])
+}
+
+func TestNormalizeProviderBalanceExtra_Sub2APIPartialBalanceDoesNotInventUsedAmount(t *testing.T) {
+	cfg := &UpstreamConfig{Provider: UpstreamProviderSub2API, RechargeRate: 0.1}
+	out := normalizeProviderBalanceExtra(cfg, map[string]any{"sub2api_balance": 100.0})
+	require.Equal(t, 10.0, out["balance_cny"])
+	require.NotContains(t, out, "used_cny")
+}
+
 func TestNormalizeProviderBalanceExtra_NewAPIAdminOverrideWinsProviderRate(t *testing.T) {
 	override := 9.0
 	cfg := &UpstreamConfig{Provider: UpstreamProviderNewAPI, BalanceToCNYRate: &override}

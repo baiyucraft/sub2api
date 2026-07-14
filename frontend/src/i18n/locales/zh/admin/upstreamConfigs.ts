@@ -22,9 +22,6 @@ export default {
       totalQuota: '充值 {amount}',
       totalUsed: '累计使用 {amount}',
       lowBalance: '低余额',
-      rawBalance: '原生剩余额度：{amount}',
-      rawUsed: '原生已用额度：{amount}',
-      rawTotal: '原生总额度：{amount}',
       email: '上游邮箱：{email}',
       syncedAt: '额度同步：{time}',
       error: '额度错误：{error}'
@@ -252,6 +249,10 @@ export default {
     settings: {
       lowBalanceThreshold: '低余额阈值（人民币）',
       lowBalanceThresholdHint: '余额低于该值时在上游列表标红；设置为 0 表示关闭提醒。',
+      costGroups: '纳入成本统计的分组',
+      costGroupsHint: '成本趋势只统计选中的分组；新建分组不会自动加入。取消全部选择表示不统计分组请求。',
+      inactiveGroup: '已停用',
+      noGroups: '暂无分组',
       sub2apiNotInCNConfirmed: '确认所有 Sub2API 账密登录均符合非中国大陆地区要求',
       sub2apiNotInCNConfirmedHint: '开启后，系统会在所有 Sub2API 上游的账密登录请求中，向第三方站点发送“确认不位于中国大陆”的声明。请仅在你确认所有相关登录均符合该要求时开启。'
     },

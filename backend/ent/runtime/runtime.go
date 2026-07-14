@@ -1811,28 +1811,32 @@ func init() {
 	upstreambalancesnapshotDescProvider := upstreambalancesnapshotFields[2].Descriptor()
 	// upstreambalancesnapshot.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
 	upstreambalancesnapshot.ProviderValidator = upstreambalancesnapshotDescProvider.Validators[0].(func(string) error)
+	// upstreambalancesnapshotDescBalanceFormulaVersion is the schema descriptor for balance_formula_version field.
+	upstreambalancesnapshotDescBalanceFormulaVersion := upstreambalancesnapshotFields[10].Descriptor()
+	// upstreambalancesnapshot.DefaultBalanceFormulaVersion holds the default value on creation for the balance_formula_version field.
+	upstreambalancesnapshot.DefaultBalanceFormulaVersion = upstreambalancesnapshotDescBalanceFormulaVersion.Default.(int)
 	// upstreambalancesnapshotDescCurrencySource is the schema descriptor for currency_source field.
-	upstreambalancesnapshotDescCurrencySource := upstreambalancesnapshotFields[9].Descriptor()
+	upstreambalancesnapshotDescCurrencySource := upstreambalancesnapshotFields[11].Descriptor()
 	// upstreambalancesnapshot.DefaultCurrencySource holds the default value on creation for the currency_source field.
 	upstreambalancesnapshot.DefaultCurrencySource = upstreambalancesnapshotDescCurrencySource.Default.(string)
 	// upstreambalancesnapshot.CurrencySourceValidator is a validator for the "currency_source" field. It is called by the builders before save.
 	upstreambalancesnapshot.CurrencySourceValidator = upstreambalancesnapshotDescCurrencySource.Validators[0].(func(string) error)
 	// upstreambalancesnapshotDescCurrencyRateSource is the schema descriptor for currency_rate_source field.
-	upstreambalancesnapshotDescCurrencyRateSource := upstreambalancesnapshotFields[11].Descriptor()
+	upstreambalancesnapshotDescCurrencyRateSource := upstreambalancesnapshotFields[13].Descriptor()
 	// upstreambalancesnapshot.DefaultCurrencyRateSource holds the default value on creation for the currency_rate_source field.
 	upstreambalancesnapshot.DefaultCurrencyRateSource = upstreambalancesnapshotDescCurrencyRateSource.Default.(string)
 	// upstreambalancesnapshot.CurrencyRateSourceValidator is a validator for the "currency_rate_source" field. It is called by the builders before save.
 	upstreambalancesnapshot.CurrencyRateSourceValidator = upstreambalancesnapshotDescCurrencyRateSource.Validators[0].(func(string) error)
 	// upstreambalancesnapshotDescObservedAt is the schema descriptor for observed_at field.
-	upstreambalancesnapshotDescObservedAt := upstreambalancesnapshotFields[12].Descriptor()
+	upstreambalancesnapshotDescObservedAt := upstreambalancesnapshotFields[14].Descriptor()
 	// upstreambalancesnapshot.DefaultObservedAt holds the default value on creation for the observed_at field.
 	upstreambalancesnapshot.DefaultObservedAt = upstreambalancesnapshotDescObservedAt.Default.(func() time.Time)
 	// upstreambalancesnapshotDescMetadata is the schema descriptor for metadata field.
-	upstreambalancesnapshotDescMetadata := upstreambalancesnapshotFields[13].Descriptor()
+	upstreambalancesnapshotDescMetadata := upstreambalancesnapshotFields[15].Descriptor()
 	// upstreambalancesnapshot.DefaultMetadata holds the default value on creation for the metadata field.
 	upstreambalancesnapshot.DefaultMetadata = upstreambalancesnapshotDescMetadata.Default.(func() map[string]interface{})
 	// upstreambalancesnapshotDescCreatedAt is the schema descriptor for created_at field.
-	upstreambalancesnapshotDescCreatedAt := upstreambalancesnapshotFields[14].Descriptor()
+	upstreambalancesnapshotDescCreatedAt := upstreambalancesnapshotFields[16].Descriptor()
 	// upstreambalancesnapshot.DefaultCreatedAt holds the default value on creation for the created_at field.
 	upstreambalancesnapshot.DefaultCreatedAt = upstreambalancesnapshotDescCreatedAt.Default.(func() time.Time)
 	upstreamconfigMixin := schema.UpstreamConfig{}.Mixin()

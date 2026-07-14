@@ -7,7 +7,7 @@ import (
 )
 
 func TestMigration175DefaultsOrdinaryOpenAIAndInheritsForSparkShadows(t *testing.T) {
-	content, err := FS.ReadFile("175_default_openai_long_context_billing.sql")
+	content, err := FS.ReadFile("185_default_openai_long_context_billing.sql")
 	require.NoError(t, err)
 
 	sql := string(content)
@@ -19,7 +19,7 @@ func TestMigration175DefaultsOrdinaryOpenAIAndInheritsForSparkShadows(t *testing
 }
 
 func TestMigration175GuardsMixedVersionAccountWrites(t *testing.T) {
-	content, err := FS.ReadFile("175_default_openai_long_context_billing.sql")
+	content, err := FS.ReadFile("185_default_openai_long_context_billing.sql")
 	require.NoError(t, err)
 
 	sql := string(content)

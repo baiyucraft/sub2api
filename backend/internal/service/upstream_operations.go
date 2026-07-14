@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 const (
 	SettingKeyUpstreamBalanceLowThresholdCNY  = "upstream_balance_low_threshold_cny"
 	SettingKeyUpstreamSub2APINotInCNConfirmed = "upstream_sub2api_not_in_cn_confirmed"
+	SettingKeyUpstreamCostIncludedGroupIDs    = "upstream_cost_included_group_ids"
 
 	UpstreamSyncTriggerManualSingle = "manual_single"
 	UpstreamSyncTriggerManualBatch  = "manual_batch"
@@ -27,6 +29,7 @@ const (
 type UpstreamSettings struct {
 	BalanceLowThresholdCNY  float64 `json:"balance_low_threshold_cny"`
 	Sub2APINotInCNConfirmed bool    `json:"sub2api_not_in_cn_confirmed"`
+	CostIncludedGroupIDs    []int64 `json:"cost_included_group_ids"`
 }
 
 type UpstreamSettingsReader interface {
@@ -96,27 +99,29 @@ type UpstreamIncident struct {
 }
 
 type UpstreamBalanceSnapshot struct {
-	ID                 int64          `json:"id"`
-	ConfigID           int64          `json:"config_id"`
-	RunID              *int64         `json:"run_id,omitempty"`
-	Provider           string         `json:"provider"`
-	BalanceRaw         *float64       `json:"balance_raw,omitempty"`
-	UsedRaw            *float64       `json:"used_raw,omitempty"`
-	TotalRaw           *float64       `json:"total_raw,omitempty"`
-	BalanceCNY         *float64       `json:"balance_cny,omitempty"`
-	UsedCNY            *float64       `json:"used_cny,omitempty"`
-	TotalRechargedCNY  *float64       `json:"total_recharged_cny,omitempty"`
-	CurrencySource     string         `json:"currency_source"`
-	CurrencyToCNYRate  *float64       `json:"currency_to_cny_rate,omitempty"`
-	CurrencyRateSource string         `json:"currency_rate_source"`
-	Metadata           map[string]any `json:"metadata,omitempty"`
-	ObservedAt         time.Time      `json:"observed_at"`
+	ID                    int64          `json:"id"`
+	ConfigID              int64          `json:"config_id"`
+	RunID                 *int64         `json:"run_id,omitempty"`
+	Provider              string         `json:"provider"`
+	BalanceRaw            *float64       `json:"-"`
+	UsedRaw               *float64       `json:"-"`
+	TotalRaw              *float64       `json:"-"`
+	BalanceCNY            *float64       `json:"balance_cny,omitempty"`
+	UsedCNY               *float64       `json:"used_cny,omitempty"`
+	TotalRechargedCNY     *float64       `json:"total_recharged_cny,omitempty"`
+	CurrencySource        string         `json:"currency_source"`
+	CurrencyToCNYRate     *float64       `json:"currency_to_cny_rate,omitempty"`
+	CurrencyRateSource    string         `json:"currency_rate_source"`
+	RechargeRate          *float64       `json:"recharge_rate,omitempty"`
+	BalanceFormulaVersion int            `json:"balance_formula_version,omitempty"`
+	Metadata              map[string]any `json:"-"`
+	ObservedAt            time.Time      `json:"observed_at"`
 }
 
 type UpstreamUsageTrendPoint struct {
 	Bucket           string  `json:"bucket"`
 	Requests         int64   `json:"requests"`
-	UpstreamBaseCost float64 `json:"upstream_base_cost"`
+	UpstreamBaseCost float64 `json:"-"`
 	UpstreamCost     float64 `json:"upstream_cost"`
 	BilledCost       float64 `json:"billed_cost"`
 	GrossProfit      float64 `json:"gross_profit"`
@@ -215,6 +220,12 @@ func (s *UpstreamConfigService) UpdateUpstreamSettings(ctx context.Context, sett
 	if !finiteNonNegative(settings.BalanceLowThresholdCNY) {
 		return infraerrors.BadRequest("UPSTREAM_BALANCE_THRESHOLD_INVALID", "balance_low_threshold_cny must be a finite non-negative number")
 	}
+	for _, groupID := range settings.CostIncludedGroupIDs {
+		if groupID <= 0 {
+			return infraerrors.BadRequest("UPSTREAM_COST_GROUP_IDS_INVALID", "cost_included_group_ids must contain positive integers")
+		}
+	}
+	settings.CostIncludedGroupIDs = normalizeGroupIDs(settings.CostIncludedGroupIDs)
 	repo, err := s.operationsRepo()
 	if err != nil {
 		return err
@@ -305,7 +316,7 @@ func (s *UpstreamConfigService) ListBalanceHistory(ctx context.Context, configID
 	return repo.ListUpstreamBalanceHistory(ctx, configID, boundedLimit(limit), upstreamMaxInt(offset, 0))
 }
 
-func (s *UpstreamConfigService) GetUsageTrend(ctx context.Context, configID int64, rangeName string) (*UpstreamUsageTrend, error) {
+func (s *UpstreamConfigService) GetUsageTrend(ctx context.Context, configID int64, rangeName string, explicitGroupIDs ...[]int64) (*UpstreamUsageTrend, error) {
 	rangeName = strings.ToLower(strings.TrimSpace(rangeName))
 	if rangeName == "" {
 		rangeName = "24h"
@@ -317,7 +328,43 @@ func (s *UpstreamConfigService) GetUsageTrend(ctx context.Context, configID int6
 	if err != nil {
 		return nil, err
 	}
+	var groupIDs []int64
+	if len(explicitGroupIDs) > 0 {
+		groupIDs = normalizeGroupIDs(explicitGroupIDs[0])
+	} else if settings, settingsErr := repo.GetUpstreamSettings(ctx); settingsErr == nil && settings != nil {
+		groupIDs = normalizeGroupIDs(settings.CostIncludedGroupIDs)
+	}
+	if filtered, ok := repo.(interface {
+		GetUpstreamUsageTrendWithGroups(context.Context, int64, string, time.Time, []int64) (*UpstreamUsageTrend, error)
+	}); ok {
+		return filtered.GetUpstreamUsageTrendWithGroups(ctx, configID, rangeName, time.Now().UTC(), groupIDs)
+	}
 	return repo.GetUpstreamUsageTrend(ctx, configID, rangeName, time.Now().UTC())
+}
+
+func normalizeGroupIDs(ids []int64) []int64 {
+	if ids == nil {
+		return nil
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// NormalizeUpstreamGroupIDsForPersistence returns the canonical sorted group filter.
+func NormalizeUpstreamGroupIDsForPersistence(ids []int64) []int64 {
+	return normalizeGroupIDs(ids)
 }
 
 func (s *UpstreamConfigService) GetKeyRateTrend(ctx context.Context, configID, keyID int64, rangeName string) (*UpstreamKeyRateTrend, error) {
@@ -466,15 +513,23 @@ func normalizeProviderBalanceExtra(cfg *UpstreamConfig, updates map[string]any) 
 		updates = map[string]any{}
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
+	rechargeRate := 1.0
+	if cfg.RechargeRate > 0 {
+		rechargeRate = cfg.RechargeRate
+	}
+	updates["recharge_rate"] = rechargeRate
+	updates["balance_formula_version"] = 2
 	if cfg.Provider == UpstreamProviderSub2API {
 		balance, balanceOK := finiteAnyFloat(updates["sub2api_balance"])
 		total, totalOK := finiteAnyFloat(updates["sub2api_total_recharged"])
 		if balanceOK {
-			updates["balance_cny"] = balance
-			updates["used_cny"] = maxFloat(total-balance, 0)
+			updates["balance_cny"] = roundBalanceAmount(balance * rechargeRate)
+		}
+		if balanceOK && totalOK {
+			updates["used_cny"] = roundBalanceAmount(maxFloat(total-balance, 0) * rechargeRate)
 		}
 		if totalOK {
-			updates["total_recharged_cny"] = total
+			updates["total_recharged_cny"] = roundBalanceAmount(total * rechargeRate)
 		}
 		if balanceOK || totalOK {
 			updates["currency_source"] = "CNY"
@@ -541,15 +596,22 @@ func normalizeProviderBalanceExtra(cfg *UpstreamConfig, updates map[string]any) 
 	updates["currency_rate_source"] = rateSource
 	updates["currency_converted_at"] = now
 	if balanceOK {
-		updates["balance_cny"] = balance * rate
+		updates["balance_cny"] = roundBalanceAmount(balance * rate * rechargeRate)
 	}
 	if usedOK {
-		updates["used_cny"] = used * rate
+		updates["used_cny"] = roundBalanceAmount(used * rate * rechargeRate)
 	}
 	if totalOK {
-		updates["total_recharged_cny"] = total * rate
+		updates["total_recharged_cny"] = roundBalanceAmount(total * rate * rechargeRate)
 	}
 	return updates
+}
+
+func roundBalanceAmount(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return value
+	}
+	return math.Round(value*1e10) / 1e10
 }
 
 func upstreamCostToCNYRate(cfg *UpstreamConfig, extra map[string]any) (float64, bool) {

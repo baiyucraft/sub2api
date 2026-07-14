@@ -22,9 +22,6 @@ export default {
       totalQuota: 'Recharge {amount}',
       totalUsed: 'Total used {amount}',
       lowBalance: 'Low balance',
-      rawBalance: 'Raw balance: {amount}',
-      rawUsed: 'Raw used: {amount}',
-      rawTotal: 'Raw total: {amount}',
       email: 'Upstream email: {email}',
       syncedAt: 'Quota synced: {time}',
       error: 'Quota error: {error}'
@@ -252,6 +249,10 @@ export default {
     settings: {
       lowBalanceThreshold: 'Low Balance Threshold (CNY)',
       lowBalanceThresholdHint: 'Balances below this value are highlighted in red. Set to 0 to disable the warning.',
+      costGroups: 'Groups included in cost statistics',
+      costGroupsHint: 'Cost trends include only selected groups. New groups are not added automatically. Clearing all selections excludes grouped requests.',
+      inactiveGroup: 'Inactive',
+      noGroups: 'No groups',
       sub2apiNotInCNConfirmed: 'Confirm all Sub2API password logins meet the non-mainland-China requirement',
       sub2apiNotInCNConfirmedHint: 'When enabled, the system sends a “not located in mainland China” declaration to third-party sites for every Sub2API email/password login. Enable it only after confirming all affected logins meet that requirement.'
     },

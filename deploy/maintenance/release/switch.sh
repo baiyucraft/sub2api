@@ -31,11 +31,14 @@ export BIND_HOST=127.0.0.1
 compose_image=$(docker compose config --format json | jq -r '.services.sub2api.image // empty')
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
 [[ $(docker compose config --format json | jq -r '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED') == false ]]
+mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
 migration_container="sub2api-migrate-$release_id"
 [[ -z $(docker ps -aq -f "name=^${migration_container}$") ]]
 docker compose run --name "$migration_container" --no-deps sub2api /app/sub2api --migrate-only >/dev/null 2>&1
-recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
-[[ $recorded == "$migration_checksum" ]]
+while IFS=$'\t' read -r migration migration_checksum; do
+  recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
+  [[ $recorded == "$migration_checksum" ]]
+done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
 [[ $(docker inspect -f '{{.Image}}' "$migration_container") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.ExitCode}}' "$migration_container") == 0 ]]
 docker rm "$migration_container" >/dev/null

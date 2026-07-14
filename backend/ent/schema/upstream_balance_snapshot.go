@@ -34,6 +34,8 @@ func (UpstreamBalanceSnapshot) Fields() []ent.Field {
 		field.Float("balance_cny").Optional().Nillable().Immutable().SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 		field.Float("used_cny").Optional().Nillable().Immutable().SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 		field.Float("total_recharged_cny").Optional().Nillable().Immutable().SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
+		field.Float("recharge_rate").Optional().Nillable().Immutable().SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
+		field.Int("balance_formula_version").Default(1).Immutable(),
 		field.String("currency_source").MaxLen(16).Default("").Immutable(),
 		field.Float("currency_to_cny_rate").Optional().Nillable().Immutable().SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 		field.String("currency_rate_source").MaxLen(32).Default("").Immutable(),
