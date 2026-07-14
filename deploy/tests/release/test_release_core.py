@@ -79,6 +79,11 @@ class ReleaseCoreTest(unittest.TestCase):
                 checksums = migration_checksums(profile)
         self.assertEqual(checksums["migration.sql"], hashlib.sha256(b"SELECT 1;").hexdigest())
 
+    def test_vm_post_build_space_gate_does_not_double_count_image(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        self.assertIn("required_free=$((database_size + 536870912))", validator)
+        self.assertNotIn("required_free=$((database_size + candidate_size", validator)
+
     def test_gate_rejects_archive_replacement_and_expiry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
