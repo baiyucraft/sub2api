@@ -76,7 +76,7 @@ free_before=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df 
 database_size=$(docker exec sub2api-postgres sh -lc \
   'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_database_size('"'"'sub2api_dev'"'"')"' \
   | tr -d '\r')
-required_before=$((database_size + 1073741824))
+required_before=$((database_size + 536870912))
 [[ $free_before -gt $required_before ]]
 export DOCKER_BUILDKIT=1
 mark_stage candidate_build
