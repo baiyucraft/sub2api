@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-state_root=/opt/sub2api/backups
+state_root=${STATE_ROOT:-/opt/sub2api/backups}
 state_dir=${STATE_DIR:?STATE_DIR is required}
 units=(sub2api-backup.service sub2api-backup.timer)
 
@@ -14,7 +14,7 @@ report_restored() {
 base=$(basename -- "$state_dir")
 [[ -d $state_root && ! -L $state_root ]]
 [[ $(realpath -e -- "$state_root") == "$state_root" ]]
-[[ $base =~ ^release181-state-[0-9]{8}T[0-9]{6}Z$ ]]
+[[ $base =~ ^release181-state-[0-9]{8}T[0-9]{6}Z$ || $base =~ ^182-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $state_dir == "$state_root/$base" && $(dirname -- "$state_dir") == "$state_root" ]]
 [[ -d $state_dir && ! -L $state_dir ]]
 [[ $(realpath -e -- "$state_dir") == "$state_root/$base" ]]

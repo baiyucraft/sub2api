@@ -72,6 +72,26 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 7. 适用的应用发布在生产通过后处理版本基线：`candidate -> 实际 PostgreSQL/Redis 隔离恢复 -> verified`。`ops-readonly-assets` 和不涉及应用/恢复点的 `ops-control-assets` 明确记录 `not_applicable`。
 8. 按 [final-report.md](references/final-report.md) 输出脱敏结果；基线失败时只能报告 `partial`。
 
+## RackNerd 一键发布入口
+
+对于已经提供 `deploy/release.py` profile 的 `build-chain + incompatible migration`，正式入口固定为：
+
+```text
+python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
+```
+
+该入口必须先在 VM 唯一构建 candidate，并完成 VM 本地 PostgreSQL、Redis、`data-dev` 的正向迁移和真实恢复；只有 VM 签名 Gate 验证通过后，才允许向 RackNerd 传输同一 image ID。RackNerd 不得重新构建 candidate。
+
+执行前读取 [deploy/release/README.md](../../../deploy/release/README.md)。首次使用的信任根 bootstrap 必须与普通发布分离，人工核验 VM 公钥指纹后再提交公钥；普通发布禁止创建或替换信任根。
+
+以下标记任一存在冲突时停止并人工 reconciliation，禁止删除后重试：
+
+- 本地 `.tmp/releases/.release.lock`
+- RackNerd `/opt/sub2api/releases/.active-release`
+- release 目录中的 `.claimed`
+
+Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资产、migration checksum、candidate archive checksum 和 image ID。生产端必须再次验签并从 Gate 派生镜像身份，禁止用环境变量覆盖。
+
 ## 失败即停止
 
 构建、空间、镜像 ID、传输 SHA-256、VM 连接边界、迁移恢复、备份复制、TLS、健康、认证、流式响应或真实 IP 任一断言失败，都不得继续生产切换。容器能启动不等于发布或回滚成功。

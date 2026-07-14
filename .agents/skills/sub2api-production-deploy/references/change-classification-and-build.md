@@ -134,6 +134,7 @@ VM 构建规则：
 - 使用 VM `/opt/sub2api-src` 固定工作树。
 - 构建完成后必须在 `sub2api-dev` 完成完整验证。
 - 从 VM 导出已经验证的 `candidate_image_id`，传到 RackNerd。
+- 若 profile 已接入 `deploy/release.py`，使用 `python deploy/release.py deploy --profile <profile> --commit <full SHA>`；候选只在 VM 构建，RackNerd 只验签、导入和核对 image ID。
 - RackNerd 不得重新构建同一个候选。
 - VM 空间或依赖无法安全满足时停止，不得退回 RackNerd 未验证构建。
 

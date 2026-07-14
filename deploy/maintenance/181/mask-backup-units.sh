@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-state_root=/opt/sub2api/backups
+state_root=${STATE_ROOT:-/opt/sub2api/backups}
 state_dir=${STATE_DIR:?STATE_DIR is required}
 units=(sub2api-backup.service sub2api-backup.timer)
 
@@ -17,7 +17,7 @@ validate_state_path() {
   root_real=$(realpath -e -- "$state_root")
   [[ $root_real == "$state_root" ]]
   base=$(basename -- "$state_dir")
-  [[ $base =~ ^release181-state-[0-9]{8}T[0-9]{6}Z$ ]]
+  [[ $base =~ ^release181-state-[0-9]{8}T[0-9]{6}Z$ || $base =~ ^182-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
   expected="$state_root/$base"
   [[ $state_dir == "$expected" && $(dirname -- "$state_dir") == "$state_root" ]]
   if [[ -e $state_dir || -L $state_dir ]]; then
