@@ -107,6 +107,16 @@ docker image rm "$test_tag" >/dev/null 2>&1
 
 restore_required=false
 redis_source=""
+wait_redis_ready() {
+  for _ in $(seq 1 60); do
+    if [[ $(docker inspect -f '{{.State.Status}}' sub2api-redis) == running ]] &&
+       [[ $(docker exec sub2api-redis sh -lc 'export REDISCLI_AUTH="${REDIS_PASSWORD:-}"; redis-cli --no-auth-warning PING' 2>/dev/null | tr -d '\r') == PONG ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
 restore_vm() (
   set -Eeuo pipefail
   if docker inspect sub2api-dev-pre-release >/dev/null 2>&1; then
@@ -124,11 +134,7 @@ restore_vm() (
   (cd "$redis_source" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$state_dir/backup/redis-data-restored.sha256"
   diff -u "$state_dir/backup/redis-data.sha256" "$state_dir/backup/redis-data-restored.sha256" >/dev/null
   docker start sub2api-redis >/dev/null
-  for _ in $(seq 1 60); do
-    [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis) == healthy ]] && break
-    sleep 1
-  done
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
+  wait_redis_ready
   [[ $(docker exec sub2api-redis sh -lc 'export REDISCLI_AUTH="${REDIS_PASSWORD:-}"; redis-cli --no-auth-warning DBSIZE' | tr -d '\r') == "$(<"$state_dir/backup/redis-dbsize")" ]]
   find "$data_dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
   cp -a "$state_dir/backup/data-dev/." "$data_dir/"
@@ -156,11 +162,7 @@ SQL
 resume_vm_without_restore() (
   set -Eeuo pipefail
   docker start sub2api-redis >/dev/null 2>&1 || true
-  for _ in $(seq 1 60); do
-    [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis) == healthy ]] && break
-    sleep 1
-  done
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
+  wait_redis_ready
   docker start sub2api-dev >/dev/null 2>&1 || true
   for _ in $(seq 1 90); do
     [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-dev) == healthy ]] && break
@@ -202,11 +204,7 @@ docker stop sub2api-redis >/dev/null
 cp -a "$redis_source/." "$state_dir/backup/redis-data"
 (cd "$state_dir/backup/redis-data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$state_dir/backup/redis-data.sha256"
 docker start sub2api-redis >/dev/null
-for _ in $(seq 1 60); do
-  [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis) == healthy ]] && break
-  sleep 1
-done
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
+wait_redis_ready
 cp -a "$data_dir" "$state_dir/backup/data-dev"
 (cd "$data_dir" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$state_dir/backup/data-dev.sha256"
 printf '%s\n' "$old_image_id" > "$state_dir/backup/old-image-id"
