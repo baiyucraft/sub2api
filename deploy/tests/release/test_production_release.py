@@ -33,8 +33,8 @@ class ProductionRecoveryTest(unittest.TestCase):
         instance.run_remote = mock.Mock(side_effect=[
             {"old_application_resumed": "true", "running_image_id": "old"},
             {"backup_units_restored": "true"},
-            {"release_claim_reconciled": "true"},
             {"plaintext_state_removed": "true"},
+            {"release_claim_reconciled": "true"},
         ])
         return instance
 
@@ -52,8 +52,8 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.run_remote.side_effect = [
             {"coordinated_restore": "verified", "restored_image_id": "old", "application_health": "pass"},
             {"backup_units_restored": "true"},
-            {"release_claim_reconciled": "true"},
             {"plaintext_state_removed": "true"},
+            {"release_claim_reconciled": "true"},
         ]
         release.recover()
         first_script = release.run_remote.call_args_list[0].args[1]
@@ -92,6 +92,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertTrue(release.remote_gate_claimed())
         script = release.run_remote.call_args.args[1]
         self.assertIn(".active-release/release_id", script)
+        self.assertNotIn(".claimed", script)
 
     def test_remote_claim_probe_failure_does_not_guess(self) -> None:
         release = self.release()
@@ -99,6 +100,13 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.release_dir = "/opt/sub2api/releases/182-aaaaaaaaaaaa-1-aaaaaaaa"
         release.run_remote = mock.Mock(side_effect=RuntimeError("ssh interrupted"))
         self.assertIsNone(release.remote_gate_claimed())
+
+    def test_remote_claim_probe_reports_explicit_absence(self) -> None:
+        release = self.release()
+        release.release_id = "182-aaaaaaaaaaaa-1-aaaaaaaa"
+        release.run_remote = mock.Mock(return_value={"gate_claimed": "false"})
+        self.assertFalse(release.remote_gate_claimed())
+        self.assertIn("gate_claimed=false", release.run_remote.call_args.args[1])
 
     def test_active_claim_probe_detects_incomplete_claim(self) -> None:
         release = self.release()
@@ -110,6 +118,22 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.run_remote = mock.Mock(side_effect=RuntimeError("ssh interrupted"))
         self.assertIsNone(release.remote_active_claim_exists())
 
+    def test_active_claim_probe_reports_explicit_absence(self) -> None:
+        release = self.release()
+        release.run_remote = mock.Mock(return_value={"active_claim": "false"})
+        self.assertFalse(release.remote_active_claim_exists())
+        self.assertIn("active_claim=false", release.run_remote.call_args.args[1])
+
+    def test_consumed_probe_requires_healthy_candidate(self) -> None:
+        release = self.release()
+        release.image_id = "sha256:" + "a" * 64
+        release.release_dir = "/opt/sub2api/releases/182-aaaaaaaaaaaa-1-aaaaaaaa"
+        release.run_remote = mock.Mock(return_value={"gate_consumed": "true"})
+        self.assertTrue(release.remote_gate_consumed())
+        script = release.run_remote.call_args.args[1]
+        self.assertIn(".State.Health.Status", script)
+        self.assertIn("= healthy", script)
+
     def test_mask_probe_detects_committed_remote_mask(self) -> None:
         release = self.release()
         release.run_remote = mock.Mock(return_value={"units_masked": "true"})
@@ -119,6 +143,30 @@ class ProductionRecoveryTest(unittest.TestCase):
         release = self.release()
         release.run_remote = mock.Mock(side_effect=RuntimeError("reply lost"))
         self.assertIsNone(release.remote_units_masked())
+
+
+class ReleaseClaimScriptTest(unittest.TestCase):
+    def script(self, name: str) -> str:
+        return (DEPLOY_ROOT / "maintenance" / "release" / name).read_text(encoding="utf-8")
+
+    def test_prepare_rejects_linked_candidate_and_copies_assets(self) -> None:
+        script = self.script("prepare.sh")
+        self.assertIn("! -L $release_dir/candidate.tar.gz", script)
+        self.assertIn("stat -c '%h' \"$release_dir/candidate.tar.gz\"", script)
+        self.assertIn("install -m 500 \"$path\"", script)
+        self.assertNotIn("$release_dir/.claimed", script)
+
+    def test_consume_atomically_commits_active_claim(self) -> None:
+        script = self.script("consume.sh")
+        self.assertIn('mv -T -- "$active_claim" "$release_dir/.consumed"', script)
+        self.assertNotIn('rm -rf "$active_claim"', script)
+        self.assertNotIn(".claimed", script)
+
+    def test_reconcile_atomically_commits_active_claim(self) -> None:
+        script = self.script("reconcile.sh")
+        self.assertIn('mv -T -- "$active_claim" "$release_dir/.recovered"', script)
+        self.assertNotIn('rm -rf "$active_claim"', script)
+        self.assertNotIn(".claimed", script)
 
 
 if __name__ == "__main__":

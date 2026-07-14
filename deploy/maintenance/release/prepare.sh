@@ -16,11 +16,15 @@ trap cleanup_claim ERR INT TERM
 printf 'release_id=%s\n' "$release_id" > "$active_claim/release_id"
 chmod 400 "$active_claim/release_id"
 [[ -f $trust_key && ! -L $trust_key ]]
-[[ -f $release_dir/gate.json && -f $release_dir/gate.sig && -f $release_dir/candidate.tar.gz ]]
+[[ -f $release_dir/gate.json && ! -L $release_dir/gate.json ]]
+[[ -f $release_dir/gate.sig && ! -L $release_dir/gate.sig ]]
+[[ -f $release_dir/candidate.tar.gz && ! -L $release_dir/candidate.tar.gz ]]
+[[ $(stat -c '%h' "$release_dir/candidate.tar.gz") == 1 ]]
 [[ -f $release_dir/ASSET_SHA256SUMS ]]
 (cd "$release_dir" && sha256sum -c ASSET_SHA256SUMS >/dev/null)
 install -m 400 "$release_dir/gate.json" "$active_claim/gate.json"
 install -m 400 "$release_dir/gate.sig" "$active_claim/gate.sig"
+chmod 400 "$release_dir/candidate.tar.gz"
 mv -T -- "$release_dir/candidate.tar.gz" "$active_claim/candidate.tar.gz"
 install -d -m 700 "$active_claim/assets"
 for path in "$release_dir"/assets/*; do
@@ -73,9 +77,7 @@ docker tag "$candidate_image_id" "$candidate_tag"
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_tag") == "$candidate_image_id" ]]
 marker="$release_dir/.prepared"
 [[ ! -e $marker ]]
-[[ ! -e $release_dir/.claimed && ! -e $release_dir/.consumed ]]
-mkdir "$release_dir/.claimed"
-chmod 700 "$release_dir/.claimed"
+[[ ! -e $release_dir/.consumed && ! -e $release_dir/.recovered ]]
 printf 'release_id=%s\ncandidate_image_id=%s\n' "$release_id" "$candidate_image_id" > "$marker.tmp"
 mv -T -- "$marker.tmp" "$marker"
 chmod 400 "$marker"

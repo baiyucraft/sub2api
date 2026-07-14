@@ -32,5 +32,5 @@ python deploy/release.py bootstrap-trust
 `/root/.config/sub2api-release/canary-api-key`。该文件不由仓库保存，也不会写入
 命令行、stdout、Gate 或状态文件。
 
-禁止删除 `.active-release`、`.claimed` 或本地 `.release.lock` 来强行重试。
+禁止删除 `.active-release`、`.consumed`、`.recovered` 或本地 `.release.lock` 来强行重试。
 存在这些标记表示需要人工 reconciliation；不兼容迁移禁止 image-only rollback。
