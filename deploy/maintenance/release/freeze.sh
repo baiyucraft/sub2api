@@ -22,7 +22,7 @@ printf '%s\n' "$pre_image_id" > "$state_dir/pre-image-id"
 printf '%s\n' "$pre_image_ref" > "$state_dir/pre-image-ref"
 (cd "$state_dir" && sha256sum docker-compose.yml .env pre-image-id pre-image-ref > SHA256SUMS)
 systemctl stop nginx
-docker compose stop -t 30 sub2api >/dev/null
+docker compose stop -t 30 sub2api >/dev/null 2>&1
 [[ $(docker inspect -f '{{.State.Status}}' sub2api) != running ]]
 [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
 write_tx=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COUNT(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND state<>'idle' AND backend_xid IS NOT NULL")
