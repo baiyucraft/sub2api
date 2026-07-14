@@ -46,6 +46,16 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertNotIn("restore.sh", first_script)
         self.assertEqual(release.result["status"], "recovered")
 
+    def test_freeze_marks_state_only_after_remote_success(self) -> None:
+        release = self.release()
+        release.frozen = False
+        release.units_masked = False
+        release.run_remote = mock.Mock(side_effect=RuntimeError("freeze failed"))
+        with self.assertRaisesRegex(RuntimeError, "freeze failed"):
+            release.freeze()
+        self.assertFalse(release.frozen)
+        self.assertFalse(release.units_masked)
+
     def test_post_migration_failure_runs_coordinated_restore(self) -> None:
         release = self.release()
         release.migration_started = True
@@ -166,6 +176,10 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("[[ ! -e $state_dir && ! -L $state_dir ]]", cleanup)
         self.assertIn("schema_migrations WHERE filename='$migration'", cleanup)
         self.assertIn("systemctl is-enabled sub2api-backup.timer", cleanup)
+
+    def test_freeze_creates_release_state_root(self) -> None:
+        freeze = self.script("freeze-backup.sh")
+        self.assertIn("install -d -m 700 /opt/sub2api/backups/release-state", freeze)
 
     def test_consume_atomically_commits_active_claim(self) -> None:
         script = self.script("consume.sh")
