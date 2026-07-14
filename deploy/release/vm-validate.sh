@@ -76,7 +76,7 @@ free_before=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df 
 database_size=$(docker exec sub2api-postgres sh -lc \
   'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_database_size('"'"'sub2api_dev'"'"')"' \
   | tr -d '\r')
-required_before=$((database_size + 536870912))
+required_before=$((database_size + 134217728))
 [[ $free_before -gt $required_before ]]
 export DOCKER_BUILDKIT=1
 mark_stage candidate_build
@@ -91,7 +91,7 @@ candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
 candidate_size=$(docker image inspect -f '{{.Size}}' "$tag")
 [[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 free_after_build=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
-required_free=$((database_size + 536870912))
+required_free=$((database_size + 134217728))
 [[ $free_after_build -gt $required_free ]]
 probe_suffix=${release_id//[^a-zA-Z0-9]/}
 probe_db="sub2api_probe_${probe_suffix:0:24}"
