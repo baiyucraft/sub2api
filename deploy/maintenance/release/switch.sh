@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-source "$release_dir/assets/context.sh"
+source /opt/sub2api/releases/.active-release/assets/context.sh
 cd "$deploy_dir"
 [[ $(docker inspect -f '{{.State.Status}}' sub2api) != running ]]
 [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]

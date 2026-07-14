@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-source "$release_dir/assets/context.sh"
+source /opt/sub2api/releases/.active-release/assets/context.sh
 [[ -d $state_dir && ! -L $state_dir ]]
 [[ -f $state_dir/recovery-point.age && -f $state_dir/recovery-point.age.sha256 ]]
 find "$state_dir" -mindepth 1 -maxdepth 1 \

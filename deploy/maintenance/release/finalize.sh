@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-source "$release_dir/assets/context.sh"
+source /opt/sub2api/releases/.active-release/assets/context.sh
 domain=${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
 direct_ip=${DIRECT_IP:?DIRECT_IP is required}
 dmit_ip=${DMIT_IP:?DMIT_IP is required}

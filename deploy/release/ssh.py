@@ -27,6 +27,13 @@ class SSHRunner:
     def __init__(self) -> None:
         document = yaml.safe_load(SSH_CONFIG.read_text(encoding="utf-8"))
         self.servers = document["servers"]
+        self.temp_dirs: set[tuple[str, str]] = set()
+
+    def _require_temp_path(self, name: str, remote_path: str) -> None:
+        normalized = posixpath.normpath(remote_path)
+        roots = getattr(self, "temp_dirs", set())
+        if not any(host == name and (normalized == root or normalized.startswith(root + "/")) for host, root in roots):
+            raise RuntimeError("SFTP path is outside a registered remote temporary directory")
 
     def connect(self, name: str) -> paramiko.SSHClient:
         config = self.servers[name]
@@ -98,6 +105,7 @@ class SSHRunner:
             client.close()
 
     def upload(self, name: str, data: bytes, remote_path: str, mode: int = 0o600) -> None:
+        self._require_temp_path(name, remote_path)
         client = self.connect(name)
         try:
             sftp = client.open_sftp()
@@ -111,6 +119,7 @@ class SSHRunner:
             client.close()
 
     def upload_file(self, name: str, local_path: pathlib.Path, remote_path: str, mode: int = 0o600) -> None:
+        self._require_temp_path(name, remote_path)
         client = self.connect(name)
         try:
             sftp = client.open_sftp()
@@ -123,6 +132,7 @@ class SSHRunner:
             client.close()
 
     def download_file(self, name: str, remote_path: str, local_path: pathlib.Path) -> None:
+        self._require_temp_path(name, remote_path)
         client = self.connect(name)
         try:
             sftp = client.open_sftp()
@@ -144,4 +154,5 @@ class SSHRunner:
         path = self.run(name, script, {"temp_dir"}).values["temp_dir"]
         if posixpath.dirname(path) != base or not posixpath.basename(path).startswith(prefix + "."):
             raise RuntimeError("remote returned an invalid temporary directory")
+        self.temp_dirs.add((name, path))
         return path

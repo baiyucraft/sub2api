@@ -34,6 +34,7 @@ class ProductionRelease:
         self.commit = self.manifest["commit_sha"]
         self.tag = f"sub2api:baiyu-{self.profile['version']}-{self.commit}"
         self.release_dir = f"/opt/sub2api/releases/{self.release_id}"
+        self.active_assets = "/opt/sub2api/releases/.active-release/assets"
         self.state_dir = f"/opt/sub2api/backups/release-state/{self.release_id}"
         self.runner = SSHRunner()
         self.migration_started = False
@@ -71,11 +72,7 @@ class ProductionRelease:
             f"test -f /opt/sub2api-release-trust/vm-gate-ed25519.pub && test $(sha256sum /opt/sub2api-release-trust/vm-gate-ed25519.pub | awk '{{print $1}}') = {trust_sha} && printf 'trust_key_verified=true\\n'",
             {"trust_key_verified"},
         )
-        self.run_remote(
-            "racknerd",
-            f"test ! -e {shlex.quote(self.release_dir)} && install -d -m 700 {shlex.quote(self.release_dir)} && printf 'release_directory_created=true\\n'",
-            {"release_directory_created"},
-        )
+        stage_dir = self.runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "release-stage")
         files: dict[str, Path] = {
             "gate.json": self.gate_dir / "gate.json",
             "gate.sig": self.gate_dir / "gate.sig",
@@ -86,15 +83,20 @@ class ProductionRelease:
                 files[f"assets/{path.name}"] = path
         for name in ("mask-backup-units.sh", "restore-backup-units.sh"):
             files[f"assets/{name}"] = UNIT_ROOT / name
-        self.run_remote("racknerd", f"install -d -m 700 {shlex.quote(self.release_dir + '/assets')} && printf 'asset_directory_created=true\\n'", {"asset_directory_created"})
+        self.run_remote("racknerd", f"install -d -m 700 {shlex.quote(stage_dir + '/assets')} && printf 'asset_directory_created=true\\n'", {"asset_directory_created"})
         checksum_lines: list[str] = []
         for relative, path in files.items():
-            remote = f"{self.release_dir}/{relative}"
+            remote = f"{stage_dir}/{relative}"
             mode = 0o700 if path.suffix == ".sh" else 0o400
             self.runner.upload_file("racknerd", path, remote, mode)
             checksum_lines.append(f"{sha256_file(path)}  {relative}")
         checksum_document = ("\n".join(checksum_lines) + "\n").encode()
-        self.runner.upload("racknerd", checksum_document, f"{self.release_dir}/ASSET_SHA256SUMS", 0o400)
+        self.runner.upload("racknerd", checksum_document, f"{stage_dir}/ASSET_SHA256SUMS", 0o400)
+        self.run_remote(
+            "racknerd",
+            f"test ! -e {shlex.quote(self.release_dir)} && (cd {shlex.quote(stage_dir)} && sha256sum -c ASSET_SHA256SUMS >/dev/null) && mv -T -- {shlex.quote(stage_dir)} {shlex.quote(self.release_dir)} && printf 'release_directory_created=true\\n'",
+            {"release_directory_created"},
+        )
         env = quoted_env({"RELEASE_ID": self.release_id, "RELEASE_DIR": self.release_dir})
         prepared = self.run_remote(
             "racknerd",
@@ -117,7 +119,7 @@ class ProductionRelease:
         )
         values = self.run_remote(
             "racknerd",
-            f"{env} {self.release_dir}/assets/preflight.sh",
+            f"{env} {self.active_assets}/preflight.sh",
             {"preflight", "pre_switch_image_id", "free_bytes", "migration_absent"},
         )
         self.stage("production_preflight_verified", values)
@@ -129,7 +131,7 @@ class ProductionRelease:
         self.frozen = True
         values = self.run_remote(
             "racknerd",
-            f"{freeze_env} {self.release_dir}/assets/freeze-backup.sh",
+            f"{freeze_env} {self.active_assets}/freeze-backup.sh",
             {
                 "backup_units_masked", "writes_frozen", "state_dir", "pre_switch_image_id", "compose_sha256",
                 "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "no_restart_path_proven",
@@ -197,7 +199,7 @@ class ProductionRelease:
         env = quoted_env({"RELEASE_DIR": self.release_dir})
         values = self.run_remote(
             "racknerd",
-            f"{env} {self.release_dir}/assets/switch.sh",
+            f"{env} {self.active_assets}/switch.sh",
             {"migration_verified", "running_image_id", "internal_health", "public_traffic_enabled"},
             timeout=1200,
         )
@@ -206,7 +208,7 @@ class ProductionRelease:
     def verify_and_finalize(self) -> None:
         expose_env = quoted_env({"RELEASE_DIR": self.release_dir})
         self.public_exposed = True
-        self.run_remote("racknerd", f"{expose_env} {self.release_dir}/assets/expose.sh", {"public_traffic_enabled"})
+        self.run_remote("racknerd", f"{expose_env} {self.active_assets}/expose.sh", {"public_traffic_enabled"})
         verify_env = quoted_env(
             {
                 "RELEASE_DIR": self.release_dir,
@@ -217,7 +219,7 @@ class ProductionRelease:
         )
         verified = self.run_remote(
             "racknerd",
-            f"{verify_env} {self.release_dir}/assets/verify.sh",
+            f"{verify_env} {self.active_assets}/verify.sh",
             {"direct_health", "dmit_health", "streaming", "real_client_ip", "underscore_header_path", "two_mib_reached_app", "startup_logs", "canary_usage_recorded"},
             timeout=600,
         )
@@ -231,20 +233,20 @@ class ProductionRelease:
         )
         final = self.run_remote(
             "racknerd",
-            f"{finalize_env} {self.release_dir}/assets/finalize.sh",
+            f"{finalize_env} {self.active_assets}/finalize.sh",
             {"auto_sync_enabled", "running_image_id", "final_health", "final_logs"},
             timeout=600,
         )
         restore_env = quoted_env({"STATE_ROOT": "/opt/sub2api/backups/release-state", "STATE_DIR": self.state_dir})
-        self.run_remote("racknerd", f"{restore_env} {self.release_dir}/assets/restore-backup-units.sh", {"backup_units_restored"})
+        self.run_remote("racknerd", f"{restore_env} {self.active_assets}/restore-backup-units.sh", {"backup_units_restored"})
         self.units_masked = False
         consume_env = quoted_env({"RELEASE_DIR": self.release_dir})
         cleaned = self.run_remote(
             "racknerd",
-            f"{consume_env} {self.release_dir}/assets/cleanup-state.sh",
+            f"{consume_env} {self.active_assets}/cleanup-state.sh",
             {"plaintext_state_removed"},
         )
-        consumed = self.run_remote("racknerd", f"{consume_env} {self.release_dir}/assets/consume.sh", {"gate_consumed"})
+        consumed = self.run_remote("racknerd", f"{consume_env} {self.active_assets}/consume.sh", {"gate_consumed"})
         self.stage("production_verified", {**verified, **final, **consumed, **cleaned})
 
     def recover(self) -> None:
@@ -253,7 +255,7 @@ class ProductionRelease:
             env = quoted_env({"RELEASE_DIR": self.release_dir})
             values = self.run_remote(
                 "racknerd",
-                f"{env} {self.release_dir}/assets/restore.sh",
+                f"{env} {self.active_assets}/restore.sh",
                 {"coordinated_restore", "restored_image_id", "application_health"},
                 timeout=2400,
             )
@@ -261,7 +263,7 @@ class ProductionRelease:
             env = quoted_env({"RELEASE_DIR": self.release_dir})
             values = self.run_remote(
                 "racknerd",
-                f"{env} {self.release_dir}/assets/resume-old.sh",
+                f"{env} {self.active_assets}/resume-old.sh",
                 {"old_application_resumed", "running_image_id"},
                 timeout=600,
             )
@@ -274,19 +276,19 @@ class ProductionRelease:
             self.units_masked = masked
         if self.units_masked:
             restore_env = quoted_env({"STATE_ROOT": "/opt/sub2api/backups/release-state", "STATE_DIR": self.state_dir})
-            unit_values = self.run_remote("racknerd", f"{restore_env} {self.release_dir}/assets/restore-backup-units.sh", {"backup_units_restored"})
+            unit_values = self.run_remote("racknerd", f"{restore_env} {self.active_assets}/restore-backup-units.sh", {"backup_units_restored"})
             values.update(unit_values)
             self.units_masked = False
         cleaned = self.run_remote(
             "racknerd",
-            f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.release_dir}/assets/cleanup-state.sh",
+            f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.active_assets}/cleanup-state.sh",
             {"plaintext_state_removed"},
         )
         values.update(cleaned)
         try:
             reconciled = self.run_remote(
                 "racknerd",
-                f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.release_dir}/assets/reconcile.sh",
+                f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.active_assets}/reconcile.sh",
                 {"release_claim_reconciled"},
             )
         except BaseException:
@@ -313,7 +315,7 @@ class ProductionRelease:
     def emergency_close(self) -> None:
         self.run_remote(
             "racknerd",
-            f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.release_dir}/assets/emergency-close.sh",
+            f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.active_assets}/emergency-close.sh",
             {"public_traffic_closed"},
         )
 

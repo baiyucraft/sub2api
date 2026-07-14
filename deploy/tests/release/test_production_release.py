@@ -27,6 +27,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         instance.migration_started = False
         instance.state_dir = "/state"
         instance.release_dir = "/release"
+        instance.active_assets = "/active/assets"
         instance.result = {"status": "running", "history": []}
         instance.stage = mock.Mock()
         instance.run_remote = mock.Mock(side_effect=[

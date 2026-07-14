@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-source "$release_dir/assets/context.sh"
+source /opt/sub2api/releases/.active-release/assets/context.sh
 state_root="$deploy_dir/backups/release-state"
 install -d -m 700 "$state_root"
 [[ -d $state_dir && ! -L $state_dir ]]
