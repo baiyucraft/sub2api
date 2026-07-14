@@ -95,6 +95,12 @@ temp/
 dist/
 build/
 release/
+!deploy/release/
+!deploy/release/**
+!deploy/maintenance/release/
+!deploy/maintenance/release/**
+__pycache__/
+*.py[cod]
 
 # 后端嵌入的前端构建产物
 # Keep a placeholder file so `//go:embed all:dist` always has a match in CI/lint,
@@ -120,6 +126,8 @@ backend/.installed
 tests
 !deploy/tests/
 !deploy/tests/**
+deploy/tests/**/__pycache__/
+deploy/tests/**/*.py[cod]
 CLAUDE.md
 .claude
 scripts
