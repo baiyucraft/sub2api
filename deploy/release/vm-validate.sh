@@ -106,6 +106,19 @@ cleanup_probe() {
 on_failure() {
   code=$?
   trap - ERR INT TERM
+  category=unknown
+  if [[ -f $state_dir/stage && $(<"$state_dir/stage") == candidate_health ]] && docker inspect "$probe_app" >/dev/null 2>&1; then
+    probe_log="$state_dir/probe-app.log"
+    docker logs --tail 300 "$probe_app" > "$probe_log" 2>&1 || true
+    grep -qi 'permission denied' "$probe_log" && category=permission
+    grep -qi 'connection refused\|no such host\|dial tcp' "$probe_log" && category=connection
+    grep -qi 'redis' "$probe_log" && category=redis
+    grep -qi 'database\|postgres' "$probe_log" && category=database
+    grep -qi 'address already in use' "$probe_log" && category=port_conflict
+    grep -qi 'panic\|fatal' "$probe_log" && category=fatal
+    rm -f "$probe_log"
+  fi
+  printf '%s\n' "$category" > "$state_dir/failure-category"
   cleanup_probe
   rm -f "$state_dir/candidate.tar.gz"
   docker image rm "$tag" >/dev/null 2>&1 || true
@@ -145,7 +158,7 @@ docker run -d --name "$probe_app" --network "$probe_network" \
   --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
   --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
   -v "$probe_dir:/app/data" "$candidate_image_id" >/dev/null
-for _ in $(seq 1 30); do
+for _ in $(seq 1 90); do
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]] && break
   sleep 2
 done
