@@ -197,6 +197,12 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("schema_migrations WHERE filename='$migration'", cleanup)
         self.assertIn("systemctl is-enabled sub2api-backup.timer", cleanup)
 
+    def test_preflight_accepts_absent_or_matching_migration_only(self) -> None:
+        preflight = self.script("preflight.sh")
+        self.assertIn("migration_status=absent", preflight)
+        self.assertIn("migration_status=verified", preflight)
+        self.assertIn('[[ $migration_state == "$migration|$migration_checksum" ]]', preflight)
+
     def test_freeze_creates_release_state_root(self) -> None:
         freeze = self.script("freeze-backup.sh")
         self.assertIn("install -d -m 700 /opt/sub2api/backups/release-state", freeze)
@@ -209,6 +215,19 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertNotIn("redis-cli -a", backup)
         self.assertIn("docker compose stop -t 30 redis >/dev/null 2>&1", backup)
         self.assertIn("docker compose start redis >/dev/null 2>&1", backup)
+
+    def test_racknerd_verifier_does_not_hairpin_through_dmit(self) -> None:
+        verify = self.script("verify.sh")
+        finalize = self.script("finalize.sh")
+        self.assertNotIn("DMIT_IP", verify)
+        self.assertNotIn("DMIT_IP", finalize)
+        self.assertNotIn("dmit_health", verify)
+
+    def test_route_canary_reads_secret_from_stdin(self) -> None:
+        script = self.script("route-canary.sh")
+        self.assertIn("IFS= read -r api_key", script)
+        self.assertNotIn("CANARY_KEY_FILE", script)
+        self.assertIn("ROUTE_IP", script)
 
     def test_cleanup_handles_backup_failure_before_recovery_point(self) -> None:
         cleanup = self.script("cleanup-state.sh")

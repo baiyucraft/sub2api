@@ -1,10 +1,16 @@
 # RackNerd 一键发布
 
-正式入口：
+标准入口：
 
 ```text
+python deploy/release.py doctor --profile 182 --commit <40位完整SHA>
+python deploy/release.py bootstrap-production --profile 182
 python deploy/release.py deploy --profile 182 --commit <40位完整SHA>
 ```
+
+`doctor` 和 `bootstrap-production` 可独立用于排查或首次初始化。日常只需执行 `deploy`：
+它先检查本地、VM 与外部节点，再幂等执行生产 bootstrap，最后检查 RackNerd；任何
+预检失败都不得进入 Gate、停写或迁移。
 
 该命令固定执行以下顺序：
 
@@ -28,6 +34,10 @@ python deploy/release.py bootstrap-trust
 `deploy/release/trust/vm-gate-ed25519.pub`。提交最终代码后再次执行 bootstrap，
 只有仓库、VM 和 RackNerd 三方公钥完全一致才会完成安装。
 
+生产 bootstrap 不得创建或替换信任根，也不得修改 systemd。它只创建缺失的发布状态
+目录和固定 Canary 文件，并核验信任根、Canary 与数据库、备份全局锁；已有资产内容
+不一致时必须停止。
+
 `vm-validate` 会在 VM 缺少 `jq` 时通过 `apt-get` 安装该单一依赖，并更新仓库内版本对应的 validator；不会升级其他系统包。
 
 发布要求 RackNerd 已存在权限为 `0600` 的
@@ -36,3 +46,10 @@ python deploy/release.py bootstrap-trust
 
 `.release.lock` 使用操作系统文件锁，文件本身会长期保留；只有实际持锁进程会阻止并发发布。
 禁止删除 `.active-release`、`.consumed` 或 `.recovered` 来强行重试；不兼容迁移禁止 image-only rollback。
+
+SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常猜测执行结果。RackNerd
+只验 direct，DMIT 必须从异地节点验；Redis `--requirepass` 只通过 stdin 传递。VM 空间
+不足时只允许发布白名单清理，禁止任何 prune、删除 volume 或触碰数据库、Redis、data 和备份。
+
+完整故障映射和恢复决策见
+`.agents/skills/sub2api-production-deploy/references/release-doctor-and-recovery.md`。

@@ -22,7 +22,13 @@ backup_exec=$(systemctl show sub2api-backup.service -p ExecStart --value)
 backup_path=$(sed -n 's/.*path=\([^ ;}]*\).*/\1/p' <<<"$backup_exec" | head -n1)
 [[ -f $backup_path && ! -L $backup_path ]]
 grep -Fq '/run/lock/sub2api-backup-global.lock' "$backup_path"
-[[ $(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COUNT(*) FROM schema_migrations WHERE filename='182_upstream_actual_rate_multiplier.sql'") == 0 ]]
+migration_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
+if [[ -z $migration_state ]]; then
+  migration_status=absent
+else
+  [[ $migration_state == "$migration|$migration_checksum" ]]
+  migration_status=verified
+fi
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
 (( free_bytes >= minimum_free_bytes ))
 compose_json=$(docker compose config --format json)
@@ -35,4 +41,4 @@ jq -e '(.services.sub2api.network_mode == "host" and .services.sub2api.environme
 printf 'preflight=pass\n'
 printf 'pre_switch_image_id=%s\n' "$pre_image_id"
 printf 'free_bytes=%s\n' "$free_bytes"
-printf 'migration_absent=true\n'
+printf 'migration_status=%s\n' "$migration_status"

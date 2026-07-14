@@ -45,6 +45,7 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 | 在线状态或故障巡检 | 架构现状、运维状态 |
 | Skill/只读巡检资产 | 分类与构建、运维状态、最终报告 |
 | 维护/服务控制资产 | 分类与构建、备份恢复、生产部署、运维状态、最终报告 |
+| `deploy/release.py` 一键发布或恢复 | 发布预检与状态恢复，并叠加该变更类别要求的全部 reference |
 
 不得只读取生产部署文档而跳过开发验证或备份门禁。
 
@@ -77,12 +78,14 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 对于已经提供 `deploy/release.py` profile 的 `build-chain + incompatible migration`，正式入口固定为：
 
 ```text
+python deploy/release.py doctor --profile <profile> --commit <40位完整SHA>
+python deploy/release.py bootstrap-production --profile <profile>
 python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 ```
 
-该入口必须先在 VM 唯一构建 candidate，并完成 VM 本地 PostgreSQL、Redis、`data-dev` 的正向迁移和真实恢复；只有 VM 签名 Gate 验证通过后，才允许向 RackNerd 传输同一 image ID。RackNerd 不得重新构建 candidate。
+`doctor` 和 `bootstrap-production` 可独立用于诊断和首次初始化；日常只执行 `deploy`。它必须先检查本地、VM 与外部节点，再幂等 bootstrap RackNerd，最后检查 RackNerd；通过后才在 VM 唯一构建 candidate，并完成 VM 本地 PostgreSQL、Redis、`data-dev` 的正向迁移和真实恢复。只有 VM 签名 Gate 验证通过后，才允许向 RackNerd 传输同一 image ID。RackNerd 不得重新构建 candidate。
 
-执行前读取 [deploy/release/README.md](../../../deploy/release/README.md)。首次使用的信任根 bootstrap 必须与普通发布分离，人工核验 VM 公钥指纹后再提交公钥；普通发布禁止创建或替换信任根。
+执行前必须读取 [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md) 和 [deploy/release/README.md](../../../deploy/release/README.md)。首次使用的信任根 bootstrap 必须与普通发布分离，人工核验 VM 公钥指纹后再提交公钥；普通发布禁止创建或替换信任根。
 
 以下远端标记任一存在冲突时停止并人工 reconciliation，禁止删除后重试：
 
@@ -105,4 +108,5 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - [production-deployment.md](references/production-deployment.md)：备份门禁、生产切换、双路径验收和回滚。
 - [backup-and-restore.md](references/backup-and-restore.md)：三机备份、恢复点、基线晋升和灾备演练。
 - [operations-and-online-status.md](references/operations-and-online-status.md)：只读巡检、状态时效和故障分层。
+- [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md)：一键发布预检、生产 bootstrap、committed-state 恢复、分节点验收和 VM 清理边界。
 - [final-report.md](references/final-report.md)：发布、备份、恢复和状态报告模板。

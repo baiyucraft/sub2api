@@ -81,8 +81,8 @@ class ReleaseCoreTest(unittest.TestCase):
 
     def test_vm_post_build_space_gate_does_not_double_count_image(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
-        self.assertIn("required_before=$((database_size + 134217728))", validator)
-        self.assertIn("required_free=$((database_size + 134217728))", validator)
+        self.assertIn("required_before=$((database_size * 2 + current_image_size * 2 + 1073741824))", validator)
+        self.assertIn("required_free=$((database_size * 2 + candidate_size + 1073741824))", validator)
         self.assertNotIn("required_free=$((database_size + candidate_size", validator)
 
     def test_gate_rejects_archive_replacement_and_expiry(self) -> None:
