@@ -16,6 +16,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SSH_CONFIG = ROOT / ".ssh.local"
 KNOWN_HOSTS = ROOT / ".tmp" / "known_hosts"
+CANARY_KEY_FILE = "/root/.config/sub2api-release/canary-api-key"
 
 
 @dataclass
@@ -77,10 +78,17 @@ class SSHRunner:
         return client
 
     def run(self, name: str, script: str, allowed: Iterable[str], timeout: int = 120) -> SSHResult:
+        return self.run_with_input(name, script, allowed, b"", timeout=timeout)
+
+    def run_with_input(self, name: str, script: str, allowed: Iterable[str], data: bytes, timeout: int = 120) -> SSHResult:
         client = self.connect(name)
         try:
             command = "bash -lc " + shlex.quote(script)
-            _, stdout, stderr = client.exec_command(command, timeout=timeout, get_pty=False)
+            stdin, stdout, stderr = client.exec_command(command, timeout=timeout, get_pty=False)
+            if data:
+                stdin.write(data)
+                stdin.flush()
+            stdin.channel.shutdown_write()
             output = stdout.read().decode("utf-8", "strict")
             error_output = stderr.read().decode("utf-8", "replace")
             exit_code = stdout.channel.recv_exit_status()
@@ -103,6 +111,25 @@ class SSHRunner:
             return SSHResult(values)
         finally:
             client.close()
+
+    def read_canary_key(self) -> bytes:
+        client = self.connect("racknerd")
+        try:
+            sftp = client.open_sftp()
+            try:
+                attributes = sftp.stat(CANARY_KEY_FILE)
+                if attributes.st_size <= 0 or attributes.st_size > 4096:
+                    raise RuntimeError("canary key file size is invalid")
+                with sftp.file(CANARY_KEY_FILE, "rb") as stream:
+                    value = stream.read(4097)
+            finally:
+                sftp.close()
+        finally:
+            client.close()
+        value = value.strip()
+        if not value.startswith(b"sk-") or len(value) < 16 or len(value) > 4096:
+            raise RuntimeError("canary key file content is invalid")
+        return value
 
     def upload(self, name: str, data: bytes, remote_path: str, mode: int = 0o600) -> None:
         self._require_temp_path(name, remote_path)

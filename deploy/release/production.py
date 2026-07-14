@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import shlex
+import secrets
 from pathlib import Path
 
 from .atomic import atomic_write, canonical_json
@@ -64,6 +65,9 @@ class ProductionRelease:
     def run_remote(self, host: str, script: str, allowed: set[str], timeout: int = 300) -> dict[str, str]:
         return self.runner.run(host, script, allowed, timeout=timeout).values
 
+    def run_remote_with_input(self, host: str, script: str, allowed: set[str], data: bytes, timeout: int = 300) -> dict[str, str]:
+        return self.runner.run_with_input(host, script, allowed, data, timeout=timeout).values
+
     def upload_assets(self) -> None:
         self.stage("stage_assets")
         trust_sha = sha256_file(TRUSTED_KEY)
@@ -120,7 +124,7 @@ class ProductionRelease:
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/preflight.sh",
-            {"preflight", "pre_switch_image_id", "free_bytes", "migration_absent"},
+            {"preflight", "pre_switch_image_id", "free_bytes", "migration_status"},
         )
         self.stage("production_preflight_verified", values)
 
@@ -214,21 +218,78 @@ class ProductionRelease:
                 "RELEASE_DIR": self.release_dir,
                 "PUBLIC_DOMAIN": self.profile["public_domain"],
                 "DIRECT_IP": self.profile["rack_public_ip"],
-                "DMIT_IP": self.profile["dmit_public_ip"],
             }
         )
         verified = self.run_remote(
             "racknerd",
             f"{verify_env} {self.active_assets}/verify.sh",
-            {"direct_health", "dmit_health", "streaming", "real_client_ip", "underscore_header_path", "two_mib_reached_app", "startup_logs", "canary_usage_recorded"},
+            {"direct_health", "underscore_header_path", "two_mib_reached_app", "startup_logs"},
             timeout=600,
         )
+        canary_key = self.runner.read_canary_key() + b"\n"
+        marker = f"{self.release_id}-{secrets.token_hex(6)}"
+        route_script = self.active_assets + "/route-canary.sh"
+        direct_env = quoted_env(
+            {
+                "PUBLIC_DOMAIN": self.profile["public_domain"],
+                "ROUTE_IP": self.profile["rack_public_ip"],
+                "ROUTE_NAME": "direct",
+                "MARKER": marker,
+            }
+        )
+        direct = self.run_remote_with_input(
+            "racknerd", f"{direct_env} {route_script}", {"route_health", "streaming"}, canary_key, timeout=180
+        )
+        backup_temp = self.runner.create_temp_dir("backup", "/srv/sub2api-backups", "route-canary")
+        backup_script = f"{backup_temp}/route-canary.sh"
+        self.runner.upload_file("backup", MAINTENANCE_ROOT / "route-canary.sh", backup_script, 0o700)
+        try:
+            dmit_env = quoted_env(
+                {
+                    "PUBLIC_DOMAIN": self.profile["public_domain"],
+                    "ROUTE_IP": self.profile["dmit_public_ip"],
+                    "ROUTE_NAME": "dmit",
+                    "MARKER": marker,
+                }
+            )
+            dmit = self.run_remote_with_input(
+                "backup", f"{dmit_env} {backup_script}", {"route_health", "streaming"}, canary_key, timeout=180
+            )
+        finally:
+            self.run_remote("backup", f"rm -rf {backup_temp} && printf 'cleanup=true\\n'", {"cleanup"})
+        direct_agent = f"sub2api-release-{marker}-direct"
+        dmit_agent = f"sub2api-release-{marker}-dmit"
+        backup_identity = self.run_remote(
+            "backup",
+            "public_ip=$(curl -fsS --max-time 15 https://api.ipify.org); [[ $public_ip =~ ^[0-9a-fA-F:.]+$ ]] && printf 'backup_public_ip=%s\\n' \"$public_ip\"",
+            {"backup_public_ip"},
+        )["backup_public_ip"]
+        expected_direct_ip = self.profile["rack_public_ip"]
+        usage_script = f"""
+set -Eeuo pipefail
+for _ in $(seq 1 30); do
+  mapfile -t rows < <(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c {shlex.quote("SELECT user_agent, COALESCE(ip_address,''), api_key_id, COALESCE(inbound_endpoint,'') FROM usage_logs WHERE created_at > NOW() - INTERVAL '15 minutes' AND user_agent IN (" + "'" + direct_agent + "','" + dmit_agent + "') ORDER BY user_agent")})
+  [[ ${{#rows[@]}} == 2 ]] && break
+  sleep 1
+done
+[[ ${{#rows[@]}} == 2 ]]
+[[ ${{rows[0]%%|*}} == {shlex.quote(direct_agent)} ]]
+[[ ${{rows[1]%%|*}} == {shlex.quote(dmit_agent)} ]]
+IFS='|' read -r _ direct_ip direct_key direct_endpoint <<<"${{rows[0]}}"
+IFS='|' read -r _ dmit_ip dmit_key dmit_endpoint <<<"${{rows[1]}}"
+[[ $direct_ip == {shlex.quote(expected_direct_ip)} ]]
+[[ $dmit_ip == {shlex.quote(backup_identity)} ]]
+[[ $direct_key == {int(self.profile.get('canary_api_key_id', 2))} && $dmit_key == {int(self.profile.get('canary_api_key_id', 2))} ]]
+[[ $direct_endpoint == /v1/responses && $dmit_endpoint == /v1/responses ]]
+printf 'canary_usage_recorded=true\nreal_client_ip=pass\n'
+"""
+        attribution = self.run_remote("racknerd", usage_script, {"canary_usage_recorded", "real_client_ip"}, timeout=90)
+        self.stage("split_route_verified", {"direct_path": direct["route_health"], "dmit_path": dmit["route_health"], **attribution})
         finalize_env = quoted_env(
             {
                 "RELEASE_DIR": self.release_dir,
                 "PUBLIC_DOMAIN": self.profile["public_domain"],
                 "DIRECT_IP": self.profile["rack_public_ip"],
-                "DMIT_IP": self.profile["dmit_public_ip"],
             }
         )
         final = self.run_remote(
@@ -236,6 +297,11 @@ class ProductionRelease:
             f"{finalize_env} {self.active_assets}/finalize.sh",
             {"auto_sync_enabled", "running_image_id", "final_health", "final_logs"},
             timeout=600,
+        )
+        external_final = self.run_remote(
+            "backup",
+            f"test $(curl -sS --resolve {self.profile['public_domain']}:443:{self.profile['dmit_public_ip']} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{self.profile['public_domain']}/health) = 200 && printf 'dmit_final_health=pass\\n'",
+            {"dmit_final_health"},
         )
         restore_env = quoted_env({"STATE_ROOT": "/opt/sub2api/backups/release-state", "STATE_DIR": self.state_dir})
         self.run_remote("racknerd", f"{restore_env} {self.active_assets}/restore-backup-units.sh", {"backup_units_restored"})
@@ -247,7 +313,7 @@ class ProductionRelease:
             {"plaintext_state_removed"},
         )
         consumed = self.run_remote("racknerd", f"{consume_env} {self.active_assets}/consume.sh", {"gate_consumed"})
-        self.stage("production_verified", {**verified, **final, **consumed, **cleaned})
+        self.stage("production_verified", {**verified, **direct, **dmit, **attribution, **final, **external_final, **consumed, **cleaned})
 
     def recover(self) -> None:
         self.stage("recovery_started")

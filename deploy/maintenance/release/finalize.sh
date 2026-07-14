@@ -6,7 +6,6 @@ release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
 domain=${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
 direct_ip=${DIRECT_IP:?DIRECT_IP is required}
-dmit_ip=${DMIT_IP:?DMIT_IP is required}
 cd "$deploy_dir"
 [[ $(docker inspect -f '{{.Image}}' sub2api) == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
@@ -24,7 +23,6 @@ done
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
 [[ $(docker compose config --format json | jq -r '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED') == true ]]
 [[ $(curl -sS --resolve "$domain:443:$direct_ip" --max-time 15 -o /dev/null -w '%{http_code}' "https://$domain/health") == 200 ]]
-[[ $(curl -sS --resolve "$domain:443:$dmit_ip" --max-time 15 -o /dev/null -w '%{http_code}' "https://$domain/health") == 200 ]]
 critical=$(docker logs --since 5m sub2api 2>&1 | grep -Eic 'panic|fatal|migration.*(failed|error)|database.*(failed|error)|redis.*(failed|error)' || true)
 [[ $critical == 0 ]]
 printf 'auto_sync_enabled=true\n'

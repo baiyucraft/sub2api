@@ -11,9 +11,11 @@ from pathlib import Path
 
 from .atomic import atomic_write, canonical_json
 from .bootstrap import bootstrap_trust
+from .doctor import NODES, ReleaseDoctor
 from .gate import verify_gate
 from .manifest import create_manifest, write_manifest_once
 from .profiles import get_profile
+from .production_bootstrap import bootstrap_production
 from .state import RunLock, RunState
 
 
@@ -75,6 +77,10 @@ def release(args: argparse.Namespace) -> None:
 
 
 def deploy(args: argparse.Namespace) -> None:
+    doctor = ReleaseDoctor(args.profile, args.commit)
+    doctor.run(("local", "vm", "dmit", "backup"))
+    bootstrap_production(args.profile, doctor.runner)
+    doctor.run(("racknerd",))
     gate = create_vm_gate(args.profile, args.commit)
     release(argparse.Namespace(gate=str(gate), profile=args.profile))
     print(f"release=verified gate={gate}")
@@ -93,11 +99,30 @@ def bootstrap(args: argparse.Namespace) -> None:
     print("trust_bootstrap=verified")
 
 
+def doctor(args: argparse.Namespace) -> None:
+    nodes = NODES if args.node == "all" else (args.node,)
+    evidence = ReleaseDoctor(args.profile, args.commit).run(nodes)
+    print(" ".join(f"{key}={value}" for key, value in evidence.items()))
+
+
+def production_bootstrap(args: argparse.Namespace) -> None:
+    evidence = bootstrap_production(args.profile)
+    print(" ".join(f"{key}={value}" for key, value in evidence.items()))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="VM-gated Sub2API release runner")
     subparsers = parser.add_subparsers(required=True)
     bootstrap_parser = subparsers.add_parser("bootstrap-trust")
     bootstrap_parser.set_defaults(handler=bootstrap)
+    production_bootstrap_parser = subparsers.add_parser("bootstrap-production")
+    production_bootstrap_parser.add_argument("--profile", default="182")
+    production_bootstrap_parser.set_defaults(handler=production_bootstrap)
+    doctor_parser = subparsers.add_parser("doctor")
+    doctor_parser.add_argument("--profile", default="182")
+    doctor_parser.add_argument("--commit")
+    doctor_parser.add_argument("--node", choices=("all", *NODES), default="all")
+    doctor_parser.set_defaults(handler=doctor)
     validate_parser = subparsers.add_parser("vm-validate")
     validate_parser.add_argument("--profile", default="182")
     validate_parser.add_argument("--commit", required=True)
