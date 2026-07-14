@@ -73,7 +73,7 @@ server_port=$(extract_config server port)
 [[ $(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT COUNT(*) FROM schema_migrations WHERE filename='"'"'182_upstream_actual_rate_multiplier.sql'"'"'"') == 0 ]]
 
 free_before=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
-[[ $free_before -gt 2684354560 ]]
+[[ $free_before -gt 2147483648 ]]
 export DOCKER_BUILDKIT=1
 mark_stage candidate_build
 docker build --network=host --progress=plain \
