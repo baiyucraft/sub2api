@@ -15,6 +15,7 @@ timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 work_dir="$backup_root/.release181-$timestamp"
 plain_archive="$backup_root/sub2api-release181-$timestamp.tar"
 encrypted_archive="$plain_archive.age"
+transport_name="sub2api-$timestamp.tar.age"
 redis_stopped=false
 
 cleanup() {
@@ -152,11 +153,12 @@ printf 'restore_point_utc=%s\nrelease=181\napplication_commit=%s\napplication_ve
 tar -C "$work_dir" -cf "$plain_archive" .
 age -R "$recipient_file" -o "$encrypted_archive" "$plain_archive"
 archive_sha=$(sha256sum "$encrypted_archive" | awk '{print $1}')
-remote_result=$(ssh -i "$upload_key" -o BatchMode=yes -o StrictHostKeyChecking=yes "$upload_target" "upload daily $(basename "$encrypted_archive") $archive_sha" < "$encrypted_archive")
-grep -Fq "OK $(basename "$encrypted_archive") $archive_sha" <<<"$remote_result"
+remote_result=$(ssh -i "$upload_key" -o BatchMode=yes -o StrictHostKeyChecking=yes "$upload_target" "upload daily $transport_name $archive_sha" < "$encrypted_archive")
+grep -Fq "OK $transport_name $archive_sha" <<<"$remote_result"
 [[ $(docker inspect -f '{{.State.Status}}' sub2api 2>/dev/null || true) != running ]]
 
 printf 'artifact=%s\n' "$(basename "$encrypted_archive")"
+printf 'transport_artifact=%s\n' "$transport_name"
 printf 'artifact_size=%s\n' "$(stat -c %s "$encrypted_archive")"
 printf 'artifact_sha256=%s\n' "$archive_sha"
 printf 'config_rows=%s\n' "$(( $(wc -l < "$work_dir/row-snapshot/upstream-configs.csv") - 1 ))"

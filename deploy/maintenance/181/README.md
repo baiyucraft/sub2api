@@ -13,14 +13,16 @@ addresses.
 3. Before production migration, stop the application container. This freezes
    writes and stops the in-process periodic upstream synchronizer. Verify there
    are no application sessions or long-running write transactions. Stop and
-   runtime-mask both `sub2api-backup.timer` and `sub2api-backup.service`; verify
-   both are inactive and masked before running the maintenance backup. Stop
-   Nginx before any candidate process starts:
+   mask both backup units with `mask-backup-units.sh`; the production units live
+   in `/etc/systemd/system`, so a `/run`-only mask is insufficient. Verify both
+   units are inactive and masked before running the maintenance backup. Stop
+   Nginx and the application before creating the state directory and mask:
 
    ```bash
-   systemctl mask --runtime --now sub2api-backup.timer sub2api-backup.service
    systemctl stop nginx
    docker compose stop -t 30 sub2api
+   export STATE_DIR="/opt/sub2api/backups/release181-state-$(date -u +%Y%m%dT%H%M%SZ)"
+   ./mask-backup-units.sh
    ```
 4. Run `maintenance-backup.sh` with the installed backup recipient and restricted
    upload identity. It creates and verifies the coordinated PostgreSQL, Redis,
@@ -29,8 +31,13 @@ addresses.
    The restricted receiver currently accepts the `daily` transport class only;
    after upload, verify the exact artifact and checksum on the backup host, then
    run `promote-release-backup.sh` on the backup host with the exact
-   `ARTIFACT_NAME` and `ARTIFACT_SHA256` returned by the maintenance script. It
-   promotes that immutable encrypted artifact to the release-recovery namespace.
+   `TRANSPORT_ARTIFACT_NAME`, `RELEASE_ARTIFACT_NAME`, and `ARTIFACT_SHA256`
+   returned or derived from the maintenance script. The restricted receiver gets
+   the standard `sub2api-TIMESTAMP.tar.age` transport name; promotion assigns the
+   immutable `sub2api-release181-TIMESTAMP.tar.age` release name. It stages the
+   artifact, checksum, and manifest in one bundle and atomically promotes the
+   bundle directory into the release-recovery namespace. Repeating promotion
+   verifies and accepts an identical existing bundle; conflicting targets fail.
    Require at least 5 GiB free on the backup host. Do not unmask the regular
    backup units until the release finishes or rolls back.
 5. Verify the recovery point includes encrypted row snapshots for the affected
@@ -79,8 +86,8 @@ addresses.
     the existing active, schedulable `刀哥-pro` and `刀哥-plus` accounts.
 11. Verify Dao's existing OpenAI accounts remain active and are renamed by the
     normal `upstream-name-key-name` rule. Record the scheduler outbox watermark
-    before manual synchronization. After calibration, run
-    stop the candidate and run `enqueue-scheduler-validation.sql`; require its new
+    before manual synchronization. After calibration, stop the candidate and run
+    `enqueue-scheduler-validation.sql`; require its new
     Dao-account event ID to exceed the pre-sync maximum and use
     `verify-scheduler-event.sql` to prove its payload exactly targets both Dao
     accounts while the consumer is stopped. Restart the candidate, then require
@@ -100,8 +107,7 @@ addresses.
       BIND_HOST=127.0.0.1 UPSTREAM_SYNC_AUTO_ENABLED=true \
       docker compose up -d --no-deps --force-recreate sub2api
     systemctl start nginx
-    systemctl unmask --runtime sub2api-backup.service sub2api-backup.timer
-    systemctl start sub2api-backup.timer
+    STATE_DIR="$STATE_DIR" ./restore-backup-units.sh
     ```
 
     Persist the verified `COMPOSE_FILE`, `SUB2API_RELEASE_IMAGE`, and
