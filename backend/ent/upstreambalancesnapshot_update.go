@@ -97,6 +97,9 @@ func (_u *UpstreamBalanceSnapshotUpdate) sqlSave(ctx context.Context) (_node int
 	if _u.mutation.TotalRechargedCnyCleared() {
 		_spec.ClearField(upstreambalancesnapshot.FieldTotalRechargedCny, field.TypeFloat64)
 	}
+	if _u.mutation.RechargeRateCleared() {
+		_spec.ClearField(upstreambalancesnapshot.FieldRechargeRate, field.TypeFloat64)
+	}
 	if _u.mutation.CurrencyToCnyRateCleared() {
 		_spec.ClearField(upstreambalancesnapshot.FieldCurrencyToCnyRate, field.TypeFloat64)
 	}
@@ -219,6 +222,9 @@ func (_u *UpstreamBalanceSnapshotUpdateOne) sqlSave(ctx context.Context) (_node 
 	}
 	if _u.mutation.TotalRechargedCnyCleared() {
 		_spec.ClearField(upstreambalancesnapshot.FieldTotalRechargedCny, field.TypeFloat64)
+	}
+	if _u.mutation.RechargeRateCleared() {
+		_spec.ClearField(upstreambalancesnapshot.FieldRechargeRate, field.TypeFloat64)
 	}
 	if _u.mutation.CurrencyToCnyRateCleared() {
 		_spec.ClearField(upstreambalancesnapshot.FieldCurrencyToCnyRate, field.TypeFloat64)

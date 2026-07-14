@@ -1,4 +1,4 @@
--- Migration: 176_channel_monitor_grok_provider
+-- Migration: 186_channel_monitor_grok_provider
 -- Allow Grok as a channel-monitor provider. Grok checks use the existing
 -- OpenAI-compatible chat completions protocol with model grok-4.5 by default.
 

@@ -96,10 +96,12 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str) -> di
         "commit_sha": commit,
         "origin": origin,
         "profile": profile["name"],
+        "version": profile["version"],
         "runner_sha256": runner_checksum(),
         "vm_validator_sha256": sha256_file(deploy_root() / "release" / "vm-validate.sh"),
         "release_asset_sha256": release_asset_checksums(),
         "migration_sha256": migration_checksums(profile),
+        "migrations": list(profile["migrations"]),
         "vm_identity": profile["vm_identity"],
     }
 

@@ -1538,6 +1538,8 @@ var (
 		{Name: "balance_cny", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "used_cny", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "total_recharged_cny", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "recharge_rate", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "balance_formula_version", Type: field.TypeInt, Default: 1},
 		{Name: "currency_source", Type: field.TypeString, Size: 16, Default: ""},
 		{Name: "currency_to_cny_rate", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "currency_rate_source", Type: field.TypeString, Size: 32, Default: ""},
@@ -1555,13 +1557,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "upstream_balance_snapshots_upstream_configs_balance_snapshots",
-				Columns:    []*schema.Column{UpstreamBalanceSnapshotsColumns[14]},
+				Columns:    []*schema.Column{UpstreamBalanceSnapshotsColumns[16]},
 				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
 				OnDelete:   schema.Cascade,
 			},
 			{
 				Symbol:     "upstream_balance_snapshots_upstream_sync_runs_balance_snapshots",
-				Columns:    []*schema.Column{UpstreamBalanceSnapshotsColumns[15]},
+				Columns:    []*schema.Column{UpstreamBalanceSnapshotsColumns[17]},
 				RefColumns: []*schema.Column{UpstreamSyncRunsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -1570,12 +1572,12 @@ var (
 			{
 				Name:    "upstreambalancesnapshot_upstream_config_id_observed_at",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamBalanceSnapshotsColumns[14], UpstreamBalanceSnapshotsColumns[11]},
+				Columns: []*schema.Column{UpstreamBalanceSnapshotsColumns[16], UpstreamBalanceSnapshotsColumns[13]},
 			},
 			{
 				Name:    "upstreambalancesnapshot_sync_run_id",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamBalanceSnapshotsColumns[15]},
+				Columns: []*schema.Column{UpstreamBalanceSnapshotsColumns[17]},
 			},
 		},
 	}

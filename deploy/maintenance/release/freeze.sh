@@ -20,7 +20,8 @@ install -m 600 docker-compose.yml "$state_dir/docker-compose.yml"
 install -m 600 .env "$state_dir/.env"
 printf '%s\n' "$pre_image_id" > "$state_dir/pre-image-id"
 printf '%s\n' "$pre_image_ref" > "$state_dir/pre-image-ref"
-(cd "$state_dir" && sha256sum docker-compose.yml .env pre-image-id pre-image-ref > SHA256SUMS)
+docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations ORDER BY filename" > "$state_dir/pre-migrations.tsv"
+(cd "$state_dir" && sha256sum docker-compose.yml .env pre-image-id pre-image-ref pre-migrations.tsv > SHA256SUMS)
 systemctl stop nginx
 docker compose stop -t 30 sub2api >/dev/null 2>&1
 [[ $(docker inspect -f '{{.State.Status}}' sub2api) != running ]]

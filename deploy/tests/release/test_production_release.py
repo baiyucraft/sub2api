@@ -194,7 +194,8 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         cleanup = self.script("cleanup-state.sh")
         self.assertIn("if [[ -d $state_dir && ! -L $state_dir ]]", cleanup)
         self.assertIn("[[ ! -e $state_dir && ! -L $state_dir ]]", cleanup)
-        self.assertIn("schema_migrations WHERE filename='$migration'", cleanup)
+        self.assertIn('pre-migrations.tsv', cleanup)
+        self.assertIn('SELECT filename,checksum FROM schema_migrations ORDER BY filename', cleanup)
         self.assertIn("systemctl is-enabled sub2api-backup.timer", cleanup)
 
     def test_preflight_accepts_absent_or_matching_migration_only(self) -> None:

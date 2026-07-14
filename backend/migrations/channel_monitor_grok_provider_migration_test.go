@@ -8,7 +8,7 @@ import (
 )
 
 func TestChannelMonitorGrokProviderMigration(t *testing.T) {
-	content, err := FS.ReadFile("176_channel_monitor_grok_provider.sql")
+	content, err := FS.ReadFile("186_channel_monitor_grok_provider.sql")
 	require.NoError(t, err)
 
 	sql := strings.Join(strings.Fields(string(content)), " ")

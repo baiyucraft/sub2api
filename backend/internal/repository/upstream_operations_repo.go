@@ -24,6 +24,7 @@ func (r *upstreamConfigRepository) GetUpstreamSettings(ctx context.Context) (*se
 		s.Where(entsql.In(s.C("key"),
 			service.SettingKeyUpstreamBalanceLowThresholdCNY,
 			service.SettingKeyUpstreamSub2APINotInCNConfirmed,
+			service.SettingKeyUpstreamCostIncludedGroupIDs,
 		))
 	}).All(ctx)
 	if err != nil {
@@ -36,6 +37,8 @@ func (r *upstreamConfigRepository) GetUpstreamSettings(ctx context.Context) (*se
 			settings.BalanceLowThresholdCNY, _ = strconv.ParseFloat(strings.TrimSpace(row.Value), 64)
 		case service.SettingKeyUpstreamSub2APINotInCNConfirmed:
 			settings.Sub2APINotInCNConfirmed, _ = strconv.ParseBool(strings.TrimSpace(row.Value))
+		case service.SettingKeyUpstreamCostIncludedGroupIDs:
+			_ = json.Unmarshal([]byte(row.Value), &settings.CostIncludedGroupIDs)
 		}
 	}
 	return settings, nil
@@ -48,6 +51,11 @@ func (r *upstreamConfigRepository) UpdateUpstreamSettings(ctx context.Context, s
 			service.SettingKeyUpstreamBalanceLowThresholdCNY:  strconv.FormatFloat(settings.BalanceLowThresholdCNY, 'f', 8, 64),
 			service.SettingKeyUpstreamSub2APINotInCNConfirmed: strconv.FormatBool(settings.Sub2APINotInCNConfirmed),
 		}
+		groupIDs, err := json.Marshal(service.NormalizeUpstreamGroupIDsForPersistence(settings.CostIncludedGroupIDs))
+		if err != nil {
+			return err
+		}
+		values[service.SettingKeyUpstreamCostIncludedGroupIDs] = string(groupIDs)
 		for key, value := range values {
 			if err := client.Setting.Create().
 				SetKey(key).
@@ -234,7 +242,7 @@ func (r *upstreamConfigRepository) ListUpstreamBalanceHistory(ctx context.Contex
 	}
 	out := make([]service.UpstreamBalanceSnapshot, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, service.UpstreamBalanceSnapshot{ID: row.ID, ConfigID: row.UpstreamConfigID, RunID: row.SyncRunID, Provider: row.Provider, BalanceRaw: row.BalanceRaw, UsedRaw: row.UsedRaw, TotalRaw: row.TotalRaw, BalanceCNY: row.BalanceCny, UsedCNY: row.UsedCny, TotalRechargedCNY: row.TotalRechargedCny, CurrencySource: row.CurrencySource, CurrencyToCNYRate: row.CurrencyToCnyRate, CurrencyRateSource: row.CurrencyRateSource, Metadata: row.Metadata, ObservedAt: row.ObservedAt})
+		out = append(out, service.UpstreamBalanceSnapshot{ID: row.ID, ConfigID: row.UpstreamConfigID, RunID: row.SyncRunID, Provider: row.Provider, BalanceRaw: row.BalanceRaw, UsedRaw: row.UsedRaw, TotalRaw: row.TotalRaw, BalanceCNY: row.BalanceCny, UsedCNY: row.UsedCny, TotalRechargedCNY: row.TotalRechargedCny, CurrencySource: row.CurrencySource, CurrencyToCNYRate: row.CurrencyToCnyRate, CurrencyRateSource: row.CurrencyRateSource, RechargeRate: row.RechargeRate, BalanceFormulaVersion: row.BalanceFormulaVersion, Metadata: row.Metadata, ObservedAt: row.ObservedAt})
 	}
 	return out, int64(total), nil
 }
@@ -304,7 +312,146 @@ func recalculateLockedUpstreamAccounts(ctx context.Context, client *dbent.Client
 	return changed, nil
 }
 
+func recalculateLockedUpstreamBalance(ctx context.Context, client *dbent.Client, config *dbent.UpstreamConfig, oldRate, newRate float64, at time.Time) error {
+	if config == nil || oldRate <= 0 || newRate <= 0 || oldRate == newRate {
+		return nil
+	}
+	extra := copyJSONMap(config.Extra)
+	formulaVersion, formulaVersionOK := integerFromMap(extra, "balance_formula_version")
+	if formulaVersionOK && formulaVersion == 2 {
+		factor := newRate / oldRate
+		for _, key := range []string{"balance_cny", "used_cny", "total_recharged_cny"} {
+			if value, ok := numberFromMap(extra, key); ok {
+				extra[key] = roundPersistedBalanceAmount(value * factor)
+			}
+		}
+	} else if err := recalculateLegacyBalanceExtra(extra, config.Provider, newRate); err != nil {
+		return err
+	}
+	extra["recharge_rate"] = newRate
+	extra["balance_formula_version"] = 2
+	if _, err := client.UpstreamConfig.UpdateOneID(config.ID).SetExtra(extra).Save(ctx); err != nil {
+		return err
+	}
+	updates := map[string]any{
+		"balance_cny":             extra["balance_cny"],
+		"used_cny":                extra["used_cny"],
+		"total_recharged_cny":     extra["total_recharged_cny"],
+		"currency_source":         extra["currency_source"],
+		"currency_to_cny_rate":    extra["currency_to_cny_rate"],
+		"currency_rate_source":    extra["currency_rate_source"],
+		"recharge_rate":           newRate,
+		"balance_formula_version": 2,
+		"balance_recalculated":    true,
+	}
+	for _, key := range []string{"sub2api_balance", "sub2api_total_recharged", "upstream_provider_snapshot"} {
+		if value, exists := extra[key]; exists {
+			updates[key] = value
+		}
+	}
+	if err := persistUpstreamBalanceState(ctx, client, config, 0, updates, at); err != nil {
+		return err
+	}
+	if balance, ok := numberFromMap(extra, "balance_cny"); ok {
+		threshold, err := upstreamBalanceThreshold(ctx, client)
+		if err != nil {
+			return err
+		}
+		if err := evaluateUpstreamBalanceIncident(ctx, client, config.ID, balance, threshold, at); err != nil {
+			return err
+		}
+	}
+	return client.UpstreamEvent.Create().
+		SetUpstreamConfigID(config.ID).
+		SetEventType("balance_recalculated").
+		SetSeverity("info").
+		SetSource("admin").
+		SetMessage("Upstream balance recalculated after recharge rate change").
+		SetPayload(map[string]any{"old_rate": oldRate, "new_rate": newRate}).
+		SetOccurredAt(at).
+		Exec(ctx)
+}
+
+func recalculateLegacyBalanceExtra(extra map[string]any, provider string, rechargeRate float64) error {
+	if extra == nil {
+		return nil
+	}
+	needsBalance, needsUsed, needsTotal := false, false, false
+	_, needsBalance = numberFromMap(extra, "balance_cny")
+	_, needsUsed = numberFromMap(extra, "used_cny")
+	_, needsTotal = numberFromMap(extra, "total_recharged_cny")
+	if !needsBalance && !needsUsed && !needsTotal {
+		return nil
+	}
+
+	var balance, used, total float64
+	var balanceOK, usedOK, totalOK bool
+	if provider == service.UpstreamProviderSub2API {
+		balance, balanceOK = numberFromMap(extra, "sub2api_balance")
+		total, totalOK = numberFromMap(extra, "sub2api_total_recharged")
+		if balanceOK && totalOK {
+			used, usedOK = maxFloatValue(total-balance, 0), true
+		}
+	} else {
+		snapshot, _ := extra["upstream_provider_snapshot"].(map[string]any)
+		if snapshot == nil {
+			return fmt.Errorf("upstream balance raw snapshot unavailable for recharge-rate change")
+		}
+		rateSource, _ := extra["currency_rate_source"].(string)
+		useBase := strings.EqualFold(rateSource, "admin_override")
+		balanceKey, usedKey, totalKey := "balance_amount", "used_amount", "total_amount"
+		if useBase {
+			balanceKey, usedKey, totalKey = "base_balance_amount", "base_used_amount", "base_total_amount"
+		}
+		balance, balanceOK = numberFromMap(snapshot, balanceKey)
+		used, usedOK = numberFromMap(snapshot, usedKey)
+		total, totalOK = numberFromMap(snapshot, totalKey)
+		if rate, ok := numberFromMap(extra, "currency_to_cny_rate"); ok && rate > 0 {
+			balance *= rate
+			used *= rate
+			total *= rate
+		} else if currency, _ := extra["currency_source"].(string); strings.EqualFold(currency, "CNY") {
+			// CNY snapshots are already denominated in the target currency.
+		} else if needsBalance || needsUsed || needsTotal {
+			return fmt.Errorf("upstream balance currency rate unavailable for recharge-rate change")
+		}
+	}
+
+	if needsBalance {
+		if !balanceOK {
+			return fmt.Errorf("upstream raw balance unavailable for recharge-rate change")
+		}
+		extra["balance_cny"] = roundPersistedBalanceAmount(balance * rechargeRate)
+	}
+	if needsUsed {
+		if !usedOK {
+			return fmt.Errorf("upstream raw used balance unavailable for recharge-rate change")
+		}
+		extra["used_cny"] = roundPersistedBalanceAmount(used * rechargeRate)
+	}
+	if needsTotal {
+		if !totalOK {
+			return fmt.Errorf("upstream raw total balance unavailable for recharge-rate change")
+		}
+		extra["total_recharged_cny"] = roundPersistedBalanceAmount(total * rechargeRate)
+	}
+	return nil
+}
+
 func persistUpstreamBalanceState(ctx context.Context, client *dbent.Client, config *dbent.UpstreamConfig, runID int64, updates map[string]any, at time.Time) error {
+	if updates == nil {
+		updates = map[string]any{}
+	}
+	if _, ok := numberFromMap(updates, "recharge_rate"); !ok {
+		rate := config.RechargeRate
+		if rate <= 0 {
+			rate = 1
+		}
+		updates["recharge_rate"] = rate
+	}
+	if _, ok := integerFromMap(updates, "balance_formula_version"); !ok {
+		updates["balance_formula_version"] = 2
+	}
 	balance, balanceOK := numberFromMap(updates, "balance_cny")
 	builder := client.UpstreamBalanceSnapshot.Create().SetUpstreamConfigID(config.ID).SetProvider(config.Provider).SetObservedAt(at).SetMetadata(copyJSONMap(updates))
 	if balanceOK {
@@ -322,12 +469,23 @@ func persistUpstreamBalanceState(ctx context.Context, client *dbent.Client, conf
 	if value, ok := numberFromMap(updates, "currency_to_cny_rate"); ok {
 		builder.SetCurrencyToCnyRate(value)
 	}
+	if value, ok := numberFromMap(updates, "recharge_rate"); ok {
+		builder.SetRechargeRate(value)
+	}
+	if value, ok := integerFromMap(updates, "balance_formula_version"); ok {
+		builder.SetBalanceFormulaVersion(value)
+	}
 	if config.Provider == service.UpstreamProviderSub2API {
 		if value, ok := numberFromMap(updates, "sub2api_balance"); ok {
 			builder.SetBalanceRaw(value)
 		}
 		if value, ok := numberFromMap(updates, "sub2api_total_recharged"); ok {
 			builder.SetTotalRaw(value)
+		}
+		if total, totalOK := numberFromMap(updates, "sub2api_total_recharged"); totalOK {
+			if balance, balanceOK := numberFromMap(updates, "sub2api_balance"); balanceOK {
+				builder.SetUsedRaw(maxFloatValue(total-balance, 0))
+			}
 		}
 	} else if snapshot, ok := updates["upstream_provider_snapshot"].(map[string]any); ok {
 		if value, ok := numberFromMap(snapshot, "remain_quota_raw"); ok {
@@ -422,6 +580,30 @@ func numberFromMap(values map[string]any, key string) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func integerFromMap(values map[string]any, key string) (int, bool) {
+	value, ok := numberFromMap(values, key)
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	if !ok || value != math.Trunc(value) || value < float64(minInt) || value > float64(maxInt) {
+		return 0, false
+	}
+	return int(value), true
+}
+
+func roundPersistedBalanceAmount(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return value
+	}
+	return math.Round(value*1e10) / 1e10
+}
+
+func maxFloatValue(left, right float64) float64 {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func (r *upstreamConfigRepository) CleanupUpstreamOperationHistory(ctx context.Context, now time.Time) error {

@@ -1196,7 +1196,8 @@ describe('UpstreamConfigsView', () => {
 
     expect(updateSettingsMock).toHaveBeenCalledWith({
       balance_low_threshold_cny: 20,
-      sub2api_not_in_cn_confirmed: true
+      sub2api_not_in_cn_confirmed: true,
+      cost_included_group_ids: []
     })
     expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.settingsSaved')
   })
@@ -1217,7 +1218,8 @@ describe('UpstreamConfigsView', () => {
 
     expect(updateSettingsMock).toHaveBeenCalledWith({
       balance_low_threshold_cny: 10,
-      sub2api_not_in_cn_confirmed: false
+      sub2api_not_in_cn_confirmed: false,
+      cost_included_group_ids: []
     })
   })
 

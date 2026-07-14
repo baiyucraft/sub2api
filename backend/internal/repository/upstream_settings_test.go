@@ -27,19 +27,23 @@ func TestUpstreamSettingsRoundTripAllFields(t *testing.T) {
 	require.NoError(t, repo.UpdateUpstreamSettings(ctx, service.UpstreamSettings{
 		BalanceLowThresholdCNY:  12.5,
 		Sub2APINotInCNConfirmed: true,
+		CostIncludedGroupIDs:    []int64{5, 2, 5},
 	}))
 
 	settings, err := repo.GetUpstreamSettings(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 12.5, settings.BalanceLowThresholdCNY)
 	require.True(t, settings.Sub2APINotInCNConfirmed)
+	require.Equal(t, []int64{2, 5}, settings.CostIncludedGroupIDs)
 
 	require.NoError(t, repo.UpdateUpstreamSettings(ctx, service.UpstreamSettings{
 		BalanceLowThresholdCNY:  8,
 		Sub2APINotInCNConfirmed: false,
+		CostIncludedGroupIDs:    []int64{},
 	}))
 	settings, err = repo.GetUpstreamSettings(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 8.0, settings.BalanceLowThresholdCNY)
 	require.False(t, settings.Sub2APINotInCNConfirmed)
+	require.Empty(t, settings.CostIncludedGroupIDs)
 }

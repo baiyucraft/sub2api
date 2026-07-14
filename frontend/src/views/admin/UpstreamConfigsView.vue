@@ -1153,6 +1153,29 @@
               <span class="mt-1 block text-xs leading-5 text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.settings.sub2apiNotInCNConfirmedHint') }}</span>
             </span>
           </label>
+          <div class="space-y-2 border-t border-gray-200 pt-5 dark:border-dark-700">
+            <div>
+              <span class="input-label">{{ t('admin.upstreamConfigs.settings.costGroups') }}</span>
+              <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.settings.costGroupsHint') }}</span>
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <label
+                v-for="group in costGroups"
+                :key="group.id"
+                class="flex cursor-pointer items-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm dark:border-dark-700"
+              >
+                <input
+                  v-model="settingsForm.cost_included_group_ids"
+                  type="checkbox"
+                  :value="group.id"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+                />
+                <span class="min-w-0 truncate">{{ group.name }} <span class="text-xs text-gray-400">#{{ group.id }}</span></span>
+                <span v-if="group.status !== 'active'" class="ml-auto text-xs text-amber-600">{{ t('admin.upstreamConfigs.settings.inactiveGroup') }}</span>
+              </label>
+            </div>
+            <div v-if="costGroups.length === 0" class="text-sm text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.settings.noGroups') }}</div>
+          </div>
           <div class="flex justify-end">
             <button type="submit" class="btn btn-primary" :disabled="settingsSaving">
               <Icon v-if="settingsSaving" name="refresh" size="sm" class="mr-2 animate-spin" />
@@ -1226,7 +1249,7 @@ import upstreamAPI, {
   type UpstreamKeyRateTrend
 } from '@/api/admin/upstreamConfigs'
 import { useAppStore } from '@/stores/app'
-import type { Proxy } from '@/types'
+import type { AdminGroup, Proxy } from '@/types'
 import { extractApiErrorCode, extractApiErrorMetadata } from '@/utils/apiError'
 import {
   parseUpstreamTokenPaste,
@@ -1306,9 +1329,11 @@ const rateTrendRange = ref<UpstreamTrendRange>('24h')
 const rateTrendKeys = ref<UpstreamKeyRateCatalogItem[]>([])
 const selectedRateKeyId = ref<number | null>(null)
 const keyRateTrend = ref<UpstreamKeyRateTrend | null>(null)
-const upstreamSettings = ref<UpstreamSettings>({ balance_low_threshold_cny: 0, sub2api_not_in_cn_confirmed: false })
-const settingsForm = reactive<UpstreamSettings>({ balance_low_threshold_cny: 0, sub2api_not_in_cn_confirmed: false })
+const upstreamSettings = ref<UpstreamSettings>({ balance_low_threshold_cny: 0, sub2api_not_in_cn_confirmed: false, cost_included_group_ids: [] })
+const settingsForm = reactive<UpstreamSettings>({ balance_low_threshold_cny: 0, sub2api_not_in_cn_confirmed: false, cost_included_group_ids: [] })
+const costGroups = ref<AdminGroup[]>([])
 const settingsLoaded = ref(false)
+const settingsHasCostGroupSelection = ref(false)
 const settingsSaving = ref(false)
 const operationGeneration: Record<OperationsDrawerMode, number> = {
   syncRuns: 0,
@@ -1533,9 +1558,18 @@ const canApplyTokenCandidates = computed(() =>
 onMounted(() => {
   loadConfigs()
   loadProxies()
+  loadCostGroups()
   loadSettings(true)
   document.addEventListener('click', handleClickOutside)
 })
+
+async function loadCostGroups() {
+  try {
+    costGroups.value = await adminAPI.groups.getAllIncludingInactive()
+  } catch {
+    costGroups.value = []
+  }
+}
 
 onUnmounted(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
@@ -2411,7 +2445,10 @@ async function loadTrend() {
   const range = trendRange.value
   const generation = requestToken('trend')
   try {
-    const response = await upstreamAPI.getUsageTrend(configId, range)
+    const selectedGroups = settingsLoaded.value && settingsHasCostGroupSelection.value ? settingsForm.cost_included_group_ids : undefined
+    const response = selectedGroups === undefined
+      ? await upstreamAPI.getUsageTrend(configId, range)
+      : await upstreamAPI.getUsageTrend(configId, range, selectedGroups)
     if (requestIsCurrent('trend', generation) && Number(selectedOperationsConfigId.value) === configId && trendRange.value === range) usageTrend.value = response
   } catch (error: any) {
     if (requestIsCurrent('trend', generation)) {
@@ -2511,6 +2548,8 @@ async function loadSettings(silent: boolean) {
     upstreamSettings.value = response
     settingsForm.balance_low_threshold_cny = response.balance_low_threshold_cny
     settingsForm.sub2api_not_in_cn_confirmed = response.sub2api_not_in_cn_confirmed
+    settingsForm.cost_included_group_ids = [...(response.cost_included_group_ids || [])]
+    settingsHasCostGroupSelection.value = Array.isArray(response.cost_included_group_ids)
     settingsLoaded.value = true
   } catch (error: any) {
     if (operationGeneration.settings === generation) settingsLoaded.value = false
@@ -2528,12 +2567,15 @@ async function saveUpstreamSettings() {
   try {
     const response = await upstreamAPI.updateSettings({
       balance_low_threshold_cny: settingsForm.balance_low_threshold_cny,
-      sub2api_not_in_cn_confirmed: settingsForm.sub2api_not_in_cn_confirmed
+      sub2api_not_in_cn_confirmed: settingsForm.sub2api_not_in_cn_confirmed,
+      cost_included_group_ids: [...(settingsForm.cost_included_group_ids || [])].sort((a, b) => a - b)
     })
     if (!requestIsCurrent('settings', generation)) return
     upstreamSettings.value = response
     settingsForm.balance_low_threshold_cny = response.balance_low_threshold_cny
     settingsForm.sub2api_not_in_cn_confirmed = response.sub2api_not_in_cn_confirmed
+    settingsForm.cost_included_group_ids = [...(response.cost_included_group_ids || [])]
+    settingsHasCostGroupSelection.value = true
     appStore.showSuccess(t('admin.upstreamConfigs.messages.settingsSaved'))
   } catch (error: any) {
     if (requestIsCurrent('settings', generation)) {
@@ -2930,15 +2972,6 @@ function balanceTitle(item: UpstreamConfig): string {
   const email = upstreamBalanceEmail(item)
   const syncedAt = upstreamBalanceSyncedAt(item)
   const error = upstreamBalanceError(item)
-  if (item.provider === 'newapi') {
-    const snapshot = upstreamProviderSnapshot(item)
-    const rawBalance = finiteNumberFromExtra(snapshot?.remain_quota_raw) ?? finiteNumberFromExtra(snapshot?.remain_quota) ?? finiteNumberFromExtra(snapshot?.quota)
-    const rawUsed = finiteNumberFromExtra(snapshot?.used_quota_raw) ?? finiteNumberFromExtra(snapshot?.used_quota)
-    const rawTotal = finiteNumberFromExtra(snapshot?.total_quota_raw) ?? finiteNumberFromExtra(snapshot?.total_quota)
-    if (rawBalance !== null) parts.push(t('admin.upstreamConfigs.balance.rawBalance', { amount: formatBalanceAmount(rawBalance) }))
-    if (rawUsed !== null) parts.push(t('admin.upstreamConfigs.balance.rawUsed', { amount: formatBalanceAmount(rawUsed) }))
-    if (rawTotal !== null) parts.push(t('admin.upstreamConfigs.balance.rawTotal', { amount: formatBalanceAmount(rawTotal) }))
-  }
   if (email) parts.push(t('admin.upstreamConfigs.balance.email', { email }))
   if (syncedAt) parts.push(t('admin.upstreamConfigs.balance.syncedAt', { time: formatTime(syncedAt) }))
   if (error) parts.push(t('admin.upstreamConfigs.balance.error', { error }))
