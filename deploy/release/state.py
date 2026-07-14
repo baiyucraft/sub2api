@@ -50,16 +50,39 @@ class RunLock:
 
     def __enter__(self) -> "RunLock":
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            self.descriptor = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError as error:
-            raise RuntimeError(f"release lock exists and requires manual reconciliation: {self.path}") from error
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(self.descriptor, 0, os.SEEK_SET)
+                if os.fstat(self.descriptor).st_size == 0:
+                    os.write(self.descriptor, b"\0")
+                os.lseek(self.descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(self.descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (OSError, BlockingIOError) as error:
+            os.close(self.descriptor)
+            self.descriptor = None
+            raise RuntimeError("another release process is running") from error
+        os.ftruncate(self.descriptor, 1)
+        os.lseek(self.descriptor, 1, os.SEEK_SET)
         os.write(self.descriptor, f"pid={os.getpid()}\n".encode())
         os.fsync(self.descriptor)
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> None:
         if self.descriptor is not None:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(self.descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(self.descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.descriptor, fcntl.LOCK_UN)
             os.close(self.descriptor)
-        if exc_type is None:
-            self.path.unlink()

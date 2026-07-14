@@ -13,8 +13,40 @@ VALIDATOR = DEPLOY_ROOT / "release" / "vm-validate.sh"
 BOOTSTRAP = DEPLOY_ROOT / "release" / "bootstrap_vm_signer.sh"
 
 
+def prepare_vm_host(runner: SSHRunner) -> None:
+    runner.run(
+        "local_vm",
+        "if command -v jq >/dev/null 2>&1; then status=present; else command -v apt-get >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1 && export DEBIAN_FRONTEND=noninteractive && timeout 300 apt-get update -qq >/dev/null 2>&1 && timeout 300 apt-get install -y --no-install-recommends --no-upgrade jq >/dev/null 2>&1 && status=installed; fi && command -v jq >/dev/null 2>&1 && printf 'jq_status=%s\\n' \"$status\" && printf 'jq_version=%s\\n' \"$(jq --version)\"",
+        {"jq_status", "jq_version"},
+        timeout=660,
+    )
+
+
+def install_vm_validator(runner: SSHRunner) -> None:
+    prepare_vm_host(runner)
+    runner.run(
+        "local_vm",
+        "install -d -m 700 /opt/sub2api-deploy/release-input && test $(stat -c '%u:%a' /opt/sub2api-deploy/release-input) = $(id -u):700 && printf 'input_root_ready=true\\n'",
+        {"input_root_ready"},
+    )
+    remote_dir = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "validator")
+    remote_validator = f"{remote_dir}/validator"
+    runner.upload_file("local_vm", VALIDATOR, remote_validator, 0o700)
+    try:
+        values = runner.run(
+            "local_vm",
+            f"install -d -m 755 /usr/local/libexec && install -o root -g root -m 700 {remote_validator} /usr/local/libexec/sub2api-vm-validate && printf 'validator_sha256=%s\\n' $(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}')",
+            {"validator_sha256"},
+        ).values
+        if values["validator_sha256"] != sha256_file(VALIDATOR):
+            raise RuntimeError("installed VM validator checksum differs")
+    finally:
+        runner.run("local_vm", f"rm -rf {remote_dir} && printf 'cleanup=true\\n'", {"cleanup"})
+
+
 def bootstrap_trust() -> None:
     runner = SSHRunner()
+    prepare_vm_host(runner)
     runner.run(
         "local_vm",
         "install -d -m 700 /opt/sub2api-deploy/release-input && test $(stat -c '%u:%a' /opt/sub2api-deploy/release-input) = $(id -u):700 && printf 'input_root_ready=true\\n'",

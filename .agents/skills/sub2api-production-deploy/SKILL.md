@@ -84,11 +84,12 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 
 执行前读取 [deploy/release/README.md](../../../deploy/release/README.md)。首次使用的信任根 bootstrap 必须与普通发布分离，人工核验 VM 公钥指纹后再提交公钥；普通发布禁止创建或替换信任根。
 
-以下标记任一存在冲突时停止并人工 reconciliation，禁止删除后重试：
+以下远端标记任一存在冲突时停止并人工 reconciliation，禁止删除后重试：
 
-- 本地 `.tmp/releases/.release.lock`
 - RackNerd `/opt/sub2api/releases/.active-release`
 - release 目录中的 `.consumed` 或 `.recovered`
+
+本地 `.tmp/releases/.release.lock` 使用操作系统文件锁，锁文件可长期存在；只有实际持锁进程阻止并发发布。
 
 Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资产、migration checksum、candidate archive checksum 和 image ID。生产端必须再次验签并从 Gate 派生镜像身份，禁止用环境变量覆盖。
 

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .gate import verify_gate
+from .bootstrap import install_vm_validator
 from .ssh import SSHRunner
 
 
@@ -21,6 +22,7 @@ def main() -> None:
     output = Path(args.output)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     runner = SSHRunner()
+    install_vm_validator(runner)
     runner.run(
         "local_vm",
         "install -d -m 700 /opt/sub2api-deploy/release-input && test $(stat -c '%u:%a' /opt/sub2api-deploy/release-input) = $(id -u):700 && printf 'input_root_ready=true\\n'",

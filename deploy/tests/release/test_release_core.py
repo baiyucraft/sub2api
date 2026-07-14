@@ -43,13 +43,22 @@ class ReleaseCoreTest(unittest.TestCase):
             self.assertEqual(path.read_bytes(), b"new\n")
             self.assertFalse(list(path.parent.glob(f".{path.name}.*")))
 
-    def test_stale_lock_requires_manual_reconciliation(self) -> None:
+    def test_stale_lock_file_does_not_block_new_process(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "release.lock"
             path.write_text("pid=999999\n", encoding="utf-8")
-            with self.assertRaisesRegex(RuntimeError, "manual reconciliation"):
-                with RunLock(path):
-                    pass
+            with RunLock(path):
+                pass
+            self.assertTrue(path.exists())
+            self.assertIn(f"pid={os.getpid()}", path.read_text(encoding="utf-8"))
+
+    def test_active_lock_rejects_second_release(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "release.lock"
+            with RunLock(path):
+                with self.assertRaisesRegex(RuntimeError, "another release process"):
+                    with RunLock(path):
+                        pass
 
     def test_terminal_state_cannot_resume_running(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

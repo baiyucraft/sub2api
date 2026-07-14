@@ -28,9 +28,11 @@ python deploy/release.py bootstrap-trust
 `deploy/release/trust/vm-gate-ed25519.pub`。提交最终代码后再次执行 bootstrap，
 只有仓库、VM 和 RackNerd 三方公钥完全一致才会完成安装。
 
+`vm-validate` 会在 VM 缺少 `jq` 时通过 `apt-get` 安装该单一依赖，并更新仓库内版本对应的 validator；不会升级其他系统包。
+
 发布要求 RackNerd 已存在权限为 `0600` 的
 `/root/.config/sub2api-release/canary-api-key`。该文件不由仓库保存，也不会写入
 命令行、stdout、Gate 或状态文件。
 
-禁止删除 `.active-release`、`.consumed`、`.recovered` 或本地 `.release.lock` 来强行重试。
-存在这些标记表示需要人工 reconciliation；不兼容迁移禁止 image-only rollback。
+`.release.lock` 使用操作系统文件锁，文件本身会长期保留；只有实际持锁进程会阻止并发发布。
+禁止删除 `.active-release`、`.consumed` 或 `.recovered` 来强行重试；不兼容迁移禁止 image-only rollback。
