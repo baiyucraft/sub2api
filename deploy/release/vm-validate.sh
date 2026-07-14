@@ -145,7 +145,12 @@ restore_vm() (
   [[ $(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT COUNT(*) FROM schema_migrations WHERE filename='"'"'182_upstream_actual_rate_multiplier.sql'"'"'"') == 0 ]]
   docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT '"'"'accounts='"'"'||count(*) FROM accounts UNION ALL SELECT '"'"'users='"'"'||count(*) FROM users UNION ALL SELECT '"'"'upstream_configs='"'"'||count(*) FROM upstream_configs UNION ALL SELECT '"'"'upstream_keys='"'"'||count(*) FROM upstream_keys"' > "$state_dir/backup/core-counts-restored.txt"
   diff -u "$state_dir/backup/core-counts.txt" "$state_dir/backup/core-counts-restored.txt" >/dev/null
-  docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT '"'"'accounts='"'"'||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'"'"''"'"' ORDER BY id),'"'"''"'"')) FROM accounts t UNION ALL SELECT '"'"'users='"'"'||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'"'"''"'"' ORDER BY id),'"'"''"'"')) FROM users t UNION ALL SELECT '"'"'upstream_configs='"'"'||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'"'"''"'"' ORDER BY id),'"'"''"'"')) FROM upstream_configs t UNION ALL SELECT '"'"'upstream_keys='"'"'||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'"'"''"'"' ORDER BY id),'"'"''"'"')) FROM upstream_keys t"' > "$state_dir/backup/core-content-digests-restored.txt"
+  docker exec -i sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/backup/core-content-digests-restored.txt" <<'SQL'
+SELECT 'accounts='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM accounts t
+UNION ALL SELECT 'users='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM users t
+UNION ALL SELECT 'upstream_configs='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM upstream_configs t
+UNION ALL SELECT 'upstream_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM upstream_keys t;
+SQL
   diff -u "$state_dir/backup/core-content-digests.txt" "$state_dir/backup/core-content-digests-restored.txt" >/dev/null
 )
 resume_vm_without_restore() (
@@ -183,7 +188,12 @@ docker stop sub2api-dev >/dev/null
 docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 6 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/backup/postgres.dump"
 [[ -s $state_dir/backup/postgres.dump ]]
 docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT '"'"'accounts='"'"'||count(*) FROM accounts UNION ALL SELECT '"'"'users='"'"'||count(*) FROM users UNION ALL SELECT '"'"'upstream_configs='"'"'||count(*) FROM upstream_configs UNION ALL SELECT '"'"'upstream_keys='"'"'||count(*) FROM upstream_keys"' > "$state_dir/backup/core-counts.txt"
-docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev -c "SELECT '"'"'accounts='"'"'||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'"'"''"'"' ORDER BY id),'"'"''"'"')) FROM accounts t UNION ALL SELECT '"'"'users='"'"'||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'"'"''"'"' ORDER BY id),'"'"''"'"')) FROM users t UNION ALL SELECT '"'"'upstream_configs='"'"'||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'"'"''"'"' ORDER BY id),'"'"''"'"')) FROM upstream_configs t UNION ALL SELECT '"'"'upstream_keys='"'"'||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'"'"''"'"' ORDER BY id),'"'"''"'"')) FROM upstream_keys t"' > "$state_dir/backup/core-content-digests.txt"
+docker exec -i sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/backup/core-content-digests.txt" <<'SQL'
+SELECT 'accounts='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM accounts t
+UNION ALL SELECT 'users='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM users t
+UNION ALL SELECT 'upstream_configs='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM upstream_configs t
+UNION ALL SELECT 'upstream_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text), '' ORDER BY id), '')) FROM upstream_keys t;
+SQL
 docker exec sub2api-redis sh -lc 'export REDISCLI_AUTH="${REDIS_PASSWORD:-}"; redis-cli --no-auth-warning BGSAVE >/dev/null || true; for i in $(seq 1 120); do value=$(redis-cli --no-auth-warning INFO persistence | tr -d "\r"); progress=$(printf "%s\n" "$value" | awk -F: '"'"'$1=="rdb_bgsave_in_progress"{print $2}'"'"'); status=$(printf "%s\n" "$value" | awk -F: '"'"'$1=="rdb_last_bgsave_status"{print $2}'"'"'); [ "$progress" = 0 ] && [ "$status" = ok ] && exit 0; sleep 1; done; exit 1'
 redis_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' sub2api-redis)
 [[ -n $redis_source && -d $redis_source ]]
