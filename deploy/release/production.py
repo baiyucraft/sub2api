@@ -128,7 +128,6 @@ class ProductionRelease:
         self.stage("freeze")
         self.mask_intent = True
         freeze_env = quoted_env({"RELEASE_DIR": self.release_dir})
-        self.frozen = True
         values = self.run_remote(
             "racknerd",
             f"{freeze_env} {self.active_assets}/freeze-backup.sh",
@@ -138,6 +137,7 @@ class ProductionRelease:
             },
             timeout=2400,
         )
+        self.frozen = True
         self.units_masked = True
         self.backup_values = values
         if values["state_dir"] != self.state_dir:
