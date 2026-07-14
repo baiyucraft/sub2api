@@ -323,7 +323,7 @@ class ProductionRelease:
         try:
             values = self.run_remote(
                 "racknerd",
-                f"test -f {self.release_dir}/.consumed/marker && test -f {self.release_dir}/.consumed/plaintext-cleaned && test ! -e /opt/sub2api/releases/.active-release && grep -Fxq 'candidate_image_id={self.image_id}' {self.release_dir}/.consumed/marker && test $(docker inspect -f '{{{{.Image}}}}' sub2api) = {self.image_id} && test $(systemctl is-enabled sub2api-backup.timer) = enabled && printf 'gate_consumed=true\\n'",
+                f"test -f {self.release_dir}/.consumed/marker && test -f {self.release_dir}/.consumed/plaintext-cleaned && test ! -e /opt/sub2api/releases/.active-release && grep -Fxq 'candidate_image_id={self.image_id}' {self.release_dir}/.consumed/marker && test $(docker inspect -f '{{{{.Image}}}}' sub2api) = {self.image_id} && test $(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api) = healthy && test $(systemctl is-enabled sub2api-backup.timer) = enabled && printf 'gate_consumed=true\\n'",
                 {"gate_consumed"},
             )
         except BaseException:
@@ -334,7 +334,7 @@ class ProductionRelease:
         try:
             values = self.run_remote(
                 "racknerd",
-                f"test -d {self.release_dir}/.claimed && test -f /opt/sub2api/releases/.active-release/release_id && grep -Fxq 'release_id={self.release_id}' /opt/sub2api/releases/.active-release/release_id && printf 'gate_claimed=true\\n'",
+                f"if test -d /opt/sub2api/releases/.active-release && test ! -L /opt/sub2api/releases/.active-release && test -f /opt/sub2api/releases/.active-release/release_id && test -f /opt/sub2api/releases/.active-release/gate.json && grep -Fxq 'release_id={self.release_id}' /opt/sub2api/releases/.active-release/release_id; then printf 'gate_claimed=true\\n'; else printf 'gate_claimed=false\\n'; fi",
                 {"gate_claimed"},
             )
         except BaseException:
@@ -345,7 +345,7 @@ class ProductionRelease:
         try:
             values = self.run_remote(
                 "racknerd",
-                "test -d /opt/sub2api/releases/.active-release && printf 'active_claim=true\\n'",
+                "if test -e /opt/sub2api/releases/.active-release || test -L /opt/sub2api/releases/.active-release; then printf 'active_claim=true\\n'; else printf 'active_claim=false\\n'; fi",
                 {"active_claim"},
             )
         except BaseException:

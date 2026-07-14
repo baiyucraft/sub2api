@@ -8,6 +8,6 @@ source /opt/sub2api/releases/.active-release/assets/context.sh
 find "$state_dir" -mindepth 1 -maxdepth 1 \
   ! -name recovery-point.age ! -name recovery-point.age.sha256 ! -name pre-image-id \
   -exec rm -rf -- {} +
-printf 'cleaned_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$release_dir/.claimed/plaintext-cleaned"
-chmod 400 "$release_dir/.claimed/plaintext-cleaned"
+printf 'cleaned_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$active_claim/plaintext-cleaned"
+chmod 400 "$active_claim/plaintext-cleaned"
 printf 'plaintext_state_removed=true\n'
