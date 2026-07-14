@@ -2,19 +2,32 @@
 
 BEGIN;
 
+LOCK TABLE upstream_configs IN SHARE ROW EXCLUSIVE MODE;
+
+DO $$
+DECLARE
+    target_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO target_count
+      FROM upstream_configs
+     WHERE deleted_at IS NULL
+       AND lower(trim(trailing '/' FROM site_url)) = 'https://www.codexapis.com';
+    IF target_count <> 1 THEN
+        RAISE EXCEPTION 'Dao calibration failed: expected exactly one config, found %', target_count;
+    END IF;
+END
+$$;
+
 WITH target AS (
     SELECT id
       FROM upstream_configs
      WHERE deleted_at IS NULL
        AND lower(trim(trailing '/' FROM site_url)) = 'https://www.codexapis.com'
      FOR UPDATE
-), guard AS (
-    SELECT CASE WHEN COUNT(*) = 1 THEN 1 ELSE 1 / 0 END AS ok
-      FROM target
 ), updated AS (
     UPDATE upstream_configs c
        SET name = '刀哥', updated_at = NOW()
-      FROM target, guard
+      FROM target
      WHERE c.id = target.id
        AND c.name IS DISTINCT FROM '刀哥'
     RETURNING c.id
