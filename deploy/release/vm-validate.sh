@@ -155,6 +155,7 @@ mark_stage migrate_candidate
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >/dev/null 2>&1
 mark_stage candidate_health
 docker run -d --name "$probe_app" --network "$probe_network" \
+  -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
   --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
   --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
   -v "$probe_dir:/app/data" "$candidate_image_id" >/dev/null
