@@ -14,6 +14,15 @@ plain="$backup_root/sub2api-$release_id-$timestamp.tar"
 encrypted="$plain.age"
 transport="sub2api-$timestamp.tar.age"
 redis_stopped=false
+redis_password=$(docker inspect sub2api-redis | jq -er '
+  ((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $args
+  | ($args | index("--requirepass")) as $index
+  | if $index != null and ($index + 1) < ($args | length)
+    then $args[$index + 1]
+    else ([ $args[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first)
+    end
+')
+[[ -n $redis_password ]]
 
 cleanup() {
   code=$?
@@ -45,7 +54,11 @@ docker exec sub2api-postgres pg_dump -U sub2api -d sub2api -Fc -Z 6 > "$work/dat
 docker exec sub2api-postgres pg_dumpall -U sub2api --globals-only > "$work/database/globals.sql"
 [[ -s $work/database/sub2api.dump ]]
 redis_command() {
-  docker exec sub2api-redis sh -lc 'export REDISCLI_AUTH="${REDIS_PASSWORD:-}"; exec redis-cli --no-auth-warning "$@"' sh "$@"
+  printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c '
+    IFS= read -r REDISCLI_AUTH
+    export REDISCLI_AUTH
+    exec redis-cli --no-auth-warning "$@"
+  ' sh "$@"
 }
 redis_command BGSAVE >/dev/null || true
 for _ in $(seq 1 120); do
