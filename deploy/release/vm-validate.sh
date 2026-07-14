@@ -36,6 +36,11 @@ flock -n 9
 install -d -m 700 "$state_dir" "$state_dir/backup" "$output_dir"
 install -m 400 "$manifest" "$state_dir/manifest.json"
 manifest="$state_dir/manifest.json"
+mark_stage() {
+  printf '%s\n' "$1" > "$state_dir/stage.tmp"
+  mv -T -- "$state_dir/stage.tmp" "$state_dir/stage"
+}
+mark_stage preflight
 
 cd "$source_dir"
 [[ -f .sub2api-deploy-worktree ]]
@@ -70,6 +75,7 @@ server_port=$(extract_config server port)
 free_before=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
 [[ $free_before -gt 2684354560 ]]
 export DOCKER_BUILDKIT=1
+mark_stage candidate_build
 docker build --network=host --progress=plain \
   --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
   --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.5-alpine \
@@ -85,6 +91,7 @@ free_after_build=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' |
 docker save "$candidate_image_id" | gzip -1 > "$state_dir/candidate.tar.gz"
 candidate_archive_sha=$(sha256sum "$state_dir/candidate.tar.gz" | awk '{print $1}')
 
+mark_stage focused_tests
 docker build --network=host --progress=plain --target backend-builder \
   --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
   --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.5-alpine \
@@ -171,6 +178,7 @@ on_failure() {
 }
 trap on_failure ERR INT TERM
 
+mark_stage development_backup
 docker stop sub2api-dev >/dev/null
 docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 6 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/backup/postgres.dump"
 [[ -s $state_dir/backup/postgres.dump ]]
@@ -196,8 +204,10 @@ printf '%s\n' "$old_image_ref" > "$state_dir/backup/old-image-ref"
 (cd "$state_dir/backup" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 
 restore_required=true
+mark_stage migrate_candidate
 docker rename sub2api-dev sub2api-dev-pre-release
 docker run --rm --network host -v "$data_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >/dev/null 2>&1
+mark_stage candidate_health
 docker run -d --name sub2api-dev --restart unless-stopped --network host \
   --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
   --health-interval 30s --health-timeout 10s --health-start-period 10s --health-retries 3 \
@@ -216,10 +226,12 @@ recorded_checksum=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POS
 integration_verified=true
 
 trap - ERR INT TERM
+mark_stage restore_development
 restore_vm || exit 125
 restore_required=false
 vm_restore_verified=true
 
+mark_stage gate_signing
 jq -n --slurpfile manifest "$manifest" \
   --arg candidate_image_id "$candidate_image_id" \
   --arg candidate_archive_sha256 "$candidate_archive_sha" \
@@ -234,6 +246,7 @@ sha256sum "$output_dir/gate.json" "$output_dir/gate.sig" "$output_dir/candidate.
 chmod 400 "$output_dir/gate.json" "$output_dir/gate.sig" "$output_dir/candidate.tar.gz" "$output_dir/SHA256SUMS"
 rm -rf "$state_dir/backup"
 rm -f "$state_dir/candidate.tar.gz"
+mark_stage verified
 printf 'gate_status=verified\n'
 printf 'candidate_image_id=%s\n' "$candidate_image_id"
 printf 'candidate_archive_sha256=%s\n' "$candidate_archive_sha"
