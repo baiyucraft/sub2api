@@ -44,7 +44,7 @@ jq -e '(.services.sub2api.network_mode == "host" and .services.sub2api.environme
 [[ $(systemctl is-active sub2api-backup.timer 2>/dev/null || true) != active ]]
 [[ $(systemctl is-enabled sub2api-backup.service 2>/dev/null || true) == masked* ]]
 [[ $(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true) == masked* ]]
-exec 9>/run/lock/sub2api-backup-release181.lock
+exec 9>/run/lock/sub2api-backup-global.lock
 flock -n 9
 redis_data_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' sub2api-redis)
 [[ -n $redis_data_dir && -d $redis_data_dir ]]

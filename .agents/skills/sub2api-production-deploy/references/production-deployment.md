@@ -33,6 +33,8 @@
 
 应用 candidate 构建、传输和验证期间，生产旧容器继续运行。
 
+已接入签名 Gate 的不兼容迁移不得手工拼接生产命令。使用仓库一键入口，并要求 Gate 未过期、未 claim/consume、VM validator 与发布资产 checksum 完全匹配；任一 SSH 回包不确定状态必须从远端 committed marker 重新核验，不能凭本地异常猜测是否执行。
+
 ## 运维资产变更
 
 `ops-readonly-assets` 只执行本地校验、review、提交推送和固定字段只读巡检。不得借该类别上传文件、控制服务或修改生产；无需应用镜像、Compose 备份或数据库恢复点。
