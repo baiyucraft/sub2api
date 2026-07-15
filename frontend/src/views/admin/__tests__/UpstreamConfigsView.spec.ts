@@ -339,14 +339,14 @@ describe('UpstreamConfigsView', () => {
         id: 1,
         name: 'GPT 稳定',
         platform: 'openai',
-        subscription_type: 'standard',
+        is_exclusive: false,
         status: 'active'
       },
       {
         id: 2,
         name: 'Claude 订阅',
         platform: 'anthropic',
-        subscription_type: 'subscription',
+        is_exclusive: true,
         status: 'inactive'
       }
     ])
@@ -1240,8 +1240,8 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="cost-groups-selected-summary"]').text()).toBe('admin.upstreamConfigs.settings.noGroupsSelected')
     expect(wrapper.text()).toContain('GPT 稳定')
     expect(wrapper.text()).toContain('Claude 订阅')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.settings.standard')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.settings.subscription')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.settings.public')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.settings.exclusive')
     expect(wrapper.findAll('[data-test="platform-badge"]').some((badge) => badge.attributes('data-platform') === 'openai')).toBe(true)
     expect(wrapper.findAll('[data-test="platform-badge"]').some((badge) => badge.attributes('data-platform') === 'anthropic')).toBe(true)
     expect(wrapper.text()).toContain('admin.upstreamConfigs.settings.inactiveGroup')

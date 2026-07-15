@@ -1176,6 +1176,7 @@
               </template>
               <template #option="{ option, selected }">
                 <div class="flex min-w-0 flex-1 items-center gap-2" :title="String(option.title || option.label)">
+                  <Icon v-if="selected" name="check" size="sm" class="shrink-0 text-primary-500" />
                   <span class="min-w-0 flex-1 truncate text-left">
                     {{ option.label }} <span class="text-xs text-gray-400">#{{ option.value }}</span>
                   </span>
@@ -1188,18 +1189,17 @@
                     v-if="!option.deleted"
                     :class="[
                       'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
-                      option.subscriptionType === 'subscription'
+                      option.isExclusive
                         ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
                         : 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-dark-300'
                     ]"
                   >
-                    {{ groupTypeLabel(option.subscriptionType) }}
+                    {{ groupTypeLabel(option.isExclusive) }}
                   </span>
                   <span
                     v-if="!option.deleted && option.status !== 'active'"
                     class="shrink-0 text-[10px] text-amber-600 dark:text-amber-400"
                   >{{ t('admin.upstreamConfigs.settings.inactiveGroup') }}</span>
-                  <Icon v-if="selected" name="check" size="sm" class="shrink-0 text-primary-500" />
                 </div>
               </template>
             </Select>
@@ -1367,7 +1367,7 @@ const costGroupOptions = computed<SelectOption[]>(() => {
     label: group.name,
     title: group.name,
     platform: group.platform,
-    subscriptionType: group.subscription_type,
+    isExclusive: group.is_exclusive,
     status: group.status
   }))
 
@@ -1622,10 +1622,10 @@ async function loadCostGroups() {
   }
 }
 
-function groupTypeLabel(subscriptionType: unknown) {
-  return subscriptionType === 'subscription'
-    ? t('admin.upstreamConfigs.settings.subscription')
-    : t('admin.upstreamConfigs.settings.standard')
+function groupTypeLabel(isExclusive: unknown) {
+  return isExclusive
+    ? t('admin.upstreamConfigs.settings.exclusive')
+    : t('admin.upstreamConfigs.settings.public')
 }
 
 onUnmounted(() => {
