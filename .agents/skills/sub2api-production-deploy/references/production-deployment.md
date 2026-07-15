@@ -70,15 +70,35 @@
 
 旧的 `backups/latest` 工作流已经废弃，不能重新引入。DMIT 不参与备份。
 
+## 生产迁移前置校验
+
+VM migration 通过不代表生产数据满足迁移合同。对不兼容 migration，生产停写后必须先执行只读 preflight，生成脱敏的 migration plan checksum，并核对：
+
+- affected row、expected recomputed/preserved/skipped row 数量；
+- `unproven_count=0`、`conflict_count=0`、`unexpected_count=0`；
+- 关键外键/绑定完整性、历史数据不变量和 scheduler outbox 预期；
+- 每个历史转换值都有可证明来源。以 `187` 为例，历史余额使用同一 `sync_run_id` 的 `upstream_key_rate_snapshots.recharge_rate` 作为证据；没有证据必须失败，不能使用当前配置值猜测。
+
+执行顺序固定为：
+
+```text
+停写 -> 生产 preflight -> migration plan checksum -> recovery point
+     -> 再次确认无写入 -> migration -> postflight 语义校验 -> 启动 candidate
+```
+
+preflight 或 postflight 任一不通过，禁止部分迁移和继续启动；必须恢复到迁移前 recovery point。
+
 ### Incompatible migration
 
 不兼容 migration 必须：
 
 - 停止生产应用并确认 `writes_frozen=true`。
+- 在执行 migration 前完成上一节定义的生产数据 preflight，并保存 plan checksum。
 - 先建立协调的 PostgreSQL + Redis recovery point。
 - 只使用能证明“完成后应用仍保持停止”的维护备份入口。
 - 如果普通备份 service 会自动重启应用，使用受控等价流程完成创建、加密、上传和校验，排除 restart step。
 - 完成后再次确认应用仍停止、没有业务写入恢复。
+- migration 完成后执行 postflight，核对实际受影响行、关联完整性、边界约束和事件/outbox 数量。
 - 无法证明 no-restart 路径时停止发布。
 
 不允许先让普通备份服务自动启动旧应用，再事后重新停机。
@@ -128,6 +148,22 @@
 只通过 direct 而未通过 DMIT，不能报告“生产完全健康”。
 
 ## 回滚
+
+### Compose 恢复前置检查
+
+回滚前必须记录基础 Compose checksum、`docker-compose.release-active.yml` checksum 或 absent、缺失标记、`.env` 的 `COMPOSE_FILE` 状态和渲染 checksum。恢复顺序固定为：
+
+```text
+恢复 .env 与 Compose 文件集合
+  -> 清除不在恢复点内的残留 override
+  -> 显式设置 COMPOSE_FILE
+  -> docker compose config --format json
+  -> 校验渲染 image ID、挂载、端口和关键环境摘要
+  -> 仅 recreate sub2api
+  -> 双链路验收
+```
+
+SSH 中断或脚本报错时，先从远端重新读取 committed marker、`.env` 的 `COMPOSE_FILE`、override 状态、渲染 checksum 和当前容器 image；不能只依据退出码判断恢复结果。
 
 ### 无 migration
 

@@ -38,6 +38,9 @@ python deploy/release.py bootstrap-trust
 `deploy/release/trust/vm-gate-ed25519.pub`。提交最终代码后再次执行 bootstrap，
 只有仓库、VM 和 RackNerd 三方公钥完全一致才会完成安装。
 
+`bootstrap-trust` 只用于首次建立或经人工确认的信任根轮换。日常
+`bootstrap-production` 和 `deploy` 必须使用已有 signer 私钥、公钥和 validator，不能创建、替换或自动修复它们；validator 更新后必须重新生成 Gate，旧 Gate 失效。
+
 生产 bootstrap 不得创建或替换信任根，也不得修改 systemd。它只创建缺失的发布状态
 目录和固定 Canary 文件，并核验信任根、Canary 与数据库、备份全局锁；已有资产内容
 不一致时必须停止。
@@ -54,6 +57,10 @@ python deploy/release.py bootstrap-trust
 SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常猜测执行结果。RackNerd
 只验 direct，DMIT 必须从异地节点验；Redis `--requirepass` 只通过 stdin 传递。VM 空间
 不足时只允许发布白名单清理，禁止任何 prune、删除 volume 或触碰数据库、Redis、data 和备份。
+
+`migration_started` 只表示尝试开始；只有 `migration-committed` marker 与数据库迁移记录、目标 checksum 同时吻合才算提交。SSH 超时、迁移容器存在或本地布尔值异常都不能直接选择恢复分支。
+
+恢复不是只替换一个 Compose 文件：必须恢复 `.env` 与 `COMPOSE_FILE` 引用的完整 Compose 文件集合，显式渲染 `docker compose config --format json` 并核对 image ID、挂载、端口和关键环境摘要。override 状态不明时停止，不能先启动旧应用再判断。
 
 完整故障映射和恢复决策见
 `.agents/skills/sub2api-production-deploy/references/release-doctor-and-recovery.md`。

@@ -112,6 +112,9 @@ python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status
 - `/opt/sub2api-deploy/data-dev` 存在且没有生产挂载。
 - 没有 RackNerd 地址、生产 DSN 或生产 SSH 隧道端口。
 - Docker Root Dir 在构建/导入前后满足空间门禁。
+- 同时检查 Docker Root Dir、containerd 根目录、`/tmp`、源码目录的 `df` 可用空间和 inode；按构建峰值而不是单一镜像大小判断。
+- 记录构建缓存、镜像、容器和临时 archive 的分类大小；`du` 和 `docker system df` 仅用于观察。
+- 记录 `vm_expansion_status=not_required|required|completed|failed`。扩盘后必须重新执行完整 `doctor`，不能续跑中断阶段。
 
 ## 发布前巡检
 
@@ -122,7 +125,7 @@ python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status
 3. 应用产物发布记录当前生产 `pre_switch_image_id` 和可用的 `older_fallback_image_id`；运维资产不伪造镜像字段。
 4. PostgreSQL、Redis、应用和入口 health。
 5. 备份 service/timer、远端 checksum 和空间。
-6. 需要 VM/image 的类别检查 Docker 空间：导入前至少 image size 加 `2 GiB`，导入后至少 `2 GiB`。
+6. 需要 VM/image 的类别检查 Docker Root Dir、containerd、`/tmp` 和源码文件系统的峰值空间、inode 和回滚预留；导入前后重新采集，不以 image size 加 `2 GiB` 作为唯一门禁。
 7. 当前状态均带本次 `checked_at`，旧快照不直接继承。
 
 ## 发布中巡检
@@ -184,4 +187,6 @@ candidate 已上传不等于 verified。
 - Nginx 检查 `underscores_in_headers on;`、SSE 不缓冲和长超时是否生效。
 - DMIT 检查 HAProxy PROXY v2 到 RackNerd `18443` 的连通性。
 - 生产、VM 和备份机磁盘检查都记录文件系统、总量、可用量和时间。
-- Docker cache 只观测大小和是否可复用；发布流程不主动 prune。
+- 同时记录 Docker Root Dir、containerd 根目录、`/tmp` 的总量、可用量、inode、清理前后 `df` 差值和扩盘状态。
+- Docker cache 只观测大小和是否可复用；Snap 共享块可能使缓存看似可回收但实际不释放，发布流程不主动 prune。
+- VM 扩盘必须保存分区表 checksum，确认分区连续后按“扩分区 -> `partprobe` -> 文件系统 resize -> `df` 复核”执行；任一步无法验证即停止。

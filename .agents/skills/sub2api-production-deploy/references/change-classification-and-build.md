@@ -137,6 +137,8 @@ VM 构建规则：
 - 若 profile 已接入 `deploy/release.py`，使用 `python deploy/release.py deploy --profile <profile> --commit <full SHA>`；候选只在 VM 构建，RackNerd 只验签、导入和核对 image ID。
 - RackNerd 不得重新构建同一个候选。
 - VM 空间或依赖无法安全满足时停止，不得退回 RackNerd 未验证构建。
+- 构建链在 VM 至少执行五次空间门禁：构建前、构建后、导出前、导入前、导入后；同时检查 Docker Root Dir、containerd、`/tmp` 和传输临时目录。
+- 构建峰值必须包含镜像层、解压空间、压缩归档、缓存增长、开发数据库恢复副本、migration 临时空间和旧镜像回滚预留。任一空间不足时停止，禁止自动重建或改到 RackNerd 构建。
 
 ## 开发门禁改动
 
@@ -213,6 +215,8 @@ sub2api:baiyu-<base-version>-<full-commit-sha>
 1. 按 image ID 执行 `docker save`，不能依赖浮动 tag。
 2. 对准确的 gzip 压缩字节计算 SHA-256。
 3. 目标端校验传输 SHA-256。
+
+传输前后还要核验临时归档所在文件系统和 Docker/containerd 空间；不得把 Docker Root Dir 的可用量当作 `/tmp` 或 containerd 空间的替代证明。
 4. 捕获 `docker load` 后的 loaded image ID。
 5. 断言 loaded ID 等于 `candidate_image_id`。
 6. 在目标端显式执行 `docker tag <candidate_image_id> <full-sha-tag>`。

@@ -23,6 +23,8 @@
 - `.env`、Compose、`data/config.yaml`、模型价格文件、Nginx/证书配置和恢复 manifest。
 - 应用 commit、不可变 image ID、镜像版本和所有 SHA-256。
 
+Compose 备份必须保存完整的文件引用闭包：基础 Compose、`.env` 中 `COMPOSE_FILE` 引用的所有 override（包括存在时的 `docker-compose.release-active.yml`）、`include`、`env_file`、本地 config/secret 引用、路径映射、override 缺失标记、选择状态摘要和渲染后的 config checksum。不能只备份一个基础 Compose 文件。
+
 备份成功只表示 artifact 已生成并复制；只有在隔离环境中真实恢复 PostgreSQL 和 Redis，才能把版本基线标为 `verified`。
 
 ## 三机分工
@@ -97,6 +99,23 @@ DMIT
 7. 无法证明 no-restart 路径时停止发布，不得用普通 service 碰运气。
 
 回滚必须同时恢复 PostgreSQL、Redis、配置和 `pre_switch_image_id`，禁止只回退 Compose。
+
+### Compose 恢复合同
+
+恢复启动前必须在临时目录恢复 `.env` 和完整 Compose 文件集合，不继承宿主机的 `COMPOSE_FILE`，也不依赖部署目录残留文件。显式渲染：
+
+```text
+docker compose -f docker-compose.yml [-f docker-compose.release-active.yml] config --format json
+```
+
+必须满足：
+
+1. `COMPOSE_FILE`、override 存在/缺失状态和恢复点摘要一致。
+2. override 不存在时有经过校验的 `no-release-active-override` 标记。
+3. 渲染后的 `sub2api` image、volumes、ports、network 和关键环境摘要与恢复点一致。
+4. Compose 渲染 image、`docker inspect` 运行 image 和恢复点 image 三者一致。
+
+`.env` 恢复后不得无条件删除它引用的 override；状态不明时停止，不得先启动后判断。
 
 ## 受限接收与原子晋升
 
