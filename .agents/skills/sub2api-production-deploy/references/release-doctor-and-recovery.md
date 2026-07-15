@@ -15,6 +15,32 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 - `deploy` 是日常一键入口：先检查本地、VM 与外部节点，幂等 bootstrap RackNerd 后再检查 RackNerd，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。
 - 信任根首次安装仍单独使用 `bootstrap-trust`，人工核验公钥指纹；普通 bootstrap 和 deploy 不得创建或替换信任根。
 
+## 长时间无输出诊断
+
+`release.py` 的父进程和远程子阶段可能因 Python 或管道缓冲而长时间不刷新控制台。无新输出不等于卡死，也不授权重复执行、删除锁文件或手工进入生产阶段。
+
+诊断顺序固定为：
+
+1. 确认原 `release.py deploy` 进程仍存在；只读取进程名、PID、父 PID 和 Python 模块名，不输出完整命令行。
+2. 只读检查最新且 commit/profile 匹配的 `.tmp/releases/<release-id>/`，不得仅按目录时间猜测其他发布。
+3. 从以下 JSON 仅投影白名单字段，不原样输出文件：
+   - `state.json`：VM Gate 状态；`stage=vm_validate,status=verified` 只证明 VM Gate 完成。
+   - `release-state.json`：本地编排状态；`stage=production_release,status=running` 表示已进入生产 runner，不表示已切换成功。
+   - `gate/production-result.json`：生产阶段事实；按 `history[].stage` 判断 `stage_assets`、`production_preflight`、`freeze`、`backup`、`migration_and_switch` 和最终验收。`history[]` 只表示阶段推进，最终结论读取顶层 `stage/status`。
+4. 子进程为 `release.vm_validate` 时，只能报告 VM Gate 进行中；子进程为 `release.production` 时，只能报告生产 runner 进行中。具体是否停写、迁移或公开流量必须由 `production-result.json` 的阶段证据确认。
+5. 状态文件持续推进时继续等待原进程。只有进程退出、状态明确失败，或状态长时间不推进且远端 committed marker 已复核后，才进入恢复决策。
+
+成功判定必须同时满足：
+
+```text
+入口输出 release=verified
+  + state.json: vm_validate / verified
+  + production-result.json: production_verified / verified
+  + production running_image_id == signed candidate_image_id
+```
+
+进程退出码 `0`、VM Gate `verified`、健康接口单独返回 `200`，均不能独立证明生产发布完成。诊断期间禁止再次运行 `deploy`；`.release.lock` 是否存在不代表是否持锁。
+
 ## 故障预检表
 
 | 症状 | 根因 | doctor 字段或检查 | 处理 |
