@@ -85,12 +85,35 @@ production_address_absent: pass | fail | not_checked
 dev_db_dump_id:
 dev_db_dump_sha256:
 old_dev_image_id:
+vm_free_before_bytes:
+vm_free_after_bytes:
+vm_peak_required_bytes:
+vm_capacity_plan_status: pass | fail | not_checked
+vm_expansion_status: not_required | required | completed | failed | not_checked
+vm_filesystem_status: pass | fail | not_checked
+vm_docker_root_status: pass | fail | not_checked
+vm_containerd_root_status: pass | fail | not_checked
+vm_tmp_status: pass | fail | not_checked
 migration_checksum_status: pass | fail | not_checked
+migration_data_plan_sha256:
+migration_preflight_status: pass | fail | not_checked
+migration_postflight_status: pass | fail | not_checked
+migration_affected_rows:
+migration_unproven_rows:
+migration_conflict_rows:
+migration_unexpected_rows:
+migration_semantic_invariants_status: pass | fail | not_checked
 container_health: pass | fail | not_checked
 auth_status: pass | fail | not_checked
 changed_endpoint_status: pass | fail | not_checked
 background_job_status: pass | fail | not_checked
 log_gate_status: pass | fail | not_checked
+signer_identity_status: pass | fail | not_checked
+repo_trust_key_sha256:
+vm_signer_public_key_sha256:
+racknerd_trust_key_sha256:
+vm_validator_sha256:
+gate_signer_binding_status: pass | fail | not_checked
 ```
 
 禁止填写数据库值、DSN、token、密码或完整日志。
@@ -118,6 +141,13 @@ no_restart_path_proven: true | false | not_applicable | unknown
 ```text
 compose_backup_path: value | not_applicable
 compose_backup_sha256: value | not_applicable
+compose_base_sha256:
+compose_override_status: present | absent | ambiguous | not_applicable
+compose_absence_marker_status: pass | fail | not_applicable | not_checked
+compose_file_selection_status: pass | fail | not_applicable | not_checked
+rendered_compose_sha256:
+rendered_compose_image_id:
+compose_restore_contract_status: pass | fail | not_applicable | not_checked
 running_image_after_switch: value | not_applicable
 application_health: pass | fail | not_checked
 racknerd_direct_health: pass | fail | not_checked
@@ -130,6 +160,9 @@ real_client_ip_proxy_v2: pass | fail | not_checked
 two_mib_request: pass | fail | not_checked
 startup_log_gate: pass | fail | not_checked
 frontend_browser_smoke: pass | fail | not_required | not_checked
+failure_stage: value | none
+migration_committed: true | false | unknown | not_applicable
+recovery_branch: resume-old | coordinated-data-restore | blocked-reconciliation | not_applicable
 ```
 
 如果 direct 通过但 DMIT 未通过，整体不能写 `success`。

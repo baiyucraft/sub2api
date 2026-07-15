@@ -109,6 +109,12 @@ freshness: fresh | stale | unknown
 | RackNerd | `2026-07-14T05:00:13Z` | 固定白名单 PySocks + Paramiko SSH 检查 | `stale` | 应用 running/healthy；内部 health 200；Nginx active；备份 timer active/enabled；service inactive | `healthy` | 使用原始 RackNerd host key 校验；新任务仍须重新采集 |
 | 47.85.205.94 | `2026-07-12T11:05:41Z` | SSH allowlist：artifact 元数据、端口、磁盘、容器摘要 | `stale` | 可读取近期 `.age` 与 `.sha256` artifact；磁盘约 64% 使用 | `degraded` | 本次未做完整 PG/Redis 恢复演练，也未记录外部告警 URL |
 
+## VM 存储与扩盘边界
+
+VM 磁盘、根分区、文件系统和 Docker/containerd 所在位置以现场重新采集为准，本文不固化容量。最近一次发布曾完成宿主机扩容并在 VM 内在线扩展最后分区和文件系统；该结果只作为历史事实，不能替代本次 `doctor` 的空间检查。
+
+扩盘职责边界：宿主机/虚拟化平台负责增加磁盘容量，VM 内负责确认空闲空间连续、保存分区表 checksum、扩展分区、执行 `partprobe` 和文件系统 resize。完成后必须重新检查 Docker Root Dir、containerd、`/tmp`、inode 和回滚预留，并从 `doctor` 重新开始，不得续跑中断的发布阶段。
+
 ## 状态时效规则
 
 1. 文档中的设计态可以长期引用；观测态必须有 `checked_at`。

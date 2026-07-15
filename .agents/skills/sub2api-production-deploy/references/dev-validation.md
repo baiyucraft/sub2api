@@ -5,6 +5,7 @@
 - [适用范围](#适用范围)
 - [VM 边界](#vm-边界)
 - [进入 VM 前](#进入-vm-前)
+- [VM 空间与扩容](#vm-空间与扩容)
 - [连接隔离门禁](#连接隔离门禁)
 - [数据库保护](#数据库保护)
 - [候选启动](#候选启动)
@@ -32,14 +33,24 @@
 ## 进入 VM 前
 
 1. 根据 [change-classification-and-build.md](change-classification-and-build.md) 确定镜像来源和 `candidate_image_id`。
-2. 读取 VM Docker Root Dir 和可用空间。
-3. 导入前要求可用空间至少为镜像 inspect size 加 `2 GiB`。
-4. 如使用 `/tmp` 中间文件，单独检查该文件系统的空间。
+2. 读取 VM Docker Root Dir、containerd 根目录、源码目录和 `/tmp` 的可用空间。
+3. 按候选镜像层、解压临时空间、归档文件、构建缓存、数据库恢复副本、migration 临时空间、回滚镜像预留和安全余量计算峰值，不只比较镜像大小加 `2 GiB`。
+4. 如使用中间文件，单独检查其所在文件系统和 inode；导入前后都要重新读取空间。
 5. 优先使用 `gzip -dc | docker load`，避免在 VM 留下完整压缩包。
-6. 导入后要求 Docker Root Dir 仍有至少 `2 GiB`。
+6. 导入后要求 Docker Root Dir、containerd 和临时目录仍满足本次峰值计划，并至少保留 `2 GiB` 安全余量。
 7. loaded image ID 必须等于构建端 `candidate_image_id`，之后才允许绑定 full-SHA tag。
 
-空间不足时停止。只允许清理过期 `/tmp` candidate 或经过引用检查的单个旧 Sub2API image；禁止 prune、删卷、删数据库、删 Redis、删 data 或删 backup。
+空间不足时停止。只允许清理过期 `/tmp` candidate 或经过引用检查的单个旧 Sub2API image；禁止 prune、删卷、删数据库、删 Redis、删 data 或删 backup。清理只能执行一次。
+
+## VM 空间与扩容
+
+- 清理前后以 `df` 的真实可用块为准记录释放量；`du` 只用于分类占用，不能推断可回收物理空间。
+- Snap 缓存可能与已安装 Snap 共享物理块；Docker `system df` 仅作观察，不是授权清理依据。
+- 需要扩盘时先保存 `sfdisk --dump` 及 checksum，确认目标分区是最后分区且空闲空间连续；不能在分区边界不明时操作。
+- 扩盘顺序固定为：扩展分区 -> `partprobe` -> 按文件系统执行 resize（本 VM 为 `resize2fs /dev/sda3`）-> 重新读取分区、文件系统和 `df`。
+- 内核无法重新读取分区，或文件系统增长未被验证时立即停止；不能继续构建、导入或恢复。
+- 扩盘完成后必须重新执行完整容量检查和 `doctor`，不能直接续跑中断的发布阶段。
+- 任何清理或扩容都不得触碰 Docker volume、PostgreSQL、Redis、`data-dev`、正式备份和当前验证容器。
 
 ## 连接隔离门禁
 
@@ -63,6 +74,8 @@
 3. 记录当前 dev image ID。
 4. 记录 migration 文件名和 checksum 集。
 5. 保留旧 dev image，直到验证和失败恢复都结束。
+
+对于会改写历史数据的 migration，VM 必须执行与生产相同的只读 preflight/postflight；测试数据必须覆盖无法证明来源的历史行。匿名 fixture 通过不代表生产数据满足迁移前置条件。
 
 若 migration 已经运行但验证失败：
 
@@ -117,6 +130,8 @@
 - VM 连接隔离断言失败。
 - 容器、health、auth、endpoint、后台任务或日志验证失败。
 - migration checksum 异常。
+- `space_before_build`、`space_after_build`、`space_before_import`、`space_after_import` 或 `space_before_restore` 任一不是 `pass`。
+- 迁移数据 preflight 存在 `unproven`、`conflict` 或 unexpected 行。
 - 旧 image 兼容性验证失败。
 - 无法证明回滚路径。
 
