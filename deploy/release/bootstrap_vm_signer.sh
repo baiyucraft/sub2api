@@ -12,7 +12,9 @@ public_key="$signer_dir/vm-gate-ed25519.pub"
 install -d -m 700 "$signer_dir"
 install -d -m 755 /usr/local/libexec
 install -o root -g root -m 700 "$validator_source" "$validator_target"
-if [[ ! -e $private_key && ! -e $public_key ]]; then
+if [[ ${REQUIRE_EXISTING_SIGNER_KEYS:-false} == true ]]; then
+  [[ -f $private_key && ! -L $private_key && -f $public_key && ! -L $public_key ]]
+elif [[ ! -e $private_key && ! -e $public_key ]]; then
   umask 077
   openssl genpkey -algorithm ED25519 -out "$private_key"
   openssl pkey -in "$private_key" -pubout -out "$public_key"

@@ -48,7 +48,12 @@ redis_dbsize=$(docker exec sub2api-redis sh -lc 'export REDISCLI_AUTH="${REDIS_P
 [[ $redis_dbsize == "$(<"$recovery/metadata/redis-dbsize.txt")" ]]
 cp -a "$recovery/config/app/.env" "$deploy_dir/.env"
 cp -a "$recovery/config/app/docker-compose.yml" "$deploy_dir/docker-compose.yml"
-rm -f "$deploy_dir/docker-compose.release-active.yml"
+if [[ -f $recovery/config/app/docker-compose.release-active.yml && ! -L $recovery/config/app/docker-compose.release-active.yml ]]; then
+  cp -a "$recovery/config/app/docker-compose.release-active.yml" "$deploy_dir/docker-compose.release-active.yml"
+else
+  [[ -f $recovery/config/app/no-release-active-override && ! -L $recovery/config/app/no-release-active-override ]]
+  rm -f "$deploy_dir/docker-compose.release-active.yml"
+fi
 find "$deploy_dir/data" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 cp -a "$recovery/config/app/data/." "$deploy_dir/data/"
 (cd "$deploy_dir/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$recovery/metadata/data-restored.sha256"
