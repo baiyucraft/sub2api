@@ -13,7 +13,12 @@ cd "$deploy_dir"
 docker rm -f sub2api >/dev/null 2>&1 || true
 install -m 600 "$state_dir/docker-compose.yml" "$deploy_dir/docker-compose.yml"
 install -m 600 "$state_dir/.env" "$deploy_dir/.env"
-rm -f "$deploy_dir/docker-compose.release-active.yml"
+if [[ -f $state_dir/docker-compose.release-active.yml && ! -L $state_dir/docker-compose.release-active.yml ]]; then
+  install -m 600 "$state_dir/docker-compose.release-active.yml" "$deploy_dir/docker-compose.release-active.yml"
+else
+  [[ -f $state_dir/no-release-active-override && ! -L $state_dir/no-release-active-override ]]
+  rm -f "$deploy_dir/docker-compose.release-active.yml"
+fi
 compose_image=$(docker compose config --format json | jq -r '.services.sub2api.image // empty')
 [[ -n $compose_image ]]
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$(<"$state_dir/pre-image-id")" ]]

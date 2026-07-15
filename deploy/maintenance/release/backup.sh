@@ -83,6 +83,12 @@ done
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
 install -m 600 "$deploy_dir/.env" "$work/config/app/.env"
 install -m 600 "$deploy_dir/docker-compose.yml" "$work/config/app/docker-compose.yml"
+if [[ -f $deploy_dir/docker-compose.release-active.yml && ! -L $deploy_dir/docker-compose.release-active.yml ]]; then
+  install -m 600 "$deploy_dir/docker-compose.release-active.yml" "$work/config/app/docker-compose.release-active.yml"
+else
+  : > "$work/config/app/no-release-active-override"
+  chmod 600 "$work/config/app/no-release-active-override"
+fi
 cp -a "$deploy_dir/data" "$work/config/app/data"
 (cd "$work/config/app/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum > "$work/metadata/data.sha256")
 nginx -T > "$work/config/nginx/nginx-T.txt" 2>&1

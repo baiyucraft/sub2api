@@ -17,6 +17,8 @@ func TestUpstreamActualBalanceMigrationContract(t *testing.T) {
 	require.Contains(t, sql, "broken recharge-rate event chain")
 	require.Contains(t, sql, "jsonb_strip_nulls")
 	require.Contains(t, sql, "historical recharge rate cannot be proven")
+	require.Contains(t, sql, "k.sync_run_id = s.sync_run_id")
+	require.Contains(t, sql, "inconsistent recharge rates within sync runs")
 	require.Contains(t, sql, "balance_formula_version', '') <> '2'")
 	require.Contains(t, sql, "upstream_cost_included_group_ids")
 	require.Contains(t, sql, "jsonb_agg(g.id ORDER BY g.id)")
