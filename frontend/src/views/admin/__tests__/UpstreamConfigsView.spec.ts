@@ -10,7 +10,7 @@ const {
   listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock,
   getSettingsMock, updateSettingsMock, listSyncRunsMock, getSyncRunMock, listEventsMock,
   listIncidentsMock, listBalanceHistoryMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock,
-  listKeyRateTrendKeysMock, getKeyRateTrendMock, listKeysMock, updateKeyPlatformMock
+  listKeyRateTrendKeysMock, getKeyRateTrendMock, listKeysMock, updateKeyPlatformMock, groupsMock
 } = vi.hoisted(() => ({
   listMock: vi.fn(),
   createMock: vi.fn(),
@@ -31,6 +31,7 @@ const {
   getKeyRateTrendMock: vi.fn(),
   listKeysMock: vi.fn(),
   updateKeyPlatformMock: vi.fn(),
+  groupsMock: vi.fn(),
   proxiesMock: vi.fn(),
   showErrorMock: vi.fn(),
   showSuccessMock: vi.fn()
@@ -64,6 +65,9 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     proxies: {
       getAllWithCount: proxiesMock
+    },
+    groups: {
+      getAllIncludingInactive: groupsMock
     }
   }
 }))
@@ -149,19 +153,24 @@ const PaginationStub = defineComponent({
 })
 
 const SelectStub = defineComponent({
-  props: ['modelValue', 'options'],
+  props: ['modelValue', 'options', 'multiple'],
   emits: ['update:modelValue', 'change'],
   template: `
     <div>
-      <slot name="selected" :option="options.find((option) => option.value === modelValue) || null" />
+      <slot
+        name="selected"
+        :option="options.find((option) => option.value === modelValue) || null"
+        :options="multiple ? options.filter((option) => (modelValue || []).includes(option.value)) : []"
+      />
       <select
+        :multiple="multiple"
         :value="modelValue"
-        @change="$emit('update:modelValue', $event.target.value); $emit('change', $event.target.value, null)"
+        @change="$emit('update:modelValue', multiple ? Array.from($event.target.selectedOptions).map((option) => Number(option.value)) : $event.target.value); $emit('change', multiple ? Array.from($event.target.selectedOptions).map((option) => Number(option.value)) : $event.target.value, null)"
       >
-        <option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}</option>
+        <option v-for="option in options" :key="option.value" :value="option.value" :selected="multiple && modelValue?.includes(option.value)">{{ option.label }}</option>
       </select>
       <div v-for="option in options" :key="'slot-' + option.value" data-test="select-option-slot">
-        <slot name="option" :option="option" :selected="option.value === modelValue" />
+        <slot name="option" :option="option" :selected="multiple ? modelValue?.includes(option.value) : option.value === modelValue" />
       </div>
     </div>
   `
@@ -311,6 +320,7 @@ describe('UpstreamConfigsView', () => {
     getKeyRateTrendMock.mockReset()
     listKeysMock.mockReset()
     updateKeyPlatformMock.mockReset()
+    groupsMock.mockReset()
     proxiesMock.mockReset()
     showErrorMock.mockReset()
     showSuccessMock.mockReset()
@@ -322,6 +332,22 @@ describe('UpstreamConfigsView', () => {
         protocol: 'http',
         host: '127.0.0.1',
         port: 7890
+      }
+    ])
+    groupsMock.mockResolvedValue([
+      {
+        id: 1,
+        name: 'GPT 稳定',
+        platform: 'openai',
+        subscription_type: 'standard',
+        status: 'active'
+      },
+      {
+        id: 2,
+        name: 'Claude 订阅',
+        platform: 'anthropic',
+        subscription_type: 'subscription',
+        status: 'inactive'
       }
     ])
     createMock.mockResolvedValue(upstreamConfig({ id: 11 }))
@@ -1200,6 +1226,50 @@ describe('UpstreamConfigsView', () => {
       cost_included_group_ids: []
     })
     expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.settingsSaved')
+  })
+
+  it('renders cost groups with platform and subscription type in a bounded multi-select', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-upstream-settings"]').trigger('click')
+    await flushPromises()
+
+    expect(groupsMock).toHaveBeenCalledOnce()
+    expect(wrapper.get('[data-test="cost-groups-select"] select').attributes('multiple')).toBeDefined()
+    expect(wrapper.get('[data-test="cost-groups-selected-summary"]').text()).toBe('admin.upstreamConfigs.settings.noGroupsSelected')
+    expect(wrapper.text()).toContain('GPT 稳定')
+    expect(wrapper.text()).toContain('Claude 订阅')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.settings.standard')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.settings.subscription')
+    expect(wrapper.findAll('[data-test="platform-badge"]').some((badge) => badge.attributes('data-platform') === 'openai')).toBe(true)
+    expect(wrapper.findAll('[data-test="platform-badge"]').some((badge) => badge.attributes('data-platform') === 'anthropic')).toBe(true)
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.settings.inactiveGroup')
+  })
+
+  it('keeps selected deleted cost group ids when saving', async () => {
+    getSettingsMock.mockResolvedValue({
+      balance_low_threshold_cny: 10,
+      sub2api_not_in_cn_confirmed: false,
+      cost_included_group_ids: [2, 99]
+    })
+    updateSettingsMock.mockResolvedValueOnce({
+      balance_low_threshold_cny: 10,
+      sub2api_not_in_cn_confirmed: false,
+      cost_included_group_ids: [2, 99]
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-upstream-settings"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="cost-groups-selected-summary"]').text()).toBe('admin.upstreamConfigs.settings.selectedGroups:{"count":2}')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.settings.deletedGroup')
+    await wrapper.get('[data-test="upstream-settings-form"]').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ cost_included_group_ids: [2, 99] }))
   })
 
   it('explicitly saves a false compliance declaration', async () => {

@@ -18,7 +18,7 @@
       @keydown.up.prevent="onTriggerKeyDown"
     >
       <span class="select-value">
-        <slot name="selected" :option="selectedOption">
+        <slot name="selected" :option="selectedOption" :options="selectedOptions">
           {{ selectedLabel }}
         </slot>
       </span>
@@ -53,6 +53,7 @@
           :class="[instanceId]"
           :style="dropdownStyle"
           role="listbox"
+          :aria-multiselectable="multiple || undefined"
           @click.stop
           @mousedown.stop
           @keydown="onDropdownKeyDown"
@@ -135,8 +136,9 @@ export interface SelectOption {
 }
 
 interface Props {
-  modelValue: string | number | boolean | null | undefined
+  modelValue: string | number | boolean | null | undefined | Array<string | number | boolean>
   options: SelectOption[] | Array<Record<string, unknown>>
+  multiple?: boolean
   placeholder?: string
   disabled?: boolean
   error?: boolean
@@ -151,12 +153,13 @@ interface Props {
 }
 
 interface Emits {
-  (e: 'update:modelValue', value: string | number | boolean | null): void
-  (e: 'change', value: string | number | boolean | null, option: SelectOption | null): void
+  (e: 'update:modelValue', value: any): void
+  (e: 'change', value: any, option: SelectOption | null): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
   disabled: false,
+  multiple: false,
   error: false,
   searchable: 'auto',
   creatable: false,
@@ -239,10 +242,19 @@ const isGroupHeaderOption = (option: any): boolean => {
 }
 
 const selectedOption = computed(() => {
+  if (props.multiple) return null
   return props.options.find((opt) => getOptionValue(opt) === props.modelValue) || null
 })
 
+const selectedOptions = computed(() => {
+  const values = props.multiple && Array.isArray(props.modelValue) ? props.modelValue : []
+  return props.options.filter((option) => values.includes(getOptionValue(option)))
+})
+
 const selectedLabel = computed(() => {
+  if (props.multiple) {
+    return selectedOptions.value.map((option) => getOptionLabel(option)).join(', ') || placeholderText.value
+  }
   if (selectedOption.value) {
     return getOptionLabel(selectedOption.value)
   }
@@ -254,7 +266,9 @@ const selectedLabel = computed(() => {
 })
 
 const hasValue = computed(
-  () => props.modelValue !== null && props.modelValue !== undefined && props.modelValue !== ''
+  () => props.multiple
+    ? Array.isArray(props.modelValue) && props.modelValue.length > 0
+    : props.modelValue !== null && props.modelValue !== undefined && props.modelValue !== ''
 )
 
 const filteredOptions = computed(() => {
@@ -279,7 +293,10 @@ const filteredOptions = computed(() => {
 })
 
 const isSelected = (option: any): boolean => {
-  return getOptionValue(option) === props.modelValue
+  const value = getOptionValue(option)
+  return props.multiple && Array.isArray(props.modelValue)
+    ? props.modelValue.includes(value)
+    : value === props.modelValue
 }
 
 const findNextEnabledIndex = (startIndex: number): number => {
@@ -367,6 +384,15 @@ watch(isOpen, (open) => {
 
 const selectOption = (option: any) => {
   const value = getOptionValue(option) ?? null
+  if (props.multiple) {
+    const current = Array.isArray(props.modelValue) ? [...props.modelValue] : []
+    const index = current.indexOf(value as string | number | boolean)
+    if (index >= 0) current.splice(index, 1)
+    else if (value !== null) current.push(value as string | number | boolean)
+    emit('update:modelValue', current)
+    emit('change', current, option)
+    return
+  }
   emit('update:modelValue', value)
   emit('change', value, option)
   isOpen.value = false
@@ -375,8 +401,9 @@ const selectOption = (option: any) => {
 
 const clearSelection = () => {
   if (props.disabled) return
-  emit('update:modelValue', null)
-  emit('change', null, null)
+  const value = props.multiple ? [] : null
+  emit('update:modelValue', value)
+  emit('change', value, null)
 }
 
 // Keyboards
@@ -501,6 +528,7 @@ onUnmounted(() => {
   @apply border border-gray-200 dark:border-dark-700;
   @apply shadow-lg shadow-black/10 dark:shadow-black/30;
   @apply overflow-hidden;
+  max-width: calc(100vw - 1rem);
   pointer-events: auto !important;
 }
 
@@ -517,12 +545,14 @@ onUnmounted(() => {
 }
 
 .select-dropdown-portal .select-options {
-  @apply max-h-80 overflow-y-auto py-1 outline-none;
+  @apply overflow-y-auto py-1 outline-none;
+  max-height: min(20rem, calc(100vh - 12rem));
 }
 
 .select-dropdown-portal .select-option {
   @apply flex items-center justify-between gap-2;
   @apply px-4 py-2.5 text-sm;
+  min-width: 0;
   @apply text-gray-700 dark:text-gray-300;
   @apply cursor-pointer transition-colors duration-150;
   @apply hover:bg-gray-50 dark:hover:bg-dark-700;
