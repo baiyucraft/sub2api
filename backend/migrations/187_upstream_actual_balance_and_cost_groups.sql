@@ -70,6 +70,18 @@ BEGIN
         END IF;
     END IF;
 
+    SELECT COUNT(*) INTO invalid_count
+      FROM (
+          SELECT upstream_config_id, sync_run_id
+            FROM upstream_key_rate_snapshots
+           WHERE sync_run_id IS NOT NULL
+           GROUP BY upstream_config_id, sync_run_id
+          HAVING COUNT(DISTINCT recharge_rate) <> 1
+      ) inconsistent_runs;
+    IF invalid_count <> 0 THEN
+        RAISE EXCEPTION 'migration 187: inconsistent recharge rates within sync runs: %', invalid_count;
+    END IF;
+
     UPDATE upstream_balance_snapshots s
        SET recharge_rate = COALESCE(
                (
@@ -88,6 +100,15 @@ BEGIN
                       AND e.event_type = 'recharge_rate_changed'
                       AND e.occurred_at > s.observed_at
                     ORDER BY e.occurred_at ASC, e.id ASC
+                    LIMIT 1
+               ),
+               (
+                   SELECT k.recharge_rate
+                     FROM upstream_key_rate_snapshots k
+                    WHERE k.upstream_config_id = s.upstream_config_id
+                      AND k.sync_run_id = s.sync_run_id
+                      AND s.sync_run_id IS NOT NULL
+                    ORDER BY k.id
                     LIMIT 1
                ),
                (

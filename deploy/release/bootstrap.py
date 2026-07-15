@@ -31,15 +31,19 @@ def install_vm_validator(runner: SSHRunner) -> None:
     )
     remote_dir = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "validator")
     remote_validator = f"{remote_dir}/validator"
+    remote_bootstrap = f"{remote_dir}/bootstrap"
     runner.upload_file("local_vm", VALIDATOR, remote_validator, 0o700)
+    runner.upload_file("local_vm", BOOTSTRAP, remote_bootstrap, 0o700)
     try:
         values = runner.run(
             "local_vm",
-            f"install -d -m 755 /usr/local/libexec && install -o root -g root -m 700 {remote_validator} /usr/local/libexec/sub2api-vm-validate && printf 'validator_sha256=%s\\n' $(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}')",
-            {"validator_sha256"},
+            f"REQUIRE_EXISTING_SIGNER_KEYS=true VALIDATOR_SOURCE={remote_validator} {remote_bootstrap}",
+            {"signer_status", "public_key_sha256", "validator_sha256"},
         ).values
         if values["validator_sha256"] != sha256_file(VALIDATOR):
             raise RuntimeError("installed VM validator checksum differs")
+        if values["public_key_sha256"] != sha256_file(TRUSTED_KEY):
+            raise RuntimeError("VM signer public key differs from repository trust key")
     finally:
         runner.run("local_vm", f"rm -rf {remote_dir} && printf 'cleanup=true\\n'", {"cleanup"})
 
