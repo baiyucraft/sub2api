@@ -26,7 +26,7 @@ PROFILES = {
     "187": {
         "name": "187",
         "origin": "https://github.com/baiyucraft/sub2api.git",
-        "version": "0.1.155-baiyu",
+        "version": "0.1.156-baiyu",
         "migrations": [
             "182_upstream_actual_rate_multiplier.sql",
             "183_add_usage_log_long_context_billing.sql",
