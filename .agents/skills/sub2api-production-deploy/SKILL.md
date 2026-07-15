@@ -17,6 +17,10 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 只有最终 diff 严格限定在 `frontend/`，且只包含 UI、样式、静态资源或前端测试时，才允许跳过 VM 门禁。
 - 所有会生成或切换应用产物的类别都走仓库根 `Dockerfile` 的完整后端发布流水线；只有严格的 `ops-readonly-assets` 或 `ops-control-assets` 可以按分类规则不构建应用镜像。
 - 禁止 `docker system prune`、`docker builder prune`、删除卷、数据库、Redis、`data` 或备份目录。
+- VM 空间必须按 Docker/containerd、`/tmp`、源码、构建/恢复副本和回滚预留计算峰值；清理最多一次，不能用 `du` 或 Snap 缓存推断可回收空间。
+- VM 扩盘后必须完成分区、`partprobe`、文件系统 resize 和完整 `df`/inode 复核，并重新执行 `doctor`；不能续跑中断阶段。
+- signer 公钥、私钥派生公钥、production-node trust key、validator 和 Gate 中记录的 checksum 任一不一致，必须停止，不得通过 bootstrap 自动修复后继续发布。
+- validator 与 signer helper 必须作为同一版本单元暂存、验签自测后一次激活；不得单独升级其中一个，也不得在 Compose 闭包未验证前删除旧容器或恢复数据库。
 - 任何备份、checksum、image ID、迁移、磁盘、健康、认证或空间断言失败，立即停止并报告。
 
 ## 当前链路摘要
@@ -73,6 +77,8 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 7. 适用的应用发布在生产通过后处理版本基线：`candidate -> 实际 PostgreSQL/Redis 隔离恢复 -> verified`。`ops-readonly-assets` 和不涉及应用/恢复点的 `ops-control-assets` 明确记录 `not_applicable`。
 8. 按 [final-report.md](references/final-report.md) 输出脱敏结果；基线失败时只能报告 `partial`。
 
+不兼容 migration 还必须在生产停写后完成数据 preflight、migration plan checksum 和 postflight 语义校验。VM fixture 通过不能替代生产数据证据；没有可证明来源的历史行必须停止。
+
 ## production-node 一键发布入口
 
 对于已经提供 `deploy/release.py` profile 的 `build-chain + incompatible migration`，正式入口固定为：
@@ -91,6 +97,8 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 
 - production-node `/opt/sub2api/releases/.active-release`
 - release 目录中的 `.consumed` 或 `.recovered`
+
+`migration_started`、迁移容器存在或 SSH 异常都不能证明迁移已提交；只能以远端 committed marker 与数据库 migration 记录共同确认。恢复时不得继承调用者的 `COMPOSE_FILE`、`COMPOSE_PROFILES` 等环境覆盖。
 
 本地 `.tmp/releases/.release.lock` 使用操作系统文件锁，锁文件可长期存在；只有实际持锁进程阻止并发发布。
 
