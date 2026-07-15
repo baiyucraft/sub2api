@@ -1158,23 +1158,51 @@
               <span class="input-label">{{ t('admin.upstreamConfigs.settings.costGroups') }}</span>
               <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.settings.costGroupsHint') }}</span>
             </div>
-            <div class="grid gap-2 sm:grid-cols-2">
-              <label
-                v-for="group in costGroups"
-                :key="group.id"
-                class="flex cursor-pointer items-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm dark:border-dark-700"
-              >
-                <input
-                  v-model="settingsForm.cost_included_group_ids"
-                  type="checkbox"
-                  :value="group.id"
-                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
-                />
-                <span class="min-w-0 truncate">{{ group.name }} <span class="text-xs text-gray-400">#{{ group.id }}</span></span>
-                <span v-if="group.status !== 'active'" class="ml-auto text-xs text-amber-600">{{ t('admin.upstreamConfigs.settings.inactiveGroup') }}</span>
-              </label>
-            </div>
-            <div v-if="costGroups.length === 0" class="text-sm text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.settings.noGroups') }}</div>
+            <Select
+              v-model="settingsForm.cost_included_group_ids"
+              :options="costGroupOptions"
+              multiple
+              searchable
+              :placeholder="t('admin.upstreamConfigs.settings.noGroupsSelected')"
+              :empty-text="t('admin.upstreamConfigs.settings.noGroups')"
+              data-test="cost-groups-select"
+            >
+              <template #selected>
+                <span data-test="cost-groups-selected-summary">
+                  {{ settingsForm.cost_included_group_ids?.length
+                    ? t('admin.upstreamConfigs.settings.selectedGroups', { count: settingsForm.cost_included_group_ids.length })
+                    : t('admin.upstreamConfigs.settings.noGroupsSelected') }}
+                </span>
+              </template>
+              <template #option="{ option, selected }">
+                <div class="flex min-w-0 flex-1 items-center gap-2" :title="String(option.title || option.label)">
+                  <span class="min-w-0 flex-1 truncate text-left">
+                    {{ option.label }} <span class="text-xs text-gray-400">#{{ option.value }}</span>
+                  </span>
+                  <PlatformBadge
+                    v-if="option.platform"
+                    :platform="String(option.platform)"
+                    class="shrink-0"
+                  />
+                  <span
+                    v-if="!option.deleted"
+                    :class="[
+                      'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
+                      option.subscriptionType === 'subscription'
+                        ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+                        : 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-dark-300'
+                    ]"
+                  >
+                    {{ groupTypeLabel(option.subscriptionType) }}
+                  </span>
+                  <span
+                    v-if="!option.deleted && option.status !== 'active'"
+                    class="shrink-0 text-[10px] text-amber-600 dark:text-amber-400"
+                  >{{ t('admin.upstreamConfigs.settings.inactiveGroup') }}</span>
+                  <Icon v-if="selected" name="check" size="sm" class="shrink-0 text-primary-500" />
+                </div>
+              </template>
+            </Select>
           </div>
           <div class="flex justify-end">
             <button type="submit" class="btn btn-primary" :disabled="settingsSaving">
@@ -1332,6 +1360,29 @@ const keyRateTrend = ref<UpstreamKeyRateTrend | null>(null)
 const upstreamSettings = ref<UpstreamSettings>({ balance_low_threshold_cny: 0, sub2api_not_in_cn_confirmed: false, cost_included_group_ids: [] })
 const settingsForm = reactive<UpstreamSettings>({ balance_low_threshold_cny: 0, sub2api_not_in_cn_confirmed: false, cost_included_group_ids: [] })
 const costGroups = ref<AdminGroup[]>([])
+const costGroupOptions = computed<SelectOption[]>(() => {
+  const knownIds = new Set(costGroups.value.map((group) => group.id))
+  const options: SelectOption[] = costGroups.value.map((group) => ({
+    value: group.id,
+    label: group.name,
+    title: group.name,
+    platform: group.platform,
+    subscriptionType: group.subscription_type,
+    status: group.status
+  }))
+
+  for (const groupId of settingsForm.cost_included_group_ids || []) {
+    if (knownIds.has(groupId)) continue
+    options.push({
+      value: groupId,
+      label: t('admin.upstreamConfigs.settings.deletedGroup'),
+      title: `${t('admin.upstreamConfigs.settings.deletedGroup')} #${groupId}`,
+      deleted: true
+    })
+  }
+
+  return options
+})
 const settingsLoaded = ref(false)
 const settingsHasCostGroupSelection = ref(false)
 const settingsSaving = ref(false)
@@ -1569,6 +1620,12 @@ async function loadCostGroups() {
   } catch {
     costGroups.value = []
   }
+}
+
+function groupTypeLabel(subscriptionType: unknown) {
+  return subscriptionType === 'subscription'
+    ? t('admin.upstreamConfigs.settings.subscription')
+    : t('admin.upstreamConfigs.settings.standard')
 }
 
 onUnmounted(() => {
