@@ -102,6 +102,8 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 
 本地 `.tmp/releases/.release.lock` 使用操作系统文件锁，锁文件可长期存在；只有实际持锁进程阻止并发发布。
 
+`deploy` 长时间没有控制台输出时不得重复启动或凭沉默判定卡死。先按 [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md) 的“长时间无输出诊断”只读检查进程和结构化状态文件；最终成功必须同时满足签名 Gate 已验证、`production-result.json` 为 `production_verified`，且入口返回 `release=verified`。
+
 Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资产、migration checksum、candidate archive checksum 和 image ID。生产端必须再次验签并从 Gate 派生镜像身份，禁止用环境变量覆盖。
 
 ## 失败即停止

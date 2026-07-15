@@ -15,16 +15,31 @@
 
 只填写本任务重新核验的白名单字段，不复制原始命令输出。所有在线结论带 `checked_at`；没有证据写 `unknown` 或 `not_checked`。
 
+## 发布证据优先级
+
+一键发布的退出码和控制台末行只是入口结果，不是唯一事实源。报告前必须交叉核验：
+
+1. `gate/gate.json` 的签名 manifest 与 evidence：完整 commit、版本、迁移 checksum、candidate archive checksum、`candidate_image_id`、VM 数据边界和恢复验证。
+2. `gate/production-result.json`：最终 `status=verified,stage=production_verified`，以及备份、迁移、切换、双链路和运行镜像证据。
+3. Git：本地 `HEAD`、`origin/main` 与 Gate commit 一致，工作区干净。
+4. 线上：生产 running image ID 等于签名 candidate image ID，发布后重新采集公网健康；健康 `200` 只作为补充证据。
+
+只从 JSON 投影本模板允许的字段，不复制整个文件。入口退出码 `0` 但缺任一核心证据时，整体状态最多为 `partial`；入口失败后也必须按 committed-state 复核，不能直接假定生产未变化。
+
 ## 报告元数据
 
 ```text
 task_id:
+release_id: value | not_applicable
 task_type: release | rollback | backup | restore | drill | status | ops-change
 started_at:
 finished_at:
 reported_at:
 overall_status: success | partial | failed | stopped
 state_rechecked_in_this_task: true | false
+release_runner_exit: 0 | nonzero | not_applicable | unknown
+signed_gate_status: verified | fail | not_applicable | not_checked
+production_result_stage: production_verified | value | not_applicable | not_checked
 ```
 
 ## 变更与门禁
@@ -53,6 +68,7 @@ build_finished_at: value | not_applicable
 image_size: value | not_applicable
 transfer_sha256: value | not_applicable
 source_load_tag_id_equal: pass | fail | not_checked | not_applicable
+running_candidate_image_id_equal: pass | fail | not_checked | not_applicable
 ```
 
 `not_applicable` 仅允许用于经过证明的 `ops-readonly-assets` 和不涉及应用镜像的 `ops-control-assets`。其他类别不得用它跳过镜像身份。
