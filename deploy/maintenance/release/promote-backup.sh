@@ -6,7 +6,7 @@ release_id=${RELEASE_ID:?RELEASE_ID is required}
 transport_name=${TRANSPORT_ARTIFACT_NAME:?TRANSPORT_ARTIFACT_NAME is required}
 artifact_sha=${ARTIFACT_SHA256:?ARTIFACT_SHA256 is required}
 minimum_free_bytes=${MINIMUM_FREE_BYTES:-5368709120}
-[[ $release_id =~ ^(182|187)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $release_id =~ ^(182|187|191)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $transport_name =~ ^sub2api-[0-9]{8}T[0-9]{6}Z\.tar\.age$ ]]
 [[ $artifact_sha =~ ^[0-9a-f]{64}$ ]]
 [[ -d $backup_root && ! -L $backup_root ]]

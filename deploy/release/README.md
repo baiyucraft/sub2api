@@ -3,9 +3,9 @@
 标准入口：
 
 ```text
-python deploy/release.py doctor --profile 187 --commit <40位完整SHA>
-python deploy/release.py bootstrap-production --profile 187
-python deploy/release.py deploy --profile 187 --commit <40位完整SHA>
+python deploy/release.py doctor --profile 191 --commit <40位完整SHA>
+python deploy/release.py bootstrap-production --profile 191
+python deploy/release.py deploy --profile 191 --commit <40位完整SHA>
 ```
 
 `doctor` 和 `bootstrap-production` 可独立用于排查或首次初始化。日常只需执行 `deploy`：
@@ -24,9 +24,9 @@ VM 唯一构建 candidate
   -> 开启自动同步、恢复备份 units、消费 Gate
 ```
 
-profile 187 会在 manifest 中固定记录 `182-187` 的有序 migration 列表及 checksum；
-已执行过的迁移允许原样跳过，缺失迁移必须逐项应用并逐项校验。profile 187 是
-不兼容且会改写持久余额语义的发布，禁止 image-only rollback。
+profile 191 会在 manifest 中固定记录 profile 187 的完整 migration 列表及新增的
+`188-191`，并保存有序 checksum；已执行过的迁移允许原样跳过，缺失迁移必须逐项
+应用并逐项校验。本 profile 继续使用协调恢复，不采用 image-only rollback。
 
 首次安装信任根使用：
 

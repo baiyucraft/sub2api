@@ -79,6 +79,43 @@ class ReleaseCoreTest(unittest.TestCase):
                 checksums = migration_checksums(profile)
         self.assertEqual(checksums["migration.sql"], hashlib.sha256(b"SELECT 1;").hexdigest())
 
+    def test_profile_191_extends_profile_187_with_official_migrations(self) -> None:
+        profile_187 = get_profile("187")
+        profile_191 = get_profile("191")
+        self.assertEqual(profile_191["version"], "0.1.157-baiyu")
+        self.assertEqual(
+            profile_191["migrations"],
+            profile_187["migrations"]
+            + [
+                "188_add_subscription_plan_currency.sql",
+                "189_channel_image_input_price.sql",
+                "190_usage_log_image_input_tokens.sql",
+                "191_audit_logs.sql",
+            ],
+        )
+        self.assertEqual(list(migration_checksums(profile_191)), profile_191["migrations"])
+
+    def test_profile_191_is_allowed_by_release_entrypoints(self) -> None:
+        expected_release_pattern = "(182|187|191)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191"
+        for relative_path in (
+            "release/vm-validate.sh",
+            "release/bootstrap_vm_signer.sh",
+            "maintenance/release/context.sh",
+            "maintenance/release/prepare.sh",
+            "maintenance/release/promote-backup.sh",
+            "maintenance/181/mask-backup-units.sh",
+            "maintenance/181/restore-backup-units.sh",
+        ):
+            content = (DEPLOY_ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(expected_release_pattern, content, relative_path)
+        for relative_path in (
+            "release/vm-validate.sh",
+            "maintenance/release/prepare.sh",
+        ):
+            content = (DEPLOY_ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(expected_profile_check, content, relative_path)
+
     def test_vm_post_build_space_gate_does_not_double_count_image(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn("required_before=$((database_size * 2 + current_image_size * 2 + 1073741824))", validator)

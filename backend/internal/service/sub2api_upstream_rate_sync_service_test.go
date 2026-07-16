@@ -713,6 +713,157 @@ func TestSyncSub2APIUpstreamKeysPreservesNamesAndGroupMetadata(t *testing.T) {
 	require.Equal(t, int64(37), *keys[2].UpstreamGroupID)
 }
 
+func TestSyncSub2APIUpstreamKeysBillingProbeOverridesGroupRateAndIgnoresPeak(t *testing.T) {
+	management := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/keys":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":81,"key":"sk-billing","name":"pro","group_id":9,"group":{"id":9,"name":"Pro","platform":"openai"}}],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/available":
+			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":9,"name":"Pro","platform":"openai"}]}`))
+		case "/api/v1/groups/rates":
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer management.Close()
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/sub2api/billing", r.URL.Path)
+		require.Equal(t, "Bearer sk-billing", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"resolved_rate_multiplier":6,"peak_rate_enabled":true,"peak_rate_multiplier":99,"applied_peak_multiplier":99,"effective_rate_multiplier":594}`))
+	}))
+	defer api.Close()
+
+	cfg := &UpstreamConfig{
+		ID: 1, Name: "billing", Provider: UpstreamProviderSub2API, SiteURL: management.URL,
+		APIURL: &api.URL, AuthMode: UpstreamAuthModeManualJWT,
+		Credentials: map[string]any{AccountCredentialSub2APIAccessToken: "jwt-upstream"},
+	}
+	keys, _, err := syncSub2APIUpstreamKeys(context.Background(), cfg, "")
+	require.NoError(t, err)
+	providerSnapshot := &upstreamProviderSnapshot{Keys: keys}
+	applySub2APIBillingRates(context.Background(), cfg, "", providerSnapshot)
+	keys = providerSnapshot.Keys
+	require.Len(t, keys, 1)
+	require.NotNil(t, keys[0].SourceRateMultiplier)
+	require.Equal(t, 6.0, *keys[0].SourceRateMultiplier)
+}
+
+func TestSyncSub2APIUpstreamKeysBillingProbeFallsBackWithoutLeakingKey(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		status      int
+		body        string
+		wantWarning bool
+	}{
+		{name: "unsupported", status: http.StatusNotFound},
+		{name: "invalid", status: http.StatusOK, body: `{"resolved_rate_multiplier":-1}`, wantWarning: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/v1/keys":
+					_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-never-log","name":"fallback","group":{"id":2,"name":"Fallback","platform":"openai","rate_multiplier":0.7}}],"page":1,"page_size":100,"pages":1}}`))
+				case "/api/v1/groups/available", "/api/v1/groups/rates":
+					http.NotFound(w, r)
+				case "/v1/sub2api/billing":
+					w.WriteHeader(tc.status)
+					_, _ = w.Write([]byte(tc.body))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			cfg := &UpstreamConfig{ID: 1, Name: "fallback", Provider: UpstreamProviderSub2API, SiteURL: server.URL, AuthMode: UpstreamAuthModeManualJWT, Credentials: map[string]any{AccountCredentialSub2APIAccessToken: "jwt-upstream"}}
+			snapshot, err := syncSub2APIUpstreamSnapshot(context.Background(), cfg, "", false)
+			require.NoError(t, err)
+			providerSnapshot := &upstreamProviderSnapshot{Keys: snapshot.Keys}
+			applySub2APIBillingRates(context.Background(), cfg, "", providerSnapshot)
+			require.Equal(t, 0.7, *providerSnapshot.Keys[0].SourceRateMultiplier)
+			if tc.wantWarning {
+				require.NotEmpty(t, providerSnapshot.Warnings)
+			} else {
+				require.Empty(t, providerSnapshot.Warnings)
+			}
+			require.NotContains(t, strings.Join(providerSnapshot.Warnings, " "), "sk-never-log")
+		})
+	}
+}
+
+func TestSub2APIKeyBillingProbeConcurrencyIsBounded(t *testing.T) {
+	var active, peak int
+	var mu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		active++
+		if active > peak {
+			peak = active
+		}
+		mu.Unlock()
+		time.Sleep(20 * time.Millisecond)
+		mu.Lock()
+		active--
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"resolved_rate_multiplier":1}`))
+	}))
+	defer server.Close()
+	keys := make([]UpstreamKey, 20)
+	for i := range keys {
+		remoteID := int64(i + 1)
+		keys[i] = UpstreamKey{RemoteKeyID: &remoteID, Key: fmt.Sprintf("sk-%d", i+1)}
+	}
+	rates, warnings := (&Sub2APIUpstreamRateSyncService{}).fetchSub2APIKeyBillingRates(context.Background(), sub2APISyncTarget{billingRootURL: server.URL}, keys)
+	require.Len(t, rates, len(keys))
+	require.Empty(t, warnings)
+	require.LessOrEqual(t, peak, sub2APIBillingConcurrency)
+}
+
+func TestSub2APIKeyBillingProbeUsesRecoveredKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer sk-recovered", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"resolved_rate_multiplier":0.4}`))
+	}))
+	defer server.Close()
+	remoteID := int64(42)
+	keys := []UpstreamKey{{RemoteKeyID: &remoteID, Key: "sk-recovered"}}
+
+	rates, warnings := (&Sub2APIUpstreamRateSyncService{}).fetchSub2APIKeyBillingRates(context.Background(), sub2APISyncTarget{billingRootURL: server.URL}, keys)
+
+	require.Empty(t, warnings)
+	require.Equal(t, 0.4, rates[remoteID])
+}
+
+func TestSub2APIKeyBillingProbeBudgetDoesNotCancelParentSync(t *testing.T) {
+	originalTimeout := sub2APIBillingStageTimeout
+	sub2APIBillingStageTimeout = 40 * time.Millisecond
+	t.Cleanup(func() { sub2APIBillingStageTimeout = originalTimeout })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	keys := make([]UpstreamKey, 20)
+	for i := range keys {
+		remoteID := int64(i + 1)
+		keys[i] = UpstreamKey{RemoteKeyID: &remoteID, Key: fmt.Sprintf("sk-%d", i+1)}
+	}
+	parentCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	startedAt := time.Now()
+
+	rates, warnings := (&Sub2APIUpstreamRateSyncService{}).fetchSub2APIKeyBillingRates(parentCtx, sub2APISyncTarget{billingRootURL: server.URL}, keys)
+
+	require.Empty(t, rates)
+	require.NotEmpty(t, warnings)
+	require.Less(t, time.Since(startedAt), 500*time.Millisecond)
+	require.NoError(t, parentCtx.Err())
+}
+
 func newSub2APIManualJWTRateSyncAccount(id int64, baseURL, apiKey, token string) Account {
 	return Account{
 		ID:          id,

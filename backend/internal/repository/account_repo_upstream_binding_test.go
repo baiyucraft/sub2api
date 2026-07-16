@@ -45,6 +45,7 @@ func TestAccountRepositoryUpdateBoundLocksConfigThenKeyAndCommitsOutbox(t *testi
 	expectUpstreamConfigLock(mock, 11, true)
 	expectUpstreamKeyLock(mock, 22, 11, service.StatusActive, ptrString(service.PlatformOpenAI), true)
 	expectAccountBindingRead(mock, account, true)
+	expectAccountProbeStateRead(mock, account)
 	expectAccountUpdate(mock, account)
 	expectSchedulerAccountOutbox(mock, nil)
 	mock.ExpectCommit()
@@ -74,6 +75,7 @@ func TestAccountRepositoryUpdateOrdinaryAccountSkipsUpstreamLocks(t *testing.T) 
 	mock.ExpectBegin()
 	expectAccountBindingRead(mock, account, false)
 	expectAccountBindingRead(mock, account, true)
+	expectAccountProbeStateRead(mock, account)
 	expectAccountUpdate(mock, account)
 	expectSchedulerAccountOutbox(mock, nil)
 	mock.ExpectCommit()
@@ -110,6 +112,7 @@ func TestAccountRepositoryUpdateRollsBackAccountWhenOutboxFails(t *testing.T) {
 	expectUpstreamConfigLock(mock, 11, true)
 	expectUpstreamKeyLock(mock, 22, 11, service.StatusActive, ptrString(service.PlatformOpenAI), true)
 	expectAccountBindingRead(mock, account, true)
+	expectAccountProbeStateRead(mock, account)
 	expectAccountUpdate(mock, account)
 	expectSchedulerAccountOutbox(mock, outboxErr)
 	mock.ExpectRollback()
@@ -354,6 +357,13 @@ func expectAccountBindingRead(mock sqlmock.Sqlmock, account *service.Account, fo
 		nil, nil, account.Concurrency, nil, account.Priority, 1.0, account.Status, "", nil, nil,
 		false, account.Schedulable, nil, nil, nil, nil, nil, nil, nil, nil, nil, dbaccount.QuotaDimensionGlobal,
 	))
+}
+
+func expectAccountProbeStateRead(mock sqlmock.Sqlmock, account *service.Account) {
+	mock.ExpectQuery(`(?s)SELECT.*upstream_billing_probe_enabled.*FOR NO KEY UPDATE`).
+		WithArgs(account.ID, account.Platform, account.Type, `{}`, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "enabled", "snapshot"}).
+			AddRow(true, nil, nil))
 }
 
 func expectSchedulerAccountOutbox(mock sqlmock.Sqlmock, err error) {

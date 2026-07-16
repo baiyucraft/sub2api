@@ -60,6 +60,8 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			log.CacheCreation1hTokens,
 			log.ImageOutputTokens,
 			log.ImageOutputCost,
+			log.ImageInputTokens,
+			log.ImageInputCost,
 			log.InputCost,
 			log.OutputCost,
 			log.CacheCreationCost,
@@ -151,6 +153,8 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			log.CacheCreation1hTokens,
 			log.ImageOutputTokens,
 			log.ImageOutputCost,
+			log.ImageInputTokens,
+			log.ImageInputCost,
 			log.InputCost,
 			log.OutputCost,
 			log.CacheCreationCost,
@@ -241,17 +245,34 @@ func TestExecUsageLogInsertNoResult_PersistsRequestedModel(t *testing.T) {
 }
 
 func TestPrepareUsageLogInsert_ArgCountMatchesTypes(t *testing.T) {
+	upstreamConfigID := int64(41)
+	upstreamKeyID := int64(42)
+	upstreamCostCurrency := "CNY"
+	upstreamCostToCNYRate := 1.0
 	prepared := prepareUsageLogInsert(&service.UsageLog{
-		UserID:         1,
-		APIKeyID:       2,
-		AccountID:      3,
-		RequestID:      "req-arg-count",
-		Model:          "gpt-5",
-		RequestedModel: "gpt-5",
-		CreatedAt:      time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC),
+		UserID:                1,
+		APIKeyID:              2,
+		AccountID:             3,
+		UpstreamConfigID:      &upstreamConfigID,
+		UpstreamKeyID:         &upstreamKeyID,
+		RequestID:             "req-arg-count",
+		Model:                 "gpt-5",
+		RequestedModel:        "gpt-5",
+		ImageInputTokens:      17,
+		ImageInputCost:        0.25,
+		UpstreamCostCurrency:  &upstreamCostCurrency,
+		UpstreamCostToCNYRate: &upstreamCostToCNYRate,
+		CreatedAt:             time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC),
 	})
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
+	require.Len(t, prepared.args, 60)
+	require.Equal(t, sql.NullInt64{Int64: upstreamConfigID, Valid: true}, prepared.args[3])
+	require.Equal(t, sql.NullInt64{Int64: upstreamKeyID, Valid: true}, prepared.args[4])
+	require.Equal(t, 17, prepared.args[19])
+	require.Equal(t, 0.25, prepared.args[20])
+	require.Equal(t, sql.NullString{String: upstreamCostCurrency, Valid: true}, prepared.args[29])
+	require.Equal(t, &upstreamCostToCNYRate, prepared.args[30])
 }
 
 func TestPrepareUsageLogInsert_PersistsImageSizeMetadata(t *testing.T) {
@@ -275,11 +296,11 @@ func TestPrepareUsageLogInsert_PersistsImageSizeMetadata(t *testing.T) {
 		CreatedAt:          time.Date(2025, 1, 6, 12, 0, 0, 0, time.UTC),
 	})
 
-	require.Equal(t, sql.NullString{String: imageSize, Valid: true}, prepared.args[38])
-	require.Equal(t, sql.NullString{String: inputSize, Valid: true}, prepared.args[39])
-	require.Equal(t, sql.NullString{String: outputSize, Valid: true}, prepared.args[40])
-	require.Equal(t, sql.NullString{String: source, Valid: true}, prepared.args[41])
-	breakdownJSON, ok := prepared.args[42].(string)
+	require.Equal(t, sql.NullString{String: imageSize, Valid: true}, prepared.args[40])
+	require.Equal(t, sql.NullString{String: inputSize, Valid: true}, prepared.args[41])
+	require.Equal(t, sql.NullString{String: outputSize, Valid: true}, prepared.args[42])
+	require.Equal(t, sql.NullString{String: source, Valid: true}, prepared.args[43])
+	breakdownJSON, ok := prepared.args[44].(string)
 	require.True(t, ok)
 	require.JSONEq(t, `{"1K":1,"4K":1}`, breakdownJSON)
 }
@@ -800,6 +821,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullInt64{},
 			0, 0, 0, 0, 0, 0,
 			0, 0.0, // image_output_tokens, image_output_cost
+			0, 0.0, // image_input_tokens, image_input_cost
 			0.0, 0.0, 0.0, 0.0, 0.8, 0.8,
 			1.0,
 			sql.NullFloat64{},
@@ -875,6 +897,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			6,                 // cache_creation_1h_tokens
 			0,                 // image_output_tokens
 			0.0,               // image_output_cost
+			0,                 // image_input_tokens
+			0.0,               // image_input_cost
 			0.1,               // input_cost
 			0.2,               // output_cost
 			0.3,               // cache_creation_cost
@@ -944,6 +968,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullInt64{},
 			1, 2, 3, 4, 5, 6,
 			0, 0.0, // image_output_tokens, image_output_cost
+			0, 0.0, // image_input_tokens, image_input_cost
 			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
 			1.0,
 			sql.NullFloat64{},
@@ -1004,6 +1029,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullInt64{},
 			1, 2, 3, 4, 5, 6,
 			0, 0.0, // image_output_tokens, image_output_cost
+			0, 0.0, // image_input_tokens, image_input_cost
 			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
 			1.0,
 			sql.NullFloat64{},
