@@ -199,7 +199,7 @@ func TestGatewayServiceRecordUsage_SnapshotsUpstreamCostContext(t *testing.T) {
 	require.Equal(t, 1.0, *usageRepo.lastLog.UpstreamCostToCNYRate)
 }
 
-func TestGatewayServiceRecordUsage_SetsCNYCostContextWithoutUpstreamBinding(t *testing.T) {
+func TestGatewayServiceRecordUsage_DoesNotSetCostContextWithoutUpstreamBinding(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
 
@@ -219,8 +219,8 @@ func TestGatewayServiceRecordUsage_SetsCNYCostContextWithoutUpstreamBinding(t *t
 	require.NotNil(t, usageRepo.lastLog)
 	require.Nil(t, usageRepo.lastLog.UpstreamConfigID)
 	require.Nil(t, usageRepo.lastLog.UpstreamKeyID)
-	require.Equal(t, "CNY", *usageRepo.lastLog.UpstreamCostCurrency)
-	require.Equal(t, 1.0, *usageRepo.lastLog.UpstreamCostToCNYRate)
+	require.Nil(t, usageRepo.lastLog.UpstreamCostCurrency)
+	require.Nil(t, usageRepo.lastLog.UpstreamCostToCNYRate)
 }
 
 func TestGatewayServiceRecordUsage_PreservesRequestedAndUpstreamModels(t *testing.T) {

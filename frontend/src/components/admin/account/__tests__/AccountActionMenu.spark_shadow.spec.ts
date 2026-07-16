@@ -77,6 +77,19 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     wrapper.unmount()
   })
 
+  it('上游衍生账号隐藏「复制账号」按钮，避免多个账号共享同一个上游 Key', () => {
+    const account = makeAccount({
+      platform: 'openai',
+      type: 'upstream',
+      parent_account_id: null,
+      upstream_config_id: 7,
+      upstream_key_id: 9,
+    })
+    const wrapper = mountMenu(account)
+    expect(getBodyText()).not.toContain('admin.accounts.duplicateAccount')
+    wrapper.unmount()
+  })
+
   it('点击「复制账号」触发 duplicate 事件并携带 account', async () => {
     const account = makeAccount({ platform: 'anthropic', type: 'apikey', parent_account_id: null })
     const wrapper = mountMenu(account)

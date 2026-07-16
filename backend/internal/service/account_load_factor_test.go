@@ -74,7 +74,8 @@ func TestAutoUpstreamLoadFactor(t *testing.T) {
 
 func TestApplyUpstreamAutoLoadFactor(t *testing.T) {
 	cfgID := int64(1)
-	a := &Account{UpstreamConfigID: &cfgID, Priority: 10, Concurrency: 100, LoadFactor: intPtrHelper(999)}
+	keyID := int64(2)
+	a := &Account{UpstreamConfigID: &cfgID, UpstreamKeyID: &keyID, Priority: 10, Concurrency: 100, LoadFactor: intPtrHelper(999)}
 
 	require.True(t, a.ApplyUpstreamAutoLoadFactor())
 	require.NotNil(t, a.LoadFactor)

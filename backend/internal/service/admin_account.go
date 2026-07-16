@@ -253,6 +253,12 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 			"linked credential shadow accounts cannot be duplicated; duplicate the parent account instead",
 		)
 	}
+	if source.IsUpstreamBound() {
+		return nil, infraerrors.BadRequest(
+			"ACCOUNT_DUPLICATE_UPSTREAM_BOUND_UNSUPPORTED",
+			"upstream-bound accounts cannot be duplicated; create another account from an assigned upstream key instead",
+		)
+	}
 	if !canDuplicateAccountType(source.Type) {
 		return nil, infraerrors.BadRequest(
 			"ACCOUNT_DUPLICATE_CREDENTIAL_TYPE_UNSUPPORTED",
@@ -295,8 +301,6 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		Credentials:           credentials,
 		Extra:                 extra,
 		ProxyID:               cloneAccountValuePointer(proxyID),
-		UpstreamConfigID:      cloneAccountValuePointer(source.UpstreamConfigID),
-		UpstreamKeyID:         cloneAccountValuePointer(source.UpstreamKeyID),
 		Concurrency:           source.Concurrency,
 		Priority:              source.Priority,
 		RateMultiplier:        cloneAccountValuePointer(source.RateMultiplier),
@@ -306,9 +310,6 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		AutoPauseOnExpired:    &autoPauseOnExpired,
 		SkipDefaultGroupBind:  true,
 		SkipMixedChannelCheck: true,
-	}
-	if source.IsUpstreamBound() {
-		input.ProxyID = nil
 	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {

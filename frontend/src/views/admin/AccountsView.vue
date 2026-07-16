@@ -557,20 +557,21 @@ type AccountBulkEditTarget =
       selectedPlatforms: AccountPlatform[]
       selectedTypes: AccountType[]
     }
+const accountSelectionMetadata = reactive(new Map<number, { platform: AccountPlatform; type: AccountType }>())
 const selPlatforms = computed<AccountPlatform[]>(() => {
-  const platforms = new Set(
-    accounts.value
-      .filter(a => isSelected(a.id))
-      .map(a => a.platform)
-  )
+  const platforms = new Set<AccountPlatform>()
+  selIds.value.forEach((id) => {
+    const metadata = accountSelectionMetadata.get(id)
+    if (metadata) platforms.add(metadata.platform)
+  })
   return [...platforms]
 })
 const selTypes = computed<AccountType[]>(() => {
-  const types = new Set(
-    accounts.value
-      .filter(a => isSelected(a.id))
-      .map(a => a.type)
-  )
+  const types = new Set<AccountType>()
+  selIds.value.forEach((id) => {
+    const metadata = accountSelectionMetadata.get(id)
+    if (metadata) types.add(metadata.type)
+  })
   return [...types]
 })
 const showCreate = ref(false)
@@ -940,7 +941,10 @@ const isAccountBillingProbeEligible = (account: Account) =>
   account.upstream_key_id == null
 
 watch(accounts, (rows) => {
-  rows.forEach((account) => upstreamBillingEligibility.set(account.id, isAccountBillingProbeEligible(account)))
+  rows.forEach((account) => {
+    upstreamBillingEligibility.set(account.id, isAccountBillingProbeEligible(account))
+    accountSelectionMetadata.set(account.id, { platform: account.platform, type: account.type })
+  })
 }, { immediate: true })
 
 const selectedBillingProbeAccountIDs = computed(() =>
@@ -1623,7 +1627,11 @@ const openBulkEditSelected = () => {
 const openBulkEditFiltered = async () => {
   const filters = buildBulkEditFilterSnapshot()
   const preview = await adminAPI.accounts.list(1, 100, filters)
-  const { selectedPlatforms, selectedTypes } = collectSelectionMetadata(preview.items)
+  let { selectedPlatforms, selectedTypes } = collectSelectionMetadata(preview.items)
+  if (preview.total > preview.items.length) {
+    selectedPlatforms = filters.platform ? [filters.platform as AccountPlatform] : []
+    selectedTypes = filters.type ? [filters.type as AccountType] : []
+  }
   bulkEditTarget.value = {
     mode: 'filtered',
     filters,

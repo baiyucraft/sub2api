@@ -247,25 +247,20 @@ func TestAdminService_BulkUpdateAccounts_AutoLoadFactorForUpstreamBoundOnly(t *t
 	}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	priority := 7
 	concurrency := 100
-	loadFactor := 44
 	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
 		AccountIDs:  []int64{1, 2},
-		Priority:    &priority,
 		Concurrency: &concurrency,
-		LoadFactor:  &loadFactor,
 	})
 
 	require.NoError(t, err)
 	require.Equal(t, 2, result.Success)
 	require.Len(t, repo.bulkUpdates, 2)
 	require.Equal(t, []int64{1, 2}, repo.bulkUpdates[0].ids)
-	require.NotNil(t, repo.bulkUpdates[0].updates.LoadFactor)
-	require.Equal(t, 44, *repo.bulkUpdates[0].updates.LoadFactor)
+	require.Nil(t, repo.bulkUpdates[0].updates.LoadFactor)
 	require.Equal(t, []int64{2}, repo.bulkUpdates[1].ids)
 	require.NotNil(t, repo.bulkUpdates[1].updates.LoadFactor)
-	require.Equal(t, 150, *repo.bulkUpdates[1].updates.LoadFactor)
+	require.Equal(t, 75, *repo.bulkUpdates[1].updates.LoadFactor)
 }
 
 func TestAdminServiceBulkUpdateAccountsRejectsRenameWhenUpstreamBoundAccountIncluded(t *testing.T) {
