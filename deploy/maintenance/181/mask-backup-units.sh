@@ -17,7 +17,7 @@ validate_state_path() {
   root_real=$(realpath -e -- "$state_root")
   [[ $root_real == "$state_root" ]]
   base=$(basename -- "$state_dir")
-  [[ $base =~ ^release181-state-[0-9]{8}T[0-9]{6}Z$ || $base =~ ^(182|187|191)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+  [[ $base =~ ^release181-state-[0-9]{8}T[0-9]{6}Z$ || $base =~ ^(182|187|191|192)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
   expected="$state_root/$base"
   [[ $state_dir == "$expected" && $(dirname -- "$state_dir") == "$state_root" ]]
   if [[ -e $state_dir || -L $state_dir ]]; then

@@ -220,6 +220,29 @@ func TestDuplicateAccountRejectsCredentialShadow(t *testing.T) {
 	require.Len(t, repo.accounts, 1)
 }
 
+func TestDuplicateAccountRejectsUpstreamBoundAccount(t *testing.T) {
+	ctx := context.Background()
+	repo := newDuplicateAccountRepoStub()
+	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+	configID := int64(7)
+	keyID := int64(9)
+	source := &Account{
+		Name:             "relay-key",
+		Platform:         PlatformOpenAI,
+		Type:             AccountTypeUpstream,
+		UpstreamConfigID: &configID,
+		UpstreamKeyID:    &keyID,
+	}
+	require.NoError(t, repo.Create(ctx, source))
+
+	_, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
+	require.Equal(t, "ACCOUNT_DUPLICATE_UPSTREAM_BOUND_UNSUPPORTED", infraerrors.Reason(err))
+	require.Len(t, repo.accounts, 1)
+}
+
 func TestDuplicateAccountRejectsRotatingOrUnknownCredentialTypes(t *testing.T) {
 	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken, "legacy-cookie"} {
 		t.Run(accountType, func(t *testing.T) {

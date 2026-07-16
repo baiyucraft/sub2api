@@ -96,8 +96,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(list(migration_checksums(profile_191)), profile_191["migrations"])
 
     def test_profile_191_is_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191)"
-        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191"
+        expected_release_pattern = "(182|187|191|192)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192"
         for relative_path in (
             "release/vm-validate.sh",
             "release/bootstrap_vm_signer.sh",
@@ -115,6 +115,16 @@ class ReleaseCoreTest(unittest.TestCase):
         ):
             content = (DEPLOY_ROOT / relative_path).read_text(encoding="utf-8")
             self.assertIn(expected_profile_check, content, relative_path)
+
+    def test_profile_192_extends_profile_191_with_group_duplicate_migration(self) -> None:
+        profile_191 = get_profile("191")
+        profile_192 = get_profile("192")
+        self.assertEqual(profile_192["version"], "0.1.158-baiyu")
+        self.assertEqual(
+            profile_192["migrations"],
+            profile_191["migrations"] + ["192_group_duplicate_operation_id.sql"],
+        )
+        self.assertEqual(list(migration_checksums(profile_192)), profile_192["migrations"])
 
     def test_vm_post_build_space_gate_does_not_double_count_image(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
