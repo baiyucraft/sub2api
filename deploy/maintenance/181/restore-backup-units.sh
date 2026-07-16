@@ -14,7 +14,7 @@ report_restored() {
 base=$(basename -- "$state_dir")
 [[ -d $state_root && ! -L $state_root ]]
 [[ $(realpath -e -- "$state_root") == "$state_root" ]]
-[[ $base =~ ^release181-state-[0-9]{8}T[0-9]{6}Z$ || $base =~ ^(182|187|191)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $base =~ ^release181-state-[0-9]{8}T[0-9]{6}Z$ || $base =~ ^(182|187|191|192)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $state_dir == "$state_root/$base" && $(dirname -- "$state_dir") == "$state_root" ]]
 [[ -d $state_dir && ! -L $state_dir ]]
 [[ $(realpath -e -- "$state_dir") == "$state_root/$base" ]]
