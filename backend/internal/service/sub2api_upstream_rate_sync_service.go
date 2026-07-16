@@ -26,20 +26,24 @@ import (
 )
 
 const (
-	sub2APILoginPath       = "/api/v1/auth/login"
-	sub2APIRefreshPath     = "/api/v1/auth/refresh"
-	sub2APIProfilePath     = "/api/v1/auth/me"
-	sub2APIKeysPath        = "/api/v1/keys"
-	sub2APIKeysFallback    = "/api/v1/api-keys"
-	sub2APIAvailableGroups = "/api/v1/groups/available"
-	sub2APIGroupRatesPath  = "/api/v1/groups/rates"
-	sub2APIKeysPageSize    = 100
-	sub2APIMaxKeyListPages = 1000
+	sub2APILoginPath          = "/api/v1/auth/login"
+	sub2APIRefreshPath        = "/api/v1/auth/refresh"
+	sub2APIProfilePath        = "/api/v1/auth/me"
+	sub2APIKeysPath           = "/api/v1/keys"
+	sub2APIKeysFallback       = "/api/v1/api-keys"
+	sub2APIAvailableGroups    = "/api/v1/groups/available"
+	sub2APIGroupRatesPath     = "/api/v1/groups/rates"
+	sub2APIBillingPath        = "/v1/sub2api/billing"
+	sub2APIKeysPageSize       = 100
+	sub2APIMaxKeyListPages    = 1000
+	sub2APIBillingConcurrency = 5
 
 	sub2APIBrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 )
 
 const sub2APITokenRefreshSkew = 60 * time.Second
+
+var sub2APIBillingStageTimeout = 20 * time.Second
 
 var (
 	errSub2APIEndpointNotFound      = errors.New("sub2api endpoint not found")
@@ -207,11 +211,13 @@ type sub2APIUpstreamSnapshot struct {
 	Profile         *sub2APIProfile
 	ProfileErr      error
 	RefreshedTokens *sub2APIRefreshData
+	Warnings        []string
 }
 
 type sub2APISyncTarget struct {
 	account          Account
 	rootURL          string
+	billingRootURL   string
 	adapter          string
 	email            string
 	password         string
@@ -371,6 +377,7 @@ func newSub2APISyncTarget(account Account, proxyURL string) (sub2APISyncTarget, 
 	return sub2APISyncTarget{
 		account:          account,
 		rootURL:          rootURL,
+		billingRootURL:   rootURL,
 		adapter:          adapter,
 		email:            email,
 		password:         password,
@@ -560,6 +567,11 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 	if err != nil {
 		return nil, err
 	}
+	billingRootURL, err := normalizeSub2APIBaseURL(cfg.EffectiveAPIURL())
+	if err != nil {
+		return nil, err
+	}
+	target.billingRootURL = billingRootURL
 	svc := &Sub2APIUpstreamRateSyncService{}
 	session, refreshed, err := svc.fetchUserLoginSession(ctx, target)
 	snapshot := &sub2APIUpstreamSnapshot{RefreshedTokens: refreshed}
@@ -570,9 +582,9 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 	out := make([]UpstreamKey, 0, len(session.keys))
 	for _, upstreamKey := range session.keys {
 		key := strings.TrimSpace(upstreamKey.Key)
-		rate, err := resolveSub2APIKeyRate(upstreamKey, session.groupRates)
-		if err != nil {
-			return snapshot, err
+		var sourceRate *float64
+		if rate, rateErr := resolveSub2APIKeyRate(upstreamKey, session.groupRates); rateErr == nil {
+			sourceRate = &rate
 		}
 		name := normalizeUpstreamDisplayName(upstreamKey.Name, 100)
 		groupID := effectiveSub2APIGroupID(upstreamKey)
@@ -623,7 +635,7 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 			DetectedPlatform:        &platformValue,
 			PlatformDetectionStatus: UpstreamKeyPlatformDetectionDetected,
 			PlatformDetectedAt:      &now,
-			SourceRateMultiplier:    &rate,
+			SourceRateMultiplier:    sourceRate,
 			Status:                  StatusActive,
 			LastSeenAt:              &now,
 			Extra:                   extra,
@@ -652,6 +664,100 @@ func normalizeUpstreamDisplayName(value string, maxRunes int) string {
 		return value
 	}
 	return string(runes[:maxRunes])
+}
+
+type sub2APIBillingResponse struct {
+	ResolvedRateMultiplier *float64 `json:"resolved_rate_multiplier"`
+}
+
+// fetchSub2APIKeyBillingRates probes the forwarding endpoint with each Key. It
+// reads only the resolved base multiplier; peak fields do not participate in
+// the fork's normalized actual multiplier.
+func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIKeyBillingRates(ctx context.Context, target sub2APISyncTarget, keys []UpstreamKey) (map[int64]float64, []string) {
+	rates := make(map[int64]float64)
+	if len(keys) == 0 {
+		return rates, nil
+	}
+	client, err := sub2APIHTTPClient(target.proxyURL)
+	if err != nil {
+		return rates, []string{"billing probe client unavailable; retained group rates"}
+	}
+	endpoint, err := buildSub2APIURL(target.billingRootURL, sub2APIBillingPath)
+	if err != nil {
+		return rates, []string{"billing probe endpoint invalid; retained group rates"}
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, sub2APIBillingStageTimeout)
+	defer cancel()
+
+	type probeResult struct {
+		keyID       int64
+		rate        float64
+		ok          bool
+		unsupported bool
+		warning     string
+	}
+	sem := make(chan struct{}, sub2APIBillingConcurrency)
+	results := make(chan probeResult, len(keys))
+	var wg sync.WaitGroup
+	for i := range keys {
+		upstreamKey := keys[i]
+		key := strings.TrimSpace(upstreamKey.Key)
+		if upstreamKey.RemoteKeyID == nil || *upstreamKey.RemoteKeyID <= 0 || key == "" || isMaskedUpstreamKey(key) {
+			continue
+		}
+		remoteKeyID := *upstreamKey.RemoteKeyID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-probeCtx.Done():
+				results <- probeResult{keyID: remoteKeyID, warning: "billing probe budget exhausted; retained group rate"}
+				return
+			}
+			var payload sub2APIBillingResponse
+			status, requestErr := s.doJSON(probeCtx, client, http.MethodGet, endpoint, key, nil, &payload)
+			if requestErr != nil {
+				warning := "billing probe request failed; retained group rate"
+				if errors.Is(requestErr, context.DeadlineExceeded) || errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+					warning = "billing probe budget exhausted; retained group rate"
+				}
+				results <- probeResult{keyID: remoteKeyID, warning: warning}
+				return
+			}
+			if status == http.StatusNotFound || status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented {
+				results <- probeResult{keyID: remoteKeyID, unsupported: true}
+				return
+			}
+			if status < 200 || status >= 300 {
+				results <- probeResult{keyID: remoteKeyID, warning: fmt.Sprintf("billing probe returned status %d; retained group rate", status)}
+				return
+			}
+			if payload.ResolvedRateMultiplier == nil {
+				results <- probeResult{keyID: remoteKeyID, warning: "billing probe response omitted resolved rate; retained group rate"}
+				return
+			}
+			rate, validateErr := validateSub2APIRate(*payload.ResolvedRateMultiplier)
+			if validateErr != nil {
+				results <- probeResult{keyID: remoteKeyID, warning: "billing probe returned invalid resolved rate; retained group rate"}
+				return
+			}
+			results <- probeResult{keyID: remoteKeyID, rate: rate, ok: true}
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	warnings := make([]string, 0)
+	for result := range results {
+		if result.ok {
+			rates[result.keyID] = result.rate
+		} else if !result.unsupported && result.warning != "" {
+			warnings = append(warnings, fmt.Sprintf("key %d: %s", result.keyID, result.warning))
+		}
+	}
+	return rates, warnings
 }
 
 func sanitizeStandaloneSub2APIError(err error, credentials map[string]any) string {
