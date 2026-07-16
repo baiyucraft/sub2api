@@ -710,6 +710,13 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 		return nil, result, err
 	}
 	s.resolveMaskedSnapshotKeys(ctx, cfg, snapshot)
+	if cfg.Provider == UpstreamProviderSub2API {
+		applySub2APIBillingRates(ctx, cfg, proxyURL, snapshot)
+		if err := s.preserveMissingSub2APIRates(ctx, cfg, snapshot); err != nil {
+			result.Error = adapter.SanitizeError(err, cfg.Credentials)
+			return nil, result, err
+		}
+	}
 	keys := snapshot.Keys
 	snapshot.ExtraUpdates = normalizeProviderBalanceExtra(cfg, snapshot.ExtraUpdates)
 	result.Warnings = append(result.Warnings, snapshot.Warnings...)
@@ -787,6 +794,68 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 	}
 	_ = s.repo.RecordCheckResult(ctx, cfg.ID, true, "")
 	return localKeys, result, nil
+}
+
+func applySub2APIBillingRates(ctx context.Context, cfg *UpstreamConfig, proxyURL string, snapshot *upstreamProviderSnapshot) {
+	if cfg == nil || snapshot == nil || len(snapshot.Keys) == 0 {
+		return
+	}
+	billingTarget := sub2APISyncTarget{billingRootURL: cfg.EffectiveAPIURL(), proxyURL: proxyURL}
+	billingRates, billingWarnings := (&Sub2APIUpstreamRateSyncService{}).fetchSub2APIKeyBillingRates(ctx, billingTarget, snapshot.Keys)
+	for i := range snapshot.Keys {
+		if snapshot.Keys[i].RemoteKeyID == nil {
+			continue
+		}
+		if rate, ok := billingRates[*snapshot.Keys[i].RemoteKeyID]; ok {
+			snapshot.Keys[i].SourceRateMultiplier = &rate
+		}
+	}
+	snapshot.Warnings = append(snapshot.Warnings, billingWarnings...)
+}
+
+func (s *UpstreamConfigService) preserveMissingSub2APIRates(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) error {
+	missingRemoteIDs := make([]int64, 0)
+	for i := range snapshot.Keys {
+		if snapshot.Keys[i].SourceRateMultiplier == nil && snapshot.Keys[i].RemoteKeyID != nil {
+			missingRemoteIDs = append(missingRemoteIDs, *snapshot.Keys[i].RemoteKeyID)
+		}
+	}
+	if len(missingRemoteIDs) == 0 {
+		return nil
+	}
+	var (
+		existing []UpstreamKey
+		err      error
+	)
+	if fallbackRepo, ok := s.repo.(upstreamMaskedKeyFallbackRepository); ok {
+		existing, err = fallbackRepo.ListKeysForMaskedFallback(ctx, cfg.ID, missingRemoteIDs)
+	} else {
+		existing, err = s.repo.ListKeys(ctx, cfg.ID)
+	}
+	if err != nil {
+		return fmt.Errorf("load previous sub2api source rates: %w", err)
+	}
+	byRemoteID := make(map[int64]float64, len(existing))
+	for i := range existing {
+		key := existing[i]
+		if key.RemoteKeyID != nil && key.SourceRateMultiplier != nil {
+			byRemoteID[*key.RemoteKeyID] = *key.SourceRateMultiplier
+		}
+	}
+	for i := range snapshot.Keys {
+		key := &snapshot.Keys[i]
+		if key.SourceRateMultiplier != nil || key.RemoteKeyID == nil {
+			continue
+		}
+		if rate, ok := byRemoteID[*key.RemoteKeyID]; ok {
+			key.SourceRateMultiplier = &rate
+			snapshot.Partial = true
+			snapshot.Warnings = append(snapshot.Warnings, fmt.Sprintf("key %d: retained previous source rate", *key.RemoteKeyID))
+			continue
+		}
+		return fmt.Errorf("api key %d has no valid rate multiplier", *key.RemoteKeyID)
+	}
+	return nil
 }
 
 func (s *UpstreamConfigService) resolveMaskedSnapshotKeys(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) {
@@ -1252,6 +1321,7 @@ func (sub2APIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Ups
 		Keys:            snapshot.Keys,
 		KeysComplete:    snapshot.KeysComplete,
 		RefreshedTokens: snapshot.RefreshedTokens,
+		Warnings:        append([]string(nil), snapshot.Warnings...),
 	}
 	if err == nil && includeProfile {
 		var warning string

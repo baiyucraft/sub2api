@@ -28,7 +28,7 @@ cat > "$helper_tmp" <<'EOF'
 set -Eeuo pipefail
 gate=${1:?gate path is required}
 signature=${2:?signature path is required}
-[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
+[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
 expected_signature=${gate%/gate.json}/gate.sig
 [[ $signature == "$expected_signature" ]]
 [[ -f $gate && ! -L $gate && $(stat -c '%U:%G:%a' "$gate") == root:root:400 ]]
