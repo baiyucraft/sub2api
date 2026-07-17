@@ -14,6 +14,10 @@ from release import cli
 
 
 class DeployCommandTest(unittest.TestCase):
+    def test_progress_output_failure_is_non_fatal(self) -> None:
+        with mock.patch("builtins.print", side_effect=BrokenPipeError):
+            cli.emit_progress("stage=doctor")
+
     def test_vm_failure_never_calls_production_release(self) -> None:
         args = argparse.Namespace(profile="182", commit="a" * 40)
         with mock.patch.object(cli, "ReleaseDoctor") as doctor, mock.patch.object(cli, "bootstrap_production"), mock.patch.object(cli, "create_vm_gate", side_effect=RuntimeError("vm failed")), mock.patch.object(cli, "release") as production:
