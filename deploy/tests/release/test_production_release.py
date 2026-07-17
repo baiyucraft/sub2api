@@ -56,6 +56,30 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertFalse(release.frozen)
         self.assertFalse(release.units_masked)
 
+    def test_freeze_rejects_unready_local_restore_point(self) -> None:
+        release = self.release()
+        release.frozen = False
+        release.units_masked = False
+        release.run_remote = mock.Mock(return_value={
+            "backup_units_masked": "true",
+            "writes_frozen": "true",
+            "state_dir": "/state",
+            "pre_switch_image_id": "old",
+            "compose_sha256": "digest",
+            "artifact": "artifact",
+            "transport_artifact": "transport",
+            "artifact_size": "1",
+            "artifact_sha256": "digest",
+            "no_restart_path_proven": "true",
+            "local_restore_point_ready": "false",
+        })
+
+        with self.assertRaisesRegex(RuntimeError, "local coordinated restore point is not ready"):
+            release.freeze()
+
+        self.assertTrue(release.frozen)
+        self.assertTrue(release.units_masked)
+
     def test_recovery_detects_committed_remote_freeze(self) -> None:
         release = self.release()
         release.frozen = False
@@ -216,6 +240,25 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertNotIn("redis-cli -a", backup)
         self.assertIn("docker compose stop -t 30 redis >/dev/null 2>&1", backup)
         self.assertIn("docker compose start redis >/dev/null 2>&1", backup)
+
+    def test_backup_keeps_temporary_local_restore_tar_until_release_finishes(self) -> None:
+        backup = self.script("backup.sh")
+        restore = self.script("restore.sh")
+        cleanup = self.script("cleanup-state.sh")
+
+        self.assertIn('install -m 600 "$plain" "$state_dir/recovery-point.tar"', backup)
+        self.assertLess(backup.index("umask 077"), backup.index('tar -C "$work" -cf "$plain"'))
+        self.assertIn("local_restore_point_ready=true", backup)
+        self.assertIn('sha256sum -c recovery-point.tar.sha256', restore)
+        self.assertIn('tar -C "$recovery" -xf "$state_dir/recovery-point.tar"', restore)
+        self.assertNotIn("age-identity", restore)
+        self.assertIn("if ! docker info", restore)
+        self.assertIn("elif docker inspect sub2api", restore)
+        self.assertIn("if ! container_names=$(docker ps -a", restore)
+        self.assertIn('case "$nginx_status" in', restore)
+        self.assertIn("inactive|failed", restore)
+        self.assertIn("(( failed == 0 )) || exit 125", restore)
+        self.assertNotIn("! -name recovery-point.tar", cleanup)
 
     def test_racknerd_verifier_does_not_hairpin_through_dmit(self) -> None:
         verify = self.script("verify.sh")

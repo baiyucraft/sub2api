@@ -9,16 +9,39 @@ flock -n 9
 [[ -d $state_dir && ! -L $state_dir ]]
 (cd "$state_dir" && sha256sum -c SHA256SUMS >/dev/null)
 (cd "$state_dir" && sha256sum -c recovery-point.age.sha256 >/dev/null)
+[[ -f $state_dir/recovery-point.tar && ! -L $state_dir/recovery-point.tar ]]
+[[ -f $state_dir/recovery-point.tar.sha256 && ! -L $state_dir/recovery-point.tar.sha256 ]]
+(cd "$state_dir" && sha256sum -c recovery-point.tar.sha256 >/dev/null)
 recovery="$state_dir/recovery"
 rm -rf "$recovery"
 install -d -m 700 "$recovery"
 cleanup_recovery() { rm -rf "$recovery"; }
 fail_closed() {
   code=$?
+  local failed=0 app_status nginx_status container_names
+  trap - ERR INT TERM EXIT
   set +e
-  systemctl stop nginx >/dev/null 2>&1
-  docker stop sub2api >/dev/null 2>&1
-  cleanup_recovery
+  systemctl stop nginx >/dev/null 2>&1 || failed=1
+  docker stop sub2api >/dev/null 2>&1 || true
+  cleanup_recovery || failed=1
+  nginx_status=$(systemctl is-active nginx 2>/dev/null)
+  case "$nginx_status" in
+    inactive|failed) ;;
+    *) failed=1 ;;
+  esac
+  if ! docker info >/dev/null 2>&1; then
+    failed=1
+  elif docker inspect sub2api >/dev/null 2>&1; then
+    app_status=$(docker inspect -f '{{.State.Status}}' sub2api 2>/dev/null) || failed=1
+    [[ -n $app_status && $app_status != running ]] || failed=1
+  else
+    if ! container_names=$(docker ps -a --format '{{.Names}}' 2>/dev/null); then
+      failed=1
+    elif grep -Fxq sub2api <<<"$container_names"; then
+      failed=1
+    fi
+  fi
+  (( failed == 0 )) || exit 125
   exit "$code"
 }
 trap fail_closed ERR INT TERM
@@ -26,7 +49,7 @@ trap cleanup_recovery EXIT
 systemctl stop nginx
 docker rm -f sub2api >/dev/null 2>&1 || true
 [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
-age -d -i /root/.config/sub2api-backup/age-identity.txt "$state_dir/recovery-point.age" | tar -C "$recovery" -xf -
+tar -C "$recovery" -xf "$state_dir/recovery-point.tar"
 (cd "$recovery" && sha256sum -c SHA256SUMS >/dev/null)
 docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U sub2api -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='sub2api' AND pid<>pg_backend_pid();" >/dev/null
 docker exec sub2api-postgres dropdb --if-exists -U sub2api sub2api
