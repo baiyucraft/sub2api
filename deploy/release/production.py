@@ -138,12 +138,15 @@ class ProductionRelease:
             {
                 "backup_units_masked", "writes_frozen", "state_dir", "pre_switch_image_id", "compose_sha256",
                 "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "no_restart_path_proven",
+                "local_restore_point_ready",
             },
             timeout=2400,
         )
         self.frozen = True
         self.units_masked = True
         self.backup_values = values
+        if values.get("local_restore_point_ready") != "true":
+            raise RuntimeError("local coordinated restore point is not ready")
         if values["state_dir"] != self.state_dir:
             raise RuntimeError("freeze state directory differs from release state")
         external_env = quoted_env({"PUBLIC_DOMAIN": self.profile["public_domain"]})

@@ -9,6 +9,7 @@ recipient_file=${AGE_RECIPIENT_FILE:-/root/.config/sub2api-backup/age-recipient.
 upload_key=${BACKUP_UPLOAD_KEY:-/root/.ssh/sub2api_backup_upload}
 upload_target=${BACKUP_UPLOAD_TARGET:-sub2api-backup@47.85.205.94}
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+umask 077
 work="$backup_root/.release-$release_id-$timestamp"
 plain="$backup_root/sub2api-$release_id-$timestamp.tar"
 encrypted="$plain.age"
@@ -112,11 +113,17 @@ grep -Fq "OK $transport $artifact_sha" <<<"$remote_result"
 [[ $(docker inspect -f '{{.State.Status}}' sub2api) != running ]]
 cp -a "$encrypted" "$state_dir/recovery-point.age"
 printf '%s  recovery-point.age\n' "$artifact_sha" > "$state_dir/recovery-point.age.sha256"
+install -m 600 "$plain" "$state_dir/recovery-point.tar"
+plain_sha=$(sha256sum "$state_dir/recovery-point.tar" | awk '{print $1}')
+printf '%s  recovery-point.tar\n' "$plain_sha" > "$state_dir/recovery-point.tar.sha256"
+(cd "$state_dir" && sha256sum -c recovery-point.tar.sha256 >/dev/null)
+tar -tf "$state_dir/recovery-point.tar" >/dev/null
 printf 'artifact=%s\n' "$(basename "$encrypted")"
 printf 'transport_artifact=%s\n' "$transport"
 printf 'artifact_size=%s\n' "$(stat -c %s "$encrypted")"
 printf 'artifact_sha256=%s\n' "$artifact_sha"
 printf 'writes_frozen=true\n'
 printf 'no_restart_path_proven=true\n'
+printf 'local_restore_point_ready=true\n'
 trap - EXIT
 rm -rf "$work" "$plain"

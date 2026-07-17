@@ -50,6 +50,7 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 | SSH 代理可用但发布连接失败 | 仓库私有 `known_hosts` 缺目标记录，用户可信文件已有记录 | `vm_hostkey_trusted`、`racknerd_hostkey_trusted`、`dmit_hostkey_trusted`、`backup_hostkey_trusted` | 只导入用户已信任的精确记录；禁止 `ssh-keyscan`、TOFU 或自动接受 |
 | VM Gate 无法提交或生产拒绝 Gate | RackNerd 缺 VM Gate 公钥或三方信任根不一致 | `vm_gate_trust_ready` | 运行独立 `bootstrap-trust` 并人工核验指纹 |
 | Canary 无法执行 | RackNerd 缺固定 Canary 凭据文件或权限错误 | `canary_key_ready` | bootstrap 从生产本机生成受限文件；凭据不得回显或进入命令行 |
+| 迁移后协调恢复无法解密 | 生产只配置 recipient，`restore.sh` 却依赖本机 age identity | `local_restore_point_ready` | 迁移前生成并校验 root-only 临时恢复 tar；缺失时停止迁移，禁止把解密私钥补到生产机 |
 | 发布与每日备份竞争 | 缺全局备份锁 wrapper 或 systemd drop-in | `backup_global_lock_ready` | bootstrap 只核验并停止；通过独立运维初始化补齐后重跑 doctor |
 | claim 后立即失败且无法重试 | claim 文件格式与读取协议不一致 | `active_claim`、`claim_format_valid` | 按远端 committed marker reconciliation，禁止直接删除 claim |
 | preflight 失败却要求 recovery point | 恢复逻辑未区分切换前和切换后状态 | `committed_phase`、`recovery_point_ready` | 按下方状态表恢复，不凭本地异常猜测 |
