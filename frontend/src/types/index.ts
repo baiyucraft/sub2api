@@ -929,6 +929,7 @@ export interface Account {
   proxy_id: number | null
   upstream_config_id?: number | null
   upstream_key_id?: number | null
+  upstream_site_url?: string | null
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
   concurrency: number
