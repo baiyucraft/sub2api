@@ -231,6 +231,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		ProxyFallbackOriginName: a.ProxyFallbackOriginName,
 		UpstreamConfigID:        a.UpstreamConfigID,
 		UpstreamKeyID:           a.UpstreamKeyID,
+		UpstreamSiteURL:         a.UpstreamSiteURL,
 		Concurrency:             a.Concurrency,
 		LoadFactor:              a.LoadFactor,
 		Priority:                a.Priority,

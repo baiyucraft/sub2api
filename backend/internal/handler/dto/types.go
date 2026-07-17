@@ -187,6 +187,7 @@ type Account struct {
 	ProxyFallbackOriginName *string         `json:"proxy_fallback_origin_name,omitempty"`
 	UpstreamConfigID        *int64          `json:"upstream_config_id,omitempty"`
 	UpstreamKeyID           *int64          `json:"upstream_key_id,omitempty"`
+	UpstreamSiteURL         *string         `json:"upstream_site_url,omitempty"`
 	Concurrency             int             `json:"concurrency"`
 	LoadFactor              *int            `json:"load_factor,omitempty"`
 	Priority                int             `json:"priority"`

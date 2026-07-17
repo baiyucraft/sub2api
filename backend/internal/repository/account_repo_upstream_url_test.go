@@ -47,7 +47,11 @@ func TestAccountsToServiceProjectsEffectiveUpstreamAPIURL(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	require.Equal(t, separateAPIURL, got[0].Credentials["base_url"])
+	require.NotNil(t, got[0].UpstreamSiteURL)
+	require.Equal(t, "https://site.example.com", *got[0].UpstreamSiteURL)
 	require.Equal(t, "https://same.example.com", got[1].Credentials["base_url"])
+	require.NotNil(t, got[1].UpstreamSiteURL)
+	require.Equal(t, "https://same.example.com", *got[1].UpstreamSiteURL)
 }
 
 func mustCreateUpstreamConfigForURLTest(t *testing.T, ctx context.Context, client *dbent.Client, name, siteURL string, apiURL *string) *dbent.UpstreamConfig {
