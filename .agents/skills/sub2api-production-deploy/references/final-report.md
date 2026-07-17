@@ -21,7 +21,7 @@
 一键发布的退出码和控制台末行只是入口结果，不是唯一事实源。报告前必须交叉核验：
 
 1. `gate/gate.json` 的签名 manifest 与 evidence：完整 commit、版本、迁移 checksum、candidate archive checksum、`candidate_image_id`、VM 数据边界和恢复验证。
-2. `gate/production-result.json`：最终 `status=verified,stage=production_verified`，以及备份、迁移、切换、双链路和运行镜像证据。
+2. `gate/production-result.json`：最终 `status=verified`，且 `stage=production_verified` 或 `production_verified_after_reconciliation`，并包含备份、迁移、切换、双链路和运行镜像证据。
 3. Git：本地 `HEAD`、`origin/main` 与 Gate commit 一致，工作区干净。
 4. 线上：生产 running image ID 等于签名 candidate image ID，发布后重新采集公网健康；健康 `200` 只作为补充证据。
 
@@ -39,9 +39,14 @@ reported_at:
 overall_status: success | partial | failed | stopped
 state_rechecked_in_this_task: true | false
 release_runner_exit: 0 | nonzero | not_applicable | unknown
+reconciliation_runner_exit: 0 | nonzero | not_required | unknown
 signed_gate_status: verified | fail | not_applicable | not_checked
-production_result_stage: production_verified | value | not_applicable | not_checked
+production_result_stage: production_verified | production_verified_after_reconciliation | value | not_applicable | not_checked
+production_result_status: verified | failed | recovered | blocked_reconciliation | not_applicable | not_checked
+reconciliation_status: not_required | resumed_candidate | coordinated_restore | blocked | not_checked
 ```
+
+`production_result_stage` 是最后执行阶段，`production_result_status` 是顶层结论；二者不得互换。正式 reconciliation 成功时通常是 `stage=production_verified_after_reconciliation,status=verified`。原 deploy 非零仍必须保留在 `release_runner_exit`，不能被 reconciliation 的成功退出码覆盖。
 
 ## 变更与门禁
 
@@ -151,6 +156,8 @@ remote_free_space:
 healthchecks: configured | external alerting incomplete | unknown
 writes_frozen: true | false | not_applicable | unknown
 no_restart_path_proven: true | false | not_applicable | unknown
+local_restore_point_ready: true | false | not_applicable | not_checked
+plaintext_restore_material_destroyed: pass | fail | not_applicable | not_checked
 ```
 
 ## 生产切换与验收
@@ -179,7 +186,11 @@ startup_log_gate: pass | fail | not_checked
 frontend_browser_smoke: pass | fail | not_required | not_checked
 failure_stage: value | none
 migration_committed: true | false | unknown | not_applicable
-recovery_branch: resume-old | coordinated-data-restore | blocked-reconciliation | not_applicable
+recovery_branch: resume-old | coordinated-data-restore | blocked_reconciliation | not_applicable
+canary_attempts_direct: value | not_checked
+canary_attempts_dmit: value | not_checked
+canary_timeout_classification: none | transient | candidate_failure | link_failure | unknown
+active_claim_final_state: consumed | recovered | active | absent | not_applicable | not_checked
 ```
 
 如果 direct 通过但 DMIT 未通过，整体不能写 `success`。
