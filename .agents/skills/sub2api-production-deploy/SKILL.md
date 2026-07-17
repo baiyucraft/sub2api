@@ -19,6 +19,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 禁止 `docker system prune`、`docker builder prune`、删除卷、数据库、Redis、`data` 或备份目录。
 - VM 空间必须按 Docker/containerd、`/tmp`、源码、构建/恢复副本和回滚预留计算峰值；清理最多一次，不能用 `du` 或 Snap 缓存推断可回收空间。
 - VM 扩盘后必须完成分区、`partprobe`、文件系统 resize 和完整 `df`/inode 复核，并重新执行 `doctor`；不能续跑中断阶段。
+- 本地开发机的 Go 全量门禁默认使用 `-p 2 -parallel 2`，并与 Vitest、typecheck、前端生产构建串行执行；该限制不改变 VM 的正式镜像构建并行度。
 - signer 公钥、私钥派生公钥、production-node trust key、validator 和 Gate 中记录的 checksum 任一不一致，必须停止，不得通过 bootstrap 自动修复后继续发布。
 - validator 与 signer helper 必须作为同一版本单元暂存、验签自测后一次激活；不得单独升级其中一个，也不得在 Compose 闭包未验证前删除旧容器或恢复数据库。
 - 任何备份、checksum、image ID、迁移、磁盘、健康、认证或空间断言失败，立即停止并报告。

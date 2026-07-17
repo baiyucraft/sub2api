@@ -22,13 +22,15 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 诊断顺序固定为：
 
 1. 确认原 `release.py deploy` 进程仍存在；只读取进程名、PID、父 PID 和 Python 模块名，不输出完整命令行。
-2. 只读检查最新且 commit/profile 匹配的 `.tmp/releases/<release-id>/`，不得仅按目录时间猜测其他发布。
+2. 使用原进程对应的 profile、完整 commit SHA 和 release ID 精确定位 `.tmp/releases/<release-id>/`。目录名中的短 SHA 只用于定位，身份判断仍使用 manifest 的完整 SHA；不得仅按目录时间猜测其他发布。
 3. 从以下 JSON 仅投影白名单字段，不原样输出文件：
    - `state.json`：VM Gate 状态；`stage=vm_validate,status=verified` 只证明 VM Gate 完成。
    - `release-state.json`：本地编排状态；`stage=production_release,status=running` 表示已进入生产 runner，不表示已切换成功。
    - `gate/production-result.json`：生产阶段事实；按 `history[].stage` 判断 `stage_assets`、`production_preflight`、`freeze`、`backup`、`migration_and_switch` 和最终验收。`history[]` 只表示阶段推进，最终结论读取顶层 `stage/status`。
 4. 子进程为 `release.vm_validate` 时，只能报告 VM Gate 进行中；子进程为 `release.production` 时，只能报告生产 runner 进行中。具体是否停写、迁移或公开流量必须由 `production-result.json` 的阶段证据确认。
-5. 状态文件持续推进时继续等待原进程。只有进程退出、状态明确失败，或状态长时间不推进且远端 committed marker 已复核后，才进入恢复决策。
+5. 状态文件持续推进时继续等待原进程。完整 VM build 可以持续十余分钟，远程命令执行期间状态文件可能只在阶段边界更新；只要父子进程仍存活且没有明确错误，就不能根据状态文件时间判定卡死。
+6. 诊断轮询保持低频，只投影阶段、状态、错误码、候选镜像 ID 和状态文件时间等固定字段。禁止输出完整命令行、原始 JSON 或远端日志，也禁止在原进程存活时并发运行第二个 `deploy` 或 `doctor`。
+7. 当前状态文件没有统一的 `stage_deadline_at`。需要判断超时时，只能读取当前 commit 中 release runner/validator 为正在执行的子命令声明的 timeout，并等待原进程返回对应超时错误；不能自定义更短的人工超时。只有进程退出、状态明确失败或原子命令已明确超时，才复核远端 committed marker 并进入恢复决策。
 
 成功判定必须同时满足：
 
