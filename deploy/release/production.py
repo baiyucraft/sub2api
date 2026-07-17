@@ -204,7 +204,10 @@ class ProductionRelease:
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/switch.sh",
-            {"migration_verified", "running_image_id", "internal_health", "public_traffic_enabled"},
+            {
+                "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
+                "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
+            },
             timeout=1200,
         )
         self.stage("candidate_internal_verified", values)
@@ -223,7 +226,10 @@ class ProductionRelease:
         verified = self.run_remote(
             "racknerd",
             f"{verify_env} {self.active_assets}/verify.sh",
-            {"direct_health", "underscore_header_path", "two_mib_reached_app", "startup_logs"},
+            {
+                "direct_health", "underscore_header_path", "two_mib_reached_app", "startup_logs",
+                "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
+            },
             timeout=600,
         )
         canary_key = self.runner.read_canary_key() + b"\n"
@@ -295,7 +301,10 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\n'
         final = self.run_remote(
             "racknerd",
             f"{finalize_env} {self.active_assets}/finalize.sh",
-            {"auto_sync_enabled", "running_image_id", "final_health", "final_logs"},
+            {
+                "auto_sync_enabled", "running_image_id", "final_health", "final_logs",
+                "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
+            },
             timeout=600,
         )
         external_final = self.run_remote(
