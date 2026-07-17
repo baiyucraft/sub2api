@@ -19,7 +19,7 @@
 
 ## 生产前置检查
 
-远程写操作前必须先给出计划并获得用户确认。确认后：
+远程写操作前必须先给出计划并获得用户确认。发布计划应明确包含失败时的自动 `emergency-close`、恢复 backup units 和既定 rollback/recovery；用户确认该计划后，这些同一 release 内的自动安全动作无需逐项重新确认。runner 已退出后的人工 reconciliation、改变恢复分支或计划外写操作仍须再次确认。确认后：
 
 以下清单用于应用产物发布。运维资产先按下一节分流，只执行适用项，不得伪造 candidate 或 VM 结果。
 
@@ -148,6 +148,8 @@ preflight 或 postflight 任一不通过，禁止部分迁移和继续启动；�
 
 只通过 direct 而未通过 relay-node，不能报告“生产完全健康”。
 
+流式 Canary 的 `curl exit 28` 必须使用 [release-doctor-and-recovery.md](release-doctor-and-recovery.md) 的分层流程。只有候选 image、迁移、配置不变量、内部 health 和短时鉴权均通过时，才允许 direct/DMIT 各最多 3 次有限重试；每次使用唯一 marker。重试成功后仍要核验 usage、API Key、endpoint 和真实 IP，不能用重试成功掩盖此前未归因的写入。
+
 ## 业务语义验收
 
 基础健康和双路径验收不能替代业务合同验证。每次后端、migration、scheduler、上游同步或计费发布，都应从本次变更中选择 1 至 3 条最关键的不变量，并按是否已恢复公开流量分阶段执行只读 SQL、Redis 或管理 API 断言：
@@ -162,7 +164,9 @@ preflight 或 postflight 任一不通过，禁止部分迁移和继续启动；�
 
 不兼容 migration 的 schema、数据重算、绑定、倍率、scheduler 和 outbox 不变量必须在保持停写、公开流量尚未恢复时验证；失败可直接进入既定协调恢复。恢复流量后的断言只覆盖真实链路、Canary、后台任务和最新同步等运行态行为。
 
-恢复流量后的业务断言失败时，先立即重新停写并统计恢复流量后产生的新写入，再判断是当前发布回归、既有数据异常还是验收查询错误。此时禁止直接恢复迁移前数据库；必须明确选择前向修复，或制定包含新增写入核对、保留或补偿的数据恢复方案。无法证明来源时保持停写并报告 `blocked-reconciliation`。全部业务断言通过后再次运行同 profile、同完整 commit 的 `doctor`，要求 migration 状态、备份协议、VM/RackNerd/DMIT 和外部路径仍通过。
+恢复流量后的业务断言失败时，先立即重新停写并统计恢复流量后产生的新写入，再判断是当前发布回归、既有数据异常还是验收查询错误。此时禁止直接恢复迁移前数据库；必须明确选择前向修复，或制定包含新增写入核对、保留或补偿的数据恢复方案。无法证明来源时保持停写并报告 `blocked_reconciliation`。全部业务断言通过后再次运行同 profile、同完整 commit 的 `doctor`，要求 migration 状态、备份协议、VM/RackNerd/DMIT 和外部路径仍通过。
+
+公开后进入 `blocked_reconciliation` 时禁止重新执行完整 `deploy`。只允许在同一 release ID、signed candidate 和 active claim 下继续剩余验收，或执行协调恢复；必须恢复 backup timer/自动同步并原子 consume/reconcile claim。当前工具没有经过测试的 resume/reconcile 入口时保持 fail-closed，不用一次性脚本或手工编辑状态文件冒充正式收口。
 
 ## 回滚
 
