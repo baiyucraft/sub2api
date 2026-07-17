@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,10 +14,15 @@ DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.production import ProductionRelease
+from release.production import emit_progress
 from release.production import quoted_env
 
 
 class ProductionRecoveryTest(unittest.TestCase):
+    def test_progress_output_failure_is_non_fatal(self) -> None:
+        with mock.patch("builtins.print", side_effect=BrokenPipeError):
+            emit_progress("stage=freeze")
+
     def test_quoted_env_quotes_shell_metacharacters(self) -> None:
         self.assertEqual(quoted_env({"VALUE": "a b;$(x)"}), "VALUE='a b;$(x)'")
 
@@ -188,6 +196,53 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIn(".State.Health.Status", script)
         self.assertIn("= healthy", script)
 
+    def test_consumed_probe_failure_is_unknown(self) -> None:
+        release = self.release()
+        release.run_remote = mock.Mock(side_effect=RuntimeError("reply lost"))
+        self.assertIsNone(release.remote_gate_consumed())
+
+    def test_unknown_consumption_status_closes_public_traffic(self) -> None:
+        release = self.release()
+        release.claimed = True
+        release.public_exposed = True
+        release.upload_assets = mock.Mock(side_effect=RuntimeError("reply lost"))
+        release.remote_gate_consumed = mock.Mock(return_value=None)
+        release.emergency_close = mock.Mock()
+
+        with self.assertRaisesRegex(RuntimeError, "reply lost"):
+            release.execute()
+
+        release.emergency_close.assert_called_once()
+        self.assertEqual(release.result["status"], "blocked_reconciliation")
+
+    def test_unknown_consumption_status_without_public_exposure_does_not_close(self) -> None:
+        release = self.release()
+        release.claimed = True
+        release.public_exposed = False
+        release.upload_assets = mock.Mock(side_effect=RuntimeError("reply lost"))
+        release.remote_gate_consumed = mock.Mock(return_value=None)
+        release.emergency_close = mock.Mock()
+
+        with self.assertRaisesRegex(RuntimeError, "reply lost"):
+            release.execute()
+
+        release.emergency_close.assert_not_called()
+
+    def test_unknown_consumption_status_stays_blocked_when_close_is_unconfirmed(self) -> None:
+        release = self.release()
+        release.claimed = True
+        release.public_exposed = True
+        release.upload_assets = mock.Mock(side_effect=RuntimeError("reply lost"))
+        release.remote_gate_consumed = mock.Mock(return_value=None)
+        release.emergency_close = mock.Mock(side_effect=RuntimeError("close reply lost"))
+
+        with self.assertRaisesRegex(RuntimeError, "reply lost"):
+            release.execute()
+
+        self.assertEqual(release.result["status"], "blocked_reconciliation")
+        evidence = release.stage.call_args.args[1]
+        self.assertEqual(evidence["public_close"], "unknown")
+
     def test_mask_probe_detects_committed_remote_mask(self) -> None:
         release = self.release()
         release.run_remote = mock.Mock(return_value={"units_masked": "true"})
@@ -199,9 +254,196 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIsNone(release.remote_units_masked())
 
 
+class RouteCanaryRetryTest(unittest.TestCase):
+    def release(self, responses: list[dict[str, str]]) -> ProductionRelease:
+        instance = object.__new__(ProductionRelease)
+        instance.release_id = "194-aaaaaaaaaaaa-1-aaaaaaaa"
+        instance.profile = {"public_domain": "example.test"}
+        instance.run_remote_with_input = mock.Mock(side_effect=responses)
+        instance.stage = mock.Mock()
+        return instance
+
+    def response(self, status: str, curl_exit: str, http_code: str) -> dict[str, str]:
+        passed = status == "pass"
+        return {
+            "route_health": "pass",
+            "streaming": "pass" if passed else "fail",
+            "curl_exit": curl_exit,
+            "http_code": http_code,
+            "canary_status": status,
+        }
+
+    @mock.patch("release.production.time.sleep")
+    def test_timeout_retries_then_succeeds(self, sleep: mock.Mock) -> None:
+        release = self.release([
+            self.response("retryable", "28", "200"),
+            self.response("pass", "0", "200"),
+        ])
+
+        result = release.run_route_canary("racknerd", "/route-canary.sh", "direct", "192.0.2.1", b"sk-test-key-1234", "post_switch")
+
+        self.assertEqual(result["canary_status"], "pass")
+        self.assertEqual(release.run_remote_with_input.call_count, 2)
+        self.assertEqual(sleep.call_args.args[0], 5)
+        self.assertTrue(result["user_agent"].endswith("-direct"))
+        self.assertEqual(len(result["attempt_user_agents"].split(",")), 2)
+
+    @mock.patch("release.production.time.sleep")
+    def test_gateway_5xx_retries_then_succeeds(self, sleep: mock.Mock) -> None:
+        release = self.release([
+            self.response("retryable", "0", "503"),
+            self.response("pass", "0", "200"),
+        ])
+
+        release.run_route_canary("backup", "/route-canary.sh", "dmit", "192.0.2.2", b"sk-test-key-1234", "pre_switch")
+
+        self.assertEqual(release.run_remote_with_input.call_count, 2)
+        sleep.assert_called_once_with(5)
+
+    @mock.patch("release.production.time.sleep")
+    def test_hard_failure_does_not_retry(self, sleep: mock.Mock) -> None:
+        release = self.release([self.response("failed", "0", "401")])
+
+        with self.assertRaisesRegex(RuntimeError, "failed without retry"):
+            release.run_route_canary("racknerd", "/route-canary.sh", "direct", "192.0.2.1", b"sk-test-key-1234", "pre_switch")
+
+        self.assertEqual(release.run_remote_with_input.call_count, 1)
+        sleep.assert_not_called()
+
+    @mock.patch("release.production.time.sleep")
+    def test_retry_exhaustion_stops_after_three_attempts(self, sleep: mock.Mock) -> None:
+        release = self.release([self.response("retryable", "28", "200")] * 3)
+
+        with self.assertRaisesRegex(RuntimeError, "exhausted retries"):
+            release.run_route_canary("racknerd", "/route-canary.sh", "direct", "192.0.2.1", b"sk-test-key-1234", "post_switch")
+
+        self.assertEqual(release.run_remote_with_input.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [5, 15])
+
+    def test_post_switch_attribution_script_covers_every_attempt(self) -> None:
+        release = object.__new__(ProductionRelease)
+        release.profile = {
+            "public_domain": "example.test",
+            "rack_public_ip": "192.0.2.1",
+            "dmit_public_ip": "192.0.2.2",
+            "canary_api_key_id": 2,
+        }
+        release.release_id = "194-aaaaaaaaaaaa-1-aaaaaaaa"
+        release.release_dir = "/release"
+        release.active_assets = "/active/assets"
+        release.state_dir = "/state"
+        release.result = {"status": "running", "history": []}
+        release.stage = mock.Mock()
+        direct_agents = ["sub2api-release-direct-attempt-1-direct", "sub2api-release-direct-attempt-2-direct"]
+        dmit_agents = ["sub2api-release-dmit-attempt-1-dmit", "sub2api-release-dmit-attempt-2-dmit"]
+        release.verify_streaming_routes = mock.Mock(return_value=(
+            {
+                "route_health": "pass",
+                "streaming": "pass",
+                "user_agent": direct_agents[-1],
+                "attempt_user_agents": ",".join(direct_agents),
+            },
+            {
+                "route_health": "pass",
+                "streaming": "pass",
+                "user_agent": dmit_agents[-1],
+                "attempt_user_agents": ",".join(dmit_agents),
+            },
+        ))
+        captured: dict[str, str] = {}
+
+        def run_remote(_host: str, script: str, allowed: set[str], timeout: int = 300) -> dict[str, str]:
+            del timeout
+            if "api.ipify.org" in script:
+                return {"backup_public_ip": "198.51.100.1"}
+            if "SELECT user_agent" in script:
+                captured["usage_script"] = script
+            return {key: "pass" for key in allowed}
+
+        release.run_remote = mock.Mock(side_effect=run_remote)
+        release.verify_and_finalize()
+
+        script = captured["usage_script"]
+        for agent in direct_agents + dmit_agents:
+            self.assertIn(agent, script)
+        bash = shutil.which("bash") or "C:/Program Files/Git/bin/bash.exe"
+        completed = subprocess.run([bash, "-n", "-c", script], capture_output=True, text=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+
 class ReleaseClaimScriptTest(unittest.TestCase):
     def script(self, name: str) -> str:
         return (DEPLOY_ROOT / "maintenance" / "release" / name).read_text(encoding="utf-8")
+
+    def run_route_canary(self, *, stream_exit: int = 0, stream_code: str = "200", stream_body: str = "data: ok") -> dict[str, str]:
+        bash = shutil.which("bash")
+        if bash is None:
+            git_bash = Path("C:/Program Files/Git/bin/bash.exe")
+            bash = str(git_bash) if git_bash.exists() else None
+        if bash is None:
+            self.skipTest("bash is unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            fake_curl = Path(directory) / "curl"
+            fake_curl.write_text(
+                """#!/usr/bin/env bash
+set -uo pipefail
+output=
+args=(\"$@\")
+for ((index=0; index < ${#args[@]}; index++)); do
+  if [[ ${args[$index]} == -o ]]; then
+    output=${args[$((index + 1))]}
+  fi
+done
+url=${args[$((${#args[@]} - 1))]}
+if [[ $url == */health ]]; then
+  printf '%s' \"${FAKE_HEALTH_CODE:-200}\"
+  exit \"${FAKE_HEALTH_EXIT:-0}\"
+fi
+if [[ -n $output && $output != /dev/null ]]; then
+  printf '%s' \"${FAKE_STREAM_BODY:-}\" > \"$output\"
+fi
+printf '%s' \"${FAKE_STREAM_CODE:-200}\"
+exit \"${FAKE_STREAM_EXIT:-0}\"
+""",
+                encoding="utf-8",
+                newline="\n",
+            )
+            fake_curl.chmod(0o755)
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PUBLIC_DOMAIN": "example.test",
+                    "ROUTE_IP": "192.0.2.1",
+                    "ROUTE_NAME": "direct",
+                    "MARKER": "194-aaaaaaaaaaaa-1-aaaaaaaa-test",
+                    "FAKE_STREAM_EXIT": str(stream_exit),
+                    "FAKE_STREAM_CODE": stream_code,
+                    "FAKE_STREAM_BODY": stream_body,
+                }
+            )
+            command = [bash, "maintenance/release/route-canary.sh"]
+            if os.name == "nt":
+                env["FAKE_CURL_DIR"] = directory
+                command = [
+                    bash,
+                    "-lc",
+                    'export PATH="$(cygpath -u "$FAKE_CURL_DIR"):$PATH"; exec bash maintenance/release/route-canary.sh',
+                ]
+            else:
+                env["PATH"] = directory + os.pathsep + env["PATH"]
+            completed = subprocess.run(
+                command,
+                cwd=DEPLOY_ROOT,
+                env=env,
+                input="sk-test-key-1234\n",
+                text=True,
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stderr, "")
+        return dict(line.split("=", 1) for line in completed.stdout.splitlines())
 
     def test_prepare_rejects_linked_candidate_and_copies_assets(self) -> None:
         script = self.script("prepare.sh")
@@ -272,6 +514,32 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("IFS= read -r api_key", script)
         self.assertNotIn("CANARY_KEY_FILE", script)
         self.assertIn("ROUTE_IP", script)
+
+    def test_route_canary_classifies_only_timeout_and_gateway_errors_as_retryable(self) -> None:
+        script = self.script("route-canary.sh")
+        self.assertIn("$curl_exit == 28", script)
+        for code in ("502", "503", "504"):
+            self.assertIn(f"$http_code == {code}", script)
+        self.assertIn("canary_status=failed", script)
+        self.assertIn("canary_status=pass", script)
+        self.assertIn("curl_exit=%s", script)
+
+    def test_route_canary_runtime_classifies_timeout_as_retryable(self) -> None:
+        values = self.run_route_canary(stream_exit=28, stream_code="200", stream_body="")
+        self.assertEqual(values["canary_status"], "retryable")
+        self.assertEqual(values["curl_exit"], "28")
+        self.assertEqual(values["http_code"], "200")
+
+    def test_route_canary_runtime_rejects_missing_sse_without_retry(self) -> None:
+        values = self.run_route_canary(stream_exit=0, stream_code="200", stream_body="plain response")
+        self.assertEqual(values["canary_status"], "failed")
+        self.assertEqual(values["streaming"], "fail")
+
+    def test_route_canary_runtime_accepts_streaming_response(self) -> None:
+        values = self.run_route_canary(stream_exit=0, stream_code="200", stream_body="data: ok")
+        self.assertEqual(values["canary_status"], "pass")
+        self.assertEqual(values["route_health"], "pass")
+        self.assertEqual(values["streaming"], "pass")
 
     def test_cleanup_handles_backup_failure_before_recovery_point(self) -> None:
         cleanup = self.script("cleanup-state.sh")

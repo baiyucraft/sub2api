@@ -13,6 +13,7 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 - `doctor` 只读检查本地、VM、RackNerd、DMIT 和异地节点，输出字段白名单；失败时禁止进入发布。
 - `bootstrap-production` 只创建缺失的状态目录和固定 Canary 文件，并核验信任根、Canary 与数据库、备份全局锁；不修改 systemd、不构建、不迁移、不切换应用。已有资产内容不一致时停止。
 - `deploy` 是日常一键入口：先检查本地、VM 与外部节点，幂等 bootstrap RackNerd 后再检查 RackNerd，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。
+- `deploy` 在停写前先用当前生产版本执行 direct/DMIT 流式基线 Canary；它会产生带唯一 marker 的正常 usage 记录，但不验证候选容器。该检查失败时释放本次 claim 并保持旧应用运行。候选公开后仅对 `curl 28` 和 `502/503/504` 使用新 marker 最多尝试三次，确定性 4xx、协议或 SSE 错误不重试。
 - 信任根首次安装仍单独使用 `bootstrap-trust`，人工核验公钥指纹；普通 bootstrap 和 deploy 不得创建或替换信任根。
 
 ## 长时间无输出诊断
