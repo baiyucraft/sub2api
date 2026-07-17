@@ -100,6 +100,8 @@ DMIT
 
 回滚必须同时恢复 PostgreSQL、Redis、配置和 `pre_switch_image_id`，禁止只回退 Compose。
 
+生产机只保存加密 recipient，不保存解密私钥。为保证迁移后的即时协调恢复，停写备份阶段必须同时在 root-only release state 中保留一份临时明文恢复 tar，并完成 checksum 与 tar 可读性校验；runner 只有收到 `local_restore_point_ready=true` 才能迁移。该临时 tar 不上传异地、不进入 Git 或日志，发布成功清理明文状态时必须销毁；长期保留的恢复资产仍为加密包。禁止让生产 `restore.sh` 依赖不存在的解密私钥。
+
 ### Compose 恢复合同
 
 恢复启动前必须在临时目录恢复 `.env` 和完整 Compose 文件集合，不继承宿主机的 `COMPOSE_FILE`，也不依赖部署目录残留文件。显式渲染：
