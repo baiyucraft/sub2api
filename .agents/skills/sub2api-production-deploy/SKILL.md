@@ -103,7 +103,9 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 
 本地 `.tmp/releases/.release.lock` 使用操作系统文件锁，锁文件可长期存在；只有实际持锁进程阻止并发发布。
 
-`deploy` 长时间没有控制台输出时不得重复启动或凭沉默判定卡死。先按 [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md) 的“长时间无输出诊断”只读检查进程和结构化状态文件；最终成功必须同时满足签名 Gate 已验证、`production-result.json` 为 `production_verified`，且入口返回 `release=verified`。
+`deploy` 长时间没有控制台输出时不得重复启动或凭沉默判定卡死。先按 [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md) 的“长时间无输出诊断”只读检查进程和结构化状态文件。最终成功必须同时满足签名 Gate 已验证，`production-result.json` 的 `stage` 为 `production_verified` 或 `production_verified_after_reconciliation` 且顶层 `status=verified`，并且原 deploy 返回 `release=verified` 或经过审计的 reconciliation 入口返回 verified。当前 commit 没有正式 reconciliation 入口时，runner 失败后必须保持 `blocked_reconciliation`。
+
+前台工具超时不等于 runner 退出。宿主工具存在短超时时，使用唯一隐藏后台进程启动发布，并在 `.tmp/` 记录 PID、release ID、stdout/stderr 路径；后续只跟踪该 PID 和结构化状态，禁止再次执行 `deploy`。Canary `curl exit 28`、公开后失败或 `blocked_reconciliation` 必须按恢复 reference 分层诊断，不能直接认定候选故障或跳过双链路验收。
 
 Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资产、migration checksum、candidate archive checksum 和 image ID。生产端必须再次验签并从 Gate 派生镜像身份，禁止用环境变量覆盖。
 

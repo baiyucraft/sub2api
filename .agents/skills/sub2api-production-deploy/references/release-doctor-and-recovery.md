@@ -32,16 +32,59 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 6. 诊断轮询保持低频，只投影阶段、状态、错误码、候选镜像 ID 和状态文件时间等固定字段。禁止输出完整命令行、原始 JSON 或远端日志，也禁止在原进程存活时并发运行第二个 `deploy` 或 `doctor`。
 7. 当前状态文件没有统一的 `stage_deadline_at`。需要判断超时时，只能读取当前 commit 中 release runner/validator 为正在执行的子命令声明的 timeout，并等待原进程返回对应超时错误；不能自定义更短的人工超时。只有进程退出、状态明确失败或原子命令已明确超时，才复核远端 committed marker 并进入恢复决策。
 
+调用工具会在远短于 runner timeout 的时间内终止前台会话时，使用唯一隐藏后台 runner：
+
+1. stdout、stderr、PID 和 release ID 只写入仓库 `.tmp/`，不记录 secret 或完整命令行。
+2. 启动后确认只有一个 `release.py deploy` 父进程和对应 validator/production 子进程。
+3. 只低频读取 PID 存活、日志大小和三个状态 JSON 的白名单字段。
+4. 工具层超时后先确认原进程是否仍存活；存活时不得重启、杀进程或并发运行 doctor/deploy。
+5. runner 退出后才读取脱敏异常类型，并按远端 committed state 决定下一步。
+
 成功判定必须同时满足：
 
 ```text
-入口输出 release=verified
+原 deploy 输出 release=verified，或正式 reconciliation 入口输出 verified
   + state.json: vm_validate / verified
-  + production-result.json: production_verified / verified
+  + production-result.json: stage=production_verified 或 production_verified_after_reconciliation
+                            AND status=verified
   + production running_image_id == signed candidate_image_id
 ```
 
 进程退出码 `0`、VM Gate `verified`、健康接口单独返回 `200`，均不能独立证明生产发布完成。诊断期间禁止再次运行 `deploy`；`.release.lock` 是否存在不代表是否持锁。
+
+## Canary 超时分层诊断
+
+`curl exit 28` 只表示 Canary 在自身时间窗内未完成，不能单独证明候选回归，也不能忽略。候选已经公开时，先执行 `emergency-close` 并确认 Nginx inactive，再依次验证：
+
+```text
+signed image/迁移/业务不变量
+  -> 127.0.0.1 /health 与短时鉴权
+  -> 127.0.0.1 内部流式 Canary
+  -> RackNerd direct HTTPS 流式 Canary
+  -> 异地节点经 DMIT 流式 Canary
+  -> unique marker 的 usage、API Key、endpoint、真实 IP 归因
+```
+
+- 每次 Canary 使用唯一 marker/User-Agent；secret 仅从 stdin 传入。
+- 只记录 `curl_exit`、HTTP code、SSE detected、耗时、记录数和状态，不输出请求体、响应体、账号或错误原文。
+- 只有 image、迁移、配置不变量、内部 health 和短时鉴权均通过时，才允许流式 Canary 最多重试 3 次；每次使用新 marker。
+- 内部流式也失败、日志出现关键错误、迁移不变量失败或状态无法证明时，不重试公开链路，进入协调恢复。
+- direct 与 DMIT 都通过后仍须核验 usage 和真实 IP；仅 `/health=200` 或一次内部 SSE 不能完成发布。
+- 不得临时切换测试模型、账号或参数规避既定 Gate；修改验收合同必须重新审核。
+
+## 公开后的 Reconciliation
+
+公开后失败会产生真实写入风险，不能直接恢复迁移前数据库：
+
+1. 关闭公开入口，确认 active claim 精确匹配 release ID。
+2. 核验当前 image、应用/PG/Redis、迁移、Nginx、备份 units、恢复点和流量恢复后的新增写入。
+3. 候选内部健康、持久状态一致且失败仅为可重复链路验收时，允许在同一 signed candidate 和 active claim 下继续剩余验收；禁止重跑完整 `deploy`、重新迁移或创建第二个 claim。runner 已退出后的续验属于新的远程写操作，必须确认。
+4. 候选或持久状态失败时，使用 `local_restore_point_ready=true` 对应的 root-only 临时 tar 协调恢复 PostgreSQL、Redis、完整 Compose/config/data 和旧 image。
+5. 状态查询失败必须 fail-closed；`systemctl`、`docker info`、`docker inspect`、`docker ps` 查询失败不能解释为服务已停止或容器不存在。
+6. 无论继续候选还是恢复旧版，都要恢复 backup units；成功候选还要恢复自动同步。
+7. 最终必须由当前 commit 中已实现、经过测试并有明确命令/参数的 runner/reconciliation 入口原子 consume/reconcile active claim 并更新结构化状态。禁止手工改 JSON、删除 marker 或伪造 `verified`。当前仓库没有该入口时保持 `blocked_reconciliation`，先实现并审核入口，不用一次性脚本代替。
+
+人工 reconciliation 完成发布至少要求：运行 image 等于 signed candidate、迁移与业务不变量通过、生产开关符合计划、direct/DMIT health 和 streaming 通过、usage/真实 IP 归因通过、backup timer 与自动同步恢复、claim 已消费且 post-deploy doctor 通过。若真实隔离恢复未完成，整体仍报告 `partial: production healthy, disaster-recovery baseline incomplete`。
 
 ## 故障预检表
 
@@ -50,7 +93,9 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 | SSH 代理可用但发布连接失败 | 仓库私有 `known_hosts` 缺目标记录，用户可信文件已有记录 | `vm_hostkey_trusted`、`racknerd_hostkey_trusted`、`dmit_hostkey_trusted`、`backup_hostkey_trusted` | 只导入用户已信任的精确记录；禁止 `ssh-keyscan`、TOFU 或自动接受 |
 | VM Gate 无法提交或生产拒绝 Gate | RackNerd 缺 VM Gate 公钥或三方信任根不一致 | `vm_gate_trust_ready` | 运行独立 `bootstrap-trust` 并人工核验指纹 |
 | Canary 无法执行 | RackNerd 缺固定 Canary 凭据文件或权限错误 | `canary_key_ready` | bootstrap 从生产本机生成受限文件；凭据不得回显或进入命令行 |
+| 流式 Canary 返回 `curl 28` | 上游/调度抖动、首字或完整流超时、公开链路异常 | `internal_streaming`、`direct_streaming`、`dmit_streaming`、marker usage | 先关公开入口并分层诊断；满足前提时最多重试 3 次，不直接判候选故障 |
 | 迁移后协调恢复无法解密 | 生产只配置 recipient，`restore.sh` 却依赖本机 age identity | `local_restore_point_ready` | 迁移前生成并校验 root-only 临时恢复 tar；缺失时停止迁移，禁止把解密私钥补到生产机 |
+| 远端动作成功但本地报 undeclared/missing field | SSH allowlist 与脚本 stdout 合同不同步 | committed marker、目标状态、输出字段集合 | 先核验动作是否已提交；同步 allowlist 与测试后再继续，不重复远端写操作 |
 | 发布与每日备份竞争 | 缺全局备份锁 wrapper 或 systemd drop-in | `backup_global_lock_ready` | bootstrap 只核验并停止；通过独立运维初始化补齐后重跑 doctor |
 | claim 后立即失败且无法重试 | claim 文件格式与读取协议不一致 | `active_claim`、`claim_format_valid` | 按远端 committed marker reconciliation，禁止直接删除 claim |
 | preflight 失败却要求 recovery point | 恢复逻辑未区分切换前和切换后状态 | `committed_phase`、`recovery_point_ready` | 按下方状态表恢复，不凭本地异常猜测 |

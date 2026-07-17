@@ -135,6 +135,10 @@ python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status
 - 只更新应用 image，除获批迁移外不重启 PostgreSQL/Redis。
 - 不兼容 migration 记录 `writes_frozen=true`，直到验收或恢复结束。
 - 任一 gate、checksum、空间、health 或 auth 失败即停止。
+- 前台调用超时后先检查原 runner PID 和结构化状态；原进程存活时禁止再次启动 deploy。
+- SSH stdout 必须与调用端 allowlist 完全一致。出现 undeclared/missing field 时先复核远端 committed state，不能假设动作失败并重复执行。
+
+allowlist 合同修复必须同时更新远端脚本 stdout、Python allowed set、release asset checksum/manifest 和自动化测试。测试至少覆盖字段完整成功、额外字段拒绝、缺失字段拒绝，以及“远端 marker 已提交但调用端解析失败”不重复写操作。现场只读核验字段限定为目标 committed marker、容器 image/status/health、Nginx、backup units、迁移 checksum 和本次动作的布尔/计数结果。
 
 ## 发布后验收
 
@@ -180,6 +184,9 @@ candidate 已上传不等于 verified。
 | 备份成功但无 Healthchecks | 外部告警不完整 | 如实报告，不伪装成完整监控 |
 | 旧快照健康但本次无法连接 | `unknown/stale` | 重新建立观测，不继承旧结论 |
 | VM 磁盘不足 | `degraded/failed` | 停止构建或导入，不执行 prune 破坏性清理 |
+| 流式 Canary `curl 28`，内部健康 | `reconciliation_required` | 关闭公开入口，按内部/direct/DMIT/usage 分层诊断，满足前提时有限重试 |
+| 发布动作可能成功但 stdout 解析失败 | `unknown` | 从 marker 和现场状态重建事实，修复 allowlist 合同后再继续 |
+| active claim 存在且 runner 已退出 | `blocked_reconciliation` | 不重跑 deploy、不删 marker；继续同候选验收或协调恢复并原子收口 |
 
 ## 证书、入口和磁盘
 
