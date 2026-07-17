@@ -27,3 +27,30 @@ grep -Fxq "release_id=$release_id" "$release_dir/.prepared"
 grep -Fxq "candidate_image_id=$candidate_image_id" "$release_dir/.prepared"
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
 state_dir="/opt/sub2api/backups/release-state/$release_id"
+
+assert_prompt_audit_disabled() {
+  if [[ $profile != 194 ]]; then
+    printf 'prompt_audit_disabled=not_applicable\n'
+    printf 'prompt_audit_jobs=not_applicable\n'
+    printf 'prompt_audit_events=not_applicable\n'
+    return 0
+  fi
+  local row
+  row=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "
+WITH config AS (
+  SELECT COALESCE(NULLIF((SELECT value FROM settings WHERE key='prompt_audit_config'), ''), '{}')::jsonb AS value
+)
+SELECT
+  NOT COALESCE((value->>'enabled')::boolean, false)
+    AND NOT COALESCE((value->>'blocking_enabled')::boolean, false)
+    AND NOT COALESCE((value->>'store_pass_events')::boolean, false)
+    AND jsonb_typeof(COALESCE(value->'endpoints', '[]'::jsonb)) = 'array'
+    AND jsonb_array_length(COALESCE(value->'endpoints', '[]'::jsonb)) = 0,
+  (SELECT COUNT(*) FROM prompt_audit_jobs),
+  (SELECT COUNT(*) FROM prompt_audit_events)
+FROM config")
+  [[ $row == 't|0|0' ]]
+  printf 'prompt_audit_disabled=true\n'
+  printf 'prompt_audit_jobs=0\n'
+  printf 'prompt_audit_events=0\n'
+}

@@ -53,6 +53,7 @@ done
 [[ $(docker inspect -f '{{.Image}}' sub2api) == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
 [[ $(docker compose config --format json | jq -r '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED') == false ]]
+assert_prompt_audit_disabled
 printf 'migration_verified=true\n'
 printf 'running_image_id=%s\n' "$candidate_image_id"
 printf 'internal_health=pass\n'

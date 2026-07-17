@@ -29,6 +29,7 @@ grep -Eiq '^x-request-id:' "$tmp/large.headers"
 nginx -T 2>&1 | grep -Eq '^[[:space:]]*underscores_in_headers[[:space:]]+on;'
 critical=$(docker logs --since 15m sub2api 2>&1 | grep -Eic 'panic|fatal|migration.*(failed|error)|database.*(failed|error)|redis.*(failed|error)' || true)
 [[ $critical == 0 ]]
+assert_prompt_audit_disabled
 printf 'direct_health=pass\n'
 printf 'underscore_header_path=pass\n'
 printf 'two_mib_reached_app=pass\n'

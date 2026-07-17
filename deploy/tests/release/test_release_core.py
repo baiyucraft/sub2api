@@ -137,6 +137,49 @@ class ReleaseCoreTest(unittest.TestCase):
         )
         self.assertEqual(list(migration_checksums(profile_194)), profile_194["migrations"])
 
+    def test_profile_194_requires_prompt_audit_disabled_evidence(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        context = (DEPLOY_ROOT / "maintenance" / "release" / "context.sh").read_text(encoding="utf-8")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        gate = (DEPLOY_ROOT / "release" / "gate.py").read_text(encoding="utf-8")
+
+        self.assertIn("prompt_audit_state == 't|0|0'", validator)
+        self.assertIn("prompt_audit_disabled:$prompt_audit_disabled", validator)
+        self.assertIn("assert_prompt_audit_disabled()", context)
+        self.assertEqual(production.count('"prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events"'), 3)
+        self.assertIn('expected_profile == "194"', gate)
+
+    def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            private_key = root / "private.pem"
+            public_key = root / "public.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private_key)], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
+            archive = root / "candidate.tar.gz"
+            archive.write_bytes(b"candidate")
+            manifest = self.manifest("runner", int(time.time()) + 60)
+            manifest["profile"] = "194"
+            document = {
+                "manifest": manifest,
+                "evidence": {
+                    "candidate_image_id": "sha256:" + "b" * 64,
+                    "candidate_archive_sha256": hashlib.sha256(b"candidate").hexdigest(),
+                    "integration_verified": True,
+                    "vm_restore_verified": True,
+                },
+            }
+            (root / "gate.json").write_bytes(canonical_json(document) + b"\n")
+            subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(private_key), "-rawin", "-in", str(root / "gate.json"), "-out", str(root / "gate.sig")], check=True)
+            with (
+                mock.patch("release.gate.runner_checksum", return_value="runner"),
+                mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
+                mock.patch("release.gate.sha256_file", return_value="validator"),
+                mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "Prompt Audit disabled-state evidence"):
+                    verify_gate(root, public_key, "194")
+
     def test_vm_post_build_space_gate_does_not_double_count_image(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn("required_before=$((database_size * 2 + current_image_size * 2 + 1073741824))", validator)
