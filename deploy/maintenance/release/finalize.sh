@@ -25,6 +25,7 @@ done
 [[ $(curl -sS --resolve "$domain:443:$direct_ip" --max-time 15 -o /dev/null -w '%{http_code}' "https://$domain/health") == 200 ]]
 critical=$(docker logs --since 5m sub2api 2>&1 | grep -Eic 'panic|fatal|migration.*(failed|error)|database.*(failed|error)|redis.*(failed|error)' || true)
 [[ $critical == 0 ]]
+assert_prompt_audit_disabled
 printf 'auto_sync_enabled=true\n'
 printf 'running_image_id=%s\n' "$candidate_image_id"
 printf 'final_health=pass\n'
