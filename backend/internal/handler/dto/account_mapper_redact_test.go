@@ -73,3 +73,30 @@ func TestAccountFromServiceShallow_NilCredentialsOmitsStatus(t *testing.T) {
 	require.Nil(t, got.Credentials)
 	require.Nil(t, got.CredentialsStatus)
 }
+
+func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {
+	siteURL := "https://lcodex.cc"
+	configID := int64(7)
+	src := &service.Account{
+		ID:               42,
+		Name:             "upstream-account",
+		Platform:         service.PlatformOpenAI,
+		Type:             service.AccountTypeAPIKey,
+		UpstreamConfigID: &configID,
+		UpstreamSiteURL:  &siteURL,
+		Credentials: map[string]any{
+			"base_url": "https://api.lcodex.cc",
+			"api_key":  "sk-secret",
+		},
+	}
+
+	got := AccountFromServiceShallow(src)
+	require.Equal(t, &siteURL, got.UpstreamSiteURL)
+	require.Equal(t, "https://api.lcodex.cc", got.Credentials["base_url"])
+	require.NotContains(t, got.Credentials, "api_key")
+
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"upstream_site_url":"https://lcodex.cc"`)
+	require.NotContains(t, string(raw), "sk-secret")
+}

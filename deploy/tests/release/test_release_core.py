@@ -95,9 +95,9 @@ class ReleaseCoreTest(unittest.TestCase):
         )
         self.assertEqual(list(migration_checksums(profile_191)), profile_191["migrations"])
 
-    def test_profile_191_is_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192)"
-        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192"
+    def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
+        expected_release_pattern = "(182|187|191|192|194)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194"
         for relative_path in (
             "release/vm-validate.sh",
             "release/bootstrap_vm_signer.sh",
@@ -125,6 +125,17 @@ class ReleaseCoreTest(unittest.TestCase):
             profile_191["migrations"] + ["192_group_duplicate_operation_id.sql"],
         )
         self.assertEqual(list(migration_checksums(profile_192)), profile_192["migrations"])
+
+    def test_profile_194_extends_profile_192_with_prompt_audit_migrations(self) -> None:
+        profile_192 = get_profile("192")
+        profile_194 = get_profile("194")
+        self.assertEqual(profile_194["version"], "0.1.160-baiyu")
+        self.assertEqual(
+            profile_194["migrations"],
+            profile_192["migrations"]
+            + ["193_prompt_audit.sql", "194_prompt_audit_full_prompt.sql"],
+        )
+        self.assertEqual(list(migration_checksums(profile_194)), profile_194["migrations"])
 
     def test_vm_post_build_space_gate_does_not_double_count_image(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")

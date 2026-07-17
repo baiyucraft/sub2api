@@ -3043,6 +3043,8 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 			out.ProxyID = nil
 			out.Proxy = nil
 			if cfg, ok := upstreamConfigs[*out.UpstreamConfigID]; ok && cfg != nil {
+				siteURL := cfg.SiteURL
+				out.UpstreamSiteURL = &siteURL
 				if out.Credentials == nil {
 					out.Credentials = map[string]any{}
 				}
