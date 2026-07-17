@@ -8,6 +8,8 @@ python deploy/release.py bootstrap-production --profile 194
 python deploy/release.py deploy --profile 194 --commit <40位完整SHA>
 ```
 
+`deploy` 会在停写前使用当前生产版本完成 RackNerd direct 与 DMIT 两条流式基线 Canary，避免把既有上游或链路故障带入切换阶段；该请求会像普通请求一样产生 usage 记录，但不会使用候选容器。候选公开后使用相同合同复验；只有 `curl 28` 和 `502/503/504` 会以新 marker 最多尝试三次，所有实际落库的尝试都会核验 API Key、endpoint 和真实 IP，其他错误立即停止。每个长阶段会实时输出 release ID 和阶段，并在结构化状态中记录开始时间与截止时间；调用端关闭 stdout 不会中止 runner。
+
 `doctor` 和 `bootstrap-production` 可独立用于排查或首次初始化。日常只需执行 `deploy`：
 它先检查本地、VM 与外部节点，再幂等执行生产 bootstrap，最后检查 RackNerd；任何
 预检失败都不得进入 Gate、停写或迁移。

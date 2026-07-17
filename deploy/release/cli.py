@@ -25,6 +25,13 @@ RUN_ROOT = WORKSPACE / ".tmp" / "releases"
 TRUSTED_VM_PUBLIC_KEY = DEPLOY_ROOT / "release" / "trust" / "vm-gate-ed25519.pub"
 
 
+def emit_progress(message: str) -> None:
+    try:
+        print(message, flush=True)
+    except BrokenPipeError:
+        pass
+
+
 def release_id(profile: str, commit: str) -> str:
     return f"{profile}-{commit[:12]}-{int(time.time())}-{secrets.token_hex(4)}"
 
@@ -37,11 +44,14 @@ def create_vm_gate(profile_name: str, commit: str) -> Path:
     manifest = create_manifest(commit, profile, identifier)
     write_manifest_once(run_dir / "manifest.json", manifest)
     state = RunState.create(run_dir / "state.json", identifier)
+    emit_progress(f"release_id={identifier} stage=vm_validate status=running")
     with RunLock(RUN_ROOT / ".release.lock"):
         state.transition("vm_validate", "running")
         command = [sys.executable, "-m", "release.vm_validate", "--manifest", str(run_dir / "manifest.json"), "--output", str(run_dir / "gate")]
         try:
-            subprocess.run(command, cwd=DEPLOY_ROOT, check=True)
+            child_env = os.environ.copy()
+            child_env["PYTHONUNBUFFERED"] = "1"
+            subprocess.run(command, cwd=DEPLOY_ROOT, check=True, env=child_env)
             verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, profile_name)
         except BaseException:
             state.transition("vm_validate", "failed")
@@ -66,7 +76,9 @@ def release(args: argparse.Namespace) -> None:
         state.transition("production_release", "running")
         command = [sys.executable, "-m", "release.production", "--gate", str(gate_dir), "--profile", args.profile]
         try:
-            subprocess.run(command, cwd=DEPLOY_ROOT, check=True)
+            child_env = os.environ.copy()
+            child_env["PYTHONUNBUFFERED"] = "1"
+            subprocess.run(command, cwd=DEPLOY_ROOT, check=True, env=child_env)
         except BaseException:
             result_path = gate_dir / "production-result.json"
             result = json.loads(result_path.read_text(encoding="utf-8")) if result_path.exists() else {}
@@ -77,13 +89,14 @@ def release(args: argparse.Namespace) -> None:
 
 
 def deploy(args: argparse.Namespace) -> None:
+    emit_progress(f"release_profile={args.profile} release_commit={args.commit} stage=doctor status=running")
     doctor = ReleaseDoctor(args.profile, args.commit)
     doctor.run(("local", "vm", "dmit", "backup"))
     bootstrap_production(args.profile, doctor.runner)
     doctor.run(("racknerd",))
     gate = create_vm_gate(args.profile, args.commit)
     release(argparse.Namespace(gate=str(gate), profile=args.profile))
-    print(f"release=verified gate={gate}")
+    emit_progress(f"release=verified gate={gate}")
 
 
 def status(args: argparse.Namespace) -> None:

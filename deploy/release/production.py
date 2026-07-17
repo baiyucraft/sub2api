@@ -4,6 +4,7 @@ import argparse
 import json
 import shlex
 import secrets
+import time
 from pathlib import Path
 
 from .atomic import atomic_write, canonical_json
@@ -17,10 +18,19 @@ DEPLOY_ROOT = Path(__file__).resolve().parents[1]
 TRUSTED_KEY = DEPLOY_ROOT / "release" / "trust" / "vm-gate-ed25519.pub"
 MAINTENANCE_ROOT = DEPLOY_ROOT / "maintenance" / "release"
 UNIT_ROOT = DEPLOY_ROOT / "maintenance" / "181"
+CANARY_FIELDS = {"route_health", "streaming", "curl_exit", "http_code", "canary_status"}
+CANARY_RETRY_DELAYS = (5, 15)
 
 
 def quoted_env(values: dict[str, str | int]) -> str:
     return " ".join(f"{key}={shlex.quote(str(value))}" for key, value in values.items())
+
+
+def emit_progress(message: str) -> None:
+    try:
+        print(message, flush=True)
+    except BrokenPipeError:
+        pass
 
 
 class ProductionRelease:
@@ -52,15 +62,19 @@ class ProductionRelease:
     def _save_result(self) -> None:
         atomic_write(self.result_path, canonical_json(self.result) + b"\n", 0o600)
 
-    def stage(self, name: str, evidence: dict[str, str] | None = None) -> None:
+    def stage(self, name: str, evidence: dict[str, str] | None = None, timeout: int | None = None) -> None:
+        now = int(time.time())
         self.result["stage"] = name
-        event: dict[str, object] = {"stage": name}
+        event: dict[str, object] = {"stage": name, "at": now}
+        if timeout is not None:
+            event["deadline_at"] = now + timeout
         if evidence:
             event["evidence"] = evidence
         history = self.result["history"]
         assert isinstance(history, list)
         history.append(event)
         self._save_result()
+        emit_progress(f"release_id={self.release_id} stage={name} status={self.result['status']}")
 
     def run_remote(self, host: str, script: str, allowed: set[str], timeout: int = 300) -> dict[str, str]:
         return self.runner.run(host, script, allowed, timeout=timeout).values
@@ -128,8 +142,84 @@ class ProductionRelease:
         )
         self.stage("production_preflight_verified", values)
 
+    def run_route_canary(
+        self,
+        host: str,
+        script: str,
+        route_name: str,
+        route_ip: str,
+        api_key: bytes,
+        phase: str,
+    ) -> dict[str, str]:
+        last: dict[str, str] | None = None
+        attempt_user_agents: list[str] = []
+        for attempt in range(1, len(CANARY_RETRY_DELAYS) + 2):
+            marker = f"{self.release_id}-{phase}-{route_name}-{attempt}-{secrets.token_hex(4)}"
+            user_agent = f"sub2api-release-{marker}-{route_name}"
+            attempt_user_agents.append(user_agent)
+            env = quoted_env(
+                {
+                    "PUBLIC_DOMAIN": self.profile["public_domain"],
+                    "ROUTE_IP": route_ip,
+                    "ROUTE_NAME": route_name,
+                    "MARKER": marker,
+                }
+            )
+            values = self.run_remote_with_input(host, f"{env} {script}", CANARY_FIELDS, api_key + b"\n", timeout=180)
+            last = values
+            self.stage(
+                f"{phase}_{route_name}_canary_attempt",
+                {
+                    "attempt": str(attempt),
+                    "marker": marker,
+                    "canary_status": values["canary_status"],
+                    "curl_exit": values["curl_exit"],
+                    "http_code": values["http_code"],
+                    "route_health": values["route_health"],
+                    "streaming": values["streaming"],
+                },
+            )
+            if values["canary_status"] == "pass":
+                return {
+                    **values,
+                    "marker": marker,
+                    "user_agent": user_agent,
+                    "attempt_user_agents": ",".join(attempt_user_agents),
+                }
+            if values["canary_status"] != "retryable":
+                raise RuntimeError(f"{phase} {route_name} canary failed without retry")
+            if attempt <= len(CANARY_RETRY_DELAYS):
+                time.sleep(CANARY_RETRY_DELAYS[attempt - 1])
+        assert last is not None
+        raise RuntimeError(
+            f"{phase} {route_name} canary exhausted retries "
+            f"(curl_exit={last['curl_exit']}, http_code={last['http_code']})"
+        )
+
+    def verify_streaming_routes(self, phase: str) -> tuple[dict[str, str], dict[str, str]]:
+        self.stage(f"{phase}_streaming_preflight", timeout=1500)
+        canary_key = self.runner.read_canary_key()
+        route_script = self.active_assets + "/route-canary.sh"
+        direct = self.run_route_canary(
+            "racknerd", route_script, "direct", self.profile["rack_public_ip"], canary_key, phase
+        )
+        backup_temp = self.runner.create_temp_dir("backup", "/srv/sub2api-backups", "route-canary")
+        backup_script = f"{backup_temp}/route-canary.sh"
+        self.runner.upload_file("backup", MAINTENANCE_ROOT / "route-canary.sh", backup_script, 0o700)
+        try:
+            dmit = self.run_route_canary(
+                "backup", backup_script, "dmit", self.profile["dmit_public_ip"], canary_key, phase
+            )
+        finally:
+            self.run_remote("backup", f"rm -rf {backup_temp} && printf 'cleanup=true\\n'", {"cleanup"})
+        self.stage(
+            f"{phase}_streaming_verified",
+            {"direct_attempt": direct["marker"].rsplit("-", 2)[-2], "dmit_attempt": dmit["marker"].rsplit("-", 2)[-2]},
+        )
+        return direct, dmit
+
     def freeze(self) -> None:
-        self.stage("freeze")
+        self.stage("freeze", timeout=2400)
         self.mask_intent = True
         freeze_env = quoted_env({"RELEASE_DIR": self.release_dir})
         values = self.run_remote(
@@ -163,7 +253,7 @@ class ProductionRelease:
         self.stage("writes_frozen", values)
 
     def backup(self) -> None:
-        self.stage("backup")
+        self.stage("backup", timeout=600)
         if self.backup_values is None:
             raise RuntimeError("freeze and backup stage did not return evidence")
         values = self.backup_values
@@ -201,7 +291,7 @@ class ProductionRelease:
         self.stage("backup_verified", {**values, **promoted})
 
     def switch(self) -> None:
-        self.stage("migration_and_switch")
+        self.stage("migration_and_switch", timeout=1200)
         self.migration_started = True
         env = quoted_env({"RELEASE_DIR": self.release_dir})
         values = self.run_remote(
@@ -216,6 +306,7 @@ class ProductionRelease:
         self.stage("candidate_internal_verified", values)
 
     def verify_and_finalize(self) -> None:
+        self.stage("public_route_verification", timeout=3300)
         expose_env = quoted_env({"RELEASE_DIR": self.release_dir})
         self.public_exposed = True
         self.run_remote("racknerd", f"{expose_env} {self.active_assets}/expose.sh", {"public_traffic_enabled"})
@@ -235,39 +326,15 @@ class ProductionRelease:
             },
             timeout=600,
         )
-        canary_key = self.runner.read_canary_key() + b"\n"
-        marker = f"{self.release_id}-{secrets.token_hex(6)}"
-        route_script = self.active_assets + "/route-canary.sh"
-        direct_env = quoted_env(
-            {
-                "PUBLIC_DOMAIN": self.profile["public_domain"],
-                "ROUTE_IP": self.profile["rack_public_ip"],
-                "ROUTE_NAME": "direct",
-                "MARKER": marker,
-            }
-        )
-        direct = self.run_remote_with_input(
-            "racknerd", f"{direct_env} {route_script}", {"route_health", "streaming"}, canary_key, timeout=180
-        )
-        backup_temp = self.runner.create_temp_dir("backup", "/srv/sub2api-backups", "route-canary")
-        backup_script = f"{backup_temp}/route-canary.sh"
-        self.runner.upload_file("backup", MAINTENANCE_ROOT / "route-canary.sh", backup_script, 0o700)
-        try:
-            dmit_env = quoted_env(
-                {
-                    "PUBLIC_DOMAIN": self.profile["public_domain"],
-                    "ROUTE_IP": self.profile["dmit_public_ip"],
-                    "ROUTE_NAME": "dmit",
-                    "MARKER": marker,
-                }
-            )
-            dmit = self.run_remote_with_input(
-                "backup", f"{dmit_env} {backup_script}", {"route_health", "streaming"}, canary_key, timeout=180
-            )
-        finally:
-            self.run_remote("backup", f"rm -rf {backup_temp} && printf 'cleanup=true\\n'", {"cleanup"})
-        direct_agent = f"sub2api-release-{marker}-direct"
-        dmit_agent = f"sub2api-release-{marker}-dmit"
+        direct, dmit = self.verify_streaming_routes("post_switch")
+        direct_agent = direct["user_agent"]
+        dmit_agent = dmit["user_agent"]
+        direct_agents = direct["attempt_user_agents"].split(",")
+        dmit_agents = dmit["attempt_user_agents"].split(",")
+        all_agents = direct_agents + dmit_agents
+        agent_sql = ",".join("'" + agent.replace("'", "''") + "'" for agent in all_agents)
+        direct_case = "|".join(shlex.quote(agent) for agent in direct_agents)
+        dmit_case = "|".join(shlex.quote(agent) for agent in dmit_agents)
         backup_identity = self.run_remote(
             "backup",
             "public_ip=$(curl -fsS --max-time 15 https://api.ipify.org); [[ $public_ip =~ ^[0-9a-fA-F:.]+$ ]] && printf 'backup_public_ip=%s\\n' \"$public_ip\"",
@@ -276,23 +343,40 @@ class ProductionRelease:
         expected_direct_ip = self.profile["rack_public_ip"]
         usage_script = f"""
 set -Eeuo pipefail
+expected_direct_agent={shlex.quote(direct_agent)}
+expected_dmit_agent={shlex.quote(dmit_agent)}
 for _ in $(seq 1 30); do
-  mapfile -t rows < <(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c {shlex.quote("SELECT user_agent, COALESCE(ip_address,''), api_key_id, COALESCE(inbound_endpoint,'') FROM usage_logs WHERE created_at > NOW() - INTERVAL '15 minutes' AND user_agent IN (" + "'" + direct_agent + "','" + dmit_agent + "') ORDER BY user_agent")})
-  [[ ${{#rows[@]}} == 2 ]] && break
+  mapfile -t rows < <(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c {shlex.quote("SELECT user_agent, COALESCE(ip_address,''), api_key_id, COALESCE(inbound_endpoint,'') FROM usage_logs WHERE created_at > NOW() - INTERVAL '15 minutes' AND user_agent IN (" + agent_sql + ") ORDER BY user_agent")})
+  found_direct=false
+  found_dmit=false
+  for row in "${{rows[@]}}"; do
+    [[ ${{row%%|*}} == {shlex.quote(direct_agent)} ]] && found_direct=true
+    [[ ${{row%%|*}} == {shlex.quote(dmit_agent)} ]] && found_dmit=true
+  done
+  [[ $found_direct == true && $found_dmit == true ]] && break
   sleep 1
 done
-[[ ${{#rows[@]}} == 2 ]]
-[[ ${{rows[0]%%|*}} == {shlex.quote(direct_agent)} ]]
-[[ ${{rows[1]%%|*}} == {shlex.quote(dmit_agent)} ]]
-IFS='|' read -r _ direct_ip direct_key direct_endpoint <<<"${{rows[0]}}"
-IFS='|' read -r _ dmit_ip dmit_key dmit_endpoint <<<"${{rows[1]}}"
-[[ $direct_ip == {shlex.quote(expected_direct_ip)} ]]
-[[ $dmit_ip == {shlex.quote(backup_identity)} ]]
-[[ $direct_key == {int(self.profile.get('canary_api_key_id', 2))} && $dmit_key == {int(self.profile.get('canary_api_key_id', 2))} ]]
-[[ $direct_endpoint == /v1/responses && $dmit_endpoint == /v1/responses ]]
-printf 'canary_usage_recorded=true\nreal_client_ip=pass\n'
+[[ ${{#rows[@]}} -ge 2 && ${{#rows[@]}} -le {len(all_agents)} ]]
+declare -A seen=()
+for row in "${{rows[@]}}"; do
+  IFS='|' read -r agent ip api_key endpoint <<<"$row"
+  [[ -z ${{seen[$agent]+x}} ]]
+  seen["$agent"]=1
+  [[ $api_key == {int(self.profile.get('canary_api_key_id', 2))} ]]
+  [[ $endpoint == /v1/responses ]]
+  case "$agent" in
+    {direct_case}) [[ $ip == {shlex.quote(expected_direct_ip)} ]] ;;
+    {dmit_case}) [[ $ip == {shlex.quote(backup_identity)} ]] ;;
+    *) exit 1 ;;
+  esac
+done
+[[ -n ${{seen[$expected_direct_agent]+x}} ]]
+[[ -n ${{seen[$expected_dmit_agent]+x}} ]]
+printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s\n' "${{#rows[@]}}"
 """
-        attribution = self.run_remote("racknerd", usage_script, {"canary_usage_recorded", "real_client_ip"}, timeout=90)
+        attribution = self.run_remote(
+            "racknerd", usage_script, {"canary_usage_recorded", "real_client_ip", "canary_usage_records"}, timeout=90
+        )
         self.stage("split_route_verified", {"direct_path": direct["route_health"], "dmit_path": dmit["route_health"], **attribution})
         finalize_env = quoted_env(
             {
@@ -325,6 +409,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\n'
             {"plaintext_state_removed"},
         )
         consumed = self.run_remote("racknerd", f"{consume_env} {self.active_assets}/consume.sh", {"gate_consumed"})
+        self.result["status"] = "verified"
         self.stage("production_verified", {**verified, **direct, **dmit, **attribution, **final, **external_final, **consumed, **cleaned})
 
     def recover(self) -> None:
@@ -413,7 +498,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\n'
             {"public_traffic_closed"},
         )
 
-    def remote_gate_consumed(self) -> bool:
+    def remote_gate_consumed(self) -> bool | None:
         try:
             values = self.run_remote(
                 "racknerd",
@@ -421,7 +506,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\n'
                 {"gate_consumed"},
             )
         except BaseException:
-            return False
+            return None
         return values.get("gate_consumed") == "true"
 
     def remote_gate_claimed(self) -> bool | None:
@@ -450,6 +535,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\n'
         try:
             self.upload_assets()
             self.preflight()
+            self.verify_streaming_routes("pre_switch")
             self.freeze()
             self.backup()
             self.switch()
@@ -475,7 +561,19 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\n'
                     self.result["status"] = "failed"
                     self.stage("failed_before_claim")
                     raise
-            if self.remote_gate_consumed():
+            gate_consumed = self.remote_gate_consumed()
+            if gate_consumed is None:
+                self.result["status"] = "blocked_reconciliation"
+                public_close = "not_required"
+                if self.public_exposed:
+                    try:
+                        self.emergency_close()
+                        public_close = "closed"
+                    except BaseException:
+                        public_close = "unknown"
+                self.stage("gate_consumption_status_unknown", {"public_close": public_close})
+                raise
+            if gate_consumed:
                 self.result["status"] = "verified"
                 self.stage("production_verified_after_reconciliation", {"gate_consumed": "true"})
                 return
