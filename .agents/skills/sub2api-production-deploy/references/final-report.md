@@ -9,6 +9,7 @@
 - [VM 验证](#vm-验证)
 - [生产备份与恢复点](#生产备份与恢复点)
 - [生产切换与验收](#生产切换与验收)
+- [业务语义验收](#业务语义验收)
 - [版本基线](#版本基线)
 - [RPO、RTO 与遗留项](#rpo-rto-与遗留项)
 - [脱敏声明](#脱敏声明)
@@ -182,6 +183,26 @@ recovery_branch: resume-old | coordinated-data-restore | blocked-reconciliation 
 ```
 
 如果 direct 通过但 DMIT 未通过，整体不能写 `success`。
+
+## 业务语义验收
+
+```text
+release_pipeline_status: verified | partial | failed | not_applicable | not_checked
+business_invariants_status: pass | fail | not_required | not_checked
+business_assertion_scope: 本次选择的 1 至 3 条脱敏不变量摘要
+pre_public_business_invariants_status: pass | fail | not_required | not_checked
+post_public_business_invariants_status: pass | fail | not_required | not_checked
+post_public_new_writes_reconciled: pass | fail | not_applicable | not_checked
+migration_semantic_status: pass | fail | not_required | not_checked
+scheduler_semantic_status: pass | fail | not_required | not_checked
+latest_sync_status: pending | running | succeeded | partial | failed | not_required | not_checked
+latest_sync_success_count: value | not_applicable | not_checked
+latest_sync_partial_count: value | not_applicable | not_checked
+latest_sync_failed_count: value | not_applicable | not_checked
+post_deploy_doctor_status: pass | fail | not_required | not_checked
+```
+
+`release_pipeline_status=verified` 只表示签名 Gate 和生产流水线通过；只有本次适用的流量恢复前后业务断言都通过，才能写 `business_invariants_status=pass`。恢复流量后断言失败时，必须记录新增写入是否已核对，不能直接报告已回滚。同步字段读取发布后的最新批次，不使用历史时间窗累计值替代。报告只写断言摘要和计数，不写原始 SQL、Redis 内容、账号名或上游响应。
 
 ## 版本基线
 
