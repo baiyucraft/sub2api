@@ -18,7 +18,7 @@ INSERT INTO group_rate_snapshots
     (group_id, rate_multiplier, peak_rate_enabled, peak_start, peak_end,
      peak_rate_multiplier, timezone, effective_at)
 SELECT g.id, g.rate_multiplier, g.peak_rate_enabled, g.peak_start, g.peak_end,
-       g.peak_rate_multiplier, $1, NOW()
+       g.peak_rate_multiplier, $1::varchar(64), NOW()
   FROM groups g
   LEFT JOIN LATERAL (
       SELECT s.timezone
@@ -28,7 +28,7 @@ SELECT g.id, g.rate_multiplier, g.peak_rate_enabled, g.peak_start, g.peak_end,
        LIMIT 1
   ) latest ON TRUE
  WHERE g.deleted_at IS NULL
-   AND latest.timezone IS DISTINCT FROM $1
+   AND latest.timezone IS DISTINCT FROM $1::varchar(64)
 `
 
 const groupRateTimezoneLockSQL = `SELECT pg_advisory_xact_lock(195, 1)`
