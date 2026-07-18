@@ -167,7 +167,7 @@ class ReleaseCoreTest(unittest.TestCase):
         assertion = (DEPLOY_ROOT / "maintenance" / "release" / "migration-195-assert.sh").read_text(encoding="utf-8")
 
         self.assertIn("migration_195_verified:$migration_195_verified", validator)
-        self.assertIn("migration-195-assert.sh\" preflight", validator)
+        self.assertIn('bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight', validator)
         self.assertIn("MIGRATION_STATUS=absent", validator)
         self.assertIn("if ASSERT_CONTEXT_FILE=", validator)
         self.assertIn("dropdb", validator)
