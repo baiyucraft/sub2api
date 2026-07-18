@@ -230,6 +230,11 @@ func (Group) Edges() []ent.Edge {
 		edge.To("redeem_codes", RedeemCode.Type),
 		edge.To("subscriptions", UserSubscription.Type),
 		edge.To("usage_logs", UsageLog.Type),
+		edge.To("rate_snapshots", GroupRateSnapshot.Type).
+			StorageKey(edge.Symbol("group_rate_snapshots_group_id_fkey")).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+		edge.To("channel_monitors", ChannelMonitor.Type).
+			StorageKey(edge.Symbol("channel_monitors_group_id_fkey")),
 		edge.From("accounts", Account.Type).
 			Ref("groups").
 			Through("account_groups", AccountGroup.Type),

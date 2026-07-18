@@ -233,6 +233,20 @@ func (_u *UpstreamConfigUpdate) SetNillableStatus(v *string) *UpstreamConfigUpda
 	return _u
 }
 
+// SetSchedulingEnabled sets the "scheduling_enabled" field.
+func (_u *UpstreamConfigUpdate) SetSchedulingEnabled(v bool) *UpstreamConfigUpdate {
+	_u.mutation.SetSchedulingEnabled(v)
+	return _u
+}
+
+// SetNillableSchedulingEnabled sets the "scheduling_enabled" field if the given value is not nil.
+func (_u *UpstreamConfigUpdate) SetNillableSchedulingEnabled(v *bool) *UpstreamConfigUpdate {
+	if v != nil {
+		_u.SetSchedulingEnabled(*v)
+	}
+	return _u
+}
+
 // SetLastError sets the "last_error" field.
 func (_u *UpstreamConfigUpdate) SetLastError(v string) *UpstreamConfigUpdate {
 	_u.mutation.SetLastError(v)
@@ -736,6 +750,9 @@ func (_u *UpstreamConfigUpdate) sqlSave(ctx context.Context) (_node int, err err
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(upstreamconfig.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.SchedulingEnabled(); ok {
+		_spec.SetField(upstreamconfig.FieldSchedulingEnabled, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.LastError(); ok {
 		_spec.SetField(upstreamconfig.FieldLastError, field.TypeString, value)
@@ -1360,6 +1377,20 @@ func (_u *UpstreamConfigUpdateOne) SetNillableStatus(v *string) *UpstreamConfigU
 	return _u
 }
 
+// SetSchedulingEnabled sets the "scheduling_enabled" field.
+func (_u *UpstreamConfigUpdateOne) SetSchedulingEnabled(v bool) *UpstreamConfigUpdateOne {
+	_u.mutation.SetSchedulingEnabled(v)
+	return _u
+}
+
+// SetNillableSchedulingEnabled sets the "scheduling_enabled" field if the given value is not nil.
+func (_u *UpstreamConfigUpdateOne) SetNillableSchedulingEnabled(v *bool) *UpstreamConfigUpdateOne {
+	if v != nil {
+		_u.SetSchedulingEnabled(*v)
+	}
+	return _u
+}
+
 // SetLastError sets the "last_error" field.
 func (_u *UpstreamConfigUpdateOne) SetLastError(v string) *UpstreamConfigUpdateOne {
 	_u.mutation.SetLastError(v)
@@ -1893,6 +1924,9 @@ func (_u *UpstreamConfigUpdateOne) sqlSave(ctx context.Context) (_node *Upstream
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(upstreamconfig.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.SchedulingEnabled(); ok {
+		_spec.SetField(upstreamconfig.FieldSchedulingEnabled, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.LastError(); ok {
 		_spec.SetField(upstreamconfig.FieldLastError, field.TypeString, value)

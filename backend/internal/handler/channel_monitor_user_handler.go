@@ -52,6 +52,10 @@ type channelMonitorUserListItem struct {
 	Availability7d       float64                              `json:"availability_7d"`
 	ExtraModels          []dto.ChannelMonitorExtraModelStatus `json:"extra_models"`
 	Timeline             []channelMonitorUserTimelinePoint    `json:"timeline"`
+	ShowGroupRate        bool                                 `json:"show_group_rate"`
+	CurrentPublicRate    *float64                             `json:"current_public_rate,omitempty"`
+	RateObservedSince    *string                              `json:"rate_observed_since,omitempty"`
+	RateTrend            []channelMonitorUserRateTrendPoint   `json:"rate_trend,omitempty"`
 }
 
 // channelMonitorUserTimelinePoint 主模型最近一次检测的 timeline 点。
@@ -63,12 +67,21 @@ type channelMonitorUserTimelinePoint struct {
 	CheckedAt     string `json:"checked_at"`
 }
 
+type channelMonitorUserRateTrendPoint struct {
+	ObservedAt string  `json:"observed_at"`
+	Rate       float64 `json:"rate"`
+}
+
 type channelMonitorUserDetailResponse struct {
-	ID        int64                         `json:"id"`
-	Name      string                        `json:"name"`
-	Provider  string                        `json:"provider"`
-	GroupName string                        `json:"group_name"`
-	Models    []channelMonitorUserModelStat `json:"models"`
+	ID                int64                              `json:"id"`
+	Name              string                             `json:"name"`
+	Provider          string                             `json:"provider"`
+	GroupName         string                             `json:"group_name"`
+	Models            []channelMonitorUserModelStat      `json:"models"`
+	ShowGroupRate     bool                               `json:"show_group_rate"`
+	CurrentPublicRate *float64                           `json:"current_public_rate,omitempty"`
+	RateObservedSince *string                            `json:"rate_observed_since,omitempty"`
+	RateTrend         []channelMonitorUserRateTrendPoint `json:"rate_trend,omitempty"`
 }
 
 type channelMonitorUserModelStat struct {
@@ -99,6 +112,7 @@ func userMonitorViewToItem(v *service.UserMonitorView) channelMonitorUserListIte
 			CheckedAt:     p.CheckedAt.UTC().Format(time.RFC3339),
 		})
 	}
+	rateTrend := userMonitorRateTrendToResponse(v.RateTrend)
 	return channelMonitorUserListItem{
 		ID:                   v.ID,
 		Name:                 v.Name,
@@ -111,6 +125,10 @@ func userMonitorViewToItem(v *service.UserMonitorView) channelMonitorUserListIte
 		Availability7d:       v.Availability7d,
 		ExtraModels:          extras,
 		Timeline:             timeline,
+		ShowGroupRate:        v.ShowGroupRate,
+		CurrentPublicRate:    v.CurrentPublicRate,
+		RateObservedSince:    formatOptionalMonitorTime(v.RateObservedSince),
+		RateTrend:            rateTrend,
 	}
 }
 
@@ -128,12 +146,38 @@ func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUs
 		})
 	}
 	return &channelMonitorUserDetailResponse{
-		ID:        d.ID,
-		Name:      d.Name,
-		Provider:  d.Provider,
-		GroupName: d.GroupName,
-		Models:    models,
+		ID:                d.ID,
+		Name:              d.Name,
+		Provider:          d.Provider,
+		GroupName:         d.GroupName,
+		Models:            models,
+		ShowGroupRate:     d.ShowGroupRate,
+		CurrentPublicRate: d.CurrentPublicRate,
+		RateObservedSince: formatOptionalMonitorTime(d.RateObservedSince),
+		RateTrend:         userMonitorRateTrendToResponse(d.RateTrend),
 	}
+}
+
+func userMonitorRateTrendToResponse(points []service.PublicRateTrendPoint) []channelMonitorUserRateTrendPoint {
+	if points == nil {
+		return nil
+	}
+	out := make([]channelMonitorUserRateTrendPoint, 0, len(points))
+	for _, point := range points {
+		out = append(out, channelMonitorUserRateTrendPoint{
+			ObservedAt: point.ObservedAt.UTC().Format(time.RFC3339),
+			Rate:       point.Rate,
+		})
+	}
+	return out
+}
+
+func formatOptionalMonitorTime(value *time.Time) *string {
+	if value == nil {
+		return nil
+	}
+	formatted := value.UTC().Format(time.RFC3339)
+	return &formatted
 }
 
 // --- Handlers ---
@@ -144,7 +188,7 @@ func (h *ChannelMonitorUserHandler) List(c *gin.Context) {
 		response.Success(c, gin.H{"items": []channelMonitorUserListItem{}})
 		return
 	}
-	views, err := h.monitorService.ListUserView(c.Request.Context())
+	views, err := h.monitorService.ListUserView(c.Request.Context(), c.Query("rate_range"))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -167,7 +211,7 @@ func (h *ChannelMonitorUserHandler) GetStatus(c *gin.Context) {
 	if !ok {
 		return
 	}
-	detail, err := h.monitorService.GetUserDetail(c.Request.Context(), id)
+	detail, err := h.monitorService.GetUserDetail(c.Request.Context(), id, c.Query("rate_range"))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

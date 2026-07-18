@@ -73,6 +73,10 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 		_ = drv.Close() // 迁移失败时关闭驱动，避免资源泄露
 		return nil, nil, err
 	}
+	if err := ensureGroupRateTimezoneSnapshots(migrationCtx, drv.DB(), timezone.Name()); err != nil {
+		_ = drv.Close()
+		return nil, nil, err
+	}
 
 	// 创建 Ent 客户端，绑定到已配置的数据库驱动。
 	client := ent.NewClient(ent.Driver(drv))
@@ -128,5 +132,8 @@ func RunMigrations(cfg *config.Config) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	return applyMigrationsFS(ctx, drv.DB(), migrations.FS)
+	if err := applyMigrationsFS(ctx, drv.DB(), migrations.FS); err != nil {
+		return err
+	}
+	return ensureGroupRateTimezoneSnapshots(ctx, drv.DB(), timezone.Name())
 }

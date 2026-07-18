@@ -187,6 +187,20 @@ func (_c *UpstreamConfigCreate) SetNillableStatus(v *string) *UpstreamConfigCrea
 	return _c
 }
 
+// SetSchedulingEnabled sets the "scheduling_enabled" field.
+func (_c *UpstreamConfigCreate) SetSchedulingEnabled(v bool) *UpstreamConfigCreate {
+	_c.mutation.SetSchedulingEnabled(v)
+	return _c
+}
+
+// SetNillableSchedulingEnabled sets the "scheduling_enabled" field if the given value is not nil.
+func (_c *UpstreamConfigCreate) SetNillableSchedulingEnabled(v *bool) *UpstreamConfigCreate {
+	if v != nil {
+		_c.SetSchedulingEnabled(*v)
+	}
+	return _c
+}
+
 // SetLastError sets the "last_error" field.
 func (_c *UpstreamConfigCreate) SetLastError(v string) *UpstreamConfigCreate {
 	_c.mutation.SetLastError(v)
@@ -431,6 +445,10 @@ func (_c *UpstreamConfigCreate) defaults() error {
 		v := upstreamconfig.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.SchedulingEnabled(); !ok {
+		v := upstreamconfig.DefaultSchedulingEnabled
+		_c.mutation.SetSchedulingEnabled(v)
+	}
 	return nil
 }
 
@@ -495,6 +513,9 @@ func (_c *UpstreamConfigCreate) check() error {
 		if err := upstreamconfig.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "UpstreamConfig.status": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.SchedulingEnabled(); !ok {
+		return &ValidationError{Name: "scheduling_enabled", err: errors.New(`ent: missing required field "UpstreamConfig.scheduling_enabled"`)}
 	}
 	return nil
 }
@@ -574,6 +595,10 @@ func (_c *UpstreamConfigCreate) createSpec() (*UpstreamConfig, *sqlgraph.CreateS
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(upstreamconfig.FieldStatus, field.TypeString, value)
 		_node.Status = value
+	}
+	if value, ok := _c.mutation.SchedulingEnabled(); ok {
+		_spec.SetField(upstreamconfig.FieldSchedulingEnabled, field.TypeBool, value)
+		_node.SchedulingEnabled = value
 	}
 	if value, ok := _c.mutation.LastError(); ok {
 		_spec.SetField(upstreamconfig.FieldLastError, field.TypeString, value)
@@ -976,6 +1001,18 @@ func (u *UpstreamConfigUpsert) UpdateStatus() *UpstreamConfigUpsert {
 	return u
 }
 
+// SetSchedulingEnabled sets the "scheduling_enabled" field.
+func (u *UpstreamConfigUpsert) SetSchedulingEnabled(v bool) *UpstreamConfigUpsert {
+	u.Set(upstreamconfig.FieldSchedulingEnabled, v)
+	return u
+}
+
+// UpdateSchedulingEnabled sets the "scheduling_enabled" field to the value that was provided on create.
+func (u *UpstreamConfigUpsert) UpdateSchedulingEnabled() *UpstreamConfigUpsert {
+	u.SetExcluded(upstreamconfig.FieldSchedulingEnabled)
+	return u
+}
+
 // SetLastError sets the "last_error" field.
 func (u *UpstreamConfigUpsert) SetLastError(v string) *UpstreamConfigUpsert {
 	u.Set(upstreamconfig.FieldLastError, v)
@@ -1296,6 +1333,20 @@ func (u *UpstreamConfigUpsertOne) SetStatus(v string) *UpstreamConfigUpsertOne {
 func (u *UpstreamConfigUpsertOne) UpdateStatus() *UpstreamConfigUpsertOne {
 	return u.Update(func(s *UpstreamConfigUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetSchedulingEnabled sets the "scheduling_enabled" field.
+func (u *UpstreamConfigUpsertOne) SetSchedulingEnabled(v bool) *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.SetSchedulingEnabled(v)
+	})
+}
+
+// UpdateSchedulingEnabled sets the "scheduling_enabled" field to the value that was provided on create.
+func (u *UpstreamConfigUpsertOne) UpdateSchedulingEnabled() *UpstreamConfigUpsertOne {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.UpdateSchedulingEnabled()
 	})
 }
 
@@ -1794,6 +1845,20 @@ func (u *UpstreamConfigUpsertBulk) SetStatus(v string) *UpstreamConfigUpsertBulk
 func (u *UpstreamConfigUpsertBulk) UpdateStatus() *UpstreamConfigUpsertBulk {
 	return u.Update(func(s *UpstreamConfigUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetSchedulingEnabled sets the "scheduling_enabled" field.
+func (u *UpstreamConfigUpsertBulk) SetSchedulingEnabled(v bool) *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.SetSchedulingEnabled(v)
+	})
+}
+
+// UpdateSchedulingEnabled sets the "scheduling_enabled" field to the value that was provided on create.
+func (u *UpstreamConfigUpsertBulk) UpdateSchedulingEnabled() *UpstreamConfigUpsertBulk {
+	return u.Update(func(s *UpstreamConfigUpsert) {
+		s.UpdateSchedulingEnabled()
 	})
 }
 

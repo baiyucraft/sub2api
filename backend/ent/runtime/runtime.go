@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/groupratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
@@ -115,41 +116,41 @@ func init() {
 		}
 	}()
 	// apikeyDescStatus is the schema descriptor for status field.
-	apikeyDescStatus := apikeyFields[4].Descriptor()
+	apikeyDescStatus := apikeyFields[6].Descriptor()
 	// apikey.DefaultStatus holds the default value on creation for the status field.
 	apikey.DefaultStatus = apikeyDescStatus.Default.(string)
 	// apikey.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	apikey.StatusValidator = apikeyDescStatus.Validators[0].(func(string) error)
 	// apikeyDescQuota is the schema descriptor for quota field.
-	apikeyDescQuota := apikeyFields[8].Descriptor()
+	apikeyDescQuota := apikeyFields[10].Descriptor()
 	// apikey.DefaultQuota holds the default value on creation for the quota field.
 	apikey.DefaultQuota = apikeyDescQuota.Default.(float64)
 	// apikeyDescQuotaUsed is the schema descriptor for quota_used field.
-	apikeyDescQuotaUsed := apikeyFields[9].Descriptor()
+	apikeyDescQuotaUsed := apikeyFields[11].Descriptor()
 	// apikey.DefaultQuotaUsed holds the default value on creation for the quota_used field.
 	apikey.DefaultQuotaUsed = apikeyDescQuotaUsed.Default.(float64)
 	// apikeyDescRateLimit5h is the schema descriptor for rate_limit_5h field.
-	apikeyDescRateLimit5h := apikeyFields[11].Descriptor()
+	apikeyDescRateLimit5h := apikeyFields[13].Descriptor()
 	// apikey.DefaultRateLimit5h holds the default value on creation for the rate_limit_5h field.
 	apikey.DefaultRateLimit5h = apikeyDescRateLimit5h.Default.(float64)
 	// apikeyDescRateLimit1d is the schema descriptor for rate_limit_1d field.
-	apikeyDescRateLimit1d := apikeyFields[12].Descriptor()
+	apikeyDescRateLimit1d := apikeyFields[14].Descriptor()
 	// apikey.DefaultRateLimit1d holds the default value on creation for the rate_limit_1d field.
 	apikey.DefaultRateLimit1d = apikeyDescRateLimit1d.Default.(float64)
 	// apikeyDescRateLimit7d is the schema descriptor for rate_limit_7d field.
-	apikeyDescRateLimit7d := apikeyFields[13].Descriptor()
+	apikeyDescRateLimit7d := apikeyFields[15].Descriptor()
 	// apikey.DefaultRateLimit7d holds the default value on creation for the rate_limit_7d field.
 	apikey.DefaultRateLimit7d = apikeyDescRateLimit7d.Default.(float64)
 	// apikeyDescUsage5h is the schema descriptor for usage_5h field.
-	apikeyDescUsage5h := apikeyFields[14].Descriptor()
+	apikeyDescUsage5h := apikeyFields[16].Descriptor()
 	// apikey.DefaultUsage5h holds the default value on creation for the usage_5h field.
 	apikey.DefaultUsage5h = apikeyDescUsage5h.Default.(float64)
 	// apikeyDescUsage1d is the schema descriptor for usage_1d field.
-	apikeyDescUsage1d := apikeyFields[15].Descriptor()
+	apikeyDescUsage1d := apikeyFields[17].Descriptor()
 	// apikey.DefaultUsage1d holds the default value on creation for the usage_1d field.
 	apikey.DefaultUsage1d = apikeyDescUsage1d.Default.(float64)
 	// apikeyDescUsage7d is the schema descriptor for usage_7d field.
-	apikeyDescUsage7d := apikeyFields[16].Descriptor()
+	apikeyDescUsage7d := apikeyFields[18].Descriptor()
 	// apikey.DefaultUsage7d holds the default value on creation for the usage_7d field.
 	apikey.DefaultUsage7d = apikeyDescUsage7d.Default.(float64)
 	accountMixin := schema.Account{}.Mixin()
@@ -246,21 +247,21 @@ func init() {
 	// account.DefaultRateMultiplier holds the default value on creation for the rate_multiplier field.
 	account.DefaultRateMultiplier = accountDescRateMultiplier.Default.(float64)
 	// accountDescStatus is the schema descriptor for status field.
-	accountDescStatus := accountFields[16].Descriptor()
+	accountDescStatus := accountFields[17].Descriptor()
 	// account.DefaultStatus holds the default value on creation for the status field.
 	account.DefaultStatus = accountDescStatus.Default.(string)
 	// account.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	account.StatusValidator = accountDescStatus.Validators[0].(func(string) error)
 	// accountDescAutoPauseOnExpired is the schema descriptor for auto_pause_on_expired field.
-	accountDescAutoPauseOnExpired := accountFields[20].Descriptor()
+	accountDescAutoPauseOnExpired := accountFields[21].Descriptor()
 	// account.DefaultAutoPauseOnExpired holds the default value on creation for the auto_pause_on_expired field.
 	account.DefaultAutoPauseOnExpired = accountDescAutoPauseOnExpired.Default.(bool)
 	// accountDescSchedulable is the schema descriptor for schedulable field.
-	accountDescSchedulable := accountFields[21].Descriptor()
+	accountDescSchedulable := accountFields[22].Descriptor()
 	// account.DefaultSchedulable holds the default value on creation for the schedulable field.
 	account.DefaultSchedulable = accountDescSchedulable.Default.(bool)
 	// accountDescSessionWindowStatus is the schema descriptor for session_window_status field.
-	accountDescSessionWindowStatus := accountFields[29].Descriptor()
+	accountDescSessionWindowStatus := accountFields[30].Descriptor()
 	// account.SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	account.SessionWindowStatusValidator = accountDescSessionWindowStatus.Validators[0].(func(string) error)
 	accountgroupFields := schema.AccountGroup{}.Fields()
@@ -702,26 +703,36 @@ func init() {
 	channelmonitor.DefaultGroupName = channelmonitorDescGroupName.Default.(string)
 	// channelmonitor.GroupNameValidator is a validator for the "group_name" field. It is called by the builders before save.
 	channelmonitor.GroupNameValidator = channelmonitorDescGroupName.Validators[0].(func(string) error)
+	// channelmonitorDescShowGroupRate is the schema descriptor for show_group_rate field.
+	channelmonitorDescShowGroupRate := channelmonitorFields[10].Descriptor()
+	// channelmonitor.DefaultShowGroupRate holds the default value on creation for the show_group_rate field.
+	channelmonitor.DefaultShowGroupRate = channelmonitorDescShowGroupRate.Default.(bool)
+	// channelmonitorDescMaxProbeAttempts is the schema descriptor for max_probe_attempts field.
+	channelmonitorDescMaxProbeAttempts := channelmonitorFields[12].Descriptor()
+	// channelmonitor.DefaultMaxProbeAttempts holds the default value on creation for the max_probe_attempts field.
+	channelmonitor.DefaultMaxProbeAttempts = channelmonitorDescMaxProbeAttempts.Default.(int)
+	// channelmonitor.MaxProbeAttemptsValidator is a validator for the "max_probe_attempts" field. It is called by the builders before save.
+	channelmonitor.MaxProbeAttemptsValidator = channelmonitorDescMaxProbeAttempts.Validators[0].(func(int) error)
 	// channelmonitorDescEnabled is the schema descriptor for enabled field.
-	channelmonitorDescEnabled := channelmonitorFields[8].Descriptor()
+	channelmonitorDescEnabled := channelmonitorFields[13].Descriptor()
 	// channelmonitor.DefaultEnabled holds the default value on creation for the enabled field.
 	channelmonitor.DefaultEnabled = channelmonitorDescEnabled.Default.(bool)
 	// channelmonitorDescIntervalSeconds is the schema descriptor for interval_seconds field.
-	channelmonitorDescIntervalSeconds := channelmonitorFields[9].Descriptor()
+	channelmonitorDescIntervalSeconds := channelmonitorFields[14].Descriptor()
 	// channelmonitor.IntervalSecondsValidator is a validator for the "interval_seconds" field. It is called by the builders before save.
 	channelmonitor.IntervalSecondsValidator = channelmonitorDescIntervalSeconds.Validators[0].(func(int) error)
 	// channelmonitorDescJitterSeconds is the schema descriptor for jitter_seconds field.
-	channelmonitorDescJitterSeconds := channelmonitorFields[10].Descriptor()
+	channelmonitorDescJitterSeconds := channelmonitorFields[15].Descriptor()
 	// channelmonitor.DefaultJitterSeconds holds the default value on creation for the jitter_seconds field.
 	channelmonitor.DefaultJitterSeconds = channelmonitorDescJitterSeconds.Default.(int)
 	// channelmonitor.JitterSecondsValidator is a validator for the "jitter_seconds" field. It is called by the builders before save.
 	channelmonitor.JitterSecondsValidator = channelmonitorDescJitterSeconds.Validators[0].(func(int) error)
 	// channelmonitorDescExtraHeaders is the schema descriptor for extra_headers field.
-	channelmonitorDescExtraHeaders := channelmonitorFields[14].Descriptor()
+	channelmonitorDescExtraHeaders := channelmonitorFields[19].Descriptor()
 	// channelmonitor.DefaultExtraHeaders holds the default value on creation for the extra_headers field.
 	channelmonitor.DefaultExtraHeaders = channelmonitorDescExtraHeaders.Default.(map[string]string)
 	// channelmonitorDescBodyOverrideMode is the schema descriptor for body_override_mode field.
-	channelmonitorDescBodyOverrideMode := channelmonitorFields[15].Descriptor()
+	channelmonitorDescBodyOverrideMode := channelmonitorFields[20].Descriptor()
 	// channelmonitor.DefaultBodyOverrideMode holds the default value on creation for the body_override_mode field.
 	channelmonitor.DefaultBodyOverrideMode = channelmonitorDescBodyOverrideMode.Default.(string)
 	// channelmonitor.BodyOverrideModeValidator is a validator for the "body_override_mode" field. It is called by the builders before save.
@@ -1109,6 +1120,42 @@ func init() {
 	groupDescRpmLimit := groupFields[45].Descriptor()
 	// group.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	group.DefaultRpmLimit = groupDescRpmLimit.Default.(int)
+	groupratesnapshotFields := schema.GroupRateSnapshot{}.Fields()
+	_ = groupratesnapshotFields
+	// groupratesnapshotDescPeakRateEnabled is the schema descriptor for peak_rate_enabled field.
+	groupratesnapshotDescPeakRateEnabled := groupratesnapshotFields[2].Descriptor()
+	// groupratesnapshot.DefaultPeakRateEnabled holds the default value on creation for the peak_rate_enabled field.
+	groupratesnapshot.DefaultPeakRateEnabled = groupratesnapshotDescPeakRateEnabled.Default.(bool)
+	// groupratesnapshotDescPeakStart is the schema descriptor for peak_start field.
+	groupratesnapshotDescPeakStart := groupratesnapshotFields[3].Descriptor()
+	// groupratesnapshot.DefaultPeakStart holds the default value on creation for the peak_start field.
+	groupratesnapshot.DefaultPeakStart = groupratesnapshotDescPeakStart.Default.(string)
+	// groupratesnapshot.PeakStartValidator is a validator for the "peak_start" field. It is called by the builders before save.
+	groupratesnapshot.PeakStartValidator = groupratesnapshotDescPeakStart.Validators[0].(func(string) error)
+	// groupratesnapshotDescPeakEnd is the schema descriptor for peak_end field.
+	groupratesnapshotDescPeakEnd := groupratesnapshotFields[4].Descriptor()
+	// groupratesnapshot.DefaultPeakEnd holds the default value on creation for the peak_end field.
+	groupratesnapshot.DefaultPeakEnd = groupratesnapshotDescPeakEnd.Default.(string)
+	// groupratesnapshot.PeakEndValidator is a validator for the "peak_end" field. It is called by the builders before save.
+	groupratesnapshot.PeakEndValidator = groupratesnapshotDescPeakEnd.Validators[0].(func(string) error)
+	// groupratesnapshotDescPeakRateMultiplier is the schema descriptor for peak_rate_multiplier field.
+	groupratesnapshotDescPeakRateMultiplier := groupratesnapshotFields[5].Descriptor()
+	// groupratesnapshot.DefaultPeakRateMultiplier holds the default value on creation for the peak_rate_multiplier field.
+	groupratesnapshot.DefaultPeakRateMultiplier = groupratesnapshotDescPeakRateMultiplier.Default.(float64)
+	// groupratesnapshotDescTimezone is the schema descriptor for timezone field.
+	groupratesnapshotDescTimezone := groupratesnapshotFields[6].Descriptor()
+	// groupratesnapshot.DefaultTimezone holds the default value on creation for the timezone field.
+	groupratesnapshot.DefaultTimezone = groupratesnapshotDescTimezone.Default.(string)
+	// groupratesnapshot.TimezoneValidator is a validator for the "timezone" field. It is called by the builders before save.
+	groupratesnapshot.TimezoneValidator = groupratesnapshotDescTimezone.Validators[0].(func(string) error)
+	// groupratesnapshotDescEffectiveAt is the schema descriptor for effective_at field.
+	groupratesnapshotDescEffectiveAt := groupratesnapshotFields[7].Descriptor()
+	// groupratesnapshot.DefaultEffectiveAt holds the default value on creation for the effective_at field.
+	groupratesnapshot.DefaultEffectiveAt = groupratesnapshotDescEffectiveAt.Default.(func() time.Time)
+	// groupratesnapshotDescCreatedAt is the schema descriptor for created_at field.
+	groupratesnapshotDescCreatedAt := groupratesnapshotFields[8].Descriptor()
+	// groupratesnapshot.DefaultCreatedAt holds the default value on creation for the created_at field.
+	groupratesnapshot.DefaultCreatedAt = groupratesnapshotDescCreatedAt.Default.(func() time.Time)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()
 	idempotencyrecordMixinFields0 := idempotencyrecordMixin[0].Fields()
 	_ = idempotencyrecordMixinFields0
@@ -1950,6 +1997,10 @@ func init() {
 	upstreamconfig.DefaultStatus = upstreamconfigDescStatus.Default.(string)
 	// upstreamconfig.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	upstreamconfig.StatusValidator = upstreamconfigDescStatus.Validators[0].(func(string) error)
+	// upstreamconfigDescSchedulingEnabled is the schema descriptor for scheduling_enabled field.
+	upstreamconfigDescSchedulingEnabled := upstreamconfigFields[11].Descriptor()
+	// upstreamconfig.DefaultSchedulingEnabled holds the default value on creation for the scheduling_enabled field.
+	upstreamconfig.DefaultSchedulingEnabled = upstreamconfigDescSchedulingEnabled.Default.(bool)
 	upstreameventFields := schema.UpstreamEvent{}.Fields()
 	_ = upstreameventFields
 	// upstreameventDescEventKey is the schema descriptor for event_key field.

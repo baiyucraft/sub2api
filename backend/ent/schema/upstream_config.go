@@ -53,6 +53,9 @@ func (UpstreamConfig) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 		field.String("status").MaxLen(20).Default(domain.StatusActive),
+		field.Bool("scheduling_enabled").
+			Default(true).
+			Comment("Whether accounts bound to this upstream may be scheduled."),
 		field.String("last_error").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "text"}),
 		field.Time("last_checked_at").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 		field.Time("last_success_at").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),

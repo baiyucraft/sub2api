@@ -11,6 +11,7 @@ export default {
       balance: 'Balance',
       upstreamConcurrency: 'Concurrency',
       rates: 'Rate Summary',
+      scheduling: 'Scheduling',
       authMode: 'Auth',
       credentials: 'Credentials',
       lastSync: 'Last Sync',
@@ -39,6 +40,13 @@ export default {
     },
     rates: {
       rateMultiplier: 'Actual rate {value}'
+    },
+    scheduling: {
+      enabled: 'Enabled',
+      disabled: 'Paused',
+      enabledHint: 'Allow accounts under this upstream whose account scheduling switch is enabled',
+      disabledHint: 'Pause all calls through this upstream without changing account-level switches',
+      toggleLabel: 'Toggle scheduling for upstream {name}'
     },
     providers: {
       sub2api: 'sub2api',
@@ -215,6 +223,9 @@ export default {
       loadProxiesFailed: 'Failed to load proxies',
       created: 'Upstream config created',
       updated: 'Upstream config updated',
+      schedulingEnabled: 'Upstream scheduling enabled',
+      schedulingDisabled: 'Upstream scheduling paused',
+      schedulingUpdateFailed: 'Failed to update upstream scheduling',
       savedAndSynced: 'Saved and synced. Found {keys} key(s), updated {accounts} account(s)',
       savedAndSyncedPartial: 'Saved, but sync only partially completed. Found {keys} key(s), updated {accounts} account(s)',
       savedButSyncFailed: 'Saved, but sync failed: {error}',
@@ -298,6 +309,9 @@ export default {
       observedSince: 'Observed Since',
       rateChanges: 'Rate Changes',
       balanceHistory: 'Balance History',
+      time: 'Time',
+      unknownValue: 'Unknown',
+      requestsTooltip: 'Requests: {count}',
       loadMore: 'Load More',
       syncRunSummary: '{total} upstreams: {success} succeeded, {partial} partial, {failed} failed',
       syncRecordSummary: 'Remote keys {remote}, persisted {persisted}, accounts updated {accounts}',
@@ -325,6 +339,57 @@ export default {
       },
       rateSeries: {
         rateMultiplier: 'Rate Multiplier'
+      },
+      severity: {
+        info: 'Info',
+        warning: 'Warning',
+        error: 'Error',
+        critical: 'Critical',
+        unknown: 'Info'
+      },
+      incidentTypes: {
+        balance_low: 'Balance Below Alert Threshold',
+        unknown: 'Other Upstream Incident'
+      },
+      eventTypes: {
+        key_actual_rate_changed: 'Key Actual Rate Changed',
+        key_rate_changed: 'Key Raw Rate Changed',
+        key_effective_rate_changed: 'Key Cost Rate Changed',
+        key_platform_changed: 'Key Platform Changed',
+        key_platform_conflict: 'Key Platform Conflict',
+        key_missing_detected: 'Missing Key Detected',
+        key_marked_stale: 'Key Marked Stale',
+        key_restored: 'Key Restored',
+        key_deleted: 'Key Deleted',
+        group_added: 'Remote Group Detected',
+        group_rate_changed: 'Remote Group Rate Changed',
+        group_removed: 'Remote Group Removed',
+        sync_failed: 'Upstream Sync Failed',
+        sync_recovered: 'Upstream Sync Recovered',
+        recharge_rate_changed: 'Recharge Rate Changed',
+        balance_recalculated: 'Upstream Balance Recalculated',
+        currency_conversion_changed: 'CNY Conversion Source Changed',
+        unknown: 'Other Upstream Event'
+      },
+      eventDescriptions: {
+        actualRateChanged: 'Actual rate changed from {old} to {current}',
+        rawRateChanged: 'Raw rate changed from {old} to {current}',
+        effectiveRateChanged: 'Cost rate changed from {old} to {current}',
+        platformChanged: 'Routing platform changed from {old} to {current}',
+        platformConflict: 'Detection conflicts with bound accounts; {count} account(s) were paused',
+        keyMissing: 'This key was absent from {count} consecutive complete sync result(s)',
+        keyStale: 'Scheduling was paused for this key, affecting {count} bound account(s)',
+        keyRestored: 'The key was found again and its related state was restored',
+        keyDeleted: 'The key was removed from the usable list after the missing grace period',
+        groupAdded: 'Remote group "{group}" was detected',
+        groupRateChanged: 'Remote group "{group}" changed from {old} to {current}',
+        groupRemoved: 'Remote group "{group}" was removed',
+        syncFailed: 'This upstream sync did not complete; review the corresponding sync run',
+        syncRecovered: 'Upstream synchronization returned to normal',
+        rechargeRateChanged: 'Recharge rate changed from {old} to {current}',
+        balanceRecalculated: 'The upstream balance was recalculated using the new recharge rate',
+        currencyConversionChanged: 'Synchronization detected a change in the CNY conversion source',
+        unknown: 'A new upstream state change was recorded'
       }
     }
   }

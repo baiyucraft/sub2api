@@ -34,7 +34,12 @@ type upstreamConfigRequest struct {
 	RechargeRate          *float64       `json:"recharge_rate"`
 	BalanceToCNYRate      *float64       `json:"balance_to_cny_rate"`
 	ClearBalanceToCNYRate bool           `json:"clear_balance_to_cny_rate"`
+	SchedulingEnabled     *bool          `json:"scheduling_enabled"`
 	Status                string         `json:"status"`
+}
+
+type upstreamSchedulingRequest struct {
+	SchedulingEnabled *bool `json:"scheduling_enabled" binding:"required"`
 }
 
 type upstreamSettingsRequest struct {
@@ -100,6 +105,24 @@ func (h *UpstreamConfigHandler) Update(c *gin.Context) {
 		return
 	}
 	updated, err := h.service.Update(c.Request.Context(), id, upstreamConfigFromRequest(req))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, sanitizeUpstreamConfig(updated))
+}
+
+func (h *UpstreamConfigHandler) UpdateScheduling(c *gin.Context) {
+	id, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var req upstreamSchedulingRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.SchedulingEnabled == nil {
+		response.BadRequest(c, "Invalid request: scheduling_enabled is required")
+		return
+	}
+	updated, err := h.service.SetSchedulingEnabled(c.Request.Context(), id, *req.SchedulingEnabled)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -402,6 +425,7 @@ func upstreamConfigFromRequest(req upstreamConfigRequest) *service.UpstreamConfi
 		}(),
 		BalanceToCNYRate:      req.BalanceToCNYRate,
 		ClearBalanceToCNYRate: req.ClearBalanceToCNYRate,
+		SchedulingEnabled:     req.SchedulingEnabled,
 		Status:                req.Status,
 	}
 }
@@ -430,13 +454,16 @@ func sanitizeUpstreamConfig(config *service.UpstreamConfig) gin.H {
 		"proxy_id":            config.ProxyID,
 		"recharge_rate":       config.RechargeRate,
 		"balance_to_cny_rate": config.BalanceToCNYRate,
-		"status":              config.Status,
-		"last_error":          redactedUpstreamLastError(config.LastError),
-		"last_checked_at":     config.LastCheckedAt,
-		"last_success_at":     config.LastSuccessAt,
-		"created_at":          config.CreatedAt,
-		"updated_at":          config.UpdatedAt,
-		"keys":                sanitizeUpstreamKeyPtrs(config.Keys),
+		"scheduling_enabled": func() bool {
+			return config.SchedulingEnabled == nil || *config.SchedulingEnabled
+		}(),
+		"status":          config.Status,
+		"last_error":      redactedUpstreamLastError(config.LastError),
+		"last_checked_at": config.LastCheckedAt,
+		"last_success_at": config.LastSuccessAt,
+		"created_at":      config.CreatedAt,
+		"updated_at":      config.UpdatedAt,
+		"keys":            sanitizeUpstreamKeyPtrs(config.Keys),
 	}
 }
 

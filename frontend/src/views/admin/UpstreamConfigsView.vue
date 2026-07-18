@@ -232,6 +232,31 @@
             </div>
           </template>
 
+          <template #cell-scheduling="{ row }">
+            <div class="flex min-w-[128px] items-center gap-2" @click.stop>
+              <Toggle
+                :model-value="row.scheduling_enabled !== false"
+                :disabled="schedulingUpdatingIds.has(row.id)"
+                :aria-label="t('admin.upstreamConfigs.scheduling.toggleLabel', { name: row.name })"
+                :title="row.scheduling_enabled !== false
+                  ? t('admin.upstreamConfigs.scheduling.enabledHint')
+                  : t('admin.upstreamConfigs.scheduling.disabledHint')"
+                data-test="upstream-scheduling-toggle"
+                @update:model-value="handleSchedulingChange(row, $event)"
+              />
+              <span
+                :class="row.scheduling_enabled !== false
+                  ? 'text-emerald-700 dark:text-emerald-300'
+                  : 'text-amber-700 dark:text-amber-300'"
+                class="text-xs font-medium"
+              >
+                {{ row.scheduling_enabled !== false
+                  ? t('admin.upstreamConfigs.scheduling.enabled')
+                  : t('admin.upstreamConfigs.scheduling.disabled') }}
+              </span>
+            </div>
+          </template>
+
           <template #cell-auth_mode="{ row }">
             <span class="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300">
               <Icon :name="row.auth_mode === 'manual_jwt' ? 'key' : 'login'" size="sm" class="text-gray-400" />
@@ -1031,7 +1056,7 @@
             <h3 class="section-title">{{ t('admin.upstreamConfigs.operations.openIncidents') }}</h3>
             <div v-for="incident in incidents" :key="incident.id" class="operation-row border-red-200 bg-red-50/40 dark:border-red-900/50 dark:bg-red-900/10">
               <div class="flex items-start justify-between gap-3">
-                <div class="font-medium text-red-700 dark:text-red-300">{{ incident.type }}</div>
+                <div class="font-medium text-red-700 dark:text-red-300">{{ upstreamIncidentTypeLabel(incident.type) }}</div>
                 <span :class="statusBadgeClass(incident.status)">{{ statusLabel(incident.status) }}</span>
               </div>
               <div class="mt-2 text-xs text-gray-600 dark:text-dark-300">{{ formatIncidentMetric(incident) }}</div>
@@ -1042,10 +1067,10 @@
             <div v-for="event in events" :key="event.id" class="operation-row">
               <div class="flex items-start justify-between gap-3">
                 <div>
-                  <div class="font-medium text-gray-900 dark:text-gray-100">{{ event.type }}</div>
-                  <p class="mt-1 text-sm text-gray-600 dark:text-dark-300">{{ event.message }}</p>
+                  <div class="font-medium text-gray-900 dark:text-gray-100">{{ upstreamEventTypeLabel(event.type) }}</div>
+                  <p class="mt-1 text-sm text-gray-600 dark:text-dark-300">{{ upstreamEventDescription(event) }}</p>
                 </div>
-                <span :class="severityBadgeClass(event.severity)">{{ event.severity }}</span>
+                <span :class="severityBadgeClass(event.severity)">{{ upstreamSeverityLabel(event.severity) }}</span>
               </div>
               <div class="mt-2 text-xs text-gray-500 dark:text-dark-400">{{ formatTime(event.created_at) }}</div>
             </div>
@@ -1110,11 +1135,11 @@
             <h3 class="section-title">{{ t('admin.upstreamConfigs.operations.rateChanges') }}</h3>
             <div v-for="change in keyRateTrend?.changes || []" :key="`${change.type}-${change.occurred_at}`" class="operation-row">
               <div class="flex items-center justify-between gap-3">
-                <span class="font-medium text-gray-900 dark:text-gray-100">{{ change.type }}</span>
+                <span class="font-medium text-gray-900 dark:text-gray-100">{{ upstreamEventTypeLabel(change.type) }}</span>
                 <span class="text-xs text-gray-500 dark:text-dark-400">{{ formatTime(change.occurred_at) }}</span>
               </div>
               <div class="mt-1 text-xs text-gray-600 dark:text-dark-300">
-                {{ formatRateValue(change.old_rate) }} → {{ formatRateValue(change.new_rate) }}
+                {{ formatRateWithUnit(change.old_rate) }} → {{ formatRateWithUnit(change.new_rate) }}
               </div>
             </div>
             <div v-if="!(keyRateTrend?.changes || []).length" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyRateChanges') }}</div>
@@ -1250,6 +1275,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
+import Toggle from '@/components/common/Toggle.vue'
 import PlatformBadge from '@/components/common/PlatformBadge.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -1386,6 +1412,7 @@ const costGroupOptions = computed<SelectOption[]>(() => {
 const settingsLoaded = ref(false)
 const settingsHasCostGroupSelection = ref(false)
 const settingsSaving = ref(false)
+const schedulingUpdatingIds = reactive(new Set<number>())
 const operationGeneration: Record<OperationsDrawerMode, number> = {
   syncRuns: 0,
   events: 0,
@@ -1428,6 +1455,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'balance', label: t('admin.upstreamConfigs.columns.balance') },
   { key: 'upstream_concurrency', label: t('admin.upstreamConfigs.columns.upstreamConcurrency') },
   { key: 'rates', label: t('admin.upstreamConfigs.columns.rates') },
+  { key: 'scheduling', label: t('admin.upstreamConfigs.columns.scheduling') },
   { key: 'auth_mode', label: t('admin.upstreamConfigs.columns.authMode') },
   { key: 'credentials', label: t('admin.upstreamConfigs.columns.credentials') },
   { key: 'last_success_at', label: t('admin.upstreamConfigs.columns.lastSync') },
@@ -1655,6 +1683,26 @@ async function loadConfigs() {
     appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadFailed')))
   } finally {
     loading.value = false
+  }
+}
+
+async function handleSchedulingChange(item: UpstreamConfig, enabled: boolean) {
+  if (schedulingUpdatingIds.has(item.id) || item.scheduling_enabled === enabled) return
+
+  schedulingUpdatingIds.add(item.id)
+  const previous = item.scheduling_enabled !== false
+  item.scheduling_enabled = enabled
+  try {
+    const updated = await upstreamAPI.updateScheduling(item.id, enabled)
+    item.scheduling_enabled = updated.scheduling_enabled
+    appStore.showSuccess(t(enabled
+      ? 'admin.upstreamConfigs.messages.schedulingEnabled'
+      : 'admin.upstreamConfigs.messages.schedulingDisabled'))
+  } catch (error: any) {
+    item.scheduling_enabled = previous
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.schedulingUpdateFailed')))
+  } finally {
+    schedulingUpdatingIds.delete(item.id)
   }
 }
 
@@ -3024,6 +3072,11 @@ function formatRateValue(value: number | null | undefined): string {
   return value == null || !Number.isFinite(value) ? '-' : formatRate(value)
 }
 
+function formatRateWithUnit(value: number | null | undefined): string {
+  const formatted = formatRateValue(value)
+  return formatted === '-' ? formatted : `${formatted}x`
+}
+
 function balanceTitle(item: UpstreamConfig): string {
   const parts: string[] = []
   const email = upstreamBalanceEmail(item)
@@ -3050,6 +3103,140 @@ function statusBadgeClass(status: string): string {
 
 function severityBadgeClass(severity: string): string {
   return statusBadgeClass(severity === 'error' || severity === 'critical' ? 'failed' : severity === 'warning' ? 'partial' : '')
+}
+
+const knownUpstreamEventTypes = new Set([
+  'key_actual_rate_changed',
+  'key_rate_changed',
+  'key_effective_rate_changed',
+  'key_platform_changed',
+  'key_platform_conflict',
+  'key_missing_detected',
+  'key_marked_stale',
+  'key_restored',
+  'key_deleted',
+  'group_added',
+  'group_rate_changed',
+  'group_removed',
+  'sync_failed',
+  'sync_recovered',
+  'recharge_rate_changed',
+  'balance_recalculated',
+  'currency_conversion_changed'
+])
+
+const knownUpstreamSeverities = new Set(['info', 'warning', 'error', 'critical'])
+
+function upstreamEventTypeLabel(type: string): string {
+  const key = knownUpstreamEventTypes.has(type) ? type : 'unknown'
+  return t(`admin.upstreamConfigs.operations.eventTypes.${key}`)
+}
+
+function upstreamIncidentTypeLabel(type: string): string {
+  const key = type === 'balance_low' ? type : 'unknown'
+  return t(`admin.upstreamConfigs.operations.incidentTypes.${key}`)
+}
+
+function upstreamSeverityLabel(severity: string): string {
+  const key = knownUpstreamSeverities.has(severity) ? severity : 'unknown'
+  return t(`admin.upstreamConfigs.operations.severity.${key}`)
+}
+
+function upstreamEventDescription(event: UpstreamEvent): string {
+  const payload = event.payload || {}
+  switch (event.type) {
+    case 'key_actual_rate_changed':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.actualRateChanged', {
+        old: formatRateWithUnit(payloadNumber(payload, 'old_rate', 'old_effective_rate')),
+        current: formatRateWithUnit(payloadNumber(payload, 'new_rate', 'new_effective_rate'))
+      })
+    case 'key_rate_changed':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.rawRateChanged', {
+        old: formatRateWithUnit(payloadNumber(payload, 'old_rate', 'old_raw_rate')),
+        current: formatRateWithUnit(payloadNumber(payload, 'new_rate', 'new_raw_rate'))
+      })
+    case 'key_effective_rate_changed':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.effectiveRateChanged', {
+        old: formatRateWithUnit(payloadNumber(payload, 'old_rate', 'old_effective_rate', 'old_raw_rate')),
+        current: formatRateWithUnit(payloadNumber(payload, 'new_rate', 'new_effective_rate', 'new_raw_rate'))
+      })
+    case 'key_platform_changed':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.platformChanged', {
+        old: payloadPlatform(payload.old_platform),
+        current: payloadPlatform(payload.new_platform)
+      })
+    case 'key_platform_conflict':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.platformConflict', {
+        count: payloadNumber(payload, 'account_count') ?? 0
+      })
+    case 'key_missing_detected':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.keyMissing', {
+        count: payloadNumber(payload, 'missing_count') ?? 1
+      })
+    case 'key_marked_stale':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.keyStale', {
+        count: payloadNumber(payload, 'account_count') ?? 0
+      })
+    case 'key_restored':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.keyRestored')
+    case 'key_deleted':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.keyDeleted')
+    case 'group_added':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.groupAdded', {
+        group: payloadText(payload.group)
+      })
+    case 'group_rate_changed':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.groupRateChanged', {
+        group: payloadText(payload.group),
+        old: formatRateWithUnit(payloadNumber(payload, 'old_value')),
+        current: formatRateWithUnit(payloadNumber(payload, 'new_value'))
+      })
+    case 'group_removed':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.groupRemoved', {
+        group: payloadText(payload.group)
+      })
+    case 'sync_failed':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.syncFailed')
+    case 'sync_recovered':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.syncRecovered')
+    case 'recharge_rate_changed':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.rechargeRateChanged', {
+        old: formatRateWithUnit(payloadNumber(payload, 'old_rate')),
+        current: formatRateWithUnit(payloadNumber(payload, 'new_rate'))
+      })
+    case 'balance_recalculated':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.balanceRecalculated')
+    case 'currency_conversion_changed':
+      return t('admin.upstreamConfigs.operations.eventDescriptions.currencyConversionChanged')
+    default:
+      return t('admin.upstreamConfigs.operations.eventDescriptions.unknown')
+  }
+}
+
+function payloadNumber(payload: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = payload[key]
+    const parsed = typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim() !== ''
+        ? Number(value)
+        : Number.NaN
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function payloadText(value: unknown): string {
+  return typeof value === 'string' && value.trim()
+    ? value.trim()
+    : t('admin.upstreamConfigs.operations.unknownValue')
+}
+
+function payloadPlatform(value: unknown): string {
+  const platform = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  return ['openai', 'anthropic', 'gemini', 'grok'].includes(platform)
+    ? keyPlatformLabel(platform)
+    : t('admin.upstreamConfigs.operations.unknownValue')
 }
 
 function syncTriggerLabel(trigger: string): string {

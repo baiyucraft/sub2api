@@ -32,6 +32,10 @@ type APIKey struct {
 	Key string `json:"key,omitempty"`
 	// Name holds the value of the "name" field.
 	Name string `json:"name,omitempty"`
+	// Managed monitor keys are hidden from ordinary key management views.
+	Purpose apikey.Purpose `json:"purpose,omitempty"`
+	// ManagedMonitorID holds the value of the "managed_monitor_id" field.
+	ManagedMonitorID *int64 `json:"managed_monitor_id,omitempty"`
 	// GroupID holds the value of the "group_id" field.
 	GroupID *int64 `json:"group_id,omitempty"`
 	// Status holds the value of the "status" field.
@@ -80,9 +84,11 @@ type APIKeyEdges struct {
 	Group *Group `json:"group,omitempty"`
 	// UsageLogs holds the value of the usage_logs edge.
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
+	// ManagedChannelMonitors holds the value of the managed_channel_monitors edge.
+	ManagedChannelMonitors []*ChannelMonitor `json:"managed_channel_monitors,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // UserOrErr returns the User value or an error if the edge
@@ -116,6 +122,15 @@ func (e APIKeyEdges) UsageLogsOrErr() ([]*UsageLog, error) {
 	return nil, &NotLoadedError{edge: "usage_logs"}
 }
 
+// ManagedChannelMonitorsOrErr returns the ManagedChannelMonitors value or an error if the edge
+// was not loaded in eager-loading.
+func (e APIKeyEdges) ManagedChannelMonitorsOrErr() ([]*ChannelMonitor, error) {
+	if e.loadedTypes[3] {
+		return e.ManagedChannelMonitors, nil
+	}
+	return nil, &NotLoadedError{edge: "managed_channel_monitors"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*APIKey) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -125,9 +140,9 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case apikey.FieldQuota, apikey.FieldQuotaUsed, apikey.FieldRateLimit5h, apikey.FieldRateLimit1d, apikey.FieldRateLimit7d, apikey.FieldUsage5h, apikey.FieldUsage1d, apikey.FieldUsage7d:
 			values[i] = new(sql.NullFloat64)
-		case apikey.FieldID, apikey.FieldUserID, apikey.FieldGroupID:
+		case apikey.FieldID, apikey.FieldUserID, apikey.FieldManagedMonitorID, apikey.FieldGroupID:
 			values[i] = new(sql.NullInt64)
-		case apikey.FieldKey, apikey.FieldName, apikey.FieldStatus:
+		case apikey.FieldKey, apikey.FieldName, apikey.FieldPurpose, apikey.FieldStatus:
 			values[i] = new(sql.NullString)
 		case apikey.FieldCreatedAt, apikey.FieldUpdatedAt, apikey.FieldDeletedAt, apikey.FieldLastUsedAt, apikey.FieldExpiresAt, apikey.FieldWindow5hStart, apikey.FieldWindow1dStart, apikey.FieldWindow7dStart:
 			values[i] = new(sql.NullTime)
@@ -188,6 +203,19 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field name", values[i])
 			} else if value.Valid {
 				_m.Name = value.String
+			}
+		case apikey.FieldPurpose:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field purpose", values[i])
+			} else if value.Valid {
+				_m.Purpose = apikey.Purpose(value.String)
+			}
+		case apikey.FieldManagedMonitorID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field managed_monitor_id", values[i])
+			} else if value.Valid {
+				_m.ManagedMonitorID = new(int64)
+				*_m.ManagedMonitorID = value.Int64
 			}
 		case apikey.FieldGroupID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -329,6 +357,11 @@ func (_m *APIKey) QueryUsageLogs() *UsageLogQuery {
 	return NewAPIKeyClient(_m.config).QueryUsageLogs(_m)
 }
 
+// QueryManagedChannelMonitors queries the "managed_channel_monitors" edge of the APIKey entity.
+func (_m *APIKey) QueryManagedChannelMonitors() *ChannelMonitorQuery {
+	return NewAPIKeyClient(_m.config).QueryManagedChannelMonitors(_m)
+}
+
 // Update returns a builder for updating this APIKey.
 // Note that you need to call APIKey.Unwrap() before calling this method if this APIKey
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -371,6 +404,14 @@ func (_m *APIKey) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("name=")
 	builder.WriteString(_m.Name)
+	builder.WriteString(", ")
+	builder.WriteString("purpose=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Purpose))
+	builder.WriteString(", ")
+	if v := _m.ManagedMonitorID; v != nil {
+		builder.WriteString("managed_monitor_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	if v := _m.GroupID; v != nil {
 		builder.WriteString("group_id=")

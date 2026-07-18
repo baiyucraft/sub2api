@@ -16,7 +16,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/groupratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -36,6 +38,8 @@ type GroupQuery struct {
 	withRedeemCodes       *RedeemCodeQuery
 	withSubscriptions     *UserSubscriptionQuery
 	withUsageLogs         *UsageLogQuery
+	withRateSnapshots     *GroupRateSnapshotQuery
+	withChannelMonitors   *ChannelMonitorQuery
 	withAccounts          *AccountQuery
 	withAllowedUsers      *UserQuery
 	withAccountGroups     *AccountGroupQuery
@@ -158,6 +162,50 @@ func (_q *GroupQuery) QueryUsageLogs() *UsageLogQuery {
 			sqlgraph.From(group.Table, group.FieldID, selector),
 			sqlgraph.To(usagelog.Table, usagelog.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, group.UsageLogsTable, group.UsageLogsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryRateSnapshots chains the current query on the "rate_snapshots" edge.
+func (_q *GroupQuery) QueryRateSnapshots() *GroupRateSnapshotQuery {
+	query := (&GroupRateSnapshotClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, selector),
+			sqlgraph.To(groupratesnapshot.Table, groupratesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, group.RateSnapshotsTable, group.RateSnapshotsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryChannelMonitors chains the current query on the "channel_monitors" edge.
+func (_q *GroupQuery) QueryChannelMonitors() *ChannelMonitorQuery {
+	query := (&ChannelMonitorClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, selector),
+			sqlgraph.To(channelmonitor.Table, channelmonitor.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, group.ChannelMonitorsTable, group.ChannelMonitorsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -449,6 +497,8 @@ func (_q *GroupQuery) Clone() *GroupQuery {
 		withRedeemCodes:       _q.withRedeemCodes.Clone(),
 		withSubscriptions:     _q.withSubscriptions.Clone(),
 		withUsageLogs:         _q.withUsageLogs.Clone(),
+		withRateSnapshots:     _q.withRateSnapshots.Clone(),
+		withChannelMonitors:   _q.withChannelMonitors.Clone(),
 		withAccounts:          _q.withAccounts.Clone(),
 		withAllowedUsers:      _q.withAllowedUsers.Clone(),
 		withAccountGroups:     _q.withAccountGroups.Clone(),
@@ -500,6 +550,28 @@ func (_q *GroupQuery) WithUsageLogs(opts ...func(*UsageLogQuery)) *GroupQuery {
 		opt(query)
 	}
 	_q.withUsageLogs = query
+	return _q
+}
+
+// WithRateSnapshots tells the query-builder to eager-load the nodes that are connected to
+// the "rate_snapshots" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *GroupQuery) WithRateSnapshots(opts ...func(*GroupRateSnapshotQuery)) *GroupQuery {
+	query := (&GroupRateSnapshotClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withRateSnapshots = query
+	return _q
+}
+
+// WithChannelMonitors tells the query-builder to eager-load the nodes that are connected to
+// the "channel_monitors" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *GroupQuery) WithChannelMonitors(opts ...func(*ChannelMonitorQuery)) *GroupQuery {
+	query := (&ChannelMonitorClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withChannelMonitors = query
 	return _q
 }
 
@@ -625,11 +697,13 @@ func (_q *GroupQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Group,
 	var (
 		nodes       = []*Group{}
 		_spec       = _q.querySpec()
-		loadedTypes = [8]bool{
+		loadedTypes = [10]bool{
 			_q.withAPIKeys != nil,
 			_q.withRedeemCodes != nil,
 			_q.withSubscriptions != nil,
 			_q.withUsageLogs != nil,
+			_q.withRateSnapshots != nil,
+			_q.withChannelMonitors != nil,
 			_q.withAccounts != nil,
 			_q.withAllowedUsers != nil,
 			_q.withAccountGroups != nil,
@@ -682,6 +756,20 @@ func (_q *GroupQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Group,
 		if err := _q.loadUsageLogs(ctx, query, nodes,
 			func(n *Group) { n.Edges.UsageLogs = []*UsageLog{} },
 			func(n *Group, e *UsageLog) { n.Edges.UsageLogs = append(n.Edges.UsageLogs, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withRateSnapshots; query != nil {
+		if err := _q.loadRateSnapshots(ctx, query, nodes,
+			func(n *Group) { n.Edges.RateSnapshots = []*GroupRateSnapshot{} },
+			func(n *Group, e *GroupRateSnapshot) { n.Edges.RateSnapshots = append(n.Edges.RateSnapshots, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withChannelMonitors; query != nil {
+		if err := _q.loadChannelMonitors(ctx, query, nodes,
+			func(n *Group) { n.Edges.ChannelMonitors = []*ChannelMonitor{} },
+			func(n *Group, e *ChannelMonitor) { n.Edges.ChannelMonitors = append(n.Edges.ChannelMonitors, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -827,6 +915,69 @@ func (_q *GroupQuery) loadUsageLogs(ctx context.Context, query *UsageLogQuery, n
 	}
 	query.Where(predicate.UsageLog(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(group.UsageLogsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.GroupID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "group_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "group_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *GroupQuery) loadRateSnapshots(ctx context.Context, query *GroupRateSnapshotQuery, nodes []*Group, init func(*Group), assign func(*Group, *GroupRateSnapshot)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*Group)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(groupratesnapshot.FieldGroupID)
+	}
+	query.Where(predicate.GroupRateSnapshot(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(group.RateSnapshotsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.GroupID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "group_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *GroupQuery) loadChannelMonitors(ctx context.Context, query *ChannelMonitorQuery, nodes []*Group, init func(*Group), assign func(*Group, *ChannelMonitor)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*Group)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(channelmonitor.FieldGroupID)
+	}
+	query.Where(predicate.ChannelMonitor(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(group.ChannelMonitorsColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

@@ -124,3 +124,25 @@ func TestAPIKeyAndSubscriptionFromContext(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, int64(2), gotSub.ID)
 }
+
+func TestAttachManagedMonitorSwitchReporter_IsScopedToManagedKeys(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name       string
+		purpose    string
+		wantHeader string
+	}{
+		{name: "managed", purpose: service.APIKeyPurposeManagedMonitor, wantHeader: "2"},
+		{name: "general", purpose: service.APIKeyPurposeGeneral, wantHeader: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			c, _ := gin.CreateTestContext(w)
+			c.Request = req
+			attachManagedMonitorSwitchReporter(c, &service.APIKey{Purpose: tc.purpose})
+			service.ReportMonitorSwitchCount(c.Request.Context(), 2)
+			require.Equal(t, tc.wantHeader, w.Header().Get("X-Sub2API-Monitor-Switches"))
+		})
+	}
+}

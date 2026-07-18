@@ -153,6 +153,16 @@ func (s *SettingService) GetFrontendURL(ctx context.Context) string {
 	return s.cfg.Server.FrontendURL
 }
 
+// GetAPIBaseURL returns the configured public gateway base URL for internal
+// managed monitors. An empty value means the setting is not configured.
+func (s *SettingService) GetAPIBaseURL(ctx context.Context) string {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyAPIBaseURL)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
 // GetPublicSettings 获取公开设置（无需登录）
 func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings, error) {
 	keys := []string{

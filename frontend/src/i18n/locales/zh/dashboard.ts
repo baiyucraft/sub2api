@@ -458,6 +458,17 @@ export default {
       '15d': '15 天',
       '30d': '30 天'
     },
+    rateRange: {
+      '24h': '24 小时',
+      '7d': '7 天',
+      '30d': '30 天'
+    },
+    rateTrend: {
+      title: '分组倍率趋势',
+      series: '公开倍率',
+      chartLabel: '分组公开倍率趋势图',
+      empty: '暂无倍率变化记录'
+    },
     overall: {
       operational: 'OPERATIONAL',
       degraded: 'DEGRADED',

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,6 +46,9 @@ type ChannelMonitorRepository interface {
 	// ListRecentHistoryForMonitors 批量取多个 monitor 各自主模型（primaryModels[monitorID]）最近 perMonitorLimit 条历史。
 	// 返回的 entry 已按 checked_at DESC 排序（最新在前），不含 message 字段。
 	ListRecentHistoryForMonitors(ctx context.Context, ids []int64, primaryModels map[int64]string, perMonitorLimit int) (map[int64][]*ChannelMonitorHistoryEntry, error)
+	// ListGroupRateSnapshots 批量加载分组公开倍率版本。每组包含窗口前最后一条基线，
+	// 以及 [from, until] 内的配置变化，供用户渠道状态生成阶梯趋势。
+	ListGroupRateSnapshots(ctx context.Context, groupIDs []int64, from, until time.Time) (map[int64]GroupRateSnapshotSeries, error)
 
 	// ---------- 聚合维护（OpsCleanupService 调用） ----------
 
@@ -63,8 +67,10 @@ type ChannelMonitorRepository interface {
 
 // ChannelMonitorService 渠道监控管理服务。
 type ChannelMonitorService struct {
-	repo      ChannelMonitorRepository
-	encryptor SecretEncryptor
+	repo              ChannelMonitorRepository
+	encryptor         SecretEncryptor
+	managedKeyService ManagedMonitorKeyService
+	managedSettings   ManagedMonitorSettings
 	// scheduler 由 wire 通过 SetScheduler 注入；CRUD 后调用对应钩子即时同步任务。
 	// 测试或未注入场景下保持 nil，所有钩子调用变为 no-op。
 	scheduler MonitorScheduler
@@ -81,6 +87,13 @@ const ChannelMonitorDuplicateOperationIDMetadataKey = "sub2api:duplicate_operati
 // NewChannelMonitorService 创建渠道监控服务实例。
 func NewChannelMonitorService(repo ChannelMonitorRepository, encryptor SecretEncryptor) *ChannelMonitorService {
 	return &ChannelMonitorService{repo: repo, encryptor: encryptor}
+}
+
+// SetManagedMonitorDependencies wires the optional managed-local monitor
+// coordinator without changing the legacy constructor used by tests/plugins.
+func (s *ChannelMonitorService) SetManagedMonitorDependencies(keys ManagedMonitorKeyService, settings ManagedMonitorSettings) {
+	s.managedKeyService = keys
+	s.managedSettings = settings
 }
 
 // ---------- CRUD ----------
@@ -116,6 +129,24 @@ func (s *ChannelMonitorService) Get(ctx context.Context, id int64) (*ChannelMoni
 
 // Create 创建监控（内部加密 api_key）。
 func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCreateParams) (*ChannelMonitor, error) {
+	if strings.TrimSpace(p.CredentialMode) == "" {
+		p.CredentialMode = ChannelMonitorCredentialManual
+	}
+	if p.CredentialMode == ChannelMonitorCredentialManagedLocal {
+		if p.GroupID == nil || s.managedKeyService == nil || s.managedSettings == nil {
+			return nil, ErrChannelMonitorManagedConfig
+		}
+		endpoint, err := validateManagedMonitorEndpoint(s.managedSettings.GetAPIBaseURL(ctx))
+		if err != nil {
+			return nil, err
+		}
+		p.Endpoint = endpoint
+		generated, err := s.managedKeyService.GenerateKey()
+		if err != nil {
+			return nil, fmt.Errorf("generate managed monitor key: %w", err)
+		}
+		p.APIKey = generated
+	}
 	if err := validateCreateParams(p); err != nil {
 		return nil, err
 	}
@@ -138,16 +169,28 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		PrimaryModel:     normalizeMonitorPrimaryModel(p.Provider, p.PrimaryModel),
 		ExtraModels:      normalizeModels(p.ExtraModels),
 		GroupName:        strings.TrimSpace(p.GroupName),
+		GroupID:          p.GroupID,
+		ShowGroupRate:    p.ShowGroupRate,
+		CredentialMode:   p.CredentialMode,
 		Enabled:          p.Enabled,
 		IntervalSeconds:  p.IntervalSeconds,
 		JitterSeconds:    p.JitterSeconds,
+		MaxProbeAttempts: normalizeMaxProbeAttempts(p.MaxProbeAttempts),
 		CreatedBy:        p.CreatedBy,
 		TemplateID:       p.TemplateID,
 		ExtraHeaders:     emptyHeadersIfNil(p.ExtraHeaders),
 		BodyOverrideMode: defaultBodyMode(p.BodyOverrideMode),
 		BodyOverride:     p.BodyOverride,
 	}
-	if err := s.repo.Create(ctx, m); err != nil {
+	if p.CredentialMode == ChannelMonitorCredentialManagedLocal {
+		managedRepo, ok := s.repo.(ManagedMonitorRepository)
+		if !ok {
+			return nil, ErrChannelMonitorManagedUnsupported
+		}
+		if err := managedRepo.CreateManaged(ctx, m, p.APIKey); err != nil {
+			return nil, fmt.Errorf("create managed channel monitor: %w", err)
+		}
+	} else if err := s.repo.Create(ctx, m); err != nil {
 		return nil, fmt.Errorf("create channel monitor: %w", err)
 	}
 	// 不再调 s.Get 重走解密链：已知刚加密的明文，直接构造响应。
@@ -185,6 +228,15 @@ func (s *ChannelMonitorService) Duplicate(
 	if err != nil {
 		return nil, err
 	}
+	if source.CredentialMode == ChannelMonitorCredentialManagedLocal {
+		if s.managedKeyService == nil {
+			return nil, ErrChannelMonitorManagedConfig
+		}
+		plainAPIKey, err = s.managedKeyService.GenerateKey()
+		if err != nil {
+			return nil, fmt.Errorf("generate duplicate managed monitor key: %w", err)
+		}
+	}
 	encryptedAPIKey, err := s.encryptor.Encrypt(plainAPIKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt duplicate channel monitor api key: %w", err)
@@ -203,9 +255,13 @@ func (s *ChannelMonitorService) Duplicate(
 		PrimaryModel:         source.PrimaryModel,
 		ExtraModels:          append([]string{}, source.ExtraModels...),
 		GroupName:            source.GroupName,
+		GroupID:              cloneInt64Pointer(source.GroupID),
+		ShowGroupRate:        source.ShowGroupRate,
+		CredentialMode:       source.CredentialMode,
 		Enabled:              false,
 		IntervalSeconds:      source.IntervalSeconds,
 		JitterSeconds:        source.JitterSeconds,
+		MaxProbeAttempts:     normalizeMaxProbeAttempts(source.MaxProbeAttempts),
 		CreatedBy:            createdBy,
 		TemplateID:           cloneInt64Pointer(source.TemplateID),
 		ExtraHeaders:         cloneChannelMonitorHeaders(source.ExtraHeaders),
@@ -213,7 +269,15 @@ func (s *ChannelMonitorService) Duplicate(
 		BodyOverride:         bodyOverride,
 		DuplicateOperationID: operationID,
 	}
-	if err := s.repo.Create(ctx, duplicate); err != nil {
+	if source.CredentialMode == ChannelMonitorCredentialManagedLocal {
+		managedRepo, ok := s.repo.(ManagedMonitorRepository)
+		if !ok {
+			return nil, ErrChannelMonitorManagedUnsupported
+		}
+		if err := managedRepo.CreateManaged(ctx, duplicate, plainAPIKey); err != nil {
+			return nil, fmt.Errorf("duplicate managed channel monitor: %w", err)
+		}
+	} else if err := s.repo.Create(ctx, duplicate); err != nil {
 		return nil, fmt.Errorf("duplicate channel monitor: %w", err)
 	}
 
@@ -331,6 +395,11 @@ func validateCreateParams(p ChannelMonitorCreateParams) error {
 	if err := validateJitter(p.JitterSeconds, p.IntervalSeconds); err != nil {
 		return err
 	}
+	if p.MaxProbeAttempts != 0 {
+		if err := validateMaxProbeAttempts(p.MaxProbeAttempts); err != nil {
+			return err
+		}
+	}
 	if err := validateEndpoint(p.Endpoint); err != nil {
 		return err
 	}
@@ -352,14 +421,40 @@ func (s *ChannelMonitorService) Update(ctx context.Context, id int64, p ChannelM
 	if err := applyMonitorUpdate(existing, p); err != nil {
 		return nil, err
 	}
+	if existing.CredentialMode == ChannelMonitorCredentialManagedLocal {
+		if p.APIKey != nil && strings.TrimSpace(*p.APIKey) != "" {
+			return nil, fmt.Errorf("managed monitor key is generated automatically")
+		}
+		if s.managedSettings == nil || existing.GroupID == nil {
+			return nil, ErrChannelMonitorManagedConfig
+		}
+		endpoint, endpointErr := validateManagedMonitorEndpoint(s.managedSettings.GetAPIBaseURL(ctx))
+		if endpointErr != nil {
+			return nil, endpointErr
+		}
+		existing.Endpoint = endpoint
+	}
 
 	newPlainAPIKey, apiKeyUpdated, err := s.applyAPIKeyUpdate(existing, p.APIKey)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.repo.Update(ctx, existing); err != nil {
+	var oldManagedKey string
+	if existing.CredentialMode == ChannelMonitorCredentialManagedLocal {
+		managedRepo, ok := s.repo.(ManagedMonitorRepository)
+		if !ok {
+			return nil, ErrChannelMonitorManagedUnsupported
+		}
+		oldManagedKey, err = managedRepo.UpdateManaged(ctx, existing)
+	} else {
+		err = s.repo.Update(ctx, existing)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("update channel monitor: %w", err)
+	}
+	if oldManagedKey != "" && s.managedKeyService != nil {
+		s.managedKeyService.InvalidateAuthCacheByKey(ctx, oldManagedKey)
 	}
 
 	// 不再调 s.Get 重走解密链：避免二次解密带来的"密文被静默清空"风险（与 Create 一致）。
@@ -395,8 +490,25 @@ func (s *ChannelMonitorService) applyAPIKeyUpdate(existing *ChannelMonitor, raw 
 
 // Delete 删除监控（历史通过外键 CASCADE 自动清理）。
 func (s *ChannelMonitorService) Delete(ctx context.Context, id int64) error {
-	if err := s.repo.Delete(ctx, id); err != nil {
+	monitor, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	var managedKey string
+	if monitor.CredentialMode == ChannelMonitorCredentialManagedLocal {
+		managedRepo, ok := s.repo.(ManagedMonitorRepository)
+		if !ok {
+			return ErrChannelMonitorManagedUnsupported
+		}
+		managedKey, err = managedRepo.DeleteManaged(ctx, id)
+	} else {
+		err = s.repo.Delete(ctx, id)
+	}
+	if err != nil {
 		return fmt.Errorf("delete channel monitor: %w", err)
+	}
+	if managedKey != "" && s.managedKeyService != nil {
+		s.managedKeyService.InvalidateAuthCacheByKey(ctx, managedKey)
 	}
 	if s.scheduler != nil {
 		s.scheduler.Unschedule(id)
@@ -432,12 +544,69 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	if err != nil {
 		return nil, err
 	}
-	if m.APIKeyDecryptFailed {
-		return nil, ErrChannelMonitorAPIKeyDecryptFailed
+	if m.CredentialMode == ChannelMonitorCredentialManagedLocal {
+		if validator, ok := s.repo.(ManagedMonitorRuntimeRepository); ok {
+			if err := validator.ValidateManagedRuntime(ctx, m); err != nil {
+				results := unknownMonitorResults(m, "托管监控分组或 Key 配置已失效")
+				s.persistCheckResults(ctx, m, results)
+				return results, nil
+			}
+		}
+	}
+	if configMessage := monitorRuntimeConfigurationError(m); configMessage != "" {
+		results := unknownMonitorResults(m, configMessage)
+		s.persistCheckResults(ctx, m, results)
+		return results, nil
 	}
 	results := s.runChecksConcurrent(ctx, m)
 	s.persistCheckResults(ctx, m, results)
 	return results, nil
+}
+
+func monitorRuntimeConfigurationError(m *ChannelMonitor) string {
+	if m == nil {
+		return "监控配置不存在"
+	}
+	if m.APIKeyDecryptFailed {
+		return "API Key 解密失败，请重新填写监控凭证"
+	}
+	if strings.TrimSpace(m.APIKey) == "" {
+		return "监控未配置可用的 API Key"
+	}
+	if validateProvider(m.Provider) != nil {
+		return "监控平台配置无效"
+	}
+	if validateAPIMode(m.Provider, m.APIMode) != nil {
+		return "监控请求协议配置无效"
+	}
+	if strings.TrimSpace(m.PrimaryModel) == "" {
+		return "监控主模型配置为空"
+	}
+	if validateMaxProbeAttempts(normalizeMaxProbeAttempts(m.MaxProbeAttempts)) != nil {
+		return "最大探测次数配置无效"
+	}
+	endpoint, err := url.Parse(strings.TrimSpace(m.Endpoint))
+	if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" ||
+		(endpoint.Path != "" && endpoint.Path != "/") ||
+		endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		return "监控网关地址配置无效"
+	}
+	return ""
+}
+
+func unknownMonitorResults(m *ChannelMonitor, message string) []*CheckResult {
+	models := append([]string{m.PrimaryModel}, m.ExtraModels...)
+	checkedAt := time.Now()
+	results := make([]*CheckResult, 0, len(models))
+	for _, model := range models {
+		results = append(results, &CheckResult{
+			Model:     model,
+			Status:    MonitorStatusUnknown,
+			Message:   truncateMessage(message),
+			CheckedAt: checkedAt,
+		})
+	}
+	return results
 }
 
 // persistCheckResults 写入本次检测的历史记录并更新 last_checked_at。
@@ -487,7 +656,16 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 	for i, model := range models {
 		i, model := i, model
 		eg.Go(func() error {
-			r := runCheckForModel(ctx, m.Provider, m.Endpoint, m.APIKey, model, opts)
+			r := runCheckForModelWithRetry(
+				ctx,
+				m.Provider,
+				m.Endpoint,
+				m.APIKey,
+				model,
+				opts,
+				normalizeMaxProbeAttempts(m.MaxProbeAttempts),
+				monitorProbeRetryDelay,
+			)
 			r.PingLatencyMs = pingMs
 			mu.Lock()
 			results[i] = r
@@ -680,6 +858,18 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 	if p.GroupName != nil {
 		existing.GroupName = strings.TrimSpace(*p.GroupName)
 	}
+	if p.ClearGroup {
+		existing.GroupID = nil
+	} else if p.GroupID != nil {
+		groupID := *p.GroupID
+		if groupID <= 0 {
+			return fmt.Errorf("group_id must be positive")
+		}
+		existing.GroupID = &groupID
+	}
+	if p.ShowGroupRate != nil {
+		existing.ShowGroupRate = *p.ShowGroupRate
+	}
 	if p.Enabled != nil {
 		existing.Enabled = *p.Enabled
 	}
@@ -697,6 +887,12 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 		if err := validateJitter(existing.JitterSeconds, existing.IntervalSeconds); err != nil {
 			return err
 		}
+	}
+	if p.MaxProbeAttempts != nil {
+		if err := validateMaxProbeAttempts(*p.MaxProbeAttempts); err != nil {
+			return err
+		}
+		existing.MaxProbeAttempts = *p.MaxProbeAttempts
 	}
 	return applyMonitorAdvancedUpdate(existing, p, providerChanged)
 }

@@ -73,6 +73,7 @@ function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
     enabled: true,
     interval_seconds: 60,
     jitter_seconds: 0,
+    max_probe_attempts: 3,
     last_checked_at: null,
     created_by: 1,
     created_at: '2026-07-16T00:00:00Z',

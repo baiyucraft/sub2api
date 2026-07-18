@@ -58,6 +58,13 @@ func (ChannelMonitor) Fields() []ent.Field {
 			Optional().
 			Default("").
 			MaxLen(100),
+		field.Enum("credential_mode").
+			Values("manual", "managed_local").
+			Default("manual"),
+		field.Int64("group_id").Optional().Nillable(),
+		field.Bool("show_group_rate").Default(false),
+		field.Int64("managed_api_key_id").Optional().Nillable(),
+		field.Int("max_probe_attempts").Default(3).Range(1, 5),
 		field.Bool("enabled").
 			Default(true),
 		field.Int("interval_seconds").
@@ -105,6 +112,16 @@ func (ChannelMonitor) Edges() []ent.Edge {
 			Field("template_id").
 			Unique().
 			Annotations(entsql.OnDelete(entsql.SetNull)),
+		edge.From("group", Group.Type).
+			Ref("channel_monitors").
+			Field("group_id").
+			Unique().
+			Annotations(entsql.OnDelete(entsql.SetNull)),
+		edge.From("managed_api_key", APIKey.Type).
+			Ref("managed_channel_monitors").
+			Field("managed_api_key_id").
+			Unique().
+			Annotations(entsql.OnDelete(entsql.SetNull)),
 	}
 }
 
@@ -115,5 +132,7 @@ func (ChannelMonitor) Indexes() []ent.Index {
 		index.Fields("provider", "api_mode"),
 		index.Fields("group_name"),
 		index.Fields("template_id"),
+		index.Fields("group_id").StorageKey("idx_channel_monitors_group_id"),
+		index.Fields("managed_api_key_id").StorageKey("idx_channel_monitors_managed_api_key_id"),
 	}
 }

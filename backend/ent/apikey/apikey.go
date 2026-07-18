@@ -3,6 +3,7 @@
 package apikey
 
 import (
+	"fmt"
 	"time"
 
 	"entgo.io/ent"
@@ -27,6 +28,10 @@ const (
 	FieldKey = "key"
 	// FieldName holds the string denoting the name field in the database.
 	FieldName = "name"
+	// FieldPurpose holds the string denoting the purpose field in the database.
+	FieldPurpose = "purpose"
+	// FieldManagedMonitorID holds the string denoting the managed_monitor_id field in the database.
+	FieldManagedMonitorID = "managed_monitor_id"
 	// FieldGroupID holds the string denoting the group_id field in the database.
 	FieldGroupID = "group_id"
 	// FieldStatus holds the string denoting the status field in the database.
@@ -67,6 +72,8 @@ const (
 	EdgeGroup = "group"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
+	// EdgeManagedChannelMonitors holds the string denoting the managed_channel_monitors edge name in mutations.
+	EdgeManagedChannelMonitors = "managed_channel_monitors"
 	// Table holds the table name of the apikey in the database.
 	Table = "api_keys"
 	// UserTable is the table that holds the user relation/edge.
@@ -90,6 +97,13 @@ const (
 	UsageLogsInverseTable = "usage_logs"
 	// UsageLogsColumn is the table column denoting the usage_logs relation/edge.
 	UsageLogsColumn = "api_key_id"
+	// ManagedChannelMonitorsTable is the table that holds the managed_channel_monitors relation/edge.
+	ManagedChannelMonitorsTable = "channel_monitors"
+	// ManagedChannelMonitorsInverseTable is the table name for the ChannelMonitor entity.
+	// It exists in this package in order to avoid circular dependency with the "channelmonitor" package.
+	ManagedChannelMonitorsInverseTable = "channel_monitors"
+	// ManagedChannelMonitorsColumn is the table column denoting the managed_channel_monitors relation/edge.
+	ManagedChannelMonitorsColumn = "managed_api_key_id"
 )
 
 // Columns holds all SQL columns for apikey fields.
@@ -101,6 +115,8 @@ var Columns = []string{
 	FieldUserID,
 	FieldKey,
 	FieldName,
+	FieldPurpose,
+	FieldManagedMonitorID,
 	FieldGroupID,
 	FieldStatus,
 	FieldLastUsedAt,
@@ -170,6 +186,32 @@ var (
 	DefaultUsage7d float64
 )
 
+// Purpose defines the type for the "purpose" enum field.
+type Purpose string
+
+// PurposeGeneral is the default value of the Purpose enum.
+const DefaultPurpose = PurposeGeneral
+
+// Purpose values.
+const (
+	PurposeGeneral        Purpose = "general"
+	PurposeManagedMonitor Purpose = "managed_monitor"
+)
+
+func (pu Purpose) String() string {
+	return string(pu)
+}
+
+// PurposeValidator is a validator for the "purpose" field enum values. It is called by the builders before save.
+func PurposeValidator(pu Purpose) error {
+	switch pu {
+	case PurposeGeneral, PurposeManagedMonitor:
+		return nil
+	default:
+		return fmt.Errorf("apikey: invalid enum value for purpose field: %q", pu)
+	}
+}
+
 // OrderOption defines the ordering options for the APIKey queries.
 type OrderOption func(*sql.Selector)
 
@@ -206,6 +248,16 @@ func ByKey(opts ...sql.OrderTermOption) OrderOption {
 // ByName orders the results by the name field.
 func ByName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldName, opts...).ToFunc()
+}
+
+// ByPurpose orders the results by the purpose field.
+func ByPurpose(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPurpose, opts...).ToFunc()
+}
+
+// ByManagedMonitorID orders the results by the managed_monitor_id field.
+func ByManagedMonitorID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldManagedMonitorID, opts...).ToFunc()
 }
 
 // ByGroupID orders the results by the group_id field.
@@ -310,6 +362,20 @@ func ByUsageLogs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newUsageLogsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByManagedChannelMonitorsCount orders the results by managed_channel_monitors count.
+func ByManagedChannelMonitorsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newManagedChannelMonitorsStep(), opts...)
+	}
+}
+
+// ByManagedChannelMonitors orders the results by managed_channel_monitors terms.
+func ByManagedChannelMonitors(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newManagedChannelMonitorsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newUserStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -329,5 +395,12 @@ func newUsageLogsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UsageLogsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, UsageLogsTable, UsageLogsColumn),
+	)
+}
+func newManagedChannelMonitorsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ManagedChannelMonitorsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ManagedChannelMonitorsTable, ManagedChannelMonitorsColumn),
 	)
 }

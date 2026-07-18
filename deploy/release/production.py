@@ -55,6 +55,7 @@ class ProductionRelease:
         self.public_exposed = False
         self.mask_intent = False
         self.backup_values: dict[str, str] | None = None
+        self.migration_status: str | None = None
         self.result_path = gate_dir / "production-result.json"
         self.result: dict[str, object] = {"release_id": self.release_id, "status": "running", "stage": "init", "history": []}
         self._save_result()
@@ -140,6 +141,7 @@ class ProductionRelease:
             f"{env} {self.active_assets}/preflight.sh",
             {"preflight", "pre_switch_image_id", "free_bytes", "migration_status"},
         )
+        self.migration_status = values["migration_status"]
         self.stage("production_preflight_verified", values)
 
     def run_route_canary(
@@ -227,16 +229,11 @@ class ProductionRelease:
             f"{freeze_env} {self.active_assets}/freeze-backup.sh",
             {
                 "backup_units_masked", "writes_frozen", "state_dir", "pre_switch_image_id", "compose_sha256",
-                "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "no_restart_path_proven",
-                "local_restore_point_ready",
             },
             timeout=2400,
         )
         self.frozen = True
         self.units_masked = True
-        self.backup_values = values
-        if values.get("local_restore_point_ready") != "true":
-            raise RuntimeError("local coordinated restore point is not ready")
         if values["state_dir"] != self.state_dir:
             raise RuntimeError("freeze state directory differs from release state")
         external_env = quoted_env({"PUBLIC_DOMAIN": self.profile["public_domain"]})
@@ -254,9 +251,19 @@ class ProductionRelease:
 
     def backup(self) -> None:
         self.stage("backup", timeout=600)
-        if self.backup_values is None:
-            raise RuntimeError("freeze and backup stage did not return evidence")
-        values = self.backup_values
+        backup_env = quoted_env({"RELEASE_DIR": self.release_dir})
+        values = self.run_remote(
+            "racknerd",
+            f"RELEASE_LOCK_HELD=false {backup_env} {self.active_assets}/backup.sh",
+            {
+                "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "writes_frozen",
+                "no_restart_path_proven", "local_restore_point_ready",
+            },
+            timeout=2400,
+        )
+        self.backup_values = values
+        if values.get("local_restore_point_ready") != "true":
+            raise RuntimeError("local coordinated restore point is not ready")
         promotion_script = MAINTENANCE_ROOT / "promote-backup.sh"
         temp_dir = self.runner.create_temp_dir("backup", "/srv/sub2api-backups", "release-promote")
         remote = f"{temp_dir}/promote-backup.sh"
@@ -290,17 +297,56 @@ class ProductionRelease:
             raise RuntimeError("promoted recovery point checksum differs from RackNerd")
         self.stage("backup_verified", {**values, **promoted})
 
+    def migration_preflight(self) -> None:
+        if self.profile["name"] != "195":
+            return
+        self.stage("migration_195_preflight")
+        if self.migration_status not in {"absent", "verified"}:
+            raise RuntimeError("migration 195 preflight status is unknown")
+        env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_status})
+        values = self.run_remote(
+            "racknerd",
+            f"{env} {self.active_assets}/migration-195-assert.sh preflight",
+            {
+                "migration_195_affected", "migration_195_recomputed", "migration_195_preserved",
+                "migration_195_skipped", "migration_195_unproven", "migration_195_conflict",
+                "migration_195_unexpected", "migration_195_data_plan_sha256",
+            },
+        )
+        self.stage("migration_195_preflight_verified", values)
+
+    def bind_migration_plan(self) -> None:
+        if self.profile["name"] != "195":
+            return
+        self.stage("migration_195_bind_recovery_point")
+        env = quoted_env({"RELEASE_DIR": self.release_dir})
+        values = self.run_remote(
+            "racknerd",
+            f"{env} {self.active_assets}/migration-195-assert.sh bind",
+            {"migration_195_plan_sha256", "migration_195_recovery_sha256"},
+        )
+        self.stage("migration_195_plan_bound", values)
+
     def switch(self) -> None:
         self.stage("migration_and_switch", timeout=1200)
         self.migration_started = True
         env = quoted_env({"RELEASE_DIR": self.release_dir})
+        allowed = {
+            "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
+            "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
+        }
+        if getattr(self, "profile", {}).get("name") == "195":
+            allowed.update({
+                "migration_195_affected", "migration_195_unproven",
+                "migration_195_plan_sha256", "migration_195_database_postflight", "migration_195_postflight",
+                "migration_195_recompute_mismatch", "migration_195_outbox_consumed",
+                "migration_195_account_mismatch", "migration_195_snapshot_missing", "migration_195_outbox_missing",
+                "migration_195_constraint_missing", "migration_195_trigger_missing",
+            })
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/switch.sh",
-            {
-                "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
-                "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
-            },
+            allowed,
             timeout=1200,
         )
         self.stage("candidate_internal_verified", values)
@@ -419,7 +465,12 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             if remote_frozen is None:
                 raise RuntimeError("remote write-freeze state is unknown")
             self.frozen = remote_frozen
-        if self.migration_started:
+        migration_committed = self.migration_started
+        if self.migration_started and getattr(self, "profile", {}).get("name") == "195":
+            migration_committed = self.remote_migration_committed()
+            if migration_committed is None:
+                raise RuntimeError("migration 195 committed state is unknown")
+        if migration_committed:
             env = quoted_env({"RELEASE_DIR": self.release_dir})
             values = self.run_remote(
                 "racknerd",
@@ -468,6 +519,35 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         values.update(reconciled)
         self.result["status"] = "recovered"
         self.stage("recovered", values)
+
+    def remote_migration_committed(self) -> bool | None:
+        if self.profile["name"] != "195":
+            return self.migration_started
+        migration = "195_upstream_scheduling_monitor_rates.sql"
+        checksum = self.manifest["migration_sha256"][migration]
+        script = f"""
+set -Eeuo pipefail
+marker={self.state_dir}/migration-committed
+plan=$(cat {self.state_dir}/migration-195-plan.sha256 2>/dev/null || true)
+row=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='{migration}'")
+container=sub2api-migrate-{self.release_id}
+if test -f "$marker" && test ! -L "$marker" && test -n "$plan" && grep -Fxq 'migration={migration}' "$marker" && grep -Fxq 'checksum={checksum}' "$marker" && grep -Fxq "plan_sha256=$plan" "$marker" && test "$row" = '{migration}|{checksum}'; then
+  printf 'migration_committed=true\n'
+elif test ! -e "$marker" && test ! -L "$marker" && test -z "$row" && test -z "$(docker ps -aq -f name=^${{container}}$)"; then
+  printf 'migration_committed=false\n'
+else
+  printf 'migration_committed=unknown\n'
+fi
+"""
+        try:
+            value = self.run_remote("racknerd", script, {"migration_committed"})["migration_committed"]
+        except BaseException:
+            return None
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+        return None
 
     def remote_writes_frozen(self) -> bool | None:
         try:
@@ -537,7 +617,9 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             self.preflight()
             self.verify_streaming_routes("pre_switch")
             self.freeze()
+            self.migration_preflight()
             self.backup()
+            self.bind_migration_plan()
             self.switch()
             self.verify_and_finalize()
         except BaseException:

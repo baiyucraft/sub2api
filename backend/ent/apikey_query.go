@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -23,14 +24,15 @@ import (
 // APIKeyQuery is the builder for querying APIKey entities.
 type APIKeyQuery struct {
 	config
-	ctx           *QueryContext
-	order         []apikey.OrderOption
-	inters        []Interceptor
-	predicates    []predicate.APIKey
-	withUser      *UserQuery
-	withGroup     *GroupQuery
-	withUsageLogs *UsageLogQuery
-	modifiers     []func(*sql.Selector)
+	ctx                        *QueryContext
+	order                      []apikey.OrderOption
+	inters                     []Interceptor
+	predicates                 []predicate.APIKey
+	withUser                   *UserQuery
+	withGroup                  *GroupQuery
+	withUsageLogs              *UsageLogQuery
+	withManagedChannelMonitors *ChannelMonitorQuery
+	modifiers                  []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -126,6 +128,28 @@ func (_q *APIKeyQuery) QueryUsageLogs() *UsageLogQuery {
 			sqlgraph.From(apikey.Table, apikey.FieldID, selector),
 			sqlgraph.To(usagelog.Table, usagelog.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, apikey.UsageLogsTable, apikey.UsageLogsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryManagedChannelMonitors chains the current query on the "managed_channel_monitors" edge.
+func (_q *APIKeyQuery) QueryManagedChannelMonitors() *ChannelMonitorQuery {
+	query := (&ChannelMonitorClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikey.Table, apikey.FieldID, selector),
+			sqlgraph.To(channelmonitor.Table, channelmonitor.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, apikey.ManagedChannelMonitorsTable, apikey.ManagedChannelMonitorsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -320,14 +344,15 @@ func (_q *APIKeyQuery) Clone() *APIKeyQuery {
 		return nil
 	}
 	return &APIKeyQuery{
-		config:        _q.config,
-		ctx:           _q.ctx.Clone(),
-		order:         append([]apikey.OrderOption{}, _q.order...),
-		inters:        append([]Interceptor{}, _q.inters...),
-		predicates:    append([]predicate.APIKey{}, _q.predicates...),
-		withUser:      _q.withUser.Clone(),
-		withGroup:     _q.withGroup.Clone(),
-		withUsageLogs: _q.withUsageLogs.Clone(),
+		config:                     _q.config,
+		ctx:                        _q.ctx.Clone(),
+		order:                      append([]apikey.OrderOption{}, _q.order...),
+		inters:                     append([]Interceptor{}, _q.inters...),
+		predicates:                 append([]predicate.APIKey{}, _q.predicates...),
+		withUser:                   _q.withUser.Clone(),
+		withGroup:                  _q.withGroup.Clone(),
+		withUsageLogs:              _q.withUsageLogs.Clone(),
+		withManagedChannelMonitors: _q.withManagedChannelMonitors.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -364,6 +389,17 @@ func (_q *APIKeyQuery) WithUsageLogs(opts ...func(*UsageLogQuery)) *APIKeyQuery 
 		opt(query)
 	}
 	_q.withUsageLogs = query
+	return _q
+}
+
+// WithManagedChannelMonitors tells the query-builder to eager-load the nodes that are connected to
+// the "managed_channel_monitors" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *APIKeyQuery) WithManagedChannelMonitors(opts ...func(*ChannelMonitorQuery)) *APIKeyQuery {
+	query := (&ChannelMonitorClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withManagedChannelMonitors = query
 	return _q
 }
 
@@ -445,10 +481,11 @@ func (_q *APIKeyQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*APIKe
 	var (
 		nodes       = []*APIKey{}
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [4]bool{
 			_q.withUser != nil,
 			_q.withGroup != nil,
 			_q.withUsageLogs != nil,
+			_q.withManagedChannelMonitors != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -488,6 +525,15 @@ func (_q *APIKeyQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*APIKe
 		if err := _q.loadUsageLogs(ctx, query, nodes,
 			func(n *APIKey) { n.Edges.UsageLogs = []*UsageLog{} },
 			func(n *APIKey, e *UsageLog) { n.Edges.UsageLogs = append(n.Edges.UsageLogs, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withManagedChannelMonitors; query != nil {
+		if err := _q.loadManagedChannelMonitors(ctx, query, nodes,
+			func(n *APIKey) { n.Edges.ManagedChannelMonitors = []*ChannelMonitor{} },
+			func(n *APIKey, e *ChannelMonitor) {
+				n.Edges.ManagedChannelMonitors = append(n.Edges.ManagedChannelMonitors, e)
+			}); err != nil {
 			return nil, err
 		}
 	}
@@ -580,6 +626,39 @@ func (_q *APIKeyQuery) loadUsageLogs(ctx context.Context, query *UsageLogQuery, 
 		node, ok := nodeids[fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "api_key_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *APIKeyQuery) loadManagedChannelMonitors(ctx context.Context, query *ChannelMonitorQuery, nodes []*APIKey, init func(*APIKey), assign func(*APIKey, *ChannelMonitor)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*APIKey)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(channelmonitor.FieldManagedAPIKeyID)
+	}
+	query.Where(predicate.ChannelMonitor(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(apikey.ManagedChannelMonitorsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.ManagedAPIKeyID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "managed_api_key_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "managed_api_key_id" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

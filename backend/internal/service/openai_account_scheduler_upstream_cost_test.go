@@ -533,7 +533,7 @@ func TestOpenAIGatewayServiceLegacyLowRatePriorityUsesConfiguredOAuthReference(t
 		account.Schedulable = true
 		account.Concurrency = 1
 	}
-	cheap.Priority, oauth.Priority, expensive.Priority = 20, 10, 0
+	cheap.Priority, oauth.Priority, expensive.Priority = 3, 3, 3
 
 	settings := &openAIAdvancedSchedulerSettingRepoStub{values: map[string]string{
 		openAIAdvancedSchedulerSettingKey:              "false",
@@ -590,9 +590,9 @@ func TestOpenAIModelsSelectionIgnoresTokenCostSignal(t *testing.T) {
 func TestOpenAIGatewayServiceLegacyLowRatePriorityIsIndependentFromAdvancedScheduler(t *testing.T) {
 	now := time.Now()
 	cheap := upstreamCostTestAccount(1, UpstreamBillingProbeStatusOK, 0.03, now.Add(-time.Minute), 30*time.Minute)
-	cheap.Status, cheap.Schedulable, cheap.Concurrency, cheap.Priority = StatusActive, true, 1, 10
+	cheap.Status, cheap.Schedulable, cheap.Concurrency, cheap.Priority = StatusActive, true, 1, 3
 	expensive := upstreamCostTestAccount(2, UpstreamBillingProbeStatusOK, 0.8, now.Add(-time.Minute), 30*time.Minute)
-	expensive.Status, expensive.Schedulable, expensive.Concurrency, expensive.Priority = StatusActive, true, 1, 0
+	expensive.Status, expensive.Schedulable, expensive.Concurrency, expensive.Priority = StatusActive, true, 1, 3
 	accounts := []Account{*cheap, *expensive}
 	groupID := int64(1)
 
@@ -639,6 +639,41 @@ func TestOpenAIGatewayServiceLegacyLowRatePriorityIsIndependentFromAdvancedSched
 				selection.ReleaseFunc()
 			}
 		})
+	}
+}
+
+func TestOpenAIGatewayServiceLegacyLowRatePriorityDoesNotOverrideAccountPriority(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	now := time.Now()
+	cheap := upstreamCostTestAccount(1, UpstreamBillingProbeStatusOK, 0.03, now.Add(-time.Minute), 30*time.Minute)
+	cheap.Status, cheap.Schedulable, cheap.Concurrency, cheap.Priority = StatusActive, true, 1, 10
+	expensive := upstreamCostTestAccount(2, UpstreamBillingProbeStatusOK, 0.8, now.Add(-time.Minute), 30*time.Minute)
+	expensive.Status, expensive.Schedulable, expensive.Concurrency, expensive.Priority = StatusActive, true, 1, 0
+	settings := &openAIAdvancedSchedulerSettingRepoStub{values: map[string]string{
+		openAIAdvancedSchedulerSettingKey:              "false",
+		SettingKeyOpenAILowUpstreamRatePriorityEnabled: "true",
+	}}
+	cfg := &config.Config{}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = true
+	svc := &OpenAIGatewayService{
+		accountRepo:      schedulerTestOpenAIAccountRepo{accounts: []Account{*cheap, *expensive}},
+		cache:            &schedulerTestGatewayCache{},
+		cfg:              cfg,
+		rateLimitService: &RateLimitService{settingService: NewSettingService(settings, cfg)},
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{loadMap: map[int64]*AccountLoadInfo{
+			cheap.ID:     {AccountID: cheap.ID, LoadRate: 90},
+			expensive.ID: {AccountID: expensive.ID, LoadRate: 10},
+		}}),
+	}
+	groupID := int64(1)
+
+	selection, _, err := svc.SelectAccountWithScheduler(context.Background(), &groupID, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.Equal(t, expensive.ID, selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
 	}
 }
 

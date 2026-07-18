@@ -64,8 +64,9 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertFalse(release.frozen)
         self.assertFalse(release.units_masked)
 
-    def test_freeze_rejects_unready_local_restore_point(self) -> None:
+    def test_backup_rejects_unready_local_restore_point(self) -> None:
         release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
         release.frozen = False
         release.units_masked = False
         release.run_remote = mock.Mock(return_value={
@@ -83,10 +84,10 @@ class ProductionRecoveryTest(unittest.TestCase):
         })
 
         with self.assertRaisesRegex(RuntimeError, "local coordinated restore point is not ready"):
-            release.freeze()
+            release.backup()
 
-        self.assertTrue(release.frozen)
-        self.assertTrue(release.units_masked)
+        self.assertFalse(release.frozen)
+        self.assertFalse(release.units_masked)
 
     def test_recovery_detects_committed_remote_freeze(self) -> None:
         release = self.release()
@@ -470,10 +471,39 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("migration_status=verified", preflight)
         self.assertIn('[[ $migration_state == "$migration|$migration_checksum" ]]', preflight)
 
+    def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
+        assertion = self.script("migration-195-assert.sh")
+        switch = self.script("switch.sh")
+        self.assertIn("migration_195_data_plan_sha256", assertion)
+        self.assertIn("migration_195_account_mismatch", assertion)
+        self.assertIn("migration_195_snapshot_missing", assertion)
+        self.assertIn("migration_195_outbox_missing", assertion)
+        self.assertIn("sched:v2:outbox:watermark", assertion)
+        self.assertIn("migration-195-outbox-already-consumed", assertion)
+        self.assertIn("migration_195_constraint_missing", assertion)
+        self.assertIn("migration_195_trigger_missing", assertion)
+        self.assertIn("[[ $recompute_mismatch == 0", assertion)
+        self.assertGreater(switch.index('migration-195-assert.sh" postflight_db'), switch.index("docker compose run"))
+        self.assertGreater(switch.index('migration-195-assert.sh" postflight_runtime'), switch.index("docker compose up"))
+
+    def test_migration_195_preflight_precedes_switch_and_commit_is_reconciled(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        switch = self.script("switch.sh")
+        execute = production[production.index("def execute(self)"):]
+        self.assertLess(execute.index("self.freeze()"), execute.index("self.migration_preflight()"))
+        self.assertLess(execute.index("self.migration_preflight()"), execute.index("self.backup()"))
+        self.assertLess(execute.index("self.backup()"), execute.index("self.bind_migration_plan()"))
+        self.assertLess(execute.index("self.bind_migration_plan()"), execute.index("self.switch()"))
+        self.assertLess(switch.index('migration-195-assert.sh" postflight_db'), switch.index("docker compose up"))
+        self.assertIn("migration-committed", switch)
+        self.assertIn("remote_migration_committed", production)
+        self.assertIn("migration 195 committed state is unknown", production)
+
     def test_freeze_creates_release_state_root(self) -> None:
         freeze = self.script("freeze-backup.sh")
         self.assertIn("install -d -m 700 /opt/sub2api/backups/release-state", freeze)
         self.assertIn("docker compose stop -t 30 sub2api >/dev/null 2>&1", self.script("freeze.sh"))
+        self.assertNotIn('"$assets_dir/backup.sh"', freeze)
 
     def test_backup_reads_redis_requirepass_without_cli_secret(self) -> None:
         backup = self.script("backup.sh")

@@ -358,6 +358,33 @@ func (_u *AccountUpdate) AddRateMultiplier(v float64) *AccountUpdate {
 	return _u
 }
 
+// SetUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field.
+func (_u *AccountUpdate) SetUpstreamSourceRateMultiplier(v float64) *AccountUpdate {
+	_u.mutation.ResetUpstreamSourceRateMultiplier()
+	_u.mutation.SetUpstreamSourceRateMultiplier(v)
+	return _u
+}
+
+// SetNillableUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableUpstreamSourceRateMultiplier(v *float64) *AccountUpdate {
+	if v != nil {
+		_u.SetUpstreamSourceRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddUpstreamSourceRateMultiplier adds value to the "upstream_source_rate_multiplier" field.
+func (_u *AccountUpdate) AddUpstreamSourceRateMultiplier(v float64) *AccountUpdate {
+	_u.mutation.AddUpstreamSourceRateMultiplier(v)
+	return _u
+}
+
+// ClearUpstreamSourceRateMultiplier clears the value of the "upstream_source_rate_multiplier" field.
+func (_u *AccountUpdate) ClearUpstreamSourceRateMultiplier() *AccountUpdate {
+	_u.mutation.ClearUpstreamSourceRateMultiplier()
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *AccountUpdate) SetStatus(v string) *AccountUpdate {
 	_u.mutation.SetStatus(v)
@@ -1030,6 +1057,15 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(account.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.UpstreamSourceRateMultiplier(); ok {
+		_spec.SetField(account.FieldUpstreamSourceRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamSourceRateMultiplier(); ok {
+		_spec.AddField(account.FieldUpstreamSourceRateMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.UpstreamSourceRateMultiplierCleared() {
+		_spec.ClearField(account.FieldUpstreamSourceRateMultiplier, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(account.FieldStatus, field.TypeString, value)
@@ -1761,6 +1797,33 @@ func (_u *AccountUpdateOne) AddRateMultiplier(v float64) *AccountUpdateOne {
 	return _u
 }
 
+// SetUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field.
+func (_u *AccountUpdateOne) SetUpstreamSourceRateMultiplier(v float64) *AccountUpdateOne {
+	_u.mutation.ResetUpstreamSourceRateMultiplier()
+	_u.mutation.SetUpstreamSourceRateMultiplier(v)
+	return _u
+}
+
+// SetNillableUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableUpstreamSourceRateMultiplier(v *float64) *AccountUpdateOne {
+	if v != nil {
+		_u.SetUpstreamSourceRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddUpstreamSourceRateMultiplier adds value to the "upstream_source_rate_multiplier" field.
+func (_u *AccountUpdateOne) AddUpstreamSourceRateMultiplier(v float64) *AccountUpdateOne {
+	_u.mutation.AddUpstreamSourceRateMultiplier(v)
+	return _u
+}
+
+// ClearUpstreamSourceRateMultiplier clears the value of the "upstream_source_rate_multiplier" field.
+func (_u *AccountUpdateOne) ClearUpstreamSourceRateMultiplier() *AccountUpdateOne {
+	_u.mutation.ClearUpstreamSourceRateMultiplier()
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *AccountUpdateOne) SetStatus(v string) *AccountUpdateOne {
 	_u.mutation.SetStatus(v)
@@ -2463,6 +2526,15 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(account.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.UpstreamSourceRateMultiplier(); ok {
+		_spec.SetField(account.FieldUpstreamSourceRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedUpstreamSourceRateMultiplier(); ok {
+		_spec.AddField(account.FieldUpstreamSourceRateMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.UpstreamSourceRateMultiplierCleared() {
+		_spec.ClearField(account.FieldUpstreamSourceRateMultiplier, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(account.FieldStatus, field.TypeString, value)

@@ -1,0 +1,33 @@
+package repository
+
+import (
+	"context"
+	"regexp"
+	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/stretchr/testify/require"
+)
+
+func TestEnsureGroupRateTimezoneSnapshots(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectExec(regexp.QuoteMeta(ensureGroupRateTimezoneSnapshotsSQL)).
+		WithArgs("Asia/Shanghai").
+		WillReturnResult(sqlmock.NewResult(0, 3))
+
+	require.NoError(t, ensureGroupRateTimezoneSnapshots(context.Background(), db, "Asia/Shanghai"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestEnsureGroupRateTimezoneSnapshots_RejectsMissingConfiguration(t *testing.T) {
+	err := ensureGroupRateTimezoneSnapshots(context.Background(), nil, "")
+	require.ErrorContains(t, err, "timezone and database are required")
+}
+
+func TestEnsureGroupRateTimezoneSnapshots_SerializesConcurrentStartups(t *testing.T) {
+	require.Contains(t, ensureGroupRateTimezoneSnapshotsSQL, "pg_advisory_xact_lock(195, 1)")
+	require.Contains(t, ensureGroupRateTimezoneSnapshotsSQL, "latest.timezone IS DISTINCT FROM $1")
+}

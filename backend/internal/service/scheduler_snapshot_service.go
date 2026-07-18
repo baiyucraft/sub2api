@@ -55,6 +55,14 @@ type legacySchedulerBucketLister interface {
 	ListLegacyBuckets(ctx context.Context) ([]SchedulerBucket, error)
 }
 
+// upstreamSchedulingGateRepository is an optional narrow repository capability
+// used when a scheduler snapshot may be older than the upstream toggle change.
+// The query must be authoritative: soft-deleted upstreams, disabled upstreams,
+// and bindings removed after the cached snapshot was written are excluded.
+type upstreamSchedulingGateRepository interface {
+	ListUpstreamSchedulingEnabledAccountIDs(ctx context.Context, accountIDs []int64) ([]int64, error)
+}
+
 // 查询结果只在一次 rebuild batch 内，按原始 groupID+platform 复用成功的 single/forced 查询；
 // mixed 与历史模式保持独立。每个 task 都用 defer 消费 remaining，最后一个消费者会立即释放结果，
 // 避免把账号切片的生命周期扩大到整轮 full rebuild。
@@ -225,7 +233,11 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		if err != nil {
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] cache read failed: bucket=%s err=%v", bucket.String(), err)
 		} else if hit {
-			return derefAccounts(cached), useMixed, nil
+			accounts, gateErr := s.filterAccountsByAuthoritativeUpstreamScheduling(ctx, derefAccounts(cached))
+			if gateErr != nil {
+				return nil, useMixed, fmt.Errorf("verify upstream scheduling gate: %w", gateErr)
+			}
+			return accounts, useMixed, nil
 		}
 		token, err := s.cache.CaptureBucketWriteToken(ctx, bucket)
 		if err != nil {
@@ -274,6 +286,13 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 		if err != nil {
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] account cache read failed: id=%d err=%v", accountID, err)
 		} else if account != nil {
+			allowed, gateErr := s.isAccountAuthoritativelyUpstreamSchedulable(ctx, account)
+			if gateErr != nil {
+				return nil, fmt.Errorf("verify upstream scheduling gate for account %d: %w", accountID, gateErr)
+			}
+			if !allowed {
+				return nil, nil
+			}
 			return account, nil
 		}
 	}
@@ -283,7 +302,89 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 	}
 	fallbackCtx, cancel := s.withFallbackTimeout(ctx)
 	defer cancel()
-	return s.accountRepo.GetByID(fallbackCtx, accountID)
+	account, err := s.accountRepo.GetByID(fallbackCtx, accountID)
+	if err != nil || account == nil {
+		return account, err
+	}
+	allowed, gateErr := s.isAccountAuthoritativelyUpstreamSchedulable(fallbackCtx, account)
+	if gateErr != nil {
+		return nil, fmt.Errorf("verify upstream scheduling gate for account %d: %w", accountID, gateErr)
+	}
+	if !allowed {
+		return nil, nil
+	}
+	return account, nil
+}
+
+func (s *SchedulerSnapshotService) filterAccountsByAuthoritativeUpstreamScheduling(ctx context.Context, accounts []Account) ([]Account, error) {
+	boundIDs := make([]int64, 0, len(accounts))
+	for i := range accounts {
+		if accounts[i].UpstreamConfigID != nil {
+			boundIDs = append(boundIDs, accounts[i].ID)
+		}
+	}
+	if len(boundIDs) == 0 {
+		return accounts, nil
+	}
+
+	allowedIDs, err := s.listAuthoritativelyUpstreamSchedulableAccountIDs(ctx, boundIDs)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[int64]struct{}, len(allowedIDs))
+	for _, id := range allowedIDs {
+		allowed[id] = struct{}{}
+	}
+
+	filtered := make([]Account, 0, len(accounts))
+	for i := range accounts {
+		account := accounts[i]
+		if account.UpstreamConfigID != nil {
+			if _, ok := allowed[account.ID]; !ok {
+				continue
+			}
+		}
+		filtered = append(filtered, account)
+	}
+	return filtered, nil
+}
+
+func (s *SchedulerSnapshotService) isAccountAuthoritativelyUpstreamSchedulable(ctx context.Context, account *Account) (bool, error) {
+	if account == nil || account.UpstreamConfigID == nil {
+		return true, nil
+	}
+	allowedIDs, err := s.listAuthoritativelyUpstreamSchedulableAccountIDs(ctx, []int64{account.ID})
+	if err != nil {
+		return false, err
+	}
+	return len(allowedIDs) == 1 && allowedIDs[0] == account.ID, nil
+}
+
+func (s *SchedulerSnapshotService) listAuthoritativelyUpstreamSchedulableAccountIDs(ctx context.Context, accountIDs []int64) ([]int64, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, errors.New("account repository is unavailable")
+	}
+	if gateRepo, ok := s.accountRepo.(upstreamSchedulingGateRepository); ok {
+		return gateRepo.ListUpstreamSchedulingEnabledAccountIDs(ctx, accountIDs)
+	}
+
+	// Test doubles and older repository implementations may not expose the
+	// narrow query yet. Rehydrate from the repository and fail closed when a
+	// bound account has no authoritative upstream state.
+	accounts, err := s.accountRepo.GetByIDs(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		if account.UpstreamSchedulingEnabled != nil && *account.UpstreamSchedulingEnabled {
+			allowed = append(allowed, account.ID)
+		}
+	}
+	return allowed, nil
 }
 
 // GetGroupByID 获取分组信息（供调度器使用）

@@ -35,6 +35,16 @@ const (
 	FieldExtraModels = "extra_models"
 	// FieldGroupName holds the string denoting the group_name field in the database.
 	FieldGroupName = "group_name"
+	// FieldCredentialMode holds the string denoting the credential_mode field in the database.
+	FieldCredentialMode = "credential_mode"
+	// FieldGroupID holds the string denoting the group_id field in the database.
+	FieldGroupID = "group_id"
+	// FieldShowGroupRate holds the string denoting the show_group_rate field in the database.
+	FieldShowGroupRate = "show_group_rate"
+	// FieldManagedAPIKeyID holds the string denoting the managed_api_key_id field in the database.
+	FieldManagedAPIKeyID = "managed_api_key_id"
+	// FieldMaxProbeAttempts holds the string denoting the max_probe_attempts field in the database.
+	FieldMaxProbeAttempts = "max_probe_attempts"
 	// FieldEnabled holds the string denoting the enabled field in the database.
 	FieldEnabled = "enabled"
 	// FieldIntervalSeconds holds the string denoting the interval_seconds field in the database.
@@ -59,6 +69,10 @@ const (
 	EdgeDailyRollups = "daily_rollups"
 	// EdgeRequestTemplate holds the string denoting the request_template edge name in mutations.
 	EdgeRequestTemplate = "request_template"
+	// EdgeGroup holds the string denoting the group edge name in mutations.
+	EdgeGroup = "group"
+	// EdgeManagedAPIKey holds the string denoting the managed_api_key edge name in mutations.
+	EdgeManagedAPIKey = "managed_api_key"
 	// Table holds the table name of the channelmonitor in the database.
 	Table = "channel_monitors"
 	// HistoryTable is the table that holds the history relation/edge.
@@ -82,6 +96,20 @@ const (
 	RequestTemplateInverseTable = "channel_monitor_request_templates"
 	// RequestTemplateColumn is the table column denoting the request_template relation/edge.
 	RequestTemplateColumn = "template_id"
+	// GroupTable is the table that holds the group relation/edge.
+	GroupTable = "channel_monitors"
+	// GroupInverseTable is the table name for the Group entity.
+	// It exists in this package in order to avoid circular dependency with the "group" package.
+	GroupInverseTable = "groups"
+	// GroupColumn is the table column denoting the group relation/edge.
+	GroupColumn = "group_id"
+	// ManagedAPIKeyTable is the table that holds the managed_api_key relation/edge.
+	ManagedAPIKeyTable = "channel_monitors"
+	// ManagedAPIKeyInverseTable is the table name for the APIKey entity.
+	// It exists in this package in order to avoid circular dependency with the "apikey" package.
+	ManagedAPIKeyInverseTable = "api_keys"
+	// ManagedAPIKeyColumn is the table column denoting the managed_api_key relation/edge.
+	ManagedAPIKeyColumn = "managed_api_key_id"
 )
 
 // Columns holds all SQL columns for channelmonitor fields.
@@ -97,6 +125,11 @@ var Columns = []string{
 	FieldPrimaryModel,
 	FieldExtraModels,
 	FieldGroupName,
+	FieldCredentialMode,
+	FieldGroupID,
+	FieldShowGroupRate,
+	FieldManagedAPIKeyID,
+	FieldMaxProbeAttempts,
 	FieldEnabled,
 	FieldIntervalSeconds,
 	FieldJitterSeconds,
@@ -143,6 +176,12 @@ var (
 	DefaultGroupName string
 	// GroupNameValidator is a validator for the "group_name" field. It is called by the builders before save.
 	GroupNameValidator func(string) error
+	// DefaultShowGroupRate holds the default value on creation for the "show_group_rate" field.
+	DefaultShowGroupRate bool
+	// DefaultMaxProbeAttempts holds the default value on creation for the "max_probe_attempts" field.
+	DefaultMaxProbeAttempts int
+	// MaxProbeAttemptsValidator is a validator for the "max_probe_attempts" field. It is called by the builders before save.
+	MaxProbeAttemptsValidator func(int) error
 	// DefaultEnabled holds the default value on creation for the "enabled" field.
 	DefaultEnabled bool
 	// IntervalSecondsValidator is a validator for the "interval_seconds" field. It is called by the builders before save.
@@ -181,6 +220,32 @@ func ProviderValidator(pr Provider) error {
 		return nil
 	default:
 		return fmt.Errorf("channelmonitor: invalid enum value for provider field: %q", pr)
+	}
+}
+
+// CredentialMode defines the type for the "credential_mode" enum field.
+type CredentialMode string
+
+// CredentialModeManual is the default value of the CredentialMode enum.
+const DefaultCredentialMode = CredentialModeManual
+
+// CredentialMode values.
+const (
+	CredentialModeManual       CredentialMode = "manual"
+	CredentialModeManagedLocal CredentialMode = "managed_local"
+)
+
+func (cm CredentialMode) String() string {
+	return string(cm)
+}
+
+// CredentialModeValidator is a validator for the "credential_mode" field enum values. It is called by the builders before save.
+func CredentialModeValidator(cm CredentialMode) error {
+	switch cm {
+	case CredentialModeManual, CredentialModeManagedLocal:
+		return nil
+	default:
+		return fmt.Errorf("channelmonitor: invalid enum value for credential_mode field: %q", cm)
 	}
 }
 
@@ -235,6 +300,31 @@ func ByPrimaryModel(opts ...sql.OrderTermOption) OrderOption {
 // ByGroupName orders the results by the group_name field.
 func ByGroupName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupName, opts...).ToFunc()
+}
+
+// ByCredentialMode orders the results by the credential_mode field.
+func ByCredentialMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCredentialMode, opts...).ToFunc()
+}
+
+// ByGroupID orders the results by the group_id field.
+func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
+}
+
+// ByShowGroupRate orders the results by the show_group_rate field.
+func ByShowGroupRate(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldShowGroupRate, opts...).ToFunc()
+}
+
+// ByManagedAPIKeyID orders the results by the managed_api_key_id field.
+func ByManagedAPIKeyID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldManagedAPIKeyID, opts...).ToFunc()
+}
+
+// ByMaxProbeAttempts orders the results by the max_probe_attempts field.
+func ByMaxProbeAttempts(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMaxProbeAttempts, opts...).ToFunc()
 }
 
 // ByEnabled orders the results by the enabled field.
@@ -306,6 +396,20 @@ func ByRequestTemplateField(field string, opts ...sql.OrderTermOption) OrderOpti
 		sqlgraph.OrderByNeighborTerms(s, newRequestTemplateStep(), sql.OrderByField(field, opts...))
 	}
 }
+
+// ByGroupField orders the results by group field.
+func ByGroupField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newGroupStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByManagedAPIKeyField orders the results by managed_api_key field.
+func ByManagedAPIKeyField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newManagedAPIKeyStep(), sql.OrderByField(field, opts...))
+	}
+}
 func newHistoryStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -325,5 +429,19 @@ func newRequestTemplateStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(RequestTemplateInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, false, RequestTemplateTable, RequestTemplateColumn),
+	)
+}
+func newGroupStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(GroupInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, GroupTable, GroupColumn),
+	)
+}
+func newManagedAPIKeyStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ManagedAPIKeyInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, ManagedAPIKeyTable, ManagedAPIKeyColumn),
 	)
 }

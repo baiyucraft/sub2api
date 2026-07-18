@@ -54,6 +54,8 @@ const (
 	FieldPriority = "priority"
 	// FieldRateMultiplier holds the string denoting the rate_multiplier field in the database.
 	FieldRateMultiplier = "rate_multiplier"
+	// FieldUpstreamSourceRateMultiplier holds the string denoting the upstream_source_rate_multiplier field in the database.
+	FieldUpstreamSourceRateMultiplier = "upstream_source_rate_multiplier"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldErrorMessage holds the string denoting the error_message field in the database.
@@ -185,6 +187,7 @@ var Columns = []string{
 	FieldLoadFactor,
 	FieldPriority,
 	FieldRateMultiplier,
+	FieldUpstreamSourceRateMultiplier,
 	FieldStatus,
 	FieldErrorMessage,
 	FieldLastUsedAt,
@@ -378,6 +381,11 @@ func ByPriority(opts ...sql.OrderTermOption) OrderOption {
 // ByRateMultiplier orders the results by the rate_multiplier field.
 func ByRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRateMultiplier, opts...).ToFunc()
+}
+
+// ByUpstreamSourceRateMultiplier orders the results by the upstream_source_rate_multiplier field.
+func ByUpstreamSourceRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamSourceRateMultiplier, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.

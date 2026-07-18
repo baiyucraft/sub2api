@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -82,6 +83,34 @@ func (_c *APIKeyCreate) SetKey(v string) *APIKeyCreate {
 // SetName sets the "name" field.
 func (_c *APIKeyCreate) SetName(v string) *APIKeyCreate {
 	_c.mutation.SetName(v)
+	return _c
+}
+
+// SetPurpose sets the "purpose" field.
+func (_c *APIKeyCreate) SetPurpose(v apikey.Purpose) *APIKeyCreate {
+	_c.mutation.SetPurpose(v)
+	return _c
+}
+
+// SetNillablePurpose sets the "purpose" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillablePurpose(v *apikey.Purpose) *APIKeyCreate {
+	if v != nil {
+		_c.SetPurpose(*v)
+	}
+	return _c
+}
+
+// SetManagedMonitorID sets the "managed_monitor_id" field.
+func (_c *APIKeyCreate) SetManagedMonitorID(v int64) *APIKeyCreate {
+	_c.mutation.SetManagedMonitorID(v)
+	return _c
+}
+
+// SetNillableManagedMonitorID sets the "managed_monitor_id" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableManagedMonitorID(v *int64) *APIKeyCreate {
+	if v != nil {
+		_c.SetManagedMonitorID(*v)
+	}
 	return _c
 }
 
@@ -332,6 +361,21 @@ func (_c *APIKeyCreate) AddUsageLogs(v ...*UsageLog) *APIKeyCreate {
 	return _c.AddUsageLogIDs(ids...)
 }
 
+// AddManagedChannelMonitorIDs adds the "managed_channel_monitors" edge to the ChannelMonitor entity by IDs.
+func (_c *APIKeyCreate) AddManagedChannelMonitorIDs(ids ...int64) *APIKeyCreate {
+	_c.mutation.AddManagedChannelMonitorIDs(ids...)
+	return _c
+}
+
+// AddManagedChannelMonitors adds the "managed_channel_monitors" edges to the ChannelMonitor entity.
+func (_c *APIKeyCreate) AddManagedChannelMonitors(v ...*ChannelMonitor) *APIKeyCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddManagedChannelMonitorIDs(ids...)
+}
+
 // Mutation returns the APIKeyMutation object of the builder.
 func (_c *APIKeyCreate) Mutation() *APIKeyMutation {
 	return _c.mutation
@@ -382,6 +426,10 @@ func (_c *APIKeyCreate) defaults() error {
 		}
 		v := apikey.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
+	}
+	if _, ok := _c.mutation.Purpose(); !ok {
+		v := apikey.DefaultPurpose
+		_c.mutation.SetPurpose(v)
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := apikey.DefaultStatus
@@ -447,6 +495,14 @@ func (_c *APIKeyCreate) check() error {
 	if v, ok := _c.mutation.Name(); ok {
 		if err := apikey.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "APIKey.name": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.Purpose(); !ok {
+		return &ValidationError{Name: "purpose", err: errors.New(`ent: missing required field "APIKey.purpose"`)}
+	}
+	if v, ok := _c.mutation.Purpose(); ok {
+		if err := apikey.PurposeValidator(v); err != nil {
+			return &ValidationError{Name: "purpose", err: fmt.Errorf(`ent: validator failed for field "APIKey.purpose": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
@@ -530,6 +586,14 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
 		_node.Name = value
+	}
+	if value, ok := _c.mutation.Purpose(); ok {
+		_spec.SetField(apikey.FieldPurpose, field.TypeEnum, value)
+		_node.Purpose = value
+	}
+	if value, ok := _c.mutation.ManagedMonitorID(); ok {
+		_spec.SetField(apikey.FieldManagedMonitorID, field.TypeInt64, value)
+		_node.ManagedMonitorID = &value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
@@ -638,6 +702,22 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ManagedChannelMonitorsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.ManagedChannelMonitorsTable,
+			Columns: []string{apikey.ManagedChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -760,6 +840,42 @@ func (u *APIKeyUpsert) SetName(v string) *APIKeyUpsert {
 // UpdateName sets the "name" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateName() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldName)
+	return u
+}
+
+// SetPurpose sets the "purpose" field.
+func (u *APIKeyUpsert) SetPurpose(v apikey.Purpose) *APIKeyUpsert {
+	u.Set(apikey.FieldPurpose, v)
+	return u
+}
+
+// UpdatePurpose sets the "purpose" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdatePurpose() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldPurpose)
+	return u
+}
+
+// SetManagedMonitorID sets the "managed_monitor_id" field.
+func (u *APIKeyUpsert) SetManagedMonitorID(v int64) *APIKeyUpsert {
+	u.Set(apikey.FieldManagedMonitorID, v)
+	return u
+}
+
+// UpdateManagedMonitorID sets the "managed_monitor_id" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateManagedMonitorID() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldManagedMonitorID)
+	return u
+}
+
+// AddManagedMonitorID adds v to the "managed_monitor_id" field.
+func (u *APIKeyUpsert) AddManagedMonitorID(v int64) *APIKeyUpsert {
+	u.Add(apikey.FieldManagedMonitorID, v)
+	return u
+}
+
+// ClearManagedMonitorID clears the value of the "managed_monitor_id" field.
+func (u *APIKeyUpsert) ClearManagedMonitorID() *APIKeyUpsert {
+	u.SetNull(apikey.FieldManagedMonitorID)
 	return u
 }
 
@@ -1182,6 +1298,48 @@ func (u *APIKeyUpsertOne) SetName(v string) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateName() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateName()
+	})
+}
+
+// SetPurpose sets the "purpose" field.
+func (u *APIKeyUpsertOne) SetPurpose(v apikey.Purpose) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetPurpose(v)
+	})
+}
+
+// UpdatePurpose sets the "purpose" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdatePurpose() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdatePurpose()
+	})
+}
+
+// SetManagedMonitorID sets the "managed_monitor_id" field.
+func (u *APIKeyUpsertOne) SetManagedMonitorID(v int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetManagedMonitorID(v)
+	})
+}
+
+// AddManagedMonitorID adds v to the "managed_monitor_id" field.
+func (u *APIKeyUpsertOne) AddManagedMonitorID(v int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddManagedMonitorID(v)
+	})
+}
+
+// UpdateManagedMonitorID sets the "managed_monitor_id" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateManagedMonitorID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateManagedMonitorID()
+	})
+}
+
+// ClearManagedMonitorID clears the value of the "managed_monitor_id" field.
+func (u *APIKeyUpsertOne) ClearManagedMonitorID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearManagedMonitorID()
 	})
 }
 
@@ -1820,6 +1978,48 @@ func (u *APIKeyUpsertBulk) SetName(v string) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateName() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateName()
+	})
+}
+
+// SetPurpose sets the "purpose" field.
+func (u *APIKeyUpsertBulk) SetPurpose(v apikey.Purpose) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetPurpose(v)
+	})
+}
+
+// UpdatePurpose sets the "purpose" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdatePurpose() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdatePurpose()
+	})
+}
+
+// SetManagedMonitorID sets the "managed_monitor_id" field.
+func (u *APIKeyUpsertBulk) SetManagedMonitorID(v int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetManagedMonitorID(v)
+	})
+}
+
+// AddManagedMonitorID adds v to the "managed_monitor_id" field.
+func (u *APIKeyUpsertBulk) AddManagedMonitorID(v int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddManagedMonitorID(v)
+	})
+}
+
+// UpdateManagedMonitorID sets the "managed_monitor_id" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateManagedMonitorID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateManagedMonitorID()
+	})
+}
+
+// ClearManagedMonitorID clears the value of the "managed_monitor_id" field.
+func (u *APIKeyUpsertBulk) ClearManagedMonitorID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearManagedMonitorID()
 	})
 }
 

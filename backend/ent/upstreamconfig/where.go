@@ -115,6 +115,11 @@ func Status(v string) predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(sql.FieldEQ(FieldStatus, v))
 }
 
+// SchedulingEnabled applies equality check predicate on the "scheduling_enabled" field. It's identical to SchedulingEnabledEQ.
+func SchedulingEnabled(v bool) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEQ(FieldSchedulingEnabled, v))
+}
+
 // LastError applies equality check predicate on the "last_error" field. It's identical to LastErrorEQ.
 func LastError(v string) predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(sql.FieldEQ(FieldLastError, v))
@@ -778,6 +783,16 @@ func StatusEqualFold(v string) predicate.UpstreamConfig {
 // StatusContainsFold applies the ContainsFold predicate on the "status" field.
 func StatusContainsFold(v string) predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(sql.FieldContainsFold(FieldStatus, v))
+}
+
+// SchedulingEnabledEQ applies the EQ predicate on the "scheduling_enabled" field.
+func SchedulingEnabledEQ(v bool) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldEQ(FieldSchedulingEnabled, v))
+}
+
+// SchedulingEnabledNEQ applies the NEQ predicate on the "scheduling_enabled" field.
+func SchedulingEnabledNEQ(v bool) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(sql.FieldNEQ(FieldSchedulingEnabled, v))
 }
 
 // LastErrorEQ applies the EQ predicate on the "last_error" field.
