@@ -480,6 +480,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("migration-195-source-rate-column-existed", assertion)
         self.assertIn("matching_outbox.count=1", assertion)
         self.assertIn("matching_outbox.count>=1", assertion)
+        self.assertIn("migration-195-account-ids-mismatch.count", assertion)
+        self.assertIn("migration-195-trigger-missing.count", assertion)
         self.assertIn("migration_195_data_plan_sha256", assertion)
         self.assertIn("migration_195_account_mismatch", assertion)
         self.assertIn("migration_195_snapshot_missing", assertion)

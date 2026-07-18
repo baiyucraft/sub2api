@@ -160,7 +160,7 @@ if [[ $phase == postflight_db ]]; then
   expected_data_plan_sha=$(<"$state_dir/migration-195-data-plan.sha256")
   if [[ $actual_data_plan_sha == "$expected_data_plan_sha" ]]; then recompute_mismatch=0; else recompute_mismatch=1; fi
   actual_account_ids_sha=$(query "COPY (SELECT id FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}')
-  [[ $actual_account_ids_sha == "$(<"$state_dir/migration-195-account-ids.sha256")" ]]
+  if [[ $actual_account_ids_sha == "$(<"$state_dir/migration-195-account-ids.sha256")" ]]; then account_ids_mismatch=0; else account_ids_mismatch=1; fi
   migration_status=$(<"$state_dir/migration-195-status")
   if [[ $migration_status == verified ]]; then
     [[ $recompute_mismatch == 0 ]]
@@ -202,8 +202,17 @@ WITH expected_accounts AS (
 )
 SELECT affected,unproven,account_mismatch,snapshot_missing,outbox_missing,outbox_event_id,constraint_missing,trigger_missing FROM values")
   IFS='|' read -r affected unproven account_mismatch snapshot_missing outbox_missing outbox_event_id constraint_missing trigger_missing <<<"$postflight"
+  printf '%s\n' "$recompute_mismatch" > "$state_dir/migration-195-recompute-mismatch.count"
+  printf '%s\n' "$account_ids_mismatch" > "$state_dir/migration-195-account-ids-mismatch.count"
+  printf '%s\n' "$unproven" > "$state_dir/migration-195-unproven.count"
+  printf '%s\n' "$account_mismatch" > "$state_dir/migration-195-account-mismatch.count"
+  printf '%s\n' "$snapshot_missing" > "$state_dir/migration-195-snapshot-missing.count"
+  printf '%s\n' "$outbox_missing" > "$state_dir/migration-195-outbox-missing.count"
+  printf '%s\n' "$constraint_missing" > "$state_dir/migration-195-constraint-missing.count"
+  printf '%s\n' "$trigger_missing" > "$state_dir/migration-195-trigger-missing.count"
+  chmod 600 "$state_dir"/migration-195-*-mismatch.count "$state_dir"/migration-195-*-missing.count "$state_dir/migration-195-unproven.count"
   [[ $affected == "$(<"$state_dir/migration-195-affected.count")" ]]
-  [[ $recompute_mismatch == 0 && $unproven == 0 && $account_mismatch == 0 && $snapshot_missing == 0 && $outbox_missing == 0 && $constraint_missing == 0 && $trigger_missing == 0 ]]
+  [[ $recompute_mismatch == 0 && $account_ids_mismatch == 0 && $unproven == 0 && $account_mismatch == 0 && $snapshot_missing == 0 && $outbox_missing == 0 && $constraint_missing == 0 && $trigger_missing == 0 ]]
   printf '%s\n' "$outbox_event_id" > "$state_dir/migration-195-outbox-event.id"
   chmod 600 "$state_dir/migration-195-outbox-event.id"
   printf 'migration_195_database_postflight=true\n'
