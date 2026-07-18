@@ -529,6 +529,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('install -m 600 "$plain" "$state_dir/recovery-point.tar"', backup)
         self.assertLess(backup.index("umask 077"), backup.index('tar -C "$work" -cf "$plain"'))
         self.assertIn("local_restore_point_ready=true", backup)
+        self.assertIn("find . -type f ! -name SHA256SUMS", backup)
         self.assertIn('sha256sum -c recovery-point.tar.sha256', restore)
         self.assertIn('tar -C "$recovery" -xf "$state_dir/recovery-point.tar"', restore)
         self.assertNotIn("age-identity", restore)
