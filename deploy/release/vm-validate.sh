@@ -129,6 +129,8 @@ on_failure() {
     grep -qi 'syntax' "$state_dir/migrate-candidate.log" && category=migration_syntax
     grep -qi 'migration 182:' "$state_dir/migrate-candidate.log" && category=migration_182_semantic
     grep -qi 'migration 195:' "$state_dir/migrate-candidate.log" && category=migration_195_semantic
+    grep -qi '182_upstream_actual_rate_multiplier.sql' "$state_dir/migrate-candidate.log" && category=migration_file_182
+    grep -qi '195_upstream_scheduling_monitor_rates.sql' "$state_dir/migrate-candidate.log" && category=migration_file_195
     grep -qi 'permission denied\|must be owner' "$state_dir/migrate-candidate.log" && category=migration_permission
     grep -qi 'connection refused\|no such host\|dial tcp' "$state_dir/migrate-candidate.log" && category=migration_connection
     grep -qi 'timeout\|deadline exceeded' "$state_dir/migrate-candidate.log" && category=migration_timeout
