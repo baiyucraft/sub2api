@@ -185,6 +185,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("migration_constraint", validator)
         self.assertIn("migration_182_semantic", validator)
         self.assertIn("migration_195_semantic", validator)
+        self.assertIn("migration_file_182", validator)
+        self.assertIn("migration_file_195", validator)
         self.assertIn("migration_permission", validator)
         self.assertIn('"migration_195_verified", "fixture_rejected", "restore_completed", "clean_preflight"', gate)
         self.assertIn("any(evidence.get(field) is not True", gate)
