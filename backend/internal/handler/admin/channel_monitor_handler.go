@@ -41,14 +41,18 @@ type channelMonitorCreateRequest struct {
 	Name             string            `json:"name" binding:"required,max=100"`
 	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini grok"`
 	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions responses"`
-	Endpoint         string            `json:"endpoint" binding:"required,max=500"`
-	APIKey           string            `json:"api_key" binding:"required,max=2000"`
+	Endpoint         string            `json:"endpoint" binding:"omitempty,max=500"`
+	APIKey           string            `json:"api_key" binding:"omitempty,max=2000"`
 	PrimaryModel     string            `json:"primary_model" binding:"max=200"`
 	ExtraModels      []string          `json:"extra_models"`
 	GroupName        string            `json:"group_name" binding:"max=100"`
+	GroupID          *int64            `json:"group_id"`
+	ShowGroupRate    bool              `json:"show_group_rate"`
+	CredentialMode   string            `json:"credential_mode" binding:"omitempty,oneof=manual managed_local"`
 	Enabled          *bool             `json:"enabled"`
 	IntervalSeconds  int               `json:"interval_seconds" binding:"required,min=15,max=3600"`
 	JitterSeconds    int               `json:"jitter_seconds" binding:"omitempty,min=0,max=3585"`
+	MaxProbeAttempts int               `json:"max_probe_attempts" binding:"omitempty,min=1,max=5"`
 	TemplateID       *int64            `json:"template_id"`
 	ExtraHeaders     map[string]string `json:"extra_headers"`
 	BodyOverrideMode string            `json:"body_override_mode" binding:"omitempty,oneof=off merge replace"`
@@ -64,9 +68,13 @@ type channelMonitorUpdateRequest struct {
 	PrimaryModel     *string            `json:"primary_model" binding:"omitempty,max=200"`
 	ExtraModels      *[]string          `json:"extra_models"`
 	GroupName        *string            `json:"group_name" binding:"omitempty,max=100"`
+	GroupID          *int64             `json:"group_id"`
+	ClearGroup       bool               `json:"clear_group"`
+	ShowGroupRate    *bool              `json:"show_group_rate"`
 	Enabled          *bool              `json:"enabled"`
 	IntervalSeconds  *int               `json:"interval_seconds" binding:"omitempty,min=15,max=3600"`
 	JitterSeconds    *int               `json:"jitter_seconds" binding:"omitempty,min=0,max=3585"`
+	MaxProbeAttempts *int               `json:"max_probe_attempts" binding:"omitempty,min=1,max=5"`
 	TemplateID       *int64             `json:"template_id"`
 	ClearTemplate    bool               `json:"clear_template"` // true 时把 template_id 置空，忽略 TemplateID
 	ExtraHeaders     *map[string]string `json:"extra_headers"`
@@ -85,9 +93,14 @@ type channelMonitorResponse struct {
 	PrimaryModel        string                               `json:"primary_model"`
 	ExtraModels         []string                             `json:"extra_models"`
 	GroupName           string                               `json:"group_name"`
+	GroupID             *int64                               `json:"group_id,omitempty"`
+	ShowGroupRate       bool                                 `json:"show_group_rate"`
+	CredentialMode      string                               `json:"credential_mode"`
+	ManagedAPIKeyID     *int64                               `json:"managed_api_key_id,omitempty"`
 	Enabled             bool                                 `json:"enabled"`
 	IntervalSeconds     int                                  `json:"interval_seconds"`
 	JitterSeconds       int                                  `json:"jitter_seconds"`
+	MaxProbeAttempts    int                                  `json:"max_probe_attempts"`
 	LastCheckedAt       *string                              `json:"last_checked_at"`
 	CreatedBy           int64                                `json:"created_by"`
 	CreatedAt           string                               `json:"created_at"`
@@ -153,9 +166,14 @@ func channelMonitorToResponse(m *service.ChannelMonitor) *channelMonitorResponse
 		PrimaryModel:        m.PrimaryModel,
 		ExtraModels:         extras,
 		GroupName:           m.GroupName,
+		GroupID:             m.GroupID,
+		ShowGroupRate:       m.ShowGroupRate,
+		CredentialMode:      m.CredentialMode,
+		ManagedAPIKeyID:     m.ManagedAPIKeyID,
 		Enabled:             m.Enabled,
 		IntervalSeconds:     m.IntervalSeconds,
 		JitterSeconds:       m.JitterSeconds,
+		MaxProbeAttempts:    m.MaxProbeAttempts,
 		CreatedBy:           m.CreatedBy,
 		CreatedAt:           m.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:           m.UpdatedAt.UTC().Format(time.RFC3339),
@@ -319,9 +337,13 @@ func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 		PrimaryModel:     req.PrimaryModel,
 		ExtraModels:      req.ExtraModels,
 		GroupName:        req.GroupName,
+		GroupID:          req.GroupID,
+		ShowGroupRate:    req.ShowGroupRate,
+		CredentialMode:   req.CredentialMode,
 		Enabled:          enabled,
 		IntervalSeconds:  req.IntervalSeconds,
 		JitterSeconds:    req.JitterSeconds,
+		MaxProbeAttempts: req.MaxProbeAttempts,
 		CreatedBy:        subject.UserID,
 		TemplateID:       req.TemplateID,
 		ExtraHeaders:     req.ExtraHeaders,
@@ -413,9 +435,13 @@ func (h *ChannelMonitorHandler) Update(c *gin.Context) {
 		PrimaryModel:     req.PrimaryModel,
 		ExtraModels:      req.ExtraModels,
 		GroupName:        req.GroupName,
+		GroupID:          req.GroupID,
+		ClearGroup:       req.ClearGroup,
+		ShowGroupRate:    req.ShowGroupRate,
 		Enabled:          req.Enabled,
 		IntervalSeconds:  req.IntervalSeconds,
 		JitterSeconds:    req.JitterSeconds,
+		MaxProbeAttempts: req.MaxProbeAttempts,
 		TemplateID:       req.TemplateID,
 		ClearTemplate:    req.ClearTemplate,
 		ExtraHeaders:     req.ExtraHeaders,

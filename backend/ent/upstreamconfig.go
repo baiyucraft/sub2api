@@ -47,6 +47,8 @@ type UpstreamConfig struct {
 	BalanceToCnyRate *float64 `json:"balance_to_cny_rate,omitempty"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`
+	// Whether accounts bound to this upstream may be scheduled.
+	SchedulingEnabled bool `json:"scheduling_enabled,omitempty"`
 	// LastError holds the value of the "last_error" field.
 	LastError *string `json:"last_error,omitempty"`
 	// LastCheckedAt holds the value of the "last_checked_at" field.
@@ -174,6 +176,8 @@ func (*UpstreamConfig) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case upstreamconfig.FieldCredentials, upstreamconfig.FieldExtra:
 			values[i] = new([]byte)
+		case upstreamconfig.FieldSchedulingEnabled:
+			values[i] = new(sql.NullBool)
 		case upstreamconfig.FieldRechargeRate, upstreamconfig.FieldBalanceToCnyRate:
 			values[i] = new(sql.NullFloat64)
 		case upstreamconfig.FieldID, upstreamconfig.FieldProxyID:
@@ -294,6 +298,12 @@ func (_m *UpstreamConfig) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field status", values[i])
 			} else if value.Valid {
 				_m.Status = value.String
+			}
+		case upstreamconfig.FieldSchedulingEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field scheduling_enabled", values[i])
+			} else if value.Valid {
+				_m.SchedulingEnabled = value.Bool
 			}
 		case upstreamconfig.FieldLastError:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -446,6 +456,9 @@ func (_m *UpstreamConfig) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("status=")
 	builder.WriteString(_m.Status)
+	builder.WriteString(", ")
+	builder.WriteString("scheduling_enabled=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SchedulingEnabled))
 	builder.WriteString(", ")
 	if v := _m.LastError; v != nil {
 		builder.WriteString("last_error=")

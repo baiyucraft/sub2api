@@ -290,7 +290,7 @@ func expectUpstreamConfigLock(mock sqlmock.Sqlmock, id int64, found bool) {
 	rows := sqlmock.NewRows(dbupstreamconfig.Columns)
 	if found {
 		now := time.Now()
-		rows.AddRow(id, now, now, nil, "config", service.UpstreamProviderNewAPI, "https://upstream.invalid", nil, service.UpstreamAuthModeCookie, []byte("{}"), []byte("{}"), nil, 1.0, nil, service.StatusActive, nil, nil, nil)
+		rows.AddRow(id, now, now, nil, "config", service.UpstreamProviderNewAPI, "https://upstream.invalid", nil, service.UpstreamAuthModeCookie, []byte("{}"), []byte("{}"), nil, 1.0, nil, service.StatusActive, true, nil, nil, nil)
 	}
 	mock.ExpectQuery(`SELECT .* FROM "upstream_configs".*"deleted_at" IS NULL.*FOR UPDATE`).WillReturnRows(rows)
 }
@@ -332,7 +332,7 @@ func expectAccountUpdate(mock sqlmock.Sqlmock, account *service.Account) {
 		sqlmock.NewRows(dbaccount.Columns).AddRow(
 			account.ID, now, now, nil, account.Name, nil, account.Platform, account.Type,
 			[]byte("{}"), []byte("{}"), nil, nil, configID, keyID,
-			nil, nil, account.Concurrency, nil, account.Priority, 1.0, account.Status, "", nil, nil,
+			nil, nil, account.Concurrency, nil, account.Priority, 1.0, nil, account.Status, "", nil, nil,
 			false, account.Schedulable, nil, nil, nil, nil, nil, nil, nil, nil, nil, dbaccount.QuotaDimensionGlobal,
 		),
 	)
@@ -354,7 +354,7 @@ func expectAccountBindingRead(mock sqlmock.Sqlmock, account *service.Account, fo
 	mock.ExpectQuery(query).WillReturnRows(sqlmock.NewRows(dbaccount.Columns).AddRow(
 		account.ID, now, now, nil, account.Name, nil, account.Platform, account.Type,
 		[]byte("{}"), []byte("{}"), nil, nil, configID, keyID,
-		nil, nil, account.Concurrency, nil, account.Priority, 1.0, account.Status, "", nil, nil,
+		nil, nil, account.Concurrency, nil, account.Priority, 1.0, nil, account.Status, "", nil, nil,
 		false, account.Schedulable, nil, nil, nil, nil, nil, nil, nil, nil, nil, dbaccount.QuotaDimensionGlobal,
 	))
 }

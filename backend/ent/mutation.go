@@ -28,6 +28,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/groupratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
@@ -87,6 +88,7 @@ const (
 	TypeChannelMonitorRequestTemplate = "ChannelMonitorRequestTemplate"
 	TypeErrorPassthroughRule          = "ErrorPassthroughRule"
 	TypeGroup                         = "Group"
+	TypeGroupRateSnapshot             = "GroupRateSnapshot"
 	TypeIdempotencyRecord             = "IdempotencyRecord"
 	TypeIdentityAdoptionDecision      = "IdentityAdoptionDecision"
 	TypePaymentAuditLog               = "PaymentAuditLog"
@@ -122,51 +124,57 @@ const (
 // APIKeyMutation represents an operation that mutates the APIKey nodes in the graph.
 type APIKeyMutation struct {
 	config
-	op                 Op
-	typ                string
-	id                 *int64
-	created_at         *time.Time
-	updated_at         *time.Time
-	deleted_at         *time.Time
-	key                *string
-	name               *string
-	status             *string
-	last_used_at       *time.Time
-	ip_whitelist       *[]string
-	appendip_whitelist []string
-	ip_blacklist       *[]string
-	appendip_blacklist []string
-	quota              *float64
-	addquota           *float64
-	quota_used         *float64
-	addquota_used      *float64
-	expires_at         *time.Time
-	rate_limit_5h      *float64
-	addrate_limit_5h   *float64
-	rate_limit_1d      *float64
-	addrate_limit_1d   *float64
-	rate_limit_7d      *float64
-	addrate_limit_7d   *float64
-	usage_5h           *float64
-	addusage_5h        *float64
-	usage_1d           *float64
-	addusage_1d        *float64
-	usage_7d           *float64
-	addusage_7d        *float64
-	window_5h_start    *time.Time
-	window_1d_start    *time.Time
-	window_7d_start    *time.Time
-	clearedFields      map[string]struct{}
-	user               *int64
-	cleareduser        bool
-	group              *int64
-	clearedgroup       bool
-	usage_logs         map[int64]struct{}
-	removedusage_logs  map[int64]struct{}
-	clearedusage_logs  bool
-	done               bool
-	oldValue           func(context.Context) (*APIKey, error)
-	predicates         []predicate.APIKey
+	op                              Op
+	typ                             string
+	id                              *int64
+	created_at                      *time.Time
+	updated_at                      *time.Time
+	deleted_at                      *time.Time
+	key                             *string
+	name                            *string
+	purpose                         *apikey.Purpose
+	managed_monitor_id              *int64
+	addmanaged_monitor_id           *int64
+	status                          *string
+	last_used_at                    *time.Time
+	ip_whitelist                    *[]string
+	appendip_whitelist              []string
+	ip_blacklist                    *[]string
+	appendip_blacklist              []string
+	quota                           *float64
+	addquota                        *float64
+	quota_used                      *float64
+	addquota_used                   *float64
+	expires_at                      *time.Time
+	rate_limit_5h                   *float64
+	addrate_limit_5h                *float64
+	rate_limit_1d                   *float64
+	addrate_limit_1d                *float64
+	rate_limit_7d                   *float64
+	addrate_limit_7d                *float64
+	usage_5h                        *float64
+	addusage_5h                     *float64
+	usage_1d                        *float64
+	addusage_1d                     *float64
+	usage_7d                        *float64
+	addusage_7d                     *float64
+	window_5h_start                 *time.Time
+	window_1d_start                 *time.Time
+	window_7d_start                 *time.Time
+	clearedFields                   map[string]struct{}
+	user                            *int64
+	cleareduser                     bool
+	group                           *int64
+	clearedgroup                    bool
+	usage_logs                      map[int64]struct{}
+	removedusage_logs               map[int64]struct{}
+	clearedusage_logs               bool
+	managed_channel_monitors        map[int64]struct{}
+	removedmanaged_channel_monitors map[int64]struct{}
+	clearedmanaged_channel_monitors bool
+	done                            bool
+	oldValue                        func(context.Context) (*APIKey, error)
+	predicates                      []predicate.APIKey
 }
 
 var _ ent.Mutation = (*APIKeyMutation)(nil)
@@ -494,6 +502,112 @@ func (m *APIKeyMutation) OldName(ctx context.Context) (v string, err error) {
 // ResetName resets all changes to the "name" field.
 func (m *APIKeyMutation) ResetName() {
 	m.name = nil
+}
+
+// SetPurpose sets the "purpose" field.
+func (m *APIKeyMutation) SetPurpose(a apikey.Purpose) {
+	m.purpose = &a
+}
+
+// Purpose returns the value of the "purpose" field in the mutation.
+func (m *APIKeyMutation) Purpose() (r apikey.Purpose, exists bool) {
+	v := m.purpose
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPurpose returns the old "purpose" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldPurpose(ctx context.Context) (v apikey.Purpose, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPurpose is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPurpose requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPurpose: %w", err)
+	}
+	return oldValue.Purpose, nil
+}
+
+// ResetPurpose resets all changes to the "purpose" field.
+func (m *APIKeyMutation) ResetPurpose() {
+	m.purpose = nil
+}
+
+// SetManagedMonitorID sets the "managed_monitor_id" field.
+func (m *APIKeyMutation) SetManagedMonitorID(i int64) {
+	m.managed_monitor_id = &i
+	m.addmanaged_monitor_id = nil
+}
+
+// ManagedMonitorID returns the value of the "managed_monitor_id" field in the mutation.
+func (m *APIKeyMutation) ManagedMonitorID() (r int64, exists bool) {
+	v := m.managed_monitor_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldManagedMonitorID returns the old "managed_monitor_id" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldManagedMonitorID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldManagedMonitorID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldManagedMonitorID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldManagedMonitorID: %w", err)
+	}
+	return oldValue.ManagedMonitorID, nil
+}
+
+// AddManagedMonitorID adds i to the "managed_monitor_id" field.
+func (m *APIKeyMutation) AddManagedMonitorID(i int64) {
+	if m.addmanaged_monitor_id != nil {
+		*m.addmanaged_monitor_id += i
+	} else {
+		m.addmanaged_monitor_id = &i
+	}
+}
+
+// AddedManagedMonitorID returns the value that was added to the "managed_monitor_id" field in this mutation.
+func (m *APIKeyMutation) AddedManagedMonitorID() (r int64, exists bool) {
+	v := m.addmanaged_monitor_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearManagedMonitorID clears the value of the "managed_monitor_id" field.
+func (m *APIKeyMutation) ClearManagedMonitorID() {
+	m.managed_monitor_id = nil
+	m.addmanaged_monitor_id = nil
+	m.clearedFields[apikey.FieldManagedMonitorID] = struct{}{}
+}
+
+// ManagedMonitorIDCleared returns if the "managed_monitor_id" field was cleared in this mutation.
+func (m *APIKeyMutation) ManagedMonitorIDCleared() bool {
+	_, ok := m.clearedFields[apikey.FieldManagedMonitorID]
+	return ok
+}
+
+// ResetManagedMonitorID resets all changes to the "managed_monitor_id" field.
+func (m *APIKeyMutation) ResetManagedMonitorID() {
+	m.managed_monitor_id = nil
+	m.addmanaged_monitor_id = nil
+	delete(m.clearedFields, apikey.FieldManagedMonitorID)
 }
 
 // SetGroupID sets the "group_id" field.
@@ -1512,6 +1626,60 @@ func (m *APIKeyMutation) ResetUsageLogs() {
 	m.removedusage_logs = nil
 }
 
+// AddManagedChannelMonitorIDs adds the "managed_channel_monitors" edge to the ChannelMonitor entity by ids.
+func (m *APIKeyMutation) AddManagedChannelMonitorIDs(ids ...int64) {
+	if m.managed_channel_monitors == nil {
+		m.managed_channel_monitors = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.managed_channel_monitors[ids[i]] = struct{}{}
+	}
+}
+
+// ClearManagedChannelMonitors clears the "managed_channel_monitors" edge to the ChannelMonitor entity.
+func (m *APIKeyMutation) ClearManagedChannelMonitors() {
+	m.clearedmanaged_channel_monitors = true
+}
+
+// ManagedChannelMonitorsCleared reports if the "managed_channel_monitors" edge to the ChannelMonitor entity was cleared.
+func (m *APIKeyMutation) ManagedChannelMonitorsCleared() bool {
+	return m.clearedmanaged_channel_monitors
+}
+
+// RemoveManagedChannelMonitorIDs removes the "managed_channel_monitors" edge to the ChannelMonitor entity by IDs.
+func (m *APIKeyMutation) RemoveManagedChannelMonitorIDs(ids ...int64) {
+	if m.removedmanaged_channel_monitors == nil {
+		m.removedmanaged_channel_monitors = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.managed_channel_monitors, ids[i])
+		m.removedmanaged_channel_monitors[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedManagedChannelMonitors returns the removed IDs of the "managed_channel_monitors" edge to the ChannelMonitor entity.
+func (m *APIKeyMutation) RemovedManagedChannelMonitorsIDs() (ids []int64) {
+	for id := range m.removedmanaged_channel_monitors {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ManagedChannelMonitorsIDs returns the "managed_channel_monitors" edge IDs in the mutation.
+func (m *APIKeyMutation) ManagedChannelMonitorsIDs() (ids []int64) {
+	for id := range m.managed_channel_monitors {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetManagedChannelMonitors resets all changes to the "managed_channel_monitors" edge.
+func (m *APIKeyMutation) ResetManagedChannelMonitors() {
+	m.managed_channel_monitors = nil
+	m.clearedmanaged_channel_monitors = false
+	m.removedmanaged_channel_monitors = nil
+}
+
 // Where appends a list predicates to the APIKeyMutation builder.
 func (m *APIKeyMutation) Where(ps ...predicate.APIKey) {
 	m.predicates = append(m.predicates, ps...)
@@ -1546,7 +1714,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 23)
+	fields := make([]string, 0, 25)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1564,6 +1732,12 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.name != nil {
 		fields = append(fields, apikey.FieldName)
+	}
+	if m.purpose != nil {
+		fields = append(fields, apikey.FieldPurpose)
+	}
+	if m.managed_monitor_id != nil {
+		fields = append(fields, apikey.FieldManagedMonitorID)
 	}
 	if m.group != nil {
 		fields = append(fields, apikey.FieldGroupID)
@@ -1636,6 +1810,10 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.Key()
 	case apikey.FieldName:
 		return m.Name()
+	case apikey.FieldPurpose:
+		return m.Purpose()
+	case apikey.FieldManagedMonitorID:
+		return m.ManagedMonitorID()
 	case apikey.FieldGroupID:
 		return m.GroupID()
 	case apikey.FieldStatus:
@@ -1691,6 +1869,10 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldKey(ctx)
 	case apikey.FieldName:
 		return m.OldName(ctx)
+	case apikey.FieldPurpose:
+		return m.OldPurpose(ctx)
+	case apikey.FieldManagedMonitorID:
+		return m.OldManagedMonitorID(ctx)
 	case apikey.FieldGroupID:
 		return m.OldGroupID(ctx)
 	case apikey.FieldStatus:
@@ -1775,6 +1957,20 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetName(v)
+		return nil
+	case apikey.FieldPurpose:
+		v, ok := value.(apikey.Purpose)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPurpose(v)
+		return nil
+	case apikey.FieldManagedMonitorID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetManagedMonitorID(v)
 		return nil
 	case apikey.FieldGroupID:
 		v, ok := value.(int64)
@@ -1903,6 +2099,9 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 // this mutation.
 func (m *APIKeyMutation) AddedFields() []string {
 	var fields []string
+	if m.addmanaged_monitor_id != nil {
+		fields = append(fields, apikey.FieldManagedMonitorID)
+	}
 	if m.addquota != nil {
 		fields = append(fields, apikey.FieldQuota)
 	}
@@ -1935,6 +2134,8 @@ func (m *APIKeyMutation) AddedFields() []string {
 // was not set, or was not defined in the schema.
 func (m *APIKeyMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
+	case apikey.FieldManagedMonitorID:
+		return m.AddedManagedMonitorID()
 	case apikey.FieldQuota:
 		return m.AddedQuota()
 	case apikey.FieldQuotaUsed:
@@ -1960,6 +2161,13 @@ func (m *APIKeyMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *APIKeyMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case apikey.FieldManagedMonitorID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddManagedMonitorID(v)
+		return nil
 	case apikey.FieldQuota:
 		v, ok := value.(float64)
 		if !ok {
@@ -2027,6 +2235,9 @@ func (m *APIKeyMutation) ClearedFields() []string {
 	if m.FieldCleared(apikey.FieldDeletedAt) {
 		fields = append(fields, apikey.FieldDeletedAt)
 	}
+	if m.FieldCleared(apikey.FieldManagedMonitorID) {
+		fields = append(fields, apikey.FieldManagedMonitorID)
+	}
 	if m.FieldCleared(apikey.FieldGroupID) {
 		fields = append(fields, apikey.FieldGroupID)
 	}
@@ -2067,6 +2278,9 @@ func (m *APIKeyMutation) ClearField(name string) error {
 	switch name {
 	case apikey.FieldDeletedAt:
 		m.ClearDeletedAt()
+		return nil
+	case apikey.FieldManagedMonitorID:
+		m.ClearManagedMonitorID()
 		return nil
 	case apikey.FieldGroupID:
 		m.ClearGroupID()
@@ -2117,6 +2331,12 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldName:
 		m.ResetName()
+		return nil
+	case apikey.FieldPurpose:
+		m.ResetPurpose()
+		return nil
+	case apikey.FieldManagedMonitorID:
+		m.ResetManagedMonitorID()
 		return nil
 	case apikey.FieldGroupID:
 		m.ResetGroupID()
@@ -2175,7 +2395,7 @@ func (m *APIKeyMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *APIKeyMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.user != nil {
 		edges = append(edges, apikey.EdgeUser)
 	}
@@ -2184,6 +2404,9 @@ func (m *APIKeyMutation) AddedEdges() []string {
 	}
 	if m.usage_logs != nil {
 		edges = append(edges, apikey.EdgeUsageLogs)
+	}
+	if m.managed_channel_monitors != nil {
+		edges = append(edges, apikey.EdgeManagedChannelMonitors)
 	}
 	return edges
 }
@@ -2206,15 +2429,24 @@ func (m *APIKeyMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case apikey.EdgeManagedChannelMonitors:
+		ids := make([]ent.Value, 0, len(m.managed_channel_monitors))
+		for id := range m.managed_channel_monitors {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *APIKeyMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.removedusage_logs != nil {
 		edges = append(edges, apikey.EdgeUsageLogs)
+	}
+	if m.removedmanaged_channel_monitors != nil {
+		edges = append(edges, apikey.EdgeManagedChannelMonitors)
 	}
 	return edges
 }
@@ -2229,13 +2461,19 @@ func (m *APIKeyMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case apikey.EdgeManagedChannelMonitors:
+		ids := make([]ent.Value, 0, len(m.removedmanaged_channel_monitors))
+		for id := range m.removedmanaged_channel_monitors {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *APIKeyMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.cleareduser {
 		edges = append(edges, apikey.EdgeUser)
 	}
@@ -2244,6 +2482,9 @@ func (m *APIKeyMutation) ClearedEdges() []string {
 	}
 	if m.clearedusage_logs {
 		edges = append(edges, apikey.EdgeUsageLogs)
+	}
+	if m.clearedmanaged_channel_monitors {
+		edges = append(edges, apikey.EdgeManagedChannelMonitors)
 	}
 	return edges
 }
@@ -2258,6 +2499,8 @@ func (m *APIKeyMutation) EdgeCleared(name string) bool {
 		return m.clearedgroup
 	case apikey.EdgeUsageLogs:
 		return m.clearedusage_logs
+	case apikey.EdgeManagedChannelMonitors:
+		return m.clearedmanaged_channel_monitors
 	}
 	return false
 }
@@ -2289,6 +2532,9 @@ func (m *APIKeyMutation) ResetEdge(name string) error {
 	case apikey.EdgeUsageLogs:
 		m.ResetUsageLogs()
 		return nil
+	case apikey.EdgeManagedChannelMonitors:
+		m.ResetManagedChannelMonitors()
+		return nil
 	}
 	return fmt.Errorf("unknown APIKey edge %s", name)
 }
@@ -2296,70 +2542,72 @@ func (m *APIKeyMutation) ResetEdge(name string) error {
 // AccountMutation represents an operation that mutates the Account nodes in the graph.
 type AccountMutation struct {
 	config
-	op                             Op
-	typ                            string
-	id                             *int64
-	created_at                     *time.Time
-	updated_at                     *time.Time
-	deleted_at                     *time.Time
-	name                           *string
-	notes                          *string
-	platform                       *string
-	_type                          *string
-	credentials                    *map[string]interface{}
-	extra                          *map[string]interface{}
-	proxy_fallback_origin_id       *int64
-	addproxy_fallback_origin_id    *int64
-	upstream_stale_pause_key_id    *int64
-	addupstream_stale_pause_key_id *int64
-	upstream_stale_paused_at       *time.Time
-	concurrency                    *int
-	addconcurrency                 *int
-	load_factor                    *int
-	addload_factor                 *int
-	priority                       *int
-	addpriority                    *int
-	rate_multiplier                *float64
-	addrate_multiplier             *float64
-	status                         *string
-	error_message                  *string
-	last_used_at                   *time.Time
-	expires_at                     *time.Time
-	auto_pause_on_expired          *bool
-	schedulable                    *bool
-	rate_limited_at                *time.Time
-	rate_limit_reset_at            *time.Time
-	overload_until                 *time.Time
-	temp_unschedulable_until       *time.Time
-	temp_unschedulable_reason      *string
-	session_window_start           *time.Time
-	session_window_end             *time.Time
-	session_window_status          *string
-	quota_dimension                *account.QuotaDimension
-	clearedFields                  map[string]struct{}
-	groups                         map[int64]struct{}
-	removedgroups                  map[int64]struct{}
-	clearedgroups                  bool
-	proxy                          *int64
-	clearedproxy                   bool
-	upstream_config                *int64
-	clearedupstream_config         bool
-	upstream_key                   *int64
-	clearedupstream_key            bool
-	parent                         *int64
-	clearedparent                  bool
-	children                       map[int64]struct{}
-	removedchildren                map[int64]struct{}
-	clearedchildren                bool
-	usage_logs                     map[int64]struct{}
-	removedusage_logs              map[int64]struct{}
-	clearedusage_logs              bool
-	upstream_events                map[int64]struct{}
-	removedupstream_events         map[int64]struct{}
-	clearedupstream_events         bool
-	done                           bool
-	oldValue                       func(context.Context) (*Account, error)
-	predicates                     []predicate.Account
+	op                                 Op
+	typ                                string
+	id                                 *int64
+	created_at                         *time.Time
+	updated_at                         *time.Time
+	deleted_at                         *time.Time
+	name                               *string
+	notes                              *string
+	platform                           *string
+	_type                              *string
+	credentials                        *map[string]interface{}
+	extra                              *map[string]interface{}
+	proxy_fallback_origin_id           *int64
+	addproxy_fallback_origin_id        *int64
+	upstream_stale_pause_key_id        *int64
+	addupstream_stale_pause_key_id     *int64
+	upstream_stale_paused_at           *time.Time
+	concurrency                        *int
+	addconcurrency                     *int
+	load_factor                        *int
+	addload_factor                     *int
+	priority                           *int
+	addpriority                        *int
+	rate_multiplier                    *float64
+	addrate_multiplier                 *float64
+	upstream_source_rate_multiplier    *float64
+	addupstream_source_rate_multiplier *float64
+	status                             *string
+	error_message                      *string
+	last_used_at                       *time.Time
+	expires_at                         *time.Time
+	auto_pause_on_expired              *bool
+	schedulable                        *bool
+	rate_limited_at                    *time.Time
+	rate_limit_reset_at                *time.Time
+	overload_until                     *time.Time
+	temp_unschedulable_until           *time.Time
+	temp_unschedulable_reason          *string
+	session_window_start               *time.Time
+	session_window_end                 *time.Time
+	session_window_status              *string
+	quota_dimension                    *account.QuotaDimension
+	clearedFields                      map[string]struct{}
+	groups                             map[int64]struct{}
+	removedgroups                      map[int64]struct{}
+	clearedgroups                      bool
+	proxy                              *int64
+	clearedproxy                       bool
+	upstream_config                    *int64
+	clearedupstream_config             bool
+	upstream_key                       *int64
+	clearedupstream_key                bool
+	parent                             *int64
+	clearedparent                      bool
+	children                           map[int64]struct{}
+	removedchildren                    map[int64]struct{}
+	clearedchildren                    bool
+	usage_logs                         map[int64]struct{}
+	removedusage_logs                  map[int64]struct{}
+	clearedusage_logs                  bool
+	upstream_events                    map[int64]struct{}
+	removedupstream_events             map[int64]struct{}
+	clearedupstream_events             bool
+	done                               bool
+	oldValue                           func(context.Context) (*Account, error)
+	predicates                         []predicate.Account
 }
 
 var _ ent.Mutation = (*AccountMutation)(nil)
@@ -3382,6 +3630,76 @@ func (m *AccountMutation) AddedRateMultiplier() (r float64, exists bool) {
 func (m *AccountMutation) ResetRateMultiplier() {
 	m.rate_multiplier = nil
 	m.addrate_multiplier = nil
+}
+
+// SetUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field.
+func (m *AccountMutation) SetUpstreamSourceRateMultiplier(f float64) {
+	m.upstream_source_rate_multiplier = &f
+	m.addupstream_source_rate_multiplier = nil
+}
+
+// UpstreamSourceRateMultiplier returns the value of the "upstream_source_rate_multiplier" field in the mutation.
+func (m *AccountMutation) UpstreamSourceRateMultiplier() (r float64, exists bool) {
+	v := m.upstream_source_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamSourceRateMultiplier returns the old "upstream_source_rate_multiplier" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldUpstreamSourceRateMultiplier(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamSourceRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamSourceRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamSourceRateMultiplier: %w", err)
+	}
+	return oldValue.UpstreamSourceRateMultiplier, nil
+}
+
+// AddUpstreamSourceRateMultiplier adds f to the "upstream_source_rate_multiplier" field.
+func (m *AccountMutation) AddUpstreamSourceRateMultiplier(f float64) {
+	if m.addupstream_source_rate_multiplier != nil {
+		*m.addupstream_source_rate_multiplier += f
+	} else {
+		m.addupstream_source_rate_multiplier = &f
+	}
+}
+
+// AddedUpstreamSourceRateMultiplier returns the value that was added to the "upstream_source_rate_multiplier" field in this mutation.
+func (m *AccountMutation) AddedUpstreamSourceRateMultiplier() (r float64, exists bool) {
+	v := m.addupstream_source_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearUpstreamSourceRateMultiplier clears the value of the "upstream_source_rate_multiplier" field.
+func (m *AccountMutation) ClearUpstreamSourceRateMultiplier() {
+	m.upstream_source_rate_multiplier = nil
+	m.addupstream_source_rate_multiplier = nil
+	m.clearedFields[account.FieldUpstreamSourceRateMultiplier] = struct{}{}
+}
+
+// UpstreamSourceRateMultiplierCleared returns if the "upstream_source_rate_multiplier" field was cleared in this mutation.
+func (m *AccountMutation) UpstreamSourceRateMultiplierCleared() bool {
+	_, ok := m.clearedFields[account.FieldUpstreamSourceRateMultiplier]
+	return ok
+}
+
+// ResetUpstreamSourceRateMultiplier resets all changes to the "upstream_source_rate_multiplier" field.
+func (m *AccountMutation) ResetUpstreamSourceRateMultiplier() {
+	m.upstream_source_rate_multiplier = nil
+	m.addupstream_source_rate_multiplier = nil
+	delete(m.clearedFields, account.FieldUpstreamSourceRateMultiplier)
 }
 
 // SetStatus sets the "status" field.
@@ -4487,7 +4805,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 35)
+	fields := make([]string, 0, 36)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4544,6 +4862,9 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.rate_multiplier != nil {
 		fields = append(fields, account.FieldRateMultiplier)
+	}
+	if m.upstream_source_rate_multiplier != nil {
+		fields = append(fields, account.FieldUpstreamSourceRateMultiplier)
 	}
 	if m.status != nil {
 		fields = append(fields, account.FieldStatus)
@@ -4639,6 +4960,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.Priority()
 	case account.FieldRateMultiplier:
 		return m.RateMultiplier()
+	case account.FieldUpstreamSourceRateMultiplier:
+		return m.UpstreamSourceRateMultiplier()
 	case account.FieldStatus:
 		return m.Status()
 	case account.FieldErrorMessage:
@@ -4718,6 +5041,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldPriority(ctx)
 	case account.FieldRateMultiplier:
 		return m.OldRateMultiplier(ctx)
+	case account.FieldUpstreamSourceRateMultiplier:
+		return m.OldUpstreamSourceRateMultiplier(ctx)
 	case account.FieldStatus:
 		return m.OldStatus(ctx)
 	case account.FieldErrorMessage:
@@ -4892,6 +5217,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRateMultiplier(v)
 		return nil
+	case account.FieldUpstreamSourceRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamSourceRateMultiplier(v)
+		return nil
 	case account.FieldStatus:
 		v, ok := value.(string)
 		if !ok {
@@ -5030,6 +5362,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addrate_multiplier != nil {
 		fields = append(fields, account.FieldRateMultiplier)
 	}
+	if m.addupstream_source_rate_multiplier != nil {
+		fields = append(fields, account.FieldUpstreamSourceRateMultiplier)
+	}
 	return fields
 }
 
@@ -5050,6 +5385,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedPriority()
 	case account.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
+	case account.FieldUpstreamSourceRateMultiplier:
+		return m.AddedUpstreamSourceRateMultiplier()
 	}
 	return nil, false
 }
@@ -5101,6 +5438,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddRateMultiplier(v)
 		return nil
+	case account.FieldUpstreamSourceRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUpstreamSourceRateMultiplier(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Account numeric field %s", name)
 }
@@ -5135,6 +5479,9 @@ func (m *AccountMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(account.FieldLoadFactor) {
 		fields = append(fields, account.FieldLoadFactor)
+	}
+	if m.FieldCleared(account.FieldUpstreamSourceRateMultiplier) {
+		fields = append(fields, account.FieldUpstreamSourceRateMultiplier)
 	}
 	if m.FieldCleared(account.FieldErrorMessage) {
 		fields = append(fields, account.FieldErrorMessage)
@@ -5212,6 +5559,9 @@ func (m *AccountMutation) ClearField(name string) error {
 		return nil
 	case account.FieldLoadFactor:
 		m.ClearLoadFactor()
+		return nil
+	case account.FieldUpstreamSourceRateMultiplier:
+		m.ClearUpstreamSourceRateMultiplier()
 		return nil
 	case account.FieldErrorMessage:
 		m.ClearErrorMessage()
@@ -5313,6 +5663,9 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldRateMultiplier:
 		m.ResetRateMultiplier()
+		return nil
+	case account.FieldUpstreamSourceRateMultiplier:
+		m.ResetUpstreamSourceRateMultiplier()
 		return nil
 	case account.FieldStatus:
 		m.ResetStatus()
@@ -15524,6 +15877,10 @@ type ChannelMonitorMutation struct {
 	extra_models            *[]string
 	appendextra_models      []string
 	group_name              *string
+	credential_mode         *channelmonitor.CredentialMode
+	show_group_rate         *bool
+	max_probe_attempts      *int
+	addmax_probe_attempts   *int
 	enabled                 *bool
 	interval_seconds        *int
 	addinterval_seconds     *int
@@ -15544,6 +15901,10 @@ type ChannelMonitorMutation struct {
 	cleareddaily_rollups    bool
 	request_template        *int64
 	clearedrequest_template bool
+	group                   *int64
+	clearedgroup            bool
+	managed_api_key         *int64
+	clearedmanaged_api_key  bool
 	done                    bool
 	oldValue                func(context.Context) (*ChannelMonitor, error)
 	predicates              []predicate.ChannelMonitor
@@ -16033,6 +16394,232 @@ func (m *ChannelMonitorMutation) GroupNameCleared() bool {
 func (m *ChannelMonitorMutation) ResetGroupName() {
 	m.group_name = nil
 	delete(m.clearedFields, channelmonitor.FieldGroupName)
+}
+
+// SetCredentialMode sets the "credential_mode" field.
+func (m *ChannelMonitorMutation) SetCredentialMode(cm channelmonitor.CredentialMode) {
+	m.credential_mode = &cm
+}
+
+// CredentialMode returns the value of the "credential_mode" field in the mutation.
+func (m *ChannelMonitorMutation) CredentialMode() (r channelmonitor.CredentialMode, exists bool) {
+	v := m.credential_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCredentialMode returns the old "credential_mode" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldCredentialMode(ctx context.Context) (v channelmonitor.CredentialMode, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCredentialMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCredentialMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCredentialMode: %w", err)
+	}
+	return oldValue.CredentialMode, nil
+}
+
+// ResetCredentialMode resets all changes to the "credential_mode" field.
+func (m *ChannelMonitorMutation) ResetCredentialMode() {
+	m.credential_mode = nil
+}
+
+// SetGroupID sets the "group_id" field.
+func (m *ChannelMonitorMutation) SetGroupID(i int64) {
+	m.group = &i
+}
+
+// GroupID returns the value of the "group_id" field in the mutation.
+func (m *ChannelMonitorMutation) GroupID() (r int64, exists bool) {
+	v := m.group
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGroupID returns the old "group_id" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldGroupID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGroupID: %w", err)
+	}
+	return oldValue.GroupID, nil
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (m *ChannelMonitorMutation) ClearGroupID() {
+	m.group = nil
+	m.clearedFields[channelmonitor.FieldGroupID] = struct{}{}
+}
+
+// GroupIDCleared returns if the "group_id" field was cleared in this mutation.
+func (m *ChannelMonitorMutation) GroupIDCleared() bool {
+	_, ok := m.clearedFields[channelmonitor.FieldGroupID]
+	return ok
+}
+
+// ResetGroupID resets all changes to the "group_id" field.
+func (m *ChannelMonitorMutation) ResetGroupID() {
+	m.group = nil
+	delete(m.clearedFields, channelmonitor.FieldGroupID)
+}
+
+// SetShowGroupRate sets the "show_group_rate" field.
+func (m *ChannelMonitorMutation) SetShowGroupRate(b bool) {
+	m.show_group_rate = &b
+}
+
+// ShowGroupRate returns the value of the "show_group_rate" field in the mutation.
+func (m *ChannelMonitorMutation) ShowGroupRate() (r bool, exists bool) {
+	v := m.show_group_rate
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldShowGroupRate returns the old "show_group_rate" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldShowGroupRate(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldShowGroupRate is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldShowGroupRate requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldShowGroupRate: %w", err)
+	}
+	return oldValue.ShowGroupRate, nil
+}
+
+// ResetShowGroupRate resets all changes to the "show_group_rate" field.
+func (m *ChannelMonitorMutation) ResetShowGroupRate() {
+	m.show_group_rate = nil
+}
+
+// SetManagedAPIKeyID sets the "managed_api_key_id" field.
+func (m *ChannelMonitorMutation) SetManagedAPIKeyID(i int64) {
+	m.managed_api_key = &i
+}
+
+// ManagedAPIKeyID returns the value of the "managed_api_key_id" field in the mutation.
+func (m *ChannelMonitorMutation) ManagedAPIKeyID() (r int64, exists bool) {
+	v := m.managed_api_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldManagedAPIKeyID returns the old "managed_api_key_id" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldManagedAPIKeyID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldManagedAPIKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldManagedAPIKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldManagedAPIKeyID: %w", err)
+	}
+	return oldValue.ManagedAPIKeyID, nil
+}
+
+// ClearManagedAPIKeyID clears the value of the "managed_api_key_id" field.
+func (m *ChannelMonitorMutation) ClearManagedAPIKeyID() {
+	m.managed_api_key = nil
+	m.clearedFields[channelmonitor.FieldManagedAPIKeyID] = struct{}{}
+}
+
+// ManagedAPIKeyIDCleared returns if the "managed_api_key_id" field was cleared in this mutation.
+func (m *ChannelMonitorMutation) ManagedAPIKeyIDCleared() bool {
+	_, ok := m.clearedFields[channelmonitor.FieldManagedAPIKeyID]
+	return ok
+}
+
+// ResetManagedAPIKeyID resets all changes to the "managed_api_key_id" field.
+func (m *ChannelMonitorMutation) ResetManagedAPIKeyID() {
+	m.managed_api_key = nil
+	delete(m.clearedFields, channelmonitor.FieldManagedAPIKeyID)
+}
+
+// SetMaxProbeAttempts sets the "max_probe_attempts" field.
+func (m *ChannelMonitorMutation) SetMaxProbeAttempts(i int) {
+	m.max_probe_attempts = &i
+	m.addmax_probe_attempts = nil
+}
+
+// MaxProbeAttempts returns the value of the "max_probe_attempts" field in the mutation.
+func (m *ChannelMonitorMutation) MaxProbeAttempts() (r int, exists bool) {
+	v := m.max_probe_attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMaxProbeAttempts returns the old "max_probe_attempts" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldMaxProbeAttempts(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMaxProbeAttempts is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMaxProbeAttempts requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMaxProbeAttempts: %w", err)
+	}
+	return oldValue.MaxProbeAttempts, nil
+}
+
+// AddMaxProbeAttempts adds i to the "max_probe_attempts" field.
+func (m *ChannelMonitorMutation) AddMaxProbeAttempts(i int) {
+	if m.addmax_probe_attempts != nil {
+		*m.addmax_probe_attempts += i
+	} else {
+		m.addmax_probe_attempts = &i
+	}
+}
+
+// AddedMaxProbeAttempts returns the value that was added to the "max_probe_attempts" field in this mutation.
+func (m *ChannelMonitorMutation) AddedMaxProbeAttempts() (r int, exists bool) {
+	v := m.addmax_probe_attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetMaxProbeAttempts resets all changes to the "max_probe_attempts" field.
+func (m *ChannelMonitorMutation) ResetMaxProbeAttempts() {
+	m.max_probe_attempts = nil
+	m.addmax_probe_attempts = nil
 }
 
 // SetEnabled sets the "enabled" field.
@@ -16606,6 +17193,60 @@ func (m *ChannelMonitorMutation) ResetRequestTemplate() {
 	m.clearedrequest_template = false
 }
 
+// ClearGroup clears the "group" edge to the Group entity.
+func (m *ChannelMonitorMutation) ClearGroup() {
+	m.clearedgroup = true
+	m.clearedFields[channelmonitor.FieldGroupID] = struct{}{}
+}
+
+// GroupCleared reports if the "group" edge to the Group entity was cleared.
+func (m *ChannelMonitorMutation) GroupCleared() bool {
+	return m.GroupIDCleared() || m.clearedgroup
+}
+
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
+func (m *ChannelMonitorMutation) GroupIDs() (ids []int64) {
+	if id := m.group; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetGroup resets all changes to the "group" edge.
+func (m *ChannelMonitorMutation) ResetGroup() {
+	m.group = nil
+	m.clearedgroup = false
+}
+
+// ClearManagedAPIKey clears the "managed_api_key" edge to the APIKey entity.
+func (m *ChannelMonitorMutation) ClearManagedAPIKey() {
+	m.clearedmanaged_api_key = true
+	m.clearedFields[channelmonitor.FieldManagedAPIKeyID] = struct{}{}
+}
+
+// ManagedAPIKeyCleared reports if the "managed_api_key" edge to the APIKey entity was cleared.
+func (m *ChannelMonitorMutation) ManagedAPIKeyCleared() bool {
+	return m.ManagedAPIKeyIDCleared() || m.clearedmanaged_api_key
+}
+
+// ManagedAPIKeyIDs returns the "managed_api_key" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ManagedAPIKeyID instead. It exists only for internal usage by the builders.
+func (m *ChannelMonitorMutation) ManagedAPIKeyIDs() (ids []int64) {
+	if id := m.managed_api_key; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetManagedAPIKey resets all changes to the "managed_api_key" edge.
+func (m *ChannelMonitorMutation) ResetManagedAPIKey() {
+	m.managed_api_key = nil
+	m.clearedmanaged_api_key = false
+}
+
 // Where appends a list predicates to the ChannelMonitorMutation builder.
 func (m *ChannelMonitorMutation) Where(ps ...predicate.ChannelMonitor) {
 	m.predicates = append(m.predicates, ps...)
@@ -16640,7 +17281,7 @@ func (m *ChannelMonitorMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMonitorMutation) Fields() []string {
-	fields := make([]string, 0, 19)
+	fields := make([]string, 0, 24)
 	if m.created_at != nil {
 		fields = append(fields, channelmonitor.FieldCreatedAt)
 	}
@@ -16670,6 +17311,21 @@ func (m *ChannelMonitorMutation) Fields() []string {
 	}
 	if m.group_name != nil {
 		fields = append(fields, channelmonitor.FieldGroupName)
+	}
+	if m.credential_mode != nil {
+		fields = append(fields, channelmonitor.FieldCredentialMode)
+	}
+	if m.group != nil {
+		fields = append(fields, channelmonitor.FieldGroupID)
+	}
+	if m.show_group_rate != nil {
+		fields = append(fields, channelmonitor.FieldShowGroupRate)
+	}
+	if m.managed_api_key != nil {
+		fields = append(fields, channelmonitor.FieldManagedAPIKeyID)
+	}
+	if m.max_probe_attempts != nil {
+		fields = append(fields, channelmonitor.FieldMaxProbeAttempts)
 	}
 	if m.enabled != nil {
 		fields = append(fields, channelmonitor.FieldEnabled)
@@ -16726,6 +17382,16 @@ func (m *ChannelMonitorMutation) Field(name string) (ent.Value, bool) {
 		return m.ExtraModels()
 	case channelmonitor.FieldGroupName:
 		return m.GroupName()
+	case channelmonitor.FieldCredentialMode:
+		return m.CredentialMode()
+	case channelmonitor.FieldGroupID:
+		return m.GroupID()
+	case channelmonitor.FieldShowGroupRate:
+		return m.ShowGroupRate()
+	case channelmonitor.FieldManagedAPIKeyID:
+		return m.ManagedAPIKeyID()
+	case channelmonitor.FieldMaxProbeAttempts:
+		return m.MaxProbeAttempts()
 	case channelmonitor.FieldEnabled:
 		return m.Enabled()
 	case channelmonitor.FieldIntervalSeconds:
@@ -16773,6 +17439,16 @@ func (m *ChannelMonitorMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldExtraModels(ctx)
 	case channelmonitor.FieldGroupName:
 		return m.OldGroupName(ctx)
+	case channelmonitor.FieldCredentialMode:
+		return m.OldCredentialMode(ctx)
+	case channelmonitor.FieldGroupID:
+		return m.OldGroupID(ctx)
+	case channelmonitor.FieldShowGroupRate:
+		return m.OldShowGroupRate(ctx)
+	case channelmonitor.FieldManagedAPIKeyID:
+		return m.OldManagedAPIKeyID(ctx)
+	case channelmonitor.FieldMaxProbeAttempts:
+		return m.OldMaxProbeAttempts(ctx)
 	case channelmonitor.FieldEnabled:
 		return m.OldEnabled(ctx)
 	case channelmonitor.FieldIntervalSeconds:
@@ -16870,6 +17546,41 @@ func (m *ChannelMonitorMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetGroupName(v)
 		return nil
+	case channelmonitor.FieldCredentialMode:
+		v, ok := value.(channelmonitor.CredentialMode)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCredentialMode(v)
+		return nil
+	case channelmonitor.FieldGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupID(v)
+		return nil
+	case channelmonitor.FieldShowGroupRate:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetShowGroupRate(v)
+		return nil
+	case channelmonitor.FieldManagedAPIKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetManagedAPIKeyID(v)
+		return nil
+	case channelmonitor.FieldMaxProbeAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMaxProbeAttempts(v)
+		return nil
 	case channelmonitor.FieldEnabled:
 		v, ok := value.(bool)
 		if !ok {
@@ -16941,6 +17652,9 @@ func (m *ChannelMonitorMutation) SetField(name string, value ent.Value) error {
 // this mutation.
 func (m *ChannelMonitorMutation) AddedFields() []string {
 	var fields []string
+	if m.addmax_probe_attempts != nil {
+		fields = append(fields, channelmonitor.FieldMaxProbeAttempts)
+	}
 	if m.addinterval_seconds != nil {
 		fields = append(fields, channelmonitor.FieldIntervalSeconds)
 	}
@@ -16958,6 +17672,8 @@ func (m *ChannelMonitorMutation) AddedFields() []string {
 // was not set, or was not defined in the schema.
 func (m *ChannelMonitorMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
+	case channelmonitor.FieldMaxProbeAttempts:
+		return m.AddedMaxProbeAttempts()
 	case channelmonitor.FieldIntervalSeconds:
 		return m.AddedIntervalSeconds()
 	case channelmonitor.FieldJitterSeconds:
@@ -16973,6 +17689,13 @@ func (m *ChannelMonitorMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *ChannelMonitorMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case channelmonitor.FieldMaxProbeAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMaxProbeAttempts(v)
+		return nil
 	case channelmonitor.FieldIntervalSeconds:
 		v, ok := value.(int)
 		if !ok {
@@ -17005,6 +17728,12 @@ func (m *ChannelMonitorMutation) ClearedFields() []string {
 	if m.FieldCleared(channelmonitor.FieldGroupName) {
 		fields = append(fields, channelmonitor.FieldGroupName)
 	}
+	if m.FieldCleared(channelmonitor.FieldGroupID) {
+		fields = append(fields, channelmonitor.FieldGroupID)
+	}
+	if m.FieldCleared(channelmonitor.FieldManagedAPIKeyID) {
+		fields = append(fields, channelmonitor.FieldManagedAPIKeyID)
+	}
 	if m.FieldCleared(channelmonitor.FieldLastCheckedAt) {
 		fields = append(fields, channelmonitor.FieldLastCheckedAt)
 	}
@@ -17030,6 +17759,12 @@ func (m *ChannelMonitorMutation) ClearField(name string) error {
 	switch name {
 	case channelmonitor.FieldGroupName:
 		m.ClearGroupName()
+		return nil
+	case channelmonitor.FieldGroupID:
+		m.ClearGroupID()
+		return nil
+	case channelmonitor.FieldManagedAPIKeyID:
+		m.ClearManagedAPIKeyID()
 		return nil
 	case channelmonitor.FieldLastCheckedAt:
 		m.ClearLastCheckedAt()
@@ -17078,6 +17813,21 @@ func (m *ChannelMonitorMutation) ResetField(name string) error {
 	case channelmonitor.FieldGroupName:
 		m.ResetGroupName()
 		return nil
+	case channelmonitor.FieldCredentialMode:
+		m.ResetCredentialMode()
+		return nil
+	case channelmonitor.FieldGroupID:
+		m.ResetGroupID()
+		return nil
+	case channelmonitor.FieldShowGroupRate:
+		m.ResetShowGroupRate()
+		return nil
+	case channelmonitor.FieldManagedAPIKeyID:
+		m.ResetManagedAPIKeyID()
+		return nil
+	case channelmonitor.FieldMaxProbeAttempts:
+		m.ResetMaxProbeAttempts()
+		return nil
 	case channelmonitor.FieldEnabled:
 		m.ResetEnabled()
 		return nil
@@ -17111,7 +17861,7 @@ func (m *ChannelMonitorMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *ChannelMonitorMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.history != nil {
 		edges = append(edges, channelmonitor.EdgeHistory)
 	}
@@ -17120,6 +17870,12 @@ func (m *ChannelMonitorMutation) AddedEdges() []string {
 	}
 	if m.request_template != nil {
 		edges = append(edges, channelmonitor.EdgeRequestTemplate)
+	}
+	if m.group != nil {
+		edges = append(edges, channelmonitor.EdgeGroup)
+	}
+	if m.managed_api_key != nil {
+		edges = append(edges, channelmonitor.EdgeManagedAPIKey)
 	}
 	return edges
 }
@@ -17144,13 +17900,21 @@ func (m *ChannelMonitorMutation) AddedIDs(name string) []ent.Value {
 		if id := m.request_template; id != nil {
 			return []ent.Value{*id}
 		}
+	case channelmonitor.EdgeGroup:
+		if id := m.group; id != nil {
+			return []ent.Value{*id}
+		}
+	case channelmonitor.EdgeManagedAPIKey:
+		if id := m.managed_api_key; id != nil {
+			return []ent.Value{*id}
+		}
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *ChannelMonitorMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.removedhistory != nil {
 		edges = append(edges, channelmonitor.EdgeHistory)
 	}
@@ -17182,7 +17946,7 @@ func (m *ChannelMonitorMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *ChannelMonitorMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.clearedhistory {
 		edges = append(edges, channelmonitor.EdgeHistory)
 	}
@@ -17191,6 +17955,12 @@ func (m *ChannelMonitorMutation) ClearedEdges() []string {
 	}
 	if m.clearedrequest_template {
 		edges = append(edges, channelmonitor.EdgeRequestTemplate)
+	}
+	if m.clearedgroup {
+		edges = append(edges, channelmonitor.EdgeGroup)
+	}
+	if m.clearedmanaged_api_key {
+		edges = append(edges, channelmonitor.EdgeManagedAPIKey)
 	}
 	return edges
 }
@@ -17205,6 +17975,10 @@ func (m *ChannelMonitorMutation) EdgeCleared(name string) bool {
 		return m.cleareddaily_rollups
 	case channelmonitor.EdgeRequestTemplate:
 		return m.clearedrequest_template
+	case channelmonitor.EdgeGroup:
+		return m.clearedgroup
+	case channelmonitor.EdgeManagedAPIKey:
+		return m.clearedmanaged_api_key
 	}
 	return false
 }
@@ -17215,6 +17989,12 @@ func (m *ChannelMonitorMutation) ClearEdge(name string) error {
 	switch name {
 	case channelmonitor.EdgeRequestTemplate:
 		m.ClearRequestTemplate()
+		return nil
+	case channelmonitor.EdgeGroup:
+		m.ClearGroup()
+		return nil
+	case channelmonitor.EdgeManagedAPIKey:
+		m.ClearManagedAPIKey()
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMonitor unique edge %s", name)
@@ -17232,6 +18012,12 @@ func (m *ChannelMonitorMutation) ResetEdge(name string) error {
 		return nil
 	case channelmonitor.EdgeRequestTemplate:
 		m.ResetRequestTemplate()
+		return nil
+	case channelmonitor.EdgeGroup:
+		m.ResetGroup()
+		return nil
+	case channelmonitor.EdgeManagedAPIKey:
+		m.ResetManagedAPIKey()
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMonitor edge %s", name)
@@ -21789,6 +22575,12 @@ type GroupMutation struct {
 	usage_logs                              map[int64]struct{}
 	removedusage_logs                       map[int64]struct{}
 	clearedusage_logs                       bool
+	rate_snapshots                          map[int64]struct{}
+	removedrate_snapshots                   map[int64]struct{}
+	clearedrate_snapshots                   bool
+	channel_monitors                        map[int64]struct{}
+	removedchannel_monitors                 map[int64]struct{}
+	clearedchannel_monitors                 bool
 	accounts                                map[int64]struct{}
 	removedaccounts                         map[int64]struct{}
 	clearedaccounts                         bool
@@ -24533,6 +25325,114 @@ func (m *GroupMutation) ResetUsageLogs() {
 	m.removedusage_logs = nil
 }
 
+// AddRateSnapshotIDs adds the "rate_snapshots" edge to the GroupRateSnapshot entity by ids.
+func (m *GroupMutation) AddRateSnapshotIDs(ids ...int64) {
+	if m.rate_snapshots == nil {
+		m.rate_snapshots = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.rate_snapshots[ids[i]] = struct{}{}
+	}
+}
+
+// ClearRateSnapshots clears the "rate_snapshots" edge to the GroupRateSnapshot entity.
+func (m *GroupMutation) ClearRateSnapshots() {
+	m.clearedrate_snapshots = true
+}
+
+// RateSnapshotsCleared reports if the "rate_snapshots" edge to the GroupRateSnapshot entity was cleared.
+func (m *GroupMutation) RateSnapshotsCleared() bool {
+	return m.clearedrate_snapshots
+}
+
+// RemoveRateSnapshotIDs removes the "rate_snapshots" edge to the GroupRateSnapshot entity by IDs.
+func (m *GroupMutation) RemoveRateSnapshotIDs(ids ...int64) {
+	if m.removedrate_snapshots == nil {
+		m.removedrate_snapshots = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.rate_snapshots, ids[i])
+		m.removedrate_snapshots[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedRateSnapshots returns the removed IDs of the "rate_snapshots" edge to the GroupRateSnapshot entity.
+func (m *GroupMutation) RemovedRateSnapshotsIDs() (ids []int64) {
+	for id := range m.removedrate_snapshots {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// RateSnapshotsIDs returns the "rate_snapshots" edge IDs in the mutation.
+func (m *GroupMutation) RateSnapshotsIDs() (ids []int64) {
+	for id := range m.rate_snapshots {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetRateSnapshots resets all changes to the "rate_snapshots" edge.
+func (m *GroupMutation) ResetRateSnapshots() {
+	m.rate_snapshots = nil
+	m.clearedrate_snapshots = false
+	m.removedrate_snapshots = nil
+}
+
+// AddChannelMonitorIDs adds the "channel_monitors" edge to the ChannelMonitor entity by ids.
+func (m *GroupMutation) AddChannelMonitorIDs(ids ...int64) {
+	if m.channel_monitors == nil {
+		m.channel_monitors = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.channel_monitors[ids[i]] = struct{}{}
+	}
+}
+
+// ClearChannelMonitors clears the "channel_monitors" edge to the ChannelMonitor entity.
+func (m *GroupMutation) ClearChannelMonitors() {
+	m.clearedchannel_monitors = true
+}
+
+// ChannelMonitorsCleared reports if the "channel_monitors" edge to the ChannelMonitor entity was cleared.
+func (m *GroupMutation) ChannelMonitorsCleared() bool {
+	return m.clearedchannel_monitors
+}
+
+// RemoveChannelMonitorIDs removes the "channel_monitors" edge to the ChannelMonitor entity by IDs.
+func (m *GroupMutation) RemoveChannelMonitorIDs(ids ...int64) {
+	if m.removedchannel_monitors == nil {
+		m.removedchannel_monitors = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.channel_monitors, ids[i])
+		m.removedchannel_monitors[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedChannelMonitors returns the removed IDs of the "channel_monitors" edge to the ChannelMonitor entity.
+func (m *GroupMutation) RemovedChannelMonitorsIDs() (ids []int64) {
+	for id := range m.removedchannel_monitors {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ChannelMonitorsIDs returns the "channel_monitors" edge IDs in the mutation.
+func (m *GroupMutation) ChannelMonitorsIDs() (ids []int64) {
+	for id := range m.channel_monitors {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetChannelMonitors resets all changes to the "channel_monitors" edge.
+func (m *GroupMutation) ResetChannelMonitors() {
+	m.channel_monitors = nil
+	m.clearedchannel_monitors = false
+	m.removedchannel_monitors = nil
+}
+
 // AddAccountIDs adds the "accounts" edge to the Account entity by ids.
 func (m *GroupMutation) AddAccountIDs(ids ...int64) {
 	if m.accounts == nil {
@@ -25944,7 +26844,7 @@ func (m *GroupMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *GroupMutation) AddedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 8)
 	if m.api_keys != nil {
 		edges = append(edges, group.EdgeAPIKeys)
 	}
@@ -25956,6 +26856,12 @@ func (m *GroupMutation) AddedEdges() []string {
 	}
 	if m.usage_logs != nil {
 		edges = append(edges, group.EdgeUsageLogs)
+	}
+	if m.rate_snapshots != nil {
+		edges = append(edges, group.EdgeRateSnapshots)
+	}
+	if m.channel_monitors != nil {
+		edges = append(edges, group.EdgeChannelMonitors)
 	}
 	if m.accounts != nil {
 		edges = append(edges, group.EdgeAccounts)
@@ -25994,6 +26900,18 @@ func (m *GroupMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case group.EdgeRateSnapshots:
+		ids := make([]ent.Value, 0, len(m.rate_snapshots))
+		for id := range m.rate_snapshots {
+			ids = append(ids, id)
+		}
+		return ids
+	case group.EdgeChannelMonitors:
+		ids := make([]ent.Value, 0, len(m.channel_monitors))
+		for id := range m.channel_monitors {
+			ids = append(ids, id)
+		}
+		return ids
 	case group.EdgeAccounts:
 		ids := make([]ent.Value, 0, len(m.accounts))
 		for id := range m.accounts {
@@ -26012,7 +26930,7 @@ func (m *GroupMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *GroupMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 8)
 	if m.removedapi_keys != nil {
 		edges = append(edges, group.EdgeAPIKeys)
 	}
@@ -26024,6 +26942,12 @@ func (m *GroupMutation) RemovedEdges() []string {
 	}
 	if m.removedusage_logs != nil {
 		edges = append(edges, group.EdgeUsageLogs)
+	}
+	if m.removedrate_snapshots != nil {
+		edges = append(edges, group.EdgeRateSnapshots)
+	}
+	if m.removedchannel_monitors != nil {
+		edges = append(edges, group.EdgeChannelMonitors)
 	}
 	if m.removedaccounts != nil {
 		edges = append(edges, group.EdgeAccounts)
@@ -26062,6 +26986,18 @@ func (m *GroupMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case group.EdgeRateSnapshots:
+		ids := make([]ent.Value, 0, len(m.removedrate_snapshots))
+		for id := range m.removedrate_snapshots {
+			ids = append(ids, id)
+		}
+		return ids
+	case group.EdgeChannelMonitors:
+		ids := make([]ent.Value, 0, len(m.removedchannel_monitors))
+		for id := range m.removedchannel_monitors {
+			ids = append(ids, id)
+		}
+		return ids
 	case group.EdgeAccounts:
 		ids := make([]ent.Value, 0, len(m.removedaccounts))
 		for id := range m.removedaccounts {
@@ -26080,7 +27016,7 @@ func (m *GroupMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *GroupMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 8)
 	if m.clearedapi_keys {
 		edges = append(edges, group.EdgeAPIKeys)
 	}
@@ -26092,6 +27028,12 @@ func (m *GroupMutation) ClearedEdges() []string {
 	}
 	if m.clearedusage_logs {
 		edges = append(edges, group.EdgeUsageLogs)
+	}
+	if m.clearedrate_snapshots {
+		edges = append(edges, group.EdgeRateSnapshots)
+	}
+	if m.clearedchannel_monitors {
+		edges = append(edges, group.EdgeChannelMonitors)
 	}
 	if m.clearedaccounts {
 		edges = append(edges, group.EdgeAccounts)
@@ -26114,6 +27056,10 @@ func (m *GroupMutation) EdgeCleared(name string) bool {
 		return m.clearedsubscriptions
 	case group.EdgeUsageLogs:
 		return m.clearedusage_logs
+	case group.EdgeRateSnapshots:
+		return m.clearedrate_snapshots
+	case group.EdgeChannelMonitors:
+		return m.clearedchannel_monitors
 	case group.EdgeAccounts:
 		return m.clearedaccounts
 	case group.EdgeAllowedUsers:
@@ -26146,6 +27092,12 @@ func (m *GroupMutation) ResetEdge(name string) error {
 	case group.EdgeUsageLogs:
 		m.ResetUsageLogs()
 		return nil
+	case group.EdgeRateSnapshots:
+		m.ResetRateSnapshots()
+		return nil
+	case group.EdgeChannelMonitors:
+		m.ResetChannelMonitors()
+		return nil
 	case group.EdgeAccounts:
 		m.ResetAccounts()
 		return nil
@@ -26154,6 +27106,887 @@ func (m *GroupMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Group edge %s", name)
+}
+
+// GroupRateSnapshotMutation represents an operation that mutates the GroupRateSnapshot nodes in the graph.
+type GroupRateSnapshotMutation struct {
+	config
+	op                      Op
+	typ                     string
+	id                      *int64
+	rate_multiplier         *float64
+	addrate_multiplier      *float64
+	peak_rate_enabled       *bool
+	peak_start              *string
+	peak_end                *string
+	peak_rate_multiplier    *float64
+	addpeak_rate_multiplier *float64
+	timezone                *string
+	effective_at            *time.Time
+	created_at              *time.Time
+	clearedFields           map[string]struct{}
+	group                   *int64
+	clearedgroup            bool
+	done                    bool
+	oldValue                func(context.Context) (*GroupRateSnapshot, error)
+	predicates              []predicate.GroupRateSnapshot
+}
+
+var _ ent.Mutation = (*GroupRateSnapshotMutation)(nil)
+
+// groupratesnapshotOption allows management of the mutation configuration using functional options.
+type groupratesnapshotOption func(*GroupRateSnapshotMutation)
+
+// newGroupRateSnapshotMutation creates new mutation for the GroupRateSnapshot entity.
+func newGroupRateSnapshotMutation(c config, op Op, opts ...groupratesnapshotOption) *GroupRateSnapshotMutation {
+	m := &GroupRateSnapshotMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeGroupRateSnapshot,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withGroupRateSnapshotID sets the ID field of the mutation.
+func withGroupRateSnapshotID(id int64) groupratesnapshotOption {
+	return func(m *GroupRateSnapshotMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *GroupRateSnapshot
+		)
+		m.oldValue = func(ctx context.Context) (*GroupRateSnapshot, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().GroupRateSnapshot.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withGroupRateSnapshot sets the old GroupRateSnapshot of the mutation.
+func withGroupRateSnapshot(node *GroupRateSnapshot) groupratesnapshotOption {
+	return func(m *GroupRateSnapshotMutation) {
+		m.oldValue = func(context.Context) (*GroupRateSnapshot, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m GroupRateSnapshotMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m GroupRateSnapshotMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *GroupRateSnapshotMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *GroupRateSnapshotMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().GroupRateSnapshot.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetGroupID sets the "group_id" field.
+func (m *GroupRateSnapshotMutation) SetGroupID(i int64) {
+	m.group = &i
+}
+
+// GroupID returns the value of the "group_id" field in the mutation.
+func (m *GroupRateSnapshotMutation) GroupID() (r int64, exists bool) {
+	v := m.group
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGroupID returns the old "group_id" field's value of the GroupRateSnapshot entity.
+// If the GroupRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupRateSnapshotMutation) OldGroupID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGroupID: %w", err)
+	}
+	return oldValue.GroupID, nil
+}
+
+// ResetGroupID resets all changes to the "group_id" field.
+func (m *GroupRateSnapshotMutation) ResetGroupID() {
+	m.group = nil
+}
+
+// SetRateMultiplier sets the "rate_multiplier" field.
+func (m *GroupRateSnapshotMutation) SetRateMultiplier(f float64) {
+	m.rate_multiplier = &f
+	m.addrate_multiplier = nil
+}
+
+// RateMultiplier returns the value of the "rate_multiplier" field in the mutation.
+func (m *GroupRateSnapshotMutation) RateMultiplier() (r float64, exists bool) {
+	v := m.rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRateMultiplier returns the old "rate_multiplier" field's value of the GroupRateSnapshot entity.
+// If the GroupRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupRateSnapshotMutation) OldRateMultiplier(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRateMultiplier: %w", err)
+	}
+	return oldValue.RateMultiplier, nil
+}
+
+// AddRateMultiplier adds f to the "rate_multiplier" field.
+func (m *GroupRateSnapshotMutation) AddRateMultiplier(f float64) {
+	if m.addrate_multiplier != nil {
+		*m.addrate_multiplier += f
+	} else {
+		m.addrate_multiplier = &f
+	}
+}
+
+// AddedRateMultiplier returns the value that was added to the "rate_multiplier" field in this mutation.
+func (m *GroupRateSnapshotMutation) AddedRateMultiplier() (r float64, exists bool) {
+	v := m.addrate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRateMultiplier resets all changes to the "rate_multiplier" field.
+func (m *GroupRateSnapshotMutation) ResetRateMultiplier() {
+	m.rate_multiplier = nil
+	m.addrate_multiplier = nil
+}
+
+// SetPeakRateEnabled sets the "peak_rate_enabled" field.
+func (m *GroupRateSnapshotMutation) SetPeakRateEnabled(b bool) {
+	m.peak_rate_enabled = &b
+}
+
+// PeakRateEnabled returns the value of the "peak_rate_enabled" field in the mutation.
+func (m *GroupRateSnapshotMutation) PeakRateEnabled() (r bool, exists bool) {
+	v := m.peak_rate_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakRateEnabled returns the old "peak_rate_enabled" field's value of the GroupRateSnapshot entity.
+// If the GroupRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupRateSnapshotMutation) OldPeakRateEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakRateEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakRateEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakRateEnabled: %w", err)
+	}
+	return oldValue.PeakRateEnabled, nil
+}
+
+// ResetPeakRateEnabled resets all changes to the "peak_rate_enabled" field.
+func (m *GroupRateSnapshotMutation) ResetPeakRateEnabled() {
+	m.peak_rate_enabled = nil
+}
+
+// SetPeakStart sets the "peak_start" field.
+func (m *GroupRateSnapshotMutation) SetPeakStart(s string) {
+	m.peak_start = &s
+}
+
+// PeakStart returns the value of the "peak_start" field in the mutation.
+func (m *GroupRateSnapshotMutation) PeakStart() (r string, exists bool) {
+	v := m.peak_start
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakStart returns the old "peak_start" field's value of the GroupRateSnapshot entity.
+// If the GroupRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupRateSnapshotMutation) OldPeakStart(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakStart is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakStart requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakStart: %w", err)
+	}
+	return oldValue.PeakStart, nil
+}
+
+// ResetPeakStart resets all changes to the "peak_start" field.
+func (m *GroupRateSnapshotMutation) ResetPeakStart() {
+	m.peak_start = nil
+}
+
+// SetPeakEnd sets the "peak_end" field.
+func (m *GroupRateSnapshotMutation) SetPeakEnd(s string) {
+	m.peak_end = &s
+}
+
+// PeakEnd returns the value of the "peak_end" field in the mutation.
+func (m *GroupRateSnapshotMutation) PeakEnd() (r string, exists bool) {
+	v := m.peak_end
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakEnd returns the old "peak_end" field's value of the GroupRateSnapshot entity.
+// If the GroupRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupRateSnapshotMutation) OldPeakEnd(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakEnd is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakEnd requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakEnd: %w", err)
+	}
+	return oldValue.PeakEnd, nil
+}
+
+// ResetPeakEnd resets all changes to the "peak_end" field.
+func (m *GroupRateSnapshotMutation) ResetPeakEnd() {
+	m.peak_end = nil
+}
+
+// SetPeakRateMultiplier sets the "peak_rate_multiplier" field.
+func (m *GroupRateSnapshotMutation) SetPeakRateMultiplier(f float64) {
+	m.peak_rate_multiplier = &f
+	m.addpeak_rate_multiplier = nil
+}
+
+// PeakRateMultiplier returns the value of the "peak_rate_multiplier" field in the mutation.
+func (m *GroupRateSnapshotMutation) PeakRateMultiplier() (r float64, exists bool) {
+	v := m.peak_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakRateMultiplier returns the old "peak_rate_multiplier" field's value of the GroupRateSnapshot entity.
+// If the GroupRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupRateSnapshotMutation) OldPeakRateMultiplier(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakRateMultiplier: %w", err)
+	}
+	return oldValue.PeakRateMultiplier, nil
+}
+
+// AddPeakRateMultiplier adds f to the "peak_rate_multiplier" field.
+func (m *GroupRateSnapshotMutation) AddPeakRateMultiplier(f float64) {
+	if m.addpeak_rate_multiplier != nil {
+		*m.addpeak_rate_multiplier += f
+	} else {
+		m.addpeak_rate_multiplier = &f
+	}
+}
+
+// AddedPeakRateMultiplier returns the value that was added to the "peak_rate_multiplier" field in this mutation.
+func (m *GroupRateSnapshotMutation) AddedPeakRateMultiplier() (r float64, exists bool) {
+	v := m.addpeak_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPeakRateMultiplier resets all changes to the "peak_rate_multiplier" field.
+func (m *GroupRateSnapshotMutation) ResetPeakRateMultiplier() {
+	m.peak_rate_multiplier = nil
+	m.addpeak_rate_multiplier = nil
+}
+
+// SetTimezone sets the "timezone" field.
+func (m *GroupRateSnapshotMutation) SetTimezone(s string) {
+	m.timezone = &s
+}
+
+// Timezone returns the value of the "timezone" field in the mutation.
+func (m *GroupRateSnapshotMutation) Timezone() (r string, exists bool) {
+	v := m.timezone
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTimezone returns the old "timezone" field's value of the GroupRateSnapshot entity.
+// If the GroupRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupRateSnapshotMutation) OldTimezone(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTimezone is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTimezone requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTimezone: %w", err)
+	}
+	return oldValue.Timezone, nil
+}
+
+// ResetTimezone resets all changes to the "timezone" field.
+func (m *GroupRateSnapshotMutation) ResetTimezone() {
+	m.timezone = nil
+}
+
+// SetEffectiveAt sets the "effective_at" field.
+func (m *GroupRateSnapshotMutation) SetEffectiveAt(t time.Time) {
+	m.effective_at = &t
+}
+
+// EffectiveAt returns the value of the "effective_at" field in the mutation.
+func (m *GroupRateSnapshotMutation) EffectiveAt() (r time.Time, exists bool) {
+	v := m.effective_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEffectiveAt returns the old "effective_at" field's value of the GroupRateSnapshot entity.
+// If the GroupRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupRateSnapshotMutation) OldEffectiveAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEffectiveAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEffectiveAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEffectiveAt: %w", err)
+	}
+	return oldValue.EffectiveAt, nil
+}
+
+// ResetEffectiveAt resets all changes to the "effective_at" field.
+func (m *GroupRateSnapshotMutation) ResetEffectiveAt() {
+	m.effective_at = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *GroupRateSnapshotMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *GroupRateSnapshotMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the GroupRateSnapshot entity.
+// If the GroupRateSnapshot object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupRateSnapshotMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *GroupRateSnapshotMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// ClearGroup clears the "group" edge to the Group entity.
+func (m *GroupRateSnapshotMutation) ClearGroup() {
+	m.clearedgroup = true
+	m.clearedFields[groupratesnapshot.FieldGroupID] = struct{}{}
+}
+
+// GroupCleared reports if the "group" edge to the Group entity was cleared.
+func (m *GroupRateSnapshotMutation) GroupCleared() bool {
+	return m.clearedgroup
+}
+
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
+func (m *GroupRateSnapshotMutation) GroupIDs() (ids []int64) {
+	if id := m.group; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetGroup resets all changes to the "group" edge.
+func (m *GroupRateSnapshotMutation) ResetGroup() {
+	m.group = nil
+	m.clearedgroup = false
+}
+
+// Where appends a list predicates to the GroupRateSnapshotMutation builder.
+func (m *GroupRateSnapshotMutation) Where(ps ...predicate.GroupRateSnapshot) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the GroupRateSnapshotMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *GroupRateSnapshotMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.GroupRateSnapshot, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *GroupRateSnapshotMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *GroupRateSnapshotMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (GroupRateSnapshot).
+func (m *GroupRateSnapshotMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *GroupRateSnapshotMutation) Fields() []string {
+	fields := make([]string, 0, 9)
+	if m.group != nil {
+		fields = append(fields, groupratesnapshot.FieldGroupID)
+	}
+	if m.rate_multiplier != nil {
+		fields = append(fields, groupratesnapshot.FieldRateMultiplier)
+	}
+	if m.peak_rate_enabled != nil {
+		fields = append(fields, groupratesnapshot.FieldPeakRateEnabled)
+	}
+	if m.peak_start != nil {
+		fields = append(fields, groupratesnapshot.FieldPeakStart)
+	}
+	if m.peak_end != nil {
+		fields = append(fields, groupratesnapshot.FieldPeakEnd)
+	}
+	if m.peak_rate_multiplier != nil {
+		fields = append(fields, groupratesnapshot.FieldPeakRateMultiplier)
+	}
+	if m.timezone != nil {
+		fields = append(fields, groupratesnapshot.FieldTimezone)
+	}
+	if m.effective_at != nil {
+		fields = append(fields, groupratesnapshot.FieldEffectiveAt)
+	}
+	if m.created_at != nil {
+		fields = append(fields, groupratesnapshot.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *GroupRateSnapshotMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case groupratesnapshot.FieldGroupID:
+		return m.GroupID()
+	case groupratesnapshot.FieldRateMultiplier:
+		return m.RateMultiplier()
+	case groupratesnapshot.FieldPeakRateEnabled:
+		return m.PeakRateEnabled()
+	case groupratesnapshot.FieldPeakStart:
+		return m.PeakStart()
+	case groupratesnapshot.FieldPeakEnd:
+		return m.PeakEnd()
+	case groupratesnapshot.FieldPeakRateMultiplier:
+		return m.PeakRateMultiplier()
+	case groupratesnapshot.FieldTimezone:
+		return m.Timezone()
+	case groupratesnapshot.FieldEffectiveAt:
+		return m.EffectiveAt()
+	case groupratesnapshot.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *GroupRateSnapshotMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case groupratesnapshot.FieldGroupID:
+		return m.OldGroupID(ctx)
+	case groupratesnapshot.FieldRateMultiplier:
+		return m.OldRateMultiplier(ctx)
+	case groupratesnapshot.FieldPeakRateEnabled:
+		return m.OldPeakRateEnabled(ctx)
+	case groupratesnapshot.FieldPeakStart:
+		return m.OldPeakStart(ctx)
+	case groupratesnapshot.FieldPeakEnd:
+		return m.OldPeakEnd(ctx)
+	case groupratesnapshot.FieldPeakRateMultiplier:
+		return m.OldPeakRateMultiplier(ctx)
+	case groupratesnapshot.FieldTimezone:
+		return m.OldTimezone(ctx)
+	case groupratesnapshot.FieldEffectiveAt:
+		return m.OldEffectiveAt(ctx)
+	case groupratesnapshot.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown GroupRateSnapshot field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupRateSnapshotMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case groupratesnapshot.FieldGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupID(v)
+		return nil
+	case groupratesnapshot.FieldRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRateMultiplier(v)
+		return nil
+	case groupratesnapshot.FieldPeakRateEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakRateEnabled(v)
+		return nil
+	case groupratesnapshot.FieldPeakStart:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakStart(v)
+		return nil
+	case groupratesnapshot.FieldPeakEnd:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakEnd(v)
+		return nil
+	case groupratesnapshot.FieldPeakRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakRateMultiplier(v)
+		return nil
+	case groupratesnapshot.FieldTimezone:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTimezone(v)
+		return nil
+	case groupratesnapshot.FieldEffectiveAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEffectiveAt(v)
+		return nil
+	case groupratesnapshot.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupRateSnapshot field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *GroupRateSnapshotMutation) AddedFields() []string {
+	var fields []string
+	if m.addrate_multiplier != nil {
+		fields = append(fields, groupratesnapshot.FieldRateMultiplier)
+	}
+	if m.addpeak_rate_multiplier != nil {
+		fields = append(fields, groupratesnapshot.FieldPeakRateMultiplier)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *GroupRateSnapshotMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case groupratesnapshot.FieldRateMultiplier:
+		return m.AddedRateMultiplier()
+	case groupratesnapshot.FieldPeakRateMultiplier:
+		return m.AddedPeakRateMultiplier()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupRateSnapshotMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case groupratesnapshot.FieldRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRateMultiplier(v)
+		return nil
+	case groupratesnapshot.FieldPeakRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPeakRateMultiplier(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupRateSnapshot numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *GroupRateSnapshotMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *GroupRateSnapshotMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *GroupRateSnapshotMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown GroupRateSnapshot nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *GroupRateSnapshotMutation) ResetField(name string) error {
+	switch name {
+	case groupratesnapshot.FieldGroupID:
+		m.ResetGroupID()
+		return nil
+	case groupratesnapshot.FieldRateMultiplier:
+		m.ResetRateMultiplier()
+		return nil
+	case groupratesnapshot.FieldPeakRateEnabled:
+		m.ResetPeakRateEnabled()
+		return nil
+	case groupratesnapshot.FieldPeakStart:
+		m.ResetPeakStart()
+		return nil
+	case groupratesnapshot.FieldPeakEnd:
+		m.ResetPeakEnd()
+		return nil
+	case groupratesnapshot.FieldPeakRateMultiplier:
+		m.ResetPeakRateMultiplier()
+		return nil
+	case groupratesnapshot.FieldTimezone:
+		m.ResetTimezone()
+		return nil
+	case groupratesnapshot.FieldEffectiveAt:
+		m.ResetEffectiveAt()
+		return nil
+	case groupratesnapshot.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupRateSnapshot field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *GroupRateSnapshotMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.group != nil {
+		edges = append(edges, groupratesnapshot.EdgeGroup)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *GroupRateSnapshotMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case groupratesnapshot.EdgeGroup:
+		if id := m.group; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *GroupRateSnapshotMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *GroupRateSnapshotMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *GroupRateSnapshotMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedgroup {
+		edges = append(edges, groupratesnapshot.EdgeGroup)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *GroupRateSnapshotMutation) EdgeCleared(name string) bool {
+	switch name {
+	case groupratesnapshot.EdgeGroup:
+		return m.clearedgroup
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *GroupRateSnapshotMutation) ClearEdge(name string) error {
+	switch name {
+	case groupratesnapshot.EdgeGroup:
+		m.ClearGroup()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupRateSnapshot unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *GroupRateSnapshotMutation) ResetEdge(name string) error {
+	switch name {
+	case groupratesnapshot.EdgeGroup:
+		m.ResetGroup()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupRateSnapshot edge %s", name)
 }
 
 // IdempotencyRecordMutation represents an operation that mutates the IdempotencyRecord nodes in the graph.
@@ -43534,6 +45367,7 @@ type UpstreamConfigMutation struct {
 	balance_to_cny_rate       *float64
 	addbalance_to_cny_rate    *float64
 	status                    *string
+	scheduling_enabled        *bool
 	last_error                *string
 	last_checked_at           *time.Time
 	last_success_at           *time.Time
@@ -44264,6 +46098,42 @@ func (m *UpstreamConfigMutation) ResetStatus() {
 	m.status = nil
 }
 
+// SetSchedulingEnabled sets the "scheduling_enabled" field.
+func (m *UpstreamConfigMutation) SetSchedulingEnabled(b bool) {
+	m.scheduling_enabled = &b
+}
+
+// SchedulingEnabled returns the value of the "scheduling_enabled" field in the mutation.
+func (m *UpstreamConfigMutation) SchedulingEnabled() (r bool, exists bool) {
+	v := m.scheduling_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSchedulingEnabled returns the old "scheduling_enabled" field's value of the UpstreamConfig entity.
+// If the UpstreamConfig object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamConfigMutation) OldSchedulingEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSchedulingEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSchedulingEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSchedulingEnabled: %w", err)
+	}
+	return oldValue.SchedulingEnabled, nil
+}
+
+// ResetSchedulingEnabled resets all changes to the "scheduling_enabled" field.
+func (m *UpstreamConfigMutation) ResetSchedulingEnabled() {
+	m.scheduling_enabled = nil
+}
+
 // SetLastError sets the "last_error" field.
 func (m *UpstreamConfigMutation) SetLastError(s string) {
 	m.last_error = &s
@@ -44904,7 +46774,7 @@ func (m *UpstreamConfigMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UpstreamConfigMutation) Fields() []string {
-	fields := make([]string, 0, 17)
+	fields := make([]string, 0, 18)
 	if m.created_at != nil {
 		fields = append(fields, upstreamconfig.FieldCreatedAt)
 	}
@@ -44946,6 +46816,9 @@ func (m *UpstreamConfigMutation) Fields() []string {
 	}
 	if m.status != nil {
 		fields = append(fields, upstreamconfig.FieldStatus)
+	}
+	if m.scheduling_enabled != nil {
+		fields = append(fields, upstreamconfig.FieldSchedulingEnabled)
 	}
 	if m.last_error != nil {
 		fields = append(fields, upstreamconfig.FieldLastError)
@@ -44992,6 +46865,8 @@ func (m *UpstreamConfigMutation) Field(name string) (ent.Value, bool) {
 		return m.BalanceToCnyRate()
 	case upstreamconfig.FieldStatus:
 		return m.Status()
+	case upstreamconfig.FieldSchedulingEnabled:
+		return m.SchedulingEnabled()
 	case upstreamconfig.FieldLastError:
 		return m.LastError()
 	case upstreamconfig.FieldLastCheckedAt:
@@ -45035,6 +46910,8 @@ func (m *UpstreamConfigMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldBalanceToCnyRate(ctx)
 	case upstreamconfig.FieldStatus:
 		return m.OldStatus(ctx)
+	case upstreamconfig.FieldSchedulingEnabled:
+		return m.OldSchedulingEnabled(ctx)
 	case upstreamconfig.FieldLastError:
 		return m.OldLastError(ctx)
 	case upstreamconfig.FieldLastCheckedAt:
@@ -45147,6 +47024,13 @@ func (m *UpstreamConfigMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetStatus(v)
+		return nil
+	case upstreamconfig.FieldSchedulingEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSchedulingEnabled(v)
 		return nil
 	case upstreamconfig.FieldLastError:
 		v, ok := value.(string)
@@ -45331,6 +47215,9 @@ func (m *UpstreamConfigMutation) ResetField(name string) error {
 		return nil
 	case upstreamconfig.FieldStatus:
 		m.ResetStatus()
+		return nil
+	case upstreamconfig.FieldSchedulingEnabled:
+		m.ResetSchedulingEnabled()
 		return nil
 	case upstreamconfig.FieldLastError:
 		m.ResetLastError()

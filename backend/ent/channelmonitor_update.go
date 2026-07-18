@@ -12,10 +12,12 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
+	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 )
 
@@ -151,6 +153,95 @@ func (_u *ChannelMonitorUpdate) SetNillableGroupName(v *string) *ChannelMonitorU
 // ClearGroupName clears the value of the "group_name" field.
 func (_u *ChannelMonitorUpdate) ClearGroupName() *ChannelMonitorUpdate {
 	_u.mutation.ClearGroupName()
+	return _u
+}
+
+// SetCredentialMode sets the "credential_mode" field.
+func (_u *ChannelMonitorUpdate) SetCredentialMode(v channelmonitor.CredentialMode) *ChannelMonitorUpdate {
+	_u.mutation.SetCredentialMode(v)
+	return _u
+}
+
+// SetNillableCredentialMode sets the "credential_mode" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableCredentialMode(v *channelmonitor.CredentialMode) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetCredentialMode(*v)
+	}
+	return _u
+}
+
+// SetGroupID sets the "group_id" field.
+func (_u *ChannelMonitorUpdate) SetGroupID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableGroupID(v *int64) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *ChannelMonitorUpdate) ClearGroupID() *ChannelMonitorUpdate {
+	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetShowGroupRate sets the "show_group_rate" field.
+func (_u *ChannelMonitorUpdate) SetShowGroupRate(v bool) *ChannelMonitorUpdate {
+	_u.mutation.SetShowGroupRate(v)
+	return _u
+}
+
+// SetNillableShowGroupRate sets the "show_group_rate" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableShowGroupRate(v *bool) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetShowGroupRate(*v)
+	}
+	return _u
+}
+
+// SetManagedAPIKeyID sets the "managed_api_key_id" field.
+func (_u *ChannelMonitorUpdate) SetManagedAPIKeyID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.SetManagedAPIKeyID(v)
+	return _u
+}
+
+// SetNillableManagedAPIKeyID sets the "managed_api_key_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableManagedAPIKeyID(v *int64) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetManagedAPIKeyID(*v)
+	}
+	return _u
+}
+
+// ClearManagedAPIKeyID clears the value of the "managed_api_key_id" field.
+func (_u *ChannelMonitorUpdate) ClearManagedAPIKeyID() *ChannelMonitorUpdate {
+	_u.mutation.ClearManagedAPIKeyID()
+	return _u
+}
+
+// SetMaxProbeAttempts sets the "max_probe_attempts" field.
+func (_u *ChannelMonitorUpdate) SetMaxProbeAttempts(v int) *ChannelMonitorUpdate {
+	_u.mutation.ResetMaxProbeAttempts()
+	_u.mutation.SetMaxProbeAttempts(v)
+	return _u
+}
+
+// SetNillableMaxProbeAttempts sets the "max_probe_attempts" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableMaxProbeAttempts(v *int) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetMaxProbeAttempts(*v)
+	}
+	return _u
+}
+
+// AddMaxProbeAttempts adds value to the "max_probe_attempts" field.
+func (_u *ChannelMonitorUpdate) AddMaxProbeAttempts(v int) *ChannelMonitorUpdate {
+	_u.mutation.AddMaxProbeAttempts(v)
 	return _u
 }
 
@@ -352,6 +443,16 @@ func (_u *ChannelMonitorUpdate) SetRequestTemplate(v *ChannelMonitorRequestTempl
 	return _u.SetRequestTemplateID(v.ID)
 }
 
+// SetGroup sets the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdate) SetGroup(v *Group) *ChannelMonitorUpdate {
+	return _u.SetGroupID(v.ID)
+}
+
+// SetManagedAPIKey sets the "managed_api_key" edge to the APIKey entity.
+func (_u *ChannelMonitorUpdate) SetManagedAPIKey(v *APIKey) *ChannelMonitorUpdate {
+	return _u.SetManagedAPIKeyID(v.ID)
+}
+
 // Mutation returns the ChannelMonitorMutation object of the builder.
 func (_u *ChannelMonitorUpdate) Mutation() *ChannelMonitorMutation {
 	return _u.mutation
@@ -402,6 +503,18 @@ func (_u *ChannelMonitorUpdate) RemoveDailyRollups(v ...*ChannelMonitorDailyRoll
 // ClearRequestTemplate clears the "request_template" edge to the ChannelMonitorRequestTemplate entity.
 func (_u *ChannelMonitorUpdate) ClearRequestTemplate() *ChannelMonitorUpdate {
 	_u.mutation.ClearRequestTemplate()
+	return _u
+}
+
+// ClearGroup clears the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdate) ClearGroup() *ChannelMonitorUpdate {
+	_u.mutation.ClearGroup()
+	return _u
+}
+
+// ClearManagedAPIKey clears the "managed_api_key" edge to the APIKey entity.
+func (_u *ChannelMonitorUpdate) ClearManagedAPIKey() *ChannelMonitorUpdate {
+	_u.mutation.ClearManagedAPIKey()
 	return _u
 }
 
@@ -478,6 +591,16 @@ func (_u *ChannelMonitorUpdate) check() error {
 			return &ValidationError{Name: "group_name", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.group_name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.CredentialMode(); ok {
+		if err := channelmonitor.CredentialModeValidator(v); err != nil {
+			return &ValidationError{Name: "credential_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.credential_mode": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.MaxProbeAttempts(); ok {
+		if err := channelmonitor.MaxProbeAttemptsValidator(v); err != nil {
+			return &ValidationError{Name: "max_probe_attempts", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.max_probe_attempts": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.IntervalSeconds(); ok {
 		if err := channelmonitor.IntervalSecondsValidator(v); err != nil {
 			return &ValidationError{Name: "interval_seconds", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.interval_seconds": %w`, err)}
@@ -542,6 +665,18 @@ func (_u *ChannelMonitorUpdate) sqlSave(ctx context.Context) (_node int, err err
 	}
 	if _u.mutation.GroupNameCleared() {
 		_spec.ClearField(channelmonitor.FieldGroupName, field.TypeString)
+	}
+	if value, ok := _u.mutation.CredentialMode(); ok {
+		_spec.SetField(channelmonitor.FieldCredentialMode, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.ShowGroupRate(); ok {
+		_spec.SetField(channelmonitor.FieldShowGroupRate, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.MaxProbeAttempts(); ok {
+		_spec.SetField(channelmonitor.FieldMaxProbeAttempts, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedMaxProbeAttempts(); ok {
+		_spec.AddField(channelmonitor.FieldMaxProbeAttempts, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)
@@ -701,6 +836,64 @@ func (_u *ChannelMonitorUpdate) sqlSave(ctx context.Context) (_node int, err err
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.GroupCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.GroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ManagedAPIKeyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.ManagedAPIKeyTable,
+			Columns: []string{channelmonitor.ManagedAPIKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ManagedAPIKeyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.ManagedAPIKeyTable,
+			Columns: []string{channelmonitor.ManagedAPIKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{channelmonitor.Label}
@@ -840,6 +1033,95 @@ func (_u *ChannelMonitorUpdateOne) SetNillableGroupName(v *string) *ChannelMonit
 // ClearGroupName clears the value of the "group_name" field.
 func (_u *ChannelMonitorUpdateOne) ClearGroupName() *ChannelMonitorUpdateOne {
 	_u.mutation.ClearGroupName()
+	return _u
+}
+
+// SetCredentialMode sets the "credential_mode" field.
+func (_u *ChannelMonitorUpdateOne) SetCredentialMode(v channelmonitor.CredentialMode) *ChannelMonitorUpdateOne {
+	_u.mutation.SetCredentialMode(v)
+	return _u
+}
+
+// SetNillableCredentialMode sets the "credential_mode" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableCredentialMode(v *channelmonitor.CredentialMode) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetCredentialMode(*v)
+	}
+	return _u
+}
+
+// SetGroupID sets the "group_id" field.
+func (_u *ChannelMonitorUpdateOne) SetGroupID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableGroupID(v *int64) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *ChannelMonitorUpdateOne) ClearGroupID() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetShowGroupRate sets the "show_group_rate" field.
+func (_u *ChannelMonitorUpdateOne) SetShowGroupRate(v bool) *ChannelMonitorUpdateOne {
+	_u.mutation.SetShowGroupRate(v)
+	return _u
+}
+
+// SetNillableShowGroupRate sets the "show_group_rate" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableShowGroupRate(v *bool) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetShowGroupRate(*v)
+	}
+	return _u
+}
+
+// SetManagedAPIKeyID sets the "managed_api_key_id" field.
+func (_u *ChannelMonitorUpdateOne) SetManagedAPIKeyID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.SetManagedAPIKeyID(v)
+	return _u
+}
+
+// SetNillableManagedAPIKeyID sets the "managed_api_key_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableManagedAPIKeyID(v *int64) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetManagedAPIKeyID(*v)
+	}
+	return _u
+}
+
+// ClearManagedAPIKeyID clears the value of the "managed_api_key_id" field.
+func (_u *ChannelMonitorUpdateOne) ClearManagedAPIKeyID() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearManagedAPIKeyID()
+	return _u
+}
+
+// SetMaxProbeAttempts sets the "max_probe_attempts" field.
+func (_u *ChannelMonitorUpdateOne) SetMaxProbeAttempts(v int) *ChannelMonitorUpdateOne {
+	_u.mutation.ResetMaxProbeAttempts()
+	_u.mutation.SetMaxProbeAttempts(v)
+	return _u
+}
+
+// SetNillableMaxProbeAttempts sets the "max_probe_attempts" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableMaxProbeAttempts(v *int) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetMaxProbeAttempts(*v)
+	}
+	return _u
+}
+
+// AddMaxProbeAttempts adds value to the "max_probe_attempts" field.
+func (_u *ChannelMonitorUpdateOne) AddMaxProbeAttempts(v int) *ChannelMonitorUpdateOne {
+	_u.mutation.AddMaxProbeAttempts(v)
 	return _u
 }
 
@@ -1041,6 +1323,16 @@ func (_u *ChannelMonitorUpdateOne) SetRequestTemplate(v *ChannelMonitorRequestTe
 	return _u.SetRequestTemplateID(v.ID)
 }
 
+// SetGroup sets the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdateOne) SetGroup(v *Group) *ChannelMonitorUpdateOne {
+	return _u.SetGroupID(v.ID)
+}
+
+// SetManagedAPIKey sets the "managed_api_key" edge to the APIKey entity.
+func (_u *ChannelMonitorUpdateOne) SetManagedAPIKey(v *APIKey) *ChannelMonitorUpdateOne {
+	return _u.SetManagedAPIKeyID(v.ID)
+}
+
 // Mutation returns the ChannelMonitorMutation object of the builder.
 func (_u *ChannelMonitorUpdateOne) Mutation() *ChannelMonitorMutation {
 	return _u.mutation
@@ -1091,6 +1383,18 @@ func (_u *ChannelMonitorUpdateOne) RemoveDailyRollups(v ...*ChannelMonitorDailyR
 // ClearRequestTemplate clears the "request_template" edge to the ChannelMonitorRequestTemplate entity.
 func (_u *ChannelMonitorUpdateOne) ClearRequestTemplate() *ChannelMonitorUpdateOne {
 	_u.mutation.ClearRequestTemplate()
+	return _u
+}
+
+// ClearGroup clears the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdateOne) ClearGroup() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearGroup()
+	return _u
+}
+
+// ClearManagedAPIKey clears the "managed_api_key" edge to the APIKey entity.
+func (_u *ChannelMonitorUpdateOne) ClearManagedAPIKey() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearManagedAPIKey()
 	return _u
 }
 
@@ -1180,6 +1484,16 @@ func (_u *ChannelMonitorUpdateOne) check() error {
 			return &ValidationError{Name: "group_name", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.group_name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.CredentialMode(); ok {
+		if err := channelmonitor.CredentialModeValidator(v); err != nil {
+			return &ValidationError{Name: "credential_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.credential_mode": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.MaxProbeAttempts(); ok {
+		if err := channelmonitor.MaxProbeAttemptsValidator(v); err != nil {
+			return &ValidationError{Name: "max_probe_attempts", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.max_probe_attempts": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.IntervalSeconds(); ok {
 		if err := channelmonitor.IntervalSecondsValidator(v); err != nil {
 			return &ValidationError{Name: "interval_seconds", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.interval_seconds": %w`, err)}
@@ -1261,6 +1575,18 @@ func (_u *ChannelMonitorUpdateOne) sqlSave(ctx context.Context) (_node *ChannelM
 	}
 	if _u.mutation.GroupNameCleared() {
 		_spec.ClearField(channelmonitor.FieldGroupName, field.TypeString)
+	}
+	if value, ok := _u.mutation.CredentialMode(); ok {
+		_spec.SetField(channelmonitor.FieldCredentialMode, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.ShowGroupRate(); ok {
+		_spec.SetField(channelmonitor.FieldShowGroupRate, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.MaxProbeAttempts(); ok {
+		_spec.SetField(channelmonitor.FieldMaxProbeAttempts, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedMaxProbeAttempts(); ok {
+		_spec.AddField(channelmonitor.FieldMaxProbeAttempts, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)
@@ -1413,6 +1739,64 @@ func (_u *ChannelMonitorUpdateOne) sqlSave(ctx context.Context) (_node *ChannelM
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(channelmonitorrequesttemplate.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.GroupCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.GroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ManagedAPIKeyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.ManagedAPIKeyTable,
+			Columns: []string{channelmonitor.ManagedAPIKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ManagedAPIKeyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.ManagedAPIKeyTable,
+			Columns: []string{channelmonitor.ManagedAPIKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

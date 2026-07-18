@@ -3,9 +3,9 @@
 标准入口：
 
 ```text
-python deploy/release.py doctor --profile 194 --commit <40位完整SHA>
-python deploy/release.py bootstrap-production --profile 194
-python deploy/release.py deploy --profile 194 --commit <40位完整SHA>
+python deploy/release.py doctor --profile 195 --commit <40位完整SHA>
+python deploy/release.py bootstrap-production --profile 195
+python deploy/release.py deploy --profile 195 --commit <40位完整SHA>
 ```
 
 `deploy` 会在停写前使用当前生产版本完成 RackNerd direct 与 DMIT 两条流式基线 Canary，避免把既有上游或链路故障带入切换阶段；该请求会像普通请求一样产生 usage 记录，但不会使用候选容器。候选公开后使用相同合同复验；只有 `curl 28` 和 `502/503/504` 会以新 marker 最多尝试三次，所有实际落库的尝试都会核验 API Key、endpoint 和真实 IP，其他错误立即停止。每个长阶段会实时输出 release ID 和阶段，并在结构化状态中记录开始时间与截止时间；调用端关闭 stdout 不会中止 runner。
@@ -29,6 +29,10 @@ VM 唯一构建 candidate
 profile 194 会在 manifest 中固定记录 profile 192 的完整 migration 列表及新增的
 `193-194`，并保存有序 checksum；已执行过的迁移允许原样跳过，缺失迁移必须逐项
 应用并逐项校验。本 profile 继续使用协调恢复，不采用 image-only rollback。
+
+profile 195 在此基础上加入 `195_upstream_scheduling_monitor_rates.sql`。停写后、迁移前
+必须生成存量倍率重算计数和 migration plan SHA-256，并要求 `unproven/conflict/unexpected`
+均为零；迁移后必须核验 Key、账号、优先级、负载、分组快照和 scheduler outbox。
 
 首次安装信任根使用：
 

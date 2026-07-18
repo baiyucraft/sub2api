@@ -41,6 +41,11 @@ func (APIKey) Fields() []ent.Field {
 		field.String("name").
 			MaxLen(100).
 			NotEmpty(),
+		field.Enum("purpose").
+			Values("general", "managed_monitor").
+			Default("general").
+			Comment("Managed monitor keys are hidden from ordinary key management views."),
+		field.Int64("managed_monitor_id").Optional().Nillable(),
 		field.Int64("group_id").
 			Optional().
 			Nillable(),
@@ -130,6 +135,8 @@ func (APIKey) Edges() []ent.Edge {
 			Field("group_id").
 			Unique(),
 		edge.To("usage_logs", UsageLog.Type),
+		edge.To("managed_channel_monitors", ChannelMonitor.Type).
+			StorageKey(edge.Symbol("channel_monitors_managed_api_key_id_fkey")),
 	}
 }
 
@@ -138,6 +145,8 @@ func (APIKey) Indexes() []ent.Index {
 		// key 字段已在 Fields() 中声明 Unique()，无需重复索引
 		index.Fields("user_id"),
 		index.Fields("group_id"),
+		index.Fields("purpose").StorageKey("idx_api_keys_purpose"),
+		index.Fields("managed_monitor_id").StorageKey("idx_api_keys_managed_monitor_id"),
 		index.Fields("status"),
 		index.Fields("deleted_at"),
 		index.Fields("last_used_at"),

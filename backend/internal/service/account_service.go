@@ -139,11 +139,13 @@ type AccountBulkUpdate struct {
 	Concurrency    *int
 	Priority       *int
 	RateMultiplier *float64
-	LoadFactor     *int
-	Status         *string
-	Schedulable    *bool
-	Credentials    map[string]any
-	Extra          map[string]any
+	// UpstreamSourceRateMultiplier preserves the unrounded provider rate.
+	UpstreamSourceRateMultiplier *float64
+	LoadFactor                   *int
+	Status                       *string
+	Schedulable                  *bool
+	Credentials                  map[string]any
+	Extra                        map[string]any
 }
 
 // CreateAccountRequest 创建账号请求

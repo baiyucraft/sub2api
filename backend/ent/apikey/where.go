@@ -85,6 +85,11 @@ func Name(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldName, v))
 }
 
+// ManagedMonitorID applies equality check predicate on the "managed_monitor_id" field. It's identical to ManagedMonitorIDEQ.
+func ManagedMonitorID(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldManagedMonitorID, v))
+}
+
 // GroupID applies equality check predicate on the "group_id" field. It's identical to GroupIDEQ.
 func GroupID(v int64) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldGroupID, v))
@@ -438,6 +443,76 @@ func NameEqualFold(v string) predicate.APIKey {
 // NameContainsFold applies the ContainsFold predicate on the "name" field.
 func NameContainsFold(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldContainsFold(FieldName, v))
+}
+
+// PurposeEQ applies the EQ predicate on the "purpose" field.
+func PurposeEQ(v Purpose) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldPurpose, v))
+}
+
+// PurposeNEQ applies the NEQ predicate on the "purpose" field.
+func PurposeNEQ(v Purpose) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldPurpose, v))
+}
+
+// PurposeIn applies the In predicate on the "purpose" field.
+func PurposeIn(vs ...Purpose) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldPurpose, vs...))
+}
+
+// PurposeNotIn applies the NotIn predicate on the "purpose" field.
+func PurposeNotIn(vs ...Purpose) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldPurpose, vs...))
+}
+
+// ManagedMonitorIDEQ applies the EQ predicate on the "managed_monitor_id" field.
+func ManagedMonitorIDEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldManagedMonitorID, v))
+}
+
+// ManagedMonitorIDNEQ applies the NEQ predicate on the "managed_monitor_id" field.
+func ManagedMonitorIDNEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldManagedMonitorID, v))
+}
+
+// ManagedMonitorIDIn applies the In predicate on the "managed_monitor_id" field.
+func ManagedMonitorIDIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldManagedMonitorID, vs...))
+}
+
+// ManagedMonitorIDNotIn applies the NotIn predicate on the "managed_monitor_id" field.
+func ManagedMonitorIDNotIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldManagedMonitorID, vs...))
+}
+
+// ManagedMonitorIDGT applies the GT predicate on the "managed_monitor_id" field.
+func ManagedMonitorIDGT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldManagedMonitorID, v))
+}
+
+// ManagedMonitorIDGTE applies the GTE predicate on the "managed_monitor_id" field.
+func ManagedMonitorIDGTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldManagedMonitorID, v))
+}
+
+// ManagedMonitorIDLT applies the LT predicate on the "managed_monitor_id" field.
+func ManagedMonitorIDLT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldManagedMonitorID, v))
+}
+
+// ManagedMonitorIDLTE applies the LTE predicate on the "managed_monitor_id" field.
+func ManagedMonitorIDLTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldManagedMonitorID, v))
+}
+
+// ManagedMonitorIDIsNil applies the IsNil predicate on the "managed_monitor_id" field.
+func ManagedMonitorIDIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldManagedMonitorID))
+}
+
+// ManagedMonitorIDNotNil applies the NotNil predicate on the "managed_monitor_id" field.
+func ManagedMonitorIDNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldManagedMonitorID))
 }
 
 // GroupIDEQ applies the EQ predicate on the "group_id" field.
@@ -1186,6 +1261,29 @@ func HasUsageLogs() predicate.APIKey {
 func HasUsageLogsWith(preds ...predicate.UsageLog) predicate.APIKey {
 	return predicate.APIKey(func(s *sql.Selector) {
 		step := newUsageLogsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasManagedChannelMonitors applies the HasEdge predicate on the "managed_channel_monitors" edge.
+func HasManagedChannelMonitors() predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ManagedChannelMonitorsTable, ManagedChannelMonitorsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasManagedChannelMonitorsWith applies the HasEdge predicate on the "managed_channel_monitors" edge with a given conditions (other predicates).
+func HasManagedChannelMonitorsWith(preds ...predicate.ChannelMonitor) predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := newManagedChannelMonitorsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

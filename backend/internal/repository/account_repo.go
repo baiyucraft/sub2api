@@ -140,6 +140,9 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	if account.RateMultiplier != nil {
 		builder.SetRateMultiplier(*account.RateMultiplier)
 	}
+	if account.UpstreamSourceRateMultiplier != nil {
+		builder.SetUpstreamSourceRateMultiplier(*account.UpstreamSourceRateMultiplier)
+	}
 	if account.LoadFactor != nil {
 		builder.SetLoadFactor(*account.LoadFactor)
 	}
@@ -318,6 +321,40 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 	}
 
 	return out, nil
+}
+
+// ListUpstreamSchedulingEnabledAccountIDs performs the authoritative parent
+// upstream gate check for scheduler cache reads. Callers pass accounts that a
+// cached snapshot still considers upstream-bound, so a removed binding also
+// fails closed until the account metadata is refreshed.
+func (r *accountRepository) ListUpstreamSchedulingEnabledAccountIDs(ctx context.Context, ids []int64) ([]int64, error) {
+	ids = uniquePositiveInt64s(ids)
+	if len(ids) == 0 {
+		return []int64{}, nil
+	}
+
+	allowed := make([]int64, 0, len(ids))
+	for start := 0; start < len(ids); start += postgresParameterBatchSize {
+		end := start + postgresParameterBatchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batch, err := r.client.Account.
+			Query().
+			Where(
+				dbaccount.IDIn(ids[start:end]...),
+				dbaccount.HasUpstreamConfigWith(
+					dbupstreamconfig.DeletedAtIsNil(),
+					dbupstreamconfig.SchedulingEnabledEQ(true),
+				),
+			).
+			IDs(ctx)
+		if err != nil {
+			return nil, err
+		}
+		allowed = append(allowed, batch...)
+	}
+	return allowed, nil
 }
 
 // ExistsByID 检查指定 ID 的账号是否存在。
@@ -568,6 +605,11 @@ func buildAccountUpdate(client *dbent.Client, account *service.Account, schedula
 	if account.RateMultiplier != nil {
 		builder.SetRateMultiplier(*account.RateMultiplier)
 	}
+	if account.UpstreamSourceRateMultiplier != nil {
+		builder.SetUpstreamSourceRateMultiplier(*account.UpstreamSourceRateMultiplier)
+	} else {
+		builder.ClearUpstreamSourceRateMultiplier()
+	}
 	if account.LoadFactor != nil {
 		builder.SetLoadFactor(*account.LoadFactor)
 	} else {
@@ -729,6 +771,7 @@ func validateLockedUpstreamAccountBinding(account *service.Account, key *dbent.U
 	priority := service.Sub2APIUpstreamPriority(actualRate)
 	loadFactor := service.AutoUpstreamLoadFactor(priority, account.Concurrency)
 	account.RateMultiplier = &actualRate
+	account.UpstreamSourceRateMultiplier = key.SourceRateMultiplier
 	account.Priority = priority
 	account.LoadFactor = &loadFactor
 	return nil
@@ -1069,6 +1112,7 @@ func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platfor
 			dbaccount.FieldID,
 			dbaccount.FieldName,
 			dbaccount.FieldPlatform,
+			dbaccount.FieldUpstreamConfigID,
 			dbaccount.FieldConcurrency,
 			dbaccount.FieldLoadFactor,
 			dbaccount.FieldStatus,
@@ -1869,6 +1913,7 @@ func (r *accountRepository) schedulableAccountsQuery(now time.Time) *dbent.Accou
 		Where(
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			upstreamSchedulingEnabledPredicate(),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -1923,10 +1968,19 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 			COALESCE(a.session_window_status, '') AS session_window_status
 		FROM account_groups ag
 		JOIN accounts a ON a.id = ag.account_id
+		LEFT JOIN upstream_configs uc ON uc.id = a.upstream_config_id
 		WHERE ag.group_id = ANY($1)
 			AND a.deleted_at IS NULL
 			AND a.status = $2
 			AND a.schedulable = TRUE
+			AND (
+				a.upstream_config_id IS NULL
+				OR (
+					uc.id IS NOT NULL
+					AND uc.deleted_at IS NULL
+					AND uc.scheduling_enabled = TRUE
+				)
+			)
 			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= $3)
 			AND (a.expires_at IS NULL OR a.expires_at > $3 OR a.auto_pause_on_expired = FALSE)
 			AND (a.overload_until IS NULL OR a.overload_until <= $3)
@@ -1975,6 +2029,7 @@ func (r *accountRepository) ListSchedulableByPlatform(ctx context.Context, platf
 			dbaccount.PlatformEQ(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			upstreamSchedulingEnabledPredicate(),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -2009,6 +2064,7 @@ func (r *accountRepository) ListSchedulableByPlatforms(ctx context.Context, plat
 			dbaccount.PlatformIn(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			upstreamSchedulingEnabledPredicate(),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -2030,6 +2086,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatform(ctx context.Conte
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
+			upstreamSchedulingEnabledPredicate(),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -2054,6 +2111,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatforms(ctx context.Cont
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
+			upstreamSchedulingEnabledPredicate(),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -2760,6 +2818,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		args = append(args, *updates.RateMultiplier)
 		idx++
 	}
+	if updates.UpstreamSourceRateMultiplier != nil {
+		setClauses = append(setClauses, "upstream_source_rate_multiplier = $"+itoa(idx))
+		args = append(args, *updates.UpstreamSourceRateMultiplier)
+		idx++
+	}
 	if updates.LoadFactor != nil {
 		if *updates.LoadFactor <= 0 {
 			setClauses = append(setClauses, "load_factor = NULL")
@@ -2939,6 +3002,7 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 		now := time.Now()
 		preds = append(preds,
 			dbaccount.SchedulableEQ(true),
+			upstreamSchedulingEnabledPredicate(),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -3040,6 +3104,10 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 			}
 		}
 		if out.UpstreamConfigID != nil {
+			// A missing parent row (including a soft-deleted upstream hidden by
+			// the Ent interceptor) must fail closed for freshly loaded accounts.
+			enabled := false
+			out.UpstreamSchedulingEnabled = &enabled
 			out.ProxyID = nil
 			out.Proxy = nil
 			if cfg, ok := upstreamConfigs[*out.UpstreamConfigID]; ok && cfg != nil {
@@ -3054,6 +3122,11 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 				}
 				out.Extra[service.AccountUpstreamProviderKey] = cfg.Provider
 				out.Extra[service.AccountSub2APIRateSyncAdapterKey] = cfg.AuthMode
+				enabled = true
+				if cfg.SchedulingEnabled != nil {
+					enabled = *cfg.SchedulingEnabled
+				}
+				out.UpstreamSchedulingEnabled = &enabled
 				if cfg.ProxyID != nil {
 					out.ProxyID = cfg.ProxyID
 					if proxy, ok := proxyMap[*cfg.ProxyID]; ok {
@@ -3103,6 +3176,16 @@ func tempUnschedulablePredicate() dbpredicate.Account {
 			entsql.LTE(col, entsql.Expr("NOW()")),
 		))
 	})
+}
+
+func upstreamSchedulingEnabledPredicate() dbpredicate.Account {
+	return dbaccount.Or(
+		dbaccount.UpstreamConfigIDIsNil(),
+		dbaccount.HasUpstreamConfigWith(
+			dbupstreamconfig.DeletedAtIsNil(),
+			dbupstreamconfig.SchedulingEnabledEQ(true),
+		),
+	)
 }
 
 func notExpiredPredicate(now time.Time) dbpredicate.Account {
@@ -3327,41 +3410,42 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 	rateMultiplier := m.RateMultiplier
 
 	return &service.Account{
-		ID:                      m.ID,
-		Name:                    m.Name,
-		Notes:                   m.Notes,
-		Platform:                m.Platform,
-		Type:                    m.Type,
-		Credentials:             copyJSONMap(m.Credentials),
-		Extra:                   copyJSONMap(m.Extra),
-		ProxyID:                 m.ProxyID,
-		ProxyFallbackOriginID:   m.ProxyFallbackOriginID,
-		UpstreamConfigID:        m.UpstreamConfigID,
-		UpstreamKeyID:           m.UpstreamKeyID,
-		UpstreamStalePauseKeyID: m.UpstreamStalePauseKeyID,
-		UpstreamStalePausedAt:   m.UpstreamStalePausedAt,
-		Concurrency:             m.Concurrency,
-		Priority:                m.Priority,
-		RateMultiplier:          &rateMultiplier,
-		LoadFactor:              m.LoadFactor,
-		Status:                  m.Status,
-		ErrorMessage:            derefString(m.ErrorMessage),
-		LastUsedAt:              m.LastUsedAt,
-		ExpiresAt:               m.ExpiresAt,
-		AutoPauseOnExpired:      m.AutoPauseOnExpired,
-		CreatedAt:               m.CreatedAt,
-		UpdatedAt:               m.UpdatedAt,
-		Schedulable:             m.Schedulable,
-		RateLimitedAt:           m.RateLimitedAt,
-		RateLimitResetAt:        m.RateLimitResetAt,
-		OverloadUntil:           m.OverloadUntil,
-		TempUnschedulableUntil:  m.TempUnschedulableUntil,
-		TempUnschedulableReason: derefString(m.TempUnschedulableReason),
-		SessionWindowStart:      m.SessionWindowStart,
-		SessionWindowEnd:        m.SessionWindowEnd,
-		SessionWindowStatus:     derefString(m.SessionWindowStatus),
-		ParentAccountID:         m.ParentAccountID,
-		QuotaDimension:          string(m.QuotaDimension),
+		ID:                           m.ID,
+		Name:                         m.Name,
+		Notes:                        m.Notes,
+		Platform:                     m.Platform,
+		Type:                         m.Type,
+		Credentials:                  copyJSONMap(m.Credentials),
+		Extra:                        copyJSONMap(m.Extra),
+		ProxyID:                      m.ProxyID,
+		ProxyFallbackOriginID:        m.ProxyFallbackOriginID,
+		UpstreamConfigID:             m.UpstreamConfigID,
+		UpstreamKeyID:                m.UpstreamKeyID,
+		UpstreamStalePauseKeyID:      m.UpstreamStalePauseKeyID,
+		UpstreamStalePausedAt:        m.UpstreamStalePausedAt,
+		Concurrency:                  m.Concurrency,
+		Priority:                     m.Priority,
+		RateMultiplier:               &rateMultiplier,
+		UpstreamSourceRateMultiplier: m.UpstreamSourceRateMultiplier,
+		LoadFactor:                   m.LoadFactor,
+		Status:                       m.Status,
+		ErrorMessage:                 derefString(m.ErrorMessage),
+		LastUsedAt:                   m.LastUsedAt,
+		ExpiresAt:                    m.ExpiresAt,
+		AutoPauseOnExpired:           m.AutoPauseOnExpired,
+		CreatedAt:                    m.CreatedAt,
+		UpdatedAt:                    m.UpdatedAt,
+		Schedulable:                  m.Schedulable,
+		RateLimitedAt:                m.RateLimitedAt,
+		RateLimitResetAt:             m.RateLimitResetAt,
+		OverloadUntil:                m.OverloadUntil,
+		TempUnschedulableUntil:       m.TempUnschedulableUntil,
+		TempUnschedulableReason:      derefString(m.TempUnschedulableReason),
+		SessionWindowStart:           m.SessionWindowStart,
+		SessionWindowEnd:             m.SessionWindowEnd,
+		SessionWindowStatus:          derefString(m.SessionWindowStatus),
+		ParentAccountID:              m.ParentAccountID,
+		QuotaDimension:               string(m.QuotaDimension),
 	}
 }
 

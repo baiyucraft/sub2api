@@ -251,7 +251,7 @@ func TestSub2APIUpstreamRateSync_KeysFallback(t *testing.T) {
 		case "/api/v1/keys":
 			http.NotFound(w, r)
 		case "/api/v1/api-keys":
-			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-upstream","group_id":10,"group":{"id":10,"platform":"anthropic","rate_multiplier":0.1}}],"page":1,"page_size":100,"pages":1}}`))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-upstream","group_id":10,"group":{"id":10,"platform":"anthropic","rate_multiplier":0.025}}],"page":1,"page_size":100,"pages":1}}`))
 		case "/api/v1/groups/rates":
 			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
 		default:
@@ -268,9 +268,10 @@ func TestSub2APIUpstreamRateSync_KeysFallback(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, repo.bulkUpdates, 1)
-	require.InDelta(t, 0.1, *repo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
-	require.Equal(t, 10, *repo.bulkUpdates[0].updates.Priority)
-	require.Equal(t, 150, *repo.bulkUpdates[0].updates.LoadFactor)
+	require.InDelta(t, 0.03, *repo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
+	require.InDelta(t, 0.025, *repo.bulkUpdates[0].updates.UpstreamSourceRateMultiplier, 1e-12)
+	require.Equal(t, 3, *repo.bulkUpdates[0].updates.Priority)
+	require.Equal(t, 200, *repo.bulkUpdates[0].updates.LoadFactor)
 }
 
 func TestSub2APIUpstreamRateSync_ManualJWTSkipsLogin(t *testing.T) {

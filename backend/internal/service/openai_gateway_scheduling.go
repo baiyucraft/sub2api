@@ -754,10 +754,13 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		if requireCompact && compactTiers[a.ID] != compactTiers[b.ID] {
 			return compactTiers[a.ID] > compactTiers[b.ID]
 		}
+		if tier := compareAccountSchedulingTier(a, b); tier != 0 {
+			return tier < 0
+		}
 		if rateCmp := rateOrder.compare(a, b); rateCmp != 0 {
 			return rateCmp < 0
 		}
-		return s.isBetterAccount(a, b)
+		return s.isBetterAccountWithinTier(a, b)
 	})
 	return eligible[0], compactBlocked
 }
@@ -768,15 +771,13 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 // isBetterAccount checks if candidate is better than current.
 // Rules: higher priority (lower value) wins; same priority: never used > least recently used.
 func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool {
-	// 优先级更高（数值更小）
-	// Higher priority (lower value)
-	if candidate.Priority < current.Priority {
-		return true
+	if tier := compareAccountSchedulingTier(candidate, current); tier != 0 {
+		return tier < 0
 	}
-	if candidate.Priority > current.Priority {
-		return false
-	}
+	return s.isBetterAccountWithinTier(candidate, current)
+}
 
+func (s *OpenAIGatewayService) isBetterAccountWithinTier(candidate, current *Account) bool {
 	// 同优先级，比较最后使用时间
 	// Same priority, compare last used time
 	switch {
@@ -988,8 +989,8 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 		sort.SliceStable(available, func(i, j int) bool {
 			a, b := available[i], available[j]
-			if a.account.Priority != b.account.Priority {
-				return a.account.Priority < b.account.Priority
+			if tier := compareAccountSchedulingTier(a.account, b.account); tier != 0 {
+				return tier < 0
 			}
 			if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
 				return a.loadInfo.LoadRate < b.loadInfo.LoadRate
@@ -1008,6 +1009,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		shuffleWithinSortGroups(available)
 		if rateOrder.enabled {
 			sort.SliceStable(available, func(i, j int) bool {
+				if tier := compareAccountSchedulingTier(available[i].account, available[j].account); tier != 0 {
+					return tier < 0
+				}
 				return rateOrder.compare(available[i].account, available[j].account) < 0
 			})
 		}
@@ -1064,6 +1068,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		sortAccountsByPriorityAndLastUsed(ordered, false)
 		if rateOrder.enabled {
 			sort.SliceStable(ordered, func(i, j int) bool {
+				if tier := compareAccountSchedulingTier(ordered[i], ordered[j]); tier != 0 {
+					return tier < 0
+				}
 				return rateOrder.compare(ordered[i], ordered[j]) < 0
 			})
 		}
@@ -1114,6 +1121,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	sortAccountsByPriorityAndLastUsed(candidates, false)
 	if rateOrder.enabled {
 		sort.SliceStable(candidates, func(i, j int) bool {
+			if tier := compareAccountSchedulingTier(candidates[i], candidates[j]); tier != 0 {
+				return tier < 0
+			}
 			return rateOrder.compare(candidates[i], candidates[j]) < 0
 		})
 	}

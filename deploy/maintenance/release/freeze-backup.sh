@@ -8,4 +8,3 @@ flock -n 9
 install -d -m 700 /opt/sub2api/backups/release-state
 STATE_ROOT=/opt/sub2api/backups/release-state STATE_DIR="$state_dir" "$assets_dir/mask-backup-units.sh"
 RELEASE_LOCK_HELD=true RELEASE_DIR="$release_dir" "$assets_dir/freeze.sh"
-RELEASE_LOCK_HELD=true RELEASE_DIR="$release_dir" "$assets_dir/backup.sh"

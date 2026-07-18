@@ -201,6 +201,18 @@ func (f GroupFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupMutation", m)
 }
 
+// The GroupRateSnapshotFunc type is an adapter to allow the use of ordinary
+// function as GroupRateSnapshot mutator.
+type GroupRateSnapshotFunc func(context.Context, *ent.GroupRateSnapshotMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f GroupRateSnapshotFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.GroupRateSnapshotMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupRateSnapshotMutation", m)
+}
+
 // The IdempotencyRecordFunc type is an adapter to allow the use of ordinary
 // function as IdempotencyRecord mutator.
 type IdempotencyRecordFunc func(context.Context, *ent.IdempotencyRecordMutation) (ent.Value, error)

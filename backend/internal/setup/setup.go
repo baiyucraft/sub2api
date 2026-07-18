@@ -335,11 +335,7 @@ func createInstallLock() error {
 }
 
 func initializeDatabase(cfg *SetupConfig) error {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, cfg.Database.DBName, cfg.Database.SSLMode,
-	)
+	dsn := setupDatabaseDSN(cfg)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -355,6 +351,18 @@ func initializeDatabase(cfg *SetupConfig) error {
 	migrationCtx, cancel := context.WithTimeout(context.Background(), cfg.migrationTimeout())
 	defer cancel()
 	return repository.ApplyMigrations(migrationCtx, db)
+}
+
+func setupDatabaseDSN(cfg *SetupConfig) string {
+	timezoneName := strings.TrimSpace(cfg.Timezone)
+	if timezoneName == "" {
+		timezoneName = "Asia/Shanghai"
+	}
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone=%s",
+		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
+		cfg.Database.Password, cfg.Database.DBName, cfg.Database.SSLMode, timezoneName,
+	)
 }
 
 func (cfg *SetupConfig) migrationTimeout() time.Duration {

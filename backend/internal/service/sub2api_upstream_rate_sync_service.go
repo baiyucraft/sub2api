@@ -1326,18 +1326,20 @@ func (s *Sub2APIUpstreamRateSyncService) syncTargetWithSession(ctx context.Conte
 	if err != nil {
 		return s.recordSyncError(ctx, &target.account, err)
 	}
-	if multiplier < 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
-		err := fmt.Errorf("invalid effective rate multiplier")
+	actualMultiplier, normalizeErr := NormalizeUpstreamActualRate(multiplier, 1)
+	if normalizeErr != nil {
+		err := fmt.Errorf("invalid effective rate multiplier: %w", normalizeErr)
 		return s.recordSyncError(ctx, &target.account, err)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	priority := Sub2APIUpstreamPriority(multiplier)
+	priority := Sub2APIUpstreamPriority(actualMultiplier)
 	loadFactor := AutoUpstreamLoadFactor(priority, target.account.Concurrency)
 	_, err = s.accountRepo.BulkUpdate(ctx, []int64{target.account.ID}, AccountBulkUpdate{
-		RateMultiplier: &multiplier,
-		Priority:       &priority,
-		LoadFactor:     &loadFactor,
+		RateMultiplier:               &actualMultiplier,
+		UpstreamSourceRateMultiplier: &multiplier,
+		Priority:                     &priority,
+		LoadFactor:                   &loadFactor,
 		Extra: map[string]any{
 			"sub2api_rate_sync_last_success_at": now,
 			"sub2api_rate_sync_last_error":      "",
@@ -1649,5 +1651,5 @@ func maskSub2APIEmail(email string) string {
 }
 
 func Sub2APIUpstreamPriority(rateMultiplier float64) int {
-	return int(decimal.NewFromFloat(rateMultiplier).Mul(decimal.NewFromInt(100)).Round(0).IntPart())
+	return int(decimal.NewFromFloat(rateMultiplier).Shift(2).Ceil().IntPart())
 }

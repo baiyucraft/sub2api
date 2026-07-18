@@ -144,6 +144,9 @@ func (r *upstreamConfigRepository) Create(ctx context.Context, config *service.U
 		SetExtra(normalizeJSONMap(config.Extra)).
 		SetRechargeRate(config.RechargeRate).
 		SetStatus(config.Status)
+	if config.SchedulingEnabled != nil {
+		builder.SetSchedulingEnabled(*config.SchedulingEnabled)
+	}
 	if config.APIURL != nil {
 		builder.SetAPIURL(*config.APIURL)
 	}
@@ -185,6 +188,9 @@ func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.U
 			SetExtra(normalizeJSONMap(config.Extra)).
 			SetRechargeRate(config.RechargeRate).
 			SetStatus(config.Status)
+		if config.SchedulingEnabled != nil {
+			builder.SetSchedulingEnabled(*config.SchedulingEnabled)
+		}
 		if config.APIURL != nil {
 			builder.SetAPIURL(*config.APIURL)
 		} else {
@@ -208,7 +214,8 @@ func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.U
 		nameChanged := previous.Name != updatedConfig.Name
 		urlChanged := previous.SiteURL != updatedConfig.SiteURL || stringPointerValue(previous.APIURL) != stringPointerValue(updatedConfig.APIURL)
 		rechargeRateChanged := previous.RechargeRate != updatedConfig.RechargeRate
-		if !nameChanged && !urlChanged && !rechargeRateChanged {
+		schedulingChanged := previous.SchedulingEnabled != updatedConfig.SchedulingEnabled
+		if !nameChanged && !urlChanged && !rechargeRateChanged && !schedulingChanged {
 			return nil
 		}
 
@@ -238,6 +245,11 @@ func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.U
 			changedIDs = append(changedIDs, renamedIDs...)
 		}
 		if urlChanged {
+			for _, account := range accounts {
+				changedIDs = append(changedIDs, account.ID)
+			}
+		}
+		if schedulingChanged {
 			for _, account := range accounts {
 				changedIDs = append(changedIDs, account.ID)
 			}
@@ -1300,6 +1312,11 @@ func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbe
 			SetPriority(priority).
 			SetLoadFactor(loadFactor).
 			SetExtra(extra)
+		if key.SourceRateMultiplier != nil {
+			builder.SetUpstreamSourceRateMultiplier(*key.SourceRateMultiplier)
+		} else {
+			builder.ClearUpstreamSourceRateMultiplier()
+		}
 		changed = true
 	}
 	if !changed {
@@ -1560,12 +1577,16 @@ func upstreamConfigEntityToService(row *dbent.UpstreamConfig) *service.UpstreamC
 		ProxyID:          row.ProxyID,
 		RechargeRate:     row.RechargeRate,
 		BalanceToCNYRate: row.BalanceToCnyRate,
-		Status:           row.Status,
-		LastError:        row.LastError,
-		LastCheckedAt:    row.LastCheckedAt,
-		LastSuccessAt:    row.LastSuccessAt,
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
+		SchedulingEnabled: func() *bool {
+			enabled := row.SchedulingEnabled
+			return &enabled
+		}(),
+		Status:        row.Status,
+		LastError:     row.LastError,
+		LastCheckedAt: row.LastCheckedAt,
+		LastSuccessAt: row.LastSuccessAt,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
 	}
 }
 

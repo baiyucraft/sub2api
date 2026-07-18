@@ -12,6 +12,20 @@
       {{ t('channelStatus.detailLoadError') }}
     </div>
     <div v-else class="overflow-x-auto">
+      <section v-if="detail.show_group_rate" class="mb-5 rounded-xl border border-sky-100 bg-sky-50/50 p-4 dark:border-sky-500/20 dark:bg-sky-500/5">
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ t('channelStatus.rateTrend.title') }}</h3>
+          <span class="font-mono text-sm font-semibold text-sky-700 dark:text-sky-300">{{ formatRate(detail.current_public_rate) }}</span>
+        </div>
+        <TrendChart
+          :timestamps="(detail.rate_trend || []).map(point => point.observed_at)"
+          :series="rateSeries"
+          :height="220"
+          :empty-text="t('channelStatus.rateTrend.empty')"
+          :chart-label="t('channelStatus.rateTrend.chartLabel')"
+          :value-formatter="formatRate"
+        />
+      </section>
       <table class="w-full text-left text-sm">
         <thead class="border-b border-gray-200 dark:border-dark-700">
           <tr class="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -60,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -69,12 +83,14 @@ import {
   type UserMonitorDetail,
 } from '@/api/channelMonitor'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import TrendChart from '@/components/charts/TrendChart.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 
 const props = defineProps<{
   show: boolean
   monitorId: number | null
   title: string
+  rateRange: '24h' | '7d' | '30d'
 }>()
 
 defineEmits<{
@@ -87,12 +103,24 @@ const { statusLabel, statusBadgeClass, formatLatency, formatPercent } = useChann
 
 const detail = ref<UserMonitorDetail | null>(null)
 const loading = ref(false)
+const rateSeries = computed(() => [{
+  label: t('channelStatus.rateTrend.series'),
+  data: (detail.value?.rate_trend || []).map(point => point.rate),
+  tone: 'primary' as const,
+  stepped: true as const,
+  pointStyle: 'circle' as const,
+}])
+
+function formatRate(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '-'
+  return `${value.toFixed(2)}x`
+}
 
 async function load(id: number) {
   detail.value = null
   loading.value = true
   try {
-    detail.value = await fetchChannelMonitorDetail(id)
+    detail.value = await fetchChannelMonitorDetail(id, props.rateRange)
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
   } finally {
@@ -101,7 +129,7 @@ async function load(id: number) {
 }
 
 watch(
-  () => [props.show, props.monitorId] as const,
+  () => [props.show, props.monitorId, props.rateRange] as const,
   ([show, id]) => {
     if (!show) {
       detail.value = null

@@ -21,6 +21,7 @@ import {
   STATUS_DEGRADED,
   STATUS_FAILED,
   STATUS_ERROR,
+  STATUS_UNKNOWN,
 } from '@/constants/channelMonitor'
 
 const NEUTRAL_BADGE = 'bg-gray-100 text-gray-800 dark:bg-dark-700 dark:text-gray-300'
@@ -50,8 +51,9 @@ export function useChannelMonitorFormat() {
       case STATUS_DEGRADED:
         return 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'
       case STATUS_FAILED:
-        return 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300'
       case STATUS_ERROR:
+        return 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300'
+      case STATUS_UNKNOWN:
       default:
         return NEUTRAL_BADGE
     }

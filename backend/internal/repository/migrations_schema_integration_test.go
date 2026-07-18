@@ -34,6 +34,7 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "accounts", "session_window_status", "character varying", 20, true)
 	requireColumn(t, tx, "accounts", "upstream_stale_pause_key_id", "bigint", 0, true)
 	requireColumn(t, tx, "accounts", "upstream_stale_paused_at", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "accounts", "upstream_source_rate_multiplier", "numeric", 0, true)
 	requireIndex(t, tx, "accounts", "idx_accounts_autopause_expiry_due")
 	requireIndex(t, tx, "accounts", "idx_accounts_upstream_stale_pause_key")
 	requireTrigger(t, tx, "accounts", "trg_validate_account_upstream_key_binding")
@@ -54,6 +55,28 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)
+	requireColumn(t, tx, "api_keys", "purpose", "character varying", 32, false)
+	requireColumn(t, tx, "api_keys", "managed_monitor_id", "bigint", 0, true)
+	requireIndex(t, tx, "api_keys", "idx_api_keys_purpose")
+	requireIndex(t, tx, "api_keys", "idx_api_keys_managed_monitor_id")
+
+	// upstream_configs: parent scheduling gate is independent from account.schedulable.
+	requireColumn(t, tx, "upstream_configs", "scheduling_enabled", "boolean", 0, false)
+
+	// channel monitors: retry and managed-local credential contract.
+	requireColumn(t, tx, "channel_monitors", "credential_mode", "character varying", 32, false)
+	requireColumn(t, tx, "channel_monitors", "group_id", "bigint", 0, true)
+	requireColumn(t, tx, "channel_monitors", "show_group_rate", "boolean", 0, false)
+	requireColumn(t, tx, "channel_monitors", "managed_api_key_id", "bigint", 0, true)
+	requireColumn(t, tx, "channel_monitors", "max_probe_attempts", "integer", 0, false)
+	requireIndex(t, tx, "channel_monitors", "idx_channel_monitors_group_id")
+	requireIndex(t, tx, "channel_monitors", "idx_channel_monitors_managed_api_key_id")
+	requireForeignKeyOnDelete(t, tx, "channel_monitors", "group_id", "groups", "SET NULL")
+	requireForeignKeyOnDelete(t, tx, "channel_monitors", "managed_api_key_id", "api_keys", "SET NULL")
+	requireConstraintDefinitionContains(t, tx, "channel_monitor_histories", "channel_monitor_histories_status_check", "unknown")
+	requireTrigger(t, tx, "groups", "trg_record_group_rate_snapshot")
+	requireColumn(t, tx, "group_rate_snapshots", "effective_at", "timestamp with time zone", 0, false)
+	requireIndex(t, tx, "group_rate_snapshots", "idx_group_rate_snapshots_group_effective")
 
 	// redeem_codes: subscription fields
 	requireColumn(t, tx, "redeem_codes", "group_id", "bigint", 0, true)
