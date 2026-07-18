@@ -153,7 +153,9 @@ on_failure() {
     migration_sqlstate=$(sed -n 's/.*sqlstate=\([0-9A-Z][0-9A-Z]*\).*/\1/p' "$state_dir/migrate-candidate.log" | head -n1)
     [[ -z $migration_sqlstate || $migration_sqlstate =~ ^[0-9A-Z]{5}$ ]] || migration_sqlstate=
     [[ -n $migration_sqlstate ]] && category="migration_sqlstate_$migration_sqlstate"
-    [[ -n $timezone_length && -n $timezone_sha ]] && category="migration_timezone_${timezone_length}_$timezone_sha"
+    if [[ $category == migration_timezone || $category == migration_group_rate_snapshot ]] && [[ -n $timezone_length && -n $timezone_sha ]]; then
+      category="migration_timezone_${timezone_length}_$timezone_sha"
+    fi
     rm -f "$state_dir/migrate-candidate.log"
   fi
   if [[ -f $state_dir/stage && $(<"$state_dir/stage") == candidate_health ]] && docker inspect "$probe_app" >/dev/null 2>&1; then
