@@ -135,6 +135,11 @@ on_failure() {
     grep -qi 'permission denied\|must be owner' "$state_dir/migrate-candidate.log" && category=migration_permission
     grep -qi 'connection refused\|no such host\|dial tcp' "$state_dir/migrate-candidate.log" && category=migration_connection
     grep -qi 'timeout\|deadline exceeded' "$state_dir/migrate-candidate.log" && category=migration_timeout
+    grep -qi 'relation .*group_rate_snapshots.* does not exist' "$state_dir/migrate-candidate.log" && category=migration_missing_group_rate_snapshots
+    grep -qi 'relation .*groups.* does not exist' "$state_dir/migrate-candidate.log" && category=migration_missing_groups
+    grep -qi 'relation .*timezone_lock.* does not exist' "$state_dir/migrate-candidate.log" && category=migration_missing_timezone_lock
+    grep -qi 'function pg_advisory_xact_lock.* does not exist' "$state_dir/migrate-candidate.log" && category=migration_missing_advisory_function
+    grep -qi 'column .*timezone.* does not exist' "$state_dir/migrate-candidate.log" && category=migration_missing_timezone_column
     grep -qi 'Failed to load migration config' "$state_dir/migrate-candidate.log" && category=migration_config
     grep -qi 'create schema_migrations\|check schema_migrations\|list migrations' "$state_dir/migrate-candidate.log" && category=migration_runner_init
     grep -qi 'acquire migrations lock\|release migrations lock' "$state_dir/migrate-candidate.log" && category=migration_advisory_lock
