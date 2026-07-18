@@ -129,15 +129,16 @@ on_failure() {
     grep -qi 'syntax' "$state_dir/migrate-candidate.log" && category=migration_syntax
     grep -qi 'migration 182:' "$state_dir/migrate-candidate.log" && category=migration_182_semantic
     grep -qi 'migration 195:' "$state_dir/migrate-candidate.log" && category=migration_195_semantic
-    grep -qi '182_upstream_actual_rate_multiplier.sql' "$state_dir/migrate-candidate.log" && category=migration_file_182
-    grep -qi '195_upstream_scheduling_monitor_rates.sql' "$state_dir/migrate-candidate.log" && category=migration_file_195
+    failed_migration=$(sed -n 's/.*apply migration \([0-9][0-9a-z]*\)_[^:]*:.*/\1/p' "$state_dir/migrate-candidate.log" | head -n1)
+    [[ -z $failed_migration || $failed_migration =~ ^[0-9][0-9a-z]*$ ]] || failed_migration=
+    [[ -n $failed_migration ]] && category="migration_file_$failed_migration"
     grep -qi 'permission denied\|must be owner' "$state_dir/migrate-candidate.log" && category=migration_permission
     grep -qi 'connection refused\|no such host\|dial tcp' "$state_dir/migrate-candidate.log" && category=migration_connection
     grep -qi 'timeout\|deadline exceeded' "$state_dir/migrate-candidate.log" && category=migration_timeout
     grep -qi 'Failed to load migration config' "$state_dir/migrate-candidate.log" && category=migration_config
     grep -qi 'create schema_migrations\|check schema_migrations\|list migrations' "$state_dir/migrate-candidate.log" && category=migration_runner_init
     grep -qi 'acquire migrations lock\|release migrations lock' "$state_dir/migrate-candidate.log" && category=migration_advisory_lock
-    grep -qi 'timezone' "$state_dir/migrate-candidate.log" && category=migration_timezone
+    grep -qi 'invalid timezone\|ensure group rate timezone snapshots' "$state_dir/migrate-candidate.log" && category=migration_timezone
     grep -qi 'group rate snapshot' "$state_dir/migrate-candidate.log" && category=migration_group_rate_snapshot
     rm -f "$state_dir/migrate-candidate.log"
   fi
