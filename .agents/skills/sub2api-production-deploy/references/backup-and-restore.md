@@ -180,8 +180,10 @@ candidate-created
 8. 使用版本匹配的临时 Redis 加载 RDB 和完整 AOF 目录，要求 Redis 启动、`PING` 成功、keyspace 可读，但禁止输出值。
 9. 对比 PostgreSQL/Redis key count、migration/checksum 和 manifest 关键断言。
 10. 销毁临时数据库、Redis、解出的 secret、配置目录和测试镜像，只保留白名单结果。
-11. 全部通过后原子晋升 candidate 并原子更新 `verified` pointer。
-12. 晋升完成前保留旧 verified baseline。
+11. VM 把白名单结果写入固定 `dr-evidence/<release-id>/<drill-id>/evidence.json`；文件必须包含严格 schema、候选与迁移 checksum、全部恢复断言、时间字段以及 Redis TTL 对账等式。只允许通过 `/usr/local/libexec/sub2api-sign-dr-evidence` 使用既有 signer 身份签名，禁止直接调用私钥。
+12. 操作端使用仓库 trust key验签，备份机再次核对 evidence/signature checksum、candidate pointer 和全部绑定字段；任一不一致停止。
+13. 全部通过后原子晋升 candidate 并原子更新 `verified` pointer。
+14. 晋升完成前保留旧 verified baseline。
 
 任何步骤失败：旧 verified 不变，报告 `partial: production healthy, disaster-recovery baseline incomplete`，不得报告完整成功。
 
