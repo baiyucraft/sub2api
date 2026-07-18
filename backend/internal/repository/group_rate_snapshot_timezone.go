@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/lib/pq"
 )
+
+type sqlStateError interface {
+	SQLState() string
+}
 
 const ensureGroupRateTimezoneSnapshotsSQL = `
 WITH timezone_lock AS MATERIALIZED (
@@ -42,9 +44,9 @@ func ensureGroupRateTimezoneSnapshots(ctx context.Context, db *sql.DB, timezoneN
 		return fmt.Errorf("group rate snapshot timezone and database are required")
 	}
 	if _, err := db.ExecContext(ctx, ensureGroupRateTimezoneSnapshotsSQL, timezoneName); err != nil {
-		var postgresError *pq.Error
-		if errors.As(err, &postgresError) {
-			return fmt.Errorf("ensure group rate timezone snapshots (sqlstate=%s): %w", postgresError.Code, err)
+		var stateError sqlStateError
+		if errors.As(err, &stateError) {
+			return fmt.Errorf("ensure group rate timezone snapshots (sqlstate=%s): %w", stateError.SQLState(), err)
 		}
 		return fmt.Errorf("ensure group rate timezone snapshots: %w", err)
 	}
