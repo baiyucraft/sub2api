@@ -127,6 +127,11 @@ on_failure() {
     grep -qi 'does not exist\|undefined' "$state_dir/migrate-candidate.log" && category=migration_missing_object
     grep -qi 'constraint\|violat' "$state_dir/migrate-candidate.log" && category=migration_constraint
     grep -qi 'syntax' "$state_dir/migrate-candidate.log" && category=migration_syntax
+    grep -qi 'migration 182:' "$state_dir/migrate-candidate.log" && category=migration_182_semantic
+    grep -qi 'migration 195:' "$state_dir/migrate-candidate.log" && category=migration_195_semantic
+    grep -qi 'permission denied\|must be owner' "$state_dir/migrate-candidate.log" && category=migration_permission
+    grep -qi 'connection refused\|no such host\|dial tcp' "$state_dir/migrate-candidate.log" && category=migration_connection
+    grep -qi 'timeout\|deadline exceeded' "$state_dir/migrate-candidate.log" && category=migration_timeout
     rm -f "$state_dir/migrate-candidate.log"
   fi
   if [[ -f $state_dir/stage && $(<"$state_dir/stage") == candidate_health ]] && docker inspect "$probe_app" >/dev/null 2>&1; then
