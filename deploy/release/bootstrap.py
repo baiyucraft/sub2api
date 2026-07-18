@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import secrets
 from pathlib import Path
 
@@ -10,7 +11,32 @@ from .ssh import SSHRunner
 DEPLOY_ROOT = Path(__file__).resolve().parents[1]
 TRUSTED_KEY = DEPLOY_ROOT / "release" / "trust" / "vm-gate-ed25519.pub"
 VALIDATOR = DEPLOY_ROOT / "release" / "vm-validate.sh"
+GATE_SIGNER = DEPLOY_ROOT / "release" / "sign-gate.sh"
+DR_SIGNER = DEPLOY_ROOT / "release" / "sign-dr-evidence.sh"
 BOOTSTRAP = DEPLOY_ROOT / "release" / "bootstrap_vm_signer.sh"
+
+
+SIGNER_FIELDS = {"signer_status", "public_key_sha256", "validator_sha256", "gate_signer_sha256", "dr_signer_sha256"}
+
+
+def validate_installed_unit(values: dict[str, str]) -> None:
+    expected = {
+        "validator_sha256": sha256_file(VALIDATOR),
+        "gate_signer_sha256": sha256_file(GATE_SIGNER),
+        "dr_signer_sha256": sha256_file(DR_SIGNER),
+    }
+    if any(values[field] != checksum for field, checksum in expected.items()):
+        raise RuntimeError("installed VM release unit checksum differs")
+    if values["public_key_sha256"] != sha256_file(TRUSTED_KEY):
+        raise RuntimeError("VM signer public key differs from repository trust key")
+
+
+def bootstrap_command(remote_validator: str, remote_gate_signer: str, remote_dr_signer: str, remote_bootstrap: str, require_existing: bool) -> str:
+    prefix = "REQUIRE_EXISTING_SIGNER_KEYS=true " if require_existing else ""
+    return (
+        f"{prefix}VALIDATOR_SOURCE={shlex.quote(remote_validator)} GATE_SIGNER_SOURCE={shlex.quote(remote_gate_signer)} DR_SIGNER_SOURCE={shlex.quote(remote_dr_signer)} "
+        f"VALIDATOR_SHA256={sha256_file(VALIDATOR)} GATE_SIGNER_SHA256={sha256_file(GATE_SIGNER)} DR_SIGNER_SHA256={sha256_file(DR_SIGNER)} {shlex.quote(remote_bootstrap)}"
+    )
 
 
 def prepare_vm_host(runner: SSHRunner) -> None:
@@ -31,21 +57,22 @@ def install_vm_validator(runner: SSHRunner) -> None:
     )
     remote_dir = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "validator")
     remote_validator = f"{remote_dir}/validator"
+    remote_gate_signer = f"{remote_dir}/gate-signer"
+    remote_dr_signer = f"{remote_dir}/dr-signer"
     remote_bootstrap = f"{remote_dir}/bootstrap"
     runner.upload_file("local_vm", VALIDATOR, remote_validator, 0o700)
+    runner.upload_file("local_vm", GATE_SIGNER, remote_gate_signer, 0o700)
+    runner.upload_file("local_vm", DR_SIGNER, remote_dr_signer, 0o700)
     runner.upload_file("local_vm", BOOTSTRAP, remote_bootstrap, 0o700)
     try:
         values = runner.run(
             "local_vm",
-            f"REQUIRE_EXISTING_SIGNER_KEYS=true VALIDATOR_SOURCE={remote_validator} {remote_bootstrap}",
-            {"signer_status", "public_key_sha256", "validator_sha256"},
+            bootstrap_command(remote_validator, remote_gate_signer, remote_dr_signer, remote_bootstrap, True),
+            SIGNER_FIELDS,
         ).values
-        if values["validator_sha256"] != sha256_file(VALIDATOR):
-            raise RuntimeError("installed VM validator checksum differs")
-        if values["public_key_sha256"] != sha256_file(TRUSTED_KEY):
-            raise RuntimeError("VM signer public key differs from repository trust key")
+        validate_installed_unit(values)
     finally:
-        runner.run("local_vm", f"rm -rf {remote_dir} && printf 'cleanup=true\\n'", {"cleanup"})
+        runner.run("local_vm", f"rm -rf -- {shlex.quote(remote_dir)} && printf 'cleanup=true\\n'", {"cleanup"})
 
 
 def bootstrap_trust() -> None:
@@ -58,17 +85,26 @@ def bootstrap_trust() -> None:
     )
     remote_dir = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "bootstrap")
     remote_validator = f"{remote_dir}/validator"
+    remote_gate_signer = f"{remote_dir}/gate-signer"
+    remote_dr_signer = f"{remote_dir}/dr-signer"
     remote_bootstrap = f"{remote_dir}/bootstrap"
     runner.upload_file("local_vm", VALIDATOR, remote_validator, 0o700)
+    runner.upload_file("local_vm", GATE_SIGNER, remote_gate_signer, 0o700)
+    runner.upload_file("local_vm", DR_SIGNER, remote_dr_signer, 0o700)
     runner.upload_file("local_vm", BOOTSTRAP, remote_bootstrap, 0o700)
     try:
         values = runner.run(
             "local_vm",
-            f"VALIDATOR_SOURCE={remote_validator} {remote_bootstrap}",
-            {"signer_status", "public_key_sha256", "validator_sha256"},
+            bootstrap_command(remote_validator, remote_gate_signer, remote_dr_signer, remote_bootstrap, False),
+            SIGNER_FIELDS,
         ).values
-        if values["validator_sha256"] != sha256_file(VALIDATOR):
-            raise RuntimeError("installed VM validator checksum differs")
+        expected_unit = {
+            "validator_sha256": sha256_file(VALIDATOR),
+            "gate_signer_sha256": sha256_file(GATE_SIGNER),
+            "dr_signer_sha256": sha256_file(DR_SIGNER),
+        }
+        if any(values[field] != checksum for field, checksum in expected_unit.items()):
+            raise RuntimeError("installed VM release unit checksum differs")
         review_dir = DEPLOY_ROOT.parent / ".tmp" / "release-trust"
         review_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         downloaded = review_dir / "vm-gate-ed25519.pub"
@@ -106,4 +142,4 @@ def bootstrap_trust() -> None:
         except BaseException:
             raise
     finally:
-        runner.run("local_vm", f"rm -rf {remote_dir} && printf 'cleanup=true\\n'", {"cleanup"})
+        runner.run("local_vm", f"rm -rf -- {shlex.quote(remote_dir)} && printf 'cleanup=true\\n'", {"cleanup"})

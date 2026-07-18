@@ -47,6 +47,19 @@ python deploy/release.py bootstrap-trust
 `bootstrap-trust` 只用于首次建立或经人工确认的信任根轮换。日常
 `bootstrap-production` 和 `deploy` 必须使用已有 signer 私钥、公钥和 validator，不能创建、替换或自动修复它们；validator 更新后必须重新生成 Gate，旧 Gate 失效。
 
+VM 的 validator、Gate signer 和 DR evidence signer 是同一版本单元。更新时必须先在
+暂存目录完成语法、正负路径签名和公钥验签，再在全局锁内一次激活；三者 checksum
+都会进入发布 manifest 和 Gate。Gate signer 只接受固定 release Gate 路径，DR signer
+只接受 `/opt/sub2api-deploy/dr-evidence/<release-id>/<drill-id>/evidence.json`，并严格验证
+恢复结果 schema、候选绑定、全部恢复断言和 Redis TTL 对账等式。两者都复用既有 VM
+Ed25519 私钥，但任何流程不得绕过 helper 直接调用该私钥。
+
+异地备份机使用 `deploy/release/drverify` 由 Go 标准库构建的静态只读 verifier。Linux
+amd64 二进制必须匹配仓库内 `linux-amd64.sha256`，并与仓库 trust 公钥一起在备份机
+暂存；正确签名、篡改 evidence 和篡改 signature 三组自测通过后才能原子激活。晋升
+`verified` 前必须在备份机本机完成验签和 candidate/evidence 字段绑定，不能只依赖
+操作端验签。
+
 生产 bootstrap 不得创建或替换信任根，也不得修改 systemd。它只创建缺失的发布状态
 目录和固定 Canary 文件，并核验信任根、Canary 与数据库、备份全局锁；已有资产内容
 不一致时必须停止。

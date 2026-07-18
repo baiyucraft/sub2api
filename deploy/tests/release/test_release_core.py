@@ -23,6 +23,14 @@ from release.state import RunLock, RunState
 
 
 class ReleaseCoreTest(unittest.TestCase):
+    @staticmethod
+    def release_unit_checksum(path: Path) -> str:
+        return {
+            "vm-validate.sh": "validator",
+            "sign-gate.sh": "gate-signer",
+            "sign-dr-evidence.sh": "dr-signer",
+        }[path.name]
+
     def manifest(self, runner: str, expires_at: int) -> dict:
         profile = get_profile("182")
         return {
@@ -30,6 +38,8 @@ class ReleaseCoreTest(unittest.TestCase):
             "profile": "182",
             "runner_sha256": runner,
             "vm_validator_sha256": "validator",
+            "vm_gate_signer_sha256": "gate-signer",
+            "vm_dr_signer_sha256": "dr-signer",
             "release_asset_sha256": {"asset": "digest"},
             "origin": profile["origin"],
             "vm_identity": profile["vm_identity"],
@@ -100,7 +110,7 @@ class ReleaseCoreTest(unittest.TestCase):
         expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195"
         for relative_path in (
             "release/vm-validate.sh",
-            "release/bootstrap_vm_signer.sh",
+            "release/sign-gate.sh",
             "maintenance/release/context.sh",
             "maintenance/release/prepare.sh",
             "maintenance/release/promote-backup.sh",
@@ -235,7 +245,7 @@ class ReleaseCoreTest(unittest.TestCase):
             with (
                 mock.patch("release.gate.runner_checksum", return_value="runner"),
                 mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
-                mock.patch("release.gate.sha256_file", return_value="validator"),
+                mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
                 mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
             ):
                 with self.assertRaisesRegex(RuntimeError, "Prompt Audit disabled-state evidence"):
@@ -268,7 +278,7 @@ class ReleaseCoreTest(unittest.TestCase):
             }
             (root / "gate.json").write_bytes(canonical_json(document) + b"\n")
             subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(private_key), "-rawin", "-in", str(root / "gate.json"), "-out", str(root / "gate.sig")], check=True)
-            with mock.patch("release.gate.runner_checksum", return_value="runner"), mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}), mock.patch("release.gate.sha256_file", return_value="validator"):
+            with mock.patch("release.gate.runner_checksum", return_value="runner"), mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}), mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum):
                 verify_gate(root, public_key, "182")
                 archive.write_bytes(b"replaced")
                 with self.assertRaisesRegex(RuntimeError, "archive checksum"):
@@ -295,7 +305,7 @@ class ReleaseCoreTest(unittest.TestCase):
             }
             (root / "gate.json").write_bytes(canonical_json(document) + b"\n")
             subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(private_key), "-rawin", "-in", str(root / "gate.json"), "-out", str(root / "gate.sig")], check=True)
-            with mock.patch("release.gate.runner_checksum", return_value="new"), mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}), mock.patch("release.gate.sha256_file", return_value="validator"):
+            with mock.patch("release.gate.runner_checksum", return_value="new"), mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}), mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum):
                 with self.assertRaisesRegex(RuntimeError, "different release runner"):
                     verify_gate(root, public_key, "182")
 

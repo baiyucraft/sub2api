@@ -13,6 +13,9 @@ from .ssh import KNOWN_HOSTS, SSH_CONFIG, SSHRunner
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TRUSTED_KEY = ROOT / "deploy" / "release" / "trust" / "vm-gate-ed25519.pub"
+VALIDATOR = ROOT / "deploy" / "release" / "vm-validate.sh"
+GATE_SIGNER = ROOT / "deploy" / "release" / "sign-gate.sh"
+DR_SIGNER = ROOT / "deploy" / "release" / "sign-dr-evidence.sh"
 NODES = ("local", "vm", "racknerd", "dmit", "backup")
 
 
@@ -69,17 +72,38 @@ class ReleaseDoctor:
 
     def check_vm(self) -> dict[str, str]:
         profile = self.profile
+        trust_sha = sha256_file(TRUSTED_KEY)
+        validator_sha = sha256_file(VALIDATOR)
+        gate_signer_sha = sha256_file(GATE_SIGNER)
+        dr_signer_sha = sha256_file(DR_SIGNER)
         script = f"""
 set -Eeuo pipefail
-for command in docker git jq df; do command -v "$command" >/dev/null; done
+for command in docker git jq df openssl sha256sum stat cmp flock; do command -v "$command" >/dev/null; done
+unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
+test -f "$unit_lock" && test ! -L "$unit_lock" && test "$(stat -c '%U:%G:%a:%h' "$unit_lock")" = root:root:600:1
+exec 8<>"$unit_lock"
+test "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)" = root:root:600:1
+flock -s 8
 test -d {profile['vm_source']} && test -d {profile['vm_deploy']} && test -d {profile['vm_data']}
 test ! -L {profile['vm_source']} && test ! -L {profile['vm_deploy']} && test ! -L {profile['vm_data']}
+test "$(stat -c '%U:%G:%a' /opt/sub2api-release-signer/vm-gate-ed25519.pem)" = root:root:600
+test "$(stat -c '%U:%G:%a' /opt/sub2api-release-signer/vm-gate-ed25519.pub)" = root:root:644
+for asset in /usr/local/libexec/sub2api-vm-validate /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do test -f "$asset" && test ! -L "$asset" && test "$(stat -c '%U:%G:%a' "$asset")" = root:root:700; done
+for asset in /opt/sub2api-release-signer/vm-gate-ed25519.pem /opt/sub2api-release-signer/vm-gate-ed25519.pub; do test -f "$asset" && test ! -L "$asset"; done
+test "$(sha256sum /opt/sub2api-release-signer/vm-gate-ed25519.pub | awk '{{print $1}}')" = {trust_sha}
+test "$(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}')" = {validator_sha}
+test "$(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{{print $1}}')" = {gate_signer_sha}
+test "$(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{{print $1}}')" = {dr_signer_sha}
+derived_public=$(mktemp)
+trap 'rm -f -- "$derived_public"' EXIT
+openssl pkey -in /opt/sub2api-release-signer/vm-gate-ed25519.pem -pubout -out "$derived_public"
+cmp -s "$derived_public" /opt/sub2api-release-signer/vm-gate-ed25519.pub
 test "$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api-dev)" = healthy
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{{print $4}}' || df -PB1 / | awk 'NR==2{{print $4}}')
 db_bytes=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${{POSTGRES_USER:-postgres}}" -d postgres -c "SELECT pg_database_size('"'"'sub2api_dev'"'"')"' | tr -d '[:space:]')
-printf 'vm_ready=true\nvm_free_bytes=%s\nvm_database_bytes=%s\n' "$free_bytes" "$db_bytes"
+printf 'vm_ready=true\nvm_free_bytes=%s\nvm_database_bytes=%s\nvm_release_unit_status=verified\n' "$free_bytes" "$db_bytes"
 """
-        return self._ssh().run("local_vm", script, {"vm_ready", "vm_free_bytes", "vm_database_bytes"}).values
+        return self._ssh().run("local_vm", script, {"vm_ready", "vm_free_bytes", "vm_database_bytes", "vm_release_unit_status"}).values
 
     def check_racknerd(self) -> dict[str, str]:
         profile = self.profile

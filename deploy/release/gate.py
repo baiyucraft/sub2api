@@ -44,6 +44,10 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str) -> di
         raise RuntimeError("gate was created by a different release runner")
     if manifest.get("vm_validator_sha256") != sha256_file(Path(__file__).resolve().parent / "vm-validate.sh"):
         raise RuntimeError("gate was created by a different VM validator")
+    if manifest.get("vm_gate_signer_sha256") != sha256_file(Path(__file__).resolve().parent / "sign-gate.sh"):
+        raise RuntimeError("gate was created by a different VM gate signer")
+    if manifest.get("vm_dr_signer_sha256") != sha256_file(Path(__file__).resolve().parent / "sign-dr-evidence.sh"):
+        raise RuntimeError("gate was created by a different VM DR signer")
     if manifest.get("release_asset_sha256") != release_asset_checksums():
         raise RuntimeError("gate release assets do not match the current checkout")
     if int(manifest["expires_at"]) < int(time.time()):

@@ -77,7 +77,7 @@ def main() -> None:
         ensure_vm_space(runner, remote_cleaner, manifest["commit_sha"])
         result = runner.run(
             "local_vm",
-            f"test $(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}') = {manifest['vm_validator_sha256']} && /usr/local/libexec/sub2api-vm-validate {remote_manifest} {remote_output}",
+            f"for asset in /usr/local/libexec/sub2api-vm-validate /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do test -f $asset && test ! -L $asset && test $(stat -c '%U:%G:%a' $asset) = root:root:700; done && test $(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}') = {manifest['vm_validator_sha256']} && test $(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{{print $1}}') = {manifest['vm_gate_signer_sha256']} && test $(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{{print $1}}') = {manifest['vm_dr_signer_sha256']} && /usr/local/libexec/sub2api-vm-validate {remote_manifest} {remote_output}",
             {"gate_status", "candidate_image_id", "candidate_archive_sha256"},
             timeout=7200,
         )
