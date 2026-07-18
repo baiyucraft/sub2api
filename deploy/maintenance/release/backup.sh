@@ -104,7 +104,7 @@ docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT 'acc
 docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT 'accounts='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM accounts t UNION ALL SELECT 'users='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM users t UNION ALL SELECT 'api_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM api_keys t UNION ALL SELECT 'upstream_configs='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM upstream_configs t UNION ALL SELECT 'upstream_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM upstream_keys t" > "$work/metadata/core-content-digests.txt"
 (cd "$work/redis" && find . -type f -print0 | sort -z | xargs -0 sha256sum > "$work/metadata/redis-files.sha256")
 printf 'release_id=%s\ncandidate_image_id=%s\npre_switch_image_id=%s\nwrites_frozen=true\n' "$release_id" "$candidate_image_id" "$(<"$state_dir/pre-image-id")" > "$work/metadata/manifest.txt"
-(cd "$work" && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+(cd "$work" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 tar -C "$work" -cf "$plain" .
 age -R "$recipient_file" -o "$encrypted" "$plain"
 artifact_sha=$(sha256sum "$encrypted" | awk '{print $1}')
