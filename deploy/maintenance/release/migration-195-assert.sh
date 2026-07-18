@@ -28,16 +28,6 @@ redis_watermark() {
   printf '%s\n' "$redis_password" | docker exec -i "$redis_container" sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning GET sched:v2:outbox:watermark' | tr -d '\r'
 }
 
-canonical_plan_query="COPY (
-  SELECT k.id::text || '|' ||
-         to_char(COALESCE(k.source_rate_multiplier,k.rate_multiplier),'FM999999999999990.0000000000') || '|' ||
-         to_char(CASE WHEN k.source_rate_multiplier IS NULL THEN k.rate_multiplier WHEN k.source_rate_multiplier=0 THEN 0 ELSE CEIL((k.source_rate_multiplier*c.recharge_rate)*100)/100 END,'FM999999999999990.0000')
-    FROM upstream_keys k
-    JOIN upstream_configs c ON c.id=k.upstream_config_id
-   WHERE COALESCE(k.source_rate_multiplier,k.rate_multiplier) IS NOT NULL
-   ORDER BY k.id
-) TO STDOUT"
-
 if [[ $phase == preflight ]]; then
   if [[ $migration_status == verified ]]; then
     terminal=$(query "
@@ -78,16 +68,49 @@ SELECT
     printf 'migration_195_data_plan_sha256=%s\n' "$terminal_sha"
     exit 0
   fi
+  source_rate_column_exists=$(query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='upstream_keys' AND column_name='source_rate_multiplier')")
+  [[ $source_rate_column_exists == t || $source_rate_column_exists == f ]]
+  if [[ $source_rate_column_exists == t ]]; then
+    canonical_plan_query="COPY (
+  SELECT k.id::text || '|' ||
+         to_char(COALESCE(k.source_rate_multiplier,k.rate_multiplier),'FM999999999999990.0000000000') || '|' ||
+         to_char(CASE WHEN k.source_rate_multiplier IS NULL THEN k.rate_multiplier WHEN k.source_rate_multiplier=0 THEN 0 ELSE CEIL((k.source_rate_multiplier*c.recharge_rate)*100)/100 END,'FM999999999999990.0000')
+    FROM upstream_keys k
+    JOIN upstream_configs c ON c.id=k.upstream_config_id
+   WHERE COALESCE(k.source_rate_multiplier,k.rate_multiplier) IS NOT NULL
+   ORDER BY k.id
+) TO STDOUT"
+    recomputed_expression="(SELECT COUNT(*) FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL)"
+    preserved_expression="(SELECT COUNT(*) FROM upstream_keys WHERE source_rate_multiplier IS NULL AND rate_multiplier IS NOT NULL)"
+    skipped_expression="(SELECT COUNT(*) FROM upstream_keys WHERE source_rate_multiplier IS NULL AND rate_multiplier IS NULL)"
+    rate_present_expression="COALESCE(k.source_rate_multiplier,k.rate_multiplier) IS NOT NULL"
+    unexpected_rate_expression="CASE WHEN k.source_rate_multiplier IS NULL THEN k.rate_multiplier ELSE CEIL((k.source_rate_multiplier*c.recharge_rate)*100)/100 END"
+  else
+    canonical_plan_query="COPY (
+  SELECT k.id::text || '|' ||
+         to_char(k.rate_multiplier,'FM999999999999990.0000000000') || '|' ||
+         to_char(CASE WHEN k.rate_multiplier=0 THEN 0 ELSE CEIL((k.rate_multiplier*c.recharge_rate)*100)/100 END,'FM999999999999990.0000')
+    FROM upstream_keys k
+    JOIN upstream_configs c ON c.id=k.upstream_config_id
+   WHERE k.rate_multiplier IS NOT NULL
+   ORDER BY k.id
+) TO STDOUT"
+    recomputed_expression="(SELECT COUNT(*) FROM upstream_keys WHERE rate_multiplier IS NOT NULL)"
+    preserved_expression="0"
+    skipped_expression="(SELECT COUNT(*) FROM upstream_keys WHERE rate_multiplier IS NULL)"
+    rate_present_expression="k.rate_multiplier IS NOT NULL"
+    unexpected_rate_expression="CEIL((k.rate_multiplier*c.recharge_rate)*100)/100"
+  fi
   counts=$(query "
 WITH values AS (
   SELECT
     (SELECT COUNT(*) FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL) AS affected,
-    (SELECT COUNT(*) FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL) AS recomputed,
-    (SELECT COUNT(*) FROM upstream_keys WHERE source_rate_multiplier IS NULL AND rate_multiplier IS NOT NULL) AS preserved,
-    (SELECT COUNT(*) FROM upstream_keys WHERE source_rate_multiplier IS NULL AND rate_multiplier IS NULL) AS skipped,
+    $recomputed_expression AS recomputed,
+    $preserved_expression AS preserved,
+    $skipped_expression AS skipped,
     (SELECT COUNT(*) FROM accounts a LEFT JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND k.rate_multiplier IS NULL) AS unproven,
     (SELECT COUNT(*) FROM accounts a LEFT JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (k.id IS NULL OR k.deleted_at IS NOT NULL OR k.upstream_config_id IS DISTINCT FROM a.upstream_config_id)) AS conflict,
-    (SELECT COUNT(*) FROM upstream_keys k JOIN upstream_configs c ON c.id=k.upstream_config_id WHERE COALESCE(k.source_rate_multiplier,k.rate_multiplier) IS NOT NULL AND (c.recharge_rate <= 0 OR CASE WHEN k.source_rate_multiplier IS NULL THEN k.rate_multiplier ELSE CEIL((k.source_rate_multiplier*c.recharge_rate)*100)/100 END > 999999.9999))
+    (SELECT COUNT(*) FROM upstream_keys k JOIN upstream_configs c ON c.id=k.upstream_config_id WHERE $rate_present_expression AND (c.recharge_rate <= 0 OR $unexpected_rate_expression > 999999.9999))
       + (SELECT COUNT(*) FROM accounts WHERE upstream_key_id IS NOT NULL AND concurrency > 1073741823) AS unexpected
 )
 SELECT affected,recomputed,preserved,skipped,unproven,conflict,unexpected FROM values")
