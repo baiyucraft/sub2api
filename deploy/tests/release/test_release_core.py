@@ -197,6 +197,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("migration_missing_group_rate_snapshots", validator)
         self.assertIn("migration_missing_timezone_lock", validator)
         self.assertIn("migration_missing_advisory_function", validator)
+        self.assertIn("migration_sqlstate=$(sed", validator)
+        self.assertIn('category="migration_sqlstate_$migration_sqlstate"', validator)
         self.assertIn('"migration_195_verified", "fixture_rejected", "restore_completed", "clean_preflight"', gate)
         self.assertIn("any(evidence.get(field) is not True", gate)
         self.assertIn('"migration_195_plan_sha256"', production)
