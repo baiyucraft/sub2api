@@ -77,6 +77,20 @@ else
   [[ -f $recovery/config/app/no-release-active-override && ! -L $recovery/config/app/no-release-active-override ]]
   rm -f "$deploy_dir/docker-compose.release-active.yml"
 fi
+restore_override_tmp="$deploy_dir/docker-compose.release-active.yml.restore.$$"
+cat > "$restore_override_tmp" <<EOF
+services:
+  sub2api:
+    image: $(<"$state_dir/pre-image-id")
+EOF
+chmod 600 "$restore_override_tmp"
+mv -T -- "$restore_override_tmp" "$deploy_dir/docker-compose.release-active.yml"
+env_tmp="$deploy_dir/.env.restore.$$"
+awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE)=/' "$deploy_dir/.env" > "$env_tmp"
+printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.release-active.yml\n' >> "$env_tmp"
+printf 'SUB2API_RELEASE_IMAGE=%s\n' "$(<"$state_dir/pre-image-id")" >> "$env_tmp"
+chmod --reference="$deploy_dir/.env" "$env_tmp"
+mv -T -- "$env_tmp" "$deploy_dir/.env"
 find "$deploy_dir/data" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 cp -a "$recovery/config/app/data/." "$deploy_dir/data/"
 (cd "$deploy_dir/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$recovery/metadata/data-restored.sha256"
