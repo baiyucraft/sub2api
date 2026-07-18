@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"testing"
 
@@ -30,7 +31,7 @@ func TestEnsureGroupRateTimezoneSnapshots_ReportsSQLState(t *testing.T) {
 
 	mock.ExpectExec(regexp.QuoteMeta(ensureGroupRateTimezoneSnapshotsSQL)).
 		WithArgs("Asia/Shanghai").
-		WillReturnError(&pq.Error{Code: "22023"})
+		WillReturnError(fmt.Errorf("wrapped: %w", &pq.Error{Code: "22023"}))
 	err = ensureGroupRateTimezoneSnapshots(context.Background(), db, "Asia/Shanghai")
 	require.ErrorContains(t, err, "sqlstate=22023")
 }

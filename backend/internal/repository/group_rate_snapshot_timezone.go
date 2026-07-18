@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -41,7 +42,8 @@ func ensureGroupRateTimezoneSnapshots(ctx context.Context, db *sql.DB, timezoneN
 		return fmt.Errorf("group rate snapshot timezone and database are required")
 	}
 	if _, err := db.ExecContext(ctx, ensureGroupRateTimezoneSnapshotsSQL, timezoneName); err != nil {
-		if postgresError, ok := err.(*pq.Error); ok {
+		var postgresError *pq.Error
+		if errors.As(err, &postgresError) {
 			return fmt.Errorf("ensure group rate timezone snapshots (sqlstate=%s): %w", postgresError.Code, err)
 		}
 		return fmt.Errorf("ensure group rate timezone snapshots: %w", err)
