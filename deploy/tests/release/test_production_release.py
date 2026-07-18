@@ -474,6 +474,9 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")
         switch = self.script("switch.sh")
+        self.assertIn("information_schema.columns", assertion)
+        self.assertIn("source_rate_column_exists", assertion)
+        self.assertIn("CEIL((k.rate_multiplier*c.recharge_rate)*100)/100", assertion)
         self.assertIn("migration_195_data_plan_sha256", assertion)
         self.assertIn("migration_195_account_mismatch", assertion)
         self.assertIn("migration_195_snapshot_missing", assertion)
