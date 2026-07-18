@@ -120,6 +120,15 @@ on_failure() {
   code=$?
   trap - ERR INT TERM
   category=unknown
+  if [[ -f $state_dir/migrate-candidate.log ]]; then
+    category=migration_other
+    grep -qi 'checksum' "$state_dir/migrate-candidate.log" && category=migration_checksum
+    grep -qi 'already exists\|duplicate' "$state_dir/migrate-candidate.log" && category=migration_duplicate
+    grep -qi 'does not exist\|undefined' "$state_dir/migrate-candidate.log" && category=migration_missing_object
+    grep -qi 'constraint\|violat' "$state_dir/migrate-candidate.log" && category=migration_constraint
+    grep -qi 'syntax' "$state_dir/migrate-candidate.log" && category=migration_syntax
+    rm -f "$state_dir/migrate-candidate.log"
+  fi
   if [[ -f $state_dir/stage && $(<"$state_dir/stage") == candidate_health ]] && docker inspect "$probe_app" >/dev/null 2>&1; then
     probe_log="$state_dir/probe-app.log"
     docker logs --tail 300 "$probe_app" > "$probe_log" 2>&1 || true
@@ -191,7 +200,8 @@ if [[ $profile == 195 ]]; then
   printf '%s  recovery-point.age\n' "$(<"$state_dir/fake-recovery.sha256")" > "$state_dir/recovery-point.age.sha256"
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_user" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" bind >/dev/null
 fi
-docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >/dev/null 2>&1
+docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
+rm -f "$state_dir/migrate-candidate.log"
 if [[ $profile == 195 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_user" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
 fi
