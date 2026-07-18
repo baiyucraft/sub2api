@@ -102,6 +102,13 @@ probe_app="sub2api-probe-app-${probe_suffix:0:12}"
 probe_network="sub2api-probe-net-${probe_suffix:0:12}"
 redis_image=$(docker inspect -f '{{.Config.Image}}' sub2api-redis)
 database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
+database_user=$(docker exec sub2api-postgres sh -lc 'printf "%s" "${POSTGRES_USER:-postgres}"')
+[[ $database_user =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]
+create_probe_database() {
+  docker exec -i -e DB_OWNER="$database_owner" sub2api-postgres sh -lc 'psql -X -v ON_ERROR_STOP=1 -v db_owner="$DB_OWNER" -U "${POSTGRES_USER:-postgres}" -d postgres' >/dev/null <<SQL
+SELECT format('CREATE DATABASE %I OWNER %I', '$probe_db', :'db_owner') \gexec
+SQL
+}
 cleanup_probe() {
   docker rm -f "$probe_app" "$probe_redis" >/dev/null 2>&1 || true
   docker network disconnect -f "$probe_network" sub2api-postgres >/dev/null 2>&1 || true
@@ -137,9 +144,7 @@ install -d -m 700 "$probe_dir"
 docker network create "$probe_network" >/dev/null
 docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres
 docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 1 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/probe.dump"
-docker exec -i -e DB_OWNER="$database_owner" sub2api-postgres sh -lc 'psql -X -v ON_ERROR_STOP=1 -v db_owner="$DB_OWNER" -U "${POSTGRES_USER:-postgres}" -d postgres' >/dev/null <<SQL
-SELECT format('CREATE DATABASE %I OWNER %I', '$probe_db', :'db_owner') \gexec
-SQL
+create_probe_database
 docker exec -i sub2api-postgres sh -lc "pg_restore --exit-on-error -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$state_dir/probe.dump" >/dev/null
 cp -a "$data_dir/." "$probe_dir/"
 sed -i "/^database:/,/^[^[:space:]]/ s/^[[:space:]]*dbname:[[:space:]]*.*/  dbname: $probe_db/" "$probe_dir/config.yaml"
@@ -158,26 +163,37 @@ sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*password:[[:space:]]*.*/  passw
 sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*db:[[:space:]]*.*/  db: 0/' "$probe_dir/config.yaml"
 
 mark_stage migrate_candidate
+fixture_rejected=false
+restore_completed=false
+clean_preflight=false
 if [[ $profile == 195 ]]; then
   migration_195_context="$state_dir/migration-195-context.sh"
   printf 'profile=195\nstate_dir=%q\n' "$state_dir" > "$migration_195_context"
   chmod 400 "$migration_195_context"
   fixture_key_id=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT k.id FROM upstream_keys k JOIN accounts a ON a.upstream_key_id=k.id WHERE k.rate_multiplier IS NOT NULL ORDER BY k.id LIMIT 1\"")
   [[ $fixture_key_id =~ ^[0-9]+$ ]]
+  fixture_key_hash=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT md5(row_to_json(k)::text) FROM upstream_keys k WHERE id=$fixture_key_id\"")
+  [[ $fixture_key_hash =~ ^[0-9a-f]{32}$ ]]
   docker exec sub2api-postgres sh -lc "psql -X -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"UPDATE upstream_keys SET rate_multiplier=NULL WHERE id=$fixture_key_id\"" >/dev/null
-  if ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="${POSTGRES_USER:-postgres}" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight >/dev/null 2>&1; then
+  if ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_user" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight >/dev/null 2>&1; then
     false
   fi
-  docker exec sub2api-postgres sh -lc "dropdb -U \"\${POSTGRES_USER:-postgres}\" $probe_db && createdb -U \"\${POSTGRES_USER:-postgres}\" -O $database_owner $probe_db" >/dev/null
+  fixture_rejected=true
+  docker exec sub2api-postgres sh -lc "dropdb -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null
+  create_probe_database
   docker exec -i sub2api-postgres sh -lc "pg_restore --exit-on-error -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$state_dir/probe.dump" >/dev/null
-  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="${POSTGRES_USER:-postgres}" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight >/dev/null
+  [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT to_regclass('public.accounts') IS NOT NULL AND to_regclass('public.upstream_keys') IS NOT NULL\"") == t ]]
+  [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT md5(row_to_json(k)::text) FROM upstream_keys k WHERE id=$fixture_key_id\"") == "$fixture_key_hash" ]]
+  restore_completed=true
+  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_user" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight >/dev/null
+  clean_preflight=true
   cp "$state_dir/migration-195-data-plan.sha256" "$state_dir/fake-recovery.sha256"
   printf '%s  recovery-point.age\n' "$(<"$state_dir/fake-recovery.sha256")" > "$state_dir/recovery-point.age.sha256"
-  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="${POSTGRES_USER:-postgres}" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" bind >/dev/null
+  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_user" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" bind >/dev/null
 fi
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >/dev/null 2>&1
 if [[ $profile == 195 ]]; then
-  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="${POSTGRES_USER:-postgres}" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
+  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_user" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
 fi
 mark_stage candidate_health
 docker run -d --name "$probe_app" --network "$probe_network" \
@@ -204,7 +220,7 @@ if [[ $profile == 194 || $profile == 195 ]]; then
   [[ $prompt_audit_state == 't|0|0' ]]
 fi
 if [[ $profile == 195 ]]; then
-  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="${POSTGRES_USER:-postgres}" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
+  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_user" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
 fi
 
 mark_stage isolated_cleanup
@@ -225,7 +241,10 @@ jq -n --slurpfile manifest "$manifest" \
   --argjson candidate_size "$candidate_size" \
   --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 ]] && printf true || printf false)" \
   --argjson migration_195_verified "$([[ $profile == 195 ]] && printf true || printf false)" \
-  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified}}' \
+  --argjson fixture_rejected "$fixture_rejected" \
+  --argjson restore_completed "$restore_completed" \
+  --argjson clean_preflight "$clean_preflight" \
+  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight}}' \
   | jq -cS . > "$output_dir/gate.json.tmp"
 chmod 400 "$output_dir/gate.json.tmp"
 mv -T -- "$output_dir/gate.json.tmp" "$output_dir/gate.json"

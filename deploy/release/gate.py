@@ -52,8 +52,10 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str) -> di
         raise RuntimeError("gate lacks VM restore or integration evidence")
     if expected_profile in {"194", "195"} and evidence.get("prompt_audit_disabled") is not True:
         raise RuntimeError("gate lacks Prompt Audit disabled-state evidence")
-    if expected_profile == "195" and evidence.get("migration_195_verified") is not True:
-        raise RuntimeError("gate lacks migration 195 semantic evidence")
+    if expected_profile == "195":
+        required_migration_evidence = ("migration_195_verified", "fixture_rejected", "restore_completed", "clean_preflight")
+        if any(evidence.get(field) is not True for field in required_migration_evidence):
+            raise RuntimeError("gate lacks migration 195 semantic evidence")
     archive_path = bundle_dir / "candidate.tar.gz"
     if not archive_path.is_file():
         raise RuntimeError("gate candidate archive is missing")
