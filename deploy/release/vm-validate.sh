@@ -139,6 +139,8 @@ on_failure() {
     grep -qi 'create schema_migrations\|check schema_migrations\|list migrations' "$state_dir/migrate-candidate.log" && category=migration_runner_init
     grep -qi 'acquire migrations lock\|release migrations lock' "$state_dir/migrate-candidate.log" && category=migration_advisory_lock
     grep -qi 'invalid timezone\|ensure group rate timezone snapshots' "$state_dir/migrate-candidate.log" && category=migration_timezone
+    grep -qi 'invalid timezone .*unknown time zone' "$state_dir/migrate-candidate.log" && category=migration_go_timezone
+    grep -qi 'invalid value for parameter .*TimeZone\|unrecognized configuration parameter .*TimeZone' "$state_dir/migrate-candidate.log" && category=migration_database_timezone
     grep -qi 'group rate snapshot' "$state_dir/migrate-candidate.log" && category=migration_group_rate_snapshot
     rm -f "$state_dir/migrate-candidate.log"
   fi
@@ -185,6 +187,9 @@ sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*password:[[:space:]]*.*/  passw
 sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*db:[[:space:]]*.*/  db: 0/' "$probe_dir/config.yaml"
 
 mark_stage migrate_candidate
+probe_timezone=$(sed -n 's/^timezone:[[:space:]]*//p' "$probe_dir/config.yaml" | head -n1 | tr -d '"\r')
+[[ $probe_timezone =~ ^UTC$|^[a-zA-Z_+-]+(/[a-zA-Z0-9_+-]+)+$ ]]
+docker run --rm --entrypoint sh -e PROBE_TIMEZONE="$probe_timezone" "$candidate_image_id" -lc 'test -f "/usr/share/zoneinfo/$PROBE_TIMEZONE"'
 fixture_rejected=false
 restore_completed=false
 clean_preflight=false
