@@ -179,17 +179,17 @@ trap on_failure ERR INT TERM
 
 mark_stage isolated_database
 install -d -m 700 "$probe_dir"
-docker network create "$probe_network" >/dev/null
-docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres
+docker network create "$probe_network" >/dev/null 2>&1
+docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres >/dev/null 2>&1
 docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 1 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/probe.dump"
 create_probe_database
-docker exec -i sub2api-postgres sh -lc "pg_restore --exit-on-error -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$state_dir/probe.dump" >/dev/null
+docker exec -i sub2api-postgres sh -lc "pg_restore --exit-on-error -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$state_dir/probe.dump" >/dev/null 2>&1
 cp -a "$data_dir/." "$probe_dir/"
 sed -i "/^database:/,/^[^[:space:]]/ s/^[[:space:]]*dbname:[[:space:]]*.*/  dbname: $probe_db/" "$probe_dir/config.yaml"
 sed -i '/^database:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: sub2api-postgres/' "$probe_dir/config.yaml"
 
 mark_stage isolated_redis
-docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis "$redis_image" redis-server --save '' --appendonly no >/dev/null
+docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis "$redis_image" redis-server --save '' --appendonly no >/dev/null 2>&1
 for _ in $(seq 1 30); do
   [[ $(docker exec "$probe_redis" redis-cli PING 2>/dev/null | tr -d '\r') == PONG ]] && break
   sleep 1
@@ -203,7 +203,7 @@ sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*db:[[:space:]]*.*/  db: 0/' "$p
 mark_stage migrate_candidate
 probe_timezone=$(sed -n 's/^timezone:[[:space:]]*//p' "$probe_dir/config.yaml" | head -n1 | tr -d '"\r')
 [[ $probe_timezone =~ ^UTC$|^[a-zA-Z_+-]+(/[a-zA-Z0-9_+-]+)+$ ]]
-docker run --rm --entrypoint sh -e PROBE_TIMEZONE="$probe_timezone" "$candidate_image_id" -lc 'test -f "/usr/share/zoneinfo/$PROBE_TIMEZONE"'
+docker run --rm --entrypoint sh -e PROBE_TIMEZONE="$probe_timezone" "$candidate_image_id" -lc 'test -f "/usr/share/zoneinfo/$PROBE_TIMEZONE"' >/dev/null 2>&1
 fixture_rejected=false
 restore_completed=false
 clean_preflight=false
@@ -220,9 +220,9 @@ if [[ $profile == 195 ]]; then
     false
   fi
   fixture_rejected=true
-  docker exec sub2api-postgres sh -lc "dropdb -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null
+  docker exec sub2api-postgres sh -lc "dropdb -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1
   create_probe_database
-  docker exec -i sub2api-postgres sh -lc "pg_restore --exit-on-error -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$state_dir/probe.dump" >/dev/null
+  docker exec -i sub2api-postgres sh -lc "pg_restore --exit-on-error -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$state_dir/probe.dump" >/dev/null 2>&1
   [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT to_regclass('public.accounts') IS NOT NULL AND to_regclass('public.upstream_keys') IS NOT NULL\"") == t ]]
   [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT md5(row_to_json(k)::text) FROM upstream_keys k WHERE id=$fixture_key_id\"") == "$fixture_key_hash" ]]
   restore_completed=true
@@ -242,7 +242,7 @@ docker run -d --name "$probe_app" --network "$probe_network" \
   -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
   --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
   --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
-  -v "$probe_dir:/app/data" "$candidate_image_id" >/dev/null
+  -v "$probe_dir:/app/data" "$candidate_image_id" >/dev/null 2>&1
 for _ in $(seq 1 90); do
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]] && break
   sleep 2
