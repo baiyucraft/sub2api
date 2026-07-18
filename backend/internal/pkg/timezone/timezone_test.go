@@ -35,6 +35,15 @@ func TestInitInvalidTimezone(t *testing.T) {
 	}
 }
 
+func TestInitIANAZoneWithoutSystemDependency(t *testing.T) {
+	if err := Init("Asia/Shanghai"); err != nil {
+		t.Fatalf("Init failed with embedded IANA timezone: %v", err)
+	}
+	if Name() != "Asia/Shanghai" {
+		t.Fatalf("Name() = %q, want Asia/Shanghai", Name())
+	}
+}
+
 func TestTimeNowAffected(t *testing.T) {
 	// Reset to UTC first
 	if err := Init("UTC"); err != nil {

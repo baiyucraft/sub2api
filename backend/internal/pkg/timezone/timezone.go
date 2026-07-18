@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+	_ "time/tzdata"
 )
 
 var (
