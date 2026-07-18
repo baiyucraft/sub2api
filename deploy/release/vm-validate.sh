@@ -143,6 +143,11 @@ on_failure() {
     migration_sqlstate=$(sed -n 's/.*sqlstate=\([0-9A-Z][0-9A-Z]*\).*/\1/p' "$state_dir/migrate-candidate.log" | head -n1)
     [[ -z $migration_sqlstate || $migration_sqlstate =~ ^[0-9A-Z]{5}$ ]] || migration_sqlstate=
     [[ -n $migration_sqlstate ]] && category="migration_sqlstate_$migration_sqlstate"
+    timezone_length=$(sed -n 's/.*timezone_len=\([0-9][0-9]*\).*/\1/p' "$state_dir/migrate-candidate.log" | head -n1)
+    timezone_sha=$(sed -n 's/.*timezone_sha=\([0-9a-f][0-9a-f]*\).*/\1/p' "$state_dir/migrate-candidate.log" | head -n1)
+    [[ -z $timezone_length || $timezone_length =~ ^[0-9]+$ ]] || timezone_length=
+    [[ -z $timezone_sha || $timezone_sha =~ ^[0-9a-f]{12}$ ]] || timezone_sha=
+    [[ -n $timezone_length && -n $timezone_sha ]] && category="migration_timezone_${timezone_length}_$timezone_sha"
     grep -qi 'Failed to load migration config' "$state_dir/migrate-candidate.log" && category=migration_config
     grep -qi 'create schema_migrations\|check schema_migrations\|list migrations' "$state_dir/migrate-candidate.log" && category=migration_runner_init
     grep -qi 'acquire migrations lock\|release migrations lock' "$state_dir/migrate-candidate.log" && category=migration_advisory_lock

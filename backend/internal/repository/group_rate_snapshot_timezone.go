@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -44,11 +45,12 @@ func ensureGroupRateTimezoneSnapshots(ctx context.Context, db *sql.DB, timezoneN
 		return fmt.Errorf("group rate snapshot timezone and database are required")
 	}
 	if _, err := db.ExecContext(ctx, ensureGroupRateTimezoneSnapshotsSQL, timezoneName); err != nil {
+		timezoneHash := sha256.Sum256([]byte(timezoneName))
 		var stateError sqlStateError
 		if errors.As(err, &stateError) {
-			return fmt.Errorf("ensure group rate timezone snapshots (sqlstate=%s): %w", stateError.SQLState(), err)
+			return fmt.Errorf("ensure group rate timezone snapshots (timezone_len=%d timezone_sha=%x sqlstate=%s): %w", len(timezoneName), timezoneHash[:6], stateError.SQLState(), err)
 		}
-		return fmt.Errorf("ensure group rate timezone snapshots: %w", err)
+		return fmt.Errorf("ensure group rate timezone snapshots (timezone_len=%d timezone_sha=%x): %w", len(timezoneName), timezoneHash[:6], err)
 	}
 	return nil
 }
