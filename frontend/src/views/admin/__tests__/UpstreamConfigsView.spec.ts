@@ -10,7 +10,7 @@ const {
   listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock,
   getSettingsMock, updateSettingsMock, listSyncRunsMock, getSyncRunMock, listEventsMock,
   listIncidentsMock, listBalanceHistoryMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock,
-  listKeyRateTrendKeysMock, getKeyRateTrendMock, listKeysMock, updateKeyPlatformMock, groupsMock
+  listKeyRateTrendKeysMock, getKeyRateTrendMock, listKeysMock, updateKeyPlatformMock, updateSchedulingMock, groupsMock
 } = vi.hoisted(() => ({
   listMock: vi.fn(),
   createMock: vi.fn(),
@@ -31,6 +31,7 @@ const {
   getKeyRateTrendMock: vi.fn(),
   listKeysMock: vi.fn(),
   updateKeyPlatformMock: vi.fn(),
+  updateSchedulingMock: vi.fn(),
   groupsMock: vi.fn(),
   proxiesMock: vi.fn(),
   showErrorMock: vi.fn(),
@@ -57,7 +58,8 @@ vi.mock('@/api/admin/upstreamConfigs', () => ({
     listKeyRateTrendKeys: listKeyRateTrendKeysMock,
     getKeyRateTrend: getKeyRateTrendMock,
     listKeys: listKeysMock,
-    updateKeyPlatform: updateKeyPlatformMock
+    updateKeyPlatform: updateKeyPlatformMock,
+    updateScheduling: updateSchedulingMock
   }
 }))
 
@@ -124,6 +126,7 @@ const DataTableStub = defineComponent({
         <slot v-if="columns.find((column) => column.key === 'balance')" name="cell-balance" :row="row" />
         <slot v-if="columns.find((column) => column.key === 'upstream_concurrency')" name="cell-upstream_concurrency" :row="row" />
         <slot v-if="columns.find((column) => column.key === 'rates')" name="cell-rates" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'scheduling')" name="cell-scheduling" :row="row" />
         <slot v-if="columns.find((column) => column.key === 'auth_mode')" name="cell-auth_mode" :row="row" :value="row.auth_mode" />
         <slot v-if="columns.find((column) => column.key === 'credentials')" name="cell-credentials" :row="row" />
         <slot v-if="columns.find((column) => column.key === 'last_success_at')" name="cell-last_success_at" :row="row" :value="row.last_success_at" />
@@ -251,6 +254,7 @@ function upstreamConfig(overrides = {}) {
     recharge_rate: 1,
     balance_to_cny_rate: null,
     status: 'active',
+    scheduling_enabled: true,
     last_success_at: null,
     last_error: null,
     created_at: '2026-01-01T00:00:00Z',
@@ -320,6 +324,7 @@ describe('UpstreamConfigsView', () => {
     getKeyRateTrendMock.mockReset()
     listKeysMock.mockReset()
     updateKeyPlatformMock.mockReset()
+    updateSchedulingMock.mockReset()
     groupsMock.mockReset()
     proxiesMock.mockReset()
     showErrorMock.mockReset()
@@ -383,6 +388,7 @@ describe('UpstreamConfigsView', () => {
     })
     listKeysMock.mockResolvedValue([])
     updateKeyPlatformMock.mockResolvedValue({ id: 21, platform: 'anthropic' })
+    updateSchedulingMock.mockImplementation(async (id, enabled) => upstreamConfig({ id, scheduling_enabled: enabled }))
   })
 
   afterEach(() => {
@@ -401,7 +407,7 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="more-upstream-actions"]').element.parentElement?.className).toContain('min-w-[300px]')
     expect(wrapper.get('[data-test="actions-column-class"]').text()).toBe('min-w-[300px]')
     expect(wrapper.get('[data-test="columns"]').text()).toBe(
-      'name,provider,urls,balance,upstream_concurrency,auth_mode,credentials,last_success_at,actions'
+      'name,provider,urls,balance,upstream_concurrency,scheduling,auth_mode,credentials,last_success_at,actions'
     )
     expect(wrapper.get('[data-test="upstream-concurrency-header"] span').attributes('title')).toBe(
       'admin.upstreamConfigs.concurrency.headerTitle'
@@ -411,11 +417,36 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="pagination-component"]').exists()).toBe(true)
   })
 
+  it('updates the upstream scheduling master switch without changing account switches', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="upstream-scheduling-toggle"]').trigger('click')
+    await flushPromises()
+
+    expect(updateSchedulingMock).toHaveBeenCalledWith(10, false)
+    expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.schedulingDisabled')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.scheduling.disabled')
+  })
+
   it('uses localized balance and concurrency column labels', () => {
     expect(zhUpstreamConfigs.upstreamConfigs.columns.balance).toBe('余额')
     expect(zhUpstreamConfigs.upstreamConfigs.columns.upstreamConcurrency).toBe('并发')
     expect(enUpstreamConfigs.upstreamConfigs.columns.balance).toBe('Balance')
     expect(enUpstreamConfigs.upstreamConfigs.columns.upstreamConcurrency).toBe('Concurrency')
+  })
+
+  it('provides Chinese labels for upstream operation enums', () => {
+    const operations = zhUpstreamConfigs.upstreamConfigs.operations
+    expect(operations.eventTypes.key_actual_rate_changed).toBe('Key 实际倍率变更')
+    expect(operations.eventTypes.key_platform_conflict).toBe('Key 平台冲突')
+    expect(operations.eventTypes.group_rate_changed).toBe('远端分组倍率变更')
+    expect(operations.severity.critical).toBe('严重错误')
+    expect(operations.incidentTypes.balance_low).toBe('余额低于告警阈值')
+    expect(operations.eventTypes.unknown).toBe('其他上游事件')
+    for (const [key, label] of Object.entries(operations.eventTypes)) {
+      if (key !== 'unknown') expect(label).not.toBe(key)
+    }
   })
 
   it('shows rates when toggled and restores the current-version preference', async () => {
@@ -451,7 +482,7 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-test="columns"]').text()).toBe(
-      'name,urls,balance,upstream_concurrency,rates,auth_mode,last_success_at,actions'
+      'name,urls,balance,upstream_concurrency,rates,scheduling,auth_mode,last_success_at,actions'
     )
     expect(localStorage.getItem('upstream-config-hidden-columns')).toBe(
       JSON.stringify(['provider', 'credentials'])
@@ -1161,6 +1192,44 @@ describe('UpstreamConfigsView', () => {
     expect(listIncidentsMock).toHaveBeenCalledWith(10, 'open', 50, 0)
     expect(listBalanceHistoryMock).toHaveBeenCalledWith(10, 50, 0)
     expect(wrapper.get('[data-test="base-dialog"]').attributes('data-width')).toBe('wide')
+  })
+
+  it('localizes unknown upstream enums and never renders the backend message', async () => {
+    listEventsMock.mockResolvedValueOnce({
+      items: [{
+        id: 1,
+        config_id: 10,
+        type: 'new_backend_event_type',
+        severity: 'unexpected_severity',
+        message: 'Upstream internal exception in English',
+        payload: {},
+        created_at: '2026-07-10T00:00:00Z'
+      }],
+      total: 1
+    })
+    listIncidentsMock.mockResolvedValueOnce({
+      items: [{
+        id: 2,
+        config_id: 10,
+        type: 'new_incident_type',
+        status: 'open',
+        opened_at: '2026-07-10T00:00:00Z',
+        last_observed_at: '2026-07-10T00:00:00Z'
+      }],
+      total: 1
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="open-upstream-events"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.operations.eventTypes.unknown')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.operations.incidentTypes.unknown')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.operations.severity.unknown')
+    expect(wrapper.text()).not.toContain('new_backend_event_type')
+    expect(wrapper.text()).not.toContain('unexpected_severity')
+    expect(wrapper.text()).not.toContain('Upstream internal exception in English')
   })
 
   it('loads every operation config page and deduplicates ids', async () => {

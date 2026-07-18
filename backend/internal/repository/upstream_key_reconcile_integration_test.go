@@ -97,6 +97,8 @@ func TestApplySyncSnapshotReconcilesMissingKeysAndRespectsManualPause(t *testing
 		require.False(t, account.Schedulable)
 		require.NotNil(t, account.UpstreamStalePauseKeyID)
 	}
+	_, err = client.Account.UpdateOneID(autoRestoreAccountID).SetSchedulable(true).Save(ctx)
+	require.ErrorContains(t, err, "cannot schedule an account bound to a stale upstream key")
 
 	accountRepo := newAccountRepositoryWithSQL(client, integrationDB, nil)
 	require.NoError(t, accountRepo.SetSchedulable(ctx, manualPauseAccountID, false))

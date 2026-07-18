@@ -11,10 +11,12 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/ent/group"
 )
 
 // ChannelMonitorCreate is the builder for creating a ChannelMonitor entity.
@@ -113,6 +115,76 @@ func (_c *ChannelMonitorCreate) SetGroupName(v string) *ChannelMonitorCreate {
 func (_c *ChannelMonitorCreate) SetNillableGroupName(v *string) *ChannelMonitorCreate {
 	if v != nil {
 		_c.SetGroupName(*v)
+	}
+	return _c
+}
+
+// SetCredentialMode sets the "credential_mode" field.
+func (_c *ChannelMonitorCreate) SetCredentialMode(v channelmonitor.CredentialMode) *ChannelMonitorCreate {
+	_c.mutation.SetCredentialMode(v)
+	return _c
+}
+
+// SetNillableCredentialMode sets the "credential_mode" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableCredentialMode(v *channelmonitor.CredentialMode) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetCredentialMode(*v)
+	}
+	return _c
+}
+
+// SetGroupID sets the "group_id" field.
+func (_c *ChannelMonitorCreate) SetGroupID(v int64) *ChannelMonitorCreate {
+	_c.mutation.SetGroupID(v)
+	return _c
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableGroupID(v *int64) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetGroupID(*v)
+	}
+	return _c
+}
+
+// SetShowGroupRate sets the "show_group_rate" field.
+func (_c *ChannelMonitorCreate) SetShowGroupRate(v bool) *ChannelMonitorCreate {
+	_c.mutation.SetShowGroupRate(v)
+	return _c
+}
+
+// SetNillableShowGroupRate sets the "show_group_rate" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableShowGroupRate(v *bool) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetShowGroupRate(*v)
+	}
+	return _c
+}
+
+// SetManagedAPIKeyID sets the "managed_api_key_id" field.
+func (_c *ChannelMonitorCreate) SetManagedAPIKeyID(v int64) *ChannelMonitorCreate {
+	_c.mutation.SetManagedAPIKeyID(v)
+	return _c
+}
+
+// SetNillableManagedAPIKeyID sets the "managed_api_key_id" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableManagedAPIKeyID(v *int64) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetManagedAPIKeyID(*v)
+	}
+	return _c
+}
+
+// SetMaxProbeAttempts sets the "max_probe_attempts" field.
+func (_c *ChannelMonitorCreate) SetMaxProbeAttempts(v int) *ChannelMonitorCreate {
+	_c.mutation.SetMaxProbeAttempts(v)
+	return _c
+}
+
+// SetNillableMaxProbeAttempts sets the "max_probe_attempts" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableMaxProbeAttempts(v *int) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetMaxProbeAttempts(*v)
 	}
 	return _c
 }
@@ -260,6 +332,16 @@ func (_c *ChannelMonitorCreate) SetRequestTemplate(v *ChannelMonitorRequestTempl
 	return _c.SetRequestTemplateID(v.ID)
 }
 
+// SetGroup sets the "group" edge to the Group entity.
+func (_c *ChannelMonitorCreate) SetGroup(v *Group) *ChannelMonitorCreate {
+	return _c.SetGroupID(v.ID)
+}
+
+// SetManagedAPIKey sets the "managed_api_key" edge to the APIKey entity.
+func (_c *ChannelMonitorCreate) SetManagedAPIKey(v *APIKey) *ChannelMonitorCreate {
+	return _c.SetManagedAPIKeyID(v.ID)
+}
+
 // Mutation returns the ChannelMonitorMutation object of the builder.
 func (_c *ChannelMonitorCreate) Mutation() *ChannelMonitorMutation {
 	return _c.mutation
@@ -314,6 +396,18 @@ func (_c *ChannelMonitorCreate) defaults() {
 	if _, ok := _c.mutation.GroupName(); !ok {
 		v := channelmonitor.DefaultGroupName
 		_c.mutation.SetGroupName(v)
+	}
+	if _, ok := _c.mutation.CredentialMode(); !ok {
+		v := channelmonitor.DefaultCredentialMode
+		_c.mutation.SetCredentialMode(v)
+	}
+	if _, ok := _c.mutation.ShowGroupRate(); !ok {
+		v := channelmonitor.DefaultShowGroupRate
+		_c.mutation.SetShowGroupRate(v)
+	}
+	if _, ok := _c.mutation.MaxProbeAttempts(); !ok {
+		v := channelmonitor.DefaultMaxProbeAttempts
+		_c.mutation.SetMaxProbeAttempts(v)
 	}
 	if _, ok := _c.mutation.Enabled(); !ok {
 		v := channelmonitor.DefaultEnabled
@@ -395,6 +489,25 @@ func (_c *ChannelMonitorCreate) check() error {
 	if v, ok := _c.mutation.GroupName(); ok {
 		if err := channelmonitor.GroupNameValidator(v); err != nil {
 			return &ValidationError{Name: "group_name", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.group_name": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.CredentialMode(); !ok {
+		return &ValidationError{Name: "credential_mode", err: errors.New(`ent: missing required field "ChannelMonitor.credential_mode"`)}
+	}
+	if v, ok := _c.mutation.CredentialMode(); ok {
+		if err := channelmonitor.CredentialModeValidator(v); err != nil {
+			return &ValidationError{Name: "credential_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.credential_mode": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ShowGroupRate(); !ok {
+		return &ValidationError{Name: "show_group_rate", err: errors.New(`ent: missing required field "ChannelMonitor.show_group_rate"`)}
+	}
+	if _, ok := _c.mutation.MaxProbeAttempts(); !ok {
+		return &ValidationError{Name: "max_probe_attempts", err: errors.New(`ent: missing required field "ChannelMonitor.max_probe_attempts"`)}
+	}
+	if v, ok := _c.mutation.MaxProbeAttempts(); ok {
+		if err := channelmonitor.MaxProbeAttemptsValidator(v); err != nil {
+			return &ValidationError{Name: "max_probe_attempts", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.max_probe_attempts": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Enabled(); !ok {
@@ -497,6 +610,18 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 		_spec.SetField(channelmonitor.FieldGroupName, field.TypeString, value)
 		_node.GroupName = value
 	}
+	if value, ok := _c.mutation.CredentialMode(); ok {
+		_spec.SetField(channelmonitor.FieldCredentialMode, field.TypeEnum, value)
+		_node.CredentialMode = value
+	}
+	if value, ok := _c.mutation.ShowGroupRate(); ok {
+		_spec.SetField(channelmonitor.FieldShowGroupRate, field.TypeBool, value)
+		_node.ShowGroupRate = value
+	}
+	if value, ok := _c.mutation.MaxProbeAttempts(); ok {
+		_spec.SetField(channelmonitor.FieldMaxProbeAttempts, field.TypeInt, value)
+		_node.MaxProbeAttempts = value
+	}
 	if value, ok := _c.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)
 		_node.Enabled = value
@@ -576,6 +701,40 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.TemplateID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.GroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.GroupID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ManagedAPIKeyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.ManagedAPIKeyTable,
+			Columns: []string{channelmonitor.ManagedAPIKeyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.ManagedAPIKeyID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -741,6 +900,84 @@ func (u *ChannelMonitorUpsert) UpdateGroupName() *ChannelMonitorUpsert {
 // ClearGroupName clears the value of the "group_name" field.
 func (u *ChannelMonitorUpsert) ClearGroupName() *ChannelMonitorUpsert {
 	u.SetNull(channelmonitor.FieldGroupName)
+	return u
+}
+
+// SetCredentialMode sets the "credential_mode" field.
+func (u *ChannelMonitorUpsert) SetCredentialMode(v channelmonitor.CredentialMode) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldCredentialMode, v)
+	return u
+}
+
+// UpdateCredentialMode sets the "credential_mode" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateCredentialMode() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldCredentialMode)
+	return u
+}
+
+// SetGroupID sets the "group_id" field.
+func (u *ChannelMonitorUpsert) SetGroupID(v int64) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldGroupID, v)
+	return u
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateGroupID() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldGroupID)
+	return u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *ChannelMonitorUpsert) ClearGroupID() *ChannelMonitorUpsert {
+	u.SetNull(channelmonitor.FieldGroupID)
+	return u
+}
+
+// SetShowGroupRate sets the "show_group_rate" field.
+func (u *ChannelMonitorUpsert) SetShowGroupRate(v bool) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldShowGroupRate, v)
+	return u
+}
+
+// UpdateShowGroupRate sets the "show_group_rate" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateShowGroupRate() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldShowGroupRate)
+	return u
+}
+
+// SetManagedAPIKeyID sets the "managed_api_key_id" field.
+func (u *ChannelMonitorUpsert) SetManagedAPIKeyID(v int64) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldManagedAPIKeyID, v)
+	return u
+}
+
+// UpdateManagedAPIKeyID sets the "managed_api_key_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateManagedAPIKeyID() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldManagedAPIKeyID)
+	return u
+}
+
+// ClearManagedAPIKeyID clears the value of the "managed_api_key_id" field.
+func (u *ChannelMonitorUpsert) ClearManagedAPIKeyID() *ChannelMonitorUpsert {
+	u.SetNull(channelmonitor.FieldManagedAPIKeyID)
+	return u
+}
+
+// SetMaxProbeAttempts sets the "max_probe_attempts" field.
+func (u *ChannelMonitorUpsert) SetMaxProbeAttempts(v int) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldMaxProbeAttempts, v)
+	return u
+}
+
+// UpdateMaxProbeAttempts sets the "max_probe_attempts" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateMaxProbeAttempts() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldMaxProbeAttempts)
+	return u
+}
+
+// AddMaxProbeAttempts adds v to the "max_probe_attempts" field.
+func (u *ChannelMonitorUpsert) AddMaxProbeAttempts(v int) *ChannelMonitorUpsert {
+	u.Add(channelmonitor.FieldMaxProbeAttempts, v)
 	return u
 }
 
@@ -1063,6 +1300,97 @@ func (u *ChannelMonitorUpsertOne) UpdateGroupName() *ChannelMonitorUpsertOne {
 func (u *ChannelMonitorUpsertOne) ClearGroupName() *ChannelMonitorUpsertOne {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.ClearGroupName()
+	})
+}
+
+// SetCredentialMode sets the "credential_mode" field.
+func (u *ChannelMonitorUpsertOne) SetCredentialMode(v channelmonitor.CredentialMode) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetCredentialMode(v)
+	})
+}
+
+// UpdateCredentialMode sets the "credential_mode" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateCredentialMode() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateCredentialMode()
+	})
+}
+
+// SetGroupID sets the "group_id" field.
+func (u *ChannelMonitorUpsertOne) SetGroupID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetGroupID(v)
+	})
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateGroupID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateGroupID()
+	})
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *ChannelMonitorUpsertOne) ClearGroupID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearGroupID()
+	})
+}
+
+// SetShowGroupRate sets the "show_group_rate" field.
+func (u *ChannelMonitorUpsertOne) SetShowGroupRate(v bool) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetShowGroupRate(v)
+	})
+}
+
+// UpdateShowGroupRate sets the "show_group_rate" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateShowGroupRate() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateShowGroupRate()
+	})
+}
+
+// SetManagedAPIKeyID sets the "managed_api_key_id" field.
+func (u *ChannelMonitorUpsertOne) SetManagedAPIKeyID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetManagedAPIKeyID(v)
+	})
+}
+
+// UpdateManagedAPIKeyID sets the "managed_api_key_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateManagedAPIKeyID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateManagedAPIKeyID()
+	})
+}
+
+// ClearManagedAPIKeyID clears the value of the "managed_api_key_id" field.
+func (u *ChannelMonitorUpsertOne) ClearManagedAPIKeyID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearManagedAPIKeyID()
+	})
+}
+
+// SetMaxProbeAttempts sets the "max_probe_attempts" field.
+func (u *ChannelMonitorUpsertOne) SetMaxProbeAttempts(v int) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetMaxProbeAttempts(v)
+	})
+}
+
+// AddMaxProbeAttempts adds v to the "max_probe_attempts" field.
+func (u *ChannelMonitorUpsertOne) AddMaxProbeAttempts(v int) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.AddMaxProbeAttempts(v)
+	})
+}
+
+// UpdateMaxProbeAttempts sets the "max_probe_attempts" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateMaxProbeAttempts() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateMaxProbeAttempts()
 	})
 }
 
@@ -1575,6 +1903,97 @@ func (u *ChannelMonitorUpsertBulk) UpdateGroupName() *ChannelMonitorUpsertBulk {
 func (u *ChannelMonitorUpsertBulk) ClearGroupName() *ChannelMonitorUpsertBulk {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.ClearGroupName()
+	})
+}
+
+// SetCredentialMode sets the "credential_mode" field.
+func (u *ChannelMonitorUpsertBulk) SetCredentialMode(v channelmonitor.CredentialMode) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetCredentialMode(v)
+	})
+}
+
+// UpdateCredentialMode sets the "credential_mode" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateCredentialMode() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateCredentialMode()
+	})
+}
+
+// SetGroupID sets the "group_id" field.
+func (u *ChannelMonitorUpsertBulk) SetGroupID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetGroupID(v)
+	})
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateGroupID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateGroupID()
+	})
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *ChannelMonitorUpsertBulk) ClearGroupID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearGroupID()
+	})
+}
+
+// SetShowGroupRate sets the "show_group_rate" field.
+func (u *ChannelMonitorUpsertBulk) SetShowGroupRate(v bool) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetShowGroupRate(v)
+	})
+}
+
+// UpdateShowGroupRate sets the "show_group_rate" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateShowGroupRate() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateShowGroupRate()
+	})
+}
+
+// SetManagedAPIKeyID sets the "managed_api_key_id" field.
+func (u *ChannelMonitorUpsertBulk) SetManagedAPIKeyID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetManagedAPIKeyID(v)
+	})
+}
+
+// UpdateManagedAPIKeyID sets the "managed_api_key_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateManagedAPIKeyID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateManagedAPIKeyID()
+	})
+}
+
+// ClearManagedAPIKeyID clears the value of the "managed_api_key_id" field.
+func (u *ChannelMonitorUpsertBulk) ClearManagedAPIKeyID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearManagedAPIKeyID()
+	})
+}
+
+// SetMaxProbeAttempts sets the "max_probe_attempts" field.
+func (u *ChannelMonitorUpsertBulk) SetMaxProbeAttempts(v int) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetMaxProbeAttempts(v)
+	})
+}
+
+// AddMaxProbeAttempts adds v to the "max_probe_attempts" field.
+func (u *ChannelMonitorUpsertBulk) AddMaxProbeAttempts(v int) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.AddMaxProbeAttempts(v)
+	})
+}
+
+// UpdateMaxProbeAttempts sets the "max_probe_attempts" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateMaxProbeAttempts() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateMaxProbeAttempts()
 	})
 }
 

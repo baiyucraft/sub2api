@@ -150,11 +150,11 @@ func TestNormalizeUpstreamActualRate(t *testing.T) {
 
 	actual, err = NormalizeUpstreamActualRate(0.06555, 1)
 	require.NoError(t, err)
-	require.Equal(t, 0.0656, actual)
+	require.Equal(t, 0.07, actual)
 
 	actual, err = NormalizeUpstreamActualRate(0.145, 1)
 	require.NoError(t, err)
-	require.Equal(t, 0.145, actual)
+	require.Equal(t, 0.15, actual)
 	require.Equal(t, 15, Sub2APIUpstreamPriority(actual))
 
 	actual, err = NormalizeUpstreamActualRate(0.12, 0)

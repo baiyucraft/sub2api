@@ -122,6 +122,11 @@ func (Account) Fields() []ent.Field {
 		field.Float("rate_multiplier").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(1.0),
+		field.Float("upstream_source_rate_multiplier").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
+			Comment("Internal unrounded upstream multiplier used only for scheduler tie-breaking."),
 
 		// status: 账户状态，如 "active", "error", "disabled"
 		field.String("status").

@@ -4,9 +4,11 @@
       :overall-status="overallStatus"
       :interval-seconds="DEFAULT_INTERVAL_SECONDS"
       :window="currentWindow"
+      :rate-range="rateRange"
       :loading="loading"
       :auto-refresh="autoRefresh"
       @update:window="handleWindowChange"
+      @update:rate-range="handleRateRangeChange"
       @refresh="manualReload"
     />
 
@@ -23,6 +25,7 @@
       :show="showDetail"
       :monitor-id="detailTarget?.id ?? null"
       :title="detailTitle"
+      :rate-range="rateRange"
       @close="closeDetail"
     />
   </AppLayout>
@@ -38,6 +41,7 @@ import {
   status as fetchChannelMonitorDetail,
   type UserMonitorView,
   type UserMonitorDetail,
+  type MonitorRateRange,
 } from '@/api/channelMonitor'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import MonitorHero, {
@@ -56,6 +60,7 @@ const appStore = useAppStore()
 const items = ref<UserMonitorView[]>([])
 const loading = ref(false)
 const currentWindow = ref<MonitorWindow>('7d')
+const rateRange = ref<MonitorRateRange>('24h')
 const detailCache = reactive<Record<number, UserMonitorDetail>>({})
 const showDetail = ref(false)
 const detailTarget = ref<UserMonitorView | null>(null)
@@ -92,7 +97,7 @@ async function reload(silent = false) {
   abortController = ctrl
   if (!silent) loading.value = true
   try {
-    const res = await listChannelMonitorViews({ signal: ctrl.signal })
+    const res = await listChannelMonitorViews({ signal: ctrl.signal, rateRange: rateRange.value })
     if (ctrl.signal.aborted || abortController !== ctrl) return
     items.value = res.items || []
   } catch (err: unknown) {
@@ -120,7 +125,7 @@ async function manualReload() {
 async function loadDetail(id: number, force = false) {
   if (!force && detailCache[id]) return
   try {
-    detailCache[id] = await fetchChannelMonitorDetail(id)
+    detailCache[id] = await fetchChannelMonitorDetail(id, rateRange.value)
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
   }
@@ -137,6 +142,14 @@ async function handleWindowChange(value: MonitorWindow) {
   await ensureDetailsForWindow()
 }
 
+async function handleRateRangeChange(value: MonitorRateRange) {
+  if (rateRange.value === value) return
+  rateRange.value = value
+  for (const key of Object.keys(detailCache)) delete detailCache[Number(key)]
+  await reload(false)
+  if (showDetail.value && detailTarget.value) await loadDetail(detailTarget.value.id, true)
+}
+
 function openDetail(row: UserMonitorView) {
   detailTarget.value = row
   showDetail.value = true
@@ -149,6 +162,10 @@ function closeDetail() {
 
 watch(items, () => {
   void ensureDetailsForWindow()
+})
+
+watch(rateRange, () => {
+  if (showDetail.value && detailTarget.value) void loadDetail(detailTarget.value.id, true)
 })
 
 watch(

@@ -31,6 +31,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/groupratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
@@ -102,6 +103,8 @@ type Client struct {
 	ErrorPassthroughRule *ErrorPassthroughRuleClient
 	// Group is the client for interacting with the Group builders.
 	Group *GroupClient
+	// GroupRateSnapshot is the client for interacting with the GroupRateSnapshot builders.
+	GroupRateSnapshot *GroupRateSnapshotClient
 	// IdempotencyRecord is the client for interacting with the IdempotencyRecord builders.
 	IdempotencyRecord *IdempotencyRecordClient
 	// IdentityAdoptionDecision is the client for interacting with the IdentityAdoptionDecision builders.
@@ -189,6 +192,7 @@ func (c *Client) init() {
 	c.ChannelMonitorRequestTemplate = NewChannelMonitorRequestTemplateClient(c.config)
 	c.ErrorPassthroughRule = NewErrorPassthroughRuleClient(c.config)
 	c.Group = NewGroupClient(c.config)
+	c.GroupRateSnapshot = NewGroupRateSnapshotClient(c.config)
 	c.IdempotencyRecord = NewIdempotencyRecordClient(c.config)
 	c.IdentityAdoptionDecision = NewIdentityAdoptionDecisionClient(c.config)
 	c.PaymentAuditLog = NewPaymentAuditLogClient(c.config)
@@ -327,6 +331,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
 		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
 		Group:                         NewGroupClient(cfg),
+		GroupRateSnapshot:             NewGroupRateSnapshotClient(cfg),
 		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
 		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
 		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
@@ -392,6 +397,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
 		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
 		Group:                         NewGroupClient(cfg),
+		GroupRateSnapshot:             NewGroupRateSnapshotClient(cfg),
 		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
 		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
 		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
@@ -455,7 +461,7 @@ func (c *Client) Use(hooks ...Hook) {
 		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
 		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
 		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
-		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
+		c.ErrorPassthroughRule, c.Group, c.GroupRateSnapshot, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
@@ -477,7 +483,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
 		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
 		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
-		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
+		c.ErrorPassthroughRule, c.Group, c.GroupRateSnapshot, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
@@ -526,6 +532,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ErrorPassthroughRule.mutate(ctx, m)
 	case *GroupMutation:
 		return c.Group.mutate(ctx, m)
+	case *GroupRateSnapshotMutation:
+		return c.GroupRateSnapshot.mutate(ctx, m)
 	case *IdempotencyRecordMutation:
 		return c.IdempotencyRecord.mutate(ctx, m)
 	case *IdentityAdoptionDecisionMutation:
@@ -740,6 +748,22 @@ func (c *APIKeyClient) QueryUsageLogs(_m *APIKey) *UsageLogQuery {
 			sqlgraph.From(apikey.Table, apikey.FieldID, id),
 			sqlgraph.To(usagelog.Table, usagelog.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, apikey.UsageLogsTable, apikey.UsageLogsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryManagedChannelMonitors queries the managed_channel_monitors edge of a APIKey.
+func (c *APIKeyClient) QueryManagedChannelMonitors(_m *APIKey) *ChannelMonitorQuery {
+	query := (&ChannelMonitorClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikey.Table, apikey.FieldID, id),
+			sqlgraph.To(channelmonitor.Table, channelmonitor.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, apikey.ManagedChannelMonitorsTable, apikey.ManagedChannelMonitorsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -2368,6 +2392,38 @@ func (c *ChannelMonitorClient) QueryRequestTemplate(_m *ChannelMonitor) *Channel
 	return query
 }
 
+// QueryGroup queries the group edge of a ChannelMonitor.
+func (c *ChannelMonitorClient) QueryGroup(_m *ChannelMonitor) *GroupQuery {
+	query := (&GroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(channelmonitor.Table, channelmonitor.FieldID, id),
+			sqlgraph.To(group.Table, group.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, channelmonitor.GroupTable, channelmonitor.GroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryManagedAPIKey queries the managed_api_key edge of a ChannelMonitor.
+func (c *ChannelMonitorClient) QueryManagedAPIKey(_m *ChannelMonitor) *APIKeyQuery {
+	query := (&APIKeyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(channelmonitor.Table, channelmonitor.FieldID, id),
+			sqlgraph.To(apikey.Table, apikey.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, channelmonitor.ManagedAPIKeyTable, channelmonitor.ManagedAPIKeyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *ChannelMonitorClient) Hooks() []Hook {
 	return c.hooks.ChannelMonitor
@@ -3145,6 +3201,38 @@ func (c *GroupClient) QueryUsageLogs(_m *Group) *UsageLogQuery {
 	return query
 }
 
+// QueryRateSnapshots queries the rate_snapshots edge of a Group.
+func (c *GroupClient) QueryRateSnapshots(_m *Group) *GroupRateSnapshotQuery {
+	query := (&GroupRateSnapshotClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(groupratesnapshot.Table, groupratesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, group.RateSnapshotsTable, group.RateSnapshotsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryChannelMonitors queries the channel_monitors edge of a Group.
+func (c *GroupClient) QueryChannelMonitors(_m *Group) *ChannelMonitorQuery {
+	query := (&ChannelMonitorClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(channelmonitor.Table, channelmonitor.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, group.ChannelMonitorsTable, group.ChannelMonitorsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryAccounts queries the accounts edge of a Group.
 func (c *GroupClient) QueryAccounts(_m *Group) *AccountQuery {
 	query := (&AccountClient{config: c.config}).Query()
@@ -3233,6 +3321,155 @@ func (c *GroupClient) mutate(ctx context.Context, m *GroupMutation) (Value, erro
 		return (&GroupDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Group mutation op: %q", m.Op())
+	}
+}
+
+// GroupRateSnapshotClient is a client for the GroupRateSnapshot schema.
+type GroupRateSnapshotClient struct {
+	config
+}
+
+// NewGroupRateSnapshotClient returns a client for the GroupRateSnapshot from the given config.
+func NewGroupRateSnapshotClient(c config) *GroupRateSnapshotClient {
+	return &GroupRateSnapshotClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `groupratesnapshot.Hooks(f(g(h())))`.
+func (c *GroupRateSnapshotClient) Use(hooks ...Hook) {
+	c.hooks.GroupRateSnapshot = append(c.hooks.GroupRateSnapshot, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `groupratesnapshot.Intercept(f(g(h())))`.
+func (c *GroupRateSnapshotClient) Intercept(interceptors ...Interceptor) {
+	c.inters.GroupRateSnapshot = append(c.inters.GroupRateSnapshot, interceptors...)
+}
+
+// Create returns a builder for creating a GroupRateSnapshot entity.
+func (c *GroupRateSnapshotClient) Create() *GroupRateSnapshotCreate {
+	mutation := newGroupRateSnapshotMutation(c.config, OpCreate)
+	return &GroupRateSnapshotCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of GroupRateSnapshot entities.
+func (c *GroupRateSnapshotClient) CreateBulk(builders ...*GroupRateSnapshotCreate) *GroupRateSnapshotCreateBulk {
+	return &GroupRateSnapshotCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *GroupRateSnapshotClient) MapCreateBulk(slice any, setFunc func(*GroupRateSnapshotCreate, int)) *GroupRateSnapshotCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &GroupRateSnapshotCreateBulk{err: fmt.Errorf("calling to GroupRateSnapshotClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*GroupRateSnapshotCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &GroupRateSnapshotCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for GroupRateSnapshot.
+func (c *GroupRateSnapshotClient) Update() *GroupRateSnapshotUpdate {
+	mutation := newGroupRateSnapshotMutation(c.config, OpUpdate)
+	return &GroupRateSnapshotUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *GroupRateSnapshotClient) UpdateOne(_m *GroupRateSnapshot) *GroupRateSnapshotUpdateOne {
+	mutation := newGroupRateSnapshotMutation(c.config, OpUpdateOne, withGroupRateSnapshot(_m))
+	return &GroupRateSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *GroupRateSnapshotClient) UpdateOneID(id int64) *GroupRateSnapshotUpdateOne {
+	mutation := newGroupRateSnapshotMutation(c.config, OpUpdateOne, withGroupRateSnapshotID(id))
+	return &GroupRateSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for GroupRateSnapshot.
+func (c *GroupRateSnapshotClient) Delete() *GroupRateSnapshotDelete {
+	mutation := newGroupRateSnapshotMutation(c.config, OpDelete)
+	return &GroupRateSnapshotDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *GroupRateSnapshotClient) DeleteOne(_m *GroupRateSnapshot) *GroupRateSnapshotDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *GroupRateSnapshotClient) DeleteOneID(id int64) *GroupRateSnapshotDeleteOne {
+	builder := c.Delete().Where(groupratesnapshot.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &GroupRateSnapshotDeleteOne{builder}
+}
+
+// Query returns a query builder for GroupRateSnapshot.
+func (c *GroupRateSnapshotClient) Query() *GroupRateSnapshotQuery {
+	return &GroupRateSnapshotQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeGroupRateSnapshot},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a GroupRateSnapshot entity by its id.
+func (c *GroupRateSnapshotClient) Get(ctx context.Context, id int64) (*GroupRateSnapshot, error) {
+	return c.Query().Where(groupratesnapshot.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *GroupRateSnapshotClient) GetX(ctx context.Context, id int64) *GroupRateSnapshot {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryGroup queries the group edge of a GroupRateSnapshot.
+func (c *GroupRateSnapshotClient) QueryGroup(_m *GroupRateSnapshot) *GroupQuery {
+	query := (&GroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(groupratesnapshot.Table, groupratesnapshot.FieldID, id),
+			sqlgraph.To(group.Table, group.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, groupratesnapshot.GroupTable, groupratesnapshot.GroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *GroupRateSnapshotClient) Hooks() []Hook {
+	return c.hooks.GroupRateSnapshot
+}
+
+// Interceptors returns the client interceptors.
+func (c *GroupRateSnapshotClient) Interceptors() []Interceptor {
+	return c.inters.GroupRateSnapshot
+}
+
+func (c *GroupRateSnapshotClient) mutate(ctx context.Context, m *GroupRateSnapshotMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&GroupRateSnapshotCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&GroupRateSnapshotUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&GroupRateSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&GroupRateSnapshotDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown GroupRateSnapshot mutation op: %q", m.Op())
 	}
 }
 
@@ -8429,8 +8666,8 @@ type (
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
 		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
 		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
-		ChannelMonitorRequestTemplate, ErrorPassthroughRule, Group, IdempotencyRecord,
-		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
+		ChannelMonitorRequestTemplate, ErrorPassthroughRule, Group, GroupRateSnapshot,
+		IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
 		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
 		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
 		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent, UpstreamIncident,
@@ -8442,8 +8679,8 @@ type (
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
 		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
 		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
-		ChannelMonitorRequestTemplate, ErrorPassthroughRule, Group, IdempotencyRecord,
-		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
+		ChannelMonitorRequestTemplate, ErrorPassthroughRule, Group, GroupRateSnapshot,
+		IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
 		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
 		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
 		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent, UpstreamIncident,

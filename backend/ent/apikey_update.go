@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -97,6 +98,47 @@ func (_u *APIKeyUpdate) SetNillableName(v *string) *APIKeyUpdate {
 	if v != nil {
 		_u.SetName(*v)
 	}
+	return _u
+}
+
+// SetPurpose sets the "purpose" field.
+func (_u *APIKeyUpdate) SetPurpose(v apikey.Purpose) *APIKeyUpdate {
+	_u.mutation.SetPurpose(v)
+	return _u
+}
+
+// SetNillablePurpose sets the "purpose" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillablePurpose(v *apikey.Purpose) *APIKeyUpdate {
+	if v != nil {
+		_u.SetPurpose(*v)
+	}
+	return _u
+}
+
+// SetManagedMonitorID sets the "managed_monitor_id" field.
+func (_u *APIKeyUpdate) SetManagedMonitorID(v int64) *APIKeyUpdate {
+	_u.mutation.ResetManagedMonitorID()
+	_u.mutation.SetManagedMonitorID(v)
+	return _u
+}
+
+// SetNillableManagedMonitorID sets the "managed_monitor_id" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableManagedMonitorID(v *int64) *APIKeyUpdate {
+	if v != nil {
+		_u.SetManagedMonitorID(*v)
+	}
+	return _u
+}
+
+// AddManagedMonitorID adds value to the "managed_monitor_id" field.
+func (_u *APIKeyUpdate) AddManagedMonitorID(v int64) *APIKeyUpdate {
+	_u.mutation.AddManagedMonitorID(v)
+	return _u
+}
+
+// ClearManagedMonitorID clears the value of the "managed_monitor_id" field.
+func (_u *APIKeyUpdate) ClearManagedMonitorID() *APIKeyUpdate {
+	_u.mutation.ClearManagedMonitorID()
 	return _u
 }
 
@@ -463,6 +505,21 @@ func (_u *APIKeyUpdate) AddUsageLogs(v ...*UsageLog) *APIKeyUpdate {
 	return _u.AddUsageLogIDs(ids...)
 }
 
+// AddManagedChannelMonitorIDs adds the "managed_channel_monitors" edge to the ChannelMonitor entity by IDs.
+func (_u *APIKeyUpdate) AddManagedChannelMonitorIDs(ids ...int64) *APIKeyUpdate {
+	_u.mutation.AddManagedChannelMonitorIDs(ids...)
+	return _u
+}
+
+// AddManagedChannelMonitors adds the "managed_channel_monitors" edges to the ChannelMonitor entity.
+func (_u *APIKeyUpdate) AddManagedChannelMonitors(v ...*ChannelMonitor) *APIKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddManagedChannelMonitorIDs(ids...)
+}
+
 // Mutation returns the APIKeyMutation object of the builder.
 func (_u *APIKeyUpdate) Mutation() *APIKeyMutation {
 	return _u.mutation
@@ -499,6 +556,27 @@ func (_u *APIKeyUpdate) RemoveUsageLogs(v ...*UsageLog) *APIKeyUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveUsageLogIDs(ids...)
+}
+
+// ClearManagedChannelMonitors clears all "managed_channel_monitors" edges to the ChannelMonitor entity.
+func (_u *APIKeyUpdate) ClearManagedChannelMonitors() *APIKeyUpdate {
+	_u.mutation.ClearManagedChannelMonitors()
+	return _u
+}
+
+// RemoveManagedChannelMonitorIDs removes the "managed_channel_monitors" edge to ChannelMonitor entities by IDs.
+func (_u *APIKeyUpdate) RemoveManagedChannelMonitorIDs(ids ...int64) *APIKeyUpdate {
+	_u.mutation.RemoveManagedChannelMonitorIDs(ids...)
+	return _u
+}
+
+// RemoveManagedChannelMonitors removes "managed_channel_monitors" edges to ChannelMonitor entities.
+func (_u *APIKeyUpdate) RemoveManagedChannelMonitors(v ...*ChannelMonitor) *APIKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveManagedChannelMonitorIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -555,6 +633,11 @@ func (_u *APIKeyUpdate) check() error {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "APIKey.name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Purpose(); ok {
+		if err := apikey.PurposeValidator(v); err != nil {
+			return &ValidationError{Name: "purpose", err: fmt.Errorf(`ent: validator failed for field "APIKey.purpose": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
@@ -592,6 +675,18 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Purpose(); ok {
+		_spec.SetField(apikey.FieldPurpose, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.ManagedMonitorID(); ok {
+		_spec.SetField(apikey.FieldManagedMonitorID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedManagedMonitorID(); ok {
+		_spec.AddField(apikey.FieldManagedMonitorID, field.TypeInt64, value)
+	}
+	if _u.mutation.ManagedMonitorIDCleared() {
+		_spec.ClearField(apikey.FieldManagedMonitorID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
@@ -799,6 +894,51 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.ManagedChannelMonitorsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.ManagedChannelMonitorsTable,
+			Columns: []string{apikey.ManagedChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedManagedChannelMonitorsIDs(); len(nodes) > 0 && !_u.mutation.ManagedChannelMonitorsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.ManagedChannelMonitorsTable,
+			Columns: []string{apikey.ManagedChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ManagedChannelMonitorsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.ManagedChannelMonitorsTable,
+			Columns: []string{apikey.ManagedChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{apikey.Label}
@@ -884,6 +1024,47 @@ func (_u *APIKeyUpdateOne) SetNillableName(v *string) *APIKeyUpdateOne {
 	if v != nil {
 		_u.SetName(*v)
 	}
+	return _u
+}
+
+// SetPurpose sets the "purpose" field.
+func (_u *APIKeyUpdateOne) SetPurpose(v apikey.Purpose) *APIKeyUpdateOne {
+	_u.mutation.SetPurpose(v)
+	return _u
+}
+
+// SetNillablePurpose sets the "purpose" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillablePurpose(v *apikey.Purpose) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetPurpose(*v)
+	}
+	return _u
+}
+
+// SetManagedMonitorID sets the "managed_monitor_id" field.
+func (_u *APIKeyUpdateOne) SetManagedMonitorID(v int64) *APIKeyUpdateOne {
+	_u.mutation.ResetManagedMonitorID()
+	_u.mutation.SetManagedMonitorID(v)
+	return _u
+}
+
+// SetNillableManagedMonitorID sets the "managed_monitor_id" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableManagedMonitorID(v *int64) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetManagedMonitorID(*v)
+	}
+	return _u
+}
+
+// AddManagedMonitorID adds value to the "managed_monitor_id" field.
+func (_u *APIKeyUpdateOne) AddManagedMonitorID(v int64) *APIKeyUpdateOne {
+	_u.mutation.AddManagedMonitorID(v)
+	return _u
+}
+
+// ClearManagedMonitorID clears the value of the "managed_monitor_id" field.
+func (_u *APIKeyUpdateOne) ClearManagedMonitorID() *APIKeyUpdateOne {
+	_u.mutation.ClearManagedMonitorID()
 	return _u
 }
 
@@ -1250,6 +1431,21 @@ func (_u *APIKeyUpdateOne) AddUsageLogs(v ...*UsageLog) *APIKeyUpdateOne {
 	return _u.AddUsageLogIDs(ids...)
 }
 
+// AddManagedChannelMonitorIDs adds the "managed_channel_monitors" edge to the ChannelMonitor entity by IDs.
+func (_u *APIKeyUpdateOne) AddManagedChannelMonitorIDs(ids ...int64) *APIKeyUpdateOne {
+	_u.mutation.AddManagedChannelMonitorIDs(ids...)
+	return _u
+}
+
+// AddManagedChannelMonitors adds the "managed_channel_monitors" edges to the ChannelMonitor entity.
+func (_u *APIKeyUpdateOne) AddManagedChannelMonitors(v ...*ChannelMonitor) *APIKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddManagedChannelMonitorIDs(ids...)
+}
+
 // Mutation returns the APIKeyMutation object of the builder.
 func (_u *APIKeyUpdateOne) Mutation() *APIKeyMutation {
 	return _u.mutation
@@ -1286,6 +1482,27 @@ func (_u *APIKeyUpdateOne) RemoveUsageLogs(v ...*UsageLog) *APIKeyUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveUsageLogIDs(ids...)
+}
+
+// ClearManagedChannelMonitors clears all "managed_channel_monitors" edges to the ChannelMonitor entity.
+func (_u *APIKeyUpdateOne) ClearManagedChannelMonitors() *APIKeyUpdateOne {
+	_u.mutation.ClearManagedChannelMonitors()
+	return _u
+}
+
+// RemoveManagedChannelMonitorIDs removes the "managed_channel_monitors" edge to ChannelMonitor entities by IDs.
+func (_u *APIKeyUpdateOne) RemoveManagedChannelMonitorIDs(ids ...int64) *APIKeyUpdateOne {
+	_u.mutation.RemoveManagedChannelMonitorIDs(ids...)
+	return _u
+}
+
+// RemoveManagedChannelMonitors removes "managed_channel_monitors" edges to ChannelMonitor entities.
+func (_u *APIKeyUpdateOne) RemoveManagedChannelMonitors(v ...*ChannelMonitor) *APIKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveManagedChannelMonitorIDs(ids...)
 }
 
 // Where appends a list predicates to the APIKeyUpdate builder.
@@ -1355,6 +1572,11 @@ func (_u *APIKeyUpdateOne) check() error {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "APIKey.name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Purpose(); ok {
+		if err := apikey.PurposeValidator(v); err != nil {
+			return &ValidationError{Name: "purpose", err: fmt.Errorf(`ent: validator failed for field "APIKey.purpose": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
@@ -1409,6 +1631,18 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Purpose(); ok {
+		_spec.SetField(apikey.FieldPurpose, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.ManagedMonitorID(); ok {
+		_spec.SetField(apikey.FieldManagedMonitorID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedManagedMonitorID(); ok {
+		_spec.AddField(apikey.FieldManagedMonitorID, field.TypeInt64, value)
+	}
+	if _u.mutation.ManagedMonitorIDCleared() {
+		_spec.ClearField(apikey.FieldManagedMonitorID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
@@ -1609,6 +1843,51 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ManagedChannelMonitorsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.ManagedChannelMonitorsTable,
+			Columns: []string{apikey.ManagedChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedManagedChannelMonitorsIDs(); len(nodes) > 0 && !_u.mutation.ManagedChannelMonitorsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.ManagedChannelMonitorsTable,
+			Columns: []string{apikey.ManagedChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ManagedChannelMonitorsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.ManagedChannelMonitorsTable,
+			Columns: []string{apikey.ManagedChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

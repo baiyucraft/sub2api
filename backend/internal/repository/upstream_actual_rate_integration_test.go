@@ -32,8 +32,8 @@ func TestUpstreamActualRateTriggerDerivesAccountFields(t *testing.T) {
 		SetPlatform(service.PlatformOpenAI).
 		SetPlatformSource(service.UpstreamKeyPlatformSourceManual).
 		SetPlatformDetectionStatus(service.UpstreamKeyPlatformDetectionDetected).
-		SetSourceRateMultiplier(8).
-		SetRateMultiplier(0.8).
+		SetSourceRateMultiplier(0.025).
+		SetRateMultiplier(0.03).
 		SetStatus(service.StatusActive).
 		Save(ctx)
 	require.NoError(t, err)
@@ -59,10 +59,12 @@ func TestUpstreamActualRateTriggerDerivesAccountFields(t *testing.T) {
 		SetUpstreamKeyID(key.ID).
 		Save(ctx)
 	require.NoError(t, err)
-	require.InDelta(t, 0.8, account.RateMultiplier, 0.00001)
-	require.Equal(t, 80, account.Priority)
+	require.InDelta(t, 0.03, account.RateMultiplier, 0.00001)
+	require.NotNil(t, account.UpstreamSourceRateMultiplier)
+	require.InDelta(t, 0.025, *account.UpstreamSourceRateMultiplier, 0.00001)
+	require.Equal(t, 3, account.Priority)
 	require.NotNil(t, account.LoadFactor)
-	require.Equal(t, 100, *account.LoadFactor)
+	require.Equal(t, 400, *account.LoadFactor)
 
 	updated, err := client.Account.UpdateOneID(account.ID).
 		SetConcurrency(100).
@@ -71,10 +73,12 @@ func TestUpstreamActualRateTriggerDerivesAccountFields(t *testing.T) {
 		SetLoadFactor(7777).
 		Save(ctx)
 	require.NoError(t, err)
-	require.InDelta(t, 0.8, updated.RateMultiplier, 0.00001)
-	require.Equal(t, 80, updated.Priority)
+	require.InDelta(t, 0.03, updated.RateMultiplier, 0.00001)
+	require.NotNil(t, updated.UpstreamSourceRateMultiplier)
+	require.InDelta(t, 0.025, *updated.UpstreamSourceRateMultiplier, 0.00001)
+	require.Equal(t, 3, updated.Priority)
 	require.NotNil(t, updated.LoadFactor)
-	require.Equal(t, 50, *updated.LoadFactor)
+	require.Equal(t, 200, *updated.LoadFactor)
 }
 
 func TestUpstreamActualRateTriggerRejectsKeyWithoutActualRate(t *testing.T) {

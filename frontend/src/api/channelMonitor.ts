@@ -33,6 +33,15 @@ export interface UserMonitorView {
   availability_7d: number
   extra_models: UserMonitorExtraModel[]
   timeline: MonitorTimelinePoint[]
+  show_group_rate: boolean
+  current_public_rate?: number | null
+  rate_observed_since?: string | null
+  rate_trend?: MonitorRateTrendPoint[]
+}
+
+export interface MonitorRateTrendPoint {
+  observed_at: string
+  rate: number
 }
 
 export interface UserMonitorListResponse {
@@ -55,13 +64,20 @@ export interface UserMonitorDetail {
   provider: Provider
   group_name: string
   models: UserMonitorModelDetail[]
+  show_group_rate: boolean
+  current_public_rate?: number | null
+  rate_observed_since?: string | null
+  rate_trend?: MonitorRateTrendPoint[]
 }
+
+export type MonitorRateRange = '24h' | '7d' | '30d'
 
 /**
  * List all monitor views available to the current user.
  */
-export async function list(options?: { signal?: AbortSignal }): Promise<UserMonitorListResponse> {
+export async function list(options?: { signal?: AbortSignal; rateRange?: MonitorRateRange }): Promise<UserMonitorListResponse> {
   const { data } = await apiClient.get<UserMonitorListResponse>('/channel-monitors', {
+    params: { rate_range: options?.rateRange || '24h' },
     signal: options?.signal,
   })
   return data
@@ -70,8 +86,8 @@ export async function list(options?: { signal?: AbortSignal }): Promise<UserMoni
 /**
  * Get detailed status (multi-window availability + latency) for a single monitor.
  */
-export async function status(id: number): Promise<UserMonitorDetail> {
-  const { data } = await apiClient.get<UserMonitorDetail>(`/channel-monitors/${id}/status`)
+export async function status(id: number, rateRange: MonitorRateRange = '24h'): Promise<UserMonitorDetail> {
+  const { data } = await apiClient.get<UserMonitorDetail>(`/channel-monitors/${id}/status`, { params: { rate_range: rateRange } })
   return data
 }
 

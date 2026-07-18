@@ -3,6 +3,9 @@
 package repository
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -66,6 +69,59 @@ func (s *GroupRepoSuite) TestListWithAccountCountSort_AttachesActiveCount() {
 		indexByID[g.ID] = i
 	}
 	s.Assert().Less(indexByID[gA.ID], indexByID[gB.ID], "gA (total=2) must rank above gB (total=1) with account_count desc")
+}
+
+func (s *GroupRepoSuite) TestListWithAccountCountExcludesAccountsFromPausedUpstream() {
+	group := &service.Group{Name: "paused-upstream-count", Platform: service.PlatformOpenAI, RateMultiplier: 1, Status: service.StatusActive, SubscriptionType: service.SubscriptionTypeStandard}
+	s.Require().NoError(s.repo.Create(s.ctx, group))
+
+	config, err := s.tx.Client().UpstreamConfig.Create().
+		SetName(fmt.Sprintf("paused-upstream-%d", time.Now().UnixNano())).
+		SetProvider(service.UpstreamProviderNewAPI).
+		SetSiteURL("https://example.com").
+		SetAuthMode(service.UpstreamAuthModeCookie).
+		SetSchedulingEnabled(false).
+		Save(s.ctx)
+	s.Require().NoError(err)
+	key, err := s.tx.Client().UpstreamKey.Create().
+		SetUpstreamConfigID(config.ID).
+		SetName("paused-key").
+		SetKey(fmt.Sprintf("sk-paused-%d", time.Now().UnixNano())).
+		SetKeyHash(fmt.Sprintf("hash-paused-%d", time.Now().UnixNano())).
+		SetPlatform(service.PlatformOpenAI).
+		SetPlatformSource(service.UpstreamKeyPlatformSourceManual).
+		SetPlatformDetectionStatus(service.UpstreamKeyPlatformDetectionDetected).
+		SetSourceRateMultiplier(0.025).
+		SetRateMultiplier(0.03).
+		SetStatus(service.StatusActive).
+		Save(s.ctx)
+	s.Require().NoError(err)
+	account, err := s.tx.Client().Account.Create().
+		SetName("paused-upstream-account").
+		SetPlatform(service.PlatformOpenAI).
+		SetType(service.AccountTypeAPIKey).
+		SetCredentials(map[string]any{}).
+		SetExtra(map[string]any{}).
+		SetConcurrency(10).
+		SetStatus(service.StatusActive).
+		SetSchedulable(true).
+		SetUpstreamConfigID(config.ID).
+		SetUpstreamKeyID(key.ID).
+		Save(s.ctx)
+	s.Require().NoError(err)
+	_, err = s.tx.Client().AccountGroup.Create().SetAccountID(account.ID).SetGroupID(group.ID).SetPriority(1).Save(s.ctx)
+	s.Require().NoError(err)
+
+	groups, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 100}, service.PlatformOpenAI, service.StatusActive, "", nil)
+	s.Require().NoError(err)
+	for _, item := range groups {
+		if item.ID == group.ID {
+			s.Equal(int64(1), item.AccountCount)
+			s.Zero(item.ActiveAccountCount)
+			return
+		}
+	}
+	s.Fail("group not returned")
 }
 
 func (s *GroupRepoSuite) TestList_DefaultSortBySortOrderAsc() {

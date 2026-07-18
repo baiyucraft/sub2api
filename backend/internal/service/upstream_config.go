@@ -64,6 +64,7 @@ type UpstreamConfig struct {
 	RechargeRate            float64
 	BalanceToCNYRate        *float64
 	ClearBalanceToCNYRate   bool
+	SchedulingEnabled       *bool
 	Status                  string
 	LastError               *string
 	LastCheckedAt           *time.Time
@@ -143,7 +144,9 @@ func NormalizeUpstreamActualRate(sourceRate, rechargeRate float64) (float64, err
 	}
 	actual := decimal.NewFromFloat(sourceRate).
 		Mul(decimal.NewFromFloat(rechargeRate)).
-		Round(4).
+		Shift(2).
+		Ceil().
+		Shift(-2).
 		InexactFloat64()
 	if actual < 0 || actual > MaxUpstreamActualRate || math.IsNaN(actual) || math.IsInf(actual, 0) {
 		return 0, infraerrors.BadRequest("UPSTREAM_ACTUAL_RATE_INVALID", "upstream actual rate multiplier is out of range")
@@ -287,6 +290,10 @@ func (s *UpstreamConfigService) Create(ctx context.Context, config *UpstreamConf
 	if config != nil {
 		config.Provider = normalizeUpstreamProvider(config.Provider)
 		config.AuthMode = normalizeUpstreamAuthMode(config.AuthMode)
+		if config.SchedulingEnabled == nil {
+			enabled := true
+			config.SchedulingEnabled = &enabled
+		}
 		pruneUpstreamProviderCredentials(config.Credentials, config.Provider, config.AuthMode)
 	}
 	if err := normalizeAndValidateUpstreamConfig(config, true); err != nil {
@@ -327,6 +334,10 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 	if patch.Status != "" {
 		current.Status = patch.Status
 	}
+	if patch.SchedulingEnabled != nil {
+		enabled := *patch.SchedulingEnabled
+		current.SchedulingEnabled = &enabled
+	}
 	if patch.RechargeRate > 0 {
 		current.RechargeRate = patch.RechargeRate
 	}
@@ -347,6 +358,21 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 	if err := normalizeAndValidateUpstreamConfig(current, false); err != nil {
 		return nil, err
 	}
+	if err := s.repo.Update(ctx, current); err != nil {
+		return nil, err
+	}
+	return s.GetByID(ctx, id)
+}
+
+func (s *UpstreamConfigService) SetSchedulingEnabled(ctx context.Context, id int64, enabled bool) (*UpstreamConfig, error) {
+	current, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, ErrUpstreamConfigNotFound
+	}
+	current.SchedulingEnabled = &enabled
 	if err := s.repo.Update(ctx, current); err != nil {
 		return nil, err
 	}

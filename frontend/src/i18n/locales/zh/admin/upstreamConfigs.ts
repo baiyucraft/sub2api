@@ -11,6 +11,7 @@ export default {
       balance: '余额',
       upstreamConcurrency: '并发',
       rates: '倍率摘要',
+      scheduling: '总调度',
       authMode: '认证',
       credentials: '凭据',
       lastSync: '最近同步',
@@ -39,6 +40,13 @@ export default {
     },
     rates: {
       rateMultiplier: '实际倍率 {value}'
+    },
+    scheduling: {
+      enabled: '已开启',
+      disabled: '已暂停',
+      enabledHint: '允许调用该上游下仍开启账号调度的账号',
+      disabledHint: '已暂停该上游全部账号的实际调用，账号自身开关保持不变',
+      toggleLabel: '切换上游 {name} 的总调度开关'
     },
     providers: {
       sub2api: 'sub2api',
@@ -215,6 +223,9 @@ export default {
       loadProxiesFailed: '加载代理列表失败',
       created: '上游配置已创建',
       updated: '上游配置已更新',
+      schedulingEnabled: '已开启上游总调度',
+      schedulingDisabled: '已暂停上游总调度',
+      schedulingUpdateFailed: '切换上游总调度失败',
       savedAndSynced: '已保存并同步成功，发现 {keys} 个 Key，更新 {accounts} 个账号',
       savedAndSyncedPartial: '已保存，但同步仅部分完成：发现 {keys} 个 Key，更新 {accounts} 个账号',
       savedButSyncFailed: '已保存，但同步失败：{error}',
@@ -298,6 +309,9 @@ export default {
       observedSince: '首次观测',
       rateChanges: '倍率变化记录',
       balanceHistory: '余额历史',
+      time: '时间',
+      unknownValue: '未知',
+      requestsTooltip: '请求数：{count}',
       loadMore: '加载更多',
       syncRunSummary: '共 {total} 个上游：成功 {success}，部分成功 {partial}，失败 {failed}',
       syncRecordSummary: '远端 Key {remote}，已保存 {persisted}，更新账号 {accounts}',
@@ -325,6 +339,57 @@ export default {
       },
       rateSeries: {
         rateMultiplier: '倍率'
+      },
+      severity: {
+        info: '提示',
+        warning: '警告',
+        error: '错误',
+        critical: '严重错误',
+        unknown: '提示'
+      },
+      incidentTypes: {
+        balance_low: '余额低于告警阈值',
+        unknown: '其他上游事故'
+      },
+      eventTypes: {
+        key_actual_rate_changed: 'Key 实际倍率变更',
+        key_rate_changed: 'Key 原始倍率变更',
+        key_effective_rate_changed: 'Key 成本倍率变更',
+        key_platform_changed: 'Key 平台变更',
+        key_platform_conflict: 'Key 平台冲突',
+        key_missing_detected: '检测到 Key 缺失',
+        key_marked_stale: 'Key 已标记为失效',
+        key_restored: 'Key 已恢复',
+        key_deleted: 'Key 已删除',
+        group_added: '检测到远端分组',
+        group_rate_changed: '远端分组倍率变更',
+        group_removed: '远端分组已移除',
+        sync_failed: '上游同步失败',
+        sync_recovered: '上游同步恢复',
+        recharge_rate_changed: '充值倍率变更',
+        balance_recalculated: '上游余额重新换算',
+        currency_conversion_changed: '人民币换算来源变更',
+        unknown: '其他上游事件'
+      },
+      eventDescriptions: {
+        actualRateChanged: '实际倍率由 {old} 调整为 {current}',
+        rawRateChanged: '原始倍率由 {old} 调整为 {current}',
+        effectiveRateChanged: '成本倍率由 {old} 调整为 {current}',
+        platformChanged: '路由平台由 {old} 调整为 {current}',
+        platformConflict: '检测结果与已绑定账号冲突，已暂停 {count} 个账号',
+        keyMissing: '完整同步结果中已连续 {count} 次未发现该 Key',
+        keyStale: '该 Key 已暂停调度，共影响 {count} 个绑定账号',
+        keyRestored: '同步重新发现该 Key，相关状态已恢复',
+        keyDeleted: '超过缺失宽限期后，该 Key 已从可用列表移除',
+        groupAdded: '检测到远端分组“{group}”',
+        groupRateChanged: '远端分组“{group}”的倍率由 {old} 调整为 {current}',
+        groupRemoved: '远端分组“{group}”已被移除',
+        syncFailed: '本次上游同步未完成，请查看对应同步记录',
+        syncRecovered: '上游同步已恢复正常',
+        rechargeRateChanged: '充值倍率由 {old} 调整为 {current}',
+        balanceRecalculated: '充值倍率变化后，上游余额已按新倍率重新换算',
+        currencyConversionChanged: '同步检测到人民币换算来源发生变化',
+        unknown: '上游状态发生了新的变化'
       }
     }
   }

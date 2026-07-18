@@ -122,6 +122,10 @@ const (
 	EdgeSubscriptions = "subscriptions"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
+	// EdgeRateSnapshots holds the string denoting the rate_snapshots edge name in mutations.
+	EdgeRateSnapshots = "rate_snapshots"
+	// EdgeChannelMonitors holds the string denoting the channel_monitors edge name in mutations.
+	EdgeChannelMonitors = "channel_monitors"
 	// EdgeAccounts holds the string denoting the accounts edge name in mutations.
 	EdgeAccounts = "accounts"
 	// EdgeAllowedUsers holds the string denoting the allowed_users edge name in mutations.
@@ -160,6 +164,20 @@ const (
 	UsageLogsInverseTable = "usage_logs"
 	// UsageLogsColumn is the table column denoting the usage_logs relation/edge.
 	UsageLogsColumn = "group_id"
+	// RateSnapshotsTable is the table that holds the rate_snapshots relation/edge.
+	RateSnapshotsTable = "group_rate_snapshots"
+	// RateSnapshotsInverseTable is the table name for the GroupRateSnapshot entity.
+	// It exists in this package in order to avoid circular dependency with the "groupratesnapshot" package.
+	RateSnapshotsInverseTable = "group_rate_snapshots"
+	// RateSnapshotsColumn is the table column denoting the rate_snapshots relation/edge.
+	RateSnapshotsColumn = "group_id"
+	// ChannelMonitorsTable is the table that holds the channel_monitors relation/edge.
+	ChannelMonitorsTable = "channel_monitors"
+	// ChannelMonitorsInverseTable is the table name for the ChannelMonitor entity.
+	// It exists in this package in order to avoid circular dependency with the "channelmonitor" package.
+	ChannelMonitorsInverseTable = "channel_monitors"
+	// ChannelMonitorsColumn is the table column denoting the channel_monitors relation/edge.
+	ChannelMonitorsColumn = "group_id"
 	// AccountsTable is the table that holds the accounts relation/edge. The primary key declared below.
 	AccountsTable = "account_groups"
 	// AccountsInverseTable is the table name for the Account entity.
@@ -640,6 +658,34 @@ func ByUsageLogs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByRateSnapshotsCount orders the results by rate_snapshots count.
+func ByRateSnapshotsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newRateSnapshotsStep(), opts...)
+	}
+}
+
+// ByRateSnapshots orders the results by rate_snapshots terms.
+func ByRateSnapshots(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newRateSnapshotsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByChannelMonitorsCount orders the results by channel_monitors count.
+func ByChannelMonitorsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newChannelMonitorsStep(), opts...)
+	}
+}
+
+// ByChannelMonitors orders the results by channel_monitors terms.
+func ByChannelMonitors(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newChannelMonitorsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByAccountsCount orders the results by accounts count.
 func ByAccountsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -721,6 +767,20 @@ func newUsageLogsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UsageLogsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, UsageLogsTable, UsageLogsColumn),
+	)
+}
+func newRateSnapshotsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(RateSnapshotsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, RateSnapshotsTable, RateSnapshotsColumn),
+	)
+}
+func newChannelMonitorsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ChannelMonitorsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ChannelMonitorsTable, ChannelMonitorsColumn),
 	)
 }
 func newAccountsStep() *sqlgraph.Step {

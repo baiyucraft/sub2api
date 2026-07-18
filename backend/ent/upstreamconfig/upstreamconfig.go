@@ -43,6 +43,8 @@ const (
 	FieldBalanceToCnyRate = "balance_to_cny_rate"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
+	// FieldSchedulingEnabled holds the string denoting the scheduling_enabled field in the database.
+	FieldSchedulingEnabled = "scheduling_enabled"
 	// FieldLastError holds the string denoting the last_error field in the database.
 	FieldLastError = "last_error"
 	// FieldLastCheckedAt holds the string denoting the last_checked_at field in the database.
@@ -151,6 +153,7 @@ var Columns = []string{
 	FieldRechargeRate,
 	FieldBalanceToCnyRate,
 	FieldStatus,
+	FieldSchedulingEnabled,
 	FieldLastError,
 	FieldLastCheckedAt,
 	FieldLastSuccessAt,
@@ -202,6 +205,8 @@ var (
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	StatusValidator func(string) error
+	// DefaultSchedulingEnabled holds the default value on creation for the "scheduling_enabled" field.
+	DefaultSchedulingEnabled bool
 )
 
 // OrderOption defines the ordering options for the UpstreamConfig queries.
@@ -270,6 +275,11 @@ func ByBalanceToCnyRate(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// BySchedulingEnabled orders the results by the scheduling_enabled field.
+func BySchedulingEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSchedulingEnabled, opts...).ToFunc()
 }
 
 // ByLastError orders the results by the last_error field.

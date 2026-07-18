@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 )
 
 // 渠道监控聚合层：把 latest + availability 拼成 admin/user 视图所需的 summary / detail。
@@ -55,7 +56,11 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 //	1 次批量 latest（含 ping_latency_ms）；
 //	1 次批量 7d availability；
 //	1 次批量 timeline（主模型最近 N 条）。
-func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonitorView, error) {
+func (s *ChannelMonitorService) ListUserView(ctx context.Context, rateRange string) ([]*UserMonitorView, error) {
+	rateRange, err := ParseMonitorRateRange(rateRange)
+	if err != nil {
+		return nil, err
+	}
 	monitors, err := s.repo.ListEnabled(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled monitors: %w", err)
@@ -68,13 +73,77 @@ func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonito
 	summaries := s.BatchMonitorStatusSummary(ctx, ids, primaryByID, extrasByID)
 	latestMap := s.batchLatest(ctx, ids)
 	timelineMap := s.batchTimeline(ctx, ids, primaryByID)
+	rateTrends := s.batchPublicRateTrends(ctx, monitors, rateRange, time.Now().UTC())
 
 	views := make([]*UserMonitorView, 0, len(monitors))
 	for _, m := range monitors {
 		primaryLatest := pickLatest(latestMap[m.ID], m.PrimaryModel)
-		views = append(views, buildUserViewFromSummary(m, summaries[m.ID], primaryLatest, timelineMap[m.ID]))
+		view := buildUserViewFromSummary(m, summaries[m.ID], primaryLatest, timelineMap[m.ID])
+		applyPublicRateTrendToView(view, m, rateTrends)
+		views = append(views, view)
 	}
 	return views, nil
+}
+
+func (s *ChannelMonitorService) batchPublicRateTrends(
+	ctx context.Context,
+	monitors []*ChannelMonitor,
+	rateRange string,
+	now time.Time,
+) map[int64]PublicRateTrend {
+	groupIDs := visibleMonitorGroupIDs(monitors)
+	if len(groupIDs) == 0 {
+		return map[int64]PublicRateTrend{}
+	}
+	from := monitorRateRangeStart(rateRange, now)
+	seriesByGroup, err := s.repo.ListGroupRateSnapshots(ctx, groupIDs, from, now)
+	if err != nil {
+		slog.Warn("channel_monitor: batch load public rate trends failed", "error", err)
+		return map[int64]PublicRateTrend{}
+	}
+	out := make(map[int64]PublicRateTrend, len(seriesByGroup))
+	for groupID, series := range seriesByGroup {
+		out[groupID] = buildPublicRateTrend(series, from, now)
+	}
+	return out
+}
+
+func visibleMonitorGroupIDs(monitors []*ChannelMonitor) []int64 {
+	seen := make(map[int64]struct{}, len(monitors))
+	ids := make([]int64, 0, len(monitors))
+	for _, monitor := range monitors {
+		if monitor == nil || !monitor.ShowGroupRate || monitor.GroupID == nil {
+			continue
+		}
+		if _, exists := seen[*monitor.GroupID]; exists {
+			continue
+		}
+		seen[*monitor.GroupID] = struct{}{}
+		ids = append(ids, *monitor.GroupID)
+	}
+	return ids
+}
+
+func applyPublicRateTrendToView(
+	view *UserMonitorView,
+	monitor *ChannelMonitor,
+	trends map[int64]PublicRateTrend,
+) {
+	if view == nil || monitor == nil {
+		return
+	}
+	view.ShowGroupRate = monitor.ShowGroupRate
+	if !monitor.ShowGroupRate || monitor.GroupID == nil {
+		return
+	}
+	trend, ok := trends[*monitor.GroupID]
+	if !ok {
+		view.RateTrend = []PublicRateTrendPoint{}
+		return
+	}
+	view.CurrentPublicRate = trend.CurrentRate
+	view.RateObservedSince = trend.ObservedSince
+	view.RateTrend = trend.Points
 }
 
 // collectMonitorIndexes 把 monitors 列表按 ID 展开为聚合查询所需的三个索引结构。
@@ -129,7 +198,11 @@ func pickLatest(rows []*ChannelMonitorLatest, model string) *ChannelMonitorLates
 
 // GetUserDetail 用户只读视图：单个监控详情（每个模型 7d/15d/30d 可用率与平均延迟）。
 // 不暴露 api_key。
-func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64) (*UserMonitorDetail, error) {
+func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64, rateRange string) (*UserMonitorDetail, error) {
+	rateRange, err := ParseMonitorRateRange(rateRange)
+	if err != nil {
+		return nil, err
+	}
 	m, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -148,13 +221,25 @@ func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64) (*U
 	}
 
 	models := mergeModelDetails(m, latest, availMap)
-	return &UserMonitorDetail{
-		ID:        m.ID,
-		Name:      m.Name,
-		Provider:  m.Provider,
-		GroupName: m.GroupName,
-		Models:    models,
-	}, nil
+	detail := &UserMonitorDetail{
+		ID:            m.ID,
+		Name:          m.Name,
+		Provider:      m.Provider,
+		GroupName:     m.GroupName,
+		Models:        models,
+		ShowGroupRate: m.ShowGroupRate,
+	}
+	if m.ShowGroupRate && m.GroupID != nil {
+		trends := s.batchPublicRateTrends(ctx, []*ChannelMonitor{m}, rateRange, time.Now().UTC())
+		if trend, ok := trends[*m.GroupID]; ok {
+			detail.CurrentPublicRate = trend.CurrentRate
+			detail.RateObservedSince = trend.ObservedSince
+			detail.RateTrend = trend.Points
+		} else {
+			detail.RateTrend = []PublicRateTrendPoint{}
+		}
+	}
+	return detail, nil
 }
 
 // collectAvailabilityWindows 一次性查询 7/15/30 天三个窗口，按模型组织。

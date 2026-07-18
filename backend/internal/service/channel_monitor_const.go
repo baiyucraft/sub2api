@@ -44,6 +44,12 @@ const (
 	// monitorChallengeMin / monitorChallengeMax challenge 操作数范围。
 	monitorChallengeMin = 1
 	monitorChallengeMax = 50
+	// monitorDefaultMaxProbeAttempts 单个模型一次调度内最多发起的独立网关探测次数。
+	// 包含首次请求，因此默认值 3 表示失败后最多额外重试两次。
+	monitorDefaultMaxProbeAttempts = 3
+	monitorMinProbeAttempts        = 1
+	monitorMaxProbeAttempts        = 5
+	monitorProbeRetryDelay         = 500 * time.Millisecond
 
 	// providerOpenAIPath OpenAI Chat Completions 路径。
 	providerOpenAIPath = "/v1/chat/completions"
@@ -70,6 +76,7 @@ const (
 	MonitorStatusDegraded    = "degraded"
 	MonitorStatusFailed      = "failed"
 	MonitorStatusError       = "error"
+	MonitorStatusUnknown     = "unknown"
 
 	// monitorAvailability7Days / 15 / 30 用于聚合查询窗口。
 	monitorAvailability7Days  = 7
@@ -131,6 +138,9 @@ var (
 	)
 	ErrChannelMonitorInvalidJitter = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_JITTER", "jitter_seconds must be >= 0 and interval_seconds - jitter_seconds must be >= 15",
+	)
+	ErrChannelMonitorInvalidProbeAttempts = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_INVALID_PROBE_ATTEMPTS", "max_probe_attempts must be in [1, 5]",
 	)
 	ErrChannelMonitorInvalidEndpoint = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_ENDPOINT", "endpoint must be a valid https URL",

@@ -52,6 +52,20 @@ func validateJitter(jitterSec, intervalSec int) error {
 	return nil
 }
 
+func validateMaxProbeAttempts(attempts int) error {
+	if attempts < monitorMinProbeAttempts || attempts > monitorMaxProbeAttempts {
+		return ErrChannelMonitorInvalidProbeAttempts
+	}
+	return nil
+}
+
+func normalizeMaxProbeAttempts(attempts int) int {
+	if attempts == 0 {
+		return monitorDefaultMaxProbeAttempts
+	}
+	return attempts
+}
+
 // validateEndpoint 校验 endpoint：
 //   - scheme 强制 https（拒绝 http，避免明文凭证 + 部分 SSRF 利用面）
 //   - 必须为 origin（无 path/query/fragment），防止用户填 https://api.openai.com/v1

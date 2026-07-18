@@ -7,6 +7,15 @@
   >
     <form id="channel-monitor-form" @submit.prevent="handleSubmit" class="space-y-5">
       <div>
+        <label class="input-label">{{ t('admin.channelMonitor.form.credentialMode') }}</label>
+        <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-900/40">
+          <button type="button" :disabled="!!editing" class="rounded-md px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50" :class="form.credential_mode === 'manual' ? 'bg-white font-semibold shadow-sm dark:bg-dark-700' : 'text-gray-500'" @click="form.credential_mode = 'manual'">{{ t('admin.channelMonitor.form.credentialManual') }}</button>
+          <button type="button" :disabled="!!editing" class="rounded-md px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50" :class="form.credential_mode === 'managed_local' ? 'bg-white font-semibold shadow-sm dark:bg-dark-700' : 'text-gray-500'" @click="form.credential_mode = 'managed_local'">{{ t('admin.channelMonitor.form.credentialManagedLocal') }}</button>
+        </div>
+        <p v-if="form.credential_mode === 'managed_local'" class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.credentialManagedHint') }}</p>
+      </div>
+
+      <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.name') }} <span class="text-red-500">*</span></label>
         <input v-model="form.name" type="text" required class="input" :placeholder="t('admin.channelMonitor.form.namePlaceholder')" />
       </div>
@@ -49,16 +58,16 @@
       </div>
 
       <div>
-        <label class="input-label">{{ t('admin.channelMonitor.form.endpoint') }} <span class="text-red-500">*</span></label>
+        <label class="input-label">{{ t('admin.channelMonitor.form.endpoint') }} <span v-if="form.credential_mode === 'manual'" class="text-red-500">*</span></label>
         <div class="flex gap-2">
-          <input v-model="form.endpoint" data-testid="monitor-endpoint" type="text" required class="input flex-1" :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')" />
-          <button type="button" @click="useCurrentDomain" class="btn btn-secondary whitespace-nowrap">
+          <input v-model="form.endpoint" data-testid="monitor-endpoint" type="text" :required="form.credential_mode === 'manual'" class="input flex-1" :disabled="form.credential_mode === 'managed_local'" :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')" />
+          <button v-if="form.credential_mode === 'manual'" type="button" @click="useCurrentDomain" class="btn btn-secondary whitespace-nowrap">
             {{ t('admin.channelMonitor.form.useCurrentDomain') }}
           </button>
         </div>
       </div>
 
-      <div>
+      <div v-if="form.credential_mode === 'manual'">
         <label class="input-label">
           {{ t('admin.channelMonitor.form.apiKey') }}<span v-if="!editing" class="text-red-500"> *</span>
         </label>
@@ -66,7 +75,7 @@
           <input
             v-model="form.api_key"
             type="password"
-            :required="!editing"
+            :required="!editing && form.credential_mode === 'manual'"
             class="input flex-1"
             :placeholder="editing ? t('admin.channelMonitor.form.apiKeyEditPlaceholder') : t('admin.channelMonitor.form.apiKeyPlaceholder')"
           />
@@ -105,6 +114,17 @@
         <input v-model="form.group_name" type="text" class="input" :placeholder="t('admin.channelMonitor.form.groupNamePlaceholder')" />
       </div>
 
+      <div v-if="form.credential_mode === 'managed_local'">
+        <label class="input-label">{{ t('admin.channelMonitor.form.groupId') }} <span class="text-red-500">*</span></label>
+        <input v-model.number="form.group_id" type="number" min="1" required class="input" :placeholder="t('admin.channelMonitor.form.groupIdPlaceholder')" />
+        <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.groupIdHint') }}</p>
+      </div>
+
+      <div class="flex items-center justify-between">
+        <label class="input-label mb-0">{{ t('admin.channelMonitor.form.showGroupRate') }}</label>
+        <Toggle v-model="form.show_group_rate" />
+      </div>
+
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.intervalSeconds') }} <span class="text-red-500">*</span></label>
         <input v-model.number="form.interval_seconds" type="number" min="15" max="3600" required class="input" />
@@ -115,6 +135,12 @@
         <label class="input-label">{{ t('admin.channelMonitor.form.jitterSeconds') }}</label>
         <input v-model.number="form.jitter_seconds" type="number" min="0" :max="maxJitterSeconds" class="input" />
         <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.jitterSecondsHint') }}</p>
+      </div>
+
+      <div>
+        <label class="input-label">{{ t('admin.channelMonitor.form.maxProbeAttempts') }}</label>
+        <input v-model.number="form.max_probe_attempts" type="number" min="1" max="5" required class="input" />
+        <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.maxProbeAttemptsHint') }}</p>
       </div>
 
       <div class="flex items-center justify-between">
@@ -264,8 +290,12 @@ interface MonitorForm {
   primary_model: string
   extra_models: string[]
   group_name: string
+  group_id: number | null
+  show_group_rate: boolean
+  credential_mode: 'manual' | 'managed_local'
   interval_seconds: number
   jitter_seconds: number
+  max_probe_attempts: number
   enabled: boolean
   // 高级设置快照
   template_id: number | null
@@ -283,8 +313,12 @@ const form = reactive<MonitorForm>({
   primary_model: '',
   extra_models: [],
   group_name: '',
+  group_id: null,
+  show_group_rate: false,
+  credential_mode: 'manual',
   interval_seconds: systemDefaultInterval.value,
   jitter_seconds: 0,
+  max_probe_attempts: 3,
   enabled: true,
   template_id: null,
   extra_headers: {},
@@ -452,8 +486,12 @@ function resetForm() {
   form.primary_model = ''
   form.extra_models = []
   form.group_name = ''
+  form.group_id = null
+  form.show_group_rate = false
+  form.credential_mode = 'manual'
   form.interval_seconds = systemDefaultInterval.value
   form.jitter_seconds = 0
+  form.max_probe_attempts = 3
   form.enabled = true
   form.template_id = null
   form.extra_headers = {}
@@ -472,8 +510,12 @@ function loadFromMonitor(m: ChannelMonitor) {
   form.primary_model = m.primary_model
   form.extra_models = [...(m.extra_models || [])]
   form.group_name = m.group_name || ''
+  form.group_id = m.group_id ?? null
+  form.show_group_rate = m.show_group_rate ?? false
+  form.credential_mode = m.credential_mode || 'manual'
   form.interval_seconds = m.interval_seconds || systemDefaultInterval.value
   form.jitter_seconds = m.jitter_seconds || 0
+  form.max_probe_attempts = m.max_probe_attempts || 3
   form.enabled = m.enabled
   form.template_id = m.template_id ?? null
   form.extra_headers = { ...(m.extra_headers || {}) }
@@ -538,9 +580,13 @@ function buildPayload(): CreateParams {
     primary_model: form.primary_model.trim(),
     extra_models: form.extra_models,
     group_name: form.group_name.trim(),
+    group_id: form.group_id,
+    show_group_rate: form.show_group_rate,
+    credential_mode: form.credential_mode,
     enabled: form.enabled,
     interval_seconds: form.interval_seconds,
     jitter_seconds: form.jitter_seconds || 0,
+    max_probe_attempts: form.max_probe_attempts,
     template_id: form.template_id,
     extra_headers: form.extra_headers,
     body_override_mode: form.body_override_mode,

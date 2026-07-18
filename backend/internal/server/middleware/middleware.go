@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -58,6 +59,22 @@ func GetForcePlatformFromContext(c *gin.Context) (string, bool) {
 	}
 	platform, ok := value.(string)
 	return platform, ok
+}
+
+// attachManagedMonitorSwitchReporter exposes the internal account-switch
+// count only to managed monitoring keys. The value is written before the
+// gateway commits a response, so it also works for streaming responses.
+func attachManagedMonitorSwitchReporter(c *gin.Context, apiKey *service.APIKey) {
+	if c == nil || apiKey == nil || apiKey.Purpose != service.APIKeyPurposeManagedMonitor {
+		return
+	}
+	ctx := service.WithMonitorSwitchReporter(c.Request.Context(), func(count int) {
+		if count < 0 {
+			count = 0
+		}
+		c.Header("X-Sub2API-Monitor-Switches", strconv.Itoa(count))
+	})
+	c.Request = c.Request.WithContext(ctx)
 }
 
 // ErrorResponse 标准错误响应结构

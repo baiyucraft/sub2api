@@ -6,9 +6,10 @@
 import { apiClient } from '../client'
 
 export type Provider = 'openai' | 'anthropic' | 'gemini' | 'grok'
-export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
+export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error' | 'unknown'
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
 export type APIMode = 'chat_completions' | 'responses'
+export type CredentialMode = 'manual' | 'managed_local'
 
 export interface ChannelMonitor {
   id: number
@@ -26,10 +27,16 @@ export interface ChannelMonitor {
   primary_model: string
   extra_models: string[]
   group_name: string
+  group_id?: number | null
+  show_group_rate: boolean
+  credential_mode: CredentialMode
+  managed_api_key_id?: number | null
   enabled: boolean
   interval_seconds: number
   /** 每次调度在 interval 基础上 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔 */
   jitter_seconds: number
+  /** 每轮对单个模型最多发起的独立网关探测次数，包含首次请求 */
+  max_probe_attempts: number
   last_checked_at: string | null
   created_by: number
   created_at: string
@@ -80,9 +87,13 @@ export interface CreateParams {
   primary_model: string
   extra_models?: string[]
   group_name?: string
+  group_id?: number | null
+  show_group_rate?: boolean
+  credential_mode?: CredentialMode
   enabled?: boolean
   interval_seconds: number
   jitter_seconds?: number
+  max_probe_attempts?: number
   template_id?: number | null
   extra_headers?: Record<string, string>
   body_override_mode?: BodyOverrideMode

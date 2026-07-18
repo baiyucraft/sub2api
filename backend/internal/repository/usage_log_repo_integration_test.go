@@ -780,6 +780,7 @@ func (s *UsageLogRepoSuite) TestDashboardStats_TodayTotalsAndPerformance() {
 	s.Require().Equal(baseStats.TotalAPIKeys+2, stats.TotalAPIKeys, "TotalAPIKeys mismatch")
 	s.Require().Equal(baseStats.ActiveAPIKeys+1, stats.ActiveAPIKeys, "ActiveAPIKeys mismatch")
 	s.Require().Equal(baseStats.TotalAccounts+4, stats.TotalAccounts, "TotalAccounts mismatch")
+	s.Require().Equal(baseStats.NormalAccounts+3, stats.NormalAccounts, "NormalAccounts mismatch")
 	s.Require().Equal(baseStats.ErrorAccounts+1, stats.ErrorAccounts, "ErrorAccounts mismatch")
 	s.Require().Equal(baseStats.RateLimitAccounts+1, stats.RateLimitAccounts, "RateLimitAccounts mismatch")
 	s.Require().Equal(baseStats.OverloadAccounts+1, stats.OverloadAccounts, "OverloadAccounts mismatch")
@@ -802,6 +803,45 @@ func (s *UsageLogRepoSuite) TestDashboardStats_TodayTotalsAndPerformance() {
 	s.Require().NoError(err, "getPerformanceStats")
 	s.Require().Equal(wantRpm, stats.Rpm, "Rpm mismatch")
 	s.Require().Equal(wantTpm, stats.Tpm, "Tpm mismatch")
+}
+
+func (s *UsageLogRepoSuite) TestDashboardStats_NormalAccountsHonorsUpstreamSchedulingGate() {
+	baseStats, err := s.repo.GetDashboardStats(s.ctx)
+	s.Require().NoError(err)
+
+	enabled := s.client.UpstreamConfig.Create().
+		SetName("dashboard-enabled").
+		SetProvider(service.UpstreamProviderSub2API).
+		SetSiteURL("https://enabled.example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetSchedulingEnabled(true).
+		SaveX(s.ctx)
+	disabled := s.client.UpstreamConfig.Create().
+		SetName("dashboard-disabled").
+		SetProvider(service.UpstreamProviderSub2API).
+		SetSiteURL("https://disabled.example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetSchedulingEnabled(false).
+		SaveX(s.ctx)
+	deleted := s.client.UpstreamConfig.Create().
+		SetName("dashboard-deleted").
+		SetProvider(service.UpstreamProviderSub2API).
+		SetSiteURL("https://deleted.example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetSchedulingEnabled(true).
+		SaveX(s.ctx)
+
+	mustCreateAccount(s.T(), s.client, &service.Account{Name: "dashboard-unbound", Schedulable: true})
+	mustCreateAccount(s.T(), s.client, &service.Account{Name: "dashboard-enabled-account", Schedulable: true, UpstreamConfigID: &enabled.ID})
+	mustCreateAccount(s.T(), s.client, &service.Account{Name: "dashboard-disabled-account", Schedulable: true, UpstreamConfigID: &disabled.ID})
+	mustCreateAccount(s.T(), s.client, &service.Account{Name: "dashboard-deleted-account", Schedulable: true, UpstreamConfigID: &deleted.ID})
+	mustCreateAccount(s.T(), s.client, &service.Account{Name: "dashboard-account-toggle-off", Schedulable: false})
+	s.Require().NoError(s.client.UpstreamConfig.DeleteOneID(deleted.ID).Exec(s.ctx))
+
+	stats, err := s.repo.GetDashboardStats(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(baseStats.TotalAccounts+5, stats.TotalAccounts)
+	s.Require().Equal(baseStats.NormalAccounts+2, stats.NormalAccounts)
 }
 
 func (s *UsageLogRepoSuite) TestDashboardStatsWithRange_Fallback() {

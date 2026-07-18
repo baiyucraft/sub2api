@@ -1027,6 +1027,59 @@ func (s *AccountRepoSuite) TestGetByIDsHydratesUpstreamBoundCredentials() {
 	s.Require().Equal(upstreamKey, gotByIDs[0].GetCredential("api_key"))
 }
 
+func (s *AccountRepoSuite) TestListUpstreamSchedulingEnabledAccountIDs() {
+	enabled := s.client.UpstreamConfig.Create().
+		SetName("gate-enabled").
+		SetProvider(service.UpstreamProviderSub2API).
+		SetSiteURL("https://enabled.example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetSchedulingEnabled(true).
+		SaveX(s.ctx)
+	disabled := s.client.UpstreamConfig.Create().
+		SetName("gate-disabled").
+		SetProvider(service.UpstreamProviderSub2API).
+		SetSiteURL("https://disabled.example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetSchedulingEnabled(false).
+		SaveX(s.ctx)
+	deleted := s.client.UpstreamConfig.Create().
+		SetName("gate-deleted").
+		SetProvider(service.UpstreamProviderSub2API).
+		SetSiteURL("https://deleted.example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetSchedulingEnabled(true).
+		SaveX(s.ctx)
+
+	enabledAccount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "gate-enabled-account", UpstreamConfigID: &enabled.ID})
+	disabledAccount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "gate-disabled-account", UpstreamConfigID: &disabled.ID})
+	deletedAccount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "gate-deleted-account", UpstreamConfigID: &deleted.ID})
+	unboundAccount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "gate-unbound-account"})
+	s.Require().NoError(s.client.UpstreamConfig.DeleteOneID(deleted.ID).Exec(s.ctx))
+
+	allowed, err := s.repo.ListUpstreamSchedulingEnabledAccountIDs(s.ctx, []int64{
+		enabledAccount.ID,
+		disabledAccount.ID,
+		deletedAccount.ID,
+		unboundAccount.ID,
+	})
+	s.Require().NoError(err)
+	s.Require().Equal([]int64{enabledAccount.ID}, allowed)
+
+	opsAccounts, err := s.repo.ListOpsAccountsForStats(s.ctx, "", nil)
+	s.Require().NoError(err)
+	opsByID := make(map[int64]service.Account, len(opsAccounts))
+	for _, account := range opsAccounts {
+		opsByID[account.ID] = account
+	}
+	s.Require().NotNil(opsByID[enabledAccount.ID].UpstreamSchedulingEnabled)
+	s.Require().True(*opsByID[enabledAccount.ID].UpstreamSchedulingEnabled)
+	s.Require().NotNil(opsByID[disabledAccount.ID].UpstreamSchedulingEnabled)
+	s.Require().False(*opsByID[disabledAccount.ID].UpstreamSchedulingEnabled)
+	s.Require().NotNil(opsByID[deletedAccount.ID].UpstreamSchedulingEnabled)
+	s.Require().False(*opsByID[deletedAccount.ID].UpstreamSchedulingEnabled)
+	s.Require().Nil(opsByID[unboundAccount.ID].UpstreamSchedulingEnabled)
+}
+
 func (s *AccountRepoSuite) TestUpstreamBoundAccountProxyOnlyComesFromUpstreamConfig() {
 	dirtyProxy := mustCreateProxy(s.T(), s.client, &service.Proxy{Name: "dirty-account-proxy"})
 	cfgProxy := mustCreateProxy(s.T(), s.client, &service.Proxy{Name: "upstream-config-proxy"})

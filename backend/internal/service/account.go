@@ -56,21 +56,27 @@ type Account struct {
 	UpstreamConfigID        *int64
 	UpstreamKeyID           *int64
 	UpstreamSiteURL         *string // 仅管理端展示使用，不参与转发
-	UpstreamStalePauseKeyID *int64
-	UpstreamStalePausedAt   *time.Time
-	Concurrency             int
-	Priority                int
+	// UpstreamSchedulingEnabled is hydrated from the parent upstream config.
+	// nil keeps old scheduler snapshots compatible and means no parent gate.
+	UpstreamSchedulingEnabled *bool
+	UpstreamStalePauseKeyID   *int64
+	UpstreamStalePausedAt     *time.Time
+	Concurrency               int
+	Priority                  int
 	// RateMultiplier 账号计费倍率（>=0，允许 0 表示该账号计费为 0）。
 	// 使用指针用于兼容旧版本调度缓存（Redis）中缺字段的情况：nil 表示按 1.0 处理。
-	RateMultiplier     *float64
-	LoadFactor         *int // 调度负载因子；nil 表示使用 Concurrency
-	Status             string
-	ErrorMessage       string
-	LastUsedAt         *time.Time
-	ExpiresAt          *time.Time
-	AutoPauseOnExpired bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	RateMultiplier *float64
+	// UpstreamSourceRateMultiplier is the provider's unrounded multiplier.
+	// It is internal-only and breaks ties between equal billing priorities.
+	UpstreamSourceRateMultiplier *float64
+	LoadFactor                   *int // 调度负载因子；nil 表示使用 Concurrency
+	Status                       string
+	ErrorMessage                 string
+	LastUsedAt                   *time.Time
+	ExpiresAt                    *time.Time
+	AutoPauseOnExpired           bool
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
 
 	Schedulable bool
 
@@ -214,6 +220,46 @@ func (a *Account) BillingRateMultiplier() float64 {
 	return *a.RateMultiplier
 }
 
+// compareAccountSchedulingTier compares the stable scheduling tier before
+// load/LRU signals: billing priority first, then the unrounded upstream rate.
+func compareAccountSchedulingTier(left, right *Account) int {
+	if left == nil || right == nil {
+		return 0
+	}
+	if left.Priority < right.Priority {
+		return -1
+	}
+	if left.Priority > right.Priority {
+		return 1
+	}
+	leftRate, leftOK := upstreamSourceSchedulingRate(left)
+	rightRate, rightOK := upstreamSourceSchedulingRate(right)
+	if leftOK != rightOK {
+		if leftOK {
+			return -1
+		}
+		return 1
+	}
+	if !leftOK || leftRate == rightRate {
+		return 0
+	}
+	if leftRate < rightRate {
+		return -1
+	}
+	return 1
+}
+
+func upstreamSourceSchedulingRate(account *Account) (float64, bool) {
+	if account == nil || (!account.IsUpstreamBound() && !account.IsSub2APIUpstream()) || account.UpstreamSourceRateMultiplier == nil {
+		return 0, false
+	}
+	rate := *account.UpstreamSourceRateMultiplier
+	if rate < 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return 0, false
+	}
+	return rate, true
+}
+
 func (a *Account) EffectiveLoadFactor() int {
 	if a == nil {
 		return 1
@@ -267,6 +313,9 @@ func (a *Account) ApplyUpstreamAutoLoadFactor() bool {
 
 func (a *Account) IsSchedulable() bool {
 	if !a.IsActive() || !a.Schedulable {
+		return false
+	}
+	if a.UpstreamSchedulingEnabled != nil && !*a.UpstreamSchedulingEnabled {
 		return false
 	}
 	now := time.Now()

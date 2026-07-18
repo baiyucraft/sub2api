@@ -28,22 +28,27 @@ const (
 
 // ChannelMonitor 渠道监控配置（service 层模型，不直接暴露 ent 类型）。
 type ChannelMonitor struct {
-	ID              int64
-	Name            string
-	Provider        string
-	APIMode         string
-	Endpoint        string
-	APIKey          string // 解密后的明文 API Key（仅在 service 内部使用，handler 层不应直接序列化返回）
-	PrimaryModel    string
-	ExtraModels     []string
-	GroupName       string
-	Enabled         bool
-	IntervalSeconds int
-	JitterSeconds   int // 每次调度 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔
-	LastCheckedAt   *time.Time
-	CreatedBy       int64
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID               int64
+	Name             string
+	Provider         string
+	APIMode          string
+	Endpoint         string
+	APIKey           string // 解密后的明文 API Key（仅在 service 内部使用，handler 层不应直接序列化返回）
+	PrimaryModel     string
+	ExtraModels      []string
+	GroupName        string
+	GroupID          *int64
+	ShowGroupRate    bool
+	CredentialMode   string
+	ManagedAPIKeyID  *int64
+	Enabled          bool
+	IntervalSeconds  int
+	JitterSeconds    int // 每次调度 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔
+	MaxProbeAttempts int // 包含首次请求，范围 1~5
+	LastCheckedAt    *time.Time
+	CreatedBy        int64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 
 	// 请求自定义快照（来自模板拷贝 or 用户手填，运行时直接读取）
 	TemplateID       *int64            // 仅用于 UI 分组 + 一键应用，运行时不用
@@ -81,9 +86,13 @@ type ChannelMonitorCreateParams struct {
 	PrimaryModel     string
 	ExtraModels      []string
 	GroupName        string
+	GroupID          *int64
+	ShowGroupRate    bool
+	CredentialMode   string
 	Enabled          bool
 	IntervalSeconds  int
 	JitterSeconds    int
+	MaxProbeAttempts int
 	CreatedBy        int64
 	TemplateID       *int64
 	ExtraHeaders     map[string]string
@@ -93,17 +102,21 @@ type ChannelMonitorCreateParams struct {
 
 // ChannelMonitorUpdateParams 更新参数（指针字段表示"未提供则不更新"）。
 type ChannelMonitorUpdateParams struct {
-	Name            *string
-	Provider        *string
-	APIMode         *string
-	Endpoint        *string
-	APIKey          *string // 空字符串表示不修改；非空字符串覆盖
-	PrimaryModel    *string
-	ExtraModels     *[]string
-	GroupName       *string
-	Enabled         *bool
-	IntervalSeconds *int
-	JitterSeconds   *int
+	Name             *string
+	Provider         *string
+	APIMode          *string
+	Endpoint         *string
+	APIKey           *string // 空字符串表示不修改；非空字符串覆盖
+	PrimaryModel     *string
+	ExtraModels      *[]string
+	GroupName        *string
+	GroupID          *int64
+	ClearGroup       bool
+	ShowGroupRate    *bool
+	Enabled          *bool
+	IntervalSeconds  *int
+	JitterSeconds    *int
+	MaxProbeAttempts *int
 	// 自定义快照字段：指针为 nil 表示不更新，非 nil 覆盖
 	// TemplateID *(*int64)：用 ** 表达三态：nil=不更新；&nil=清空；&&id=设为 id。
 	// 简化处理：用 ClearTemplate 显式标志 + TemplateID（普通指针）
@@ -117,11 +130,14 @@ type ChannelMonitorUpdateParams struct {
 // CheckResult 单个模型一次检测的结果。
 type CheckResult struct {
 	Model         string
-	Status        string // operational / degraded / failed / error
+	Status        string // operational / degraded / failed / error / unknown
 	LatencyMs     *int
 	PingLatencyMs *int
 	Message       string
 	CheckedAt     time.Time
+	// AccountSwitchCount is internal monitor metadata and is never returned
+	// by the public monitor APIs.
+	AccountSwitchCount int `json:"-"`
 }
 
 // UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7d 可用率 + 附加模型最近状态）。
@@ -137,6 +153,10 @@ type UserMonitorView struct {
 	Availability7d       float64 // 0-100
 	ExtraModels          []ExtraModelStatus
 	Timeline             []UserMonitorTimelinePoint // 主模型最近 N 个历史点（按 checked_at DESC，最新在前）
+	ShowGroupRate        bool
+	CurrentPublicRate    *float64
+	RateObservedSince    *time.Time
+	RateTrend            []PublicRateTrendPoint
 }
 
 // UserMonitorTimelinePoint 用户视图 timeline 单点数据（去除 message 以减小响应体）。
@@ -156,11 +176,15 @@ type ExtraModelStatus struct {
 
 // UserMonitorDetail 用户只读视图：监控详情（含全部模型 7d/15d/30d 可用率与平均延迟）。
 type UserMonitorDetail struct {
-	ID        int64
-	Name      string
-	Provider  string
-	GroupName string
-	Models    []ModelDetail
+	ID                int64
+	Name              string
+	Provider          string
+	GroupName         string
+	Models            []ModelDetail
+	ShowGroupRate     bool
+	CurrentPublicRate *float64
+	RateObservedSince *time.Time
+	RateTrend         []PublicRateTrendPoint
 }
 
 // ModelDetail 单个模型的可用率/延迟统计。

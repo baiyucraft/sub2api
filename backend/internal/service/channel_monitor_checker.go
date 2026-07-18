@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
 
@@ -67,7 +69,8 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	mode := bodyOverrideMode(opts)
 
 	start := time.Now()
-	respText, rawBody, statusCode, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
+	respText, rawBody, statusCode, switchCount, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
+	res.AccountSwitchCount = switchCount
 	latency := time.Since(start)
 	latencyMs := int(latency / time.Millisecond)
 	res.LatencyMs = &latencyMs
@@ -107,9 +110,72 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	return finalizeOperationalOrDegraded(res, latency, latencyMs)
 }
 
+// runCheckForModelWithRetry 在完整网关请求失败后重新发起独立探测。
+// runCheckForModel 每次都会创建新 challenge；callProvider 也会为每条 HTTP 请求
+// 生成新的客户端请求 ID，因此本站网关会把每次尝试作为独立 usage 处理。
+func runCheckForModelWithRetry(
+	ctx context.Context,
+	provider, endpoint, apiKey, model string,
+	opts *CheckOptions,
+	maxAttempts int,
+	retryDelay time.Duration,
+) *CheckResult {
+	maxAttempts = normalizeMaxProbeAttempts(maxAttempts)
+	if maxAttempts < monitorMinProbeAttempts || maxAttempts > monitorMaxProbeAttempts {
+		maxAttempts = monitorDefaultMaxProbeAttempts
+	}
+	var last *CheckResult
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		last = runCheckForModel(ctx, provider, endpoint, apiKey, model, opts)
+		if last.Status == MonitorStatusOperational || last.Status == MonitorStatusDegraded {
+			if attempt > 1 {
+				last.Status = MonitorStatusDegraded
+				last.Message = probeRetrySuccessMessage(attempt, last.Message)
+			}
+			return last
+		}
+		if attempt == maxAttempts {
+			break
+		}
+		if !waitForProbeRetry(ctx, retryDelay) {
+			last.Status = MonitorStatusError
+			last.Message = truncateMessage("探测重试已取消")
+			return last
+		}
+	}
+	return last
+}
+
+func waitForProbeRetry(ctx context.Context, delay time.Duration) bool {
+	if delay <= 0 {
+		return ctx.Err() == nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func probeRetrySuccessMessage(attempt int, detail string) string {
+	prefix := fmt.Sprintf("第 %d 次探测成功", attempt)
+	if strings.TrimSpace(detail) == "" {
+		return truncateMessage(prefix)
+	}
+	return truncateMessage(prefix + "；" + detail)
+}
+
 // finalizeOperationalOrDegraded 负责走到最后一步的 operational/degraded 判定。
 // 拆出来是为了让 runCheckForModel 不超过 30 行。
 func finalizeOperationalOrDegraded(res *CheckResult, latency time.Duration, latencyMs int) *CheckResult {
+	if res.AccountSwitchCount > 0 {
+		res.Status = MonitorStatusDegraded
+		res.Message = truncateMessage(fmt.Sprintf("已换号 %d 次后成功", res.AccountSwitchCount))
+		return res
+	}
 	if latency >= monitorDegradedThreshold {
 		res.Status = MonitorStatusDegraded
 		res.Message = truncateMessage(fmt.Sprintf("slow response: %dms", latencyMs))
@@ -271,29 +337,30 @@ func isSupportedProvider(p string) bool {
 //   - rawBody: 完整响应体的字符串形式（已被 monitorResponseMaxBytes 截断），用于错误路径保留上游真实回包
 //   - status: HTTP 状态码
 //   - err: 网络 / 序列化错误
-func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt string, opts *CheckOptions) (extractedText, rawBody string, status int, err error) {
+func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt string, opts *CheckOptions) (extractedText, rawBody string, status, switchCount int, err error) {
 	requestedAPIMode := checkAPIMode(opts)
 	if err := validateAPIMode(provider, requestedAPIMode); err != nil {
-		return "", "", 0, err
+		return "", "", 0, 0, err
 	}
 	adapter, apiMode, ok := providerAdapterFor(provider, requestedAPIMode)
 	if !ok {
-		return "", "", 0, fmt.Errorf("unsupported provider %q", provider)
+		return "", "", 0, 0, fmt.Errorf("unsupported provider %q", provider)
 	}
 	body, err := buildRequestBody(adapter, provider, apiMode, model, prompt, opts)
 	if err != nil {
-		return "", "", 0, err
+		return "", "", 0, 0, err
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
+	headers["X-Client-Request-ID"] = uuid.NewString()
 	full := joinURL(endpoint, adapter.buildPath(model))
-	respBytes, status, err := postRawJSON(ctx, full, body, headers)
+	respBytes, status, switchCount, err := postRawJSON(ctx, full, body, headers)
 	if err != nil {
-		return "", "", status, err
+		return "", "", status, 0, err
 	}
 	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
-		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
+		return extractOpenAIResponsesText(respBytes), string(respBytes), status, switchCount, nil
 	}
-	return gjson.GetBytes(respBytes, adapter.textPath).String(), string(respBytes), status, nil
+	return gjson.GetBytes(respBytes, adapter.textPath).String(), string(respBytes), status, switchCount, nil
 }
 
 // extractOpenAIResponsesText 聚合 Responses API 的最终 assistant 文本。
@@ -476,10 +543,10 @@ func hasNonEmptyBodyValue(v any) bool {
 
 // postRawJSON 发送 POST + 已序列化好的 JSON 字节，限制响应体大小，返回响应字节、HTTP status、错误。
 // adapter 自行 marshal 是为了精确控制字段顺序与类型，所以这里直接收 []byte 而不是 any。
-func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string) ([]byte, int, error) {
+func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string) ([]byte, int, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
 	if err != nil {
-		return nil, 0, fmt.Errorf("build request: %w", err)
+		return nil, 0, 0, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -489,15 +556,21 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 
 	resp, err := monitorHTTPClient.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("do request: %w", err)
+		return nil, 0, 0, fmt.Errorf("do request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, monitorResponseMaxBytes))
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("read body: %w", err)
+		return nil, resp.StatusCode, 0, fmt.Errorf("read body: %w", err)
 	}
-	return respBody, resp.StatusCode, nil
+	switchCount := 0
+	if raw := strings.TrimSpace(resp.Header.Get("X-Sub2API-Monitor-Switches")); raw != "" {
+		if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed > 0 {
+			switchCount = parsed
+		}
+	}
+	return respBody, resp.StatusCode, switchCount, nil
 }
 
 // joinURL 把 base origin 与 path 拼成完整 URL。

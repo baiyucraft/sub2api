@@ -36,12 +36,14 @@ export const STATUS_OPERATIONAL: MonitorStatus = 'operational'
 export const STATUS_DEGRADED: MonitorStatus = 'degraded'
 export const STATUS_FAILED: MonitorStatus = 'failed'
 export const STATUS_ERROR: MonitorStatus = 'error'
+export const STATUS_UNKNOWN: MonitorStatus = 'unknown'
 
 export const MONITOR_STATUSES: readonly MonitorStatus[] = [
   STATUS_OPERATIONAL,
   STATUS_DEGRADED,
   STATUS_FAILED,
   STATUS_ERROR,
+  STATUS_UNKNOWN,
 ]
 
 /** Default polling interval (seconds) for new monitors. */

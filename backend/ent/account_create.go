@@ -254,6 +254,20 @@ func (_c *AccountCreate) SetNillableRateMultiplier(v *float64) *AccountCreate {
 	return _c
 }
 
+// SetUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field.
+func (_c *AccountCreate) SetUpstreamSourceRateMultiplier(v float64) *AccountCreate {
+	_c.mutation.SetUpstreamSourceRateMultiplier(v)
+	return _c
+}
+
+// SetNillableUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableUpstreamSourceRateMultiplier(v *float64) *AccountCreate {
+	if v != nil {
+		_c.SetUpstreamSourceRateMultiplier(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *AccountCreate) SetStatus(v string) *AccountCreate {
 	_c.mutation.SetStatus(v)
@@ -833,6 +847,10 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		_spec.SetField(account.FieldRateMultiplier, field.TypeFloat64, value)
 		_node.RateMultiplier = value
 	}
+	if value, ok := _c.mutation.UpstreamSourceRateMultiplier(); ok {
+		_spec.SetField(account.FieldUpstreamSourceRateMultiplier, field.TypeFloat64, value)
+		_node.UpstreamSourceRateMultiplier = &value
+	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(account.FieldStatus, field.TypeString, value)
 		_node.Status = value
@@ -1384,6 +1402,30 @@ func (u *AccountUpsert) UpdateRateMultiplier() *AccountUpsert {
 // AddRateMultiplier adds v to the "rate_multiplier" field.
 func (u *AccountUpsert) AddRateMultiplier(v float64) *AccountUpsert {
 	u.Add(account.FieldRateMultiplier, v)
+	return u
+}
+
+// SetUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field.
+func (u *AccountUpsert) SetUpstreamSourceRateMultiplier(v float64) *AccountUpsert {
+	u.Set(account.FieldUpstreamSourceRateMultiplier, v)
+	return u
+}
+
+// UpdateUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateUpstreamSourceRateMultiplier() *AccountUpsert {
+	u.SetExcluded(account.FieldUpstreamSourceRateMultiplier)
+	return u
+}
+
+// AddUpstreamSourceRateMultiplier adds v to the "upstream_source_rate_multiplier" field.
+func (u *AccountUpsert) AddUpstreamSourceRateMultiplier(v float64) *AccountUpsert {
+	u.Add(account.FieldUpstreamSourceRateMultiplier, v)
+	return u
+}
+
+// ClearUpstreamSourceRateMultiplier clears the value of the "upstream_source_rate_multiplier" field.
+func (u *AccountUpsert) ClearUpstreamSourceRateMultiplier() *AccountUpsert {
+	u.SetNull(account.FieldUpstreamSourceRateMultiplier)
 	return u
 }
 
@@ -2050,6 +2092,34 @@ func (u *AccountUpsertOne) AddRateMultiplier(v float64) *AccountUpsertOne {
 func (u *AccountUpsertOne) UpdateRateMultiplier() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field.
+func (u *AccountUpsertOne) SetUpstreamSourceRateMultiplier(v float64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetUpstreamSourceRateMultiplier(v)
+	})
+}
+
+// AddUpstreamSourceRateMultiplier adds v to the "upstream_source_rate_multiplier" field.
+func (u *AccountUpsertOne) AddUpstreamSourceRateMultiplier(v float64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddUpstreamSourceRateMultiplier(v)
+	})
+}
+
+// UpdateUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateUpstreamSourceRateMultiplier() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateUpstreamSourceRateMultiplier()
+	})
+}
+
+// ClearUpstreamSourceRateMultiplier clears the value of the "upstream_source_rate_multiplier" field.
+func (u *AccountUpsertOne) ClearUpstreamSourceRateMultiplier() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearUpstreamSourceRateMultiplier()
 	})
 }
 
@@ -2926,6 +2996,34 @@ func (u *AccountUpsertBulk) AddRateMultiplier(v float64) *AccountUpsertBulk {
 func (u *AccountUpsertBulk) UpdateRateMultiplier() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field.
+func (u *AccountUpsertBulk) SetUpstreamSourceRateMultiplier(v float64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetUpstreamSourceRateMultiplier(v)
+	})
+}
+
+// AddUpstreamSourceRateMultiplier adds v to the "upstream_source_rate_multiplier" field.
+func (u *AccountUpsertBulk) AddUpstreamSourceRateMultiplier(v float64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddUpstreamSourceRateMultiplier(v)
+	})
+}
+
+// UpdateUpstreamSourceRateMultiplier sets the "upstream_source_rate_multiplier" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateUpstreamSourceRateMultiplier() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateUpstreamSourceRateMultiplier()
+	})
+}
+
+// ClearUpstreamSourceRateMultiplier clears the value of the "upstream_source_rate_multiplier" field.
+func (u *AccountUpsertBulk) ClearUpstreamSourceRateMultiplier() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearUpstreamSourceRateMultiplier()
 	})
 }
 

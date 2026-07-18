@@ -95,6 +95,26 @@ func GroupName(v string) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldGroupName, v))
 }
 
+// GroupID applies equality check predicate on the "group_id" field. It's identical to GroupIDEQ.
+func GroupID(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldGroupID, v))
+}
+
+// ShowGroupRate applies equality check predicate on the "show_group_rate" field. It's identical to ShowGroupRateEQ.
+func ShowGroupRate(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldShowGroupRate, v))
+}
+
+// ManagedAPIKeyID applies equality check predicate on the "managed_api_key_id" field. It's identical to ManagedAPIKeyIDEQ.
+func ManagedAPIKeyID(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldManagedAPIKeyID, v))
+}
+
+// MaxProbeAttempts applies equality check predicate on the "max_probe_attempts" field. It's identical to MaxProbeAttemptsEQ.
+func MaxProbeAttempts(v int) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldMaxProbeAttempts, v))
+}
+
 // Enabled applies equality check predicate on the "enabled" field. It's identical to EnabledEQ.
 func Enabled(v bool) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldEnabled, v))
@@ -630,6 +650,136 @@ func GroupNameContainsFold(v string) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldContainsFold(FieldGroupName, v))
 }
 
+// CredentialModeEQ applies the EQ predicate on the "credential_mode" field.
+func CredentialModeEQ(v CredentialMode) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldCredentialMode, v))
+}
+
+// CredentialModeNEQ applies the NEQ predicate on the "credential_mode" field.
+func CredentialModeNEQ(v CredentialMode) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldCredentialMode, v))
+}
+
+// CredentialModeIn applies the In predicate on the "credential_mode" field.
+func CredentialModeIn(vs ...CredentialMode) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIn(FieldCredentialMode, vs...))
+}
+
+// CredentialModeNotIn applies the NotIn predicate on the "credential_mode" field.
+func CredentialModeNotIn(vs ...CredentialMode) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotIn(FieldCredentialMode, vs...))
+}
+
+// GroupIDEQ applies the EQ predicate on the "group_id" field.
+func GroupIDEQ(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldGroupID, v))
+}
+
+// GroupIDNEQ applies the NEQ predicate on the "group_id" field.
+func GroupIDNEQ(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldGroupID, v))
+}
+
+// GroupIDIn applies the In predicate on the "group_id" field.
+func GroupIDIn(vs ...int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIn(FieldGroupID, vs...))
+}
+
+// GroupIDNotIn applies the NotIn predicate on the "group_id" field.
+func GroupIDNotIn(vs ...int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotIn(FieldGroupID, vs...))
+}
+
+// GroupIDIsNil applies the IsNil predicate on the "group_id" field.
+func GroupIDIsNil() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIsNull(FieldGroupID))
+}
+
+// GroupIDNotNil applies the NotNil predicate on the "group_id" field.
+func GroupIDNotNil() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotNull(FieldGroupID))
+}
+
+// ShowGroupRateEQ applies the EQ predicate on the "show_group_rate" field.
+func ShowGroupRateEQ(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldShowGroupRate, v))
+}
+
+// ShowGroupRateNEQ applies the NEQ predicate on the "show_group_rate" field.
+func ShowGroupRateNEQ(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldShowGroupRate, v))
+}
+
+// ManagedAPIKeyIDEQ applies the EQ predicate on the "managed_api_key_id" field.
+func ManagedAPIKeyIDEQ(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldManagedAPIKeyID, v))
+}
+
+// ManagedAPIKeyIDNEQ applies the NEQ predicate on the "managed_api_key_id" field.
+func ManagedAPIKeyIDNEQ(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldManagedAPIKeyID, v))
+}
+
+// ManagedAPIKeyIDIn applies the In predicate on the "managed_api_key_id" field.
+func ManagedAPIKeyIDIn(vs ...int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIn(FieldManagedAPIKeyID, vs...))
+}
+
+// ManagedAPIKeyIDNotIn applies the NotIn predicate on the "managed_api_key_id" field.
+func ManagedAPIKeyIDNotIn(vs ...int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotIn(FieldManagedAPIKeyID, vs...))
+}
+
+// ManagedAPIKeyIDIsNil applies the IsNil predicate on the "managed_api_key_id" field.
+func ManagedAPIKeyIDIsNil() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIsNull(FieldManagedAPIKeyID))
+}
+
+// ManagedAPIKeyIDNotNil applies the NotNil predicate on the "managed_api_key_id" field.
+func ManagedAPIKeyIDNotNil() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotNull(FieldManagedAPIKeyID))
+}
+
+// MaxProbeAttemptsEQ applies the EQ predicate on the "max_probe_attempts" field.
+func MaxProbeAttemptsEQ(v int) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldMaxProbeAttempts, v))
+}
+
+// MaxProbeAttemptsNEQ applies the NEQ predicate on the "max_probe_attempts" field.
+func MaxProbeAttemptsNEQ(v int) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldMaxProbeAttempts, v))
+}
+
+// MaxProbeAttemptsIn applies the In predicate on the "max_probe_attempts" field.
+func MaxProbeAttemptsIn(vs ...int) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIn(FieldMaxProbeAttempts, vs...))
+}
+
+// MaxProbeAttemptsNotIn applies the NotIn predicate on the "max_probe_attempts" field.
+func MaxProbeAttemptsNotIn(vs ...int) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotIn(FieldMaxProbeAttempts, vs...))
+}
+
+// MaxProbeAttemptsGT applies the GT predicate on the "max_probe_attempts" field.
+func MaxProbeAttemptsGT(v int) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldGT(FieldMaxProbeAttempts, v))
+}
+
+// MaxProbeAttemptsGTE applies the GTE predicate on the "max_probe_attempts" field.
+func MaxProbeAttemptsGTE(v int) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldGTE(FieldMaxProbeAttempts, v))
+}
+
+// MaxProbeAttemptsLT applies the LT predicate on the "max_probe_attempts" field.
+func MaxProbeAttemptsLT(v int) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldLT(FieldMaxProbeAttempts, v))
+}
+
+// MaxProbeAttemptsLTE applies the LTE predicate on the "max_probe_attempts" field.
+func MaxProbeAttemptsLTE(v int) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldLTE(FieldMaxProbeAttempts, v))
+}
+
 // EnabledEQ applies the EQ predicate on the "enabled" field.
 func EnabledEQ(v bool) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldEnabled, v))
@@ -976,6 +1126,52 @@ func HasRequestTemplate() predicate.ChannelMonitor {
 func HasRequestTemplateWith(preds ...predicate.ChannelMonitorRequestTemplate) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(func(s *sql.Selector) {
 		step := newRequestTemplateStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasGroup applies the HasEdge predicate on the "group" edge.
+func HasGroup() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, GroupTable, GroupColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasGroupWith applies the HasEdge predicate on the "group" edge with a given conditions (other predicates).
+func HasGroupWith(preds ...predicate.Group) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(func(s *sql.Selector) {
+		step := newGroupStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasManagedAPIKey applies the HasEdge predicate on the "managed_api_key" edge.
+func HasManagedAPIKey() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, ManagedAPIKeyTable, ManagedAPIKeyColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasManagedAPIKeyWith applies the HasEdge predicate on the "managed_api_key" edge with a given conditions (other predicates).
+func HasManagedAPIKeyWith(preds ...predicate.APIKey) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(func(s *sql.Selector) {
+		step := newManagedAPIKeyStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

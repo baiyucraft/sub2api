@@ -61,6 +61,7 @@ export interface UpstreamConfig {
   recharge_rate: number
   balance_to_cny_rate?: number | null
   clear_balance_to_cny_rate?: boolean
+  scheduling_enabled: boolean
   status: string
   last_error?: string | null
   last_checked_at?: string | null
@@ -279,6 +280,13 @@ export async function update(id: number, payload: UpstreamConfigPayload): Promis
   return data
 }
 
+export async function updateScheduling(id: number, schedulingEnabled: boolean): Promise<UpstreamConfig> {
+  const { data } = await apiClient.patch<UpstreamConfig>(`/admin/upstream-configs/${id}/scheduling`, {
+    scheduling_enabled: schedulingEnabled
+  })
+  return data
+}
+
 export async function remove(id: number): Promise<{ message: string }> {
   const { data } = await apiClient.delete<{ message: string }>(`/admin/upstream-configs/${id}`)
   return data
@@ -408,6 +416,7 @@ export default {
   getById,
   create,
   update,
+  updateScheduling,
   remove,
   test,
   syncKeys,

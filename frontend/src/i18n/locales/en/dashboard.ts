@@ -453,6 +453,17 @@ export default {
       '15d': '15 days',
       '30d': '30 days'
     },
+    rateRange: {
+      '24h': '24 hours',
+      '7d': '7 days',
+      '30d': '30 days'
+    },
+    rateTrend: {
+      title: 'Group rate trend',
+      series: 'Public rate',
+      chartLabel: 'Group public rate trend chart',
+      empty: 'No rate changes recorded'
+    },
     overall: {
       operational: 'OPERATIONAL',
       degraded: 'DEGRADED',

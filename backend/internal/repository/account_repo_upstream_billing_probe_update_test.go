@@ -163,6 +163,19 @@ func TestBulkUpdateNilProbeRemovesKeyInsteadOfWritingJSONNull(t *testing.T) {
 	require.Contains(t, normalizeSQLWhitespace(exec.execQueries[0]), "- 'upstream_billing_probe'")
 }
 
+func TestBulkUpdatePersistsUnroundedUpstreamSourceRate(t *testing.T) {
+	exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
+	repo := &accountRepository{sql: exec}
+	rawRate := 0.025
+
+	_, err := repo.BulkUpdate(context.Background(), []int64{27}, service.AccountBulkUpdate{
+		UpstreamSourceRateMultiplier: &rawRate,
+	})
+	require.NoError(t, err)
+	require.Len(t, exec.execQueries, 1)
+	require.Contains(t, normalizeSQLWhitespace(exec.execQueries[0]), "upstream_source_rate_multiplier = $1")
+}
+
 func TestUpdateCredentialsAtomicallyClearsProbeForOpenAIAPIKeyIdentityChange(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -313,7 +326,7 @@ func updatedAccountRowsForIDs(extra string, ids ...int64) *sqlmock.Rows {
 	for _, id := range ids {
 		rows.AddRow(
 			id, now, now, nil, "test", nil, service.PlatformOpenAI, service.AccountTypeAPIKey,
-			[]byte(`{"api_key":"sk-test"}`), []byte(extra), nil, nil, nil, nil, nil, nil, 1, nil, 1, 1.0,
+			[]byte(`{"api_key":"sk-test"}`), []byte(extra), nil, nil, nil, nil, nil, nil, 1, nil, 1, 1.0, nil,
 			service.StatusActive, nil, nil, nil, false, true, nil, nil, nil, nil, nil, nil,
 			nil, nil, nil, service.QuotaDimensionGlobal,
 		)

@@ -65,7 +65,8 @@ func (s *OpsService) GetAccountAvailabilityStats(ctx context.Context, platformFi
 			isOverloaded = false
 		}
 
-		isAvailable := acc.Status == StatusActive && acc.Schedulable && !isRateLimited && !isOverloaded && !isTempUnsched
+		upstreamSchedulingEnabled := acc.UpstreamSchedulingEnabled == nil || *acc.UpstreamSchedulingEnabled
+		isAvailable := acc.Status == StatusActive && acc.Schedulable && upstreamSchedulingEnabled && !isRateLimited && !isOverloaded && !isTempUnsched
 
 		if acc.Platform != "" {
 			if _, ok := platform[acc.Platform]; !ok {

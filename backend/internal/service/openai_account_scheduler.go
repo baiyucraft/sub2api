@@ -631,8 +631,8 @@ func isOpenAIAccountCandidateBetter(left openAIAccountCandidateScore, right open
 	if left.score != right.score {
 		return left.score > right.score
 	}
-	if left.account.Priority != right.account.Priority {
-		return left.account.Priority < right.account.Priority
+	if tier := compareAccountSchedulingTier(left.account, right.account); tier != 0 {
+		return tier < 0
 	}
 	if left.loadInfo.LoadRate != right.loadInfo.LoadRate {
 		return left.loadInfo.LoadRate < right.loadInfo.LoadRate
@@ -1042,13 +1042,19 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		}
 		orderedPool := append([]openAIAccountCandidateScore(nil), pool...)
 		sort.SliceStable(orderedPool, func(i, j int) bool {
-			return openAIAccountSchedulingPriority(orderedPool[i].account) < openAIAccountSchedulingPriority(orderedPool[j].account)
+			left, right := orderedPool[i], orderedPool[j]
+			lp, rp := openAIAccountSchedulingPriority(left.account), openAIAccountSchedulingPriority(right.account)
+			if lp != rp {
+				return lp < rp
+			}
+			return compareAccountSchedulingTier(left.account, right.account) < 0
 		})
 		selectionOrder := make([]openAIAccountCandidateScore, 0, len(orderedPool))
 		for start := 0; start < len(orderedPool); {
-			priority := openAIAccountSchedulingPriority(orderedPool[start].account)
 			end := start + 1
-			for end < len(orderedPool) && openAIAccountSchedulingPriority(orderedPool[end].account) == priority {
+			for end < len(orderedPool) &&
+				openAIAccountSchedulingPriority(orderedPool[end].account) == openAIAccountSchedulingPriority(orderedPool[start].account) &&
+				compareAccountSchedulingTier(orderedPool[start].account, orderedPool[end].account) == 0 {
 				end++
 			}
 			selectionOrder = append(selectionOrder, buildSelectionOrder(orderedPool[start:end])...)
@@ -1087,8 +1093,8 @@ func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []open
 	ordered := append([]openAIAccountCandidateScore(nil), pool...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		a, b := ordered[i], ordered[j]
-		if a.account.Priority != b.account.Priority {
-			return a.account.Priority < b.account.Priority
+		if tier := compareAccountSchedulingTier(a.account, b.account); tier != 0 {
+			return tier < 0
 		}
 		if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
 			return a.loadInfo.LoadRate < b.loadInfo.LoadRate
@@ -2572,6 +2578,9 @@ func openAISchedulingRate(account *Account, now time.Time, oauthSchedulingRateMu
 		return oauthSchedulingRateMultiplier, true
 	}
 	if account != nil && account.IsUpstreamBound() {
+		if rate, ok := upstreamSourceSchedulingRate(account); ok {
+			return rate, true
+		}
 		if account.RateMultiplier == nil || *account.RateMultiplier < 0 || math.IsNaN(*account.RateMultiplier) || math.IsInf(*account.RateMultiplier, 0) {
 			return 0, false
 		}

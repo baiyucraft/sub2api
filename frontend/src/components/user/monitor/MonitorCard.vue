@@ -69,6 +69,8 @@
       :buckets="item.timeline"
       :countdown-seconds="countdownSeconds"
     />
+
+    <GroupRateTrend :item="item" />
   </button>
 </template>
 
@@ -84,6 +86,7 @@ import ProviderIcon from './ProviderIcon.vue'
 import MonitorMetricPair from './MonitorMetricPair.vue'
 import MonitorAvailabilityRow from './MonitorAvailabilityRow.vue'
 import MonitorTimeline from './MonitorTimeline.vue'
+import GroupRateTrend from './GroupRateTrend.vue'
 
 const PROVIDER_TINT: Record<string, string> = {
   openai: 'text-emerald-600 dark:text-emerald-300',

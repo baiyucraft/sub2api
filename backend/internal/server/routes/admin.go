@@ -411,6 +411,7 @@ func registerUpstreamConfigRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		upstreams.GET("/usage-trend", h.Admin.UpstreamConfig.UsageTrend)
 		upstreams.GET("/:id", h.Admin.UpstreamConfig.GetByID)
 		upstreams.PUT("/:id", h.Admin.UpstreamConfig.Update)
+		upstreams.PATCH("/:id/scheduling", h.Admin.UpstreamConfig.UpdateScheduling)
 		upstreams.DELETE("/:id", h.Admin.UpstreamConfig.Delete)
 		upstreams.POST("/:id/test", h.Admin.UpstreamConfig.Test)
 		upstreams.POST("/:id/sync-keys", h.Admin.UpstreamConfig.SyncKeys)
