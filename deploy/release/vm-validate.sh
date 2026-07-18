@@ -122,32 +122,20 @@ on_failure() {
   category=unknown
   if [[ -f $state_dir/migrate-candidate.log ]]; then
     category=migration_other
-    grep -qi 'checksum' "$state_dir/migrate-candidate.log" && category=migration_checksum
-    grep -qi 'already exists\|duplicate' "$state_dir/migrate-candidate.log" && category=migration_duplicate
-    grep -qi 'does not exist\|undefined' "$state_dir/migrate-candidate.log" && category=migration_missing_object
-    grep -qi 'constraint\|violat' "$state_dir/migrate-candidate.log" && category=migration_constraint
-    grep -qi 'syntax' "$state_dir/migrate-candidate.log" && category=migration_syntax
     grep -qi 'migration 182:' "$state_dir/migrate-candidate.log" && category=migration_182_semantic
     grep -qi 'migration 195:' "$state_dir/migrate-candidate.log" && category=migration_195_semantic
     failed_migration=$(sed -n 's/.*apply migration \([0-9][0-9a-z]*\)_[^:]*:.*/\1/p' "$state_dir/migrate-candidate.log" | head -n1)
     [[ -z $failed_migration || $failed_migration =~ ^[0-9][0-9a-z]*$ ]] || failed_migration=
     [[ -n $failed_migration ]] && category="migration_file_$failed_migration"
-    grep -qi 'permission denied\|must be owner' "$state_dir/migrate-candidate.log" && category=migration_permission
-    grep -qi 'connection refused\|no such host\|dial tcp' "$state_dir/migrate-candidate.log" && category=migration_connection
-    grep -qi 'timeout\|deadline exceeded' "$state_dir/migrate-candidate.log" && category=migration_timeout
     grep -qi 'relation .*group_rate_snapshots.* does not exist' "$state_dir/migrate-candidate.log" && category=migration_missing_group_rate_snapshots
     grep -qi 'relation .*groups.* does not exist' "$state_dir/migrate-candidate.log" && category=migration_missing_groups
     grep -qi 'relation .*timezone_lock.* does not exist' "$state_dir/migrate-candidate.log" && category=migration_missing_timezone_lock
     grep -qi 'function pg_advisory_xact_lock.* does not exist' "$state_dir/migrate-candidate.log" && category=migration_missing_advisory_function
     grep -qi 'column .*timezone.* does not exist' "$state_dir/migrate-candidate.log" && category=migration_missing_timezone_column
-    migration_sqlstate=$(sed -n 's/.*sqlstate=\([0-9A-Z][0-9A-Z]*\).*/\1/p' "$state_dir/migrate-candidate.log" | head -n1)
-    [[ -z $migration_sqlstate || $migration_sqlstate =~ ^[0-9A-Z]{5}$ ]] || migration_sqlstate=
-    [[ -n $migration_sqlstate ]] && category="migration_sqlstate_$migration_sqlstate"
     timezone_length=$(sed -n 's/.*timezone_len=\([0-9][0-9]*\).*/\1/p' "$state_dir/migrate-candidate.log" | head -n1)
     timezone_sha=$(sed -n 's/.*timezone_sha=\([0-9a-f][0-9a-f]*\).*/\1/p' "$state_dir/migrate-candidate.log" | head -n1)
     [[ -z $timezone_length || $timezone_length =~ ^[0-9]+$ ]] || timezone_length=
     [[ -z $timezone_sha || $timezone_sha =~ ^[0-9a-f]{12}$ ]] || timezone_sha=
-    [[ -n $timezone_length && -n $timezone_sha ]] && category="migration_timezone_${timezone_length}_$timezone_sha"
     grep -qi 'Failed to load migration config' "$state_dir/migrate-candidate.log" && category=migration_config
     grep -qi 'create schema_migrations\|check schema_migrations\|list migrations' "$state_dir/migrate-candidate.log" && category=migration_runner_init
     grep -qi 'acquire migrations lock\|release migrations lock' "$state_dir/migrate-candidate.log" && category=migration_advisory_lock
@@ -163,6 +151,10 @@ on_failure() {
     grep -qi 'permission denied\|must be owner' "$state_dir/migrate-candidate.log" && category=migration_permission
     grep -qi 'connection refused\|no such host\|dial tcp' "$state_dir/migrate-candidate.log" && category=migration_connection
     grep -qi 'timeout\|deadline exceeded' "$state_dir/migrate-candidate.log" && category=migration_timeout
+    migration_sqlstate=$(sed -n 's/.*sqlstate=\([0-9A-Z][0-9A-Z]*\).*/\1/p' "$state_dir/migrate-candidate.log" | head -n1)
+    [[ -z $migration_sqlstate || $migration_sqlstate =~ ^[0-9A-Z]{5}$ ]] || migration_sqlstate=
+    [[ -n $migration_sqlstate ]] && category="migration_sqlstate_$migration_sqlstate"
+    [[ -n $timezone_length && -n $timezone_sha ]] && category="migration_timezone_${timezone_length}_$timezone_sha"
     rm -f "$state_dir/migrate-candidate.log"
   fi
   if [[ -f $state_dir/stage && $(<"$state_dir/stage") == candidate_health ]] && docker inspect "$probe_app" >/dev/null 2>&1; then
