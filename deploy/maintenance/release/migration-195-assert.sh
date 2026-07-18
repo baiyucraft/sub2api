@@ -14,6 +14,7 @@ db_container=${ASSERT_DB_CONTAINER:-sub2api-postgres}
 db_user=${ASSERT_DB_USER:-sub2api}
 db_name=${ASSERT_DB_NAME:-sub2api}
 redis_container=${ASSERT_REDIS_CONTAINER:-sub2api-redis}
+config_file=${ASSERT_CONFIG_FILE:-/opt/sub2api/data/config.yaml}
 [[ $profile == 195 ]]
 [[ $phase == preflight || $phase == bind || $phase == postflight_db || $phase == postflight_runtime ]]
 [[ $migration_status == absent || $migration_status == verified ]]
@@ -29,6 +30,12 @@ redis_watermark() {
 }
 
 if [[ $phase == preflight ]]; then
+  [[ -f $config_file && ! -L $config_file ]]
+  expected_timezone=$(sed -n 's/^timezone:[[:space:]]*//p' "$config_file" | head -n1 | tr -d '"\r')
+  [[ -n $expected_timezone ]] || expected_timezone=Asia/Shanghai
+  [[ $expected_timezone == UTC || $expected_timezone =~ ^[a-zA-Z_+-]+(/[a-zA-Z0-9_+-]+)+$ ]]
+  printf '%s\n' "$expected_timezone" > "$state_dir/migration-195-timezone.name"
+  chmod 600 "$state_dir/migration-195-timezone.name"
   if [[ $migration_status == verified ]]; then
     terminal=$(query "
 WITH expected_accounts AS (
@@ -156,6 +163,9 @@ fi
 [[ -f $state_dir/migration-195-affected.count && ! -L $state_dir/migration-195-affected.count ]]
 
 if [[ $phase == postflight_db ]]; then
+  [[ -f $state_dir/migration-195-timezone.name && ! -L $state_dir/migration-195-timezone.name ]]
+  expected_timezone=$(<"$state_dir/migration-195-timezone.name")
+  [[ $expected_timezone == UTC || $expected_timezone =~ ^[a-zA-Z_+-]+(/[a-zA-Z0-9_+-]+)+$ ]]
   actual_data_plan_sha=$(query "COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}')
   expected_data_plan_sha=$(<"$state_dir/migration-195-data-plan.sha256")
   if [[ $actual_data_plan_sha == "$expected_data_plan_sha" ]]; then recompute_mismatch=0; else recompute_mismatch=1; fi
@@ -190,7 +200,7 @@ WITH expected_accounts AS (
     (SELECT affected FROM expected_accounts) AS affected,
     (SELECT COUNT(*) FROM upstream_keys WHERE rate_multiplier IS NOT NULL AND source_rate_multiplier IS NULL) AS unproven,
     (SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.upstream_source_rate_multiplier IS DISTINCT FROM k.source_rate_multiplier OR a.priority IS DISTINCT FROM CEIL(k.rate_multiplier*100)::int OR a.load_factor IS DISTINCT FROM LEAST(GREATEST(a.concurrency::bigint,1)*2,GREATEST(1,ROUND(GREATEST(a.concurrency::bigint,1)*CASE WHEN CEIL(k.rate_multiplier*100)::int<=5 THEN 2.0 WHEN CEIL(k.rate_multiplier*100)::int<=10 THEN 1.5 WHEN CEIL(k.rate_multiplier*100)::int<=20 THEN 1.0 WHEN CEIL(k.rate_multiplier*100)::int<=50 THEN 0.75 ELSE 0.5 END)::int))) AS account_mismatch,
-    (SELECT COUNT(*) FROM groups g WHERE g.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM group_rate_snapshots s WHERE s.group_id=g.id AND s.rate_multiplier=g.rate_multiplier AND s.peak_rate_enabled=g.peak_rate_enabled AND s.peak_start=g.peak_start AND s.peak_end=g.peak_end AND s.peak_rate_multiplier=g.peak_rate_multiplier AND s.timezone=COALESCE(NULLIF(current_setting('TIMEZONE',TRUE),''),'UTC'))) AS snapshot_missing,
+    (SELECT COUNT(*) FROM groups g WHERE g.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM group_rate_snapshots s WHERE s.group_id=g.id AND s.rate_multiplier=g.rate_multiplier AND s.peak_rate_enabled=g.peak_rate_enabled AND s.peak_start=g.peak_start AND s.peak_end=g.peak_end AND s.peak_rate_multiplier=g.peak_rate_multiplier AND s.timezone='$expected_timezone')) AS snapshot_missing,
     (SELECT CASE
        WHEN expected_accounts.affected=0 AND matching_outbox.count=0 THEN 0
        WHEN expected_accounts.affected>0 AND '$source_rate_column_existed'='t' AND matching_outbox.count=1 THEN 0
