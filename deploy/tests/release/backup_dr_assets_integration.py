@@ -185,7 +185,14 @@ candidate_root="$promotion_root/candidates"
 input_root="$promotion_root/promotion-input"
 verified_root="$promotion_root/verified-bundles"
 install -d -o root -g root -m 700 "$candidate_root"
-cp -a -- "$production_candidate" "$candidate_root/$release_id"
+install -d -o root -g root -m 700 "$candidate_root/$release_id"
+for file in SHA256SUMS artifact.tar.age candidate.tar.gz gate.json gate.sig; do
+  install -o root -g root -m 600 "$production_candidate/$file" "$candidate_root/$release_id/$file"
+done
+for file in bundle.sha256 manifest; do
+  install -o root -g root -m 644 "$production_candidate/$file" "$candidate_root/$release_id/$file"
+done
+[[ -d "$candidate_root/$release_id" && ! -L "$candidate_root/$release_id" && $(stat -c '%U:%G:%a' "$candidate_root/$release_id") == root:root:700 ]]
 ln -s "candidates/$release_id" "$promotion_root/candidate"
 old_target_name="$release_id--dr-195-20260718T000000Z"
 old_target="$verified_root/$old_target_name"
@@ -201,6 +208,16 @@ chown root:root "$old_target/VERIFIED_SHA256SUMS"
 ln -s "verified-bundles/$old_target_name" "$promotion_root/verified"
 old_fingerprint=$(cd "$old_target" && sha256sum SHA256SUMS VERIFIED_SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest | sha256sum | awk '{{print $1}}')
 candidate_fingerprint=$(cd "$candidate_root/$release_id" && sha256sum SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz gate.json gate.sig manifest | sha256sum | awk '{{print $1}}')
+bundle_files=(artifact.tar.age candidate.tar.gz gate.json gate.sig manifest SHA256SUMS)
+[[ $(wc -l < "$candidate_root/$release_id/bundle.sha256") == ${{#bundle_files[@]}} ]]
+line=1
+for file in "${{bundle_files[@]}}"; do
+  recorded_sha=$(awk -v line="$line" -v expected="$file" 'NR == line && NF == 2 && $2 == expected {{print $1}}' "$candidate_root/$release_id/bundle.sha256")
+  [[ ${{#recorded_sha}} == 64 && $recorded_sha =~ ^[0-9a-f]{{64}}$ ]]
+  [[ $recorded_sha == "$(sha256sum "$candidate_root/$release_id/$file" | awk '{{print $1}}')" ]]
+  ((line += 1))
+done
+promotion_bundle_contract=pass
 
 valid_input="$input_root/$release_id--$drill_id.VALID123"
 mismatch_input="$input_root/$release_id--$drill_id.BAD00001"
@@ -278,7 +295,7 @@ promotion_value() {{ awk -F= -v key="$1" '$1 == key {{sub(/^[^=]*=/, ""); print;
 [[ $(promotion_value evidence_sha256) == "$(sha256sum "$valid_input/evidence.json" | awk '{{print $1}}')" ]]
 [[ $(promotion_value signature_sha256) == "$(sha256sum "$valid_input/evidence.sig" | awk '{{print $1}}')" ]]
 [[ $(promotion_value verified_bundle_sha256) == "$(sha256sum "$target/VERIFIED_SHA256SUMS" | awk '{{print $1}}')" ]]
-[[ $(find "$target" -mindepth 1 -maxdepth 1 -printf '%y %f\n' | sort) == $'f SHA256SUMS\nf VERIFIED_SHA256SUMS\nf artifact.tar.age\nf bundle.sha256\nf candidate.tar.gz\nf evidence.json\nf evidence.sig\nf gate.json\nf gate.sig\nf manifest' ]]
+[[ $(find "$target" -mindepth 1 -maxdepth 1 -printf '%y %f\n' | sort) == $'f artifact.tar.age\nf bundle.sha256\nf candidate.tar.gz\nf evidence.json\nf evidence.sig\nf gate.json\nf gate.sig\nf manifest\nf SHA256SUMS\nf VERIFIED_SHA256SUMS' ]]
 for file in "$target"/*; do [[ $(stat -c '%U:%G:%a:%h' "$file") == root:root:400:1 ]]; done
 (cd "$target" && sha256sum -c VERIFIED_SHA256SUMS >/dev/null)
 for file in SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz gate.json gate.sig manifest; do cmp -s "$candidate_root/$release_id/$file" "$target/$file"; done
@@ -304,7 +321,6 @@ promotion_output_second=$(run_promoter "$valid_input")
 assert_no_promotion_temps
 promotion_idempotent_replay=pass
 promotion_sources_retained=pass
-
 [[ $(cd "$production_candidate" && sha256sum SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz gate.json gate.sig manifest | sha256sum | awk '{{print $1}}') == "$production_candidate_fingerprint" ]]
 if [[ $production_verified_before == absent ]]; then
   [[ ! -e $production_root/verified && ! -L $production_root/verified ]]
@@ -325,6 +341,7 @@ printf 'backup_bootstrap_lock_symlink_rejected=pass\n'
 printf 'backup_bootstrap_version_mismatch_rejected=pass\n'
 printf 'backup_bootstrap_post_activation_rollback=pass\n'
 printf 'backup_production_assets_unchanged=pass\n'
+printf 'promotion_bundle_contract=pass\n'
 printf 'promotion_candidate_evidence_mismatch_rejected=pass\n'
 printf 'promotion_lock_symlink_rejected=pass\n'
 printf 'promotion_conflict_target_rejected=pass\n'
@@ -343,6 +360,7 @@ printf 'cleanup_verified=pass\n'
         "backup_bootstrap_version_mismatch_rejected",
         "backup_bootstrap_post_activation_rollback",
         "backup_production_assets_unchanged",
+        "promotion_bundle_contract",
         "promotion_candidate_evidence_mismatch_rejected",
         "promotion_lock_symlink_rejected",
         "promotion_conflict_target_rejected",
