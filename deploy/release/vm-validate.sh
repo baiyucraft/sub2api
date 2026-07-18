@@ -142,6 +142,14 @@ on_failure() {
     grep -qi 'invalid timezone .*unknown time zone' "$state_dir/migrate-candidate.log" && category=migration_go_timezone
     grep -qi 'invalid value for parameter .*TimeZone\|unrecognized configuration parameter .*TimeZone' "$state_dir/migrate-candidate.log" && category=migration_database_timezone
     grep -qi 'group rate snapshot' "$state_dir/migrate-candidate.log" && category=migration_group_rate_snapshot
+    grep -qi 'checksum' "$state_dir/migrate-candidate.log" && category=migration_checksum
+    grep -qi 'already exists\|duplicate' "$state_dir/migrate-candidate.log" && category=migration_duplicate
+    grep -qi 'does not exist\|undefined' "$state_dir/migrate-candidate.log" && category=migration_missing_object
+    grep -qi 'constraint\|violat' "$state_dir/migrate-candidate.log" && category=migration_constraint
+    grep -qi 'syntax' "$state_dir/migrate-candidate.log" && category=migration_syntax
+    grep -qi 'permission denied\|must be owner' "$state_dir/migrate-candidate.log" && category=migration_permission
+    grep -qi 'connection refused\|no such host\|dial tcp' "$state_dir/migrate-candidate.log" && category=migration_connection
+    grep -qi 'timeout\|deadline exceeded' "$state_dir/migrate-candidate.log" && category=migration_timeout
     rm -f "$state_dir/migrate-candidate.log"
   fi
   if [[ -f $state_dir/stage && $(<"$state_dir/stage") == candidate_health ]] && docker inspect "$probe_app" >/dev/null 2>&1; then
