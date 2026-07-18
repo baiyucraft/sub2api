@@ -84,9 +84,23 @@ done
 [[ -L $candidate_link && $(readlink "$candidate_link") == "candidates/$release_id" ]]
 candidate_dir="$candidate_root/$release_id"
 [[ $(realpath -e -- "$candidate_link") == "$candidate_dir" ]]
-[[ -d $candidate_dir && ! -L $candidate_dir && $(stat -c '%U:%G:%a' "$candidate_dir") == root:root:700 ]]
-expected_candidate_files=$'f SHA256SUMS\nf artifact.tar.age\nf bundle.sha256\nf candidate.tar.gz\nf gate.json\nf gate.sig\nf manifest'
-[[ $(find "$candidate_dir" -mindepth 1 -maxdepth 1 -printf '%y %f\n' | sort) == "$expected_candidate_files" ]]
+[[ -d $candidate_dir && ! -L $candidate_dir ]]
+[[ $(realpath -e -- "$candidate_dir") == "$candidate_dir" ]]
+candidate_dir_mode=$(stat -c '%U:%G:%a' "$candidate_dir")
+if [[ $candidate_dir_mode != root:root:700 ]]; then
+  false
+fi
+assert_file_set() {
+  local directory=$1 expected_count=$2 file entry
+  shift 2
+  [[ $(find "$directory" -mindepth 1 -maxdepth 1 -printf '%y\n' | wc -l) == "$expected_count" ]]
+  for file in "$@"; do
+    entry=$(find "$directory" -mindepth 1 -maxdepth 1 -name "$file" -printf '%y %f\n')
+    [[ $entry == "f $file" ]]
+  done
+}
+candidate_files=(SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz gate.json gate.sig manifest)
+assert_file_set "$candidate_dir" 7 "${candidate_files[@]}"
 candidate_file_contract() {
   [[ $(stat -c '%U:%G:%a:%h' "$candidate_dir/SHA256SUMS") == root:root:600:1 ]]
   [[ $(stat -c '%U:%G:%a:%h' "$candidate_dir/artifact.tar.age") == root:root:600:1 ]]
@@ -123,8 +137,14 @@ install -o root -g root -m 400 "$signature" "$staging/evidence.sig"
 assert_candidate_unchanged
 
 manifest="$staging/manifest"
-[[ $(wc -l < "$manifest") == 6 ]]
-[[ $(sed -n 's/^\([a-z_]*\)=.*/\1/p' "$manifest" | sort) == $'artifact_name\nartifact_sha256\ncandidate_archive_sha256\ncandidate_image_id\nrelease_id\nstate' ]]
+manifest_lines=$(wc -l < "$manifest")
+if [[ $manifest_lines != 6 ]]; then
+  false
+fi
+manifest_keys=$(sed -n 's/^\([a-z0-9_]*\)=.*/\1/p' "$manifest" | sort)
+if [[ $manifest_keys != $'artifact_name\nartifact_sha256\ncandidate_archive_sha256\ncandidate_image_id\nrelease_id\nstate' ]]; then
+  false
+fi
 manifest_value() { awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); print; found++} END {exit found == 1 ? 0 : 1}' "$manifest"; }
 [[ $(manifest_value release_id) == "$release_id" ]]
 [[ $(manifest_value state) == restore_pending ]]
@@ -143,9 +163,15 @@ checksum_entry() {
     }
   ' "$document"
 }
-[[ $(wc -l < "$staging/bundle.sha256") == 1 ]]
-bundle_recorded_sha=$(checksum_entry "$staging/bundle.sha256" 1 artifact.tar.age)
-[[ $bundle_recorded_sha == "$artifact_sha" && ${#bundle_recorded_sha} == 64 && $bundle_recorded_sha =~ ^[0-9a-f]+$ ]]
+bundle_files=(artifact.tar.age candidate.tar.gz gate.json gate.sig manifest SHA256SUMS)
+[[ $(wc -l < "$staging/bundle.sha256") == ${#bundle_files[@]} ]]
+line=1
+for file in "${bundle_files[@]}"; do
+  recorded_sha=$(checksum_entry "$staging/bundle.sha256" "$line" "$file")
+  [[ ${#recorded_sha} == 64 && $recorded_sha =~ ^[0-9a-f]{64}$ ]]
+  [[ $recorded_sha == "$(sha256sum "$staging/$file" | awk '{print $1}')" ]]
+  ((line += 1))
+done
 [[ $(wc -l < "$staging/SHA256SUMS") == 3 ]]
 gate_output_path="/opt/sub2api-deploy/release-gates/$release_id/output"
 gate_recorded_sha=$(checksum_entry "$staging/SHA256SUMS" 1 "$gate_output_path/gate.json")
@@ -189,11 +215,12 @@ sync -f "$staging"
 assert_candidate_unchanged
 if [[ -e $target || -L $target ]]; then
   [[ -d $target && ! -L $target && $(stat -c '%U:%G:%a' "$target") == root:root:700 ]]
-  [[ $(find "$target" -mindepth 1 -maxdepth 1 -printf '%y %f\n' | sort) == $'f SHA256SUMS\nf VERIFIED_SHA256SUMS\nf artifact.tar.age\nf bundle.sha256\nf candidate.tar.gz\nf evidence.json\nf evidence.sig\nf gate.json\nf gate.sig\nf manifest' ]]
-  verified_files=(SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
-  [[ $(wc -l < "$target/VERIFIED_SHA256SUMS") == ${#verified_files[@]} ]]
+  verified_files=(SHA256SUMS VERIFIED_SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
+  assert_file_set "$target" 10 "${verified_files[@]}"
+  verified_checksum_files=(SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
+  [[ $(wc -l < "$target/VERIFIED_SHA256SUMS") == ${#verified_checksum_files[@]} ]]
   line=1
-  for file in "${verified_files[@]}"; do
+  for file in "${verified_checksum_files[@]}"; do
     [[ $(checksum_entry "$target/VERIFIED_SHA256SUMS" "$line" "$file") == "$(sha256sum "$target/$file" | awk '{print $1}')" ]]
     ((line += 1))
   done
@@ -213,12 +240,12 @@ if [[ -L $verified_link ]]; then
   [[ $old_target =~ ^verified-bundles/195-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}--dr-195-[0-9]{8}T[0-9]{6}Z$ ]]
   old_target_path="$root/$old_target"
   [[ -d $old_target_path && ! -L $old_target_path && $(realpath -e -- "$old_target_path") == "$old_target_path" && $(stat -c '%U:%G:%a' "$old_target_path") == root:root:700 ]]
-  expected_verified_files=$'f SHA256SUMS\nf VERIFIED_SHA256SUMS\nf artifact.tar.age\nf bundle.sha256\nf candidate.tar.gz\nf evidence.json\nf evidence.sig\nf gate.json\nf gate.sig\nf manifest'
-  [[ $(find "$old_target_path" -mindepth 1 -maxdepth 1 -printf '%y %f\n' | sort) == "$expected_verified_files" ]]
-  old_verified_files=(SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
-  [[ $(wc -l < "$old_target_path/VERIFIED_SHA256SUMS") == ${#old_verified_files[@]} ]]
+  old_verified_files=(SHA256SUMS VERIFIED_SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
+  assert_file_set "$old_target_path" 10 "${old_verified_files[@]}"
+  old_verified_checksum_files=(SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
+  [[ $(wc -l < "$old_target_path/VERIFIED_SHA256SUMS") == ${#old_verified_checksum_files[@]} ]]
   line=1
-  for file in "${old_verified_files[@]}"; do
+  for file in "${old_verified_checksum_files[@]}"; do
     [[ $(checksum_entry "$old_target_path/VERIFIED_SHA256SUMS" "$line" "$file") == "$(sha256sum "$old_target_path/$file" | awk '{print $1}')" ]]
     [[ $(stat -c '%U:%G:%a:%h' "$old_target_path/$file") == root:root:400:1 ]]
     ((line += 1))
