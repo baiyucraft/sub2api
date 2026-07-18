@@ -170,12 +170,14 @@ on_failure() {
     rm -f "$probe_log"
   fi
   printf '%s\n' "$category" > "$state_dir/failure-category"
+  rm -f "$state_dir/validator.stderr"
   cleanup_probe
   rm -f "$state_dir/candidate.tar.gz"
   docker image rm "$tag" >/dev/null 2>&1 || true
   exit "$code"
 }
 trap on_failure ERR INT TERM
+exec 2>"$state_dir/validator.stderr"
 
 mark_stage isolated_database
 install -d -m 700 "$probe_dir"
@@ -275,6 +277,7 @@ vm_restore_verified=true
 docker save "$candidate_image_id" | gzip -1 > "$state_dir/candidate.tar.gz"
 candidate_archive_sha=$(sha256sum "$state_dir/candidate.tar.gz" | awk '{print $1}')
 trap - ERR INT TERM
+rm -f "$state_dir/validator.stderr"
 
 mark_stage gate_signing
 jq -n --slurpfile manifest "$manifest" \

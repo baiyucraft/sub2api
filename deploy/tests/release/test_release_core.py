@@ -182,6 +182,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("restore_completed=true", validator)
         self.assertIn("clean_preflight=true", validator)
         self.assertIn("migrate-candidate.log", validator)
+        self.assertIn('exec 2>"$state_dir/validator.stderr"', validator)
+        self.assertIn('rm -f "$state_dir/validator.stderr"', validator)
         self.assertIn("migration_missing_object", validator)
         self.assertIn("migration_constraint", validator)
         self.assertIn("migration_182_semantic", validator)
