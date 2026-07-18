@@ -134,6 +134,11 @@ on_failure() {
     grep -qi 'permission denied\|must be owner' "$state_dir/migrate-candidate.log" && category=migration_permission
     grep -qi 'connection refused\|no such host\|dial tcp' "$state_dir/migrate-candidate.log" && category=migration_connection
     grep -qi 'timeout\|deadline exceeded' "$state_dir/migrate-candidate.log" && category=migration_timeout
+    grep -qi 'Failed to load migration config' "$state_dir/migrate-candidate.log" && category=migration_config
+    grep -qi 'create schema_migrations\|check schema_migrations\|list migrations' "$state_dir/migrate-candidate.log" && category=migration_runner_init
+    grep -qi 'acquire migrations lock\|release migrations lock' "$state_dir/migrate-candidate.log" && category=migration_advisory_lock
+    grep -qi 'timezone' "$state_dir/migrate-candidate.log" && category=migration_timezone
+    grep -qi 'group rate snapshot' "$state_dir/migrate-candidate.log" && category=migration_group_rate_snapshot
     rm -f "$state_dir/migrate-candidate.log"
   fi
   if [[ -f $state_dir/stage && $(<"$state_dir/stage") == candidate_health ]] && docker inspect "$probe_app" >/dev/null 2>&1; then
