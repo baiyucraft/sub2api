@@ -50,4 +50,5 @@ func TestEnsureGroupRateTimezoneSnapshots_RejectsMissingConfiguration(t *testing
 func TestEnsureGroupRateTimezoneSnapshots_SerializesConcurrentStartups(t *testing.T) {
 	require.Contains(t, groupRateTimezoneLockSQL, "pg_advisory_xact_lock(195, 1)")
 	require.Contains(t, ensureGroupRateTimezoneSnapshotsSQL, "latest.timezone IS DISTINCT FROM $1")
+	require.Contains(t, ensureGroupRateTimezoneSnapshotsSQL, "$1::varchar(64)")
 }
