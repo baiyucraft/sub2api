@@ -70,6 +70,8 @@ SELECT
   fi
   source_rate_column_exists=$(query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='upstream_keys' AND column_name='source_rate_multiplier')")
   [[ $source_rate_column_exists == t || $source_rate_column_exists == f ]]
+  printf '%s\n' "$source_rate_column_exists" > "$state_dir/migration-195-source-rate-column-existed"
+  chmod 600 "$state_dir/migration-195-source-rate-column-existed"
   if [[ $source_rate_column_exists == t ]]; then
     canonical_plan_query="COPY (
   SELECT k.id::text || '|' ||
@@ -175,6 +177,9 @@ if [[ $phase == postflight_db ]]; then
     exit 0
   fi
   outbox_baseline=$(<"$state_dir/migration-195-outbox-baseline.id")
+  [[ -f $state_dir/migration-195-source-rate-column-existed && ! -L $state_dir/migration-195-source-rate-column-existed ]]
+  source_rate_column_existed=$(<"$state_dir/migration-195-source-rate-column-existed")
+  [[ $source_rate_column_existed == t || $source_rate_column_existed == f ]]
   postflight=$(query "
 WITH expected_accounts AS (
   SELECT COALESCE(jsonb_agg(id ORDER BY id),'[]'::jsonb) AS ids, COUNT(*) AS affected FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL
@@ -186,7 +191,11 @@ WITH expected_accounts AS (
     (SELECT COUNT(*) FROM upstream_keys WHERE rate_multiplier IS NOT NULL AND source_rate_multiplier IS NULL) AS unproven,
     (SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.upstream_source_rate_multiplier IS DISTINCT FROM k.source_rate_multiplier OR a.priority IS DISTINCT FROM CEIL(k.rate_multiplier*100)::int OR a.load_factor IS DISTINCT FROM LEAST(GREATEST(a.concurrency::bigint,1)*2,GREATEST(1,ROUND(GREATEST(a.concurrency::bigint,1)*CASE WHEN CEIL(k.rate_multiplier*100)::int<=5 THEN 2.0 WHEN CEIL(k.rate_multiplier*100)::int<=10 THEN 1.5 WHEN CEIL(k.rate_multiplier*100)::int<=20 THEN 1.0 WHEN CEIL(k.rate_multiplier*100)::int<=50 THEN 0.75 ELSE 0.5 END)::int))) AS account_mismatch,
     (SELECT COUNT(*) FROM groups g WHERE g.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM group_rate_snapshots s WHERE s.group_id=g.id AND s.rate_multiplier=g.rate_multiplier AND s.peak_rate_enabled=g.peak_rate_enabled AND s.peak_start=g.peak_start AND s.peak_end=g.peak_end AND s.peak_rate_multiplier=g.peak_rate_multiplier AND s.timezone=COALESCE(NULLIF(current_setting('TIMEZONE',TRUE),''),'UTC'))) AS snapshot_missing,
-    (SELECT CASE WHEN expected_accounts.affected=0 AND matching_outbox.count=0 THEN 0 WHEN expected_accounts.affected>0 AND matching_outbox.count=1 THEN 0 ELSE 1 END FROM expected_accounts,matching_outbox) AS outbox_missing,
+    (SELECT CASE
+       WHEN expected_accounts.affected=0 AND matching_outbox.count=0 THEN 0
+       WHEN expected_accounts.affected>0 AND '$source_rate_column_existed'='t' AND matching_outbox.count=1 THEN 0
+       WHEN expected_accounts.affected>0 AND '$source_rate_column_existed'='f' AND matching_outbox.count>=1 THEN 0
+       ELSE 1 END FROM expected_accounts,matching_outbox) AS outbox_missing,
     (SELECT event_id FROM matching_outbox) AS outbox_event_id,
     (SELECT COUNT(*) FROM (VALUES ('channel_monitors_group_id_fkey'),('channel_monitors_managed_api_key_id_fkey'),('accounts_upstream_source_rate_valid'),('api_keys_purpose_check'),('channel_monitors_credential_mode_check'),('channel_monitors_max_probe_attempts_check')) required(name) WHERE NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conname=required.name AND c.convalidated)) AS constraint_missing,
     (SELECT COUNT(*) FROM (VALUES ('trg_record_group_rate_snapshot'),('trg_validate_account_upstream_key_binding')) required(name) WHERE NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgname=required.name AND t.tgenabled<>'D' AND NOT t.tgisinternal)) AS trigger_missing
