@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
 const ensureGroupRateTimezoneSnapshotsSQL = `
@@ -39,6 +41,9 @@ func ensureGroupRateTimezoneSnapshots(ctx context.Context, db *sql.DB, timezoneN
 		return fmt.Errorf("group rate snapshot timezone and database are required")
 	}
 	if _, err := db.ExecContext(ctx, ensureGroupRateTimezoneSnapshotsSQL, timezoneName); err != nil {
+		if postgresError, ok := err.(*pq.Error); ok {
+			return fmt.Errorf("ensure group rate timezone snapshots (sqlstate=%s): %w", postgresError.Code, err)
+		}
 		return fmt.Errorf("ensure group rate timezone snapshots: %w", err)
 	}
 	return nil

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,6 +21,18 @@ func TestEnsureGroupRateTimezoneSnapshots(t *testing.T) {
 
 	require.NoError(t, ensureGroupRateTimezoneSnapshots(context.Background(), db, "Asia/Shanghai"))
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestEnsureGroupRateTimezoneSnapshots_ReportsSQLState(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectExec(regexp.QuoteMeta(ensureGroupRateTimezoneSnapshotsSQL)).
+		WithArgs("Asia/Shanghai").
+		WillReturnError(&pq.Error{Code: "22023"})
+	err = ensureGroupRateTimezoneSnapshots(context.Background(), db, "Asia/Shanghai")
+	require.ErrorContains(t, err, "sqlstate=22023")
 }
 
 func TestEnsureGroupRateTimezoneSnapshots_RejectsMissingConfiguration(t *testing.T) {
