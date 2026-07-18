@@ -15,6 +15,11 @@ deploy_dir=/opt/sub2api-deploy
 data_dir="$deploy_dir/data-dev"
 state_root="$deploy_dir/release-gates"
 [[ $(id -u) == 0 ]]
+unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
+[[ -f $unit_lock && ! -L $unit_lock && $(stat -c '%U:%G:%a:%h' "$unit_lock") == root:root:600:1 ]]
+exec 8<>"$unit_lock"
+[[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) == root:root:600:1 ]]
+flock -s 8
 [[ -f $manifest && ! -L $manifest ]]
 commit=$(jq -er '.commit_sha' "$manifest")
 release_id=$(jq -er '.release_id' "$manifest")
@@ -28,6 +33,11 @@ profile=$(jq -er '.profile' "$manifest")
 [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
 [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
 [[ $(jq -er '.vm_validator_sha256' "$manifest") == "$(sha256sum "$0" | awk '{print $1}')" ]]
+[[ $(jq -er '.vm_gate_signer_sha256' "$manifest") == "$(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{print $1}')" ]]
+[[ $(jq -er '.vm_dr_signer_sha256' "$manifest") == "$(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{print $1}')" ]]
+for release_asset in "$0" /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do
+  [[ -f $release_asset && ! -L $release_asset && $(stat -c '%U:%G:%a' "$release_asset") == root:root:700 ]]
+done
 state_dir="$state_root/$release_id"
 [[ $output_dir == "$state_dir/output" ]]
 [[ ! -e $state_dir && ! -L $state_dir ]]
