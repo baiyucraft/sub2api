@@ -132,6 +132,7 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 	if strings.TrimSpace(p.CredentialMode) == "" {
 		p.CredentialMode = ChannelMonitorCredentialManual
 	}
+	showGroupRate := resolveCreateShowGroupRate(p.CredentialMode, p.ShowGroupRate)
 	if p.CredentialMode == ChannelMonitorCredentialManagedLocal {
 		if p.GroupID == nil || s.managedKeyService == nil || s.managedSettings == nil {
 			return nil, ErrChannelMonitorManagedConfig
@@ -170,7 +171,7 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		ExtraModels:      normalizeModels(p.ExtraModels),
 		GroupName:        strings.TrimSpace(p.GroupName),
 		GroupID:          p.GroupID,
-		ShowGroupRate:    p.ShowGroupRate,
+		ShowGroupRate:    showGroupRate,
 		CredentialMode:   p.CredentialMode,
 		Enabled:          p.Enabled,
 		IntervalSeconds:  p.IntervalSeconds,
@@ -200,6 +201,13 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		s.scheduler.Schedule(m)
 	}
 	return m, nil
+}
+
+func resolveCreateShowGroupRate(credentialMode string, configured *bool) bool {
+	if configured != nil {
+		return *configured
+	}
+	return credentialMode == ChannelMonitorCredentialManagedLocal
 }
 
 // Duplicate creates an independent, disabled copy of an existing monitor.

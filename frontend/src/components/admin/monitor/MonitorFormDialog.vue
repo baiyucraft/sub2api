@@ -9,8 +9,8 @@
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.credentialMode') }}</label>
         <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-900/40">
-          <button type="button" :disabled="!!editing" class="rounded-md px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50" :class="form.credential_mode === 'manual' ? 'bg-white font-semibold shadow-sm dark:bg-dark-700' : 'text-gray-500'" @click="form.credential_mode = 'manual'">{{ t('admin.channelMonitor.form.credentialManual') }}</button>
-          <button type="button" :disabled="!!editing" class="rounded-md px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50" :class="form.credential_mode === 'managed_local' ? 'bg-white font-semibold shadow-sm dark:bg-dark-700' : 'text-gray-500'" @click="form.credential_mode = 'managed_local'">{{ t('admin.channelMonitor.form.credentialManagedLocal') }}</button>
+          <button type="button" data-testid="monitor-credential-manual" :disabled="!!editing" class="rounded-md px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50" :class="form.credential_mode === 'manual' ? 'bg-white font-semibold shadow-sm dark:bg-dark-700' : 'text-gray-500'" @click="selectCredentialMode('manual')">{{ t('admin.channelMonitor.form.credentialManual') }}</button>
+          <button type="button" data-testid="monitor-credential-managed-local" :disabled="!!editing" class="rounded-md px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50" :class="form.credential_mode === 'managed_local' ? 'bg-white font-semibold shadow-sm dark:bg-dark-700' : 'text-gray-500'" @click="selectCredentialMode('managed_local')">{{ t('admin.channelMonitor.form.credentialManagedLocal') }}</button>
         </div>
         <p v-if="form.credential_mode === 'managed_local'" class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.credentialManagedHint') }}</p>
       </div>
@@ -122,7 +122,7 @@
 
       <div class="flex items-center justify-between">
         <label class="input-label mb-0">{{ t('admin.channelMonitor.form.showGroupRate') }}</label>
-        <Toggle v-model="form.show_group_rate" />
+        <Toggle v-model="form.show_group_rate" data-testid="monitor-show-group-rate" />
       </div>
 
       <div>
@@ -453,6 +453,14 @@ function selectProvider(provider: Provider) {
   }
   if (clearGrokEndpoint) form.endpoint = ''
   if (clearGrokModel) form.primary_model = ''
+}
+
+function selectCredentialMode(mode: MonitorForm['credential_mode']) {
+  if (editing.value || form.credential_mode === mode) return
+  form.credential_mode = mode
+  if (mode === 'managed_local') {
+    form.show_group_rate = true
+  }
 }
 
 // Clear api_key whenever provider changes to avoid cross-provider key mismatch.
