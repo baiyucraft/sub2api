@@ -221,7 +221,7 @@ post_deploy_doctor_status: pass | fail | not_required | not_checked
 baseline_candidate:
 baseline_candidate_sha256:
 recovery_point_reference:
-baseline_blocker: value | not_applicable | not_checked
+baseline_blocker: none | candidate_creation_failed | candidate_upload_failed | candidate_missing | restore_identity_unavailable | restore_helper_unavailable | checksum_mismatch | image_load_failed | config_restore_failed | postgres_restore_failed | redis_restore_failed | counts_and_migrations_failed | temporary_material_cleanup_failed | evidence_invalid | promotion_failed | not_applicable | not_checked
 image_load_id_check: pass | fail | not_checked
 config_manifest_check: pass | fail | not_checked
 postgres_restore: pass | fail | not_checked
@@ -239,6 +239,8 @@ partial: production healthy, disaster-recovery baseline incomplete
 ```
 
 旧 verified 在原子晋升完成前必须保持不变。
+
+`baseline_blocker` 只允许使用上述脱敏枚举，不记录远端错误原文、路径、命令、secret 或自由文本。`baseline_status=verified` 时必须为 `none`；`baseline_status=partial` 时必须是一个具体阻断枚举。
 
 ## RPO、RTO 与遗留项
 

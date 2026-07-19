@@ -135,8 +135,9 @@ docker compose -f docker-compose.yml [-f docker-compose.release-active.yml] conf
 
 - 上传前先核验 receiver 实际允许的 transport class 和文件名；不得反复用不被接受的 release 名碰撞接口。
 - maintenance 输出同时记录 transport name、release name 和 SHA-256，但不得记录 secret。
-- 晋升 bundle 必须精确包含 artifact、artifact checksum、manifest 和 bundle checksum；拒绝额外文件、重复字段、symlink 和路径穿越。
-- 版本基线 bundle 的 `bundle.sha256` 必须严格为六行，固定顺序为：`artifact.tar.age`、`candidate.tar.gz`、`gate.json`、`gate.sig`、`manifest`、`SHA256SUMS`。逐行校验 basename、64 位小写十六进制和实际文件 SHA-256；不能把它简化成只校验 `artifact.tar.age` 的单行文件。
+- maintenance/release recovery point bundle 必须精确包含 `artifact.tar.age`、`artifact.tar.age.sha256`、`manifest` 和 `bundle.sha256`；其中 `bundle.sha256` 固定三行，按该顺序逐项校验。
+- 版本基线 candidate 使用独立合同：bundle 必须精确包含 `artifact.tar.age`、`candidate.tar.gz`、`gate.json`、`gate.sig`、`manifest`、`SHA256SUMS` 和 `bundle.sha256`；其中 `bundle.sha256` 固定六行，按前六个文件的顺序逐项校验。
+- 两类合同都必须逐行校验精确 basename、64 位小写十六进制和实际文件 SHA-256，并拒绝额外文件、重复字段、symlink 和路径穿越；禁止把三行与六行合同互换，也不能简化为只校验 artifact 的单行 sidecar。
 - artifact、checksum 和 manifest 全部在同父目录 staging 中验证后，用一次目录 rename 原子提交；禁止逐个移动 artifact/checksum。
 - 已存在目标只有在 exact-content 校验完全一致时才视为幂等成功；冲突目标立即停止。
 - 原子提交后，stdout 断开等报告错误不能把已经提交的状态伪装成未提交；最终报告从现场重新核验 bundle。
@@ -144,7 +145,7 @@ docker compose -f docker-compose.yml [-f docker-compose.release-active.yml] conf
 ### 晋升测试与诊断合同
 
 - 测试 candidate 必须用 `install` 显式设置 root owner、目录 `0700`、敏感文件 `0600/0400`，并保留真实六行 bundle；`cp -a` 产生的权限或 link count 不得作为生产合同。
-- 集成测试必须同时覆盖 bundle 六行逐项匹配、锁 symlink 拒绝、candidate/verified 冲突、失败保留旧 verified、成功重放和临时文件清理。`find | sort` 的期望值必须按字典序书写，避免真实晋升成功后被测试断言误报。
+- 集成测试必须同时覆盖所测资产对应的三行或六行 bundle 逐项匹配、锁 symlink 拒绝、candidate/verified 冲突、失败保留旧 verified、成功重放和临时文件清理。文件集合排序必须固定 `LC_ALL=C`（二进制安全路径使用 `LC_ALL=C sort -z`），避免不同 locale 造成真实晋升成功后的测试误报。
 - 结构化 SSH runner 的 stderr、stdout 和字段集合是接口合同。失败诊断只能在临时测试根启用，不能把原始远端日志、环境或 secret 带入报告；不得因 stderr 被隐藏就重复执行可能已提交的晋升。
 
 ## 备份 Unit 维护模式

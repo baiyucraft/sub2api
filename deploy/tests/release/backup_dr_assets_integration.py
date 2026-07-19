@@ -295,7 +295,7 @@ promotion_value() {{ awk -F= -v key="$1" '$1 == key {{sub(/^[^=]*=/, ""); print;
 [[ $(promotion_value evidence_sha256) == "$(sha256sum "$valid_input/evidence.json" | awk '{{print $1}}')" ]]
 [[ $(promotion_value signature_sha256) == "$(sha256sum "$valid_input/evidence.sig" | awk '{{print $1}}')" ]]
 [[ $(promotion_value verified_bundle_sha256) == "$(sha256sum "$target/VERIFIED_SHA256SUMS" | awk '{{print $1}}')" ]]
-[[ $(find "$target" -mindepth 1 -maxdepth 1 -printf '%y %f\n' | sort) == $'f artifact.tar.age\nf bundle.sha256\nf candidate.tar.gz\nf evidence.json\nf evidence.sig\nf gate.json\nf gate.sig\nf manifest\nf SHA256SUMS\nf VERIFIED_SHA256SUMS' ]]
+[[ $(find "$target" -mindepth 1 -maxdepth 1 -printf '%y %f\n' | LC_ALL=C sort) == $'f SHA256SUMS\nf VERIFIED_SHA256SUMS\nf artifact.tar.age\nf bundle.sha256\nf candidate.tar.gz\nf evidence.json\nf evidence.sig\nf gate.json\nf gate.sig\nf manifest' ]]
 for file in "$target"/*; do [[ $(stat -c '%U:%G:%a:%h' "$file") == root:root:400:1 ]]; done
 (cd "$target" && sha256sum -c VERIFIED_SHA256SUMS >/dev/null)
 for file in SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz gate.json gate.sig manifest; do cmp -s "$candidate_root/$release_id/$file" "$target/$file"; done

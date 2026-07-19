@@ -10,7 +10,11 @@ minimum_free_bytes=${MINIMUM_FREE_BYTES:-5368709120}
 [[ $transport_name =~ ^sub2api-[0-9]{8}T[0-9]{6}Z\.tar\.age$ ]]
 [[ $artifact_sha =~ ^[0-9a-f]{64}$ ]]
 [[ -d $backup_root && ! -L $backup_root ]]
-exec 9>"$backup_root/.release-promotion.lock"
+[[ $(realpath -e -- "$backup_root") == "$backup_root" ]]
+lock_file="$backup_root/.release-promotion.lock"
+[[ ! -L $lock_file ]]
+exec 9>"$lock_file"
+[[ -f $lock_file && ! -L $lock_file ]]
 flock -n 9
 mapfile -t sources < <(find "$backup_root" -path "$backup_root/releases" -prune -o -type f -name "$transport_name" -print)
 [[ ${#sources[@]} == 1 ]]
@@ -23,15 +27,39 @@ free_bytes=$(df -PB1 "$backup_root" | awk 'NR==2{print $4}')
 (( free_bytes >= minimum_free_bytes ))
 profile=${release_id%%-*}
 release_root="$backup_root/releases/$profile"
-install -d -m 700 "$backup_root/releases" "$release_root"
+for dir in "$backup_root/releases" "$release_root"; do
+  if [[ -e $dir || -L $dir ]]; then
+    [[ -d $dir && ! -L $dir ]]
+  else
+    install -d -m 700 "$dir"
+  fi
+  [[ $(realpath -e -- "$dir") == "$dir" ]]
+done
 target="$release_root/$release_id"
 staging="$release_root/.$release_id.staging.$$"
+
+verify_bundle() {
+  local bundle=$1 expected_manifest expected_bundle_checksum entry_count
+  [[ -d $bundle && ! -L $bundle ]]
+  [[ $(realpath -e -- "$bundle") == "$bundle" ]]
+  entry_count=$(find "$bundle" -mindepth 1 -maxdepth 1 -print | wc -l)
+  [[ $entry_count == 4 ]]
+  for name in artifact.tar.age artifact.tar.age.sha256 manifest bundle.sha256; do
+    [[ -f $bundle/$name && ! -L $bundle/$name ]]
+    [[ $(stat -c '%h' "$bundle/$name") == 1 ]]
+  done
+  expected_manifest=$(printf 'release_id=%s\ntransport_artifact=%s\nsha256=%s' \
+    "$release_id" "$transport_name" "$artifact_sha")
+  [[ $(<"$bundle/manifest") == "$expected_manifest" ]]
+  [[ $(<"$bundle/artifact.tar.age.sha256") == "$artifact_sha  artifact.tar.age" ]]
+  expected_bundle_checksum=$(cd "$bundle" && sha256sum artifact.tar.age artifact.tar.age.sha256 manifest)
+  [[ $(<"$bundle/bundle.sha256") == "$expected_bundle_checksum" ]]
+  (cd "$bundle" && sha256sum -c bundle.sha256 >/dev/null)
+  [[ $(sha256sum "$bundle/artifact.tar.age" | awk '{print $1}') == "$artifact_sha" ]]
+}
+
 if [[ -d $target && ! -L $target ]]; then
-  [[ -f $target/artifact.tar.age && -f $target/artifact.tar.age.sha256 && -f $target/manifest && -f $target/bundle.sha256 ]]
-  [[ $(find "$target" -mindepth 1 -maxdepth 1 -type f | wc -l) == 4 ]]
-  (cd "$target" && sha256sum -c bundle.sha256 >/dev/null)
-  [[ $(sha256sum "$target/artifact.tar.age" | awk '{print $1}') == "$artifact_sha" ]]
-  grep -Fxq "release_id=$release_id" "$target/manifest"
+  verify_bundle "$target"
   printf 'backup_promotion=verified\n'
   printf 'release_artifact=%s\n' "$release_id"
   printf 'release_sha256=%s\n' "$artifact_sha"
@@ -45,7 +73,8 @@ trap cleanup EXIT
 install -m 600 "$source_artifact" "$staging/artifact.tar.age"
 printf '%s  artifact.tar.age\n' "$artifact_sha" > "$staging/artifact.tar.age.sha256"
 printf 'release_id=%s\ntransport_artifact=%s\nsha256=%s\n' "$release_id" "$transport_name" "$artifact_sha" > "$staging/manifest"
-(cd "$staging" && sha256sum artifact.tar.age artifact.tar.age.sha256 manifest > bundle.sha256 && sha256sum -c bundle.sha256 >/dev/null)
+(cd "$staging" && sha256sum artifact.tar.age artifact.tar.age.sha256 manifest > bundle.sha256)
+verify_bundle "$staging"
 mv -T -- "$staging" "$target"
 trap - EXIT
 printf 'backup_promotion=verified\n'

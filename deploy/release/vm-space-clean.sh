@@ -33,7 +33,7 @@ required_bytes=$((database_size * 2 + current_image_size * 2 + 1073741824))
 list_container_candidates() {
   docker ps -a --filter status=exited --format '{{.ID}}\t{{.Names}}' \
     | awk -F '\t' '$2 ~ /^sub2api-dev-pre/ {print $1}' \
-    | sort -u
+    | LC_ALL=C sort -u
 }
 
 container_reclaimable_bytes() {
@@ -51,14 +51,14 @@ write_referenced_images() {
   local container_ids
   container_ids=$(docker ps -aq --no-trunc)
   if [[ -n $container_ids ]]; then
-    docker inspect -f '{{.Image}}' $container_ids | sort -u
+    docker inspect -f '{{.Image}}' $container_ids | LC_ALL=C sort -u
   fi
 }
 
 list_image_candidates() {
   local image_id image_size tag valid has_tag
   write_referenced_images > "$work_dir/referenced-images"
-  docker image ls --no-trunc --format '{{.ID}}' | sort -u > "$work_dir/image-ids"
+  docker image ls --no-trunc --format '{{.ID}}' | LC_ALL=C sort -u > "$work_dir/image-ids"
   : > "$work_dir/image-candidates"
   while IFS= read -r image_id; do
     [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || continue

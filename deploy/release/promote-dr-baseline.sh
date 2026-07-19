@@ -141,7 +141,7 @@ manifest_lines=$(wc -l < "$manifest")
 if [[ $manifest_lines != 6 ]]; then
   false
 fi
-manifest_keys=$(sed -n 's/^\([a-z0-9_]*\)=.*/\1/p' "$manifest" | sort)
+manifest_keys=$(sed -n 's/^\([a-z0-9_]*\)=.*/\1/p' "$manifest" | LC_ALL=C sort)
 if [[ $manifest_keys != $'artifact_name\nartifact_sha256\ncandidate_archive_sha256\ncandidate_image_id\nrelease_id\nstate' ]]; then
   false
 fi
