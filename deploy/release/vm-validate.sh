@@ -61,7 +61,7 @@ git fetch origin main >/dev/null 2>&1
 [[ $(git rev-parse origin/main) == "$commit" ]]
 git reset --hard "$commit" >/dev/null
 while IFS=$'\t' read -r relative expected; do
-  [[ $relative =~ ^deploy/(release\.py|release/([^/]+|trust/[^/]+)|maintenance/release/[^/]+|maintenance/181/(mask-backup-units|restore-backup-units)\.sh)$ ]]
+  [[ $relative =~ ^deploy/(release\.py|release/([^/]+|trust/[^/]+|drverify/[^/]+)|maintenance/release/[^/]+|maintenance/181/(mask-backup-units|restore-backup-units)\.sh)$ ]]
   [[ -f $source_dir/$relative && ! -L $source_dir/$relative ]]
   [[ $(sha256sum "$source_dir/$relative" | awk '{print $1}') == "$expected" ]]
 done < <(jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
