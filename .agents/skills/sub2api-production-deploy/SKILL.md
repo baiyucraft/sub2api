@@ -78,6 +78,8 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 7. 适用的应用发布在生产通过后处理版本基线：`candidate -> 实际 PostgreSQL/Redis 隔离恢复 -> verified`。`ops-readonly-assets` 和不涉及应用/恢复点的 `ops-control-assets` 明确记录 `not_applicable`。
 8. 按 [final-report.md](references/final-report.md) 输出脱敏结果；基线失败时只能报告 `partial`。
 
+灾备 candidate 在进入任何晋升写操作前，必须先通过 [backup-and-restore.md](references/backup-and-restore.md) 的 exact-content bundle 合同。测试自测签名只能证明 signer 可用，不能替代真实解密、PostgreSQL/Redis 恢复和临时材料销毁；缺少批准的解密身份或恢复 helper 时必须停在 `restore pending`，保留 `candidate`，不得伪造 `verified`。
+
 不兼容 migration 还必须在生产停写后完成数据 preflight、migration plan checksum 和 postflight 语义校验。VM fixture 通过不能替代生产数据证据；没有可证明来源的历史行必须停止。
 
 ## RackNerd 一键发布入口
@@ -112,6 +114,14 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 ## 失败即停止
 
 构建、空间、镜像 ID、传输 SHA-256、VM 连接边界、迁移恢复、备份复制、TLS、健康、认证、流式响应或真实 IP 任一断言失败，都不得继续生产切换。容器能启动不等于发布或回滚成功。
+
+### 灾备发布硬门禁
+
+- `bundle.sha256` 是固定六行的文件合同，不是只记录 artifact 的单行 sidecar。顺序必须为 `artifact.tar.age`、`candidate.tar.gz`、`gate.json`、`gate.sig`、`manifest`、`SHA256SUMS`；每行必须是小写 64 位 SHA-256 加精确 basename，拒绝额外行、重复名、路径穿越和 symlink。
+- 候选目录和晋升 staging 必须用显式 `install` 建立 owner、mode、link count；不要用 `cp -a` 作为安全合同。锁文件、candidate pointer、verified pointer、临时目录和旧 verified 目标都要分别检查 canonical path、权限和 checksum。
+- 远端 runner 隐藏 stderr 时，不能凭空重试写操作，也不能为了诊断放宽生产 allowlist。只允许在一次性测试环境启用受控诊断，先从 committed marker、pointer、checksum 和进程状态重建事实，再决定是否继续。
+- 测试中的 `find | sort`、文件集合、字段 allowlist 必须与真实输出顺序和合同一致；测试误报也必须修复后重跑完整集成，不能把“晋升已成功但断言失败”当作未提交而重复晋升。
+- bootstrap 的 synthetic evidence 只能验证 verifier、trust 和 signer 安装；真实基线必须使用独立 drill ID、真实 candidate checksum，并在 VM/隔离环境完成解密、镜像 ID、Compose、PostgreSQL、Redis、migration、计数和临时材料销毁。任一缺失都只能报告 `partial`。
 
 ## 相关文档
 

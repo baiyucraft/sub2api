@@ -140,6 +140,13 @@ python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status
 
 allowlist 合同修复必须同时更新远端脚本 stdout、Python allowed set、release asset checksum/manifest 和自动化测试。测试至少覆盖字段完整成功、额外字段拒绝、缺失字段拒绝，以及“远端 marker 已提交但调用端解析失败”不重复写操作。现场只读核验字段限定为目标 committed marker、容器 image/status/health、Nginx、backup units、迁移 checksum 和本次动作的布尔/计数结果。
 
+### 远端失败与超时诊断
+
+- runner 返回非零且隐藏 stderr 时，先读取唯一 runner PID、结构化状态文件、committed marker、candidate/verified pointer 和目标 checksum；不得仅凭客户端异常重复执行 bootstrap、晋升、迁移或恢复。
+- 诊断脚本必须保持与生产脚本相同的 `set -Eeuo pipefail`、权限和 allowlist；只能在一次性测试根使用临时 `bash -x`/失败命令回显，诊断完成立即清理。生产资产、`.ssh.local`、完整环境、原始 stderr 和 secret 不得进入输出。
+- 若远端 stdout 已经包含成功字段但随后 exit nonzero，按“动作可能已提交”处理：先核对现场状态，再修复调用端断言或 allowlist；不能把后置测试误报当成未提交并再次写入。
+- 测试脚本的文件集合断言必须匹配命令真实排序；任何“晋升成功、测试失败”的组合都要单独记录并修复测试，不能降低现场门禁。
+
 ## 发布后验收
 
 逐项记录：
