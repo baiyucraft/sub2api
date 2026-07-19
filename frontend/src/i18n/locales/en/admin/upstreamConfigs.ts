@@ -42,8 +42,6 @@ export default {
       rateMultiplier: 'Actual rate {value}'
     },
     scheduling: {
-      enabled: 'Enabled',
-      disabled: 'Paused',
       enabledHint: 'Allow accounts under this upstream whose account scheduling switch is enabled',
       disabledHint: 'Pause all calls through this upstream without changing account-level switches',
       toggleLabel: 'Toggle scheduling for upstream {name}'

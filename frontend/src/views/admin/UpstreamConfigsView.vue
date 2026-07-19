@@ -233,7 +233,7 @@
           </template>
 
           <template #cell-scheduling="{ row }">
-            <div class="flex min-w-[128px] items-center gap-2" @click.stop>
+            <div class="flex min-w-[44px] items-center" @click.stop>
               <Toggle
                 :model-value="row.scheduling_enabled !== false"
                 :disabled="schedulingUpdatingIds.has(row.id)"
@@ -244,16 +244,6 @@
                 data-test="upstream-scheduling-toggle"
                 @update:model-value="handleSchedulingChange(row, $event)"
               />
-              <span
-                :class="row.scheduling_enabled !== false
-                  ? 'text-emerald-700 dark:text-emerald-300'
-                  : 'text-amber-700 dark:text-amber-300'"
-                class="text-xs font-medium"
-              >
-                {{ row.scheduling_enabled !== false
-                  ? t('admin.upstreamConfigs.scheduling.enabled')
-                  : t('admin.upstreamConfigs.scheduling.disabled') }}
-              </span>
             </div>
           </template>
 

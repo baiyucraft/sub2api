@@ -47,7 +47,7 @@ type channelMonitorCreateRequest struct {
 	ExtraModels      []string          `json:"extra_models"`
 	GroupName        string            `json:"group_name" binding:"max=100"`
 	GroupID          *int64            `json:"group_id"`
-	ShowGroupRate    bool              `json:"show_group_rate"`
+	ShowGroupRate    *bool             `json:"show_group_rate"`
 	CredentialMode   string            `json:"credential_mode" binding:"omitempty,oneof=manual managed_local"`
 	Enabled          *bool             `json:"enabled"`
 	IntervalSeconds  int               `json:"interval_seconds" binding:"required,min=15,max=3600"`

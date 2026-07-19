@@ -421,12 +421,25 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    await wrapper.get('[data-test="upstream-scheduling-toggle"]').trigger('click')
+    const toggle = wrapper.get('[data-test="upstream-scheduling-toggle"]')
+    expect(toggle.element.parentElement?.className).toContain('min-w-[44px]')
+    expect(toggle.attributes('role')).toBe('switch')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    expect(toggle.attributes('aria-label')).toBe(
+      'admin.upstreamConfigs.scheduling.toggleLabel:{"name":"Sub2API Main"}'
+    )
+    expect(toggle.attributes('title')).toBe('admin.upstreamConfigs.scheduling.enabledHint')
+    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.scheduling.enabled')
+    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.scheduling.disabled')
+
+    await toggle.trigger('click')
     await flushPromises()
 
     expect(updateSchedulingMock).toHaveBeenCalledWith(10, false)
     expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.messages.schedulingDisabled')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.scheduling.disabled')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(toggle.attributes('title')).toBe('admin.upstreamConfigs.scheduling.disabledHint')
+    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.scheduling.disabled')
   })
 
   it('uses localized balance and concurrency column labels', () => {
