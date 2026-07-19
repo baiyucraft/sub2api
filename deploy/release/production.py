@@ -26,6 +26,21 @@ def quoted_env(values: dict[str, str | int]) -> str:
     return " ".join(f"{key}={shlex.quote(str(value))}" for key, value in values.items())
 
 
+def gate_consumption_probe_script(release_dir: str, release_id: str, image_id: str, active_claim: str = "/opt/sub2api/releases/.active-release") -> str:
+    consumed = f"{release_dir}/.consumed"
+    recovered = f"{release_dir}/.recovered"
+    return f"""active={shlex.quote(active_claim)}
+consumed={shlex.quote(consumed)}
+recovered={shlex.quote(recovered)}
+if test -d \"$consumed\" && test ! -L \"$consumed\" && test -f \"$consumed/marker\" && test ! -L \"$consumed/marker\" && test -f \"$consumed/plaintext-cleaned\" && test ! -L \"$consumed/plaintext-cleaned\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test ! -e \"$active\" && test ! -L \"$active\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$consumed/marker\" && grep -Fxq {shlex.quote(f'candidate_image_id={image_id}')} \"$consumed/marker\" && test \"$(docker inspect -f '{{{{.Image}}}}' sub2api 2>/dev/null)\" = {shlex.quote(image_id)} && test \"$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api 2>/dev/null)\" = healthy && test \"$(systemctl is-enabled sub2api-backup.timer 2>/dev/null)\" = enabled; then
+  printf 'gate_consumed=true\\n'
+elif test ! -e \"$consumed\" && test ! -L \"$consumed\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test -d \"$active\" && test ! -L \"$active\" && test -f \"$active/release_id\" && test ! -L \"$active/release_id\" && test -f \"$active/gate.json\" && test ! -L \"$active/gate.json\" && test -f \"$active/CLAIM_SHA256SUMS\" && test ! -L \"$active/CLAIM_SHA256SUMS\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$active/release_id\" && (cd \"$active\" && sha256sum -c CLAIM_SHA256SUMS >/dev/null 2>&1) && test \"$(jq -er '.manifest.release_id' \"$active/gate.json\" 2>/dev/null)\" = {shlex.quote(release_id)} && test \"$(jq -er '.evidence.candidate_image_id' \"$active/gate.json\" 2>/dev/null)\" = {shlex.quote(image_id)}; then
+  printf 'gate_consumed=false\\n'
+else
+  printf 'gate_consumed=unknown\\n'
+fi"""
+
+
 def emit_progress(message: str) -> None:
     try:
         print(message, flush=True)
@@ -582,12 +597,17 @@ fi
         try:
             values = self.run_remote(
                 "racknerd",
-                f"test -f {self.release_dir}/.consumed/marker && test -f {self.release_dir}/.consumed/plaintext-cleaned && test ! -e /opt/sub2api/releases/.active-release && grep -Fxq 'candidate_image_id={self.image_id}' {self.release_dir}/.consumed/marker && test $(docker inspect -f '{{{{.Image}}}}' sub2api) = {self.image_id} && test $(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api) = healthy && test $(systemctl is-enabled sub2api-backup.timer) = enabled && printf 'gate_consumed=true\\n'",
+                gate_consumption_probe_script(self.release_dir, self.release_id, self.image_id),
                 {"gate_consumed"},
             )
         except BaseException:
             return None
-        return values.get("gate_consumed") == "true"
+        consumed = values.get("gate_consumed")
+        if consumed == "true":
+            return True
+        if consumed == "false":
+            return False
+        return None
 
     def remote_gate_claimed(self) -> bool | None:
         try:

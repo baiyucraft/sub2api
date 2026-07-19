@@ -219,6 +219,8 @@ docker run --rm --entrypoint sh -e PROBE_TIMEZONE="$probe_timezone" "$candidate_
 fixture_rejected=false
 restore_completed=false
 clean_preflight=false
+verified_replay=false
+verified_low_watermark_rejected=false
 if [[ $profile == 195 ]]; then
   migration_195_context="$state_dir/migration-195-context.sh"
   printf 'profile=195\nstate_dir=%q\n' "$state_dir" > "$migration_195_context"
@@ -248,6 +250,33 @@ docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate
 rm -f "$state_dir/migrate-candidate.log"
 if [[ $profile == 195 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
+  consumed_event_id=$(<"$state_dir/migration-195-outbox-event.id")
+  [[ $consumed_event_id =~ ^[1-9][0-9]*$ ]]
+  sentinel_event_id=$(docker exec sub2api-postgres sh -lc "psql -X -q -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"INSERT INTO scheduler_outbox (event_type,payload) VALUES ('account_changed','{}'::jsonb) RETURNING id\"" | tr -d '\r')
+  [[ $sentinel_event_id =~ ^[1-9][0-9]*$ && $sentinel_event_id -gt $consumed_event_id ]]
+  docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"DELETE FROM scheduler_outbox WHERE id=$consumed_event_id\"" >/dev/null
+  low_watermark=$((sentinel_event_id - 1))
+  docker exec "$probe_redis" redis-cli SET sched:v2:outbox:watermark "$low_watermark" >/dev/null
+  migration_195_low_state="$state_dir/migration-195-verified-low"
+  migration_195_low_context="$state_dir/migration-195-verified-low-context.sh"
+  install -d -m 700 "$migration_195_low_state"
+  printf 'profile=195\nstate_dir=%q\n' "$migration_195_low_state" > "$migration_195_low_context"
+  chmod 400 "$migration_195_low_context"
+  if ASSERT_CONTEXT_FILE="$migration_195_low_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_low_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight >/dev/null 2>&1; then
+    false
+  fi
+  verified_low_watermark_rejected=true
+  docker exec "$probe_redis" redis-cli SET sched:v2:outbox:watermark "$sentinel_event_id" >/dev/null
+  migration_195_verified_state="$state_dir/migration-195-verified"
+  migration_195_verified_context="$state_dir/migration-195-verified-context.sh"
+  install -d -m 700 "$migration_195_verified_state"
+  printf 'profile=195\nstate_dir=%q\n' "$migration_195_verified_state" > "$migration_195_verified_context"
+  chmod 400 "$migration_195_verified_context"
+  ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight >/dev/null
+  cp "$migration_195_verified_state/migration-195-data-plan.sha256" "$migration_195_verified_state/fake-recovery.sha256"
+  printf '%s  recovery-point.age\n' "$(<"$migration_195_verified_state/fake-recovery.sha256")" > "$migration_195_verified_state/recovery-point.age.sha256"
+  ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" bind >/dev/null
+  ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
 fi
 mark_stage candidate_health
 docker run -d --name "$probe_app" --network "$probe_network" \
@@ -275,6 +304,8 @@ if [[ $profile == 194 || $profile == 195 ]]; then
 fi
 if [[ $profile == 195 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
+  ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
+  verified_replay=true
 fi
 
 mark_stage isolated_cleanup
@@ -299,7 +330,9 @@ jq -n --slurpfile manifest "$manifest" \
   --argjson fixture_rejected "$fixture_rejected" \
   --argjson restore_completed "$restore_completed" \
   --argjson clean_preflight "$clean_preflight" \
-  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight}}' \
+  --argjson verified_replay "$verified_replay" \
+  --argjson verified_low_watermark_rejected "$verified_low_watermark_rejected" \
+  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
   | jq -cS . > "$output_dir/gate.json.tmp"
 chmod 400 "$output_dir/gate.json.tmp"
 mv -T -- "$output_dir/gate.json.tmp" "$output_dir/gate.json"

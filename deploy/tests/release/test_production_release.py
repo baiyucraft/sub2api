@@ -15,6 +15,7 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.production import ProductionRelease
 from release.production import emit_progress
+from release.production import gate_consumption_probe_script
 from release.production import quoted_env
 
 
@@ -34,7 +35,9 @@ class ProductionRecoveryTest(unittest.TestCase):
         instance.public_exposed = False
         instance.migration_started = False
         instance.state_dir = "/state"
+        instance.release_id = "182-aaaaaaaaaaaa-1-aaaaaaaa"
         instance.release_dir = "/release"
+        instance.image_id = "sha256:" + "a" * 64
         instance.active_assets = "/active/assets"
         instance.result = {"status": "running", "history": []}
         instance.stage = mock.Mock()
@@ -201,6 +204,128 @@ class ProductionRecoveryTest(unittest.TestCase):
         release = self.release()
         release.run_remote = mock.Mock(side_effect=RuntimeError("reply lost"))
         self.assertIsNone(release.remote_gate_consumed())
+
+    def test_consumed_probe_reports_valid_unconsumed_claim(self) -> None:
+        release = self.release()
+        release.release_id = "182-aaaaaaaaaaaa-1-aaaaaaaa"
+        release.image_id = "sha256:" + "a" * 64
+        release.release_dir = "/opt/sub2api/releases/182-aaaaaaaaaaaa-1-aaaaaaaa"
+        release.run_remote = mock.Mock(return_value={"gate_consumed": "false"})
+
+        self.assertFalse(release.remote_gate_consumed())
+        script = release.run_remote.call_args.args[1]
+        self.assertIn("gate_consumed=false", script)
+        self.assertIn("sha256sum -c CLAIM_SHA256SUMS", script)
+        self.assertIn("gate_consumed=unknown", script)
+
+    def test_consumed_probe_reports_inconsistent_state_as_unknown(self) -> None:
+        release = self.release()
+        release.run_remote = mock.Mock(return_value={"gate_consumed": "unknown"})
+        self.assertIsNone(release.remote_gate_consumed())
+
+    def test_consumption_probe_shell_covers_true_false_and_unknown(self) -> None:
+        bash = shutil.which("bash")
+        if bash is None and os.name == "nt":
+            candidate = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
+            bash = str(candidate) if candidate.is_file() else None
+        if bash is None:
+            self.skipTest("bash is unavailable")
+
+        release_id = "182-aaaaaaaaaaaa-1-aaaaaaaa"
+        image_id = "sha256:" + "a" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            release_dir = root / "release"
+            active = root / "active"
+            fake_bin = root / "bin"
+            release_dir.mkdir()
+            active.mkdir()
+            fake_bin.mkdir()
+            release_id_file = active / "release_id"
+            gate_file = active / "gate.json"
+            release_id_file.write_bytes(f"release_id={release_id}\n".encode())
+            gate_file.write_bytes(b"{}\n")
+
+            import hashlib
+
+            checksums = []
+            for path in (release_id_file, gate_file):
+                checksums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
+            checksum_file = active / "CLAIM_SHA256SUMS"
+            checksum_file.write_bytes(("\n".join(checksums) + "\n").encode())
+            jq = fake_bin / "jq"
+            jq.write_bytes(
+                (
+                    "#!/usr/bin/env bash\ncase \"$2\" in\n"
+                    "  .manifest.release_id) printf '%s\\n' \"$FAKE_RELEASE_ID\" ;;\n"
+                    "  .evidence.candidate_image_id) printf '%s\\n' \"$FAKE_IMAGE_ID\" ;;\n"
+                    "  *) exit 1 ;;\nesac\n"
+                ).encode(),
+            )
+            docker = fake_bin / "docker"
+            docker.write_bytes(
+                (
+                    "#!/usr/bin/env bash\ncase \"$*\" in\n"
+                    "  *Health.Status*) printf 'healthy\\n' ;;\n"
+                    "  *) printf '%s\\n' \"$FAKE_IMAGE_ID\" ;;\nesac\n"
+                ).encode(),
+            )
+            systemctl = fake_bin / "systemctl"
+            systemctl.write_bytes(b"#!/usr/bin/env bash\nprintf 'enabled\\n'\n")
+            for executable in (jq, docker, systemctl):
+                executable.chmod(0o755)
+
+            environment = os.environ.copy()
+            environment.update({
+                "FAKE_RELEASE_ID": release_id,
+                "FAKE_IMAGE_ID": image_id,
+                "PATH": str(fake_bin) + os.pathsep + environment.get("PATH", ""),
+            })
+            script = gate_consumption_probe_script(release_dir.as_posix(), release_id, image_id, active.as_posix())
+
+            valid = subprocess.run([bash, "-c", script], check=True, capture_output=True, text=True, env=environment)
+            self.assertEqual(valid.stdout, "gate_consumed=false\n")
+
+            checksum_file.write_bytes(("0" * 64 + "  gate.json\n").encode())
+            corrupt = subprocess.run([bash, "-c", script], check=True, capture_output=True, text=True, env=environment)
+            self.assertEqual(corrupt.stdout, "gate_consumed=unknown\n")
+
+            checksum_file.write_bytes(("\n".join(checksums) + "\n").encode())
+            environment["FAKE_IMAGE_ID"] = "sha256:" + "b" * 64
+            mismatched = subprocess.run([bash, "-c", script], check=True, capture_output=True, text=True, env=environment)
+            self.assertEqual(mismatched.stdout, "gate_consumed=unknown\n")
+
+            environment["FAKE_IMAGE_ID"] = image_id
+            (release_dir / ".recovered").mkdir()
+            contradictory = subprocess.run([bash, "-c", script], check=True, capture_output=True, text=True, env=environment)
+            self.assertEqual(contradictory.stdout, "gate_consumed=unknown\n")
+            (release_dir / ".recovered").rmdir()
+
+            shutil.rmtree(active)
+            consumed = release_dir / ".consumed"
+            consumed.mkdir()
+            marker = consumed / "marker"
+            marker.write_bytes(f"release_id=182-bbbbbbbbbbbb-2-bbbbbbbb\ncandidate_image_id={image_id}\n".encode())
+            (consumed / "plaintext-cleaned").write_bytes(b"true\n")
+            wrong_release = subprocess.run([bash, "-c", script], check=True, capture_output=True, text=True, env=environment)
+            self.assertEqual(wrong_release.stdout, "gate_consumed=unknown\n")
+
+            marker.write_bytes(f"release_id={release_id}\ncandidate_image_id={image_id}\n".encode())
+            completed = subprocess.run([bash, "-c", script], check=True, capture_output=True, text=True, env=environment)
+            self.assertEqual(completed.stdout, "gate_consumed=true\n")
+
+    def test_unconsumed_claim_before_public_exposure_runs_recovery(self) -> None:
+        release = self.release()
+        release.claimed = True
+        release.public_exposed = False
+        release.upload_assets = mock.Mock(side_effect=RuntimeError("preflight failed"))
+        release.remote_gate_consumed = mock.Mock(return_value=False)
+        release.recover = mock.Mock()
+
+        with self.assertRaisesRegex(RuntimeError, "preflight failed"):
+            release.execute()
+
+        release.recover.assert_called_once()
 
     def test_unknown_consumption_status_closes_public_traffic(self) -> None:
         release = self.release()
