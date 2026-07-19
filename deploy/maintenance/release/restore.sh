@@ -59,7 +59,7 @@ redis_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}
 docker stop sub2api-redis >/dev/null
 find "$redis_source" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 cp -a "$recovery/redis/." "$redis_source/"
-(cd "$redis_source" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$recovery/metadata/redis-files-restored.sha256"
+(cd "$redis_source" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) > "$recovery/metadata/redis-files-restored.sha256"
 diff -u "$recovery/metadata/redis-files.sha256" "$recovery/metadata/redis-files-restored.sha256" >/dev/null
 docker start sub2api-redis >/dev/null
 for _ in $(seq 1 60); do
@@ -93,7 +93,7 @@ chmod --reference="$deploy_dir/.env" "$env_tmp"
 mv -T -- "$env_tmp" "$deploy_dir/.env"
 find "$deploy_dir/data" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 cp -a "$recovery/config/app/data/." "$deploy_dir/data/"
-(cd "$deploy_dir/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$recovery/metadata/data-restored.sha256"
+(cd "$deploy_dir/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) > "$recovery/metadata/data-restored.sha256"
 diff -u "$recovery/metadata/data.sha256" "$recovery/metadata/data-restored.sha256" >/dev/null
 docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT 'accounts='||count(*) FROM accounts UNION ALL SELECT 'users='||count(*) FROM users UNION ALL SELECT 'api_keys='||count(*) FROM api_keys UNION ALL SELECT 'upstream_configs='||count(*) FROM upstream_configs UNION ALL SELECT 'upstream_keys='||count(*) FROM upstream_keys" > "$recovery/metadata/core-counts-restored.txt"
 diff -u "$recovery/metadata/core-counts.txt" "$recovery/metadata/core-counts-restored.txt" >/dev/null

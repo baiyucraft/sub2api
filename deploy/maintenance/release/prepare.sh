@@ -31,7 +31,7 @@ for path in "$release_dir"/assets/*; do
   [[ -f $path && ! -L $path ]]
   install -m 500 "$path" "$active_claim/assets/$(basename -- "$path")"
 done
-(cd "$active_claim" && find gate.json gate.sig candidate.tar.gz assets -type f -print0 | sort -z | xargs -0 sha256sum > CLAIM_SHA256SUMS && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
+(cd "$active_claim" && find gate.json gate.sig candidate.tar.gz assets -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > CLAIM_SHA256SUMS && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
 chmod 400 "$active_claim/CLAIM_SHA256SUMS"
 openssl pkeyutl -verify -pubin -inkey "$trust_key" -rawin \
   -in "$active_claim/gate.json" -sigfile "$active_claim/gate.sig" >/dev/null

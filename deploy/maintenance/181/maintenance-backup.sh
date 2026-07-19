@@ -148,7 +148,7 @@ docker exec sub2api-postgres psql -U sub2api -d sub2api -Atqc "SELECT 'accounts=
 printf 'restore_point_utc=%s\nrelease=181\napplication_commit=%s\napplication_version=%s\ncandidate_image_id=%s\npre_switch_image_id=%s\ncompose_sha256=%s\npre_migration_181_absent=true\nwrites_frozen=true\n' \
   "$timestamp" "$release_commit" "$release_version" "$candidate_image_id" \
   "$pre_switch_image_id" "$compose_sha256" > "$work_dir/metadata/manifest.txt"
-(cd "$work_dir" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+(cd "$work_dir" && find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS)
 
 tar -C "$work_dir" -cf "$plain_archive" .
 age -R "$recipient_file" -o "$encrypted_archive" "$plain_archive"

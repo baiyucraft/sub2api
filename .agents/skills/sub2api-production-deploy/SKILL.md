@@ -117,10 +117,10 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 
 ### 灾备发布硬门禁
 
-- `bundle.sha256` 是固定六行的文件合同，不是只记录 artifact 的单行 sidecar。顺序必须为 `artifact.tar.age`、`candidate.tar.gz`、`gate.json`、`gate.sig`、`manifest`、`SHA256SUMS`；每行必须是小写 64 位 SHA-256 加精确 basename，拒绝额外行、重复名、路径穿越和 symlink。
+- 先按资产类型选择 checksum 合同，禁止混用：maintenance/release recovery point 的 `bundle.sha256` 固定三行 `artifact.tar.age`、`artifact.tar.age.sha256`、`manifest`；只有版本基线 candidate 的 `bundle.sha256` 固定六行 `artifact.tar.age`、`candidate.tar.gz`、`gate.json`、`gate.sig`、`manifest`、`SHA256SUMS`。两者每行都必须是小写 64 位 SHA-256 加精确 basename，并拒绝额外行、重复名、路径穿越和 symlink。
 - 候选目录和晋升 staging 必须用显式 `install` 建立 owner、mode、link count；不要用 `cp -a` 作为安全合同。锁文件、candidate pointer、verified pointer、临时目录和旧 verified 目标都要分别检查 canonical path、权限和 checksum。
 - 远端 runner 隐藏 stderr 时，不能凭空重试写操作，也不能为了诊断放宽生产 allowlist。只允许在一次性测试环境启用受控诊断，先从 committed marker、pointer、checksum 和进程状态重建事实，再决定是否继续。
-- 测试中的 `find | sort`、文件集合、字段 allowlist 必须与真实输出顺序和合同一致；测试误报也必须修复后重跑完整集成，不能把“晋升已成功但断言失败”当作未提交而重复晋升。
+- 测试中的文件集合排序固定使用 `LC_ALL=C sort`（含 `sort -z`），文件集合、字段 allowlist 必须与真实输出顺序和合同一致；测试误报也必须修复后重跑完整集成，不能把“晋升已成功但断言失败”当作未提交而重复晋升。
 - bootstrap 的 synthetic evidence 只能验证 verifier、trust 和 signer 安装；真实基线必须使用独立 drill ID、真实 candidate checksum，并在 VM/隔离环境完成解密、镜像 ID、Compose、PostgreSQL、Redis、migration、计数和临时材料销毁。任一缺失都只能报告 `partial`。
 
 ## 相关文档
