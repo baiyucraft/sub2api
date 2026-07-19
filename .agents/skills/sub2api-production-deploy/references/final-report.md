@@ -221,6 +221,7 @@ post_deploy_doctor_status: pass | fail | not_required | not_checked
 baseline_candidate:
 baseline_candidate_sha256:
 recovery_point_reference:
+baseline_blocker: value | not_applicable | not_checked
 image_load_id_check: pass | fail | not_checked
 config_manifest_check: pass | fail | not_checked
 postgres_restore: pass | fail | not_checked
