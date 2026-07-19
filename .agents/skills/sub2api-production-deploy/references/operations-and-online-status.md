@@ -142,10 +142,10 @@ allowlist 合同修复必须同时更新远端脚本 stdout、Python allowed set
 
 ### 远端失败与超时诊断
 
-- runner 返回非零且隐藏 stderr 时，先读取唯一 runner PID、结构化状态文件、committed marker、candidate/verified pointer 和目标 checksum；不得仅凭客户端异常重复执行 bootstrap、晋升、迁移或恢复。
+- runner 返回非零且隐藏 stderr 时，先按入口能力重建事实：后台发布 runner 读取唯一 PID 和结构化状态文件；同步 SSH runner 不假定存在这些文件，只核对该入口实际具备的 committed marker、pointer、目标 checksum 和受影响服务状态。不存在于该入口合同中的对象不作为阻断项；不得仅凭客户端异常重复执行 bootstrap、晋升、迁移或恢复。
 - 诊断脚本必须保持与生产脚本相同的 `set -Eeuo pipefail`、权限和 allowlist；只能在一次性测试根使用临时 `bash -x`/失败命令回显，诊断完成立即清理。生产资产、`.ssh.local`、完整环境、原始 stderr 和 secret 不得进入输出。
 - 若远端 stdout 已经包含成功字段但随后 exit nonzero，按“动作可能已提交”处理：先核对现场状态，再修复调用端断言或 allowlist；不能把后置测试误报当成未提交并再次写入。
-- 测试脚本的文件集合断言必须匹配命令真实排序；任何“晋升成功、测试失败”的组合都要单独记录并修复测试，不能降低现场门禁。
+- 测试脚本的文件集合断言必须固定 `LC_ALL=C` 排序并匹配命令真实输出；任何“晋升成功、测试失败”的组合都要单独记录并修复测试，不能降低现场门禁。
 
 ## 发布后验收
 
