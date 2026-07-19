@@ -34,12 +34,27 @@ state_files+=(pre-image-id pre-image-ref pre-migrations.tsv)
 docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations ORDER BY filename" > "$state_dir/pre-migrations.tsv"
 (cd "$state_dir" && sha256sum "${state_files[@]}" > SHA256SUMS)
 systemctl stop nginx
+redis_password=$(docker inspect sub2api-redis | jq -er '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--requirepass")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first) end')
+outbox_highwater=
+outbox_watermark=
+drain_deadline=$((SECONDS + 30))
+while (( SECONDS < drain_deadline )); do
+  outbox_highwater=$(timeout 3s docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(MAX(id),0) FROM scheduler_outbox" 2>/dev/null | tr -d '\r') || outbox_highwater=
+  outbox_watermark=$(printf '%s\n' "$redis_password" | timeout 3s docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning GET sched:v2:outbox:watermark' 2>/dev/null | tr -d '\r') || outbox_watermark=
+  [[ $outbox_highwater =~ ^[0-9]+$ && $outbox_watermark =~ ^[0-9]+$ && $outbox_watermark -ge $outbox_highwater ]] && break
+  sleep 1
+done
+[[ $outbox_highwater =~ ^[0-9]+$ && $outbox_watermark =~ ^[0-9]+$ && $outbox_watermark -ge $outbox_highwater ]]
 docker compose stop -t 30 sub2api >/dev/null 2>&1
 [[ $(docker inspect -f '{{.State.Status}}' sub2api) != running ]]
 [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
+outbox_highwater=$(timeout 3s docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(MAX(id),0) FROM scheduler_outbox" 2>/dev/null | tr -d '\r') || outbox_highwater=
+outbox_watermark=$(printf '%s\n' "$redis_password" | timeout 3s docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning GET sched:v2:outbox:watermark' 2>/dev/null | tr -d '\r') || outbox_watermark=
+[[ $outbox_highwater =~ ^[0-9]+$ && $outbox_watermark =~ ^[0-9]+$ && $outbox_watermark -ge $outbox_highwater ]]
 write_tx=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COUNT(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND state<>'idle' AND backend_xid IS NOT NULL")
 [[ $write_tx == 0 ]]
 printf 'writes_frozen=true\n'
+printf 'outbox_drained=true\n'
 printf 'state_dir=%s\n' "$state_dir"
 printf 'pre_switch_image_id=%s\n' "$pre_image_id"
 printf 'compose_sha256=%s\n' "$compose_sha"

@@ -243,7 +243,7 @@ class ProductionRelease:
             "racknerd",
             f"{freeze_env} {self.active_assets}/freeze-backup.sh",
             {
-                "backup_units_masked", "writes_frozen", "state_dir", "pre_switch_image_id", "compose_sha256",
+                "backup_units_masked", "writes_frozen", "outbox_drained", "state_dir", "pre_switch_image_id", "compose_sha256",
             },
             timeout=2400,
         )
@@ -476,10 +476,10 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
     def recover(self) -> None:
         self.stage("recovery_started")
         if not self.migration_started and not self.frozen:
-            remote_frozen = self.remote_writes_frozen()
-            if remote_frozen is None:
-                raise RuntimeError("remote write-freeze state is unknown")
-            self.frozen = remote_frozen
+            recovery_needed = self.remote_pre_switch_recovery_needed()
+            if recovery_needed is None:
+                raise RuntimeError("remote pre-switch recovery state is unknown")
+            self.frozen = recovery_needed
         migration_committed = self.migration_started
         if self.migration_started and getattr(self, "profile", {}).get("name") == "195":
             migration_committed = self.remote_migration_committed()
@@ -564,16 +564,16 @@ fi
             return False
         return None
 
-    def remote_writes_frozen(self) -> bool | None:
+    def remote_pre_switch_recovery_needed(self) -> bool | None:
         try:
             values = self.run_remote(
                 "racknerd",
-                f"if test -f {self.state_dir}/pre-image-id && test -f {self.state_dir}/SHA256SUMS && test $(docker inspect -f '{{{{.State.Status}}}}' sub2api) != running && test $(systemctl is-active nginx 2>/dev/null || true) != active; then printf 'writes_frozen=true\\n'; else printf 'writes_frozen=false\\n'; fi",
-                {"writes_frozen"},
+                f"app_status=$(docker inspect -f '{{{{.State.Status}}}}' sub2api) && nginx_status=$(systemctl is-active nginx 2>/dev/null || true) && if test -f {self.state_dir}/pre-image-id && test -f {self.state_dir}/SHA256SUMS && {{ test \"$app_status\" != running || test \"$nginx_status\" != active; }}; then printf 'recovery_needed=true\\n'; else printf 'recovery_needed=false\\n'; fi",
+                {"recovery_needed"},
             )
         except BaseException:
             return None
-        return values.get("writes_frozen") == "true"
+        return values.get("recovery_needed") == "true"
 
     def remote_units_masked(self) -> bool | None:
         try:

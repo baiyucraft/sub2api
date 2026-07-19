@@ -67,6 +67,18 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertFalse(release.frozen)
         self.assertFalse(release.units_masked)
 
+    def test_freeze_drains_scheduler_outbox_before_stopping_application(self) -> None:
+        freeze = (DEPLOY_ROOT / "maintenance" / "release" / "freeze.sh").read_text(encoding="utf-8")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+
+        self.assertLess(freeze.index("systemctl stop nginx"), freeze.index("sched:v2:outbox:watermark"))
+        self.assertLess(freeze.index("sched:v2:outbox:watermark"), freeze.index("docker compose stop -t 30 sub2api"))
+        self.assertEqual(freeze.count("$outbox_watermark -ge $outbox_highwater"), 3)
+        self.assertEqual(freeze.count("timeout 3s docker exec"), 4)
+        self.assertGreater(freeze.rindex("sched:v2:outbox:watermark"), freeze.index("docker compose stop -t 30 sub2api"))
+        self.assertIn("drain_deadline=$((SECONDS + 30))", freeze)
+        self.assertIn('"outbox_drained"', production)
+
     def test_backup_rejects_unready_local_restore_point(self) -> None:
         release = self.release()
         release.profile = {"minimum_backup_free_bytes": 1}
@@ -96,7 +108,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         release = self.release()
         release.frozen = False
         release.units_masked = False
-        release.remote_writes_frozen = mock.Mock(return_value=True)
+        release.remote_pre_switch_recovery_needed = mock.Mock(return_value=True)
         release.run_remote.side_effect = [
             {"old_application_resumed": "true", "running_image_id": "old"},
             {"plaintext_state_removed": "true"},
@@ -106,10 +118,17 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIn("resume-old.sh", release.run_remote.call_args_list[0].args[1])
         self.assertEqual(release.result["status"], "recovered")
 
+    def test_partial_freeze_probe_requires_recovery(self) -> None:
+        release = self.release()
+        release.run_remote = mock.Mock(return_value={"recovery_needed": "true"})
+        self.assertTrue(release.remote_pre_switch_recovery_needed())
+        script = release.run_remote.call_args.args[1]
+        self.assertIn('test "$app_status" != running || test "$nginx_status" != active', script)
+
     def test_remote_freeze_probe_is_fail_closed(self) -> None:
         release = self.release()
         release.run_remote = mock.Mock(side_effect=RuntimeError("ssh interrupted"))
-        self.assertIsNone(release.remote_writes_frozen())
+        self.assertIsNone(release.remote_pre_switch_recovery_needed())
 
     def test_post_migration_failure_runs_coordinated_restore(self) -> None:
         release = self.release()
@@ -130,7 +149,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         release = self.release()
         release.frozen = False
         release.units_masked = False
-        release.remote_writes_frozen = mock.Mock(return_value=False)
+        release.remote_pre_switch_recovery_needed = mock.Mock(return_value=False)
         release.run_remote = mock.Mock(side_effect=[{"plaintext_state_removed": "true"}, RuntimeError("reply lost"), {"release_claim_reconciled": "true"}])
         release.recover()
         self.assertIn(".recovered/marker", release.run_remote.call_args_list[2].args[1])
