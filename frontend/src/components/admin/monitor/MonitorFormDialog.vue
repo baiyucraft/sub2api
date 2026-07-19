@@ -109,15 +109,34 @@
         />
       </div>
 
-      <div>
+      <div v-if="form.credential_mode === 'manual'">
         <label class="input-label">{{ t('admin.channelMonitor.form.groupName') }}</label>
         <input v-model="form.group_name" type="text" class="input" :placeholder="t('admin.channelMonitor.form.groupNamePlaceholder')" />
       </div>
 
       <div v-if="form.credential_mode === 'managed_local'">
-        <label class="input-label">{{ t('admin.channelMonitor.form.groupId') }} <span class="text-red-500">*</span></label>
-        <input v-model.number="form.group_id" type="number" min="1" required class="input" :placeholder="t('admin.channelMonitor.form.groupIdPlaceholder')" />
-        <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.groupIdHint') }}</p>
+        <label class="input-label">{{ t('admin.channelMonitor.form.localGroup') }} <span class="text-red-500">*</span></label>
+        <Select
+          v-model="managedGroupSelectValue"
+          data-testid="monitor-group-select"
+          :options="managedGroupOptions"
+          :disabled="managedGroupsLoading"
+          :placeholder="managedGroupsLoading
+            ? t('admin.channelMonitor.form.localGroupLoading')
+            : t('admin.channelMonitor.form.localGroupPlaceholder')"
+          :empty-text="managedGroupsLoadFailed
+            ? t('admin.channelMonitor.form.localGroupLoadFailed')
+            : t('admin.channelMonitor.form.localGroupEmpty')"
+          searchable
+        />
+        <p
+          class="mt-1 text-xs"
+          :class="managedGroupsLoadFailed ? 'text-red-500' : 'text-gray-400'"
+        >
+          {{ managedGroupsLoadFailed
+            ? t('admin.channelMonitor.form.localGroupLoadFailed')
+            : t('admin.channelMonitor.form.localGroupHint') }}
+        </p>
       </div>
 
       <div class="flex items-center justify-between">
@@ -227,7 +246,7 @@ import type {
   UpdateParams,
 } from '@/api/admin/channelMonitor'
 import type { ChannelMonitorTemplate } from '@/api/admin/channelMonitorTemplate'
-import type { ApiKey } from '@/types'
+import type { AdminGroup, ApiKey } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Select from '@/components/common/Select.vue'
@@ -280,6 +299,9 @@ const showKeyPicker = ref(false)
 const myKeysLoading = ref(false)
 const myActiveKeys = ref<ApiKey[]>([])
 const userGroupRates = ref<Record<number, number>>({})
+const managedGroups = ref<AdminGroup[]>([])
+const managedGroupsLoading = ref(false)
+const managedGroupsLoadFailed = ref(false)
 
 interface MonitorForm {
   name: string
@@ -329,6 +351,20 @@ const form = reactive<MonitorForm>({
 // jitter 上限与后端校验一致：interval - jitter 不得低于最小检测间隔 15 秒。
 const maxJitterSeconds = computed<number>(() => Math.max(0, (form.interval_seconds || 0) - 15))
 
+const managedGroupOptions = computed(() => managedGroups.value
+  .filter((group) => group.platform === form.provider)
+  .map((group) => ({ value: group.id, label: group.name })))
+
+const managedGroupSelectValue = computed<number | null>({
+  get: () => form.group_id,
+  set: (value) => {
+    const id = typeof value === 'number' && Number.isFinite(value) ? value : null
+    const group = managedGroups.value.find((item) => item.id === id)
+    form.group_id = group?.id ?? null
+    form.group_name = group?.name ?? ''
+  },
+})
+
 let suppressFormWatchers = false
 
 // 可用模板列表（进入 dialog 时一次性拉取 cache；按 provider / api mode 过滤）。
@@ -358,6 +394,21 @@ async function loadTemplates() {
     console.warn('load monitor templates failed', err)
   } finally {
     templatesLoading.value = false
+  }
+}
+
+async function loadManagedGroups() {
+  if (managedGroups.value.length > 0 || managedGroupsLoading.value) return
+  managedGroupsLoading.value = true
+  managedGroupsLoadFailed.value = false
+  try {
+    managedGroups.value = await adminAPI.groups.getAll()
+  } catch (err: unknown) {
+    managedGroups.value = []
+    managedGroupsLoadFailed.value = true
+    console.warn('load managed monitor groups failed', err)
+  } finally {
+    managedGroupsLoading.value = false
   }
 }
 
@@ -446,6 +497,10 @@ function selectProvider(provider: Provider) {
   const clearGrokModel =
     previousProvider === PROVIDER_GROK && form.primary_model === DEFAULT_GROK_MODEL
   form.provider = provider
+  if (form.credential_mode === 'managed_local') {
+    form.group_id = null
+    form.group_name = ''
+  }
   if (provider === PROVIDER_GROK) {
     if (!form.endpoint.trim()) form.endpoint = DEFAULT_GROK_ENDPOINT
     if (!form.primary_model.trim()) form.primary_model = DEFAULT_GROK_MODEL
@@ -460,7 +515,11 @@ function selectCredentialMode(mode: MonitorForm['credential_mode']) {
   form.credential_mode = mode
   if (mode === 'managed_local') {
     form.show_group_rate = true
+    void loadManagedGroups()
+    return
   }
+  form.group_id = null
+  form.group_name = ''
 }
 
 // Clear api_key whenever provider changes to avoid cross-provider key mismatch.
@@ -541,6 +600,7 @@ watch(
     void loadTemplates()
     if (m) loadFromMonitor(m)
     else resetForm()
+    if (form.credential_mode === 'managed_local') void loadManagedGroups()
   },
   { immediate: true },
 )
@@ -579,6 +639,9 @@ function pickMyKey(k: ApiKey) {
 }
 
 function buildPayload(): CreateParams {
+  const selectedManagedGroup = form.credential_mode === 'managed_local'
+    ? managedGroups.value.find((group) => group.id === form.group_id)
+    : null
   return {
     name: form.name.trim(),
     provider: form.provider,
@@ -587,7 +650,7 @@ function buildPayload(): CreateParams {
     api_key: form.api_key.trim(),
     primary_model: form.primary_model.trim(),
     extra_models: form.extra_models,
-    group_name: form.group_name.trim(),
+    group_name: selectedManagedGroup?.name ?? form.group_name.trim(),
     group_id: form.group_id,
     show_group_rate: form.show_group_rate,
     credential_mode: form.credential_mode,
@@ -611,6 +674,13 @@ async function handleSubmit() {
   if (!form.primary_model.trim()) {
     appStore.showError(t('admin.channelMonitor.primaryModelRequired'))
     return
+  }
+  if (form.credential_mode === 'managed_local') {
+    const selectedGroup = managedGroups.value.find((group) => group.id === form.group_id)
+    if (!selectedGroup || selectedGroup.platform !== form.provider) {
+      appStore.showError(t('admin.channelMonitor.form.localGroupRequired'))
+      return
+    }
   }
 
   submitting.value = true
