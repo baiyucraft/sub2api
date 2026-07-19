@@ -87,7 +87,7 @@ type ChannelMonitorCreateParams struct {
 	ExtraModels      []string
 	GroupName        string
 	GroupID          *int64
-	ShowGroupRate    bool
+	ShowGroupRate    *bool
 	CredentialMode   string
 	Enabled          bool
 	IntervalSeconds  int

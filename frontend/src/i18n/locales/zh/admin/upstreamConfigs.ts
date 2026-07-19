@@ -42,8 +42,6 @@ export default {
       rateMultiplier: '实际倍率 {value}'
     },
     scheduling: {
-      enabled: '已开启',
-      disabled: '已暂停',
       enabledHint: '允许调用该上游下仍开启账号调度的账号',
       disabledHint: '已暂停该上游全部账号的实际调用，账号自身开关保持不变',
       toggleLabel: '切换上游 {name} 的总调度开关'
