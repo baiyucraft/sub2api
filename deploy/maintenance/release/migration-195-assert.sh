@@ -50,10 +50,13 @@ SELECT
   (SELECT event_id FROM last_event)")
     IFS='|' read -r affected unproven account_mismatch outbox_event_id <<<"$terminal"
     [[ $unproven == 0 && $account_mismatch == 0 ]]
+    outbox_highwater=$(query "SELECT COALESCE(MAX(id),0) FROM scheduler_outbox")
+    [[ $outbox_highwater =~ ^[0-9]+$ ]]
     outbox_already_consumed=false
     if [[ $affected -gt 0 && $outbox_event_id == 0 ]]; then
+      # A missing exact event is only safe when Redis covers every committed outbox row still available as evidence.
       current_watermark=$(redis_watermark)
-      [[ $current_watermark =~ ^[0-9]+$ && $current_watermark -gt 0 ]]
+      [[ $outbox_highwater =~ ^[1-9][0-9]*$ && $current_watermark =~ ^[0-9]+$ && $current_watermark -gt 0 && $current_watermark -ge $outbox_highwater ]]
       outbox_already_consumed=true
     fi
     terminal_sha=$(query "COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}')
@@ -62,6 +65,7 @@ SELECT
     printf '%s\n' "$account_ids_sha" > "$state_dir/migration-195-account-ids.sha256"
     printf '%s\n' "$affected" > "$state_dir/migration-195-affected.count"
     printf '%s\n' "$outbox_event_id" > "$state_dir/migration-195-outbox-event.id"
+    printf '%s\n' "$outbox_highwater" > "$state_dir/migration-195-outbox-highwater.id"
     printf '%s\n' "$outbox_already_consumed" > "$state_dir/migration-195-outbox-already-consumed"
     printf '%s\n' verified > "$state_dir/migration-195-status"
     chmod 600 "$state_dir"/migration-195-*.sha256 "$state_dir"/migration-195-*.count "$state_dir"/migration-195-*.id "$state_dir/migration-195-status" "$state_dir/migration-195-outbox-already-consumed"
@@ -242,8 +246,11 @@ fi
 outbox_event_id=$(<"$state_dir/migration-195-outbox-event.id")
 if [[ $outbox_event_id == 0 ]]; then
   [[ -f $state_dir/migration-195-outbox-already-consumed && ! -L $state_dir/migration-195-outbox-already-consumed ]]
+  [[ -f $state_dir/migration-195-outbox-highwater.id && ! -L $state_dir/migration-195-outbox-highwater.id ]]
   [[ $(<"$state_dir/migration-195-outbox-already-consumed") == true || $(<"$state_dir/migration-195-affected.count") == 0 ]]
+  outbox_highwater=$(<"$state_dir/migration-195-outbox-highwater.id")
   outbox_watermark=$(redis_watermark)
+  [[ $(<"$state_dir/migration-195-affected.count") == 0 || ( $outbox_highwater =~ ^[1-9][0-9]*$ && $outbox_watermark =~ ^[0-9]+$ && $outbox_watermark -gt 0 && $outbox_watermark -ge $outbox_highwater ) ]]
 else
   for _ in $(seq 1 30); do
     outbox_watermark=$(redis_watermark)
