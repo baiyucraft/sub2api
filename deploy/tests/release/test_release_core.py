@@ -126,6 +126,9 @@ class ReleaseCoreTest(unittest.TestCase):
             content = (DEPLOY_ROOT / relative_path).read_text(encoding="utf-8")
             self.assertIn(expected_profile_check, content, relative_path)
 
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        self.assertIn("drverify/[^/]+", validator)
+
     def test_profile_192_extends_profile_191_with_group_duplicate_migration(self) -> None:
         profile_191 = get_profile("191")
         profile_192 = get_profile("192")
