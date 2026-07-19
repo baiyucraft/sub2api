@@ -254,7 +254,7 @@ if [[ $profile == 195 ]]; then
   [[ $consumed_event_id =~ ^[1-9][0-9]*$ ]]
   sentinel_event_id=$(docker exec sub2api-postgres sh -lc "psql -X -q -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"INSERT INTO scheduler_outbox (event_type,payload) VALUES ('account_changed','{}'::jsonb) RETURNING id\"" | tr -d '\r')
   [[ $sentinel_event_id =~ ^[1-9][0-9]*$ && $sentinel_event_id -gt $consumed_event_id ]]
-  docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"DELETE FROM scheduler_outbox WHERE id=$consumed_event_id\"" >/dev/null
+  docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"WITH expected_accounts AS (SELECT COALESCE(jsonb_agg(id ORDER BY id),'[]'::jsonb) AS ids FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL) DELETE FROM scheduler_outbox o USING expected_accounts e WHERE o.event_type='account_bulk_changed' AND o.payload->'account_ids'=e.ids\"" >/dev/null
   low_watermark=$((sentinel_event_id - 1))
   docker exec "$probe_redis" redis-cli SET sched:v2:outbox:watermark "$low_watermark" >/dev/null
   migration_195_low_state="$state_dir/migration-195-verified-low"
