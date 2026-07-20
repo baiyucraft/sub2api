@@ -3,9 +3,9 @@
 标准入口：
 
 ```text
-python deploy/release.py doctor --profile 195 --commit <40位完整SHA>
-python deploy/release.py bootstrap-production --profile 195
-python deploy/release.py deploy --profile 195 --commit <40位完整SHA>
+python deploy/release.py doctor --profile 197 --commit <40位完整SHA>
+python deploy/release.py bootstrap-production --profile 197
+python deploy/release.py deploy --profile 197 --commit <40位完整SHA>
 ```
 
 `deploy` 会在停写前使用当前生产版本完成 production-node direct 与 relay-node 两条流式基线 Canary，避免把既有上游或链路故障带入切换阶段；该请求会像普通请求一样产生 usage 记录，但不会使用候选容器。候选公开后使用相同合同复验；只有 `curl 28` 和 `502/503/504` 会以新 marker 最多尝试三次，所有实际落库的尝试都会核验 API Key、endpoint 和真实 IP，其他错误立即停止。每个长阶段会实时输出 release ID 和阶段，并在结构化状态中记录开始时间与截止时间；调用端关闭 stdout 不会中止 runner。
@@ -33,6 +33,10 @@ profile 194 会在 manifest 中固定记录 profile 192 的完整 migration 列�
 profile 195 在此基础上加入 `195_upstream_scheduling_monitor_rates.sql`。停写后、迁移前
 必须生成存量倍率重算计数和 migration plan SHA-256，并要求 `unproven/conflict/unexpected`
 均为零；迁移后必须核验 Key、账号、优先级、负载、分组快照和 scheduler outbox。
+
+profile 197 继承 profile 195 的倍率迁移语义和全部 Gate 证据，并追加
+`196_ops_ingress_reject_aggregates.sql` 与 `197_auth_cache_invalidation_outbox.sql`。
+两项新增迁移的 checksum 会进入同一 manifest；既有 profile 195 的版本和迁移合同不变。
 
 首次安装信任根使用：
 
