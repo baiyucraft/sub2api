@@ -49,7 +49,8 @@
 
 ```text
 frontend-direct:
-  RackNerd 完整构建 -> RackNerd 生产切换
+  本地前端检查 + Vite 代理 VM Gate smoke
+    -> RackNerd 完整构建 -> RackNerd 生产切换
 
 ops-readonly-assets:
   本地验证 -> review -> commit/push -> 固定字段只读巡检
@@ -59,11 +60,11 @@ ops-control-assets:
 
 普通 dev-gated:
   RackNerd 完整构建 -> 按 image ID 传 VM -> sub2api-dev 验证
-                    -> 使用同一 image ID 切换 RackNerd
+                     -> VM Gate 浏览器/接口验收 -> 使用同一 image ID 切换 RackNerd
 
 build-chain:
   VM 完整构建 -> sub2api-dev 验证 -> 按 image ID 传 RackNerd
-              -> RackNerd 使用同一 image ID 切换
+              -> VM Gate 浏览器/接口验收 -> RackNerd 使用同一 image ID 切换
 ```
 
 禁止为了“重新构建”而破坏同一镜像身份；验证通过的镜像就是生产候选。
@@ -118,7 +119,8 @@ build-chain:
 1. 在 RackNerd `/opt/sub2api-src` 用完整根 `Dockerfile` 构建。
 2. 执行类型检查和相关前端测试。
 3. 记录 `candidate_image_id`、`pre_switch_image_id` 和可用的 `older_fallback_image_id`。
-4. 切换后验证登录、变更页面、静态资源和浏览器 console。
+4. 在生产切换前用本地 Vite 加载页面，但将 `VITE_DEV_PROXY_TARGET` 指向 VM Gate；验证登录、变更页面、静态资源、关键 API 和浏览器 console。
+5. 切换后再次验证生产页面；本地 Vite 不得启动或依赖本地后端。
 
 `docs/legal/`、根目录配置或任何前端构建依赖变化都不满足“所有文件均在 `frontend/`”的条件。
 
@@ -153,6 +155,18 @@ VM 构建规则：
 - 分类无法确定的改动。
 
 不触及构建链的普通 `dev-gated` 可以在 RackNerd 构建一次，生产继续运行旧镜像，然后按确切 image ID 传给 VM 验证。验证通过后，生产只使用 RackNerd 已构建的同一镜像。
+
+开发联调阶段直接使用 VM Gate 的 candidate 服务验证前后端契约。允许在本机执行 Go、TypeScript、Vitest 等静态/unit 门禁，但禁止启动本地后端来替代 VM Gate；前端页面也不应指向一个不存在的本地 API。
+
+### 浏览器服务目标检查
+
+开始浏览器 smoke 前必须记录以下脱敏事实：
+
+- 页面地址和 API 代理目标属于本机 Vite + VM Gate，或两者都属于 VM Gate；
+- 页面显示的版本与 candidate/version evidence 一致；
+- 关键 API 至少有一次真实成功响应，且响应不是前端缓存或空状态兜底。
+
+本机 `3000` 页面在没有后端（常见为 `8080` 未监听）时可能保留登录状态、展示旧版本号或把接口失败渲染为空列表。此时只能记录为“前端壳 smoke”，必须切换到 VM Gate 重新验收，不能报告功能通过。
 
 ## 平台验证边界
 
