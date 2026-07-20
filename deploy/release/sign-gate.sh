@@ -17,7 +17,7 @@ fi
 exec 8<>"$unit_lock"
 [[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) == root:root:600:1 ]]
 flock -s 8
-[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191|192|194|195)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
+[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191|192|194|195|197)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
 expected_signature=${gate%/gate.json}/gate.sig
 [[ $signature == "$expected_signature" ]]
 [[ -f $gate && ! -L $gate && $(stat -c '%U:%G:%a' "$gate") == root:root:400 ]]

@@ -28,8 +28,8 @@ tag="sub2api:baiyu-$version-$commit"
 test_tag="sub2api:vm-test-$commit"
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 profile=$(jq -er '.profile' "$manifest")
-[[ $release_id =~ ^(182|187|191|192|194|195)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 ]]
 [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
 [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
 [[ $(jq -er '.vm_validator_sha256' "$manifest") == "$(sha256sum "$0" | awk '{print $1}')" ]]
@@ -221,9 +221,9 @@ restore_completed=false
 clean_preflight=false
 verified_replay=false
 verified_low_watermark_rejected=false
-if [[ $profile == 195 ]]; then
+if [[ $profile == 195 || $profile == 197 ]]; then
   migration_195_context="$state_dir/migration-195-context.sh"
-  printf 'profile=195\nstate_dir=%q\n' "$state_dir" > "$migration_195_context"
+  printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_195_context"
   chmod 400 "$migration_195_context"
   fixture_key_id=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT k.id FROM upstream_keys k JOIN accounts a ON a.upstream_key_id=k.id WHERE k.rate_multiplier IS NOT NULL ORDER BY k.id LIMIT 1\"")
   [[ $fixture_key_id =~ ^[0-9]+$ ]]
@@ -248,7 +248,7 @@ if [[ $profile == 195 ]]; then
 fi
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
 rm -f "$state_dir/migrate-candidate.log"
-if [[ $profile == 195 ]]; then
+if [[ $profile == 195 || $profile == 197 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
   consumed_event_id=$(<"$state_dir/migration-195-outbox-event.id")
   [[ $consumed_event_id =~ ^[1-9][0-9]*$ ]]
@@ -260,7 +260,7 @@ if [[ $profile == 195 ]]; then
   migration_195_low_state="$state_dir/migration-195-verified-low"
   migration_195_low_context="$state_dir/migration-195-verified-low-context.sh"
   install -d -m 700 "$migration_195_low_state"
-  printf 'profile=195\nstate_dir=%q\n' "$migration_195_low_state" > "$migration_195_low_context"
+  printf 'profile=%q\nstate_dir=%q\n' "$profile" "$migration_195_low_state" > "$migration_195_low_context"
   chmod 400 "$migration_195_low_context"
   if ASSERT_CONTEXT_FILE="$migration_195_low_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_low_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight >/dev/null 2>&1; then
     false
@@ -270,7 +270,7 @@ if [[ $profile == 195 ]]; then
   migration_195_verified_state="$state_dir/migration-195-verified"
   migration_195_verified_context="$state_dir/migration-195-verified-context.sh"
   install -d -m 700 "$migration_195_verified_state"
-  printf 'profile=195\nstate_dir=%q\n' "$migration_195_verified_state" > "$migration_195_verified_context"
+  printf 'profile=%q\nstate_dir=%q\n' "$profile" "$migration_195_verified_state" > "$migration_195_verified_context"
   chmod 400 "$migration_195_verified_context"
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight >/dev/null
   cp "$migration_195_verified_state/migration-195-data-plan.sha256" "$migration_195_verified_state/fake-recovery.sha256"
@@ -298,11 +298,11 @@ while IFS=$'\t' read -r migration migration_checksum; do
 done < <(jq -r '.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.priority IS DISTINCT FROM ROUND(k.rate_multiplier*100)::int)\"") == 0 ]]
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts WHERE extra ?| ARRAY['upstream_rate_multiplier','upstream_source_rate_multiplier','upstream_recharge_rate','upstream_effective_cost_multiplier','sub2api_upstream_rate_multiplier']\"") == 0 ]]
-if [[ $profile == 194 || $profile == 195 ]]; then
+if [[ $profile == 194 || $profile == 195 || $profile == 197 ]]; then
   prompt_audit_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"WITH config AS (SELECT COALESCE(NULLIF((SELECT value FROM settings WHERE key='prompt_audit_config'), ''), '{}')::jsonb AS value) SELECT NOT COALESCE((value->>'enabled')::boolean, false) AND NOT COALESCE((value->>'blocking_enabled')::boolean, false) AND NOT COALESCE((value->>'store_pass_events')::boolean, false) AND jsonb_typeof(COALESCE(value->'endpoints', '[]'::jsonb)) = 'array' AND jsonb_array_length(COALESCE(value->'endpoints', '[]'::jsonb)) = 0, (SELECT COUNT(*) FROM prompt_audit_jobs), (SELECT COUNT(*) FROM prompt_audit_events) FROM config\"")
   [[ $prompt_audit_state == 't|0|0' ]]
 fi
-if [[ $profile == 195 ]]; then
+if [[ $profile == 195 || $profile == 197 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
   verified_replay=true
@@ -325,8 +325,8 @@ jq -n --slurpfile manifest "$manifest" \
   --arg candidate_image_id "$candidate_image_id" \
   --arg candidate_archive_sha256 "$candidate_archive_sha" \
   --argjson candidate_size "$candidate_size" \
-  --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 ]] && printf true || printf false)" \
-  --argjson migration_195_verified "$([[ $profile == 195 ]] && printf true || printf false)" \
+  --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 || $profile == 197 ]] && printf true || printf false)" \
+  --argjson migration_195_verified "$([[ $profile == 195 || $profile == 197 ]] && printf true || printf false)" \
   --argjson fixture_rejected "$fixture_rejected" \
   --argjson restore_completed "$restore_completed" \
   --argjson clean_preflight "$clean_preflight" \

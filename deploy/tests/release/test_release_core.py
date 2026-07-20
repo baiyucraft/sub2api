@@ -106,8 +106,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(list(migration_checksums(profile_191)), profile_191["migrations"])
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195)"
-        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195"
+        expected_release_pattern = "(182|187|191|192|194|195|197)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
@@ -160,6 +160,20 @@ class ReleaseCoreTest(unittest.TestCase):
         )
         self.assertEqual(list(migration_checksums(profile_195)), profile_195["migrations"])
 
+    def test_profile_197_extends_profile_195_with_upstream_migrations(self) -> None:
+        profile_195 = get_profile("195")
+        profile_197 = get_profile("197")
+        self.assertEqual(profile_197["version"], "0.1.162-baiyu")
+        self.assertEqual(
+            profile_197["migrations"],
+            profile_195["migrations"]
+            + [
+                "196_ops_ingress_reject_aggregates.sql",
+                "197_auth_cache_invalidation_outbox.sql",
+            ],
+        )
+        self.assertEqual(list(migration_checksums(profile_197)), profile_197["migrations"])
+
     def test_profile_194_requires_prompt_audit_disabled_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         context = (DEPLOY_ROOT / "maintenance" / "release" / "context.sh").read_text(encoding="utf-8")
@@ -170,7 +184,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("prompt_audit_disabled:$prompt_audit_disabled", validator)
         self.assertIn("assert_prompt_audit_disabled()", context)
         self.assertEqual(production.count('"prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events"'), 3)
-        self.assertIn('expected_profile in {"194", "195"}', gate)
+        self.assertIn('expected_profile in {"194", "195", "197"}', gate)
 
     def test_profile_195_requires_semantic_migration_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
@@ -226,6 +240,10 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('migration-195-assert.sh preflight', production)
         self.assertIn('migration-195-assert.sh" postflight', switch)
         self.assertIn("unproven == 0 && $conflict == 0 && $unexpected == 0", assertion)
+        self.assertIn('expected_profile in {"195", "197"}', gate)
+        self.assertIn('self.profile["name"] not in {"195", "197"}', production)
+        self.assertIn('[[ $profile == 195 || $profile == 197 ]]', switch)
+        self.assertIn('[[ $profile == 195 || $profile == 197 ]]', assertion)
 
     def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -257,6 +275,38 @@ class ReleaseCoreTest(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(RuntimeError, "Prompt Audit disabled-state evidence"):
                     verify_gate(root, public_key, "194")
+
+    def test_profile_197_gate_rejects_missing_migration_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            private_key = root / "private.pem"
+            public_key = root / "public.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private_key)], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
+            archive = root / "candidate.tar.gz"
+            archive.write_bytes(b"candidate")
+            manifest = self.manifest("runner", int(time.time()) + 60)
+            manifest["profile"] = "197"
+            document = {
+                "manifest": manifest,
+                "evidence": {
+                    "candidate_image_id": "sha256:" + "b" * 64,
+                    "candidate_archive_sha256": hashlib.sha256(b"candidate").hexdigest(),
+                    "integration_verified": True,
+                    "vm_restore_verified": True,
+                    "prompt_audit_disabled": True,
+                },
+            }
+            (root / "gate.json").write_bytes(canonical_json(document) + b"\n")
+            subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(private_key), "-rawin", "-in", str(root / "gate.json"), "-out", str(root / "gate.sig")], check=True, stdout=subprocess.DEVNULL)
+            with (
+                mock.patch("release.gate.runner_checksum", return_value="runner"),
+                mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
+                mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
+                mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "migration 195 semantic evidence"):
+                    verify_gate(root, public_key, "197")
 
     def test_vm_post_build_space_gate_does_not_double_count_image(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
