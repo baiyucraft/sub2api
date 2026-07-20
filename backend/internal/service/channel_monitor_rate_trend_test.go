@@ -15,6 +15,7 @@ func TestParseMonitorRateRange(t *testing.T) {
 		{"", MonitorRateRange24Hours},
 		{"24h", MonitorRateRange24Hours},
 		{"7d", MonitorRateRange7Days},
+		{"15d", MonitorRateRange15Days},
 		{"30d", MonitorRateRange30Days},
 	} {
 		got, err := ParseMonitorRateRange(tt.input)
@@ -23,6 +24,14 @@ func TestParseMonitorRateRange(t *testing.T) {
 	}
 	_, err := ParseMonitorRateRange("60d")
 	require.ErrorIs(t, err, ErrChannelMonitorInvalidRateRange)
+}
+
+func TestMonitorRateRangeBoundaries(t *testing.T) {
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	require.Equal(t, now.Add(-24*time.Hour), monitorRateRangeStart(MonitorRateRange24Hours, now))
+	require.Equal(t, now.Add(-15*24*time.Hour), monitorRateRangeStart(MonitorRateRange15Days, now))
+	require.Equal(t, monitorAvailability24Hours, monitorRangeWindowDays(MonitorRateRange24Hours))
+	require.Equal(t, monitorAvailability15Days, monitorRangeWindowDays(MonitorRateRange15Days))
 }
 
 func TestBuildPublicRateTrend_PeakBoundaries(t *testing.T) {

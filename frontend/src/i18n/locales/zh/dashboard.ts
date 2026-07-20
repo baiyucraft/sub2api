@@ -453,14 +453,11 @@ export default {
     detailLoadError: '加载渠道详情失败',
     detailTitle: '渠道详情',
     closeDetail: '关闭',
-    windowTab: {
-      '7d': '7 天',
-      '15d': '15 天',
-      '30d': '30 天'
-    },
-    rateRange: {
+    rangeLabel: '统计范围',
+    range: {
       '24h': '24 小时',
       '7d': '7 天',
+      '15d': '15 天',
       '30d': '30 天'
     },
     rateTrend: {
@@ -486,6 +483,7 @@ export default {
       model: '模型',
       latestStatus: '最新状态',
       latestLatency: '最新延迟 (ms)',
+      availability24h: '24 小时可用率',
       availability7d: '7 天可用率',
       availability15d: '15 天可用率',
       availability30d: '30 天可用率',
