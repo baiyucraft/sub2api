@@ -4,6 +4,7 @@
 
 - [适用范围](#适用范围)
 - [VM 边界](#vm-边界)
+- [浏览器联调边界](#浏览器联调边界)
 - [进入 VM 前](#进入-vm-前)
 - [VM 空间与扩容](#vm-空间与扩容)
 - [连接隔离门禁](#连接隔离门禁)
@@ -15,7 +16,7 @@
 
 ## 适用范围
 
-本文对 `dev-gated` 和 `build-chain` 强制适用。`frontend-direct` 不进入 VM 门禁，但仍需完整镜像构建、前端检查和生产后浏览器 smoke。
+本文对 `dev-gated` 和 `build-chain` 强制适用。`frontend-direct` 不要求为本次改动导入新的 VM candidate，但本地浏览器 smoke 必须把 API 代理到已验证的 VM Gate；生产后仍需浏览器 smoke。
 
 ## VM 边界
 
@@ -29,6 +30,13 @@
 - Redis：VM 本地 `redis` 服务或 `127.0.0.1:6379`
 
 本地 VM 仅用于开发验证，不是生产三机。它不得成为生产数据库、生产 Redis 或生产隧道的隐式副本。
+
+## 浏览器联调边界
+
+- 严格纯前端改动可以在本机运行 Vite；启动时必须设置 `VITE_DEV_PROXY_TARGET` 为 VM Gate 的服务地址，本机不启动后端。
+- 前后端混合、后端、数据库、迁移或 fork 改动，直接访问 VM Gate candidate 的页面或入口，在 VM Gate 的 Compose、PostgreSQL、Redis 和真实认证链路上验收；不要使用本机 Vite 拼接一个缺失的本机后端。
+- 开始检查前核对页面版本与 candidate evidence，并确认至少一个关键 API 的真实响应；仅看到登录缓存、旧版本号或空列表不算通过。
+- 本地页面验证完成后关闭 Vite，并确认 3000 端口没有残留监听；VM Gate 验收结束后恢复原验证容器和镜像状态。
 
 ## 进入 VM 前
 
