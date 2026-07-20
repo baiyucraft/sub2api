@@ -240,20 +240,34 @@ if [[ $profile == 195 || $profile == 197 ]]; then
   [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT to_regclass('public.accounts') IS NOT NULL AND to_regclass('public.upstream_keys') IS NOT NULL\"") == t ]]
   [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT md5(row_to_json(k)::text) FROM upstream_keys k WHERE id=$fixture_key_id\"") == "$fixture_key_hash" ]]
   restore_completed=true
-  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight >/dev/null
+  probe_migration_195_recorded=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM schema_migrations WHERE filename='195_upstream_scheduling_monitor_rates.sql'\"" | tr -d '\r')
+  [[ $probe_migration_195_recorded =~ ^[01]$ ]]
+  migration_195_status=absent
+  if [[ $probe_migration_195_recorded == 1 ]]; then
+    probe_outbox_highwater=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COALESCE(MAX(id),0) FROM scheduler_outbox\"" | tr -d '\r')
+    [[ $probe_outbox_highwater =~ ^[0-9]+$ ]]
+    docker exec "$probe_redis" redis-cli SET sched:v2:outbox:watermark "$probe_outbox_highwater" >/dev/null
+    migration_195_status=verified
+  fi
+  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight >/dev/null
   clean_preflight=true
   cp "$state_dir/migration-195-data-plan.sha256" "$state_dir/fake-recovery.sha256"
   printf '%s  recovery-point.age\n' "$(<"$state_dir/fake-recovery.sha256")" > "$state_dir/recovery-point.age.sha256"
-  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" bind >/dev/null
+  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" bind >/dev/null
 fi
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
 rm -f "$state_dir/migrate-candidate.log"
 if [[ $profile == 195 || $profile == 197 ]]; then
-  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
+  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
   consumed_event_id=$(<"$state_dir/migration-195-outbox-event.id")
-  [[ $consumed_event_id =~ ^[1-9][0-9]*$ ]]
+  if [[ $migration_195_status == absent ]]; then
+    [[ $consumed_event_id =~ ^[1-9][0-9]*$ ]]
+  else
+    [[ $consumed_event_id =~ ^[0-9]+$ ]]
+  fi
   sentinel_event_id=$(docker exec sub2api-postgres sh -lc "psql -X -q -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"INSERT INTO scheduler_outbox (event_type,payload) VALUES ('account_changed','{}'::jsonb) RETURNING id\"" | tr -d '\r')
-  [[ $sentinel_event_id =~ ^[1-9][0-9]*$ && $sentinel_event_id -gt $consumed_event_id ]]
+  [[ $sentinel_event_id =~ ^[1-9][0-9]*$ ]]
+  [[ $consumed_event_id == 0 || $sentinel_event_id -gt $consumed_event_id ]]
   docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"WITH expected_accounts AS (SELECT COALESCE(jsonb_agg(id ORDER BY id),'[]'::jsonb) AS ids FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL) DELETE FROM scheduler_outbox o USING expected_accounts e WHERE o.event_type='account_bulk_changed' AND o.payload->'account_ids'=e.ids\"" >/dev/null
   low_watermark=$((sentinel_event_id - 1))
   docker exec "$probe_redis" redis-cli SET sched:v2:outbox:watermark "$low_watermark" >/dev/null
@@ -303,7 +317,7 @@ if [[ $profile == 194 || $profile == 195 || $profile == 197 ]]; then
   [[ $prompt_audit_state == 't|0|0' ]]
 fi
 if [[ $profile == 195 || $profile == 197 ]]; then
-  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=absent RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
+  ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
   verified_replay=true
 fi
