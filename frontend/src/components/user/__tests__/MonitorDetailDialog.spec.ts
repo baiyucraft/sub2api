@@ -52,5 +52,37 @@ describe('MonitorDetailDialog', () => {
     expect(status).toHaveBeenCalledWith(7, '15d')
     expect(wrapper.text()).toContain('channelStatus.detailColumns.availability24h')
     expect(wrapper.text()).toContain('99.5%')
+    expect(wrapper.get('[data-test="desktop-model-table"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="mobile-model-metrics"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="mobile-model-metrics"] dt').text()).toContain('channelStatus.detailColumns.latestLatency')
+  })
+
+  it('passes the localized time column to the rate trend chart', async () => {
+    status.mockResolvedValueOnce({
+      id: 8,
+      name: 'gpt',
+      provider: 'openai',
+      group_name: 'gpt',
+      show_group_rate: true,
+      current_public_rate: 0.03,
+      rate_trend: [{ observed_at: '2026-07-18T01:02:03Z', rate: 0.03 }],
+      models: [],
+    })
+
+    const wrapper = mount(MonitorDetailDialog, {
+      props: { show: true, monitorId: 8, title: 'gpt', range: '24h' },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          TrendChart: {
+            props: ['timeColumnLabel'],
+            template: '<div data-test="trend-time-column">{{ timeColumnLabel }}</div>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="trend-time-column"]').text()).toBe('channelStatus.rateTrend.timeColumn')
   })
 })

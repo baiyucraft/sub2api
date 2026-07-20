@@ -69,7 +69,7 @@ describe('AppHeader onboarding entry', () => {
       }
     })
 
-    await wrapper.get('button[aria-label="User Menu"]').trigger('click')
+    await wrapper.get('button[aria-label="common.userMenu"]').trigger('click')
 
     expect(wrapper.text()).not.toContain('onboarding.restartTour')
     expect(wrapper.text()).not.toContain('重新查看新手引导')

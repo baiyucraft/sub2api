@@ -12,6 +12,7 @@
       :max-ticks="4"
       :empty-text="t('channelStatus.rateTrend.empty')"
       :chart-label="t('channelStatus.rateTrend.chartLabel')"
+      :time-column-label="t('channelStatus.rateTrend.timeColumn')"
       :value-formatter="formatRate"
     />
   </section>
