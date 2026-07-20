@@ -459,6 +459,7 @@ export default {
       title: 'Group rate trend',
       series: 'Public rate',
       chartLabel: 'Group public rate trend chart',
+      timeColumn: 'Time',
       empty: 'No rate changes recorded'
     },
     overall: {
