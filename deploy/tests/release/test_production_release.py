@@ -641,6 +641,16 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertGreater(switch.index('migration-195-assert.sh" postflight_db'), switch.index("docker compose run"))
         self.assertGreater(switch.index('migration-195-assert.sh" postflight_runtime'), switch.index("docker compose up"))
 
+    def test_coordinated_restore_reads_redis_password_from_startup_arguments(self) -> None:
+        restore = self.script("restore.sh")
+        self.assertIn('index("--requirepass")', restore)
+        self.assertIn('startswith("--requirepass=")', restore)
+        self.assertIn("IFS= read -r REDISCLI_AUTH", restore)
+        self.assertNotIn('export REDISCLI_AUTH="${REDIS_PASSWORD:-}"', restore)
+        self.assertIn("redis_backup_expiring", restore)
+        self.assertIn("redis_restored_expiring", restore)
+        self.assertIn("redis_backup_dbsize - redis_dbsize", restore)
+
     def test_migration_195_preflight_precedes_switch_and_commit_is_reconciled(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         switch = self.script("switch.sh")
