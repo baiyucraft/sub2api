@@ -32,6 +32,7 @@
             <th class="py-2 pr-3">{{ t('channelStatus.detailColumns.model') }}</th>
             <th class="py-2 pr-3">{{ t('channelStatus.detailColumns.latestStatus') }}</th>
             <th class="py-2 pr-3">{{ t('channelStatus.detailColumns.latestLatency') }}</th>
+            <th class="py-2 pr-3">{{ t('channelStatus.detailColumns.availability24h') }}</th>
             <th class="py-2 pr-3">{{ t('channelStatus.detailColumns.availability7d') }}</th>
             <th class="py-2 pr-3">{{ t('channelStatus.detailColumns.availability15d') }}</th>
             <th class="py-2 pr-3">{{ t('channelStatus.detailColumns.availability30d') }}</th>
@@ -54,6 +55,7 @@
               </span>
             </td>
             <td class="py-2 pr-3 text-gray-700 dark:text-gray-300">{{ formatLatency(m.latest_latency_ms) }}</td>
+            <td class="py-2 pr-3 text-gray-700 dark:text-gray-300">{{ formatPercent(m.availability_24h) }}</td>
             <td class="py-2 pr-3 text-gray-700 dark:text-gray-300">{{ formatPercent(m.availability_7d) }}</td>
             <td class="py-2 pr-3 text-gray-700 dark:text-gray-300">{{ formatPercent(m.availability_15d) }}</td>
             <td class="py-2 pr-3 text-gray-700 dark:text-gray-300">{{ formatPercent(m.availability_30d) }}</td>
@@ -80,6 +82,7 @@ import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import {
   status as fetchChannelMonitorDetail,
+  type MonitorRange,
   type UserMonitorDetail,
 } from '@/api/channelMonitor'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -90,7 +93,7 @@ const props = defineProps<{
   show: boolean
   monitorId: number | null
   title: string
-  rateRange: '24h' | '7d' | '30d'
+  range: MonitorRange
 }>()
 
 defineEmits<{
@@ -120,7 +123,7 @@ async function load(id: number) {
   detail.value = null
   loading.value = true
   try {
-    detail.value = await fetchChannelMonitorDetail(id, props.rateRange)
+    detail.value = await fetchChannelMonitorDetail(id, props.range)
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
   } finally {
@@ -129,7 +132,7 @@ async function load(id: number) {
 }
 
 watch(
-  () => [props.show, props.monitorId, props.rateRange] as const,
+  () => [props.show, props.monitorId, props.range] as const,
   ([show, id]) => {
     if (!show) {
       detail.value = null

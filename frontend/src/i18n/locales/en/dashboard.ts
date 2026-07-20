@@ -448,14 +448,11 @@ export default {
     detailLoadError: 'Failed to load channel detail',
     detailTitle: 'Channel Detail',
     closeDetail: 'Close',
-    windowTab: {
-      '7d': '7 days',
-      '15d': '15 days',
-      '30d': '30 days'
-    },
-    rateRange: {
+    rangeLabel: 'Statistics range',
+    range: {
       '24h': '24 hours',
       '7d': '7 days',
+      '15d': '15 days',
       '30d': '30 days'
     },
     rateTrend: {
@@ -481,6 +478,7 @@ export default {
       model: 'Model',
       latestStatus: 'Latest Status',
       latestLatency: 'Latest Latency (ms)',
+      availability24h: '24h Availability',
       availability7d: '7d Availability',
       availability15d: '15d Availability',
       availability30d: '30d Availability',

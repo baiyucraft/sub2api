@@ -3,21 +3,18 @@
     <MonitorHero
       :overall-status="overallStatus"
       :interval-seconds="DEFAULT_INTERVAL_SECONDS"
-      :window="currentWindow"
-      :rate-range="rateRange"
+      :range="currentRange"
       :loading="loading"
       :auto-refresh="autoRefresh"
-      @update:window="handleWindowChange"
-      @update:rate-range="handleRateRangeChange"
+      @update:range="handleRangeChange"
       @refresh="manualReload"
     />
 
     <MonitorCardGrid
       :items="items"
-      :window="currentWindow"
+      :range="currentRange"
       :countdown-seconds="countdown"
       :loading="loading"
-      :detail-cache="detailCache"
       @card-click="openDetail"
     />
 
@@ -25,29 +22,24 @@
       :show="showDetail"
       :monitor-id="detailTarget?.id ?? null"
       :title="detailTitle"
-      :rate-range="rateRange"
+      :range="currentRange"
       @close="closeDetail"
     />
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import {
   list as listChannelMonitorViews,
-  status as fetchChannelMonitorDetail,
   type UserMonitorView,
-  type UserMonitorDetail,
-  type MonitorRateRange,
+  type MonitorRange,
 } from '@/api/channelMonitor'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import MonitorHero, {
-  type MonitorWindow,
-  type OverallStatus,
-} from '@/components/user/monitor/MonitorHero.vue'
+import MonitorHero, { type OverallStatus } from '@/components/user/monitor/MonitorHero.vue'
 import MonitorCardGrid from '@/components/user/monitor/MonitorCardGrid.vue'
 import MonitorDetailDialog from '@/components/user/MonitorDetailDialog.vue'
 import { DEFAULT_INTERVAL_SECONDS, STATUS_OPERATIONAL } from '@/constants/channelMonitor'
@@ -59,9 +51,7 @@ const appStore = useAppStore()
 // ── State ──
 const items = ref<UserMonitorView[]>([])
 const loading = ref(false)
-const currentWindow = ref<MonitorWindow>('7d')
-const rateRange = ref<MonitorRateRange>('24h')
-const detailCache = reactive<Record<number, UserMonitorDetail>>({})
+const currentRange = ref<MonitorRange>('24h')
 const showDetail = ref(false)
 const detailTarget = ref<UserMonitorView | null>(null)
 
@@ -97,7 +87,7 @@ async function reload(silent = false) {
   abortController = ctrl
   if (!silent) loading.value = true
   try {
-    const res = await listChannelMonitorViews({ signal: ctrl.signal, rateRange: rateRange.value })
+    const res = await listChannelMonitorViews({ signal: ctrl.signal, range: currentRange.value })
     if (ctrl.signal.aborted || abortController !== ctrl) return
     items.value = res.items || []
   } catch (err: unknown) {
@@ -115,39 +105,13 @@ async function reload(silent = false) {
 
 async function manualReload() {
   await reload(false)
-  // After base reload, refresh any cached detail records so non-7d availability
-  // values stay in sync without forcing the user to switch tabs again.
-  if (currentWindow.value !== '7d') {
-    await Promise.all(items.value.map(it => loadDetail(it.id, true)))
-  }
-}
-
-async function loadDetail(id: number, force = false) {
-  if (!force && detailCache[id]) return
-  try {
-    detailCache[id] = await fetchChannelMonitorDetail(id, rateRange.value)
-  } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
-  }
-}
-
-async function ensureDetailsForWindow() {
-  if (currentWindow.value === '7d') return
-  await Promise.all(items.value.map(it => loadDetail(it.id)))
 }
 
 // ── Handlers ──
-async function handleWindowChange(value: MonitorWindow) {
-  currentWindow.value = value
-  await ensureDetailsForWindow()
-}
-
-async function handleRateRangeChange(value: MonitorRateRange) {
-  if (rateRange.value === value) return
-  rateRange.value = value
-  for (const key of Object.keys(detailCache)) delete detailCache[Number(key)]
+async function handleRangeChange(value: MonitorRange) {
+  if (currentRange.value === value) return
+  currentRange.value = value
   await reload(false)
-  if (showDetail.value && detailTarget.value) await loadDetail(detailTarget.value.id, true)
 }
 
 function openDetail(row: UserMonitorView) {
@@ -159,14 +123,6 @@ function closeDetail() {
   showDetail.value = false
   detailTarget.value = null
 }
-
-watch(items, () => {
-  void ensureDetailsForWindow()
-})
-
-watch(rateRange, () => {
-  if (showDetail.value && detailTarget.value) void loadDetail(detailTarget.value.id, true)
-})
 
 watch(
   () => appStore.cachedPublicSettings?.channel_monitor_enabled,

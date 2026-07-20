@@ -81,8 +81,11 @@ func TestListModelAvailabilityCandidates_UngroupedRespectsUpstreamScheduling(t *
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	normalized := normalizeSQLWhitespace(capturedSQL)
-	require.Contains(t, normalized, "scheduling_enabled")
-	require.Contains(t, normalized, "account_groups")
+	_, whereClause, found := strings.Cut(normalized, " WHERE ")
+	require.True(t, found, "expected WHERE clause in query: %s", normalized)
+	whereClause, _, _ = strings.Cut(whereClause, " ORDER BY ")
+	require.Contains(t, whereClause, "scheduling_enabled")
+	require.Contains(t, whereClause, "account_groups")
 	for _, transientPredicate := range []string{
 		"rate_limit_reset_at",
 		"overload_until",
@@ -90,6 +93,6 @@ func TestListModelAvailabilityCandidates_UngroupedRespectsUpstreamScheduling(t *
 		"expires_at",
 		"auto_pause_on_expired",
 	} {
-		require.NotContains(t, normalized, transientPredicate)
+		require.NotContains(t, whereClause, transientPredicate)
 	}
 }
