@@ -67,8 +67,17 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
-redis_dbsize=$(docker exec sub2api-redis sh -lc 'export REDISCLI_AUTH="${REDIS_PASSWORD:-}"; redis-cli --no-auth-warning DBSIZE' | tr -d '\r')
-[[ $redis_dbsize == "$(<"$recovery/metadata/redis-dbsize.txt")" ]]
+redis_password=$(docker inspect sub2api-redis | jq -r '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--requirepass")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first // "") end')
+redis_dbsize=$(printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning DBSIZE' | tr -d '\r')
+redis_keyspace=$(printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning INFO keyspace' | tr -d '\r')
+redis_backup_dbsize=$(<"$recovery/metadata/redis-dbsize.txt")
+redis_backup_expiring=$(sed -n 's/^db[0-9]*:keys=[0-9]*,expires=\([0-9]*\).*/\1/p' "$recovery/metadata/redis.txt" | awk '{sum += $1} END {print sum + 0}')
+redis_restored_expiring=$(printf '%s\n' "$redis_keyspace" | sed -n 's/^db[0-9]*:keys=[0-9]*,expires=\([0-9]*\).*/\1/p' | awk '{sum += $1} END {print sum + 0}')
+[[ $redis_dbsize =~ ^[0-9]+$ && $redis_backup_dbsize =~ ^[0-9]+$ ]]
+[[ $redis_backup_expiring =~ ^[0-9]+$ && $redis_restored_expiring =~ ^[0-9]+$ ]]
+[[ $redis_backup_dbsize -ge $redis_dbsize ]]
+[[ $redis_backup_expiring -ge $redis_restored_expiring ]]
+[[ $((redis_backup_dbsize - redis_dbsize)) -eq $((redis_backup_expiring - redis_restored_expiring)) ]]
 cp -a "$recovery/config/app/.env" "$deploy_dir/.env"
 cp -a "$recovery/config/app/docker-compose.yml" "$deploy_dir/docker-compose.yml"
 if [[ -f $recovery/config/app/docker-compose.release-active.yml && ! -L $recovery/config/app/docker-compose.release-active.yml ]]; then
