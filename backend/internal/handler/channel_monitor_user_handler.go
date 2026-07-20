@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"context"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +17,11 @@ import (
 type ChannelMonitorUserHandler struct {
 	monitorService *service.ChannelMonitorService
 	settingService *service.SettingService
+	apiKeyService  channelMonitorAvailableGroupService
+}
+
+type channelMonitorAvailableGroupService interface {
+	GetAvailableGroups(ctx context.Context, userID int64) ([]service.Group, error)
 }
 
 // NewChannelMonitorUserHandler 创建 handler。
@@ -22,10 +29,12 @@ type ChannelMonitorUserHandler struct {
 func NewChannelMonitorUserHandler(
 	monitorService *service.ChannelMonitorService,
 	settingService *service.SettingService,
+	apiKeyService *service.APIKeyService,
 ) *ChannelMonitorUserHandler {
 	return &ChannelMonitorUserHandler{
 		monitorService: monitorService,
 		settingService: settingService,
+		apiKeyService:  apiKeyService,
 	}
 }
 
@@ -50,6 +59,7 @@ type channelMonitorUserListItem struct {
 	PrimaryLatencyMs     *int                                 `json:"primary_latency_ms"`
 	PrimaryPingLatencyMs *int                                 `json:"primary_ping_latency_ms"`
 	Availability7d       float64                              `json:"availability_7d"`
+	Availability         float64                              `json:"availability"`
 	ExtraModels          []dto.ChannelMonitorExtraModelStatus `json:"extra_models"`
 	Timeline             []channelMonitorUserTimelinePoint    `json:"timeline"`
 	ShowGroupRate        bool                                 `json:"show_group_rate"`
@@ -88,6 +98,7 @@ type channelMonitorUserModelStat struct {
 	Model           string  `json:"model"`
 	LatestStatus    string  `json:"latest_status"`
 	LatestLatencyMs *int    `json:"latest_latency_ms"`
+	Availability24h float64 `json:"availability_24h"`
 	Availability7d  float64 `json:"availability_7d"`
 	Availability15d float64 `json:"availability_15d"`
 	Availability30d float64 `json:"availability_30d"`
@@ -123,6 +134,7 @@ func userMonitorViewToItem(v *service.UserMonitorView) channelMonitorUserListIte
 		PrimaryLatencyMs:     v.PrimaryLatencyMs,
 		PrimaryPingLatencyMs: v.PrimaryPingLatencyMs,
 		Availability7d:       v.Availability7d,
+		Availability:         v.Availability,
 		ExtraModels:          extras,
 		Timeline:             timeline,
 		ShowGroupRate:        v.ShowGroupRate,
@@ -139,6 +151,7 @@ func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUs
 			Model:           m.Model,
 			LatestStatus:    m.LatestStatus,
 			LatestLatencyMs: m.LatestLatencyMs,
+			Availability24h: m.Availability24h,
 			Availability7d:  m.Availability7d,
 			Availability15d: m.Availability15d,
 			Availability30d: m.Availability30d,
@@ -184,11 +197,25 @@ func formatOptionalMonitorTime(value *time.Time) *string {
 
 // List GET /api/v1/channel-monitors
 func (h *ChannelMonitorUserHandler) List(c *gin.Context) {
-	if !h.featureEnabled(c) {
-		response.Success(c, gin.H{"items": []channelMonitorUserListItem{}})
+	monitorRange, err := service.ParseMonitorRateRange(requestedMonitorRange(c))
+	if err != nil {
+		response.ErrorFrom(c, err)
 		return
 	}
-	views, err := h.monitorService.ListUserView(c.Request.Context(), c.Query("rate_range"))
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if !h.featureEnabled(c) {
+		response.Success(c, gin.H{"items": []channelMonitorUserListItem{}, "range": monitorRange})
+		return
+	}
+	allowedGroupIDs, ok := h.userAllowedGroupIDs(c, subject.UserID)
+	if !ok {
+		return
+	}
+	views, err := h.monitorService.ListUserView(c.Request.Context(), monitorRange, allowedGroupIDs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -197,13 +224,27 @@ func (h *ChannelMonitorUserHandler) List(c *gin.Context) {
 	for _, v := range views {
 		items = append(items, userMonitorViewToItem(v))
 	}
-	response.Success(c, gin.H{"items": items})
+	response.Success(c, gin.H{"items": items, "range": monitorRange})
 }
 
 // GetStatus GET /api/v1/channel-monitors/:id/status
 func (h *ChannelMonitorUserHandler) GetStatus(c *gin.Context) {
+	monitorRange, err := service.ParseMonitorRateRange(requestedMonitorRange(c))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
 	if !h.featureEnabled(c) {
 		response.ErrorFrom(c, service.ErrChannelMonitorNotFound)
+		return
+	}
+	allowedGroupIDs, ok := h.userAllowedGroupIDs(c, subject.UserID)
+	if !ok {
 		return
 	}
 	// 复用 admin.ParseChannelMonitorID 保持错误码与日志一致。
@@ -211,10 +252,33 @@ func (h *ChannelMonitorUserHandler) GetStatus(c *gin.Context) {
 	if !ok {
 		return
 	}
-	detail, err := h.monitorService.GetUserDetail(c.Request.Context(), id, c.Query("rate_range"))
+	detail, err := h.monitorService.GetUserDetail(c.Request.Context(), id, monitorRange, allowedGroupIDs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	response.Success(c, userMonitorDetailToResponse(detail))
+}
+
+func requestedMonitorRange(c *gin.Context) string {
+	if values, exists := c.Request.URL.Query()["range"]; exists {
+		if len(values) == 0 {
+			return ""
+		}
+		return values[0]
+	}
+	return c.Query("rate_range")
+}
+
+func (h *ChannelMonitorUserHandler) userAllowedGroupIDs(c *gin.Context, userID int64) (map[int64]struct{}, bool) {
+	groups, err := h.apiKeyService.GetAvailableGroups(c.Request.Context(), userID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return nil, false
+	}
+	allowed := make(map[int64]struct{}, len(groups))
+	for i := range groups {
+		allowed[groups[i].ID] = struct{}{}
+	}
+	return allowed, true
 }

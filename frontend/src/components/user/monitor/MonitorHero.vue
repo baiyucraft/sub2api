@@ -3,39 +3,20 @@
     <div class="flex items-center justify-end gap-3 flex-wrap">
       <div
         role="tablist"
+        :aria-label="t('channelStatus.rangeLabel')"
         class="inline-flex p-0.5 rounded-xl bg-gray-100 dark:bg-dark-800 border border-gray-200/60 dark:border-dark-700/60 text-xs"
       >
         <button
-          v-for="opt in windowOptions"
+          v-for="opt in rangeOptions"
           :key="opt.value"
           type="button"
           role="tab"
-          :aria-selected="window === opt.value"
+          :aria-selected="range === opt.value"
           class="px-3 py-1 rounded-lg transition-colors"
-          :class="window === opt.value
+          :class="range === opt.value
             ? 'bg-white dark:bg-dark-700 shadow-sm text-gray-900 dark:text-white font-semibold'
             : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
-          @click="emit('update:window', opt.value)"
-        >
-          {{ opt.label }}
-        </button>
-      </div>
-
-      <div
-        role="tablist"
-        class="inline-flex p-0.5 rounded-xl bg-gray-100 dark:bg-dark-800 border border-gray-200/60 dark:border-dark-700/60 text-xs"
-      >
-        <button
-          v-for="opt in rateRangeOptions"
-          :key="opt.value"
-          type="button"
-          role="tab"
-          :aria-selected="rateRange === opt.value"
-          class="px-3 py-1 rounded-lg transition-colors"
-          :class="rateRange === opt.value
-            ? 'bg-white dark:bg-dark-700 shadow-sm text-gray-900 dark:text-white font-semibold'
-            : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
-          @click="emit('update:rateRange', opt.value)"
+          @click="emit('update:range', opt.value)"
         >
           {{ opt.label }}
         </button>
@@ -80,14 +61,13 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import AutoRefreshButton from '@/components/common/AutoRefreshButton.vue'
-export type MonitorWindow = '7d' | '15d' | '30d'
+import type { MonitorRange } from '@/api/channelMonitor'
 export type OverallStatus = 'operational' | 'degraded'
 
 const props = defineProps<{
   overallStatus: OverallStatus
   intervalSeconds: number
-  window: MonitorWindow
-  rateRange: '24h' | '7d' | '30d'
+  range: MonitorRange
   loading: boolean
   autoRefresh?: {
     enabled: { value: boolean }
@@ -100,23 +80,17 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:window', value: MonitorWindow): void
-  (e: 'update:rateRange', value: '24h' | '7d' | '30d'): void
+  (e: 'update:range', value: MonitorRange): void
   (e: 'refresh'): void
 }>()
 
 const { t } = useI18n()
 
-const windowOptions = computed<{ value: MonitorWindow; label: string }[]>(() => [
-  { value: '7d', label: t('channelStatus.windowTab.7d') },
-  { value: '15d', label: t('channelStatus.windowTab.15d') },
-  { value: '30d', label: t('channelStatus.windowTab.30d') },
-])
-
-const rateRangeOptions = computed<{ value: '24h' | '7d' | '30d'; label: string }[]>(() => [
-  { value: '24h', label: t('channelStatus.rateRange.24h') },
-  { value: '7d', label: t('channelStatus.rateRange.7d') },
-  { value: '30d', label: t('channelStatus.rateRange.30d') },
+const rangeOptions = computed<{ value: MonitorRange; label: string }[]>(() => [
+  { value: '24h', label: t('channelStatus.range.24h') },
+  { value: '7d', label: t('channelStatus.range.7d') },
+  { value: '15d', label: t('channelStatus.range.15d') },
+  { value: '30d', label: t('channelStatus.range.30d') },
 ])
 
 const overallLabel = computed(() => t(`channelStatus.overall.${props.overallStatus}`))

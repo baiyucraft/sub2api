@@ -77,7 +77,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { UserMonitorView } from '@/api/channelMonitor'
+import type { MonitorRange, UserMonitorView } from '@/api/channelMonitor'
 import {
   useChannelMonitorFormat,
   providerGradient,
@@ -97,7 +97,7 @@ const PROVIDER_TINT: Record<string, string> = {
 
 const props = defineProps<{
   item: UserMonitorView
-  window: '7d' | '15d' | '30d'
+  range: MonitorRange
   availabilityValue: number | null
   countdownSeconds: number
 }>()
@@ -120,7 +120,7 @@ const providerTintClass = computed(() =>
 )
 
 const availabilityLabel = computed(() => {
-  const win = t(`channelStatus.windowTab.${props.window}`)
+  const win = t(`channelStatus.range.${props.range}`)
   return `${t('monitorCommon.availabilityPrefix')} · ${win}`
 })
 

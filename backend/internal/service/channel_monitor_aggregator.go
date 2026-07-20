@@ -54,9 +54,13 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 //
 //	1 次查 monitors；
 //	1 次批量 latest（含 ping_latency_ms）；
-//	1 次批量 7d availability；
+//	1 次当前窗口 availability，非 7d 时另查一次兼容字段 availability_7d；
 //	1 次批量 timeline（主模型最近 N 条）。
-func (s *ChannelMonitorService) ListUserView(ctx context.Context, rateRange string) ([]*UserMonitorView, error) {
+func (s *ChannelMonitorService) ListUserView(
+	ctx context.Context,
+	rateRange string,
+	allowedGroupIDs map[int64]struct{},
+) ([]*UserMonitorView, error) {
 	rateRange, err := ParseMonitorRateRange(rateRange)
 	if err != nil {
 		return nil, err
@@ -65,24 +69,61 @@ func (s *ChannelMonitorService) ListUserView(ctx context.Context, rateRange stri
 	if err != nil {
 		return nil, fmt.Errorf("list enabled monitors: %w", err)
 	}
+	monitors = filterUserVisibleMonitors(monitors, allowedGroupIDs)
 	if len(monitors) == 0 {
 		return []*UserMonitorView{}, nil
 	}
 
 	ids, primaryByID, extrasByID := collectMonitorIndexes(monitors)
-	summaries := s.BatchMonitorStatusSummary(ctx, ids, primaryByID, extrasByID)
 	latestMap := s.batchLatest(ctx, ids)
+	windowDays := monitorRangeWindowDays(rateRange)
+	selectedAvailability := s.batchAvailability(ctx, ids, windowDays)
+	availability7d := selectedAvailability
+	if windowDays != monitorAvailability7Days {
+		availability7d = s.batchAvailability(ctx, ids, monitorAvailability7Days)
+	}
 	timelineMap := s.batchTimeline(ctx, ids, primaryByID)
 	rateTrends := s.batchPublicRateTrends(ctx, monitors, rateRange, time.Now().UTC())
 
 	views := make([]*UserMonitorView, 0, len(monitors))
 	for _, m := range monitors {
+		latestByModel := indexLatestByModel(latestMap[m.ID])
+		summary := buildStatusSummary(
+			latestByModel,
+			indexAvailabilityByModel(availability7d[m.ID]),
+			m.PrimaryModel,
+			extrasByID[m.ID],
+		)
 		primaryLatest := pickLatest(latestMap[m.ID], m.PrimaryModel)
-		view := buildUserViewFromSummary(m, summaries[m.ID], primaryLatest, timelineMap[m.ID])
+		view := buildUserViewFromSummary(m, summary, primaryLatest, timelineMap[m.ID])
+		if selected := indexAvailabilityByModel(selectedAvailability[m.ID])[m.PrimaryModel]; selected != nil {
+			view.Availability = selected.AvailabilityPct
+		}
 		applyPublicRateTrendToView(view, m, rateTrends)
 		views = append(views, view)
 	}
 	return views, nil
+}
+
+func filterUserVisibleMonitors(monitors []*ChannelMonitor, allowedGroupIDs map[int64]struct{}) []*ChannelMonitor {
+	visible := make([]*ChannelMonitor, 0, len(monitors))
+	for _, monitor := range monitors {
+		if isMonitorVisibleToUser(monitor, allowedGroupIDs) {
+			visible = append(visible, monitor)
+		}
+	}
+	return visible
+}
+
+func isMonitorVisibleToUser(monitor *ChannelMonitor, allowedGroupIDs map[int64]struct{}) bool {
+	if monitor == nil {
+		return false
+	}
+	if monitor.GroupID == nil {
+		return monitor.CredentialMode == "" || monitor.CredentialMode == ChannelMonitorCredentialManual
+	}
+	_, allowed := allowedGroupIDs[*monitor.GroupID]
+	return allowed
 }
 
 func (s *ChannelMonitorService) batchPublicRateTrends(
@@ -169,6 +210,19 @@ func (s *ChannelMonitorService) batchLatest(ctx context.Context, ids []int64) ma
 	return latestMap
 }
 
+func (s *ChannelMonitorService) batchAvailability(
+	ctx context.Context,
+	ids []int64,
+	windowDays int,
+) map[int64][]*ChannelMonitorAvailability {
+	availability, err := s.repo.ComputeAvailabilityForMonitors(ctx, ids, windowDays)
+	if err != nil {
+		slog.Warn("channel_monitor: user view batch availability failed", "window_days", windowDays, "error", err)
+		return map[int64][]*ChannelMonitorAvailability{}
+	}
+	return availability
+}
+
 // batchTimeline 批量取每个 monitor 主模型最近 monitorTimelineMaxPoints 条历史。
 func (s *ChannelMonitorService) batchTimeline(
 	ctx context.Context,
@@ -196,9 +250,14 @@ func pickLatest(rows []*ChannelMonitorLatest, model string) *ChannelMonitorLates
 	return nil
 }
 
-// GetUserDetail 用户只读视图：单个监控详情（每个模型 7d/15d/30d 可用率与平均延迟）。
+// GetUserDetail 用户只读视图：单个监控详情（每个模型 24h/7d/15d/30d 可用率与平均延迟）。
 // 不暴露 api_key。
-func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64, rateRange string) (*UserMonitorDetail, error) {
+func (s *ChannelMonitorService) GetUserDetail(
+	ctx context.Context,
+	id int64,
+	rateRange string,
+	allowedGroupIDs map[int64]struct{},
+) (*UserMonitorDetail, error) {
 	rateRange, err := ParseMonitorRateRange(rateRange)
 	if err != nil {
 		return nil, err
@@ -207,7 +266,7 @@ func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64, rat
 	if err != nil {
 		return nil, err
 	}
-	if !m.Enabled {
+	if !m.Enabled || !isMonitorVisibleToUser(m, allowedGroupIDs) {
 		return nil, ErrChannelMonitorNotFound
 	}
 
@@ -242,10 +301,10 @@ func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64, rat
 	return detail, nil
 }
 
-// collectAvailabilityWindows 一次性查询 7/15/30 天三个窗口，按模型组织。
+// collectAvailabilityWindows 查询 24h/7d/15d/30d 四个窗口，按模型组织。
 func (s *ChannelMonitorService) collectAvailabilityWindows(ctx context.Context, monitorID int64) (map[int]map[string]*ChannelMonitorAvailability, error) {
-	out := make(map[int]map[string]*ChannelMonitorAvailability, 3)
-	windows := []int{monitorAvailability7Days, monitorAvailability15Days, monitorAvailability30Days}
+	out := make(map[int]map[string]*ChannelMonitorAvailability, 4)
+	windows := []int{monitorAvailability24Hours, monitorAvailability7Days, monitorAvailability15Days, monitorAvailability30Days}
 	for _, w := range windows {
 		rows, err := s.repo.ComputeAvailability(ctx, monitorID, w)
 		if err != nil {
@@ -360,6 +419,9 @@ func mergeModelDetails(
 		if l, ok := latestByModel[model]; ok {
 			d.LatestStatus = l.Status
 			d.LatestLatencyMs = l.LatencyMs
+		}
+		if a, ok := availMap[monitorAvailability24Hours][model]; ok {
+			d.Availability24h = a.AvailabilityPct
 		}
 		if a, ok := availMap[monitorAvailability7Days][model]; ok {
 			d.Availability7d = a.AvailabilityPct

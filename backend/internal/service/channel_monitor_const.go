@@ -78,10 +78,11 @@ const (
 	MonitorStatusError       = "error"
 	MonitorStatusUnknown     = "unknown"
 
-	// monitorAvailability7Days / 15 / 30 用于聚合查询窗口。
-	monitorAvailability7Days  = 7
-	monitorAvailability15Days = 15
-	monitorAvailability30Days = 30
+	// monitorAvailability24Hours / 7 / 15 / 30 用于聚合查询窗口。
+	monitorAvailability24Hours = 1
+	monitorAvailability7Days   = 7
+	monitorAvailability15Days  = 15
+	monitorAvailability30Days  = 30
 
 	// MonitorHistoryDefaultLimit 历史查询默认返回条数（handler 层共享）。
 	MonitorHistoryDefaultLimit = 100

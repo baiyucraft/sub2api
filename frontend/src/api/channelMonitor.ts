@@ -30,6 +30,7 @@ export interface UserMonitorView {
   primary_status: MonitorStatus
   primary_latency_ms: number | null
   primary_ping_latency_ms: number | null
+  availability: number
   availability_7d: number
   extra_models: UserMonitorExtraModel[]
   timeline: MonitorTimelinePoint[]
@@ -45,6 +46,7 @@ export interface MonitorRateTrendPoint {
 }
 
 export interface UserMonitorListResponse {
+  range: MonitorRange
   items: UserMonitorView[]
 }
 
@@ -52,6 +54,7 @@ export interface UserMonitorModelDetail {
   model: string
   latest_status: MonitorStatus
   latest_latency_ms: number | null
+  availability_24h: number
   availability_7d: number
   availability_15d: number
   availability_30d: number
@@ -70,14 +73,15 @@ export interface UserMonitorDetail {
   rate_trend?: MonitorRateTrendPoint[]
 }
 
-export type MonitorRateRange = '24h' | '7d' | '30d'
+export type MonitorRange = '24h' | '7d' | '15d' | '30d'
+export type MonitorRateRange = MonitorRange
 
 /**
  * List all monitor views available to the current user.
  */
-export async function list(options?: { signal?: AbortSignal; rateRange?: MonitorRateRange }): Promise<UserMonitorListResponse> {
+export async function list(options?: { signal?: AbortSignal; range?: MonitorRange }): Promise<UserMonitorListResponse> {
   const { data } = await apiClient.get<UserMonitorListResponse>('/channel-monitors', {
-    params: { rate_range: options?.rateRange || '24h' },
+    params: { range: options?.range || '24h' },
     signal: options?.signal,
   })
   return data
@@ -86,8 +90,8 @@ export async function list(options?: { signal?: AbortSignal; rateRange?: Monitor
 /**
  * Get detailed status (multi-window availability + latency) for a single monitor.
  */
-export async function status(id: number, rateRange: MonitorRateRange = '24h'): Promise<UserMonitorDetail> {
-  const { data } = await apiClient.get<UserMonitorDetail>(`/channel-monitors/${id}/status`, { params: { rate_range: rateRange } })
+export async function status(id: number, range: MonitorRange = '24h'): Promise<UserMonitorDetail> {
+  const { data } = await apiClient.get<UserMonitorDetail>(`/channel-monitors/${id}/status`, { params: { range } })
   return data
 }
 

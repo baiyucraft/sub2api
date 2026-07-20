@@ -12,11 +12,12 @@ import (
 const (
 	MonitorRateRange24Hours = "24h"
 	MonitorRateRange7Days   = "7d"
+	MonitorRateRange15Days  = "15d"
 	MonitorRateRange30Days  = "30d"
 )
 
 var ErrChannelMonitorInvalidRateRange = infraerrors.BadRequest(
-	"CHANNEL_MONITOR_INVALID_RATE_RANGE", "rate_range must be one of 24h/7d/30d",
+	"CHANNEL_MONITOR_INVALID_RATE_RANGE", "range must be one of 24h/7d/15d/30d",
 )
 
 // GroupRateSnapshot is one immutable version of a group's public rate
@@ -57,6 +58,8 @@ func ParseMonitorRateRange(raw string) (string, error) {
 		return MonitorRateRange24Hours, nil
 	case MonitorRateRange7Days:
 		return MonitorRateRange7Days, nil
+	case MonitorRateRange15Days:
+		return MonitorRateRange15Days, nil
 	case MonitorRateRange30Days:
 		return MonitorRateRange30Days, nil
 	default:
@@ -68,10 +71,25 @@ func monitorRateRangeStart(rateRange string, now time.Time) time.Time {
 	switch rateRange {
 	case MonitorRateRange7Days:
 		return now.Add(-7 * 24 * time.Hour)
+	case MonitorRateRange15Days:
+		return now.Add(-15 * 24 * time.Hour)
 	case MonitorRateRange30Days:
 		return now.Add(-30 * 24 * time.Hour)
 	default:
 		return now.Add(-24 * time.Hour)
+	}
+}
+
+func monitorRangeWindowDays(monitorRange string) int {
+	switch monitorRange {
+	case MonitorRateRange7Days:
+		return monitorAvailability7Days
+	case MonitorRateRange15Days:
+		return monitorAvailability15Days
+	case MonitorRateRange30Days:
+		return monitorAvailability30Days
+	default:
+		return monitorAvailability24Hours
 	}
 }
 
