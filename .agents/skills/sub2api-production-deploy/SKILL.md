@@ -13,8 +13,8 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 任何远程写操作前先给出方案并获得用户确认；只读核验也必须采用字段白名单。
 - 生产旧容器在 candidate 构建、传输和验证完成前保持运行。
 - 应用发布身份必须是完整 40 位 commit SHA、唯一 full-SHA tag 和不可变 `candidate_image_id`；运维资产至少记录完整 commit SHA。禁止用 `latest`、`main` 或短版本作为应用身份。
-- 后端、数据库、迁移、fork/upstream、共享契约、配置语义、混合改动和不确定改动必须经过本地 `sub2api-dev`。
-- 只有最终 diff 严格限定在 `frontend/`，且只包含 UI、样式、静态资源或前端测试时，才允许跳过 VM 门禁。
+- 后端、数据库、迁移、fork/upstream、共享契约、配置语义、混合改动和不确定改动必须经过 VM Gate 的 `sub2api-dev`；本机可以运行跨平台静态/unit 门禁，但不得启动本地后端作为最终联调服务。
+- 只有最终 diff 严格限定在 `frontend/`，且只包含 UI、样式、静态资源或前端测试时，才允许不导入新的 candidate 到 VM；浏览器 smoke 仍应把 API 代理到已验证的 VM Gate 服务。
 - 所有会生成或切换应用产物的类别都走仓库根 `Dockerfile` 的完整后端发布流水线；只有严格的 `ops-readonly-assets` 或 `ops-control-assets` 可以按分类规则不构建应用镜像。
 - 禁止 `docker system prune`、`docker builder prune`、删除卷、数据库、Redis、`data` 或备份目录。
 - VM 空间必须按 Docker/containerd、`/tmp`、源码、构建/恢复副本和回滚预留计算峰值；清理最多一次，不能用 `du` 或 Snap 缓存推断可回收空间。
@@ -60,7 +60,7 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 最终 diff
   ├─ 纯 skill/固定只读巡检 -> ops-readonly-assets -> 不构建、不切换
   ├─ 纯维护/服务控制资产   -> ops-control-assets -> 操作门禁，不切应用镜像
-  ├─ 严格纯 frontend UI   -> RackNerd 完整构建 -> 前端检查 -> 生产切换
+  ├─ 严格纯 frontend UI   -> 本地前端检查 + Vite 代理 VM Gate smoke -> RackNerd 完整构建 -> 生产切换
   ├─ build-chain          -> VM 完整构建与验证 -> 同一镜像 -> RackNerd
   └─ 其他/不确定           -> RackNerd 构建 -> 同一镜像 -> VM 验证 -> RackNerd
 ```
@@ -72,11 +72,24 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 1. 读取强制 reference，检查 Git 状态并记录完整 commit SHA。
 2. 按最终 diff 选择 `ops-readonly-assets`、`ops-control-assets`、`frontend-direct`、`dev-gated` 或 `build-chain`；任何 `deploy/` 脚本默认按 `ops-control-assets` 或更严格类别处理。
 3. 应用产物类别复用固定源码目录和依赖缓存，构建并记录 `candidate_image_id`；运维资产类别明确记录镜像字段 `not_applicable`。
-4. 对需要 VM 门禁的改动，导入同一镜像、验证 VM 本地数据边界和容器行为。
+4. 对需要 VM 门禁的改动，导入同一镜像、验证 VM 本地数据边界和容器行为；前后端混合改动的真实浏览器联调直接使用 VM Gate，不启动本机后端。
 5. 后端/数据库/fork/配置发布前执行生产备份门禁；不兼容迁移使用不会自动恢复写入的维护备份路径。
 6. 应用发布只切换 `sub2api` 容器；运维资产只执行获批的目标操作。两者都按适用范围完成 production-node 直连和 relay-node PROXY v2 验收。
 7. 适用的应用发布在生产通过后处理版本基线：`candidate -> 实际 PostgreSQL/Redis 隔离恢复 -> verified`。`ops-readonly-assets` 和不涉及应用/恢复点的 `ops-control-assets` 明确记录 `not_applicable`。
 8. 按 [final-report.md](references/final-report.md) 输出脱敏结果；基线失败时只能报告 `partial`。
+
+## 浏览器验收服务路由
+
+浏览器验收必须先确认页面请求实际到达哪个后端，再判断页面结果：
+
+| 变更类别 | 前端页面 | API/后端 | 真实验收位置 |
+| --- | --- | --- | --- |
+| 严格纯 frontend UI | 本机 Vite 可用 | `VITE_DEV_PROXY_TARGET` 指向已验证 VM Gate | 本机页面 + VM Gate API |
+| 前后端混合、后端、数据库、迁移或 fork | 使用 VM Gate candidate 自带前端，或直接访问 VM Gate 页面 | VM Gate candidate 的 Compose/PG/Redis | VM Gate |
+
+- 纯前端本地 smoke 不得启动本地后端；启动 Vite 前记录代理目标，并用脱敏的版本字段或 API 响应确认目标是 VM Gate。
+- 前后端混合改动禁止用“本机 Vite + 本机没有后端”作验收。`3000` 只代表页面开发服务器，若 `8080` 或代理目标没有后端，登录缓存、旧版本号和空列表都不能作为功能结论。
+- 浏览器检查范围切换、登录、关键 endpoint、console 和响应版本；验收结束关闭本地 Vite，并确认监听端口已释放。
 
 灾备 candidate 在进入任何晋升写操作前，必须先通过 [backup-and-restore.md](references/backup-and-restore.md) 的 exact-content bundle 合同。测试自测签名只能证明 signer 可用，不能替代真实解密、PostgreSQL/Redis 恢复和临时材料销毁；缺少批准的解密身份或恢复 helper 时必须停在 `restore pending`，保留 `candidate`，不得伪造 `verified`。
 
