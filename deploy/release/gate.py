@@ -54,9 +54,9 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str) -> di
         raise RuntimeError("gate has expired")
     if evidence.get("vm_restore_verified") is not True or evidence.get("integration_verified") is not True:
         raise RuntimeError("gate lacks VM restore or integration evidence")
-    if expected_profile in {"194", "195"} and evidence.get("prompt_audit_disabled") is not True:
+    if expected_profile in {"194", "195", "197"} and evidence.get("prompt_audit_disabled") is not True:
         raise RuntimeError("gate lacks Prompt Audit disabled-state evidence")
-    if expected_profile == "195":
+    if expected_profile in {"195", "197"}:
         required_migration_evidence = ("migration_195_verified", "fixture_rejected", "restore_completed", "clean_preflight", "verified_replay", "verified_low_watermark_rejected")
         if any(evidence.get(field) is not True for field in required_migration_evidence):
             raise RuntimeError("gate lacks migration 195 semantic evidence")
