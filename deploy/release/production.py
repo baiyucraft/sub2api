@@ -71,6 +71,7 @@ class ProductionRelease:
         self.mask_intent = False
         self.backup_values: dict[str, str] | None = None
         self.migration_status: str | None = None
+        self.migration_195_status: str | None = None
         self.result_path = gate_dir / "production-result.json"
         self.result: dict[str, object] = {"release_id": self.release_id, "status": "running", "stage": "init", "history": []}
         self._save_result()
@@ -154,9 +155,10 @@ class ProductionRelease:
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/preflight.sh",
-            {"preflight", "pre_switch_image_id", "free_bytes", "migration_status"},
+            {"preflight", "pre_switch_image_id", "free_bytes", "migration_status", "migration_195_status"},
         )
         self.migration_status = values["migration_status"]
+        self.migration_195_status = values["migration_195_status"]
         self.stage("production_preflight_verified", values)
 
     def run_route_canary(
@@ -316,9 +318,9 @@ class ProductionRelease:
         if self.profile["name"] not in {"195", "197"}:
             return
         self.stage("migration_195_preflight")
-        if self.migration_status not in {"absent", "verified"}:
+        if self.migration_195_status not in {"absent", "verified"}:
             raise RuntimeError("migration 195 preflight status is unknown")
-        env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_status})
+        env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_195_status})
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/migration-195-assert.sh preflight",

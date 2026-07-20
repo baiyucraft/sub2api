@@ -613,7 +613,16 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         preflight = self.script("preflight.sh")
         self.assertIn("migration_status=absent", preflight)
         self.assertIn("migration_status=verified", preflight)
+        self.assertIn("migration_195_status=verified", preflight)
+        self.assertIn("migration_195_status=absent", preflight)
+        self.assertIn("printf 'migration_195_status=%s", preflight)
         self.assertIn('[[ $migration_state == "$migration|$migration_checksum" ]]', preflight)
+
+    def test_profile_197_uses_the_independent_migration_195_status(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        self.assertIn('self.migration_195_status = values["migration_195_status"]', production)
+        self.assertIn('"MIGRATION_STATUS": self.migration_195_status', production)
+        self.assertNotIn('"MIGRATION_STATUS": self.migration_status', production)
 
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")

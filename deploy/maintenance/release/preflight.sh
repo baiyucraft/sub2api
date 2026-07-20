@@ -23,10 +23,12 @@ backup_path=$(sed -n 's/.*path=\([^ ;}]*\).*/\1/p' <<<"$backup_exec" | head -n1)
 [[ -f $backup_path && ! -L $backup_path ]]
 grep -Fq '/run/lock/sub2api-backup-global.lock' "$backup_path"
 migration_status=verified
+migration_195_status=verified
 while IFS=$'\t' read -r migration migration_checksum; do
   migration_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
   if [[ -z $migration_state ]]; then
     migration_status=absent
+    [[ $migration == 195_upstream_scheduling_monitor_rates.sql ]] && migration_195_status=absent
   else
     [[ $migration_state == "$migration|$migration_checksum" ]]
   fi
@@ -44,3 +46,4 @@ printf 'preflight=pass\n'
 printf 'pre_switch_image_id=%s\n' "$pre_image_id"
 printf 'free_bytes=%s\n' "$free_bytes"
 printf 'migration_status=%s\n' "$migration_status"
+printf 'migration_195_status=%s\n' "$migration_195_status"
