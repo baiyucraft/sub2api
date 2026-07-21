@@ -7,6 +7,7 @@
 - [三类恢复资产](#三类恢复资产)
 - [每日备份](#每日备份)
 - [不兼容迁移恢复点](#不兼容迁移恢复点)
+- [Redis 认证与 TTL 对账](#redis-认证与-ttl-对账)
 - [受限接收与原子晋升](#受限接收与原子晋升)
 - [备份 Unit 维护模式](#备份-unit-维护模式)
 - [版本基线状态机](#版本基线状态机)
@@ -119,6 +120,29 @@ docker compose -f docker-compose.yml [-f docker-compose.release-active.yml] conf
 
 `.env` 恢复后不得无条件删除它引用的 override；状态不明时停止，不得先启动后判断。
 
+## Redis 认证与 TTL 对账
+
+Redis 恢复时不能假设密码位于环境变量。先从目标 Redis 容器的受限启动参数中解析 `--requirepass`，通过一次性进程的 stdin 传给 `redis-cli` 或恢复 helper；密码不得进入命令行参数、stdout、状态 JSON、日志或报告。解析不到密码、出现多个冲突参数或认证失败时立即停止。
+
+恢复验收必须同时记录以下脱敏计数：
+
+```text
+redis_backup_dbsize
+redis_backup_expiring_keys
+redis_restored_dbsize
+redis_restored_expiring_keys
+```
+
+严格满足：
+
+```text
+redis_backup_dbsize - redis_restored_dbsize
+==
+redis_backup_expiring_keys - redis_restored_expiring_keys
+```
+
+该等式用于解释备份生成与隔离恢复期间自然过期的 TTL key。只比较总 key 数、只比较 expiring key 数、允许近似误差，或仅凭 `PING`/容器健康放行都不合格；任一计数缺失、为负数、类型错误或等式不成立，`redis_ttl_reconciliation` 必须为 `fail`，旧 `verified` 基线保持不变。
+
 ## 受限接收与原子晋升
 
 受限上传 receiver 的 transport 命名规则与发布恢复点的语义名称是两层协议，不能混为一个字段：
@@ -208,6 +232,7 @@ candidate-created
 - 配置和 manifest checksum。
 - PostgreSQL 空库恢复零错误。
 - Redis RDB/AOF 启动和 keyspace 可读。
+- Redis 密码来源可证明且未泄露，备份/恢复 `DBSIZE` 与 TTL key 数严格对账。
 - 关键计数、migration 和版本一致性。
 - 临时材料销毁。
 
