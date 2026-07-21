@@ -13,6 +13,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 任何远程写操作前先给出方案并获得用户确认；只读核验也必须采用字段白名单。
 - 生产旧容器在 candidate 构建、传输和验证完成前保持运行。
 - 应用发布身份必须是完整 40 位 commit SHA、唯一 full-SHA tag 和不可变 `candidate_image_id`；运维资产至少记录完整 commit SHA。禁止用 `latest`、`main` 或短版本作为应用身份。
+- 执行 `doctor`、`bootstrap-production` 或 `deploy` 前，必须用 `git rev-parse --verify <commit>^{commit}` 得到实际完整 SHA，并将同一个 40 位小写值传入所有阶段；禁止手工复制、截断或补写 SHA。
 - 后端、数据库、迁移、fork/upstream、共享契约、配置语义、混合改动和不确定改动必须经过 VM Gate 的 `sub2api-dev`；本机可以运行跨平台静态/unit 门禁，但不得启动本地后端作为最终联调服务。
 - 只有最终 diff 严格限定在 `frontend/`，且只包含 UI、样式、静态资源或前端测试时，才允许不导入新的 candidate 到 VM；浏览器 smoke 仍应把 API 代理到已验证的 VM Gate 服务。
 - 所有会生成或切换应用产物的类别都走仓库根 `Dockerfile` 的完整后端发布流水线；只有严格的 `ops-readonly-assets` 或 `ops-control-assets` 可以按分类规则不构建应用镜像。
@@ -22,6 +23,8 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 本地开发机的 Go 全量门禁默认使用 `-p 2 -parallel 2`，并与 Vitest、typecheck、前端生产构建串行执行；该限制不改变 VM 的正式镜像构建并行度。
 - signer 公钥、私钥派生公钥、production-node trust key、validator 和 Gate 中记录的 checksum 任一不一致，必须停止，不得通过 bootstrap 自动修复后继续发布。
 - validator 与 signer helper 必须作为同一版本单元暂存、验签自测后一次激活；不得单独升级其中一个，也不得在 Compose 闭包未验证前删除旧容器或恢复数据库。
+- 一个 release 只允许一个 runner、一个 active claim 和一个 candidate；runner 返回异常、SSH 超时或测试断言失败后，必须先按 committed marker 和结构化状态做 reconciliation，禁止并发或重复启动第二个 `deploy`。
+- profile 级迁移状态不能代替单个迁移状态。生产 preflight 必须同时返回整体状态和每个关键迁移的 `absent`/`verified`/`unknown` 状态；混合状态按已提交迁移跳过、缺失迁移按顺序执行，任何 checksum 或语义不一致立即停止。
 - 任何备份、checksum、image ID、迁移、磁盘、健康、认证或空间断言失败，立即停止并报告。
 
 ## 当前链路摘要
@@ -69,7 +72,7 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 
 ## 执行顺序
 
-1. 读取强制 reference，检查 Git 状态并记录完整 commit SHA。
+1. 读取强制 reference，执行 `git rev-parse --verify` 校验目标 commit，检查 Git 状态并记录完整 commit SHA。
 2. 按最终 diff 选择 `ops-readonly-assets`、`ops-control-assets`、`frontend-direct`、`dev-gated` 或 `build-chain`；任何 `deploy/` 脚本默认按 `ops-control-assets` 或更严格类别处理。
 3. 应用产物类别复用固定源码目录和依赖缓存，构建并记录 `candidate_image_id`；运维资产类别明确记录镜像字段 `not_applicable`。
 4. 对需要 VM 门禁的改动，导入同一镜像、验证 VM 本地数据边界和容器行为；前后端混合改动的真实浏览器联调直接使用 VM Gate，不启动本机后端。
@@ -123,6 +126,13 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 前台工具超时不等于 runner 退出。宿主工具存在短超时时，使用唯一隐藏后台进程启动发布，并在 `.tmp/` 记录 PID、release ID、stdout/stderr 路径；后续只跟踪该 PID 和结构化状态，禁止再次执行 `deploy`。Canary `curl exit 28`、公开后失败或 `blocked_reconciliation` 必须按恢复 reference 分层诊断，不能直接认定候选故障或跳过双链路验收。
 
 Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资产、migration checksum、candidate archive checksum 和 image ID。生产端必须再次验签并从 Gate 派生镜像身份，禁止用环境变量覆盖。
+
+## 本次发布经验的硬化规则
+
+- VM Gate 重放时，数据库已经存在的 migration 必须走幂等语义断言，状态记为 `verified`；只有数据库没有该 migration 记录且 checksum 预检通过时才记为 `absent`。禁止为了让 Gate 通过而删除 migration 记录、重建数据库或修改 marker。
+- 生产 profile 可能处于混合状态，例如旧 migration 已记录而新 migration 缺失。先独立读取整体 migration 状态和关键 migration 状态，按有序 manifest 逐项处理；不能用“profile 不完整”推断所有 migration 都需要重跑。
+- 生产恢复使用正式 recovery/reconciliation 入口。即使远端动作可能已经提交、但调用端只收到非零退出码或测试断言失败，也必须先读取 committed marker、数据库迁移记录、运行 image、active claim 和 backup unit，再决定继续候选或协调恢复。
+- Redis 恢复必须证明认证来源、RDB/AOF 可读性和 TTL 对账；仅 `PING`、`DBSIZE` 或容器健康不能单独把恢复点晋升为 `verified`。恢复后必须重新执行 `doctor`，并以 Gate、production-result、Git 和线上运行 image 四类证据共同收口。
 
 ## 失败即停止
 
