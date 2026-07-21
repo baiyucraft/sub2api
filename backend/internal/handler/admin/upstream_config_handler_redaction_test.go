@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,4 +34,22 @@ func TestSanitizeUpstreamKeyIncludesMissingState(t *testing.T) {
 	require.Equal(t, service.UpstreamKeyStatusStale, got["status"])
 	require.Equal(t, 3, got["missing_count"])
 	require.Equal(t, &missingSince, got["missing_since"])
+}
+
+func TestSanitizeUpstreamKeyHidesImagePricingSnapshot(t *testing.T) {
+	price := 0.12
+	got := sanitizeUpstreamKey(&service.UpstreamKey{
+		Extra: map[string]any{
+			service.Sub2APIImagePricingSnapshotExtraKey: map[string]any{"image_price_1k": price},
+			"safe_note": "visible",
+		},
+		ImagePricing: &service.UpstreamKeyImagePricing{
+			Supported: true, Status: service.UpstreamKeyImagePricingStatusAvailable, Currency: "USD",
+			FinalCost1K: &price,
+		},
+	})
+	require.NotContains(t, got["extra"], service.Sub2APIImagePricingSnapshotExtraKey)
+	pricing, ok := got["image_pricing"].(gin.H)
+	require.True(t, ok)
+	require.Equal(t, service.UpstreamKeyImagePricingStatusAvailable, pricing["status"])
 }

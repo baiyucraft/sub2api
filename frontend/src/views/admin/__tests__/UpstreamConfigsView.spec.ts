@@ -136,6 +136,8 @@ const DataTableStub = defineComponent({
         <slot v-if="columns.find((column) => column.key === 'platform')" name="cell-platform" :row="row" />
         <slot v-if="columns.find((column) => column.key === 'source')" name="cell-source" :row="row" />
         <slot v-if="columns.find((column) => column.key === 'bound_account_count')" name="cell-bound_account_count" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'final_cost')" name="cell-final_cost" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'pricing_status')" name="cell-pricing_status" :row="row" />
         <slot v-if="columns.find((column) => column.key === 'status')" name="cell-status" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div>
@@ -218,11 +220,11 @@ const ProxySelectorStub = defineComponent({
 
 const UpstreamActionMenuStub = defineComponent({
   props: ['show', 'anchorEl', 'config', 'width'],
-  emits: ['close', 'test', 'keyPlatforms', 'dashboard', 'delete'],
+  emits: ['close', 'test', 'rateTrend', 'dashboard', 'delete'],
   template: `
     <div v-if="show" data-test="upstream-action-menu" :data-width="width">
       <button data-test="menu-test" @click="$emit('test', config); $emit('close')">test</button>
-      <button data-test="menu-key-platforms" @click="$emit('keyPlatforms', config); $emit('close')">platforms</button>
+      <button data-test="menu-rate-trend" @click="$emit('rateTrend', config); $emit('close')">rate trend</button>
       <button data-test="menu-dashboard" @click="$emit('dashboard', config); $emit('close')">dashboard</button>
       <button data-test="menu-delete" @click="$emit('delete', config); $emit('close')">delete</button>
     </div>
@@ -1409,7 +1411,7 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
   })
 
-  it('opens the extra-wide key platform table from the row action menu', async () => {
+  it('opens the extra-wide key management dialog from a direct row action', async () => {
     listKeysMock.mockResolvedValueOnce([{
       id: 21,
       upstream_config_id: 10,
@@ -1429,13 +1431,13 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
-    await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
+    await wrapper.get('[data-test="row-key-management"]').trigger('click')
     await flushPromises()
+    await wrapper.get('[data-test="key-management-platform-tab"]').trigger('click')
 
     expect(listKeysMock).toHaveBeenCalledWith(10)
     expect(
-      wrapper.get('[data-test="key-platforms-dialog"]').element
+      wrapper.get('[data-test="key-management-dialog"]').element
         .closest('[data-test="base-dialog"]')
         ?.getAttribute('data-width')
     ).toBe('extra-wide')
@@ -1469,9 +1471,9 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
-    await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
+    await wrapper.get('[data-test="row-key-management"]').trigger('click')
     await flushPromises()
+    await wrapper.get('[data-test="key-management-platform-tab"]').trigger('click')
     await wrapper.get('[data-test="key-platform-select-21"] select').setValue('anthropic')
     await flushPromises()
 
@@ -1515,9 +1517,9 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
-    await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
+    await wrapper.get('[data-test="row-key-management"]').trigger('click')
     await flushPromises()
+    await wrapper.get('[data-test="key-management-platform-tab"]').trigger('click')
 
     expect(wrapper.get('[data-test="key-platform-select-21"]').attributes('placeholder')).toBe(
       'admin.upstreamConfigs.keyPlatforms.unassignedPlatform'
@@ -1550,9 +1552,9 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
-    await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
+    await wrapper.get('[data-test="row-key-management"]').trigger('click')
     await flushPromises()
+    await wrapper.get('[data-test="key-management-platform-tab"]').trigger('click')
     await wrapper.get('[data-test="key-platform-select-21"] select').setValue('anthropic')
     await flushPromises()
 
@@ -1597,9 +1599,9 @@ describe('UpstreamConfigsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
-    await wrapper.get('[data-test="menu-key-platforms"]').trigger('click')
+    await wrapper.get('[data-test="row-key-management"]').trigger('click')
     await flushPromises()
+    await wrapper.get('[data-test="key-management-platform-tab"]').trigger('click')
     await wrapper.get('[data-test="key-platform-select-21"] select').setValue('anthropic')
     await flushPromises()
 
@@ -1609,11 +1611,118 @@ describe('UpstreamConfigsView', () => {
     expect(showErrorMock).toHaveBeenCalledWith('admin.upstreamConfigs.keyPlatforms.stale')
   })
 
+  it('shows final image costs by default for Sub2API and supports issue filtering', async () => {
+    listKeysMock.mockResolvedValueOnce([
+      {
+        id: 21,
+        upstream_config_id: 10,
+        name: 'Image key',
+        key_status: { has_key: true, suffix: '1234' },
+        upstream_group_id: 8,
+        upstream_group_name: 'Images',
+        platform: 'openai',
+        image_pricing: {
+          supported: true,
+          status: 'partial',
+          stale: false,
+          currency: 'USD',
+          final_cost_1k: 0,
+          final_cost_2k: 0.201,
+          final_cost_4k: null,
+          observed_at: '2026-07-21T01:02:03Z'
+        },
+        status: 'active',
+        created_at: '',
+        updated_at: '2026-07-21T01:02:03Z'
+      },
+      {
+        id: 22,
+        upstream_config_id: 10,
+        name: 'Text key',
+        platform: 'openai',
+		status: 'active',
+		created_at: '',
+		updated_at: '2026-07-21T01:02:04Z'
+	  },
+	  {
+		id: 23,
+		upstream_config_id: 10,
+		name: 'Healthy disabled',
+		platform: 'openai',
+		image_pricing: {
+		  supported: false,
+		  status: 'disabled',
+		  stale: false,
+		  currency: 'USD',
+		  final_cost_1k: null,
+		  final_cost_2k: null,
+		  final_cost_4k: null,
+		  observed_at: '2026-07-21T01:02:05Z'
+		},
+		status: 'active',
+		created_at: '',
+		updated_at: '2026-07-21T01:02:05Z'
+	  },
+	  {
+		id: 24,
+		upstream_config_id: 10,
+		name: 'Stale disabled',
+		platform: 'openai',
+		image_pricing: {
+		  supported: false,
+		  status: 'disabled',
+		  stale: true,
+		  currency: 'USD',
+		  final_cost_1k: null,
+		  final_cost_2k: null,
+		  final_cost_4k: null,
+		  observed_at: '2026-07-20T01:02:05Z'
+		},
+		status: 'active',
+		created_at: '',
+		updated_at: '2026-07-21T01:02:06Z'
+	  }
+	])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="row-key-management"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="key-management-image-tab"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.text()).toContain('$0.0000')
+    expect(wrapper.text()).toContain('$0.2010')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.keyManagement.imagePricing.upstreamDefault')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.keyManagement.status.partial')
+    expect(wrapper.text()).not.toContain('Text key')
+
+	await wrapper.get('[data-test="key-management-filter"] select').setValue('issues')
+	await flushPromises()
+	expect(wrapper.text()).toContain('Text key')
+	expect(wrapper.text()).toContain('Stale disabled')
+	expect(wrapper.text()).not.toContain('Healthy disabled')
+  })
+
+  it('opens platform assignment by default for non-Sub2API upstreams', async () => {
+    mockList([upstreamConfig({ provider: 'newapi' })])
+    listKeysMock.mockResolvedValueOnce([])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="row-key-management"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="key-management-image-tab"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="key-management-platform-tab"]').attributes('aria-selected')).toBe('true')
+  })
+
   it('provides complete key platform locale labels in both languages', () => {
     expect(zhUpstreamConfigs.upstreamConfigs.actions.keyPlatforms).toBe('Key 平台')
     expect(zhUpstreamConfigs.upstreamConfigs.keyPlatforms.unassignedGroup).toBe('未分配')
     expect(zhUpstreamConfigs.upstreamConfigs.keyPlatforms.status.conflict).toBe('冲突')
     expect(enUpstreamConfigs.upstreamConfigs.actions.keyPlatforms).toBe('Key Platforms')
     expect(enUpstreamConfigs.upstreamConfigs.keyPlatforms.disableBindingsConfirm).toBe('Disable and retry')
+    expect(zhUpstreamConfigs.upstreamConfigs.actions.keyManagement).toBe('Key 管理')
+    expect(enUpstreamConfigs.upstreamConfigs.keyManagement.status.stale).toBe('Stale')
   })
 })

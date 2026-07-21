@@ -39,7 +39,8 @@ export default {
       lastCheckedAt: '最后检查时间：{time}'
     },
     rates: {
-      rateMultiplier: '实际倍率 {value}'
+      rateMultiplier: '实际倍率 {value}',
+      imageKeys: '生图 Key {supported}/{total}'
     },
     scheduling: {
       enabledHint: '允许调用该上游下仍开启账号调度的账号',
@@ -91,6 +92,7 @@ export default {
       rateTrend: '倍率趋势',
       more: '更多',
       keyPlatforms: 'Key 平台',
+      keyManagement: 'Key 管理',
       settings: '上游设置',
       openDashboard: '打开上游后台',
       saving: '保存中...'
@@ -143,6 +145,38 @@ export default {
       disableBindingsTitle: '停用绑定账号？',
       disableBindingsMessage: '将该 Key 改为 {platform} 会与 {count} 个绑定账号冲突。是否停用这些账号并重试？',
       disableBindingsConfirm: '停用并重试'
+    },
+    keyManagement: {
+      title: 'Key 管理',
+      description: '集中查看上游 Key 的路由归属和生图最终成本。生图成本仅用于成本分析，不参与账号调度。',
+      tabs: {
+        imagePricing: '生图成本 {count}',
+        platforms: '平台归属'
+      },
+      searchPlaceholder: '搜索 Key、分组或尾号',
+      filters: {
+        supported: '支持生图',
+        all: '全部 Key',
+        issues: '数据异常'
+      },
+      columns: {
+        key: 'Key',
+        group: '上游分组',
+        finalCost: '最终成本（USD/张）',
+        status: '同步状态'
+      },
+      status: {
+        available: '可用',
+        partial: '部分定价',
+        disabled: '未开启',
+        unavailable: '未获取',
+        stale: '已过期'
+      },
+      imagePricing: {
+        upstreamDefault: '上游默认价',
+        empty: '没有符合条件的生图 Key',
+        emptyHint: '可切换筛选条件，或同步上游后再查看。'
+      }
     },
     dialog: {
       createTitle: '添加上游',

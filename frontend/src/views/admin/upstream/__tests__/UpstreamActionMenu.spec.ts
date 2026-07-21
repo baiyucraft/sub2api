@@ -42,14 +42,14 @@ describe('UpstreamActionMenu', () => {
     expect(wrapper.get('[data-test="action-menu"]').attributes('data-has-anchor')).toBe('true')
   })
 
-  it('emits test, keyPlatforms, dashboard, and delete with the config and closes each action', async () => {
+  it('emits test, rateTrend, dashboard, and delete with the config and closes each action', async () => {
     const item = config()
     const wrapper = mount(UpstreamActionMenu, {
       props: { show: true, anchorEl: document.body, config: item as any },
       global: { stubs: { ActionMenu: ActionMenuStub, Icon: true } }
     })
 
-    for (const [index, event] of ['test', 'keyPlatforms', 'dashboard', 'delete'].entries()) {
+    for (const [index, event] of ['test', 'rateTrend', 'dashboard', 'delete'].entries()) {
       await wrapper.findAll('[role="menuitem"]')[index].trigger('click')
       expect(wrapper.emitted(event)?.[0]).toEqual([item])
     }
@@ -63,7 +63,7 @@ describe('UpstreamActionMenu', () => {
     })
 
     expect(wrapper.findAll('[role="menuitem"]')).toHaveLength(3)
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.actions.keyPlatforms')
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.actions.rateTrend')
     expect(wrapper.text()).not.toContain('admin.upstreamConfigs.actions.openDashboard')
   })
 })

@@ -107,6 +107,7 @@ type UpstreamKey struct {
 	MissingCount            int
 	MissingSince            *time.Time
 	Extra                   map[string]any
+	ImagePricing            *UpstreamKeyImagePricing
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 }
@@ -279,11 +280,23 @@ func (s *UpstreamConfigService) applySub2APIComplianceSettings(ctx context.Conte
 }
 
 func (s *UpstreamConfigService) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error) {
-	return s.repo.List(ctx, params, provider, status, search)
+	configs, total, err := s.repo.List(ctx, params, provider, status, search)
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range configs {
+		hydrateUpstreamConfigImagePricing(&configs[i])
+	}
+	return configs, total, nil
 }
 
 func (s *UpstreamConfigService) GetByID(ctx context.Context, id int64) (*UpstreamConfig, error) {
-	return s.repo.GetByID(ctx, id)
+	config, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	hydrateUpstreamConfigImagePricing(config)
+	return config, nil
 }
 
 func (s *UpstreamConfigService) Create(ctx context.Context, config *UpstreamConfig) (*UpstreamConfig, error) {
@@ -461,13 +474,15 @@ func (s *UpstreamConfigService) Delete(ctx context.Context, id int64) error {
 }
 
 func (s *UpstreamConfigService) ListKeys(ctx context.Context, upstreamConfigID int64) ([]UpstreamKey, error) {
-	if _, err := s.repo.GetByID(ctx, upstreamConfigID); err != nil {
+	config, err := s.repo.GetByID(ctx, upstreamConfigID)
+	if err != nil {
 		return nil, err
 	}
 	keys, err := s.repo.ListKeys(ctx, upstreamConfigID)
 	if err != nil {
 		return nil, err
 	}
+	hydrateUpstreamKeysImagePricing(keys, config)
 	return keys, nil
 }
 
@@ -499,7 +514,18 @@ func (s *UpstreamConfigService) UpdateKeyPlatform(ctx context.Context, upstreamC
 	if req.ExpectedUpdatedAt.IsZero() {
 		return nil, infraerrors.BadRequest("UPSTREAM_KEY_EXPECTED_UPDATED_AT_REQUIRED", "expected_updated_at is required")
 	}
-	return s.repo.UpdateKeyPlatform(ctx, upstreamConfigID, keyID, platform, req.ExpectedUpdatedAt.UTC(), req.DisableBoundAccounts)
+	key, err := s.repo.UpdateKeyPlatform(ctx, upstreamConfigID, keyID, platform, req.ExpectedUpdatedAt.UTC(), req.DisableBoundAccounts)
+	if err != nil {
+		return nil, err
+	}
+	config, err := s.repo.GetByID(ctx, upstreamConfigID)
+	if err != nil {
+		return nil, err
+	}
+	if config != nil && config.Provider == UpstreamProviderSub2API {
+		key.ImagePricing = deriveUpstreamKeyImagePricing(key, config)
+	}
+	return key, nil
 }
 
 func (s *UpstreamConfigService) Test(ctx context.Context, id int64) error {
@@ -742,6 +768,7 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
 		}
+		s.mergeSub2APIImagePricingSnapshots(ctx, cfg, snapshot)
 	}
 	keys := snapshot.Keys
 	snapshot.ExtraUpdates = normalizeProviderBalanceExtra(cfg, snapshot.ExtraUpdates)
@@ -784,6 +811,8 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 		if snapshot.Partial || len(snapshot.Warnings) > 0 || snapshot.UnresolvedKeyCount > 0 {
 			result.Status = UpstreamSyncStatusPartial
 		}
+		cfg.LastError = nil
+		hydrateUpstreamKeysImagePricing(localKeys, cfg)
 		return localKeys, result, nil
 	}
 
@@ -819,7 +848,66 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 		result.Status = UpstreamSyncStatusPartial
 	}
 	_ = s.repo.RecordCheckResult(ctx, cfg.ID, true, "")
+	cfg.LastError = nil
+	hydrateUpstreamKeysImagePricing(localKeys, cfg)
 	return localKeys, result, nil
+}
+
+func (s *UpstreamConfigService) mergeSub2APIImagePricingSnapshots(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) {
+	if cfg == nil || snapshot == nil || len(snapshot.Keys) == 0 {
+		return
+	}
+	remoteIDs := make([]int64, 0, len(snapshot.Keys))
+	for i := range snapshot.Keys {
+		if snapshot.Keys[i].RemoteKeyID != nil {
+			remoteIDs = append(remoteIDs, *snapshot.Keys[i].RemoteKeyID)
+		}
+	}
+	var (
+		existing []UpstreamKey
+		err      error
+	)
+	if fallbackRepo, ok := s.repo.(upstreamMaskedKeyFallbackRepository); ok {
+		existing, err = fallbackRepo.ListKeysForMaskedFallback(ctx, cfg.ID, remoteIDs)
+	} else {
+		existing, err = s.repo.ListKeys(ctx, cfg.ID)
+	}
+	if err != nil {
+		existing = nil
+	}
+	byRemoteID := make(map[int64]UpstreamKey, len(existing))
+	for i := range existing {
+		if existing[i].RemoteKeyID != nil {
+			byRemoteID[*existing[i].RemoteKeyID] = existing[i]
+		}
+	}
+	for i := range snapshot.Keys {
+		key := &snapshot.Keys[i]
+		incomingSnapshot, hasIncoming := parseSub2APIImagePricingSnapshot(key.Extra)
+		mergedExtra := make(map[string]any, len(key.Extra)+1)
+		var previousSnapshot sub2APIImagePricingSnapshot
+		var hasPrevious bool
+		if key.RemoteKeyID != nil {
+			if previous, ok := byRemoteID[*key.RemoteKeyID]; ok {
+				previousSnapshot, hasPrevious = parseSub2APIImagePricingSnapshot(previous.Extra)
+			}
+		}
+		for extraKey, value := range key.Extra {
+			mergedExtra[extraKey] = value
+		}
+		if hasIncoming && incomingSnapshot.Status != UpstreamKeyImagePricingStatusUnavailable {
+			mergedExtra[Sub2APIImagePricingSnapshotExtraKey] = sub2APIImagePricingSnapshotMap(incomingSnapshot)
+		} else if hasPrevious && previousSnapshot.Status != UpstreamKeyImagePricingStatusUnavailable {
+			previousSnapshot.Stale = true
+			mergedExtra[Sub2APIImagePricingSnapshotExtraKey] = sub2APIImagePricingSnapshotMap(previousSnapshot)
+		} else if hasIncoming {
+			incomingSnapshot.Stale = false
+			mergedExtra[Sub2APIImagePricingSnapshotExtraKey] = sub2APIImagePricingSnapshotMap(incomingSnapshot)
+		} else {
+			mergedExtra[Sub2APIImagePricingSnapshotExtraKey] = sub2APIImagePricingSnapshotMap(newUnavailableSub2APIImagePricingSnapshot(false))
+		}
+		key.Extra = mergedExtra
+	}
 }
 
 func applySub2APIBillingRates(ctx context.Context, cfg *UpstreamConfig, proxyURL string, snapshot *upstreamProviderSnapshot) {
