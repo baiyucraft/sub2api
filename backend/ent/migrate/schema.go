@@ -16,7 +16,7 @@ var (
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "key", Type: field.TypeString, Unique: true, Size: 128},
-		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "name", Type: field.TypeString, Size: 103},
 		{Name: "purpose", Type: field.TypeEnum, Enums: []string{"general", "managed_monitor"}, Default: "general"},
 		{Name: "managed_monitor_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},

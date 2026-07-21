@@ -106,8 +106,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(list(migration_checksums(profile_191)), profile_191["migrations"])
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195|197)"
-        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197"
+        expected_release_pattern = "(182|187|191|192|194|195|197|198)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
@@ -174,6 +174,16 @@ class ReleaseCoreTest(unittest.TestCase):
         )
         self.assertEqual(list(migration_checksums(profile_197)), profile_197["migrations"])
 
+    def test_profile_198_extends_profile_197_with_managed_monitor_key_name_migration(self) -> None:
+        profile_197 = get_profile("197")
+        profile_198 = get_profile("198")
+        self.assertEqual(profile_198["version"], "0.1.162-baiyu")
+        self.assertEqual(
+            profile_198["migrations"],
+            profile_197["migrations"] + ["198_normalize_managed_monitor_key_names.sql"],
+        )
+        self.assertEqual(list(migration_checksums(profile_198)), profile_198["migrations"])
+
     def test_profile_194_requires_prompt_audit_disabled_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         context = (DEPLOY_ROOT / "maintenance" / "release" / "context.sh").read_text(encoding="utf-8")
@@ -183,8 +193,9 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("prompt_audit_state == 't|0|0'", validator)
         self.assertIn("prompt_audit_disabled:$prompt_audit_disabled", validator)
         self.assertIn("assert_prompt_audit_disabled()", context)
+        self.assertIn("$profile != 197 && $profile != 198", context)
         self.assertEqual(production.count('"prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events"'), 3)
-        self.assertIn('expected_profile in {"194", "195", "197"}', gate)
+        self.assertIn('expected_profile in {"194", "195", "197", "198"}', gate)
 
     def test_profile_195_requires_semantic_migration_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
@@ -245,10 +256,10 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('migration-195-assert.sh preflight', production)
         self.assertIn('migration-195-assert.sh" postflight', switch)
         self.assertIn("unproven == 0 && $conflict == 0 && $unexpected == 0", assertion)
-        self.assertIn('expected_profile in {"195", "197"}', gate)
-        self.assertIn('self.profile["name"] not in {"195", "197"}', production)
-        self.assertIn('[[ $profile == 195 || $profile == 197 ]]', switch)
-        self.assertIn('[[ $profile == 195 || $profile == 197 ]]', assertion)
+        self.assertIn('expected_profile in {"195", "197", "198"}', gate)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198"}', production)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 ]]', switch)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 ]]', assertion)
 
     def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
