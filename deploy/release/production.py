@@ -360,6 +360,8 @@ class ProductionRelease:
                 "migration_195_account_mismatch", "migration_195_snapshot_missing", "migration_195_outbox_missing",
                 "migration_195_constraint_missing", "migration_195_trigger_missing",
             })
+        if getattr(self, "profile", {}).get("name") == "198":
+            allowed.add("managed_monitor_key_names_verified")
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/switch.sh",

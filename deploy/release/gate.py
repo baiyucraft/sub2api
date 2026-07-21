@@ -60,6 +60,8 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str) -> di
         required_migration_evidence = ("migration_195_verified", "fixture_rejected", "restore_completed", "clean_preflight", "verified_replay", "verified_low_watermark_rejected")
         if any(evidence.get(field) is not True for field in required_migration_evidence):
             raise RuntimeError("gate lacks migration 195 semantic evidence")
+    if expected_profile == "198" and evidence.get("managed_monitor_key_names_verified") is not True:
+        raise RuntimeError("gate lacks managed monitor key-name evidence")
     archive_path = bundle_dir / "candidate.tar.gz"
     if not archive_path.is_file():
         raise RuntimeError("gate candidate archive is missing")
