@@ -1,5 +1,18 @@
 # 发布预检与状态恢复
 
+## 目录
+
+- [标准入口](#标准入口)
+- [迁移状态与重复 Gate](#迁移状态与重复-gate)
+- [长时间无输出诊断](#长时间无输出诊断)
+- [Canary 超时分层诊断](#canary-超时分层诊断)
+- [公开后的 Reconciliation](#公开后的-reconciliation)
+- [故障预检表](#故障预检表)
+- [Signer 身份一致性门禁](#signer-身份一致性门禁)
+- [Committed-State 恢复决策](#committed-state-恢复决策)
+- [分节点验收](#分节点验收)
+- [VM 白名单清理](#vm-白名单清理)
+
 ## 标准入口
 
 对已提供 profile 的 RackNerd 应用发布，固定使用：
@@ -15,6 +28,29 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 - `deploy` 是日常一键入口：先检查本地、VM 与外部节点，幂等 bootstrap RackNerd 后再检查 RackNerd，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。
 - `deploy` 在停写前先用当前生产版本执行 direct/DMIT 流式基线 Canary；它会产生带唯一 marker 的正常 usage 记录，但不验证候选容器。该检查失败时释放本次 claim 并保持旧应用运行。候选公开后仅对 `curl 28` 和 `502/503/504` 使用新 marker 最多尝试三次，确定性 4xx、协议或 SSE 错误不重试。
 - 信任根首次安装仍单独使用 `bootstrap-trust`，人工核验公钥指纹；普通 bootstrap 和 deploy 不得创建或替换信任根。
+
+## 迁移状态与重复 Gate
+
+每次生产 preflight 必须同时输出 profile 的整体 `migration_status` 和关键迁移的独立状态，例如 `migration_195_status`、`migration_196_status`、`migration_197_status`。独立状态只允许：
+
+- `absent`：数据库中没有该迁移记录，且目标 checksum 与 manifest 已匹配，可以按顺序执行；
+- `verified`：数据库中已有该迁移记录，记录 checksum、schema/数据语义和目标 checksum 全部匹配，可以幂等跳过；
+- `unknown` 或 `conflict`：无法证明状态，立即停止，不能进入停写、迁移或切换。
+
+profile 可能是混合状态，例如 195 已存在而 196/197 缺失。此时只对缺失迁移生成执行计划，已 `verified` 的迁移不得重跑；所有迁移仍按 manifest 顺序校验 checksum。VM Gate 重放遇到已存在的迁移时，应重复执行幂等断言并记录 `verified`，禁止删除数据库记录、marker 或 Gate 目录来制造 `absent`。
+
+profile 197 的预检/执行矩阵固定为：
+
+| 195 | 196 | 197 | 结论 |
+| --- | --- | --- | --- |
+| `verified` | `absent` | `absent` | 允许按 196 -> 197 前向执行，禁止重跑 195 |
+| `verified` | `verified` | `verified` | 全部只读复核后幂等跳过 |
+| `absent` | 任意 | 任意 | 按 manifest 先执行 195，再继续后续迁移 |
+| `unknown`/`conflict` 或任一 checksum 不匹配 | 任意 | 任意 | 立即停止并进入恢复/新 Gate |
+
+最终 committed marker 和 Gate evidence 必须覆盖 195、196、197 三项目标 checksum，不能只记录 profile 总体为 `verified`。
+
+`migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 
 ## 长时间无输出诊断
 
