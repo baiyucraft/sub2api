@@ -195,6 +195,8 @@ type sub2APIGroupRateInfo struct {
 	DefaultMultiplier      *float64
 	DedicatedMultiplier    *float64
 	HasDedicatedMultiplier bool
+	ImagePricing           sub2APIImagePricingSnapshot
+	HasImagePricing        bool
 }
 
 type sub2APIProfile struct {
@@ -621,6 +623,13 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 			}
 		}
 		extra := map[string]any{}
+		if groupInfo != nil && groupInfo.HasImagePricing {
+			imagePricing := groupInfo.ImagePricing
+			observedAt := now.UTC()
+			imagePricing.ObservedAt = &observedAt
+			imagePricing.Stale = false
+			extra[Sub2APIImagePricingSnapshotExtraKey] = sub2APIImagePricingSnapshotMap(imagePricing)
+		}
 		platformValue := strings.ToLower(strings.TrimSpace(platform))
 		out = append(out, UpstreamKey{
 			UpstreamConfigID:        cfg.ID,
@@ -1082,22 +1091,74 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIAvailableGroups(ctx context
 			continue
 		}
 		name := strings.TrimSpace(sub2APIStringField(record, "name"))
-		if name == "" {
+		imagePricing, hasImagePricing := parseSub2APIAvailableGroupImagePricing(record)
+		if name == "" && !hasImagePricing {
 			continue
 		}
 		var defaultRate *float64
-		if rate, ok := sub2APINonNegativeNumberField(record, "rate_multiplier", "rateMultiplier", "multiplier", "rate"); ok {
-			rateCopy := rate
-			defaultRate = &rateCopy
+		platform := ""
+		if name != "" {
+			if rate, ok := sub2APINonNegativeNumberField(record, "rate_multiplier", "rateMultiplier", "multiplier", "rate"); ok {
+				rateCopy := rate
+				defaultRate = &rateCopy
+			}
+			platform = strings.TrimSpace(sub2APIStringField(record, "platform"))
 		}
 		out[groupID] = sub2APIGroupRateInfo{
 			ID:                groupID,
 			Name:              name,
-			Platform:          strings.TrimSpace(sub2APIStringField(record, "platform")),
+			Platform:          platform,
 			DefaultMultiplier: defaultRate,
+			ImagePricing:      imagePricing,
+			HasImagePricing:   hasImagePricing,
 		}
 	}
 	return out, nil
+}
+
+func parseSub2APIAvailableGroupImagePricing(record map[string]any) (sub2APIImagePricingSnapshot, bool) {
+	allow, allowPresent, allowValid := sub2APIBoolField(record, "allow_image_generation", "allowImageGeneration")
+	if !allowPresent {
+		return sub2APIImagePricingSnapshot{}, false
+	}
+	snapshot := sub2APIImagePricingSnapshot{
+		Version:              sub2APIImagePricingSnapshotVersion,
+		AllowImageGeneration: allow,
+	}
+	if !allowValid {
+		snapshot.Status = UpstreamKeyImagePricingStatusUnavailable
+		return snapshot, true
+	}
+	if !allow {
+		snapshot.Status = UpstreamKeyImagePricingStatusDisabled
+		return snapshot, true
+	}
+
+	independent, independentPresent, independentValid := sub2APIBoolField(record, "image_rate_independent", "imageRateIndependent")
+	if independentPresent && independentValid {
+		snapshot.ImageRateIndependent = independent
+	}
+	valid := !independentPresent || independentValid
+	if independent {
+		value, present, fieldValid := sub2APINullableNonNegativeNumberField(record, "image_rate_multiplier", "imageRateMultiplier")
+		snapshot.ImageRateMultiplier = value
+		valid = valid && present && fieldValid && value != nil
+	}
+	snapshot.ImagePrice1K, _, _ = sub2APINullableNonNegativeNumberField(record, "image_price_1k", "imagePrice1k")
+	snapshot.ImagePrice2K, _, _ = sub2APINullableNonNegativeNumberField(record, "image_price_2k", "imagePrice2k")
+	snapshot.ImagePrice4K, _, _ = sub2APINullableNonNegativeNumberField(record, "image_price_4k", "imagePrice4k")
+	for _, keys := range [][]string{{"image_price_1k", "imagePrice1k"}, {"image_price_2k", "imagePrice2k"}, {"image_price_4k", "imagePrice4k"}} {
+		_, _, fieldValid := sub2APINullableNonNegativeNumberField(record, keys...)
+		valid = valid && fieldValid
+	}
+	if !valid {
+		snapshot.Status = UpstreamKeyImagePricingStatusUnavailable
+	} else if snapshot.ImagePrice1K == nil || snapshot.ImagePrice2K == nil || snapshot.ImagePrice4K == nil {
+		snapshot.Status = UpstreamKeyImagePricingStatusPartial
+	} else {
+		snapshot.Status = UpstreamKeyImagePricingStatusAvailable
+	}
+	return snapshot, true
 }
 
 func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIGroupRates(ctx context.Context, client *http.Client, rootURL, token string) (map[int64]float64, error) {
@@ -1226,6 +1287,43 @@ func sub2APINonNegativeNumberField(record map[string]any, keys ...string) (float
 		}
 	}
 	return 0, false
+}
+
+func sub2APINullableNonNegativeNumberField(record map[string]any, keys ...string) (*float64, bool, bool) {
+	for _, key := range keys {
+		value, exists := record[key]
+		if !exists {
+			continue
+		}
+		if value == nil {
+			return nil, true, true
+		}
+		parsed, ok := sub2APINonNegativeNumber(value)
+		if !ok {
+			return nil, true, false
+		}
+		return &parsed, true, true
+	}
+	return nil, false, true
+}
+
+func sub2APIBoolField(record map[string]any, keys ...string) (bool, bool, bool) {
+	for _, key := range keys {
+		value, exists := record[key]
+		if !exists {
+			continue
+		}
+		switch typed := value.(type) {
+		case bool:
+			return typed, true, true
+		case string:
+			parsed, err := strconv.ParseBool(strings.TrimSpace(typed))
+			return parsed, true, err == nil
+		default:
+			return false, true, false
+		}
+	}
+	return false, false, true
 }
 
 func sub2APINonNegativeNumber(value any) (float64, bool) {

@@ -23,6 +23,19 @@ export interface UpstreamKeyStatus {
   suffix?: string
 }
 
+export type UpstreamKeyImagePricingStatus = 'available' | 'partial' | 'disabled' | 'unavailable'
+
+export interface UpstreamKeyImagePricing {
+  supported: boolean
+  status: UpstreamKeyImagePricingStatus
+  stale: boolean
+  currency: 'USD'
+  final_cost_1k: number | null
+  final_cost_2k: number | null
+  final_cost_4k: number | null
+  observed_at: string | null
+}
+
 export interface UpstreamKey {
   id: number
   upstream_config_id: number
@@ -38,6 +51,7 @@ export interface UpstreamKey {
   platform_detected_at?: string | null
   bound_account_count?: number
   rate_multiplier?: number | null
+  image_pricing?: UpstreamKeyImagePricing
   status: string
   last_seen_at?: string | null
   missing_count?: number
