@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -71,6 +72,13 @@ type SettingService struct {
 	// instance owns its own cache, no shared package-level state.
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
+
+	// OpenAI TTFT guard uses a per-service stale-while-revalidate snapshot so
+	// scheduler hot-path reads never wait for the settings repository.
+	openAITTFTGuardConfigCache atomic.Value // *cachedOpenAITTFTGuardConfig
+	openAITTFTGuardConfigSF    singleflight.Group
+	openAITTFTGuardRevision    atomic.Uint64
+	openAITTFTGuardUpdateMu    sync.Mutex
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）

@@ -66,23 +66,25 @@ var openAIAdvancedSchedulerSettingCache atomic.Value // *cachedOpenAIAdvancedSch
 var openAIAdvancedSchedulerSettingSF singleflight.Group
 
 type OpenAIAccountScheduleRequest struct {
-	GroupID                 *int64
-	Platform                string
-	SessionHash             string
-	StickyAccountID         int64
-	StickyPreviousAccountID int64
-	StickyWeighted          bool
-	SubscriptionPriority    bool
-	PreserveStickyBinding   bool
-	PreviousResponseID      string
-	PreviousResponseCanMove bool
-	UseUpstreamTokenCost    bool
-	RequestedModel          string
-	RequiredTransport       OpenAIUpstreamTransport
-	RequiredCapability      OpenAIEndpointCapability
-	RequiredImageCapability OpenAIImagesCapability
-	RequireCompact          bool
-	ExcludedIDs             map[int64]struct{}
+	GroupID                     *int64
+	Platform                    string
+	SessionHash                 string
+	StickyAccountID             int64
+	StickyPreviousAccountID     int64
+	StickyWeighted              bool
+	SubscriptionPriority        bool
+	PreserveStickyBinding       bool
+	PreviousResponseID          string
+	PreviousResponseCanMove     bool
+	UseUpstreamTokenCost        bool
+	RequestedModel              string
+	RequiredTransport           OpenAIUpstreamTransport
+	RequiredCapability          OpenAIEndpointCapability
+	RequiredImageCapability     OpenAIImagesCapability
+	RequireCompact              bool
+	ExcludedIDs                 map[int64]struct{}
+	PreviousResponseExcludedIDs map[int64]struct{}
+	SeparatePreviousExclusions  bool
 }
 
 type OpenAIAccountScheduleDecision struct {
@@ -379,12 +381,16 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
 	if previousResponseID != "" && normalizeOpenAICompatiblePlatform(req.Platform) == PlatformOpenAI &&
 		(!req.StickyWeighted || !req.PreviousResponseCanMove) {
+		previousResponseExcludedIDs := req.ExcludedIDs
+		if req.SeparatePreviousExclusions {
+			previousResponseExcludedIDs = req.PreviousResponseExcludedIDs
+		}
 		selection, err := s.service.selectAccountByPreviousResponseIDForCapability(
 			ctx,
 			req.GroupID,
 			previousResponseID,
 			req.RequestedModel,
-			req.ExcludedIDs,
+			previousResponseExcludedIDs,
 			req.RequiredCapability,
 			req.RequireCompact,
 		)
@@ -1983,13 +1989,15 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	return selection, decision, err
 }
 
-func (s *OpenAIGatewayService) selectAccountWithScheduler(
+func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	ctx context.Context,
 	groupID *int64,
 	previousResponseID string,
 	sessionHash string,
 	requestedModel string,
 	excludedIDs map[int64]struct{},
+	previousResponseExcludedIDs map[int64]struct{},
+	separatePreviousExclusions bool,
 	requiredTransport OpenAIUpstreamTransport,
 	requiredCapability OpenAIEndpointCapability,
 	requiredImageCapability OpenAIImagesCapability,
@@ -2077,22 +2085,25 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	}
 
 	return scheduler.Select(ctx, OpenAIAccountScheduleRequest{
-		GroupID:                 groupID,
-		Platform:                platform,
-		SessionHash:             sessionHash,
-		StickyAccountID:         stickyAccountID,
-		StickyPreviousAccountID: stickyPreviousAccountID,
-		StickyWeighted:          stickyWeighted,
-		SubscriptionPriority:    subscriptionPriority,
-		PreviousResponseID:      previousResponseID,
-		PreviousResponseCanMove: previousResponseCanMove,
-		UseUpstreamTokenCost:    useUpstreamTokenCost,
-		RequestedModel:          requestedModel,
-		RequiredTransport:       requiredTransport,
-		RequiredCapability:      requiredCapability,
-		RequiredImageCapability: requiredImageCapability,
-		RequireCompact:          requireCompact,
-		ExcludedIDs:             excludedIDs,
+		GroupID:                     groupID,
+		Platform:                    platform,
+		SessionHash:                 sessionHash,
+		StickyAccountID:             stickyAccountID,
+		StickyPreviousAccountID:     stickyPreviousAccountID,
+		StickyWeighted:              stickyWeighted,
+		SubscriptionPriority:        subscriptionPriority,
+		PreserveStickyBinding:       openAITTFTGuardExcludedAccount(ctx, stickyAccountID),
+		PreviousResponseID:          previousResponseID,
+		PreviousResponseCanMove:     previousResponseCanMove,
+		UseUpstreamTokenCost:        useUpstreamTokenCost,
+		RequestedModel:              requestedModel,
+		RequiredTransport:           requiredTransport,
+		RequiredCapability:          requiredCapability,
+		RequiredImageCapability:     requiredImageCapability,
+		RequireCompact:              requireCompact,
+		ExcludedIDs:                 excludedIDs,
+		PreviousResponseExcludedIDs: previousResponseExcludedIDs,
+		SeparatePreviousExclusions:  separatePreviousExclusions,
 	})
 }
 
@@ -2138,6 +2149,7 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 }
 
 func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(accountID int64, model string, success bool, firstTokenMs *int) {
+	s.reportOpenAITTFTGuard(accountID, model, success, firstTokenMs)
 	if success {
 		s.clearOpenAIAccountModelTransientState(accountID, normalizeOpenAIAccountModelTransientModel(model))
 	}

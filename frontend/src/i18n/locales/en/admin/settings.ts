@@ -935,6 +935,19 @@ export default {
           testFailed: 'Google Drive storage test failed'
         }
       },
+      openaiTTFTGuard: {
+        title: 'OpenAI TTFT Guard',
+        description: 'Detect persistently slow first output from recent account samples and avoid degraded accounts during scheduling',
+        enabled: 'Enable TTFT Guard',
+        enabledHint: 'Once enough samples are available, treat OpenAI accounts with persistently high TTFT as degraded',
+        degradationTTFTSeconds: 'Degradation threshold (seconds)',
+        degradationTTFTSecondsHint: 'Count account TTFT at or above this value as a slow response (5-300 seconds)',
+        minSamples: 'Minimum samples',
+        minSamplesHint: 'Valid TTFT samples required for trend evaluation; extreme delays can trigger earlier (2-20)',
+        invalid: 'Enter a degradation threshold and minimum sample count within the allowed ranges',
+        saved: 'OpenAI TTFT Guard settings saved',
+        saveFailed: 'Failed to save OpenAI TTFT Guard settings'
+      },
       overloadCooldown: {
         title: '529 Overload Cooldown',
         description: 'Configure account scheduling pause strategy when upstream returns 529 (overloaded)',
