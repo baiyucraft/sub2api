@@ -229,6 +229,9 @@
               <div class="text-gray-700 dark:text-gray-300">
                 {{ t('admin.upstreamConfigs.rates.rateMultiplier', { value: rateRangeLabel(rateMultiplierRange(row)) }) }}
               </div>
+              <div v-if="row.provider === 'sub2api'" class="mt-1 text-gray-500 dark:text-dark-400">
+                {{ t('admin.upstreamConfigs.rates.imageKeys', { supported: imagePricingSummary(row).supported, total: imagePricingSummary(row).total }) }}
+              </div>
             </div>
           </template>
 
@@ -318,14 +321,14 @@
               </button>
               <button
                 type="button"
-                class="table-action-button hover:text-indigo-600 dark:hover:text-indigo-400"
-                data-test="row-rate-trend"
-                :title="t('admin.upstreamConfigs.actions.rateTrend')"
-                :aria-label="t('admin.upstreamConfigs.actions.rateTrend')"
-                @click="openRateTrend(row)"
+                class="table-action-button hover:text-violet-600 dark:hover:text-violet-400"
+                data-test="row-key-management"
+                :title="t('admin.upstreamConfigs.actions.keyManagement')"
+                :aria-label="t('admin.upstreamConfigs.actions.keyManagement')"
+                @click="openKeyPlatforms(row)"
               >
-                <Icon name="chart" size="sm" />
-                <span>{{ t('admin.upstreamConfigs.actions.rateTrend') }}</span>
+                <Icon name="key" size="sm" />
+                <span>{{ t('admin.upstreamConfigs.actions.keyManagement') }}</span>
               </button>
               <button
                 type="button"
@@ -721,27 +724,27 @@
       width="normal"
       @close="closeActionMenu"
       @test="handleTest"
-      @key-platforms="openKeyPlatforms"
+      @rate-trend="openRateTrend"
       @dashboard="openUpstreamDashboard"
       @delete="askDelete"
     />
 
     <BaseDialog
       :show="keyPlatformsDialogOpen"
-      :title="t('admin.upstreamConfigs.keyPlatforms.title')"
+      :title="t('admin.upstreamConfigs.keyManagement.title')"
       width="extra-wide"
       :close-on-escape="!keyPlatformSaving"
       :show-close-button="!keyPlatformSaving"
       @close="closeKeyPlatformsDialog"
     >
-      <div class="space-y-4" data-test="key-platforms-dialog">
+      <div class="space-y-4" data-test="key-management-dialog">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div class="min-w-0">
             <p class="text-sm font-medium text-gray-900 dark:text-gray-100">
               {{ keyPlatformsConfig?.name || '' }}
             </p>
             <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-dark-400">
-              {{ t('admin.upstreamConfigs.keyPlatforms.description') }}
+              {{ t('admin.upstreamConfigs.keyManagement.description') }}
             </p>
           </div>
           <button
@@ -756,7 +759,55 @@
           </button>
         </div>
 
+        <div class="flex flex-col gap-3 border-b border-gray-200 pb-3 dark:border-dark-700 sm:flex-row sm:items-center sm:justify-between">
+          <div class="inline-flex w-fit rounded border border-gray-200 bg-gray-50 p-1 dark:border-dark-700 dark:bg-dark-800" role="tablist">
+            <button
+              v-if="keyPlatformsConfig?.provider === 'sub2api'"
+              type="button"
+              role="tab"
+              :aria-selected="keyManagementTab === 'imagePricing'"
+              :class="keyManagementTabClass('imagePricing')"
+              data-test="key-management-image-tab"
+              @click="keyManagementTab = 'imagePricing'"
+            >
+              <Icon name="sparkles" size="sm" />
+              {{ t('admin.upstreamConfigs.keyManagement.tabs.imagePricing', { count: imagePricingKeyCount }) }}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="keyManagementTab === 'platforms'"
+              :class="keyManagementTabClass('platforms')"
+              data-test="key-management-platform-tab"
+              @click="keyManagementTab = 'platforms'"
+            >
+              <Icon name="key" size="sm" />
+              {{ t('admin.upstreamConfigs.keyManagement.tabs.platforms') }}
+            </button>
+          </div>
+
+          <div v-if="keyManagementTab === 'imagePricing'" class="flex flex-1 flex-col gap-2 sm:max-w-xl sm:flex-row sm:justify-end">
+            <div class="relative min-w-0 sm:w-64">
+              <Icon name="search" size="sm" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                v-model.trim="keyManagementSearch"
+                type="search"
+                class="input h-9 pl-9 text-sm"
+                data-test="key-management-search"
+                :placeholder="t('admin.upstreamConfigs.keyManagement.searchPlaceholder')"
+              />
+            </div>
+            <Select
+              v-model="imagePricingFilter"
+              :options="imagePricingFilterOptions"
+              data-test="key-management-filter"
+              class="sm:w-40"
+            />
+          </div>
+        </div>
+
         <DataTable
+          v-if="keyManagementTab === 'platforms'"
           :columns="keyPlatformColumns"
           :data="keyPlatformKeys"
           :loading="keyPlatformsLoading"
@@ -858,6 +909,72 @@
               <p class="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {{ t('admin.upstreamConfigs.keyPlatforms.empty') }}
               </p>
+            </div>
+          </template>
+        </DataTable>
+
+        <DataTable
+          v-else
+          :columns="imagePricingColumns"
+          :data="filteredImagePricingKeys"
+          :loading="keyPlatformsLoading"
+          row-key="id"
+          :estimate-row-height="76"
+          data-test="image-pricing-table"
+        >
+          <template #cell-key="{ row }">
+            <div class="min-w-[210px]">
+              <div class="flex min-w-0 items-center gap-2">
+                <span class="truncate font-medium text-gray-900 dark:text-gray-100">
+                  {{ row.name || t('admin.upstreamConfigs.keyPlatforms.unnamedKey') }}
+                </span>
+                <PlatformBadge
+                  v-if="normalizeKeyPlatform(row.platform)"
+                  :platform="normalizeKeyPlatform(row.platform)"
+                  :label="keyPlatformLabel(row.platform)"
+                />
+              </div>
+              <div class="mt-1 font-mono text-xs text-gray-500 dark:text-dark-400">
+                #{{ row.id }}<span v-if="row.key_status?.suffix"> · ••••{{ row.key_status.suffix }}</span>
+              </div>
+            </div>
+          </template>
+
+          <template #cell-group="{ row }">
+            <div v-if="row.upstream_group_id || row.upstream_group_name" class="min-w-[150px] text-sm text-gray-700 dark:text-gray-300">
+              <div class="truncate">{{ row.upstream_group_name || t('admin.upstreamConfigs.keyPlatforms.unnamedGroup') }}</div>
+              <div v-if="row.upstream_group_id" class="mt-1 font-mono text-xs text-gray-500 dark:text-dark-400">#{{ row.upstream_group_id }}</div>
+            </div>
+            <span v-else class="text-sm text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.keyPlatforms.unassignedGroup') }}</span>
+          </template>
+
+          <template #cell-final_cost="{ row }">
+            <div class="grid min-w-[330px] grid-cols-3 gap-2 tabular-nums">
+              <div v-for="tier in imagePriceTiers" :key="tier.key" class="min-w-0 border-l border-gray-200 pl-3 first:border-l-0 first:pl-0 dark:border-dark-700">
+                <div class="text-[11px] font-medium uppercase text-gray-400 dark:text-dark-500">{{ tier.label }}</div>
+                <div class="mt-1 truncate font-mono text-sm font-semibold text-gray-900 dark:text-gray-100" :title="formatImageCost(row.image_pricing?.[tier.key])">
+                  {{ formatImageCost(row.image_pricing?.[tier.key]) }}
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <template #cell-pricing_status="{ row }">
+            <div class="min-w-[130px]">
+              <span :class="imagePricingStatusClass(row.image_pricing)">
+                {{ imagePricingStatusLabel(row.image_pricing) }}
+              </span>
+              <div v-if="row.image_pricing?.observed_at" class="mt-1 text-xs text-gray-500 dark:text-dark-400">
+                {{ formatTime(row.image_pricing.observed_at) }}
+              </div>
+            </div>
+          </template>
+
+          <template #empty>
+            <div class="flex flex-col items-center py-10 text-center">
+              <Icon name="sparkles" size="xl" class="mb-3 text-gray-400 dark:text-dark-500" />
+              <p class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('admin.upstreamConfigs.keyManagement.imagePricing.empty') }}</p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.keyManagement.imagePricing.emptyHint') }}</p>
             </div>
           </template>
         </DataTable>
@@ -1288,6 +1405,7 @@ import upstreamAPI, {
   type UpstreamTrendRange,
   type UpstreamUsageTrend,
   type UpstreamKey,
+  type UpstreamKeyImagePricing,
   type UpstreamKeyPlatform,
   type UpstreamKeyRateCatalogItem,
   type UpstreamKeyRateTrend
@@ -1303,6 +1421,8 @@ import {
 type RowAction = 'test' | 'sync'
 type OperationsDrawerMode = 'syncRuns' | 'events' | 'trend' | 'rateTrend' | 'settings'
 type RateRange = { min: number; max: number } | null
+type KeyManagementTab = 'imagePricing' | 'platforms'
+type ImagePricingFilter = 'supported' | 'all' | 'issues'
 
 const ALWAYS_VISIBLE_COLUMNS = new Set(['name', 'actions'])
 const HIDDEN_COLUMNS_KEY = 'upstream-config-hidden-columns'
@@ -1334,6 +1454,9 @@ const keyPlatformsDialogOpen = ref(false)
 const keyPlatformsConfig = ref<UpstreamConfig | null>(null)
 const keyPlatformKeys = ref<UpstreamKey[]>([])
 const keyPlatformsLoading = ref(false)
+const keyManagementTab = ref<KeyManagementTab>('platforms')
+const keyManagementSearch = ref('')
+const imagePricingFilter = ref<ImagePricingFilter>('supported')
 const updatingKeyPlatformIds = ref<Set<number>>(new Set())
 const keyPlatformSelections = reactive<Record<number, UpstreamKeyPlatform | null>>({})
 const pendingKeyPlatformConflict = ref<{
@@ -1461,6 +1584,44 @@ const keyPlatformColumns = computed<Column[]>(() => [
   { key: 'bound_account_count', label: t('admin.upstreamConfigs.keyPlatforms.columns.bindings') },
   { key: 'status', label: t('admin.upstreamConfigs.keyPlatforms.columns.status') }
 ])
+
+const imagePricingColumns = computed<Column[]>(() => [
+  { key: 'key', label: t('admin.upstreamConfigs.keyManagement.columns.key') },
+  { key: 'group', label: t('admin.upstreamConfigs.keyManagement.columns.group') },
+  { key: 'final_cost', label: t('admin.upstreamConfigs.keyManagement.columns.finalCost') },
+  { key: 'pricing_status', label: t('admin.upstreamConfigs.keyManagement.columns.status') }
+])
+
+const imagePriceTiers = [
+  { key: 'final_cost_1k' as const, label: '1K' },
+  { key: 'final_cost_2k' as const, label: '2K' },
+  { key: 'final_cost_4k' as const, label: '4K' }
+]
+
+const imagePricingFilterOptions = computed<SelectOption[]>(() => [
+  { value: 'supported', label: t('admin.upstreamConfigs.keyManagement.filters.supported') },
+  { value: 'all', label: t('admin.upstreamConfigs.keyManagement.filters.all') },
+  { value: 'issues', label: t('admin.upstreamConfigs.keyManagement.filters.issues') }
+])
+
+const imagePricingKeyCount = computed(() =>
+  keyPlatformKeys.value.filter((key) => key.image_pricing?.supported).length
+)
+
+const filteredImagePricingKeys = computed(() => {
+  const query = keyManagementSearch.value.toLocaleLowerCase()
+  return keyPlatformKeys.value.filter((key) => {
+    const pricing = key.image_pricing
+    if (imagePricingFilter.value === 'supported' && !pricing?.supported) return false
+    if (imagePricingFilter.value === 'issues') {
+      const hasIssue = !pricing || pricing.stale || pricing.status === 'partial' || pricing.status === 'unavailable'
+      if (!hasIssue) return false
+    }
+    if (!query) return true
+    return [key.name, key.upstream_group_name, key.key_status?.suffix, key.upstream_group_id?.toString()]
+      .some((value) => value?.toLocaleLowerCase().includes(query))
+  })
+})
 
 const keyPlatformOptions = computed<SelectOption[]>(() =>
   (['openai', 'anthropic', 'gemini', 'grok'] as UpstreamKeyPlatform[]).map((platform) => ({
@@ -2125,6 +2286,9 @@ function closeActionMenu() {
 
 async function openKeyPlatforms(item: UpstreamConfig) {
   keyPlatformsConfig.value = item
+  keyManagementTab.value = item.provider === 'sub2api' ? 'imagePricing' : 'platforms'
+  keyManagementSearch.value = ''
+  imagePricingFilter.value = 'supported'
   keyPlatformsDialogOpen.value = true
   await loadKeyPlatforms()
 }
@@ -2156,8 +2320,44 @@ function closeKeyPlatformsDialog() {
   keyPlatformsDialogOpen.value = false
   keyPlatformsConfig.value = null
   keyPlatformKeys.value = []
+  keyManagementSearch.value = ''
+  imagePricingFilter.value = 'supported'
   pendingKeyPlatformConflict.value = null
   resetKeyPlatformSelections([])
+}
+
+function keyManagementTabClass(tab: KeyManagementTab): string {
+  const base = 'inline-flex min-h-8 items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors'
+  return keyManagementTab.value === tab
+    ? `${base} bg-white text-primary-700 shadow-sm dark:bg-dark-700 dark:text-primary-300`
+    : `${base} text-gray-500 hover:text-gray-900 dark:text-dark-300 dark:hover:text-gray-100`
+}
+
+function formatImageCost(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return t('admin.upstreamConfigs.keyManagement.imagePricing.upstreamDefault')
+  }
+  return `$${value.toFixed(4)}`
+}
+
+function imagePricingStatusLabel(pricing?: UpstreamKeyImagePricing): string {
+  if (!pricing) return t('admin.upstreamConfigs.keyManagement.status.unavailable')
+  if (pricing.stale) return t('admin.upstreamConfigs.keyManagement.status.stale')
+  return t(`admin.upstreamConfigs.keyManagement.status.${pricing.status}`)
+}
+
+function imagePricingStatusClass(pricing?: UpstreamKeyImagePricing): string {
+  const base = 'inline-flex rounded px-2 py-1 text-xs font-medium'
+  if (pricing?.stale || pricing?.status === 'partial') {
+    return `${base} bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300`
+  }
+  if (pricing?.status === 'available') {
+    return `${base} bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300`
+  }
+  if (pricing?.status === 'disabled') {
+    return `${base} bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-dark-300`
+  }
+  return `${base} bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300`
 }
 
 function resetKeyPlatformSelections(keys: UpstreamKey[]) {
@@ -3045,6 +3245,14 @@ function rateMultiplierRange(item: UpstreamConfig): RateRange {
     .filter((value): value is number => value !== null)
   if (!values.length) return null
   return { min: Math.min(...values), max: Math.max(...values) }
+}
+
+function imagePricingSummary(item: UpstreamConfig): { supported: number; total: number } {
+  const keys = item.keys || []
+  return {
+    supported: keys.filter((key) => key.image_pricing?.supported).length,
+    total: keys.length
+  }
 }
 
 function rateRangeLabel(range: RateRange): string {

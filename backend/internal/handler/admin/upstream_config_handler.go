@@ -495,7 +495,7 @@ func sanitizeUpstreamKey(key *service.UpstreamKey) gin.H {
 	if key == nil {
 		return nil
 	}
-	return gin.H{
+	out := gin.H{
 		"id":                        key.ID,
 		"upstream_config_id":        key.UpstreamConfigID,
 		"name":                      key.Name,
@@ -518,10 +518,40 @@ func sanitizeUpstreamKey(key *service.UpstreamKey) gin.H {
 		"created_at":                key.CreatedAt,
 		"updated_at":                key.UpdatedAt,
 	}
+	if key.ImagePricing != nil {
+		out["image_pricing"] = sanitizeUpstreamKeyImagePricing(key.ImagePricing)
+	}
+	return out
+}
+
+func sanitizeUpstreamKeyImagePricing(pricing *service.UpstreamKeyImagePricing) gin.H {
+	if pricing == nil {
+		return nil
+	}
+	return gin.H{
+		"supported":     pricing.Supported,
+		"status":        pricing.Status,
+		"stale":         pricing.Stale,
+		"currency":      pricing.Currency,
+		"final_cost_1k": pricing.FinalCost1K,
+		"final_cost_2k": pricing.FinalCost2K,
+		"final_cost_4k": pricing.FinalCost4K,
+		"observed_at":   pricing.ObservedAt,
+	}
 }
 
 func redactedUpstreamExtra(extra map[string]any) map[string]any {
-	return logredact.RedactMap(extra, "api_key", "jwt", "token", "key", "secret", "authorization", "bearer", "cookie", "session")
+	if extra == nil {
+		return nil
+	}
+	filtered := make(map[string]any, len(extra))
+	for key, value := range extra {
+		if key == service.Sub2APIImagePricingSnapshotExtraKey {
+			continue
+		}
+		filtered[key] = value
+	}
+	return logredact.RedactMap(filtered, "api_key", "jwt", "token", "key", "secret", "authorization", "bearer", "cookie", "session")
 }
 
 func upstreamCredentialsStatus(credentials map[string]any) gin.H {

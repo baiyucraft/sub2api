@@ -39,7 +39,8 @@ export default {
       lastCheckedAt: 'Last checked time: {time}'
     },
     rates: {
-      rateMultiplier: 'Actual rate {value}'
+      rateMultiplier: 'Actual rate {value}',
+      imageKeys: 'Image keys {supported}/{total}'
     },
     scheduling: {
       enabledHint: 'Allow accounts under this upstream whose account scheduling switch is enabled',
@@ -91,6 +92,7 @@ export default {
       rateTrend: 'Rate Trend',
       more: 'More',
       keyPlatforms: 'Key Platforms',
+      keyManagement: 'Key Management',
       settings: 'Upstream Settings',
       openDashboard: 'Open Upstream Dashboard',
       saving: 'Saving...'
@@ -143,6 +145,38 @@ export default {
       disableBindingsTitle: 'Disable bound accounts?',
       disableBindingsMessage: 'Changing this key to {platform} conflicts with {count} bound account(s). Disable those accounts and retry?',
       disableBindingsConfirm: 'Disable and retry'
+    },
+    keyManagement: {
+      title: 'Key Management',
+      description: 'Review upstream key routing assignments and final image-generation cost. Image cost is informational and does not affect scheduling.',
+      tabs: {
+        imagePricing: 'Image Cost {count}',
+        platforms: 'Platform Assignment'
+      },
+      searchPlaceholder: 'Search key, group, or suffix',
+      filters: {
+        supported: 'Image capable',
+        all: 'All keys',
+        issues: 'Data issues'
+      },
+      columns: {
+        key: 'Key',
+        group: 'Upstream Group',
+        finalCost: 'Final Cost (USD/Image)',
+        status: 'Sync Status'
+      },
+      status: {
+        available: 'Available',
+        partial: 'Partial pricing',
+        disabled: 'Disabled',
+        unavailable: 'Unavailable',
+        stale: 'Stale'
+      },
+      imagePricing: {
+        upstreamDefault: 'Upstream default',
+        empty: 'No matching image-capable keys',
+        emptyHint: 'Change the filter or sync the upstream and try again.'
+      }
     },
     dialog: {
       createTitle: 'Add Upstream',

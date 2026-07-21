@@ -545,7 +545,7 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1440,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Plus Group","platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
 		case "/api/v1/groups/available":
 			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
-			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus Group","platform":"openai","rate_multiplier":0.12}]}`))
+			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"Plus Group","platform":"openai","rate_multiplier":0.12,"allow_image_generation":true,"image_price_1k":0.1,"image_price_2k":0.2,"image_price_4k":0.4}]}`))
 		case "/api/v1/groups/rates":
 			require.Equal(t, "Bearer jwt-upstream", r.Header.Get("Authorization"))
 			_, _ = w.Write([]byte(`{"code":0,"data":{"10":0.065}}`))
@@ -602,6 +602,11 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	require.Equal(t, "Plus Group", repo.upserts[0].UpstreamGroupName)
 	require.NotNil(t, repo.upserts[0].RateMultiplier)
 	require.InDelta(t, 0.07, *repo.upserts[0].RateMultiplier, 1e-12)
+	require.NotNil(t, keys[0].ImagePricing)
+	require.Equal(t, UpstreamKeyImagePricingStatusAvailable, keys[0].ImagePricing.Status)
+	require.InDelta(t, 0.007, *keys[0].ImagePricing.FinalCost1K, 1e-12)
+	require.InDelta(t, 0.014, *keys[0].ImagePricing.FinalCost2K, 1e-12)
+	require.InDelta(t, 0.028, *keys[0].ImagePricing.FinalCost4K, 1e-12)
 	require.NotContains(t, repo.upserts[0].Extra, "default_rate_multiplier")
 	require.NotContains(t, repo.upserts[0].Extra, "dedicated_rate_multiplier")
 	require.NotContains(t, repo.upserts[0].Extra, "has_dedicated_rate_multiplier")
@@ -713,6 +718,53 @@ func TestUpstreamConfigService_Sub2APIGroupRatesFallbacks(t *testing.T) {
 		require.InDelta(t, 0.06, *keys[0].RateMultiplier, 1e-12)
 		require.Equal(t, "Available Group", keys[0].UpstreamGroupName)
 		require.NotContains(t, keys[0].Extra, "has_dedicated_rate_multiplier")
+	})
+
+	t.Run("unnamed image group does not override embedded rate fallback", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/api/v1/auth/login":
+				_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
+			case "/api/v1/keys":
+				_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1440,"key":"sk-bound","name":"plus","group_id":10,"group":{"id":10,"name":"Embedded Group","platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
+			case "/api/v1/groups/available":
+				_, _ = w.Write([]byte(`{"code":0,"data":[{"id":10,"name":"","platform":"","rate_multiplier":0.99,"allow_image_generation":true,"image_price_1k":0.1,"image_price_2k":0.2,"image_price_4k":0.4}]}`))
+			case "/api/v1/groups/rates":
+				http.NotFound(w, r)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer server.Close()
+
+		configID := int64(79)
+		keyID := int64(1440)
+		repo := &upstreamConfigServiceRepo{
+			configs: []UpstreamConfig{testUpstreamConfig(configID, "Sub2API Main", UpstreamProviderSub2API, StatusActive, server.URL)},
+			keys: []UpstreamKey{{
+				ID: keyID, UpstreamConfigID: configID, Key: "sk-bound", KeyHash: HashUpstreamKey("sk-bound"),
+				Platform: upstreamPlatformPtr(PlatformOpenAI), Status: StatusActive,
+			}},
+		}
+		accountRepo := &sub2APIRateSyncAccountRepo{accounts: []Account{{
+			ID: 101, Type: AccountTypeAPIKey, Status: StatusActive,
+			UpstreamConfigID: &configID, UpstreamKeyID: &keyID, Concurrency: 100,
+		}}}
+		svc := NewUpstreamConfigService(repo, nil, accountRepo)
+
+		keys, result, err := svc.SyncKeys(context.Background(), configID)
+
+		require.NoError(t, err)
+		require.True(t, result.Success)
+		require.Len(t, keys, 1)
+		require.InDelta(t, 0.12, *keys[0].RateMultiplier, 1e-12)
+		require.Equal(t, "Embedded Group", keys[0].UpstreamGroupName)
+		require.NotNil(t, keys[0].ImagePricing)
+		require.InDelta(t, 0.012, *keys[0].ImagePricing.FinalCost1K, 1e-12)
+		require.Len(t, accountRepo.bulkUpdates, 1)
+		require.Equal(t, 12, *accountRepo.bulkUpdates[0].updates.Priority)
+		require.Equal(t, 100, *accountRepo.bulkUpdates[0].updates.LoadFactor)
 	})
 
 	t.Run("available unavailable still uses dedicated group rate", func(t *testing.T) {
