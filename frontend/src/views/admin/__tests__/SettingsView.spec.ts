@@ -1573,6 +1573,8 @@ describe("admin SettingsView OpenAI TTFT Guard", () => {
 
     expect(getOpenAITTFTGuardSettings).toHaveBeenCalledTimes(1);
     const guardCard = wrapper.get('[data-testid="openai-ttft-guard-settings"]');
+    const tips = guardCard.get('[data-testid="openai-ttft-guard-tips"]');
+    expect(tips.findAll("li")).toHaveLength(3);
     const cards = wrapper.findAll(".card");
     const guardIndex = cards.findIndex((card) =>
       card.attributes("data-testid") === "openai-ttft-guard-settings",
