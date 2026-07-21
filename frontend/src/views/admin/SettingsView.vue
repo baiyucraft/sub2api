@@ -214,6 +214,9 @@
               <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 {{ t("admin.settings.openaiTTFTGuard.description") }}
               </p>
+              <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.openaiTTFTGuard.summary") }}
+              </p>
             </div>
             <div class="space-y-5 p-6">
               <div
@@ -227,6 +230,22 @@
               </div>
 
               <template v-else>
+                <div
+                  data-testid="openai-ttft-guard-tips"
+                  class="rounded-lg border border-primary-100 bg-primary-50/60 p-3 text-sm dark:border-primary-900/50 dark:bg-primary-900/10"
+                >
+                  <p class="font-medium text-gray-800 dark:text-gray-200">
+                    {{ t("admin.settings.openaiTTFTGuard.tipsTitle") }}
+                  </p>
+                  <ul
+                    class="mt-1.5 list-disc space-y-1 pl-4 text-xs text-gray-600 dark:text-gray-400"
+                  >
+                    <li>{{ t("admin.settings.openaiTTFTGuard.thresholdTip") }}</li>
+                    <li>{{ t("admin.settings.openaiTTFTGuard.samplesTip") }}</li>
+                    <li>{{ t("admin.settings.openaiTTFTGuard.recoveryTip") }}</li>
+                  </ul>
+                </div>
+
                 <div class="flex items-center justify-between gap-4">
                   <div>
                     <label class="font-medium text-gray-900 dark:text-white">
