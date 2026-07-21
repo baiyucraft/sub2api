@@ -1153,6 +1153,31 @@ export async function deleteAdminApiKey(): Promise<{ message: string }> {
   return data;
 }
 
+// ==================== OpenAI TTFT Guard Settings ====================
+
+export interface OpenAITTFTGuardSettings {
+  enabled: boolean;
+  degradation_ttft_seconds: number;
+  min_samples: number;
+}
+
+export async function getOpenAITTFTGuardSettings(): Promise<OpenAITTFTGuardSettings> {
+  const { data } = await apiClient.get<OpenAITTFTGuardSettings>(
+    "/admin/settings/openai-ttft-guard",
+  );
+  return data;
+}
+
+export async function updateOpenAITTFTGuardSettings(
+  settings: OpenAITTFTGuardSettings,
+): Promise<OpenAITTFTGuardSettings> {
+  const { data } = await apiClient.put<OpenAITTFTGuardSettings>(
+    "/admin/settings/openai-ttft-guard",
+    settings,
+  );
+  return data;
+}
+
 // ==================== Overload Cooldown Settings ====================
 
 /**
@@ -1427,6 +1452,8 @@ export const settingsAPI = {
   getAdminApiKey,
   regenerateAdminApiKey,
   deleteAdminApiKey,
+  getOpenAITTFTGuardSettings,
+  updateOpenAITTFTGuardSettings,
   getOverloadCooldownSettings,
   updateOverloadCooldownSettings,
   getRateLimit429CooldownSettings,

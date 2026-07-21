@@ -929,6 +929,19 @@ export default {
           testFailed: 'Google Drive 存储测试失败'
         }
       },
+      openaiTTFTGuard: {
+        title: 'OpenAI 首 Token 性能保护',
+        description: '根据账号近期首个有效输出耗时识别持续慢响应，在调度时避开已退化账号',
+        enabled: '启用 TTFT Guard',
+        enabledHint: '样本达到门槛后，将近期 TTFT 持续偏高的 OpenAI 账号视为退化账号',
+        degradationTTFTSeconds: '退化阈值（秒）',
+        degradationTTFTSecondsHint: '账号 TTFT 达到此值时记为慢响应（5-300 秒）',
+        minSamples: '最少样本数',
+        minSamplesHint: '趋势判定所需的有效 TTFT 样本数；极慢请求仍可提前触发（2-20）',
+        invalid: '请输入有效范围内的降级阈值和最少样本数',
+        saved: 'OpenAI TTFT Guard 设置保存成功',
+        saveFailed: '保存 OpenAI TTFT Guard 设置失败'
+      },
       overloadCooldown: {
         title: '529 过载冷却',
         description: '配置上游返回 529（过载）时的账号调度暂停策略',
