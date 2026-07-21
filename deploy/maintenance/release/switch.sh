@@ -44,6 +44,10 @@ while IFS=$'\t' read -r migration migration_checksum; do
   recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
   [[ $recorded == "$migration_checksum" ]]
 done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
+if [[ $profile == 198 ]]; then
+  managed_monitor_key_name_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT character_maximum_length, (SELECT COUNT(*) FROM api_keys k JOIN channel_monitors m ON m.id=k.managed_monitor_id AND m.managed_api_key_id=k.id WHERE k.purpose='managed_monitor' AND k.deleted_at IS NULL AND k.name IS DISTINCT FROM '监控-' || BTRIM(m.name)) FROM information_schema.columns WHERE table_schema='public' AND table_name='api_keys' AND column_name='name'")
+  [[ $managed_monitor_key_name_state == '103|0' ]]
+fi
 [[ $(docker inspect -f '{{.Image}}' "$migration_container") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.ExitCode}}' "$migration_container") == 0 ]]
 if [[ $profile == 195 || $profile == 197 || $profile == 198 ]]; then
@@ -75,3 +79,6 @@ printf 'migration_verified=true\n'
 printf 'running_image_id=%s\n' "$candidate_image_id"
 printf 'internal_health=pass\n'
 printf 'public_traffic_enabled=false\n'
+if [[ $profile == 198 ]]; then
+  printf 'managed_monitor_key_names_verified=true\n'
+fi

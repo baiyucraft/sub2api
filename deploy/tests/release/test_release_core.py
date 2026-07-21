@@ -205,6 +205,7 @@ class ReleaseCoreTest(unittest.TestCase):
         assertion = (DEPLOY_ROOT / "maintenance" / "release" / "migration-195-assert.sh").read_text(encoding="utf-8")
 
         self.assertIn("migration_195_verified:$migration_195_verified", validator)
+        self.assertIn("managed_monitor_key_names_verified:$managed_monitor_key_names_verified", validator)
         self.assertIn('bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" preflight', validator)
         self.assertIn("MIGRATION_STATUS=absent", validator)
         self.assertIn("MIGRATION_STATUS=verified", validator)
@@ -260,6 +261,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('self.profile["name"] not in {"195", "197", "198"}', production)
         self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 ]]', switch)
         self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 ]]', assertion)
+        self.assertIn('expected_profile == "198"', gate)
+        self.assertIn("managed monitor key-name evidence", gate)
 
     def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
