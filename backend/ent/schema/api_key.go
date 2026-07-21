@@ -39,7 +39,7 @@ func (APIKey) Fields() []ent.Field {
 			NotEmpty().
 			Unique(),
 		field.String("name").
-			MaxLen(100).
+			MaxLen(103).
 			NotEmpty(),
 		field.Enum("purpose").
 			Values("general", "managed_monitor").

@@ -15,7 +15,7 @@ db_user=${ASSERT_DB_USER:-sub2api}
 db_name=${ASSERT_DB_NAME:-sub2api}
 redis_container=${ASSERT_REDIS_CONTAINER:-sub2api-redis}
 config_file=${ASSERT_CONFIG_FILE:-/opt/sub2api/data/config.yaml}
-[[ $profile == 195 || $profile == 197 ]]
+[[ $profile == 195 || $profile == 197 || $profile == 198 ]]
 [[ $phase == preflight || $phase == bind || $phase == postflight_db || $phase == postflight_runtime ]]
 [[ $migration_status == absent || $migration_status == verified ]]
 

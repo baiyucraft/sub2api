@@ -315,7 +315,7 @@ class ProductionRelease:
         self.stage("backup_verified", {**values, **promoted})
 
     def migration_preflight(self) -> None:
-        if self.profile["name"] not in {"195", "197"}:
+        if self.profile["name"] not in {"195", "197", "198"}:
             return
         self.stage("migration_195_preflight")
         if self.migration_195_status not in {"absent", "verified"}:
@@ -333,7 +333,7 @@ class ProductionRelease:
         self.stage("migration_195_preflight_verified", values)
 
     def bind_migration_plan(self) -> None:
-        if self.profile["name"] not in {"195", "197"}:
+        if self.profile["name"] not in {"195", "197", "198"}:
             return
         self.stage("migration_195_bind_recovery_point")
         env = quoted_env({"RELEASE_DIR": self.release_dir})
@@ -352,7 +352,7 @@ class ProductionRelease:
             "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
             "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
         }
-        if getattr(self, "profile", {}).get("name") in {"195", "197"}:
+        if getattr(self, "profile", {}).get("name") in {"195", "197", "198"}:
             allowed.update({
                 "migration_195_affected", "migration_195_unproven",
                 "migration_195_plan_sha256", "migration_195_database_postflight", "migration_195_postflight",
@@ -483,7 +483,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
                 raise RuntimeError("remote pre-switch recovery state is unknown")
             self.frozen = recovery_needed
         migration_committed = self.migration_started
-        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197"}:
+        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198"}:
             migration_committed = self.remote_migration_committed()
             if migration_committed is None:
                 raise RuntimeError("migration 195 committed state is unknown")
@@ -538,7 +538,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         self.stage("recovered", values)
 
     def remote_migration_committed(self) -> bool | None:
-        if self.profile["name"] not in {"195", "197"}:
+        if self.profile["name"] not in {"195", "197", "198"}:
             return self.migration_started
         migration = "195_upstream_scheduling_monitor_rates.sql"
         checksum = self.manifest["migration_sha256"][migration]
