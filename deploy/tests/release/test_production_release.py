@@ -624,6 +624,14 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('"MIGRATION_STATUS": self.migration_195_status', production)
         self.assertNotIn('"MIGRATION_STATUS": self.migration_status', production)
 
+    def test_profile_198_verifies_managed_monitor_key_names(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        switch = self.script("switch.sh")
+        self.assertIn('allowed.add("managed_monitor_key_names_verified")', production)
+        self.assertIn("managed_monitor_key_name_state", switch)
+        self.assertIn("character_maximum_length", switch)
+        self.assertIn("managed_monitor_key_names_verified=true", switch)
+
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")
         switch = self.script("switch.sh")
