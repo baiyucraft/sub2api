@@ -50,6 +50,8 @@ profile 197 的预检/执行矩阵固定为：
 
 最终 committed marker 和 Gate evidence 必须覆盖 195、196、197 三项目标 checksum，不能只记录 profile 总体为 `verified`。
 
+profile 198 在上述矩阵后追加 `198_normalize_managed_monitor_key_names.sql`：当 195/196/197 均为 `verified` 且 198 为 `absent` 时，只执行 198；若 198 已 `verified`，只读复核后幂等跳过。最终 marker 和 Gate evidence 还必须包含 198 的目标 checksum。
+
 `migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 
 ## 长时间无输出诊断

@@ -173,7 +173,7 @@ func (r *channelMonitorRepository) UpdateManaged(ctx context.Context, monitor *s
 	if _, err = updater.Save(ctx); err != nil {
 		return rollback(translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil))
 	}
-	if _, err = tx.APIKey.UpdateOneID(key.ID).SetGroupID(*monitor.GroupID).
+	if _, err = tx.APIKey.UpdateOneID(key.ID).SetName(managedMonitorKeyName(monitor)).SetGroupID(*monitor.GroupID).
 		SetStatus(apiKeyStatusForMonitor(monitor.Enabled)).SetUpdatedAt(time.Now()).Save(ctx); err != nil {
 		return rollback(fmt.Errorf("update managed monitor key: %w", err))
 	}
@@ -224,7 +224,7 @@ func (r *channelMonitorRepository) DeleteManaged(ctx context.Context, monitorID 
 }
 
 func managedMonitorKeyName(monitor *service.ChannelMonitor) string {
-	return fmt.Sprintf("监控-%s-%d", strings.TrimSpace(monitor.Name), monitor.ID)
+	return "监控-" + strings.TrimSpace(monitor.Name)
 }
 
 func apiKeyStatusForMonitor(enabled bool) string {

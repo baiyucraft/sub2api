@@ -137,7 +137,7 @@ VM Gate 或候选验证重放时，先按 migration 文件名和目标 checksum 
 | 记录存在，记录/文件 checksum 和 schema 语义均匹配 | 标记 `verified`，执行只读幂等断言并跳过 SQL | 删除记录、重写 marker、重复执行 SQL |
 | 记录存在但 checksum/语义不匹配，或状态无法确定 | `fail-closed`，恢复 VM dump/旧 image 后重新创建 Gate | 覆盖记录、强制标记 verified、继续导入生产 |
 
-profile 197 的典型混合状态是 `195=verified`、`196=absent`、`197=absent`：只生成并执行 196 -> 197 的计划，最终 Gate 必须记录三项目标 checksum。所有迁移状态都要进入 evidence；不能用 profile 总状态替代单项状态。
+profile 198 继承 profile 197 的全部迁移语义。典型混合状态是 `195/196/197=verified`、`198=absent`：只生成并执行 198 的计划；如果 196/197 也缺失，则按 196 -> 197 -> 198 顺序执行。最终 Gate 必须记录全部目标 checksum，不能用 profile 总状态替代单项状态。
 
 ## Gate 失败条件
 
