@@ -203,6 +203,136 @@
 
         <!-- Tab: Gateway -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
+          <!-- OpenAI TTFT Guard Settings -->
+          <div class="card" data-testid="openai-ttft-guard-settings">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.openaiTTFTGuard.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.openaiTTFTGuard.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="openaiTTFTGuardLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">
+                      {{ t("admin.settings.openaiTTFTGuard.enabled") }}
+                    </label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.openaiTTFTGuard.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="openaiTTFTGuardForm.enabled" />
+                </div>
+
+                <div
+                  v-if="openaiTTFTGuardForm.enabled"
+                  class="grid gap-4 border-t border-gray-100 pt-4 sm:grid-cols-2 dark:border-dark-700"
+                >
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{
+                        t(
+                          "admin.settings.openaiTTFTGuard.degradationTTFTSeconds",
+                        )
+                      }}
+                    </label>
+                    <input
+                      v-model.number="openaiTTFTGuardForm.degradation_ttft_seconds"
+                      data-testid="openai-ttft-guard-threshold"
+                      type="number"
+                      min="5"
+                      max="300"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        t(
+                          "admin.settings.openaiTTFTGuard.degradationTTFTSecondsHint",
+                        )
+                      }}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.openaiTTFTGuard.minSamples") }}
+                    </label>
+                    <input
+                      v-model.number="openaiTTFTGuardForm.min_samples"
+                      data-testid="openai-ttft-guard-min-samples"
+                      type="number"
+                      min="2"
+                      max="20"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.openaiTTFTGuard.minSamplesHint") }}
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    data-testid="openai-ttft-guard-save"
+                    @click="saveOpenAITTFTGuardSettings"
+                    :disabled="
+                      openaiTTFTGuardSaving || !openaiTTFTGuardFormValid
+                    "
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="openaiTTFTGuardSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      openaiTTFTGuardSaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Overload Cooldown (529) Settings -->
           <div class="card">
             <div
@@ -7833,6 +7963,24 @@ const upstreamBillingProbeForm = reactive({
   interval_minutes: 30,
 });
 
+// OpenAI TTFT Guard 状态
+const openaiTTFTGuardLoading = ref(true);
+const openaiTTFTGuardSaving = ref(false);
+const openaiTTFTGuardForm = reactive({
+  enabled: false,
+  degradation_ttft_seconds: 20,
+  min_samples: 5,
+});
+const openaiTTFTGuardFormValid = computed(
+  () =>
+    Number.isInteger(openaiTTFTGuardForm.degradation_ttft_seconds) &&
+    openaiTTFTGuardForm.degradation_ttft_seconds >= 5 &&
+    openaiTTFTGuardForm.degradation_ttft_seconds <= 300 &&
+    Number.isInteger(openaiTTFTGuardForm.min_samples) &&
+    openaiTTFTGuardForm.min_samples >= 2 &&
+    openaiTTFTGuardForm.min_samples <= 20,
+);
+
 // Overload Cooldown (529) 状态
 const overloadCooldownLoading = ref(true);
 const overloadCooldownSaving = ref(false);
@@ -10446,6 +10594,46 @@ async function saveUpstreamBillingProbeSettings() {
   }
 }
 
+// OpenAI TTFT Guard 方法
+async function loadOpenAITTFTGuardSettings() {
+  openaiTTFTGuardLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getOpenAITTFTGuardSettings();
+    Object.assign(openaiTTFTGuardForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    openaiTTFTGuardLoading.value = false;
+  }
+}
+
+async function saveOpenAITTFTGuardSettings() {
+  if (!openaiTTFTGuardFormValid.value) {
+    appStore.showError(t("admin.settings.openaiTTFTGuard.invalid"));
+    return;
+  }
+  openaiTTFTGuardSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateOpenAITTFTGuardSettings({
+      enabled: openaiTTFTGuardForm.enabled,
+      degradation_ttft_seconds:
+        openaiTTFTGuardForm.degradation_ttft_seconds,
+      min_samples: openaiTTFTGuardForm.min_samples,
+    });
+    Object.assign(openaiTTFTGuardForm, updated);
+    appStore.showSuccess(t("admin.settings.openaiTTFTGuard.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.openaiTTFTGuard.saveFailed"),
+      ),
+    );
+  } finally {
+    openaiTTFTGuardSaving.value = false;
+  }
+}
+
 // Overload Cooldown 方法
 async function loadOverloadCooldownSettings() {
   overloadCooldownLoading.value = true;
@@ -11143,6 +11331,7 @@ onMounted(() => {
   loadSubscriptionGroups();
   loadAdminApiKey();
   loadUpstreamBillingProbeSettings();
+  loadOpenAITTFTGuardSettings();
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
   loadStreamTimeoutSettings();

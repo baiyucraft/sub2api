@@ -420,6 +420,8 @@ const (
 	// targets OpenAI's body-level service_tier field instead of Claude's
 	// anthropic-beta header.
 	SettingKeyOpenAIFastPolicySettings = "openai_fast_policy_settings"
+	// SettingKeyOpenAITTFTGuardSettings stores the dynamic OpenAI TTFT degradation guard config.
+	SettingKeyOpenAITTFTGuardSettings = "openai_ttft_guard_settings"
 
 	// =========================
 	// Claude Code Version Check
