@@ -39,9 +39,9 @@ def run(runner: SSHRunner, remote_temps: list[str]) -> None:
     script = rf'''
 set -Eeuo pipefail
 remote={shlex.quote(remote)}
-release=195-000000000000-0-deadbeef
+release=199-000000000000-0-deadbeef
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-drill="dr-195-$(tr -d ':-' <<<"$now")"
+drill="dr-199-$(tr -d ':-' <<<"$now")"
 gate_dir=/opt/sub2api-deploy/release-gates/$release/output
 dr_root=/opt/sub2api-deploy/dr-evidence
 dr_dir=$dr_root/$release/$drill
@@ -104,12 +104,12 @@ production_unit_unchanged=pass
 [[ $(sha256sum /opt/sub2api-release-signer/vm-gate-ed25519.pub | awk '{{print $1}}') == "$before_public" ]]
 trust_root_unchanged=pass
 
-gate_signer=/usr/local/libexec/sub2api-sign-gate
-dr_signer=/usr/local/libexec/sub2api-sign-dr-evidence
-[[ -f $gate_signer && ! -L $gate_signer && $(stat -c '%U:%G:%a:%h' "$gate_signer") == root:root:700:1 ]]
-[[ -f $dr_signer && ! -L $dr_signer && $(stat -c '%U:%G:%a:%h' "$dr_signer") == root:root:700:1 ]]
-[[ $(sha256sum "$gate_signer" | awk '{{print $1}}') == "$gate_sha" ]]
-[[ $(sha256sum "$dr_signer" | awk '{{print $1}}') == "$dr_sha" ]]
+fixed_gate_signer=/usr/local/libexec/sub2api-sign-gate
+fixed_dr_signer=/usr/local/libexec/sub2api-sign-dr-evidence
+[[ -f $fixed_gate_signer && ! -L $fixed_gate_signer && $(stat -c '%U:%G:%a:%h' "$fixed_gate_signer") == root:root:700:1 ]]
+[[ -f $fixed_dr_signer && ! -L $fixed_dr_signer && $(stat -c '%U:%G:%a:%h' "$fixed_dr_signer") == root:root:700:1 ]]
+[[ $(sha256sum "$fixed_gate_signer" | awk '{{print $1}}') == "$before_gate" ]]
+[[ $(sha256sum "$fixed_dr_signer" | awk '{{print $1}}') == "$before_dr" ]]
 fixed_helpers_verified=pass
 helper_lock="$test_libexec/.helper-lock"
 printf sentinel > "$remote/helper-lock-sentinel"
@@ -126,6 +126,11 @@ if SUB2API_HELPER_TEST_MODE=true SUB2API_UNIT_LOCK_PATH="$helper_lock" "$remote/
 rm -f -- "$helper_lock"
 install -o root -g root -m 600 /dev/null "$helper_lock"
 helper_lock_symlink_rejected=pass
+
+gate_signer="$test_libexec/sub2api-sign-gate"
+dr_signer="$test_libexec/sub2api-sign-dr-evidence"
+export SUB2API_HELPER_TEST_MODE=true
+export SUB2API_UNIT_LOCK_PATH="$test_libexec/.sub2api-release-unit.lock"
 
 install -d -o root -g root -m 700 "$gate_dir"
 if [[ -e $dr_root ]]; then
@@ -199,9 +204,9 @@ reject_mutation '.artifact_sha256="bad"' 91
 dr_malformed_sha_rejected=pass
 reject_mutation 'del(.temporary_material_destroyed)' 92
 dr_missing_assertion_rejected=pass
-reject_mutation '.release_id="195-ffffffffffff-1-ffffffff"' 93
+reject_mutation '.release_id="199-ffffffffffff-1-ffffffff"' 93
 dr_release_mismatch_rejected=pass
-reject_mutation '.drill_id="dr-195-20000101T000000Z"' 94
+reject_mutation '.drill_id="dr-199-20000101T000000Z"' 94
 dr_drill_mismatch_rejected=pass
 reject_mutation '.created_at="2020-01-01T00:00:00Z"|.completed_at="2020-01-01T00:00:00Z"' 95
 dr_stale_time_rejected=pass
