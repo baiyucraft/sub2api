@@ -5,9 +5,11 @@ const props = withDefaults(defineProps<{
   content?: string
   trigger?: 'hover' | 'click'
   widthClass?: string
+  triggerClass?: string
 }>(), {
   trigger: 'hover',
   widthClass: 'w-64',
+  triggerClass: '',
 })
 
 const show = ref(false)
@@ -92,7 +94,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     ref="trigger"
-    class="group relative ml-1 inline-flex items-center align-middle"
+    :class="['group relative ml-1 inline-flex items-center align-middle', props.triggerClass]"
     @mouseenter="onEnter"
     @mouseleave="onLeave"
     @click="onClick"

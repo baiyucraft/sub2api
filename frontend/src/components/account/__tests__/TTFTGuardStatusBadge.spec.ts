@@ -38,7 +38,8 @@ const mountBadge = (degradations: AccountTTFTGuardDegradation[]) =>
       stubs: {
         Icon: true,
         HelpTooltip: {
-          template: '<div class="help-tooltip"><slot name="trigger" /><div class="ttft-tooltip"><slot /></div></div>'
+          props: ['triggerClass'],
+          template: '<div class="help-tooltip" :data-trigger-class="triggerClass"><slot name="trigger" /><div class="ttft-tooltip"><slot /></div></div>'
         }
       }
     }
@@ -63,6 +64,7 @@ describe('TTFTGuardStatusBadge', () => {
     expect(badge.attributes('aria-label')).toBe('gpt-5.4-mini · 10m11s')
     expect(badge.classes()).toContain('whitespace-nowrap')
     expect(badge.find('.truncate').text()).toBe('gpt-5.4-mini')
+    expect(wrapper.find('.help-tooltip').attributes('data-trigger-class')).toBe('max-w-full min-w-0')
 
     wrapper.unmount()
   })
