@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -57,6 +58,65 @@ class DeployCommandTest(unittest.TestCase):
         with mock.patch.object(cli, "bootstrap_production", return_value={"production_bootstrap": "true"}) as bootstrap, mock.patch("builtins.print"):
             cli.production_bootstrap(args)
         bootstrap.assert_called_once_with("182")
+
+    def test_vm_gate_accepts_matching_supervisor_preallocation(self) -> None:
+        identifier = "199-aaaaaaaaaaaa-1-deadbeef"
+        commit = "a" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "releases"
+            run_dir = root / identifier
+            run_dir.mkdir(parents=True)
+            cli.write_manifest_once(
+                run_dir / "manifest.json",
+                {"release_id": identifier, "profile": "199", "commit_sha": commit},
+            )
+            cli.RunState.create(run_dir / "state.json", identifier)
+            with mock.patch.object(cli, "RUN_ROOT", root), mock.patch.object(cli, "get_profile", return_value={"name": "199"}), mock.patch.object(cli.subprocess, "run") as child, mock.patch.object(cli, "verify_gate"):
+                gate = cli.create_vm_gate("199", commit, identifier=identifier, acquire_lock=False)
+        self.assertEqual(gate, run_dir / "gate")
+        child.assert_called_once()
+
+    def test_vm_gate_rejects_incomplete_preallocation(self) -> None:
+        identifier = "199-aaaaaaaaaaaa-1-deadbeef"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "releases"
+            (root / identifier).mkdir(parents=True)
+            with mock.patch.object(cli, "RUN_ROOT", root), mock.patch.object(cli, "get_profile", return_value={"name": "199"}):
+                with self.assertRaisesRegex(RuntimeError, "preallocated release state"):
+                    cli.create_vm_gate("199", "a" * 40, identifier=identifier, acquire_lock=False)
+
+    def test_vm_gate_rejects_mismatched_preallocated_state(self) -> None:
+        identifier = "199-aaaaaaaaaaaa-1-deadbeef"
+        commit = "a" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "releases"
+            run_dir = root / identifier
+            run_dir.mkdir(parents=True)
+            cli.write_manifest_once(
+                run_dir / "manifest.json",
+                {"release_id": identifier, "profile": "199", "commit_sha": commit},
+            )
+            cli.RunState.create(run_dir / "state.json", "199-bbbbbbbbbbbb-2-feedface")
+            with mock.patch.object(cli, "RUN_ROOT", root), mock.patch.object(cli, "get_profile", return_value={"name": "199"}):
+                with self.assertRaisesRegex(RuntimeError, "release state identity"):
+                    cli.create_vm_gate("199", commit, identifier=identifier, acquire_lock=False)
+
+    def test_vm_gate_rejects_existing_output_path(self) -> None:
+        identifier = "199-aaaaaaaaaaaa-1-deadbeef"
+        commit = "a" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "releases"
+            run_dir = root / identifier
+            run_dir.mkdir(parents=True)
+            cli.write_manifest_once(
+                run_dir / "manifest.json",
+                {"release_id": identifier, "profile": "199", "commit_sha": commit},
+            )
+            cli.RunState.create(run_dir / "state.json", identifier)
+            (run_dir / "gate").write_text("unsafe", encoding="utf-8")
+            with mock.patch.object(cli, "RUN_ROOT", root), mock.patch.object(cli, "get_profile", return_value={"name": "199"}):
+                with self.assertRaisesRegex(RuntimeError, "Gate output path"):
+                    cli.create_vm_gate("199", commit, identifier=identifier, acquire_lock=False)
 
 
 if __name__ == "__main__":

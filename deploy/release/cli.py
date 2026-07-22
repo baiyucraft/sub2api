@@ -37,10 +37,19 @@ def release_id(profile: str, commit: str) -> str:
 
 def create_vm_gate(profile_name: str, commit: str, identifier: str | None = None, acquire_lock: bool = True) -> Path:
     profile = get_profile(profile_name)
+    preallocated = identifier is not None
     identifier = identifier or release_id(profile_name, commit)
     run_dir = RUN_ROOT / identifier
-    run_dir.mkdir(parents=True, mode=0o700)
     manifest_path = run_dir / "manifest.json"
+    state_path = run_dir / "state.json"
+    gate_path = run_dir / "gate"
+    if run_dir.exists() or run_dir.is_symlink():
+        if not preallocated or not run_dir.is_dir() or run_dir.is_symlink():
+            raise RuntimeError("release directory already exists or is unsafe")
+        if not manifest_path.is_file() or manifest_path.is_symlink() or not state_path.is_file() or state_path.is_symlink():
+            raise RuntimeError("preallocated release state is incomplete or unsafe")
+    else:
+        run_dir.mkdir(parents=True, mode=0o700)
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("release_id") != identifier or manifest.get("commit_sha") != commit or manifest.get("profile") != profile_name:
@@ -48,27 +57,31 @@ def create_vm_gate(profile_name: str, commit: str, identifier: str | None = None
     else:
         manifest = create_manifest(commit, profile, identifier)
         write_manifest_once(manifest_path, manifest)
-    state = RunState.load(run_dir / "state.json") if (run_dir / "state.json").exists() else RunState.create(run_dir / "state.json", identifier)
+    if gate_path.exists() or gate_path.is_symlink():
+        raise RuntimeError("Gate output path already exists or is unsafe")
+    state = RunState.load(state_path) if state_path.exists() else RunState.create(state_path, identifier)
+    if state.value.get("schema") != 1 or state.value.get("release_id") != identifier:
+        raise RuntimeError("release state identity does not match worker")
     emit_progress(f"release_id={identifier} stage=vm_validate status=running")
     lock = RunLock(RUN_ROOT / ".release.lock") if acquire_lock else None
     if lock:
         lock.__enter__()
     try:
         state.transition("vm_validate", "running")
-        command = [sys.executable, "-m", "release.vm_validate", "--manifest", str(run_dir / "manifest.json"), "--output", str(run_dir / "gate")]
+        command = [sys.executable, "-m", "release.vm_validate", "--manifest", str(manifest_path), "--output", str(gate_path)]
         try:
             child_env = os.environ.copy()
             child_env["PYTHONUNBUFFERED"] = "1"
             subprocess.run(command, cwd=DEPLOY_ROOT, check=True, env=child_env)
-            verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, profile_name)
+            verify_gate(gate_path, TRUSTED_VM_PUBLIC_KEY, profile_name)
         except BaseException:
             state.transition("vm_validate", "failed")
             raise
-        state.transition("vm_validate", "verified", {"gate_dir": str(run_dir / "gate")})
+        state.transition("vm_validate", "verified", {"gate_dir": str(gate_path)})
     finally:
         if lock:
             lock.__exit__(None, None, None)
-    return run_dir / "gate"
+    return gate_path
 
 
 def vm_validate(args: argparse.Namespace) -> None:
