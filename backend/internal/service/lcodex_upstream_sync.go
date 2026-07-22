@@ -134,9 +134,8 @@ func (a lcodexUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 		return nil, err
 	}
 	var discoveredAPIURL *string
-	rootURL := siteURL
 	if cfg.APIURL != nil && strings.TrimSpace(*cfg.APIURL) != "" {
-		rootURL, err = normalizeLCodexRootURL(*cfg.APIURL)
+		_, err = normalizeLCodexRootURL(*cfg.APIURL)
 		if err != nil {
 			return nil, fmt.Errorf("invalid lcodex api url: %w", err)
 		}
@@ -145,10 +144,12 @@ func (a lcodexUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 		if discoverErr != nil {
 			return nil, discoverErr
 		}
-		rootURL = discovered
 		discoveredAPIURL = &discovered
 	}
-	session, err := a.login(ctx, client, rootURL, cfg.Credentials)
+	// LCodex exposes authentication and account-management APIs on the site
+	// origin. api_base_url is the model data-plane endpoint used by imported
+	// accounts and must never receive control-plane credentials or requests.
+	session, err := a.login(ctx, client, siteURL, cfg.Credentials)
 	if err != nil {
 		return nil, err
 	}

@@ -16,9 +16,19 @@ import (
 
 func TestLCodexAdapterDiscoversAPIHostAndBuildsIndependentSnapshot(t *testing.T) {
 	var forbidden atomic.Bool
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var dataPlaneRequests atomic.Int32
+	dataPlane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dataPlaneRequests.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer dataPlane.Close()
+
+	var site *httptest.Server
+	site = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case lcodexPublicSettingsPath:
+			_ = json.NewEncoder(w).Encode(map[string]any{"api_base_url": dataPlane.URL})
 		case lcodexLoginPath:
 			var body map[string]string
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
@@ -34,18 +44,12 @@ func TestLCodexAdapterDiscoversAPIHostAndBuildsIndependentSnapshot(t *testing.T)
 			_, _ = w.Write([]byte(`{"items":[{"id":11,"key":"sk-complete-visible-key","name":"primary","group_id":7,"status":"active","group":{"id":7,"name":"Image","platform":"openai","rate_multiplier":3}}],"total":1,"page":1,"page_size":100,"pages":1}`))
 		case lcodexProfilePath:
 			_, _ = w.Write([]byte(`{"id":9,"email":"profile@example.com","credit_balance":12.5,"max_concurrency":4,"disabled":false}`))
-		case "/api/v1/auth/login", "/api/v1/api-keys", "/api/v1/auth/me", "/v1/sub2api/billing":
+		case "/api/v1/auth/login", "/api/v1/api-keys", "/api/v1/keys", "/api/v1/groups/available", "/api/v1/groups/rates", "/api/v1/auth/me", "/v1/sub2api/billing":
 			forbidden.Store(true)
 			http.NotFound(w, r)
 		default:
 			http.NotFound(w, r)
 		}
-	}))
-	defer api.Close()
-
-	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, lcodexPublicSettingsPath, r.URL.Path)
-		_ = json.NewEncoder(w).Encode(map[string]any{"api_base_url": api.URL})
 	}))
 	defer site.Close()
 
@@ -55,8 +59,9 @@ func TestLCodexAdapterDiscoversAPIHostAndBuildsIndependentSnapshot(t *testing.T)
 	snapshot, err := (lcodexUpstreamProviderAdapter{}).SyncSnapshot(context.Background(), cfg, "", true)
 	require.NoError(t, err)
 	require.False(t, forbidden.Load())
+	require.Zero(t, dataPlaneRequests.Load(), "control-plane requests must not reach the discovered data-plane host")
 	require.NotNil(t, snapshot.DiscoveredAPIURL)
-	require.Equal(t, api.URL, *snapshot.DiscoveredAPIURL)
+	require.Equal(t, dataPlane.URL, *snapshot.DiscoveredAPIURL)
 	require.Len(t, snapshot.Keys, 1)
 	require.InDelta(t, 0.5, *snapshot.Keys[0].SourceRateMultiplier, 1e-12)
 	capability, ok := parseLCodexImageCapabilitySnapshot(snapshot.Keys[0].Extra)
@@ -164,7 +169,14 @@ func TestLCodexMissingRateRetainsPreviousValueOrStopsNewKey(t *testing.T) {
 func TestLCodexAdapterExplicitAPIURLSkipsDiscoveryAndRefreshesOnlyOnce(t *testing.T) {
 	var refreshes atomic.Int32
 	var unauthorized atomic.Int32
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var dataPlaneRequests atomic.Int32
+	dataPlane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dataPlaneRequests.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer dataPlane.Close()
+
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case lcodexLoginPath:
@@ -188,31 +200,47 @@ func TestLCodexAdapterExplicitAPIURLSkipsDiscoveryAndRefreshesOnlyOnce(t *testin
 			http.NotFound(w, r)
 		}
 	}))
-	defer api.Close()
-	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("explicit api url must skip site discovery: %s", r.URL.Path)
-	}))
 	defer site.Close()
 
-	explicitAPIURL := api.URL + "/api/v1"
+	explicitAPIURL := dataPlane.URL + "/v1"
 	cfg := &UpstreamConfig{ID: 4, Provider: UpstreamProviderLCodex, SiteURL: site.URL, APIURL: &explicitAPIURL, AuthMode: UpstreamAuthModeUserLogin, Credentials: map[string]any{
 		AccountCredentialLCodexLoginIdentifier: "user", AccountCredentialLCodexLoginPassword: "password",
 	}}
 	snapshot, err := (lcodexUpstreamProviderAdapter{}).SyncSnapshot(context.Background(), cfg, "", false)
 	require.NoError(t, err)
 	require.Nil(t, snapshot.DiscoveredAPIURL)
+	require.Zero(t, dataPlaneRequests.Load(), "control-plane requests must not reach the explicit data-plane host")
 	require.EqualValues(t, 1, unauthorized.Load())
 	require.EqualValues(t, 1, refreshes.Load())
 }
 
 func TestLCodexAdapterRejectsIncompleteAndDuplicatePagination(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		page string
-		want string
+		name  string
+		pages map[string]string
+		want  string
 	}{
-		{"incomplete", `{"items":[{"id":1,"key":"sk-complete-one"}],"total":2,"page":1,"page_size":100,"pages":1}`, "ended before total"},
-		{"duplicate", `{"items":[{"id":1,"key":"sk-complete-one"},{"id":1,"key":"sk-complete-two"}],"total":2,"page":1,"page_size":100,"pages":1}`, "duplicate id"},
+		{name: "two pages", pages: map[string]string{
+			"1": `{"items":[{"id":1,"key":"sk-complete-one"}],"total":2,"page":1,"page_size":100,"pages":2}`,
+			"2": `{"items":[{"id":2,"key":"sk-complete-two"}],"total":2,"page":2,"page_size":100,"pages":2}`,
+		}},
+		{name: "incomplete", pages: map[string]string{
+			"1": `{"items":[{"id":1,"key":"sk-complete-one"}],"total":2,"page":1,"page_size":100,"pages":1}`,
+		}, want: "ended before total"},
+		{name: "cross page duplicate", pages: map[string]string{
+			"1": `{"items":[{"id":1,"key":"sk-complete-one"}],"total":2,"page":1,"page_size":100,"pages":2}`,
+			"2": `{"items":[{"id":1,"key":"sk-complete-two"}],"total":2,"page":2,"page_size":100,"pages":2}`,
+		}, want: "duplicate id"},
+		{name: "total changes", pages: map[string]string{
+			"1": `{"items":[{"id":1,"key":"sk-complete-one"}],"total":2,"page":1,"page_size":100,"pages":2}`,
+			"2": `{"items":[{"id":2,"key":"sk-complete-two"}],"total":3,"page":2,"page_size":100,"pages":2}`,
+		}, want: "total changed"},
+		{name: "items exceed total", pages: map[string]string{
+			"1": `{"items":[{"id":1,"key":"sk-complete-one"},{"id":2,"key":"sk-complete-two"}],"total":1,"page":1,"page_size":100,"pages":1}`,
+		}, want: "more items than total"},
+		{name: "invalid page metadata", pages: map[string]string{
+			"1": `{"items":[],"total":0,"page":2,"page_size":100,"pages":1}`,
+		}, want: "incompatible pagination metadata"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -225,7 +253,9 @@ func TestLCodexAdapterRejectsIncompleteAndDuplicatePagination(t *testing.T) {
 				case lcodexGroupRatesPath:
 					_, _ = w.Write([]byte(`{}`))
 				case lcodexKeysPath:
-					_, _ = w.Write([]byte(tc.page))
+					payload, ok := tc.pages[r.URL.Query().Get("page")]
+					require.True(t, ok, "unexpected page request")
+					_, _ = w.Write([]byte(payload))
 				default:
 					http.NotFound(w, r)
 				}
@@ -234,7 +264,12 @@ func TestLCodexAdapterRejectsIncompleteAndDuplicatePagination(t *testing.T) {
 			cfg := &UpstreamConfig{ID: 5, Provider: UpstreamProviderLCodex, SiteURL: api.URL, APIURL: &api.URL, AuthMode: UpstreamAuthModeUserLogin, Credentials: map[string]any{
 				AccountCredentialLCodexLoginIdentifier: "user", AccountCredentialLCodexLoginPassword: "password",
 			}}
-			_, err := (lcodexUpstreamProviderAdapter{}).SyncSnapshot(context.Background(), cfg, "", false)
+			snapshot, err := (lcodexUpstreamProviderAdapter{}).SyncSnapshot(context.Background(), cfg, "", false)
+			if tc.want == "" {
+				require.NoError(t, err)
+				require.Len(t, snapshot.Keys, 2)
+				return
+			}
 			require.ErrorContains(t, err, tc.want)
 		})
 	}
@@ -301,9 +336,16 @@ func TestLCodexImageCapabilityDisabledAndOldSnapshotBecomesStale(t *testing.T) {
 }
 
 func TestLCodexSyncPersistsDiscoveredAPIURL(t *testing.T) {
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	dataPlane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("control-plane request reached data-plane host: %s", r.URL.Path)
+	}))
+	defer dataPlane.Close()
+	var site *httptest.Server
+	site = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case lcodexPublicSettingsPath:
+			_ = json.NewEncoder(w).Encode(map[string]any{"api_base_url": dataPlane.URL})
 		case lcodexLoginPath:
 			_, _ = w.Write([]byte(`{"access_token":"access"}`))
 		case lcodexGroupsPath:
@@ -318,10 +360,6 @@ func TestLCodexSyncPersistsDiscoveredAPIURL(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer api.Close()
-	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"api_base_url": api.URL})
-	}))
 	defer site.Close()
 	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
 		ID: 22, Name: "LCodex", Provider: UpstreamProviderLCodex, SiteURL: site.URL,
@@ -335,7 +373,7 @@ func TestLCodexSyncPersistsDiscoveredAPIURL(t *testing.T) {
 	stored, err := repo.GetByID(context.Background(), 22)
 	require.NoError(t, err)
 	require.NotNil(t, stored.APIURL)
-	require.Equal(t, api.URL, *stored.APIURL)
+	require.Equal(t, dataPlane.URL, *stored.APIURL)
 }
 
 func TestLCodexSyncPersistsSameOriginDiscoveredAPIURL(t *testing.T) {

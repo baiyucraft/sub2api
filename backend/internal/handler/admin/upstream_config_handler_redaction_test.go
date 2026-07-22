@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -55,7 +56,9 @@ func TestSanitizeUpstreamKeyHidesImagePricingSnapshot(t *testing.T) {
 }
 
 func TestSanitizeUpstreamKeyHidesLCodexImageCapabilitySnapshot(t *testing.T) {
+	const completeKey = "sk-complete-lcodex-secret-key"
 	got := sanitizeUpstreamKey(&service.UpstreamKey{
+		Key: completeKey,
 		Extra: map[string]any{
 			service.LCodexImageCapabilitySnapshotExtraKey: map[string]any{"allow_image_generation": true},
 			"safe_note": "visible",
@@ -67,6 +70,10 @@ func TestSanitizeUpstreamKeyHidesLCodexImageCapabilitySnapshot(t *testing.T) {
 	pricing := got["image_pricing"].(gin.H)
 	require.Equal(t, service.UpstreamKeyImagePricingStatusPartial, pricing["status"])
 	require.Nil(t, pricing["final_cost_1k"])
+	encoded, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), completeKey)
+	require.NotContains(t, string(encoded), service.LCodexImageCapabilitySnapshotExtraKey)
 }
 
 func TestUpstreamCredentialsStatusLCodexDoesNotExposeSecrets(t *testing.T) {
