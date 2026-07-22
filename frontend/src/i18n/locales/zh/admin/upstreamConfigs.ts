@@ -50,6 +50,7 @@ export default {
     providers: {
       sub2api: 'sub2api',
       newapi: 'newapi',
+      lcodex: 'LCodex',
       other: '其他'
     },
     address: {
@@ -74,6 +75,7 @@ export default {
       missing: '未配置',
       email: '邮箱 {status}',
       username: '账号 {status}',
+      identifier: '邮箱或账号 {status}',
       password: '密码 {status}',
       accessToken: 'JWT {status}',
       refreshToken: 'Refresh {status}',
@@ -174,6 +176,7 @@ export default {
       },
       imagePricing: {
         upstreamDefault: '上游默认价',
+        notProvided: '上游未提供价格',
         empty: '没有符合条件的生图 Key',
         emptyHint: '可切换筛选条件，或同步上游后再查看。'
       }
@@ -220,6 +223,7 @@ export default {
       siteUrl: '站点地址',
       apiUrl: 'API 地址',
       apiUrlHint: '可选。留空时模型转发、模型探测和衍生账号连接测试使用站点地址。',
+      lcodexApiUrlHint: '可选。留空时同步会从 LCodex 公开设置自动发现数据面地址。',
       authMode: '认证方式',
       proxy: '代理',
       rechargeRate: '充值倍率',
@@ -231,6 +235,7 @@ export default {
       proxyPlaceholder: '留空不使用',
       loginEmail: '登录邮箱',
       loginUsername: '登录账号',
+      lcodexLoginIdentifier: '登录邮箱或账号',
       loginPassword: '登录密码',
       newapiUserId: 'NewAPI 用户 ID',
       cookie: 'Cookie',
@@ -267,6 +272,8 @@ export default {
       newapiUserIdRequired: 'NewAPI Cookie 或 Access Token 模式必须填写用户 ID',
       newapiCookieRequired: 'NewAPI Cookie 模式必须填写 Cookie',
       newapiAccessTokenRequired: 'NewAPI Access Token 模式必须填写 Token',
+      lcodexIdentifierRequired: 'LCodex 上游必须填写登录邮箱或账号',
+      lcodexPasswordRequired: 'LCodex 上游必须填写登录密码',
       deleted: '上游配置已删除',
       deleteFailed: '删除上游配置失败',
       testSuccess: '连接测试成功',

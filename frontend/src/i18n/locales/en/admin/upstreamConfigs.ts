@@ -50,6 +50,7 @@ export default {
     providers: {
       sub2api: 'sub2api',
       newapi: 'newapi',
+      lcodex: 'LCodex',
       other: 'Other'
     },
     address: {
@@ -74,6 +75,7 @@ export default {
       missing: 'Missing',
       email: 'Email {status}',
       username: 'Username {status}',
+      identifier: 'Email or account {status}',
       password: 'Password {status}',
       accessToken: 'JWT {status}',
       refreshToken: 'Refresh {status}',
@@ -174,6 +176,7 @@ export default {
       },
       imagePricing: {
         upstreamDefault: 'Upstream default',
+        notProvided: 'Price not provided by upstream',
         empty: 'No matching image-capable keys',
         emptyHint: 'Change the filter or sync the upstream and try again.'
       }
@@ -220,6 +223,7 @@ export default {
       siteUrl: 'Site URL',
       apiUrl: 'API URL',
       apiUrlHint: 'Optional. When empty, model forwarding, model discovery, and derived account connection tests use the site URL.',
+      lcodexApiUrlHint: 'Optional. When empty, sync discovers the data-plane URL from LCodex public settings.',
       authMode: 'Auth Mode',
       proxy: 'Proxy',
       rechargeRate: 'Recharge Rate',
@@ -231,6 +235,7 @@ export default {
       proxyPlaceholder: 'Empty means none',
       loginEmail: 'Login Email',
       loginUsername: 'Login Username',
+      lcodexLoginIdentifier: 'Login Email or Account',
       loginPassword: 'Login Password',
       newapiUserId: 'NewAPI User ID',
       cookie: 'Cookie',
@@ -267,6 +272,8 @@ export default {
       newapiUserIdRequired: 'NewAPI Cookie or Access Token mode requires a user ID',
       newapiCookieRequired: 'NewAPI Cookie mode requires a cookie',
       newapiAccessTokenRequired: 'NewAPI Access Token mode requires a token',
+      lcodexIdentifierRequired: 'LCodex upstream requires a login email or account',
+      lcodexPasswordRequired: 'LCodex upstream requires a login password',
       deleted: 'Upstream config deleted',
       deleteFailed: 'Failed to delete upstream config',
       testSuccess: 'Connection test succeeded',

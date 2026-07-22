@@ -546,7 +546,7 @@ func redactedUpstreamExtra(extra map[string]any) map[string]any {
 	}
 	filtered := make(map[string]any, len(extra))
 	for key, value := range extra {
-		if key == service.Sub2APIImagePricingSnapshotExtraKey {
+		if key == service.Sub2APIImagePricingSnapshotExtraKey || key == service.LCodexImageCapabilitySnapshotExtraKey {
 			continue
 		}
 		filtered[key] = value
@@ -556,15 +556,17 @@ func redactedUpstreamExtra(extra map[string]any) map[string]any {
 
 func upstreamCredentialsStatus(credentials map[string]any) gin.H {
 	return gin.H{
-		"has_login_email":           strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APILoginEmail])) != "",
-		"has_login_password":        strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APILoginPassword])) != "",
-		"has_access_token":          strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APIAccessToken])) != "",
-		"has_refresh_token":         strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APIRefreshToken])) != "",
-		"has_newapi_login_username": strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPILoginUsername])) != "",
-		"has_newapi_login_password": strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPILoginPassword])) != "",
-		"has_newapi_cookie":         strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPICookie])) != "",
-		"has_newapi_access_token":   strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPIAccessToken])) != "",
-		"has_newapi_user_id":        strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPIUserID])) != "",
+		"has_login_email":             strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APILoginEmail])) != "",
+		"has_login_password":          strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APILoginPassword])) != "",
+		"has_access_token":            strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APIAccessToken])) != "",
+		"has_refresh_token":           strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialSub2APIRefreshToken])) != "",
+		"has_newapi_login_username":   strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPILoginUsername])) != "",
+		"has_newapi_login_password":   strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPILoginPassword])) != "",
+		"has_newapi_cookie":           strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPICookie])) != "",
+		"has_newapi_access_token":     strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPIAccessToken])) != "",
+		"has_newapi_user_id":          strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialNewAPIUserID])) != "",
+		"has_lcodex_login_identifier": strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialLCodexLoginIdentifier])) != "",
+		"has_lcodex_login_password":   strings.TrimSpace(stringFromAny(credentials[service.AccountCredentialLCodexLoginPassword])) != "",
 	}
 }
 

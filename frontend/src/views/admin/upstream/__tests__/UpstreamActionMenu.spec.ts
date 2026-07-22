@@ -66,4 +66,13 @@ describe('UpstreamActionMenu', () => {
     expect(wrapper.text()).toContain('admin.upstreamConfigs.actions.rateTrend')
     expect(wrapper.text()).not.toContain('admin.upstreamConfigs.actions.openDashboard')
   })
+
+  it('shows the dashboard action for LCodex', () => {
+    const wrapper = mount(UpstreamActionMenu, {
+      props: { show: true, anchorEl: document.body, config: config('lcodex') as any },
+      global: { stubs: { ActionMenu: ActionMenuStub, Icon: true } }
+    })
+
+    expect(wrapper.text()).toContain('admin.upstreamConfigs.actions.openDashboard')
+  })
 })

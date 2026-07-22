@@ -54,7 +54,9 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const supportsDashboard = computed(() => props.config?.provider === 'sub2api' || props.config?.provider === 'newapi')
+const supportsDashboard = computed(() =>
+  ['sub2api', 'newapi', 'lcodex'].includes(props.config?.provider || '')
+)
 
 function emitAndClose(event: 'test' | 'rateTrend' | 'dashboard' | 'delete', close: () => void) {
   if (!props.config) return

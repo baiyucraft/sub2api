@@ -22,6 +22,7 @@ import (
 const (
 	UpstreamProviderSub2API = AccountUpstreamProviderSub2API
 	UpstreamProviderNewAPI  = AccountUpstreamProviderNewAPI
+	UpstreamProviderLCodex  = AccountUpstreamProviderLCodex
 	UpstreamProviderOther   = AccountUpstreamProviderOther
 
 	UpstreamAuthModeUserLogin   = AccountSub2APIRateSyncAdapterUserLogin
@@ -235,6 +236,7 @@ type upstreamProviderSnapshot struct {
 	Warnings           []string
 	FallbackKeyCount   int
 	UnresolvedKeyCount int
+	DiscoveredAPIURL   *string
 }
 
 type upstreamProviderAdapter interface {
@@ -423,6 +425,10 @@ func pruneUpstreamProviderCredentials(credentials map[string]any, provider, auth
 	} else {
 		pruneNewAPIAuthenticationCredentials(credentials, authMode)
 	}
+	if provider != UpstreamProviderLCodex {
+		delete(credentials, AccountCredentialLCodexLoginIdentifier)
+		delete(credentials, AccountCredentialLCodexLoginPassword)
+	}
 	if provider == UpstreamProviderSub2API {
 		pruneSub2APIAuthenticationCredentials(credentials, authMode)
 	}
@@ -522,7 +528,7 @@ func (s *UpstreamConfigService) UpdateKeyPlatform(ctx context.Context, upstreamC
 	if err != nil {
 		return nil, err
 	}
-	if config != nil && config.Provider == UpstreamProviderSub2API {
+	if config != nil && (config.Provider == UpstreamProviderSub2API || config.Provider == UpstreamProviderLCodex) {
 		key.ImagePricing = deriveUpstreamKeyImagePricing(key, config)
 	}
 	return key, nil
@@ -608,12 +614,12 @@ func (s *UpstreamConfigService) SyncActiveSub2APIConfigs(ctx context.Context) []
 }
 
 func (s *UpstreamConfigService) SyncActiveUpstreamConfigs(ctx context.Context) []UpstreamConfigSyncResult {
-	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI}, UpstreamSyncTriggerScheduled)
+	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI, UpstreamProviderLCodex}, UpstreamSyncTriggerScheduled)
 	return scheduledSyncResults(results, err)
 }
 
 func (s *UpstreamConfigService) SyncActiveUpstreamConfigsManual(ctx context.Context) (int64, []UpstreamConfigSyncResult, error) {
-	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI}, UpstreamSyncTriggerManualBatch)
+	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI, UpstreamProviderLCodex}, UpstreamSyncTriggerManualBatch)
 	var runID int64
 	if len(results) > 0 {
 		runID = results[0].RunID
@@ -761,14 +767,31 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 		result.Error = adapter.SanitizeError(err, cfg.Credentials)
 		return nil, result, err
 	}
+	if snapshot.DiscoveredAPIURL != nil && cfg.APIURL == nil {
+		discovered := strings.TrimSpace(*snapshot.DiscoveredAPIURL)
+		if discovered != "" {
+			cfg.APIURL = &discovered
+			if saveErr := s.repo.Update(ctx, cfg); saveErr != nil {
+				result.Error = adapter.SanitizeError(saveErr, cfg.Credentials)
+				result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(saveErr, "persist")
+				return nil, result, saveErr
+			}
+		}
+	}
 	s.resolveMaskedSnapshotKeys(ctx, cfg, snapshot)
 	if cfg.Provider == UpstreamProviderSub2API {
 		applySub2APIBillingRates(ctx, cfg, proxyURL, snapshot)
-		if err := s.preserveMissingSub2APIRates(ctx, cfg, snapshot); err != nil {
+		if err := s.preserveMissingProviderRates(ctx, cfg, snapshot); err != nil {
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
 		}
 		s.mergeSub2APIImagePricingSnapshots(ctx, cfg, snapshot)
+	} else if cfg.Provider == UpstreamProviderLCodex {
+		if err := s.preserveMissingProviderRates(ctx, cfg, snapshot); err != nil {
+			result.Error = adapter.SanitizeError(err, cfg.Credentials)
+			return nil, result, err
+		}
+		s.mergeLCodexImageCapabilitySnapshots(ctx, cfg, snapshot)
 	}
 	keys := snapshot.Keys
 	snapshot.ExtraUpdates = normalizeProviderBalanceExtra(cfg, snapshot.ExtraUpdates)
@@ -927,7 +950,7 @@ func applySub2APIBillingRates(ctx context.Context, cfg *UpstreamConfig, proxyURL
 	snapshot.Warnings = append(snapshot.Warnings, billingWarnings...)
 }
 
-func (s *UpstreamConfigService) preserveMissingSub2APIRates(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) error {
+func (s *UpstreamConfigService) preserveMissingProviderRates(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) error {
 	missingRemoteIDs := make([]int64, 0)
 	for i := range snapshot.Keys {
 		if snapshot.Keys[i].SourceRateMultiplier == nil && snapshot.Keys[i].RemoteKeyID != nil {
@@ -947,7 +970,7 @@ func (s *UpstreamConfigService) preserveMissingSub2APIRates(ctx context.Context,
 		existing, err = s.repo.ListKeys(ctx, cfg.ID)
 	}
 	if err != nil {
-		return fmt.Errorf("load previous sub2api source rates: %w", err)
+		return fmt.Errorf("load previous %s source rates: %w", normalizeUpstreamProvider(cfg.Provider), err)
 	}
 	byRemoteID := make(map[int64]float64, len(existing))
 	for i := range existing {
@@ -1231,7 +1254,7 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 			if normalizeErr != nil {
 				return infraerrors.BadRequest("UPSTREAM_CONFIG_API_URL_INVALID", "upstream config api url is invalid")
 			}
-			if normalized == config.SiteURL {
+			if normalized == config.SiteURL && config.Provider != UpstreamProviderLCodex {
 				config.APIURL = nil
 			} else {
 				config.APIURL = &normalized
@@ -1278,6 +1301,8 @@ func validateUpstreamProviderAuthMode(provider, authMode string) error {
 		valid = authMode == UpstreamAuthModeUserLogin || authMode == UpstreamAuthModeManualJWT
 	case UpstreamProviderNewAPI:
 		valid = authMode == UpstreamAuthModeUserLogin || authMode == UpstreamAuthModeCookie || authMode == UpstreamAuthModeAccessToken
+	case UpstreamProviderLCodex:
+		valid = authMode == UpstreamAuthModeUserLogin
 	default:
 		return nil
 	}
@@ -1356,6 +1381,8 @@ func normalizeUpstreamProvider(provider string) string {
 		return UpstreamProviderSub2API
 	case UpstreamProviderNewAPI:
 		return UpstreamProviderNewAPI
+	case UpstreamProviderLCodex:
+		return UpstreamProviderLCodex
 	default:
 		return UpstreamProviderOther
 	}
@@ -1380,6 +1407,8 @@ func upstreamProviderAdapterFor(provider string) (upstreamProviderAdapter, bool)
 		return sub2APIUpstreamProviderAdapter{}, true
 	case UpstreamProviderNewAPI:
 		return newAPIUpstreamProviderAdapter{}, true
+	case UpstreamProviderLCodex:
+		return lcodexUpstreamProviderAdapter{}, true
 	default:
 		return nil, false
 	}
