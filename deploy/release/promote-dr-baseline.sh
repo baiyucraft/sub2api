@@ -7,19 +7,24 @@ drill_id=${2:?drill ID is required}
 input_dir=${3:?promotion input directory is required}
 test_mode=${SUB2API_PROMOTION_TEST_MODE:-false}
 test_root=${PROMOTION_TEST_ROOT:-}
+[[ $release_id =~ ^(195|199)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+profile=${BASH_REMATCH[1]}
+[[ $drill_id =~ ^dr-(195|199)-[0-9]{8}T[0-9]{6}Z$ ]]
+drill_profile=${BASH_REMATCH[1]}
+[[ $drill_profile == "$profile" ]]
 if [[ $test_mode == true || -n $test_root ]]; then
   [[ $test_mode == true && -n $test_root ]]
   test_name=${test_root##*/}
   [[ $test_name =~ ^dr-promotion-test\.[A-Za-z0-9]{8}$ ]]
   [[ $test_root == /srv/sub2api-backups/$test_name ]]
   [[ -d $test_root && ! -L $test_root && $(realpath -e -- "$test_root") == "$test_root" && $(stat -c '%U:%G:%a' "$test_root") == root:root:700 ]]
-  root="$test_root/releases/195"
+  root="$test_root/releases/$profile"
   trust_key="$test_root/trust/vm-gate-ed25519.pub"
   verifier="$test_root/libexec/sub2api-verify-dr-evidence"
   asset_lock="$test_root/libexec/.sub2api-dr-assets.lock"
   asset_lock_dir_mode=700
 else
-  root=/srv/sub2api-backups/releases/195
+  root="/srv/sub2api-backups/releases/$profile"
   trust_key=/opt/sub2api-dr-trust/vm-gate-ed25519.pub
   verifier=/usr/local/libexec/sub2api-verify-dr-evidence
   asset_lock=/usr/local/libexec/.sub2api-dr-assets.lock
@@ -32,10 +37,7 @@ verified_root="$root/verified-bundles"
 verified_link="$root/verified"
 trust_sha256=ea0b628532f8d85d0e57921b5b010c7f00ef8b0f9701da2b0d4ea31105553e08
 verifier_sha256=f43b10ae4e9d52b970a9395487a3cf31ae2ccb0d869b5d0a5ee134fd0ca81d89
-migration_sha256=e77566efef46748b4098a148659a97e021928bd4aae0a97cf26e122aadf85cf0
 [[ $(id -u) == 0 ]]
-[[ $release_id =~ ^195-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $drill_id =~ ^dr-195-[0-9]{8}T[0-9]{6}Z$ ]]
 
 validate_directory() {
   local path=$1 mode=$2
@@ -185,17 +187,22 @@ archive_recorded_sha=$(checksum_entry "$staging/SHA256SUMS" 3 "$gate_output_path
 gate_release=$(jq -er '.manifest.release_id' "$staging/gate.json")
 gate_image=$(jq -er '.evidence.candidate_image_id' "$staging/gate.json")
 gate_archive=$(jq -er '.evidence.candidate_archive_sha256' "$staging/gate.json")
-gate_migration=$(jq -er '.manifest.migration_sha256["195_upstream_scheduling_monitor_rates.sql"]' "$staging/gate.json")
-[[ $gate_release == "$release_id" && $gate_archive == "$archive_sha" && $gate_migration == "$migration_sha256" ]]
+gate_profile=$(jq -er '.manifest.profile' "$staging/gate.json")
+if [[ $profile == 195 ]]; then
+  gate_migration=$(jq -er '.manifest.migration_sha256["195_upstream_scheduling_monitor_rates.sql"]' "$staging/gate.json")
+else
+  gate_migration=$(jq -cS '.manifest.migration_sha256' "$staging/gate.json" | sha256sum | awk '{print $1}')
+fi
+[[ $gate_release == "$release_id" && $gate_profile == "$profile" && $gate_archive == "$archive_sha" ]]
 [[ $gate_image == "$(manifest_value candidate_image_id)" ]]
 
 "$verifier" "$trust_key" "$staging/evidence.json" "$staging/evidence.sig" >/dev/null
-jq -e --arg release_id "$release_id" --arg drill_id "$drill_id" --arg artifact_sha "$artifact_sha" --arg bundle_sha "$bundle_sha" --arg archive_sha "$archive_sha" --arg image_id "$gate_image" --arg migration_sha "$migration_sha256" '
+jq -e --arg release_id "$release_id" --arg drill_id "$drill_id" --arg drill_prefix "dr-$profile-" --arg artifact_sha "$artifact_sha" --arg bundle_sha "$bundle_sha" --arg archive_sha "$archive_sha" --arg image_id "$gate_image" --arg migration_sha "$gate_migration" '
   type == "object" and
   (keys | sort) == (["artifact_sha256","candidate_archive_sha256","candidate_bundle_sha256","candidate_image_id","completed_at","config_manifest_check","counts_and_migrations","created_at","drill_id","image_load_id_check","migration_checksum","postgres_restore","redis_backup_dbsize","redis_backup_expiring_keys","redis_restore","redis_restored_dbsize","redis_restored_expiring_keys","redis_ttl_reconciliation","release_id","schema","temporary_material_destroyed"] | sort) and
   .schema == 1 and .release_id == $release_id and .drill_id == $drill_id and
   (.created_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
-  (.created_at | gsub("[-:]"; "")) == ($drill_id | ltrimstr("dr-195-")) and
+  (.created_at | gsub("[-:]"; "")) == ($drill_id | ltrimstr($drill_prefix)) and
   (.completed_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
   ((.created_at | fromdateiso8601) as $created | (.completed_at | fromdateiso8601) as $completed | $created <= $completed and $completed >= (now - 86400) and $completed <= (now + 300)) and
   .artifact_sha256 == $artifact_sha and .candidate_bundle_sha256 == $bundle_sha and
@@ -237,7 +244,7 @@ assert_candidate_unchanged
 if [[ -e $verified_link && ! -L $verified_link ]]; then exit 1; fi
 if [[ -L $verified_link ]]; then
   old_target=$(readlink "$verified_link")
-  [[ $old_target =~ ^verified-bundles/195-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}--dr-195-[0-9]{8}T[0-9]{6}Z$ ]]
+  [[ $old_target =~ ^verified-bundles/$profile-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}--dr-$profile-[0-9]{8}T[0-9]{6}Z$ ]]
   old_target_path="$root/$old_target"
   [[ -d $old_target_path && ! -L $old_target_path && $(realpath -e -- "$old_target_path") == "$old_target_path" && $(stat -c '%U:%G:%a' "$old_target_path") == root:root:700 ]]
   old_verified_files=(SHA256SUMS VERIFIED_SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
