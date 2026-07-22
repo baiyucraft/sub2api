@@ -61,6 +61,7 @@ type AccountHandler struct {
 	sessionLimitCache       service.SessionLimitCache
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
+	ttftGuardReader         service.OpenAITTFTGuardDegradationReader
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 }
@@ -68,6 +69,13 @@ type AccountHandler struct {
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
 func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamBillingProbeService) {
 	h.upstreamBillingProbe = probe
+}
+
+// SetOpenAITTFTGuardDegradationReader attaches the optional in-memory TTFT
+// Guard status reader. NewAccountHandler intentionally keeps its existing
+// signature so focused tests and non-production constructors stay unchanged.
+func (h *AccountHandler) SetOpenAITTFTGuardDegradationReader(reader service.OpenAITTFTGuardDegradationReader) {
+	h.ttftGuardReader = reader
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -187,9 +195,10 @@ type CheckMixedChannelRequest struct {
 // AccountWithConcurrency extends Account with real-time concurrency info
 type AccountWithConcurrency struct {
 	*dto.Account
-	CurrentConcurrency int                          `json:"current_concurrency"`
-	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
-	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
+	CurrentConcurrency    int                                  `json:"current_concurrency"`
+	SchedulerScore        *AccountSchedulerScore               `json:"scheduler_score,omitempty"`
+	SchedulerScores       []AccountSchedulerGroupScore         `json:"scheduler_scores,omitempty"`
+	TTFTGuardDegradations []service.OpenAITTFTGuardDegradation `json:"ttft_guard_degradations,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
@@ -219,6 +228,9 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	}
 	if account == nil {
 		return item
+	}
+	if h.ttftGuardReader != nil && account.Platform == service.PlatformOpenAI {
+		item.TTFTGuardDegradations = h.ttftGuardReader.OpenAITTFTGuardDegradations([]int64{account.ID})[account.ID]
 	}
 
 	if h.concurrencyService != nil {
@@ -535,6 +547,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	concurrencyCounts := make(map[int64]int)
+	var ttftGuardDegradations map[int64][]service.OpenAITTFTGuardDegradation
 	var windowCosts map[int64]float64
 	var activeSessions map[int64]int
 	var rpmCounts map[int64]int
@@ -542,10 +555,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	var schedulerScores map[int64]*AccountSchedulerScore
 	var schedulerGroupScores map[int64][]AccountSchedulerGroupScore
 	pageHasOpenAIAccounts := false
+	ttftGuardAccountIDs := make([]int64, 0, len(accounts))
 	for i := range accounts {
 		if accounts[i].Platform == service.PlatformOpenAI {
 			pageHasOpenAIAccounts = true
-			break
+			ttftGuardAccountIDs = append(ttftGuardAccountIDs, accounts[i].ID)
 		}
 	}
 	if includeSchedulerScore && pageHasOpenAIAccounts {
@@ -558,6 +572,9 @@ func (h *AccountHandler) List(c *gin.Context) {
 		if cc, ccErr := h.concurrencyService.GetAccountConcurrencyBatch(c.Request.Context(), accountIDs); ccErr == nil && cc != nil {
 			concurrencyCounts = cc
 		}
+	}
+	if h.ttftGuardReader != nil && len(ttftGuardAccountIDs) > 0 {
+		ttftGuardDegradations = h.ttftGuardReader.OpenAITTFTGuardDegradations(ttftGuardAccountIDs)
 	}
 
 	// 识别需要查询窗口费用、会话数和 RPM 的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
@@ -629,11 +646,16 @@ func (h *AccountHandler) List(c *gin.Context) {
 	result := make([]AccountWithConcurrency, len(accounts))
 	for i := range accounts {
 		acc := &accounts[i]
+		var accountTTFTGuardDegradations []service.OpenAITTFTGuardDegradation
+		if acc.Platform == service.PlatformOpenAI {
+			accountTTFTGuardDegradations = ttftGuardDegradations[acc.ID]
+		}
 		item := AccountWithConcurrency{
-			Account:            dto.AccountFromService(acc),
-			CurrentConcurrency: concurrencyCounts[acc.ID],
-			SchedulerScore:     schedulerScores[acc.ID],
-			SchedulerScores:    schedulerGroupScores[acc.ID],
+			Account:               dto.AccountFromService(acc),
+			CurrentConcurrency:    concurrencyCounts[acc.ID],
+			SchedulerScore:        schedulerScores[acc.ID],
+			SchedulerScores:       schedulerGroupScores[acc.ID],
+			TTFTGuardDegradations: accountTTFTGuardDegradations,
 		}
 
 		// 添加窗口费用（仅当启用时）

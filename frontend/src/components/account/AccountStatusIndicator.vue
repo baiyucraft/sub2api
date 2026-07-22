@@ -151,6 +151,9 @@
         ></div>
       </div>
     </div>
+
+    <!-- TTFT Guard degradation indicators (model-scoped, read-only) -->
+    <TTFTGuardStatusBadge :degradations="account.ttft_guard_degradations" />
   </div>
 </template>
 
@@ -158,6 +161,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import TTFTGuardStatusBadge from './TTFTGuardStatusBadge.vue'
 import type { Account } from '@/types'
 import { formatCountdown, formatDateTime, formatCountdownWithSuffix, formatTime } from '@/utils/format'
 

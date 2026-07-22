@@ -321,7 +321,23 @@ export default {
         creditsExhausted: '积分已用尽',
         creditsExhaustedUntil: 'AI Credits 已用尽，预计 {time} 恢复',
         overloadedUntil: '负载过重，重置时间：{time}',
-        viewTempUnschedDetails: '查看临时不可调度详情'
+        viewTempUnschedDetails: '查看临时不可调度详情',
+        ttftGuard: {
+          criticalSample: '单次首 Token 延迟达到降级阈值的 3 倍',
+          consecutiveElevated: '连续 2 次首 Token 延迟达到降级阈值的 1.5 倍',
+          ewmaReason: '有效样本达到门槛且首 Token 延迟趋势超过阈值',
+          unknownReason: '达到首 Token 延迟降级条件',
+          lastTTFT: '最近首 Token：{value}',
+          ewma: 'EWMA：{value}',
+          threshold: '降级阈值：{value}',
+          samples: '有效样本：{count}',
+          degradedAt: '降级开始：{time}',
+          elapsed: '已持续：{time}',
+          lastSampleAt: '最近样本：{time}',
+          recovery: '恢复探测：{current} / {required}',
+          expiresAt: '无新样本预计过期：{time}',
+          probeHint: '约 5% 的调度机会用于恢复探测；新探测样本会顺延预计过期时间。'
+        }
       },
       tempUnschedulable: {
         title: '临时不可调度',
