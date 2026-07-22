@@ -24,11 +24,27 @@ backup_path=$(sed -n 's/.*path=\([^ ;}]*\).*/\1/p' <<<"$backup_exec" | head -n1)
 grep -Fq '/run/lock/sub2api-backup-global.lock' "$backup_path"
 migration_status=verified
 migration_195_status=verified
+migration_196_status=not_applicable
+migration_197_status=not_applicable
+migration_198_status=not_applicable
+migration_199_status=not_applicable
 while IFS=$'\t' read -r migration migration_checksum; do
+  case "$migration" in
+    196_ops_ingress_reject_aggregates.sql) migration_196_status=verified ;;
+    197_auth_cache_invalidation_outbox.sql) migration_197_status=verified ;;
+    198_normalize_managed_monitor_key_names.sql) migration_198_status=verified ;;
+    199_group_reasoning_effort_policy.sql) migration_199_status=verified ;;
+  esac
   migration_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
   if [[ -z $migration_state ]]; then
     migration_status=absent
-    [[ $migration == 195_upstream_scheduling_monitor_rates.sql ]] && migration_195_status=absent
+    case "$migration" in
+      195_upstream_scheduling_monitor_rates.sql) migration_195_status=absent ;;
+      196_ops_ingress_reject_aggregates.sql) migration_196_status=absent ;;
+      197_auth_cache_invalidation_outbox.sql) migration_197_status=absent ;;
+      198_normalize_managed_monitor_key_names.sql) migration_198_status=absent ;;
+      199_group_reasoning_effort_policy.sql) migration_199_status=absent ;;
+    esac
   else
     [[ $migration_state == "$migration|$migration_checksum" ]]
   fi
@@ -47,3 +63,7 @@ printf 'pre_switch_image_id=%s\n' "$pre_image_id"
 printf 'free_bytes=%s\n' "$free_bytes"
 printf 'migration_status=%s\n' "$migration_status"
 printf 'migration_195_status=%s\n' "$migration_195_status"
+printf 'migration_196_status=%s\n' "$migration_196_status"
+printf 'migration_197_status=%s\n' "$migration_197_status"
+printf 'migration_198_status=%s\n' "$migration_198_status"
+printf 'migration_199_status=%s\n' "$migration_199_status"

@@ -3,9 +3,9 @@
 标准入口（启动后调用端可断开）：
 
 ```text
-python deploy/release.py doctor --profile 197 --commit <40位完整SHA>
-python deploy/release.py bootstrap-production --profile 197
-python deploy/release.py deploy-start --profile 197 --commit <40位完整SHA>
+python deploy/release.py doctor --profile <profile> --commit <40位完整SHA>
+python deploy/release.py bootstrap-production --profile <profile>
+python deploy/release.py deploy-start --profile <profile> --commit <40位完整SHA>
 python deploy/release.py status <release_id>
 python deploy/release.py wait <release_id> --timeout 900
 python deploy/release.py verify-result <release_id>
@@ -45,6 +45,11 @@ profile 198 继续使用版本 `0.1.162-baiyu`，继承 profile 197 的全部迁
 `198_normalize_managed_monitor_key_names.sql`。该迁移只更新未删除托管监控 Key 的显示名称为
 `监控-渠道名称`，并将 Key 名称列扩展到可容纳 100 字渠道名称和前缀；不改变 Key 字符串、ID、额度、usage 或费用历史。已删除监控保留的 tombstone Key 不参与修正。
 VM Gate 和生产切换都会核验列长度为 103，且所有存活托管 Key 与关联监控名称完全一致。
+
+profile 199 使用版本 `0.1.163-baiyu`，继承 profile 198 的全部迁移和 Gate 证据，追加
+`199_group_reasoning_effort_policy.sql`。该迁移只增加分组 reasoning effort 上限和精确映射
+字段，使用 `ADD COLUMN IF NOT EXISTS` 与稳定默认值；VM Gate 还会用旧镜像启动 smoke
+核验迁移后的 schema 兼容性，并验证两个字段的类型、非空约束和默认值。
 
 首次安装信任根使用：
 
