@@ -139,6 +139,11 @@ VM Gate 或候选验证重放时，先按 migration 文件名和目标 checksum 
 
 profile 198 继承 profile 197 的全部迁移语义。典型混合状态是 `195/196/197=verified`、`198=absent`：只生成并执行 198 的计划；如果 196/197 也缺失，则按 196 -> 197 -> 198 顺序执行。最终 Gate 必须记录全部目标 checksum，不能用 profile 总状态替代单项状态。
 
+profile 199 在上述矩阵后追加 `199_group_reasoning_effort_policy.sql`，并在同一隔离数据库中验证
+`groups.max_reasoning_effort` 与 `groups.reasoning_effort_mappings` 的类型、非空约束和默认值；旧
+镜像必须能在迁移后的副本上完成 health smoke。任何 migration checksum、schema 语义或旧镜像
+兼容性断言失败都停止 Gate。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：
