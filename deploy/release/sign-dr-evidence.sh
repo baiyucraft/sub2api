@@ -18,9 +18,11 @@ fi
 exec 8<>"$unit_lock"
 [[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) == root:root:600:1 ]]
 flock -s 8
-[[ $evidence =~ ^$evidence_root/(195-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})/(dr-195-[0-9]{8}T[0-9]{6}Z)/evidence\.json$ ]]
+[[ $evidence =~ ^$evidence_root/((195|199)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})/(dr-(195|199)-[0-9]{8}T[0-9]{6}Z)/evidence\.json$ ]]
 path_release_id=${BASH_REMATCH[1]}
-path_drill_id=${BASH_REMATCH[2]}
+path_profile=${BASH_REMATCH[2]}
+path_drill_id=${BASH_REMATCH[3]}
+[[ ${BASH_REMATCH[4]} == "$path_profile" ]]
 expected_signature=${evidence%/evidence.json}/evidence.sig
 [[ $signature == "$expected_signature" ]]
 [[ $(realpath -e -- "$evidence") == "$evidence" ]]
@@ -35,7 +37,8 @@ drill_dir="$release_dir/$path_drill_id"
 
 jq -e \
   --arg release_id "$path_release_id" \
-  --arg drill_id "$path_drill_id" '
+  --arg drill_id "$path_drill_id" \
+  --arg drill_prefix "dr-$path_profile-" '
     type == "object" and
     (keys | sort) == ([
       "artifact_sha256",
@@ -63,7 +66,7 @@ jq -e \
     .schema == 1 and
     .release_id == $release_id and
     .drill_id == $drill_id and
-    (.created_at | gsub("[-:]"; "")) == ($drill_id | ltrimstr("dr-195-")) and
+    (.created_at | gsub("[-:]"; "")) == ($drill_id | ltrimstr($drill_prefix)) and
     (.artifact_sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
     (.candidate_bundle_sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
     (.candidate_archive_sha256 | type == "string" and test("^[0-9a-f]{64}$")) and

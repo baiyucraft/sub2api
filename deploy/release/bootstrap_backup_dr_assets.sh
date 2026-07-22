@@ -98,18 +98,26 @@ if "$activation_dir/verifier" "$activation_dir/trust.pub" "$activation_dir/overs
 
 for command_name in awk cmp dd find flock install jq ln mv realpath sed sha256sum sort stat sync wc; do command -v "$command_name" >/dev/null; done
 if [[ $test_mode == true ]]; then
-  install -d -o root -g root -m 700 "$test_root/releases" "$test_root/releases/195"
-  promotion_root="$test_root/releases/195"
+  releases_root="$test_root/releases"
+  install -d -o root -g root -m 700 "$releases_root"
 else
-  promotion_root=/srv/sub2api-backups/releases/195
-  [[ -d $promotion_root && ! -L $promotion_root && $(realpath -e -- "$promotion_root") == "$promotion_root" && $(stat -c '%U:%G:%a' "$promotion_root") == root:root:700 ]]
+  releases_root=/srv/sub2api-backups/releases
+  [[ -d $releases_root && ! -L $releases_root && $(realpath -e -- "$releases_root") == "$releases_root" && $(stat -c '%U:%G:%a' "$releases_root") == root:root:700 ]]
 fi
-for directory in "$promotion_root/promotion-input" "$promotion_root/verified-bundles"; do
-  if [[ -e $directory ]]; then
-    [[ -d $directory && ! -L $directory && $(realpath -e -- "$directory") == "$directory" && $(stat -c '%U:%G:%a' "$directory") == root:root:700 ]]
+for profile in 195 199; do
+  promotion_root="$releases_root/$profile"
+  if [[ -e $promotion_root || -L $promotion_root ]]; then
+    [[ -d $promotion_root && ! -L $promotion_root && $(realpath -e -- "$promotion_root") == "$promotion_root" && $(stat -c '%U:%G:%a' "$promotion_root") == root:root:700 ]]
   else
-    install -d -o root -g root -m 700 "$directory"
+    install -d -o root -g root -m 700 "$promotion_root"
   fi
+  for directory in "$promotion_root/promotion-input" "$promotion_root/verified-bundles"; do
+    if [[ -e $directory || -L $directory ]]; then
+      [[ -d $directory && ! -L $directory && $(realpath -e -- "$directory") == "$directory" && $(stat -c '%U:%G:%a' "$directory") == root:root:700 ]]
+    else
+      install -d -o root -g root -m 700 "$directory"
+    fi
+  done
 done
 
 asset_lock="$target_libexec_dir/.sub2api-dr-assets.lock"

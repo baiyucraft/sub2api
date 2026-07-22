@@ -41,14 +41,25 @@ def run(
     created_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     vm_temp = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "promotion-evidence")
     remote_temps.append(("local_vm", vm_temp))
-    signer_sha = sha256_file(DEPLOY_ROOT / "release" / "sign-dr-evidence.sh")
+    signer_source = DEPLOY_ROOT / "release" / "sign-dr-evidence.sh"
+    signer_sha = sha256_file(signer_source)
+    runner.run(
+        "local_vm",
+        f"install -d -o root -g root -m 700 {shlex.quote(vm_temp + '/libexec')} && "
+        f"install -o root -g root -m 600 /dev/null {shlex.quote(vm_temp + '/libexec/.sub2api-release-unit.lock')} && "
+        "printf 'helper_root_ready=pass\\n'",
+        {"helper_root_ready"},
+    )
+    runner.upload_file("local_vm", signer_source, f"{vm_temp}/libexec/sub2api-sign-dr-evidence", 0o700)
     evidence_dir = f"/opt/sub2api-deploy/dr-evidence/195-0314be7299e0-1784375727-31508cb8/{drill_id}"
     evidence_script = rf'''
 set -Eeuo pipefail
 vm_temp={shlex.quote(vm_temp)}
 evidence_dir={shlex.quote(evidence_dir)}
 release_dir=${{evidence_dir%/*}}
-signer=/usr/local/libexec/sub2api-sign-dr-evidence
+signer="$vm_temp/libexec/sub2api-sign-dr-evidence"
+export SUB2API_HELPER_TEST_MODE=true
+export SUB2API_UNIT_LOCK_PATH="$vm_temp/libexec/.sub2api-release-unit.lock"
 cleanup() {{ rm -rf -- "$evidence_dir"; rmdir "$release_dir" 2>/dev/null || true; }}
 trap cleanup EXIT
 [[ -f $signer && ! -L $signer && $(stat -c '%U:%G:%a' "$signer") == root:root:700 ]]
