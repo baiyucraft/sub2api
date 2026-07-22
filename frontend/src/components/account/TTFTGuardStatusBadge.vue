@@ -14,7 +14,10 @@
       :key="`${degradation.model}-${degradation.degraded_at}`"
       class="min-w-0 max-w-[230px] break-inside-avoid"
     >
-      <HelpTooltip width-class="w-72 max-w-[calc(100vw-2rem)]">
+      <HelpTooltip
+        width-class="w-72 max-w-[calc(100vw-2rem)]"
+        trigger-class="max-w-full min-w-0"
+      >
         <template #trigger>
           <span
             class="inline-flex min-h-6 max-w-full min-w-0 items-center gap-1 whitespace-nowrap rounded border border-amber-300/80 bg-amber-50 px-1.5 py-0.5 text-xs font-medium leading-5 text-amber-800 dark:border-amber-700/70 dark:bg-amber-900/25 dark:text-amber-300"
