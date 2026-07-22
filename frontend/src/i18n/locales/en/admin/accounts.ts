@@ -166,7 +166,23 @@ export default {
         creditsExhausted: 'Credits Exhausted',
         creditsExhaustedUntil: 'AI Credits exhausted, expected recovery at {time}',
         overloadedUntil: 'Overloaded until {time}',
-        viewTempUnschedDetails: 'View temp unschedulable details'
+        viewTempUnschedDetails: 'View temp unschedulable details',
+        ttftGuard: {
+          criticalSample: 'A single TTFT sample reached 3x the degradation threshold',
+          consecutiveElevated: 'Two consecutive TTFT samples reached 1.5x the degradation threshold',
+          ewmaReason: 'Enough valid samples were collected and TTFT EWMA exceeded the threshold',
+          unknownReason: 'TTFT degradation condition reached',
+          lastTTFT: 'Latest TTFT: {value}',
+          ewma: 'EWMA: {value}',
+          threshold: 'Degradation threshold: {value}',
+          samples: 'Valid samples: {count}',
+          degradedAt: 'Degraded since: {time}',
+          elapsed: 'Duration: {time}',
+          lastSampleAt: 'Latest sample: {time}',
+          recovery: 'Recovery probes: {current} / {required}',
+          expiresAt: 'Expected expiry without new samples: {time}',
+          probeHint: 'About 5% of scheduling opportunities are used for recovery probes; a new probe sample extends the expected expiry time.'
+        }
       },
       columns: {
         name: 'Name',

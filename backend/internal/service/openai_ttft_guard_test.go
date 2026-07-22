@@ -124,6 +124,93 @@ func TestOpenAITTFTGuard_TTLAndLRU(t *testing.T) {
 	require.Zero(t, guard.size())
 }
 
+func TestOpenAITTFTGuard_DegradationSnapshots(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	guard := newOpenAITTFTGuardWithOptions(32, 15*time.Minute, func() time.Time { return now })
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+
+	critical := 61_000
+	guard.report(1, "z-model", true, &critical, cfg)
+	zDegradedAt := now
+	now = now.Add(time.Minute)
+	elevated := 31_000
+	guard.report(1, "a-model", true, &elevated, cfg)
+	now = now.Add(time.Minute)
+	guard.report(1, "a-model", true, &elevated, cfg)
+	aDegradedAt := now
+	guard.report(2, "other-model", true, &critical, cfg)
+
+	key, ok := openAITTFTGuardKeyFor(1, "a-model")
+	require.True(t, ok)
+	touchedAt := guard.entries[key].lastTouchedAt
+	snapshots := guard.degradations([]int64{2, 1, 1, 0}, cfg)
+	require.Equal(t, touchedAt, guard.entries[key].lastTouchedAt, "snapshot reads must not refresh LRU timestamps")
+	require.Len(t, snapshots, 2)
+	require.Len(t, snapshots[1], 2)
+	require.Equal(t, "a-model", snapshots[1][0].Model)
+	require.Equal(t, "z-model", snapshots[1][1].Model)
+
+	aSnapshot := snapshots[1][0]
+	require.Equal(t, "consecutive_elevated", aSnapshot.Reason)
+	require.Equal(t, int64(20_000), aSnapshot.ThresholdMs)
+	require.Equal(t, int64(31_000), aSnapshot.LastTTFTMs)
+	require.InDelta(t, 31_000, aSnapshot.EWMAms, 0.001)
+	require.Equal(t, uint64(2), aSnapshot.SampleCount)
+	require.Equal(t, aDegradedAt, aSnapshot.DegradedAt)
+	require.Equal(t, now, aSnapshot.LastSampleAt)
+	require.Equal(t, now.Add(15*time.Minute), aSnapshot.ExpiresAt)
+	require.Zero(t, aSnapshot.RecoverySamples)
+	require.Equal(t, openAITTFTGuardRecoverySamples, aSnapshot.RecoverySamplesRequired)
+
+	zSnapshot := snapshots[1][1]
+	require.Equal(t, "critical_sample", zSnapshot.Reason)
+	require.Equal(t, zDegradedAt, zSnapshot.DegradedAt)
+	require.Equal(t, int64(61_000), zSnapshot.LastTTFTMs)
+}
+
+func TestOpenAITTFTGuard_DegradationSnapshotsTrackRecoveryAndCleanup(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	guard := newOpenAITTFTGuardWithOptions(32, 15*time.Minute, func() time.Time { return now })
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	critical := 60_000
+	guard.report(1, "gpt-test", true, &critical, cfg)
+
+	fast := 10_000
+	now = now.Add(time.Minute)
+	guard.report(1, "gpt-test", true, &fast, cfg)
+	snapshots := guard.degradations([]int64{1}, cfg)
+	require.Equal(t, 1, snapshots[1][0].RecoverySamples)
+	require.Equal(t, now.Add(15*time.Minute), snapshots[1][0].ExpiresAt)
+
+	guard.report(1, "gpt-test", true, &fast, cfg)
+	guard.report(1, "gpt-test", true, &fast, cfg)
+	require.Empty(t, guard.degradations([]int64{1}, cfg), "recovery must remove the degradation snapshot")
+
+	guard.report(1, "gpt-test", true, &critical, cfg)
+	now = now.Add(15 * time.Minute)
+	require.Empty(t, guard.degradations([]int64{1}, cfg), "TTL cleanup must remove stale degradation snapshots")
+
+	now = now.Add(time.Second)
+	guard.report(1, "gpt-test", true, &critical, cfg)
+	disabled := cfg
+	disabled.Enabled = false
+	require.Empty(t, guard.degradations([]int64{1}, disabled))
+	require.Zero(t, guard.size(), "disabling the guard through a snapshot read must clear transient state")
+}
+
+func TestOpenAITTFTGuard_DegradationSnapshotReportsEWMAReason(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	ttft := 21_000
+	for i := 0; i < 5; i++ {
+		guard.report(9, "gpt-ewma", true, &ttft, cfg)
+	}
+
+	snapshots := guard.degradations([]int64{9}, cfg)
+	require.Len(t, snapshots[9], 1)
+	require.Equal(t, "ewma", snapshots[9][0].Reason)
+}
+
 func TestOpenAITTFTGuard_ConfigChangeClearsTransientState(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
@@ -164,6 +251,7 @@ func TestOpenAITTFTGuard_ConcurrentAccess(t *testing.T) {
 				}
 				guard.report(accountID, model, true, sample, cfg)
 				guard.exclusions([]openAITTFTGuardCandidate{{accountID: accountID, model: model}}, nil, cfg)
+				guard.degradations([]int64{accountID}, cfg)
 				_ = guard.isDegraded(accountID, model)
 			}
 		}()

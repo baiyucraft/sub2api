@@ -963,6 +963,8 @@ export interface Account {
   overload_until: string | null
   temp_unschedulable_until: string | null
   temp_unschedulable_reason: string | null
+  /** Runtime TTFT Guard state, scoped to account + canonical mapped model. */
+  ttft_guard_degradations?: AccountTTFTGuardDegradation[]
 
   // Session window fields (5-hour window)
   session_window_start: string | null
@@ -1031,6 +1033,20 @@ export interface Account {
   parent_privacy_mode?: string
   parent_subscription_expires_at?: string
   parent_chatgpt_account_id?: string
+}
+
+export interface AccountTTFTGuardDegradation {
+  model: string
+  reason: string
+  threshold_ms: number
+  last_ttft_ms: number
+  ewma_ms: number
+  sample_count: number
+  degraded_at: string
+  last_sample_at: string
+  expires_at: string
+  recovery_samples: number
+  recovery_samples_required: number
 }
 
 export interface AccountSchedulerGroupScore {

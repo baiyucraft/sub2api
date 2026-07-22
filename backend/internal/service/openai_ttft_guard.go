@@ -31,6 +31,29 @@ type OpenAITTFTGuardConfigProvider interface {
 	OpenAITTFTGuardConfigSnapshot() OpenAITTFTGuardConfigSnapshot
 }
 
+// OpenAITTFTGuardDegradation is a read-only snapshot of a degraded
+// account/model pair. It intentionally contains only in-memory runtime state;
+// it is not persisted and must not be used to make scheduling decisions.
+type OpenAITTFTGuardDegradation struct {
+	Model                   string    `json:"model"`
+	Reason                  string    `json:"reason"`
+	ThresholdMs             int64     `json:"threshold_ms"`
+	LastTTFTMs              int64     `json:"last_ttft_ms"`
+	EWMAms                  float64   `json:"ewma_ms"`
+	SampleCount             uint64    `json:"sample_count"`
+	DegradedAt              time.Time `json:"degraded_at"`
+	LastSampleAt            time.Time `json:"last_sample_at"`
+	ExpiresAt               time.Time `json:"expires_at"`
+	RecoverySamples         int       `json:"recovery_samples"`
+	RecoverySamplesRequired int       `json:"recovery_samples_required"`
+}
+
+// OpenAITTFTGuardDegradationReader provides a batch, read-only view of
+// currently degraded account/model states for administrative observability.
+type OpenAITTFTGuardDegradationReader interface {
+	OpenAITTFTGuardDegradations(accountIDs []int64) map[int64][]OpenAITTFTGuardDegradation
+}
+
 type openAITTFTGuardConfigProviderFunc func() OpenAITTFTGuardConfigSnapshot
 
 func (f openAITTFTGuardConfigProviderFunc) OpenAITTFTGuardConfigSnapshot() OpenAITTFTGuardConfigSnapshot {
@@ -62,6 +85,7 @@ type openAITTFTGuardEntry struct {
 	consecutiveRecovered int
 	degraded             bool
 	degradedReason       string
+	degradedAt           time.Time
 	lastSampleAt         time.Time
 	lastTouchedAt        time.Time
 }
@@ -103,6 +127,7 @@ func (e *openAITTFTGuardEntry) resetAfterRecovery(fastSample float64, now time.T
 	e.consecutiveRecovered = 0
 	e.degraded = false
 	e.degradedReason = ""
+	e.degradedAt = time.Time{}
 	e.lastSampleAt = now
 	e.lastTouchedAt = now
 }
@@ -209,13 +234,87 @@ func (g *openAITTFTGuard) report(accountID int64, model string, success bool, fi
 	case sample >= 3*threshold:
 		entry.degraded = true
 		entry.degradedReason = "critical_sample"
+		entry.degradedAt = now
 	case entry.consecutiveElevated >= 2:
 		entry.degraded = true
 		entry.degradedReason = "consecutive_elevated"
+		entry.degradedAt = now
 	case entry.sampleCount >= uint64(cfg.MinSamples) && entry.recentEWMA() >= threshold:
 		entry.degraded = true
 		entry.degradedReason = "ewma"
+		entry.degradedAt = now
 	}
+}
+
+// degradations returns a copied snapshot while holding the guard lock. The
+// lookup performs TTL cleanup and config synchronization under the same lock,
+// but deliberately does not update LRU touch timestamps.
+func (g *openAITTFTGuard) degradations(accountIDs []int64, cfg OpenAITTFTGuardConfigSnapshot) map[int64][]OpenAITTFTGuardDegradation {
+	if g == nil {
+		return nil
+	}
+	cfg = normalizeOpenAITTFTGuardConfig(cfg)
+	now := g.now()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.syncConfigLocked(cfg)
+	if !cfg.Enabled || len(accountIDs) == 0 {
+		return nil
+	}
+	g.deleteExpiredLocked(now)
+
+	requested := make(map[int64]struct{}, len(accountIDs))
+	for _, accountID := range accountIDs {
+		if accountID > 0 {
+			requested[accountID] = struct{}{}
+		}
+	}
+	if len(requested) == 0 {
+		return nil
+	}
+
+	result := make(map[int64][]OpenAITTFTGuardDegradation)
+	thresholdMs := cfg.Threshold.Milliseconds()
+	for key, entry := range g.entries {
+		if entry == nil || !entry.degraded {
+			continue
+		}
+		if _, ok := requested[key.accountID]; !ok {
+			continue
+		}
+		degradedAt := entry.degradedAt
+		if degradedAt.IsZero() {
+			// Defensive fallback for entries created before degraded_at was added.
+			degradedAt = entry.lastSampleAt
+		}
+		lastTTFTMs := int64(0)
+		if entry.sampleLen > 0 {
+			lastIndex := (entry.nextSample - 1 + openAITTFTGuardSampleWindow) % openAITTFTGuardSampleWindow
+			lastTTFTMs = int64(entry.samples[lastIndex])
+		}
+		result[key.accountID] = append(result[key.accountID], OpenAITTFTGuardDegradation{
+			Model:                   key.model,
+			Reason:                  entry.degradedReason,
+			ThresholdMs:             thresholdMs,
+			LastTTFTMs:              lastTTFTMs,
+			EWMAms:                  entry.recentEWMA(),
+			SampleCount:             entry.sampleCount,
+			DegradedAt:              degradedAt,
+			LastSampleAt:            entry.lastSampleAt,
+			ExpiresAt:               entry.lastSampleAt.Add(g.ttl),
+			RecoverySamples:         entry.consecutiveRecovered,
+			RecoverySamplesRequired: openAITTFTGuardRecoverySamples,
+		})
+	}
+	for accountID := range result {
+		sort.Slice(result[accountID], func(i, j int) bool {
+			return result[accountID][i].Model < result[accountID][j].Model
+		})
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, callerExcluded map[int64]struct{}, cfg OpenAITTFTGuardConfigSnapshot) map[int64]struct{} {
@@ -417,6 +516,15 @@ func (s *OpenAIGatewayService) reportOpenAITTFTGuard(accountID int64, model stri
 	}
 	cfg := s.openAITTFTGuardConfig()
 	s.getOpenAITTFTGuard().report(accountID, model, success, firstTokenMs, cfg)
+}
+
+// OpenAITTFTGuardDegradations implements OpenAITTFTGuardDegradationReader.
+// The returned map and slices are owned by the caller and may be modified.
+func (s *OpenAIGatewayService) OpenAITTFTGuardDegradations(accountIDs []int64) map[int64][]OpenAITTFTGuardDegradation {
+	if s == nil {
+		return nil
+	}
+	return s.getOpenAITTFTGuard().degradations(accountIDs, s.openAITTFTGuardConfig())
 }
 
 func (s *OpenAIGatewayService) selectAccountWithScheduler(

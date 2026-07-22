@@ -192,4 +192,40 @@ describe('AccountStatusIndicator', () => {
     // AICredits 积分耗尽状态应显示
     expect(wrapper.text()).toContain('admin.accounts.status.creditsExhausted')
   })
+
+  it('在原账号状态旁渲染模型级 TTFT Guard 降级标签', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          platform: 'openai',
+          ttft_guard_degradations: [{
+            model: 'gpt-5.4-mini',
+            reason: 'critical_sample',
+            threshold_ms: 20_000,
+            last_ttft_ms: 61_000,
+            ewma_ms: 25_000,
+            sample_count: 2,
+            degraded_at: '2026-07-22T10:00:00Z',
+            last_sample_at: '2026-07-22T10:01:00Z',
+            expires_at: '2026-07-22T10:16:00Z',
+            recovery_samples: 0,
+            recovery_samples_required: 3
+          }]
+        })
+      },
+      global: {
+        stubs: {
+          Icon: true,
+          HelpTooltip: {
+            template: '<div><slot name="trigger" /><div><slot /></div></div>'
+          }
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.status.active')
+    expect(wrapper.text()).toContain('gpt-5.4-mini')
+    expect(wrapper.text()).toContain('admin.accounts.status.ttftGuard.criticalSample')
+    wrapper.unmount()
+  })
 })
