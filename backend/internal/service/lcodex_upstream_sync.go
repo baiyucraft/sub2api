@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
@@ -29,9 +31,13 @@ const (
 	lcodexProfilePath        = "/user/profile"
 	lcodexKeyPageSize        = 100
 	lcodexMaxKeyPages        = 10000
+	lcodexMaxProfileIDBytes  = 256
 )
 
-var reLCodexAPIKey = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]{8,}\b`)
+var (
+	reLCodexAPIKey         = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]{8,}\b`)
+	reLCodexProfileInteger = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
+)
 
 type lcodexUpstreamProviderAdapter struct{}
 
@@ -85,7 +91,7 @@ type lcodexKeyPage struct {
 }
 
 type lcodexProfile struct {
-	ID             int64           `json:"id"`
+	ID             json.RawMessage `json:"id"`
 	Email          string          `json:"email"`
 	CreditBalance  json.RawMessage `json:"credit_balance"`
 	MaxConcurrency json.RawMessage `json:"max_concurrency"`
@@ -402,6 +408,9 @@ func (a lcodexUpstreamProviderAdapter) fetchProfile(ctx context.Context, session
 	if _, present, parseErr := parseLCodexOptionalNonNegativeFloat(profile.CreditBalance); parseErr != nil || !present {
 		return nil, fmt.Errorf("lcodex profile returned invalid credit balance")
 	}
+	if _, parseErr := parseLCodexProfileID(profile.ID); parseErr != nil {
+		return nil, fmt.Errorf("lcodex profile returned invalid user id")
+	}
 	return &profile, nil
 }
 
@@ -533,10 +542,11 @@ func lcodexProfileExtraUpdates(cfg *UpstreamConfig, profile *lcodexProfile, prof
 		return updates, warning
 	}
 	balance, _, _ := parseLCodexOptionalNonNegativeFloat(profile.CreditBalance)
+	userID, _ := parseLCodexProfileID(profile.ID)
 	updates := map[string]any{
 		"upstream_provider_snapshot": map[string]any{
 			"version": 1, "provider": UpstreamProviderLCodex, "synced_at": now,
-			"user_id": profile.ID, "email": strings.TrimSpace(profile.Email), "disabled": profile.Disabled,
+			"user_id": userID, "email": strings.TrimSpace(profile.Email), "disabled": profile.Disabled,
 			"balance_amount": balance, "base_balance_amount": balance, "currency": "USD", "currency_symbol": "$", "unit": "currency",
 		},
 		"upstream_provider_snapshot_last_error":    "",
@@ -599,6 +609,32 @@ func decodeLCodexGroups(raw json.RawMessage) ([]lcodexGroupRow, error) {
 		return nil, err
 	}
 	return rows, nil
+}
+
+func parseLCodexProfileID(raw json.RawMessage) (string, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return "", errors.New("missing user id")
+	}
+	if strings.HasPrefix(trimmed, `"`) {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil || strings.TrimSpace(value) == "" {
+			return "", errors.New("invalid string user id")
+		}
+		value = strings.TrimSpace(value)
+		if len(value) > lcodexMaxProfileIDBytes || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+			return "", errors.New("invalid string user id")
+		}
+		return value, nil
+	}
+	if !reLCodexProfileInteger.MatchString(trimmed) {
+		return "", errors.New("invalid integer user id")
+	}
+	value, ok := new(big.Int).SetString(trimmed, 10)
+	if !ok {
+		return "", errors.New("invalid integer user id")
+	}
+	return value.String(), nil
 }
 
 func parseLCodexOptionalNonNegativeFloat(raw json.RawMessage) (float64, bool, error) {
