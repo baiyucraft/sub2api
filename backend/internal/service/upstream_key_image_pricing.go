@@ -8,8 +8,10 @@ import (
 )
 
 const (
-	Sub2APIImagePricingSnapshotExtraKey = "sub2api_image_pricing_snapshot"
-	sub2APIImagePricingSnapshotVersion  = 1
+	Sub2APIImagePricingSnapshotExtraKey   = "sub2api_image_pricing_snapshot"
+	sub2APIImagePricingSnapshotVersion    = 1
+	LCodexImageCapabilitySnapshotExtraKey = "lcodex_image_pricing_snapshot"
+	lcodexImageCapabilitySnapshotVersion  = 1
 
 	UpstreamKeyImagePricingStatusAvailable   = "available"
 	UpstreamKeyImagePricingStatusPartial     = "partial"
@@ -39,6 +41,48 @@ type sub2APIImagePricingSnapshot struct {
 	ImagePrice4K         *float64   `json:"image_price_4k"`
 	ObservedAt           *time.Time `json:"observed_at"`
 	Stale                bool       `json:"stale"`
+}
+
+type lcodexImageCapabilitySnapshot struct {
+	Version              int        `json:"version"`
+	Status               string     `json:"status"`
+	AllowImageGeneration bool       `json:"allow_image_generation"`
+	ObservedAt           *time.Time `json:"observed_at"`
+	Stale                bool       `json:"stale"`
+}
+
+func lcodexImageCapabilitySnapshotMap(snapshot lcodexImageCapabilitySnapshot) map[string]any {
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+	return out
+}
+
+func parseLCodexImageCapabilitySnapshot(extra map[string]any) (lcodexImageCapabilitySnapshot, bool) {
+	if extra == nil {
+		return lcodexImageCapabilitySnapshot{}, false
+	}
+	raw, ok := extra[LCodexImageCapabilitySnapshotExtraKey]
+	if !ok || raw == nil {
+		return lcodexImageCapabilitySnapshot{}, false
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return lcodexImageCapabilitySnapshot{}, false
+	}
+	var snapshot lcodexImageCapabilitySnapshot
+	if json.Unmarshal(encoded, &snapshot) != nil || snapshot.Version != lcodexImageCapabilitySnapshotVersion {
+		return lcodexImageCapabilitySnapshot{}, false
+	}
+	if snapshot.Status != UpstreamKeyImagePricingStatusPartial && snapshot.Status != UpstreamKeyImagePricingStatusDisabled && snapshot.Status != UpstreamKeyImagePricingStatusUnavailable {
+		return lcodexImageCapabilitySnapshot{}, false
+	}
+	return snapshot, true
 }
 
 func newUnavailableSub2APIImagePricingSnapshot(stale bool) sub2APIImagePricingSnapshot {
@@ -91,6 +135,23 @@ func parseSub2APIImagePricingSnapshot(extra map[string]any) (sub2APIImagePricing
 func deriveUpstreamKeyImagePricing(key *UpstreamKey, config *UpstreamConfig) *UpstreamKeyImagePricing {
 	if key == nil || config == nil {
 		return nil
+	}
+	if strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderLCodex) {
+		snapshot, ok := parseLCodexImageCapabilitySnapshot(key.Extra)
+		if !ok {
+			return &UpstreamKeyImagePricing{Status: UpstreamKeyImagePricingStatusUnavailable, Currency: "USD"}
+		}
+		out := &UpstreamKeyImagePricing{
+			Supported:  snapshot.AllowImageGeneration,
+			Status:     snapshot.Status,
+			Stale:      snapshot.Stale,
+			Currency:   "USD",
+			ObservedAt: snapshot.ObservedAt,
+		}
+		if config.LastError != nil && strings.TrimSpace(*config.LastError) != "" {
+			out.Stale = true
+		}
+		return out
 	}
 	snapshot, ok := parseSub2APIImagePricingSnapshot(key.Extra)
 	if !ok {
@@ -149,7 +210,7 @@ func multiplyImagePrice(price *float64, rate float64) *float64 {
 }
 
 func hydrateUpstreamConfigImagePricing(config *UpstreamConfig) {
-	if config == nil || !strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderSub2API) {
+	if config == nil || (!strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderSub2API) && !strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderLCodex)) {
 		return
 	}
 	for _, key := range config.Keys {
@@ -160,7 +221,7 @@ func hydrateUpstreamConfigImagePricing(config *UpstreamConfig) {
 }
 
 func hydrateUpstreamKeysImagePricing(keys []UpstreamKey, config *UpstreamConfig) {
-	if config == nil || !strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderSub2API) {
+	if config == nil || (!strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderSub2API) && !strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderLCodex)) {
 		return
 	}
 	for i := range keys {
