@@ -9,7 +9,6 @@ import sys
 import time
 from pathlib import Path
 
-from .atomic import atomic_write, canonical_json
 from .bootstrap import bootstrap_trust
 from .doctor import NODES, ReleaseDoctor
 from .gate import verify_gate
@@ -36,16 +35,25 @@ def release_id(profile: str, commit: str) -> str:
     return f"{profile}-{commit[:12]}-{int(time.time())}-{secrets.token_hex(4)}"
 
 
-def create_vm_gate(profile_name: str, commit: str) -> Path:
+def create_vm_gate(profile_name: str, commit: str, identifier: str | None = None, acquire_lock: bool = True) -> Path:
     profile = get_profile(profile_name)
-    identifier = release_id(profile_name, commit)
+    identifier = identifier or release_id(profile_name, commit)
     run_dir = RUN_ROOT / identifier
     run_dir.mkdir(parents=True, mode=0o700)
-    manifest = create_manifest(commit, profile, identifier)
-    write_manifest_once(run_dir / "manifest.json", manifest)
-    state = RunState.create(run_dir / "state.json", identifier)
+    manifest_path = run_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("release_id") != identifier or manifest.get("commit_sha") != commit or manifest.get("profile") != profile_name:
+            raise RuntimeError("release manifest identity does not match worker")
+    else:
+        manifest = create_manifest(commit, profile, identifier)
+        write_manifest_once(manifest_path, manifest)
+    state = RunState.load(run_dir / "state.json") if (run_dir / "state.json").exists() else RunState.create(run_dir / "state.json", identifier)
     emit_progress(f"release_id={identifier} stage=vm_validate status=running")
-    with RunLock(RUN_ROOT / ".release.lock"):
+    lock = RunLock(RUN_ROOT / ".release.lock") if acquire_lock else None
+    if lock:
+        lock.__enter__()
+    try:
         state.transition("vm_validate", "running")
         command = [sys.executable, "-m", "release.vm_validate", "--manifest", str(run_dir / "manifest.json"), "--output", str(run_dir / "gate")]
         try:
@@ -57,6 +65,9 @@ def create_vm_gate(profile_name: str, commit: str) -> Path:
             state.transition("vm_validate", "failed")
             raise
         state.transition("vm_validate", "verified", {"gate_dir": str(run_dir / "gate")})
+    finally:
+        if lock:
+            lock.__exit__(None, None, None)
     return run_dir / "gate"
 
 
@@ -65,14 +76,17 @@ def vm_validate(args: argparse.Namespace) -> None:
     print(f"gate={gate}")
 
 
-def release(args: argparse.Namespace) -> None:
+def release(args: argparse.Namespace, acquire_lock: bool = True) -> None:
     gate_dir = Path(args.gate).resolve()
     document = verify_gate(gate_dir, TRUSTED_VM_PUBLIC_KEY, args.profile)
     identifier = document["manifest"]["release_id"]
     run_dir = RUN_ROOT / identifier
     state_path = run_dir / "release-state.json"
     state = RunState.load(state_path) if state_path.exists() else RunState.create(state_path, identifier)
-    with RunLock(RUN_ROOT / ".release.lock"):
+    lock = RunLock(RUN_ROOT / ".release.lock") if acquire_lock else None
+    if lock:
+        lock.__enter__()
+    try:
         state.transition("production_release", "running")
         command = [sys.executable, "-m", "release.production", "--gate", str(gate_dir), "--profile", args.profile]
         try:
@@ -86,25 +100,34 @@ def release(args: argparse.Namespace) -> None:
             state.transition("production_release", failure_status)
             raise
         state.transition("production_release", "verified")
+    finally:
+        if lock:
+            lock.__exit__(None, None, None)
 
 
-def deploy(args: argparse.Namespace) -> None:
-    emit_progress(f"release_profile={args.profile} release_commit={args.commit} stage=doctor status=running")
-    doctor = ReleaseDoctor(args.profile, args.commit)
-    doctor.run(("local", "vm", "dmit", "backup"))
-    bootstrap_production(args.profile, doctor.runner)
-    doctor.run(("racknerd",))
-    gate = create_vm_gate(args.profile, args.commit)
-    release(argparse.Namespace(gate=str(gate), profile=args.profile))
+def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
+    lock = RunLock(RUN_ROOT / ".release.lock") if acquire_lock else None
+    if lock:
+        lock.__enter__()
+    try:
+        emit_progress(f"release_profile={args.profile} release_commit={args.commit} stage=doctor status=running")
+        doctor = ReleaseDoctor(args.profile, args.commit)
+        doctor.run(("local", "vm", "dmit", "backup"))
+        bootstrap_production(args.profile, doctor.runner)
+        doctor.run(("racknerd",))
+        identifier = getattr(args, "release_id", None)
+        gate = create_vm_gate(args.profile, args.commit, identifier=identifier, acquire_lock=False)
+        release(argparse.Namespace(gate=str(gate), profile=args.profile), acquire_lock=False)
+    finally:
+        if lock:
+            lock.__exit__(None, None, None)
     emit_progress(f"release=verified gate={gate}")
 
 
 def status(args: argparse.Namespace) -> None:
-    path = RUN_ROOT / args.release_id
-    for name in ("state.json", "release-state.json"):
-        candidate = path / name
-        if candidate.exists():
-            print(candidate.read_text(encoding="utf-8").strip())
+    from .supervisor import print_status
+
+    print_status(args.release_id)
 
 
 def bootstrap(args: argparse.Namespace) -> None:
@@ -151,5 +174,28 @@ def main() -> None:
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument("release_id")
     status_parser.set_defaults(handler=status)
+    start_parser = subparsers.add_parser("deploy-start")
+    start_parser.add_argument("--profile", default="182")
+    start_parser.add_argument("--commit", required=True)
+    start_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["start"]).start(args))
+    wait_parser = subparsers.add_parser("wait")
+    wait_parser.add_argument("release_id")
+    wait_parser.add_argument("--timeout", type=int, default=0)
+    wait_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["wait"]).wait(args))
+    verify_parser = subparsers.add_parser("verify-result")
+    verify_parser.add_argument("release_id")
+    verify_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["verify_result"]).verify_result(args))
+    inspect_parser = subparsers.add_parser("reconcile-inspect")
+    inspect_parser.add_argument("release_id")
+    inspect_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["reconcile_inspect"]).reconcile_inspect(args))
+    reconcile_parser = subparsers.add_parser("reconcile")
+    reconcile_parser.add_argument("release_id")
+    reconcile_parser.add_argument("--mode", choices=("recover",), required=True)
+    reconcile_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["reconcile"]).reconcile(args))
+    worker_parser = subparsers.add_parser("_deploy-worker", help=argparse.SUPPRESS)
+    worker_parser.add_argument("--profile", required=True)
+    worker_parser.add_argument("--commit", required=True)
+    worker_parser.add_argument("--release-id", required=True)
+    worker_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["worker"]).worker(args))
     args = parser.parse_args()
     args.handler(args)

@@ -19,7 +19,7 @@ def gate_payload(manifest: dict[str, Any], evidence: dict[str, Any]) -> bytes:
     return canonical_json(value) + b"\n"
 
 
-def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str) -> dict[str, Any]:
+def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow_expired: bool = False) -> dict[str, Any]:
     payload_path = bundle_dir / "gate.json"
     signature_path = bundle_dir / "gate.sig"
     if not payload_path.is_file() or not signature_path.is_file():
@@ -50,7 +50,7 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str) -> di
         raise RuntimeError("gate was created by a different VM DR signer")
     if manifest.get("release_asset_sha256") != release_asset_checksums():
         raise RuntimeError("gate release assets do not match the current checkout")
-    if int(manifest["expires_at"]) < int(time.time()):
+    if not allow_expired and int(manifest["expires_at"]) < int(time.time()):
         raise RuntimeError("gate has expired")
     if evidence.get("vm_restore_verified") is not True or evidence.get("integration_verified") is not True:
         raise RuntimeError("gate lacks VM restore or integration evidence")

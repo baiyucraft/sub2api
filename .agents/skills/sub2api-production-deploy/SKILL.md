@@ -26,6 +26,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 一个 release 只允许一个 runner、一个 active claim 和一个 candidate；runner 返回异常、SSH 超时或测试断言失败后，必须先按 committed marker 和结构化状态做 reconciliation，禁止并发或重复启动第二个 `deploy`。
 - profile 级迁移状态不能代替单个迁移状态。生产 preflight 必须同时返回整体状态和每个关键迁移的 `absent`/`verified`/`unknown` 状态；混合状态按已提交迁移跳过、缺失迁移按顺序执行，任何 checksum 或语义不一致立即停止。
 - 任何备份、checksum、image ID、迁移、磁盘、健康、认证或空间断言失败，立即停止并报告。
+- 生产 deploy 的生命周期必须长于调用工具生命周期；调用端只负责启动和观察，不能拥有或终止 release runner。标准入口为 `deploy-start`、`status`、`wait`、`verify-result`，不得把裸前台 `deploy` 作为日常入口。
 
 ## 当前链路摘要
 
@@ -53,7 +54,7 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 | 在线状态或故障巡检 | 架构现状、运维状态 |
 | Skill/只读巡检资产 | 分类与构建、运维状态、最终报告 |
 | 维护/服务控制资产 | 分类与构建、备份恢复、生产部署、运维状态、最终报告 |
-| `deploy/release.py` 一键发布或恢复 | 发布预检与状态恢复，并叠加该变更类别要求的全部 reference |
+| `deploy/release.py` 一键发布或恢复 | 发布预检与状态恢复、发布 Runner 生命周期，并叠加该变更类别要求的全部 reference |
 
 不得只读取生产部署文档而跳过开发验证或备份门禁。
 
@@ -105,10 +106,13 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 ```text
 python deploy/release.py doctor --profile <profile> --commit <40位完整SHA>
 python deploy/release.py bootstrap-production --profile <profile>
-python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
+python deploy/release.py deploy-start --profile <profile> --commit <40位完整SHA>
+python deploy/release.py status <release_id>
+python deploy/release.py wait <release_id> --timeout 900
+python deploy/release.py verify-result <release_id>
 ```
 
-`doctor` 和 `bootstrap-production` 可独立用于诊断和首次初始化；日常只执行 `deploy`。它必须先检查本地、VM 与外部节点，再幂等 bootstrap production-node，最后检查 production-node；通过后才在 VM 唯一构建 candidate，并完成 VM 本地 PostgreSQL、Redis、`data-dev` 的正向迁移和真实恢复。只有 VM 签名 Gate 验证通过后，才允许向 production-node 传输同一 image ID。production-node 不得重新构建 candidate。
+`doctor` 和 `bootstrap-production` 可独立用于诊断和首次初始化；日常只执行 `deploy-start`。它启动的 worker 必须先检查本地、VM 与外部节点，再幂等 bootstrap production-node，最后检查 production-node；通过后才在 VM 唯一构建 candidate，并完成 VM 本地 PostgreSQL、Redis、`data-dev` 的正向迁移和真实恢复。只有 VM 签名 Gate 验证通过后，才允许向 production-node 传输同一 image ID。production-node 不得重新构建 candidate。
 
 执行前必须读取 [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md) 和 [deploy/release/README.md](../../../deploy/release/README.md)。首次使用的信任根 bootstrap 必须与普通发布分离，人工核验 VM 公钥指纹后再提交公钥；普通发布禁止创建或替换信任根。
 
@@ -121,9 +125,9 @@ python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
 
 本地 `.tmp/releases/.release.lock` 使用操作系统文件锁，锁文件可长期存在；只有实际持锁进程阻止并发发布。
 
-`deploy` 长时间没有控制台输出时不得重复启动或凭沉默判定卡死。先按 [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md) 的“长时间无输出诊断”只读检查进程和结构化状态文件。最终成功必须同时满足签名 Gate 已验证，`production-result.json` 的 `stage` 为 `production_verified` 或 `production_verified_after_reconciliation` 且顶层 `status=verified`，并且原 deploy 返回 `release=verified` 或经过审计的 reconciliation 入口返回 verified。当前 commit 没有正式 reconciliation 入口时，runner 失败后必须保持 `blocked_reconciliation`。
+runner 长时间没有控制台输出时不得重复启动或凭沉默判定卡死。先按 [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md) 的“长时间无输出诊断”只读检查进程和结构化状态文件。最终成功必须同时满足签名 Gate 已验证，`production-result.json` 的 `stage` 为 `production_verified` 或 `production_verified_after_reconciliation` 且顶层 `status=verified`，并且 `verify-result` 通过。正式 `reconcile --mode recover` 当前只覆盖切换前 claim-only 恢复；其他分支必须保持 `blocked_reconciliation`。
 
-前台工具超时不等于 runner 退出。宿主工具存在短超时时，使用唯一隐藏后台进程启动发布，并在 `.tmp/` 记录 PID、release ID、stdout/stderr 路径；后续只跟踪该 PID 和结构化状态，禁止再次执行 `deploy`。Canary `curl exit 28`、公开后失败或 `blocked_reconciliation` 必须按恢复 reference 分层诊断，不能直接认定候选故障或跳过双链路验收。
+前台工具超时不等于 runner 退出。`deploy-start` 使用独立后台进程，在 `.tmp/` 原子记录 PID 启动 token、release ID、stdout/stderr 相对路径和 runner checksum；后续只跟踪该 PID 和结构化状态，禁止再次执行 `deploy`。Canary `curl exit 28`、公开后失败或 `blocked_reconciliation` 必须按恢复 reference 分层诊断，不能直接认定候选故障或跳过双链路验收。完整生命周期见 [release-runner-lifecycle.md](references/release-runner-lifecycle.md)。
 
 Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资产、migration checksum、candidate archive checksum 和 image ID。生产端必须再次验签并从 Gate 派生镜像身份，禁止用环境变量覆盖。
 
@@ -155,4 +159,5 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - [backup-and-restore.md](references/backup-and-restore.md)：三机备份、恢复点、基线晋升和灾备演练。
 - [operations-and-online-status.md](references/operations-and-online-status.md)：只读巡检、状态时效和故障分层。
 - [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md)：一键发布预检、生产 bootstrap、committed-state 恢复、分节点验收和 VM 清理边界。
+- [release-runner-lifecycle.md](references/release-runner-lifecycle.md)：持久 runner、状态观察、成功验真和 claim-only 恢复边界。
 - [final-report.md](references/final-report.md)：发布、备份、恢复和状态报告模板。

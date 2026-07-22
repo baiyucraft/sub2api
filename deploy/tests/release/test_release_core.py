@@ -365,6 +365,7 @@ class ReleaseCoreTest(unittest.TestCase):
                 subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(private_key), "-rawin", "-in", str(root / "gate.json"), "-out", str(root / "gate.sig")], check=True)
                 with self.assertRaisesRegex(RuntimeError, "expired"):
                     verify_gate(root, public_key, "182")
+                self.assertEqual(verify_gate(root, public_key, "182", allow_expired=True)["manifest"]["expires_at"], document["manifest"]["expires_at"])
 
     def test_gate_rejects_runner_version_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

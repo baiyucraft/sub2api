@@ -40,6 +40,12 @@ overall_status: success | partial | failed | stopped
 state_rechecked_in_this_task: true | false
 release_runner_exit: 0 | nonzero | not_applicable | unknown
 reconciliation_runner_exit: 0 | nonzero | not_required | unknown
+launch_mode: detached | foreground_legacy | not_applicable
+runner_identity_recorded: true | false | not_applicable
+failed_operation: value | not_applicable
+failure_code: value | not_applicable
+previous_release_reconciled: true | false | not_required | unknown
+candidate_reused: true | false | not_applicable | unknown
 signed_gate_status: verified | fail | not_applicable | not_checked
 production_result_stage: production_verified | production_verified_after_reconciliation | value | not_applicable | not_checked
 production_result_status: verified | failed | recovered | blocked_reconciliation | not_applicable | not_checked
