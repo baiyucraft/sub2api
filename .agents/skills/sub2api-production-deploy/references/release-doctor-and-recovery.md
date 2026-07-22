@@ -20,13 +20,16 @@
 ```text
 python deploy/release.py doctor --profile <profile> --commit <40位完整SHA>
 python deploy/release.py bootstrap-production --profile <profile>
-python deploy/release.py deploy --profile <profile> --commit <40位完整SHA>
+python deploy/release.py deploy-start --profile <profile> --commit <40位完整SHA>
+python deploy/release.py status <release_id>
+python deploy/release.py wait <release_id> --timeout 900
+python deploy/release.py verify-result <release_id>
 ```
 
 - `doctor` 只读检查本地、VM、RackNerd、DMIT 和异地节点，输出字段白名单；失败时禁止进入发布。
 - `bootstrap-production` 只创建缺失的状态目录和固定 Canary 文件，并核验信任根、Canary 与数据库、备份全局锁；不修改 systemd、不构建、不迁移、不切换应用。已有资产内容不一致时停止。
-- `deploy` 是日常一键入口：先检查本地、VM 与外部节点，幂等 bootstrap RackNerd 后再检查 RackNerd，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。
-- `deploy` 在停写前先用当前生产版本执行 direct/DMIT 流式基线 Canary；它会产生带唯一 marker 的正常 usage 记录，但不验证候选容器。该检查失败时释放本次 claim 并保持旧应用运行。候选公开后仅对 `curl 28` 和 `502/503/504` 使用新 marker 最多尝试三次，确定性 4xx、协议或 SSE 错误不重试。
+- `deploy-start` 是日常一键入口：预分配 release ID 后启动独立 worker；worker 先检查本地、VM 与外部节点，幂等 bootstrap RackNerd 后再检查 RackNerd，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。
+- worker 在停写前先用当前生产版本执行 direct/DMIT 流式基线 Canary；它会产生带唯一 marker 的正常 usage 记录，但不验证候选容器。该检查失败时释放本次 claim 并保持旧应用运行。候选公开后仅对 `curl 28` 和 `502/503/504` 使用新 marker 最多尝试三次，确定性 4xx、协议或 SSE 错误不重试。
 - 信任根首次安装仍单独使用 `bootstrap-trust`，人工核验公钥指纹；普通 bootstrap 和 deploy 不得创建或替换信任根。
 
 ## 迁移状态与重复 Gate
@@ -60,7 +63,7 @@ profile 198 在上述矩阵后追加 `198_normalize_managed_monitor_key_names.sq
 
 诊断顺序固定为：
 
-1. 确认原 `release.py deploy` 进程仍存在；只读取进程名、PID、父 PID 和 Python 模块名，不输出完整命令行。
+1. 确认原 `deploy-start` worker 仍存在；只读取进程名、PID、父 PID 和 Python 模块名，不输出完整命令行。
 2. 使用原进程对应的 profile、完整 commit SHA 和 release ID 精确定位 `.tmp/releases/<release-id>/`。目录名中的短 SHA 只用于定位，身份判断仍使用 manifest 的完整 SHA；不得仅按目录时间猜测其他发布。
 3. 从以下 JSON 仅投影白名单字段，不原样输出文件：
    - `state.json`：VM Gate 状态；`stage=vm_validate,status=verified` 只证明 VM Gate 完成。
@@ -71,18 +74,18 @@ profile 198 在上述矩阵后追加 `198_normalize_managed_monitor_key_names.sq
 6. 诊断轮询保持低频，只投影阶段、状态、错误码、候选镜像 ID 和状态文件时间等固定字段。禁止输出完整命令行、原始 JSON 或远端日志，也禁止在原进程存活时并发运行第二个 `deploy` 或 `doctor`。
 7. 当前状态文件没有统一的 `stage_deadline_at`。需要判断超时时，只能读取当前 commit 中 release runner/validator 为正在执行的子命令声明的 timeout，并等待原进程返回对应超时错误；不能自定义更短的人工超时。只有进程退出、状态明确失败或原子命令已明确超时，才复核远端 committed marker 并进入恢复决策。
 
-调用工具会在远短于 runner timeout 的时间内终止前台会话时，使用唯一隐藏后台 runner：
+调用工具会在远短于 runner timeout 的时间内终止前台会话时，使用唯一隐藏后台 runner（标准实现即 `deploy-start`）：
 
 1. stdout、stderr、PID 和 release ID 只写入仓库 `.tmp/`，不记录 secret 或完整命令行。
-2. 启动后确认只有一个 `release.py deploy` 父进程和对应 validator/production 子进程。
+2. 启动后确认只有一个 `_deploy-worker` 父进程和对应 validator/production 子进程。
 3. 只低频读取 PID 存活、日志大小和三个状态 JSON 的白名单字段。
 4. 工具层超时后先确认原进程是否仍存活；存活时不得重启、杀进程或并发运行 doctor/deploy。
-5. runner 退出后才读取脱敏异常类型，并按远端 committed state 决定下一步。
+5. runner 退出后才读取脱敏异常类型，并按远端 committed state 决定下一步。`stage_assets_verified` 后没有 `production_preflight` 时，优先归类为 caller/runner interruption，并运行 `reconcile-inspect`；不得重跑 `deploy`。
 
 成功判定必须同时满足：
 
 ```text
-原 deploy 输出 release=verified，或正式 reconciliation 入口输出 verified
+`verify-result` 输出 status=verified，或正式 reconciliation 入口输出 recovered
   + state.json: vm_validate / verified
   + production-result.json: stage=production_verified 或 production_verified_after_reconciliation
                             AND status=verified
@@ -121,7 +124,7 @@ signed image/迁移/业务不变量
 4. 候选或持久状态失败时，使用 `local_restore_point_ready=true` 对应的 root-only 临时 tar 协调恢复 PostgreSQL、Redis、完整 Compose/config/data 和旧 image。
 5. 状态查询失败必须 fail-closed；`systemctl`、`docker info`、`docker inspect`、`docker ps` 查询失败不能解释为服务已停止或容器不存在。
 6. 无论继续候选还是恢复旧版，都要恢复 backup units；成功候选还要恢复自动同步。
-7. 最终必须由当前 commit 中已实现、经过测试并有明确命令/参数的 runner/reconciliation 入口原子 consume/reconcile active claim 并更新结构化状态。禁止手工改 JSON、删除 marker 或伪造 `verified`。当前仓库没有该入口时保持 `blocked_reconciliation`，先实现并审核入口，不用一次性脚本代替。
+7. 最终必须由当前 commit 中已实现、经过测试并有明确命令/参数的 runner/reconciliation 入口原子 consume/reconcile active claim 并更新结构化状态。禁止手工改 JSON、删除 marker 或伪造 `verified`。不满足 claim-only 条件时保持 `blocked_reconciliation`，先完成现场审计，不用一次性脚本代替。
 
 人工 reconciliation 完成发布至少要求：运行 image 等于 signed candidate、迁移与业务不变量通过、生产开关符合计划、direct/DMIT health 和 streaming 通过、usage/真实 IP 归因通过、backup timer 与自动同步恢复、claim 已消费且 post-deploy doctor 通过。若真实隔离恢复未完成，整体仍报告 `partial: production healthy, disaster-recovery baseline incomplete`。
 

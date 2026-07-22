@@ -67,7 +67,7 @@ build-chain:
               -> VM Gate 浏览器/接口验收 -> RackNerd 使用同一 image ID 切换
 ```
 
-禁止为了“重新构建”而破坏同一镜像身份；验证通过的镜像就是生产候选。
+禁止为了“重新构建”而破坏同一镜像身份；验证通过的镜像就是生产候选。同一 commit 重新构建也可能得到不同 image ID，same commit 不等于 same candidate；只有同一 release 的 Gate、归档和 image ID 三者同时匹配，才可称为复用 candidate。
 
 ## 运维资产
 
@@ -139,7 +139,7 @@ VM 构建规则：
 - 使用 VM `/opt/sub2api-src` 固定工作树。
 - 构建完成后必须在 `sub2api-dev` 完成完整验证。
 - 从 VM 导出已经验证的 `candidate_image_id`，传到 RackNerd。
-- 若 profile 已接入 `deploy/release.py`，使用 `python deploy/release.py deploy --profile <profile> --commit <full SHA>`；候选只在 VM 构建，RackNerd 只验签、导入和核对 image ID。
+- 若 profile 已接入 `deploy/release.py`，使用 `python deploy/release.py deploy-start --profile <profile> --commit <full SHA>`，再用 `status/wait/verify-result` 收口；候选只在 VM 构建，RackNerd 只验签、导入和核对 image ID。
 - RackNerd 不得重新构建同一个候选。
 - VM 空间或依赖无法安全满足时停止，不得退回 RackNerd 未验证构建。
 - 构建链在 VM 至少执行五次空间门禁：构建前、构建后、导出前、导入前、导入后；同时检查 Docker Root Dir、containerd、`/tmp` 和传输临时目录。
