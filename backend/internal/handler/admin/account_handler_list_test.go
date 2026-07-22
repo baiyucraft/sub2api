@@ -13,6 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type accountListTTFTGuardReader struct {
+	accountIDs []int64
+	states     map[int64][]service.OpenAITTFTGuardDegradation
+}
+
+func (r *accountListTTFTGuardReader) OpenAITTFTGuardDegradations(accountIDs []int64) map[int64][]service.OpenAITTFTGuardDegradation {
+	r.accountIDs = append([]int64(nil), accountIDs...)
+	return r.states
+}
+
 func setupAccountListRouter() (*gin.Engine, *stubAdminService) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -306,4 +316,60 @@ func TestAccountHandlerListSchedulerScoreIgnoresPagination(t *testing.T) {
 	require.Equal(t, int64(301), payload.Data.Items[0].ID)
 	require.Less(t, payload.Data.Items[0].SchedulerScore.BaseScore, 3.75)
 	require.Empty(t, payload.Data.Items[0].SchedulerScores)
+}
+
+func TestAccountHandlerListIncludesTTFTGuardDegradationsForOpenAIOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	adminSvc := newStubAdminService()
+	now := time.Now().UTC().Truncate(time.Second)
+	adminSvc.accounts = []service.Account{
+		{ID: 501, Name: "openai-account", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, CreatedAt: now, UpdatedAt: now},
+		{ID: 502, Name: "anthropic-account", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, CreatedAt: now, UpdatedAt: now},
+	}
+	degradedAt := now.Add(-10 * time.Minute)
+	reader := &accountListTTFTGuardReader{states: map[int64][]service.OpenAITTFTGuardDegradation{
+		501: {{Model: "gpt-5.4-mini", Reason: "critical_sample", ThresholdMs: 20_000, LastTTFTMs: 61_000, EWMAms: 61_000, SampleCount: 1, DegradedAt: degradedAt, LastSampleAt: now.Add(-time.Minute), ExpiresAt: now.Add(5 * time.Minute), RecoverySamplesRequired: 3}},
+		502: {{Model: "should-not-leak", Reason: "critical_sample"}},
+	}}
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler.SetOpenAITTFTGuardDegradationReader(reader)
+	router.GET("/api/v1/admin/accounts", handler.List)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=20", nil)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	firstETag := rec.Header().Get("ETag")
+	require.NotEmpty(t, firstETag)
+	require.Equal(t, []int64{501}, reader.accountIDs, "only OpenAI account IDs should be sent to the runtime reader")
+
+	var payload struct {
+		Data struct {
+			Items []struct {
+				ID                    int64                                `json:"id"`
+				TTFTGuardDegradations []service.OpenAITTFTGuardDegradation `json:"ttft_guard_degradations"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Len(t, payload.Data.Items, 2)
+	require.Len(t, payload.Data.Items[0].TTFTGuardDegradations, 1)
+	require.Equal(t, "gpt-5.4-mini", payload.Data.Items[0].TTFTGuardDegradations[0].Model)
+	require.Empty(t, payload.Data.Items[1].TTFTGuardDegradations)
+
+	reader.states[501][0].RecoverySamples = 1
+	changedRec := httptest.NewRecorder()
+	changedReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=20", nil)
+	changedReq.Header.Set("If-None-Match", firstETag)
+	router.ServeHTTP(changedRec, changedReq)
+	require.Equal(t, http.StatusOK, changedRec.Code)
+	changedETag := changedRec.Header().Get("ETag")
+	require.NotEqual(t, firstETag, changedETag, "runtime degradation changes must invalidate the account-list ETag")
+
+	unchangedRec := httptest.NewRecorder()
+	unchangedReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=20", nil)
+	unchangedReq.Header.Set("If-None-Match", changedETag)
+	router.ServeHTTP(unchangedRec, unchangedReq)
+	require.Equal(t, http.StatusNotModified, unchangedRec.Code)
 }
