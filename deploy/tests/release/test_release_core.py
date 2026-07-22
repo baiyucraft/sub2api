@@ -17,7 +17,7 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.atomic import atomic_write, canonical_json
 from release.gate import verify_gate
-from release.manifest import migration_checksums
+from release.manifest import git_blob_sha256, migration_checksums, release_asset_checksums
 from release.profiles import get_profile
 from release.state import RunLock, RunState
 
@@ -88,6 +88,34 @@ class ReleaseCoreTest(unittest.TestCase):
             with mock.patch("release.manifest.workspace_root", return_value=root):
                 checksums = migration_checksums(profile)
         self.assertEqual(checksums["migration.sql"], hashlib.sha256(b"SELECT 1;").hexdigest())
+
+    def test_release_asset_checksum_uses_commit_blob_bytes(self) -> None:
+        commit = "a" * 40
+        relative_path = "deploy/release/cli.py"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            asset = root / relative_path
+            asset.parent.mkdir(parents=True)
+            asset.write_bytes(b"line one\r\nline two\r\n")
+            with (
+                mock.patch("release.manifest.workspace_root", return_value=root),
+                mock.patch("release.manifest.release_asset_paths", return_value=[asset]),
+                mock.patch(
+                    "release.manifest.subprocess.check_output",
+                    return_value=b"line one\nline two\n",
+                ) as check_output,
+            ):
+                checksums = release_asset_checksums(commit)
+
+        self.assertEqual(checksums[relative_path], hashlib.sha256(b"line one\nline two\n").hexdigest())
+        check_output.assert_called_once_with(
+            ["git", "show", f"{commit}:{relative_path}"],
+            cwd=root,
+        )
+
+    def test_git_blob_checksum_rejects_short_commit(self) -> None:
+        with self.assertRaisesRegex(ValueError, "complete 40-character"):
+            git_blob_sha256("abc123", "deploy/release/cli.py")
 
     def test_profile_191_extends_profile_187_with_official_migrations(self) -> None:
         profile_187 = get_profile("187")
