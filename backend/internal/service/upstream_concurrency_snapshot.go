@@ -59,6 +59,9 @@ func upstreamConcurrencySnapshotUpdates(cfg *UpstreamConfig, provider string, ra
 	case UpstreamProviderNewAPI:
 		snapshot["semantics"] = upstreamConcurrencySemanticsProviderDefined
 		snapshot["raw_value"] = persistedUpstreamConcurrencyRawValue(value, rawValue)
+	case UpstreamProviderLCodex:
+		snapshot["semantics"] = upstreamConcurrencySemanticsProviderDefined
+		snapshot["raw_value"] = persistedUpstreamConcurrencyRawValue(value, rawValue)
 	default:
 		snapshot["status"] = upstreamConcurrencyStatusUnsupported
 		snapshot["semantics"] = upstreamConcurrencySemanticsUnknown

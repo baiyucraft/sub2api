@@ -53,3 +53,29 @@ func TestSanitizeUpstreamKeyHidesImagePricingSnapshot(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, service.UpstreamKeyImagePricingStatusAvailable, pricing["status"])
 }
+
+func TestSanitizeUpstreamKeyHidesLCodexImageCapabilitySnapshot(t *testing.T) {
+	got := sanitizeUpstreamKey(&service.UpstreamKey{
+		Extra: map[string]any{
+			service.LCodexImageCapabilitySnapshotExtraKey: map[string]any{"allow_image_generation": true},
+			"safe_note": "visible",
+		},
+		ImagePricing: &service.UpstreamKeyImagePricing{Supported: true, Status: service.UpstreamKeyImagePricingStatusPartial, Currency: "USD"},
+	})
+	require.NotContains(t, got["extra"], service.LCodexImageCapabilitySnapshotExtraKey)
+	require.Equal(t, "visible", got["extra"].(map[string]any)["safe_note"])
+	pricing := got["image_pricing"].(gin.H)
+	require.Equal(t, service.UpstreamKeyImagePricingStatusPartial, pricing["status"])
+	require.Nil(t, pricing["final_cost_1k"])
+}
+
+func TestUpstreamCredentialsStatusLCodexDoesNotExposeSecrets(t *testing.T) {
+	got := upstreamCredentialsStatus(map[string]any{
+		service.AccountCredentialLCodexLoginIdentifier: "user@example.com",
+		service.AccountCredentialLCodexLoginPassword:   "secret-password",
+	})
+	require.Equal(t, true, got["has_lcodex_login_identifier"])
+	require.Equal(t, true, got["has_lcodex_login_password"])
+	require.NotContains(t, got, service.AccountCredentialLCodexLoginIdentifier)
+	require.NotContains(t, got, service.AccountCredentialLCodexLoginPassword)
+}

@@ -23,6 +23,7 @@ const (
 	AccountUpstreamProviderKey     = "upstream_provider"
 	AccountUpstreamProviderSub2API = "sub2api"
 	AccountUpstreamProviderNewAPI  = "newapi"
+	AccountUpstreamProviderLCodex  = "lcodex"
 	AccountUpstreamProviderOther   = "other"
 
 	AccountSub2APIRateSyncAdapterKey       = "sub2api_rate_sync_adapter"
@@ -40,6 +41,9 @@ const (
 	AccountCredentialNewAPICookie        = "newapi_cookie"
 	AccountCredentialNewAPIAccessToken   = "newapi_access_token"
 	AccountCredentialNewAPIUserID        = "newapi_user_id"
+
+	AccountCredentialLCodexLoginIdentifier = "lcodex_login_identifier"
+	AccountCredentialLCodexLoginPassword   = "lcodex_login_password"
 )
 
 type Account struct {
