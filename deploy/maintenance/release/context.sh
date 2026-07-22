@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]]
+[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198|199)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]]
 release_id=${BASH_REMATCH[1]}
 [[ -d $release_dir && ! -L $release_dir ]]
 [[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]]
@@ -29,7 +29,7 @@ grep -Fxq "candidate_image_id=$candidate_image_id" "$release_dir/.prepared"
 state_dir="/opt/sub2api/backups/release-state/$release_id"
 
 assert_prompt_audit_disabled() {
-  if [[ $profile != 194 && $profile != 195 && $profile != 197 && $profile != 198 ]]; then
+  if [[ $profile != 194 && $profile != 195 && $profile != 197 && $profile != 198 && $profile != 199 ]]; then
     printf 'prompt_audit_disabled=not_applicable\n'
     printf 'prompt_audit_jobs=not_applicable\n'
     printf 'prompt_audit_events=not_applicable\n'

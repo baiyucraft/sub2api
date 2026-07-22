@@ -28,8 +28,8 @@ tag="sub2api:baiyu-$version-$commit"
 test_tag="sub2api:vm-test-$commit"
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 profile=$(jq -er '.profile' "$manifest")
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]
 [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
 [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
 [[ $(jq -er '.vm_validator_sha256' "$manifest") == "$(sha256sum "$0" | awk '{print $1}')" ]]
@@ -109,6 +109,7 @@ probe_db="sub2api_probe_${probe_suffix:0:24}"
 probe_dir="$state_dir/probe-data"
 probe_redis="sub2api-probe-redis-${probe_suffix:0:12}"
 probe_app="sub2api-probe-app-${probe_suffix:0:12}"
+old_probe_app="sub2api-probe-old-${probe_suffix:0:12}"
 probe_network="sub2api-probe-net-${probe_suffix:0:12}"
 redis_image=$(docker inspect -f '{{.Config.Image}}' sub2api-redis)
 database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
@@ -119,7 +120,7 @@ SELECT format('CREATE DATABASE %I OWNER %I', '$probe_db', :'db_owner') \gexec
 SQL
 }
 cleanup_probe() {
-  docker rm -f "$probe_app" "$probe_redis" >/dev/null 2>&1 || true
+  docker rm -f "$probe_app" "$old_probe_app" "$probe_redis" >/dev/null 2>&1 || true
   docker network disconnect -f "$probe_network" sub2api-postgres >/dev/null 2>&1 || true
   docker network rm "$probe_network" >/dev/null 2>&1 || true
   docker exec sub2api-postgres sh -lc "dropdb --if-exists -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1 || true
@@ -222,7 +223,9 @@ clean_preflight=false
 verified_replay=false
 verified_low_watermark_rejected=false
 managed_monitor_key_names_verified=false
-if [[ $profile == 195 || $profile == 197 || $profile == 198 ]]; then
+reasoning_effort_policy_verified=false
+vm_old_image_compatibility_verified=false
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]; then
   migration_195_context="$state_dir/migration-195-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_195_context"
   chmod 400 "$migration_195_context"
@@ -258,7 +261,7 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 ]]; then
 fi
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
 rm -f "$state_dir/migrate-candidate.log"
-if [[ $profile == 195 || $profile == 197 || $profile == 198 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
   consumed_event_id=$(<"$state_dir/migration-195-outbox-event.id")
   if [[ $migration_195_status == absent ]]; then
@@ -293,6 +296,22 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" bind >/dev/null
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
 fi
+if [[ $profile == 199 ]]; then
+  mark_stage old_image_compatibility
+  docker run -d --name "$old_probe_app" --network "$probe_network" \
+    -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
+    --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
+    --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
+    -v "$probe_dir:/app/data" "$old_image_id" >/dev/null 2>&1
+  for _ in $(seq 1 90); do
+    [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]] && break
+    sleep 2
+  done
+  [[ $(docker inspect -f '{{.Image}}' "$old_probe_app") == "$old_image_id" ]]
+  [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]]
+  docker rm -f "$old_probe_app" >/dev/null
+  vm_old_image_compatibility_verified=true
+fi
 mark_stage candidate_health
 docker run -d --name "$probe_app" --network "$probe_network" \
   -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
@@ -313,16 +332,21 @@ while IFS=$'\t' read -r migration migration_checksum; do
 done < <(jq -r '.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.priority IS DISTINCT FROM ROUND(k.rate_multiplier*100)::int)\"") == 0 ]]
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts WHERE extra ?| ARRAY['upstream_rate_multiplier','upstream_source_rate_multiplier','upstream_recharge_rate','upstream_effective_cost_multiplier','sub2api_upstream_rate_multiplier']\"") == 0 ]]
-if [[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 ]]; then
+if [[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]; then
   prompt_audit_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"WITH config AS (SELECT COALESCE(NULLIF((SELECT value FROM settings WHERE key='prompt_audit_config'), ''), '{}')::jsonb AS value) SELECT NOT COALESCE((value->>'enabled')::boolean, false) AND NOT COALESCE((value->>'blocking_enabled')::boolean, false) AND NOT COALESCE((value->>'store_pass_events')::boolean, false) AND jsonb_typeof(COALESCE(value->'endpoints', '[]'::jsonb)) = 'array' AND jsonb_array_length(COALESCE(value->'endpoints', '[]'::jsonb)) = 0, (SELECT COUNT(*) FROM prompt_audit_jobs), (SELECT COUNT(*) FROM prompt_audit_events) FROM config\"")
   [[ $prompt_audit_state == 't|0|0' ]]
 fi
-if [[ $profile == 198 ]]; then
+if [[ $profile == 198 || $profile == 199 ]]; then
   managed_monitor_key_name_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT character_maximum_length, (SELECT COUNT(*) FROM api_keys k JOIN channel_monitors m ON m.id=k.managed_monitor_id AND m.managed_api_key_id=k.id WHERE k.purpose='managed_monitor' AND k.deleted_at IS NULL AND k.name IS DISTINCT FROM '监控-' || BTRIM(m.name)) FROM information_schema.columns WHERE table_schema='public' AND table_name='api_keys' AND column_name='name'\"")
   [[ $managed_monitor_key_name_state == '103|0' ]]
   managed_monitor_key_names_verified=true
 fi
-if [[ $profile == 195 || $profile == 197 || $profile == 198 ]]; then
+if [[ $profile == 199 ]]; then
+  reasoning_effort_policy_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COALESCE(MAX(CASE WHEN column_name='max_reasoning_effort' THEN data_type || ':' || is_nullable || ':' || column_default END),''), COALESCE(MAX(CASE WHEN column_name='reasoning_effort_mappings' THEN data_type || ':' || is_nullable || ':' || column_default END),'') FROM information_schema.columns WHERE table_schema='public' AND table_name='groups' AND column_name IN ('max_reasoning_effort','reasoning_effort_mappings')\"")
+  [[ $reasoning_effort_policy_state == *'character varying:NO:'*"''::character varying"*'|'*'jsonb:NO:'*"'[]'::jsonb"* ]]
+  reasoning_effort_policy_verified=true
+fi
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
   verified_replay=true
@@ -345,15 +369,18 @@ jq -n --slurpfile manifest "$manifest" \
   --arg candidate_image_id "$candidate_image_id" \
   --arg candidate_archive_sha256 "$candidate_archive_sha" \
   --argjson candidate_size "$candidate_size" \
-  --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 ]] && printf true || printf false)" \
-  --argjson migration_195_verified "$([[ $profile == 195 || $profile == 197 || $profile == 198 ]] && printf true || printf false)" \
+  --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]] && printf true || printf false)" \
+  --argjson migration_195_verified "$([[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]] && printf true || printf false)" \
   --argjson managed_monitor_key_names_verified "$managed_monitor_key_names_verified" \
+  --argjson reasoning_effort_policy_verified "$reasoning_effort_policy_verified" \
+  --arg vm_old_image_id "$old_image_id" \
+  --argjson vm_old_image_compatibility_verified "$vm_old_image_compatibility_verified" \
   --argjson fixture_rejected "$fixture_rejected" \
   --argjson restore_completed "$restore_completed" \
   --argjson clean_preflight "$clean_preflight" \
   --argjson verified_replay "$verified_replay" \
   --argjson verified_low_watermark_rejected "$verified_low_watermark_rejected" \
-  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
+  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
   | jq -cS . > "$output_dir/gate.json.tmp"
 chmod 400 "$output_dir/gate.json.tmp"
 mv -T -- "$output_dir/gate.json.tmp" "$output_dir/gate.json"

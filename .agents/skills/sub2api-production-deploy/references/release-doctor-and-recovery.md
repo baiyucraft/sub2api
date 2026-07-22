@@ -34,7 +34,7 @@ python deploy/release.py verify-result <release_id>
 
 ## 迁移状态与重复 Gate
 
-每次生产 preflight 必须同时输出 profile 的整体 `migration_status` 和关键迁移的独立状态，例如 `migration_195_status`、`migration_196_status`、`migration_197_status`。独立状态只允许：
+每次生产 preflight 必须同时输出 profile 的整体 `migration_status` 和关键迁移的独立状态，例如 `migration_195_status`、`migration_196_status`、`migration_197_status`、`migration_198_status`、`migration_199_status`。独立状态只允许：
 
 - `absent`：数据库中没有该迁移记录，且目标 checksum 与 manifest 已匹配，可以按顺序执行；
 - `verified`：数据库中已有该迁移记录，记录 checksum、schema/数据语义和目标 checksum 全部匹配，可以幂等跳过；
@@ -54,6 +54,11 @@ profile 197 的预检/执行矩阵固定为：
 最终 committed marker 和 Gate evidence 必须覆盖 195、196、197 三项目标 checksum，不能只记录 profile 总体为 `verified`。
 
 profile 198 在上述矩阵后追加 `198_normalize_managed_monitor_key_names.sql`：当 195/196/197 均为 `verified` 且 198 为 `absent` 时，只执行 198；若 198 已 `verified`，只读复核后幂等跳过。最终 marker 和 Gate evidence 还必须包含 198 的目标 checksum。
+
+profile 199 在上述矩阵后追加 `199_group_reasoning_effort_policy.sql`：当 195/196/197/198 均为
+`verified` 且 199 为 `absent` 时，只执行 199；若 199 已 `verified`，只读复核后幂等跳过。最终
+marker 和 Gate evidence 还必须包含 199 的目标 checksum、reasoning policy schema 证据和旧镜像
+兼容性 smoke 证据。
 
 `migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 

@@ -615,6 +615,10 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("migration_status=verified", preflight)
         self.assertIn("migration_195_status=verified", preflight)
         self.assertIn("migration_195_status=absent", preflight)
+        for migration in ("196", "197", "198", "199"):
+            self.assertIn(f"migration_{migration}_status=not_applicable", preflight)
+            self.assertIn(f"migration_{migration}_status=verified", preflight)
+            self.assertIn(f"migration_{migration}_status=absent", preflight)
         self.assertIn("printf 'migration_195_status=%s", preflight)
         self.assertIn('[[ $migration_state == "$migration|$migration_checksum" ]]', preflight)
 
@@ -631,6 +635,15 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("managed_monitor_key_name_state", switch)
         self.assertIn("character_maximum_length", switch)
         self.assertIn("managed_monitor_key_names_verified=true", switch)
+
+    def test_profile_199_verifies_reasoning_effort_policy(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        switch = self.script("switch.sh")
+        self.assertIn('allowed.add("reasoning_effort_policy_verified")', production)
+        self.assertIn("reasoning_effort_policy_state", switch)
+        self.assertIn("max_reasoning_effort", switch)
+        self.assertIn("reasoning_effort_mappings", switch)
+        self.assertIn("reasoning_effort_policy_verified=true", switch)
 
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")
@@ -678,6 +691,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertLess(execute.index("self.bind_migration_plan()"), execute.index("self.switch()"))
         self.assertLess(switch.index('migration-195-assert.sh" postflight_db'), switch.index("docker compose up"))
         self.assertIn("migration-committed", switch)
+        self.assertIn("migration_manifest_sha256", switch)
+        self.assertIn("printf 'migration=%s checksum=%s", switch)
         self.assertIn("remote_migration_committed", production)
         self.assertIn("migration 195 committed state is unknown", production)
 

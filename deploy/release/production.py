@@ -72,6 +72,10 @@ class ProductionRelease:
         self.backup_values: dict[str, str] | None = None
         self.migration_status: str | None = None
         self.migration_195_status: str | None = None
+        self.migration_196_status: str | None = None
+        self.migration_197_status: str | None = None
+        self.migration_198_status: str | None = None
+        self.migration_199_status: str | None = None
         self.result_path = gate_dir / "production-result.json"
         self.result: dict[str, object] = {"release_id": self.release_id, "status": "running", "stage": "init", "history": []}
         self._save_result()
@@ -155,10 +159,24 @@ class ProductionRelease:
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/preflight.sh",
-            {"preflight", "pre_switch_image_id", "free_bytes", "migration_status", "migration_195_status"},
+            {
+                "preflight",
+                "pre_switch_image_id",
+                "free_bytes",
+                "migration_status",
+                "migration_195_status",
+                "migration_196_status",
+                "migration_197_status",
+                "migration_198_status",
+                "migration_199_status",
+            },
         )
         self.migration_status = values["migration_status"]
         self.migration_195_status = values["migration_195_status"]
+        self.migration_196_status = values["migration_196_status"]
+        self.migration_197_status = values["migration_197_status"]
+        self.migration_198_status = values["migration_198_status"]
+        self.migration_199_status = values["migration_199_status"]
         self.stage("production_preflight_verified", values)
 
     def run_route_canary(
@@ -315,7 +333,7 @@ class ProductionRelease:
         self.stage("backup_verified", {**values, **promoted})
 
     def migration_preflight(self) -> None:
-        if self.profile["name"] not in {"195", "197", "198"}:
+        if self.profile["name"] not in {"195", "197", "198", "199"}:
             return
         self.stage("migration_195_preflight")
         if self.migration_195_status not in {"absent", "verified"}:
@@ -333,7 +351,7 @@ class ProductionRelease:
         self.stage("migration_195_preflight_verified", values)
 
     def bind_migration_plan(self) -> None:
-        if self.profile["name"] not in {"195", "197", "198"}:
+        if self.profile["name"] not in {"195", "197", "198", "199"}:
             return
         self.stage("migration_195_bind_recovery_point")
         env = quoted_env({"RELEASE_DIR": self.release_dir})
@@ -352,7 +370,7 @@ class ProductionRelease:
             "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
             "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
         }
-        if getattr(self, "profile", {}).get("name") in {"195", "197", "198"}:
+        if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199"}:
             allowed.update({
                 "migration_195_affected", "migration_195_unproven",
                 "migration_195_plan_sha256", "migration_195_database_postflight", "migration_195_postflight",
@@ -360,8 +378,10 @@ class ProductionRelease:
                 "migration_195_account_mismatch", "migration_195_snapshot_missing", "migration_195_outbox_missing",
                 "migration_195_constraint_missing", "migration_195_trigger_missing",
             })
-        if getattr(self, "profile", {}).get("name") == "198":
+        if getattr(self, "profile", {}).get("name") in {"198", "199"}:
             allowed.add("managed_monitor_key_names_verified")
+        if getattr(self, "profile", {}).get("name") == "199":
+            allowed.add("reasoning_effort_policy_verified")
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/switch.sh",
@@ -491,7 +511,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
                 raise RuntimeError("remote pre-switch recovery state is unknown")
             self.frozen = recovery_needed
         migration_committed = self.migration_started
-        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198"}:
+        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199"}:
             migration_committed = self.remote_migration_committed()
             if migration_committed is None:
                 raise RuntimeError("migration 195 committed state is unknown")
@@ -546,19 +566,43 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         self.stage("recovered", values)
 
     def remote_migration_committed(self) -> bool | None:
-        if self.profile["name"] not in {"195", "197", "198"}:
+        if self.profile["name"] not in {"195", "197", "198", "199"}:
             return self.migration_started
-        migration = "195_upstream_scheduling_monitor_rates.sql"
-        checksum = self.manifest["migration_sha256"][migration]
+        status_by_migration = {
+            "195_upstream_scheduling_monitor_rates.sql": self.migration_195_status,
+            "196_ops_ingress_reject_aggregates.sql": self.migration_196_status,
+            "197_auth_cache_invalidation_outbox.sql": self.migration_197_status,
+            "198_normalize_managed_monitor_key_names.sql": self.migration_198_status,
+            "199_group_reasoning_effort_policy.sql": self.migration_199_status,
+        }
+        pending = [migration for migration in self.manifest["migrations"] if status_by_migration.get(migration) == "absent"]
+        pending_words = " ".join(shlex.quote(migration) for migration in pending)
         script = f"""
 set -Eeuo pipefail
 marker={self.state_dir}/migration-committed
 plan=$(cat {self.state_dir}/migration-195-plan.sha256 2>/dev/null || true)
-row=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='{migration}'")
+gate={self.release_dir}/gate.json
 container=sub2api-migrate-{self.release_id}
-if test -f "$marker" && test ! -L "$marker" && test -n "$plan" && grep -Fxq 'migration={migration}' "$marker" && grep -Fxq 'checksum={checksum}' "$marker" && grep -Fxq "plan_sha256=$plan" "$marker" && test "$row" = '{migration}|{checksum}'; then
+pending_migrations=({pending_words})
+expected_manifest=$(jq -cS '.manifest.migration_sha256' "$gate" | sha256sum | awk '{{print $1}}')
+marker_manifest=$(sed -n 's/^migration_manifest_sha256=//p' "$marker" 2>/dev/null || true)
+all_verified=true
+while IFS=$'\t' read -r migration checksum; do
+  row=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
+  if test "$row" != "$migration|$checksum" || ! grep -Fxq "migration=$migration checksum=$checksum" "$marker" 2>/dev/null; then
+    all_verified=false
+  fi
+done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$gate")
+pending_recorded=false
+for migration in "${{pending_migrations[@]}}"; do
+  row=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
+  if test -n "$row"; then
+    pending_recorded=true
+  fi
+done
+if test -f "$marker" && test ! -L "$marker" && test -n "$plan" && grep -Fxq "plan_sha256=$plan" "$marker" && test "$marker_manifest" = "$expected_manifest" && test "$all_verified" = true; then
   printf 'migration_committed=true\n'
-elif test ! -e "$marker" && test ! -L "$marker" && test -z "$row" && test -z "$(docker ps -aq -f name=^${{container}}$)"; then
+elif test ! -e "$marker" && test ! -L "$marker" && test "$pending_recorded" = false && test -z "$(docker ps -aq -f name=^${{container}}$)"; then
   printf 'migration_committed=false\n'
 else
   printf 'migration_committed=unknown\n'
