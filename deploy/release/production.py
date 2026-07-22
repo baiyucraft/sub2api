@@ -465,7 +465,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             {"dmit_final_health"},
         )
         restore_env = quoted_env({"STATE_ROOT": "/opt/sub2api/backups/release-state", "STATE_DIR": self.state_dir})
-        self.run_remote("racknerd", f"{restore_env} {self.active_assets}/restore-backup-units.sh", {"backup_units_restored"})
+        backup_units = self.run_remote("racknerd", f"{restore_env} {self.active_assets}/restore-backup-units.sh", {"backup_units_restored"})
         self.units_masked = False
         consume_env = quoted_env({"RELEASE_DIR": self.release_dir})
         cleaned = self.run_remote(
@@ -475,7 +475,13 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         )
         consumed = self.run_remote("racknerd", f"{consume_env} {self.active_assets}/consume.sh", {"gate_consumed"})
         self.result["status"] = "verified"
-        self.stage("production_verified", {**verified, **direct, **dmit, **attribution, **final, **external_final, **consumed, **cleaned})
+        route_evidence = {
+            "direct_route_health": direct["route_health"],
+            "direct_streaming": direct["streaming"],
+            "dmit_route_health": dmit["route_health"],
+            "dmit_streaming": dmit["streaming"],
+        }
+        self.stage("production_verified", {**verified, **route_evidence, **attribution, **final, **external_final, **backup_units, **consumed, **cleaned})
 
     def recover(self) -> None:
         self.stage("recovery_started")
