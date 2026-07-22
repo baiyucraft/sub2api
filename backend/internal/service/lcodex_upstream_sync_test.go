@@ -306,6 +306,46 @@ func TestLCodexProfileFailureIsPartialAndPreservesGenericSnapshot(t *testing.T) 
 	require.NotContains(t, fmt.Sprint(updates), "secret")
 }
 
+func TestLCodexProfileIDAcceptsStringAndInteger(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "opaque string", raw: `"user-7a9"`, want: "user-7a9"},
+		{name: "zero", raw: `0`, want: "0"},
+		{name: "negative", raw: `-1`, want: "-1"},
+		{name: "integer", raw: `42`, want: "42"},
+		{name: "larger than int64", raw: `9223372036854775808`, want: "9223372036854775808"},
+		{name: "arbitrary precision", raw: `1234567890123456789012345678901234567890`, want: "1234567890123456789012345678901234567890"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseLCodexProfileID(json.RawMessage(tc.raw))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+
+	for _, raw := range []string{
+		"", "null", `""`, `"   "`, `"user\u0000id"`, `"` + strings.Repeat("a", lcodexMaxProfileIDBytes+1) + `"`,
+		`{"id":1}`, `[1]`, `true`, `1.5`, `1e3`, `01`, `+1`,
+	} {
+		_, err := parseLCodexProfileID(json.RawMessage(raw))
+		require.Error(t, err, raw)
+	}
+}
+
+func TestLCodexProfileSnapshotStoresNormalizedStringID(t *testing.T) {
+	cfg := &UpstreamConfig{Provider: UpstreamProviderLCodex, Credentials: map[string]any{}}
+	profile := &lcodexProfile{
+		ID: json.RawMessage(`"user-7a9"`), CreditBalance: json.RawMessage(`12.5`), MaxConcurrency: json.RawMessage(`4`),
+	}
+	updates, warning := lcodexProfileExtraUpdates(cfg, profile, nil)
+	require.Empty(t, warning)
+	snapshot := updates["upstream_provider_snapshot"].(map[string]any)
+	require.Equal(t, "user-7a9", snapshot["user_id"])
+}
+
 func TestLCodexImageCapabilityDisabledAndOldSnapshotBecomesStale(t *testing.T) {
 	now := time.Date(2026, 7, 22, 1, 2, 3, 0, time.UTC)
 	groupID := int64(7)
