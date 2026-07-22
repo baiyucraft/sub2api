@@ -66,9 +66,19 @@ def release_asset_paths() -> list[Path]:
     return sorted(candidates, key=lambda path: path.relative_to(root).as_posix())
 
 
-def release_asset_checksums() -> dict[str, str]:
+def git_blob_sha256(commit: str, relative_path: str) -> str:
     root = workspace_root()
-    return {path.relative_to(root).as_posix(): sha256_file(path) for path in release_asset_paths()}
+    blob = subprocess.check_output(
+        ["git", "show", f"{validate_commit(commit)}:{relative_path}"],
+        cwd=root,
+    )
+    return hashlib.sha256(blob).hexdigest()
+
+
+def release_asset_checksums(commit: str) -> dict[str, str]:
+    root = workspace_root()
+    relative_paths = [path.relative_to(root).as_posix() for path in release_asset_paths()]
+    return {relative_path: git_blob_sha256(commit, relative_path) for relative_path in relative_paths}
 
 
 def migration_checksums(profile: dict[str, Any]) -> dict[str, str]:
@@ -101,7 +111,7 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str) -> di
         "vm_validator_sha256": sha256_file(deploy_root() / "release" / "vm-validate.sh"),
         "vm_gate_signer_sha256": sha256_file(deploy_root() / "release" / "sign-gate.sh"),
         "vm_dr_signer_sha256": sha256_file(deploy_root() / "release" / "sign-dr-evidence.sh"),
-        "release_asset_sha256": release_asset_checksums(),
+        "release_asset_sha256": release_asset_checksums(commit),
         "migration_sha256": migration_checksums(profile),
         "migrations": list(profile["migrations"]),
         "vm_identity": profile["vm_identity"],
