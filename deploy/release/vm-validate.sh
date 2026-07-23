@@ -89,6 +89,27 @@ database_size=$(docker exec sub2api-postgres sh -lc \
 current_image_size=$(docker image inspect -f '{{.Size}}' "$old_image_id")
 required_before=$((database_size * 2 + current_image_size * 2 + 1073741824))
 [[ $free_before -gt $required_before ]]
+preexisting_tag_image=$(docker image inspect -f '{{.Id}}' "$tag" 2>/dev/null || true)
+cleanup_candidate_tag() {
+  local current_tag_image
+  current_tag_image=$(docker image inspect -f '{{.Id}}' "$tag" 2>/dev/null || true)
+  if [[ -n $current_tag_image && $current_tag_image != "$preexisting_tag_image" ]]; then
+    docker image rm "$tag" >/dev/null 2>&1 || true
+    docker image rm "$current_tag_image" >/dev/null 2>&1 || true
+  fi
+  if [[ -n $preexisting_tag_image ]] && docker image inspect "$preexisting_tag_image" >/dev/null 2>&1; then
+    docker tag "$preexisting_tag_image" "$tag" >/dev/null 2>&1 || true
+  fi
+}
+on_build_failure() {
+  code=$?
+  trap - ERR INT TERM
+  printf '%s\n' candidate_build > "$state_dir/failure-category"
+  rm -f "$state_dir/candidate.tar.gz"
+  cleanup_candidate_tag
+  exit "$code"
+}
+trap on_build_failure ERR INT TERM
 export DOCKER_BUILDKIT=1
 mark_stage candidate_build
 docker build --network=host --progress=plain \
@@ -104,6 +125,7 @@ candidate_size=$(docker image inspect -f '{{.Size}}' "$tag")
 free_after_build=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
 required_free=$((database_size * 2 + candidate_size + 1073741824))
 [[ $free_after_build -gt $required_free ]]
+trap - ERR INT TERM
 probe_suffix=${release_id//[^a-zA-Z0-9]/}
 probe_db="sub2api_probe_${probe_suffix:0:24}"
 probe_dir="$state_dir/probe-data"
@@ -184,7 +206,7 @@ on_failure() {
   rm -f "$state_dir/validator.stderr"
   cleanup_probe
   rm -f "$state_dir/candidate.tar.gz"
-  docker image rm "$tag" >/dev/null 2>&1 || true
+  cleanup_candidate_tag
   exit "$code"
 }
 trap on_failure ERR INT TERM

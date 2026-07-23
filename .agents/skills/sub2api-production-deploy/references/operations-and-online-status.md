@@ -202,5 +202,6 @@ candidate 已上传不等于 verified。
 - DMIT 检查 HAProxy PROXY v2 到 RackNerd `18443` 的连通性。
 - 生产、VM 和备份机磁盘检查都记录文件系统、总量、可用量和时间。
 - 同时记录 Docker Root Dir、containerd 根目录、`/tmp` 的总量、可用量、inode、清理前后 `df` 差值和扩盘状态。
-- Docker cache 只观测大小和是否可复用；Snap 共享块可能使缓存看似可回收但实际不释放，发布流程不主动 prune。
+- Docker cache 同时观测大小、创建/最近使用时间和是否可复用；containerd snapshotter 下逻辑共享大小不能当作物理可释放量。发布流程仅允许版本化清理器在空间不足时执行一次 `--all`、`max-used-space=1gb`、`reserved-space=1gb` 的容量有界 BuildKit GC，禁止缺少缓存上限或保留量的无界 prune。
+- 生产维护清理另走 `cleanup-production`：记录 verified release、dry-run/apply、`plan_sha256`、候选/删除数量、migration 证据容器数量、BuildKit policy/record 数和根/containerd 文件系统 `df` 差值。逻辑候选字节不得命名或解释为 reclaimable bytes。
 - VM 扩盘必须保存分区表 checksum，确认分区连续后按“扩分区 -> `partprobe` -> 文件系统 resize -> `df` 复核”执行；任一步无法验证即停止。

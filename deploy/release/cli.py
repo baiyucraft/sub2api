@@ -159,6 +159,13 @@ def production_bootstrap(args: argparse.Namespace) -> None:
     print(" ".join(f"{key}={value}" for key, value in evidence.items()))
 
 
+def production_cleanup(args: argparse.Namespace) -> None:
+    from .production_cleanup import cleanup_production
+
+    evidence = cleanup_production(args.release_id, args.mode, args.plan_sha256)
+    print(" ".join(f"{key}={value}" for key, value in sorted(evidence.items())))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="VM-gated Sub2API release runner")
     subparsers = parser.add_subparsers(required=True)
@@ -198,6 +205,11 @@ def main() -> None:
     verify_parser = subparsers.add_parser("verify-result")
     verify_parser.add_argument("release_id")
     verify_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["verify_result"]).verify_result(args))
+    cleanup_parser = subparsers.add_parser("cleanup-production")
+    cleanup_parser.add_argument("release_id")
+    cleanup_parser.add_argument("--mode", choices=("dry-run", "apply"), default="dry-run")
+    cleanup_parser.add_argument("--plan-sha256")
+    cleanup_parser.set_defaults(handler=production_cleanup)
     inspect_parser = subparsers.add_parser("reconcile-inspect")
     inspect_parser.add_argument("release_id")
     inspect_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["reconcile_inspect"]).reconcile_inspect(args))

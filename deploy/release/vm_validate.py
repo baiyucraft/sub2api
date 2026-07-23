@@ -19,11 +19,14 @@ SPACE_FIELDS = {
     "free_bytes",
     "required_bytes",
     "container_candidates",
-    "container_reclaimable_bytes",
+    "container_candidate_logical_bytes",
     "image_candidates",
-    "image_reclaimable_bytes",
+    "image_candidate_logical_bytes",
     "removed_containers",
     "removed_images",
+    "build_cache_policy",
+    "build_cache_records",
+    "build_cache_gc_attempted",
 }
 
 

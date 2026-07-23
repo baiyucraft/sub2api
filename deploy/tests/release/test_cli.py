@@ -59,6 +59,18 @@ class DeployCommandTest(unittest.TestCase):
             cli.production_bootstrap(args)
         bootstrap.assert_called_once_with("182")
 
+    def test_production_cleanup_forwards_plan_checksum(self) -> None:
+        args = argparse.Namespace(
+            release_id="199-aaaaaaaaaaaa-1-deadbeef",
+            mode="apply",
+            plan_sha256="d" * 64,
+        )
+        with mock.patch("release.production_cleanup.cleanup_production", return_value={"cleanup_status": "completed"}) as cleanup, mock.patch(
+            "builtins.print"
+        ):
+            cli.production_cleanup(args)
+        cleanup.assert_called_once_with(args.release_id, "apply", "d" * 64)
+
     def test_vm_gate_accepts_matching_supervisor_preallocation(self) -> None:
         identifier = "199-aaaaaaaaaaaa-1-deadbeef"
         commit = "a" * 40
