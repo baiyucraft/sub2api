@@ -100,6 +100,8 @@ build-chain:
 5. 更新目标资产时记录旧文件 checksum、目标 checksum 和恢复步骤。
 6. 现场验证受影响服务、备份和双路径健康。
 
+`cleanup-production` 是本类别的固定维护入口：它不安装运行时资产、不切换应用，但会删除精确计划内的旧 image 和执行容量有界 BuildKit GC，因此必须先 dry-run，并以同一 `plan_sha256` 绑定 apply；不能替换成 `image prune` 或 `system prune`。
+
 涉及 Dockerfile、Compose、build/install 脚本、当前自动化入口或应用 runtime 的变更，不属于纯运维资产，必须回到 `build-chain` 或 `dev-gated`。任何不确定情况从严处理。
 
 ## 严格纯前端
@@ -278,7 +280,7 @@ frontend source
 - 不创建每个 commit 一个新源码目录。
 - 复用实际构建主机的 BuildKit 和依赖缓存。
 
-发布流程禁止执行 `docker builder prune`、`docker system prune`，禁止删除数据库、Redis、data、backup 或仍被容器引用的 image。
+发布流程禁止执行 `docker system prune`、缺少缓存上限或保留量的 builder prune，禁止删除数据库、Redis、data、backup 或仍被容器引用的 image。VM 空间在白名单对象清理后仍不足时，唯一允许的缓存回收是版本化清理器执行一次 `--all`、`max-used-space=1gb`、`reserved-space=1gb` 的容量有界 BuildKit GC；`--all` 不得脱离后两项边界单独使用。
 
 ## 镜像身份与传输
 

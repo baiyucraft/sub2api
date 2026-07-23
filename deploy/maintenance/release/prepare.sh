@@ -7,6 +7,8 @@ trust_key=${TRUST_KEY:-/opt/sub2api-release-trust/vm-gate-ed25519.pub}
 [[ $release_id =~ ^(182|187|191|192|194|195|197|198|199)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $release_dir == "/opt/sub2api/releases/$release_id" ]]
 [[ -d $release_dir && ! -L $release_dir ]]
+exec 9>/run/lock/sub2api-production-release.lock
+flock -n 9
 active_claim=/opt/sub2api/releases/.active-release
 [[ ! -e $active_claim && ! -L $active_claim ]]
 mkdir "$active_claim"

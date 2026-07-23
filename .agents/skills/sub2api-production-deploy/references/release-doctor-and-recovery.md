@@ -12,6 +12,7 @@
 - [Committed-State 恢复决策](#committed-state-恢复决策)
 - [分节点验收](#分节点验收)
 - [VM 白名单清理](#vm-白名单清理)
+- [生产空间清理](#生产空间清理)
 
 ## 标准入口
 
@@ -226,5 +227,24 @@ RackNerd  -> 按 marker 核验 usage 记录和真实客户端 IP
 - 允许删除状态为 `exited` 的 `sub2api-dev-pre*` 历史容器；`docker rm` 禁止带 `-v`。
 - 允许删除仓库为 `sub2api`、full-SHA tag、无任何容器引用、不是当前目标或当前 `sub2api-dev` 使用的旧镜像。
 - 只有本地 Gate 已完整下载并校验后，才允许删除对应的旧 VM Gate candidate 归档。
+- 上述对象清理后空间仍不足时，允许由版本化 `vm-space-clean.sh` 执行一次容量有界 BuildKit GC：使用 `--all` 覆盖曾被使用的缓存记录，但必须同时使用 `--max-used-space 1gb` 限制可回收私有缓存，并以 `--reserved-space 1gb` 保留私有缓存，由 BuildKit 按 LRU 决定回收顺序。执行前后记录 `df`、BuildKit record 数和 `/var/lib/containerd` snapshot 物理占用；禁止缺少任一容量边界的 prune。
 
-始终禁止 `docker system prune`、`docker builder prune`、删除 volume，以及触碰 PostgreSQL、Redis、`data`、`data-dev`、正式备份目录、当前 dev 容器或其镜像。白名单清理后仍不满足 `vm_required_bytes` 时停止发布。
+始终禁止 `docker system prune`、缺少缓存上限或保留量的 builder prune、删除 volume，以及触碰 PostgreSQL、Redis、`data`、`data-dev`、正式备份目录、当前 dev 容器或其镜像。匿名 PostgreSQL 卷即使没有容器引用也不能自动删除。白名单清理后仍不满足 `vm_required_bytes` 时停止发布。
+
+## 生产空间清理
+
+生产空间清理是独立的 `ops-control-assets` 维护动作，不得借机部署、迁移或切换应用。固定入口：
+
+```text
+python deploy/release.py cleanup-production <verified_release_id> --mode dry-run
+python deploy/release.py cleanup-production <verified_release_id> --mode apply --plan-sha256 <dry-run输出>
+```
+
+执行合同：
+
+1. 本地验证签名 Gate、terminal verified production result 和唯一 pre-switch image；生产重新验证同 release 的 `.consumed` marker、current image、`pre-image-id`、应用/PG/Redis/Nginx/backup timer 和内部 health。
+2. 与 release prepare 共用生产发布锁，并独占 backup global lock。存在 active claim、未消费/未恢复的 `.prepared`、活动备份、构建进程或状态查询失败时 fail-closed。
+3. 保护 current、pre-switch、所有容器状态引用的 image 和全部 recovery point `pre-image-id`。残留 `sub2api-migrate-*` 是 reconciliation 证据，只报告数量，不删除容器或对应 image。
+4. 候选只允许所有 tag 都匹配 Sub2API full-40-SHA 发布 tag 的零容器引用 image。dry-run 用稳定候选 ID 集生成 `plan_sha256`；apply 缺 checksum、checksum 漂移或删除后候选不为空均失败。
+5. apply 删除候选 image 后，允许执行一次 `docker buildx prune --all --max-used-space 2gb --reserved-space 2gb`。禁止 `docker image prune`、`docker system prune`、强制删 image、删除 volume 或扩大到 migration/container/recovery artifacts。
+6. image inspect size 和 BuildKit 逻辑大小只作分类观察，不能承诺物理释放量；最终以根文件系统及 containerd 所在文件系统的 `df -PB1` 前后差值验收。释放未达预期不授权自动第二轮或扩大范围。

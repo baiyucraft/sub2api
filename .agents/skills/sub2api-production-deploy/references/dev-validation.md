@@ -48,11 +48,12 @@
 6. 导入后要求 Docker Root Dir、containerd 和临时目录仍满足本次峰值计划，并至少保留 `2 GiB` 安全余量。
 7. loaded image ID 必须等于构建端 `candidate_image_id`，之后才允许绑定 full-SHA tag。
 
-空间不足时停止。只允许清理过期 `/tmp` candidate 或经过引用检查的单个旧 Sub2API image；禁止 prune、删卷、删数据库、删 Redis、删 data 或删 backup。清理只能执行一次。
+空间不足时停止。Docker 所在文件系统可用空间低于动态峰值需求或 8 GiB 下限即视为不足。先清理过期 `/tmp` candidate 或经过引用检查的单个旧 Sub2API image；仍不足时只允许版本化清理器执行一次 `--all`、`max-used-space=1gb`、`reserved-space=1gb` 的容量有界 BuildKit GC。`--all` 必须与缓存上限和保留量同时使用；禁止 system prune、缺少容量边界的 builder prune、删卷、删数据库、删 Redis、删 data 或删 backup。清理只能执行一次。
 
 ## VM 空间与扩容
 
 - 清理前后以 `df` 的真实可用块为准记录释放量；`du` 只用于分类占用，不能推断可回收物理空间。
+- Docker 使用 containerd snapshotter 时同时记录 `/var/lib/containerd` overlay snapshot 物理占用和 BuildKit record 数；Docker 逻辑共享大小不得与物理占用相加。
 - Snap 缓存可能与已安装 Snap 共享物理块；Docker `system df` 仅作观察，不是授权清理依据。
 - 需要扩盘时先保存 `sfdisk --dump` 及 checksum，确认目标分区是最后分区且空闲空间连续；不能在分区边界不明时操作。
 - 扩盘顺序固定为：扩展分区 -> `partprobe` -> 按文件系统执行 resize（本 VM 为 `resize2fs /dev/sda3`）-> 重新读取分区、文件系统和 `df`。

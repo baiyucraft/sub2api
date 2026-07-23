@@ -99,7 +99,17 @@ target_asset_checksum_after: value | not_applicable | not_checked
 rollback_asset_status: pass | fail | not_applicable | not_checked
 affected_service_status: pass | fail | not_applicable | not_checked
 readonly_status_check: pass | fail | not_checked
+cleanup_mode: dry-run | apply | not_applicable
+cleanup_plan_sha256: value | not_applicable
+cleanup_image_candidates: value | not_applicable
+cleanup_removed_images: value | not_applicable
+cleanup_migration_evidence_containers: value | not_applicable
+cleanup_build_cache_policy: value | not_applicable
+cleanup_root_free_delta_bytes: value | not_applicable
+cleanup_containerd_free_delta_bytes: value | not_applicable
 ```
+
+清理报告中的 image candidate size 是共享层可能重复计数的逻辑观察值，不作为释放承诺；释放结果只使用同一文件系统清理前后的 `df` 差值。migration 证据容器必须明确报告为 retained。
 
 ## VM 验证
 

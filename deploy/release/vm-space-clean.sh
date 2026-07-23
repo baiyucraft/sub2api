@@ -6,10 +6,14 @@ target_commit=${2:?target commit is required}
 [[ $mode == dry-run || $mode == apply ]]
 [[ $target_commit =~ ^[0-9a-f]{40}$ ]]
 
-required_commands=(awk cut df docker grep mktemp rm sort stat tr)
+required_commands=(awk cut df docker flock grep mktemp ps rm sort stat tr wc)
 for command_name in "${required_commands[@]}"; do
   command -v "$command_name" >/dev/null 2>&1 || exit 127
 done
+gate_root=/opt/sub2api-deploy/release-gates
+[[ -d $gate_root && ! -L $gate_root ]]
+exec 9>"$gate_root/release.lock"
+flock -n 9
 docker info >/dev/null 2>&1
 
 work_dir=$(mktemp -d)
@@ -17,6 +21,12 @@ cleanup() {
   rm -rf -- "$work_dir"
 }
 trap cleanup EXIT
+
+assert_no_active_build() {
+  [[ $(ps -eo args= | awk '/docker (build|buildx)|buildctl/ && ! /awk/ {count++} END {print count+0}') == 0 ]]
+}
+
+assert_no_active_build
 
 docker_free_bytes() {
   df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}'
@@ -29,6 +39,12 @@ database_size=$(docker exec sub2api-postgres sh -lc \
 current_image_size=$(docker image inspect -f '{{.Size}}' "$(docker inspect -f '{{.Image}}' sub2api-dev)")
 [[ $current_image_size =~ ^[0-9]+$ ]]
 required_bytes=$((database_size * 2 + current_image_size * 2 + 1073741824))
+minimum_free_bytes=$((8 * 1024 * 1024 * 1024))
+if (( required_bytes < minimum_free_bytes )); then
+  required_bytes=$minimum_free_bytes
+fi
+build_cache_max_used_space=1gb
+build_cache_reserved_space=1gb
 
 list_container_candidates() {
   docker ps -a --filter status=exited --format '{{.ID}}\t{{.Names}}' \
@@ -36,7 +52,7 @@ list_container_candidates() {
     | LC_ALL=C sort -u
 }
 
-container_reclaimable_bytes() {
+container_candidate_logical_bytes() {
   local container_id size total=0
   while IFS= read -r container_id; do
     [[ -n $container_id ]] || continue
@@ -100,6 +116,7 @@ remove_image_candidates() {
   list_image_candidates > "$work_dir/apply-image-ids"
   while IFS= read -r image_id; do
     [[ -n $image_id ]] || continue
+    assert_no_active_build
     mapfile -t tags < <(docker image inspect -f '{{range .RepoTags}}{{println .}}{{end}}' "$image_id" 2>/dev/null)
     valid=true
     has_tag=false
@@ -124,16 +141,27 @@ remove_image_candidates() {
 
 list_container_candidates > "$work_dir/container-candidates"
 container_candidates=$(awk 'NF {count++} END {print count+0}' "$work_dir/container-candidates")
-container_bytes=$(container_reclaimable_bytes < "$work_dir/container-candidates")
+container_bytes=$(container_candidate_logical_bytes < "$work_dir/container-candidates")
 list_image_candidates > "$work_dir/image-candidate-ids"
 image_candidates=$(awk 'NF {count++} END {print count+0}' "$work_dir/image-candidate-ids")
 image_bytes=$(awk -F '\t' '{total += $2} END {printf "%.0f\n", total+0}' "$work_dir/image-candidates")
 removed_containers=0
 removed_images=0
+build_cache_records=$(docker buildx du --format '{{json .}}' 2>/dev/null | wc -l | tr -d ' ')
+[[ $build_cache_records =~ ^[0-9]+$ ]]
+build_cache_gc_attempted=false
 
 if [[ $mode == apply ]]; then
   removed_containers=$(remove_container_candidates)
   removed_images=$(remove_image_candidates)
+  free_after_images=$(docker_free_bytes)
+  if (( free_after_images <= required_bytes )) && (( build_cache_records > 0 )); then
+    assert_no_active_build
+    docker buildx prune --all --force \
+      --max-used-space "$build_cache_max_used_space" \
+      --reserved-space "$build_cache_reserved_space" >/dev/null 2>&1
+    build_cache_gc_attempted=true
+  fi
 fi
 
 free_bytes=$(docker_free_bytes)
@@ -149,8 +177,11 @@ printf 'space_status=%s\n' "$space_status"
 printf 'free_bytes=%s\n' "$free_bytes"
 printf 'required_bytes=%s\n' "$required_bytes"
 printf 'container_candidates=%s\n' "$container_candidates"
-printf 'container_reclaimable_bytes=%s\n' "$container_bytes"
+printf 'container_candidate_logical_bytes=%s\n' "$container_bytes"
 printf 'image_candidates=%s\n' "$image_candidates"
-printf 'image_reclaimable_bytes=%s\n' "$image_bytes"
+printf 'image_candidate_logical_bytes=%s\n' "$image_bytes"
 printf 'removed_containers=%s\n' "$removed_containers"
 printf 'removed_images=%s\n' "$removed_images"
+printf 'build_cache_policy=%s\n' "all_lru_maxused_${build_cache_max_used_space}_reserved_${build_cache_reserved_space}"
+printf 'build_cache_records=%s\n' "$build_cache_records"
+printf 'build_cache_gc_attempted=%s\n' "$build_cache_gc_attempted"
