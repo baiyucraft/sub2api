@@ -11,6 +11,15 @@ python deploy/release.py wait <release_id> --timeout 900
 python deploy/release.py verify-result <release_id>
 ```
 
+生产空间维护不进入应用发布流程。只对已经 terminal verified 的 release 使用以下两阶段入口；apply 必须绑定同一次 dry-run 输出的计划 checksum：
+
+```text
+python deploy/release.py cleanup-production <release_id> --mode dry-run
+python deploy/release.py cleanup-production <release_id> --mode apply --plan-sha256 <plan_sha256>
+```
+
+该命令保留 current、pre-switch、所有容器引用和 recovery point 镜像；残留 migration 容器只报告不删除。它只删除 full-SHA tag 的零引用旧 Sub2API image，并以容量边界 `max-used-space=2gb,reserved-space=2gb` 执行一次 BuildKit LRU GC。禁止 volume/image/system prune，实际释放只看 `df` 前后差值。
+
 `deploy-start` 会在停写前使用当前生产版本完成 production-node direct 与 relay-node 两条流式基线 Canary，避免把既有上游或链路故障带入切换阶段；该请求会像普通请求一样产生 usage 记录，但不会使用候选容器。候选公开后使用相同合同复验；只有 `curl 28` 和 `502/503/504` 会以新 marker 最多尝试三次，所有实际落库的尝试都会核验 API Key、endpoint 和真实 IP，其他错误立即停止。worker 在 doctor 到最终收口期间持有同一把 OS 锁；调用端关闭 stdout 或超时不会中止 runner。
 
 `doctor` 和 `bootstrap-production` 可独立用于排查或首次初始化。日常只需执行 `deploy-start`：
@@ -92,7 +101,9 @@ amd64 二进制必须匹配仓库内 `linux-amd64.sha256`，并与仓库 trust �
 
 SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常猜测执行结果。production-node
 只验 direct，relay-node 必须从异地节点验；Redis `--requirepass` 只通过 stdin 传递。VM 空间
-不足时只允许发布白名单清理，禁止任何 prune、删除 volume 或触碰数据库、Redis、data 和备份。
+不足时（包括 Docker 所在文件系统可用空间低于 8 GiB 下限）先执行发布白名单对象清理；仍不足时，只允许版本化清理器执行一次
+`--all`、`max-used-space=1gb`、`reserved-space=1gb` 的容量有界 BuildKit GC；`--all` 必须与后两项同时使用。禁止 `docker system prune`、
+缺少缓存上限或保留量的 builder prune、删除 volume，或触碰数据库、Redis、data 和备份。
 
 `migration_started` 只表示尝试开始；只有 `migration-committed` marker 与数据库迁移记录、目标 checksum 同时吻合才算提交。SSH 超时、迁移容器存在或本地布尔值异常都不能直接选择恢复分支。
 
