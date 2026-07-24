@@ -615,7 +615,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("migration_status=verified", preflight)
         self.assertIn("migration_195_status=verified", preflight)
         self.assertIn("migration_195_status=absent", preflight)
-        for migration in ("196", "197", "198", "199"):
+        for migration in ("196", "197", "198", "199", "200", "201", "202"):
             self.assertIn(f"migration_{migration}_status=not_applicable", preflight)
             self.assertIn(f"migration_{migration}_status=verified", preflight)
             self.assertIn(f"migration_{migration}_status=absent", preflight)
@@ -644,6 +644,29 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("max_reasoning_effort", switch)
         self.assertIn("reasoning_effort_mappings", switch)
         self.assertIn("reasoning_effort_policy_verified=true", switch)
+
+    def test_profile_202_verifies_all_upstream_migration_semantics(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        switch = self.script("switch.sh")
+        expected = {
+            "alipay_mobile_precreate_migration_verified": "ALIPAY_MOBILE_PRECREATE_DEEP_LINK",
+            "group_auth_cache_image_generation_verified": "allow_image_generation",
+            "composite_model_routes_verified": "composite_model_routes",
+        }
+        for evidence, semantic_probe in expected.items():
+            self.assertIn(f'"{evidence}",', production)
+            self.assertIn(f"{evidence}=true", switch)
+            self.assertIn(semantic_probe, switch)
+
+    def test_profile_202_tracks_each_migration_status_for_reconciliation(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        for migration, filename in (
+            ("200", "200_alipay_mobile_precreate_deep_link.sql"),
+            ("201", "201_group_auth_cache_image_generation.sql"),
+            ("202", "202_composite_model_routes.sql"),
+        ):
+            self.assertIn(f'self.migration_{migration}_status = values["migration_{migration}_status"]', production)
+            self.assertIn(f'"{filename}": self.migration_{migration}_status', production)
 
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")

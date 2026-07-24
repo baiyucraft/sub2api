@@ -61,7 +61,7 @@ class DeployCommandTest(unittest.TestCase):
 
     def test_production_cleanup_forwards_plan_checksum(self) -> None:
         args = argparse.Namespace(
-            release_id="199-aaaaaaaaaaaa-1-deadbeef",
+            release_id="202-aaaaaaaaaaaa-1-deadbeef",
             mode="apply",
             plan_sha256="d" * 64,
         )

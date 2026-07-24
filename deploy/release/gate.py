@@ -54,20 +54,28 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
         raise RuntimeError("gate has expired")
     if evidence.get("vm_restore_verified") is not True or evidence.get("integration_verified") is not True:
         raise RuntimeError("gate lacks VM restore or integration evidence")
-    if expected_profile in {"194", "195", "197", "198", "199"} and evidence.get("prompt_audit_disabled") is not True:
+    if expected_profile in {"194", "195", "197", "198", "199", "202"} and evidence.get("prompt_audit_disabled") is not True:
         raise RuntimeError("gate lacks Prompt Audit disabled-state evidence")
-    if expected_profile in {"195", "197", "198", "199"}:
+    if expected_profile in {"195", "197", "198", "199", "202"}:
         required_migration_evidence = ("migration_195_verified", "fixture_rejected", "restore_completed", "clean_preflight", "verified_replay", "verified_low_watermark_rejected")
         if any(evidence.get(field) is not True for field in required_migration_evidence):
             raise RuntimeError("gate lacks migration 195 semantic evidence")
-    if expected_profile in {"198", "199"} and evidence.get("managed_monitor_key_names_verified") is not True:
+    if expected_profile in {"198", "199", "202"} and evidence.get("managed_monitor_key_names_verified") is not True:
         raise RuntimeError("gate lacks managed monitor key-name evidence")
-    if expected_profile == "199":
+    if expected_profile in {"199", "202"}:
         if evidence.get("reasoning_effort_policy_verified") is not True:
             raise RuntimeError("gate lacks group reasoning-effort policy evidence")
         if evidence.get("vm_old_image_compatibility_verified") is not True:
             raise RuntimeError("gate lacks VM old-image compatibility evidence")
         validate_image_id(evidence.get("vm_old_image_id", ""))
+    if expected_profile == "202":
+        required_profile_202_evidence = (
+            "alipay_mobile_precreate_migration_verified",
+            "group_auth_cache_image_generation_verified",
+            "composite_model_routes_verified",
+        )
+        if any(evidence.get(field) is not True for field in required_profile_202_evidence):
+            raise RuntimeError("gate lacks profile 202 migration semantic evidence")
     archive_path = bundle_dir / "candidate.tar.gz"
     if not archive_path.is_file():
         raise RuntimeError("gate candidate archive is missing")
