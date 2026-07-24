@@ -362,8 +362,16 @@ func expectAccountBindingRead(mock sqlmock.Sqlmock, account *service.Account, fo
 func expectAccountProbeStateRead(mock sqlmock.Sqlmock, account *service.Account) {
 	mock.ExpectQuery(`(?s)SELECT.*upstream_billing_probe_enabled.*FOR NO KEY UPDATE`).
 		WithArgs(account.ID, account.Platform, account.Type, `{}`, nil).
-		WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "enabled", "snapshot"}).
-			AddRow(true, nil, nil))
+		WillReturnRows(sqlmock.NewRows([]string{
+			"identity_unchanged",
+			"ollama_group_unchanged",
+			"ollama_proxy_unchanged",
+			"enabled",
+			"snapshot",
+			"ollama_session",
+			"ollama_auto",
+			"ollama_snapshot",
+		}).AddRow(true, false, true, nil, nil, nil, nil, nil))
 }
 
 func expectSchedulerAccountOutbox(mock sqlmock.Sqlmock, err error) {

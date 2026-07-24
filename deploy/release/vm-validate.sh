@@ -28,8 +28,8 @@ tag="sub2api:baiyu-$version-$commit"
 test_tag="sub2api:vm-test-$commit"
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 profile=$(jq -er '.profile' "$manifest")
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]
 [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
 [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
 [[ $(jq -er '.vm_validator_sha256' "$manifest") == "$(sha256sum "$0" | awk '{print $1}')" ]]
@@ -246,8 +246,14 @@ verified_replay=false
 verified_low_watermark_rejected=false
 managed_monitor_key_names_verified=false
 reasoning_effort_policy_verified=false
+alipay_mobile_precreate_migration_verified=false
+group_auth_cache_image_generation_verified=false
+composite_model_routes_verified=false
 vm_old_image_compatibility_verified=false
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]; then
+if [[ $profile == 202 ]]; then
+  docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"INSERT INTO settings (key,value,updated_at) VALUES ('ALIPAY_MOBILE_PRECREATE_DEEP_LINK','true',NOW()) ON CONFLICT (key) DO UPDATE SET value='true',updated_at=NOW()\"" >/dev/null
+fi
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
   migration_195_context="$state_dir/migration-195-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_195_context"
   chmod 400 "$migration_195_context"
@@ -283,7 +289,7 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]
 fi
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
 rm -f "$state_dir/migrate-candidate.log"
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
   consumed_event_id=$(<"$state_dir/migration-195-outbox-event.id")
   if [[ $migration_195_status == absent ]]; then
@@ -318,7 +324,7 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" bind >/dev/null
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
 fi
-if [[ $profile == 199 ]]; then
+if [[ $profile == 199 || $profile == 202 ]]; then
   mark_stage old_image_compatibility
   docker run -d --name "$old_probe_app" --network "$probe_network" \
     -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
@@ -354,21 +360,60 @@ while IFS=$'\t' read -r migration migration_checksum; do
 done < <(jq -r '.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.priority IS DISTINCT FROM ROUND(k.rate_multiplier*100)::int)\"") == 0 ]]
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts WHERE extra ?| ARRAY['upstream_rate_multiplier','upstream_source_rate_multiplier','upstream_recharge_rate','upstream_effective_cost_multiplier','sub2api_upstream_rate_multiplier']\"") == 0 ]]
-if [[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]; then
+if [[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
   prompt_audit_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"WITH config AS (SELECT COALESCE(NULLIF((SELECT value FROM settings WHERE key='prompt_audit_config'), ''), '{}')::jsonb AS value) SELECT NOT COALESCE((value->>'enabled')::boolean, false) AND NOT COALESCE((value->>'blocking_enabled')::boolean, false) AND NOT COALESCE((value->>'store_pass_events')::boolean, false) AND jsonb_typeof(COALESCE(value->'endpoints', '[]'::jsonb)) = 'array' AND jsonb_array_length(COALESCE(value->'endpoints', '[]'::jsonb)) = 0, (SELECT COUNT(*) FROM prompt_audit_jobs), (SELECT COUNT(*) FROM prompt_audit_events) FROM config\"")
   [[ $prompt_audit_state == 't|0|0' ]]
 fi
-if [[ $profile == 198 || $profile == 199 ]]; then
+if [[ $profile == 198 || $profile == 199 || $profile == 202 ]]; then
   managed_monitor_key_name_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT character_maximum_length, (SELECT COUNT(*) FROM api_keys k JOIN channel_monitors m ON m.id=k.managed_monitor_id AND m.managed_api_key_id=k.id WHERE k.purpose='managed_monitor' AND k.deleted_at IS NULL AND k.name IS DISTINCT FROM '监控-' || BTRIM(m.name)) FROM information_schema.columns WHERE table_schema='public' AND table_name='api_keys' AND column_name='name'\"")
   [[ $managed_monitor_key_name_state == '103|0' ]]
   managed_monitor_key_names_verified=true
 fi
-if [[ $profile == 199 ]]; then
+if [[ $profile == 199 || $profile == 202 ]]; then
   reasoning_effort_policy_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COALESCE(MAX(CASE WHEN column_name='max_reasoning_effort' THEN data_type || ':' || is_nullable || ':' || column_default END),''), COALESCE(MAX(CASE WHEN column_name='reasoning_effort_mappings' THEN data_type || ':' || is_nullable || ':' || column_default END),'') FROM information_schema.columns WHERE table_schema='public' AND table_name='groups' AND column_name IN ('max_reasoning_effort','reasoning_effort_mappings')\"")
   [[ $reasoning_effort_policy_state == *'character varying:NO:'*"''::character varying"*'|'*'jsonb:NO:'*"'[]'::jsonb"* ]]
   reasoning_effort_policy_verified=true
 fi
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]; then
+if [[ $profile == 202 ]]; then
+  alipay_mobile_precreate_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*)=1 AND BOOL_AND(value='true') FROM settings WHERE key='ALIPAY_MOBILE_PRECREATE_DEEP_LINK'\"")
+  [[ $alipay_mobile_precreate_state == t ]]
+  alipay_mobile_precreate_migration_verified=true
+  group_auth_cache_image_state=$(docker exec sub2api-postgres sh -lc "psql -X -q -A -t -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" <<'SQL'
+BEGIN;
+DO $$
+DECLARE
+  target_group_id BIGINT;
+  target_user_id BIGINT;
+  fixture_key TEXT := 'sk-vm-gate-profile-202-auth-cache';
+  before_count BIGINT;
+  after_image_change BIGINT;
+  after_unrelated_change BIGINT;
+BEGIN
+  SELECT id INTO STRICT target_group_id FROM groups WHERE deleted_at IS NULL ORDER BY id LIMIT 1;
+  SELECT id INTO STRICT target_user_id FROM users WHERE deleted_at IS NULL ORDER BY id LIMIT 1;
+  INSERT INTO api_keys (user_id,key,name,group_id,status)
+  VALUES (target_user_id,fixture_key,'vm-gate-profile-202',target_group_id,'active');
+  SELECT COUNT(*) INTO before_count FROM auth_cache_invalidation_outbox WHERE cache_key=encode(sha256(convert_to(fixture_key,'UTF8')),'hex');
+  UPDATE groups SET allow_image_generation=NOT allow_image_generation WHERE id=target_group_id;
+  SELECT COUNT(*) INTO after_image_change FROM auth_cache_invalidation_outbox WHERE cache_key=encode(sha256(convert_to(fixture_key,'UTF8')),'hex');
+  UPDATE groups SET name=name WHERE id=target_group_id;
+  SELECT COUNT(*) INTO after_unrelated_change FROM auth_cache_invalidation_outbox WHERE cache_key=encode(sha256(convert_to(fixture_key,'UTF8')),'hex');
+  IF after_image_change <> before_count + 1 OR after_unrelated_change <> after_image_change THEN
+    RAISE EXCEPTION 'profile 202 group auth-cache invalidation contract failed';
+  END IF;
+END;
+$$;
+ROLLBACK;
+SELECT true;
+SQL
+)
+  [[ $group_auth_cache_image_state == t ]]
+  group_auth_cache_image_generation_verified=true
+  composite_model_routes_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT to_regclass('public.composite_model_routes') IS NOT NULL, COALESCE((SELECT confdeltype='c' FROM pg_constraint WHERE conrelid='public.composite_model_routes'::regclass AND contype='f' LIMIT 1),false), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid='public.composite_model_routes'::regclass AND contype='c')=3, (SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND tablename='composite_model_routes' AND indexname IN ('idx_composite_model_routes_unique_active','idx_composite_model_routes_group_enabled','idx_composite_model_routes_group_priority'))=3\"")
+  [[ $composite_model_routes_state == 't|t|t|t' ]]
+  composite_model_routes_verified=true
+fi
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
   verified_replay=true
@@ -391,10 +436,13 @@ jq -n --slurpfile manifest "$manifest" \
   --arg candidate_image_id "$candidate_image_id" \
   --arg candidate_archive_sha256 "$candidate_archive_sha" \
   --argjson candidate_size "$candidate_size" \
-  --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]] && printf true || printf false)" \
-  --argjson migration_195_verified "$([[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]] && printf true || printf false)" \
+  --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]] && printf true || printf false)" \
+  --argjson migration_195_verified "$([[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]] && printf true || printf false)" \
   --argjson managed_monitor_key_names_verified "$managed_monitor_key_names_verified" \
   --argjson reasoning_effort_policy_verified "$reasoning_effort_policy_verified" \
+  --argjson alipay_mobile_precreate_migration_verified "$alipay_mobile_precreate_migration_verified" \
+  --argjson group_auth_cache_image_generation_verified "$group_auth_cache_image_generation_verified" \
+  --argjson composite_model_routes_verified "$composite_model_routes_verified" \
   --arg vm_old_image_id "$old_image_id" \
   --argjson vm_old_image_compatibility_verified "$vm_old_image_compatibility_verified" \
   --argjson fixture_rejected "$fixture_rejected" \
@@ -402,7 +450,7 @@ jq -n --slurpfile manifest "$manifest" \
   --argjson clean_preflight "$clean_preflight" \
   --argjson verified_replay "$verified_replay" \
   --argjson verified_low_watermark_rejected "$verified_low_watermark_rejected" \
-  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
+  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,alipay_mobile_precreate_migration_verified:$alipay_mobile_precreate_migration_verified,group_auth_cache_image_generation_verified:$group_auth_cache_image_generation_verified,composite_model_routes_verified:$composite_model_routes_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
   | jq -cS . > "$output_dir/gate.json.tmp"
 chmod 400 "$output_dir/gate.json.tmp"
 mv -T -- "$output_dir/gate.json.tmp" "$output_dir/gate.json"

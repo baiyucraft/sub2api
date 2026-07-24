@@ -219,6 +219,11 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		return nil
 	}
 	redactedCreds, credsStatus := RedactCredentials(a.Credentials)
+	extra := redactAccountManagedExtra(a.Extra)
+	var ollamaCloudUsage *service.OllamaCloudUsageState
+	if state := service.OllamaCloudUsageStateFromAccount(a); state.Eligible {
+		ollamaCloudUsage = state
+	}
 	out := &Account{
 		ID:                        a.ID,
 		Name:                      a.Name,
@@ -227,7 +232,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		Type:                      a.Type,
 		Credentials:               redactedCreds,
 		CredentialsStatus:         credsStatus,
-		Extra:                     sanitizeAccountExtra(a.Extra),
+		Extra:                     extra,
+		OllamaCloudUsage:          ollamaCloudUsage,
 		ProxyID:                   a.ProxyID,
 		ProxyFallbackOriginID:     a.ProxyFallbackOriginID,
 		ProxyFallbackOriginName:   a.ProxyFallbackOriginName,
@@ -389,24 +395,27 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	return out
 }
 
-func sanitizeAccountExtra(extra map[string]any) map[string]any {
+func redactAccountManagedExtra(extra map[string]any) map[string]any {
 	if extra == nil {
 		return nil
 	}
-	out := make(map[string]any, len(extra))
+	redacted := make(map[string]any, len(extra))
 	for key, value := range extra {
 		switch key {
 		case "upstream_rate_multiplier",
 			"upstream_source_rate_multiplier",
 			"upstream_recharge_rate",
 			"upstream_effective_cost_multiplier",
-			"sub2api_upstream_rate_multiplier":
+			"sub2api_upstream_rate_multiplier",
+			service.OllamaCloudUsageSessionExtraKey,
+			service.OllamaCloudUsageAutoRefreshExtraKey,
+			service.OllamaCloudUsageSnapshotExtraKey:
 			continue
 		default:
-			out[key] = value
+			redacted[key] = value
 		}
 	}
-	return out
+	return redacted
 }
 
 func AccountFromService(a *service.Account) *Account {

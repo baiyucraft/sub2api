@@ -145,6 +145,11 @@ profile 199 在上述矩阵后追加 `199_group_reasoning_effort_policy.sql`，�
 镜像必须能在迁移后的副本上完成 health smoke。任何 migration checksum、schema 语义或旧镜像
 兼容性断言失败都停止 Gate。
 
+profile 202 继续继承 profile 199 的全部证据，按 200 -> 201 -> 202 追加支付宝移动端开关、分组
+生图权限鉴权缓存失效和组合模型路由迁移。Gate 必须逐项记录 `migration_200_status`、
+`migration_201_status`、`migration_202_status`，验证设置值、触发器实际失效行为，以及路由表约束、
+索引和 `groups` 外键级联删除；DR migration checksum 绑定完整 manifest map，不得只绑定这三项。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：

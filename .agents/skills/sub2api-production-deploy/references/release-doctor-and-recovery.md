@@ -35,7 +35,7 @@ python deploy/release.py verify-result <release_id>
 
 ## 迁移状态与重复 Gate
 
-每次生产 preflight 必须同时输出 profile 的整体 `migration_status` 和关键迁移的独立状态，例如 `migration_195_status`、`migration_196_status`、`migration_197_status`、`migration_198_status`、`migration_199_status`。独立状态只允许：
+每次生产 preflight 必须同时输出 profile 的整体 `migration_status` 和关键迁移的独立状态，例如 `migration_195_status` 至 `migration_202_status`。独立状态只允许：
 
 - `absent`：数据库中没有该迁移记录，且目标 checksum 与 manifest 已匹配，可以按顺序执行；
 - `verified`：数据库中已有该迁移记录，记录 checksum、schema/数据语义和目标 checksum 全部匹配，可以幂等跳过；
@@ -60,6 +60,12 @@ profile 199 在上述矩阵后追加 `199_group_reasoning_effort_policy.sql`：�
 `verified` 且 199 为 `absent` 时，只执行 199；若 199 已 `verified`，只读复核后幂等跳过。最终
 marker 和 Gate evidence 还必须包含 199 的目标 checksum、reasoning policy schema 证据和旧镜像
 兼容性 smoke 证据。
+
+profile 202 在上述矩阵后依次追加 `200_alipay_mobile_precreate_deep_link.sql`、
+`201_group_auth_cache_image_generation.sql` 和 `202_composite_model_routes.sql`。每项均按独立
+`absent/verified` 状态决定前向执行或幂等跳过；缺失多项时只能按 manifest 顺序执行。最终 marker
+和 Gate evidence 必须覆盖完整 migration map，并分别证明支付宝移动端开关、分组生图权限鉴权缓存
+失效，以及组合模型路由约束、索引和级联外键语义。
 
 `migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 
