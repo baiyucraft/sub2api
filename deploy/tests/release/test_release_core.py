@@ -350,6 +350,9 @@ class ReleaseCoreTest(unittest.TestCase):
             self.assertIn(f'"{evidence}"', gate)
         self.assertIn('expected_profile == "202"', gate)
         self.assertIn("profile 202 migration semantic evidence", gate)
+        seed = "INSERT INTO settings (key,value,updated_at) VALUES ('ALIPAY_MOBILE_PRECREATE_DEEP_LINK','true',NOW())"
+        self.assertGreater(validator.index(seed), validator.index("restore_completed=true"))
+        self.assertLess(validator.index(seed), validator.index('docker run --rm --network "$probe_network"'))
         for stage in (
             "migration_assertion_profile_202_alipay",
             "migration_assertion_profile_202_group_auth",
