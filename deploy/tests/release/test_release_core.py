@@ -353,6 +353,10 @@ class ReleaseCoreTest(unittest.TestCase):
         seed = "INSERT INTO settings (key,value,updated_at) VALUES ('ALIPAY_MOBILE_PRECREATE_DEEP_LINK','true',NOW())"
         self.assertGreater(validator.index(seed), validator.index("restore_completed=true"))
         self.assertLess(validator.index(seed), validator.index('docker run --rm --network "$probe_network"'))
+        self.assertIn(
+            'group_auth_cache_image_state=$(docker exec -i sub2api-postgres',
+            validator,
+        )
         for stage in (
             "migration_assertion_profile_202_alipay",
             "migration_assertion_profile_202_group_auth",
