@@ -350,6 +350,15 @@ class ReleaseCoreTest(unittest.TestCase):
             self.assertIn(f'"{evidence}"', gate)
         self.assertIn('expected_profile == "202"', gate)
         self.assertIn("profile 202 migration semantic evidence", gate)
+        for stage in (
+            "migration_assertion_profile_202_alipay",
+            "migration_assertion_profile_202_group_auth",
+            "migration_assertion_profile_202_composite",
+            "migration_assertion_195_runtime_current",
+            "migration_assertion_195_runtime_replay",
+        ):
+            self.assertIn(f"mark_stage {stage}", validator)
+        self.assertIn("category=$current_stage", validator)
 
     def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
