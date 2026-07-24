@@ -614,17 +614,19 @@ describe('UpstreamConfigsView', () => {
     expect(cells.map((cell) => cell.text())).toEqual([
       'admin.upstreamConfigs.concurrency.limited:{"count":"9,223,372,036,854,775,807"}',
       'admin.upstreamConfigs.concurrency.unlimited',
-      'admin.upstreamConfigs.concurrency.newapiReported:{"count":"0042"}',
+      'admin.upstreamConfigs.concurrency.limited:{"count":"42"}',
       'admin.upstreamConfigs.concurrency.stale:{"value":"6,000"}',
       'admin.upstreamConfigs.concurrency.unsupported',
       'admin.upstreamConfigs.concurrency.initialFailure',
       'admin.upstreamConfigs.concurrency.stale:{"value":"admin.upstreamConfigs.concurrency.unlimited"}',
-      'admin.upstreamConfigs.concurrency.stale:{"value":"admin.upstreamConfigs.concurrency.newapiReported:{\\"count\\":\\"0042\\"}"}'
+      'admin.upstreamConfigs.concurrency.stale:{"value":"42"}'
     ])
     expect(cells[0].attributes('title')).toBe('admin.upstreamConfigs.concurrency.headerTitle')
+    expect(cells[2].attributes('title')).toContain('admin.upstreamConfigs.concurrency.providerReportedHint')
     expect(cells[0].find('div > div').classes()).not.toContain('font-semibold')
     expect(cells[3].attributes('title')).toContain('admin.upstreamConfigs.concurrency.lastObservedAt')
     expect(cells[3].attributes('title')).toContain('admin.upstreamConfigs.concurrency.lastCheckedAt')
+    expect(cells[7].attributes('title')).toContain('admin.upstreamConfigs.concurrency.providerReportedHint')
     expect(zhUpstreamConfigs.upstreamConfigs.concurrency.unsupported).toBe('--（未提供）')
     expect(zhUpstreamConfigs.upstreamConfigs.concurrency.initialFailure).toBe('--（同步失败）')
     expect(enUpstreamConfigs.upstreamConfigs.concurrency.unsupported).toBe('-- (Not provided)')
@@ -683,6 +685,8 @@ describe('UpstreamConfigsView', () => {
 
     expect(wrapper.text()).toContain('admin.upstreamConfigs.providers.lcodex')
     expect(wrapper.text()).toContain('admin.upstreamConfigs.credentialStatus.identifier:{"status":"admin.upstreamConfigs.credentialStatus.configured"}')
+    expect(zhUpstreamConfigs.upstreamConfigs.credentialStatus.identifier).toBe('邮箱 {status}')
+    expect(enUpstreamConfigs.upstreamConfigs.credentialStatus.identifier).toBe('Email {status}')
     expect(wrapper.text()).toContain('¥36.00')
 
     await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
