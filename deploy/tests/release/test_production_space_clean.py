@@ -76,8 +76,15 @@ class FakeRunner:
 
 
 class ProductionSpaceCleanTest(unittest.TestCase):
-    def write_release(self, root: Path, *, pre_switch: str = "sha256:" + "b" * 64, consumed: bool = True) -> str:
-        release_id = "199-aaaaaaaaaaaa-1-deadbeef"
+    def write_release(
+        self,
+        root: Path,
+        *,
+        profile: str = "199",
+        pre_switch: str = "sha256:" + "b" * 64,
+        consumed: bool = True,
+    ) -> str:
+        release_id = f"{profile}-aaaaaaaaaaaa-1-deadbeef"
         gate_dir = root / release_id / "gate"
         gate_dir.mkdir(parents=True)
         (gate_dir / "gate.json").write_text(
@@ -118,6 +125,14 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         verify.assert_called_once()
         self.assertEqual(identity.current_image_id, "sha256:" + "a" * 64)
         self.assertEqual(identity.pre_switch_image_id, "sha256:" + "b" * 64)
+
+    def test_profile_202_identity_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            release_id = self.write_release(root, profile="202")
+            with mock.patch("release.production_cleanup.subprocess.run"):
+                identity = load_cleanup_identity(release_id, root)
+        self.assertEqual(identity.release_id, "202-aaaaaaaaaaaa-1-deadbeef")
 
     def test_identity_rejects_unconsumed_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

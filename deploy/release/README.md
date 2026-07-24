@@ -60,6 +60,22 @@ profile 199 使用版本 `0.1.163-baiyu`，继承 profile 198 的全部迁移和
 字段，使用 `ADD COLUMN IF NOT EXISTS` 与稳定默认值；VM Gate 还会用旧镜像启动 smoke
 核验迁移后的 schema 兼容性，并验证两个字段的类型、非空约束和默认值。
 
+profile 202 使用版本 `0.1.164-baiyu`，完整继承 profile 199 的 migration、旧镜像兼容和
+Gate 合同，并依次追加 `200_alipay_mobile_precreate_deep_link.sql`、
+`201_group_auth_cache_image_generation.sql` 与 `202_composite_model_routes.sql`。生产 preflight
+分别记录 200/201/202 的 `absent` 或 `verified` 状态；VM 与生产 postflight 必须验证支付宝
+移动端开关、分组生图权限的鉴权缓存失效，以及组合模型路由表的约束、索引和级联外键。
+任一单项 checksum 或语义证据不一致都停止，已验证的历史迁移不得重跑。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199 和 202
+合同。发布资产定向回归至少执行：
+
+```text
+python -m pytest deploy/tests/release/test_release_core.py deploy/tests/release/test_production_release.py deploy/tests/release/test_signer_assets.py
+python deploy/tests/release/backup_dr_profile_199_integration.py
+python deploy/tests/release/backup_dr_profile_202_integration.py
+```
+
 首次安装信任根使用：
 
 ```text

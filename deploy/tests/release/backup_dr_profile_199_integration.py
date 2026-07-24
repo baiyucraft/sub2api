@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
 import shlex
 import subprocess
@@ -15,13 +16,20 @@ DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 ROOT = DEPLOY_ROOT.parent
 sys.path.insert(0, str(DEPLOY_ROOT))
 
+from release.profiles import get_profile
 from release.ssh import SSHRunner
 
 
-MIGRATION_195 = "195_upstream_scheduling_monitor_rates.sql"
-MIGRATION_199 = "199_group_reasoning_effort_policy.sql"
-MIGRATION_195_SHA = "1" * 64
-MIGRATION_199_SHA = "2" * 64
+PROFILE_MIGRATIONS = {
+    "199": {
+        "195_upstream_scheduling_monitor_rates.sql": "1" * 64,
+        "199_group_reasoning_effort_policy.sql": "2" * 64,
+    },
+    "202": {
+        migration: f"{index:064x}"
+        for index, migration in enumerate(get_profile("202")["migrations"], start=1)
+    },
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -57,10 +65,12 @@ printf 'cleanup=pass\\n'
     )
 
 
-def run(runner: SSHRunner, remote_temps: list[tuple[str, str]]) -> None:
-    release_id = f"199-000000000000-{int(time.time())}-{secrets.token_hex(4)}"
+def run(runner: SSHRunner, remote_temps: list[tuple[str, str]], profile: str = "199") -> None:
+    migrations = PROFILE_MIGRATIONS[profile]
+    migration_json = shlex.quote(json.dumps(migrations, separators=(",", ":"), sort_keys=True))
+    release_id = f"{profile}-000000000000-{int(time.time())}-{secrets.token_hex(4)}"
     now = datetime.now(timezone.utc)
-    drill_id = "dr-199-" + now.strftime("%Y%m%dT%H%M%SZ")
+    drill_id = f"dr-{profile}-" + now.strftime("%Y%m%dT%H%M%SZ")
     observed_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     vm_temp = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "promotion-evidence")
@@ -98,14 +108,13 @@ else
   install -d -o root -g root -m 700 "$dr_root"
 fi
 install -d -o root -g root -m 700 "$release_dir" "$evidence_dir"
-printf 'profile-199-candidate-fixture\n' > "$gate_dir/candidate.tar.gz"
+printf 'profile-{profile}-candidate-fixture\n' > "$gate_dir/candidate.tar.gz"
 chmod 400 "$gate_dir/candidate.tar.gz"
 archive_sha=$(sha256sum "$gate_dir/candidate.tar.gz" | awk '{{print $1}}')
 image_id=sha256:$(printf 'd%.0s' {{1..64}})
-jq -n --arg release_id "$release_id" --arg archive_sha "$archive_sha" --arg image_id "$image_id" \
-  --arg migration_195 {MIGRATION_195} --arg migration_199 {MIGRATION_199} \
-  --arg sha_195 {MIGRATION_195_SHA} --arg sha_199 {MIGRATION_199_SHA} \
-  '{{manifest:{{release_id:$release_id,profile:"199",migration_sha256:{{($migration_195):$sha_195,($migration_199):$sha_199}}}},evidence:{{candidate_archive_sha256:$archive_sha,candidate_image_id:$image_id}}}}' > "$gate_dir/gate.json"
+jq -n --arg release_id "$release_id" --arg profile {profile} --arg archive_sha "$archive_sha" --arg image_id "$image_id" \
+  --argjson migration_sha256 {migration_json} \
+  '{{manifest:{{release_id:$release_id,profile:$profile,migration_sha256:$migration_sha256}},evidence:{{candidate_archive_sha256:$archive_sha,candidate_image_id:$image_id}}}}' > "$gate_dir/gate.json"
 chmod 400 "$gate_dir/gate.json"
 export SUB2API_HELPER_TEST_MODE=true
 export SUB2API_UNIT_LOCK_PATH="$vm_temp/libexec/.sub2api-release-unit.lock"
@@ -136,7 +145,7 @@ printf 'migration_sha256=%s\n' "$migration_sha"
         {"archive_sha256", "candidate_image_id", "migration_sha256"},
         timeout=300,
     ).values
-    print("profile_199_stage=signed_fixtures_ready", flush=True)
+    print(f"profile_{profile}_stage=signed_fixtures_ready", flush=True)
 
     backup_temp = runner.create_temp_dir("backup", "/srv/sub2api-backups", "dr-promotion-test")
     remote_temps.append(("backup", backup_temp))
@@ -165,7 +174,7 @@ printf 'migration_sha256=%s\n' "$migration_sha"
     }
     for name, path in files.items():
         runner.upload_file("backup", path, f"{backup_temp}/{name}", 0o700 if name != "trust.pub" else 0o400)
-    print("profile_199_stage=assets_uploaded", flush=True)
+    print(f"profile_{profile}_stage=assets_uploaded", flush=True)
 
     verifier_sha = sha256_file(files["verifier"])
     promoter_sha = sha256_file(files["promoter"])
@@ -183,13 +192,13 @@ SUB2API_BACKUP_BOOTSTRAP_TEST_MODE=true BACKUP_TEST_ROOT="$remote" \
   SIGNED_TEST_SOURCE="$remote/gate.json" SIGNED_TEST_SIGNATURE="$remote/gate.sig" \
   VERIFIER_SHA256={verifier_sha} PROMOTER_SHA256={promoter_sha} TRUST_SHA256={trust_sha} \
   "$remote/bootstrap" >/dev/null
-root="$remote/releases/199"
+root="$remote/releases/{profile}"
 candidate_dir="$root/candidates/$release_id"
 install -d -o root -g root -m 700 "$root/candidates" "$candidate_dir"
 for file in candidate.tar.gz gate.json gate.sig SHA256SUMS; do
   install -o root -g root -m 600 "$remote/$file" "$candidate_dir/$file"
 done
-printf 'encrypted-profile-199-fixture\n' > "$candidate_dir/artifact.tar.age"
+printf 'encrypted-profile-{profile}-fixture\n' > "$candidate_dir/artifact.tar.age"
 chmod 600 "$candidate_dir/artifact.tar.age"
 chown root:root "$candidate_dir/artifact.tar.age"
 artifact_sha=$(sha256sum "$candidate_dir/artifact.tar.age" | awk '{{print $1}}')
@@ -217,7 +226,7 @@ migration_sha=$(jq -cS '.manifest.migration_sha256' "$candidate_dir/gate.json" |
         timeout=300,
     ).values
     if result:
-        raise RuntimeError("profile 199 candidate assembly returned unexpected fields")
+        raise RuntimeError(f"profile {profile} candidate assembly returned unexpected fields")
 
     # Artifact and bundle hashes are only known after the backup-side candidate is assembled.
     # Re-sign the final evidence using those two white-listed hashes.
@@ -225,7 +234,7 @@ migration_sha=$(jq -cS '.manifest.migration_sha256' "$candidate_dir/gate.json" |
         "backup",
         rf'''
 set -Eeuo pipefail
-candidate_dir={shlex.quote(backup_temp)}/releases/199/candidates/{release_id}
+candidate_dir={shlex.quote(backup_temp)}/releases/{profile}/candidates/{release_id}
 printf 'artifact_sha256=%s\n' "$(sha256sum "$candidate_dir/artifact.tar.age" | awk '{{print $1}}')"
 printf 'bundle_sha256=%s\n' "$(sha256sum "$candidate_dir/bundle.sha256" | awk '{{print $1}}')"
 ''',
@@ -278,10 +287,10 @@ set -Eeuo pipefail
 remote={shlex.quote(backup_temp)}
 release_id={release_id}
 drill_id={drill_id}
-root="$remote/releases/199"
+root="$remote/releases/{profile}"
 input_root="$root/promotion-input"
-valid_input="$input_root/$release_id--$drill_id.VALID199"
-mismatch_input="$input_root/$release_id--$drill_id.BAD01999"
+valid_input="$input_root/$release_id--$drill_id.VALID{profile}"
+mismatch_input="$input_root/$release_id--$drill_id.BAD0{profile}"
 install -d -o root -g root -m 700 "$valid_input" "$mismatch_input"
 install -o root -g root -m 400 "$remote/valid-bound.json" "$valid_input/evidence.json"
 install -o root -g root -m 400 "$remote/valid-bound.sig" "$valid_input/evidence.sig"
@@ -300,25 +309,29 @@ target="$root/verified-bundles/$target_name"
 [[ $(realpath -e -- "$root/verified") == "$target" ]]
 [[ -d $target && ! -L $target && $(stat -c '%U:%G:%a' "$target") == root:root:700 ]]
 [[ $(jq -er '.migration_checksum' "$target/evidence.json") == {candidate['migration_sha256']} ]]
-[[ $(jq -er '.manifest.profile' "$target/gate.json") == 199 ]]
-printf 'profile_199_migration_mismatch_rejected=pass\n'
-printf 'profile_199_promotion=pass\n'
-printf 'profile_199_path_isolation=pass\n'
+[[ $(jq -er '.manifest.profile' "$target/gate.json") == {profile} ]]
+printf 'profile_{profile}_migration_mismatch_rejected=pass\n'
+printf 'profile_{profile}_promotion=pass\n'
+printf 'profile_{profile}_path_isolation=pass\n'
 ''',
-        {"profile_199_migration_mismatch_rejected", "profile_199_promotion", "profile_199_path_isolation"},
+        {
+            f"profile_{profile}_migration_mismatch_rejected",
+            f"profile_{profile}_promotion",
+            f"profile_{profile}_path_isolation",
+        },
         timeout=300,
     ).values
     if set(result.values()) != {"pass"}:
-        raise RuntimeError("profile 199 DR promotion integration did not pass")
-    print("backup_dr_profile_199_integration=pass checks=3")
+        raise RuntimeError(f"profile {profile} DR promotion integration did not pass")
+    print(f"backup_dr_profile_{profile}_integration=pass checks=3")
 
 
-def main() -> None:
+def main(profile: str = "199") -> None:
     runner = SSHRunner()
     remote_temps: list[tuple[str, str]] = []
     primary_error: BaseException | None = None
     try:
-        run(runner, remote_temps)
+        run(runner, remote_temps, profile)
     except BaseException as exc:
         primary_error = exc
 

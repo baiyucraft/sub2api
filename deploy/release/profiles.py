@@ -283,6 +283,18 @@ PROFILES["199"] = {
     ],
 }
 
+PROFILES["202"] = {
+    **PROFILES["199"],
+    "name": "202",
+    "version": "0.1.164-baiyu",
+    "migrations": [
+        *PROFILES["199"]["migrations"],
+        "200_alipay_mobile_precreate_deep_link.sql",
+        "201_group_auth_cache_image_generation.sql",
+        "202_composite_model_routes.sql",
+    ],
+}
+
 
 def get_profile(name: str) -> dict:
     try:

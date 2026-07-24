@@ -134,8 +134,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(list(migration_checksums(profile_191)), profile_191["migrations"])
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195|197|198|199)"
-        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199"
+        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
@@ -222,6 +222,21 @@ class ReleaseCoreTest(unittest.TestCase):
         )
         self.assertEqual(list(migration_checksums(profile_199)), profile_199["migrations"])
 
+    def test_profile_202_extends_profile_199_with_upstream_migrations(self) -> None:
+        profile_199 = get_profile("199")
+        profile_202 = get_profile("202")
+        self.assertEqual(profile_202["version"], "0.1.164-baiyu")
+        self.assertEqual(
+            profile_202["migrations"],
+            profile_199["migrations"]
+            + [
+                "200_alipay_mobile_precreate_deep_link.sql",
+                "201_group_auth_cache_image_generation.sql",
+                "202_composite_model_routes.sql",
+            ],
+        )
+        self.assertEqual(list(migration_checksums(profile_202)), profile_202["migrations"])
+
     def test_profile_194_requires_prompt_audit_disabled_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         context = (DEPLOY_ROOT / "maintenance" / "release" / "context.sh").read_text(encoding="utf-8")
@@ -231,9 +246,9 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("prompt_audit_state == 't|0|0'", validator)
         self.assertIn("prompt_audit_disabled:$prompt_audit_disabled", validator)
         self.assertIn("assert_prompt_audit_disabled()", context)
-        self.assertIn("$profile != 197 && $profile != 198 && $profile != 199", context)
+        self.assertIn("$profile != 197 && $profile != 198 && $profile != 199 && $profile != 202", context)
         self.assertEqual(production.count('"prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events"'), 3)
-        self.assertIn('expected_profile in {"194", "195", "197", "198", "199"}', gate)
+        self.assertIn('expected_profile in {"194", "195", "197", "198", "199", "202"}', gate)
 
     def test_profile_195_requires_semantic_migration_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
@@ -295,11 +310,11 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('migration-195-assert.sh preflight', production)
         self.assertIn('migration-195-assert.sh" postflight', switch)
         self.assertIn("unproven == 0 && $conflict == 0 && $unexpected == 0", assertion)
-        self.assertIn('expected_profile in {"195", "197", "198", "199"}', gate)
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199"}', production)
-        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]', switch)
-        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 ]]', assertion)
-        self.assertIn('expected_profile in {"198", "199"}', gate)
+        self.assertIn('expected_profile in {"195", "197", "198", "199", "202"}', gate)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202"}', production)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]', switch)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]', assertion)
+        self.assertIn('expected_profile in {"198", "199", "202"}', gate)
         self.assertIn("managed monitor key-name evidence", gate)
 
     def test_profile_199_requires_reasoning_and_old_image_evidence(self) -> None:
@@ -314,9 +329,27 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("mark_stage old_image_compatibility", validator)
         self.assertIn('"reasoning_effort_policy_verified"', production)
         self.assertIn("reasoning_effort_policy_verified=true", switch)
-        self.assertIn('expected_profile == "199"', gate)
+        self.assertIn('expected_profile in {"199", "202"}', gate)
         self.assertIn("group reasoning-effort policy evidence", gate)
         self.assertIn("VM old-image compatibility evidence", gate)
+
+    def test_profile_202_requires_all_upstream_migration_evidence(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        gate = (DEPLOY_ROOT / "release" / "gate.py").read_text(encoding="utf-8")
+        switch = (DEPLOY_ROOT / "maintenance" / "release" / "switch.sh").read_text(encoding="utf-8")
+
+        for evidence in (
+            "alipay_mobile_precreate_migration_verified",
+            "group_auth_cache_image_generation_verified",
+            "composite_model_routes_verified",
+        ):
+            self.assertIn(f"{evidence}:${evidence}", validator)
+            self.assertIn(f'"{evidence}"', production)
+            self.assertIn(f"{evidence}=true", switch)
+            self.assertIn(f'"{evidence}"', gate)
+        self.assertIn('expected_profile == "202"', gate)
+        self.assertIn("profile 202 migration semantic evidence", gate)
 
     def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
