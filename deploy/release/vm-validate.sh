@@ -389,7 +389,7 @@ if [[ $profile == 202 ]]; then
   [[ $alipay_mobile_precreate_state == t ]]
   alipay_mobile_precreate_migration_verified=true
   mark_stage migration_assertion_profile_202_group_auth
-  group_auth_cache_image_state=$(docker exec sub2api-postgres sh -lc "psql -X -q -A -t -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" <<'SQL'
+  group_auth_cache_image_state=$(docker exec -i sub2api-postgres sh -lc "psql -X -q -A -t -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" <<'SQL'
 BEGIN;
 DO $$
 DECLARE
