@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -273,16 +274,27 @@ func TestPassthroughLifecycle_LeaseLossSendsRetryClose(t *testing.T) {
 	require.Equal(t, "response.created", gjson.GetBytes(event, "type").String())
 	cancelControl(ErrOpenAIWSIngressLeaseLost)
 
-	_, err = readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
-	var closeErr coderws.CloseError
-	require.ErrorAs(t, err, &closeErr)
-	require.Equal(t, coderws.StatusTryAgainLater, closeErr.Code)
-	require.Equal(t, "websocket ingress capacity lease lost; please reconnect", closeErr.Reason)
+	_, clientErr := readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
+	var wireCloseErr coderws.CloseError
+	if errors.As(clientErr, &wireCloseErr) {
+		require.Equal(t, coderws.StatusTryAgainLater, wireCloseErr.Code)
+		require.Equal(t, "websocket ingress capacity lease lost; please reconnect", wireCloseErr.Reason)
+	} else {
+		// The relay and handler close concurrently after control cancellation. On
+		// some transports the peer observes EOF before the close frame arrives.
+		require.ErrorIs(t, clientErr, io.EOF)
+	}
+
+	var serverResult error
 	select {
-	case <-serverErr:
+	case serverResult = <-serverErr:
 	case <-time.After(3 * time.Second):
 		t.Fatal("passthrough lease-loss reader did not exit")
 	}
+	var serverCloseErr *OpenAIWSClientCloseError
+	require.ErrorAs(t, serverResult, &serverCloseErr)
+	require.Equal(t, coderws.StatusTryAgainLater, serverCloseErr.StatusCode())
+	require.Equal(t, "websocket ingress capacity lease lost; please reconnect", serverCloseErr.Reason())
 }
 
 func TestPassthroughLifecycle_CompletedTurnStartsInterTurnIdle(t *testing.T) {

@@ -10,6 +10,7 @@ const {
   getModelsListCandidates,
   getUsageSummary,
   getCapacitySummary,
+  getBatchQualityStats,
   listAccounts,
   showError,
   showSuccess,
@@ -21,6 +22,7 @@ const {
   getModelsListCandidates: vi.fn(),
   getUsageSummary: vi.fn(),
   getCapacitySummary: vi.fn(),
+  getBatchQualityStats: vi.fn(),
   listAccounts: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
@@ -39,6 +41,8 @@ const messages: Record<string, string> = {
   'admin.groups.columns.accounts': 'Accounts',
   'admin.groups.columns.capacity': 'Capacity',
   'admin.groups.columns.usage': 'Usage',
+  'admin.groups.columns.realtimeQualityStats': '1H Quality',
+  'admin.groups.columns.qualityStats': '24H Quality',
   'admin.groups.columns.status': 'Status',
   'admin.groups.columns.actions': 'Actions',
 }
@@ -51,6 +55,7 @@ vi.mock('@/api/admin', () => ({
       getModelsListCandidates,
       getUsageSummary,
       getCapacitySummary,
+      getBatchQualityStats,
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
@@ -227,6 +232,7 @@ describe('admin GroupsView column settings', () => {
     getModelsListCandidates.mockReset()
     getUsageSummary.mockReset()
     getCapacitySummary.mockReset()
+    getBatchQualityStats.mockReset()
     listAccounts.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
@@ -244,6 +250,7 @@ describe('admin GroupsView column settings', () => {
     getModelsListCandidates.mockResolvedValue([])
     getUsageSummary.mockResolvedValue([])
     getCapacitySummary.mockResolvedValue([])
+    getBatchQualityStats.mockResolvedValue({ notModified: false, etag: '"groups-v1"', data: { stats: {} } })
     listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     isCurrentStep.mockReturnValue(false)
   })
@@ -267,16 +274,28 @@ describe('admin GroupsView column settings', () => {
       'status',
       'actions',
     ])
-    expect(localStorage.getItem('group-hidden-columns')).toBe(JSON.stringify(['id']))
-    expect(localStorage.getItem('group-column-settings-version')).toBe('2')
+    expect(JSON.parse(localStorage.getItem('group-hidden-columns')!)).toEqual([
+      'id',
+      'quality_stats_1h',
+      'quality_stats',
+    ])
+    expect(localStorage.getItem('group-column-settings-version')).toBe('3')
   })
 
   it('applies saved hidden columns on mount and ignores unknown keys', async () => {
     localStorage.setItem(
       'group-hidden-columns',
-      JSON.stringify(['usage', 'capacity', 'removed_column', 'name', 'actions']),
+      JSON.stringify([
+        'usage',
+        'capacity',
+        'quality_stats_1h',
+        'quality_stats',
+        'removed_column',
+        'name',
+        'actions',
+      ]),
     )
-    localStorage.setItem('group-column-settings-version', '2')
+    localStorage.setItem('group-column-settings-version', '3')
 
     const wrapper = await mountView()
 
@@ -295,7 +314,7 @@ describe('admin GroupsView column settings', () => {
 
   it('auto-hides id for existing saved column prefs after version bump', async () => {
     localStorage.setItem('group-hidden-columns', JSON.stringify(['usage']))
-    // No version key → treated as version 1, migrate to 2 and hide id.
+    // No version key -> migrate through v2/v3 and hide id plus both quality columns.
 
     const wrapper = await mountView()
 
@@ -311,9 +330,9 @@ describe('admin GroupsView column settings', () => {
       'actions',
     ])
     expect(JSON.parse(localStorage.getItem('group-hidden-columns')!)).toEqual(
-      expect.arrayContaining(['usage', 'id']),
+      expect.arrayContaining(['usage', 'id', 'quality_stats_1h', 'quality_stats']),
     )
-    expect(localStorage.getItem('group-column-settings-version')).toBe('2')
+    expect(localStorage.getItem('group-column-settings-version')).toBe('3')
   })
 
   it('toggles a column and persists hidden column keys', async () => {
@@ -357,27 +376,52 @@ describe('admin GroupsView column settings', () => {
       'status',
       'actions',
     ])
-    expect(localStorage.getItem('group-hidden-columns')).toBe(JSON.stringify([]))
+    expect(JSON.parse(localStorage.getItem('group-hidden-columns')!)).toEqual([
+      'quality_stats_1h',
+      'quality_stats',
+    ])
   })
 
-  it('skips usage and capacity fetches until consuming columns are shown', async () => {
+  it('skips quality fetches until a quality column is shown and reuses the current snapshot', async () => {
     localStorage.setItem(
       'group-hidden-columns',
-      JSON.stringify(['billing_type', 'usage', 'capacity']),
+      JSON.stringify(['billing_type', 'usage', 'capacity', 'quality_stats_1h', 'quality_stats']),
     )
+    localStorage.setItem('group-column-settings-version', '3')
 
     const wrapper = await mountView()
 
     expect(getUsageSummary).not.toHaveBeenCalled()
     expect(getCapacitySummary).not.toHaveBeenCalled()
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
 
     await openColumnSettings(wrapper)
     await clickColumnToggle(wrapper, 'Usage')
     expect(getUsageSummary).toHaveBeenCalledTimes(1)
     expect(getCapacitySummary).not.toHaveBeenCalled()
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
 
     await clickColumnToggle(wrapper, 'Capacity')
     expect(getUsageSummary).toHaveBeenCalledTimes(1)
     expect(getCapacitySummary).toHaveBeenCalledTimes(1)
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
+
+    await clickColumnToggle(wrapper, '1H Quality')
+    expect(getBatchQualityStats).toHaveBeenCalledWith(
+      [1],
+      expect.objectContaining({ etag: null, signal: expect.any(AbortSignal) }),
+    )
+
+    await clickColumnToggle(wrapper, '1H Quality')
+    getBatchQualityStats.mockResolvedValueOnce({ notModified: true, etag: null, data: null })
+    await clickColumnToggle(wrapper, '1H Quality')
+    expect(getBatchQualityStats).toHaveBeenNthCalledWith(
+      2,
+      [1],
+      expect.objectContaining({ etag: '"groups-v1"', signal: expect.any(AbortSignal) }),
+    )
+
+    await clickColumnToggle(wrapper, '24H Quality')
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(2)
   })
 })

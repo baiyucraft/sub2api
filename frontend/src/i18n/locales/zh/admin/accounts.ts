@@ -137,6 +137,8 @@ export default {
         status: '状态',
         schedulable: '调度',
         todayStats: '今日统计',
+        realtimeQualityStats: '1H 质量',
+        qualityStats: '24H 质量',
         groups: '分组',
         usageWindows: '用量窗口',
         proxy: '代理',
@@ -150,6 +152,33 @@ export default {
         stickyShort: '粘性',
         ungrouped: '未分组',
         hint: '显示格式为“分组名 / 基础分 / 粘性加分”。基础分按当前筛选条件限定的候选账号计算，包含优先级、负载、排队、错误率、首包延迟、重置窗口、额度余量、计费倍率等因子；粘性加分只在开启粘性加权时用于 previous_response_id 或 session_hash。分数越大越优先。'
+      },
+      quality: {
+        last10: '近10',
+        last100: '近100',
+        firstTokenShort: '首字',
+        totalShort: '总',
+        loadFailed: '加载失败',
+        insufficientSamples: '有效样本 {count} 条，少于 3 条，暂不评分',
+        scoreTitle: '{grade} 级 / {score} 分，有效样本 {count} 条，首字样本 {firstCount} 条',
+        durationOnly: '首字样本不足，仅按总耗时评分，最高 69 分',
+        ttftOnly: '仅按首字评分',
+        hint: '最近 24 小时的跨模型历史观测，仅供展示，不参与优先级或调度。按账号 + 模型运行的实时 TTFT Guard 是独立保护机制。',
+        realtimeHint: '最近 1 小时的跨模型成功、失败与延迟观测，仅供展示。无流量不代表故障；实时 TTFT Guard 仍按账号 + 模型独立判断。',
+        activity: {
+          active: '活跃',
+          low_sample: '样本少',
+          degraded: '波动',
+          failing: '失败中',
+          idle: '未参与',
+          unassigned: '未分组',
+          paused: '暂停调度',
+          counts: '{success}成/{failed}败',
+          lastSuccessNow: '刚刚成功',
+          lastSuccessMinutes: '最近成功 {count} 分钟前',
+          lastSuccessHours: '最近成功 {count} 小时前',
+          noSuccess24h: '24h无成功'
+        }
       },
       usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 sub2api 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 sub2api 端解除该限制。',
       upstreamBilling: {

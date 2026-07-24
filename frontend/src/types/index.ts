@@ -1079,6 +1079,43 @@ export interface WindowStats {
   user_cost?: number
 }
 
+export interface AccountQualityWindow {
+  sample_count: number
+  first_token_sample_count: number
+  average_first_token_ms: number | null
+  average_duration_ms: number | null
+  quality_score: number | null
+  quality_grade?: string
+  score_basis?: 'ttft_duration' | 'ttft_only' | 'duration_only'
+}
+
+export interface AccountQualityPeriod {
+  last_10: AccountQualityWindow
+  last_100: AccountQualityWindow
+  window_hours: number
+}
+
+export type AccountQualityActivityState =
+  | 'active'
+  | 'low_sample'
+  | 'degraded'
+  | 'failing'
+  | 'idle'
+
+export interface AccountQualityActivity {
+  state: AccountQualityActivityState
+  successful_request_count: number
+  failed_request_count: number
+  last_success_at: string | null
+  last_error_at: string | null
+}
+
+export interface AccountQualityStats extends AccountQualityPeriod {
+  recent_1h: AccountQualityPeriod
+  activity: AccountQualityActivity
+  score_version: number
+}
+
 export interface UsageProgress {
   utilization: number // Percentage (0-100+, 100 = 100%)
   resets_at: string | null

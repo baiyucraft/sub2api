@@ -312,6 +312,36 @@
               :error="todayStatsError"
             />
           </template>
+          <template #header-quality_stats_1h="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.accounts.quality.realtimeHint')" width-class="w-80" />
+            </div>
+          </template>
+          <template #cell-quality_stats_1h="{ row }">
+            <AccountQualityCell
+              :stats="qualityStatsByAccountId[String(row.id)]?.recent_1h ?? null"
+              :activity="qualityStatsByAccountId[String(row.id)]?.activity ?? null"
+              :activity-state-override="getAccountQualityActivityOverride(row)"
+              show-activity
+              :loading="qualityStatsLoading"
+              :error="qualityStatsError"
+            />
+          </template>
+          <template #header-quality_stats="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.accounts.quality.hint')" width-class="w-80" />
+            </div>
+          </template>
+          <template #cell-quality_stats="{ row }">
+            <AccountQualityCell
+              :stats="qualityStatsByAccountId[String(row.id)] ?? null"
+              :muted="isAccountQualityBaselineMuted(row)"
+              :loading="qualityStatsLoading"
+              :error="qualityStatsError"
+            />
+          </template>
           <template #cell-groups="{ row }">
             <AccountGroupsCell :groups="row.groups" :max-display="4" />
           </template>
@@ -512,6 +542,7 @@ import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
+import AccountQualityCell from '@/components/account/AccountQualityCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
@@ -526,7 +557,7 @@ import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
-import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
+import type { Account, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -630,11 +661,11 @@ const accountToolsDropdownStyle = computed(() => ({
   width: `${accountToolsDropdownPosition.width}px`
 }))
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'quality_stats_1h', 'quality_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
-// One-time migration: hide scheduler score for existing admins too, because showing it opt-ins to heavy backend scoring.
+// One-time migration: keep newly expensive statistics opt-in for existing admins too.
 const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
-const HIDDEN_COLUMNS_CURRENT_VERSION = 'scheduler-score-hidden-by-default'
+const HIDDEN_COLUMNS_CURRENT_VERSION = 'quality-stats-hidden-by-default-v2'
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -690,8 +721,41 @@ const todayStatsByAccountId = ref<Record<string, WindowStats>>({})
 const todayStatsLoading = ref(false)
 const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
+const qualityStatsByAccountId = ref<Record<string, AccountQualityStats>>({})
+const qualityStatsLoading = ref(false)
+const qualityStatsError = ref<string | null>(null)
+const qualityStatsReqSeq = ref(0)
+const qualityStatsSnapshotKey = ref('')
+const qualityStatsETag = ref<string | null>(null)
+let qualityStatsAbortController: AbortController | null = null
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+
+const hasFutureAccountTimestamp = (value: string | null | undefined): boolean => {
+  if (!value) return false
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) && timestamp > Date.now()
+}
+
+const getAccountQualityActivityOverride = (account: Account): 'paused' | 'unassigned' | null => {
+  if (
+    account.status !== 'active'
+    || !account.schedulable
+    || account.upstream_scheduling_enabled === false
+    || hasFutureAccountTimestamp(account.temp_unschedulable_until)
+    || hasFutureAccountTimestamp(account.rate_limit_reset_at)
+    || hasFutureAccountTimestamp(account.overload_until)
+  ) {
+    return 'paused'
+  }
+  const groupCount = account.group_ids?.length ?? account.groups?.length ?? 0
+  return groupCount === 0 ? 'unassigned' : null
+}
+
+const isAccountQualityBaselineMuted = (account: Account): boolean => {
+  if (getAccountQualityActivityOverride(account)) return true
+  return (qualityStatsByAccountId.value[String(account.id)]?.activity.successful_request_count ?? 0) === 0
+}
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -745,6 +809,64 @@ const refreshTodayStatsBatch = async () => {
   }
 }
 
+const cancelAccountQualityRequest = () => {
+  qualityStatsAbortController?.abort()
+  qualityStatsAbortController = null
+  qualityStatsReqSeq.value += 1
+  qualityStatsLoading.value = false
+}
+
+const refreshAccountQualityBatch = async () => {
+  if (hiddenColumns.has('quality_stats') && hiddenColumns.has('quality_stats_1h')) {
+    cancelAccountQualityRequest()
+    qualityStatsError.value = null
+    return
+  }
+
+  const accountIDs = [...new Set(accounts.value.map(account => account.id))].sort((a, b) => a - b)
+  const snapshotKey = accountIDs.join(',')
+  if (!snapshotKey) {
+    cancelAccountQualityRequest()
+    qualityStatsSnapshotKey.value = ''
+    qualityStatsETag.value = null
+    qualityStatsByAccountId.value = {}
+    qualityStatsError.value = null
+    return
+  }
+
+  qualityStatsAbortController?.abort()
+  const controller = new AbortController()
+  qualityStatsAbortController = controller
+  const reqSeq = ++qualityStatsReqSeq.value
+  const sameSnapshot = qualityStatsSnapshotKey.value === snapshotKey
+  if (!sameSnapshot) {
+    qualityStatsSnapshotKey.value = snapshotKey
+    qualityStatsETag.value = null
+    qualityStatsByAccountId.value = {}
+  }
+  qualityStatsLoading.value = true
+  qualityStatsError.value = null
+
+  try {
+    const result = await adminAPI.accounts.getBatchQualityStats(accountIDs, {
+      signal: controller.signal,
+      etag: sameSnapshot ? qualityStatsETag.value : null
+    })
+    if (controller.signal.aborted || reqSeq !== qualityStatsReqSeq.value) return
+    if (result.etag) qualityStatsETag.value = result.etag
+    if (!result.notModified) qualityStatsByAccountId.value = result.data?.stats ?? {}
+  } catch (error: any) {
+    if (controller.signal.aborted || reqSeq !== qualityStatsReqSeq.value || error?.code === 'ERR_CANCELED') return
+    qualityStatsError.value = t('admin.accounts.quality.loadFailed')
+    console.error('Failed to load account quality stats:', error)
+  } finally {
+    if (reqSeq === qualityStatsReqSeq.value) {
+      qualityStatsLoading.value = false
+      if (qualityStatsAbortController === controller) qualityStatsAbortController = null
+    }
+  }
+}
+
 const autoRefreshIntervalLabel = (sec: number) => {
   if (sec === 5) return t('admin.accounts.refreshInterval5s')
   if (sec === 10) return t('admin.accounts.refreshInterval10s')
@@ -791,9 +913,14 @@ const loadSavedColumns = () => {
       parsed.forEach(key => {
         hiddenColumns.add(key)
       })
-      // Older saved column layouts may have scheduler_score visible; migrate them to the new safe default once.
-      if (localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY) !== HIDDEN_COLUMNS_CURRENT_VERSION) {
-        hiddenColumns.add('scheduler_score')
+      // Preserve explicit scheduler-score choices after its earlier migration; only legacy layouts need that default.
+      const storedVersion = localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)
+      if (storedVersion !== HIDDEN_COLUMNS_CURRENT_VERSION) {
+        if (storedVersion !== 'scheduler-score-hidden-by-default') {
+          hiddenColumns.add('scheduler_score')
+        }
+        hiddenColumns.add('quality_stats_1h')
+        hiddenColumns.add('quality_stats')
         localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
         localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
       }
@@ -875,6 +1002,7 @@ const setAutoRefreshInterval = (seconds: (typeof autoRefreshIntervals)[number]) 
 }
 
 const toggleColumn = (key: string) => {
+  const hadVisibleQualityColumn = !hiddenColumns.has('quality_stats_1h') || !hiddenColumns.has('quality_stats')
   const wasHidden = hiddenColumns.has(key)
   if (hiddenColumns.has(key)) {
     hiddenColumns.delete(key)
@@ -886,6 +1014,17 @@ const toggleColumn = (key: string) => {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
+  }
+  if (key === 'quality_stats' || key === 'quality_stats_1h') {
+    const hasVisibleQualityColumn = !hiddenColumns.has('quality_stats_1h') || !hiddenColumns.has('quality_stats')
+    if (wasHidden && !hadVisibleQualityColumn) {
+      refreshAccountQualityBatch().catch((error) => {
+        console.error('Failed to load account quality stats after showing column:', error)
+      })
+    } else if (!hasVisibleQualityColumn) {
+      cancelAccountQualityRequest()
+      qualityStatsError.value = null
+    }
   }
   if (key === 'scheduler_score') {
     // The server only returns scheduler scores when this column is visible, so reload the current page immediately.
@@ -990,6 +1129,7 @@ function markUpstreamBillingSortRefresh() {
 }
 
 const load = async () => {
+  cancelAccountQualityRequest()
   const requestParams = params as any
   markUpstreamBillingSortRefresh()
   syncAccountListDerivedParams()
@@ -1004,17 +1144,18 @@ const load = async () => {
     isFirstLoad.value = false
     delete requestParams.lite
   }
-  await refreshTodayStatsBatch()
+  await Promise.all([refreshTodayStatsBatch(), refreshAccountQualityBatch()])
 }
 
 const reload = async () => {
+  cancelAccountQualityRequest()
   markUpstreamBillingSortRefresh()
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   await baseReload()
-  await refreshTodayStatsBatch()
+  await Promise.all([refreshTodayStatsBatch(), refreshAccountQualityBatch()])
 }
 
 const refreshUpstreamBillingSortedList = async (force = false) => {
@@ -1031,6 +1172,7 @@ const refreshUpstreamBillingSortedList = async (force = false) => {
 }
 
 const debouncedReload = () => {
+  cancelAccountQualityRequest()
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
@@ -1039,6 +1181,7 @@ const debouncedReload = () => {
 }
 
 const handlePageChange = (page: number) => {
+  cancelAccountQualityRequest()
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
@@ -1047,6 +1190,7 @@ const handlePageChange = (page: number) => {
 }
 
 const handlePageSizeChange = (size: number) => {
+  cancelAccountQualityRequest()
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
@@ -1076,6 +1220,9 @@ watch(loading, (isLoading, wasLoading) => {
     pendingTodayStatsRefresh.value = false
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to refresh account today stats after table load:', error)
+    })
+    refreshAccountQualityBatch().catch((error) => {
+      console.error('Failed to refresh account quality stats after table load:', error)
     })
   }
 })
@@ -1202,7 +1349,7 @@ const refreshAccountsIncrementally = async () => {
     }
     upstreamBillingNow.value = Date.now()
 
-    await refreshTodayStatsBatch()
+    await Promise.all([refreshTodayStatsBatch(), refreshAccountQualityBatch()])
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -1440,7 +1587,9 @@ const allColumns = computed(() => {
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
+    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
+    { key: 'quality_stats_1h', label: t('admin.accounts.columns.realtimeQualityStats'), sortable: false },
+    { key: 'quality_stats', label: t('admin.accounts.columns.qualityStats'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
@@ -2111,6 +2260,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  cancelAccountQualityRequest()
   window.removeEventListener('scroll', handleScroll, true)
   window.removeEventListener('resize', handleViewportResize)
   document.removeEventListener('click', handleClickOutside)

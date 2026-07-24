@@ -200,6 +200,8 @@ export default {
         status: 'Status',
         schedulable: 'Schedulable',
         todayStats: 'Today Stats',
+        realtimeQualityStats: '1H Quality',
+        qualityStats: '24H Quality',
         groups: 'Groups',
         usageWindows: 'Usage Windows',
         proxy: 'Proxy',
@@ -213,6 +215,33 @@ export default {
         stickyShort: 'Sticky',
         ungrouped: 'Ungrouped',
         hint: 'Displayed as "group / base score / sticky bonus". The base score is computed within the current filtered candidate set and includes priority, load, queue depth, error rate, first-token latency, reset window, quota headroom, billing rate, and related factors. The sticky bonus applies only when sticky weighting is enabled for previous_response_id or session_hash. Higher scores are preferred.'
+      },
+      quality: {
+        last10: 'Last 10',
+        last100: 'Last 100',
+        firstTokenShort: 'TTFT',
+        totalShort: 'Total',
+        loadFailed: 'Failed to load',
+        insufficientSamples: '{count} valid sample(s); at least 3 are required for a score',
+        scoreTitle: 'Grade {grade} / score {score}, {count} valid sample(s), {firstCount} TTFT sample(s)',
+        durationOnly: 'Insufficient TTFT evidence; duration-only score capped at 69',
+        ttftOnly: 'Scored from TTFT only',
+        hint: 'Cross-model historical observations from the last 24 hours, display-only and never used for priority or routing. The real-time TTFT Guard runs independently per account and model.',
+        realtimeHint: 'Cross-model successes, failures, and latency from the last hour, display-only. No traffic does not mean failure; the real-time TTFT Guard still evaluates each account and model independently.',
+        activity: {
+          active: 'Active',
+          low_sample: 'Low sample',
+          degraded: 'Degraded',
+          failing: 'Failing',
+          idle: 'Idle',
+          unassigned: 'Ungrouped',
+          paused: 'Scheduling paused',
+          counts: '{success} ok/{failed} failed',
+          lastSuccessNow: 'Succeeded just now',
+          lastSuccessMinutes: 'Last success {count}m ago',
+          lastSuccessHours: 'Last success {count}h ago',
+          noSuccess24h: 'No success in 24h'
+        }
       },
       usageWindowsHint: '"5h / 7d" are the upstream account\'s official rolling usage windows (e.g. OpenAI ChatGPT, Claude). They are imposed by the upstream provider on the account itself — not configured by sub2api, and unrelated to the models you map. Usage resets automatically once each window rolls over, and the limit cannot be lifted from within sub2api.',
       upstreamBilling: {
