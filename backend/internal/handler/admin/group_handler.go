@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -554,6 +556,57 @@ func (h *GroupHandler) GetCapacitySummary(c *gin.Context) {
 		return
 	}
 	response.Success(c, results)
+}
+
+// GetBatchQualityStats returns display-only latency summaries for the current
+// group page. It never changes group priority or scheduling state.
+// POST /api/v1/admin/groups/quality-stats/batch
+func (h *GroupHandler) GetBatchQualityStats(c *gin.Context) {
+	var req batchGroupQualityStatsRequest
+	if !bindQualityStatsJSON(c, &req) {
+		return
+	}
+	if len(req.GroupIDs) > qualityStatsMaxRawIDs {
+		response.BadRequest(c, "Too many group_ids; maximum is 1000")
+		return
+	}
+
+	groupIDs := normalizeInt64IDList(req.GroupIDs)
+	if len(groupIDs) == 0 {
+		response.Success(c, gin.H{"stats": map[string]any{}})
+		return
+	}
+	if h.dashboardService == nil {
+		response.InternalError(c, "Dashboard service is unavailable")
+		return
+	}
+
+	cacheKey := buildGroupQualityStatsBatchCacheKey(groupIDs)
+	cached, hit, err := groupQualityStatsBatchCache.GetOrLoad(cacheKey, func() (any, error) {
+		stats, loadErr := h.dashboardService.GetGroupQualityStatsBatch(c.Request.Context(), groupIDs, time.Now().UTC())
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		return gin.H{"stats": stats}, nil
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if cached.ETag != "" {
+		c.Header("ETag", cached.ETag)
+		c.Header("Vary", "If-None-Match")
+	}
+	if hit {
+		c.Header("X-Snapshot-Cache", "hit")
+	} else {
+		c.Header("X-Snapshot-Cache", "miss")
+	}
+	if cached.ETag != "" && ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
+		c.Status(http.StatusNotModified)
+		return
+	}
+	response.Success(c, cached.Payload)
 }
 
 // GetGroupAPIKeys handles getting API keys in a group

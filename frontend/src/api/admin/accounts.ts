@@ -22,7 +22,8 @@ import type {
   CheckMixedChannelRequest,
   CheckMixedChannelResponse,
   UpstreamBillingProbeResult,
-  UpstreamBillingProbeSettings
+  UpstreamBillingProbeSettings,
+  AccountQualityStats
 } from '@/types'
 
 /**
@@ -499,6 +500,38 @@ export async function getBatchTodayStats(accountIds: number[]): Promise<BatchTod
   return data
 }
 
+export interface BatchAccountQualityStatsResponse {
+  stats: Record<string, AccountQualityStats>
+}
+
+export interface BatchAccountQualityStatsResult {
+  notModified: boolean
+  etag: string | null
+  data: BatchAccountQualityStatsResponse | null
+}
+
+export async function getBatchQualityStats(
+  accountIds: number[],
+  options?: { signal?: AbortSignal; etag?: string | null }
+): Promise<BatchAccountQualityStatsResult> {
+  const headers: Record<string, string> = {}
+  if (options?.etag) headers['If-None-Match'] = options.etag
+
+  const response = await apiClient.post<BatchAccountQualityStatsResponse>(
+    '/admin/accounts/quality-stats/batch',
+    { account_ids: accountIds },
+    {
+      headers,
+      signal: options?.signal,
+      validateStatus: (status) => (status >= 200 && status < 300) || status === 304
+    }
+  )
+  const etag = typeof response.headers?.etag === 'string' ? response.headers.etag : null
+  return response.status === 304
+    ? { notModified: true, etag, data: null }
+    : { notModified: false, etag, data: response.data }
+}
+
 /**
  * Set account schedulable status
  * @param id - Account ID
@@ -900,6 +933,7 @@ export const accountsAPI = {
   getUsage,
   getTodayStats,
   getBatchTodayStats,
+  getBatchQualityStats,
   clearRateLimit,
   recoverState,
   resetAccountQuota,

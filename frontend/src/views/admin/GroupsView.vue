@@ -346,6 +346,40 @@
             </div>
           </template>
 
+          <template #header-quality_stats_1h="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.groups.quality.realtimeHint')" width-class="w-80" />
+            </div>
+          </template>
+
+          <template #cell-quality_stats_1h="{ row }">
+            <AccountQualityCell
+              :stats="qualityStatsByGroupId[String(row.id)]?.recent_1h ?? null"
+              :activity="qualityStatsByGroupId[String(row.id)]?.activity ?? null"
+              :activity-state-override="row.status !== 'active' ? 'paused' : null"
+              show-activity
+              :loading="qualityStatsLoading"
+              :error="qualityStatsError"
+            />
+          </template>
+
+          <template #header-quality_stats="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.groups.quality.hint')" width-class="w-80" />
+            </div>
+          </template>
+
+          <template #cell-quality_stats="{ row }">
+            <AccountQualityCell
+              :stats="qualityStatsByGroupId[String(row.id)] ?? null"
+              :muted="isGroupQualityBaselineMuted(row)"
+              :loading="qualityStatsLoading"
+              :error="qualityStatsError"
+            />
+          </template>
+
           <template #cell-status="{ value }">
             <span
               :class="[
@@ -3602,7 +3636,7 @@ import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
 import { useOnboardingStore } from "@/stores/onboarding";
 import { adminAPI } from "@/api/admin";
-import type { AdminGroup, GroupPlatform, SubscriptionType } from "@/types";
+import type { AccountQualityStats, AdminGroup, GroupPlatform, SubscriptionType } from "@/types";
 import type { Column } from "@/components/common/types";
 import AppLayout from "@/components/layout/AppLayout.vue";
 import TablePageLayout from "@/components/layout/TablePageLayout.vue";
@@ -3618,6 +3652,8 @@ import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipl
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
+import HelpTooltip from "@/components/common/HelpTooltip.vue";
+import AccountQualityCell from "@/components/account/AccountQualityCell.vue";
 import { VueDraggable } from "vue-draggable-plus";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { extractApiErrorMessage } from "@/utils/apiError";
@@ -3663,13 +3699,14 @@ const onboardingStore = useOnboardingStore();
 
 const ALWAYS_VISIBLE_COLUMNS = new Set(["name", "actions"]);
 // Default hidden columns (hidden on first load / after schema bumps).
-const DEFAULT_HIDDEN_COLUMNS = ["id"];
+const DEFAULT_HIDDEN_COLUMNS = ["id", "quality_stats_1h", "quality_stats"];
 const HIDDEN_COLUMNS_KEY = "group-hidden-columns";
 // Bump when adding new default-hidden columns so existing admins pick them up once.
 const COLUMN_SETTINGS_VERSION_KEY = "group-column-settings-version";
-const COLUMN_SETTINGS_VERSION = 2;
+const COLUMN_SETTINGS_VERSION = 3;
 const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
   2: ["id"],
+  3: ["quality_stats_1h", "quality_stats"],
 };
 
 const allColumns = computed<Column[]>(() => [
@@ -3706,6 +3743,16 @@ const allColumns = computed<Column[]>(() => [
     sortable: false,
   },
   { key: "usage", label: t("admin.groups.columns.usage"), sortable: false },
+  {
+    key: "quality_stats_1h",
+    label: t("admin.groups.columns.realtimeQualityStats"),
+    sortable: false,
+  },
+  {
+    key: "quality_stats",
+    label: t("admin.groups.columns.qualityStats"),
+    sortable: false,
+  },
   { key: "status", label: t("admin.groups.columns.status"), sortable: true },
   { key: "actions", label: t("admin.groups.columns.actions"), sortable: false },
 ]);
@@ -3791,11 +3838,15 @@ const hasVisibleUsageSummaryConsumer = computed(
   () => isColumnVisible("usage") || isColumnVisible("billing_type"),
 );
 const hasVisibleCapacityColumn = computed(() => isColumnVisible("capacity"));
+const hasVisibleQualityColumn = computed(
+  () => isColumnVisible("quality_stats_1h") || isColumnVisible("quality_stats"),
+);
 
 const toggleColumn = (key: string) => {
   const validKeys = getValidHiddenColumnKeys();
   if (!validKeys.has(key)) return;
 
+  const hadVisibleQualityColumn = hasVisibleQualityColumn.value;
   const wasHidden = hiddenColumns.has(key);
   if (wasHidden) {
     hiddenColumns.delete(key);
@@ -3809,6 +3860,19 @@ const toggleColumn = (key: string) => {
   }
   if (wasHidden && key === "capacity") {
     loadCapacitySummary();
+  }
+  if (
+    wasHidden &&
+    (key === "quality_stats_1h" || key === "quality_stats") &&
+    !hadVisibleQualityColumn
+  ) {
+    loadGroupQualityBatch();
+  } else if (
+    (key === "quality_stats_1h" || key === "quality_stats") &&
+    !hasVisibleQualityColumn.value
+  ) {
+    cancelGroupQualityRequest();
+    qualityStatsError.value = null;
   }
 };
 
@@ -3971,6 +4035,20 @@ type GroupUsageSummary = {
 
 const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
 const usageLoading = ref(false);
+const qualityStatsByGroupId = ref<Record<string, AccountQualityStats>>({});
+const qualityStatsLoading = ref(false);
+const qualityStatsError = ref<string | null>(null);
+const qualityStatsReqSeq = ref(0);
+const qualityStatsSnapshotKey = ref("");
+const qualityStatsETag = ref<string | null>(null);
+let qualityStatsAbortController: AbortController | null = null;
+
+const isGroupQualityBaselineMuted = (group: AdminGroup): boolean => {
+  if (group.status !== "active") return true;
+  return (
+    qualityStatsByGroupId.value[String(group.id)]?.activity.successful_request_count ?? 0
+  ) === 0;
+};
 const capacityMap = ref<
   Map<
     number,
@@ -4623,6 +4701,7 @@ const deleteConfirmMessage = computed(() => {
 });
 
 const loadGroups = async () => {
+  cancelGroupQualityRequest();
   if (abortController) {
     abortController.abort();
   }
@@ -4657,6 +4736,12 @@ const loadGroups = async () => {
     }
     if (hasVisibleCapacityColumn.value) {
       loadCapacitySummary();
+    }
+    if (hasVisibleQualityColumn.value) {
+      loadGroupQualityBatch();
+    } else {
+      qualityStatsLoading.value = false;
+      qualityStatsError.value = null;
     }
   } catch (error: any) {
     if (
@@ -4755,6 +4840,70 @@ const loadCapacitySummary = async () => {
     capacityMap.value = map;
   } catch (error) {
     console.error("Error loading group capacity summary:", error);
+  }
+};
+
+const cancelGroupQualityRequest = () => {
+  qualityStatsAbortController?.abort();
+  qualityStatsAbortController = null;
+  qualityStatsReqSeq.value += 1;
+  qualityStatsLoading.value = false;
+};
+
+const loadGroupQualityBatch = async () => {
+  if (!hasVisibleQualityColumn.value) {
+    cancelGroupQualityRequest();
+    qualityStatsError.value = null;
+    return;
+  }
+
+  const groupIDs = [...new Set(groups.value.map((group) => group.id))].sort((a, b) => a - b);
+  const snapshotKey = groupIDs.join(",");
+  if (!snapshotKey) {
+    cancelGroupQualityRequest();
+    qualityStatsSnapshotKey.value = "";
+    qualityStatsETag.value = null;
+    qualityStatsByGroupId.value = {};
+    qualityStatsError.value = null;
+    return;
+  }
+
+  qualityStatsAbortController?.abort();
+  const controller = new AbortController();
+  qualityStatsAbortController = controller;
+  const reqSeq = ++qualityStatsReqSeq.value;
+  const sameSnapshot = qualityStatsSnapshotKey.value === snapshotKey;
+  if (!sameSnapshot) {
+    qualityStatsSnapshotKey.value = snapshotKey;
+    qualityStatsETag.value = null;
+    qualityStatsByGroupId.value = {};
+  }
+  qualityStatsLoading.value = true;
+  qualityStatsError.value = null;
+
+  try {
+    const result = await adminAPI.groups.getBatchQualityStats(groupIDs, {
+      signal: controller.signal,
+      etag: sameSnapshot ? qualityStatsETag.value : null,
+    });
+    if (controller.signal.aborted || reqSeq !== qualityStatsReqSeq.value) return;
+    if (result.etag) qualityStatsETag.value = result.etag;
+    if (!result.notModified) qualityStatsByGroupId.value = result.data?.stats ?? {};
+  } catch (error: any) {
+    if (
+      controller.signal.aborted ||
+      reqSeq !== qualityStatsReqSeq.value ||
+      error?.code === "ERR_CANCELED"
+    ) {
+      return;
+    }
+    qualityStatsError.value = t("admin.groups.quality.loadFailed");
+    console.error("Error loading group quality stats:", error);
+  } finally {
+    if (reqSeq === qualityStatsReqSeq.value) {
+      qualityStatsLoading.value = false;
+      if (qualityStatsAbortController === controller) qualityStatsAbortController = null;
+    }
   }
 };
 
@@ -5449,6 +5598,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  cancelGroupQualityRequest();
   document.removeEventListener("click", handleClickOutside);
   accountSearchRunner.clearAll();
   clearAllAccountSearchState();
