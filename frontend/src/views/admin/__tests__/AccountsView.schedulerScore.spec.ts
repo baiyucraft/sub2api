@@ -7,12 +7,14 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  getBatchQualityStats,
   getAllProxies,
   getAllGroups
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getBatchQualityStats: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn()
 }))
@@ -23,6 +25,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getBatchQualityStats,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
       delete: vi.fn(),
       batchClearError: vi.fn(),
@@ -82,9 +85,14 @@ function mountView() {
         TablePageLayout: {
           template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
         },
+        Teleport: true,
         DataTable: DataTableStub,
         HelpTooltip: true,
-        Pagination: true,
+        Pagination: {
+          name: 'Pagination',
+          emits: ['update:page', 'update:pageSize'],
+          template: '<button data-test="next-page" @click="$emit(\'update:page\', 2)">next</button>'
+        },
         ConfirmDialog: true,
         AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
         AccountTableFilters: { template: '<div></div>' },
@@ -136,6 +144,7 @@ describe('admin AccountsView scheduler score column', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    getBatchQualityStats.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
 
@@ -189,6 +198,7 @@ describe('admin AccountsView scheduler score column', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getBatchQualityStats.mockResolvedValue({ notModified: false, etag: null, data: { stats: {} } })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
   })
@@ -240,6 +250,11 @@ describe('admin AccountsView scheduler score column', () => {
     expect(listAccounts.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
       include_scheduler_score: '1'
     }))
+    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual(
+      expect.arrayContaining(['quality_stats_1h', 'quality_stats'])
+    )
+    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).not.toContain('scheduler_score')
+    expect(localStorage.getItem('account-hidden-columns-version')).toBe('quality-stats-hidden-by-default-v2')
   })
 
   it('still shows a dash when no scheduler score is available', async () => {
@@ -249,5 +264,44 @@ describe('admin AccountsView scheduler score column', () => {
     const emptyCell = wrapper.find('[data-test="scheduler-score-3"]')
     expect(emptyCell.exists()).toBe(true)
     expect(emptyCell.text()).toBe('-')
+  })
+
+  it('loads quality only after opt-in and aborts the stale snapshot on page change', async () => {
+    localStorage.setItem(
+      'account-hidden-columns',
+      JSON.stringify(['today_stats', 'quality_stats_1h', 'quality_stats'])
+    )
+    localStorage.setItem('account-hidden-columns-version', 'quality-stats-hidden-by-default-v2')
+
+    let firstSignal: AbortSignal | undefined
+    getBatchQualityStats.mockImplementationOnce((_ids, options) => {
+      firstSignal = options?.signal
+      return new Promise(() => {})
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
+
+    await wrapper.find('button[title="admin.accounts.moreActions"]').trigger('click')
+    const qualityButton = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.accounts.columns.realtimeQualityStats')
+    )
+    expect(qualityButton).toBeDefined()
+    await qualityButton!.trigger('click')
+    await flushPromises()
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
+    expect(firstSignal?.aborted).toBe(false)
+
+    getBatchQualityStats.mockResolvedValueOnce({
+      notModified: false,
+      etag: '"accounts-page-2"',
+      data: { stats: {} }
+    })
+    await wrapper.find('[data-test="next-page"]').trigger('click')
+    await flushPromises()
+
+    expect(firstSignal?.aborted).toBe(true)
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(2)
   })
 })

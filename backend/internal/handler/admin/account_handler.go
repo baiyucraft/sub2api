@@ -2333,6 +2333,57 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 	response.Success(c, payload)
 }
 
+// GetBatchQualityStats returns display-only latency summaries for the current
+// account page. It never changes priority, schedulability, or scheduler scores.
+// POST /api/v1/admin/accounts/quality-stats/batch
+func (h *AccountHandler) GetBatchQualityStats(c *gin.Context) {
+	var req batchAccountQualityStatsRequest
+	if !bindQualityStatsJSON(c, &req) {
+		return
+	}
+	if len(req.AccountIDs) > qualityStatsMaxRawIDs {
+		response.BadRequest(c, "Too many account_ids; maximum is 1000")
+		return
+	}
+
+	accountIDs := normalizeInt64IDList(req.AccountIDs)
+	if len(accountIDs) == 0 {
+		response.Success(c, gin.H{"stats": map[string]any{}})
+		return
+	}
+	if h.accountUsageService == nil {
+		response.InternalError(c, "Account usage service is unavailable")
+		return
+	}
+
+	cacheKey := buildAccountQualityStatsBatchCacheKey(accountIDs)
+	cached, hit, err := accountQualityStatsBatchCache.GetOrLoad(cacheKey, func() (any, error) {
+		stats, loadErr := h.accountUsageService.GetAccountQualityStatsBatch(c.Request.Context(), accountIDs, time.Now().UTC())
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		return gin.H{"stats": stats}, nil
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if cached.ETag != "" {
+		c.Header("ETag", cached.ETag)
+		c.Header("Vary", "If-None-Match")
+	}
+	if hit {
+		c.Header("X-Snapshot-Cache", "hit")
+	} else {
+		c.Header("X-Snapshot-Cache", "miss")
+	}
+	if cached.ETag != "" && ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
+		c.Status(http.StatusNotModified)
+		return
+	}
+	response.Success(c, cached.Payload)
+}
+
 // SetSchedulableRequest represents the request body for setting schedulable status
 type SetSchedulableRequest struct {
 	Schedulable bool `json:"schedulable"`

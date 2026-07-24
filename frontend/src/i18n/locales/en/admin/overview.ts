@@ -807,6 +807,8 @@ export default {
         accounts: 'Accounts',
         capacity: 'Capacity',
         usage: 'Usage',
+        realtimeQualityStats: '1H Quality',
+        qualityStats: '24H Quality',
         status: 'Status',
         actions: 'Actions',
         billingType: 'Billing Type',
@@ -817,6 +819,11 @@ export default {
       },
       usageToday: 'Today',
       usageTotal: 'Total',
+      quality: {
+        loadFailed: 'Failed to load',
+        hint: 'Cross-model historical observations for this group from the last 24 hours, display-only and never used for routing. The real-time TTFT Guard runs independently per account and model.',
+        realtimeHint: 'Cross-model successes, failures, and latency for this group from the last hour, display-only. No traffic does not mean failure; the real-time TTFT Guard still evaluates each account and model independently.'
+      },
       accountsAvailable: 'Avail:',
       accountsRateLimited: 'Limited:',
       accountsTotal: 'Total:',

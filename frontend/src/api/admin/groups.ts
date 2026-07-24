@@ -6,6 +6,7 @@
 import { apiClient } from '../client'
 import type {
   AdminGroup,
+  AccountQualityStats,
   GroupPlatform,
   CreateGroupRequest,
   UpdateGroupRequest,
@@ -409,6 +410,38 @@ export async function getCapacitySummary(): Promise<
   return data
 }
 
+export interface BatchGroupQualityStatsResponse {
+  stats: Record<string, AccountQualityStats>
+}
+
+export interface BatchGroupQualityStatsResult {
+  notModified: boolean
+  etag: string | null
+  data: BatchGroupQualityStatsResponse | null
+}
+
+export async function getBatchQualityStats(
+  groupIds: number[],
+  options?: { signal?: AbortSignal; etag?: string | null }
+): Promise<BatchGroupQualityStatsResult> {
+  const headers: Record<string, string> = {}
+  if (options?.etag) headers['If-None-Match'] = options.etag
+
+  const response = await apiClient.post<BatchGroupQualityStatsResponse>(
+    '/admin/groups/quality-stats/batch',
+    { group_ids: groupIds },
+    {
+      headers,
+      signal: options?.signal,
+      validateStatus: (status) => (status >= 200 && status < 300) || status === 304
+    }
+  )
+  const etag = typeof response.headers?.etag === 'string' ? response.headers.etag : null
+  return response.status === 304
+    ? { notModified: true, etag, data: null }
+    : { notModified: false, etag, data: response.data }
+}
+
 export const groupsAPI = {
   list,
   getAll,
@@ -431,7 +464,8 @@ export const groupsAPI = {
   batchSetGroupRPMOverrides,
   updateSortOrder,
   getUsageSummary,
-  getCapacitySummary
+  getCapacitySummary,
+  getBatchQualityStats
 }
 
 export default groupsAPI
