@@ -46,7 +46,7 @@ WITH expected_accounts AS (
 SELECT
   (SELECT affected FROM expected_accounts),
   (SELECT COUNT(*) FROM upstream_keys WHERE rate_multiplier IS NOT NULL AND source_rate_multiplier IS NULL),
-  (SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.upstream_source_rate_multiplier IS DISTINCT FROM k.source_rate_multiplier OR a.priority IS DISTINCT FROM CEIL(k.rate_multiplier*100)::int),
+  (SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.deleted_at IS NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.upstream_source_rate_multiplier IS DISTINCT FROM k.source_rate_multiplier OR a.priority IS DISTINCT FROM CEIL(k.rate_multiplier*100)::int)),
   (SELECT event_id FROM last_event)")
     IFS='|' read -r affected unproven account_mismatch outbox_event_id <<<"$terminal"
     [[ $unproven == 0 && $account_mismatch == 0 ]]
@@ -122,9 +122,9 @@ WITH values AS (
     $preserved_expression AS preserved,
     $skipped_expression AS skipped,
     (SELECT COUNT(*) FROM accounts a LEFT JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND k.rate_multiplier IS NULL) AS unproven,
-    (SELECT COUNT(*) FROM accounts a LEFT JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (k.id IS NULL OR k.deleted_at IS NOT NULL OR k.upstream_config_id IS DISTINCT FROM a.upstream_config_id)) AS conflict,
+    (SELECT COUNT(*) FROM accounts a LEFT JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.deleted_at IS NULL AND a.upstream_key_id IS NOT NULL AND (k.id IS NULL OR k.deleted_at IS NOT NULL OR k.upstream_config_id IS DISTINCT FROM a.upstream_config_id)) AS conflict,
     (SELECT COUNT(*) FROM upstream_keys k JOIN upstream_configs c ON c.id=k.upstream_config_id WHERE $rate_present_expression AND (c.recharge_rate <= 0 OR $unexpected_rate_expression > 999999.9999))
-      + (SELECT COUNT(*) FROM accounts WHERE upstream_key_id IS NOT NULL AND concurrency > 1073741823) AS unexpected
+      + (SELECT COUNT(*) FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL AND concurrency > 1073741823) AS unexpected
 )
 SELECT affected,recomputed,preserved,skipped,unproven,conflict,unexpected FROM values")
   IFS='|' read -r affected recomputed preserved skipped unproven conflict unexpected <<<"$counts"
@@ -203,7 +203,7 @@ WITH expected_accounts AS (
   SELECT
     (SELECT affected FROM expected_accounts) AS affected,
     (SELECT COUNT(*) FROM upstream_keys WHERE rate_multiplier IS NOT NULL AND source_rate_multiplier IS NULL) AS unproven,
-    (SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.upstream_source_rate_multiplier IS DISTINCT FROM k.source_rate_multiplier OR a.priority IS DISTINCT FROM CEIL(k.rate_multiplier*100)::int OR a.load_factor IS DISTINCT FROM LEAST(GREATEST(a.concurrency::bigint,1)*2,GREATEST(1,ROUND(GREATEST(a.concurrency::bigint,1)*CASE WHEN CEIL(k.rate_multiplier*100)::int<=5 THEN 2.0 WHEN CEIL(k.rate_multiplier*100)::int<=10 THEN 1.5 WHEN CEIL(k.rate_multiplier*100)::int<=20 THEN 1.0 WHEN CEIL(k.rate_multiplier*100)::int<=50 THEN 0.75 ELSE 0.5 END)::int))) AS account_mismatch,
+    (SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.deleted_at IS NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.upstream_source_rate_multiplier IS DISTINCT FROM k.source_rate_multiplier OR a.priority IS DISTINCT FROM CEIL(k.rate_multiplier*100)::int OR a.load_factor IS DISTINCT FROM LEAST(GREATEST(a.concurrency::bigint,1)*2,GREATEST(1,ROUND(GREATEST(a.concurrency::bigint,1)*CASE WHEN CEIL(k.rate_multiplier*100)::int<=5 THEN 2.0 WHEN CEIL(k.rate_multiplier*100)::int<=10 THEN 1.5 WHEN CEIL(k.rate_multiplier*100)::int<=20 THEN 1.0 WHEN CEIL(k.rate_multiplier*100)::int<=50 THEN 0.75 ELSE 0.5 END)::int)))) AS account_mismatch,
     (SELECT COUNT(*) FROM groups g WHERE g.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM group_rate_snapshots s WHERE s.group_id=g.id AND s.rate_multiplier=g.rate_multiplier AND s.peak_rate_enabled=g.peak_rate_enabled AND s.peak_start=g.peak_start AND s.peak_end=g.peak_end AND s.peak_rate_multiplier=g.peak_rate_multiplier AND s.timezone='$expected_timezone')) AS snapshot_missing,
     (SELECT CASE
        WHEN expected_accounts.affected=0 AND matching_outbox.count=0 THEN 0

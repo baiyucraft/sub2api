@@ -719,6 +719,26 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertGreater(switch.index('migration-195-assert.sh" postflight_db'), switch.index("docker compose run"))
         self.assertGreater(switch.index('migration-195-assert.sh" postflight_runtime'), switch.index("docker compose up"))
 
+    def test_migration_195_assertion_ignores_soft_deleted_accounts(self) -> None:
+        assertion = self.script("migration-195-assert.sh")
+        self.assertGreaterEqual(
+            assertion.count(
+                "FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id "
+                "WHERE a.deleted_at IS NULL AND ("
+            ),
+            2,
+        )
+        self.assertIn(
+            "FROM accounts a LEFT JOIN upstream_keys k ON k.id=a.upstream_key_id "
+            "WHERE a.deleted_at IS NULL AND a.upstream_key_id IS NOT NULL",
+            assertion,
+        )
+        self.assertIn(
+            "FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL "
+            "AND concurrency > 1073741823",
+            assertion,
+        )
+
     def test_coordinated_restore_reads_redis_password_from_startup_arguments(self) -> None:
         restore = self.script("restore.sh")
         self.assertIn('index("--requirepass")', restore)
