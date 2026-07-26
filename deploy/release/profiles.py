@@ -295,6 +295,19 @@ PROFILES["202"] = {
     ],
 }
 
+PROFILES["206"] = {
+    **PROFILES["202"],
+    "name": "206",
+    "version": "0.1.165-baiyu",
+    "migrations": [
+        *PROFILES["202"]["migrations"],
+        "203_add_usage_log_session_id.sql",
+        "204_allow_live_usage_request_type.sql",
+        "205_add_group_allow_live.sql",
+        "206_add_users_email_alias_dedup_index_notx.sql",
+    ],
+}
+
 
 def get_profile(name: str) -> dict:
     try:

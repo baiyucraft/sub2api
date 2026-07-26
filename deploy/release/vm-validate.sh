@@ -28,8 +28,8 @@ tag="sub2api:baiyu-$version-$commit"
 test_tag="sub2api:vm-test-$commit"
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 profile=$(jq -er '.profile' "$manifest")
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]
 [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
 [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
 [[ $(jq -er '.vm_validator_sha256' "$manifest") == "$(sha256sum "$0" | awk '{print $1}')" ]]
@@ -253,8 +253,13 @@ reasoning_effort_policy_verified=false
 alipay_mobile_precreate_migration_verified=false
 group_auth_cache_image_generation_verified=false
 composite_model_routes_verified=false
+session_id_columns_verified=false
+live_request_type_verified=false
+group_allow_live_verified=false
+email_alias_index_verified=false
+live_runtime_capability_verified=false
 vm_old_image_compatibility_verified=false
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   migration_195_context="$state_dir/migration-195-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_195_context"
   chmod 400 "$migration_195_context"
@@ -288,12 +293,12 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   printf '%s  recovery-point.age\n' "$(<"$state_dir/fake-recovery.sha256")" > "$state_dir/recovery-point.age.sha256"
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" bind >/dev/null
 fi
-if [[ $profile == 202 ]]; then
+if [[ $profile == 202 || $profile == 206 ]]; then
   docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"INSERT INTO settings (key,value,updated_at) VALUES ('ALIPAY_MOBILE_PRECREATE_DEEP_LINK','true',NOW()) ON CONFLICT (key) DO UPDATE SET value='true',updated_at=NOW()\"" >/dev/null
 fi
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
 rm -f "$state_dir/migrate-candidate.log"
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
   consumed_event_id=$(<"$state_dir/migration-195-outbox-event.id")
   if [[ $migration_195_status == absent ]]; then
@@ -328,7 +333,7 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" bind >/dev/null
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
 fi
-if [[ $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   mark_stage old_image_compatibility
   docker run -d --name "$old_probe_app" --network "$probe_network" \
     -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
@@ -357,6 +362,70 @@ done
 [[ $(docker inspect -f '{{.Image}}' "$probe_app") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]]
 
+if [[ $profile == 206 ]]; then
+  mark_stage runtime_assertion_profile_206_live_capability
+  admin_user_id=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT id FROM users WHERE role='admin' AND status='active' AND deleted_at IS NULL ORDER BY id LIMIT 1\"" | tr -d '\r')
+  [[ $admin_user_id =~ ^[1-9][0-9]*$ ]]
+  fixture_admin_key="vm-gate-profile-206-${release_id}"
+  fixture_live_key="sk-vm-gate-profile-206-${release_id}"
+  fixture_live_group="vm-gate-live-${release_id}"
+  docker exec -i \
+    -e FIXTURE_ADMIN_KEY="$fixture_admin_key" \
+    -e FIXTURE_ADMIN_USER_ID="$admin_user_id" \
+    -e FIXTURE_LIVE_KEY="$fixture_live_key" \
+    -e FIXTURE_LIVE_GROUP="$fixture_live_group" \
+    sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -v fixture_admin_key=\"\$FIXTURE_ADMIN_KEY\" -v fixture_admin_user_id=\"\$FIXTURE_ADMIN_USER_ID\" -v fixture_live_key=\"\$FIXTURE_LIVE_KEY\" -v fixture_live_group=\"\$FIXTURE_LIVE_GROUP\" -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" >/dev/null <<'SQL'
+INSERT INTO settings (key,value,updated_at)
+VALUES ('admin_api_key', :'fixture_admin_key', NOW())
+ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,updated_at=EXCLUDED.updated_at;
+INSERT INTO settings (key,value,updated_at)
+VALUES (
+  'admin_compliance_acknowledgement:' || :'fixture_admin_user_id',
+  json_build_object(
+    'version','v2026.06.10',
+    'document_zh','docs/legal/admin-compliance.zh.md',
+    'document_en','docs/legal/admin-compliance.en.md',
+    'admin_user_id',(:'fixture_admin_user_id')::bigint,
+    'accepted_at',NOW()
+  )::text,
+  NOW()
+)
+ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,updated_at=EXCLUDED.updated_at;
+UPDATE users SET balance=GREATEST(balance,100), concurrency=GREATEST(concurrency,1)
+WHERE id=(:'fixture_admin_user_id')::bigint;
+WITH fixture_group AS (
+  INSERT INTO groups (name,status,platform,subscription_type,allow_live,created_at,updated_at)
+  VALUES (:'fixture_live_group','active','openai','standard',true,NOW(),NOW())
+  RETURNING id
+)
+INSERT INTO api_keys (key,name,status,quota,quota_used,user_id,group_id,created_at,updated_at)
+SELECT :'fixture_live_key','vm-gate-live','active',0,0,(:'fixture_admin_user_id')::bigint,id,NOW(),NOW()
+FROM fixture_group;
+SQL
+  probe_app_ip=$(docker inspect -f "{{with index .NetworkSettings.Networks \"$probe_network\"}}{{.IPAddress}}{{end}}" "$probe_app")
+  [[ $probe_app_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  live_capability_response=$(curl --fail --silent --show-error --max-time 10 -H "x-api-key: $fixture_admin_key" "http://$probe_app_ip:$server_port/api/v1/admin/groups/live-capability")
+  jq -e '.code == 0 and .data.supported == false and (.data.reason | type == "string") and (.data.reason | length > 0)' >/dev/null <<<"$live_capability_response"
+  fixture_live_key_id=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT id FROM api_keys WHERE key='$fixture_live_key'\"" | tr -d '\r')
+  [[ $fixture_live_key_id =~ ^[1-9][0-9]*$ ]]
+  live_usage_before=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM usage_logs WHERE api_key_id=$fixture_live_key_id AND request_type=5\"" | tr -d '\r')
+  live_redis_before=$(docker exec "$probe_redis" sh -lc "redis-cli --scan --pattern 'live:*'; redis-cli --scan --pattern 'concurrency:live:*'" | awk 'NF{n++} END{print n+0}')
+  [[ $live_usage_before == 0 && $live_redis_before == 0 ]]
+  live_http_status=$(curl --silent --show-error --max-time 10 \
+    --output "$state_dir/live-runtime-response.json" --write-out '%{http_code}' \
+    -H "Authorization: Bearer $fixture_live_key" -H "Content-Type: application/json" \
+    --data-binary '{"sdp":"v=0\r\n","session":{"model":"gpt-live-vm-gate"}}' \
+    "http://$probe_app_ip:$server_port/v1/live")
+  [[ $live_http_status == 503 ]]
+  jq -e '.error.type == "api_error" and (.error.message | type == "string") and (.error.message | length > 0)' >/dev/null "$state_dir/live-runtime-response.json"
+  rm -f "$state_dir/live-runtime-response.json"
+  live_usage_after=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM usage_logs WHERE api_key_id=$fixture_live_key_id AND request_type=5\"" | tr -d '\r')
+  live_redis_after=$(docker exec "$probe_redis" sh -lc "redis-cli --scan --pattern 'live:*'; redis-cli --scan --pattern 'concurrency:live:*'" | awk 'NF{n++} END{print n+0}')
+  [[ $live_usage_after == 0 && $live_redis_after == 0 ]]
+  unset fixture_admin_key fixture_live_key fixture_live_group live_capability_response
+  live_runtime_capability_verified=true
+fi
+
 mark_stage migration_assertions
 mark_stage migration_assertion_checksums
 while IFS=$'\t' read -r migration migration_checksum; do
@@ -366,24 +435,24 @@ done < <(jq -r '.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$manif
 mark_stage migration_assertion_account_rates
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.priority IS DISTINCT FROM ROUND(k.rate_multiplier*100)::int)\"") == 0 ]]
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts WHERE extra ?| ARRAY['upstream_rate_multiplier','upstream_source_rate_multiplier','upstream_recharge_rate','upstream_effective_cost_multiplier','sub2api_upstream_rate_multiplier']\"") == 0 ]]
-if [[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   mark_stage migration_assertion_prompt_audit
   prompt_audit_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"WITH config AS (SELECT COALESCE(NULLIF((SELECT value FROM settings WHERE key='prompt_audit_config'), ''), '{}')::jsonb AS value) SELECT NOT COALESCE((value->>'enabled')::boolean, false) AND NOT COALESCE((value->>'blocking_enabled')::boolean, false) AND NOT COALESCE((value->>'store_pass_events')::boolean, false) AND jsonb_typeof(COALESCE(value->'endpoints', '[]'::jsonb)) = 'array' AND jsonb_array_length(COALESCE(value->'endpoints', '[]'::jsonb)) = 0, (SELECT COUNT(*) FROM prompt_audit_jobs), (SELECT COUNT(*) FROM prompt_audit_events) FROM config\"")
   [[ $prompt_audit_state == 't|0|0' ]]
 fi
-if [[ $profile == 198 || $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   mark_stage migration_assertion_managed_monitor
   managed_monitor_key_name_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT character_maximum_length, (SELECT COUNT(*) FROM api_keys k JOIN channel_monitors m ON m.id=k.managed_monitor_id AND m.managed_api_key_id=k.id WHERE k.purpose='managed_monitor' AND k.deleted_at IS NULL AND k.name IS DISTINCT FROM '监控-' || BTRIM(m.name)) FROM information_schema.columns WHERE table_schema='public' AND table_name='api_keys' AND column_name='name'\"")
   [[ $managed_monitor_key_name_state == '103|0' ]]
   managed_monitor_key_names_verified=true
 fi
-if [[ $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   mark_stage migration_assertion_reasoning_effort
   reasoning_effort_policy_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COALESCE(MAX(CASE WHEN column_name='max_reasoning_effort' THEN data_type || ':' || is_nullable || ':' || column_default END),''), COALESCE(MAX(CASE WHEN column_name='reasoning_effort_mappings' THEN data_type || ':' || is_nullable || ':' || column_default END),'') FROM information_schema.columns WHERE table_schema='public' AND table_name='groups' AND column_name IN ('max_reasoning_effort','reasoning_effort_mappings')\"")
   [[ $reasoning_effort_policy_state == *'character varying:NO:'*"''::character varying"*'|'*'jsonb:NO:'*"'[]'::jsonb"* ]]
   reasoning_effort_policy_verified=true
 fi
-if [[ $profile == 202 ]]; then
+if [[ $profile == 202 || $profile == 206 ]]; then
   mark_stage migration_assertion_profile_202_alipay
   alipay_mobile_precreate_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*)=1 AND BOOL_AND(value='true') FROM settings WHERE key='ALIPAY_MOBILE_PRECREATE_DEEP_LINK'\"")
   [[ $alipay_mobile_precreate_state == t ]]
@@ -425,7 +494,25 @@ SQL
   [[ $composite_model_routes_state == 't|t|t|t' ]]
   composite_model_routes_verified=true
 fi
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 206 ]]; then
+  mark_stage migration_assertion_profile_206_session_id
+  session_id_columns_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FILTER (WHERE table_name='usage_logs' AND data_type='character varying' AND character_maximum_length=255 AND is_nullable='YES'), COUNT(*) FILTER (WHERE table_name='batch_image_jobs' AND data_type='character varying' AND character_maximum_length=255 AND is_nullable='YES') FROM information_schema.columns WHERE table_schema='public' AND column_name='session_id'\"")
+  [[ $session_id_columns_state == '1|1' ]]
+  session_id_columns_verified=true
+  mark_stage migration_assertion_profile_206_live_request_type
+  live_request_type_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*)=1 AND BOOL_AND(pg_get_constraintdef(oid) LIKE '%request_type <= 5%') FROM pg_constraint WHERE conrelid='usage_logs'::regclass AND conname='usage_logs_request_type_check'\"")
+  [[ $live_request_type_state == t ]]
+  live_request_type_verified=true
+  mark_stage migration_assertion_profile_206_group_allow_live
+  group_allow_live_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema='public' AND table_name='groups' AND column_name='allow_live'\"")
+  [[ $group_allow_live_state == 'boolean|NO|false' ]]
+  group_allow_live_verified=true
+  mark_stage migration_assertion_profile_206_email_alias_index
+  email_alias_index_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT i.indisvalid,i.indisready,pg_get_expr(i.indexprs,i.indrelid)='replace(lower(TRIM(BOTH FROM email)), ''.''::text, ''''::text)',pg_get_expr(i.indpred,i.indrelid)='(deleted_at IS NULL)',o.opcname='text_pattern_ops' FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_opclass o ON o.oid=i.indclass[0] WHERE c.relname='idx_users_email_dot_stripped'\"")
+  [[ $email_alias_index_state == 't|t|t|t|t' ]]
+  email_alias_index_verified=true
+fi
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   mark_stage migration_assertion_195_runtime_current
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_runtime >/dev/null
   mark_stage migration_assertion_195_runtime_replay
@@ -450,13 +537,18 @@ jq -n --slurpfile manifest "$manifest" \
   --arg candidate_image_id "$candidate_image_id" \
   --arg candidate_archive_sha256 "$candidate_archive_sha" \
   --argjson candidate_size "$candidate_size" \
-  --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]] && printf true || printf false)" \
-  --argjson migration_195_verified "$([[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]] && printf true || printf false)" \
+  --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]] && printf true || printf false)" \
+  --argjson migration_195_verified "$([[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]] && printf true || printf false)" \
   --argjson managed_monitor_key_names_verified "$managed_monitor_key_names_verified" \
   --argjson reasoning_effort_policy_verified "$reasoning_effort_policy_verified" \
   --argjson alipay_mobile_precreate_migration_verified "$alipay_mobile_precreate_migration_verified" \
   --argjson group_auth_cache_image_generation_verified "$group_auth_cache_image_generation_verified" \
   --argjson composite_model_routes_verified "$composite_model_routes_verified" \
+  --argjson session_id_columns_verified "$session_id_columns_verified" \
+  --argjson live_request_type_verified "$live_request_type_verified" \
+  --argjson group_allow_live_verified "$group_allow_live_verified" \
+  --argjson email_alias_index_verified "$email_alias_index_verified" \
+  --argjson live_runtime_capability_verified "$live_runtime_capability_verified" \
   --arg vm_old_image_id "$old_image_id" \
   --argjson vm_old_image_compatibility_verified "$vm_old_image_compatibility_verified" \
   --argjson fixture_rejected "$fixture_rejected" \
@@ -464,7 +556,7 @@ jq -n --slurpfile manifest "$manifest" \
   --argjson clean_preflight "$clean_preflight" \
   --argjson verified_replay "$verified_replay" \
   --argjson verified_low_watermark_rejected "$verified_low_watermark_rejected" \
-  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,alipay_mobile_precreate_migration_verified:$alipay_mobile_precreate_migration_verified,group_auth_cache_image_generation_verified:$group_auth_cache_image_generation_verified,composite_model_routes_verified:$composite_model_routes_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
+  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,alipay_mobile_precreate_migration_verified:$alipay_mobile_precreate_migration_verified,group_auth_cache_image_generation_verified:$group_auth_cache_image_generation_verified,composite_model_routes_verified:$composite_model_routes_verified,session_id_columns_verified:$session_id_columns_verified,live_request_type_verified:$live_request_type_verified,group_allow_live_verified:$group_allow_live_verified,email_alias_index_verified:$email_alias_index_verified,live_runtime_capability_verified:$live_runtime_capability_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
   | jq -cS . > "$output_dir/gate.json.tmp"
 chmod 400 "$output_dir/gate.json.tmp"
 mv -T -- "$output_dir/gate.json.tmp" "$output_dir/gate.json"
