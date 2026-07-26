@@ -413,6 +413,14 @@ class ReleaseCoreTest(unittest.TestCase):
             "runtime_assertion_profile_206_live_capability",
         ):
             self.assertIn(f"mark_stage {stage}", validator)
+        fixture_position = validator.index('fixture_admin_key="admin-vm-gate-profile-206-')
+        candidate_start_position = validator.index('mark_stage candidate_health')
+        self.assertLess(fixture_position, candidate_start_position)
+        self.assertIn(
+            '[[ $current_stage == migration_assertion_* || $current_stage == runtime_assertion_* ]]',
+            validator,
+        )
+        self.assertIn("[[ $live_capability_status == 200 ]]", validator)
 
     def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
