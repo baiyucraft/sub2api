@@ -162,13 +162,13 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 ### 签名资产与 profile 兼容
 
 - validator、Gate signer 或 DR signer checksum 变化时，先在隔离目录完成配套自测，再原子激活同一版本单元。日常更新固定使用 `REQUIRE_EXISTING_SIGNER_KEYS=true`，禁止创建、替换或轮换既有信任根。
-- 在备份机分别 bootstrap verifier 与 promoter，并预置当前支持的 profile 目录。profile 195 保留历史单 migration checksum；profile 199 和 202 的 migration checksum 固定按以下方式生成：
+- 在备份机分别 bootstrap verifier 与 promoter，并预置当前支持的 profile 目录。profile 195 保留历史单 migration checksum；profile 199、202 和 206 的 migration checksum 固定按以下方式生成：
 
 ```text
 jq -cS '.manifest.migration_sha256' | sha256sum
 ```
 
-- signer 必须同时自测 profile 195、199 和 202；集成测试至少覆盖 195/199 历史回归、202 成功和错误 checksum 拒绝。profile 202 的 DR evidence 必须绑定包含 200/201/202 在内的完整有序 migration map，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
+- signer 必须同时自测 profile 195、199、202 和 206；集成测试至少覆盖 195/199/202 历史回归、206 成功和错误 checksum 拒绝。profile 206 的 DR evidence 必须绑定包含 203/204/205/206 以及所有继承项的完整有序 migration map，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
 
 ### 生产成功与灾备基线
 
@@ -177,7 +177,7 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 
 ### 一次性收口清单
 
-按顺序完成并留存脱敏结果：release pytest、VM signer integration、profile 195/199/202 DR integrations、`git diff --check`、完整 SHA commit/push、`doctor`、`deploy-start`、`status`/`wait`、`verify-result`、post-deploy `doctor`。任一步失败都先按结构化状态恢复事实，不得跳步或复用失败 release。
+按顺序完成并留存脱敏结果：release pytest、VM signer integration、profile 195/199/202/206 DR integrations、`git diff --check`、完整 SHA commit/push、`doctor`、`deploy-start`、`status`/`wait`、`verify-result`、post-deploy `doctor`。任一步失败都先按结构化状态恢复事实，不得跳步或复用失败 release。
 
 ## 失败即停止
 

@@ -150,6 +150,12 @@ profile 202 继续继承 profile 199 的全部证据，按 200 -> 201 -> 202 追
 `migration_201_status`、`migration_202_status`，验证设置值、触发器实际失效行为，以及路由表约束、
 索引和 `groups` 外键级联删除；DR migration checksum 绑定完整 manifest map，不得只绑定这三项。
 
+profile 206 继续继承 profile 202 的全部证据，按 203 -> 204 -> 205 -> 206 追加 Usage/Batch Image
+`session_id`、Live request type、分组 Live 权限和邮箱别名并发索引迁移。Gate 必须逐项记录
+`migration_203_status` 至 `migration_206_status`，验证两个 nullable `VARCHAR(255)` 列、request type
+上界、`groups.allow_live` 非空默认值，以及索引的 valid/ready、表达式、predicate 和 opclass；
+旧镜像必须能在迁移后的副本上通过 health smoke，DR checksum 绑定完整有序 migration map。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：

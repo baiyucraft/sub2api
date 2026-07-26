@@ -31,6 +31,10 @@ migration_199_status=not_applicable
 migration_200_status=not_applicable
 migration_201_status=not_applicable
 migration_202_status=not_applicable
+migration_203_status=not_applicable
+migration_204_status=not_applicable
+migration_205_status=not_applicable
+migration_206_status=not_applicable
 while IFS=$'\t' read -r migration migration_checksum; do
   case "$migration" in
     196_ops_ingress_reject_aggregates.sql) migration_196_status=verified ;;
@@ -40,6 +44,10 @@ while IFS=$'\t' read -r migration migration_checksum; do
     200_alipay_mobile_precreate_deep_link.sql) migration_200_status=verified ;;
     201_group_auth_cache_image_generation.sql) migration_201_status=verified ;;
     202_composite_model_routes.sql) migration_202_status=verified ;;
+    203_add_usage_log_session_id.sql) migration_203_status=verified ;;
+    204_allow_live_usage_request_type.sql) migration_204_status=verified ;;
+    205_add_group_allow_live.sql) migration_205_status=verified ;;
+    206_add_users_email_alias_dedup_index_notx.sql) migration_206_status=verified ;;
   esac
   migration_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
   if [[ -z $migration_state ]]; then
@@ -53,6 +61,10 @@ while IFS=$'\t' read -r migration migration_checksum; do
       200_alipay_mobile_precreate_deep_link.sql) migration_200_status=absent ;;
       201_group_auth_cache_image_generation.sql) migration_201_status=absent ;;
       202_composite_model_routes.sql) migration_202_status=absent ;;
+      203_add_usage_log_session_id.sql) migration_203_status=absent ;;
+      204_allow_live_usage_request_type.sql) migration_204_status=absent ;;
+      205_add_group_allow_live.sql) migration_205_status=absent ;;
+      206_add_users_email_alias_dedup_index_notx.sql) migration_206_status=absent ;;
     esac
   else
     [[ $migration_state == "$migration|$migration_checksum" ]]
@@ -79,3 +91,7 @@ printf 'migration_199_status=%s\n' "$migration_199_status"
 printf 'migration_200_status=%s\n' "$migration_200_status"
 printf 'migration_201_status=%s\n' "$migration_201_status"
 printf 'migration_202_status=%s\n' "$migration_202_status"
+printf 'migration_203_status=%s\n' "$migration_203_status"
+printf 'migration_204_status=%s\n' "$migration_204_status"
+printf 'migration_205_status=%s\n' "$migration_205_status"
+printf 'migration_206_status=%s\n' "$migration_206_status"
