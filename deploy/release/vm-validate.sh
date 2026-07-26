@@ -153,7 +153,7 @@ on_failure() {
   trap - ERR INT TERM
   category=unknown
   current_stage=$(<"$state_dir/stage")
-  if [[ $current_stage == migration_assertion_* ]]; then
+  if [[ $current_stage == migration_assertion_* || $current_stage == runtime_assertion_* ]]; then
     category=$current_stage
   fi
   if [[ -f $state_dir/migrate-candidate.log ]]; then
@@ -349,24 +349,10 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   docker rm -f "$old_probe_app" >/dev/null
   vm_old_image_compatibility_verified=true
 fi
-mark_stage candidate_health
-docker run -d --name "$probe_app" --network "$probe_network" \
-  -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
-  --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
-  --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
-  -v "$probe_dir:/app/data" "$candidate_image_id" >/dev/null 2>&1
-for _ in $(seq 1 90); do
-  [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]] && break
-  sleep 2
-done
-[[ $(docker inspect -f '{{.Image}}' "$probe_app") == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]]
-
 if [[ $profile == 206 ]]; then
-  mark_stage runtime_assertion_profile_206_live_capability
   admin_user_id=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT id FROM users WHERE role='admin' AND status='active' AND deleted_at IS NULL ORDER BY id LIMIT 1\"" | tr -d '\r')
   [[ $admin_user_id =~ ^[1-9][0-9]*$ ]]
-  fixture_admin_key="vm-gate-profile-206-${release_id}"
+  fixture_admin_key="admin-vm-gate-profile-206-${release_id}"
   fixture_live_key="sk-vm-gate-profile-206-${release_id}"
   fixture_live_group="vm-gate-live-${release_id}"
   docker exec -i \
@@ -402,9 +388,32 @@ INSERT INTO api_keys (key,name,status,quota,quota_used,user_id,group_id,created_
 SELECT :'fixture_live_key','vm-gate-live','active',0,0,(:'fixture_admin_user_id')::bigint,id,NOW(),NOW()
 FROM fixture_group;
 SQL
+fi
+
+mark_stage candidate_health
+docker run -d --name "$probe_app" --network "$probe_network" \
+  -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
+  --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
+  --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
+  -v "$probe_dir:/app/data" "$candidate_image_id" >/dev/null 2>&1
+for _ in $(seq 1 90); do
+  [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]] && break
+  sleep 2
+done
+[[ $(docker inspect -f '{{.Image}}' "$probe_app") == "$candidate_image_id" ]]
+[[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]]
+
+if [[ $profile == 206 ]]; then
+  mark_stage runtime_assertion_profile_206_live_capability
   probe_app_ip=$(docker inspect -f "{{with index .NetworkSettings.Networks \"$probe_network\"}}{{.IPAddress}}{{end}}" "$probe_app")
   [[ $probe_app_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
-  live_capability_response=$(curl --fail --silent --show-error --max-time 10 -H "x-api-key: $fixture_admin_key" "http://$probe_app_ip:$server_port/api/v1/admin/groups/live-capability")
+  live_capability_status=$(curl --silent --show-error --max-time 10 \
+    --output "$state_dir/live-capability-response.json" --write-out '%{http_code}' \
+    -H "x-api-key: $fixture_admin_key" \
+    "http://$probe_app_ip:$server_port/api/v1/admin/groups/live-capability")
+  [[ $live_capability_status == 200 ]]
+  live_capability_response=$(<"$state_dir/live-capability-response.json")
+  rm -f "$state_dir/live-capability-response.json"
   jq -e '.code == 0 and .data.supported == false and (.data.reason | type == "string") and (.data.reason | length > 0)' >/dev/null <<<"$live_capability_response"
   fixture_live_key_id=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT id FROM api_keys WHERE key='$fixture_live_key'\"" | tr -d '\r')
   [[ $fixture_live_key_id =~ ^[1-9][0-9]*$ ]]
