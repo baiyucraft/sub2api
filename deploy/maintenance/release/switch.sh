@@ -9,7 +9,7 @@ cd "$deploy_dir"
 [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
 [[ -d $state_dir && ! -L $state_dir ]]
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   [[ -f $state_dir/migration-195-plan.sha256 && ! -L $state_dir/migration-195-plan.sha256 ]]
   migration_status=$(<"$state_dir/migration-195-status")
   export MIGRATION_STATUS="$migration_status"
@@ -44,15 +44,15 @@ while IFS=$'\t' read -r migration migration_checksum; do
   recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
   [[ $recorded == "$migration_checksum" ]]
 done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
-if [[ $profile == 198 || $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   managed_monitor_key_name_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT character_maximum_length, (SELECT COUNT(*) FROM api_keys k JOIN channel_monitors m ON m.id=k.managed_monitor_id AND m.managed_api_key_id=k.id WHERE k.purpose='managed_monitor' AND k.deleted_at IS NULL AND k.name IS DISTINCT FROM '监控-' || BTRIM(m.name)) FROM information_schema.columns WHERE table_schema='public' AND table_name='api_keys' AND column_name='name'")
   [[ $managed_monitor_key_name_state == '103|0' ]]
 fi
-if [[ $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   reasoning_effort_policy_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COALESCE(MAX(CASE WHEN column_name='max_reasoning_effort' THEN data_type || ':' || is_nullable || ':' || column_default END),''), COALESCE(MAX(CASE WHEN column_name='reasoning_effort_mappings' THEN data_type || ':' || is_nullable || ':' || column_default END),'') FROM information_schema.columns WHERE table_schema='public' AND table_name='groups' AND column_name IN ('max_reasoning_effort','reasoning_effort_mappings')")
   [[ $reasoning_effort_policy_state == *'character varying:NO:'*"''::character varying"*'|'*'jsonb:NO:'*"'[]'::jsonb"* ]]
 fi
-if [[ $profile == 202 ]]; then
+if [[ $profile == 202 || $profile == 206 ]]; then
   alipay_mobile_precreate_deep_link_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*), COUNT(*) FILTER (WHERE value IN ('true','false')) FROM settings WHERE key='ALIPAY_MOBILE_PRECREATE_DEEP_LINK'")
   [[ $alipay_mobile_precreate_deep_link_state == '1|1' ]]
   group_auth_cache_image_generation_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*) FILTER (WHERE pg_get_functiondef(p.oid) LIKE '%OLD.allow_image_generation IS NOT DISTINCT FROM NEW.allow_image_generation%'), (SELECT COUNT(*) FROM pg_trigger t WHERE t.tgrelid='groups'::regclass AND t.tgname='trg_groups_auth_cache_invalidation' AND NOT t.tgisinternal AND t.tgenabled <> 'D') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='enqueue_group_auth_cache_invalidation' AND pg_get_function_identity_arguments(p.oid)=''")
@@ -60,9 +60,19 @@ if [[ $profile == 202 ]]; then
   composite_model_routes_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='composite_model_routes'), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid='composite_model_routes'::regclass AND contype='c' AND conname IN ('composite_model_routes_match_type_check','composite_model_routes_endpoint_check','composite_model_routes_target_platform_check')), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid='composite_model_routes'::regclass AND contype='f' AND confrelid='groups'::regclass AND confdeltype='c'), (SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND tablename='composite_model_routes' AND indexname IN ('idx_composite_model_routes_unique_active','idx_composite_model_routes_group_enabled','idx_composite_model_routes_group_priority'))")
   [[ $composite_model_routes_state == '13|3|1|3' ]]
 fi
+if [[ $profile == 206 ]]; then
+  session_id_columns_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*) FILTER (WHERE table_name='usage_logs' AND data_type='character varying' AND character_maximum_length=255 AND is_nullable='YES'), COUNT(*) FILTER (WHERE table_name='batch_image_jobs' AND data_type='character varying' AND character_maximum_length=255 AND is_nullable='YES') FROM information_schema.columns WHERE table_schema='public' AND column_name='session_id'")
+  [[ $session_id_columns_state == '1|1' ]]
+  live_request_type_state=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COUNT(*)=1 AND BOOL_AND(pg_get_constraintdef(oid) LIKE '%request_type <= 5%') FROM pg_constraint WHERE conrelid='usage_logs'::regclass AND conname='usage_logs_request_type_check'")
+  [[ $live_request_type_state == t ]]
+  group_allow_live_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema='public' AND table_name='groups' AND column_name='allow_live'")
+  [[ $group_allow_live_state == 'boolean|NO|false' ]]
+  email_alias_index_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT i.indisvalid,i.indisready,pg_get_expr(i.indexprs,i.indrelid)='replace(lower(TRIM(BOTH FROM email)), ''.''::text, ''''::text)',pg_get_expr(i.indpred,i.indrelid)='(deleted_at IS NULL)',o.opcname='text_pattern_ops' FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_opclass o ON o.oid=i.indclass[0] WHERE c.relname='idx_users_email_dot_stripped'")
+  [[ $email_alias_index_state == 't|t|t|t|t' ]]
+fi
 [[ $(docker inspect -f '{{.Image}}' "$migration_container") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.ExitCode}}' "$migration_container") == 0 ]]
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   migration_checksum=$(jq -er '.manifest.migration_sha256["195_upstream_scheduling_monitor_rates.sql"]' "$active_claim/gate.json")
   migration_manifest_sha256=$(jq -cS '.manifest.migration_sha256' "$active_claim/gate.json" | sha256sum | awk '{print $1}')
   marker_tmp="$state_dir/.migration-committed.tmp.$$"
@@ -88,21 +98,27 @@ done
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
 [[ $(docker compose config --format json | jq -r '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED') == false ]]
 assert_prompt_audit_disabled
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   "$assets_dir/migration-195-assert.sh" postflight_runtime
 fi
 printf 'migration_verified=true\n'
 printf 'running_image_id=%s\n' "$candidate_image_id"
 printf 'internal_health=pass\n'
 printf 'public_traffic_enabled=false\n'
-if [[ $profile == 198 || $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   printf 'managed_monitor_key_names_verified=true\n'
 fi
-if [[ $profile == 199 || $profile == 202 ]]; then
+if [[ $profile == 199 || $profile == 202 || $profile == 206 ]]; then
   printf 'reasoning_effort_policy_verified=true\n'
 fi
-if [[ $profile == 202 ]]; then
+if [[ $profile == 202 || $profile == 206 ]]; then
   printf 'alipay_mobile_precreate_migration_verified=true\n'
   printf 'group_auth_cache_image_generation_verified=true\n'
   printf 'composite_model_routes_verified=true\n'
+fi
+if [[ $profile == 206 ]]; then
+  printf 'session_id_columns_verified=true\n'
+  printf 'live_request_type_verified=true\n'
+  printf 'group_allow_live_verified=true\n'
+  printf 'email_alias_index_verified=true\n'
 fi

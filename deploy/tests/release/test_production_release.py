@@ -615,7 +615,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("migration_status=verified", preflight)
         self.assertIn("migration_195_status=verified", preflight)
         self.assertIn("migration_195_status=absent", preflight)
-        for migration in ("196", "197", "198", "199", "200", "201", "202"):
+        for migration in ("196", "197", "198", "199", "200", "201", "202", "203", "204", "205", "206"):
             self.assertIn(f"migration_{migration}_status=not_applicable", preflight)
             self.assertIn(f"migration_{migration}_status=verified", preflight)
             self.assertIn(f"migration_{migration}_status=absent", preflight)
@@ -664,6 +664,31 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
             ("200", "200_alipay_mobile_precreate_deep_link.sql"),
             ("201", "201_group_auth_cache_image_generation.sql"),
             ("202", "202_composite_model_routes.sql"),
+        ):
+            self.assertIn(f'self.migration_{migration}_status = values["migration_{migration}_status"]', production)
+            self.assertIn(f'"{filename}": self.migration_{migration}_status', production)
+
+    def test_profile_206_verifies_all_upstream_migration_semantics(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        switch = self.script("switch.sh")
+        expected = {
+            "session_id_columns_verified": "session_id_columns_state",
+            "live_request_type_verified": "usage_logs_request_type_check",
+            "group_allow_live_verified": "group_allow_live_state",
+            "email_alias_index_verified": "idx_users_email_dot_stripped",
+        }
+        for evidence, semantic_probe in expected.items():
+            self.assertIn(f'"{evidence}",', production)
+            self.assertIn(f"{evidence}=true", switch)
+            self.assertIn(semantic_probe, switch)
+
+    def test_profile_206_tracks_each_migration_status_for_reconciliation(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        for migration, filename in (
+            ("203", "203_add_usage_log_session_id.sql"),
+            ("204", "204_allow_live_usage_request_type.sql"),
+            ("205", "205_add_group_allow_live.sql"),
+            ("206", "206_add_users_email_alias_dedup_index_notx.sql"),
         ):
             self.assertIn(f'self.migration_{migration}_status = values["migration_{migration}_status"]', production)
             self.assertIn(f'"{filename}": self.migration_{migration}_status', production)

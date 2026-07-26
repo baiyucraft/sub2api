@@ -101,7 +101,7 @@ if [[ -e /opt/sub2api-deploy/dr-evidence ]]; then
 else
   install -d -o root -g root -m 700 /opt/sub2api-deploy/dr-evidence
 fi
-for selftest_profile in 195 199 202; do
+for selftest_profile in 195 199 202 206; do
   selftest_release="$selftest_profile-000000000000-0-$selftest_suffix"
   selftest_drill="dr-$selftest_profile-$(tr -d ':-' <<<"$selftest_now")"
   selftest_gate_dir="/opt/sub2api-deploy/release-gates/$selftest_release/output"

@@ -73,9 +73,9 @@ func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
 
 	require.Contains(t, query, "ON CONFLICT (request_id, api_key_id) DO NOTHING")
 	require.NotContains(t, strings.ToUpper(query), "DO UPDATE")
-	require.Len(t, usageLogInsertArgTypes, 60)
-	require.Len(t, prepared.args, 60)
-	require.Len(t, args, 61)
+	require.Len(t, usageLogInsertArgTypes, 61)
+	require.Len(t, prepared.args, 61)
+	require.Len(t, args, 62)
 	require.Equal(t, sql.NullInt64{Int64: upstreamConfigID, Valid: true}, prepared.args[3])
 	require.Equal(t, sql.NullInt64{Int64: upstreamKeyID, Valid: true}, prepared.args[4])
 	require.Equal(t, sql.NullString{String: currency, Valid: true}, prepared.args[29])
@@ -84,5 +84,5 @@ func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
 	require.Equal(t, 3, strings.Count(query, "upstream_key_id"))
 	require.Equal(t, 3, strings.Count(query, "upstream_cost_currency"))
 	require.Equal(t, 3, strings.Count(query, "upstream_cost_to_cny_rate"))
-	require.Contains(t, query, "$61::timestamptz")
+	require.Contains(t, query, "$62::timestamptz")
 }

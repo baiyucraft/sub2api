@@ -67,13 +67,22 @@ Gate 合同，并依次追加 `200_alipay_mobile_precreate_deep_link.sql`、
 移动端开关、分组生图权限的鉴权缓存失效，以及组合模型路由表的约束、索引和级联外键。
 任一单项 checksum 或语义证据不一致都停止，已验证的历史迁移不得重跑。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199 和 202
+profile 206 使用版本 `0.1.165-baiyu`，完整继承 profile 202 的 migration、旧镜像兼容和
+Gate 合同，并依次追加 `203_add_usage_log_session_id.sql`、
+`204_allow_live_usage_request_type.sql`、`205_add_group_allow_live.sql` 与
+`206_add_users_email_alias_dedup_index_notx.sql`。生产 preflight 分别记录 203/204/205/206 的
+`absent` 或 `verified` 状态；VM 与生产 postflight 必须验证两个 nullable `session_id` 列、
+Live request type 约束、`groups.allow_live` 非空默认值，以及邮箱别名并发索引的 valid/ready、
+表达式、predicate 和 `text_pattern_ops`。任一单项 checksum 或语义证据不一致都停止。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202 和 206
 合同。发布资产定向回归至少执行：
 
 ```text
 python -m pytest deploy/tests/release/test_release_core.py deploy/tests/release/test_production_release.py deploy/tests/release/test_signer_assets.py
 python deploy/tests/release/backup_dr_profile_199_integration.py
 python deploy/tests/release/backup_dr_profile_202_integration.py
+python deploy/tests/release/backup_dr_profile_206_integration.py
 ```
 
 首次安装信任根使用：

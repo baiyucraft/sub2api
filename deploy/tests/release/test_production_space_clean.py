@@ -134,6 +134,14 @@ class ProductionSpaceCleanTest(unittest.TestCase):
                 identity = load_cleanup_identity(release_id, root)
         self.assertEqual(identity.release_id, "202-aaaaaaaaaaaa-1-deadbeef")
 
+    def test_profile_206_identity_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            release_id = self.write_release(root, profile="206")
+            with mock.patch("release.production_cleanup.subprocess.run"):
+                identity = load_cleanup_identity(release_id, root)
+        self.assertEqual(identity.release_id, "206-aaaaaaaaaaaa-1-deadbeef")
+
     def test_identity_rejects_unconsumed_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -67,6 +67,13 @@ profile 202 在上述矩阵后依次追加 `200_alipay_mobile_precreate_deep_lin
 和 Gate evidence 必须覆盖完整 migration map，并分别证明支付宝移动端开关、分组生图权限鉴权缓存
 失效，以及组合模型路由约束、索引和级联外键语义。
 
+profile 206 在上述矩阵后依次追加 `203_add_usage_log_session_id.sql`、
+`204_allow_live_usage_request_type.sql`、`205_add_group_allow_live.sql` 与
+`206_add_users_email_alias_dedup_index_notx.sql`。每项均按独立 `absent/verified` 状态决定前向执行或
+幂等跳过，缺失多项时只能按 manifest 顺序执行。最终 marker 和 Gate evidence 必须覆盖完整
+migration map，并分别证明两个 `session_id` 列、Live request type、分组 Live 默认值和邮箱别名
+索引语义；旧镜像兼容或任一单项证据不完整都不得继续。
+
 `migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 
 ## 长时间无输出诊断
