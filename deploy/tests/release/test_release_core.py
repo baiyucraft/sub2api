@@ -420,6 +420,9 @@ class ReleaseCoreTest(unittest.TestCase):
             '[[ $current_stage == migration_assertion_* || $current_stage == runtime_assertion_* ]]',
             validator,
         )
+        self.assertIn('-p "127.0.0.1::$server_port"', validator)
+        self.assertIn('docker port "$probe_app" "$server_port/tcp"', validator)
+        self.assertNotIn("probe_app_ip=", validator)
         self.assertIn("[[ $live_capability_status == 200 ]]", validator)
 
     def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:

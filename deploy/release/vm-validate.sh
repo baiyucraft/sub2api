@@ -393,6 +393,7 @@ fi
 mark_stage candidate_health
 docker run -d --name "$probe_app" --network "$probe_network" \
   -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
+  -p "127.0.0.1::$server_port" \
   --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
   --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
   -v "$probe_dir:/app/data" "$candidate_image_id" >/dev/null 2>&1
@@ -405,12 +406,13 @@ done
 
 if [[ $profile == 206 ]]; then
   mark_stage runtime_assertion_profile_206_live_capability
-  probe_app_ip=$(docker inspect -f "{{with index .NetworkSettings.Networks \"$probe_network\"}}{{.IPAddress}}{{end}}" "$probe_app")
-  [[ $probe_app_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  probe_app_port=$(docker port "$probe_app" "$server_port/tcp" | sed -n 's/^127\.0\.0\.1://p')
+  [[ $probe_app_port =~ ^[1-9][0-9]{0,4}$ && $probe_app_port -le 65535 ]]
   live_capability_status=$(curl --silent --show-error --max-time 10 \
     --output "$state_dir/live-capability-response.json" --write-out '%{http_code}' \
     -H "x-api-key: $fixture_admin_key" \
-    "http://$probe_app_ip:$server_port/api/v1/admin/groups/live-capability")
+    "http://127.0.0.1:$probe_app_port/api/v1/admin/groups/live-capability")
+  printf '%s\n' "$live_capability_status" > "$state_dir/live-capability-status"
   [[ $live_capability_status == 200 ]]
   live_capability_response=$(<"$state_dir/live-capability-response.json")
   rm -f "$state_dir/live-capability-response.json"
@@ -424,7 +426,7 @@ if [[ $profile == 206 ]]; then
     --output "$state_dir/live-runtime-response.json" --write-out '%{http_code}' \
     -H "Authorization: Bearer $fixture_live_key" -H "Content-Type: application/json" \
     --data-binary '{"sdp":"v=0\r\n","session":{"model":"gpt-live-vm-gate"}}' \
-    "http://$probe_app_ip:$server_port/v1/live")
+    "http://127.0.0.1:$probe_app_port/v1/live")
   [[ $live_http_status == 503 ]]
   jq -e '.error.type == "api_error" and (.error.message | type == "string") and (.error.message | length > 0)' >/dev/null "$state_dir/live-runtime-response.json"
   rm -f "$state_dir/live-runtime-response.json"
