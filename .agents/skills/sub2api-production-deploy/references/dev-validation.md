@@ -156,6 +156,10 @@ profile 206 继续继承 profile 202 的全部证据，按 203 -> 204 -> 205 -> 
 上界、`groups.allow_live` 非空默认值，以及索引的 valid/ready、表达式、predicate 和 opclass；
 旧镜像必须能在迁移后的副本上通过 health smoke，DR checksum 绑定完整有序 migration map。
 
+profile 207 是 profile 206 的纯版本继承，只更新应用版本。它必须复用 206 的完整 migration map、
+`migration_203_status` 至 `migration_206_status`、旧镜像 smoke 和所有 Gate/DR 证据；不得新增
+`207_*.sql` 或 `migration_207_status`。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：

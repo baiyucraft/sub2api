@@ -74,6 +74,10 @@ profile 206 在上述矩阵后依次追加 `203_add_usage_log_session_id.sql`、
 migration map，并分别证明两个 `session_id` 列、Live request type、分组 Live 默认值和邮箱别名
 索引语义；旧镜像兼容或任一单项证据不完整都不得继续。
 
+profile 207 不新增数据库迁移，完整继承 profile 206 的 migration map 和逐项状态。doctor、VM Gate、
+生产 runner、恢复判断与 DR promoter 都必须继续验证 203 至 206 的原证据，不能创建
+`migration_207_status`，也不能因版本升级而跳过旧镜像兼容或 migration checksum 绑定。
+
 `migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 
 ## 长时间无输出诊断

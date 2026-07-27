@@ -75,7 +75,12 @@ Gate 合同，并依次追加 `203_add_usage_log_session_id.sql`、
 Live request type 约束、`groups.allow_live` 非空默认值，以及邮箱别名并发索引的 valid/ready、
 表达式、predicate 和 `text_pattern_ops`。任一单项 checksum 或语义证据不一致都停止。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202 和 206
+profile 207 使用版本 `0.1.166-baiyu`，是 profile 206 的纯版本继承：migration map、逐项
+`migration_203_status` 至 `migration_206_status`、旧镜像兼容和全部 Gate 语义证据保持完全一致。
+本 profile 不新增 migration SQL，也不存在 `migration_207_status`；DR evidence 仍绑定继承后的
+完整有序 migration map。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206 和 207
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -83,6 +88,7 @@ python -m pytest deploy/tests/release/test_release_core.py deploy/tests/release/
 python deploy/tests/release/backup_dr_profile_199_integration.py
 python deploy/tests/release/backup_dr_profile_202_integration.py
 python deploy/tests/release/backup_dr_profile_206_integration.py
+python deploy/tests/release/backup_dr_profile_207_integration.py
 ```
 
 首次安装信任根使用：

@@ -693,6 +693,17 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
             self.assertIn(f'self.migration_{migration}_status = values["migration_{migration}_status"]', production)
             self.assertIn(f'"{filename}": self.migration_{migration}_status', production)
 
+    def test_profile_207_reuses_profile_206_reconciliation_without_a_new_status(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        preflight = self.script("preflight.sh")
+        switch = self.script("switch.sh")
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207"}', production)
+        self.assertIn("$profile == 206 || $profile == 207", switch)
+        self.assertIn("migration_206_status", production)
+        self.assertIn("migration_206_status", preflight)
+        self.assertNotIn("migration_207_status", production)
+        self.assertNotIn("migration_207_status", preflight)
+
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")
         switch = self.script("switch.sh")
