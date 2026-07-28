@@ -11,7 +11,7 @@ import (
 const (
 	AccountQualityRealtimeWindowHours  = 1
 	AccountQualityWindowHours          = 24
-	AccountQualityScoreVersion         = 2
+	AccountQualityScoreVersion         = 3
 	accountQualityQueryTimeout         = 10 * time.Second
 	accountQualityMinSamples           = 3
 	accountQualityMinTTFTSamples       = 3
@@ -74,12 +74,6 @@ type AccountQualityWindow struct {
 	ScoreBasis            string   `json:"score_basis,omitempty"`
 }
 
-type AccountQualityPeriod struct {
-	Last10      AccountQualityWindow `json:"last_10"`
-	Last100     AccountQualityWindow `json:"last_100"`
-	WindowHours int                  `json:"window_hours"`
-}
-
 type AccountQualityActivity struct {
 	State                  string     `json:"state"`
 	SuccessfulRequestCount int64      `json:"successful_request_count"`
@@ -89,24 +83,17 @@ type AccountQualityActivity struct {
 }
 
 type AccountQualityStats struct {
-	Last10       AccountQualityWindow   `json:"last_10"`
-	Last100      AccountQualityWindow   `json:"last_100"`
-	WindowHours  int                    `json:"window_hours"`
-	Recent1h     AccountQualityPeriod   `json:"recent_1h"`
+	Recent1h     AccountQualityWindow   `json:"recent_1h"`
+	Recent24h    AccountQualityWindow   `json:"recent_24h"`
 	Activity     AccountQualityActivity `json:"activity"`
 	ScoreVersion int                    `json:"score_version"`
-}
-
-type AccountQualityPeriodSamples struct {
-	Last10  AccountQualityWindow
-	Last100 AccountQualityWindow
 }
 
 // AccountQualitySamples is the repository result before the service applies the
 // display-only scoring policy.
 type AccountQualitySamples struct {
-	Recent1h             AccountQualityPeriodSamples
-	Last24h              AccountQualityPeriodSamples
+	Recent1h             AccountQualityWindow
+	Recent24h            AccountQualityWindow
 	SuccessfulRequests1h int64
 	FailedRequests1h     int64
 	LastSuccessAt        *time.Time
@@ -142,16 +129,9 @@ func buildAccountQualityStats(ids []int64, samples map[int64]AccountQualitySampl
 	result := make(map[int64]AccountQualityStats, len(ids))
 	for _, id := range ids {
 		sample := samples[id]
-		recent := AccountQualityPeriod{
-			Last10:      applyAccountQualityScore(sample.Recent1h.Last10),
-			Last100:     applyAccountQualityScore(sample.Recent1h.Last100),
-			WindowHours: AccountQualityRealtimeWindowHours,
-		}
 		result[id] = AccountQualityStats{
-			Last10:      applyAccountQualityScore(sample.Last24h.Last10),
-			Last100:     applyAccountQualityScore(sample.Last24h.Last100),
-			WindowHours: AccountQualityWindowHours,
-			Recent1h:    recent,
+			Recent1h:  applyAccountQualityScore(sample.Recent1h),
+			Recent24h: applyAccountQualityScore(sample.Recent24h),
 			Activity: AccountQualityActivity{
 				State:                  classifyAccountQualityActivity(sample.SuccessfulRequests1h, sample.FailedRequests1h),
 				SuccessfulRequestCount: sample.SuccessfulRequests1h,

@@ -80,6 +80,24 @@ func TestAccountQualityStatsHandlerETagLimitsAndNormalization(t *testing.T) {
 	repo.mu.Lock()
 	require.Equal(t, []int64{1, 2}, repo.accountIDs)
 	repo.mu.Unlock()
+	var response struct {
+		Data struct {
+			Stats map[string]map[string]any `json:"stats"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	accountStats := response.Data.Stats["1"]
+	require.EqualValues(t, service.AccountQualityScoreVersion, accountStats["score_version"])
+	require.Contains(t, accountStats, "recent_1h")
+	require.Contains(t, accountStats, "recent_24h")
+	require.Contains(t, accountStats, "activity")
+	require.NotContains(t, accountStats, "last_10")
+	require.NotContains(t, accountStats, "last_100")
+	require.NotContains(t, accountStats, "window_hours")
+	recent1h, ok := accountStats["recent_1h"].(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, recent1h, "last_10")
+	require.NotContains(t, recent1h, "last_100")
 
 	notModified := performQualityRequest(router, "/quality", `{"account_ids":[1,2]}`, etag)
 	require.Equal(t, http.StatusNotModified, notModified.Code)

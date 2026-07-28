@@ -43,8 +43,7 @@ const messages: Record<string, string> = {
   'admin.groups.columns.accounts': 'Accounts',
   'admin.groups.columns.capacity': 'Capacity',
   'admin.groups.columns.usage': 'Usage',
-  'admin.groups.columns.realtimeQualityStats': '1H Quality',
-  'admin.groups.columns.qualityStats': '24H Quality',
+  'admin.groups.columns.qualityStats': 'Quality',
   'admin.groups.columns.status': 'Status',
   'admin.groups.columns.actions': 'Actions',
 }
@@ -282,10 +281,9 @@ describe('admin GroupsView column settings', () => {
     ])
     expect(JSON.parse(localStorage.getItem('group-hidden-columns')!)).toEqual([
       'id',
-      'quality_stats_1h',
       'quality_stats',
     ])
-    expect(localStorage.getItem('group-column-settings-version')).toBe('3')
+    expect(localStorage.getItem('group-column-settings-version')).toBe('4')
   })
 
   it('applies saved hidden columns on mount and ignores unknown keys', async () => {
@@ -320,7 +318,7 @@ describe('admin GroupsView column settings', () => {
 
   it('auto-hides id for existing saved column prefs after version bump', async () => {
     localStorage.setItem('group-hidden-columns', JSON.stringify(['usage']))
-    // No version key -> migrate through v2/v3 and hide id plus both quality columns.
+    // No version key -> migrate through v2/v3/v4 and hide id plus merged quality.
 
     const wrapper = await mountView()
 
@@ -336,9 +334,10 @@ describe('admin GroupsView column settings', () => {
       'actions',
     ])
     expect(JSON.parse(localStorage.getItem('group-hidden-columns')!)).toEqual(
-      expect.arrayContaining(['usage', 'id', 'quality_stats_1h', 'quality_stats']),
+      expect.arrayContaining(['usage', 'id', 'quality_stats']),
     )
-    expect(localStorage.getItem('group-column-settings-version')).toBe('3')
+    expect(JSON.parse(localStorage.getItem('group-hidden-columns')!)).not.toContain('quality_stats_1h')
+    expect(localStorage.getItem('group-column-settings-version')).toBe('4')
   })
 
   it('toggles a column and persists hidden column keys', async () => {
@@ -383,7 +382,6 @@ describe('admin GroupsView column settings', () => {
       'actions',
     ])
     expect(JSON.parse(localStorage.getItem('group-hidden-columns')!)).toEqual([
-      'quality_stats_1h',
       'quality_stats',
     ])
   })
@@ -412,22 +410,33 @@ describe('admin GroupsView column settings', () => {
     expect(getCapacitySummary).toHaveBeenCalledTimes(1)
     expect(getBatchQualityStats).not.toHaveBeenCalled()
 
-    await clickColumnToggle(wrapper, '1H Quality')
+    await clickColumnToggle(wrapper, 'Quality')
     expect(getBatchQualityStats).toHaveBeenCalledWith(
       [1],
       expect.objectContaining({ etag: null, signal: expect.any(AbortSignal) }),
     )
 
-    await clickColumnToggle(wrapper, '1H Quality')
+    await clickColumnToggle(wrapper, 'Quality')
     getBatchQualityStats.mockResolvedValueOnce({ notModified: true, etag: null, data: null })
-    await clickColumnToggle(wrapper, '1H Quality')
+    await clickColumnToggle(wrapper, 'Quality')
     expect(getBatchQualityStats).toHaveBeenNthCalledWith(
       2,
       [1],
       expect.objectContaining({ etag: '"groups-v1"', signal: expect.any(AbortSignal) }),
     )
 
-    await clickColumnToggle(wrapper, '24H Quality')
     expect(getBatchQualityStats).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves a visible legacy quality column while removing the obsolete key', async () => {
+    localStorage.setItem('group-hidden-columns', JSON.stringify(['quality_stats']))
+    localStorage.setItem('group-column-settings-version', '3')
+
+    const wrapper = await mountView()
+
+    expect(columnKeys(wrapper)).toContain('quality_stats')
+    expect(JSON.parse(localStorage.getItem('group-hidden-columns')!)).not.toContain('quality_stats_1h')
+    expect(localStorage.getItem('group-column-settings-version')).toBe('4')
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
   })
 })

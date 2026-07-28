@@ -251,10 +251,11 @@ describe('admin AccountsView scheduler score column', () => {
       include_scheduler_score: '1'
     }))
     expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual(
-      expect.arrayContaining(['quality_stats_1h', 'quality_stats'])
+      expect.arrayContaining(['quality_stats'])
     )
+    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).not.toContain('quality_stats_1h')
     expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).not.toContain('scheduler_score')
-    expect(localStorage.getItem('account-hidden-columns-version')).toBe('quality-stats-hidden-by-default-v2')
+    expect(localStorage.getItem('account-hidden-columns-version')).toBe('quality-stats-merged-v3')
   })
 
   it('still shows a dash when no scheduler score is available', async () => {
@@ -285,7 +286,7 @@ describe('admin AccountsView scheduler score column', () => {
 
     await wrapper.find('button[title="admin.accounts.moreActions"]').trigger('click')
     const qualityButton = wrapper.findAll('button').find((button) =>
-      button.text().includes('admin.accounts.columns.realtimeQualityStats')
+      button.text().includes('admin.accounts.columns.qualityStats')
     )
     expect(qualityButton).toBeDefined()
     await qualityButton!.trigger('click')
@@ -303,5 +304,18 @@ describe('admin AccountsView scheduler score column', () => {
 
     expect(firstSignal?.aborted).toBe(true)
     expect(getBatchQualityStats).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the merged quality column visible when either legacy quality column was visible', async () => {
+    localStorage.setItem('account-hidden-columns', JSON.stringify(['today_stats', 'quality_stats']))
+    localStorage.setItem('account-hidden-columns-version', 'quality-stats-hidden-by-default-v2')
+
+    mountView()
+    await flushPromises()
+
+    const stored = JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')
+    expect(stored).not.toContain('quality_stats')
+    expect(stored).not.toContain('quality_stats_1h')
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
   })
 })
