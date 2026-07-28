@@ -801,7 +801,7 @@ export default {
         capacity: '容量',
         usage: '用量',
         realtimeQualityStats: '1H 质量',
-        qualityStats: '24H 质量',
+        qualityStats: '质量',
         status: '状态',
         actions: '操作',
         billingType: '计费类型',
@@ -814,7 +814,7 @@ export default {
       usageTotal: '累计',
       quality: {
         loadFailed: '加载失败',
-        hint: '分组最近 24 小时的跨模型历史观测，仅供展示，不参与分组路由。按账号 + 模型运行的实时 TTFT Guard 是独立保护机制。',
+        hint: '三行依次为：1H 活动状态 / 成功失败数 / 最近成功，1H 与 24H 等级分数 / 平均首 Token 与总耗时 / 样本数。分组跨模型历史观测仅供展示，不参与路由；TTFT Guard 仍按账号 + 模型独立运行。',
         realtimeHint: '分组最近 1 小时的跨模型成功、失败与延迟观测，仅供展示。无流量不代表故障；实时 TTFT Guard 仍按账号 + 模型独立判断。'
       },
       accountsAvailable: '可用:',

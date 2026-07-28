@@ -1201,12 +1201,6 @@ export interface AccountQualityWindow {
   score_basis?: 'ttft_duration' | 'ttft_only' | 'duration_only'
 }
 
-export interface AccountQualityPeriod {
-  last_10: AccountQualityWindow
-  last_100: AccountQualityWindow
-  window_hours: number
-}
-
 export type AccountQualityActivityState =
   | 'active'
   | 'low_sample'
@@ -1222,10 +1216,11 @@ export interface AccountQualityActivity {
   last_error_at: string | null
 }
 
-export interface AccountQualityStats extends AccountQualityPeriod {
-  recent_1h: AccountQualityPeriod
+export interface AccountQualityStats {
+  recent_1h: AccountQualityWindow
+  recent_24h: AccountQualityWindow
   activity: AccountQualityActivity
-  score_version: number
+  score_version: 3
 }
 
 export interface UsageProgress {

@@ -346,24 +346,6 @@
             </div>
           </template>
 
-          <template #header-quality_stats_1h="{ column }">
-            <div class="flex items-center">
-              <span>{{ column.label }}</span>
-              <HelpTooltip :content="t('admin.groups.quality.realtimeHint')" width-class="w-80" />
-            </div>
-          </template>
-
-          <template #cell-quality_stats_1h="{ row }">
-            <AccountQualityCell
-              :stats="qualityStatsByGroupId[String(row.id)]?.recent_1h ?? null"
-              :activity="qualityStatsByGroupId[String(row.id)]?.activity ?? null"
-              :activity-state-override="row.status !== 'active' ? 'paused' : null"
-              show-activity
-              :loading="qualityStatsLoading"
-              :error="qualityStatsError"
-            />
-          </template>
-
           <template #header-quality_stats="{ column }">
             <div class="flex items-center">
               <span>{{ column.label }}</span>
@@ -374,6 +356,7 @@
           <template #cell-quality_stats="{ row }">
             <AccountQualityCell
               :stats="qualityStatsByGroupId[String(row.id)] ?? null"
+              :activity-state-override="row.status !== 'active' ? 'paused' : null"
               :muted="isGroupQualityBaselineMuted(row)"
               :loading="qualityStatsLoading"
               :error="qualityStatsError"
@@ -4155,14 +4138,13 @@ const onboardingStore = useOnboardingStore();
 
 const ALWAYS_VISIBLE_COLUMNS = new Set(["name", "actions"]);
 // Default hidden columns (hidden on first load / after schema bumps).
-const DEFAULT_HIDDEN_COLUMNS = ["id", "quality_stats_1h", "quality_stats"];
+const DEFAULT_HIDDEN_COLUMNS = ["id", "quality_stats"];
 const HIDDEN_COLUMNS_KEY = "group-hidden-columns";
 // Bump when adding new default-hidden columns so existing admins pick them up once.
 const COLUMN_SETTINGS_VERSION_KEY = "group-column-settings-version";
-const COLUMN_SETTINGS_VERSION = 3;
+const COLUMN_SETTINGS_VERSION = 4;
 const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
   2: ["id"],
-  3: ["quality_stats_1h", "quality_stats"],
 };
 
 const allColumns = computed<Column[]>(() => [
@@ -4200,11 +4182,6 @@ const allColumns = computed<Column[]>(() => [
   },
   { key: "usage", label: t("admin.groups.columns.usage"), sortable: false },
   {
-    key: "quality_stats_1h",
-    label: t("admin.groups.columns.realtimeQualityStats"),
-    sortable: false,
-  },
-  {
     key: "quality_stats",
     label: t("admin.groups.columns.qualityStats"),
     sortable: false,
@@ -4231,37 +4208,37 @@ const loadSavedColumns = () => {
 
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        parsed
-          .filter(
-            (key): key is string =>
-              typeof key === "string" && validKeys.has(key),
-          )
-          .forEach((key) => hiddenColumns.add(key));
-      }
+      const savedKeys = new Set<string>(
+        Array.isArray(parsed)
+          ? parsed.filter((key): key is string => typeof key === "string")
+          : [],
+      );
 
       // Existing admins: auto-hide columns newly added as default-hidden.
       const storedVersion = Number(
         localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) ?? "1",
       );
+      for (const key of savedKeys) {
+        if (validKeys.has(key)) hiddenColumns.add(key);
+      }
       if (storedVersion < COLUMN_SETTINGS_VERSION) {
-        let mutated = false;
-        for (let v = storedVersion + 1; v <= COLUMN_SETTINGS_VERSION; v++) {
+        for (let v = storedVersion + 1; v <= 2; v++) {
           for (const key of VERSION_NEW_HIDDEN_COLUMNS[v] ?? []) {
-            if (validKeys.has(key) && !hiddenColumns.has(key)) {
-              hiddenColumns.add(key);
-              mutated = true;
-            }
+            if (validKeys.has(key)) hiddenColumns.add(key);
           }
         }
-        if (mutated) {
-          saveColumnsToStorage();
+        const oldRealtimeHidden =
+          storedVersion < 3 || savedKeys.has("quality_stats_1h");
+        const oldHistoricalHidden =
+          storedVersion < 3 || savedKeys.has("quality_stats");
+        if (oldRealtimeHidden && oldHistoricalHidden) {
+          hiddenColumns.add("quality_stats");
         } else {
-          localStorage.setItem(
-            COLUMN_SETTINGS_VERSION_KEY,
-            String(COLUMN_SETTINGS_VERSION),
-          );
+          hiddenColumns.delete("quality_stats");
         }
+        saveColumnsToStorage();
+      } else if (savedKeys.has("quality_stats_1h")) {
+        saveColumnsToStorage();
       }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach((key) => {
@@ -4295,7 +4272,7 @@ const hasVisibleUsageSummaryConsumer = computed(
 );
 const hasVisibleCapacityColumn = computed(() => isColumnVisible("capacity"));
 const hasVisibleQualityColumn = computed(
-  () => isColumnVisible("quality_stats_1h") || isColumnVisible("quality_stats"),
+  () => isColumnVisible("quality_stats"),
 );
 
 const toggleColumn = (key: string) => {
@@ -4319,12 +4296,12 @@ const toggleColumn = (key: string) => {
   }
   if (
     wasHidden &&
-    (key === "quality_stats_1h" || key === "quality_stats") &&
+    key === "quality_stats" &&
     !hadVisibleQualityColumn
   ) {
     loadGroupQualityBatch();
   } else if (
-    (key === "quality_stats_1h" || key === "quality_stats") &&
+    key === "quality_stats" &&
     !hasVisibleQualityColumn.value
   ) {
     cancelGroupQualityRequest();

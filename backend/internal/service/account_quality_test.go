@@ -65,6 +65,12 @@ func TestApplyAccountQualityScore(t *testing.T) {
 			wantScore: qualityIntPtr(69), wantGrade: "B+", wantBasis: accountQualityBasisDurationOnly,
 		},
 		{
+			name: "first token only remains scoreable",
+			window: AccountQualityWindow{SampleCount: 10, FirstTokenSampleCount: 10,
+				AverageFirstTokenMs: qualityFloat64Ptr(2000)},
+			wantScore: qualityIntPtr(95), wantGrade: "S+", wantBasis: accountQualityBasisTTFTOnly,
+		},
+		{
 			name: "realistic latency stays distinguishable",
 			window: AccountQualityWindow{SampleCount: 10, FirstTokenSampleCount: 10,
 				AverageFirstTokenMs: qualityFloat64Ptr(7700), AverageDurationMs: qualityFloat64Ptr(20000)},
@@ -108,14 +114,14 @@ func TestQualityStatsServicesAreReadOnlyBoundedAndNormalizeIDs(t *testing.T) {
 	firstToken, duration := 900.0, 7000.0
 	samples := map[int64]AccountQualitySamples{
 		7: {
-			Recent1h: AccountQualityPeriodSamples{Last10: AccountQualityWindow{
+			Recent1h: AccountQualityWindow{
 				SampleCount: 10, FirstTokenSampleCount: 10,
 				AverageFirstTokenMs: &firstToken, AverageDurationMs: &duration,
-			}},
-			Last24h: AccountQualityPeriodSamples{Last10: AccountQualityWindow{
+			},
+			Recent24h: AccountQualityWindow{
 				SampleCount: 10, FirstTokenSampleCount: 10,
 				AverageFirstTokenMs: &firstToken, AverageDurationMs: &duration,
-			}},
+			},
 			SuccessfulRequests1h: 10,
 		},
 	}
@@ -131,7 +137,9 @@ func TestQualityStatsServicesAreReadOnlyBoundedAndNormalizeIDs(t *testing.T) {
 		require.Equal(t, now.UTC().Add(-time.Hour), repo.realtimeStart)
 		require.Equal(t, now.UTC(), repo.end)
 		require.WithinDuration(t, before.Add(accountQualityQueryTimeout), repo.deadline, time.Second)
-		require.Equal(t, AccountQualityScoreVersion, stats[7].ScoreVersion)
+		require.Equal(t, 3, stats[7].ScoreVersion)
+		require.Equal(t, int64(10), stats[7].Recent1h.SampleCount)
+		require.Equal(t, int64(10), stats[7].Recent24h.SampleCount)
 		require.Equal(t, accountQualityActivityActive, stats[7].Activity.State)
 		require.Equal(t, accountQualityActivityIdle, stats[9].Activity.State)
 	})

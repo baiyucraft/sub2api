@@ -312,22 +312,6 @@
               :error="todayStatsError"
             />
           </template>
-          <template #header-quality_stats_1h="{ column }">
-            <div class="flex items-center">
-              <span>{{ column.label }}</span>
-              <HelpTooltip :content="t('admin.accounts.quality.realtimeHint')" width-class="w-80" />
-            </div>
-          </template>
-          <template #cell-quality_stats_1h="{ row }">
-            <AccountQualityCell
-              :stats="qualityStatsByAccountId[String(row.id)]?.recent_1h ?? null"
-              :activity="qualityStatsByAccountId[String(row.id)]?.activity ?? null"
-              :activity-state-override="getAccountQualityActivityOverride(row)"
-              show-activity
-              :loading="qualityStatsLoading"
-              :error="qualityStatsError"
-            />
-          </template>
           <template #header-quality_stats="{ column }">
             <div class="flex items-center">
               <span>{{ column.label }}</span>
@@ -337,6 +321,7 @@
           <template #cell-quality_stats="{ row }">
             <AccountQualityCell
               :stats="qualityStatsByAccountId[String(row.id)] ?? null"
+              :activity-state-override="getAccountQualityActivityOverride(row)"
               :muted="isAccountQualityBaselineMuted(row)"
               :loading="qualityStatsLoading"
               :error="qualityStatsError"
@@ -661,11 +646,12 @@ const accountToolsDropdownStyle = computed(() => ({
   width: `${accountToolsDropdownPosition.width}px`
 }))
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'quality_stats_1h', 'quality_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'quality_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
 // One-time migration: keep newly expensive statistics opt-in for existing admins too.
 const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
-const HIDDEN_COLUMNS_CURRENT_VERSION = 'quality-stats-hidden-by-default-v2'
+const HIDDEN_COLUMNS_CURRENT_VERSION = 'quality-stats-merged-v3'
+const PREVIOUS_QUALITY_COLUMNS_VERSION = 'quality-stats-hidden-by-default-v2'
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -817,7 +803,7 @@ const cancelAccountQualityRequest = () => {
 }
 
 const refreshAccountQualityBatch = async () => {
-  if (hiddenColumns.has('quality_stats') && hiddenColumns.has('quality_stats_1h')) {
+  if (hiddenColumns.has('quality_stats')) {
     cancelAccountQualityRequest()
     qualityStatsError.value = null
     return
@@ -916,13 +902,22 @@ const loadSavedColumns = () => {
       // Preserve explicit scheduler-score choices after its earlier migration; only legacy layouts need that default.
       const storedVersion = localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)
       if (storedVersion !== HIDDEN_COLUMNS_CURRENT_VERSION) {
-        if (storedVersion !== 'scheduler-score-hidden-by-default') {
-          hiddenColumns.add('scheduler_score')
+        if (storedVersion !== PREVIOUS_QUALITY_COLUMNS_VERSION) {
+          if (storedVersion !== 'scheduler-score-hidden-by-default') {
+            hiddenColumns.add('scheduler_score')
+          }
+          hiddenColumns.add('quality_stats_1h')
+          hiddenColumns.add('quality_stats')
         }
-        hiddenColumns.add('quality_stats_1h')
-        hiddenColumns.add('quality_stats')
+        const hadVisibleQualityColumn =
+          !hiddenColumns.has('quality_stats_1h') || !hiddenColumns.has('quality_stats')
+        hiddenColumns.delete('quality_stats_1h')
+        if (hadVisibleQualityColumn) hiddenColumns.delete('quality_stats')
+        else hiddenColumns.add('quality_stats')
         localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
         localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
+      } else if (hiddenColumns.delete('quality_stats_1h')) {
+        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
       }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
@@ -1002,7 +997,6 @@ const setAutoRefreshInterval = (seconds: (typeof autoRefreshIntervals)[number]) 
 }
 
 const toggleColumn = (key: string) => {
-  const hadVisibleQualityColumn = !hiddenColumns.has('quality_stats_1h') || !hiddenColumns.has('quality_stats')
   const wasHidden = hiddenColumns.has(key)
   if (hiddenColumns.has(key)) {
     hiddenColumns.delete(key)
@@ -1015,13 +1009,12 @@ const toggleColumn = (key: string) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
   }
-  if (key === 'quality_stats' || key === 'quality_stats_1h') {
-    const hasVisibleQualityColumn = !hiddenColumns.has('quality_stats_1h') || !hiddenColumns.has('quality_stats')
-    if (wasHidden && !hadVisibleQualityColumn) {
+  if (key === 'quality_stats') {
+    if (wasHidden) {
       refreshAccountQualityBatch().catch((error) => {
         console.error('Failed to load account quality stats after showing column:', error)
       })
-    } else if (!hasVisibleQualityColumn) {
+    } else {
       cancelAccountQualityRequest()
       qualityStatsError.value = null
     }
@@ -1588,7 +1581,6 @@ const allColumns = computed(() => {
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
-    { key: 'quality_stats_1h', label: t('admin.accounts.columns.realtimeQualityStats'), sortable: false },
     { key: 'quality_stats', label: t('admin.accounts.columns.qualityStats'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {
