@@ -17,8 +17,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// getQualityStatsBatch returns realtime and baseline quality windows plus
-// realtime failures per account or group in one read-only query. The scope is
+// getQualityStatsBatch returns complete 1h and 24h quality windows plus realtime
+// failures per account or group in one read-only query. The scope is
 // restricted to trusted column names and is never derived from request input.
 func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int64, startTime, realtimeStartTime, endTime time.Time, scope string) (map[int64]service.AccountQualitySamples, error) {
 	result := make(map[int64]service.AccountQualitySamples, len(ids))
@@ -35,46 +35,26 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 				ul.%[1]s,
 				ul.created_at,
 				ul.duration_ms,
-				ul.first_token_ms,
-				ul.id
+				ul.first_token_ms
 			FROM usage_logs ul
 			WHERE ul.%[1]s = ANY($1)
 				AND ul.created_at >= $2
 				AND ul.created_at < $4
 				AND ul.actual_cost > 0
 				AND ul.stream = TRUE
-		), ranked AS (
-			SELECT
-				%[1]s,
-				created_at,
-				duration_ms,
-				first_token_ms,
-				ROW_NUMBER() OVER (
-					PARTITION BY %[1]s
-					ORDER BY created_at DESC, id DESC
-				) AS request_rank
-			FROM successful
-			WHERE duration_ms IS NOT NULL
 		), quality AS (
 			SELECT
 				%[1]s,
-				COUNT(*) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_count,
-				COUNT(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_first_count,
-				AVG(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_first_avg,
-				AVG(duration_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_duration_avg,
-				COUNT(*) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_count,
-				COUNT(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_first_count,
-				AVG(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_first_avg,
-				AVG(duration_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_duration_avg,
-				COUNT(*) FILTER (WHERE request_rank <= 10) AS last_10_count,
-				COUNT(first_token_ms) FILTER (WHERE request_rank <= 10) AS last_10_first_count,
-				AVG(first_token_ms) FILTER (WHERE request_rank <= 10) AS last_10_first_avg,
-				AVG(duration_ms) FILTER (WHERE request_rank <= 10) AS last_10_duration_avg,
-				COUNT(*) FILTER (WHERE request_rank <= 100) AS last_100_count,
-				COUNT(first_token_ms) FILTER (WHERE request_rank <= 100) AS last_100_first_count,
-				AVG(first_token_ms) FILTER (WHERE request_rank <= 100) AS last_100_first_avg,
-				AVG(duration_ms) FILTER (WHERE request_rank <= 100) AS last_100_duration_avg
-			FROM ranked
+				COUNT(*) FILTER (WHERE created_at >= $3) AS realtime_count,
+				COUNT(first_token_ms) FILTER (WHERE created_at >= $3) AS realtime_first_count,
+				AVG(first_token_ms) FILTER (WHERE created_at >= $3) AS realtime_first_avg,
+				AVG(duration_ms) FILTER (WHERE created_at >= $3) AS realtime_duration_avg,
+				COUNT(*) AS recent_count,
+				COUNT(first_token_ms) AS recent_first_count,
+				AVG(first_token_ms) AS recent_first_avg,
+				AVG(duration_ms) AS recent_duration_avg
+			FROM successful
+			WHERE duration_ms IS NOT NULL
 			GROUP BY %[1]s
 		), activity AS (
 			SELECT
@@ -98,22 +78,14 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 		)
 		SELECT
 			COALESCE(a.%[1]s, e.%[1]s),
-			COALESCE(q.realtime_last_10_count, 0),
-			COALESCE(q.realtime_last_10_first_count, 0),
-			q.realtime_last_10_first_avg,
-			q.realtime_last_10_duration_avg,
-			COALESCE(q.realtime_last_100_count, 0),
-			COALESCE(q.realtime_last_100_first_count, 0),
-			q.realtime_last_100_first_avg,
-			q.realtime_last_100_duration_avg,
-			COALESCE(q.last_10_count, 0),
-			COALESCE(q.last_10_first_count, 0),
-			q.last_10_first_avg,
-			q.last_10_duration_avg,
-			COALESCE(q.last_100_count, 0),
-			COALESCE(q.last_100_first_count, 0),
-			q.last_100_first_avg,
-			q.last_100_duration_avg,
+			COALESCE(q.realtime_count, 0),
+			COALESCE(q.realtime_first_count, 0),
+			q.realtime_first_avg,
+			q.realtime_duration_avg,
+			COALESCE(q.recent_count, 0),
+			COALESCE(q.recent_first_count, 0),
+			q.recent_first_avg,
+			q.recent_duration_avg,
 			COALESCE(a.successful_requests_1h, 0),
 			COALESCE(e.failed_requests_1h, 0),
 			a.last_success_at,
@@ -130,31 +102,21 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 
 	for rows.Next() {
 		var entityID int64
-		var realtimeLast10, realtimeLast10First, realtimeLast100, realtimeLast100First int64
-		var last10, last10First, last100, last100First int64
+		var realtimeCount, realtimeFirstCount, recentCount, recentFirstCount int64
 		var successfulRequests1h, failedRequests1h int64
-		var realtimeLast10FirstAvg, realtimeLast10DurationAvg sql.NullFloat64
-		var realtimeLast100FirstAvg, realtimeLast100DurationAvg sql.NullFloat64
-		var last10FirstAvg, last10DurationAvg, last100FirstAvg, last100DurationAvg sql.NullFloat64
+		var realtimeFirstAvg, realtimeDurationAvg sql.NullFloat64
+		var recentFirstAvg, recentDurationAvg sql.NullFloat64
 		var lastSuccessAt, lastErrorAt sql.NullTime
 		if err := rows.Scan(
 			&entityID,
-			&realtimeLast10,
-			&realtimeLast10First,
-			&realtimeLast10FirstAvg,
-			&realtimeLast10DurationAvg,
-			&realtimeLast100,
-			&realtimeLast100First,
-			&realtimeLast100FirstAvg,
-			&realtimeLast100DurationAvg,
-			&last10,
-			&last10First,
-			&last10FirstAvg,
-			&last10DurationAvg,
-			&last100,
-			&last100First,
-			&last100FirstAvg,
-			&last100DurationAvg,
+			&realtimeCount,
+			&realtimeFirstCount,
+			&realtimeFirstAvg,
+			&realtimeDurationAvg,
+			&recentCount,
+			&recentFirstCount,
+			&recentFirstAvg,
+			&recentDurationAvg,
 			&successfulRequests1h,
 			&failedRequests1h,
 			&lastSuccessAt,
@@ -163,33 +125,17 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 			return nil, err
 		}
 		result[entityID] = service.AccountQualitySamples{
-			Recent1h: service.AccountQualityPeriodSamples{
-				Last10: service.AccountQualityWindow{
-					SampleCount:           realtimeLast10,
-					FirstTokenSampleCount: realtimeLast10First,
-					AverageFirstTokenMs:   nullableFloat64(realtimeLast10FirstAvg),
-					AverageDurationMs:     nullableFloat64(realtimeLast10DurationAvg),
-				},
-				Last100: service.AccountQualityWindow{
-					SampleCount:           realtimeLast100,
-					FirstTokenSampleCount: realtimeLast100First,
-					AverageFirstTokenMs:   nullableFloat64(realtimeLast100FirstAvg),
-					AverageDurationMs:     nullableFloat64(realtimeLast100DurationAvg),
-				},
+			Recent1h: service.AccountQualityWindow{
+				SampleCount:           realtimeCount,
+				FirstTokenSampleCount: realtimeFirstCount,
+				AverageFirstTokenMs:   nullableFloat64(realtimeFirstAvg),
+				AverageDurationMs:     nullableFloat64(realtimeDurationAvg),
 			},
-			Last24h: service.AccountQualityPeriodSamples{
-				Last10: service.AccountQualityWindow{
-					SampleCount:           last10,
-					FirstTokenSampleCount: last10First,
-					AverageFirstTokenMs:   nullableFloat64(last10FirstAvg),
-					AverageDurationMs:     nullableFloat64(last10DurationAvg),
-				},
-				Last100: service.AccountQualityWindow{
-					SampleCount:           last100,
-					FirstTokenSampleCount: last100First,
-					AverageFirstTokenMs:   nullableFloat64(last100FirstAvg),
-					AverageDurationMs:     nullableFloat64(last100DurationAvg),
-				},
+			Recent24h: service.AccountQualityWindow{
+				SampleCount:           recentCount,
+				FirstTokenSampleCount: recentFirstCount,
+				AverageFirstTokenMs:   nullableFloat64(recentFirstAvg),
+				AverageDurationMs:     nullableFloat64(recentDurationAvg),
 			},
 			SuccessfulRequests1h: successfulRequests1h,
 			FailedRequests1h:     failedRequests1h,

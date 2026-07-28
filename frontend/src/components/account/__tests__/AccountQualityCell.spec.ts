@@ -7,17 +7,15 @@ vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string, params: Record<string, string | number> = {}) => {
       const value = ({
-        'admin.accounts.quality.last10': '近10',
-        'admin.accounts.quality.last100': '近100',
-        'admin.accounts.quality.firstTokenShort': '首字',
-        'admin.accounts.quality.totalShort': '总',
         'admin.accounts.quality.activity.active': '活跃',
         'admin.accounts.quality.activity.idle': '未参与',
         'admin.accounts.quality.activity.unassigned': '未分组',
         'admin.accounts.quality.activity.paused': '暂停调度',
-        'admin.accounts.quality.activity.counts': '{success}成/{failed}败',
-        'admin.accounts.quality.activity.lastSuccessMinutes': '最近成功 {count} 分钟前',
-        'admin.accounts.quality.activity.noSuccess24h': '24h无成功'
+        'admin.accounts.quality.activity.title': '{state}，成功 {success}，失败 {failed}，最近成功 {lastSuccess}',
+        'admin.accounts.quality.activity.lastSuccessMinutes': '{count}m',
+        'admin.accounts.quality.activity.over24h': '>24h',
+        'admin.accounts.quality.scoreTitle': '{grade} {score}，样本 {count}，首字样本 {firstCount}',
+        'admin.accounts.quality.latencyTitle': '首字 {firstToken}，总耗时 {duration}'
       }[key] ?? key)
       return Object.entries(params).reduce(
         (result, [name, replacement]) => result.replace(`{${name}}`, String(replacement)),
@@ -27,8 +25,8 @@ vi.mock('vue-i18n', () => ({
   })
 }))
 
-const qualityPeriod = {
-  last_10: {
+const qualityStats = {
+  recent_1h: {
     sample_count: 10,
     first_token_sample_count: 10,
     average_first_token_ms: 7700,
@@ -37,8 +35,8 @@ const qualityPeriod = {
     quality_grade: 'A-',
     score_basis: 'ttft_duration' as const
   },
-  last_100: {
-    sample_count: 100,
+  recent_24h: {
+    sample_count: 142,
     first_token_sample_count: 0,
     average_first_token_ms: null,
     average_duration_ms: 2800,
@@ -46,18 +44,34 @@ const qualityPeriod = {
     quality_grade: 'B+',
     score_basis: 'duration_only' as const
   },
-  window_hours: 24
+  activity: {
+    state: 'active' as const,
+    successful_request_count: 24,
+    failed_request_count: 1,
+    last_success_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+    last_error_at: null
+  },
+  score_version: 3 as const
 }
 
 describe('AccountQualityCell', () => {
-  it('shows stable grade and latency columns for both windows', () => {
-    const wrapper = mount(AccountQualityCell, { props: { stats: qualityPeriod } })
+  it('shows both full windows in a stable compact three-row grid', () => {
+    const wrapper = mount(AccountQualityCell, { props: { stats: qualityStats } })
 
-    expect(wrapper.classes()).toContain('min-w-[18.75rem]')
+    expect(wrapper.classes()).toContain('w-[14.5rem]')
+    expect(wrapper.findAll('[data-quality-window]')).toHaveLength(2)
+    expect(wrapper.text()).toContain('活跃')
+    expect(wrapper.text()).toContain('24/1')
+    expect(wrapper.text()).toContain('5m')
+    expect(wrapper.text()).toContain('1HA- 73')
+    expect(wrapper.text()).toContain('24HB+ 69')
     expect(wrapper.text()).toContain('A- 73')
     expect(wrapper.text()).toContain('B+ 69')
-    expect(wrapper.text()).toContain('首字7.7s')
-    expect(wrapper.text()).toContain('总20s')
+    expect(wrapper.text()).toContain('7.7s / 20s')
+    expect(wrapper.text()).toContain('n10')
+    expect(wrapper.text()).toContain('n142')
+    expect(wrapper.text()).not.toContain('首字')
+    expect(wrapper.text()).not.toContain('样本')
     expect(wrapper.find('[data-quality-grade="A-"]').classes()).toContain('bg-blue-100')
     expect(wrapper.find('[data-quality-grade="B+"]').classes()).toContain('bg-amber-100')
     expect(wrapper.find('.font-mono').exists()).toBe(true)
@@ -66,21 +80,13 @@ describe('AccountQualityCell', () => {
   it('renders participation separately and supports scheduling overrides', async () => {
     const wrapper = mount(AccountQualityCell, {
       props: {
-        stats: { ...qualityPeriod, window_hours: 1 },
-        activity: {
-          state: 'active',
-          successful_request_count: 24,
-          failed_request_count: 1,
-          last_success_at: new Date(Date.now() - 5 * 60_000).toISOString(),
-          last_error_at: null
-        },
-        showActivity: true
+        stats: qualityStats
       }
     })
 
     expect(wrapper.text()).toContain('活跃')
-    expect(wrapper.text()).toContain('24成/1败')
-    expect(wrapper.text()).toContain('最近成功 5 分钟前')
+    expect(wrapper.text()).toContain('24/1')
+    expect(wrapper.text()).toContain('5m')
 
     await wrapper.setProps({ activityStateOverride: 'unassigned' })
     expect(wrapper.text()).toContain('未分组')
@@ -91,21 +97,24 @@ describe('AccountQualityCell', () => {
   it('uses neutral styling for idle or muted historical quality', () => {
     const wrapper = mount(AccountQualityCell, {
       props: {
-        stats: qualityPeriod,
-        activity: {
-          state: 'idle',
-          successful_request_count: 0,
-          failed_request_count: 0,
-          last_success_at: null,
-          last_error_at: null
+        stats: {
+          ...qualityStats,
+          activity: {
+            state: 'idle',
+            successful_request_count: 0,
+            failed_request_count: 0,
+            last_success_at: null,
+            last_error_at: null
+          }
         },
-        showActivity: true,
         muted: true
       }
     })
 
     expect(wrapper.find('[data-quality-activity="idle"]').classes()).toContain('bg-gray-100')
-    expect(wrapper.find('[data-quality-grade="A-"]').classes()).toContain('bg-gray-100')
+    expect(wrapper.find('[data-quality-window="1H"]').classes()).not.toContain('opacity-60')
+    expect(wrapper.find('[data-quality-window="24H"]').classes()).toContain('opacity-60')
+    expect(wrapper.find('[data-quality-window="24H"] [data-quality-grade="B+"]').classes()).toContain('bg-gray-100')
   })
 
   it('renders empty and failed snapshots without fabricating quality data', async () => {
