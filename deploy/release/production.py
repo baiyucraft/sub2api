@@ -83,6 +83,7 @@ class ProductionRelease:
         self.migration_204_status: str | None = None
         self.migration_205_status: str | None = None
         self.migration_206_status: str | None = None
+        self.migration_208_status: str | None = None
         self.result_path = gate_dir / "production-result.json"
         self.result: dict[str, object] = {"release_id": self.release_id, "status": "running", "stage": "init", "history": []}
         self._save_result()
@@ -183,6 +184,7 @@ class ProductionRelease:
                 "migration_204_status",
                 "migration_205_status",
                 "migration_206_status",
+                "migration_208_status",
             },
         )
         self.migration_status = values["migration_status"]
@@ -198,6 +200,7 @@ class ProductionRelease:
         self.migration_204_status = values["migration_204_status"]
         self.migration_205_status = values["migration_205_status"]
         self.migration_206_status = values["migration_206_status"]
+        self.migration_208_status = values["migration_208_status"]
         self.stage("production_preflight_verified", values)
 
     def run_route_canary(
@@ -354,7 +357,7 @@ class ProductionRelease:
         self.stage("backup_verified", {**values, **promoted})
 
     def migration_preflight(self) -> None:
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208"}:
             return
         self.stage("migration_195_preflight")
         if self.migration_195_status not in {"absent", "verified"}:
@@ -372,7 +375,7 @@ class ProductionRelease:
         self.stage("migration_195_preflight_verified", values)
 
     def bind_migration_plan(self) -> None:
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208"}:
             return
         self.stage("migration_195_bind_recovery_point")
         env = quoted_env({"RELEASE_DIR": self.release_dir})
@@ -391,7 +394,7 @@ class ProductionRelease:
             "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
             "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
         }
-        if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207"}:
+        if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208"}:
             allowed.update({
                 "migration_195_affected", "migration_195_unproven",
                 "migration_195_plan_sha256", "migration_195_database_postflight", "migration_195_postflight",
@@ -399,23 +402,25 @@ class ProductionRelease:
                 "migration_195_account_mismatch", "migration_195_snapshot_missing", "migration_195_outbox_missing",
                 "migration_195_constraint_missing", "migration_195_trigger_missing",
             })
-        if getattr(self, "profile", {}).get("name") in {"198", "199", "202", "206", "207"}:
+        if getattr(self, "profile", {}).get("name") in {"198", "199", "202", "206", "207", "208"}:
             allowed.add("managed_monitor_key_names_verified")
-        if getattr(self, "profile", {}).get("name") in {"199", "202", "206", "207"}:
+        if getattr(self, "profile", {}).get("name") in {"199", "202", "206", "207", "208"}:
             allowed.add("reasoning_effort_policy_verified")
-        if getattr(self, "profile", {}).get("name") in {"202", "206", "207"}:
+        if getattr(self, "profile", {}).get("name") in {"202", "206", "207", "208"}:
             allowed.update({
                 "alipay_mobile_precreate_migration_verified",
                 "group_auth_cache_image_generation_verified",
                 "composite_model_routes_verified",
             })
-        if getattr(self, "profile", {}).get("name") in {"206", "207"}:
+        if getattr(self, "profile", {}).get("name") in {"206", "207", "208"}:
             allowed.update({
                 "session_id_columns_verified",
                 "live_request_type_verified",
                 "group_allow_live_verified",
                 "email_alias_index_verified",
             })
+        if getattr(self, "profile", {}).get("name") == "208":
+            allowed.add("passkey_schema_verified")
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/switch.sh",
@@ -545,7 +550,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
                 raise RuntimeError("remote pre-switch recovery state is unknown")
             self.frozen = recovery_needed
         migration_committed = self.migration_started
-        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207"}:
+        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208"}:
             migration_committed = self.remote_migration_committed()
             if migration_committed is None:
                 raise RuntimeError("migration 195 committed state is unknown")
@@ -600,7 +605,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         self.stage("recovered", values)
 
     def remote_migration_committed(self) -> bool | None:
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208"}:
             return self.migration_started
         status_by_migration = {
             "195_upstream_scheduling_monitor_rates.sql": self.migration_195_status,
@@ -615,6 +620,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             "204_allow_live_usage_request_type.sql": self.migration_204_status,
             "205_add_group_allow_live.sql": self.migration_205_status,
             "206_add_users_email_alias_dedup_index_notx.sql": self.migration_206_status,
+            "208_passkey_credentials.sql": self.migration_208_status,
         }
         pending = [migration for migration in self.manifest["migrations"] if status_by_migration.get(migration) == "absent"]
         pending_words = " ".join(shlex.quote(migration) for migration in pending)
