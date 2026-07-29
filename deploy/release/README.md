@@ -80,7 +80,14 @@ profile 207 使用版本 `0.1.166-baiyu`，是 profile 206 的纯版本继承：
 本 profile 不新增 migration SQL，也不存在 `migration_207_status`；DR evidence 仍绑定继承后的
 完整有序 migration map。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206 和 207
+profile 208 使用版本 `0.1.168-baiyu`，完整继承 profile 207 的 migration map、旧镜像兼容和
+全部 Gate/DR 合同，并追加 `208_passkey_credentials.sql`。生产 preflight 独立记录
+`migration_208_status` 的 `absent` 或 `verified` 状态；VM Gate 与生产 postflight 必须验证
+`passkey_user_handles`、`passkey_credentials` 的关键列、主键、唯一约束、到 `users` 的级联外键，
+以及 `passkey_credentials_user_id_idx`、`passkey_credentials_last_used_at_idx` 两个索引。
+profile 207 的纯版本继承身份保持不变，不得把 208 migration 回填到 207。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207 和 208
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -89,6 +96,7 @@ python deploy/tests/release/backup_dr_profile_199_integration.py
 python deploy/tests/release/backup_dr_profile_202_integration.py
 python deploy/tests/release/backup_dr_profile_206_integration.py
 python deploy/tests/release/backup_dr_profile_207_integration.py
+python deploy/tests/release/backup_dr_profile_208_integration.py
 ```
 
 首次安装信任根使用：

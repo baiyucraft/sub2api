@@ -134,11 +134,12 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(list(migration_checksums(profile_191)), profile_191["migrations"])
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207)"
-        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207"
+        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
+            "release/production-space-clean.sh",
             "maintenance/release/context.sh",
             "maintenance/release/prepare.sh",
             "maintenance/release/promote-backup.sh",
@@ -263,6 +264,22 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(list(migration_checksums(profile_207)), profile_207["migrations"])
         self.assertFalse(any(migration.startswith("207_") for migration in profile_207["migrations"]))
 
+    def test_profile_208_extends_profile_207_with_passkey_migration(self) -> None:
+        profile_207 = get_profile("207")
+        profile_208 = get_profile("208")
+        self.assertEqual(profile_207["version"], "0.1.166-baiyu")
+        self.assertEqual(profile_208["version"], "0.1.168-baiyu")
+        self.assertEqual(
+            profile_208["migrations"],
+            profile_207["migrations"] + ["208_passkey_credentials.sql"],
+        )
+        self.assertIsNot(profile_208["migrations"], profile_207["migrations"])
+        self.assertEqual(list(migration_checksums(profile_208)), profile_208["migrations"])
+        self.assertEqual(
+            [migration for migration in profile_208["migrations"] if migration.startswith("208_")],
+            ["208_passkey_credentials.sql"],
+        )
+
     def test_profile_194_requires_prompt_audit_disabled_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         context = (DEPLOY_ROOT / "maintenance" / "release" / "context.sh").read_text(encoding="utf-8")
@@ -272,9 +289,9 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("prompt_audit_state == 't|0|0'", validator)
         self.assertIn("prompt_audit_disabled:$prompt_audit_disabled", validator)
         self.assertIn("assert_prompt_audit_disabled()", context)
-        self.assertIn("$profile != 197 && $profile != 198 && $profile != 199 && $profile != 202 && $profile != 206 && $profile != 207", context)
+        self.assertIn("$profile != 197 && $profile != 198 && $profile != 199 && $profile != 202 && $profile != 206 && $profile != 207 && $profile != 208", context)
         self.assertEqual(production.count('"prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events"'), 3)
-        self.assertIn('expected_profile in {"194", "195", "197", "198", "199", "202", "206", "207"}', gate)
+        self.assertIn('expected_profile in {"194", "195", "197", "198", "199", "202", "206", "207", "208"}', gate)
 
     def test_profile_195_requires_semantic_migration_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
@@ -336,11 +353,11 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('migration-195-assert.sh preflight', production)
         self.assertIn('migration-195-assert.sh" postflight', switch)
         self.assertIn("unproven == 0 && $conflict == 0 && $unexpected == 0", assertion)
-        self.assertIn('expected_profile in {"195", "197", "198", "199", "202", "206", "207"}', gate)
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207"}', production)
-        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 ]]', switch)
-        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 ]]', assertion)
-        self.assertIn('expected_profile in {"198", "199", "202", "206", "207"}', gate)
+        self.assertIn('expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208"}', gate)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208"}', production)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 ]]', switch)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 ]]', assertion)
+        self.assertIn('expected_profile in {"198", "199", "202", "206", "207", "208"}', gate)
         self.assertIn("managed monitor key-name evidence", gate)
 
     def test_profile_199_requires_reasoning_and_old_image_evidence(self) -> None:
@@ -355,7 +372,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("mark_stage old_image_compatibility", validator)
         self.assertIn('"reasoning_effort_policy_verified"', production)
         self.assertIn("reasoning_effort_policy_verified=true", switch)
-        self.assertIn('expected_profile in {"199", "202", "206", "207"}', gate)
+        self.assertIn('expected_profile in {"199", "202", "206", "207", "208"}', gate)
         self.assertIn("group reasoning-effort policy evidence", gate)
         self.assertIn("VM old-image compatibility evidence", gate)
 
@@ -374,7 +391,7 @@ class ReleaseCoreTest(unittest.TestCase):
             self.assertIn(f'"{evidence}"', production)
             self.assertIn(f"{evidence}=true", switch)
             self.assertIn(f'"{evidence}"', gate)
-        self.assertIn('expected_profile in {"202", "206", "207"}', gate)
+        self.assertIn('expected_profile in {"202", "206", "207", "208"}', gate)
         self.assertIn("profile 202 migration semantic evidence", gate)
         seed = "INSERT INTO settings (key,value,updated_at) VALUES ('ALIPAY_MOBILE_PRECREATE_DEEP_LINK','true',NOW())"
         self.assertGreater(validator.index(seed), validator.index("restore_completed=true"))
@@ -413,7 +430,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('"live_runtime_capability_verified"', gate)
         self.assertNotIn('"live_runtime_capability_verified"', production)
         self.assertNotIn("live_runtime_capability_verified=true", switch)
-        self.assertIn('expected_profile in {"206", "207"}', gate)
+        self.assertIn('expected_profile in {"206", "207", "208"}', gate)
         self.assertIn("profile 206 migration semantic evidence", gate)
         for stage in (
             "migration_assertion_profile_206_session_id",
@@ -434,6 +451,23 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('docker port "$probe_app" "$server_port/tcp"', validator)
         self.assertNotIn("probe_app_ip=", validator)
         self.assertIn("[[ $live_capability_status == 200 ]]", validator)
+
+    def test_profile_208_requires_passkey_schema_evidence(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        gate = (DEPLOY_ROOT / "release" / "gate.py").read_text(encoding="utf-8")
+        switch = (DEPLOY_ROOT / "maintenance" / "release" / "switch.sh").read_text(encoding="utf-8")
+
+        self.assertIn("passkey_schema_verified:$passkey_schema_verified", validator)
+        self.assertIn('"passkey_schema_verified"', production)
+        self.assertIn("passkey_schema_verified=true", switch)
+        self.assertIn("passkey_user_handles", validator)
+        self.assertIn("passkey_credentials", validator)
+        self.assertIn("passkey_credentials_user_id_idx", validator)
+        self.assertIn("passkey_credentials_last_used_at_idx", validator)
+        self.assertIn("mark_stage migration_assertion_profile_208_passkey_schema", validator)
+        self.assertIn('expected_profile == "208"', gate)
+        self.assertIn("profile 208 passkey schema evidence", gate)
 
     def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -545,6 +579,55 @@ class ReleaseCoreTest(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(RuntimeError, "profile 206 migration semantic evidence"):
                     verify_gate(root, public_key, "206")
+
+    def test_profile_208_gate_rejects_missing_passkey_schema_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            private_key = root / "private.pem"
+            public_key = root / "public.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private_key)], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
+            archive = root / "candidate.tar.gz"
+            archive.write_bytes(b"candidate")
+            manifest = self.manifest("runner", int(time.time()) + 60)
+            manifest["profile"] = "208"
+            inherited_evidence = {
+                "candidate_image_id": "sha256:" + "b" * 64,
+                "candidate_archive_sha256": hashlib.sha256(b"candidate").hexdigest(),
+                "integration_verified": True,
+                "vm_restore_verified": True,
+                "prompt_audit_disabled": True,
+                "migration_195_verified": True,
+                "fixture_rejected": True,
+                "restore_completed": True,
+                "clean_preflight": True,
+                "verified_replay": True,
+                "verified_low_watermark_rejected": True,
+                "managed_monitor_key_names_verified": True,
+                "reasoning_effort_policy_verified": True,
+                "vm_old_image_compatibility_verified": True,
+                "vm_old_image_id": "sha256:" + "c" * 64,
+                "alipay_mobile_precreate_migration_verified": True,
+                "group_auth_cache_image_generation_verified": True,
+                "composite_model_routes_verified": True,
+                "session_id_columns_verified": True,
+                "live_request_type_verified": True,
+                "group_allow_live_verified": True,
+                "email_alias_index_verified": True,
+                "live_runtime_capability_verified": True,
+                # passkey_schema_verified is intentionally omitted.
+            }
+            document = {"manifest": manifest, "evidence": inherited_evidence}
+            (root / "gate.json").write_bytes(canonical_json(document) + b"\n")
+            subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(private_key), "-rawin", "-in", str(root / "gate.json"), "-out", str(root / "gate.sig")], check=True, stdout=subprocess.DEVNULL)
+            with (
+                mock.patch("release.gate.runner_checksum", return_value="runner"),
+                mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
+                mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
+                mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "profile 208 passkey schema evidence"):
+                    verify_gate(root, public_key, "208")
 
     def test_vm_post_build_space_gate_does_not_double_count_image(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")

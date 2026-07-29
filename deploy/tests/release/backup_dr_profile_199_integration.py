@@ -37,6 +37,10 @@ PROFILE_MIGRATIONS = {
         migration: f"{index:064x}"
         for index, migration in enumerate(get_profile("207")["migrations"], start=1)
     },
+    "208": {
+        migration: f"{index:064x}"
+        for index, migration in enumerate(get_profile("208")["migrations"], start=1)
+    },
 }
 
 
