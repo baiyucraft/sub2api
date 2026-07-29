@@ -17,7 +17,7 @@ WORKSPACE = Path(__file__).resolve().parents[2]
 RUN_ROOT = WORKSPACE / ".tmp" / "releases"
 TRUSTED_VM_PUBLIC_KEY = DEPLOY_ROOT / "release" / "trust" / "vm-gate-ed25519.pub"
 PRODUCTION_SPACE_CLEANER = DEPLOY_ROOT / "release" / "production-space-clean.sh"
-RELEASE_ID = re.compile(r"^(182|187|191|192|194|195|197|198|199|202|206|207)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$")
+RELEASE_ID = re.compile(r"^(182|187|191|192|194|195|197|198|199|202|206|207|208)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$")
 FINAL_STAGES = {"production_verified", "production_verified_after_reconciliation"}
 PRODUCTION_CLEAN_FIELDS = {
     "cleanup_mode",

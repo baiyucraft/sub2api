@@ -13,6 +13,7 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.production_cleanup import (
     PRODUCTION_CLEAN_FIELDS,
+    RELEASE_ID,
     CleanupIdentity,
     cleanup_production,
     load_cleanup_identity,
@@ -150,6 +151,14 @@ class ProductionSpaceCleanTest(unittest.TestCase):
                 identity = load_cleanup_identity(release_id, root)
         self.assertEqual(identity.release_id, "207-aaaaaaaaaaaa-1-deadbeef")
 
+    def test_profile_208_identity_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            release_id = self.write_release(root, profile="208")
+            with mock.patch("release.production_cleanup.subprocess.run"):
+                identity = load_cleanup_identity(release_id, root)
+        self.assertEqual(identity.release_id, "208-aaaaaaaaaaaa-1-deadbeef")
+
     def test_identity_rejects_unconsumed_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -243,6 +252,8 @@ class ProductionSpaceCleanTest(unittest.TestCase):
     def test_shell_has_narrow_destructive_allowlist(self) -> None:
         script = (DEPLOY_ROOT / "release" / "production-space-clean.sh").read_text(encoding="utf-8")
         prepare = (DEPLOY_ROOT / "maintenance" / "release" / "prepare.sh").read_text(encoding="utf-8")
+        self.assertIn("(182|187|191|192|194|195|197|198|199|202|206|207|208)", script)
+        self.assertIn("(182|187|191|192|194|195|197|198|199|202|206|207|208)", RELEASE_ID.pattern)
         self.assertIn("/opt/sub2api/releases/.active-release", script)
         self.assertIn("assert_release_identity", script)
         self.assertIn("assert_release_marker", script)

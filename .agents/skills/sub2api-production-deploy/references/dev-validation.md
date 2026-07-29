@@ -160,6 +160,12 @@ profile 207 是 profile 206 的纯版本继承，只更新应用版本。它必�
 `migration_203_status` 至 `migration_206_status`、旧镜像 smoke 和所有 Gate/DR 证据；不得新增
 `207_*.sql` 或 `migration_207_status`。
 
+profile 208 完整继承 profile 207 的全部 migration、旧镜像 smoke 和 Gate/DR 证据，并追加
+`208_passkey_credentials.sql`。Gate 必须独立记录 `migration_208_status`，验证
+`passkey_user_handles` 与 `passkey_credentials` 的关键列、主键、唯一约束、到 `users` 的级联外键，
+以及凭据表的 user/last-used 索引；旧镜像必须能在迁移后的副本上通过 health smoke。profile 207
+的 migration map 与“无 `migration_207_status`”身份不得改变。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：

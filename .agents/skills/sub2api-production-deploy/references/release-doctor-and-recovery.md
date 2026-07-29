@@ -78,6 +78,12 @@ profile 207 不新增数据库迁移，完整继承 profile 206 的 migration ma
 生产 runner、恢复判断与 DR promoter 都必须继续验证 203 至 206 的原证据，不能创建
 `migration_207_status`，也不能因版本升级而跳过旧镜像兼容或 migration checksum 绑定。
 
+profile 208 在 profile 207 的完整有序 migration map 后追加 `208_passkey_credentials.sql`。
+doctor、VM Gate、生产 preflight/runner、恢复判断与 DR promoter 必须继续验证全部继承证据，并独立
+处理 `migration_208_status=absent|verified`。最终 Gate、committed marker 和 DR evidence 必须绑定
+包含 208 的完整 migration map，并验证两张 Passkey 表、关键约束、级联外键和索引；不得修改
+profile 207 的 map 或为其创建 `migration_207_status`。
+
 `migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 
 ## 长时间无输出诊断
