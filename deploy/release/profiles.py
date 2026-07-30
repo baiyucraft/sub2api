@@ -325,6 +325,16 @@ PROFILES["208"] = {
     ],
 }
 
+PROFILES["209"] = {
+    **PROFILES["208"],
+    "name": "209",
+    "version": "0.1.168-baiyu",
+    "migrations": [
+        *PROFILES["208"]["migrations"],
+        "209_user_usage_aggregation.sql",
+    ],
+}
+
 
 def get_profile(name: str) -> dict:
     try:

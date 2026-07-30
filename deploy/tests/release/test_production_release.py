@@ -615,7 +615,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("migration_status=verified", preflight)
         self.assertIn("migration_195_status=verified", preflight)
         self.assertIn("migration_195_status=absent", preflight)
-        for migration in ("196", "197", "198", "199", "200", "201", "202", "203", "204", "205", "206", "208"):
+        for migration in ("196", "197", "198", "199", "200", "201", "202", "203", "204", "205", "206", "208", "209"):
             self.assertIn(f"migration_{migration}_status=not_applicable", preflight)
             self.assertIn(f"migration_{migration}_status=verified", preflight)
             self.assertIn(f"migration_{migration}_status=absent", preflight)
@@ -697,8 +697,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         preflight = self.script("preflight.sh")
         switch = self.script("switch.sh")
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208"}', production)
-        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208", switch)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209"}', production)
+        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209", switch)
         self.assertIn("migration_206_status", production)
         self.assertIn("migration_206_status", preflight)
         self.assertNotIn("migration_207_status", production)
@@ -717,6 +717,23 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('allowed.add("passkey_schema_verified")', production)
         self.assertIn("passkey_schema_state", switch)
         self.assertIn("passkey_schema_verified=true", switch)
+
+    def test_profile_209_tracks_user_usage_aggregation_migration_and_schema_evidence(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        preflight = self.script("preflight.sh")
+        switch = self.script("switch.sh")
+        self.assertIn('self.migration_209_status = values["migration_209_status"]', production)
+        self.assertIn('"209_user_usage_aggregation.sql": self.migration_209_status', production)
+        self.assertIn("migration_209_status=not_applicable", preflight)
+        self.assertIn("209_user_usage_aggregation.sql) migration_209_status=verified", preflight)
+        self.assertIn("209_user_usage_aggregation.sql) migration_209_status=absent", preflight)
+        self.assertIn("printf 'migration_209_status=%s", preflight)
+        self.assertIn('allowed.add("user_usage_aggregation_schema_verified")', production)
+        self.assertIn("user_usage_aggregation_schema_state", switch)
+        self.assertIn("usage_dashboard_user_hourly", switch)
+        self.assertIn("usage_dashboard_user_daily", switch)
+        self.assertIn("usage_dashboard_user_backfill_state", switch)
+        self.assertIn("user_usage_aggregation_schema_verified=true", switch)
 
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")

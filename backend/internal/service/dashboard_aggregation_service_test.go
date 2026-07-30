@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,18 +13,25 @@ import (
 
 type dashboardAggregationRepoTestStub struct {
 	aggregateCalls       int
+	userAggregateCalls   int
 	recomputeCalls       int
 	cleanupUsageCalls    int
 	cleanupDedupCalls    int
 	ensurePartitionCalls int
+	ensureBackfillCalls  int
+	watermarkUpdateCalls int
 	lastStart            time.Time
 	lastEnd              time.Time
+	userAggregateStart   time.Time
+	userAggregateEnd     time.Time
 	watermark            time.Time
 	aggregateErr         error
+	userAggregateErr     error
 	cleanupAggregatesErr error
 	cleanupUsageErr      error
 	cleanupDedupErr      error
 	ensurePartitionErr   error
+	ensureBackfillErr    error
 }
 
 func (s *dashboardAggregationRepoTestStub) AggregateRange(ctx context.Context, start, end time.Time) error {
@@ -31,6 +39,13 @@ func (s *dashboardAggregationRepoTestStub) AggregateRange(ctx context.Context, s
 	s.lastStart = start
 	s.lastEnd = end
 	return s.aggregateErr
+}
+
+func (s *dashboardAggregationRepoTestStub) AggregateUserUsageRange(ctx context.Context, start, end time.Time) error {
+	s.userAggregateCalls++
+	s.userAggregateStart = start
+	s.userAggregateEnd = end
+	return s.userAggregateErr
 }
 
 func (s *dashboardAggregationRepoTestStub) RecomputeRange(ctx context.Context, start, end time.Time) error {
@@ -43,6 +58,7 @@ func (s *dashboardAggregationRepoTestStub) GetAggregationWatermark(ctx context.C
 }
 
 func (s *dashboardAggregationRepoTestStub) UpdateAggregationWatermark(ctx context.Context, aggregatedAt time.Time) error {
+	s.watermarkUpdateCalls++
 	return nil
 }
 
@@ -63,6 +79,11 @@ func (s *dashboardAggregationRepoTestStub) CleanupUsageBillingDedup(ctx context.
 func (s *dashboardAggregationRepoTestStub) EnsureUsageLogsPartitions(ctx context.Context, now time.Time) error {
 	s.ensurePartitionCalls++
 	return s.ensurePartitionErr
+}
+
+func (s *dashboardAggregationRepoTestStub) EnsureUserUsageBackfill(ctx context.Context) error {
+	s.ensureBackfillCalls++
+	return s.ensureBackfillErr
 }
 
 func TestDashboardAggregationService_RunScheduledAggregation_EpochUsesRetentionStart(t *testing.T) {
@@ -165,4 +186,118 @@ func TestDashboardAggregationService_TriggerBackfill_TooLarge(t *testing.T) {
 	err := svc.TriggerBackfill(start, end)
 	require.ErrorIs(t, err, ErrDashboardBackfillTooLarge)
 	require.Equal(t, 0, repo.aggregateCalls)
+}
+
+func TestDashboardAggregationService_UserUsageBackfillRetriesThenMarksReady(t *testing.T) {
+	repo := &dashboardAggregationRepoTestStub{ensureBackfillErr: errors.New("temporary backfill failure")}
+	svc := &DashboardAggregationService{
+		repo:       repo,
+		cfg:        config.DashboardAggregationConfig{Enabled: true},
+		instanceID: "test-instance",
+	}
+
+	svc.runInitialUserUsageBackfill()
+	require.Equal(t, 1, repo.ensureBackfillCalls)
+	require.False(t, svc.userBackfillReady.Load())
+
+	repo.ensureBackfillErr = nil
+	svc.runInitialUserUsageBackfill()
+	require.Equal(t, 2, repo.ensureBackfillCalls)
+	require.True(t, svc.userBackfillReady.Load())
+
+	svc.runInitialUserUsageBackfill()
+	require.Equal(t, 2, repo.ensureBackfillCalls, "ready backfill should not query the repository again")
+}
+
+func TestDashboardAggregationService_UserUsageBackfillSingleflight(t *testing.T) {
+	repo := &dashboardAggregationRepoTestStub{}
+	svc := &DashboardAggregationService{
+		repo:       repo,
+		cfg:        config.DashboardAggregationConfig{Enabled: true},
+		instanceID: "test-instance",
+	}
+	atomic.StoreInt32(&svc.userBackfillRunning, 1)
+
+	svc.runInitialUserUsageBackfill()
+
+	require.Equal(t, 0, repo.ensureBackfillCalls)
+	require.False(t, svc.userBackfillReady.Load())
+}
+
+func TestDashboardAggregationService_ScheduledAggregationUsesRecentRangeForUserUsage(t *testing.T) {
+	oldWatermark := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	repo := &dashboardAggregationRepoTestStub{watermark: oldWatermark}
+	svc := &DashboardAggregationService{
+		repo: repo,
+		cfg: config.DashboardAggregationConfig{
+			Enabled:         true,
+			LookbackSeconds: 120,
+			Retention: config.DashboardAggregationRetentionConfig{
+				UsageLogsDays:         90,
+				UsageBillingDedupDays: 365,
+				HourlyDays:            180,
+				DailyDays:             730,
+			},
+		},
+	}
+	svc.userBackfillReady.Store(true)
+
+	before := time.Now().UTC()
+	svc.runScheduledAggregation()
+	after := time.Now().UTC()
+
+	require.Equal(t, 1, repo.aggregateCalls)
+	require.Equal(t, 1, repo.userAggregateCalls)
+	require.Equal(t, 1, repo.watermarkUpdateCalls)
+	require.Equal(t, oldWatermark.Add(-120*time.Second), repo.lastStart)
+	require.WithinDuration(t, before, repo.userAggregateEnd, time.Second)
+	require.WithinDuration(t, after, repo.userAggregateEnd, time.Second)
+	require.Equal(t, 120*time.Second, repo.userAggregateEnd.Sub(repo.userAggregateStart))
+	require.True(t, repo.userAggregateStart.After(repo.lastStart), "user lifetime aggregation must not inherit the historical dashboard watermark")
+}
+
+func TestDashboardAggregationService_ScheduledUserUsageFailureDoesNotAdvanceWatermark(t *testing.T) {
+	repo := &dashboardAggregationRepoTestStub{
+		watermark:        time.Now().UTC().Add(-time.Minute),
+		userAggregateErr: errors.New("user usage aggregation failed"),
+	}
+	svc := &DashboardAggregationService{
+		repo: repo,
+		cfg: config.DashboardAggregationConfig{
+			Enabled:         true,
+			LookbackSeconds: 120,
+		},
+	}
+	svc.userBackfillReady.Store(true)
+
+	svc.runScheduledAggregation()
+
+	require.Equal(t, 1, repo.aggregateCalls)
+	require.Equal(t, 1, repo.userAggregateCalls)
+	require.Equal(t, 0, repo.watermarkUpdateCalls)
+}
+
+func TestDashboardAggregationService_BackfillRangeDoesNotRewriteUserLifetimeAggregates(t *testing.T) {
+	repo := &dashboardAggregationRepoTestStub{}
+	svc := &DashboardAggregationService{
+		repo: repo,
+		cfg: config.DashboardAggregationConfig{
+			BackfillEnabled: true,
+			BackfillMaxDays: 2,
+			Retention: config.DashboardAggregationRetentionConfig{
+				UsageLogsDays:         90,
+				UsageBillingDedupDays: 365,
+				HourlyDays:            180,
+				DailyDays:             730,
+			},
+		},
+	}
+	svc.userBackfillReady.Store(true)
+	start := time.Now().UTC().Add(-6 * time.Hour)
+	end := start.Add(2 * time.Hour)
+
+	require.NoError(t, svc.backfillRange(context.Background(), start, end))
+	require.Equal(t, 1, repo.aggregateCalls)
+	require.Equal(t, 0, repo.userAggregateCalls)
+	require.Equal(t, 1, repo.watermarkUpdateCalls)
 }

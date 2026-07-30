@@ -71,12 +71,20 @@
             v-for="column in dataColumns"
             :key="column.key"
             :data-field="column.key"
-            class="flex min-w-0 items-start justify-between gap-4"
+            :class="[
+              'flex min-w-0 items-start',
+              column.mobileStacked ? 'flex-col gap-1.5' : 'justify-between gap-4'
+            ]"
           >
             <span class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">
               {{ column.label }}
             </span>
-            <div class="min-w-0 max-w-full text-right text-sm text-gray-900 dark:text-gray-100">
+            <div
+              :class="[
+                'min-w-0 text-sm text-gray-900 dark:text-gray-100',
+                column.mobileStacked ? 'w-full max-w-none text-left' : 'max-w-full text-right'
+              ]"
+            >
               <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]" :expanded="actionsExpanded">
                 {{ column.formatter ? column.formatter(row[column.key], row) : row[column.key] }}
               </slot>

@@ -1,8 +1,10 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -475,8 +477,14 @@ type BatchUsersUsageRequest struct {
 	UserIDs []int64 `json:"user_ids" binding:"required"`
 }
 
+const (
+	dashboardUsersUsageMaxRawIDs    = 1000
+	dashboardUsersUsageCacheEntries = 256
+)
+
+var dashboardUsersUsageQueryTimeout = 10 * time.Second
 var dashboardUsersRankingCache = newSnapshotCache(5 * time.Minute)
-var dashboardBatchUsersUsageCache = newSnapshotCache(30 * time.Second)
+var dashboardBatchUsersUsageCache = newBoundedSnapshotCache(30*time.Second, dashboardUsersUsageCacheEntries)
 var dashboardBatchAPIKeysUsageCache = newSnapshotCache(30 * time.Second)
 
 func parseRankingLimit(raw string) int {
@@ -535,8 +543,11 @@ func (h *DashboardHandler) GetUserSpendingRanking(c *gin.Context) {
 // POST /api/v1/admin/dashboard/users-usage
 func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 	var req BatchUsersUsageRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+	if !bindQualityStatsJSON(c, &req) {
+		return
+	}
+	if len(req.UserIDs) > dashboardUsersUsageMaxRawIDs {
+		response.BadRequest(c, "Too many user_ids; maximum is 1000")
 		return
 	}
 
@@ -552,27 +563,38 @@ func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 		Day     string  `json:"day"`
 		UserIDs []int64 `json:"user_ids"`
 	}{
-		V:       2, // bump 当响应结构变化（如加入 by_platform 时）
+		V:       3,
 		Day:     timezone.Today().Format("2006-01-02"),
 		UserIDs: userIDs,
 	})
 	cacheKey := string(keyRaw)
-	if cached, ok := dashboardBatchUsersUsageCache.Get(cacheKey); ok {
-		c.Header("X-Snapshot-Cache", "hit")
-		response.Success(c, cached.Payload)
-		return
-	}
-
-	stats, err := h.dashboardService.GetBatchUserUsageStats(c.Request.Context(), userIDs, time.Time{}, time.Time{})
+	cached, hit, err := dashboardBatchUsersUsageCache.GetOrLoad(cacheKey, func() (any, error) {
+		queryCtx, cancel := context.WithTimeout(c.Request.Context(), dashboardUsersUsageQueryTimeout)
+		defer cancel()
+		stats, loadErr := h.dashboardService.GetBatchUserUsageStats(queryCtx, userIDs, time.Time{}, time.Time{})
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		return gin.H{"stats": stats}, nil
+	})
 	if err != nil {
 		response.Error(c, 500, "Failed to get user usage stats")
 		return
 	}
-
-	payload := gin.H{"stats": stats}
-	dashboardBatchUsersUsageCache.Set(cacheKey, payload)
-	c.Header("X-Snapshot-Cache", "miss")
-	response.Success(c, payload)
+	if cached.ETag != "" {
+		c.Header("ETag", cached.ETag)
+		c.Header("Vary", "If-None-Match")
+	}
+	if hit {
+		c.Header("X-Snapshot-Cache", "hit")
+	} else {
+		c.Header("X-Snapshot-Cache", "miss")
+	}
+	if cached.ETag != "" && ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
+		c.Status(http.StatusNotModified)
+		return
+	}
+	response.Success(c, cached.Payload)
 }
 
 // BatchAPIKeysUsageRequest represents the request body for batch api key usage stats
