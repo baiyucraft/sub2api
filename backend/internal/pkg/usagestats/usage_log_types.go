@@ -397,12 +397,45 @@ type PlatformUsage struct {
 	TotalActualCost float64 `json:"total_actual_cost"`
 }
 
+const (
+	UserUsageAggregationAvailable   = "available"
+	UserUsageAggregationBuilding    = "building"
+	UserUsageAggregationPartial     = "partial"
+	UserUsageAggregationUnavailable = "unavailable"
+)
+
+// UserUsageWindow contains the token, billed spend, and account-cost totals for
+// one user-management reporting window.
+type UserUsageWindow struct {
+	InputTokens         int64   `json:"input_tokens"`
+	OutputTokens        int64   `json:"output_tokens"`
+	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	CacheReadTokens     int64   `json:"cache_read_tokens"`
+	TotalTokens         int64   `json:"total_tokens"`
+	UserSpend           float64 `json:"user_spend"`
+	AccountCost         float64 `json:"account_cost"`
+}
+
+func (w *UserUsageWindow) CalculateTotalTokens() {
+	if w == nil {
+		return
+	}
+	w.TotalTokens = w.InputTokens + w.OutputTokens + w.CacheCreationTokens + w.CacheReadTokens
+}
+
 // BatchUserUsageStats represents usage stats for a single user
 type BatchUserUsageStats struct {
-	UserID          int64           `json:"user_id"`
-	TodayActualCost float64         `json:"today_actual_cost"`
-	TotalActualCost float64         `json:"total_actual_cost"`
-	ByPlatform      []PlatformUsage `json:"by_platform,omitempty"`
+	UserID            int64           `json:"user_id"`
+	Today             UserUsageWindow `json:"today"`
+	Last30Days        UserUsageWindow `json:"last_30d"`
+	Lifetime          UserUsageWindow `json:"lifetime"`
+	LifetimeSince     *string         `json:"lifetime_since"`
+	LifetimeComplete  bool            `json:"lifetime_complete"`
+	AggregationStatus string          `json:"aggregation_status"`
+	ObservedAt        *string         `json:"observed_at"`
+	TodayActualCost   float64         `json:"today_actual_cost"`
+	TotalActualCost   float64         `json:"total_actual_cost"`
+	ByPlatform        []PlatformUsage `json:"by_platform,omitempty"`
 }
 
 // BatchAPIKeyUsageStats represents usage stats for a single API key

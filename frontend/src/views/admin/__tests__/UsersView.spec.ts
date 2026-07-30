@@ -6,12 +6,14 @@ import UsersView from '../UsersView.vue'
 
 const {
   listUsers,
+  getPlatformQuotas,
   getAllGroups,
   getBatchUsersUsage,
   listEnabledDefinitions,
   getBatchUserAttributes
 } = vi.hoisted(() => ({
   listUsers: vi.fn(),
+  getPlatformQuotas: vi.fn(),
   getAllGroups: vi.fn(),
   getBatchUsersUsage: vi.fn(),
   listEnabledDefinitions: vi.fn(),
@@ -22,6 +24,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     users: {
       list: listUsers,
+      getPlatformQuotas,
       toggleStatus: vi.fn(),
       delete: vi.fn()
     },
@@ -77,13 +80,14 @@ const createAdminUser = (overrides: Partial<AdminUser> = {}): AdminUser => ({
 })
 
 const DataTableStub = {
-  props: ['columns', 'data', 'selectedKeys'],
+  props: ['columns', 'data', 'selectedKeys', 'estimateRowHeight'],
   emits: ['sort', 'update:selectedKeys'],
   template: `
     <div>
       <div data-test="columns">{{ columns.map(col => col.key).join(',') }}</div>
       <div data-test="row-order">{{ data.map(row => row.email).join(',') }}</div>
       <div data-test="selected-keys">{{ (selectedKeys || []).join(',') }}</div>
+      <div data-test="estimate-row-height">{{ estimateRowHeight }}</div>
       <button data-test="sort-last-used" @click="$emit('sort', 'last_used_at', 'desc')">sort</button>
       <button
         v-for="row in data"
@@ -97,6 +101,7 @@ const DataTableStub = {
         <slot :name="'header-' + col.key" :column="col" />
       </template>
       <div v-for="row in data" :key="row.id">
+        <slot name="cell-usage" :value="row.usage" :row="row" />
         <slot name="cell-last_used_at" :value="row.last_used_at" :row="row" />
       </div>
     </div>
@@ -105,7 +110,12 @@ const DataTableStub = {
 
 const PaginationStub = {
   emits: ['update:page'],
-  template: '<button data-test="next-page" @click="$emit(\'update:page\', 2)">next</button>'
+  template: `
+    <div>
+      <button data-test="previous-page" @click="$emit('update:page', 1)">previous</button>
+      <button data-test="next-page" @click="$emit('update:page', 2)">next</button>
+    </div>
+  `
 }
 
 const BulkEditUserModalStub = {
@@ -125,6 +135,7 @@ describe('admin UsersView', () => {
     localStorage.clear()
 
     listUsers.mockReset()
+    getPlatformQuotas.mockReset()
     getAllGroups.mockReset()
     getBatchUsersUsage.mockReset()
     listEnabledDefinitions.mockReset()
@@ -138,7 +149,12 @@ describe('admin UsersView', () => {
       pages: 1
     })
     getAllGroups.mockResolvedValue([])
-    getBatchUsersUsage.mockResolvedValue({ stats: {} })
+    getPlatformQuotas.mockResolvedValue({ platform_quotas: [] })
+    getBatchUsersUsage.mockResolvedValue({
+      notModified: false,
+      etag: null,
+      data: { stats: {} }
+    })
     listEnabledDefinitions.mockResolvedValue([])
     getBatchUserAttributes.mockResolvedValue({ values: {} })
   })
@@ -182,6 +198,8 @@ describe('admin UsersView', () => {
 
     const columns = wrapper.get('[data-test="columns"]').text()
     const visibleColumns = columns.split(',')
+    expect(visibleColumns).toContain('usage')
+    expect(wrapper.get('[data-test="estimate-row-height"]').text()).toBe('112')
     expect(visibleColumns.slice(-4, -1)).toEqual(['last_active_at', 'last_used_at', 'created_at'])
     expect(visibleColumns).not.toContain('last_login_at')
 
@@ -228,9 +246,13 @@ describe('admin UsersView', () => {
       pages: 1
     })
     getBatchUsersUsage.mockResolvedValue({
-      stats: {
-        1: { user_id: 1, today_actual_cost: 1, total_actual_cost: 1, by_platform: [] },
-        2: { user_id: 2, today_actual_cost: 9, total_actual_cost: 9, by_platform: [] }
+      notModified: false,
+      etag: '"usage-v1"',
+      data: {
+        stats: {
+          1: { user_id: 1, today_actual_cost: 1, total_actual_cost: 1, by_platform: [] },
+          2: { user_id: 2, today_actual_cost: 9, total_actual_cost: 9, by_platform: [] }
+        }
       }
     })
 
@@ -272,7 +294,7 @@ describe('admin UsersView', () => {
 
     await wrapper.get('[data-test="usage-sort-trigger-usage"]').trigger('click')
     await flushPromises()
-    await wrapper.get('[data-test="usage-sort-usage-today"]').trigger('click')
+    await wrapper.get('[data-test="usage-sort-usage-today-spend"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.get('[data-test="row-order"]').text()).toBe('usage-first@example.com,last-used-first@example.com')
@@ -292,6 +314,141 @@ describe('admin UsersView', () => {
       }),
       expect.any(Object)
     )
+  })
+
+  it('migrates v3 column settings to show the user statistics column once', async () => {
+    localStorage.setItem('user-column-settings-version', '3')
+    localStorage.setItem(
+      'user-hidden-columns',
+      JSON.stringify(['notes', 'usage', 'usage_anthropic', 'usage_openai'])
+    )
+
+    const wrapper = mount(UsersView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          EmptyState: true,
+          GroupBadge: true,
+          Select: true,
+          UserAttributesConfigModal: true,
+          UserConcurrencyCell: true,
+          UserUsageStatsMatrix: { template: '<div data-test="stats-matrix" />' },
+          UserCreateModal: true,
+          UserEditModal: true,
+          BulkEditUserModal: BulkEditUserModalStub,
+          UserPlatformQuotaModal: true,
+          UserApiKeysModal: true,
+          UserAllowedGroupsModal: true,
+          UserBalanceModal: true,
+          UserBalanceHistoryModal: true,
+          GroupReplaceModal: true,
+          Icon: true,
+          Teleport: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="columns"]').text().split(',')).toContain('usage')
+    expect(JSON.parse(localStorage.getItem('user-hidden-columns') || '[]')).not.toContain('usage')
+    expect(localStorage.getItem('user-column-settings-version')).toBe('4')
+  })
+
+  it('reuses the matching ID snapshot after a 304 response', async () => {
+    vi.useFakeTimers()
+    listUsers.mockImplementation(async (page: number) => ({
+      items: [createAdminUser({ id: page === 2 ? 43 : 42, email: `page-${page}@example.com` })],
+      total: 2,
+      page,
+      page_size: 20,
+      pages: 2
+    }))
+    getBatchUsersUsage.mockImplementation(async (ids: number[], options?: { etag?: string | null }) => {
+      if (ids[0] === 42 && options?.etag === '"page-1"') {
+        return { notModified: true, etag: '"page-1"', data: null }
+      }
+      const userId = ids[0]
+      return {
+        notModified: false,
+        etag: userId === 42 ? '"page-1"' : '"page-2"',
+        data: {
+          stats: {
+            [userId]: {
+              user_id: userId,
+              today_actual_cost: userId,
+              total_actual_cost: userId,
+              by_platform: []
+            }
+          }
+        }
+      }
+    })
+
+    const wrapper = mount(UsersView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: PaginationStub,
+          ConfirmDialog: true,
+          EmptyState: true,
+          GroupBadge: true,
+          Select: true,
+          UserAttributesConfigModal: true,
+          UserConcurrencyCell: true,
+          UserUsageStatsMatrix: {
+            props: ['stats'],
+            template: '<div data-test="stats-user">{{ stats?.user_id ?? "none" }}</div>'
+          },
+          UserCreateModal: true,
+          UserEditModal: true,
+          BulkEditUserModal: BulkEditUserModalStub,
+          UserPlatformQuotaModal: true,
+          UserApiKeysModal: true,
+          UserAllowedGroupsModal: true,
+          UserBalanceModal: true,
+          UserBalanceHistoryModal: true,
+          GroupReplaceModal: true,
+          Icon: true,
+          Teleport: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(50)
+    await flushPromises()
+    expect(wrapper.get('[data-test="stats-user"]').text()).toBe('42')
+
+    await wrapper.get('[data-test="next-page"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(50)
+    await flushPromises()
+    expect(wrapper.get('[data-test="stats-user"]').text()).toBe('43')
+
+    await wrapper.get('[data-test="previous-page"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(50)
+    await flushPromises()
+
+    expect(getBatchUsersUsage).toHaveBeenLastCalledWith(
+      [42],
+      expect.objectContaining({
+        etag: '"page-1"',
+        signal: expect.any(AbortSignal)
+      })
+    )
+    expect(wrapper.get('[data-test="stats-user"]').text()).toBe('42')
   })
 
   it('keeps selected user IDs across pages and clears them after a successful bulk update', async () => {

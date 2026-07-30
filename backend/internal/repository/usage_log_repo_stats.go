@@ -629,8 +629,10 @@ func normalizePositiveInt64IDs(ids []int64) []int64 {
 	return out
 }
 
-// GetBatchUserUsageStats gets today and total actual_cost for multiple users within a time range.
-// If startTime is zero, defaults to 30 days ago.
+// GetBatchUserUsageStats returns the compact today / 30-day / lifetime matrix
+// used by the admin user list. Token and cost totals come from the durable
+// per-user dashboard aggregates. The legacy by-platform fields deliberately
+// retain their existing raw usage-log semantics.
 func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs []int64, startTime, endTime time.Time) (map[int64]*BatchUserUsageStats, error) {
 	result := make(map[int64]*BatchUserUsageStats)
 	normalizedUserIDs := normalizePositiveInt64IDs(userIDs)
@@ -638,20 +640,252 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 		return result, nil
 	}
 
-	// 默认最近 30 天
+	now := timezone.Now()
+	today := timezone.Today()
+	aggregateStartTime := startTime
 	if startTime.IsZero() {
-		startTime = time.Now().AddDate(0, 0, -30)
+		startTime = now.AddDate(0, 0, -30)
+		// The compact matrix labels this window as "30 days", so use thirty
+		// configured calendar days for bucketed totals. Legacy platform totals
+		// retain the former rolling-30-day raw-log window below.
+		aggregateStartTime = today.AddDate(0, 0, -29)
 	}
 	if endTime.IsZero() {
-		endTime = time.Now()
+		endTime = now
+	}
+	if aggregateStartTime.IsZero() {
+		aggregateStartTime = startTime
+	}
+	windowEnd := truncateToDay(endTime.In(timezone.Location()))
+	if endTime.In(timezone.Location()).After(windowEnd) {
+		windowEnd = windowEnd.AddDate(0, 0, 1)
 	}
 
 	for _, id := range normalizedUserIDs {
-		result[id] = &BatchUserUsageStats{UserID: id}
+		result[id] = &BatchUserUsageStats{
+			UserID:            id,
+			AggregationStatus: usagestats.UserUsageAggregationUnavailable,
+		}
 	}
 
-	// GROUP BY (user_id, effective_platform) 一次查询同时得到总值与按平台拆分。
-	// 应用层把同一 user_id 的多行累加为总值，并把非空 platform 行收集到 ByPlatform。
+	if err := r.fillBatchUserUsageWindows(ctx, result, normalizedUserIDs, aggregateStartTime, windowEnd, today); err != nil {
+		return nil, err
+	}
+	if err := r.fillBatchUserUsageLifetime(ctx, result, normalizedUserIDs); err != nil {
+		return nil, err
+	}
+	if err := r.fillBatchUserUsageCoverage(ctx, result, normalizedUserIDs); err != nil {
+		return nil, err
+	}
+	if err := r.fillBatchUserUsagePlatforms(ctx, result, normalizedUserIDs, startTime, endTime, today); err != nil {
+		return nil, err
+	}
+
+	for _, stats := range result {
+		stats.Today.CalculateTotalTokens()
+		stats.Last30Days.CalculateTotalTokens()
+		stats.Lifetime.CalculateTotalTokens()
+	}
+	return result, nil
+}
+
+func (r *usageLogRepository) fillBatchUserUsageWindows(
+	ctx context.Context,
+	result map[int64]*BatchUserUsageStats,
+	userIDs []int64,
+	startTime, endDate, today time.Time,
+) error {
+	const query = `
+		SELECT
+			user_id,
+			COALESCE(SUM(input_tokens) FILTER (WHERE bucket_date >= $2::date AND bucket_date < $3::date), 0),
+			COALESCE(SUM(output_tokens) FILTER (WHERE bucket_date >= $2::date AND bucket_date < $3::date), 0),
+			COALESCE(SUM(cache_creation_tokens) FILTER (WHERE bucket_date >= $2::date AND bucket_date < $3::date), 0),
+			COALESCE(SUM(cache_read_tokens) FILTER (WHERE bucket_date >= $2::date AND bucket_date < $3::date), 0),
+			COALESCE(SUM(user_spend) FILTER (WHERE bucket_date >= $2::date AND bucket_date < $3::date), 0),
+			COALESCE(SUM(account_cost) FILTER (WHERE bucket_date >= $2::date AND bucket_date < $3::date), 0),
+			COALESCE(SUM(input_tokens) FILTER (WHERE bucket_date >= $4::date AND bucket_date < $5::date), 0),
+			COALESCE(SUM(output_tokens) FILTER (WHERE bucket_date >= $4::date AND bucket_date < $5::date), 0),
+			COALESCE(SUM(cache_creation_tokens) FILTER (WHERE bucket_date >= $4::date AND bucket_date < $5::date), 0),
+			COALESCE(SUM(cache_read_tokens) FILTER (WHERE bucket_date >= $4::date AND bucket_date < $5::date), 0),
+			COALESCE(SUM(user_spend) FILTER (WHERE bucket_date >= $4::date AND bucket_date < $5::date), 0),
+			COALESCE(SUM(account_cost) FILTER (WHERE bucket_date >= $4::date AND bucket_date < $5::date), 0)
+		FROM usage_dashboard_user_daily
+		WHERE user_id = ANY($1)
+		  AND bucket_date >= LEAST($2::date, $4::date)
+		  AND bucket_date < GREATEST($3::date, $5::date)
+		GROUP BY user_id
+	`
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(userIDs), today, endDate, startTime, endDate)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var userID int64
+		stats := &BatchUserUsageStats{}
+		if err := rows.Scan(
+			&userID,
+			&stats.Today.InputTokens,
+			&stats.Today.OutputTokens,
+			&stats.Today.CacheCreationTokens,
+			&stats.Today.CacheReadTokens,
+			&stats.Today.UserSpend,
+			&stats.Today.AccountCost,
+			&stats.Last30Days.InputTokens,
+			&stats.Last30Days.OutputTokens,
+			&stats.Last30Days.CacheCreationTokens,
+			&stats.Last30Days.CacheReadTokens,
+			&stats.Last30Days.UserSpend,
+			&stats.Last30Days.AccountCost,
+		); err != nil {
+			return err
+		}
+		target, ok := result[userID]
+		if !ok {
+			continue
+		}
+		target.Today = stats.Today
+		target.Last30Days = stats.Last30Days
+	}
+	return rows.Err()
+}
+
+func (r *usageLogRepository) fillBatchUserUsageLifetime(
+	ctx context.Context,
+	result map[int64]*BatchUserUsageStats,
+	userIDs []int64,
+) error {
+	const query = `
+		SELECT
+			user_id,
+			COALESCE(SUM(input_tokens), 0),
+			COALESCE(SUM(output_tokens), 0),
+			COALESCE(SUM(cache_creation_tokens), 0),
+			COALESCE(SUM(cache_read_tokens), 0),
+			COALESCE(SUM(user_spend), 0),
+			COALESCE(SUM(account_cost), 0)
+		FROM usage_dashboard_user_daily
+		WHERE user_id = ANY($1)
+		GROUP BY user_id
+	`
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(userIDs))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var userID int64
+		var window usagestats.UserUsageWindow
+		if err := rows.Scan(
+			&userID,
+			&window.InputTokens,
+			&window.OutputTokens,
+			&window.CacheCreationTokens,
+			&window.CacheReadTokens,
+			&window.UserSpend,
+			&window.AccountCost,
+		); err != nil {
+			return err
+		}
+		if stats, ok := result[userID]; ok {
+			stats.Lifetime = window
+		}
+	}
+	return rows.Err()
+}
+
+func (r *usageLogRepository) fillBatchUserUsageCoverage(
+	ctx context.Context,
+	result map[int64]*BatchUserUsageStats,
+	userIDs []int64,
+) error {
+	var earliestDate sql.NullString
+	var coverageStart sql.NullTime
+	var observedAt sql.NullTime
+	var status string
+	err := scanSingleRow(ctx, r.sql, `
+		SELECT
+			TO_CHAR(earliest_covered_date, 'YYYY-MM-DD'),
+			coverage_start,
+			status,
+			updated_at
+		FROM usage_dashboard_user_backfill_state
+		WHERE id = 1
+	`, nil, &earliestDate, &coverageStart, &status, &observedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	status = normalizeUserUsageAggregationStatus(status)
+	for _, stats := range result {
+		stats.AggregationStatus = status
+	}
+
+	var lifetimeSince *string
+	if earliestDate.Valid {
+		value := earliestDate.String
+		lifetimeSince = &value
+	} else if coverageStart.Valid {
+		value := coverageStart.Time.In(timezone.Location()).Format("2006-01-02")
+		lifetimeSince = &value
+	}
+	var observed *string
+	if observedAt.Valid {
+		value := observedAt.Time.UTC().Format(time.RFC3339)
+		observed = &value
+	}
+
+	for _, stats := range result {
+		stats.LifetimeSince = lifetimeSince
+		stats.ObservedAt = observed
+	}
+	if status != usagestats.UserUsageAggregationAvailable || !coverageStart.Valid {
+		return nil
+	}
+
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT id, created_at
+		FROM users
+		WHERE id = ANY($1)
+	`, pq.Array(userIDs))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var userID int64
+		var createdAt time.Time
+		if err := rows.Scan(&userID, &createdAt); err != nil {
+			return err
+		}
+		if stats, ok := result[userID]; ok {
+			stats.LifetimeComplete = !createdAt.Before(coverageStart.Time)
+		}
+	}
+	return rows.Err()
+}
+
+func normalizeUserUsageAggregationStatus(status string) string {
+	switch status {
+	case usagestats.UserUsageAggregationAvailable,
+		usagestats.UserUsageAggregationBuilding,
+		usagestats.UserUsageAggregationPartial,
+		usagestats.UserUsageAggregationUnavailable:
+		return status
+	default:
+		return usagestats.UserUsageAggregationUnavailable
+	}
+}
+
+func (r *usageLogRepository) fillBatchUserUsagePlatforms(
+	ctx context.Context,
+	result map[int64]*BatchUserUsageStats,
+	userIDs []int64,
+	startTime, endTime, today time.Time,
+) error {
 	query := `
 		SELECT
 			ul.user_id,
@@ -666,24 +900,25 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 		  AND ` + usageLogSuccessFilterUL + `
 		GROUP BY ul.user_id, ` + usageLogEffectivePlatformExpr + `
 	`
-	today := timezone.Today()
-	rows, err := r.sql.QueryContext(ctx, query, pq.Array(normalizedUserIDs), startTime, endTime, today)
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(userIDs), startTime, endTime, today)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer rows.Close()
 	for rows.Next() {
 		var userID int64
 		var platform sql.NullString
 		var total float64
 		var todayTotal float64
 		if err := rows.Scan(&userID, &platform, &total, &todayTotal); err != nil {
-			_ = rows.Close()
-			return nil, err
+			return err
 		}
 		stats, ok := result[userID]
 		if !ok {
 			continue
 		}
+		// Keep the legacy fields byte-for-byte compatible with the former raw
+		// usage-log query, including rows without an effective platform.
 		stats.TotalActualCost += total
 		stats.TodayActualCost += todayTotal
 		if platform.Valid && platform.String != "" {
@@ -694,14 +929,7 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 			})
 		}
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	return rows.Err()
 }
 
 // BatchAPIKeyUsageStats represents usage stats for a single API key

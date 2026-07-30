@@ -24,6 +24,10 @@ const (
 	// dashboardAggregationLeaderLockTTL must exceed the job's worst-case runtime
 	// (defaultDashboardAggregationTimeout) so the lock never expires mid-run.
 	dashboardAggregationLeaderLockTTL = 5 * time.Minute
+	// The initial per-user lifetime backfill can scan the full retained usage
+	// window. It has its own distributed lock so only one replica performs it.
+	dashboardUserUsageBackfillLeaderLockKey = "dashboard:user-usage-backfill:leader"
+	dashboardUserUsageBackfillLeaderLockTTL = 35 * time.Minute
 )
 
 var (
@@ -37,6 +41,7 @@ var (
 // DashboardAggregationRepository 定义仪表盘预聚合仓储接口。
 type DashboardAggregationRepository interface {
 	AggregateRange(ctx context.Context, start, end time.Time) error
+	AggregateUserUsageRange(ctx context.Context, start, end time.Time) error
 	// RecomputeRange 重新计算指定时间范围内的聚合数据（包含活跃用户等派生表）。
 	// 设计目的：当 usage_logs 被批量删除/回滚后，确保聚合表可恢复一致性。
 	RecomputeRange(ctx context.Context, start, end time.Time) error
@@ -46,6 +51,7 @@ type DashboardAggregationRepository interface {
 	CleanupUsageLogs(ctx context.Context, cutoff time.Time) error
 	CleanupUsageBillingDedup(ctx context.Context, cutoff time.Time) error
 	EnsureUsageLogsPartitions(ctx context.Context, now time.Time) error
+	EnsureUserUsageBackfill(ctx context.Context) error
 }
 
 // DashboardAggregationService 负责定时聚合与回填。
@@ -54,6 +60,8 @@ type DashboardAggregationService struct {
 	timingWheel          *TimingWheelService
 	cfg                  config.DashboardAggregationConfig
 	running              int32
+	userBackfillRunning  int32
+	userBackfillReady    atomic.Bool
 	lastRetentionCleanup atomic.Value // time.Time
 
 	lockCache  LeaderLockCache
@@ -104,9 +112,13 @@ func (s *DashboardAggregationService) Start() {
 	if s.cfg.RecomputeDays > 0 {
 		go s.recomputeRecentDays()
 	}
+	go s.runInitialUserUsageBackfill()
 
 	s.timingWheel.ScheduleRecurring("dashboard:aggregation", interval, func() {
 		s.runScheduledAggregation()
+	})
+	s.timingWheel.ScheduleRecurring("dashboard:user-usage-backfill", interval, func() {
+		s.runInitialUserUsageBackfill()
 	})
 	logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 聚合作业启动 (interval=%v, lookback=%ds)", interval, s.cfg.LookbackSeconds)
 	if !s.cfg.BackfillEnabled {
@@ -254,6 +266,13 @@ func (s *DashboardAggregationService) runScheduledAggregation() {
 		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 聚合失败: %v", err)
 		return
 	}
+	if s.userBackfillReady.Load() {
+		userStart := now.Add(-lookback)
+		if err := s.repo.AggregateUserUsageRange(ctx, userStart, now); err != nil {
+			logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 用户统计增量聚合失败: %v", err)
+			return
+		}
+	}
 
 	updateErr := s.repo.UpdateAggregationWatermark(ctx, now)
 	if updateErr != nil {
@@ -267,6 +286,42 @@ func (s *DashboardAggregationService) runScheduledAggregation() {
 	)
 
 	s.maybeCleanupRetention(ctx, now)
+}
+
+func (s *DashboardAggregationService) runInitialUserUsageBackfill() {
+	if s == nil || s.repo == nil || !s.cfg.Enabled {
+		return
+	}
+	if s.userBackfillReady.Load() {
+		return
+	}
+	if !atomic.CompareAndSwapInt32(&s.userBackfillRunning, 0, 1) {
+		return
+	}
+	defer atomic.StoreInt32(&s.userBackfillRunning, 0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultDashboardAggregationBackfillTimeout)
+	defer cancel()
+
+	release, ok := tryAcquireSingletonLeaderLock(
+		ctx,
+		s.lockCache,
+		s.db,
+		dashboardUserUsageBackfillLeaderLockKey,
+		s.instanceID,
+		dashboardUserUsageBackfillLeaderLockTTL,
+	)
+	if !ok {
+		return
+	}
+	defer release()
+
+	if err := s.repo.EnsureUserUsageBackfill(ctx); err != nil {
+		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 用户累计统计回填失败: %v", err)
+		return
+	}
+	s.userBackfillReady.Store(true)
+	logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 用户累计统计回填完成")
 }
 
 func (s *DashboardAggregationService) backfillRange(ctx context.Context, start, end time.Time) error {
