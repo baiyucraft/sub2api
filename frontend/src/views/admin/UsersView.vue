@@ -272,6 +272,7 @@
           :selected-keys="selectedIds"
           :selection-label="getUserSelectionLabel"
           :actions-count="7"
+          :estimate-row-height="isColumnVisible('usage') ? 112 : 72"
           :server-side-sort="true"
           default-sort-key="created_at"
           default-sort-order="desc"
@@ -481,7 +482,7 @@
                   <span
                     v-if="usageSort && usageSort.key === usageKey"
                     class="text-[10px] normal-case font-medium tracking-normal"
-                  >{{ usageSort.metric === 'today' ? t('admin.users.today') : t('admin.users.total') }}</span>
+                  >{{ getUsageSortSummary(usageSort) }}</span>
                   <svg
                     v-if="usageSort && usageSort.key === usageKey"
                     class="h-3.5 w-3.5"
@@ -502,24 +503,24 @@
                 <!-- 弹出菜单：今日 / 近30天，点击进行三态循环切换。 -->
                 <div
                   v-if="openUsageSortMenu === usageKey"
-                  class="absolute right-0 top-full z-50 mt-1 min-w-[120px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                  class="absolute right-0 top-full z-50 mt-1 min-w-[188px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
                 >
                   <button
-                    v-for="metric in (['today', 'total'] as const)"
-                    :key="metric"
+                    v-for="choice in getUsageSortChoices(usageKey)"
+                    :key="`${choice.window}-${choice.metric}`"
                     type="button"
                     class="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs normal-case tracking-normal hover:bg-gray-100 dark:hover:bg-dark-700"
-                    :class="isUsageSortActive(usageKey, metric)
+                    :class="isUsageSortActive(usageKey, choice.window, choice.metric)
                       ? 'font-medium text-primary-600 dark:text-primary-400'
                       : 'text-gray-700 dark:text-gray-300'"
-                    :data-test="`usage-sort-${usageKey}-${metric}`"
-                    @click.stop="toggleUsageSort(usageKey, metric)"
+                    :data-test="`usage-sort-${usageKey}-${choice.window}-${choice.metric}`"
+                    @click.stop="toggleUsageSort(usageKey, choice.window, choice.metric)"
                   >
-                    <span>{{ metric === 'today' ? t('admin.users.today') : t('admin.users.total') }}</span>
+                    <span>{{ choice.label }}</span>
                     <svg
-                      v-if="getUsageSortOrder(usageKey, metric)"
+                      v-if="getUsageSortOrder(usageKey, choice.window, choice.metric)"
                       class="h-3 w-3"
-                      :class="{ 'rotate-180': getUsageSortOrder(usageKey, metric) === 'desc' }"
+                      :class="{ 'rotate-180': getUsageSortOrder(usageKey, choice.window, choice.metric) === 'desc' }"
                       fill="currentColor"
                       viewBox="0 0 20 20"
                     >
@@ -539,10 +540,10 @@
           </template>
 
           <template #cell-usage="{ row }">
-            <PlatformUsageBreakdown
-              :today="usageStats[row.id]?.today_actual_cost ?? 0"
-              :total="usageStats[row.id]?.total_actual_cost ?? 0"
-              :by-platform="usageStats[row.id]?.by_platform"
+            <UserUsageStatsMatrix
+              :stats="usageStats[row.id]"
+              :loading="usageStatsLoading"
+              :failed="usageStatsFailed"
             />
           </template>
 
@@ -798,7 +799,7 @@ import Select from '@/components/common/Select.vue'
 import { buildApiKeyGroupFilterOptions } from './apiKeyGroupFilterOptions'
 import UserAttributesConfigModal from '@/components/user/UserAttributesConfigModal.vue'
 import UserConcurrencyCell from '@/components/user/UserConcurrencyCell.vue'
-import PlatformUsageBreakdown from '@/components/user/PlatformUsageBreakdown.vue'
+import UserUsageStatsMatrix from '@/components/user/UserUsageStatsMatrix.vue'
 import PlatformCostCell from '@/components/user/PlatformCostCell.vue'
 import UserPlatformQuotaCell from '@/components/user/UserPlatformQuotaCell.vue'
 import UserCreateModal from '@/components/admin/user/UserCreateModal.vue'
@@ -872,7 +873,13 @@ const allColumns = computed<Column[]>(() => [
   { key: 'subscriptions', label: t('admin.users.columns.subscriptions'), sortable: false },
   { key: 'balance', label: t('admin.users.columns.balance'), sortable: true },
   { key: 'balance_platform_quota', label: t('admin.users.columns.balancePlatformQuota'), sortable: false },
-  { key: 'usage', label: t('admin.users.columns.usage'), sortable: false },
+  {
+    key: 'usage',
+    label: t('admin.users.columns.usage'),
+    sortable: false,
+    class: 'w-[18rem] min-w-[18rem]',
+    mobileStacked: true
+  },
   { key: 'usage_anthropic', label: t('admin.users.columns.usageAnthropic'), sortable: false },
   { key: 'usage_openai', label: t('admin.users.columns.usageOpenAI'), sortable: false },
   { key: 'usage_gemini', label: t('admin.users.columns.usageGemini'), sortable: false },
@@ -896,7 +903,7 @@ const hiddenColumns = reactive<Set<string>>(new Set())
 
 // Default hidden columns (columns hidden by default on first load)
 const DEFAULT_HIDDEN_COLUMNS = [
-  'notes', 'groups', 'subscriptions', 'usage', 'concurrency',
+  'notes', 'groups', 'subscriptions', 'concurrency',
   'usage_anthropic', 'usage_openai', 'usage_gemini', 'usage_antigravity',
   'balance_platform_quota'
 ]
@@ -911,10 +918,13 @@ const HIDDEN_COLUMNS_KEY = 'user-hidden-columns'
 // 并在 VERSION_NEW_HIDDEN_COLUMNS 中登记该版本新增的 key。
 // 这样老用户升级后这些新列会被自动隐藏一次，而不会影响他们对其它老列的偏好。
 const COLUMN_SETTINGS_VERSION_KEY = 'user-column-settings-version'
-const COLUMN_SETTINGS_VERSION = 3
+const COLUMN_SETTINGS_VERSION = 4
 const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
   2: ['usage_anthropic', 'usage_openai', 'usage_gemini', 'usage_antigravity'],
   3: ['balance_platform_quota']
+}
+const VERSION_NEW_VISIBLE_COLUMNS: Record<number, string[]> = {
+  4: ['usage']
 }
 
 // Load saved column settings
@@ -936,6 +946,11 @@ const loadSavedColumns = () => {
             if (REMOVED_COLUMNS.has(key) || FORCED_VISIBLE_COLUMNS.has(key)) continue
             if (!hiddenColumns.has(key)) {
               hiddenColumns.add(key)
+              mutated = true
+            }
+          }
+          for (const key of VERSION_NEW_VISIBLE_COLUMNS[v] ?? []) {
+            if (hiddenColumns.delete(key)) {
               mutated = true
             }
           }
@@ -1193,18 +1208,47 @@ const getAttributeDefinition = (attrId: number): UserAttributeDefinition | undef
   return attributeDefinitions.value.find(d => d.id === attrId)
 }
 const usageStats = ref<Record<string, BatchUserUsageStats>>({})
+const usageStatsLoading = ref(false)
+const usageStatsFailed = ref(false)
 const platformQuotaStats = ref<Record<number, PlatformQuotaItem[]>>({})
+const usageSnapshotCache = new Map<
+  string,
+  { etag: string | null; stats: Record<string, BatchUserUsageStats> }
+>()
+const USAGE_SNAPSHOT_CACHE_LIMIT = 16
+
+const usageSnapshotKey = (userIds: number[]) =>
+  [...new Set(userIds)].sort((a, b) => a - b).join(',')
+
+const rememberUsageSnapshot = (
+  key: string,
+  etag: string | null,
+  stats: Record<string, BatchUserUsageStats>
+) => {
+  usageSnapshotCache.delete(key)
+  usageSnapshotCache.set(key, { etag, stats })
+  while (usageSnapshotCache.size > USAGE_SNAPSHOT_CACHE_LIMIT) {
+    const oldestKey = usageSnapshotCache.keys().next().value
+    if (typeof oldestKey !== 'string') break
+    usageSnapshotCache.delete(oldestKey)
+  }
+}
 
 const getPlatformUsage = (userId: number, platform: string) =>
   usageStats.value[userId]?.by_platform?.find((p) => p.platform === platform)
 
-// 用量列前端排序：DataTable 工作在 server-side-sort 模式，所有 sortable
-// 字段都会触发后端查询，而用量列数据是异步批量拉取后再合并到当前页，
-// 因此采用独立的前端排序状态对当前页 users 做本地排序。
-// 排序状态独立于后端 sortState 持久化；缺失数据按 0 处理（desc 沉底、asc 置顶）。
-type UsageMetric = 'today' | 'total'
-type UsageSortState = { key: string; metric: UsageMetric; order: 'asc' | 'desc' } | null
+// 用量列数据在当前页异步合并，因此单独按周期 + 指标做稳定的本地排序。
+type UsageWindowKey = 'today' | 'last_30d' | 'lifetime'
+type UsageSortMetric = 'tokens' | 'spend' | 'cost'
+type UsageSortState = {
+  key: string
+  window: UsageWindowKey
+  metric: UsageSortMetric
+  order: 'asc' | 'desc'
+} | null
 const USAGE_SORT_STORAGE_KEY = 'admin-users-usage-sort'
+const USAGE_SORT_WINDOWS: readonly UsageWindowKey[] = ['today', 'last_30d', 'lifetime']
+const USAGE_SORT_METRICS: readonly UsageSortMetric[] = ['tokens', 'spend', 'cost']
 // 列头排序按钮点击后弹出的"今日/近30天"选择菜单，同时只允许一个列展开。
 const openUsageSortMenu = ref<string | null>(null)
 
@@ -1212,11 +1256,25 @@ const loadInitialUsageSort = (): UsageSortState => {
   try {
     const raw = localStorage.getItem(USAGE_SORT_STORAGE_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<{ key: string; metric: string; order: string }>
+    const parsed = JSON.parse(raw) as Partial<{
+      key: string
+      window: string
+      metric: string
+      order: string
+    }>
     if (!parsed.key || !USAGE_COLUMN_KEYS.includes(parsed.key)) return null
-    const metric: UsageMetric = parsed.metric === 'total' ? 'total' : 'today'
+    // v3 stored the selected period in `metric`; migrate it to spend sorting.
+    const legacyWindow =
+      parsed.metric === 'total' ? 'last_30d' : parsed.metric === 'today' ? 'today' : null
+    const window: UsageWindowKey = USAGE_SORT_WINDOWS.includes(parsed.window as UsageWindowKey)
+      ? (parsed.window as UsageWindowKey)
+      : (legacyWindow ?? 'last_30d')
+    const metric: UsageSortMetric = USAGE_SORT_METRICS.includes(parsed.metric as UsageSortMetric)
+      ? (parsed.metric as UsageSortMetric)
+      : 'spend'
+    if (parsed.key !== 'usage' && (window === 'lifetime' || metric !== 'spend')) return null
     const order: 'asc' | 'desc' = parsed.order === 'asc' ? 'asc' : 'desc'
-    return { key: parsed.key, metric, order }
+    return { key: parsed.key, window, metric, order }
   } catch {
     return null
   }
@@ -1240,19 +1298,58 @@ const clearUsageSort = () => {
   persistUsageSort()
 }
 
-const isUsageSortActive = (key: string, metric: UsageMetric) =>
-  !!usageSort.value && usageSort.value.key === key && usageSort.value.metric === metric
-const getUsageSortOrder = (key: string, metric: UsageMetric): 'asc' | 'desc' | null =>
-  isUsageSortActive(key, metric) ? usageSort.value!.order : null
+const usageWindowLabel = (window: UsageWindowKey) => {
+  if (window === 'today') return t('admin.users.today')
+  if (window === 'last_30d') return t('admin.users.total')
+  return t('admin.users.lifetime')
+}
+const usageMetricLabel = (metric: UsageSortMetric) =>
+  t(`admin.users.usageStats.${metric === 'tokens' ? 'token' : metric}`)
+
+const getUsageSortChoices = (key: string) => {
+  const windows: readonly UsageWindowKey[] =
+    key === 'usage' ? USAGE_SORT_WINDOWS : ['today', 'last_30d']
+  const metrics: readonly UsageSortMetric[] = key === 'usage' ? USAGE_SORT_METRICS : ['spend']
+  return windows.flatMap((window) =>
+    metrics.map((metric) => ({
+      window,
+      metric,
+      label: `${usageWindowLabel(window)} · ${usageMetricLabel(metric)}`
+    }))
+  )
+}
+
+const getUsageSortSummary = (sort: Exclude<UsageSortState, null>) =>
+  `${usageWindowLabel(sort.window)} · ${usageMetricLabel(sort.metric)}`
+
+const isUsageSortActive = (
+  key: string,
+  window: UsageWindowKey,
+  metric: UsageSortMetric
+) =>
+  !!usageSort.value &&
+  usageSort.value.key === key &&
+  usageSort.value.window === window &&
+  usageSort.value.metric === metric
+const getUsageSortOrder = (
+  key: string,
+  window: UsageWindowKey,
+  metric: UsageSortMetric
+): 'asc' | 'desc' | null =>
+  isUsageSortActive(key, window, metric) ? usageSort.value!.order : null
 
 // 三态循环：desc → asc → off。选完即关闭菜单（用户大多希望"选中即应用"，
 // 想再切换 order 时重新打开菜单点同一项即可）。
-const toggleUsageSort = (key: string, metric: UsageMetric) => {
+const toggleUsageSort = (
+  key: string,
+  window: UsageWindowKey,
+  metric: UsageSortMetric
+) => {
   const cur = usageSort.value
-  if (cur && cur.key === key && cur.metric === metric) {
-    usageSort.value = cur.order === 'desc' ? { key, metric, order: 'asc' } : null
+  if (cur && cur.key === key && cur.window === window && cur.metric === metric) {
+    usageSort.value = cur.order === 'desc' ? { key, window, metric, order: 'asc' } : null
   } else {
-    usageSort.value = { key, metric, order: 'desc' }
+    usageSort.value = { key, window, metric, order: 'desc' }
   }
   persistUsageSort()
   openUsageSortMenu.value = null
@@ -1263,16 +1360,30 @@ const toggleUsageSortMenu = (key: string) => {
   openUsageSortMenu.value = openUsageSortMenu.value === key ? null : key
 }
 
-const getUsageValue = (userId: number, key: string, metric: UsageMetric): number => {
+const getUsageValue = (
+  userId: number,
+  key: string,
+  window: UsageWindowKey,
+  metric: UsageSortMetric
+): number => {
   const stats = usageStats.value[userId]
   if (!stats) return 0
   const platform = USAGE_COLUMN_PLATFORMS[key]
   if (platform === null) {
-    return metric === 'today' ? stats.today_actual_cost ?? 0 : stats.total_actual_cost ?? 0
+    const windowStats = stats[window]
+    if (!windowStats) {
+      if (metric !== 'spend' || window === 'lifetime') return 0
+      return window === 'today'
+        ? stats.today_actual_cost ?? 0
+        : stats.total_actual_cost ?? 0
+    }
+    if (metric === 'tokens') return windowStats.total_tokens ?? 0
+    if (metric === 'cost') return windowStats.account_cost ?? 0
+    return windowStats.user_spend ?? 0
   }
   const p = stats.by_platform?.find((x) => x.platform === platform)
-  if (!p) return 0
-  return metric === 'today' ? p.today_actual_cost ?? 0 : p.total_actual_cost ?? 0
+  if (!p || metric !== 'spend' || window === 'lifetime') return 0
+  return window === 'today' ? p.today_actual_cost ?? 0 : p.total_actual_cost ?? 0
 }
 
 // 在 server-side 排序结果之上叠加用量列的本地排序；无 usageSort 时直接透传原数组。
@@ -1283,8 +1394,8 @@ const sortedUsers = computed(() => {
   return [...users.value]
     .map((row, index) => ({ row, index }))
     .sort((a, b) => {
-      const av = getUsageValue(a.row.id, s.key, s.metric)
-      const bv = getUsageValue(b.row.id, s.key, s.metric)
+      const av = getUsageValue(a.row.id, s.key, s.window, s.metric)
+      const bv = getUsageValue(b.row.id, s.key, s.window, s.metric)
       if (av !== bv) return s.order === 'asc' ? av - bv : bv - av
       return a.index - b.index
     })
@@ -1354,14 +1465,40 @@ const loadUsersSecondaryData = async (
   if (hasVisibleUsageColumn.value) {
     tasks.push(
       (async () => {
+        usageStatsLoading.value = true
+        usageStatsFailed.value = false
         try {
-          const usageResponse = await adminAPI.dashboard.getBatchUsersUsage(userIds)
+          const snapshotKey = usageSnapshotKey(userIds)
+          const cached = usageSnapshotCache.get(snapshotKey)
+          const usageResponse = await adminAPI.dashboard.getBatchUsersUsage(userIds, {
+            signal,
+            etag: cached?.etag ?? null
+          })
           if (signal?.aborted) return
           if (typeof expectedSeq === 'number' && expectedSeq !== secondaryDataSeq) return
-          usageStats.value = usageResponse.stats
+          if (usageResponse.notModified) {
+            if (cached) {
+              usageStats.value = cached.stats
+            } else {
+              usageStatsFailed.value = true
+            }
+            return
+          }
+          if (!usageResponse.data) return
+          usageStats.value = usageResponse.data.stats
+          rememberUsageSnapshot(
+            snapshotKey,
+            usageResponse.etag ?? cached?.etag ?? null,
+            usageResponse.data.stats
+          )
         } catch (e) {
           if (signal?.aborted) return
+          usageStatsFailed.value = true
           console.error('Failed to load usage stats:', e)
+        } finally {
+          if (typeof expectedSeq !== 'number' || expectedSeq === secondaryDataSeq) {
+            usageStatsLoading.value = false
+          }
         }
       })()
     )
@@ -1598,6 +1735,8 @@ const loadUsers = async () => {
     pagination.total = response.total
     pagination.pages = response.pages
     usageStats.value = {}
+    usageStatsLoading.value = hasVisibleUsageColumn.value
+    usageStatsFailed.value = false
     userAttributeValues.value = {}
     platformQuotaStats.value = {}
 

@@ -166,6 +166,11 @@ profile 208 完整继承 profile 207 的全部 migration、旧镜像 smoke 和 G
 以及凭据表的 user/last-used 索引；旧镜像必须能在迁移后的副本上通过 health smoke。profile 207
 的 migration map 与“无 `migration_207_status`”身份不得改变。
 
+profile 209 完整继承 profile 208 的全部 migration、Passkey 证据、旧镜像 smoke 和 Gate/DR 合同，
+并追加 `209_user_usage_aggregation.sql`。Gate 必须独立记录 `migration_209_status`，验证用户小时与
+永久日聚合表、回填状态单例、关键字段/约束/索引及到 `users` 的级联外键；profile 208 的版本、
+migration map 和 checksum 身份不得改变。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：

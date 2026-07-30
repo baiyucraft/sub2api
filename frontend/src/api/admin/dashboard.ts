@@ -274,8 +274,32 @@ export interface PlatformUsage {
   total_actual_cost: number
 }
 
+export interface UserUsageWindow {
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  total_tokens: number
+  user_spend: number
+  account_cost: number
+}
+
+export type UserUsageAggregationStatus =
+  | 'available'
+  | 'building'
+  | 'partial'
+  | 'unavailable'
+
 export interface BatchUserUsageStats {
   user_id: number
+  today: UserUsageWindow
+  last_30d: UserUsageWindow
+  lifetime: UserUsageWindow
+  lifetime_since: string | null
+  lifetime_complete: boolean
+  aggregation_status: UserUsageAggregationStatus
+  observed_at: string | null
+  // Legacy totals retained while platform usage cells still consume the old shape.
   today_actual_cost: number
   total_actual_cost: number
   by_platform?: PlatformUsage[]
@@ -285,16 +309,38 @@ export interface BatchUsersUsageResponse {
   stats: Record<string, BatchUserUsageStats>
 }
 
+export interface BatchUsersUsageResult {
+  notModified: boolean
+  etag: string | null
+  data: BatchUsersUsageResponse | null
+}
+
 /**
  * Get batch usage stats for multiple users
  * @param userIds - Array of user IDs
+ * @param options - Conditional request and cancellation options
  * @returns Usage stats map keyed by user ID
  */
-export async function getBatchUsersUsage(userIds: number[]): Promise<BatchUsersUsageResponse> {
-  const { data } = await apiClient.post<BatchUsersUsageResponse>('/admin/dashboard/users-usage', {
-    user_ids: userIds
-  })
-  return data
+export async function getBatchUsersUsage(
+  userIds: number[],
+  options?: { signal?: AbortSignal; etag?: string | null }
+): Promise<BatchUsersUsageResult> {
+  const headers: Record<string, string> = {}
+  if (options?.etag) headers['If-None-Match'] = options.etag
+
+  const response = await apiClient.post<BatchUsersUsageResponse>(
+    '/admin/dashboard/users-usage',
+    { user_ids: userIds },
+    {
+      headers,
+      signal: options?.signal,
+      validateStatus: (status) => (status >= 200 && status < 300) || status === 304
+    }
+  )
+  const etag = typeof response.headers?.etag === 'string' ? response.headers.etag : null
+  return response.status === 304
+    ? { notModified: true, etag, data: null }
+    : { notModified: false, etag, data: response.data }
 }
 
 export interface BatchApiKeyUsageStats {

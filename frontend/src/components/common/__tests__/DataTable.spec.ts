@@ -309,7 +309,7 @@ describe('DataTable', () => {
     expect(wrapper.emitted('selectionChange')?.at(-1)?.[0]).toEqual([99, 2])
   })
 
-  it('keeps the single usage field shrinkable in a 320px mobile card', () => {
+  it('stacks a dense usage field across the full width of a 320px mobile card', () => {
     stubMobileMatchMedia()
     const viewport = document.createElement('div')
     viewport.style.width = '320px'
@@ -317,7 +317,7 @@ describe('DataTable', () => {
     const wrapper = mount(DataTable, {
       attachTo: viewport,
       props: {
-        columns: [{ key: 'usage', label: 'Usage' }],
+        columns: [{ key: 'usage', label: 'Usage', mobileStacked: true }],
         data: [{ id: 1, usage: 'snapshot' }],
         rowKey: 'id'
       },
@@ -330,8 +330,8 @@ describe('DataTable', () => {
     expect(wrapper.findAll('[data-field="usage"]')).toHaveLength(1)
     expect(wrapper.find('[data-field="ollama_cloud_usage"]').exists()).toBe(false)
     const field = wrapper.get('[data-field="usage"]')
-    expect(field.classes()).toContain('min-w-0')
-    expect(field.get('div').classes()).toEqual(expect.arrayContaining(['min-w-0', 'max-w-full']))
+    expect(field.classes()).toEqual(expect.arrayContaining(['min-w-0', 'flex-col']))
+    expect(field.get('div').classes()).toEqual(expect.arrayContaining(['min-w-0', 'w-full', 'text-left']))
     expect(wrapper.findAll('[data-test="usage-cell"]')).toHaveLength(1)
 
     wrapper.unmount()

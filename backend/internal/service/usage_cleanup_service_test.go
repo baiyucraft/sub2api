@@ -64,6 +64,10 @@ func (s *dashboardRepoStub) AggregateRange(ctx context.Context, start, end time.
 	return nil
 }
 
+func (s *dashboardRepoStub) AggregateUserUsageRange(ctx context.Context, start, end time.Time) error {
+	return nil
+}
+
 func (s *dashboardRepoStub) RecomputeRange(ctx context.Context, start, end time.Time) error {
 	s.recomputeCalls++
 	return s.recomputeErr
@@ -90,6 +94,10 @@ func (s *dashboardRepoStub) CleanupUsageBillingDedup(ctx context.Context, cutoff
 }
 
 func (s *dashboardRepoStub) EnsureUsageLogsPartitions(ctx context.Context, now time.Time) error {
+	return nil
+}
+
+func (s *dashboardRepoStub) EnsureUserUsageBackfill(ctx context.Context) error {
 	return nil
 }
 
