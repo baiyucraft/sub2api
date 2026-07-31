@@ -54,21 +54,21 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
         raise RuntimeError("gate has expired")
     if evidence.get("vm_restore_verified") is not True or evidence.get("integration_verified") is not True:
         raise RuntimeError("gate lacks VM restore or integration evidence")
-    if expected_profile in {"194", "195", "197", "198", "199", "202", "206", "207", "208", "209"} and evidence.get("prompt_audit_disabled") is not True:
+    if expected_profile in {"194", "195", "197", "198", "199", "202", "206", "207", "208", "209", "210"} and evidence.get("prompt_audit_disabled") is not True:
         raise RuntimeError("gate lacks Prompt Audit disabled-state evidence")
-    if expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208", "209"}:
+    if expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210"}:
         required_migration_evidence = ("migration_195_verified", "fixture_rejected", "restore_completed", "clean_preflight", "verified_replay", "verified_low_watermark_rejected")
         if any(evidence.get(field) is not True for field in required_migration_evidence):
             raise RuntimeError("gate lacks migration 195 semantic evidence")
-    if expected_profile in {"198", "199", "202", "206", "207", "208", "209"} and evidence.get("managed_monitor_key_names_verified") is not True:
+    if expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210"} and evidence.get("managed_monitor_key_names_verified") is not True:
         raise RuntimeError("gate lacks managed monitor key-name evidence")
-    if expected_profile in {"199", "202", "206", "207", "208", "209"}:
+    if expected_profile in {"199", "202", "206", "207", "208", "209", "210"}:
         if evidence.get("reasoning_effort_policy_verified") is not True:
             raise RuntimeError("gate lacks group reasoning-effort policy evidence")
         if evidence.get("vm_old_image_compatibility_verified") is not True:
             raise RuntimeError("gate lacks VM old-image compatibility evidence")
         validate_image_id(evidence.get("vm_old_image_id", ""))
-    if expected_profile in {"202", "206", "207", "208", "209"}:
+    if expected_profile in {"202", "206", "207", "208", "209", "210"}:
         required_profile_202_evidence = (
             "alipay_mobile_precreate_migration_verified",
             "group_auth_cache_image_generation_verified",
@@ -76,7 +76,7 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
         )
         if any(evidence.get(field) is not True for field in required_profile_202_evidence):
             raise RuntimeError("gate lacks profile 202 migration semantic evidence")
-    if expected_profile in {"206", "207", "208", "209"}:
+    if expected_profile in {"206", "207", "208", "209", "210"}:
         required_profile_206_evidence = (
             "session_id_columns_verified",
             "live_request_type_verified",
@@ -86,9 +86,9 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
         )
         if any(evidence.get(field) is not True for field in required_profile_206_evidence):
             raise RuntimeError("gate lacks profile 206 migration semantic evidence")
-    if expected_profile in {"208", "209"} and evidence.get("passkey_schema_verified") is not True:
+    if expected_profile in {"208", "209", "210"} and evidence.get("passkey_schema_verified") is not True:
         raise RuntimeError("gate lacks profile 208 passkey schema evidence")
-    if expected_profile == "209" and evidence.get("user_usage_aggregation_schema_verified") is not True:
+    if expected_profile in {"209", "210"} and evidence.get("user_usage_aggregation_schema_verified") is not True:
         raise RuntimeError("gate lacks profile 209 user usage aggregation schema evidence")
     archive_path = bundle_dir / "candidate.tar.gz"
     if not archive_path.is_file():
