@@ -90,6 +90,11 @@ doctor、VM Gate、生产 preflight/runner、恢复判断与 DR promoter 必须�
 包含 209 的完整 migration map，并验证用户小时/日聚合表、回填状态单例、级联外键和索引；旧
 profile 208 image 必须能在迁移后的 schema 上通过 health/auth smoke。
 
+profile 210 不新增数据库迁移，完整继承 profile 209 的 28 项有序 migration map，版本为
+`0.1.169-baiyu`。doctor、VM Gate、生产 preflight/runner、恢复判断与 DR promoter 继续独立验证
+`migration_208_status`、`migration_209_status`、Passkey schema、用户用量聚合 schema 和旧镜像
+兼容性；不得创建 `migration_210_status`，也不得修改 profile 209 的版本或 checksum 身份。
+
 `migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 
 ## 长时间无输出诊断

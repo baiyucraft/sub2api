@@ -171,6 +171,11 @@ profile 209 完整继承 profile 208 的全部 migration、Passkey 证据、旧�
 永久日聚合表、回填状态单例、关键字段/约束/索引及到 `users` 的级联外键；profile 208 的版本、
 migration map 和 checksum 身份不得改变。
 
+profile 210 是 profile 209 的纯版本继承，使用版本 `0.1.169-baiyu`，不新增 SQL，也不创建
+`migration_210_status`。VM Gate、旧镜像兼容性 smoke、Gate/DR 和迁移 checksum 必须继续验证
+profile 208 的 Passkey schema、profile 209 的用户用量聚合 schema 以及完整 28 项有序 migration map；
+profile 209 的版本、migration map 和 checksum 身份不得改变。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：

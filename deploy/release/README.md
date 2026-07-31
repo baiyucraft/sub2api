@@ -93,7 +93,11 @@ profile 209 继续使用版本 `0.1.168-baiyu`，完整继承 profile 208 的 mi
 小时/日聚合表、永久日聚合、回填状态单例、到 `users` 的级联外键及用户时间索引。profile 208
 的 migration map、版本和 checksum 身份保持不变。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208 和 209
+profile 210 使用版本 `0.1.169-baiyu`，是 profile 209 的纯版本继承：完整保留 28 项 migration、
+`migration_208_status`、`migration_209_status`、Passkey、用户永久用量聚合、旧镜像兼容和全部
+Gate/DR 证据。本 profile 不新增 migration SQL，也不存在 `migration_210_status`。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209 和 210
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -104,6 +108,7 @@ python deploy/tests/release/backup_dr_profile_206_integration.py
 python deploy/tests/release/backup_dr_profile_207_integration.py
 python deploy/tests/release/backup_dr_profile_208_integration.py
 python deploy/tests/release/backup_dr_profile_209_integration.py
+python deploy/tests/release/backup_dr_profile_210_integration.py
 ```
 
 首次安装信任根使用：
