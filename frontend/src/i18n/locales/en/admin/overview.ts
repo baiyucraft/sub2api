@@ -548,6 +548,7 @@ export default {
         cacheReadTokens: 'Cache read tokens',
         totalTokens: 'Total tokens',
         margin: 'Difference',
+        noUsage: 'No usage',
         costHint: 'Cost uses the upstream account statistics basis; it is not a recharge ledger or strict financial cost.',
         lifetimePartial: 'Lifetime history is incomplete',
         lifetimeSince: 'Traceable since {date}'

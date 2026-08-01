@@ -19,6 +19,7 @@ vi.mock('vue-i18n', async () => {
     'admin.users.usageStats.cacheReadTokens': '缓存读取 Token',
     'admin.users.usageStats.totalTokens': '总 Token',
     'admin.users.usageStats.margin': '差额',
+    'admin.users.usageStats.noUsage': '暂无用量',
     'admin.users.usageStats.costHint': '成本口径说明',
     'admin.users.usageStats.lifetimePartial': '累计历史不完整',
     'admin.users.usageStats.lifetimeSince': '自 {date} 可追溯'
@@ -68,13 +69,15 @@ describe('UserUsageStatsMatrix', () => {
   it('renders the compact today, 30-day, and lifetime matrix', () => {
     const wrapper = mount(UserUsageStatsMatrix, { props: { stats: stats() } })
 
-    expect(wrapper.classes()).toContain('sm:w-[18rem]')
+    expect(wrapper.classes()).toContain('md:w-[16rem]')
+    expect(wrapper.find('[data-test="user-usage-mobile-header"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="user-usage-window-today"]').text()).toContain('24.8K')
     expect(wrapper.get('[data-test="user-usage-window-last_30d"]').text()).toContain('7.2M')
     expect(wrapper.get('[data-test="user-usage-window-lifetime"]').text()).toContain('52.4M')
     expect(wrapper.text()).toContain('$0.2600')
     expect(wrapper.text()).toContain('$73.50')
     expect(wrapper.text()).toContain('$346.22')
+    expect(wrapper.get('[data-test="user-usage-window-today"]').findAll('.font-mono')).toHaveLength(0)
   })
 
   it('shows exact token, spend, cost, and difference details on interaction', async () => {
@@ -103,7 +106,7 @@ describe('UserUsageStatsMatrix', () => {
     })
 
     const marker = wrapper.get('[data-test="user-usage-lifetime-partial"]')
-    expect(marker.classes()).toContain('bg-amber-500')
+    expect(marker.classes()).toContain('text-amber-500')
     expect(marker.attributes('title')).toContain('2026')
     expect(wrapper.get('[data-test="user-usage-details-lifetime"]').text()).toContain('可追溯')
   })
@@ -128,5 +131,30 @@ describe('UserUsageStatsMatrix', () => {
     expect(unavailable.text()).toContain('累计')
     expect(unavailable.text()).not.toContain('$0')
     expect(unavailable.findAll('span').filter((node) => node.text() === '—')).toHaveLength(9)
+  })
+
+  it('collapses an all-zero snapshot into a restrained empty state', () => {
+    const zeroWindow = windowStats({
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      total_tokens: 0,
+      user_spend: 0,
+      account_cost: 0
+    })
+    const wrapper = mount(UserUsageStatsMatrix, {
+      props: {
+        stats: stats({
+          today: zeroWindow,
+          last_30d: zeroWindow,
+          lifetime: zeroWindow
+        })
+      }
+    })
+
+    expect(wrapper.get('[data-test="user-usage-no-data"]').text()).toBe('暂无用量')
+    expect(wrapper.find('[data-test="user-usage-window-today"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('$0.0000')
   })
 })
