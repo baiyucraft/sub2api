@@ -199,6 +199,7 @@ describe('admin UsersView', () => {
     const columns = wrapper.get('[data-test="columns"]').text()
     const visibleColumns = columns.split(',')
     expect(visibleColumns).toContain('usage')
+    expect(wrapper.get('[data-test="user-usage-column-metrics"]').findAll('span')).toHaveLength(4)
     expect(wrapper.get('[data-test="estimate-row-height"]').text()).toBe('112')
     expect(visibleColumns.slice(-4, -1)).toEqual(['last_active_at', 'last_used_at', 'created_at'])
     expect(visibleColumns).not.toContain('last_login_at')

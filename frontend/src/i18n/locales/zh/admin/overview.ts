@@ -528,6 +528,7 @@ export default {
         cacheReadTokens: '缓存读取 Token',
         totalTokens: '总 Token',
         margin: '差额',
+        noUsage: '暂无用量',
         costHint: '成本为上游账号统计口径，不等同于充值流水或严格财务成本。',
         lifetimePartial: '累计历史不完整',
         lifetimeSince: '自 {date} 可追溯'
