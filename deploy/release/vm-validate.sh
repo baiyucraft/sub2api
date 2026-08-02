@@ -270,6 +270,24 @@ user_usage_aggregation_schema_verified=false
 group_profit_control_schema_verified=false
 group_profit_auth_cache_trigger_verified=false
 vm_old_image_compatibility_verified=false
+migration_211_status=not_applicable
+migration_212_status=not_applicable
+if [[ $profile == 212 ]]; then
+  mark_stage migration_assertion_profile_212_status
+  profile_212_migration_status() {
+    local filename=$1 expected row
+    expected=$(jq -er --arg filename "$filename" '.migration_sha256[$filename]' "$manifest")
+    row=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT filename,checksum FROM schema_migrations WHERE filename='$filename'\"")
+    if [[ -z $row ]]; then
+      printf 'absent\n'
+    else
+      [[ $row == "$filename|$expected" ]]
+      printf 'verified\n'
+    fi
+  }
+  migration_211_status=$(profile_212_migration_status 211_group_profit_control.sql)
+  migration_212_status=$(profile_212_migration_status 212_group_profit_control_auth_cache_invalidation.sql)
+fi
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 ]]; then
   migration_195_context="$state_dir/migration-195-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_195_context"
@@ -643,6 +661,8 @@ jq -n --slurpfile manifest "$manifest" \
   --argjson user_usage_aggregation_schema_verified "$user_usage_aggregation_schema_verified" \
   --argjson group_profit_control_schema_verified "$group_profit_control_schema_verified" \
   --argjson group_profit_auth_cache_trigger_verified "$group_profit_auth_cache_trigger_verified" \
+  --arg migration_211_status "$migration_211_status" \
+  --arg migration_212_status "$migration_212_status" \
   --arg vm_old_image_id "$old_image_id" \
   --argjson vm_old_image_compatibility_verified "$vm_old_image_compatibility_verified" \
   --argjson fixture_rejected "$fixture_rejected" \
@@ -650,7 +670,7 @@ jq -n --slurpfile manifest "$manifest" \
   --argjson clean_preflight "$clean_preflight" \
   --argjson verified_replay "$verified_replay" \
   --argjson verified_low_watermark_rejected "$verified_low_watermark_rejected" \
-  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,alipay_mobile_precreate_migration_verified:$alipay_mobile_precreate_migration_verified,group_auth_cache_image_generation_verified:$group_auth_cache_image_generation_verified,composite_model_routes_verified:$composite_model_routes_verified,session_id_columns_verified:$session_id_columns_verified,live_request_type_verified:$live_request_type_verified,group_allow_live_verified:$group_allow_live_verified,email_alias_index_verified:$email_alias_index_verified,live_runtime_capability_verified:$live_runtime_capability_verified,passkey_schema_verified:$passkey_schema_verified,user_usage_aggregation_schema_verified:$user_usage_aggregation_schema_verified,group_profit_control_schema_verified:$group_profit_control_schema_verified,group_profit_auth_cache_trigger_verified:$group_profit_auth_cache_trigger_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
+  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,alipay_mobile_precreate_migration_verified:$alipay_mobile_precreate_migration_verified,group_auth_cache_image_generation_verified:$group_auth_cache_image_generation_verified,composite_model_routes_verified:$composite_model_routes_verified,session_id_columns_verified:$session_id_columns_verified,live_request_type_verified:$live_request_type_verified,group_allow_live_verified:$group_allow_live_verified,email_alias_index_verified:$email_alias_index_verified,live_runtime_capability_verified:$live_runtime_capability_verified,passkey_schema_verified:$passkey_schema_verified,user_usage_aggregation_schema_verified:$user_usage_aggregation_schema_verified,migration_211_status:$migration_211_status,migration_212_status:$migration_212_status,group_profit_control_schema_verified:$group_profit_control_schema_verified,group_profit_auth_cache_trigger_verified:$group_profit_auth_cache_trigger_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
   | jq -cS . > "$output_dir/gate.json.tmp"
 chmod 400 "$output_dir/gate.json.tmp"
 mv -T -- "$output_dir/gate.json.tmp" "$output_dir/gate.json"
