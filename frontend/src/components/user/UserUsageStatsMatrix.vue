@@ -113,9 +113,6 @@
             <dt class="text-gray-400">{{ t('admin.users.usageStats.margin') }}</dt>
             <dd class="font-mono tabular-nums">{{ formatExactMoney(window.data.user_spend - window.data.account_cost) }}</dd>
           </dl>
-          <p class="mt-2 border-t border-white/10 pt-1.5 text-[10px] leading-4 text-gray-400">
-            {{ t('admin.users.usageStats.costHint') }}
-          </p>
         </div>
       </div>
     </div>
