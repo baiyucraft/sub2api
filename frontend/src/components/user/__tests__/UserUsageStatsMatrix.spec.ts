@@ -20,7 +20,6 @@ vi.mock('vue-i18n', async () => {
     'admin.users.usageStats.totalTokens': '总 Token',
     'admin.users.usageStats.margin': '差额',
     'admin.users.usageStats.noUsage': '暂无用量',
-    'admin.users.usageStats.costHint': '成本口径说明',
     'admin.users.usageStats.lifetimePartial': '累计历史不完整',
     'admin.users.usageStats.lifetimeSince': '自 {date} 可追溯'
   }
@@ -92,7 +91,7 @@ describe('UserUsageStatsMatrix', () => {
     expect(details.text()).toContain('$0.2600')
     expect(details.text()).toContain('$0.1800')
     expect(details.text()).toContain('$0.0800')
-    expect(details.text()).toContain('成本口径说明')
+    expect(details.text()).not.toContain('成本口径说明')
   })
 
   it('marks an incomplete lifetime with a restrained amber indicator and traceable date', () => {
