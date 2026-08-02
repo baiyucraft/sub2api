@@ -176,6 +176,12 @@ profile 210 是 profile 209 的纯版本继承，使用版本 `0.1.169-baiyu`，
 profile 208 的 Passkey schema、profile 209 的用户用量聚合 schema 以及完整 28 项有序 migration map；
 profile 209 的版本、migration map 和 checksum 身份不得改变。
 
+profile 212 使用版本 `0.1.170-baiyu`，完整继承 profile 210 的 28 项有序 migration map，再依次
+追加 `211_group_profit_control.sql` 与 `212_group_profit_control_auth_cache_invalidation.sql`。Gate 必须
+独立记录 `migration_211_status`、`migration_212_status`，验证三个利润字段的类型、非空、默认值及
+`numeric(10,4)` 精度，验证鉴权缓存触发器保留生图权限并覆盖全部定价、利润和状态输入；profile 210
+旧镜像必须能在迁移后的 schema 上通过 health/auth smoke。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：

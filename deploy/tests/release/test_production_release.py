@@ -697,8 +697,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         preflight = self.script("preflight.sh")
         switch = self.script("switch.sh")
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210"}', production)
-        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210", switch)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212"}', production)
+        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212", switch)
         self.assertIn("migration_206_status", production)
         self.assertIn("migration_206_status", preflight)
         self.assertNotIn("migration_207_status", production)
@@ -734,6 +734,25 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("usage_dashboard_user_daily", switch)
         self.assertIn("usage_dashboard_user_backfill_state", switch)
         self.assertIn("user_usage_aggregation_schema_verified=true", switch)
+
+    def test_profile_212_tracks_profit_control_migrations_and_schema_evidence(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        preflight = self.script("preflight.sh")
+        switch = self.script("switch.sh")
+        for migration, filename in (
+            ("211", "211_group_profit_control.sql"),
+            ("212", "212_group_profit_control_auth_cache_invalidation.sql"),
+        ):
+            self.assertIn(f'self.migration_{migration}_status = values["migration_{migration}_status"]', production)
+            self.assertIn(f'"{filename}": self.migration_{migration}_status', production)
+            self.assertIn(f"migration_{migration}_status=not_applicable", preflight)
+            self.assertIn(f"{filename}) migration_{migration}_status=verified", preflight)
+            self.assertIn(f"{filename}) migration_{migration}_status=absent", preflight)
+            self.assertIn(f"printf 'migration_{migration}_status=%s", preflight)
+        self.assertIn('allowed.add("group_profit_control_schema_verified")', production)
+        self.assertIn('allowed.add("group_profit_auth_cache_trigger_verified")', production)
+        self.assertIn("group_profit_control_schema_state", switch)
+        self.assertIn("group_profit_auth_cache_trigger_state", switch)
 
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")
