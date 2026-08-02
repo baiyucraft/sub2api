@@ -364,7 +364,7 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   old_probe_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$old_probe_app")
   [[ $old_probe_ip =~ ^[0-9a-fA-F:.]+$ ]]
   mark_stage old_image_compatibility_auth
-  old_image_auth_status=$(curl -sS -o /dev/null -w '%{http_code}' "http://$old_probe_ip:$server_port/api/v1/auth/me")
+  old_image_auth_status=$(curl --noproxy '*' -sS -o /dev/null -w '%{http_code}' "http://$old_probe_ip:$server_port/api/v1/auth/me")
   printf '%s\n' "$old_image_auth_status" > "$state_dir/old-image-auth-status"
   [[ $old_image_auth_status == 401 ]]
   rm -f "$state_dir/old-image-auth-status"
