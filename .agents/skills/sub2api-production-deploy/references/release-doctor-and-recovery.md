@@ -95,6 +95,12 @@ profile 210 不新增数据库迁移，完整继承 profile 209 的 28 项有序
 `migration_208_status`、`migration_209_status`、Passkey schema、用户用量聚合 schema 和旧镜像
 兼容性；不得创建 `migration_210_status`，也不得修改 profile 209 的版本或 checksum 身份。
 
+profile 212 在 profile 210 的完整有序 migration map 后追加 `211_group_profit_control.sql` 与
+`212_group_profit_control_auth_cache_invalidation.sql`。doctor、VM Gate、生产 preflight/runner、恢复
+判断与 DR promoter 必须独立处理 `migration_211_status`、`migration_212_status`，验证利润字段为
+非空默认关闭或零值、数值精度为 `numeric(10,4)`，并验证鉴权缓存触发器完整覆盖生图、平台、订阅、
+通用/高峰倍率、利润和状态字段；最终 Gate、committed marker 与 DR evidence 绑定完整 30 项 map。
+
 `migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 
 ## 长时间无输出诊断

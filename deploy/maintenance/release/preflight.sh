@@ -37,6 +37,8 @@ migration_205_status=not_applicable
 migration_206_status=not_applicable
 migration_208_status=not_applicable
 migration_209_status=not_applicable
+migration_211_status=not_applicable
+migration_212_status=not_applicable
 while IFS=$'\t' read -r migration migration_checksum; do
   case "$migration" in
     196_ops_ingress_reject_aggregates.sql) migration_196_status=verified ;;
@@ -52,6 +54,8 @@ while IFS=$'\t' read -r migration migration_checksum; do
     206_add_users_email_alias_dedup_index_notx.sql) migration_206_status=verified ;;
     208_passkey_credentials.sql) migration_208_status=verified ;;
     209_user_usage_aggregation.sql) migration_209_status=verified ;;
+    211_group_profit_control.sql) migration_211_status=verified ;;
+    212_group_profit_control_auth_cache_invalidation.sql) migration_212_status=verified ;;
   esac
   migration_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
   if [[ -z $migration_state ]]; then
@@ -71,6 +75,8 @@ while IFS=$'\t' read -r migration migration_checksum; do
       206_add_users_email_alias_dedup_index_notx.sql) migration_206_status=absent ;;
       208_passkey_credentials.sql) migration_208_status=absent ;;
       209_user_usage_aggregation.sql) migration_209_status=absent ;;
+      211_group_profit_control.sql) migration_211_status=absent ;;
+      212_group_profit_control_auth_cache_invalidation.sql) migration_212_status=absent ;;
     esac
   else
     [[ $migration_state == "$migration|$migration_checksum" ]]
@@ -103,3 +109,5 @@ printf 'migration_205_status=%s\n' "$migration_205_status"
 printf 'migration_206_status=%s\n' "$migration_206_status"
 printf 'migration_208_status=%s\n' "$migration_208_status"
 printf 'migration_209_status=%s\n' "$migration_209_status"
+printf 'migration_211_status=%s\n' "$migration_211_status"
+printf 'migration_212_status=%s\n' "$migration_212_status"

@@ -88,6 +88,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { formatMultiplier } from '@/utils/formatters'
 import type { Account, UpstreamBillingProbeSnapshot } from '@/types'
 
 const props = withDefaults(defineProps<{
@@ -106,7 +107,6 @@ defineEmits<{
 const { t } = useI18n()
 const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
 const eligible = computed(() =>
-  props.account.platform === 'openai' &&
   props.account.type === 'apikey' &&
   props.account.upstream_config_id == null &&
   props.account.upstream_key_id == null
@@ -195,7 +195,7 @@ const elapsedSinceLastSuccess = computed(() => {
 const effectiveRate = computed(() => {
   if (!validTimestamps.value || stale.value || !['ok', 'failed'].includes(snapshot.value?.status ?? '')) return '-'
   const value = currentEffectiveRate.value
-  return value == null ? '-' : `${Number(value.toPrecision(12))}x`
+  return value == null ? '-' : `${formatMultiplier(value)}x`
 })
 const statusLabel = computed(() => {
   if (!snapshot.value) return t('admin.accounts.upstreamBilling.notProbed')

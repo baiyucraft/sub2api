@@ -342,6 +342,17 @@ PROFILES["210"] = {
     "migrations": [*PROFILES["209"]["migrations"]],
 }
 
+PROFILES["212"] = {
+    **PROFILES["210"],
+    "name": "212",
+    "version": "0.1.170-baiyu",
+    "migrations": [
+        *PROFILES["210"]["migrations"],
+        "211_group_profit_control.sql",
+        "212_group_profit_control_auth_cache_invalidation.sql",
+    ],
+}
+
 
 def get_profile(name: str) -> dict:
     try:
