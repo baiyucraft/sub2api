@@ -345,6 +345,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("if [[ $current_stage == old_image_compatibility_* ]]", validator)
         for stage in ("start", "health", "image", "network", "auth"):
             self.assertIn(f"mark_stage old_image_compatibility_{stage}", validator)
+        self.assertIn('category="old_image_compatibility_auth_http_$old_image_auth_status"', validator)
+        self.assertIn("[[ $old_image_auth_status =~ ^[0-9]{3}$ ]]", validator)
         self.assertNotIn("old-probe-app.log", validator)
 
     def test_profile_209_migration_defines_permanent_user_usage_aggregation_contract(self) -> None:

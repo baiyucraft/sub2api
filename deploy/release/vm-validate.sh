@@ -159,6 +159,10 @@ on_failure() {
   if [[ $current_stage == old_image_compatibility_* ]]; then
     category=$current_stage
   fi
+  if [[ $current_stage == old_image_compatibility_auth && -f $state_dir/old-image-auth-status ]]; then
+    old_image_auth_status=$(<"$state_dir/old-image-auth-status")
+    [[ $old_image_auth_status =~ ^[0-9]{3}$ ]] && category="old_image_compatibility_auth_http_$old_image_auth_status"
+  fi
   if [[ -f $state_dir/migrate-candidate.log ]]; then
     category=migration_other
     grep -qi 'migration 182:' "$state_dir/migrate-candidate.log" && category=migration_182_semantic
@@ -360,7 +364,10 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   old_probe_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$old_probe_app")
   [[ $old_probe_ip =~ ^[0-9a-fA-F:.]+$ ]]
   mark_stage old_image_compatibility_auth
-  [[ $(curl -sS -o /dev/null -w '%{http_code}' "http://$old_probe_ip:$server_port/api/v1/auth/me") == 401 ]]
+  old_image_auth_status=$(curl -sS -o /dev/null -w '%{http_code}' "http://$old_probe_ip:$server_port/api/v1/auth/me")
+  printf '%s\n' "$old_image_auth_status" > "$state_dir/old-image-auth-status"
+  [[ $old_image_auth_status == 401 ]]
+  rm -f "$state_dir/old-image-auth-status"
   docker rm -f "$old_probe_app" >/dev/null
   vm_old_image_compatibility_verified=true
 fi
