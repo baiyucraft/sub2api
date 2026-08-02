@@ -91,6 +91,8 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
     if expected_profile in {"209", "210", "212"} and evidence.get("user_usage_aggregation_schema_verified") is not True:
         raise RuntimeError("gate lacks profile 209 user usage aggregation schema evidence")
     if expected_profile == "212":
+        if evidence.get("migration_211_status") not in {"absent", "verified"} or evidence.get("migration_212_status") not in {"absent", "verified"}:
+            raise RuntimeError("gate lacks profile 212 migration status evidence")
         required_profile_212_evidence = (
             "group_profit_control_schema_verified",
             "group_profit_auth_cache_trigger_verified",

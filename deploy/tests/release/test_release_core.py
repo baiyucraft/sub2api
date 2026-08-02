@@ -339,6 +339,10 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("peak_start peak_end peak_rate_multiplier", switch)
         self.assertIn("profit_control_enabled profit_min_margin profit_safety_buffer deleted_at", switch)
         self.assertIn("/api/v1/auth/me", validator)
+        self.assertIn("migration_assertion_profile_212_status", validator)
+        self.assertIn("migration_211_status:$migration_211_status", validator)
+        self.assertIn("migration_212_status:$migration_212_status", validator)
+        self.assertIn('evidence.get("migration_211_status") not in {"absent", "verified"}', gate)
 
     def test_vm_old_image_compatibility_failures_are_classified_without_logs(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
@@ -832,6 +836,12 @@ class ReleaseCoreTest(unittest.TestCase):
                 mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
                 mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
             ):
+                with self.assertRaisesRegex(RuntimeError, "profile 212 migration status evidence"):
+                    verify_gate(root, public_key, "212")
+                inherited_evidence.update(migration_211_status="absent", migration_212_status="absent")
+                document = {"manifest": manifest, "evidence": inherited_evidence}
+                (root / "gate.json").write_bytes(canonical_json(document) + b"\n")
+                subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(private_key), "-rawin", "-in", str(root / "gate.json"), "-out", str(root / "gate.sig")], check=True, stdout=subprocess.DEVNULL)
                 with self.assertRaisesRegex(RuntimeError, "profile 212 profit-control migration evidence"):
                     verify_gate(root, public_key, "212")
 
