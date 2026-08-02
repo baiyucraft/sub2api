@@ -340,6 +340,13 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("profit_control_enabled profit_min_margin profit_safety_buffer deleted_at", switch)
         self.assertIn("/api/v1/auth/me", validator)
 
+    def test_vm_old_image_compatibility_failures_are_classified_without_logs(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        self.assertIn("if [[ $current_stage == old_image_compatibility_* ]]", validator)
+        for stage in ("start", "health", "image", "network", "auth"):
+            self.assertIn(f"mark_stage old_image_compatibility_{stage}", validator)
+        self.assertNotIn("old-probe-app.log", validator)
+
     def test_profile_209_migration_defines_permanent_user_usage_aggregation_contract(self) -> None:
         migration = (DEPLOY_ROOT.parent / "backend" / "migrations" / "209_user_usage_aggregation.sql").read_text(encoding="utf-8")
         self.assertIn("CREATE TABLE IF NOT EXISTS usage_dashboard_user_hourly", migration)

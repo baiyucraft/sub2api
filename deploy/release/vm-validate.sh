@@ -156,6 +156,9 @@ on_failure() {
   if [[ $current_stage == migration_assertion_* || $current_stage == runtime_assertion_* ]]; then
     category=$current_stage
   fi
+  if [[ $current_stage == old_image_compatibility_* ]]; then
+    category=$current_stage
+  fi
   if [[ -f $state_dir/migrate-candidate.log ]]; then
     category=migration_other
     grep -qi 'migration 182:' "$state_dir/migrate-candidate.log" && category=migration_182_semantic
@@ -338,20 +341,25 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$source_dir/deploy/maintenance/release/migration-195-assert.sh" postflight_db >/dev/null
 fi
 if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 ]]; then
-  mark_stage old_image_compatibility
+  mark_stage old_image_compatibility_start
   docker run -d --name "$old_probe_app" --network "$probe_network" \
     -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
     --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
     --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
     -v "$probe_dir:/app/data" "$old_image_id" >/dev/null 2>&1
+  mark_stage old_image_compatibility_health
   for _ in $(seq 1 90); do
     [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]] && break
     sleep 2
   done
+  mark_stage old_image_compatibility_image
   [[ $(docker inspect -f '{{.Image}}' "$old_probe_app") == "$old_image_id" ]]
+  mark_stage old_image_compatibility_health
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]]
+  mark_stage old_image_compatibility_network
   old_probe_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$old_probe_app")
   [[ $old_probe_ip =~ ^[0-9a-fA-F:.]+$ ]]
+  mark_stage old_image_compatibility_auth
   [[ $(curl -sS -o /dev/null -w '%{http_code}' "http://$old_probe_ip:$server_port/api/v1/auth/me") == 401 ]]
   docker rm -f "$old_probe_app" >/dev/null
   vm_old_image_compatibility_verified=true
