@@ -182,6 +182,10 @@ profile 212 使用版本 `0.1.170-baiyu`，完整继承 profile 210 的 28 项�
 `numeric(10,4)` 精度，验证鉴权缓存触发器保留生图权限并覆盖全部定价、利润和状态输入；profile 210
 旧镜像必须能在迁移后的 schema 上通过 health/auth smoke。
 
+profile 213 使用版本 `0.1.171-baiyu`，完整继承 profile 212 的 30 项有序 migration map，不新增
+migration SQL 或 `migration_213_status`。VM Gate、旧镜像兼容、Gate/DR 和迁移 checksum 必须继续
+验证 profile 212 的利润字段、鉴权缓存触发器及全部历史证据。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：

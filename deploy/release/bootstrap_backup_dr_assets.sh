@@ -104,7 +104,7 @@ else
   releases_root=/srv/sub2api-backups/releases
   [[ -d $releases_root && ! -L $releases_root && $(realpath -e -- "$releases_root") == "$releases_root" && $(stat -c '%U:%G:%a' "$releases_root") == root:root:700 ]]
 fi
-for profile in 195 199 202 206 207 208 209 210 212; do
+for profile in 195 199 202 206 207 208 209 210 212 213; do
   promotion_root="$releases_root/$profile"
   if [[ -e $promotion_root || -L $promotion_root ]]; then
     [[ -d $promotion_root && ! -L $promotion_root && $(realpath -e -- "$promotion_root") == "$promotion_root" && $(stat -c '%U:%G:%a' "$promotion_root") == root:root:700 ]]
