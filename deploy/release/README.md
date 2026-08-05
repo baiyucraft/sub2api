@@ -102,7 +102,11 @@ profile 212 使用版本 `0.1.170-baiyu`，完整继承 profile 210 的 28 项 m
 记录 `migration_211_status`、`migration_212_status`，验证利润字段 schema、包含生图权限的完整
 auth-cache 触发器语义，以及 profile 210 旧镜像在迁移后 schema 上的 health/auth 兼容性。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210 和 212
+profile 213 使用版本 `0.1.171-baiyu`，是 profile 212 的纯版本继承：完整保留 30 项 migration、
+`migration_211_status`、`migration_212_status`、利润控制 schema、鉴权缓存触发器、旧镜像兼容及
+全部 Gate/DR 证据。本 profile 不新增 migration SQL，也不存在 `migration_213_status`。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212 和 213
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -115,6 +119,7 @@ python deploy/tests/release/backup_dr_profile_208_integration.py
 python deploy/tests/release/backup_dr_profile_209_integration.py
 python deploy/tests/release/backup_dr_profile_210_integration.py
 python deploy/tests/release/backup_dr_profile_212_integration.py
+python deploy/tests/release/backup_dr_profile_213_integration.py
 ```
 
 首次安装信任根使用：

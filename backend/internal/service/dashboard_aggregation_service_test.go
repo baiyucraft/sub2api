@@ -293,7 +293,7 @@ func TestDashboardAggregationService_BackfillRangeDoesNotRewriteUserLifetimeAggr
 		},
 	}
 	svc.userBackfillReady.Store(true)
-	start := time.Now().UTC().Add(-6 * time.Hour)
+	start := time.Date(2026, 1, 2, 6, 0, 0, 0, time.UTC)
 	end := start.Add(2 * time.Hour)
 
 	require.NoError(t, svc.backfillRange(context.Background(), start, end))

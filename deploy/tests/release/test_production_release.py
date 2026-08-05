@@ -697,8 +697,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         preflight = self.script("preflight.sh")
         switch = self.script("switch.sh")
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212"}', production)
-        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212", switch)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213"}', production)
+        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213", switch)
         self.assertIn("migration_206_status", production)
         self.assertIn("migration_206_status", preflight)
         self.assertNotIn("migration_207_status", production)
@@ -753,6 +753,14 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('allowed.add("group_profit_auth_cache_trigger_verified")', production)
         self.assertIn("group_profit_control_schema_state", switch)
         self.assertIn("group_profit_auth_cache_trigger_state", switch)
+
+    def test_profile_213_reuses_profile_212_migration_and_schema_evidence(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        switch = self.script("switch.sh")
+        self.assertIn('{"212", "213"}', production)
+        self.assertIn("$profile == 212 || $profile == 213", switch)
+        self.assertNotIn("migration_213_status", production)
+        self.assertNotIn("migration_213_status", self.script("preflight.sh"))
 
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")
