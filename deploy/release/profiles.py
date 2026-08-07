@@ -360,6 +360,17 @@ PROFILES["213"] = {
     "migrations": [*PROFILES["212"]["migrations"]],
 }
 
+PROFILES["215"] = {
+    **PROFILES["213"],
+    "name": "215",
+    "version": "0.1.172-baiyu",
+    "migrations": [
+        *PROFILES["213"]["migrations"],
+        "214_add_usage_log_upstream_response_model.sql",
+        "215_add_usage_log_upstream_model_mismatch_index_notx.sql",
+    ],
+}
+
 
 def get_profile(name: str) -> dict:
     try:

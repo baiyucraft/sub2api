@@ -186,6 +186,11 @@ profile 213 使用版本 `0.1.171-baiyu`，完整继承 profile 212 的 30 项�
 migration SQL 或 `migration_213_status`。VM Gate、旧镜像兼容、Gate/DR 和迁移 checksum 必须继续
 验证 profile 212 的利润字段、鉴权缓存触发器及全部历史证据。
 
+profile 215 使用版本 `0.1.172-baiyu`，在 profile 213 的 30 项 migration 后追加 214/215。Gate 必须
+独立记录 `migration_214_status`、`migration_215_status`，验证两个 nullable Usage Log 上游模型字段，
+以及 mismatch partial index 的列顺序、predicate、valid/ready 状态；profile 213 旧镜像必须在新 schema
+上通过 health/auth smoke。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：

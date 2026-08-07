@@ -697,8 +697,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         preflight = self.script("preflight.sh")
         switch = self.script("switch.sh")
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213"}', production)
-        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213", switch)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}', production)
+        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215", switch)
         self.assertIn("migration_206_status", production)
         self.assertIn("migration_206_status", preflight)
         self.assertNotIn("migration_207_status", production)
@@ -757,10 +757,27 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_profile_213_reuses_profile_212_migration_and_schema_evidence(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         switch = self.script("switch.sh")
-        self.assertIn('{"212", "213"}', production)
-        self.assertIn("$profile == 212 || $profile == 213", switch)
+        self.assertIn('{"212", "213", "215"}', production)
+        self.assertIn("$profile == 212 || $profile == 213 || $profile == 215", switch)
         self.assertNotIn("migration_213_status", production)
         self.assertNotIn("migration_213_status", self.script("preflight.sh"))
+
+    def test_profile_215_tracks_usage_model_migrations_and_schema_evidence(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        gate = (DEPLOY_ROOT / "release" / "gate.py").read_text(encoding="utf-8")
+        preflight = self.script("preflight.sh")
+        for field in ("migration_214_status", "migration_215_status", "usage_log_upstream_model_columns_verified", "usage_log_upstream_model_mismatch_index_verified"):
+            self.assertIn(field, production)
+            self.assertIn(field, validator)
+            self.assertIn(field, gate)
+        self.assertIn("214_add_usage_log_upstream_response_model.sql", preflight)
+        self.assertIn("215_add_usage_log_upstream_model_mismatch_index_notx.sql", preflight)
+        self.assertIn("upstream_response_model", validator)
+        self.assertIn("upstream_model_mismatch", validator)
+        self.assertIn("idx_usage_logs_upstream_model_mismatch_created_at", validator)
+        self.assertIn("old_image_compatibility_version", validator)
+        self.assertIn("Sub2API 0.1.171-baiyu", validator)
 
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")

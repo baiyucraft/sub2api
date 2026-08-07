@@ -106,7 +106,12 @@ profile 213 使用版本 `0.1.171-baiyu`，是 profile 212 的纯版本继承：
 `migration_211_status`、`migration_212_status`、利润控制 schema、鉴权缓存触发器、旧镜像兼容及
 全部 Gate/DR 证据。本 profile 不新增 migration SQL，也不存在 `migration_213_status`。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212 和 213
+profile 215 使用版本 `0.1.172-baiyu`，完整继承 profile 213 的 30 项 migration，并追加
+`214_add_usage_log_upstream_response_model.sql` 与 `215_add_usage_log_upstream_model_mismatch_index_notx.sql`。
+发布链独立记录 `migration_214_status`、`migration_215_status`，验证两个 nullable Usage Log 字段、
+并发 partial index 的 valid/ready 状态、列顺序和 predicate，以及 profile 213 旧镜像兼容性。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213 和 215
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -120,6 +125,7 @@ python deploy/tests/release/backup_dr_profile_209_integration.py
 python deploy/tests/release/backup_dr_profile_210_integration.py
 python deploy/tests/release/backup_dr_profile_212_integration.py
 python deploy/tests/release/backup_dr_profile_213_integration.py
+python deploy/tests/release/backup_dr_profile_215_integration.py
 ```
 
 首次安装信任根使用：

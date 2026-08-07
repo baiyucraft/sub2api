@@ -162,13 +162,13 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 ### 签名资产与 profile 兼容
 
 - validator、Gate signer 或 DR signer checksum 变化时，先在隔离目录完成配套自测，再原子激活同一版本单元。日常更新固定使用 `REQUIRE_EXISTING_SIGNER_KEYS=true`，禁止创建、替换或轮换既有信任根。
-- 在备份机分别 bootstrap verifier 与 promoter，并预置当前支持的 profile 目录。profile 195 保留历史单 migration checksum；profile 199、202、206、207、208、209、210、212 和 213 的 migration checksum 固定按以下方式生成：
+- 在备份机分别 bootstrap verifier 与 promoter，并预置当前支持的 profile 目录。profile 195 保留历史单 migration checksum；profile 199、202、206、207、208、209、210、212、213 和 215 的 migration checksum 固定按以下方式生成：
 
 ```text
 jq -cS '.manifest.migration_sha256' | sha256sum
 ```
 
-- signer 必须同时自测 profile 195、199、202、206、207、208、209、210、212 和 213；集成测试至少覆盖 195/199/202/206 历史回归、207 纯继承回归、208/209 成功和错误 checksum 拒绝、210/213 纯版本继承回归、212 新迁移成功和错误 checksum 拒绝。profile 207 仍是 206 的纯版本继承，不能增加虚构的 207 migration。profile 208 必须绑定 207 的完整有序 migration map并追加真实 `208_passkey_credentials.sql`；profile 209 必须完整继承 208 并追加真实 `209_user_usage_aggregation.sql`；profile 210 必须完整继承 209 的 28 项 migration，版本更新为 `0.1.169-baiyu`，不得新增 `210_*.sql` 或 `migration_210_status`；profile 212 必须完整继承 profile 210 并按顺序追加 `211_group_profit_control.sql` 与 `212_group_profit_control_auth_cache_invalidation.sql`；profile 213 必须完整继承 profile 212 的 30 项 migration，版本更新为 `0.1.171-baiyu`，不得新增 `213_*.sql` 或 `migration_213_status`。DR evidence 绑定完整 map 的规范化 checksum，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
+- signer 必须同时自测 profile 195、199、202、206、207、208、209、210、212、213 和 215；集成测试至少覆盖 195/199/202/206 历史回归、207 纯继承回归、208/209 成功和错误 checksum 拒绝、210/213 纯版本继承回归、212/215 新迁移成功和错误 checksum 拒绝。profile 207 仍是 206 的纯版本继承，不能增加虚构的 207 migration。profile 208 必须绑定 207 的完整有序 migration map并追加真实 `208_passkey_credentials.sql`；profile 209 必须完整继承 208 并追加真实 `209_user_usage_aggregation.sql`；profile 210 必须完整继承 209 的 28 项 migration，版本更新为 `0.1.169-baiyu`，不得新增 `210_*.sql` 或 `migration_210_status`；profile 212 必须完整继承 profile 210 并按顺序追加 `211_group_profit_control.sql` 与 `212_group_profit_control_auth_cache_invalidation.sql`；profile 213 必须完整继承 profile 212 的 30 项 migration，版本更新为 `0.1.171-baiyu`，不得新增 `213_*.sql` 或 `migration_213_status`；profile 215 必须完整继承 profile 213 并按顺序追加 `214_add_usage_log_upstream_response_model.sql` 与非事务的 `215_add_usage_log_upstream_model_mismatch_index_notx.sql`。DR evidence 绑定完整 map 的规范化 checksum，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
 
 ### 生产成功与灾备基线
 
@@ -177,7 +177,7 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 
 ### 一次性收口清单
 
-按顺序完成并留存脱敏结果：release pytest、VM signer integration、profile 195/199/202/206/207/208/209/210/212/213 DR integrations、`git diff --check`、完整 SHA commit/push、`doctor`、`deploy-start`、`status`/`wait`、`verify-result`、post-deploy `doctor`。任一步失败都先按结构化状态恢复事实，不得跳步或复用失败 release。
+按顺序完成并留存脱敏结果：release pytest、VM signer integration、profile 195/199/202/206/207/208/209/210/212/213/215 DR integrations、`git diff --check`、完整 SHA commit/push、`doctor`、`deploy-start`、`status`/`wait`、`verify-result`、post-deploy `doctor`。任一步失败都先按结构化状态恢复事实，不得跳步或复用失败 release。
 
 ## 失败即停止
 
