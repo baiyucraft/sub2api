@@ -188,8 +188,9 @@ migration SQL 或 `migration_213_status`。VM Gate、旧镜像兼容、Gate/DR �
 
 profile 215 使用版本 `0.1.172-baiyu`，在 profile 213 的 30 项 migration 后追加 214/215。Gate 必须
 独立记录 `migration_214_status`、`migration_215_status`，验证两个 nullable Usage Log 上游模型字段，
-以及 mismatch partial index 的列顺序、predicate、valid/ready 状态；profile 213 旧镜像必须在新 schema
-上通过 health/auth smoke。
+以及 mismatch partial index 的列顺序、predicate、valid/ready 状态；profile 213 旧镜像必须按当前
+commit 第一父的 full-SHA tag 精确选取，并在新 schema 上通过 health/auth smoke。不得用当前 dev 容器
+碰巧运行的更老镜像代替该回滚目标。
 
 ## Gate 失败条件
 
