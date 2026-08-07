@@ -71,7 +71,9 @@ old_image_ref=$(docker inspect -f '{{.Config.Image}}' sub2api-dev)
 [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-dev) == healthy ]]
 compat_image_id=$old_image_id
 if [[ $profile == 215 ]]; then
-  compat_commit=$(git rev-parse "$commit^1")
+  compat_merge_commit=$(git rev-list --first-parent --merges -n 1 "$commit")
+  [[ $compat_merge_commit =~ ^[0-9a-f]{40}$ ]]
+  compat_commit=$(git rev-parse "$compat_merge_commit^1")
   [[ $compat_commit =~ ^[0-9a-f]{40}$ ]]
   compat_tag="sub2api:baiyu-0.1.171-baiyu-$compat_commit"
   compat_image_id=$(docker image inspect -f '{{.Id}}' "$compat_tag")
