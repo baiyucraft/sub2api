@@ -59,6 +59,8 @@ const upstreamRemoteKeyUniqueMigration = "174_upstream_operations_indexes_notx.s
 const upstreamRemoteKeyUniqueIndex = "idx_upstream_keys_config_remote_key_id_active"
 const latestAPIKeyIPIndexMigration = "180_add_usage_logs_api_key_latest_ip_index_notx.sql"
 const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
+const usageLogsUpstreamModelMismatchIndexMigration = "215_add_usage_log_upstream_model_mismatch_index_notx.sql"
+const usageLogsUpstreamModelMismatchIndex = "idx_usage_logs_upstream_model_mismatch_created_at"
 
 const rebindDuplicateUpstreamKeysSQL = `
 WITH account_refs AS (
@@ -332,6 +334,8 @@ func prepareNonTransactionalMigration(ctx context.Context, db migrationConnectio
 		return prepareUpstreamRemoteKeyUniqueMigration(ctx, db)
 	case latestAPIKeyIPIndexMigration:
 		return dropInvalidIndexIfPresent(ctx, db, latestAPIKeyIPIndex)
+	case usageLogsUpstreamModelMismatchIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, usageLogsUpstreamModelMismatchIndex)
 	default:
 		return nil
 	}

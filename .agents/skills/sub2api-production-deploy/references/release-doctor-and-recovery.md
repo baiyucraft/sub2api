@@ -105,6 +105,13 @@ profile 213 是 profile 212 的纯版本继承，版本为 `0.1.171-baiyu`。doc
 恢复判断与 DR promoter 继续复用并验证 profile 212 的完整 30 项 migration map、逐项状态和语义证据；
 不得创建 `213_*.sql` 或 `migration_213_status`。
 
+profile 215 使用版本 `0.1.172-baiyu`，在 profile 213 后追加
+`214_add_usage_log_upstream_response_model.sql` 与非事务的
+`215_add_usage_log_upstream_model_mismatch_index_notx.sql`。doctor、VM Gate、生产 preflight/runner、
+恢复判断与 DR promoter 必须独立处理 `migration_214_status`、`migration_215_status`，验证 Usage Log
+上游模型字段和 mismatch partial index 语义，并将完整 32 项 migration map 绑定到 Gate、committed marker
+与 DR evidence。
+
 `migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 
 ## 长时间无输出诊断
