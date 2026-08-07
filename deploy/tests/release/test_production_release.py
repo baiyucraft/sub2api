@@ -778,6 +778,10 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("idx_usage_logs_upstream_model_mismatch_created_at", validator)
         self.assertIn("old_image_compatibility_version", validator)
         self.assertIn("Sub2API 0.1.171-baiyu", validator)
+        self.assertIn('compat_commit=$(git rev-parse "$commit^1")', validator)
+        self.assertIn('compat_tag="sub2api:baiyu-0.1.171-baiyu-$compat_commit"', validator)
+        self.assertIn('docker image inspect -f \'{{.Id}}\' "$compat_tag"', validator)
+        self.assertIn('vm_old_image_id "$compat_image_id"', validator)
 
     def test_migration_195_assertion_is_summary_only_and_fail_closed(self) -> None:
         assertion = self.script("migration-195-assert.sh")

@@ -69,6 +69,14 @@ done < <(jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$m
 old_image_id=$(docker inspect -f '{{.Image}}' sub2api-dev)
 old_image_ref=$(docker inspect -f '{{.Config.Image}}' sub2api-dev)
 [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-dev) == healthy ]]
+compat_image_id=$old_image_id
+if [[ $profile == 215 ]]; then
+  compat_commit=$(git rev-parse "$commit^1")
+  [[ $compat_commit =~ ^[0-9a-f]{40}$ ]]
+  compat_tag="sub2api:baiyu-0.1.171-baiyu-$compat_commit"
+  compat_image_id=$(docker image inspect -f '{{.Id}}' "$compat_tag")
+  [[ $compat_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
+fi
 extract_config() {
   local section=$1 field=$2
   sed -n "/^${section}:/,/^[^[:space:]]/p" "$data_dir/config.yaml" | sed -n "s/^[[:space:]]*${field}:[[:space:]]*//p" | head -n1 | tr -d '"'
@@ -374,7 +382,7 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   mark_stage old_image_compatibility_start
   if [[ $profile == 215 ]]; then
     mark_stage old_image_compatibility_version
-    old_image_version_output=$(docker run --rm --entrypoint /app/sub2api "$old_image_id" --version 2>&1)
+    old_image_version_output=$(docker run --rm --entrypoint /app/sub2api "$compat_image_id" --version 2>&1)
     grep -Fq 'Sub2API 0.1.171-baiyu ' <<<"$old_image_version_output"
     unset old_image_version_output
   fi
@@ -382,14 +390,14 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
     -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
     --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
     --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
-    -v "$probe_dir:/app/data" "$old_image_id" >/dev/null 2>&1
+    -v "$probe_dir:/app/data" "$compat_image_id" >/dev/null 2>&1
   mark_stage old_image_compatibility_health
   for _ in $(seq 1 90); do
     [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]] && break
     sleep 2
   done
   mark_stage old_image_compatibility_image
-  [[ $(docker inspect -f '{{.Image}}' "$old_probe_app") == "$old_image_id" ]]
+  [[ $(docker inspect -f '{{.Image}}' "$old_probe_app") == "$compat_image_id" ]]
   mark_stage old_image_compatibility_health
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]]
   mark_stage old_image_compatibility_network
@@ -690,7 +698,7 @@ jq -n --slurpfile manifest "$manifest" \
   --arg migration_215_status "$migration_215_status" \
   --argjson usage_log_upstream_model_columns_verified "$usage_log_upstream_model_columns_verified" \
   --argjson usage_log_upstream_model_mismatch_index_verified "$usage_log_upstream_model_mismatch_index_verified" \
-  --arg vm_old_image_id "$old_image_id" \
+  --arg vm_old_image_id "$compat_image_id" \
   --argjson vm_old_image_compatibility_verified "$vm_old_image_compatibility_verified" \
   --argjson fixture_rejected "$fixture_rejected" \
   --argjson restore_completed "$restore_completed" \
