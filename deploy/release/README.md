@@ -109,7 +109,9 @@ profile 213 使用版本 `0.1.171-baiyu`，是 profile 212 的纯版本继承：
 profile 215 使用版本 `0.1.172-baiyu`，完整继承 profile 213 的 30 项 migration，并追加
 `214_add_usage_log_upstream_response_model.sql` 与 `215_add_usage_log_upstream_model_mismatch_index_notx.sql`。
 发布链独立记录 `migration_214_status`、`migration_215_status`，验证两个 nullable Usage Log 字段、
-并发 partial index 的 valid/ready 状态、列顺序和 predicate，以及 profile 213 旧镜像兼容性。
+并发 partial index 的 valid/ready 状态、列顺序和 predicate。旧镜像兼容 smoke 固定使用当前 commit
+第一父对应的 `0.1.171-baiyu` full-SHA Candidate；该保留镜像缺失或版本不符时 Gate 立即停止，不能退回
+当前 `sub2api-dev` 的任意历史镜像代替。
 
 VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213 和 215
 合同。发布资产定向回归至少执行：
