@@ -24,6 +24,11 @@ trap cleanup EXIT
 
 source_dir=/opt/sub2api-src
 compat_commit=
+if [[ -d $source_dir && ! -L $source_dir ]]; then
+  if ! git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null; then
+    git -C "$source_dir" fetch origin main >/dev/null 2>&1 || true
+  fi
+fi
 if [[ -d $source_dir && ! -L $source_dir ]] && git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null; then
   compat_merge_commit=$(git -C "$source_dir" rev-list --first-parent --merges -n 1 "$target_commit" 2>/dev/null || true)
   if [[ $compat_merge_commit =~ ^[0-9a-f]{40}$ ]]; then
