@@ -6,7 +6,7 @@ target_commit=${2:?target commit is required}
 [[ $mode == dry-run || $mode == apply ]]
 [[ $target_commit =~ ^[0-9a-f]{40}$ ]]
 
-required_commands=(awk cut df docker flock grep mktemp ps rm sort stat tr wc)
+required_commands=(awk cut df docker flock git grep mktemp ps rm sort stat tr wc)
 for command_name in "${required_commands[@]}"; do
   command -v "$command_name" >/dev/null 2>&1 || exit 127
 done
@@ -21,6 +21,24 @@ cleanup() {
   rm -rf -- "$work_dir"
 }
 trap cleanup EXIT
+
+source_dir=/opt/sub2api-src
+compat_commit=
+if [[ -d $source_dir && ! -L $source_dir ]] && git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null; then
+  compat_merge_commit=$(git -C "$source_dir" rev-list --first-parent --merges -n 1 "$target_commit" 2>/dev/null || true)
+  if [[ $compat_merge_commit =~ ^[0-9a-f]{40}$ ]]; then
+    candidate_compat_commit=$(git -C "$source_dir" rev-parse "$compat_merge_commit^1" 2>/dev/null || true)
+    compat_tag="sub2api:baiyu-0.1.171-baiyu-$candidate_compat_commit"
+    if [[ $candidate_compat_commit =~ ^[0-9a-f]{40}$ ]] && docker image inspect "$compat_tag" >/dev/null 2>&1; then
+      compat_commit=$candidate_compat_commit
+    fi
+  fi
+fi
+
+is_protected_commit() {
+  local commit=$1
+  [[ $commit == "$target_commit" || ( -n $compat_commit && $commit == "$compat_commit" ) ]]
+}
 
 assert_no_active_build() {
   [[ $(ps -eo args= | awk '/docker (build|buildx)|buildctl/ && ! /awk/ {count++} END {print count+0}') == 0 ]]
@@ -85,7 +103,7 @@ list_image_candidates() {
     for tag in "${tags[@]}"; do
       [[ -n $tag ]] || continue
       has_tag=true
-      if [[ ! $tag =~ ^sub2api:.+-([0-9a-f]{40})$ || ${BASH_REMATCH[1]} == "$target_commit" ]]; then
+      if [[ ! $tag =~ ^sub2api:.+-([0-9a-f]{40})$ ]] || is_protected_commit "${BASH_REMATCH[1]}"; then
         valid=false
         break
       fi
@@ -123,7 +141,7 @@ remove_image_candidates() {
     for tag in "${tags[@]}"; do
       [[ -n $tag ]] || continue
       has_tag=true
-      if [[ ! $tag =~ ^sub2api:.+-([0-9a-f]{40})$ || ${BASH_REMATCH[1]} == "$target_commit" ]]; then
+      if [[ ! $tag =~ ^sub2api:.+-([0-9a-f]{40})$ ]] || is_protected_commit "${BASH_REMATCH[1]}"; then
         valid=false
         break
       fi
