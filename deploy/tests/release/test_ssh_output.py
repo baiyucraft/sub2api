@@ -4,6 +4,9 @@ import sys
 import unittest
 from types import SimpleNamespace
 from pathlib import Path
+from unittest import mock
+
+import paramiko
 
 
 DEPLOY_ROOT = Path(__file__).resolve().parents[2]
@@ -96,6 +99,42 @@ class SSHOutputTest(unittest.TestCase):
     def test_connection_files_are_repo_local(self) -> None:
         self.assertEqual(SSH_CONFIG, ROOT / ".ssh.local")
         self.assertEqual(KNOWN_HOSTS, ROOT / ".tmp" / "known_hosts")
+
+    def test_connection_retries_transport_banner_failures(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.servers = {"vm": {"host": "example.test", "user": "root", "password": "secret"}}
+        runner.temp_dirs = set()
+        clients = []
+        attempts = {"count": 0}
+
+        class Transport:
+            def set_keepalive(self, _seconds: int) -> None:
+                pass
+
+        class Client:
+            def load_host_keys(self, _path: str) -> None:
+                pass
+
+            def get_host_keys(self):
+                return {}
+
+            def set_missing_host_key_policy(self, _policy) -> None:
+                pass
+
+            def connect(self, **_kwargs) -> None:
+                attempts["count"] += 1
+                if attempts["count"] < 3:
+                    raise paramiko.SSHException("banner")
+
+            def get_transport(self):
+                return Transport()
+
+            def close(self) -> None:
+                pass
+
+        clients.extend([Client(), Client(), Client()])
+        with mock.patch("release.ssh.paramiko.SSHClient", side_effect=clients), mock.patch("release.ssh.time.sleep"):
+            self.assertIs(clients[2], runner.connect("vm"))
 
     def runner(self, stdout: bytes, stderr: bytes = b"") -> SSHRunner:
         instance = object.__new__(SSHRunner)
