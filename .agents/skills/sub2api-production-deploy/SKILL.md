@@ -138,6 +138,11 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - 生产 profile 可能处于混合状态，例如旧 migration 已记录而新 migration 缺失。先独立读取整体 migration 状态和关键 migration 状态，按有序 manifest 逐项处理；不能用“profile 不完整”推断所有 migration 都需要重跑。
 - 生产恢复使用正式 recovery/reconciliation 入口。即使远端动作可能已经提交、但调用端只收到非零退出码或测试断言失败，也必须先读取 committed marker、数据库迁移记录、运行 image、active claim 和 backup unit，再决定继续候选或协调恢复。
 - Redis 恢复必须证明认证来源、RDB/AOF 可读性和 TTL 对账；仅 `PING`、`DBSIZE` 或容器健康不能单独把恢复点晋升为 `verified`。恢复后必须重新执行 `doctor`，并以 Gate、production-result、Git 和线上运行 image 四类证据共同收口。
+- VM 空间清理器在解析 profile 兼容镜像前，必须先确认目标完整 commit 已存在于 `/opt/sub2api-src`；不存在时只允许同步 `origin/main` 后再解析。源码落后导致兼容 commit 无法证明时，必须保护性停止，不能把兼容镜像当作普通旧镜像清理。
+- 历史兼容 Candidate 导入只能用于恢复 VM 回滚验证，必须独立校验历史 Gate 签名、归档 SHA-256、profile、commit、版本、release asset 和 migration map；不能修改历史 Gate JSON、重签名或用当前 runner 的校验失败强行放行生产。
+- SSH 只允许在建立会话、尚未执行远程命令时对 `EOF/banner/transport` 类瞬时错误做有限退避重试。远程命令已经开始或返回不确定时不得自动重试写操作，必须回到 committed marker、claim 和目标目录核验。
+- `stage_assets`、bootstrap 等 claim 前失败，只有在远端 release 目录和 `.active-release` 都明确不存在时才可创建新的 release ID；任一状态未知或已落地，必须停止并进入 reconciliation。失败 release 不得复用、覆盖或删除证据。
+- 每次修复发布链后必须生成新的完整 commit、新 Gate、新 Candidate 和新 release ID；不得用旧 Gate 或旧 Candidate 证明修复后的链路。
 
 ### VM 构建缓存与磁盘
 
@@ -158,6 +163,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - 将 `deploy-start` 预创建的 release 目录视为 workspace 合同，worker 只能安全复用。复用前确认它是普通目录且不是 symlink，并核对 `manifest.json`、`state.json` 中的 schema、release ID、profile 和完整 commit；启动 VM Gate 前要求 `gate/` 完全不存在。
 - 遇到 release 目录 `FileExistsError` 且生产阶段仍为 `not_started` 时停止当前 runner，不重复启动同一 release。修复发布资产后必须使用新 commit、新 release ID 和新签名 Gate。
 - `wait` 超时或 runner 非零退出只触发只读诊断，不代表可以重试。先执行 `status`；Gate 或 `production-result.json` 尚未生成时不得执行 `reconcile-inspect`，只核对 `runner.json`、`state.json`、committed marker 和受限错误摘要。
+- 生产成功后仍必须执行 `verify-result` 和 post-deploy `doctor`；两者分别确认签名 Candidate/运行镜像、claim/backup units、迁移状态和三节点健康。一次性导入、恢复和诊断脚本在发布收口后删除，但失败 release 目录、Gate、checksum、marker 和 production-result 必须保留。
 
 ### 签名资产与 profile 兼容
 

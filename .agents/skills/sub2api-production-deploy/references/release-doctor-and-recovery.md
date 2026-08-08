@@ -33,6 +33,14 @@ python deploy/release.py verify-result <release_id>
 - worker 在停写前先用当前生产版本执行 direct/DMIT 流式基线 Canary；它会产生带唯一 marker 的正常 usage 记录，但不验证候选容器。该检查失败时释放本次 claim 并保持旧应用运行。候选公开后仅对 `curl 28` 和 `502/503/504` 使用新 marker 最多尝试三次，确定性 4xx、协议或 SSE 错误不重试。
 - 信任根首次安装仍单独使用 `bootstrap-trust`，人工核验公钥指纹；普通 bootstrap 和 deploy 不得创建或替换信任根。
 
+### Claim 前资产阶段与瞬时 SSH 故障
+
+- `bootstrap-production`、`stage_assets` 失败时，先对 RackNerd 做只读现场核验：release 目录、`.prepared`、`.active-release`、当前应用 image/health、Nginx 和 backup timer。不能仅凭本地退出码判断“生产未变化”。
+- 只有 release 目录和 `.active-release` 均明确不存在、旧应用健康且没有 freeze/migration marker 时，才允许使用新的完整 commit、新 Gate 和新 release ID 重试；已创建的失败 release 目录和证据必须保留。
+- SSH 建连阶段的 banner/EOF/transport 瞬时错误可由 `SSHRunner` 做有限退避重试；SFTP 上传、远程 shell 已执行或返回内容不完整时禁止盲重试，必须按 marker/checksum/claim 做 reconciliation。
+- VM 清理器运行早于 validator fetch 时，必须先同步目标 `origin/main` 再解析 profile 兼容提交。目标 commit、兼容提交或 full-SHA 兼容 tag 任一无法证明时停止清理；不得删除兼容回滚镜像。
+- 旧 profile Gate 因 runner checksum 漂移而不能被当前 verifier 直接接受时，只能从 Gate 绑定的历史源码执行只读验签，额外核对签名、archive checksum、release assets、migration map、profile、commit 和 image ID；该流程不改变历史 Gate，也不产生生产 Gate。
+
 ## 迁移状态与重复 Gate
 
 每次生产 preflight 必须同时输出 profile 的整体 `migration_status` 和关键迁移的独立状态，例如 `migration_195_status` 至 `migration_202_status`。独立状态只允许：
