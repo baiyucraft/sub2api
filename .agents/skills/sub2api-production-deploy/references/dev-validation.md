@@ -48,6 +48,10 @@
 6. 导入后要求 Docker Root Dir、containerd 和临时目录仍满足本次峰值计划，并至少保留 `2 GiB` 安全余量。
 7. loaded image ID 必须等于构建端 `candidate_image_id`，之后才允许绑定 full-SHA tag。
 
+在执行空间清理前，先让清理器确认目标完整 commit 已存在于 VM 源码仓；若源码仓落后，清理器必须同步 `origin/main` 后再推导 profile 的兼容 merge 第一父。兼容 tag 无法解析或不存在时，空间清理必须 fail-closed，不能把旧兼容镜像列入候选。
+
+历史 profile 的兼容镜像只能从其已验证 Candidate 归档恢复：先在本地独立验签并核对 archive、release assets、migration map、commit 和 image ID，再上传到 VM；不得修改历史 Gate、删除旧证据或把历史 Gate 直接当作当前 release Gate。
+
 空间不足时停止。Docker 所在文件系统可用空间低于动态峰值需求或 8 GiB 下限即视为不足。先清理过期 `/tmp` candidate 或经过引用检查的单个旧 Sub2API image；仍不足时只允许版本化清理器执行一次 `--all`、`max-used-space=1gb`、`reserved-space=1gb` 的容量有界 BuildKit GC。`--all` 必须与缓存上限和保留量同时使用；禁止 system prune、缺少容量边界的 builder prune、删卷、删数据库、删 Redis、删 data 或删 backup。清理只能执行一次。
 
 ## VM 空间与扩容
