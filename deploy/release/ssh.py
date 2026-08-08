@@ -5,6 +5,7 @@ import json
 import pathlib
 import shlex
 import posixpath
+import time
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -38,44 +39,60 @@ class SSHRunner:
 
     def connect(self, name: str) -> paramiko.SSHClient:
         config = self.servers[name]
-        kwargs = {
-            "hostname": config["host"],
-            "port": int(config.get("port", 22)),
-            "username": config["user"],
-            "timeout": 30,
-            "banner_timeout": 30,
-            "auth_timeout": 30,
-            "look_for_keys": False,
-            "allow_agent": False,
-        }
-        if config.get("private_key"):
-            kwargs["key_filename"] = str(pathlib.Path(config["private_key"]).expanduser())
-        else:
-            kwargs["password"] = config["password"]
-        if config.get("proxy"):
-            host, port = config["proxy"].rsplit(":", 1)
-            proxy_socket = socks.socksocket()
-            proxy_socket.set_proxy(socks.SOCKS5, host, int(port))
-            proxy_socket.settimeout(30)
-            proxy_socket.connect((config["host"], int(config.get("port", 22))))
-            kwargs["sock"] = proxy_socket
-        client = paramiko.SSHClient()
-        client.load_host_keys(str(KNOWN_HOSTS))
-        port = int(config.get("port", 22))
-        host = config["host"]
-        if port != 22 and client.get_host_keys().lookup(f"[{host}]:{port}") is None:
-            bare = client.get_host_keys().lookup(host)
-            if bare:
-                for key_type, key in bare.items():
-                    client.get_host_keys().add(f"[{host}]:{port}", key_type, key)
-        client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        client.connect(**kwargs)
-        transport = client.get_transport()
-        if transport is None:
-            client.close()
-            raise RuntimeError(f"{name} SSH transport is unavailable")
-        transport.set_keepalive(30)
-        return client
+        last_error: BaseException | None = None
+        for attempt in range(1, 4):
+            client: paramiko.SSHClient | None = None
+            proxy_socket = None
+            try:
+                kwargs = {
+                    "hostname": config["host"],
+                    "port": int(config.get("port", 22)),
+                    "username": config["user"],
+                    "timeout": 30,
+                    "banner_timeout": 30,
+                    "auth_timeout": 30,
+                    "look_for_keys": False,
+                    "allow_agent": False,
+                }
+                if config.get("private_key"):
+                    kwargs["key_filename"] = str(pathlib.Path(config["private_key"]).expanduser())
+                else:
+                    kwargs["password"] = config["password"]
+                if config.get("proxy"):
+                    host, port = config["proxy"].rsplit(":", 1)
+                    proxy_socket = socks.socksocket()
+                    proxy_socket.set_proxy(socks.SOCKS5, host, int(port))
+                    proxy_socket.settimeout(30)
+                    proxy_socket.connect((config["host"], int(config.get("port", 22))))
+                    kwargs["sock"] = proxy_socket
+                client = paramiko.SSHClient()
+                client.load_host_keys(str(KNOWN_HOSTS))
+                port = int(config.get("port", 22))
+                host = config["host"]
+                if port != 22 and client.get_host_keys().lookup(f"[{host}]:{port}") is None:
+                    bare = client.get_host_keys().lookup(host)
+                    if bare:
+                        for key_type, key in bare.items():
+                            client.get_host_keys().add(f"[{host}]:{port}", key_type, key)
+                client.set_missing_host_key_policy(paramiko.RejectPolicy())
+                client.connect(**kwargs)
+                transport = client.get_transport()
+                if transport is None:
+                    raise RuntimeError(f"{name} SSH transport is unavailable")
+                transport.set_keepalive(30)
+                return client
+            except (EOFError, OSError, paramiko.SSHException, socks.ProxyError) as error:
+                last_error = error
+                if client is not None:
+                    client.close()
+                if proxy_socket is not None:
+                    proxy_socket.close()
+                if attempt < 3:
+                    time.sleep(2 ** (attempt - 1))
+                    continue
+                raise
+        assert last_error is not None
+        raise last_error
 
     def run(self, name: str, script: str, allowed: Iterable[str], timeout: int = 120) -> SSHResult:
         return self.run_with_input(name, script, allowed, b"", timeout=timeout)
