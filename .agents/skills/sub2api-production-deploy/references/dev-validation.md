@@ -207,6 +207,8 @@ VM Gate 必须使用 profile 中显式保存的 `0.1.172-baiyu` compatibility co
 对于迁移 232 这类“备份后清空源字段”的迁移，`absent` 状态完成 SQL 后的 postflight 必须从备份表
 重算计划 hash，不能继续对已经清空的源表计算；否则零行 fixture 会误通过，而真实非零数据必然失败。
 Gate 必须保留至少一个非零受影响行用例来证明备份内容与 preflight 数据计划一致。
+连续修正工厂默认值的 migration 还必须按完整执行顺序测试前序 `version` 变化；后续修正不能只覆盖
+初始版本号，而漏掉由同一发布内早期 migration 合法升级后的工厂行。
 
 ## Gate 失败条件
 

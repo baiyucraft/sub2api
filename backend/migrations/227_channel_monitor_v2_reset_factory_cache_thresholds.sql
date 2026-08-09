@@ -9,5 +9,8 @@ SET health_thresholds = health_thresholds
 WHERE id = 1
   AND COALESCE((health_thresholds->>'warning_cache_rate')::float8, 0) = 0.85
   AND COALESCE((health_thresholds->>'critical_cache_rate')::float8, 0) = 0.60
-  AND version = 1
+  -- Migration 219 increments the untouched factory row from version 1 to 2
+  -- when it seeds the model allow-list, so both factory sequence states must
+  -- be eligible for this corrective reset.
+  AND version IN (1, 2)
   AND updated_by IS NULL;
