@@ -31,11 +31,17 @@ class ReleaseCoreTest(unittest.TestCase):
             "sign-dr-evidence.sh": "dr-signer",
         }[path.name]
 
-    def manifest(self, runner: str, expires_at: int) -> dict:
-        profile = get_profile("182")
+    def manifest(self, runner: str, expires_at: int, profile_name: str = "182") -> dict:
+        profile = get_profile(profile_name)
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=DEPLOY_ROOT.parent, text=True).strip()
         return {
-            "commit_sha": "a" * 40,
-            "profile": "182",
+            "schema": 1,
+            "release_id": f"{profile_name}-{commit[:12]}-1-aaaaaaaa",
+            "commit_sha": commit,
+            "profile": profile_name,
+            "version": profile["version"],
+            "migrations": list(profile["migrations"]),
+            "migration_sha256": migration_checksums(profile, commit),
             "runner_sha256": runner,
             "vm_validator_sha256": "validator",
             "vm_gate_signer_sha256": "gate-signer",
@@ -134,8 +140,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(list(migration_checksums(profile_191)), profile_191["migrations"])
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215)"
-        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215"
+        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
@@ -345,6 +351,36 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIsNot(profile_215["migrations"], profile_213["migrations"])
         self.assertEqual(list(migration_checksums(profile_215)), profile_215["migrations"])
 
+    def test_profile_232_appends_channel_monitor_and_media_migrations_to_profile_215(self) -> None:
+        profile_215 = get_profile("215")
+        profile_232 = get_profile("232")
+        self.assertEqual(profile_232["version"], "0.1.173-baiyu")
+        self.assertEqual(profile_232["compatibility_version"], "0.1.172-baiyu")
+        self.assertEqual(profile_232["compatibility_commit"], "74e47e67205084750ccd994c331ead328e4ce35b")
+        self.assertEqual(profile_232["compatibility_image_id"], "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6")
+        expected = [f"{number}_{name}" for number, name in (
+            (216, "channel_monitor_v2.sql"),
+            (217, "channel_monitor_mode.sql"),
+            (218, "channel_monitor_v2_ignored_error_categories.sql"),
+            (219, "channel_monitor_v2_seed_popular_models.sql"),
+            (220, "channel_monitor_v2_health_thresholds.sql"),
+            (221, "channel_monitor_v2_fixed_rollups.sql"),
+            (222, "channel_monitor_v2_rollup_permissions.sql"),
+            (223, "channel_monitor_v2_refresh_5m.sql"),
+            (224, "channel_monitor_v2_full_table_permissions.sql"),
+            (225, "channel_monitor_v2_default_ignore_and_cache.sql"),
+            (226, "channel_monitor_hide_throughput.sql"),
+            (227, "channel_monitor_v2_reset_factory_cache_thresholds.sql"),
+            (228, "channel_monitor_v2_privacy_defaults.sql"),
+            (229, "group_video_model_prices.sql"),
+            (230, "group_audio_voice_pricing.sql"),
+            (231, "group_search_price_per_1k.sql"),
+            (232, "clear_non_grok_video_generation_config.sql"),
+        )]
+        self.assertEqual(profile_232["migrations"], profile_215["migrations"] + expected)
+        self.assertEqual(len(profile_232["migrations"]), 49)
+        self.assertEqual(list(migration_checksums(profile_232)), profile_232["migrations"])
+
     def test_profile_212_release_chain_requires_profit_control_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         switch = (DEPLOY_ROOT / "maintenance" / "release" / "switch.sh").read_text(encoding="utf-8")
@@ -403,7 +439,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("assert_prompt_audit_disabled()", context)
         self.assertIn("$profile != 197 && $profile != 198 && $profile != 199 && $profile != 202 && $profile != 206 && $profile != 207 && $profile != 208", context)
         self.assertEqual(production.count('"prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events"'), 3)
-        self.assertIn('expected_profile in {"194", "195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}', gate)
+        self.assertIn('expected_profile in {"194", "195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}', gate)
 
     def test_profile_195_requires_semantic_migration_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
@@ -465,11 +501,11 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('migration-195-assert.sh preflight', production)
         self.assertIn('migration-195-assert.sh" postflight', switch)
         self.assertIn("unproven == 0 && $conflict == 0 && $unexpected == 0", assertion)
-        self.assertIn('expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}', gate)
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}', production)
-        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 ]]', switch)
-        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 ]]', assertion)
-        self.assertIn('expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}', gate)
+        self.assertIn('expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}', gate)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}', production)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 ]]', switch)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 ]]', assertion)
+        self.assertIn('expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}', gate)
         self.assertIn("managed monitor key-name evidence", gate)
 
     def test_profile_199_requires_reasoning_and_old_image_evidence(self) -> None:
@@ -484,7 +520,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("mark_stage old_image_compatibility", validator)
         self.assertIn('"reasoning_effort_policy_verified"', production)
         self.assertIn("reasoning_effort_policy_verified=true", switch)
-        self.assertIn('expected_profile in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}', gate)
+        self.assertIn('expected_profile in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}', gate)
         self.assertIn("group reasoning-effort policy evidence", gate)
         self.assertIn("VM old-image compatibility evidence", gate)
 
@@ -503,7 +539,7 @@ class ReleaseCoreTest(unittest.TestCase):
             self.assertIn(f'"{evidence}"', production)
             self.assertIn(f"{evidence}=true", switch)
             self.assertIn(f'"{evidence}"', gate)
-        self.assertIn('expected_profile in {"202", "206", "207", "208", "209", "210", "212", "213", "215"}', gate)
+        self.assertIn('expected_profile in {"202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}', gate)
         self.assertIn("profile 202 migration semantic evidence", gate)
         seed = "INSERT INTO settings (key,value,updated_at) VALUES ('ALIPAY_MOBILE_PRECREATE_DEEP_LINK','true',NOW())"
         self.assertGreater(validator.index(seed), validator.index("restore_completed=true"))
@@ -542,7 +578,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('"live_runtime_capability_verified"', gate)
         self.assertNotIn('"live_runtime_capability_verified"', production)
         self.assertNotIn("live_runtime_capability_verified=true", switch)
-        self.assertIn('expected_profile in {"206", "207", "208", "209", "210", "212", "213", "215"}', gate)
+        self.assertIn('expected_profile in {"206", "207", "208", "209", "210", "212", "213", "215", "232"}', gate)
         self.assertIn("profile 206 migration semantic evidence", gate)
         for stage in (
             "migration_assertion_profile_206_session_id",
@@ -578,7 +614,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("passkey_credentials_user_id_idx", validator)
         self.assertIn("passkey_credentials_last_used_at_idx", validator)
         self.assertIn("mark_stage migration_assertion_profile_208_passkey_schema", validator)
-        self.assertIn('expected_profile in {"208", "209", "210", "212", "213", "215"}', gate)
+        self.assertIn('expected_profile in {"208", "209", "210", "212", "213", "215", "232"}', gate)
         self.assertIn("profile 208 passkey schema evidence", gate)
 
     def test_profile_209_requires_user_usage_aggregation_schema_evidence(self) -> None:
@@ -600,7 +636,7 @@ class ReleaseCoreTest(unittest.TestCase):
             self.assertIn(schema_object, validator)
             self.assertIn(schema_object, switch)
         self.assertIn("mark_stage migration_assertion_profile_209_user_usage_aggregation_schema", validator)
-        self.assertIn('expected_profile in {"209", "210", "212", "213", "215"}', gate)
+        self.assertIn('expected_profile in {"209", "210", "212", "213", "215", "232"}', gate)
         self.assertIn("profile 209 user usage aggregation schema evidence", gate)
 
     def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:
@@ -612,8 +648,7 @@ class ReleaseCoreTest(unittest.TestCase):
             subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
             archive = root / "candidate.tar.gz"
             archive.write_bytes(b"candidate")
-            manifest = self.manifest("runner", int(time.time()) + 60)
-            manifest["profile"] = "194"
+            manifest = self.manifest("runner", int(time.time()) + 60, "194")
             document = {
                 "manifest": manifest,
                 "evidence": {
@@ -629,7 +664,7 @@ class ReleaseCoreTest(unittest.TestCase):
                 mock.patch("release.gate.runner_checksum", return_value="runner"),
                 mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
                 mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
-                mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
+                mock.patch("release.gate.get_profile", return_value=get_profile(manifest["profile"])),
             ):
                 with self.assertRaisesRegex(RuntimeError, "Prompt Audit disabled-state evidence"):
                     verify_gate(root, public_key, "194")
@@ -643,8 +678,7 @@ class ReleaseCoreTest(unittest.TestCase):
             subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
             archive = root / "candidate.tar.gz"
             archive.write_bytes(b"candidate")
-            manifest = self.manifest("runner", int(time.time()) + 60)
-            manifest["profile"] = "197"
+            manifest = self.manifest("runner", int(time.time()) + 60, "197")
             document = {
                 "manifest": manifest,
                 "evidence": {
@@ -661,7 +695,7 @@ class ReleaseCoreTest(unittest.TestCase):
                 mock.patch("release.gate.runner_checksum", return_value="runner"),
                 mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
                 mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
-                mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
+                mock.patch("release.gate.get_profile", return_value=get_profile(manifest["profile"])),
             ):
                 with self.assertRaisesRegex(RuntimeError, "migration 195 semantic evidence"):
                     verify_gate(root, public_key, "197")
@@ -675,8 +709,7 @@ class ReleaseCoreTest(unittest.TestCase):
             subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
             archive = root / "candidate.tar.gz"
             archive.write_bytes(b"candidate")
-            manifest = self.manifest("runner", int(time.time()) + 60)
-            manifest["profile"] = "206"
+            manifest = self.manifest("runner", int(time.time()) + 60, "206")
             inherited_evidence = {
                 "candidate_image_id": "sha256:" + "b" * 64,
                 "candidate_archive_sha256": hashlib.sha256(b"candidate").hexdigest(),
@@ -709,7 +742,7 @@ class ReleaseCoreTest(unittest.TestCase):
                 mock.patch("release.gate.runner_checksum", return_value="runner"),
                 mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
                 mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
-                mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
+                mock.patch("release.gate.get_profile", return_value=get_profile(manifest["profile"])),
             ):
                 with self.assertRaisesRegex(RuntimeError, "profile 206 migration semantic evidence"):
                     verify_gate(root, public_key, "206")
@@ -723,8 +756,7 @@ class ReleaseCoreTest(unittest.TestCase):
             subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
             archive = root / "candidate.tar.gz"
             archive.write_bytes(b"candidate")
-            manifest = self.manifest("runner", int(time.time()) + 60)
-            manifest["profile"] = "208"
+            manifest = self.manifest("runner", int(time.time()) + 60, "208")
             inherited_evidence = {
                 "candidate_image_id": "sha256:" + "b" * 64,
                 "candidate_archive_sha256": hashlib.sha256(b"candidate").hexdigest(),
@@ -758,7 +790,7 @@ class ReleaseCoreTest(unittest.TestCase):
                 mock.patch("release.gate.runner_checksum", return_value="runner"),
                 mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
                 mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
-                mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
+                mock.patch("release.gate.get_profile", return_value=get_profile(manifest["profile"])),
             ):
                 with self.assertRaisesRegex(RuntimeError, "profile 208 passkey schema evidence"):
                     verify_gate(root, public_key, "208")
@@ -773,8 +805,7 @@ class ReleaseCoreTest(unittest.TestCase):
                 subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
                 archive = root / "candidate.tar.gz"
                 archive.write_bytes(b"candidate")
-                manifest = self.manifest("runner", int(time.time()) + 60)
-                manifest["profile"] = profile
+                manifest = self.manifest("runner", int(time.time()) + 60, profile)
                 inherited_evidence = {
                     "candidate_image_id": "sha256:" + "b" * 64,
                     "candidate_archive_sha256": hashlib.sha256(b"candidate").hexdigest(),
@@ -809,7 +840,7 @@ class ReleaseCoreTest(unittest.TestCase):
                     mock.patch("release.gate.runner_checksum", return_value="runner"),
                     mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
                     mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
-                    mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
+                    mock.patch("release.gate.get_profile", return_value=get_profile(manifest["profile"])),
                 ):
                     with self.assertRaisesRegex(RuntimeError, "profile 209 user usage aggregation schema evidence"):
                         verify_gate(root, public_key, profile)
@@ -822,8 +853,7 @@ class ReleaseCoreTest(unittest.TestCase):
             subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private_key)], check=True, stdout=subprocess.DEVNULL)
             subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
             (root / "candidate.tar.gz").write_bytes(b"candidate")
-            manifest = self.manifest("runner", int(time.time()) + 60)
-            manifest["profile"] = "212"
+            manifest = self.manifest("runner", int(time.time()) + 60, "212")
             inherited_evidence = {
                 "candidate_image_id": "sha256:" + "b" * 64,
                 "candidate_archive_sha256": hashlib.sha256(b"candidate").hexdigest(),
@@ -858,7 +888,7 @@ class ReleaseCoreTest(unittest.TestCase):
                 mock.patch("release.gate.runner_checksum", return_value="runner"),
                 mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
                 mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
-                mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
+                mock.patch("release.gate.get_profile", return_value=get_profile(manifest["profile"])),
             ):
                 with self.assertRaisesRegex(RuntimeError, "profile 212 migration status evidence"):
                     verify_gate(root, public_key, "212")
@@ -877,8 +907,7 @@ class ReleaseCoreTest(unittest.TestCase):
             subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private_key)], check=True, stdout=subprocess.DEVNULL)
             subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
             (root / "candidate.tar.gz").write_bytes(b"candidate")
-            manifest = self.manifest("runner", int(time.time()) + 60)
-            manifest["profile"] = "215"
+            manifest = self.manifest("runner", int(time.time()) + 60, "215")
             evidence = {
                 "candidate_image_id": "sha256:" + "b" * 64,
                 "candidate_archive_sha256": hashlib.sha256(b"candidate").hexdigest(),
@@ -919,7 +948,7 @@ class ReleaseCoreTest(unittest.TestCase):
                 mock.patch("release.gate.runner_checksum", return_value="runner"),
                 mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
                 mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
-                mock.patch("release.gate.get_profile", return_value={"origin": manifest["origin"], "vm_identity": manifest["vm_identity"]}),
+                mock.patch("release.gate.get_profile", return_value=get_profile(manifest["profile"])),
             ):
                 sign()
                 with self.assertRaisesRegex(RuntimeError, "profile 215 migration status evidence"):
@@ -935,6 +964,95 @@ class ReleaseCoreTest(unittest.TestCase):
                 evidence["usage_log_upstream_model_mismatch_index_verified"] = True
                 sign()
                 self.assertEqual(verify_gate(root, public_key, "215")["manifest"]["profile"], "215")
+
+    def test_profile_232_gate_requires_compatibility_status_and_semantic_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            private_key = root / "private.pem"
+            public_key = root / "public.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private_key)], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
+            (root / "candidate.tar.gz").write_bytes(b"candidate")
+            profile = get_profile("232")
+            manifest = {
+                **self.manifest("runner", int(time.time()) + 60, "215"),
+                "profile": "232",
+                "release_id": "232-aaaaaaaaaaaa-1-aaaaaaaa",
+                "version": profile["version"],
+                "compatibility_version": profile["compatibility_version"],
+                "compatibility_commit": profile["compatibility_commit"],
+                "compatibility_image_id": profile["compatibility_image_id"],
+            }
+            evidence = {
+                "candidate_image_id": "sha256:" + "b" * 64,
+                "candidate_archive_sha256": hashlib.sha256(b"candidate").hexdigest(),
+                "integration_verified": True,
+                "vm_restore_verified": True,
+                "prompt_audit_disabled": True,
+                "migration_195_verified": True,
+                "fixture_rejected": True,
+                "restore_completed": True,
+                "clean_preflight": True,
+                "verified_replay": True,
+                "verified_low_watermark_rejected": True,
+                "managed_monitor_key_names_verified": True,
+                "reasoning_effort_policy_verified": True,
+                "vm_old_image_compatibility_verified": True,
+                "vm_old_image_id": profile["compatibility_image_id"],
+                "alipay_mobile_precreate_migration_verified": True,
+                "group_auth_cache_image_generation_verified": True,
+                "composite_model_routes_verified": True,
+                "session_id_columns_verified": True,
+                "live_request_type_verified": True,
+                "group_allow_live_verified": True,
+                "email_alias_index_verified": True,
+                "live_runtime_capability_verified": True,
+                "passkey_schema_verified": True,
+                "user_usage_aggregation_schema_verified": True,
+                "migration_211_status": "verified",
+                "migration_212_status": "verified",
+                "group_profit_control_schema_verified": True,
+                "group_profit_auth_cache_trigger_verified": True,
+                "migration_214_status": "verified",
+                "migration_215_status": "verified",
+                "usage_log_upstream_model_columns_verified": True,
+                "usage_log_upstream_model_mismatch_index_verified": True,
+            }
+
+            def sign() -> None:
+                (root / "gate.json").write_bytes(canonical_json({"manifest": manifest, "evidence": evidence}) + b"\n")
+                subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(private_key), "-rawin", "-in", str(root / "gate.json"), "-out", str(root / "gate.sig")], check=True, stdout=subprocess.DEVNULL)
+
+            with (
+                mock.patch("release.gate.runner_checksum", return_value="runner"),
+                mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
+                mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
+                mock.patch("release.gate.get_profile", return_value=profile),
+                mock.patch("release.gate.validate_manifest_profile_contract"),
+            ):
+                sign()
+                with self.assertRaisesRegex(RuntimeError, "migration 216 status evidence"):
+                    verify_gate(root, public_key, "232")
+                for number in range(216, 233):
+                    evidence[f"migration_{number}_status"] = "verified"
+                sign()
+                with self.assertRaisesRegex(RuntimeError, "profile 232 migration semantic evidence"):
+                    verify_gate(root, public_key, "232")
+                for field in (
+                    "channel_monitor_v2_schema_verified",
+                    "channel_monitor_v2_defaults_verified",
+                    "group_media_pricing_schema_verified",
+                    "group_media_auth_cache_trigger_verified",
+                    "migration_232_data_plan_verified",
+                    "migration_232_postflight_verified",
+                ):
+                    evidence[field] = True
+                sign()
+                self.assertEqual(verify_gate(root, public_key, "232")["manifest"]["profile"], "232")
+                evidence["vm_old_image_id"] = "sha256:" + "d" * 64
+                sign()
+                with self.assertRaisesRegex(RuntimeError, "compatibility image does not match"):
+                    verify_gate(root, public_key, "232")
 
     def test_vm_post_build_space_gate_does_not_double_count_image(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
@@ -975,6 +1093,47 @@ class ReleaseCoreTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "expired"):
                     verify_gate(root, public_key, "182")
                 self.assertEqual(verify_gate(root, public_key, "182", allow_expired=True)["manifest"]["expires_at"], document["manifest"]["expires_at"])
+
+    def test_gate_binds_profile_version_release_id_and_migration_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            private_key = root / "private.pem"
+            public_key = root / "public.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private_key)], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)], check=True, stdout=subprocess.DEVNULL)
+            archive = root / "candidate.tar.gz"
+            archive.write_bytes(b"candidate")
+            manifest = self.manifest("runner", int(time.time()) + 60, "182")
+            evidence = {
+                "candidate_image_id": "sha256:" + "b" * 64,
+                "candidate_archive_sha256": hashlib.sha256(b"candidate").hexdigest(),
+                "integration_verified": True,
+                "vm_restore_verified": True,
+            }
+
+            def sign() -> None:
+                (root / "gate.json").write_bytes(canonical_json({"manifest": manifest, "evidence": evidence}) + b"\n")
+                subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(private_key), "-rawin", "-in", str(root / "gate.json"), "-out", str(root / "gate.sig")], check=True, stdout=subprocess.DEVNULL)
+
+            with (
+                mock.patch("release.gate.runner_checksum", return_value="runner"),
+                mock.patch("release.gate.release_asset_checksums", return_value={"asset": "digest"}),
+                mock.patch("release.gate.sha256_file", side_effect=self.release_unit_checksum),
+            ):
+                sign()
+                self.assertEqual(verify_gate(root, public_key, "182")["manifest"]["profile"], "182")
+                for field, bad_value, message in (
+                    ("version", "0.0.0-bad", "version does not match"),
+                    ("release_id", "182-aaaaaaaaaaaa-1-aaaaaaaa", "release ID does not match"),
+                    ("migrations", [], "ordered migrations do not match"),
+                    ("migration_sha256", {}, "migration checksums do not match"),
+                ):
+                    original = manifest[field]
+                    manifest[field] = bad_value
+                    sign()
+                    with self.assertRaisesRegex(RuntimeError, message):
+                        verify_gate(root, public_key, "182")
+                    manifest[field] = original
 
     def test_gate_rejects_runner_version_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

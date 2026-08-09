@@ -13,6 +13,7 @@ from .atomic import atomic_write, canonical_json
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
+RELEASE_ID = re.compile(r"^([0-9]+)-([0-9a-f]{12})-([0-9]+)-([0-9a-f]{8})$")
 
 
 def sha256_file(path: Path) -> str:
@@ -81,12 +82,52 @@ def release_asset_checksums(commit: str) -> dict[str, str]:
     return {relative_path: git_blob_sha256(commit, relative_path) for relative_path in relative_paths}
 
 
-def migration_checksums(profile: dict[str, Any]) -> dict[str, str]:
+def migration_checksums(profile: dict[str, Any], commit: str | None = None) -> dict[str, str]:
     root = workspace_root()
+    if commit is not None:
+        commit = validate_commit(commit)
+        return {
+            name: hashlib.sha256(
+                subprocess.check_output(
+                    ["git", "show", f"{commit}:backend/migrations/{name}"],
+                    cwd=root,
+                ).decode("utf-8").strip().encode()
+            ).hexdigest()
+            for name in profile["migrations"]
+        }
     return {
         name: hashlib.sha256((root / "backend" / "migrations" / name).read_text(encoding="utf-8").strip().encode()).hexdigest()
         for name in profile["migrations"]
     }
+
+
+def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[str, Any]) -> None:
+    if manifest.get("schema") != 1:
+        raise RuntimeError("manifest schema does not match")
+    commit = validate_commit(str(manifest.get("commit_sha", "")))
+    match = RELEASE_ID.fullmatch(str(manifest.get("release_id", "")))
+    if match is None or match.group(1) != profile["name"] or match.group(2) != commit[:12]:
+        raise RuntimeError("manifest release ID does not match profile and commit")
+    if manifest.get("profile") != profile["name"]:
+        raise RuntimeError("manifest profile does not match")
+    if manifest.get("version") != profile["version"]:
+        raise RuntimeError("manifest version does not match")
+    if manifest.get("origin") != profile["origin"] or manifest.get("vm_identity") != profile["vm_identity"]:
+        raise RuntimeError("manifest origin or VM identity does not match")
+    if manifest.get("migrations") != list(profile["migrations"]):
+        raise RuntimeError("manifest ordered migrations do not match")
+    if manifest.get("migration_sha256") != migration_checksums(profile, commit):
+        raise RuntimeError("manifest migration checksums do not match commit")
+    compatibility_fields = ("compatibility_version", "compatibility_commit", "compatibility_image_id")
+    expected_compatibility = any(field in profile for field in compatibility_fields)
+    present_compatibility = any(field in manifest for field in compatibility_fields)
+    if expected_compatibility != present_compatibility:
+        raise RuntimeError("manifest compatibility identity presence does not match profile")
+    if expected_compatibility:
+        if not all(manifest.get(field) == profile.get(field) for field in compatibility_fields):
+            raise RuntimeError("manifest compatibility identity does not match profile")
+        validate_commit(str(manifest["compatibility_commit"]))
+        validate_image_id(str(manifest["compatibility_image_id"]))
 
 
 def create_manifest(commit: str, profile: dict[str, Any], release_id: str) -> dict[str, Any]:
@@ -98,7 +139,7 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str) -> di
     resolved = subprocess.check_output(["git", "rev-parse", commit], cwd=root, text=True).strip()
     if resolved != commit:
         raise RuntimeError("commit is not available in the local repository")
-    return {
+    manifest = {
         "schema": 1,
         "release_id": release_id,
         "created_at": int(time.time()),
@@ -112,10 +153,15 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str) -> di
         "vm_gate_signer_sha256": sha256_file(deploy_root() / "release" / "sign-gate.sh"),
         "vm_dr_signer_sha256": sha256_file(deploy_root() / "release" / "sign-dr-evidence.sh"),
         "release_asset_sha256": release_asset_checksums(commit),
-        "migration_sha256": migration_checksums(profile),
+        "migration_sha256": migration_checksums(profile, commit),
         "migrations": list(profile["migrations"]),
         "vm_identity": profile["vm_identity"],
     }
+    for key in ("compatibility_version", "compatibility_commit", "compatibility_image_id"):
+        if key in profile:
+            manifest[key] = profile[key]
+    validate_manifest_profile_contract(manifest, profile)
+    return manifest
 
 
 def write_manifest_once(path: Path, manifest: dict[str, Any]) -> None:

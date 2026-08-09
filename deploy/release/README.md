@@ -121,7 +121,15 @@ profile 215 使用版本 `0.1.172-baiyu`，完整继承 profile 213 的 30 项 m
 first-parent 找到本次 upstream merge，再固定使用该 merge 第一父对应的 `0.1.171-baiyu` full-SHA Candidate；该保留镜像缺失或版本不符时 Gate 立即停止，不能退回
 当前 `sub2api-dev` 的任意历史镜像代替。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213 和 215
+profile 232 使用版本 `0.1.173-baiyu`，完整继承 profile 215 的 32 项 migration，并按顺序追加
+`216_channel_monitor_v2.sql` 至 `232_clear_non_grok_video_generation_config.sql`，共 49 项。发布身份显式固定
+`compatibility_version=0.1.172-baiyu`、`compatibility_commit=74e47e67205084750ccd994c331ead328e4ce35b`
+和兼容 image ID，不再通过 first-parent 猜测回滚镜像。Gate 与生产 preflight 独立记录
+`migration_216_status` 至 `migration_232_status`，验证 Channel Monitor V2 的表、主键、约束、索引、权限、
+隐私默认值及媒体价格 schema。迁移 232 必须在停写后生成数据计划，绑定协调恢复点，验证备份表行数/hash、
+Grok/Composite 保护集、媒体鉴权缓存触发器和清理后零残留；回滚必须协调恢复 PostgreSQL、Redis、配置和旧镜像。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215 和 232
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -136,6 +144,7 @@ python deploy/tests/release/backup_dr_profile_210_integration.py
 python deploy/tests/release/backup_dr_profile_212_integration.py
 python deploy/tests/release/backup_dr_profile_213_integration.py
 python deploy/tests/release/backup_dr_profile_215_integration.py
+python deploy/tests/release/backup_dr_profile_232_integration.py
 ```
 
 首次安装信任根使用：

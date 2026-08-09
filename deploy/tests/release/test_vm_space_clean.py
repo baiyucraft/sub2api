@@ -36,6 +36,10 @@ def report(status: str, mode: str = "dry-run") -> Result:
     )
 
 
+def manifest(commit: str = "a" * 40) -> dict[str, object]:
+    return {"commit_sha": commit}
+
+
 class FakeRunner:
     def __init__(self, results: list[Result]):
         self.results = results
@@ -49,14 +53,14 @@ class FakeRunner:
 class VMSpaceCleanTest(unittest.TestCase):
     def test_sufficient_space_only_runs_dry_run(self) -> None:
         runner = FakeRunner([report("sufficient")])
-        ensure_vm_space(runner, "/tmp/vm-space-clean.sh", "a" * 40)
+        ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
         self.assertEqual(len(runner.calls), 1)
         self.assertIn(" dry-run ", runner.calls[0][1])
         self.assertEqual(runner.calls[0][2], SPACE_FIELDS)
 
     def test_insufficient_space_applies_once_then_rechecks_once(self) -> None:
         runner = FakeRunner([report("insufficient"), report("insufficient", "apply"), report("sufficient")])
-        ensure_vm_space(runner, "/tmp/vm-space-clean.sh", "a" * 40)
+        ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
         self.assertEqual(len(runner.calls), 3)
         self.assertIn(" dry-run ", runner.calls[0][1])
         self.assertIn(" apply ", runner.calls[1][1])
@@ -65,8 +69,26 @@ class VMSpaceCleanTest(unittest.TestCase):
     def test_cleanup_does_not_loop_when_space_remains_insufficient(self) -> None:
         runner = FakeRunner([report("insufficient"), report("insufficient", "apply"), report("insufficient")])
         with self.assertRaisesRegex(RuntimeError, "remains insufficient"):
-            ensure_vm_space(runner, "/tmp/vm-space-clean.sh", "a" * 40)
+            ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
         self.assertEqual(len(runner.calls), 3)
+
+    def test_profile_232_passes_explicit_compatibility_identity(self) -> None:
+        runner = FakeRunner([report("sufficient")])
+        document = manifest()
+        document.update(
+            compatibility_version="0.1.172-baiyu",
+            compatibility_commit="b" * 40,
+            compatibility_image_id="sha256:" + "c" * 64,
+        )
+        ensure_vm_space(runner, "/tmp/vm-space-clean.sh", document)
+        command = runner.calls[0][1]
+        self.assertIn("0.1.172-baiyu", command)
+        self.assertIn("b" * 40, command)
+        self.assertIn("sha256:" + "c" * 64, command)
+
+    def test_incomplete_compatibility_identity_is_rejected(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "compatibility identity is incomplete"):
+            ensure_vm_space(FakeRunner([]), "/tmp/vm-space-clean.sh", {**manifest(), "compatibility_version": "0.1.172-baiyu"})
 
     def test_shell_limits_destructive_operations_to_allowlist(self) -> None:
         script = (DEPLOY_ROOT / "release" / "vm-space-clean.sh").read_text(encoding="utf-8")

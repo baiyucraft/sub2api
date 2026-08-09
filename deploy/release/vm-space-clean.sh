@@ -3,8 +3,14 @@ set -Eeuo pipefail
 
 mode=${1:?cleanup mode is required}
 target_commit=${2:?target commit is required}
+compat_version=${3:-}
+explicit_compat_commit=${4:-}
+explicit_compat_image_id=${5:-}
 [[ $mode == dry-run || $mode == apply ]]
 [[ $target_commit =~ ^[0-9a-f]{40}$ ]]
+if [[ -n $compat_version || -n $explicit_compat_commit || -n $explicit_compat_image_id ]]; then
+  [[ -n $compat_version && $explicit_compat_commit =~ ^[0-9a-f]{40}$ && $explicit_compat_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
+fi
 
 required_commands=(awk cut df docker flock git grep mktemp ps rm sort stat tr wc)
 for command_name in "${required_commands[@]}"; do
@@ -24,12 +30,16 @@ trap cleanup EXIT
 
 source_dir=/opt/sub2api-src
 compat_commit=
-if [[ -d $source_dir && ! -L $source_dir ]]; then
+if [[ -n $explicit_compat_commit ]]; then
+  compat_tag="sub2api:baiyu-$compat_version-$explicit_compat_commit"
+  [[ $(docker image inspect -f '{{.Id}}' "$compat_tag") == "$explicit_compat_image_id" ]]
+  compat_commit=$explicit_compat_commit
+elif [[ -d $source_dir && ! -L $source_dir ]]; then
   if ! git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null; then
     git -C "$source_dir" fetch origin main >/dev/null 2>&1 || true
   fi
 fi
-if [[ -d $source_dir && ! -L $source_dir ]] && git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null; then
+if [[ -z $explicit_compat_commit && -d $source_dir && ! -L $source_dir ]] && git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null; then
   compat_merge_commit=$(git -C "$source_dir" rev-list --first-parent --merges -n 1 "$target_commit" 2>/dev/null || true)
   if [[ $compat_merge_commit =~ ^[0-9a-f]{40}$ ]]; then
     candidate_compat_commit=$(git -C "$source_dir" rev-parse "$compat_merge_commit^1" 2>/dev/null || true)

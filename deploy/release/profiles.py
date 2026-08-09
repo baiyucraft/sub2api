@@ -371,6 +371,35 @@ PROFILES["215"] = {
     ],
 }
 
+PROFILES["232"] = {
+    **PROFILES["215"],
+    "name": "232",
+    "version": "0.1.173-baiyu",
+    "compatibility_version": "0.1.172-baiyu",
+    "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b",
+    "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6",
+    "migrations": [
+        *PROFILES["215"]["migrations"],
+        "216_channel_monitor_v2.sql",
+        "217_channel_monitor_mode.sql",
+        "218_channel_monitor_v2_ignored_error_categories.sql",
+        "219_channel_monitor_v2_seed_popular_models.sql",
+        "220_channel_monitor_v2_health_thresholds.sql",
+        "221_channel_monitor_v2_fixed_rollups.sql",
+        "222_channel_monitor_v2_rollup_permissions.sql",
+        "223_channel_monitor_v2_refresh_5m.sql",
+        "224_channel_monitor_v2_full_table_permissions.sql",
+        "225_channel_monitor_v2_default_ignore_and_cache.sql",
+        "226_channel_monitor_hide_throughput.sql",
+        "227_channel_monitor_v2_reset_factory_cache_thresholds.sql",
+        "228_channel_monitor_v2_privacy_defaults.sql",
+        "229_group_video_model_prices.sql",
+        "230_group_audio_voice_pricing.sql",
+        "231_group_search_price_per_1k.sql",
+        "232_clear_non_grok_video_generation_config.sql",
+    ],
+}
+
 
 def get_profile(name: str) -> dict:
     try:
