@@ -32,7 +32,10 @@ if [[ $video_model_column_exists == t ]]; then
 fi
 live_source_predicate="platform IS DISTINCT FROM 'grok' AND platform IS DISTINCT FROM 'composite' AND (video_price_480p IS NOT NULL OR video_price_720p IS NOT NULL OR video_price_1080p IS NOT NULL${video_model_predicate})"
 source_predicate="$live_source_predicate"
-if [[ $migration_status == verified ]]; then
+# Postflight must validate the immutable backup snapshot even when this run
+# started with migration 232 absent. The live groups rows have already been
+# cleared at that point, so hashing them would only work for a zero-row plan.
+if [[ $migration_status == verified || $phase == postflight ]]; then
   [[ $(query "SELECT to_regclass('public.groups_video_price_backup_232') IS NOT NULL") == t ]]
   source_relation=groups_video_price_backup_232
   source_predicate=true

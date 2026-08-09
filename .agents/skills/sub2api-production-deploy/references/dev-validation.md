@@ -204,6 +204,10 @@ VM Gate 必须使用 profile 中显式保存的 `0.1.172-baiyu` compatibility co
 行数/hash、Grok/Composite 保护 checksum、媒体 auth-cache trigger 与目标配置零残留。任何绑定 checksum
 漂移或兼容镜像不一致都停止，禁止 image-only rollback。
 
+对于迁移 232 这类“备份后清空源字段”的迁移，`absent` 状态完成 SQL 后的 postflight 必须从备份表
+重算计划 hash，不能继续对已经清空的源表计算；否则零行 fixture 会误通过，而真实非零数据必然失败。
+Gate 必须保留至少一个非零受影响行用例来证明备份内容与 preflight 数据计划一致。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：
