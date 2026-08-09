@@ -20,6 +20,16 @@ from release.production import quoted_env
 
 
 class ProductionRecoveryTest(unittest.TestCase):
+    def test_migration_232_postflight_hashes_backup_for_new_migration(self) -> None:
+        assertion = (DEPLOY_ROOT / "maintenance" / "release" / "migration-232-assert.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "if [[ $migration_status == verified || $phase == postflight ]]; then",
+            assertion,
+        )
+        self.assertIn("source_relation=groups_video_price_backup_232", assertion)
+        self.assertIn('[[ $backup_hash == "$expected_plan" ]]', assertion)
+
     def test_progress_output_failure_is_non_fatal(self) -> None:
         with mock.patch("builtins.print", side_effect=BrokenPipeError):
             emit_progress("stage=freeze")
