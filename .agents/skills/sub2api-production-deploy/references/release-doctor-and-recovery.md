@@ -120,6 +120,12 @@ profile 215 使用版本 `0.1.172-baiyu`，在 profile 213 后追加
 上游模型字段和 mismatch partial index 语义，并将完整 32 项 migration map 绑定到 Gate、committed marker
 与 DR evidence。
 
+profile 232 使用版本 `0.1.173-baiyu`，在 profile 215 后追加 216–232，并显式绑定生产兼容版本、commit
+和 image ID。doctor、VM cleaner、旧镜像 smoke、生产 runner 与恢复判断都必须读取这三个字段，禁止
+通过 first-parent 推导。生产停写后执行 migration 232 数据 preflight，数据计划必须绑定同 release 的
+协调恢复点；postflight 必须重新计算绑定 checksum，验证备份表、保护集、媒体鉴权缓存触发器和零残留。
+迁移开始后只能协调恢复 PostgreSQL、Redis、完整 Compose/config 和兼容镜像，禁止单独回退应用镜像。
+
 `migration_started`、迁移容器存在、SSH 超时或调用端断言失败，都不能证明迁移已经提交。只有 committed marker、数据库迁移记录和目标 checksum 三者吻合，才可将迁移判定为已提交。
 
 ## 长时间无输出诊断

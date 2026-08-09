@@ -260,8 +260,8 @@ class ProductionSpaceCleanTest(unittest.TestCase):
     def test_shell_has_narrow_destructive_allowlist(self) -> None:
         script = (DEPLOY_ROOT / "release" / "production-space-clean.sh").read_text(encoding="utf-8")
         prepare = (DEPLOY_ROOT / "maintenance" / "release" / "prepare.sh").read_text(encoding="utf-8")
-        self.assertIn("(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215)", script)
-        self.assertIn("(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215)", RELEASE_ID.pattern)
+        self.assertIn("(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232)", script)
+        self.assertIn("(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232)", RELEASE_ID.pattern)
         self.assertIn("/opt/sub2api/releases/.active-release", script)
         self.assertIn("assert_release_identity", script)
         self.assertIn("assert_release_marker", script)

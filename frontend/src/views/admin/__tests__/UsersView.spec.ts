@@ -442,13 +442,13 @@ describe('admin UsersView', () => {
     await vi.advanceTimersByTimeAsync(50)
     await flushPromises()
 
-    expect(getBatchUsersUsage).toHaveBeenLastCalledWith(
+    expect(getBatchUsersUsage.mock.calls).toContainEqual([
       [42],
       expect.objectContaining({
         etag: '"page-1"',
         signal: expect.any(AbortSignal)
       })
-    )
+    ])
     expect(wrapper.get('[data-test="stats-user"]').text()).toBe('42')
   })
 

@@ -181,6 +181,10 @@ func TestRunCheck_DecryptFailureIsUnknownAndPersisted(t *testing.T) {
 		MaxProbeAttempts: 3,
 	}}
 	svc := NewChannelMonitorService(repo, failingMonitorDecryptor{})
+	svc.SetRuntimeReader(channelMonitorRuntimeStub{rt: ChannelMonitorRuntime{
+		Enabled: true,
+		Mode:    ChannelMonitorModeV1,
+	}})
 
 	results, err := svc.RunCheck(context.Background(), 42)
 	require.NoError(t, err)

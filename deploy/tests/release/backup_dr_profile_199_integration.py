@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -61,6 +60,10 @@ PROFILE_MIGRATIONS = {
         migration: f"{index:064x}"
         for index, migration in enumerate(get_profile("215")["migrations"], start=1)
     },
+    "232": {
+        migration: f"{index:064x}"
+        for index, migration in enumerate(get_profile("232")["migrations"], start=1)
+    },
 }
 
 
@@ -101,9 +104,17 @@ def run(runner: SSHRunner, remote_temps: list[tuple[str, str]], profile: str = "
     migrations = PROFILE_MIGRATIONS[profile]
     migration_json = shlex.quote(json.dumps(migrations, separators=(",", ":"), sort_keys=True))
     release_id = f"{profile}-000000000000-{int(time.time())}-{secrets.token_hex(4)}"
-    now = datetime.now(timezone.utc)
-    drill_id = f"dr-{profile}-" + now.strftime("%Y%m%dT%H%M%SZ")
-    observed_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    vm_clock = runner.run(
+        "local_vm",
+        f"""
+now_epoch=$(date -u +%s)
+printf 'drill_id=dr-{profile}-%s\\n' "$(date -u -d "@$now_epoch" +%Y%m%dT%H%M%SZ)"
+printf 'observed_at=%s\\n' "$(date -u -d "@$now_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+""",
+        {"drill_id", "observed_at"},
+    ).values
+    drill_id = vm_clock["drill_id"]
+    observed_at = vm_clock["observed_at"]
 
     vm_temp = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "promotion-evidence")
     remote_temps.append(("local_vm", vm_temp))
@@ -211,7 +222,7 @@ printf 'migration_sha256=%s\n' "$migration_sha"
     verifier_sha = sha256_file(files["verifier"])
     promoter_sha = sha256_file(files["promoter"])
     trust_sha = sha256_file(files["trust.pub"])
-    compact_time = now.strftime("%Y%m%dT%H%M%SZ")
+    compact_time = drill_id.rsplit("-", 1)[1]
     result = runner.run(
         "backup",
         rf'''

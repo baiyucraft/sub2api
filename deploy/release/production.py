@@ -89,6 +89,23 @@ class ProductionRelease:
         self.migration_212_status: str | None = None
         self.migration_214_status: str | None = None
         self.migration_215_status: str | None = None
+        self.migration_216_status: str | None = None
+        self.migration_217_status: str | None = None
+        self.migration_218_status: str | None = None
+        self.migration_219_status: str | None = None
+        self.migration_220_status: str | None = None
+        self.migration_221_status: str | None = None
+        self.migration_222_status: str | None = None
+        self.migration_223_status: str | None = None
+        self.migration_224_status: str | None = None
+        self.migration_225_status: str | None = None
+        self.migration_226_status: str | None = None
+        self.migration_227_status: str | None = None
+        self.migration_228_status: str | None = None
+        self.migration_229_status: str | None = None
+        self.migration_230_status: str | None = None
+        self.migration_231_status: str | None = None
+        self.migration_232_status: str | None = None
         self.result_path = gate_dir / "production-result.json"
         self.result: dict[str, object] = {"release_id": self.release_id, "status": "running", "stage": "init", "history": []}
         self._save_result()
@@ -195,6 +212,23 @@ class ProductionRelease:
                 "migration_212_status",
                 "migration_214_status",
                 "migration_215_status",
+                "migration_216_status",
+                "migration_217_status",
+                "migration_218_status",
+                "migration_219_status",
+                "migration_220_status",
+                "migration_221_status",
+                "migration_222_status",
+                "migration_223_status",
+                "migration_224_status",
+                "migration_225_status",
+                "migration_226_status",
+                "migration_227_status",
+                "migration_228_status",
+                "migration_229_status",
+                "migration_230_status",
+                "migration_231_status",
+                "migration_232_status",
             },
         )
         self.migration_status = values["migration_status"]
@@ -216,6 +250,23 @@ class ProductionRelease:
         self.migration_212_status = values["migration_212_status"]
         self.migration_214_status = values["migration_214_status"]
         self.migration_215_status = values["migration_215_status"]
+        self.migration_216_status = values["migration_216_status"]
+        self.migration_217_status = values["migration_217_status"]
+        self.migration_218_status = values["migration_218_status"]
+        self.migration_219_status = values["migration_219_status"]
+        self.migration_220_status = values["migration_220_status"]
+        self.migration_221_status = values["migration_221_status"]
+        self.migration_222_status = values["migration_222_status"]
+        self.migration_223_status = values["migration_223_status"]
+        self.migration_224_status = values["migration_224_status"]
+        self.migration_225_status = values["migration_225_status"]
+        self.migration_226_status = values["migration_226_status"]
+        self.migration_227_status = values["migration_227_status"]
+        self.migration_228_status = values["migration_228_status"]
+        self.migration_229_status = values["migration_229_status"]
+        self.migration_230_status = values["migration_230_status"]
+        self.migration_231_status = values["migration_231_status"]
+        self.migration_232_status = values["migration_232_status"]
         self.stage("production_preflight_verified", values)
 
     def run_route_canary(
@@ -372,7 +423,7 @@ class ProductionRelease:
         self.stage("backup_verified", {**values, **promoted})
 
     def migration_preflight(self) -> None:
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}:
             return
         self.stage("migration_195_preflight")
         if self.migration_195_status not in {"absent", "verified"}:
@@ -388,9 +439,25 @@ class ProductionRelease:
             },
         )
         self.stage("migration_195_preflight_verified", values)
+        if self.profile["name"] == "232":
+            if self.migration_232_status not in {"absent", "verified"}:
+                raise RuntimeError("migration 232 preflight status is unknown")
+            self.stage("migration_232_preflight")
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_232_status})
+            values = self.run_remote(
+                "racknerd",
+                f"{env} {self.active_assets}/migration-232-assert.sh preflight",
+                {
+                    "migration_232_affected",
+                    "migration_232_upstream_bound",
+                    "migration_232_lcodex_bound",
+                    "migration_232_data_plan_sha256",
+                },
+            )
+            self.stage("migration_232_preflight_verified", values)
 
     def bind_migration_plan(self) -> None:
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}:
             return
         self.stage("migration_195_bind_recovery_point")
         env = quoted_env({"RELEASE_DIR": self.release_dir})
@@ -400,6 +467,15 @@ class ProductionRelease:
             {"migration_195_plan_sha256", "migration_195_recovery_sha256"},
         )
         self.stage("migration_195_plan_bound", values)
+        if self.profile["name"] == "232":
+            self.stage("migration_232_bind_recovery_point")
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_232_status})
+            values = self.run_remote(
+                "racknerd",
+                f"{env} {self.active_assets}/migration-232-assert.sh bind",
+                {"migration_232_plan_sha256", "migration_232_recovery_sha256"},
+            )
+            self.stage("migration_232_plan_bound", values)
 
     def switch(self) -> None:
         self.stage("migration_and_switch", timeout=1200)
@@ -409,7 +485,7 @@ class ProductionRelease:
             "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
             "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
         }
-        if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}:
+        if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}:
             allowed.update({
                 "migration_195_affected", "migration_195_unproven",
                 "migration_195_plan_sha256", "migration_195_database_postflight", "migration_195_postflight",
@@ -417,33 +493,44 @@ class ProductionRelease:
                 "migration_195_account_mismatch", "migration_195_snapshot_missing", "migration_195_outbox_missing",
                 "migration_195_constraint_missing", "migration_195_trigger_missing",
             })
-        if getattr(self, "profile", {}).get("name") in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}:
+        if getattr(self, "profile", {}).get("name") in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}:
             allowed.add("managed_monitor_key_names_verified")
-        if getattr(self, "profile", {}).get("name") in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}:
+        if getattr(self, "profile", {}).get("name") in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}:
             allowed.add("reasoning_effort_policy_verified")
-        if getattr(self, "profile", {}).get("name") in {"202", "206", "207", "208", "209", "210", "212", "213", "215"}:
+        if getattr(self, "profile", {}).get("name") in {"202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}:
             allowed.update({
                 "alipay_mobile_precreate_migration_verified",
                 "group_auth_cache_image_generation_verified",
                 "composite_model_routes_verified",
             })
-        if getattr(self, "profile", {}).get("name") in {"206", "207", "208", "209", "210", "212", "213", "215"}:
+        if getattr(self, "profile", {}).get("name") in {"206", "207", "208", "209", "210", "212", "213", "215", "232"}:
             allowed.update({
                 "session_id_columns_verified",
                 "live_request_type_verified",
                 "group_allow_live_verified",
                 "email_alias_index_verified",
             })
-        if getattr(self, "profile", {}).get("name") in {"208", "209", "210", "212", "213", "215"}:
+        if getattr(self, "profile", {}).get("name") in {"208", "209", "210", "212", "213", "215", "232"}:
             allowed.add("passkey_schema_verified")
-        if getattr(self, "profile", {}).get("name") in {"209", "210", "212", "213", "215"}:
+        if getattr(self, "profile", {}).get("name") in {"209", "210", "212", "213", "215", "232"}:
             allowed.add("user_usage_aggregation_schema_verified")
-        if getattr(self, "profile", {}).get("name") in {"212", "213", "215"}:
+        if getattr(self, "profile", {}).get("name") in {"212", "213", "215", "232"}:
             allowed.add("group_profit_control_schema_verified")
             allowed.add("group_profit_auth_cache_trigger_verified")
-        if getattr(self, "profile", {}).get("name") == "215":
+        if getattr(self, "profile", {}).get("name") in {"215", "232"}:
             allowed.add("usage_log_upstream_model_columns_verified")
             allowed.add("usage_log_upstream_model_mismatch_index_verified")
+        if getattr(self, "profile", {}).get("name") == "232":
+            allowed.update({
+                "migration_232_backup_rows",
+                "migration_232_remaining_rows",
+                "migration_232_bound_sha256",
+                "migration_232_postflight",
+                "channel_monitor_v2_schema_verified",
+                "channel_monitor_v2_defaults_verified",
+                "group_media_pricing_schema_verified",
+                "group_media_auth_cache_trigger_verified",
+            })
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/switch.sh",
@@ -573,7 +660,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
                 raise RuntimeError("remote pre-switch recovery state is unknown")
             self.frozen = recovery_needed
         migration_committed = self.migration_started
-        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}:
+        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}:
             migration_committed = self.remote_migration_committed()
             if migration_committed is None:
                 raise RuntimeError("migration 195 committed state is unknown")
@@ -628,7 +715,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         self.stage("recovered", values)
 
     def remote_migration_committed(self) -> bool | None:
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}:
             return self.migration_started
         status_by_migration = {
             "195_upstream_scheduling_monitor_rates.sql": self.migration_195_status,
@@ -649,6 +736,23 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             "212_group_profit_control_auth_cache_invalidation.sql": self.migration_212_status,
             "214_add_usage_log_upstream_response_model.sql": self.migration_214_status,
             "215_add_usage_log_upstream_model_mismatch_index_notx.sql": self.migration_215_status,
+            "216_channel_monitor_v2.sql": self.migration_216_status,
+            "217_channel_monitor_mode.sql": self.migration_217_status,
+            "218_channel_monitor_v2_ignored_error_categories.sql": self.migration_218_status,
+            "219_channel_monitor_v2_seed_popular_models.sql": self.migration_219_status,
+            "220_channel_monitor_v2_health_thresholds.sql": self.migration_220_status,
+            "221_channel_monitor_v2_fixed_rollups.sql": self.migration_221_status,
+            "222_channel_monitor_v2_rollup_permissions.sql": self.migration_222_status,
+            "223_channel_monitor_v2_refresh_5m.sql": self.migration_223_status,
+            "224_channel_monitor_v2_full_table_permissions.sql": self.migration_224_status,
+            "225_channel_monitor_v2_default_ignore_and_cache.sql": self.migration_225_status,
+            "226_channel_monitor_hide_throughput.sql": self.migration_226_status,
+            "227_channel_monitor_v2_reset_factory_cache_thresholds.sql": self.migration_227_status,
+            "228_channel_monitor_v2_privacy_defaults.sql": self.migration_228_status,
+            "229_group_video_model_prices.sql": self.migration_229_status,
+            "230_group_audio_voice_pricing.sql": self.migration_230_status,
+            "231_group_search_price_per_1k.sql": self.migration_231_status,
+            "232_clear_non_grok_video_generation_config.sql": self.migration_232_status,
         }
         pending = [migration for migration in self.manifest["migrations"] if status_by_migration.get(migration) == "absent"]
         pending_words = " ".join(shlex.quote(migration) for migration in pending)

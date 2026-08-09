@@ -196,6 +196,14 @@ profile 215 使用版本 `0.1.172-baiyu`，在 profile 213 的 30 项 migration 
 first-parent 找到当前 upstream merge，再按该 merge 第一父的 full-SHA tag 精确选取，并在新 schema 上通过 health/auth smoke。不得用当前 dev 容器
 碰巧运行的更老镜像代替该回滚目标。
 
+profile 232 使用版本 `0.1.173-baiyu`，在 profile 215 的 32 项 migration 后追加 216–232，共 49 项。
+VM Gate 必须使用 profile 中显式保存的 `0.1.172-baiyu` compatibility commit/image，逐项记录
+`migration_216_status` 至 `migration_232_status`，精确验证 Channel Monitor V2 的关键列、主键、约束、
+16 个命名索引、当前应用角色权限、V1/隐私/5 分钟默认值，以及视频、Search、Voice 价格字段。
+迁移 232 必须覆盖零行、非零行和 verified replay，数据计划与恢复点绑定后再迁移；postflight 验证备份
+行数/hash、Grok/Composite 保护 checksum、媒体 auth-cache trigger 与目标配置零残留。任何绑定 checksum
+漂移或兼容镜像不一致都停止，禁止 image-only rollback。
+
 ## Gate 失败条件
 
 以下任一项失败就停止：
