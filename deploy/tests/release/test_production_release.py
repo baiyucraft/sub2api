@@ -697,8 +697,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         preflight = self.script("preflight.sh")
         switch = self.script("switch.sh")
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215"}', production)
-        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215", switch)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}', production)
+        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232", switch)
         self.assertIn("migration_206_status", production)
         self.assertIn("migration_206_status", preflight)
         self.assertNotIn("migration_207_status", production)
@@ -757,8 +757,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_profile_213_reuses_profile_212_migration_and_schema_evidence(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         switch = self.script("switch.sh")
-        self.assertIn('{"212", "213", "215"}', production)
-        self.assertIn("$profile == 212 || $profile == 213 || $profile == 215", switch)
+        self.assertIn('{"212", "213", "215", "232"}', production)
+        self.assertIn("$profile == 212 || $profile == 213 || $profile == 215 || $profile == 232", switch)
         self.assertNotIn("migration_213_status", production)
         self.assertNotIn("migration_213_status", self.script("preflight.sh"))
 

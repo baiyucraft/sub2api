@@ -108,7 +108,7 @@ printf 'vm_ready=true\nvm_free_bytes=%s\nvm_database_bytes=%s\nvm_release_unit_s
     def check_racknerd(self) -> dict[str, str]:
         profile = self.profile
         trust_sha = sha256_file(TRUSTED_KEY)
-        migration_sha_by_name = migration_checksums(profile)
+        migration_sha_by_name = migration_checksums(profile, self.commit)
         migration_checks = "\n".join(
             f'''migration_row=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='{name}'")
 if [[ -z $migration_row ]]; then production_migration_status=absent; else [[ $migration_row == '{name}|{migration_sha_by_name[name]}' ]]; fi'''
