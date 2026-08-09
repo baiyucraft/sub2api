@@ -30,6 +30,14 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIn("source_relation=groups_video_price_backup_232", assertion)
         self.assertIn('[[ $backup_hash == "$expected_plan" ]]', assertion)
 
+    def test_migration_227_resets_the_version_two_factory_row(self) -> None:
+        migration = (DEPLOY_ROOT.parent / "backend" / "migrations" / "227_channel_monitor_v2_reset_factory_cache_thresholds.sql").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("AND version IN (1, 2)", migration)
+        self.assertNotIn("AND version = 1", migration)
+
     def test_progress_output_failure_is_non_fatal(self) -> None:
         with mock.patch("builtins.print", side_effect=BrokenPipeError):
             emit_progress("stage=freeze")
