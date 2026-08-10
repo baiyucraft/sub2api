@@ -417,6 +417,7 @@ export default {
           lastSampleAt: '最近样本：{time}',
           recovery: '恢复探测：{current} / {required}',
           expiresAt: '无新样本预计过期：{time}',
+          temporarilyExcluded: '当前模型因首 Token 性能保护被临时排除',
           probeHint: '约 5% 的调度机会用于恢复探测；新探测样本会顺延预计过期时间。'
         }
       },

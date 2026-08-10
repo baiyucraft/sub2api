@@ -3,16 +3,52 @@
     <TablePageLayout>
       <template #filters>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
+          <div v-if="props.scope === 'upstream'" class="mb-3 w-full rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-800/60 dark:bg-amber-950/20">
+            <div class="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <div class="text-sm font-semibold text-amber-900 dark:text-amber-100">{{ t('admin.upstreamManagement.ttftGuard.title') }}</div>
+                <div class="mt-1 text-xs text-amber-800/80 dark:text-amber-200/80">{{ t('admin.upstreamManagement.ttftGuard.description') }}</div>
+              </div>
+              <div class="flex flex-wrap items-end gap-3">
+                <label class="flex items-center gap-2 text-sm text-amber-900 dark:text-amber-100">
+                  <Toggle v-model="upstreamTTFTGuard.enabled" :aria-label="t('admin.upstreamManagement.ttftGuard.enabled')" />
+                  {{ t('admin.upstreamManagement.ttftGuard.enabled') }}
+                </label>
+                <label class="flex flex-col gap-1 text-xs text-amber-900 dark:text-amber-100">
+                  {{ t('admin.upstreamManagement.ttftGuard.threshold') }}
+                  <input v-model.number="upstreamTTFTGuard.degradation_ttft_seconds" type="number" min="5" max="300" class="input w-24" />
+                </label>
+                <label class="flex flex-col gap-1 text-xs text-amber-900 dark:text-amber-100">
+                  {{ t('admin.upstreamManagement.ttftGuard.minSamples') }}
+                  <input v-model.number="upstreamTTFTGuard.min_samples" type="number" min="2" max="20" class="input w-20" />
+                </label>
+                <button class="btn btn-primary btn-sm" :disabled="upstreamTTFTGuardSaving || !upstreamTTFTGuardValid" @click="saveUpstreamTTFTGuard">{{ t('common.save') }}</button>
+              </div>
+            </div>
+            <div class="mt-3 flex flex-wrap items-end gap-3 border-t border-amber-200/70 pt-3 dark:border-amber-800/40">
+              <div class="text-xs font-semibold text-amber-900 dark:text-amber-100">{{ t('admin.upstreamManagement.probeModels.title') }}</div>
+              <label v-for="platform in ['openai', 'anthropic', 'gemini']" :key="platform" class="flex items-center gap-2 text-xs text-amber-900 dark:text-amber-100">
+                <span class="capitalize">{{ platform }}</span>
+                <input v-model="upstreamProbeModels[platform]" class="input w-48" />
+              </label>
+              <button class="btn btn-secondary btn-sm" :disabled="upstreamProbeModelsSaving || !upstreamProbeModelsValid" @click="saveUpstreamProbeModels">{{ t('common.save') }}</button>
+            </div>
+          </div>
           <AccountTableFilters
             v-model:searchQuery="params.search"
             :filters="params"
             :groups="groups"
+            :mode="props.scope === 'upstream' ? 'upstream' : 'ordinary'"
+            :upstream-configs="upstreamFilterConfigs"
+            :upstream-keys="upstreamFilterKeys"
+            :upstream-options-loading="upstreamFilterOptionsLoading"
             @update:filters="(newFilters) => Object.assign(params, newFilters)"
             @change="debouncedReload"
             @update:searchQuery="debouncedReload"
           />
           <AccountTableActions
             :loading="loading"
+            :show-create="props.scope !== 'upstream'"
             @refresh="handleManualRefresh"
             @create="showCreate = true"
           >
@@ -88,19 +124,19 @@
                           {{ t('admin.accounts.dataActions') }}
                         </div>
                       </div>
-                      <button class="account-tools-menu-item" @click="openSyncFromCrs">
+                      <button v-if="props.scope !== 'upstream'" class="account-tools-menu-item" @click="openSyncFromCrs">
                         <span class="account-tools-menu-icon bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
                           <Icon name="sync" size="sm" />
                         </span>
                         <span class="flex-1 text-left">{{ t('admin.accounts.syncFromCrs') }}</span>
                       </button>
-                      <button class="account-tools-menu-item" @click="openImportData">
+                      <button v-if="props.scope !== 'upstream'" class="account-tools-menu-item" @click="openImportData">
                         <span class="account-tools-menu-icon bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
                           <Icon name="upload" size="sm" />
                         </span>
                         <span class="flex-1 text-left">{{ t('admin.accounts.dataImport') }}</span>
                       </button>
-                      <button class="account-tools-menu-item" @click="openExportDataDialogFromMenu">
+                      <button v-if="props.scope !== 'upstream'" class="account-tools-menu-item" @click="openExportDataDialogFromMenu">
                         <span class="account-tools-menu-icon bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
                           <Icon name="download" size="sm" />
                         </span>
@@ -113,6 +149,12 @@
                         >
                           {{ t('admin.accounts.selectedCount', { count: selIds.length }) }}
                         </span>
+                      </button>
+                      <button v-else class="account-tools-menu-item" :disabled="exportingData" @click="handleExportUpstreamStatus">
+                        <span class="account-tools-menu-icon bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
+                          <Icon name="download" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">{{ t('admin.upstreamManagement.export.action') }}</span>
                       </button>
 
                       <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
@@ -181,6 +223,9 @@
           :total-results="pagination.total"
           :selecting-all="selectingAllResults"
           :all-results-selected="allResultsSelected"
+          :show-delete="props.scope !== 'upstream'"
+          :show-refresh-token="props.scope !== 'upstream'"
+          :show-billing-probe="props.scope !== 'upstream'"
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
@@ -283,6 +328,32 @@
                 <span>{{ getOpenAICompactMeta(row)?.label }}</span>
               </div>
             </div>
+          </template>
+          <template #cell-upstream_source="{ row }">
+            <div class="flex min-w-[190px] flex-col gap-1 text-xs">
+              <div class="font-medium text-gray-700 dark:text-gray-200">
+                {{ row.upstream_config_name || `${t('admin.upstreamManagement.columns.config')} #${row.upstream_config_id ?? '-'}` }}
+              </div>
+              <a
+                v-if="row.upstream_site_url"
+                :href="row.upstream_site_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="max-w-[220px] truncate text-primary-600 hover:underline dark:text-primary-400"
+                :title="row.upstream_site_url"
+              >{{ row.upstream_site_url }}</a>
+              <div class="font-mono text-[11px] text-gray-500 dark:text-dark-400">
+                {{ row.upstream_key_name || `${t('admin.upstreamManagement.columns.key')} #${row.upstream_key_id ?? '-'}` }}
+                <span v-if="row.upstream_key_masked"> · {{ row.upstream_key_masked }}</span>
+              </div>
+            </div>
+          </template>
+          <template #cell-model_mapping="{ row }">
+            <div v-if="modelMappingEntries(row).length" class="flex max-w-[260px] flex-col gap-1 text-[11px]">
+              <div v-for="entry in modelMappingEntries(row).slice(0, 4)" :key="entry" class="truncate font-mono text-gray-600 dark:text-dark-300" :title="entry">{{ entry }}</div>
+              <div v-if="modelMappingEntries(row).length > 4" class="text-gray-400 dark:text-dark-500">+{{ modelMappingEntries(row).length - 4 }}</div>
+            </div>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-capacity="{ row }">
             <AccountCapacityCell :account="row" />
@@ -459,11 +530,40 @@
           </template>
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
-              <button @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400">
+              <button
+                v-if="props.scope === 'upstream' && row.upstream_key_id && canUseAccountAction(row, 'probe_key')"
+                :disabled="probingKeyIDs.has(row.upstream_key_id)"
+                @click="handleProbeUpstreamKey(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-amber-600 transition-colors hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                :title="t('admin.upstreamManagement.actions.probe')"
+              >
+                <Icon name="play" size="sm" />
+                <span class="text-xs">{{ t('admin.upstreamManagement.actions.probe') }}</span>
+              </button>
+              <button
+                v-if="props.scope === 'upstream' && row.upstream_key_id && canUseAccountAction(row, 'toggle_observation')"
+                :disabled="togglingObservationKeyIDs.has(row.upstream_key_id)"
+                @click="handleToggleUpstreamObservation(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-sky-600 transition-colors hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-900/20"
+                :title="t('admin.upstreamManagement.actions.observation')"
+              >
+                <Icon name="eye" size="sm" />
+                <span class="text-xs">{{ t('admin.upstreamManagement.actions.observation') }}</span>
+              </button>
+              <button
+                v-if="props.scope === 'upstream' && row.upstream_key_id && canUseAccountAction(row, 'events')"
+                @click="openUpstreamKeyEvents(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white"
+                :title="t('admin.upstreamManagement.actions.events')"
+              >
+                <Icon name="menu" size="sm" />
+                <span class="text-xs">{{ t('admin.upstreamManagement.actions.events') }}</span>
+              </button>
+              <button v-if="canUseAccountAction(row, 'edit')" @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                 <span class="text-xs">{{ t('common.edit') }}</span>
               </button>
-              <button @click="handleDelete(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400">
+              <button v-if="props.scope !== 'upstream'" @click="handleDelete(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                 <span class="text-xs">{{ t('common.delete') }}</span>
               </button>
@@ -479,7 +579,7 @@
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
-    <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
+    <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" :mode="props.scope === 'upstream' ? 'upstream' : 'ordinary'" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
@@ -495,6 +595,7 @@
       :target="bulkEditTarget ?? undefined"
       :proxies="proxies"
       :groups="groups"
+      :mode="props.scope === 'upstream' ? 'upstream' : 'ordinary'"
       @close="showBulkEdit = false"
       @updated="handleBulkUpdated"
     />
@@ -510,6 +611,12 @@
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
+    <UpstreamKeyEventsDialog
+      :show="showUpstreamKeyEvents"
+      :key-id="upstreamKeyEventsAccount?.upstream_key_id ?? null"
+      :key-label="upstreamKeyEventsAccount?.name"
+      @close="closeUpstreamKeyEvents"
+    />
   </AppLayout>
 </template>
 
@@ -520,6 +627,8 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import upstreamManagementAPI, { type TTFTGuardSettings } from '@/api/admin/upstreamManagement'
+import type { UpstreamConfig, UpstreamKey } from '@/api/admin/upstreamConfigs'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
@@ -531,6 +640,7 @@ import DataTable from '@/components/common/DataTable.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import UpstreamKeyEventsDialog from '@/components/admin/account/UpstreamKeyEventsDialog.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
@@ -556,18 +666,51 @@ import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRules
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { buildTTFTGuardDegradationKey, mergeRuntimeFields } from '@/utils/accountRuntimeState'
+import { buildTTFTGuardDegradationKey, buildUpstreamHealthKey, mergeRuntimeFields } from '@/utils/accountRuntimeState'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
+import { escapeCsvCell } from '@/utils/csv'
 import type { Account, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
+
+const props = withDefaults(defineProps<{
+  scope?: 'all' | 'ordinary' | 'upstream'
+}>(), {
+  scope: 'all'
+})
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+
+const upstreamTTFTGuard = reactive<TTFTGuardSettings>({ enabled: false, degradation_ttft_seconds: 20, min_samples: 5 })
+const upstreamTTFTGuardSaving = ref(false)
+const upstreamProbeModels = reactive<Record<string, string>>({ openai: '', anthropic: '', gemini: '' })
+const upstreamProbeModelsSaving = ref(false)
+const upstreamFilterConfigs = ref<UpstreamConfig[]>([])
+const upstreamFilterKeys = ref<UpstreamKey[]>([])
+const upstreamFilterOptionsLoading = ref(false)
+const upstreamTTFTGuardValid = computed(() =>
+  Number.isFinite(Number(upstreamTTFTGuard.degradation_ttft_seconds)) &&
+  upstreamTTFTGuard.degradation_ttft_seconds >= 5 &&
+  upstreamTTFTGuard.degradation_ttft_seconds <= 300 &&
+  Number.isInteger(Number(upstreamTTFTGuard.min_samples)) &&
+  upstreamTTFTGuard.min_samples >= 2 &&
+  upstreamTTFTGuard.min_samples <= 20
+)
+const upstreamProbeModelsValid = computed(() =>
+  ['openai', 'anthropic', 'gemini'].every((platform) => {
+    const model = upstreamProbeModels[platform]?.trim() || ''
+    return model.length > 0 && model.length <= 255
+  })
+)
+const probingKeyIDs = reactive(new Set<number>())
+const togglingObservationKeyIDs = reactive(new Set<number>())
+const showUpstreamKeyEvents = ref(false)
+const upstreamKeyEventsAccount = ref<Account | null>(null)
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
@@ -668,7 +811,7 @@ const accountToolsDropdownStyle = computed(() => ({
 }))
 const hiddenColumns = reactive<Set<string>>(new Set())
 const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'quality_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
-const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
+const HIDDEN_COLUMNS_KEY = props.scope === 'upstream' ? 'upstream-account-hidden-columns' : 'account-hidden-columns'
 // One-time migration: keep newly expensive statistics opt-in for existing admins too.
 const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
 const HIDDEN_COLUMNS_CURRENT_VERSION = 'quality-stats-merged-v3'
@@ -1096,6 +1239,11 @@ const loadSavedColumns = () => {
       })
       localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
     }
+    if (props.scope === 'upstream') {
+      hiddenColumns.delete('quality_stats')
+      hiddenColumns.delete('priority')
+      hiddenColumns.delete('rate_multiplier')
+    }
   } catch (e) {
     console.error('Failed to load saved columns:', e)
     DEFAULT_HIDDEN_COLUMNS.forEach(key => {
@@ -1207,6 +1355,44 @@ const syncAccountListDerivedParams = () => {
   requestParams.include_scheduler_score = shouldIncludeSchedulerScore() ? '1' : '0'
 }
 
+const fetchAccounts = (page: number, pageSize: number, filters: Record<string, unknown>) =>
+  props.scope === 'upstream'
+    ? upstreamManagementAPI.listAccounts({ page, page_size: pageSize, ...filters })
+    : adminAPI.accounts.list(page, pageSize, filters as any)
+
+const loadUpstreamFilterKeys = async (configID: unknown) => {
+  const parsed = Number(configID)
+  if (props.scope !== 'upstream' || !Number.isInteger(parsed) || parsed <= 0) {
+    upstreamFilterKeys.value = []
+    return
+  }
+  upstreamFilterKeys.value = await adminAPI.upstreamConfigs.listKeys(parsed)
+}
+
+const loadUpstreamFilterOptions = async () => {
+  if (props.scope !== 'upstream') return
+  upstreamFilterOptionsLoading.value = true
+  try {
+    const configs: UpstreamConfig[] = []
+    let page = 1
+    while (true) {
+      const result = await adminAPI.upstreamConfigs.list(page, 100)
+      configs.push(...result.items)
+      if (configs.length >= result.total || result.items.length === 0) break
+      page += 1
+    }
+    upstreamFilterConfigs.value = configs
+    await loadUpstreamFilterKeys(params.upstream_config_id)
+  } catch (error) {
+    console.error('Failed to load upstream filter options:', error)
+    upstreamFilterConfigs.value = []
+    upstreamFilterKeys.value = []
+    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.filters.loadFailed')))
+  } finally {
+    upstreamFilterOptionsLoading.value = false
+  }
+}
+
 const {
   items: accounts,
   loading,
@@ -1218,17 +1404,20 @@ const {
   handlePageChange: baseHandlePageChange,
   handlePageSizeChange: baseHandlePageSizeChange
 } = useTableLoader<Account, any>({
-  fetchFn: adminAPI.accounts.list,
+  fetchFn: fetchAccounts,
   initialParams: {
     platform: '',
     type: '',
     status: '',
     privacy_mode: '',
+    upstream_config_id: '',
+    upstream_key_id: '',
     group: '',
     search: '',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
-    sort_order: sortState.sort_order
+    sort_order: sortState.sort_order,
+    ...(props.scope !== 'all' ? { scope: props.scope } : {})
   }
 })
 
@@ -1281,6 +1470,30 @@ const clearSelection = () => {
   selectedAllResultIDs.value = null
   clearSelectedIds()
 }
+
+watch(() => props.scope, (scope, previousScope) => {
+  if (scope === previousScope) return
+  clearSelection()
+  qualityStatsByAccountId.value = {}
+  todayStatsByAccountId.value = {}
+  autoRefreshETag.value = null
+  params.scope = scope === 'all' ? undefined : scope
+  load().catch((error) => console.error('Failed to reload accounts after scope change:', error))
+})
+
+watch(() => params.upstream_config_id, async (configID, previousConfigID) => {
+  if (props.scope !== 'upstream' || configID === previousConfigID) return
+  upstreamFilterOptionsLoading.value = true
+  try {
+    await loadUpstreamFilterKeys(configID)
+  } catch (error) {
+    console.error('Failed to load upstream key filter options:', error)
+    upstreamFilterKeys.value = []
+    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.filters.loadFailed')))
+  } finally {
+    upstreamFilterOptionsLoading.value = false
+  }
+})
 
 const selectPage = () => {
   selectCurrentPage()
@@ -1476,6 +1689,7 @@ const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
     current.overload_until !== next.overload_until ||
     current.temp_unschedulable_until !== next.temp_unschedulable_until ||
     buildTTFTGuardDegradationKey(current) !== buildTTFTGuardDegradationKey(next) ||
+    buildUpstreamHealthKey(current) !== buildUpstreamHealthKey(next) ||
     buildOpenAIUsageRefreshKey(current) !== buildOpenAIUsageRefreshKey(next)
   )
 }
@@ -1523,22 +1737,18 @@ const refreshAccountsIncrementally = async () => {
   syncAccountListDerivedParams()
   autoRefreshFetching.value = true
   try {
-    const result = await adminAPI.accounts.listWithEtag(
-      pagination.page,
-      pagination.page_size,
-      toRaw(params) as {
-        platform?: string
-        type?: string
-        status?: string
-        privacy_mode?: string
-        group?: string
-        search?: string
-        sort_by?: string
-        sort_order?: AccountSortOrder
-
-      },
-      { etag: autoRefreshETag.value }
-    )
+    const filters = toRaw(params) as Record<string, unknown>
+    const result = props.scope === 'upstream'
+      ? await upstreamManagementAPI.listAccountsWithEtag(
+        { page: pagination.page, page_size: pagination.page_size, ...filters },
+        { etag: autoRefreshETag.value }
+      )
+      : await adminAPI.accounts.listWithEtag(
+        pagination.page,
+        pagination.page_size,
+        filters,
+        { etag: autoRefreshETag.value }
+      )
 
     if (result.etag) {
       autoRefreshETag.value = result.etag
@@ -1575,8 +1785,154 @@ const loadUpstreamBillingProbeGlobalState = async () => {
   }
 }
 
+const loadUpstreamManagementSettings = async () => {
+  if (props.scope !== 'upstream') return
+  try {
+    const [ttft, probes] = await Promise.all([upstreamManagementAPI.getTTFTGuard(), upstreamManagementAPI.getProbeModels()])
+    Object.assign(upstreamTTFTGuard, ttft)
+    Object.assign(upstreamProbeModels, probes.models)
+  } catch (error) {
+    console.error('Failed to load upstream management settings:', error)
+  }
+}
+
+const saveUpstreamTTFTGuard = async () => {
+  if (!upstreamTTFTGuardValid.value) {
+    appStore.showError(t('admin.upstreamManagement.ttftGuard.invalid'))
+    return
+  }
+  upstreamTTFTGuardSaving.value = true
+  try {
+    const saved = await upstreamManagementAPI.updateTTFTGuard({ ...upstreamTTFTGuard })
+    Object.assign(upstreamTTFTGuard, saved)
+    appStore.showSuccess(t('admin.upstreamManagement.saved'))
+  } catch (error) {
+    console.error('Failed to save TTFT Guard settings:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.saveFailed')))
+  } finally { upstreamTTFTGuardSaving.value = false }
+}
+
+const saveUpstreamProbeModels = async () => {
+  if (!upstreamProbeModelsValid.value) {
+    appStore.showError(t('admin.upstreamManagement.probeModels.invalid'))
+    return
+  }
+  upstreamProbeModelsSaving.value = true
+  try {
+    const saved = await upstreamManagementAPI.updateProbeModels({ ...upstreamProbeModels })
+    Object.assign(upstreamProbeModels, saved.models)
+    appStore.showSuccess(t('admin.upstreamManagement.saved'))
+  } catch (error) {
+    console.error('Failed to save probe models:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.saveFailed')))
+  } finally { upstreamProbeModelsSaving.value = false }
+}
+
+const replaceUpstreamHealth = (accountID: number, health: Account['upstream_health']) => {
+  const account = accounts.value.find(item => item.id === accountID)
+  if (account) account.upstream_health = health
+}
+
+const handleProbeUpstreamKey = async (account: Account) => {
+  const keyID = account.upstream_key_id
+  if (!keyID) return
+  probingKeyIDs.add(keyID)
+  try {
+    replaceUpstreamHealth(account.id, await upstreamManagementAPI.probeKey(keyID))
+    appStore.showSuccess(t('admin.upstreamManagement.actions.probeRecorded'))
+  } catch (error) {
+    console.error('Failed to probe upstream key:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.actions.probeFailed')))
+  }
+  finally { probingKeyIDs.delete(keyID) }
+}
+
+const handleToggleUpstreamObservation = async (account: Account) => {
+  const keyID = account.upstream_key_id
+  if (!keyID) return
+  togglingObservationKeyIDs.add(keyID)
+  try {
+    const enabled = account.upstream_health?.observation_enabled !== true
+    replaceUpstreamHealth(account.id, await upstreamManagementAPI.setKeyObservation(keyID, enabled))
+  } catch (error) {
+    console.error('Failed to toggle upstream key observation:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.actions.observationFailed')))
+  }
+  finally { togglingObservationKeyIDs.delete(keyID) }
+}
+
+const openUpstreamKeyEvents = (account: Account) => {
+  upstreamKeyEventsAccount.value = account
+  showUpstreamKeyEvents.value = true
+}
+
+const closeUpstreamKeyEvents = () => {
+  showUpstreamKeyEvents.value = false
+  upstreamKeyEventsAccount.value = null
+}
+
+const handleExportUpstreamStatus = async () => {
+  if (exportingData.value) return
+  exportingData.value = true
+  closeAccountToolsDropdown()
+  try {
+    const filters = buildBulkEditFilterSnapshot()
+    const rows: Account[] = []
+    const selectedIDs = new Set(selIds.value)
+    const restrictToSelection = selectedIDs.size > 0
+    let page = 1
+    let visited = 0
+    while (true) {
+      const result = await fetchAccounts(page, 100, filters)
+      visited += result.items.length
+      rows.push(...(restrictToSelection ? result.items.filter(item => selectedIDs.has(item.id)) : result.items))
+      if (visited >= result.total || result.items.length === 0) break
+      page += 1
+    }
+    const header = ['account_id', 'account_name', 'platform', 'upstream_config_id', 'upstream_config_name', 'upstream_key_id', 'upstream_key_name', 'upstream_key_masked', 'upstream_site_url', 'account_status', 'schedulable', 'key_health', 'health_reason', 'last_probe_at', 'last_traffic_status', 'last_evidence_at', 'ttft_degraded_models', 'last_used_at']
+    const lines = rows.map((account) => [
+      account.id,
+      account.name,
+      account.platform,
+      account.upstream_config_id,
+      account.upstream_config_name,
+      account.upstream_key_id,
+      account.upstream_key_name,
+      account.upstream_key_masked,
+      account.upstream_site_url,
+      account.status,
+      account.schedulable,
+      account.upstream_health?.status,
+      account.upstream_health?.reason,
+      account.upstream_health?.last_probe_at,
+      account.upstream_health?.last_traffic_status,
+      account.upstream_health?.last_evidence_at,
+      (account.ttft_guard_degradations || []).map(item => item.model).join('|'),
+      account.last_used_at
+    ].map(escapeCsvCell).join(','))
+    const blob = new Blob([`\uFEFF${header.map(escapeCsvCell).join(',')}\n${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `upstream-status-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`
+    anchor.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    appStore.showSuccess(t('admin.upstreamManagement.export.success'))
+  } catch (error) {
+    console.error('Failed to export upstream status:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.export.failed')))
+  } finally {
+    exportingData.value = false
+  }
+}
+
 const closeAccountToolsDropdown = () => {
   showAccountToolsDropdown.value = false
+}
+
+const canUseAccountAction = (account: Account, action: string) => {
+  const actions = account.available_actions
+  return actions == null || actions.includes(action)
 }
 
 const updateAccountToolsDropdownPosition = () => {
@@ -1784,9 +2140,13 @@ function getAntigravityTierClass(row: any): string {
 const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false },
-    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
+    { key: 'name', label: props.scope === 'upstream' ? t('admin.upstreamManagement.columns.accountKey') : t('admin.accounts.columns.name'), sortable: true },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
+    ...(props.scope === 'upstream' ? [
+      { key: 'upstream_source', label: t('admin.upstreamManagement.columns.upstream'), sortable: false },
+      { key: 'model_mapping', label: t('admin.upstreamManagement.columns.modelMapping'), sortable: false }
+    ] : []),
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
@@ -1811,6 +2171,14 @@ const allColumns = computed(() => {
   )
   return c
 })
+
+const modelMappingEntries = (account: Account): string[] => {
+  const mapping = account.credentials?.model_mapping
+  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) return []
+  return Object.entries(mapping as Record<string, unknown>)
+    .map(([source, target]) => `${source} → ${String(target)}`)
+    .sort((a, b) => a.localeCompare(b))
+}
 
 // Columns that can be toggled (exclude select, name, and actions)
 const toggleableColumns = computed(() =>
@@ -1993,7 +2361,10 @@ const normalizeBulkSchedulableResult = (
 const handleBulkToggleSchedulable = async (schedulable: boolean) => {
   const accountIds = [...selIds.value]
   try {
-    const result = await adminAPI.accounts.bulkUpdate(accountIds, { schedulable })
+    const result = await adminAPI.accounts.bulkUpdate(accountIds, {
+      schedulable,
+      ...(props.scope !== 'all' ? { filters: { scope: props.scope } } : {})
+    })
     const { successIds, failedIds, successCount, failedCount, hasIds, hasCounts } = normalizeBulkSchedulableResult(result, accountIds)
     if (!hasIds && !hasCounts) {
       appStore.showError(t('admin.accounts.bulkSchedulableResultUnknown'))
@@ -2037,8 +2408,11 @@ const buildBulkEditFilterSnapshot = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
+    upstream_config_id: typeof rawParams.upstream_config_id === 'string' ? rawParams.upstream_config_id : '',
+    upstream_key_id: typeof rawParams.upstream_key_id === 'string' ? rawParams.upstream_key_id : '',
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
-    sort_order: sortOrder
+    sort_order: sortOrder,
+    ...(props.scope !== 'all' ? { scope: props.scope } : {})
   }
 }
 
@@ -2050,7 +2424,7 @@ const handleSelectAllResults = async () => {
   selectingAllResults.value = true
   try {
     const ids = await fetchAllAccountIds(
-      (page, pageSize, requestFilters) => adminAPI.accounts.list(page, pageSize, requestFilters),
+      (page, pageSize, requestFilters) => fetchAccounts(page, pageSize, requestFilters),
       filters
     )
     if (requestVersion !== selectionRequestVersion.value) return
@@ -2086,7 +2460,7 @@ const openBulkEditSelected = () => {
 
 const openBulkEditFiltered = async () => {
   const filters = buildBulkEditFilterSnapshot()
-  const preview = await adminAPI.accounts.list(1, 100, filters)
+  const preview = await fetchAccounts(1, 100, filters)
   let { selectedPlatforms, selectedTypes } = collectSelectionMetadata(preview.items)
   if (preview.total > preview.items.length) {
     selectedPlatforms = filters.platform ? [filters.platform as AccountPlatform] : []
@@ -2508,6 +2882,7 @@ onMounted(async () => {
 
   load()
   loadUpstreamBillingProbeGlobalState()
+  loadUpstreamManagementSettings()
   try {
     const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])
     proxies.value = p
@@ -2515,6 +2890,7 @@ onMounted(async () => {
   } catch (error) {
     console.error('Failed to load proxies/groups:', error)
   }
+  await loadUpstreamFilterOptions()
   window.addEventListener('scroll', handleScroll, true)
   window.addEventListener('resize', handleViewportResize)
   document.addEventListener('click', handleClickOutside)

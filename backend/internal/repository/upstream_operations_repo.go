@@ -207,6 +207,35 @@ func (r *upstreamConfigRepository) ListUpstreamEvents(ctx context.Context, confi
 	return out, int64(total), nil
 }
 
+func (r *upstreamConfigRepository) ListUpstreamEventsByKeyID(ctx context.Context, configID, keyID int64, limit, offset int) ([]service.UpstreamEvent, int64, error) {
+	query := r.client.UpstreamEvent.Query().Where(dbupstreamevent.UpstreamKeyIDEQ(keyID))
+	if configID > 0 {
+		query = query.Where(dbupstreamevent.UpstreamConfigIDEQ(configID))
+	}
+	total, err := query.Clone().Count(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	rows, err := query.
+		Order(dbent.Desc(dbupstreamevent.FieldOccurredAt), dbent.Desc(dbupstreamevent.FieldID)).
+		Offset(offset).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]service.UpstreamEvent, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, service.UpstreamEvent{
+			ID: row.ID, ConfigID: row.UpstreamConfigID, KeyID: row.UpstreamKeyID,
+			AccountID: row.AccountID, RunID: row.SyncRunID, Type: row.EventType,
+			Severity: row.Severity, Message: valueOrEmpty(row.Message), Payload: row.Payload,
+			CreatedAt: row.OccurredAt,
+		})
+	}
+	return out, int64(total), nil
+}
+
 func (r *upstreamConfigRepository) ListUpstreamIncidents(ctx context.Context, configID int64, status string, limit, offset int) ([]service.UpstreamIncident, int64, error) {
 	query := r.client.UpstreamIncident.Query()
 	if configID > 0 {

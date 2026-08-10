@@ -1112,8 +1112,20 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "")
 }
 
-func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string) *dbent.AccountQuery {
+func (r *accountRepository) accountListFilteredQuery(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, scope service.AccountListScope) *dbent.AccountQuery {
 	q := r.client.Account.Query()
+	if scope == service.AccountListScopeOrdinary {
+		q = q.Where(dbaccount.UpstreamKeyIDIsNil())
+	} else if scope == service.AccountListScopeUpstream {
+		q = q.Where(dbaccount.UpstreamKeyIDNotNil())
+		upstreamIDs := service.AccountListUpstreamIDsFromContext(ctx)
+		if upstreamIDs.ConfigID != nil && *upstreamIDs.ConfigID > 0 {
+			q = q.Where(dbaccount.UpstreamConfigIDEQ(*upstreamIDs.ConfigID))
+		}
+		if upstreamIDs.KeyID != nil && *upstreamIDs.KeyID > 0 {
+			q = q.Where(dbaccount.UpstreamKeyIDEQ(*upstreamIDs.KeyID))
+		}
+	}
 
 	if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))
@@ -1209,7 +1221,11 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 }
 
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
-	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode)
+	return r.ListWithFiltersScoped(ctx, params, platform, accountType, status, search, groupID, privacyMode, service.AccountListScopeAll)
+}
+
+func (r *accountRepository) ListWithFiltersScoped(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, scope service.AccountListScope) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.accountListFilteredQuery(ctx, platform, accountType, status, search, groupID, privacyMode, scope)
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
 	// subsequent list query. Same pattern used in group_repo/promo_code_repo/user_repo
@@ -1239,11 +1255,23 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 }
 
 func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
-	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).All(ctx)
+	return r.ListAllWithFiltersScoped(ctx, platform, accountType, status, search, groupID, privacyMode, service.AccountListScopeAll)
+}
+
+func (r *accountRepository) ListAllWithFiltersScoped(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, scope service.AccountListScope) ([]service.Account, error) {
+	accounts, err := r.accountListFilteredQuery(ctx, platform, accountType, status, search, groupID, privacyMode, scope).All(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return r.accountsToService(ctx, accounts)
+}
+
+func (r *accountRepository) ListByUpstreamKeyID(ctx context.Context, keyID int64) ([]service.Account, error) {
+	rows, err := r.client.Account.Query().Where(dbaccount.UpstreamKeyIDEQ(keyID)).Order(dbent.Asc(dbaccount.FieldID)).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.accountsToService(ctx, rows)
 }
 
 func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platformFilter string, groupIDFilter *int64) ([]service.Account, error) {
@@ -3467,7 +3495,9 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 			out.Proxy = nil
 			if cfg, ok := upstreamConfigs[*out.UpstreamConfigID]; ok && cfg != nil {
 				siteURL := cfg.SiteURL
+				configName := cfg.Name
 				out.UpstreamSiteURL = &siteURL
+				out.UpstreamConfigName = &configName
 				if out.Credentials == nil {
 					out.Credentials = map[string]any{}
 				}
@@ -3498,6 +3528,10 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 				if out.Credentials == nil {
 					out.Credentials = map[string]any{}
 				}
+				keyName := key.Name
+				maskedKey := maskUpstreamKeyForAdmin(key.Key)
+				out.UpstreamKeyName = &keyName
+				out.UpstreamKeyMasked = &maskedKey
 				out.Credentials["api_key"] = key.Key
 			}
 		}
@@ -3521,6 +3555,17 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	}
 
 	return outAccounts, nil
+}
+
+func maskUpstreamKeyForAdmin(key string) string {
+	key = strings.TrimSpace(key)
+	if len(key) <= 4 {
+		return "***"
+	}
+	if len(key) <= 12 {
+		return key[:4] + "***"
+	}
+	return key[:6] + "..." + key[len(key)-4:]
 }
 
 func tempUnschedulablePredicate() dbpredicate.Account {

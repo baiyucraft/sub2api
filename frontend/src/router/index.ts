@@ -516,6 +516,7 @@ const routes: RouteRecordRaw[] = [
     path: '/admin/accounts',
     name: 'AdminAccounts',
     component: () => import('@/views/admin/AccountsView.vue'),
+    props: { scope: 'ordinary' },
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
@@ -534,6 +535,19 @@ const routes: RouteRecordRaw[] = [
       title: 'Upstream Configs',
       titleKey: 'admin.upstreamConfigs.title',
       descriptionKey: 'admin.upstreamConfigs.description'
+    }
+  },
+  {
+    path: '/admin/upstream-management',
+    name: 'AdminUpstreamManagement',
+    component: () => import('@/views/admin/AccountsView.vue'),
+    props: { scope: 'upstream' },
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Upstream Management',
+      titleKey: 'admin.upstreamManagement.title',
+      descriptionKey: 'admin.upstreamManagement.description'
     }
   },
   {

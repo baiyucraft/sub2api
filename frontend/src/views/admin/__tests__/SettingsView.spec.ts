@@ -1897,7 +1897,7 @@ describe("admin SettingsView platform quota matrix", () => {
   });
 });
 
-describe("admin SettingsView OpenAI TTFT Guard", () => {
+describe("admin SettingsView legacy OpenAI TTFT Guard compatibility", () => {
   beforeEach(() => {
     getSettings.mockReset();
     updateSettings.mockReset();
@@ -1921,12 +1921,6 @@ describe("admin SettingsView OpenAI TTFT Guard", () => {
     getSettings.mockResolvedValue({ ...baseSettingsResponse });
     getWebSearchEmulationConfig.mockResolvedValue({ enabled: false, providers: [] });
     getAdminApiKey.mockResolvedValue({ exists: false, masked_key: "" });
-    getOpenAITTFTGuardSettings.mockResolvedValue({
-      enabled: true,
-      degradation_ttft_seconds: 35,
-      min_samples: 8,
-    });
-    updateOpenAITTFTGuardSettings.mockImplementation(async (payload) => payload);
     getOverloadCooldownSettings.mockResolvedValue({ enabled: true, cooldown_minutes: 10 });
     getRateLimit429CooldownSettings.mockResolvedValue({ enabled: true, cooldown_seconds: 5 });
     getStreamTimeoutSettings.mockResolvedValue({});
@@ -1938,64 +1932,21 @@ describe("admin SettingsView OpenAI TTFT Guard", () => {
     getProviders.mockResolvedValue({ data: [] });
   });
 
-  it("loads, renders before 529, and saves the dedicated guard settings", async () => {
+  it("does not render or load the legacy guard card", async () => {
     const wrapper = mountView();
     await flushPromises();
     await openGatewayTab(wrapper);
 
-    expect(getOpenAITTFTGuardSettings).toHaveBeenCalledTimes(1);
-    const guardCard = wrapper.get('[data-testid="openai-ttft-guard-settings"]');
-    const tips = guardCard.get('[data-testid="openai-ttft-guard-tips"]');
-    expect(tips.findAll("li")).toHaveLength(3);
-    const cards = wrapper.findAll(".card");
-    const guardIndex = cards.findIndex((card) =>
-      card.attributes("data-testid") === "openai-ttft-guard-settings",
-    );
-    const overloadIndex = cards.findIndex((card) =>
-      card.text().includes("admin.settings.overloadCooldown.title"),
-    );
-    expect(guardIndex).toBeGreaterThanOrEqual(0);
-    expect(overloadIndex).toBeGreaterThan(guardIndex);
-
-    const threshold = guardCard.get<HTMLInputElement>(
-      '[data-testid="openai-ttft-guard-threshold"]',
-    );
-    const minSamples = guardCard.get<HTMLInputElement>(
-      '[data-testid="openai-ttft-guard-min-samples"]',
-    );
-    expect(threshold.element.value).toBe("35");
-    expect(minSamples.element.value).toBe("8");
-
-    await threshold.setValue("45");
-    await minSamples.setValue("10");
-    await guardCard.get('[data-testid="openai-ttft-guard-save"]').trigger("click");
-    await flushPromises();
-
-    expect(updateOpenAITTFTGuardSettings).toHaveBeenCalledWith({
-      enabled: true,
-      degradation_ttft_seconds: 45,
-      min_samples: 10,
-    });
-    expect(showSuccess).toHaveBeenCalledWith(
-      "admin.settings.openaiTTFTGuard.saved",
-    );
+    expect(getOpenAITTFTGuardSettings).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="openai-ttft-guard-settings"]').exists()).toBe(false);
   });
 
-  it("does not submit values outside the supported ranges", async () => {
+  it("keeps the legacy update function unused by this page", async () => {
     const wrapper = mountView();
     await flushPromises();
     await openGatewayTab(wrapper);
 
-    const guardCard = wrapper.get('[data-testid="openai-ttft-guard-settings"]');
-    await guardCard
-      .get('[data-testid="openai-ttft-guard-threshold"]')
-      .setValue("4");
-
-    const saveButton = guardCard.get<HTMLButtonElement>(
-      '[data-testid="openai-ttft-guard-save"]',
-    );
-    expect(saveButton.element.disabled).toBe(true);
-    await saveButton.trigger("click");
+    expect(wrapper.find('[data-testid="openai-ttft-guard-save"]').exists()).toBe(false);
     expect(updateOpenAITTFTGuardSettings).not.toHaveBeenCalled();
   });
 });

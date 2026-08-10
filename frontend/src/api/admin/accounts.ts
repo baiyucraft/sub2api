@@ -49,6 +49,7 @@ export async function list(
     include_scheduler_score?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
+    scope?: 'ordinary' | 'upstream'
   },
   options?: {
     signal?: AbortSignal
@@ -85,6 +86,7 @@ export async function listWithEtag(
     include_scheduler_score?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
+    scope?: 'ordinary' | 'upstream'
   },
   options?: {
     signal?: AbortSignal
@@ -671,6 +673,7 @@ export async function exportData(options?: {
     search?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
+    scope?: 'ordinary' | 'upstream'
   }
   includeProxies?: boolean
 }): Promise<AdminDataPayload> {
@@ -678,7 +681,7 @@ export async function exportData(options?: {
   if (options?.ids && options.ids.length > 0) {
     params.ids = options.ids.join(',')
   } else if (options?.filters) {
-    const { platform, type, status, group, privacy_mode, search, sort_by, sort_order } = options.filters
+    const { platform, type, status, group, privacy_mode, search, sort_by, sort_order, scope } = options.filters
     if (platform) params.platform = platform
     if (type) params.type = type
     if (status) params.status = status
@@ -687,6 +690,7 @@ export async function exportData(options?: {
     if (search) params.search = search
     if (sort_by) params.sort_by = sort_by
     if (sort_order) params.sort_order = sort_order
+    if (scope) params.scope = scope
   }
   if (options?.includeProxies === false) {
     params.include_proxies = 'false'

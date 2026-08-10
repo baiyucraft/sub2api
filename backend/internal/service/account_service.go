@@ -18,6 +18,21 @@ var (
 const AccountListGroupUngrouped int64 = -1
 const AccountPrivacyModeUnsetFilter = "__unset__"
 
+// AccountListScope controls the administrative account list boundary. The
+// ordinary and upstream pages are intentionally mutually exclusive so that
+// upstream-bound accounts cannot leak into the generic account management UI.
+type AccountListScope string
+
+const (
+	AccountListScopeAll      AccountListScope = ""
+	AccountListScopeOrdinary AccountListScope = "ordinary"
+	AccountListScopeUpstream AccountListScope = "upstream"
+)
+
+func (s AccountListScope) Valid() bool {
+	return s == AccountListScopeAll || s == AccountListScopeOrdinary || s == AccountListScopeUpstream
+}
+
 // OAuthRefreshPageOptions describes one bounded, cursor-stable scan of OAuth
 // accounts. Candidate platforms are supplied by TokenRefreshService's refresher
 // registry so repository eligibility cannot drift from registered providers.
@@ -123,6 +138,15 @@ type AccountRepository interface {
 	// ListShadowsByParent 返回指定父账号的影子账号；当前实现仅查 quota_dimension='spark'（唯一预设）。
 	// ⚠️ 新增影子维度时：须更新此函数（或新增维度专用列举），并检查所有调用点（级联删除/一母一影校验/type 守卫），否则会静默漏掉新维度。
 	ListShadowsByParent(ctx context.Context, parentID int64) ([]*Account, error)
+}
+
+// ScopedAccountLister is an optional extension used by the admin account
+// views. Keeping it separate from AccountRepository preserves the existing
+// repository contract and makes the upstream management page easy to carry
+// across future upstream merges.
+type ScopedAccountLister interface {
+	ListWithFiltersScoped(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, scope AccountListScope) ([]Account, *pagination.PaginationResult, error)
+	ListAllWithFiltersScoped(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, scope AccountListScope) ([]Account, error)
 }
 
 type AccountDuplicateRepository interface {

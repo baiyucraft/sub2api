@@ -502,6 +502,8 @@ const (
 	SettingKeyOpenAIFastPolicySettings = "openai_fast_policy_settings"
 	// SettingKeyOpenAITTFTGuardSettings stores the dynamic OpenAI TTFT degradation guard config.
 	SettingKeyOpenAITTFTGuardSettings = "openai_ttft_guard_settings"
+	// SettingKeyUpstreamProbeModels stores provider-specific models used by key health probes.
+	SettingKeyUpstreamProbeModels = "upstream_probe_models"
 
 	// =========================
 	// Claude Code Version Check

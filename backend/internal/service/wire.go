@@ -247,6 +247,30 @@ func ProvideAccountTestService(
 	return service
 }
 
+func ProvideUpstreamConfigService(
+	repo UpstreamConfigRepository,
+	proxyRepo ProxyRepository,
+	accountRepo AccountRepository,
+	accountTestService *AccountTestService,
+	settingService *SettingService,
+) *UpstreamConfigService {
+	service := NewUpstreamConfigService(repo, proxyRepo, accountRepo)
+	service.SetHealthProbeDependencies(accountTestService, settingService)
+	SetGlobalUpstreamHealthEvidenceRecorder(service)
+	return service
+}
+
+func ProvideUpstreamHealthProbeRunner(service *UpstreamConfigService) *UpstreamHealthProbeRunner {
+	runner := NewUpstreamHealthProbeRunner(
+		service,
+		defaultUpstreamHealthProbeInterval,
+		defaultUpstreamHealthProbeBudget,
+		defaultUpstreamHealthProbeConcurrency,
+	)
+	runner.Start(context.Background())
+	return runner
+}
+
 func ProvideGrokQuotaService(
 	accountRepo AccountRepository,
 	proxyRepo ProxyRepository,
@@ -859,7 +883,8 @@ var ProviderSet = wire.NewSet(
 	NewTotpService,
 	NewErrorPassthroughService,
 	NewTLSFingerprintProfileService,
-	NewUpstreamConfigService,
+	ProvideUpstreamConfigService,
+	ProvideUpstreamHealthProbeRunner,
 	NewDigestSessionStore,
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,

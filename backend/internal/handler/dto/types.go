@@ -209,6 +209,9 @@ type Account struct {
 	UpstreamConfigID          *int64                         `json:"upstream_config_id,omitempty"`
 	UpstreamKeyID             *int64                         `json:"upstream_key_id,omitempty"`
 	UpstreamSiteURL           *string                        `json:"upstream_site_url,omitempty"`
+	UpstreamConfigName        *string                        `json:"upstream_config_name,omitempty"`
+	UpstreamKeyName           *string                        `json:"upstream_key_name,omitempty"`
+	UpstreamKeyMasked         *string                        `json:"upstream_key_masked,omitempty"`
 	UpstreamSchedulingEnabled *bool                          `json:"upstream_scheduling_enabled,omitempty"`
 	Concurrency               int                            `json:"concurrency"`
 	LoadFactor                *int                           `json:"load_factor,omitempty"`

@@ -177,6 +177,7 @@ export default {
     subscriptions: '订阅管理',
     accounts: '账号管理',
     upstreamConfigs: '上游配置',
+    upstreamManagement: '上游管理',
     proxies: 'IP管理',
     redeemCodes: '兑换码',
     ops: '运维监控',

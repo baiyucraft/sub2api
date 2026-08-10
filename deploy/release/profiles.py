@@ -400,6 +400,20 @@ PROFILES["232"] = {
     ],
 }
 
+# Profile 233 carries the account/upstream-key uniqueness migration while
+# retaining the profile-232 compatibility identity.  The latter intentionally
+# points at the last known deployed image; 232 and 233 are released as one
+# candidate line and must both support old-image validation against that base.
+PROFILES["233"] = {
+    **PROFILES["232"],
+    "name": "233",
+    "version": "0.1.174-baiyu",
+    "migrations": [
+        *PROFILES["232"]["migrations"],
+        "233_upstream_account_key_unique.sql",
+    ],
+}
+
 
 def get_profile(name: str) -> dict:
     try:

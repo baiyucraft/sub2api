@@ -10,6 +10,7 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 )
 
 const (
@@ -200,6 +201,13 @@ type UpstreamOperationsRepository interface {
 	CleanupUpstreamOperationHistory(ctx context.Context, now time.Time) error
 }
 
+// upstreamKeyEventsRepository is intentionally narrower than
+// UpstreamOperationsRepository so focused service fakes and older forks do not
+// need to implement the key-scoped query until they expose the management UI.
+type upstreamKeyEventsRepository interface {
+	ListUpstreamEventsByKeyID(ctx context.Context, configID, keyID int64, limit, offset int) ([]UpstreamEvent, int64, error)
+}
+
 func (s *UpstreamConfigService) operationsRepo() (UpstreamOperationsRepository, error) {
 	repo, ok := s.repo.(UpstreamOperationsRepository)
 	if !ok {
@@ -261,14 +269,42 @@ func (s *UpstreamConfigService) ListEvents(ctx context.Context, configID int64, 
 	return projectUpstreamEvents(items), total, nil
 }
 
+// ListKeyEvents performs filtering before pagination. Filtering a config-level
+// page in memory can omit older events for a busy key and returns an incorrect
+// total, so upstream management must use this key-scoped method.
+func (s *UpstreamConfigService) ListKeyEvents(ctx context.Context, configID, keyID int64, limit, offset int) ([]UpstreamEvent, int64, error) {
+	if keyID <= 0 {
+		return nil, 0, infraerrors.BadRequest("UPSTREAM_KEY_ID_INVALID", "upstream key id is invalid")
+	}
+	repo, ok := s.repo.(upstreamKeyEventsRepository)
+	if !ok {
+		return nil, 0, infraerrors.ServiceUnavailable("UPSTREAM_KEY_EVENTS_UNAVAILABLE", "upstream key events are unavailable")
+	}
+	items, total, err := repo.ListUpstreamEventsByKeyID(ctx, configID, keyID, boundedLimit(limit), upstreamMaxInt(offset, 0))
+	if err != nil {
+		return nil, 0, err
+	}
+	return projectUpstreamEvents(items), total, nil
+}
+
 func projectUpstreamEvents(events []UpstreamEvent) []UpstreamEvent {
 	projected := make([]UpstreamEvent, len(events))
 	for i := range events {
 		projected[i] = events[i]
-		if !isKeyRateEvent(events[i].Type) {
+		projected[i].Message = logredact.RedactText(
+			events[i].Message,
+			"api_key", "apikey", "key", "secret", "token", "jwt", "authorization",
+			"credential", "credentials", "cookie", "session", "request_body", "response_body",
+		)
+		if isKeyRateEvent(events[i].Type) {
+			projected[i].Payload = projectKeyRateEventPayload(events[i].Payload)
 			continue
 		}
-		projected[i].Payload = projectKeyRateEventPayload(events[i].Payload)
+		projected[i].Payload = logredact.RedactMap(
+			events[i].Payload,
+			"api_key", "apikey", "key", "secret", "token", "jwt", "authorization",
+			"credential", "credentials", "cookie", "session", "request_body", "response_body",
+		)
 	}
 	return projected
 }

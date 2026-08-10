@@ -186,6 +186,7 @@ export default {
           lastSampleAt: 'Latest sample: {time}',
           recovery: 'Recovery probes: {current} / {required}',
           expiresAt: 'Expected expiry without new samples: {time}',
+          temporarilyExcluded: 'This model is temporarily excluded by first-token performance protection',
           probeHint: 'About 5% of scheduling opportunities are used for recovery probes; a new probe sample extends the expected expiry time.'
         }
       },

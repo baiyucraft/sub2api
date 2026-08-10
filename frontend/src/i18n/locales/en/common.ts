@@ -177,6 +177,7 @@ export default {
     subscriptions: 'Subscriptions',
     accounts: 'Accounts',
     upstreamConfigs: 'Upstream Configs',
+    upstreamManagement: 'Upstream Management',
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',

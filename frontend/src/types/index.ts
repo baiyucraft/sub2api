@@ -1130,6 +1130,10 @@ export interface Account {
   upstream_config_id?: number | null
   upstream_key_id?: number | null
   upstream_site_url?: string | null
+  upstream_config_name?: string | null
+  upstream_key_name?: string | null
+  upstream_key_masked?: string | null
+  available_actions?: string[]
   upstream_scheduling_enabled?: boolean | null
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
@@ -1165,6 +1169,20 @@ export interface Account {
   temp_unschedulable_reason: string | null
   /** Runtime TTFT Guard state, scoped to account + canonical mapped model. */
   ttft_guard_degradations?: AccountTTFTGuardDegradation[]
+  upstream_health?: {
+    key_id: number
+    status: 'healthy' | 'degraded' | 'suspended' | 'observing' | 'recovering' | 'disabled'
+    observation_enabled: boolean
+    reason?: string
+    last_probe_at?: string
+    last_probe_status?: string
+    last_evidence_at?: string
+    last_traffic_status?: string
+    consecutive_failures: number
+    recovery_samples?: number
+    recovery_samples_required?: number
+    updated_at: string
+  }
 
   // Session window fields (5-hour window)
   session_window_start: string | null
@@ -1271,6 +1289,9 @@ export interface WindowStats {
 export interface AccountQualityWindow {
   sample_count: number
   first_token_sample_count: number
+  successful_request_count: number
+  failed_request_count: number
+  success_rate: number | null
   average_first_token_ms: number | null
   average_duration_ms: number | null
   quality_score: number | null

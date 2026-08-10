@@ -357,6 +357,49 @@ func TestOpenAIGatewayService_TTFTGuardDoesNotMutateCallerExclusions(t *testing.
 	}
 }
 
+func TestOpenAIGatewayService_UpstreamHealthExclusionAndFailOpen(t *testing.T) {
+	ctx := context.Background()
+	configID := int64(93000)
+	slowKeyID, healthyKeyID := int64(93001), int64(93002)
+	registry := GlobalUpstreamHealthRegistry()
+	registry.Hydrate(UpstreamHealthSnapshot{KeyID: slowKeyID, Status: UpstreamHealthSuspended, ObservationEnabled: true})
+	registry.Hydrate(UpstreamHealthSnapshot{KeyID: healthyKeyID, Status: UpstreamHealthHealthy, ObservationEnabled: true})
+	t.Cleanup(func() {
+		registry.Hydrate(UpstreamHealthSnapshot{KeyID: slowKeyID, Status: UpstreamHealthHealthy, ObservationEnabled: true})
+		registry.Hydrate(UpstreamHealthSnapshot{KeyID: healthyKeyID, Status: UpstreamHealthHealthy, ObservationEnabled: true})
+	})
+
+	accounts := []Account{
+		{ID: 31, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, UpstreamConfigID: &configID, UpstreamKeyID: &slowKeyID},
+		{ID: 32, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &healthyKeyID},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:                 schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                         &config.Config{},
+		rateLimitService:            newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService:          NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		openaiTTFTGuardUpstreamOnly: true,
+	}
+
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, nil, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(32), selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+
+	callerExcluded := map[int64]struct{}{32: {}}
+	selection, _, err = svc.SelectAccountWithScheduler(ctx, nil, "", "", "gpt-test", callerExcluded, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(31), selection.Account.ID, "health fail-open must retain caller exclusions")
+	require.Equal(t, map[int64]struct{}{32: {}}, callerExcluded)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
 func TestOpenAIGatewayService_TTFTGuardPreservesStickyBinding(t *testing.T) {
 	for _, advanced := range []bool{false, true} {
 		t.Run(map[bool]string{false: "legacy", true: "advanced"}[advanced], func(t *testing.T) {
@@ -409,6 +452,35 @@ func TestOpenAIGatewayService_TTFTGuardReportsWhenAdvancedSchedulerDisabled(t *t
 	critical := 60_000
 	svc.ReportOpenAIAccountScheduleResult(31, "gpt-test", true, &critical)
 	require.True(t, svc.getOpenAITTFTGuard().isDegraded(31, "gpt-test"))
+}
+
+func TestOpenAIGatewayService_TTFTGuardUpstreamOnlyUsesSchedulerEligibility(t *testing.T) {
+	ctx := context.Background()
+	configID, keyID := int64(71), int64(72)
+	upstream := Account{
+		ID: 61, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
+		Concurrency: 1, Priority: 1, UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
+	}
+	ordinary := Account{ID: 62, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2}
+	svc := &OpenAIGatewayService{
+		accountRepo:                 schedulerTestOpenAIAccountRepo{accounts: []Account{upstream, ordinary}},
+		cfg:                         &config.Config{},
+		rateLimitService:            newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService:          NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		openaiTTFTGuardUpstreamOnly: true,
+	}
+	svc.SetOpenAITTFTGuardConfigProvider(openAITTFTGuardConfigProviderFunc(func() OpenAITTFTGuardConfigSnapshot {
+		return enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	}))
+
+	_, _, err := svc.SelectAccountWithScheduler(ctx, nil, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	critical := 60_000
+	svc.ReportOpenAIAccountScheduleResult(upstream.ID, "gpt-test", true, &critical)
+	svc.ReportOpenAIAccountScheduleResult(ordinary.ID, "gpt-test", true, &critical)
+
+	require.True(t, svc.getOpenAITTFTGuard().isDegraded(upstream.ID, "gpt-test"))
+	require.False(t, svc.getOpenAITTFTGuard().isDegraded(ordinary.ID, "gpt-test"))
 }
 
 func TestOpenAIGatewayService_TTFTGuardMovablePreviousResponseStillApplies(t *testing.T) {

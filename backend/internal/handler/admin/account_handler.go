@@ -190,6 +190,7 @@ type BulkUpdateAccountFilters struct {
 	Group       string `json:"group"`
 	Search      string `json:"search"`
 	PrivacyMode string `json:"privacy_mode"`
+	Scope       string `json:"scope"`
 }
 
 // CheckMixedChannelRequest represents check mixed channel risk request
@@ -206,6 +207,8 @@ type AccountWithConcurrency struct {
 	SchedulerScore        *AccountSchedulerScore               `json:"scheduler_score,omitempty"`
 	SchedulerScores       []AccountSchedulerGroupScore         `json:"scheduler_scores,omitempty"`
 	TTFTGuardDegradations []service.OpenAITTFTGuardDegradation `json:"ttft_guard_degradations,omitempty"`
+	UpstreamHealth        *service.UpstreamHealthSnapshot      `json:"upstream_health,omitempty"`
+	AvailableActions      []string                             `json:"available_actions,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
@@ -244,7 +247,14 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	if account == nil {
 		return item
 	}
-	if h.ttftGuardReader != nil && account.Platform == service.PlatformOpenAI {
+	if account.UpstreamKeyID != nil {
+		health := service.GlobalUpstreamHealthRegistry().Snapshot(*account.UpstreamKeyID)
+		item.UpstreamHealth = &health
+	}
+	if account.IsUpstreamBound() {
+		item.AvailableActions = upstreamAccountAvailableActions(account)
+	}
+	if h.ttftGuardReader != nil && account.Platform == service.PlatformOpenAI && account.IsUpstreamBound() {
 		item.TTFTGuardDegradations = h.ttftGuardReader.OpenAITTFTGuardDegradations([]int64{account.ID})[account.ID]
 	}
 
@@ -283,6 +293,20 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	h.enrichShadowParents(ctx, []AccountWithConcurrency{item})
 
 	return item
+}
+
+func upstreamAccountAvailableActions(account *service.Account) []string {
+	if account == nil || !account.IsUpstreamBound() {
+		return nil
+	}
+	actions := []string{
+		"edit", "test", "stats", "schedule", "toggle_schedulable", "recover_state",
+		"probe_key", "toggle_observation", "events",
+	}
+	if account.HasAnyQuotaLimit() {
+		actions = append(actions, "reset_quota")
+	}
+	return actions
 }
 
 // scoreOpenAIAccountSchedulerPool 对池内 OpenAI 账号计算调度分数快照。
@@ -438,7 +462,7 @@ func (h *AccountHandler) buildOpenAIAccountSchedulerScores(
 	groupScoresByAccount := make(map[int64][]AccountSchedulerGroupScore)
 	scoreGroupPool := func(groupID *int64, groupNameByID map[int64]string, groupPriorityByAccount map[int64]int, pool []service.Account) {
 		if len(pool) == 0 {
-		return
+			return
 		}
 		scores := h.scoreOpenAIAccountSchedulerPool(ctx, pool, loadMap)
 		for accountID, schedulerScore := range scores {
@@ -511,6 +535,21 @@ func (h *AccountHandler) listAccountSchedulerScoreFilterPool(
 	return accounts
 }
 
+type scopedAccountLister interface {
+	ListAccountsScoped(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, scope service.AccountListScope) ([]service.Account, int64, error)
+}
+
+func (h *AccountHandler) listAccountsScoped(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, sortBy, sortOrder string, scope service.AccountListScope) ([]service.Account, int64, error) {
+	if scope == service.AccountListScopeAll {
+		return h.adminService.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+	}
+	lister, ok := h.adminService.(scopedAccountLister)
+	if !ok {
+		return nil, 0, fmt.Errorf("scoped account listing is not supported")
+	}
+	return lister.ListAccountsScoped(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope)
+}
+
 // List handles listing all accounts with pagination
 // GET /api/v1/admin/accounts
 func (h *AccountHandler) List(c *gin.Context) {
@@ -530,6 +569,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	lite := parseBoolQueryWithDefault(c.Query("lite"), false)
 	// 调度分需要跨候选池批量打分并读取负载，默认列表不计算；只有前端列可见时才显式开启。
 	includeSchedulerScore := parseBoolQueryWithDefault(c.Query("include_scheduler_score"), false)
+	scope := service.AccountListScope(strings.TrimSpace(c.Query("scope")))
+	if !scope.Valid() {
+		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_ACCOUNT_SCOPE", "invalid account list scope"))
+		return
+	}
 
 	var groupID int64
 	if groupIDStr := c.Query("group"); groupIDStr != "" {
@@ -549,7 +593,32 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+	listCtx := c.Request.Context()
+	if scope == service.AccountListScopeUpstream {
+		var upstreamIDs service.AccountListUpstreamIDs
+		parseUpstreamID := func(name string) (*int64, bool) {
+			raw := strings.TrimSpace(c.Query(name))
+			if raw == "" {
+				return nil, true
+			}
+			id, parseErr := strconv.ParseInt(raw, 10, 64)
+			if parseErr != nil || id <= 0 {
+				response.ErrorFrom(c, infraerrors.BadRequest("INVALID_UPSTREAM_FILTER", "invalid upstream management filter"))
+				return nil, false
+			}
+			return &id, true
+		}
+		var ok bool
+		if upstreamIDs.ConfigID, ok = parseUpstreamID("upstream_config_id"); !ok {
+			return
+		}
+		if upstreamIDs.KeyID, ok = parseUpstreamID("upstream_key_id"); !ok {
+			return
+		}
+		listCtx = service.WithAccountListUpstreamIDs(listCtx, upstreamIDs)
+	}
+
+	accounts, total, err := h.listAccountsScoped(listCtx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -582,7 +651,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	pageHasOpenAIAccounts := false
 	ttftGuardAccountIDs := make([]int64, 0, len(accounts))
 	for i := range accounts {
-		if accounts[i].Platform == service.PlatformOpenAI {
+		if accounts[i].Platform == service.PlatformOpenAI && (scope == service.AccountListScopeAll || accounts[i].IsUpstreamBound()) {
 			pageHasOpenAIAccounts = true
 			ttftGuardAccountIDs = append(ttftGuardAccountIDs, accounts[i].ID)
 		}
@@ -672,7 +741,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	for i := range accounts {
 		acc := &accounts[i]
 		var accountTTFTGuardDegradations []service.OpenAITTFTGuardDegradation
-		if acc.Platform == service.PlatformOpenAI {
+		if acc.Platform == service.PlatformOpenAI && (scope == service.AccountListScopeAll || acc.IsUpstreamBound()) {
 			accountTTFTGuardDegradations = ttftGuardDegradations[acc.ID]
 		}
 		item := AccountWithConcurrency{
@@ -681,6 +750,13 @@ func (h *AccountHandler) List(c *gin.Context) {
 			SchedulerScore:        schedulerScores[acc.ID],
 			SchedulerScores:       schedulerGroupScores[acc.ID],
 			TTFTGuardDegradations: accountTTFTGuardDegradations,
+		}
+		if scope == service.AccountListScopeUpstream {
+			item.AvailableActions = upstreamAccountAvailableActions(acc)
+		}
+		if acc.UpstreamKeyID != nil {
+			health := service.GlobalUpstreamHealthRegistry().Snapshot(*acc.UpstreamKeyID)
+			item.UpstreamHealth = &health
 		}
 
 		// 添加窗口费用（仅当启用时）
@@ -709,7 +785,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 
 	h.enrichShadowParents(c.Request.Context(), result)
 
-	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, lite)
+	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, lite, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"))
 	if etag != "" {
 		c.Header("ETag", etag)
 		c.Header("Vary", "If-None-Match")
@@ -728,27 +804,45 @@ func buildAccountsListETag(
 	page, pageSize int,
 	platform, accountType, status, search string,
 	lite bool,
+	scopesAndFilters ...any,
 ) string {
+	var scope service.AccountListScope
+	upstreamConfigID, upstreamKeyID := "", ""
+	if len(scopesAndFilters) > 0 {
+		scope, _ = scopesAndFilters[0].(service.AccountListScope)
+	}
+	if len(scopesAndFilters) > 1 {
+		upstreamConfigID, _ = scopesAndFilters[1].(string)
+	}
+	if len(scopesAndFilters) > 2 {
+		upstreamKeyID, _ = scopesAndFilters[2].(string)
+	}
 	payload := struct {
-		Total       int64                    `json:"total"`
-		Page        int                      `json:"page"`
-		PageSize    int                      `json:"page_size"`
-		Platform    string                   `json:"platform"`
-		AccountType string                   `json:"type"`
-		Status      string                   `json:"status"`
-		Search      string                   `json:"search"`
-		Lite        bool                     `json:"lite"`
-		Items       []AccountWithConcurrency `json:"items"`
+		Total            int64                    `json:"total"`
+		Page             int                      `json:"page"`
+		PageSize         int                      `json:"page_size"`
+		Platform         string                   `json:"platform"`
+		AccountType      string                   `json:"type"`
+		Status           string                   `json:"status"`
+		Search           string                   `json:"search"`
+		Lite             bool                     `json:"lite"`
+		Scope            service.AccountListScope `json:"scope"`
+		UpstreamConfigID string                   `json:"upstream_config_id"`
+		UpstreamKeyID    string                   `json:"upstream_key_id"`
+		Items            []AccountWithConcurrency `json:"items"`
 	}{
-		Total:       total,
-		Page:        page,
-		PageSize:    pageSize,
-		Platform:    platform,
-		AccountType: accountType,
-		Status:      status,
-		Search:      search,
-		Lite:        lite,
-		Items:       items,
+		Total:            total,
+		Page:             page,
+		PageSize:         pageSize,
+		Platform:         platform,
+		AccountType:      accountType,
+		Status:           status,
+		Search:           search,
+		Lite:             lite,
+		Scope:            scope,
+		UpstreamConfigID: upstreamConfigID,
+		UpstreamKeyID:    upstreamKeyID,
+		Items:            items,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -2195,6 +2289,7 @@ func toServiceBulkUpdateAccountFilters(filters *BulkUpdateAccountFilters) *servi
 		Group:       filters.Group,
 		Search:      filters.Search,
 		PrivacyMode: filters.PrivacyMode,
+		Scope:       service.AccountListScope(strings.TrimSpace(filters.Scope)),
 	}
 }
 

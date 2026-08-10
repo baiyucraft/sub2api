@@ -204,7 +204,8 @@
         <!-- Tab: Gateway -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
           <!-- OpenAI TTFT Guard Settings -->
-          <div class="card" data-testid="openai-ttft-guard-settings">
+          <!-- TTFT Guard is configured in 上游管理; the legacy card remains only as a compatibility stub. -->
+          <div v-if="false" class="card" data-testid="openai-ttft-guard-settings">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
@@ -11817,19 +11818,7 @@ async function saveUpstreamBillingProbeSettings() {
   }
 }
 
-// OpenAI TTFT Guard 方法
-async function loadOpenAITTFTGuardSettings() {
-  openaiTTFTGuardLoading.value = true;
-  try {
-    const settings = await adminAPI.settings.getOpenAITTFTGuardSettings();
-    Object.assign(openaiTTFTGuardForm, settings);
-  } catch (_error: unknown) {
-    // Silent fail - settings will use defaults
-  } finally {
-    openaiTTFTGuardLoading.value = false;
-  }
-}
-
+// OpenAI TTFT Guard 的旧保存方法保留兼容代码路径；新页面入口在上游管理页。
 async function saveOpenAITTFTGuardSettings() {
   if (!openaiTTFTGuardFormValid.value) {
     appStore.showError(t("admin.settings.openaiTTFTGuard.invalid"));
@@ -12622,7 +12611,6 @@ onMounted(() => {
   loadSubscriptionGroups();
   loadAdminApiKey();
   loadUpstreamBillingProbeSettings();
-  loadOpenAITTFTGuardSettings();
   loadOllamaCloudUsageSettings();
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();

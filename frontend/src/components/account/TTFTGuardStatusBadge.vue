@@ -45,6 +45,7 @@
           }) }}
         </div>
         <div>{{ t('admin.accounts.status.ttftGuard.expiresAt', { time: formatDateTime(degradation.expires_at) }) }}</div>
+        <div class="mt-1 font-medium text-amber-200">{{ t('admin.accounts.status.ttftGuard.temporarilyExcluded') }}</div>
         <div class="mt-1 text-gray-300">{{ t('admin.accounts.status.ttftGuard.probeHint') }}</div>
       </HelpTooltip>
     </div>

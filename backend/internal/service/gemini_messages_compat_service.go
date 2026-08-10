@@ -103,7 +103,7 @@ func (s *GeminiMessagesCompatService) SelectAccountForModel(ctx context.Context,
 	return s.SelectAccountForModelWithExclusions(ctx, groupID, sessionHash, requestedModel, nil)
 }
 
-func (s *GeminiMessagesCompatService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+func (s *GeminiMessagesCompatService) selectAccountForModelWithExclusionsCore(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
 	// 1. 确定目标平台和调度模式
 	// Determine target platform and scheduling mode
 	platform, useMixedScheduling, hasForcePlatform, err := s.resolvePlatformAndSchedulingMode(ctx, groupID)
@@ -151,6 +151,62 @@ func (s *GeminiMessagesCompatService) SelectAccountForModelWithExclusions(ctx co
 	}
 
 	return s.hydrateSelectedAccount(ctx, selected)
+}
+
+func (s *GeminiMessagesCompatService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	healthExcluded := s.upstreamHealthExcludedAccountIDs(ctx, groupID)
+	if len(healthExcluded) == 0 {
+		return s.selectAccountForModelWithExclusionsCore(ctx, groupID, sessionHash, requestedModel, excludedIDs)
+	}
+	effective := cloneExcludedAccountIDs(excludedIDs)
+	if effective == nil {
+		effective = make(map[int64]struct{}, len(healthExcluded))
+	}
+	for id := range healthExcluded {
+		effective[id] = struct{}{}
+	}
+	account, err := s.selectAccountForModelWithExclusionsCore(ctx, groupID, sessionHash, requestedModel, effective)
+	if err == nil {
+		return account, nil
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "no available") {
+		return s.selectAccountForModelWithExclusionsCore(ctx, groupID, sessionHash, requestedModel, cloneExcludedAccountIDs(excludedIDs))
+	}
+	return nil, err
+}
+
+func (s *GeminiMessagesCompatService) upstreamHealthExcludedAccountIDs(ctx context.Context, groupID *int64) map[int64]struct{} {
+	if s == nil || s.accountRepo == nil {
+		return nil
+	}
+	healthRegistry := GlobalUpstreamHealthRegistry()
+	if !healthRegistry.HasTemporaryExclusions() {
+		return nil
+	}
+	platform, _, hasForcePlatform, err := s.resolvePlatformAndSchedulingMode(ctx, groupID)
+	if err != nil {
+		return nil
+	}
+	accounts, err := s.listSchedulableAccountsOnce(ctx, groupID, platform, hasForcePlatform)
+	if err != nil || len(accounts) == 0 {
+		return nil
+	}
+	keyIDs := make([]int64, 0, len(accounts))
+	for i := range accounts {
+		if accounts[i].UpstreamKeyID != nil {
+			keyIDs = append(keyIDs, *accounts[i].UpstreamKeyID)
+		}
+	}
+	keyExcluded := healthRegistry.ExcludedKeyIDs(keyIDs)
+	out := make(map[int64]struct{}, len(keyExcluded))
+	for i := range accounts {
+		if accounts[i].UpstreamKeyID != nil {
+			if _, ok := keyExcluded[*accounts[i].UpstreamKeyID]; ok {
+				out[accounts[i].ID] = struct{}{}
+			}
+		}
+	}
+	return out
 }
 
 // resolvePlatformAndSchedulingMode 解析目标平台和调度模式。
@@ -497,6 +553,18 @@ func (s *GeminiMessagesCompatService) HasAntigravityAccounts(ctx context.Context
 // 3) OAuth accounts explicitly marked as ai_studio
 // 4) Any remaining Gemini accounts (fallback)
 func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx context.Context, groupID *int64) (*Account, error) {
+	healthExcluded := s.upstreamHealthExcludedAccountIDs(ctx, groupID)
+	selected, err := s.selectAccountForAIStudioEndpoints(ctx, groupID, healthExcluded)
+	if err == nil && selected != nil {
+		return selected, nil
+	}
+	if len(healthExcluded) > 0 {
+		return s.selectAccountForAIStudioEndpoints(ctx, groupID, nil)
+	}
+	return selected, err
+}
+
+func (s *GeminiMessagesCompatService) selectAccountForAIStudioEndpoints(ctx context.Context, groupID *int64, excludedIDs map[int64]struct{}) (*Account, error) {
 	accounts, err := s.listSchedulableAccountsOnce(ctx, groupID, PlatformGemini, true)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
@@ -536,6 +604,9 @@ func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx cont
 	var selected *Account
 	for i := range accounts {
 		acc := &accounts[i]
+		if _, excluded := excludedIDs[acc.ID]; excluded {
+			continue
+		}
 		if selected == nil {
 			selected = acc
 			continue

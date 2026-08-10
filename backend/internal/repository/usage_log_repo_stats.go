@@ -60,17 +60,19 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 			SELECT
 				%[1]s,
 				COUNT(*) FILTER (WHERE created_at >= $3) AS successful_requests_1h,
+				COUNT(*) AS successful_requests_24h,
 				MAX(created_at) AS last_success_at
 			FROM successful
 			GROUP BY %[1]s
 		), errors AS (
 			SELECT
 				oe.%[1]s,
-				COUNT(DISTINCT COALESCE(NULLIF(oe.request_id, ''), oe.id::text)) AS failed_requests_1h,
+				COUNT(DISTINCT COALESCE(NULLIF(oe.request_id, ''), oe.id::text)) FILTER (WHERE oe.created_at >= $3) AS failed_requests_1h,
+				COUNT(DISTINCT COALESCE(NULLIF(oe.request_id, ''), oe.id::text)) AS failed_requests_24h,
 				MAX(oe.created_at) AS last_error_at
 			FROM ops_error_logs oe
 			WHERE oe.%[1]s = ANY($1)
-				AND oe.created_at >= $3
+				AND oe.created_at >= $2
 				AND oe.created_at < $4
 				AND oe.stream = TRUE
 				AND oe.is_count_tokens = FALSE
@@ -88,6 +90,8 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 			q.recent_duration_avg,
 			COALESCE(a.successful_requests_1h, 0),
 			COALESCE(e.failed_requests_1h, 0),
+			COALESCE(a.successful_requests_24h, 0),
+			COALESCE(e.failed_requests_24h, 0),
 			a.last_success_at,
 			e.last_error_at
 		FROM activity a
@@ -103,7 +107,7 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 	for rows.Next() {
 		var entityID int64
 		var realtimeCount, realtimeFirstCount, recentCount, recentFirstCount int64
-		var successfulRequests1h, failedRequests1h int64
+		var successfulRequests1h, failedRequests1h, successfulRequests24h, failedRequests24h int64
 		var realtimeFirstAvg, realtimeDurationAvg sql.NullFloat64
 		var recentFirstAvg, recentDurationAvg sql.NullFloat64
 		var lastSuccessAt, lastErrorAt sql.NullTime
@@ -119,6 +123,8 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 			&recentDurationAvg,
 			&successfulRequests1h,
 			&failedRequests1h,
+			&successfulRequests24h,
+			&failedRequests24h,
 			&lastSuccessAt,
 			&lastErrorAt,
 		); err != nil {
@@ -126,16 +132,20 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 		}
 		result[entityID] = service.AccountQualitySamples{
 			Recent1h: service.AccountQualityWindow{
-				SampleCount:           realtimeCount,
-				FirstTokenSampleCount: realtimeFirstCount,
-				AverageFirstTokenMs:   nullableFloat64(realtimeFirstAvg),
-				AverageDurationMs:     nullableFloat64(realtimeDurationAvg),
+				SampleCount:            realtimeCount,
+				FirstTokenSampleCount:  realtimeFirstCount,
+				AverageFirstTokenMs:    nullableFloat64(realtimeFirstAvg),
+				AverageDurationMs:      nullableFloat64(realtimeDurationAvg),
+				SuccessfulRequestCount: successfulRequests1h,
+				FailedRequestCount:     failedRequests1h,
 			},
 			Recent24h: service.AccountQualityWindow{
-				SampleCount:           recentCount,
-				FirstTokenSampleCount: recentFirstCount,
-				AverageFirstTokenMs:   nullableFloat64(recentFirstAvg),
-				AverageDurationMs:     nullableFloat64(recentDurationAvg),
+				SampleCount:            recentCount,
+				FirstTokenSampleCount:  recentFirstCount,
+				AverageFirstTokenMs:    nullableFloat64(recentFirstAvg),
+				AverageDurationMs:      nullableFloat64(recentDurationAvg),
+				SuccessfulRequestCount: successfulRequests24h,
+				FailedRequestCount:     failedRequests24h,
 			},
 			SuccessfulRequests1h: successfulRequests1h,
 			FailedRequests1h:     failedRequests1h,

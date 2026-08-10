@@ -345,13 +345,14 @@ function buildUpstreamKey(
   }
 }
 
-function mountModal(account = buildAccount()) {
+function mountModal(account = buildAccount(), extraProps: Record<string, unknown> = {}) {
   return mount(EditAccountModal, {
     props: {
       show: true,
       account,
       proxies: [],
-      groups: []
+      groups: [],
+      ...extraProps
     },
     global: {
       stubs: {
@@ -444,6 +445,47 @@ describe('EditAccountModal', () => {
     expect(wrapper.text()).not.toContain('admin.accounts.billingRateMultiplier')
     expect(upstreamConfigsListMock).toHaveBeenCalledWith(1, 200, { status: 'active' })
     expect(upstreamConfigKeysListMock).toHaveBeenCalledWith(10)
+  })
+
+  it('上游模式只展示允许字段，并以白名单 payload 更新', async () => {
+    authIsSimpleMode.value = false
+    const account = buildUpstreamBoundAccount()
+    account.credentials = {
+      api_key: 'must-not-round-trip',
+      base_url: 'https://upstream.example.com',
+      pool_mode: true,
+      model_mapping: { 'gpt-5.2': 'gpt-5.2' }
+    }
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="proxy-selector"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pool-mode-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="account-scheduling-threshold-section"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('admin.accounts.loadFactor')
+    expect(wrapper.text()).not.toContain('admin.accounts.priority')
+    expect(wrapper.text()).not.toContain('admin.accounts.billingRateMultiplier')
+    expect(wrapper.text()).not.toContain('admin.accounts.expiresAt')
+    expect(wrapper.get('[data-testid="upstream-derived-account-notice"]').exists()).toBe(true)
+    expect(wrapper.find('button.select-trigger').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="upstream-model-mapping-from"]').setValue('gpt-5.2-2025-12-11')
+    await wrapper.get('[data-testid="upstream-model-mapping-to"]').setValue('gpt-5.2-2025-12-11')
+    await wrapper.get('[data-testid="set-shadow-group"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledWith(1, {
+      notes: '',
+      concurrency: 1,
+      status: 'active',
+      group_ids: [7],
+      credentials: {
+        model_mapping: { 'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11' }
+      }
+    })
   })
 
   it('keeps the original stale key selectable state, warns, and saves the existing binding', async () => {

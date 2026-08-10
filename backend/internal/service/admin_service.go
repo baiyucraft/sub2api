@@ -437,6 +437,7 @@ type BulkUpdateAccountFilters struct {
 	Group       string
 	Search      string
 	PrivacyMode string
+	Scope       AccountListScope
 }
 
 // BulkUpdateAccountResult captures the result for a single account update.

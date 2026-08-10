@@ -117,6 +117,11 @@ const scoreLabel = (window: AccountQualityWindow): string => {
   return `${window.quality_grade || '-'} ${window.quality_score}`
 }
 
+const successRateLabel = (window: AccountQualityWindow): string => {
+  if (window.success_rate == null || !Number.isFinite(window.success_rate)) return '-'
+  return `${Math.round(window.success_rate)}%`
+}
+
 const scoreTitle = (window: AccountQualityWindow): string => {
   if (window.quality_score == null) {
     return t('admin.accounts.quality.insufficientSamples', { count: window.sample_count })
@@ -152,7 +157,7 @@ const QualityRow = defineComponent({
   },
   setup(rowProps) {
     return () => h('div', {
-      class: `grid min-h-5 grid-cols-[1.5rem_3.25rem_minmax(0,1fr)_2.25rem] items-center gap-x-1 whitespace-nowrap ${rowProps.muted ? 'opacity-60' : ''}`,
+      class: `grid min-h-5 grid-cols-[1.5rem_3.25rem_2.5rem_minmax(0,1fr)_2.25rem] items-center gap-x-1 whitespace-nowrap ${rowProps.muted ? 'opacity-60' : ''}`,
       title: windowTitle(rowProps.label, rowProps.window),
       'data-quality-window': rowProps.label
     }, [
@@ -162,6 +167,10 @@ const QualityRow = defineComponent({
         'data-quality-grade': rowProps.window.quality_grade || undefined,
         title: scoreTitle(rowProps.window)
       }, scoreLabel(rowProps.window)),
+      h('span', {
+        class: 'text-center font-mono font-semibold text-emerald-600 dark:text-emerald-400',
+        title: `${rowProps.window.successful_request_count}/${rowProps.window.failed_request_count}`
+      }, successRateLabel(rowProps.window)),
       h('span', {
         class: 'min-w-0 truncate text-center font-mono font-medium text-gray-700 dark:text-gray-200'
       }, `${formatLatency(rowProps.window.average_first_token_ms)} / ${formatLatency(rowProps.window.average_duration_ms)}`),

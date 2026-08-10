@@ -157,6 +157,22 @@
     </div>
 
     <!-- TTFT Guard degradation indicators (model-scoped, read-only) -->
+    <div v-if="account.upstream_health" class="group relative">
+      <span :class="['inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium', upstreamHealthClass]">
+        <span class="h-1.5 w-1.5 rounded-full bg-current" />
+        {{ t(`admin.upstreamManagement.health.${account.upstream_health.status}`) }}
+      </span>
+      <div class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 whitespace-normal rounded bg-gray-900 px-3 py-2 text-left text-xs leading-relaxed text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700">
+        <div>{{ t('admin.upstreamManagement.health.reason') }}: {{ account.upstream_health.reason || '-' }}</div>
+        <div>{{ t('admin.upstreamManagement.health.lastProbe') }}: {{ account.upstream_health.last_probe_at ? formatDateTime(account.upstream_health.last_probe_at) : '-' }}</div>
+        <div>{{ t('admin.upstreamManagement.health.probeStatus') }}: {{ account.upstream_health.last_probe_status || '-' }}</div>
+        <div>{{ t('admin.upstreamManagement.health.lastTraffic') }}: {{ account.upstream_health.last_traffic_status || '-' }} · {{ account.upstream_health.last_evidence_at ? formatDateTime(account.upstream_health.last_evidence_at) : '-' }}</div>
+        <div>{{ t('admin.upstreamManagement.health.schedulable') }}: {{ account.schedulable ? t('common.yes') : t('common.no') }}</div>
+        <div>{{ t('admin.upstreamManagement.health.failures') }}: {{ account.upstream_health.consecutive_failures }}</div>
+        <div>{{ t('admin.upstreamManagement.health.recovery') }}: {{ account.upstream_health.recovery_samples || 0 }} / {{ account.upstream_health.recovery_samples_required || 3 }}</div>
+        <div v-if="account.upstream_health.status === 'suspended' || account.upstream_health.status === 'recovering'">{{ t('admin.upstreamManagement.health.temporarilyExcluded') }}</div>
+      </div>
+    </div>
     <TTFTGuardStatusBadge :degradations="account.ttft_guard_degradations" />
   </div>
 </template>
@@ -223,6 +239,16 @@ const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
   }
 
   return items
+})
+
+const upstreamHealthClass = computed(() => {
+  switch (props.account.upstream_health?.status) {
+    case 'healthy': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+    case 'suspended': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+    case 'degraded': case 'recovering': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+    case 'disabled': return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
+    default: return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+  }
 })
 
 const formatScopeName = (scope: string): string => {

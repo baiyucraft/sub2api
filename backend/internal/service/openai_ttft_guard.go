@@ -484,6 +484,26 @@ func (s *OpenAIGatewayService) SetOpenAITTFTGuardConfigProvider(provider OpenAIT
 	}
 }
 
+// SetOpenAITTFTGuardUpstreamOnly is primarily useful for compatibility test
+// doubles. Production constructors enable the upstream-only boundary by
+// default; legacy unit fixtures can explicitly retain the old behavior.
+func (s *OpenAIGatewayService) SetOpenAITTFTGuardUpstreamOnly(enabled bool) {
+	if s != nil {
+		s.openaiTTFTGuardUpstreamOnly = enabled
+	}
+}
+
+func (s *OpenAIGatewayService) ttftGuardEligibleAccount(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	eligible := account.IsUpstreamBound() || !s.openaiTTFTGuardUpstreamOnly
+	if eligible && s.openaiTTFTGuardUpstreamOnly && account.ID > 0 {
+		s.openaiTTFTGuardEligibleAccounts.Store(account.ID, struct{}{})
+	}
+	return eligible
+}
+
 func (s *OpenAIGatewayService) openAITTFTGuardConfig() OpenAITTFTGuardConfigSnapshot {
 	if s == nil {
 		return normalizeOpenAITTFTGuardConfig(OpenAITTFTGuardConfigSnapshot{})
@@ -513,6 +533,15 @@ func (s *OpenAIGatewayService) getOpenAITTFTGuard() *openAITTFTGuard {
 func (s *OpenAIGatewayService) reportOpenAITTFTGuard(accountID int64, model string, success bool, firstTokenMs *int) {
 	if s == nil {
 		return
+	}
+	// TTFT Guard is an upstream-account protection layer. Ordinary OAuth/API
+	// accounts continue to be handled solely by the built-in scheduler. The
+	// eligibility cache is populated from the same candidate snapshot used by
+	// selection, avoiding an account-table read on every completed request.
+	if s.openaiTTFTGuardUpstreamOnly {
+		if _, eligible := s.openaiTTFTGuardEligibleAccounts.Load(accountID); !eligible {
+			return
+		}
 	}
 	cfg := s.openAITTFTGuardConfig()
 	s.getOpenAITTFTGuard().report(accountID, model, success, firstTokenMs, cfg)
@@ -570,28 +599,47 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 	requireCompact bool,
 	callerExcluded map[int64]struct{},
 ) map[int64]struct{} {
-	if s == nil || strings.TrimSpace(requestedModel) == "" {
+	if s == nil {
 		return nil
 	}
 	cfg := s.openAITTFTGuardConfig()
 	guard := s.getOpenAITTFTGuard()
+	healthRegistry := GlobalUpstreamHealthRegistry()
 	if !cfg.Enabled {
+		// Preserve configuration-transition cleanup without paying for a second
+		// account query when neither protection layer can exclude anything.
 		guard.exclusions(nil, callerExcluded, cfg)
-		return nil
+		if !healthRegistry.HasTemporaryExclusions() {
+			return nil
+		}
 	}
 	accounts, err := s.listSchedulableAccounts(ctx, groupID, normalizeOpenAICompatiblePlatform(platform))
 	if err != nil || len(accounts) == 0 {
 		return nil
 	}
 	candidates := make([]openAITTFTGuardCandidate, 0, len(accounts))
+	healthExcluded := make(map[int64]struct{})
 	for i := range accounts {
 		account := &accounts[i]
+		if !s.ttftGuardEligibleAccount(account) {
+			continue
+		}
 		if _, excluded := callerExcluded[account.ID]; excluded {
 			continue
+		}
+		if account.UpstreamKeyID != nil {
+			health := healthRegistry.Snapshot(*account.UpstreamKeyID)
+			if health.Status == UpstreamHealthSuspended || health.Status == UpstreamHealthRecovering {
+				healthExcluded[account.ID] = struct{}{}
+				continue
+			}
 		}
 		if !account.IsSchedulable() || account.Platform != normalizeOpenAICompatiblePlatform(platform) || !account.IsOpenAICompatible() ||
 			!account.IsModelSupported(requestedModel) || !accountSupportsOpenAICapabilities(account, requiredCapability, requiredImageCapability) ||
 			!s.isOpenAIAccountTransportCompatible(account, requiredTransport) || (requireCompact && openAICompactSupportTier(account) == 0) {
+			continue
+		}
+		if strings.TrimSpace(requestedModel) == "" {
 			continue
 		}
 		candidates = append(candidates, openAITTFTGuardCandidate{
@@ -599,7 +647,8 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 			model:     canonicalOpenAIAccountSchedulingModel(account, requestedModel),
 		})
 	}
-	return guard.exclusions(candidates, callerExcluded, cfg)
+	ttftExcluded := guard.exclusions(candidates, callerExcluded, cfg)
+	return mergeOpenAIExcludedAccountIDs(healthExcluded, ttftExcluded)
 }
 
 func mergeOpenAIExcludedAccountIDs(base, additions map[int64]struct{}) map[int64]struct{} {

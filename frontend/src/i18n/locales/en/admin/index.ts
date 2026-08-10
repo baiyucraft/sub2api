@@ -5,6 +5,7 @@ import resources from './resources'
 import ops from './ops'
 import settings from './settings'
 import upstreamConfigs from './upstreamConfigs'
+import upstreamManagement from './upstreamManagement'
 import audit from './audit'
 import promptAudit from './promptAudit'
 
@@ -16,6 +17,7 @@ export default {
   ...ops,
   ...settings,
   ...upstreamConfigs,
+  ...upstreamManagement,
   ...audit,
   ...promptAudit,
 }
