@@ -100,7 +100,9 @@ openssl pkey -in /opt/sub2api-release-signer/vm-gate-ed25519.pem -pubout -out "$
 cmp -s "$derived_public" /opt/sub2api-release-signer/vm-gate-ed25519.pub
 test "$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api-dev)" = healthy
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{{print $4}}' || df -PB1 / | awk 'NR==2{{print $4}}')
-db_bytes=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${{POSTGRES_USER:-postgres}}" -d postgres -c "SELECT pg_database_size('"'"'sub2api_dev'"'"')"' | tr -d '[:space:]')
+vm_pg_user=$(docker inspect sub2api-postgres | jq -r '.[0].Config.Env[]? | select(startswith("POSTGRES_USER=")) | ltrimstr("POSTGRES_USER=")' | head -n1)
+if [[ ! $vm_pg_user =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then vm_pg_user=sub2api; fi
+db_bytes=$(docker exec sub2api-postgres psql -X -A -t -U "$vm_pg_user" -d postgres -c "SELECT pg_database_size('sub2api_dev')" | tr -d '[:space:]')
 printf 'vm_ready=true\nvm_free_bytes=%s\nvm_database_bytes=%s\nvm_release_unit_status=verified\n' "$free_bytes" "$db_bytes"
 """
         return self._ssh().run("local_vm", script, {"vm_ready", "vm_free_bytes", "vm_database_bytes", "vm_release_unit_status"}).values
