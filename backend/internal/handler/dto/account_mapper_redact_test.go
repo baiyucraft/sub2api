@@ -111,14 +111,20 @@ func TestAccountFromServiceShallow_NilCredentialsOmitsStatus(t *testing.T) {
 
 func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {
 	siteURL := "https://lcodex.cc"
+	configName := "LCodex Primary"
+	keyName := "Key A"
+	maskedKey := "sk-abc...7890"
 	configID := int64(7)
 	src := &service.Account{
-		ID:               42,
-		Name:             "upstream-account",
-		Platform:         service.PlatformOpenAI,
-		Type:             service.AccountTypeAPIKey,
-		UpstreamConfigID: &configID,
-		UpstreamSiteURL:  &siteURL,
+		ID:                 42,
+		Name:               "upstream-account",
+		Platform:           service.PlatformOpenAI,
+		Type:               service.AccountTypeAPIKey,
+		UpstreamConfigID:   &configID,
+		UpstreamSiteURL:    &siteURL,
+		UpstreamConfigName: &configName,
+		UpstreamKeyName:    &keyName,
+		UpstreamKeyMasked:  &maskedKey,
 		Credentials: map[string]any{
 			"base_url": "https://api.lcodex.cc",
 			"api_key":  "sk-secret",
@@ -127,11 +133,15 @@ func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {
 
 	got := AccountFromServiceShallow(src)
 	require.Equal(t, &siteURL, got.UpstreamSiteURL)
+	require.Equal(t, &configName, got.UpstreamConfigName)
+	require.Equal(t, &keyName, got.UpstreamKeyName)
+	require.Equal(t, &maskedKey, got.UpstreamKeyMasked)
 	require.Equal(t, "https://api.lcodex.cc", got.Credentials["base_url"])
 	require.NotContains(t, got.Credentials, "api_key")
 
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `"upstream_site_url":"https://lcodex.cc"`)
+	require.Contains(t, string(raw), `"upstream_key_masked":"sk-abc...7890"`)
 	require.NotContains(t, string(raw), "sk-secret")
 }

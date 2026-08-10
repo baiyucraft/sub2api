@@ -16,6 +16,12 @@ vi.mock('@/stores/app', () => ({
   })
 }))
 
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({
+    isSimpleMode: false
+  })
+}))
+
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
@@ -91,6 +97,41 @@ describe('BulkEditAccountModal', () => {
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockResolvedValue({
       has_risk: false
     } as any)
+  })
+
+  it('上游模式只显示运行时字段，并以白名单 payload 批量更新', async () => {
+    const wrapper = mountModal({
+      mode: 'upstream',
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['apikey']
+    })
+
+    expect(wrapper.get('[data-testid="upstream-derived-account-notice"]').exists()).toBe(true)
+    expect(wrapper.find('#bulk-edit-base-url-enabled').exists()).toBe(false)
+    expect(wrapper.find('#bulk-edit-proxy-enabled').exists()).toBe(false)
+    expect(wrapper.find('#bulk-edit-load-factor-enabled').exists()).toBe(false)
+    expect(wrapper.find('#bulk-edit-priority-enabled').exists()).toBe(false)
+    expect(wrapper.find('#bulk-edit-rate-multiplier-enabled').exists()).toBe(false)
+    expect(wrapper.find('#bulk-edit-upstream-billing-auto-probe-enabled').exists()).toBe(false)
+
+    await wrapper.get('#bulk-edit-upstream-concurrency-enabled').setValue(true)
+    await wrapper.get('input[type="number"]').setValue('3')
+    await wrapper.get('#bulk-edit-upstream-model-mapping-enabled').setValue(true)
+    await wrapper.get('button[type="button"].w-full').trigger('click')
+    await wrapper.get('[data-testid="bulk-edit-upstream-model-from"]').setValue('gpt-5.4-mini')
+    await wrapper.get('[data-testid="bulk-edit-upstream-model-to"]').setValue('gpt-5.4-mini')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      concurrency: 3,
+      credentials: {
+        model_mapping: {
+          'gpt-5.4-mini': 'gpt-5.4-mini'
+        }
+      },
+      filters: { scope: 'upstream' }
+    })
   })
 
   it('批量修改倍率时提示自动同步账号需要先关闭同步', async () => {

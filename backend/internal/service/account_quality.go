@@ -65,13 +65,16 @@ var accountQualityDurationCurve = []accountQualityCurvePoint{
 // AccountQualityWindow contains the latency summary for one recent-request window.
 // A nil score means there is not enough evidence to make a useful judgement.
 type AccountQualityWindow struct {
-	SampleCount           int64    `json:"sample_count"`
-	FirstTokenSampleCount int64    `json:"first_token_sample_count"`
-	AverageFirstTokenMs   *float64 `json:"average_first_token_ms"`
-	AverageDurationMs     *float64 `json:"average_duration_ms"`
-	QualityScore          *int     `json:"quality_score"`
-	QualityGrade          string   `json:"quality_grade,omitempty"`
-	ScoreBasis            string   `json:"score_basis,omitempty"`
+	SampleCount            int64    `json:"sample_count"`
+	FirstTokenSampleCount  int64    `json:"first_token_sample_count"`
+	SuccessfulRequestCount int64    `json:"successful_request_count"`
+	FailedRequestCount     int64    `json:"failed_request_count"`
+	SuccessRate            *float64 `json:"success_rate"`
+	AverageFirstTokenMs    *float64 `json:"average_first_token_ms"`
+	AverageDurationMs      *float64 `json:"average_duration_ms"`
+	QualityScore           *int     `json:"quality_score"`
+	QualityGrade           string   `json:"quality_grade,omitempty"`
+	ScoreBasis             string   `json:"score_basis,omitempty"`
 }
 
 type AccountQualityActivity struct {
@@ -129,6 +132,8 @@ func buildAccountQualityStats(ids []int64, samples map[int64]AccountQualitySampl
 	result := make(map[int64]AccountQualityStats, len(ids))
 	for _, id := range ids {
 		sample := samples[id]
+		sample.Recent1h.SuccessRate = accountQualitySuccessRate(sample.Recent1h.SuccessfulRequestCount, sample.Recent1h.FailedRequestCount)
+		sample.Recent24h.SuccessRate = accountQualitySuccessRate(sample.Recent24h.SuccessfulRequestCount, sample.Recent24h.FailedRequestCount)
 		result[id] = AccountQualityStats{
 			Recent1h:  applyAccountQualityScore(sample.Recent1h),
 			Recent24h: applyAccountQualityScore(sample.Recent24h),
@@ -143,6 +148,15 @@ func buildAccountQualityStats(ids []int64, samples map[int64]AccountQualitySampl
 		}
 	}
 	return result
+}
+
+func accountQualitySuccessRate(successful, failed int64) *float64 {
+	total := successful + failed
+	if total <= 0 {
+		return nil
+	}
+	value := float64(successful) * 100 / float64(total)
+	return &value
 }
 
 // GetAccountQualityStatsBatch returns display-only latency summaries for accounts.

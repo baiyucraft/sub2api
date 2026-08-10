@@ -61,6 +61,9 @@ type Account struct {
 	UpstreamConfigID        *int64
 	UpstreamKeyID           *int64
 	UpstreamSiteURL         *string // 仅管理端展示使用，不参与转发
+	UpstreamConfigName      *string // 仅管理端展示使用，不参与转发
+	UpstreamKeyName         *string // 仅管理端展示使用，不参与转发
+	UpstreamKeyMasked       *string // 仅管理端展示使用，禁止保存明文 Key
 	// UpstreamSchedulingEnabled is hydrated from the parent upstream config.
 	// nil keeps old scheduler snapshots compatible and means no parent gate.
 	UpstreamSchedulingEnabled *bool
