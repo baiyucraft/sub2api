@@ -39,9 +39,6 @@
             :filters="params"
             :groups="groups"
             :mode="props.scope === 'upstream' ? 'upstream' : 'ordinary'"
-            :upstream-configs="upstreamFilterConfigs"
-            :upstream-keys="upstreamFilterKeys"
-            :upstream-options-loading="upstreamFilterOptionsLoading"
             @update:filters="(newFilters) => Object.assign(params, newFilters)"
             @change="debouncedReload"
             @update:searchQuery="debouncedReload"
@@ -628,7 +625,6 @@ import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import upstreamManagementAPI, { type TTFTGuardSettings } from '@/api/admin/upstreamManagement'
-import type { UpstreamConfig, UpstreamKey } from '@/api/admin/upstreamConfigs'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
@@ -690,9 +686,6 @@ const upstreamTTFTGuard = reactive<TTFTGuardSettings>({ enabled: false, degradat
 const upstreamTTFTGuardSaving = ref(false)
 const upstreamProbeModels = reactive<Record<string, string>>({ openai: '', anthropic: '', gemini: '' })
 const upstreamProbeModelsSaving = ref(false)
-const upstreamFilterConfigs = ref<UpstreamConfig[]>([])
-const upstreamFilterKeys = ref<UpstreamKey[]>([])
-const upstreamFilterOptionsLoading = ref(false)
 const upstreamTTFTGuardValid = computed(() =>
   Number.isFinite(Number(upstreamTTFTGuard.degradation_ttft_seconds)) &&
   upstreamTTFTGuard.degradation_ttft_seconds >= 5 &&
@@ -1355,43 +1348,19 @@ const syncAccountListDerivedParams = () => {
   requestParams.include_scheduler_score = shouldIncludeSchedulerScore() ? '1' : '0'
 }
 
+const upstreamVisibleFilters = (filters: Record<string, unknown>) => {
+  const visibleFilters = { ...filters }
+  delete visibleFilters.type
+  delete visibleFilters.privacy_mode
+  delete visibleFilters.upstream_config_id
+  delete visibleFilters.upstream_key_id
+  return visibleFilters
+}
+
 const fetchAccounts = (page: number, pageSize: number, filters: Record<string, unknown>) =>
   props.scope === 'upstream'
-    ? upstreamManagementAPI.listAccounts({ page, page_size: pageSize, ...filters })
+    ? upstreamManagementAPI.listAccounts({ page, page_size: pageSize, ...upstreamVisibleFilters(filters) })
     : adminAPI.accounts.list(page, pageSize, filters as any)
-
-const loadUpstreamFilterKeys = async (configID: unknown) => {
-  const parsed = Number(configID)
-  if (props.scope !== 'upstream' || !Number.isInteger(parsed) || parsed <= 0) {
-    upstreamFilterKeys.value = []
-    return
-  }
-  upstreamFilterKeys.value = await adminAPI.upstreamConfigs.listKeys(parsed)
-}
-
-const loadUpstreamFilterOptions = async () => {
-  if (props.scope !== 'upstream') return
-  upstreamFilterOptionsLoading.value = true
-  try {
-    const configs: UpstreamConfig[] = []
-    let page = 1
-    while (true) {
-      const result = await adminAPI.upstreamConfigs.list(page, 100)
-      configs.push(...result.items)
-      if (configs.length >= result.total || result.items.length === 0) break
-      page += 1
-    }
-    upstreamFilterConfigs.value = configs
-    await loadUpstreamFilterKeys(params.upstream_config_id)
-  } catch (error) {
-    console.error('Failed to load upstream filter options:', error)
-    upstreamFilterConfigs.value = []
-    upstreamFilterKeys.value = []
-    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.filters.loadFailed')))
-  } finally {
-    upstreamFilterOptionsLoading.value = false
-  }
-}
 
 const {
   items: accounts,
@@ -1407,16 +1376,13 @@ const {
   fetchFn: fetchAccounts,
   initialParams: {
     platform: '',
-    type: '',
     status: '',
-    privacy_mode: '',
-    upstream_config_id: '',
-    upstream_key_id: '',
     group: '',
     search: '',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order,
+    ...(props.scope !== 'upstream' ? { type: '', privacy_mode: '' } : {}),
     ...(props.scope !== 'all' ? { scope: props.scope } : {})
   }
 })
@@ -1479,20 +1445,6 @@ watch(() => props.scope, (scope, previousScope) => {
   autoRefreshETag.value = null
   params.scope = scope === 'all' ? undefined : scope
   load().catch((error) => console.error('Failed to reload accounts after scope change:', error))
-})
-
-watch(() => params.upstream_config_id, async (configID, previousConfigID) => {
-  if (props.scope !== 'upstream' || configID === previousConfigID) return
-  upstreamFilterOptionsLoading.value = true
-  try {
-    await loadUpstreamFilterKeys(configID)
-  } catch (error) {
-    console.error('Failed to load upstream key filter options:', error)
-    upstreamFilterKeys.value = []
-    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.filters.loadFailed')))
-  } finally {
-    upstreamFilterOptionsLoading.value = false
-  }
 })
 
 const selectPage = () => {
@@ -2890,7 +2842,6 @@ onMounted(async () => {
   } catch (error) {
     console.error('Failed to load proxies/groups:', error)
   }
-  await loadUpstreamFilterOptions()
   window.addEventListener('scroll', handleScroll, true)
   window.addEventListener('resize', handleViewportResize)
   document.addEventListener('click', handleClickOutside)
