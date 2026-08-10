@@ -34,6 +34,9 @@ class ProductionRecoveryTest(unittest.TestCase):
         assertion = (DEPLOY_ROOT / "maintenance" / "release" / "migration-233-assert.sh").read_text(encoding="utf-8")
         self.assertIn("HAVING COUNT(*) > 1", assertion)
         self.assertIn("idx_accounts_upstream_key_id_active", assertion)
+        self.assertIn("regexp_replace(pg_get_expr(i.indpred,i.indrelid),'[()[:space:]]','','g')", assertion)
+        self.assertIn("upstream_key_idISNOTNULLANDdeleted_atISNULL", assertion)
+        self.assertNotIn("pg_get_expr(i.indpred,i.indrelid)='(upstream_key_id IS NOT NULL) AND (deleted_at IS NULL)'", assertion)
         self.assertIn("migration_233_preflight=pass", assertion)
         self.assertIn("migration_233_postflight=pass", assertion)
 

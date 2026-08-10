@@ -33,7 +33,7 @@ if [[ $phase == preflight ]]; then
   exit 0
 fi
 
-index_state=$(query "SELECT i.indisvalid,i.indisready,pg_get_expr(i.indpred,i.indrelid)='(upstream_key_id IS NOT NULL) AND (deleted_at IS NULL)',pg_get_indexdef(i.indexrelid) LIKE '%(upstream_key_id)%' FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='idx_accounts_upstream_key_id_active'")
+index_state=$(query "SELECT i.indisvalid,i.indisready,regexp_replace(pg_get_expr(i.indpred,i.indrelid),'[()[:space:]]','','g')='upstream_key_idISNOTNULLANDdeleted_atISNULL',pg_get_indexdef(i.indexrelid) LIKE '%(upstream_key_id)%' FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='idx_accounts_upstream_key_id_active'")
 [[ $index_state == 't|t|t|t' ]]
 printf 'migration_233_duplicate_keys=%s\n' "$duplicate_count"
 printf 'migration_233_index_verified=true\n'
