@@ -304,6 +304,71 @@ func (r *upstreamConfigRepository) ListKeys(ctx context.Context, upstreamConfigI
 	return out, nil
 }
 
+func (r *upstreamConfigRepository) ListAllKeysForHealth(ctx context.Context) ([]service.UpstreamKey, error) {
+	rows, err := r.client.UpstreamKey.Query().
+		Order(dbent.Asc(dbupstreamkey.FieldID)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.UpstreamKey, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *upstreamKeyEntityToService(row))
+	}
+	return out, nil
+}
+
+func (r *upstreamConfigRepository) PatchKeyHealth(ctx context.Context, keyID int64, health map[string]any) error {
+	return r.PatchKeyHealthWithEvent(ctx, keyID, health, nil)
+}
+
+// PatchKeyHealthWithEvent serializes health writes with upstream synchronization
+// and commits the state-change event in the same transaction. Only the extra
+// JSON is updated, so a health observation cannot overwrite a concurrently
+// refreshed rate, platform or lifecycle field.
+func (r *upstreamConfigRepository) PatchKeyHealthWithEvent(ctx context.Context, keyID int64, health map[string]any, event *service.UpstreamEvent) error {
+	return r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		row, err := client.UpstreamKey.Query().
+			Where(dbupstreamkey.IDEQ(keyID)).
+			ForUpdate().
+			Only(txCtx)
+		if err != nil {
+			if dbent.IsNotFound(err) {
+				return service.ErrUpstreamKeyNotFound
+			}
+			return err
+		}
+		extra := normalizeJSONMap(row.Extra)
+		if extra == nil {
+			extra = map[string]any{}
+		}
+		extra["health"] = normalizeJSONMap(health)
+		if err := client.UpstreamKey.UpdateOneID(keyID).SetExtra(extra).Exec(txCtx); err != nil {
+			return err
+		}
+		if event == nil {
+			return nil
+		}
+		occurredAt := event.CreatedAt
+		if occurredAt.IsZero() {
+			occurredAt = time.Now().UTC()
+		}
+		builder := client.UpstreamEvent.Create().
+			SetUpstreamConfigID(row.UpstreamConfigID).
+			SetUpstreamKeyID(keyID).
+			SetEventType(event.Type).
+			SetSeverity(event.Severity).
+			SetSource("health").
+			SetMessage(event.Message).
+			SetPayload(normalizeJSONMap(event.Payload)).
+			SetOccurredAt(occurredAt)
+		if event.AccountID != nil {
+			builder.SetAccountID(*event.AccountID)
+		}
+		return builder.Exec(txCtx)
+	})
+}
+
 func (r *upstreamConfigRepository) ListKeysForMaskedFallback(ctx context.Context, upstreamConfigID int64, remoteKeyIDs []int64) ([]service.UpstreamKey, error) {
 	remoteKeyIDs = uniqueSortedInt64s(remoteKeyIDs)
 	if len(remoteKeyIDs) == 0 {

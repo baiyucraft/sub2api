@@ -30,6 +30,13 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIn("source_relation=groups_video_price_backup_232", assertion)
         self.assertIn('[[ $backup_hash == "$expected_plan" ]]', assertion)
 
+    def test_migration_233_blocks_duplicates_and_verifies_partial_unique_index(self) -> None:
+        assertion = (DEPLOY_ROOT / "maintenance" / "release" / "migration-233-assert.sh").read_text(encoding="utf-8")
+        self.assertIn("HAVING COUNT(*) > 1", assertion)
+        self.assertIn("idx_accounts_upstream_key_id_active", assertion)
+        self.assertIn("migration_233_preflight=pass", assertion)
+        self.assertIn("migration_233_postflight=pass", assertion)
+
     def test_migration_227_resets_the_version_two_factory_row(self) -> None:
         migration = (DEPLOY_ROOT.parent / "backend" / "migrations" / "227_channel_monitor_v2_reset_factory_cache_thresholds.sql").read_text(
             encoding="utf-8"
@@ -633,7 +640,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("migration_status=verified", preflight)
         self.assertIn("migration_195_status=verified", preflight)
         self.assertIn("migration_195_status=absent", preflight)
-        for migration in ("196", "197", "198", "199", "200", "201", "202", "203", "204", "205", "206", "208", "209"):
+        for migration in ("196", "197", "198", "199", "200", "201", "202", "203", "204", "205", "206", "208", "209", "233"):
             self.assertIn(f"migration_{migration}_status=not_applicable", preflight)
             self.assertIn(f"migration_{migration}_status=verified", preflight)
             self.assertIn(f"migration_{migration}_status=absent", preflight)
@@ -715,8 +722,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         preflight = self.script("preflight.sh")
         switch = self.script("switch.sh")
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232"}', production)
-        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232", switch)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233"}', production)
+        self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233", switch)
         self.assertIn("migration_206_status", production)
         self.assertIn("migration_206_status", preflight)
         self.assertNotIn("migration_207_status", production)
@@ -775,8 +782,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_profile_213_reuses_profile_212_migration_and_schema_evidence(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         switch = self.script("switch.sh")
-        self.assertIn('{"212", "213", "215", "232"}', production)
-        self.assertIn("$profile == 212 || $profile == 213 || $profile == 215 || $profile == 232", switch)
+        self.assertIn('{"212", "213", "215", "232", "233"}', production)
+        self.assertIn("$profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233", switch)
         self.assertNotIn("migration_213_status", production)
         self.assertNotIn("migration_213_status", self.script("preflight.sh"))
 

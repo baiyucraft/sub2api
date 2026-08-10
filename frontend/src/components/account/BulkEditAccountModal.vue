@@ -6,6 +6,55 @@
     @close="handleClose"
   >
     <form id="bulk-edit-account-form" class="space-y-5" @submit.prevent="() => handleSubmit()">
+      <template v-if="props.mode === 'upstream'">
+        <div data-testid="upstream-derived-account-notice" class="rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+          <p class="text-sm font-semibold text-amber-900 dark:text-amber-100">
+            {{ t('admin.upstreamManagement.derivedAccount.title') }}
+          </p>
+          <p class="mt-1 text-xs text-amber-800/80 dark:text-amber-200/80">
+            {{ t('admin.upstreamManagement.derivedAccount.bulkDescription') }}
+          </p>
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <div class="mb-3 flex items-center justify-between">
+              <label class="input-label mb-0">{{ t('admin.accounts.concurrency') }}</label>
+              <input id="bulk-edit-upstream-concurrency-enabled" v-model="enableConcurrency" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            </div>
+            <input v-model.number="concurrency" type="number" min="1" :disabled="!enableConcurrency" class="input" :class="!enableConcurrency && 'cursor-not-allowed opacity-50'" />
+          </div>
+          <div>
+            <div class="mb-3 flex items-center justify-between">
+              <label class="input-label mb-0">{{ t('common.status') }}</label>
+              <input id="bulk-edit-upstream-status-enabled" v-model="enableStatus" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            </div>
+            <Select v-model="status" :options="statusOptions" :disabled="!enableStatus" />
+          </div>
+        </div>
+        <div v-if="!authStore.isSimpleMode" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <label class="input-label mb-0">{{ t('nav.groups') }}</label>
+            <input id="bulk-edit-upstream-groups-enabled" v-model="enableGroups" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          </div>
+          <GroupSelector v-model="groupIds" :groups="groups" :platform="targetSelectedPlatforms[0]" :disabled="!enableGroups" />
+        </div>
+        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <label class="input-label mb-0">{{ t('admin.accounts.modelMapping') }}</label>
+            <input id="bulk-edit-upstream-model-mapping-enabled" v-model="enableModelRestriction" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          </div>
+          <div v-if="enableModelRestriction" class="space-y-2">
+            <div v-for="(mapping, index) in modelMappings" :key="`${mapping.from}-${index}`" class="flex items-center gap-2">
+              <input v-model="mapping.from" data-testid="bulk-edit-upstream-model-from" type="text" class="input flex-1" :placeholder="t('admin.accounts.requestModel')" />
+              <span class="text-gray-400">→</span>
+              <input v-model="mapping.to" data-testid="bulk-edit-upstream-model-to" type="text" class="input flex-1" :placeholder="t('admin.accounts.actualModel')" />
+              <button type="button" @click="modelMappings.splice(index, 1)" class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">×</button>
+            </div>
+            <button type="button" @click="addModelMapping" class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 hover:border-gray-400 dark:border-dark-500 dark:text-gray-400">{{ t('admin.accounts.addMapping') }}</button>
+          </div>
+        </div>
+      </template>
+      <template v-else>
       <!-- Info -->
       <div class="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
         <p class="text-sm text-blue-700 dark:text-blue-400">
@@ -1245,6 +1294,7 @@
           />
         </div>
       </div>
+      </template>
     </form>
 
     <template #footer>
@@ -1302,6 +1352,7 @@
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import type { Proxy as ProxyConfig, AdminGroup, AccountPlatform, AccountType, OpenAICompactMode } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -1348,6 +1399,7 @@ interface Props {
   }
   proxies: ProxyConfig[]
   groups: AdminGroup[]
+  mode?: 'ordinary' | 'upstream'
 }
 
 const props = defineProps<Props>()
@@ -1358,6 +1410,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 
 // Platform awareness
 const targetMode = computed(() => props.target?.mode ?? 'selected')
@@ -1651,7 +1704,7 @@ const removeErrorCode = (code: number) => {
 
 const buildModelMappingObject = (): Record<string, string> | null => {
   return buildModelMappingPayload(
-    modelRestrictionMode.value,
+    props.mode === 'upstream' ? 'mapping' : modelRestrictionMode.value,
     allowedModels.value,
     modelMappings.value
   )
@@ -1727,7 +1780,7 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value) {
     // 统一使用 model_mapping 字段
-    if (modelRestrictionMode.value === 'whitelist') {
+    if (props.mode !== 'upstream' && modelRestrictionMode.value === 'whitelist') {
       // 白名单模式：将模型转换为 model_mapping 格式（key=value）
       // 空白名单表示“支持所有模型”，需显式发送空对象以覆盖已有限制。
       const mapping: Record<string, string> = {}
@@ -1839,6 +1892,16 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (credentialsChanged) {
     updates.credentials = credentials
+  }
+
+  if (props.mode === 'upstream') {
+    const allowed: Record<string, unknown> = {}
+    for (const key of ['concurrency', 'status', 'group_ids', 'schedulable']) {
+      if (key in updates) allowed[key] = updates[key]
+    }
+    const mapping = (updates.credentials as Record<string, unknown> | undefined)?.model_mapping
+    if (mapping !== undefined) allowed.credentials = { model_mapping: mapping }
+    return Object.keys(allowed).length > 0 ? allowed : null
   }
 
   return Object.keys(updates).length > 0 ? updates : null
@@ -1970,7 +2033,10 @@ const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
         filters: props.target.filters,
         ...updates
       })
-      : await adminAPI.accounts.bulkUpdate(props.accountIds, updates)
+      : await adminAPI.accounts.bulkUpdate(props.accountIds, {
+        ...updates,
+        ...(props.mode === 'upstream' ? { filters: { scope: 'upstream' } } : {})
+      })
     const success = res.success || 0
     const failed = res.failed || 0
 

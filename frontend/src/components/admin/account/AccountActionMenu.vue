@@ -3,47 +3,47 @@
     <template #default="{ close }">
       <div>
           <template v-if="account">
-            <button role="menuitem" @click="$emit('test', account); close()">
+            <button v-if="canUseAction('test')" role="menuitem" @click="$emit('test', account); close()">
               <Icon name="play" size="sm" class="text-green-500" :stroke-width="2" />
               {{ t('admin.accounts.testConnection') }}
             </button>
-            <button role="menuitem" @click="$emit('stats', account); close()">
+            <button v-if="canUseAction('stats')" role="menuitem" @click="$emit('stats', account); close()">
               <Icon name="chart" size="sm" class="text-indigo-500" />
               {{ t('admin.accounts.viewStats') }}
             </button>
-            <button role="menuitem" @click="$emit('schedule', account); close()">
+            <button v-if="canUseAction('schedule')" role="menuitem" @click="$emit('schedule', account); close()">
               <Icon name="clock" size="sm" class="text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
             </button>
-            <button v-if="canDuplicate" role="menuitem" @click="$emit('duplicate', account); close()">
+            <button v-if="canDuplicate && canUseAction('duplicate')" role="menuitem" @click="$emit('duplicate', account); close()">
               <Icon name="copy" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
             </button>
             <!-- 影子账号不持凭据:重授权/刷新 token 对其无效(后端拒绝),故隐藏(外审 G4)。 -->
             <template v-if="(account.type === 'oauth' || account.type === 'setup-token') && !isShadow">
-              <button role="menuitem" @click="$emit('reauth', account); close()" class="text-blue-600">
+              <button v-if="canUseAction('reauth')" role="menuitem" @click="$emit('reauth', account); close()" class="text-blue-600">
                 <Icon name="link" size="sm" />
                 {{ t('admin.accounts.reAuthorize') }}
               </button>
-              <button role="menuitem" @click="$emit('refresh-token', account); close()" class="text-purple-600">
+              <button v-if="canUseAction('refresh_token')" role="menuitem" @click="$emit('refresh-token', account); close()" class="text-purple-600">
                 <Icon name="refresh" size="sm" />
                 {{ t('admin.accounts.refreshToken') }}
               </button>
             </template>
-            <button v-if="isOpenAIOAuthParent" role="menuitem" @click="$emit('create-spark-shadow', account); close()" class="text-amber-600">
+            <button v-if="isOpenAIOAuthParent && canUseAction('create_spark_shadow')" role="menuitem" @click="$emit('create-spark-shadow', account); close()" class="text-amber-600">
               <Icon name="sparkles" size="sm" />
               {{ t('admin.accounts.createSparkShadow') }}
             </button>
-            <button v-if="supportsPrivacy" role="menuitem" @click="$emit('set-privacy', account); close()" class="text-emerald-600">
+            <button v-if="supportsPrivacy && canUseAction('set_privacy')" role="menuitem" @click="$emit('set-privacy', account); close()" class="text-emerald-600">
               <Icon name="shield" size="sm" />
               {{ t('admin.accounts.setPrivacy') }}
             </button>
             <div v-if="hasRecoverableState" data-menu-divider></div>
-            <button v-if="hasRecoverableState" role="menuitem" @click="$emit('recover-state', account); close()" class="text-emerald-600">
+            <button v-if="hasRecoverableState && canUseAction('recover_state')" role="menuitem" @click="$emit('recover-state', account); close()" class="text-emerald-600">
               <Icon name="sync" size="sm" />
               {{ t('admin.accounts.recoverState') }}
             </button>
-            <button v-if="hasQuotaLimit" role="menuitem" @click="$emit('reset-quota', account); close()" class="text-teal-600">
+            <button v-if="hasQuotaLimit && canUseAction('reset_quota')" role="menuitem" @click="$emit('reset-quota', account); close()" class="text-teal-600">
               <Icon name="refresh" size="sm" />
               {{ t('admin.accounts.resetQuota') }}
             </button>
@@ -72,6 +72,10 @@ const canDuplicate = computed(() => {
   ) return false
   return ['apikey', 'upstream', 'bedrock', 'service_account'].includes(props.account.type)
 })
+const canUseAction = (action: string) => {
+  const actions = props.account?.available_actions
+  return actions == null || actions.includes(action)
+}
 const isRateLimited = computed(() => {
   if (props.account?.rate_limit_reset_at && new Date(props.account.rate_limit_reset_at) > new Date()) {
     return true

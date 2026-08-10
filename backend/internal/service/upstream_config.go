@@ -4,15 +4,19 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/shopspring/decimal"
+	"golang.org/x/sync/singleflight"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -163,10 +167,16 @@ type UpdateUpstreamKeyPlatformRequest struct {
 }
 
 type UpstreamConfigService struct {
-	repo        UpstreamConfigRepository
-	proxyRepo   ProxyRepository
-	accountRepo AccountRepository
-	syncLocks   sync.Map
+	repo          UpstreamConfigRepository
+	proxyRepo     ProxyRepository
+	accountRepo   AccountRepository
+	accountProber interface {
+		RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error)
+	}
+	settingService *SettingService
+	syncLocks      sync.Map
+	healthLocks    sync.Map
+	healthProbeSF  singleflight.Group
 }
 
 type UpstreamConfigSyncResult struct {
@@ -205,8 +215,21 @@ type upstreamConfigAtomicSyncRepository interface {
 	ApplySyncSnapshot(ctx context.Context, configID, runID int64, keys []UpstreamKey, extraUpdates map[string]any, checkedAt time.Time, complete bool) ([]UpstreamKey, UpstreamKeyReconcileResult, int, error)
 }
 
+type upstreamAccountBindingLister interface {
+	ListByUpstreamKeyID(ctx context.Context, keyID int64) ([]Account, error)
+}
+
 type upstreamMaskedKeyFallbackRepository interface {
 	ListKeysForMaskedFallback(ctx context.Context, upstreamConfigID int64, remoteKeyIDs []int64) ([]UpstreamKey, error)
+}
+
+type upstreamKeyHealthRepository interface {
+	PatchKeyHealth(ctx context.Context, keyID int64, health map[string]any) error
+	ListAllKeysForHealth(ctx context.Context) ([]UpstreamKey, error)
+}
+
+type upstreamKeyHealthEventRepository interface {
+	PatchKeyHealthWithEvent(ctx context.Context, keyID int64, health map[string]any, event *UpstreamEvent) error
 }
 
 type UpstreamKeyReconcileResult struct {
@@ -248,7 +271,46 @@ type upstreamProviderAdapter interface {
 }
 
 func NewUpstreamConfigService(repo UpstreamConfigRepository, proxyRepo ProxyRepository, accountRepo AccountRepository) *UpstreamConfigService {
-	return &UpstreamConfigService{repo: repo, proxyRepo: proxyRepo, accountRepo: accountRepo}
+	svc := &UpstreamConfigService{repo: repo, proxyRepo: proxyRepo, accountRepo: accountRepo}
+	if healthRepo, ok := repo.(upstreamKeyHealthRepository); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		keys, err := healthRepo.ListAllKeysForHealth(ctx)
+		cancel()
+		if err != nil {
+			slog.Warn("failed to hydrate upstream key health registry", "error", err)
+		} else {
+			for i := range keys {
+				if item, ok := upstreamHealthSnapshotFromExtra(keys[i].ID, keys[i].Extra); ok {
+					GlobalUpstreamHealthRegistry().Hydrate(item)
+				}
+			}
+		}
+	}
+	return svc
+}
+
+func (s *UpstreamConfigService) SetHealthProbeDependencies(prober interface {
+	RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error)
+}, settingService *SettingService) {
+	if s == nil {
+		return
+	}
+	s.accountProber = prober
+	s.settingService = settingService
+}
+
+func (s *UpstreamConfigService) GetProbeModels(ctx context.Context) (UpstreamProbeModels, error) {
+	if s == nil || s.settingService == nil {
+		return DefaultUpstreamProbeModels(), nil
+	}
+	return s.settingService.GetUpstreamProbeModels(ctx)
+}
+
+func (s *UpstreamConfigService) SetProbeModels(ctx context.Context, models UpstreamProbeModels) error {
+	if s == nil || s.settingService == nil {
+		return infraerrors.ServiceUnavailable("UPSTREAM_PROBE_SETTINGS_UNAVAILABLE", "upstream probe settings are unavailable")
+	}
+	return s.settingService.SetUpstreamProbeModels(ctx, models)
 }
 
 func (s *UpstreamConfigService) readUpstreamSettings(ctx context.Context) (*UpstreamSettings, error) {
@@ -490,6 +552,314 @@ func (s *UpstreamConfigService) ListKeys(ctx context.Context, upstreamConfigID i
 	}
 	hydrateUpstreamKeysImagePricing(keys, config)
 	return keys, nil
+}
+
+func (s *UpstreamConfigService) GetKeyByID(ctx context.Context, keyID int64) (*UpstreamKey, error) {
+	return s.repo.GetKeyByID(ctx, keyID)
+}
+
+// GetKeyHealth returns the independent health snapshot for one key. The
+// runtime registry is preferred, while the JSON extra field is used to
+// rehydrate state after a process restart without changing the key schema.
+func (s *UpstreamConfigService) GetKeyHealth(ctx context.Context, keyID int64) (UpstreamHealthSnapshot, error) {
+	key, err := s.repo.GetKeyByID(ctx, keyID)
+	if err != nil {
+		return UpstreamHealthSnapshot{}, err
+	}
+	item := GlobalUpstreamHealthRegistry().Snapshot(keyID)
+	if item.UpdatedAt.IsZero() && key != nil {
+		if durable, ok := upstreamHealthSnapshotFromExtra(keyID, key.Extra); ok {
+			item = GlobalUpstreamHealthRegistry().Hydrate(durable)
+		}
+	}
+	item.KeyID = keyID
+	return item, nil
+}
+
+func (s *UpstreamConfigService) saveKeyHealth(ctx context.Context, keyID int64, item UpstreamHealthSnapshot) error {
+	return s.saveKeyHealthTransition(ctx, keyID, UpstreamHealthTransition{Current: item})
+}
+
+func (s *UpstreamConfigService) saveKeyHealthTransition(ctx context.Context, keyID int64, transition UpstreamHealthTransition) error {
+	health := upstreamHealthSnapshotMap(transition.Current)
+	if repo, ok := s.repo.(upstreamKeyHealthEventRepository); ok {
+		return repo.PatchKeyHealthWithEvent(ctx, keyID, health, upstreamHealthTransitionEvent(transition))
+	}
+	if repo, ok := s.repo.(upstreamKeyHealthRepository); ok {
+		return repo.PatchKeyHealth(ctx, keyID, health)
+	}
+	key, err := s.repo.GetKeyByID(ctx, keyID)
+	if err != nil {
+		return err
+	}
+	if key.Extra == nil {
+		key.Extra = map[string]any{}
+	}
+	key.Extra["health"] = health
+	return s.repo.UpdateKey(ctx, key)
+}
+
+func upstreamHealthTransitionEvent(transition UpstreamHealthTransition) *UpstreamEvent {
+	if !transition.StateChanged() {
+		return nil
+	}
+	current := transition.Current
+	severity := "info"
+	switch current.Status {
+	case UpstreamHealthSuspended:
+		severity = "error"
+	case UpstreamHealthDegraded, UpstreamHealthRecovering, UpstreamHealthDisabled:
+		severity = "warning"
+	}
+	return &UpstreamEvent{
+		Type:     "key_health_state_changed",
+		Severity: severity,
+		Message:  fmt.Sprintf("Upstream key health changed from %s to %s", transition.Previous.Status, current.Status),
+		Payload: map[string]any{
+			"previous_status":              string(transition.Previous.Status),
+			"current_status":               string(current.Status),
+			"previous_observation_enabled": transition.Previous.ObservationEnabled,
+			"observation_enabled":          current.ObservationEnabled,
+			"reason":                       current.Reason,
+			"last_probe_status":            current.LastProbeStatus,
+			"last_traffic_status":          current.LastTrafficStatus,
+			"consecutive_failures":         current.ConsecutiveFails,
+			"recovery_samples":             current.RecoverySamples,
+			"recovery_samples_required":    current.RecoverySamplesRequired,
+		},
+		CreatedAt: current.UpdatedAt,
+	}
+}
+
+func (s *UpstreamConfigService) withHealthKeyLock(keyID int64, fn func() error) error {
+	if s == nil {
+		return fn()
+	}
+	value, _ := s.healthLocks.LoadOrStore(keyID, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+	return fn()
+}
+
+func (s *UpstreamConfigService) saveHealthTransition(ctx context.Context, keyID int64, transition UpstreamHealthTransition) error {
+	if err := s.saveKeyHealthTransition(ctx, keyID, transition); err != nil {
+		GlobalUpstreamHealthRegistry().Hydrate(transition.Previous)
+		return err
+	}
+	return nil
+}
+
+func upstreamHealthSnapshotMap(item UpstreamHealthSnapshot) map[string]any {
+	out := map[string]any{
+		"status":                    string(item.Status),
+		"observation_enabled":       item.ObservationEnabled,
+		"reason":                    item.Reason,
+		"last_probe_status":         item.LastProbeStatus,
+		"last_traffic_status":       item.LastTrafficStatus,
+		"consecutive_failures":      item.ConsecutiveFails,
+		"recovery_samples":          item.RecoverySamples,
+		"recovery_samples_required": item.RecoverySamplesRequired,
+	}
+	if item.LastProbeAt != nil {
+		out["last_probe_at"] = item.LastProbeAt.UTC().Format(time.RFC3339Nano)
+	}
+	if item.LastEvidenceAt != nil {
+		out["last_evidence_at"] = item.LastEvidenceAt.UTC().Format(time.RFC3339Nano)
+	}
+	if !item.UpdatedAt.IsZero() {
+		out["updated_at"] = item.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return out
+}
+
+func upstreamHealthSnapshotFromExtra(keyID int64, extra map[string]any) (UpstreamHealthSnapshot, bool) {
+	if extra == nil {
+		return UpstreamHealthSnapshot{}, false
+	}
+	raw, ok := extra["health"].(map[string]any)
+	if !ok {
+		return UpstreamHealthSnapshot{}, false
+	}
+	item := defaultUpstreamHealthSnapshot(keyID)
+	if value, ok := raw["status"].(string); ok {
+		item.Status = UpstreamHealthStatus(strings.TrimSpace(value))
+	}
+	if value, ok := raw["observation_enabled"].(bool); ok {
+		item.ObservationEnabled = value
+	}
+	if value, ok := raw["reason"].(string); ok {
+		item.Reason = value
+	}
+	if value, ok := raw["last_probe_status"].(string); ok {
+		item.LastProbeStatus = value
+	}
+	if value, ok := raw["last_traffic_status"].(string); ok {
+		item.LastTrafficStatus = value
+	}
+	item.ConsecutiveFails = upstreamHealthInt(raw["consecutive_failures"])
+	item.RecoverySamples = upstreamHealthInt(raw["recovery_samples"])
+	if required := upstreamHealthInt(raw["recovery_samples_required"]); required > 0 {
+		item.RecoverySamplesRequired = required
+	}
+	item.LastProbeAt = upstreamHealthTime(raw["last_probe_at"])
+	item.LastEvidenceAt = upstreamHealthTime(raw["last_evidence_at"])
+	if updated := upstreamHealthTime(raw["updated_at"]); updated != nil {
+		item.UpdatedAt = *updated
+	}
+	return normalizeUpstreamHealthSnapshot(item), true
+}
+
+func upstreamHealthInt(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+func upstreamHealthTime(value any) *time.Time {
+	text, _ := value.(string)
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		return nil
+	}
+	parsed = parsed.UTC()
+	return &parsed
+}
+
+func (s *UpstreamConfigService) SetKeyObservation(ctx context.Context, keyID int64, enabled bool) (UpstreamHealthSnapshot, error) {
+	var item UpstreamHealthSnapshot
+	var saveErr error
+	err := s.withHealthKeyLock(keyID, func() error {
+		transition := GlobalUpstreamHealthRegistry().SetObservationTransition(keyID, enabled, time.Now())
+		item = transition.Current
+		saveErr = s.saveHealthTransition(ctx, keyID, transition)
+		return saveErr
+	})
+	if err != nil {
+		return UpstreamHealthSnapshot{}, err
+	}
+	return item, nil
+}
+
+func (s *UpstreamConfigService) ProbeKey(ctx context.Context, keyID int64) (UpstreamHealthSnapshot, error) {
+	if keyID <= 0 {
+		return UpstreamHealthSnapshot{}, ErrUpstreamKeyNotFound
+	}
+	result := s.healthProbeSF.DoChan(strconv.FormatInt(keyID, 10), func() (any, error) {
+		return s.probeKeyOnce(ctx, keyID)
+	})
+	select {
+	case output := <-result:
+		if output.Err != nil {
+			return UpstreamHealthSnapshot{}, output.Err
+		}
+		item, ok := output.Val.(UpstreamHealthSnapshot)
+		if !ok {
+			return UpstreamHealthSnapshot{}, infraerrors.ServiceUnavailable("UPSTREAM_KEY_PROBE_INVALID_RESULT", "upstream key probe returned an invalid result")
+		}
+		return item, nil
+	case <-ctx.Done():
+		return UpstreamHealthSnapshot{}, ctx.Err()
+	}
+}
+
+func (s *UpstreamConfigService) probeKeyOnce(ctx context.Context, keyID int64) (UpstreamHealthSnapshot, error) {
+	key, err := s.repo.GetKeyByID(ctx, keyID)
+	if err != nil {
+		return UpstreamHealthSnapshot{}, err
+	}
+	if key == nil {
+		return UpstreamHealthSnapshot{}, ErrUpstreamKeyNotFound
+	}
+	lister, ok := s.accountRepo.(upstreamAccountBindingLister)
+	if !ok || s.accountProber == nil {
+		return UpstreamHealthSnapshot{}, infraerrors.ServiceUnavailable("UPSTREAM_KEY_PROBE_UNAVAILABLE", "upstream key probe is unavailable")
+	}
+	accounts, err := lister.ListByUpstreamKeyID(ctx, keyID)
+	if err != nil {
+		return UpstreamHealthSnapshot{}, err
+	}
+	if len(accounts) == 0 {
+		return UpstreamHealthSnapshot{}, infraerrors.BadRequest("UPSTREAM_KEY_PROBE_ACCOUNT_REQUIRED", "configure the generated account before probing this key")
+	}
+	if len(accounts) > 1 {
+		return UpstreamHealthSnapshot{}, infraerrors.Conflict("UPSTREAM_KEY_ACCOUNT_CONFLICT", "multiple accounts are bound to this upstream key")
+	}
+	account := accounts[0]
+	models := DefaultUpstreamProbeModels()
+	if s.settingService != nil {
+		if configured, loadErr := s.settingService.GetUpstreamProbeModels(ctx); loadErr == nil {
+			models = configured
+		}
+	}
+	model := models.ModelFor(account.Platform)
+	if model == "" {
+		return UpstreamHealthSnapshot{}, infraerrors.BadRequest("UPSTREAM_KEY_PROBE_PLATFORM_UNSUPPORTED", "upstream key platform does not support active probing")
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	result, probeErr := s.accountProber.RunTestBackground(probeCtx, account.ID, model)
+	now := time.Now()
+	var item UpstreamHealthSnapshot
+	if err := s.withHealthKeyLock(keyID, func() error {
+		registry := GlobalUpstreamHealthRegistry()
+		var transition UpstreamHealthTransition
+		if probeErr != nil {
+			transition = registry.RecordProbeFailureTransition(keyID, upstreamProbeStatus(probeErr.Error()), "probe_transport_error", now)
+		} else if result == nil || result.Status != "success" {
+			message := "probe_failed"
+			if result != nil && strings.TrimSpace(result.ErrorMessage) != "" {
+				message = result.ErrorMessage
+			}
+			transition = registry.RecordProbeFailureTransition(keyID, upstreamProbeStatus(message), upstreamProbeReason(message), now)
+		} else {
+			transition = registry.RecordProbeTransition(keyID, "success", "probe_succeeded", now)
+		}
+		item = transition.Current
+		return s.saveHealthTransition(ctx, keyID, transition)
+	}); err != nil {
+		return UpstreamHealthSnapshot{}, err
+	}
+	if item.LastProbeStatus != "success" {
+		return item, infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_FAILED", "upstream key probe failed")
+	}
+	return item, nil
+}
+
+func upstreamProbeStatus(message string) string {
+	lower := strings.ToLower(message)
+	for _, code := range []string{"401", "403", "429", "529", "500", "502", "503", "504"} {
+		if strings.Contains(lower, code) {
+			return code
+		}
+	}
+	return "transport_error"
+}
+
+func upstreamProbeReason(message string) string {
+	switch upstreamProbeStatus(message) {
+	case "401", "403":
+		return "authentication_failed"
+	case "429", "529":
+		return "capacity_limited"
+	case "500", "502", "503", "504":
+		return "upstream_server_error"
+	default:
+		return "probe_transport_error"
+	}
 }
 
 func (s *UpstreamConfigService) PreviewAccountNameBackfill(ctx context.Context) ([]UpstreamAccountNameBackfillItem, error) {
@@ -825,6 +1195,12 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 			return nil, result, applyErr
 		}
 		result.UpdatedAccountCount = updated
+		created, reconcileErr := s.reconcileUpstreamAccounts(ctx, cfg, localKeys)
+		if reconcileErr != nil {
+			result.Error = adapter.SanitizeError(reconcileErr, cfg.Credentials)
+			return nil, result, reconcileErr
+		}
+		result.UpdatedAccountCount += created
 		result.MissingKeyCount = reconciled.Missing
 		result.StaleKeyCount = reconciled.Stale
 		result.DeletedKeyCount = reconciled.Deleted
@@ -858,6 +1234,12 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 		return nil, result, err
 	}
 	result.UpdatedAccountCount = updated
+	created, reconcileErr := s.reconcileUpstreamAccounts(ctx, cfg, localKeys)
+	if reconcileErr != nil {
+		result.Error = adapter.SanitizeError(reconcileErr, cfg.Credentials)
+		return nil, result, reconcileErr
+	}
+	result.UpdatedAccountCount += created
 	if len(snapshot.ExtraUpdates) > 0 {
 		if err := s.repo.UpdateExtra(ctx, cfg.ID, snapshot.ExtraUpdates); err != nil {
 			result.Error = logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token", "cookie", "session")
@@ -874,6 +1256,56 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 	cfg.LastError = nil
 	hydrateUpstreamKeysImagePricing(localKeys, cfg)
 	return localKeys, result, nil
+}
+
+// reconcileUpstreamAccounts owns the one-key/one-derived-account lifecycle.
+// Existing bound accounts are synchronized by the repository snapshot path;
+// this function only fills missing accounts and deliberately leaves conflicts
+// untouched for administrator repair.
+func (s *UpstreamConfigService) reconcileUpstreamAccounts(ctx context.Context, cfg *UpstreamConfig, keys []UpstreamKey) (int, error) {
+	lister, ok := s.accountRepo.(upstreamAccountBindingLister)
+	if !ok || cfg == nil {
+		return 0, nil
+	}
+	created := 0
+	for i := range keys {
+		key := &keys[i]
+		if key.ID <= 0 || !upstreamKeyIsActive(key) || key.Platform == nil || strings.TrimSpace(*key.Platform) == "" || key.RateMultiplier == nil {
+			continue
+		}
+		accounts, err := lister.ListByUpstreamKeyID(ctx, key.ID)
+		if err != nil {
+			return created, err
+		}
+		if len(accounts) != 0 {
+			// len>1 is intentionally not repaired here; migration 233 and the UI
+			// conflict state preserve the evidence for explicit administration.
+			continue
+		}
+		name, err := BuildUpstreamAccountName(cfg.Name, key.Name)
+		if err != nil {
+			return created, err
+		}
+		platform := strings.ToLower(strings.TrimSpace(*key.Platform))
+		concurrency := normalizeAccountConcurrency(platform, AccountTypeAPIKey, 0)
+		priority := Sub2APIUpstreamPriority(*key.RateMultiplier)
+		loadFactor := AutoUpstreamLoadFactor(priority, concurrency)
+		configID, keyID, rate := cfg.ID, key.ID, *key.RateMultiplier
+		account := &Account{
+			Name: name, Platform: platform, Type: AccountTypeAPIKey,
+			Credentials:      map[string]any{},
+			Extra:            map[string]any{AccountUpstreamProviderKey: cfg.Provider, AccountSub2APIRateSyncAdapterKey: cfg.AuthMode},
+			UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
+			Concurrency: concurrency, Priority: priority, RateMultiplier: &rate, LoadFactor: &loadFactor,
+			Status: StatusActive, Schedulable: false,
+		}
+		if err := s.accountRepo.Create(ctx, account); err != nil {
+			return created, err
+		}
+		GlobalUpstreamHealthRegistry().SetObservation(key.ID, true, time.Now())
+		created++
+	}
+	return created, nil
 }
 
 func (s *UpstreamConfigService) mergeSub2APIImagePricingSnapshots(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) {

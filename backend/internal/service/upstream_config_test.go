@@ -491,7 +491,7 @@ func TestAdminServiceUpdateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
 	require.Equal(t, 20, *updated.LoadFactor)
 }
 
-func TestAdminServiceUpdateUnboundAccountUsesOrdinaryLoadFactor(t *testing.T) {
+func TestAdminServiceRejectsManualUnbindOfDerivedUpstreamAccount(t *testing.T) {
 	cfgID := int64(10)
 	keyID := int64(20)
 	accountID := int64(101)
@@ -522,13 +522,9 @@ func TestAdminServiceUpdateUnboundAccountUsesOrdinaryLoadFactor(t *testing.T) {
 		LoadFactor:       &ordinaryLoadFactor,
 	})
 
-	require.NoError(t, err)
-	require.Nil(t, updated.UpstreamConfigID)
-	require.Nil(t, updated.UpstreamKeyID)
-	require.NotNil(t, updated.LoadFactor)
-	require.Equal(t, 33, *updated.LoadFactor)
-	require.NotContains(t, updated.Credentials, "base_url")
-	require.NotContains(t, updated.Credentials, "api_key")
+	require.Error(t, err)
+	require.Nil(t, updated)
+	require.Contains(t, err.Error(), "UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY")
 }
 
 func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *testing.T) {

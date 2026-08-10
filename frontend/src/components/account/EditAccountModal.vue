@@ -41,6 +41,68 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <template v-if="props.mode === 'upstream'">
+        <div class="space-y-4 rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+          <div data-testid="upstream-derived-account-notice">
+            <p class="text-sm font-semibold text-amber-900 dark:text-amber-100">
+              {{ t('admin.upstreamManagement.derivedAccount.title') }}
+            </p>
+            <p class="mt-1 text-xs text-amber-800/80 dark:text-amber-200/80">
+              {{ t('admin.upstreamManagement.derivedAccount.description') }}
+            </p>
+          </div>
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label class="input-label">上游配置 ID</label>
+              <input :value="account.upstream_config_id ?? '—'" readonly class="input bg-gray-50 text-gray-600 dark:bg-dark-700 dark:text-gray-300" />
+            </div>
+            <div>
+              <label class="input-label">上游 Key ID</label>
+              <input :value="account.upstream_key_id ?? '—'" readonly class="input bg-gray-50 font-mono text-gray-600 dark:bg-dark-700 dark:text-gray-300" />
+            </div>
+          </div>
+          <div v-if="account.upstream_site_url">
+            <label class="input-label">上游站点</label>
+            <input :value="account.upstream_site_url" readonly class="input bg-gray-50 text-gray-600 dark:bg-dark-700 dark:text-gray-300" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
+            <input v-model.number="form.concurrency" type="number" min="1" class="input" @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('common.status') }}</label>
+            <Select v-model="form.status" :options="statusOptions" />
+          </div>
+        </div>
+
+        <div v-if="!authStore.isSimpleMode">
+          <GroupSelector
+            v-model="form.group_ids"
+            :groups="groups"
+            :platform="account?.platform"
+            :mixed-scheduling="mixedScheduling"
+            data-tour="account-form-groups"
+          />
+        </div>
+
+        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <label class="input-label">{{ t('admin.accounts.modelMapping') }}</label>
+          <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
+            <div v-for="(mapping, index) in modelMappings" :key="getModelMappingKey(mapping)" class="flex items-center gap-2">
+              <input v-model="mapping.from" data-testid="upstream-model-mapping-from" type="text" class="input flex-1" :placeholder="t('admin.accounts.requestModel')" />
+              <span class="text-gray-400">→</span>
+              <input v-model="mapping.to" data-testid="upstream-model-mapping-to" type="text" class="input flex-1" :placeholder="t('admin.accounts.actualModel')" />
+              <button type="button" @click="removeModelMapping(index)" class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">×</button>
+            </div>
+          </div>
+          <button type="button" @click="addModelMapping" class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 hover:border-gray-400 dark:border-dark-500 dark:text-gray-400">{{ t('admin.accounts.addMapping') }}</button>
+        </div>
+      </template>
+
+      <template v-else>
       <div v-if="isUpstreamBoundAccount" class="space-y-4">
         <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200">
           此账号绑定到“上游配置”。上游站点地址、API 地址、代理、登录态、JWT 和 refresh token 请在“上游配置”页维护。
@@ -79,8 +141,8 @@
       </div>
 
       <!-- API Key fields (only for apikey type) -->
-      <div v-if="account.type === 'apikey' && !isUpstreamBoundAccount" class="space-y-4">
-        <div>
+      <div v-if="account.type === 'apikey'" class="space-y-4">
+        <div v-if="!isUpstreamBoundAccount">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl"
@@ -105,7 +167,7 @@
             @select="editBaseUrl = $event"
           />
         </div>
-        <div>
+        <div v-if="!isUpstreamBoundAccount">
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
           <input
             v-model="editApiKey"
@@ -317,7 +379,7 @@
         </div>
 
         <!-- Custom Error Codes Section -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div v-if="!isUpstreamBoundAccount" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.customErrorCodes') }}</label>
@@ -478,7 +540,7 @@
       </div>
 
       <!-- Header Override Section (anthropic/openai apikey + grok apikey/oauth) -->
-      <div v-if="headerOverrideCapable" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+      <div v-if="headerOverrideCapable && !isUpstreamBoundAccount" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.headerOverride.title') }}</label>
@@ -722,7 +784,7 @@
       </div>
 
       <!-- Upstream fields (only for upstream type) -->
-      <div v-if="account.type === 'upstream'" class="space-y-4">
+      <div v-if="account.type === 'upstream' && !isUpstreamBoundAccount" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.baseUrl') }}</label>
           <input
@@ -1283,7 +1345,7 @@
       </div>
 
       <!-- Temp Unschedulable Rules -->
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
+      <div v-if="!isUpstreamBoundAccount" class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
         <div class="mb-3 flex items-center justify-between">
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.tempUnschedulable.title') }}</label>
@@ -1432,7 +1494,7 @@
 
 
       <div
-        v-if="supportsAccountSchedulingThresholdOverride"
+        v-if="supportsAccountSchedulingThresholdOverride && !isUpstreamBoundAccount"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
         data-testid="account-scheduling-threshold-section"
       >
@@ -1569,7 +1631,7 @@
           </div>
         </div>
       </div>
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+      <div v-if="!isUpstreamBoundAccount" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
         <input v-model="expiresAtInput" type="datetime-local" class="input" />
         <p class="input-hint">{{ t('admin.accounts.expiresAtHint') }}</p>
@@ -1577,7 +1639,7 @@
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !isUpstreamBoundAccount && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1638,7 +1700,7 @@
 
       <!-- OpenAI Codex hosted image_generation bridge policy -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !isUpstreamBoundAccount && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="overflow-hidden rounded-lg border border-sky-100 bg-sky-50/60 shadow-sm dark:border-sky-900/50 dark:bg-sky-950/20">
@@ -1698,7 +1760,7 @@
 
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !isUpstreamBoundAccount && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1719,7 +1781,7 @@
 
       <!-- OpenAI APIKey Responses API support mode -->
       <div
-        v-if="account?.platform === 'openai' && account?.type === 'apikey'"
+        v-if="account?.platform === 'openai' && account?.type === 'apikey' && !isUpstreamBoundAccount"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -1802,7 +1864,7 @@
 
       <!-- Anthropic API Key 自动透传开关 -->
       <div
-        v-if="account?.platform === 'anthropic' && account?.type === 'apikey'"
+        v-if="account?.platform === 'anthropic' && account?.type === 'apikey' && !isUpstreamBoundAccount"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1850,7 +1912,7 @@
 
       <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
       <div
-        v-if="account?.platform === 'anthropic' && account?.type === 'apikey' && webSearchGlobalEnabled"
+        v-if="account?.platform === 'anthropic' && account?.type === 'apikey' && !isUpstreamBoundAccount && webSearchGlobalEnabled"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1870,7 +1932,7 @@
 
       <!-- 配额控制 (Anthropic apikey/bedrock: 配额限制 + 亲和) -->
       <div
-        v-if="account?.platform === 'anthropic' && (account?.type === 'apikey' || account?.type === 'bedrock')"
+        v-if="account?.platform === 'anthropic' && !isUpstreamBoundAccount && (account?.type === 'apikey' || account?.type === 'bedrock')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="mb-3">
@@ -1921,7 +1983,7 @@
       </div>
       <!-- 配额控制 (非 Anthropic apikey/bedrock) -->
       <div
-        v-else-if="account?.type === 'apikey' || account?.type === 'bedrock'"
+        v-else-if="!isUpstreamBoundAccount && (account?.type === 'apikey' || account?.type === 'bedrock')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="mb-3">
@@ -1973,7 +2035,7 @@
 
       <!-- OpenAI API 长上下文计费开关 -->
       <div
-        v-if="account?.platform === 'openai' && !isSparkShadow && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !isSparkShadow && !isUpstreamBoundAccount && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -2005,7 +2067,7 @@
       </div>
 
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token')"
+        v-if="account?.platform === 'openai' && !isUpstreamBoundAccount && (account?.type === 'oauth' || account?.type === 'setup-token')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2061,7 +2123,7 @@
 
       <!-- OpenAI 订阅档位手动覆盖（Plus/Pro/Free），仅 OAuth 非影子账号 -->
       <div
-        v-if="account?.platform === 'openai' && account?.type === 'oauth' && !isSparkShadow"
+        v-if="account?.platform === 'openai' && !isUpstreamBoundAccount && account?.type === 'oauth' && !isSparkShadow"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -2078,7 +2140,7 @@
       </div>
 
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !isUpstreamBoundAccount && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="flex items-center justify-between">
@@ -2135,7 +2197,7 @@
         </div>
       </div>
 
-      <div>
+      <div v-if="!isUpstreamBoundAccount">
         <div class="flex items-center justify-between">
           <div>
             <label class="input-label mb-0">{{
@@ -2164,7 +2226,7 @@
       </div>
 
       <div
-        v-if="account?.platform === 'openai'"
+        v-if="account?.platform === 'openai' && !isUpstreamBoundAccount"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="space-y-2">
@@ -2657,7 +2719,7 @@
             </div>
           </div>
         </div>
-        <div v-if="account?.platform === 'antigravity'" class="mt-3 flex items-center gap-2">
+        <div v-if="account?.platform === 'antigravity' && !isUpstreamBoundAccount" class="mt-3 flex items-center gap-2">
           <label class="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
@@ -2695,6 +2757,7 @@
         :mixed-scheduling="mixedScheduling"
         data-tour="account-form-groups"
       />
+      </template>
 
     </form>
 
@@ -2823,6 +2886,7 @@ interface Props {
   account: Account | null
   proxies: Proxy[]
   groups: AdminGroup[]
+  mode?: 'ordinary' | 'upstream'
 }
 
 const props = defineProps<Props>()
@@ -3422,6 +3486,15 @@ const applyPoolModeCredentials = (credentials: Record<string, unknown>) => {
 
 const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) => {
   const parsed = splitModelMappingObject(rawMapping)
+  if (props.mode === 'upstream') {
+    allowedModels.value = []
+    modelMappings.value = [
+      ...parsed.allowedModels.map((model) => ({ from: model, to: model })),
+      ...parsed.modelMappings
+    ]
+    modelRestrictionMode.value = 'mapping'
+    return
+  }
   allowedModels.value = parsed.allowedModels
   modelMappings.value = parsed.modelMappings
   modelRestrictionMode.value =
@@ -4379,6 +4452,21 @@ const handleSubmit = async () => {
 
   if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error') {
     appStore.showError(t('admin.accounts.pleaseSelectStatus'))
+    return
+  }
+
+  if (props.mode === 'upstream') {
+    const modelMapping = buildModelRestrictionMapping()
+    const updatePayload: Record<string, unknown> = {
+      notes: form.notes,
+      concurrency: form.concurrency,
+      status: form.status,
+      group_ids: form.group_ids
+    }
+    if (modelMapping !== null) {
+      updatePayload.credentials = { model_mapping: modelMapping }
+    }
+    await submitUpdateAccount(accountID, updatePayload)
     return
   }
 

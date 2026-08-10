@@ -25,12 +25,12 @@ func TestUsageLogRepositoryGetAccountQualityStatsBatch(t *testing.T) {
 		int64(11),
 		int64(118), int64(108), 760.0, 4100.0,
 		int64(172), int64(160), 930.25, 5100.0,
-		int64(18), int64(2), lastSuccess, lastError,
+		int64(18), int64(2), int64(118), int64(4), lastSuccess, lastError,
 	).AddRow(
 		int64(22),
 		int64(4), int64(0), nil, 7000.0,
 		int64(4), int64(0), nil, 7000.0,
-		int64(0), int64(0), end.Add(-2*time.Hour), nil,
+		int64(0), int64(0), int64(4), int64(1), end.Add(-2*time.Hour), nil,
 	)
 
 	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*actual_cost > 0.*ul\.stream = TRUE.*quality AS.*COUNT\(\*\) FILTER \(WHERE created_at >= \$3\).*WHERE duration_ms IS NOT NULL.*ops_error_logs.*oe\.stream = TRUE.*oe\.is_count_tokens = FALSE`).
@@ -67,7 +67,7 @@ func TestUsageLogRepositoryGetGroupQualityStatsBatch(t *testing.T) {
 		int64(7),
 		int64(5), int64(5), 540.0, 5900.0,
 		int64(84), int64(70), 920.0, 7300.0,
-		int64(5), int64(0), end.Add(-time.Minute), nil,
+		int64(5), int64(0), int64(84), int64(6), end.Add(-time.Minute), nil,
 	)
 
 	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*ul\.group_id.*quality AS.*GROUP BY group_id.*ops_error_logs`).
@@ -104,6 +104,7 @@ func qualityStatsRows(scope string) *sqlmock.Rows {
 		scope,
 		"realtime_count", "realtime_first_count", "realtime_first_avg", "realtime_duration_avg",
 		"recent_count", "recent_first_count", "recent_first_avg", "recent_duration_avg",
-		"successful_requests_1h", "failed_requests_1h", "last_success_at", "last_error_at",
+		"successful_requests_1h", "failed_requests_1h", "successful_requests_24h", "failed_requests_24h",
+		"last_success_at", "last_error_at",
 	})
 }

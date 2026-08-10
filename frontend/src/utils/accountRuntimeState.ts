@@ -21,6 +21,22 @@ export const buildTTFTGuardDegradationKey = (account: Account): string => {
   )
 }
 
+export const buildUpstreamHealthKey = (account: Account): string => {
+  const health = account.upstream_health
+  if (!health) return ''
+  return JSON.stringify({
+    key_id: health.key_id,
+    status: health.status,
+    observation_enabled: health.observation_enabled,
+    reason: health.reason ?? '',
+    last_probe_at: health.last_probe_at ?? '',
+    last_probe_status: health.last_probe_status ?? '',
+    last_evidence_at: health.last_evidence_at ?? '',
+    consecutive_failures: health.consecutive_failures,
+    updated_at: health.updated_at
+  })
+}
+
 export const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account): Account => ({
   ...updatedAccount,
   current_concurrency: updatedAccount.current_concurrency ?? oldAccount.current_concurrency,
@@ -29,5 +45,7 @@ export const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account)
   ttft_guard_degradations:
     updatedAccount.platform === 'openai'
       ? updatedAccount.ttft_guard_degradations ?? oldAccount.ttft_guard_degradations
-      : undefined
+      : undefined,
+  upstream_health: updatedAccount.upstream_health ?? oldAccount.upstream_health,
+  available_actions: updatedAccount.available_actions ?? oldAccount.available_actions
 })

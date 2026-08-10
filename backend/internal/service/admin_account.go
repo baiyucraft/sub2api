@@ -19,10 +19,45 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
+type accountListUpstreamIDsContextKey struct{}
+
+type AccountListUpstreamIDs struct {
+	ConfigID *int64
+	KeyID    *int64
+}
+
+func WithAccountListUpstreamIDs(ctx context.Context, ids AccountListUpstreamIDs) context.Context {
+	return context.WithValue(ctx, accountListUpstreamIDsContextKey{}, ids)
+}
+
+func AccountListUpstreamIDsFromContext(ctx context.Context) AccountListUpstreamIDs {
+	if ctx == nil {
+		return AccountListUpstreamIDs{}
+	}
+	ids, _ := ctx.Value(accountListUpstreamIDsContextKey{}).(AccountListUpstreamIDs)
+	return ids
+}
+
 // Account management implementations
 func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error) {
+	return s.ListAccountsScoped(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, AccountListScopeAll)
+}
+
+func (s *adminServiceImpl) ListAccountsScoped(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, scope AccountListScope) ([]Account, int64, error) {
+	if !scope.Valid() {
+		return nil, 0, fmt.Errorf("invalid account list scope %q", scope)
+	}
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
-	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode)
+	var accounts []Account
+	var result *pagination.PaginationResult
+	var err error
+	if scoped, ok := s.accountRepo.(ScopedAccountLister); ok {
+		accounts, result, err = scoped.ListWithFiltersScoped(ctx, params, platform, accountType, status, search, groupID, privacyMode, scope)
+	} else if scope == AccountListScopeAll {
+		accounts, result, err = s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode)
+	} else {
+		return nil, 0, fmt.Errorf("scoped account listing is not supported")
+	}
 	if err != nil {
 		return nil, 0, err
 	}
@@ -564,6 +599,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	if account.IsUpstreamBound() {
+		if input.Name != "" || input.Type != "" || input.ProxyID != nil || input.UpstreamConfigID != nil || input.UpstreamKeyID != nil ||
+			input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil || input.ProbeEnabled != nil || input.RateSyncEnabled != nil ||
+			input.Extra != nil || !isAllowedUpstreamAccountCredentialsUpdate(input.Credentials) {
+			return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account identity, credentials, proxy, rate, priority, and load factor are derived from the upstream key")
+		}
+	}
 	// Repository hydration injects the shared upstream URL and key for forwarding.
 	// Strip them before applying updates so an unbind cannot persist runtime-only secrets.
 	sanitizeUpstreamBoundCredentials(account)
@@ -897,6 +939,18 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	return updated, nil
 }
 
+func isAllowedUpstreamAccountCredentialsUpdate(credentials map[string]any) bool {
+	if credentials == nil {
+		return true
+	}
+	for key := range credentials {
+		if key != "model_mapping" {
+			return false
+		}
+	}
+	return true
+}
+
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
@@ -924,6 +978,12 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
+	if input == nil {
+		return nil, errors.New("bulk update input is required")
+	}
+	if input.Filters != nil && !input.Filters.Scope.Valid() {
+		return nil, fmt.Errorf("invalid account list scope %q", input.Filters.Scope)
+	}
 	// Managed probe/session state may only enter through dedicated typed endpoints.
 	delete(input.Extra, UpstreamBillingProbeEnabledExtraKey)
 	delete(input.Extra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -948,6 +1008,29 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	if len(input.AccountIDs) == 0 {
 		return result, nil
+	}
+	if input.Filters != nil && input.Filters.Scope != AccountListScopeAll {
+		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
+		if err != nil {
+			return nil, err
+		}
+		seen := make(map[int64]struct{}, len(loaded))
+		for _, acc := range loaded {
+			if acc == nil {
+				continue
+			}
+			seen[acc.ID] = struct{}{}
+			matches := input.Filters.Scope == AccountListScopeUpstream && acc.IsUpstreamBound()
+			if input.Filters.Scope == AccountListScopeOrdinary {
+				matches = !acc.IsUpstreamBound()
+			}
+			if !matches {
+				return nil, infraerrors.BadRequest("ACCOUNT_SCOPE_MISMATCH", "account is outside the requested management scope")
+			}
+		}
+		if len(seen) != len(input.AccountIDs) {
+			return nil, ErrAccountNotFound
+		}
 	}
 	if input.GroupIDs != nil {
 		if err := s.validateGroupIDsExist(ctx, *input.GroupIDs); err != nil {
@@ -1046,6 +1129,16 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			if acc != nil && acc.IsUpstreamBound() {
 				return nil, infraerrors.Newf(http.StatusBadRequest, "UPSTREAM_ACCOUNT_RATE_DERIVED",
 					"upstream-bound account %d rate, priority, and load factor are derived from its upstream key", acc.ID)
+			}
+		}
+	}
+	if len(input.Credentials) > 0 || len(input.Extra) > 0 || input.ProbeEnabled != nil {
+		for _, acc := range cachedTargets {
+			if acc == nil || !acc.IsUpstreamBound() {
+				continue
+			}
+			if len(input.Extra) > 0 || input.ProbeEnabled != nil || !isAllowedUpstreamAccountCredentialsUpdate(input.Credentials) {
+				return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account bulk edits only allow model mapping, groups, concurrency, status, and scheduling")
 			}
 		}
 	}
@@ -1273,7 +1366,7 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 	accountIDs := make([]int64, 0, pageSize)
 
 	for {
-		accounts, total, err := s.ListAccounts(
+		accounts, total, err := s.ListAccountsScoped(
 			ctx,
 			page,
 			pageSize,
@@ -1285,6 +1378,7 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 			filters.PrivacyMode,
 			"",
 			"",
+			filters.Scope,
 		)
 		if err != nil {
 			return nil, err

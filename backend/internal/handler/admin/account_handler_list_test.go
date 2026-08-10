@@ -373,3 +373,52 @@ func TestAccountHandlerListIncludesTTFTGuardDegradationsForOpenAIOnly(t *testing
 	router.ServeHTTP(unchangedRec, unchangedReq)
 	require.Equal(t, http.StatusNotModified, unchangedRec.Code)
 }
+
+func TestAccountHandlerListSeparatesOrdinaryAndUpstreamScopes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	adminSvc := newStubAdminService()
+	now := time.Now().UTC().Truncate(time.Second)
+	configID, keyID := int64(81), int64(91)
+	adminSvc.accounts = []service.Account{
+		{ID: 601, Name: "ordinary", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, CreatedAt: now, UpdatedAt: now},
+		{ID: 602, Name: "upstream", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: false, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, CreatedAt: now, UpdatedAt: now},
+	}
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router.GET("/api/v1/admin/accounts", handler.List)
+	router.GET("/api/v1/admin/upstream-management/accounts", handler.ListUpstreamManagement)
+
+	ordinaryRec := httptest.NewRecorder()
+	router.ServeHTTP(ordinaryRec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?scope=ordinary", nil))
+	require.Equal(t, http.StatusOK, ordinaryRec.Code)
+
+	upstreamRec := httptest.NewRecorder()
+	router.ServeHTTP(upstreamRec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/upstream-management/accounts?upstream_config_id=81&upstream_key_id=91", nil))
+	require.Equal(t, http.StatusOK, upstreamRec.Code)
+
+	var ordinaryPayload, upstreamPayload struct {
+		Data struct {
+			Items []struct {
+				ID               int64    `json:"id"`
+				AvailableActions []string `json:"available_actions"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(ordinaryRec.Body.Bytes(), &ordinaryPayload))
+	require.NoError(t, json.Unmarshal(upstreamRec.Body.Bytes(), &upstreamPayload))
+	require.Equal(t, []int64{601}, []int64{ordinaryPayload.Data.Items[0].ID})
+	require.Empty(t, ordinaryPayload.Data.Items[0].AvailableActions)
+	require.Equal(t, []int64{602}, []int64{upstreamPayload.Data.Items[0].ID})
+	require.ElementsMatch(t, []string{"edit", "test", "stats", "schedule", "toggle_schedulable", "recover_state", "probe_key", "toggle_observation", "events"}, upstreamPayload.Data.Items[0].AvailableActions)
+}
+
+func TestAccountHandlerListRejectsInvalidUpstreamFilterID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := NewAccountHandler(newStubAdminService(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router.GET("/api/v1/admin/upstream-management/accounts", handler.ListUpstreamManagement)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/upstream-management/accounts?upstream_key_id=not-a-number", nil))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}

@@ -428,6 +428,30 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 	return accounts[start:end], int64(total), nil
 }
 
+func (s *stubAdminService) ListAccountsScoped(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, sortBy, sortOrder string, scope service.AccountListScope) ([]service.Account, int64, error) {
+	filtered := make([]service.Account, 0, len(s.accounts))
+	upstreamIDs := service.AccountListUpstreamIDsFromContext(ctx)
+	for i := range s.accounts {
+		account := s.accounts[i]
+		if scope == service.AccountListScopeOrdinary && account.IsUpstreamBound() {
+			continue
+		}
+		if scope == service.AccountListScopeUpstream && !account.IsUpstreamBound() {
+			continue
+		}
+		if upstreamIDs.ConfigID != nil && (account.UpstreamConfigID == nil || *account.UpstreamConfigID != *upstreamIDs.ConfigID) {
+			continue
+		}
+		if upstreamIDs.KeyID != nil && (account.UpstreamKeyID == nil || *account.UpstreamKeyID != *upstreamIDs.KeyID) {
+			continue
+		}
+		filtered = append(filtered, account)
+	}
+	clone := *s
+	clone.accounts = filtered
+	return clone.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+}
+
 func (s *stubAdminService) ListAccountsForSchedulerScoreFilter(_ context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
 	s.schedulerScoreFilterCalls++
 	if s.accountSchedulerScoreFilterAccounts != nil {

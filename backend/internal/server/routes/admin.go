@@ -46,6 +46,9 @@ func RegisterAdminRoutes(
 		// 上游配置
 		registerUpstreamConfigRoutes(admin, h)
 
+		// 上游管理（账号 scope + 健康/TTFT facade）
+		registerUpstreamManagementRoutes(admin, h)
+
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)
 
@@ -125,6 +128,18 @@ func RegisterAdminRoutes(
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
 	}
+}
+
+func registerUpstreamManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	group := admin.Group("/upstream-management")
+	group.GET("/accounts", h.Admin.Account.ListUpstreamManagement)
+	group.GET("/ttft-guard", h.Admin.Setting.GetOpenAITTFTGuardSettings)
+	group.PUT("/ttft-guard", h.Admin.Setting.UpdateOpenAITTFTGuardSettings)
+	group.GET("/probe-models", h.Admin.UpstreamConfig.GetUpstreamProbeModels)
+	group.PUT("/probe-models", h.Admin.UpstreamConfig.PutUpstreamProbeModels)
+	group.PUT("/keys/:id/observation", h.Admin.UpstreamConfig.SetKeyObservationAdmin)
+	group.POST("/keys/:id/probe", h.Admin.UpstreamConfig.ProbeKeyAdmin)
+	group.GET("/keys/:id/events", h.Admin.UpstreamConfig.ListKeyEventsAdmin)
 }
 
 func registerPromptAuditRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

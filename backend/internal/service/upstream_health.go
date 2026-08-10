@@ -1,0 +1,335 @@
+package service
+
+import (
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+// UpstreamHealthStatus is provider-neutral. Suspended and recovering keys are
+// temporarily excluded from business scheduling; probes remain allowed.
+type UpstreamHealthStatus string
+
+const (
+	UpstreamHealthHealthy    UpstreamHealthStatus = "healthy"
+	UpstreamHealthDegraded   UpstreamHealthStatus = "degraded"
+	UpstreamHealthSuspended  UpstreamHealthStatus = "suspended"
+	UpstreamHealthObserving  UpstreamHealthStatus = "observing"
+	UpstreamHealthRecovering UpstreamHealthStatus = "recovering"
+	UpstreamHealthDisabled   UpstreamHealthStatus = "disabled"
+
+	upstreamHealthRecoverySamplesRequired = 3
+)
+
+func validUpstreamHealthStatus(status UpstreamHealthStatus) bool {
+	switch status {
+	case UpstreamHealthHealthy, UpstreamHealthDegraded, UpstreamHealthSuspended,
+		UpstreamHealthObserving, UpstreamHealthRecovering, UpstreamHealthDisabled:
+		return true
+	default:
+		return false
+	}
+}
+
+type UpstreamHealthSnapshot struct {
+	KeyID                   int64                `json:"key_id"`
+	Status                  UpstreamHealthStatus `json:"status"`
+	ObservationEnabled      bool                 `json:"observation_enabled"`
+	Reason                  string               `json:"reason,omitempty"`
+	LastProbeAt             *time.Time           `json:"last_probe_at,omitempty"`
+	LastProbeStatus         string               `json:"last_probe_status,omitempty"`
+	LastEvidenceAt          *time.Time           `json:"last_evidence_at,omitempty"`
+	LastTrafficStatus       string               `json:"last_traffic_status,omitempty"`
+	ConsecutiveFails        int                  `json:"consecutive_failures"`
+	RecoverySamples         int                  `json:"recovery_samples"`
+	RecoverySamplesRequired int                  `json:"recovery_samples_required"`
+	UpdatedAt               time.Time            `json:"updated_at"`
+}
+
+type UpstreamHealthRegistry struct {
+	mu    sync.RWMutex
+	items map[int64]UpstreamHealthSnapshot
+}
+
+// UpstreamHealthTransition is the atomic before/after view of one health
+// mutation. Callers use it to persist the snapshot and append a state-change
+// event without taking a second, racy registry snapshot.
+type UpstreamHealthTransition struct {
+	Previous UpstreamHealthSnapshot
+	Current  UpstreamHealthSnapshot
+}
+
+func (t UpstreamHealthTransition) StateChanged() bool {
+	return t.Previous.Status != t.Current.Status ||
+		t.Previous.ObservationEnabled != t.Current.ObservationEnabled
+}
+
+var globalUpstreamHealth = &UpstreamHealthRegistry{items: make(map[int64]UpstreamHealthSnapshot)}
+
+func GlobalUpstreamHealthRegistry() *UpstreamHealthRegistry { return globalUpstreamHealth }
+
+func defaultUpstreamHealthSnapshot(keyID int64) UpstreamHealthSnapshot {
+	return UpstreamHealthSnapshot{
+		KeyID:                   keyID,
+		Status:                  UpstreamHealthObserving,
+		ObservationEnabled:      true,
+		RecoverySamplesRequired: upstreamHealthRecoverySamplesRequired,
+	}
+}
+
+func normalizeUpstreamHealthSnapshot(item UpstreamHealthSnapshot) UpstreamHealthSnapshot {
+	if !validUpstreamHealthStatus(item.Status) {
+		item.Status = UpstreamHealthObserving
+	}
+	if item.RecoverySamplesRequired <= 0 {
+		item.RecoverySamplesRequired = upstreamHealthRecoverySamplesRequired
+	}
+	if !item.ObservationEnabled {
+		item.Status = UpstreamHealthDisabled
+		item.RecoverySamples = 0
+	}
+	return item
+}
+
+func (r *UpstreamHealthRegistry) Snapshot(keyID int64) UpstreamHealthSnapshot {
+	if r == nil || keyID <= 0 {
+		return defaultUpstreamHealthSnapshot(keyID)
+	}
+	r.mu.RLock()
+	item, ok := r.items[keyID]
+	r.mu.RUnlock()
+	if !ok {
+		return defaultUpstreamHealthSnapshot(keyID)
+	}
+	return item
+}
+
+// Hydrate restores a durable snapshot without treating the read as evidence.
+func (r *UpstreamHealthRegistry) Hydrate(item UpstreamHealthSnapshot) UpstreamHealthSnapshot {
+	if r == nil || item.KeyID <= 0 {
+		return normalizeUpstreamHealthSnapshot(item)
+	}
+	item = normalizeUpstreamHealthSnapshot(item)
+	r.mu.Lock()
+	r.items[item.KeyID] = item
+	r.mu.Unlock()
+	return item
+}
+
+func (r *UpstreamHealthRegistry) SetObservationTransition(keyID int64, enabled bool, now time.Time) UpstreamHealthTransition {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.items[keyID]
+	if !ok {
+		item = defaultUpstreamHealthSnapshot(keyID)
+	}
+	previous := item
+	item.KeyID = keyID
+	item.ObservationEnabled = enabled
+	item.UpdatedAt = now
+	item.ConsecutiveFails = 0
+	item.RecoverySamples = 0
+	if !enabled {
+		item.Status = UpstreamHealthDisabled
+		item.Reason = "observation_disabled"
+	} else if item.Status == UpstreamHealthDisabled {
+		item.Status = UpstreamHealthObserving
+		item.Reason = "observation_enabled"
+	}
+	r.items[keyID] = normalizeUpstreamHealthSnapshot(item)
+	return UpstreamHealthTransition{Previous: previous, Current: r.items[keyID]}
+}
+
+func (r *UpstreamHealthRegistry) SetObservation(keyID int64, enabled bool, now time.Time) UpstreamHealthSnapshot {
+	return r.SetObservationTransition(keyID, enabled, now).Current
+}
+
+func (r *UpstreamHealthRegistry) recordSuccessTransition(keyID int64, status, reason string, now time.Time, probe bool) UpstreamHealthTransition {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.items[keyID]
+	if !ok {
+		item = defaultUpstreamHealthSnapshot(keyID)
+	}
+	previous := item
+	if !item.ObservationEnabled || item.Status == UpstreamHealthDisabled {
+		if probe {
+			item.LastProbeAt = &now
+			item.LastProbeStatus = strings.TrimSpace(status)
+			item.Reason = strings.TrimSpace(reason)
+			item.UpdatedAt = now
+			r.items[keyID] = normalizeUpstreamHealthSnapshot(item)
+		}
+		return UpstreamHealthTransition{Previous: previous, Current: r.items[keyID]}
+	}
+	item.UpdatedAt = now
+	item.Reason = strings.TrimSpace(reason)
+	item.ConsecutiveFails = 0
+	if probe {
+		item.LastProbeAt = &now
+		item.LastProbeStatus = strings.TrimSpace(status)
+	} else {
+		item.LastEvidenceAt = &now
+		item.LastTrafficStatus = strings.TrimSpace(status)
+	}
+	if item.Status == UpstreamHealthSuspended || item.Status == UpstreamHealthRecovering {
+		item.Status = UpstreamHealthRecovering
+		item.RecoverySamples++
+		if item.RecoverySamples >= upstreamHealthRecoverySamplesRequired {
+			item.Status = UpstreamHealthHealthy
+			item.RecoverySamples = 0
+			item.Reason = "recovered"
+		}
+	} else {
+		item.Status = UpstreamHealthHealthy
+		item.RecoverySamples = 0
+	}
+	item = normalizeUpstreamHealthSnapshot(item)
+	r.items[keyID] = item
+	return UpstreamHealthTransition{Previous: previous, Current: item}
+}
+
+func (r *UpstreamHealthRegistry) recordFailureTransition(keyID int64, status, reason string, now time.Time, probe bool) UpstreamHealthTransition {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.items[keyID]
+	if !ok {
+		item = defaultUpstreamHealthSnapshot(keyID)
+	}
+	previous := item
+	if !item.ObservationEnabled || item.Status == UpstreamHealthDisabled {
+		if probe {
+			item.LastProbeAt = &now
+			item.LastProbeStatus = strings.TrimSpace(status)
+			item.Reason = strings.TrimSpace(reason)
+			item.UpdatedAt = now
+			r.items[keyID] = normalizeUpstreamHealthSnapshot(item)
+		}
+		return UpstreamHealthTransition{Previous: previous, Current: r.items[keyID]}
+	}
+	item.UpdatedAt = now
+	item.Reason = strings.TrimSpace(reason)
+	item.RecoverySamples = 0
+	if probe {
+		item.LastProbeAt = &now
+		item.LastProbeStatus = strings.TrimSpace(status)
+	} else {
+		item.LastEvidenceAt = &now
+		item.LastTrafficStatus = strings.TrimSpace(status)
+	}
+	if item.Reason == "capacity_limited" {
+		// Provider-wide capacity signals are useful observations but do not prove
+		// that this key is invalid. Keep the key degraded without accumulating
+		// toward a global key suspension.
+		item.ConsecutiveFails = 0
+		item.Status = UpstreamHealthDegraded
+	} else {
+		item.ConsecutiveFails++
+	}
+	if status == "401" || status == "403" || item.ConsecutiveFails >= 3 {
+		item.Status = UpstreamHealthSuspended
+	} else if item.Status != UpstreamHealthDegraded {
+		item.Status = UpstreamHealthDegraded
+	}
+	item = normalizeUpstreamHealthSnapshot(item)
+	r.items[keyID] = item
+	return UpstreamHealthTransition{Previous: previous, Current: item}
+}
+
+func (r *UpstreamHealthRegistry) RecordProbe(keyID int64, status, reason string, now time.Time) UpstreamHealthSnapshot {
+	return r.RecordProbeTransition(keyID, status, reason, now).Current
+}
+
+func (r *UpstreamHealthRegistry) RecordProbeTransition(keyID int64, status, reason string, now time.Time) UpstreamHealthTransition {
+	return r.recordSuccessTransition(keyID, status, reason, now, true)
+}
+
+func (r *UpstreamHealthRegistry) RecordProbeFailure(keyID int64, status, reason string, now time.Time) UpstreamHealthSnapshot {
+	return r.RecordProbeFailureTransition(keyID, status, reason, now).Current
+}
+
+func (r *UpstreamHealthRegistry) RecordProbeFailureTransition(keyID int64, status, reason string, now time.Time) UpstreamHealthTransition {
+	return r.recordFailureTransition(keyID, status, reason, now, true)
+}
+
+func (r *UpstreamHealthRegistry) RecordTrafficSuccess(keyID int64, status, reason string, now time.Time) UpstreamHealthSnapshot {
+	return r.RecordTrafficSuccessTransition(keyID, status, reason, now).Current
+}
+
+func (r *UpstreamHealthRegistry) RecordTrafficSuccessTransition(keyID int64, status, reason string, now time.Time) UpstreamHealthTransition {
+	return r.recordSuccessTransition(keyID, status, reason, now, false)
+}
+
+func (r *UpstreamHealthRegistry) RecordTrafficFailure(keyID int64, status, reason string, now time.Time) UpstreamHealthSnapshot {
+	return r.RecordTrafficFailureTransition(keyID, status, reason, now).Current
+}
+
+func (r *UpstreamHealthRegistry) RecordTrafficFailureTransition(keyID int64, status, reason string, now time.Time) UpstreamHealthTransition {
+	return r.recordFailureTransition(keyID, status, reason, now, false)
+}
+
+// RecordFailure remains as a compatibility alias for probe failures.
+func (r *UpstreamHealthRegistry) RecordFailure(keyID int64, status, reason string, now time.Time) UpstreamHealthSnapshot {
+	return r.RecordProbeFailure(keyID, status, reason, now)
+}
+
+func (r *UpstreamHealthRegistry) Snapshots(keyIDs []int64) map[int64]UpstreamHealthSnapshot {
+	out := make(map[int64]UpstreamHealthSnapshot, len(keyIDs))
+	if r == nil {
+		return out
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, id := range keyIDs {
+		if id <= 0 {
+			continue
+		}
+		item, ok := r.items[id]
+		if !ok {
+			item = defaultUpstreamHealthSnapshot(id)
+		}
+		out[id] = item
+	}
+	return out
+}
+
+func (r *UpstreamHealthRegistry) ExcludedKeyIDs(keyIDs []int64) map[int64]struct{} {
+	out := make(map[int64]struct{})
+	for id, item := range r.Snapshots(keyIDs) {
+		if item.Status == UpstreamHealthSuspended || item.Status == UpstreamHealthRecovering {
+			out[id] = struct{}{}
+		}
+	}
+	return out
+}
+
+// HasTemporaryExclusions is a cheap process-wide guard used before account
+// hydration. Most requests run while no Key is suspended, so the scheduling
+// wrapper preserves the original single repository read in that common case.
+func (r *UpstreamHealthRegistry) HasTemporaryExclusions() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, item := range r.items {
+		if item.Status == UpstreamHealthSuspended || item.Status == UpstreamHealthRecovering {
+			return true
+		}
+	}
+	return false
+}
+
+func SortUpstreamHealthSnapshots(items []UpstreamHealthSnapshot) {
+	sort.Slice(items, func(i, j int) bool { return items[i].KeyID < items[j].KeyID })
+}

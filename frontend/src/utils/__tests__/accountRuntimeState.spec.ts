@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildTTFTGuardDegradationKey, mergeRuntimeFields } from '../accountRuntimeState'
+import {
+  buildTTFTGuardDegradationKey,
+  buildUpstreamHealthKey,
+  mergeRuntimeFields
+} from '../accountRuntimeState'
 import type { Account, AccountTTFTGuardDegradation } from '@/types'
 
 const degradation = (model: string): AccountTTFTGuardDegradation => ({
@@ -72,5 +76,47 @@ describe('accountRuntimeState', () => {
     expect(
       mergeRuntimeFields(current, account({ platform: 'anthropic' })).ttft_guard_degradations
     ).toBeUndefined()
+  })
+
+  it('上游健康签名响应探针与真实流量证据变化', () => {
+    const current = account({
+      upstream_health: {
+        key_id: 9,
+        status: 'observing',
+        observation_enabled: true,
+        consecutive_failures: 0,
+        updated_at: '2026-08-10T08:00:00Z'
+      }
+    })
+    const changed = account({
+      upstream_health: {
+        ...current.upstream_health!,
+        status: 'suspended',
+        reason: 'authentication_failed',
+        last_probe_at: '2026-08-10T08:01:00Z',
+        last_probe_status: 'failed',
+        consecutive_failures: 1,
+        updated_at: '2026-08-10T08:01:00Z'
+      }
+    })
+
+    expect(buildUpstreamHealthKey(current)).not.toBe(buildUpstreamHealthKey(changed))
+    expect(buildUpstreamHealthKey(account())).toBe('')
+  })
+
+  it('局部响应未携带上游健康状态时保留运行时快照', () => {
+    const current = account({
+      upstream_health: {
+        key_id: 9,
+        status: 'healthy',
+        observation_enabled: true,
+        consecutive_failures: 0,
+        updated_at: '2026-08-10T08:00:00Z'
+      }
+    })
+
+    expect(mergeRuntimeFields(current, account({ name: 'updated' })).upstream_health).toEqual(
+      current.upstream_health
+    )
   })
 })
