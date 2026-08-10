@@ -70,6 +70,18 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("sub2api-sign-gate", script)
         self.assertIn("sub2api-sign-dr-evidence", script)
 
+    def test_doctor_uses_the_vm_postgres_container_user_for_database_size(self) -> None:
+        runner = mock.Mock()
+        runner.run.return_value.values = {"vm_ready": "true"}
+        ReleaseDoctor("195", runner=runner).check_vm()
+        script = runner.run.call_args.args[1]
+        self.assertIn('select(startswith("POSTGRES_USER="))', script)
+        self.assertIn('ltrimstr("POSTGRES_USER=")', script)
+        self.assertIn('if [[ ! $vm_pg_user =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then vm_pg_user=sub2api; fi', script)
+        self.assertIn('docker exec sub2api-postgres psql -X -A -t -U "$vm_pg_user"', script)
+        self.assertNotIn('${POSTGRES_USER:-postgres}', script)
+        self.assertNotIn('printf \'vm_pg_user=', script)
+
     def test_dr_signer_contract_rejects_untrusted_shapes(self) -> None:
         script = (DEPLOY_ROOT / "release" / "sign-dr-evidence.sh").read_text(encoding="utf-8")
         self.assertIn("(195|199|202|206|207|208|209|210|212|213|215|232|233)", script)
