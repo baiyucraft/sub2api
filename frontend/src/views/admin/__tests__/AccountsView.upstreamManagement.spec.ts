@@ -9,8 +9,6 @@ const {
   upstreamListWithEtag,
   getTTFTGuard,
   getProbeModels,
-  listConfigs,
-  listKeys,
   getBatchTodayStats,
   getUpstreamBillingProbeSettings
 } = vi.hoisted(() => ({
@@ -19,8 +17,6 @@ const {
   upstreamListWithEtag: vi.fn(),
   getTTFTGuard: vi.fn(),
   getProbeModels: vi.fn(),
-  listConfigs: vi.fn(),
-  listKeys: vi.fn(),
   getBatchTodayStats: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn()
 }))
@@ -40,10 +36,7 @@ vi.mock('@/api/admin', () => ({
     },
     proxies: { getAll: vi.fn().mockResolvedValue([]) },
     groups: { getAll: vi.fn().mockResolvedValue([]) },
-    upstreamConfigs: {
-      list: listConfigs,
-      listKeys
-    }
+    upstreamConfigs: {}
   }
 }))
 
@@ -99,13 +92,11 @@ const AccountBulkActionsBarStub = {
 }
 
 const AccountTableFiltersStub = {
-  props: ['mode', 'upstreamConfigs', 'upstreamKeys'],
+  props: ['mode'],
   template: `
     <div
       data-test="filters"
       :data-mode="mode"
-      :data-config-count="upstreamConfigs.length"
-      :data-key-count="upstreamKeys.length"
     />
   `
 }
@@ -157,8 +148,6 @@ describe('admin AccountsView upstream management mode', () => {
     upstreamListWithEtag.mockReset()
     getTTFTGuard.mockReset()
     getProbeModels.mockReset()
-    listConfigs.mockReset()
-    listKeys.mockReset()
     getBatchTodayStats.mockReset()
     getUpstreamBillingProbeSettings.mockReset()
 
@@ -187,14 +176,6 @@ describe('admin AccountsView upstream management mode', () => {
     upstreamListWithEtag.mockResolvedValue({ notModified: true, etag: 'upstream-etag', data: null })
     getTTFTGuard.mockResolvedValue({ enabled: false, degradation_ttft_seconds: 20, min_samples: 5 })
     getProbeModels.mockResolvedValue({ models: { openai: 'gpt-5.4-mini', anthropic: 'claude-haiku-4-5', gemini: 'gemini-2.5-flash' } })
-    listConfigs.mockResolvedValue({
-      items: [{ id: 81, name: 'Transit Hub', provider: 'sub2api', auth_mode: 'apikey', status: 'active' }],
-      total: 1,
-      page: 1,
-      page_size: 100,
-      pages: 1
-    })
-    listKeys.mockResolvedValue([])
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
   })
@@ -211,10 +192,14 @@ describe('admin AccountsView upstream management mode', () => {
     expect(ordinaryList).not.toHaveBeenCalled()
     expect(getTTFTGuard).toHaveBeenCalledTimes(1)
     expect(getProbeModels).toHaveBeenCalledTimes(1)
-    expect(listConfigs).toHaveBeenCalledWith(1, 100)
+    expect(upstreamList).toHaveBeenCalledWith(expect.not.objectContaining({
+      type: expect.anything(),
+      privacy_mode: expect.anything(),
+      upstream_config_id: expect.anything(),
+      upstream_key_id: expect.anything()
+    }))
 
     expect(wrapper.get('[data-test="filters"]').attributes('data-mode')).toBe('upstream')
-    expect(wrapper.get('[data-test="filters"]').attributes('data-config-count')).toBe('1')
     expect(wrapper.get('[data-test="table-actions"]').attributes('data-show-create')).toBe('false')
     expect(wrapper.get('[data-test="bulk-actions"]').attributes('data-show-delete')).toBe('false')
     expect(wrapper.get('[data-test="bulk-actions"]').attributes('data-show-refresh-token')).toBe('false')
