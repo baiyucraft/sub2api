@@ -9,18 +9,16 @@ vi.mock('vue-i18n', () => ({
 
 const SelectStub = defineComponent({
   props: ['modelValue', 'options', 'disabled'],
-  template: '<select :disabled="disabled"><option v-for="option in options" :key="String(option.value)">{{ option.label }}</option></select>'
+  template: '<select :disabled="disabled"><option v-for="option in options" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select>'
 })
 
 describe('AccountTableFilters upstream mode', () => {
-  it('renders discoverable config and key choices without exposing key secrets', () => {
+  it('keeps the shared search and useful filters without ordinary or exact upstream selectors', () => {
     const wrapper = mount(AccountTableFilters, {
       props: {
         searchQuery: '',
         filters: { platform: '', type: '', status: '', privacy_mode: '', group: '', upstream_config_id: '', upstream_key_id: '' },
         mode: 'upstream',
-        upstreamConfigs: [{ id: 7, name: 'Primary', provider: 'sub2api', site_url: '', auth_mode: 'access_token', recharge_rate: 1, scheduling_enabled: true, status: 'active', created_at: '', updated_at: '' }],
-        upstreamKeys: [{ id: 9, upstream_config_id: 7, name: 'Key A', key_status: { has_key: true, suffix: '7890' }, platform: 'openai', status: 'active', created_at: '', updated_at: '' }]
       },
       global: {
         stubs: {
@@ -30,8 +28,14 @@ describe('AccountTableFilters upstream mode', () => {
       }
     })
 
-    expect(wrapper.text()).toContain('Primary (#7)')
-    expect(wrapper.text()).toContain('Key A · …7890')
-    expect(wrapper.text()).not.toContain('sk-')
+    expect(wrapper.find('input').exists()).toBe(true)
+    expect(wrapper.findAll('select')).toHaveLength(3)
+    expect(wrapper.text()).toContain('admin.accounts.allPlatforms')
+    expect(wrapper.text()).toContain('admin.accounts.allStatus')
+    expect(wrapper.text()).toContain('admin.accounts.allGroups')
+    expect(wrapper.text()).not.toContain('admin.accounts.allTypes')
+    expect(wrapper.text()).not.toContain('admin.accounts.allPrivacyModes')
+    expect(wrapper.text()).not.toContain('admin.upstreamManagement.filters.allConfigs')
+    expect(wrapper.text()).not.toContain('admin.upstreamManagement.filters.allKeys')
   })
 })
