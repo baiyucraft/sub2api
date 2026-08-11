@@ -62,7 +62,8 @@ describe('UpstreamManagementSettingsDialog', () => {
     showSuccess.mockReset()
     getSettings.mockResolvedValue({
       ttft_guard: { enabled: true, degradation_ttft_seconds: 30, min_samples: 7 },
-      probe_models: { openai: 'gpt-live', anthropic: 'claude-live', gemini: 'gemini-live' }
+      probe_models: { openai: 'gpt-live', anthropic: 'claude-live', gemini: 'gemini-live' },
+      probe_interval_seconds: 420
     })
     getCandidates.mockResolvedValue({ candidates: {
       openai: ['gpt-live', 'gpt-fallback'],
@@ -71,7 +72,8 @@ describe('UpstreamManagementSettingsDialog', () => {
     } })
     updateSettings.mockResolvedValue({
       ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
-      probe_models: { openai: 'custom-model', anthropic: 'claude-live', gemini: 'gemini-live' }
+      probe_models: { openai: 'custom-model', anthropic: 'claude-live', gemini: 'gemini-live' },
+      probe_interval_seconds: 300
     })
   })
 
@@ -108,6 +110,7 @@ describe('UpstreamManagementSettingsDialog', () => {
     await flushPromises()
     const inputs = wrapper.findAll('input[type="number"]')
     await inputs[0].setValue(45)
+    expect((wrapper.get('[data-test="probe-interval-minutes"]').element as HTMLInputElement).value).toBe('7')
     await wrapper.findAll('[data-test="select"]')[0].trigger('click')
     await wrapper.find('[data-test="close"]').trigger('click')
     expect(updateSettings).not.toHaveBeenCalled()
@@ -118,11 +121,20 @@ describe('UpstreamManagementSettingsDialog', () => {
     expect((wrapper.findAll('input[type="number"]')[0].element as HTMLInputElement).value).toBe('30')
 
     await wrapper.findAll('[data-test="select"]')[0].trigger('click')
+    await wrapper.get('[data-test="probe-interval-minutes"]').setValue(12)
     await wrapper.find('button.btn-primary').trigger('click')
     await flushPromises()
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
       ttft_guard: { enabled: true, degradation_ttft_seconds: 30, min_samples: 7 },
-      probe_models: expect.objectContaining({ openai: 'custom-model' })
+      probe_models: expect.objectContaining({ openai: 'custom-model' }),
+      probe_interval_seconds: 720
     }))
+  })
+
+  it('rejects probe intervals outside one to sixty minutes', async () => {
+    const wrapper = mountDialog(true)
+    await flushPromises()
+    await wrapper.get('[data-test="probe-interval-minutes"]').setValue(61)
+    expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
   })
 })

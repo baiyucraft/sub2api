@@ -1274,11 +1274,24 @@ export interface AccountTTFTGuardDegradation {
 }
 
 export interface UpstreamHealthObservation {
+  id?: number
+  upstream_config_id?: number
+  upstream_key_id?: number
+  account_id?: number
+  platform?: string
+  model?: string
+  protocol?: string
   observed_at: string
   state: 'healthy' | 'degraded' | 'suspended' | 'observing' | 'recovering' | 'disabled'
-  source: 'probe' | 'traffic' | 'admin' | string
+  source: 'probe' | 'business' | 'traffic' | 'admin' | 'legacy' | string
   result: string
   reason?: string
+  http_status?: number
+  ttft_ms?: number
+  duration_ms?: number
+  input_tokens?: number
+  output_tokens?: number
+  output_tps?: number
 }
 
 export interface AccountSchedulerGroupScore {

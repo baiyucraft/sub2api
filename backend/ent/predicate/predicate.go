@@ -111,6 +111,9 @@ type UpstreamConfig func(*sql.Selector)
 // UpstreamEvent is the predicate function for upstreamevent builders.
 type UpstreamEvent func(*sql.Selector)
 
+// UpstreamHealthObservation is the predicate function for upstreamhealthobservation builders.
+type UpstreamHealthObservation func(*sql.Selector)
+
 // UpstreamIncident is the predicate function for upstreamincident builders.
 type UpstreamIncident func(*sql.Selector)
 

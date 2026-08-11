@@ -55,7 +55,7 @@
       {{ t('admin.upstreamManagement.health.noData') }}
     </span>
 
-    <UpstreamHealthHistory :observations="health?.history" @show-history="emit('showHistory')" />
+    <UpstreamHealthHistory :observations="health?.history" :limit="24" @show-history="emit('showHistory')" />
     <TTFTGuardStatusBadge :degradations="account.ttft_guard_degradations" />
   </div>
 </template>

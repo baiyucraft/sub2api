@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"entgo.io/ent/dialect"
@@ -25,7 +26,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-const upstreamConfigSyncAdvisoryLockNamespace int64 = 0x73756232
+const (
+	upstreamConfigSyncAdvisoryLockNamespace  int64 = 0x73756232
+	upstreamHealthProbeAdvisoryLockNamespace int64 = 0x68707262
+)
 
 const (
 	upstreamKeyMissingThreshold = 3
@@ -33,7 +37,8 @@ const (
 )
 
 type upstreamConfigRepository struct {
-	client *dbent.Client
+	client                         *dbent.Client
+	healthObservationCleanupAtUnix atomic.Int64
 }
 
 const (
@@ -71,6 +76,28 @@ func (r *upstreamConfigRepository) WithUpstreamConfigSyncLock(ctx context.Contex
 	}
 	defer func() { _, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", lockID) }()
 	return fn(ctx)
+}
+
+func (r *upstreamConfigRepository) WithUpstreamHealthProbeLock(ctx context.Context, keyID int64, fn func(context.Context) error) (bool, error) {
+	driver, ok := r.client.Driver().(*entsql.Driver)
+	if !ok || driver.Dialect() != dialect.Postgres {
+		return true, fn(ctx)
+	}
+	conn, err := driver.DB().Conn(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = conn.Close() }()
+	lockID := (upstreamHealthProbeAdvisoryLockNamespace << 32) | (keyID & 0xffffffff)
+	var acquired bool
+	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired); err != nil {
+		return false, err
+	}
+	if !acquired {
+		return false, nil
+	}
+	defer func() { _, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", lockID) }()
+	return true, fn(ctx)
 }
 
 func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]service.UpstreamConfig, *pagination.PaginationResult, error) {
@@ -331,7 +358,9 @@ func (r *upstreamConfigRepository) PatchKeyHealthWithEvent(ctx context.Context, 
 }
 
 func (r *upstreamConfigRepository) PatchKeyHealthWithObservation(ctx context.Context, keyID int64, health map[string]any, event *service.UpstreamEvent, observation *service.UpstreamHealthObservation) error {
-	return r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+	cleanupNow := time.Now().UTC()
+	cleanupClaimed, previousCleanupAt := r.claimUpstreamHealthObservationCleanup(cleanupNow)
+	err := r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
 		row, err := client.UpstreamKey.Query().
 			Where(dbupstreamkey.IDEQ(keyID)).
 			ForUpdate().
@@ -349,6 +378,14 @@ func (r *upstreamConfigRepository) PatchKeyHealthWithObservation(ctx context.Con
 		extra["health"] = normalizeJSONMap(health)
 		if observation != nil {
 			service.AppendUpstreamHealthObservation(extra, *observation)
+		}
+		if cleanupClaimed {
+			if err := cleanupExpiredUpstreamHealthObservations(txCtx, client, cleanupNow); err != nil {
+				return err
+			}
+		}
+		if err := persistUpstreamHealthObservation(txCtx, client, keyID, row.UpstreamConfigID, observation); err != nil {
+			return err
 		}
 		if err := client.UpstreamKey.UpdateOneID(keyID).SetExtra(extra).Exec(txCtx); err != nil {
 			return err
@@ -374,6 +411,10 @@ func (r *upstreamConfigRepository) PatchKeyHealthWithObservation(ctx context.Con
 		}
 		return builder.Exec(txCtx)
 	})
+	if err != nil && cleanupClaimed {
+		r.healthObservationCleanupAtUnix.CompareAndSwap(cleanupNow.Unix(), previousCleanupAt)
+	}
+	return err
 }
 
 func (r *upstreamConfigRepository) ListKeyHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
@@ -385,6 +426,10 @@ func (r *upstreamConfigRepository) ListKeyHealthHistories(ctx context.Context, k
 	if limit <= 0 || limit > service.UpstreamHealthHistoryLimit {
 		limit = service.UpstreamHealthHistoryLimit
 	}
+	persisted, err := r.listPersistedUpstreamHealthHistories(ctx, keyIDs, limit)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := r.client.UpstreamKey.Query().
 		Where(dbupstreamkey.IDIn(keyIDs...)).
 		Select(dbupstreamkey.FieldID, dbupstreamkey.FieldExtra).
@@ -393,6 +438,10 @@ func (r *upstreamConfigRepository) ListKeyHealthHistories(ctx context.Context, k
 		return nil, err
 	}
 	for _, row := range rows {
+		if len(persisted[row.ID]) > 0 {
+			out[row.ID] = persisted[row.ID]
+			continue
+		}
 		history := service.UpstreamHealthHistoryFromExtra(row.Extra, limit)
 		if len(history) > 0 {
 			out[row.ID] = history

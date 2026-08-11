@@ -47,6 +47,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamhealthobservation"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
@@ -155,6 +156,7 @@ func checkColumn(t, c string) error {
 			upstreambalancesnapshot.Table:       upstreambalancesnapshot.ValidColumn,
 			upstreamconfig.Table:                upstreamconfig.ValidColumn,
 			upstreamevent.Table:                 upstreamevent.ValidColumn,
+			upstreamhealthobservation.Table:     upstreamhealthobservation.ValidColumn,
 			upstreamincident.Table:              upstreamincident.ValidColumn,
 			upstreamkey.Table:                   upstreamkey.ValidColumn,
 			upstreamkeyratesnapshot.Table:       upstreamkeyratesnapshot.ValidColumn,

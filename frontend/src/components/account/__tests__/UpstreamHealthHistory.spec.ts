@@ -15,9 +15,9 @@ const stubs = {
 }
 
 describe('UpstreamHealthHistory', () => {
-  it('renders the latest twelve observations with state color and height encoding', () => {
+  it('renders no more than the latest twenty-four observations with state color and height encoding', () => {
     const states = ['healthy', 'degraded', 'suspended', 'observing', 'recovering', 'disabled'] as const
-    const observations = Array.from({ length: 14 }, (_, index) => ({
+    const observations = Array.from({ length: 27 }, (_, index) => ({
       observed_at: `2026-08-10T01:${String(index).padStart(2, '0')}:00Z`,
       state: states[index % states.length],
       source: index % 2 ? 'traffic' : 'probe',
@@ -27,8 +27,8 @@ describe('UpstreamHealthHistory', () => {
     const wrapper = mount(UpstreamHealthHistory, { props: { observations }, global: { stubs } })
 
     const bars = wrapper.findAll('[data-observation-state]')
-    expect(bars).toHaveLength(12)
-    expect(bars[0].attributes('data-observation-state')).toBe(observations[2].state)
+    expect(bars).toHaveLength(24)
+    expect(bars[0].attributes('data-observation-state')).toBe(observations[3].state)
     expect(wrapper.text()).toContain('admin.upstreamManagement.health.historySummary')
   })
 

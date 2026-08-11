@@ -16,8 +16,9 @@ type upstreamProbeModelsRequest struct {
 }
 
 type upstreamManagementSettingsRequest struct {
-	TTFTGuard   service.OpenAITTFTGuardSettings `json:"ttft_guard"`
-	ProbeModels service.UpstreamProbeModels     `json:"probe_models"`
+	TTFTGuard            service.OpenAITTFTGuardSettings `json:"ttft_guard"`
+	ProbeModels          service.UpstreamProbeModels     `json:"probe_models"`
+	ProbeIntervalSeconds int                             `json:"probe_interval_seconds"`
 }
 
 func (h *UpstreamConfigHandler) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
@@ -86,7 +87,10 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 		response.BadRequest(c, "invalid upstream management settings: "+err.Error())
 		return
 	}
-	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels}
+	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds}
+	if settings.ProbeIntervalSeconds == 0 {
+		settings.ProbeIntervalSeconds = service.DefaultUpstreamProbeIntervalSeconds
+	}
 	if err := h.service.SetManagementSettings(c.Request.Context(), settings); err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -192,4 +196,17 @@ func (h *UpstreamConfigHandler) ListKeyEventsAdmin(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"items": items, "total": total, "limit": limit, "offset": offset, "health_history": histories[id]})
+}
+
+func (h *UpstreamConfigHandler) GetKeyHealthTrendAdmin(c *gin.Context) {
+	id, ok := parseUpstreamManagementKeyID(c)
+	if !ok {
+		return
+	}
+	trend, err := h.service.GetUpstreamHealthTrend(c.Request.Context(), id, c.Query("range"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, trend)
 }

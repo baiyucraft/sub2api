@@ -62,6 +62,29 @@
             />
           </label>
         </div>
+        <label class="mt-5 block max-w-xs space-y-1.5">
+          <span class="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-200">
+            {{ t('admin.upstreamManagement.probeModels.interval') }}
+            <HelpTooltip width-class="w-72">
+              <span>{{ t('admin.upstreamManagement.probeModels.intervalTip') }}</span>
+            </HelpTooltip>
+          </span>
+          <div class="relative">
+            <input
+              v-model.number="probeIntervalMinutes"
+              data-test="probe-interval-minutes"
+              type="number"
+              min="1"
+              max="60"
+              step="1"
+              class="input pr-14"
+            />
+            <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400 dark:text-dark-400">
+              {{ t('admin.upstreamManagement.probeModels.minutes') }}
+            </span>
+          </div>
+          <span class="block text-xs text-gray-400 dark:text-dark-500">{{ t('admin.upstreamManagement.probeModels.intervalRange') }}</span>
+        </label>
       </section>
     </div>
 
@@ -99,9 +122,11 @@ type ProbePlatform = (typeof platforms)[number]
 const platformLabels: Record<ProbePlatform, string> = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini' }
 const defaults: UpstreamManagementSettings = {
   ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
-  probe_models: { openai: 'gpt-4o-mini', anthropic: 'claude-3-5-haiku-latest', gemini: 'gemini-2.0-flash' }
+  probe_models: { openai: 'gpt-4o-mini', anthropic: 'claude-3-5-haiku-latest', gemini: 'gemini-2.0-flash' },
+  probe_interval_seconds: 300
 }
 const draft = reactive<UpstreamManagementSettings>(structuredClone(defaults))
+const probeIntervalMinutes = ref(5)
 const candidates = reactive<Record<ProbePlatform, string[]>>({ openai: [], anthropic: [], gemini: [] })
 const loading = ref(false)
 const saving = ref(false)
@@ -115,8 +140,10 @@ const candidateOptions = computed<Record<ProbePlatform, SelectOption[]>>(() => (
 const valid = computed(() => {
   const threshold = Number(draft.ttft_guard.degradation_ttft_seconds)
   const samples = Number(draft.ttft_guard.min_samples)
+  const intervalMinutes = Number(probeIntervalMinutes.value)
   return Number.isFinite(threshold) && threshold >= 5 && threshold <= 300 &&
     Number.isInteger(samples) && samples >= 2 && samples <= 20 &&
+    Number.isInteger(intervalMinutes) && intervalMinutes >= 1 && intervalMinutes <= 60 &&
     platforms.every(platform => {
       const value = draft.probe_models[platform]?.trim() || ''
       return value.length > 0 && value.length <= 120
@@ -132,6 +159,8 @@ async function load() {
     ])
     Object.assign(draft.ttft_guard, settings.ttft_guard)
     Object.assign(draft.probe_models, settings.probe_models)
+    draft.probe_interval_seconds = settings.probe_interval_seconds ?? defaults.probe_interval_seconds
+    probeIntervalMinutes.value = Math.max(1, Math.min(60, Math.round(draft.probe_interval_seconds / 60)))
     for (const platform of platforms) candidates[platform] = options.candidates[platform] || []
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.settings.loadFailed')))
@@ -154,7 +183,8 @@ async function save() {
         openai: draft.probe_models.openai.trim(),
         anthropic: draft.probe_models.anthropic.trim(),
         gemini: draft.probe_models.gemini.trim()
-      }
+      },
+      probe_interval_seconds: probeIntervalMinutes.value * 60
     }
     const saved = await upstreamManagementAPI.updateSettings(payload)
     appStore.showSuccess(t('admin.upstreamManagement.saved'))
@@ -173,5 +203,5 @@ function closeDialog() {
 
 watch(() => props.show, visible => {
   if (visible) load()
-})
+}, { immediate: true })
 </script>

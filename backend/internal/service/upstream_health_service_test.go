@@ -165,6 +165,65 @@ type healthRunnerFake struct {
 	release    chan struct{}
 }
 
+type healthProbeLockRepo struct {
+	healthEventCaptureRepo
+	lockMu sync.Mutex
+	held   bool
+	key    UpstreamKey
+}
+
+func (r *healthProbeLockRepo) GetKeyByID(context.Context, int64) (*UpstreamKey, error) {
+	item := r.key
+	return &item, nil
+}
+
+func (r *healthProbeLockRepo) WithUpstreamHealthProbeLock(ctx context.Context, _ int64, fn func(context.Context) error) (bool, error) {
+	r.lockMu.Lock()
+	if r.held {
+		r.lockMu.Unlock()
+		return false, nil
+	}
+	r.held = true
+	r.lockMu.Unlock()
+	defer func() {
+		r.lockMu.Lock()
+		r.held = false
+		r.lockMu.Unlock()
+	}()
+	return true, fn(ctx)
+}
+
+type healthProbeAccountRepo struct {
+	AccountRepository
+	account Account
+}
+
+func (r *healthProbeAccountRepo) ListByUpstreamKeyID(context.Context, int64) ([]Account, error) {
+	return []Account{r.account}, nil
+}
+
+type blockingUpstreamHealthProber struct {
+	calls   atomic.Int32
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p *blockingUpstreamHealthProber) RunUpstreamHealthProbe(ctx context.Context, _ *Account, model string) (UpstreamHealthProbeResult, error) {
+	p.calls.Add(1)
+	select {
+	case p.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return UpstreamHealthProbeResult{}, ctx.Err()
+	case <-p.release:
+	}
+	ttft := int64(25)
+	duration := int64(40)
+	return UpstreamHealthProbeResult{Model: model, Protocol: upstreamHealthProbeProtocolOpenAI, Result: "success", Reason: "probe_succeeded", TTFTMs: &ttft, DurationMs: &duration}, nil
+}
+
 func (f *healthRunnerFake) ListDueHealthProbeKeyIDs(context.Context, time.Time, int) ([]int64, error) {
 	f.listCalls.Add(1)
 	return append([]int64(nil), f.ids...), nil
@@ -233,6 +292,37 @@ func TestUpstreamHealthProbeRunnerSingleflightsSameKey(t *testing.T) {
 	require.Equal(t, int32(1), fake.probeCalls.Load())
 	close(fake.release)
 	wg.Wait()
+}
+
+func TestUpstreamConfigServiceProbeKeyRejectsCrossInstanceDuplicate(t *testing.T) {
+	const keyID int64 = 92016
+	active := StatusActive
+	repo := &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active}}
+	accountRepo := &healthProbeAccountRepo{account: Account{ID: 84, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, UpstreamKeyID: int64Ptr(keyID)}}
+	prober := &blockingUpstreamHealthProber{started: make(chan struct{}, 1), release: make(chan struct{})}
+	first := NewUpstreamConfigService(repo, nil, accountRepo)
+	second := NewUpstreamConfigService(repo, nil, accountRepo)
+	first.SetHealthProbeDependencies(prober, nil)
+	second.SetHealthProbeDependencies(prober, nil)
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := first.ProbeKey(context.Background(), keyID)
+		firstDone <- err
+	}()
+	select {
+	case <-prober.started:
+	case <-time.After(time.Second):
+		t.Fatal("first probe did not start")
+	}
+
+	_, err := second.ProbeKey(context.Background(), keyID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already in progress")
+	require.Equal(t, int32(1), prober.calls.Load())
+
+	close(prober.release)
+	require.NoError(t, <-firstDone)
 }
 
 func TestUpstreamHealthProbeRunnerStopCancelsLoop(t *testing.T) {
@@ -312,6 +402,30 @@ func TestUpstreamConfigServiceListDueHealthProbeKeys(t *testing.T) {
 	ids, err := svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
 	require.NoError(t, err)
 	require.Equal(t, []int64{92011}, ids)
+}
+
+func TestUpstreamConfigServiceListDueHealthProbeKeysReloadsConfiguredInterval(t *testing.T) {
+	now := time.Date(2026, 8, 11, 9, 0, 0, 0, time.UTC)
+	active := StatusActive
+	const keyID int64 = 92015
+	repo := &healthEventCaptureRepo{keys: []UpstreamKey{{ID: keyID, Status: active}}}
+	lastProbe := defaultUpstreamHealthSnapshot(keyID)
+	lastProbe.LastProbeAt = upstreamHealthTimePtr(now.Add(-2 * time.Minute))
+	GlobalUpstreamHealthRegistry().Hydrate(lastProbe)
+	settingsRepo := &upstreamManagementSettingRepoStub{values: map[string]string{
+		SettingKeyUpstreamProbeIntervalSeconds: "300",
+	}}
+	svc := NewUpstreamConfigService(repo, nil, nil)
+	svc.SetHealthProbeDependencies(nil, NewSettingService(settingsRepo, nil))
+
+	ids, err := svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
+	require.NoError(t, err)
+	require.Empty(t, ids, "a two-minute-old probe remains fresh at a five-minute interval")
+
+	settingsRepo.values[SettingKeyUpstreamProbeIntervalSeconds] = "60"
+	ids, err = svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
+	require.NoError(t, err)
+	require.Equal(t, []int64{keyID}, ids, "the next scan observes the updated interval without restarting the runner")
 }
 
 func TestUpstreamConfigServiceListsBoundedHealthHistoriesInOneBatch(t *testing.T) {

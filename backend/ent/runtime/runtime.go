@@ -41,6 +41,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamhealthobservation"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
@@ -2143,6 +2144,54 @@ func init() {
 	upstreameventDescCreatedAt := upstreameventFields[11].Descriptor()
 	// upstreamevent.DefaultCreatedAt holds the default value on creation for the created_at field.
 	upstreamevent.DefaultCreatedAt = upstreameventDescCreatedAt.Default.(func() time.Time)
+	upstreamhealthobservationFields := schema.UpstreamHealthObservation{}.Fields()
+	_ = upstreamhealthobservationFields
+	// upstreamhealthobservationDescPlatform is the schema descriptor for platform field.
+	upstreamhealthobservationDescPlatform := upstreamhealthobservationFields[3].Descriptor()
+	// upstreamhealthobservation.DefaultPlatform holds the default value on creation for the platform field.
+	upstreamhealthobservation.DefaultPlatform = upstreamhealthobservationDescPlatform.Default.(string)
+	// upstreamhealthobservation.PlatformValidator is a validator for the "platform" field. It is called by the builders before save.
+	upstreamhealthobservation.PlatformValidator = upstreamhealthobservationDescPlatform.Validators[0].(func(string) error)
+	// upstreamhealthobservationDescModel is the schema descriptor for model field.
+	upstreamhealthobservationDescModel := upstreamhealthobservationFields[4].Descriptor()
+	// upstreamhealthobservation.DefaultModel holds the default value on creation for the model field.
+	upstreamhealthobservation.DefaultModel = upstreamhealthobservationDescModel.Default.(string)
+	// upstreamhealthobservation.ModelValidator is a validator for the "model" field. It is called by the builders before save.
+	upstreamhealthobservation.ModelValidator = upstreamhealthobservationDescModel.Validators[0].(func(string) error)
+	// upstreamhealthobservationDescProtocol is the schema descriptor for protocol field.
+	upstreamhealthobservationDescProtocol := upstreamhealthobservationFields[5].Descriptor()
+	// upstreamhealthobservation.DefaultProtocol holds the default value on creation for the protocol field.
+	upstreamhealthobservation.DefaultProtocol = upstreamhealthobservationDescProtocol.Default.(string)
+	// upstreamhealthobservation.ProtocolValidator is a validator for the "protocol" field. It is called by the builders before save.
+	upstreamhealthobservation.ProtocolValidator = upstreamhealthobservationDescProtocol.Validators[0].(func(string) error)
+	// upstreamhealthobservationDescSource is the schema descriptor for source field.
+	upstreamhealthobservationDescSource := upstreamhealthobservationFields[6].Descriptor()
+	// upstreamhealthobservation.DefaultSource holds the default value on creation for the source field.
+	upstreamhealthobservation.DefaultSource = upstreamhealthobservationDescSource.Default.(string)
+	// upstreamhealthobservation.SourceValidator is a validator for the "source" field. It is called by the builders before save.
+	upstreamhealthobservation.SourceValidator = upstreamhealthobservationDescSource.Validators[0].(func(string) error)
+	// upstreamhealthobservationDescState is the schema descriptor for state field.
+	upstreamhealthobservationDescState := upstreamhealthobservationFields[7].Descriptor()
+	// upstreamhealthobservation.StateValidator is a validator for the "state" field. It is called by the builders before save.
+	upstreamhealthobservation.StateValidator = upstreamhealthobservationDescState.Validators[0].(func(string) error)
+	// upstreamhealthobservationDescResult is the schema descriptor for result field.
+	upstreamhealthobservationDescResult := upstreamhealthobservationFields[8].Descriptor()
+	// upstreamhealthobservation.DefaultResult holds the default value on creation for the result field.
+	upstreamhealthobservation.DefaultResult = upstreamhealthobservationDescResult.Default.(string)
+	// upstreamhealthobservation.ResultValidator is a validator for the "result" field. It is called by the builders before save.
+	upstreamhealthobservation.ResultValidator = upstreamhealthobservationDescResult.Validators[0].(func(string) error)
+	// upstreamhealthobservationDescReason is the schema descriptor for reason field.
+	upstreamhealthobservationDescReason := upstreamhealthobservationFields[9].Descriptor()
+	// upstreamhealthobservation.DefaultReason holds the default value on creation for the reason field.
+	upstreamhealthobservation.DefaultReason = upstreamhealthobservationDescReason.Default.(string)
+	// upstreamhealthobservationDescObservedAt is the schema descriptor for observed_at field.
+	upstreamhealthobservationDescObservedAt := upstreamhealthobservationFields[16].Descriptor()
+	// upstreamhealthobservation.DefaultObservedAt holds the default value on creation for the observed_at field.
+	upstreamhealthobservation.DefaultObservedAt = upstreamhealthobservationDescObservedAt.Default.(func() time.Time)
+	// upstreamhealthobservationDescCreatedAt is the schema descriptor for created_at field.
+	upstreamhealthobservationDescCreatedAt := upstreamhealthobservationFields[17].Descriptor()
+	// upstreamhealthobservation.DefaultCreatedAt holds the default value on creation for the created_at field.
+	upstreamhealthobservation.DefaultCreatedAt = upstreamhealthobservationDescCreatedAt.Default.(func() time.Time)
 	upstreamincidentMixin := schema.UpstreamIncident{}.Mixin()
 	upstreamincidentMixinFields0 := upstreamincidentMixin[0].Fields()
 	_ = upstreamincidentMixinFields0

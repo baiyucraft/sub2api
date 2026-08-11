@@ -182,7 +182,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 jq -cS '.manifest.migration_sha256' | sha256sum
 ```
 
-- signer 必须同时自测 profile 195、199、202、206、207、208、209、210、212、213、215 和 232；集成测试至少覆盖 195/199/202/206 历史回归、207 纯继承回归、208/209 成功和错误 checksum 拒绝、210/213 纯版本继承回归、212/215/232 新迁移成功和错误 checksum 拒绝。profile 232 必须完整继承 215 的 32 项 map 并追加 216–232 共 49 项，同时绑定显式 compatibility version/commit/image；migration 232 的数据计划、恢复点绑定、备份表和协调恢复证据缺一不可。DR evidence 绑定完整 map 的规范化 checksum，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
+- signer 必须同时自测 profile 195、199、202、206、207、208、209、210、212、213、215、232、233 和 234；集成测试至少覆盖 195/199/202/206 历史回归、207 纯继承回归、208/209 成功和错误 checksum 拒绝、210/213 纯版本继承回归、212/215/232/233/234 新迁移成功和错误 checksum 拒绝。profile 232 必须完整继承 215 的 32 项 map 并追加 216–232 共 49 项，同时绑定显式 compatibility version/commit/image；profile 233 在此基础上追加 233，共 50 项，profile 234 再追加 234，共 51 项，二者继续继承同一显式 compatibility identity。migration 232 的数据计划、恢复点绑定、备份表和协调恢复证据缺一不可；migration 234 必须验证健康观测表、关键列和 `(upstream_key_id, observed_at)` 索引。DR evidence 绑定完整 map 的规范化 checksum，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
 
 ### 生产成功与灾备基线
 

@@ -504,6 +504,8 @@ const (
 	SettingKeyOpenAITTFTGuardSettings = "openai_ttft_guard_settings"
 	// SettingKeyUpstreamProbeModels stores provider-specific models used by key health probes.
 	SettingKeyUpstreamProbeModels = "upstream_probe_models"
+	// SettingKeyUpstreamProbeIntervalSeconds controls active key health probe freshness.
+	SettingKeyUpstreamProbeIntervalSeconds = "upstream_probe_interval_seconds"
 
 	// =========================
 	// Claude Code Version Check

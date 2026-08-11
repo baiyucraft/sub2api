@@ -16,7 +16,7 @@ export default {
       title: 'Upstream management settings',
       open: 'Upstream management settings',
       loadFailed: 'Failed to load upstream management settings',
-      invalid: 'Check the first-token threshold, sample count, and probe models.'
+      invalid: 'Check the first-token threshold, sample count, probe models, and probe interval.'
     },
     rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
@@ -41,7 +41,11 @@ export default {
       invalid: 'All three probe models are required and must be at most 120 characters.',
       search: 'Search models',
       placeholder: 'Select or enter a model',
-      useCustom: 'Use custom model: '
+      useCustom: 'Use custom model: ',
+      interval: 'Automatic probe interval',
+      intervalTip: 'Each observed Key runs a lightweight streaming probe at this cadence. Shorter intervals increase upstream requests and small token costs.',
+      minutes: 'min',
+      intervalRange: '1–60 minutes; default 5 minutes'
     },
     concurrency: {
       sharedTooltip: 'All Keys under this upstream config share one concurrency pool. Source: {source}; effective limit: {limit}',
@@ -75,11 +79,16 @@ export default {
       retentionHint: 'Keeps the latest 30 observations',
       observedAt: 'Observed at',
       source: 'Evidence source',
+      model: 'Probe model',
+      ttft: 'First token',
+      duration: 'Total duration',
       result: 'Result',
       sources: {
         probe: 'Active probe',
+        business: 'Real request',
         traffic: 'Real request',
-        admin: 'Administrator action'
+        admin: 'Administrator action',
+        legacy: 'Legacy record'
       },
       reasons: {
         probe_succeeded: 'Active probe succeeded',
@@ -93,7 +102,36 @@ export default {
         probe_transport_error: 'Probe connection or transport failed'
       }
     },
-    events: { title: 'Key health details', stateChanges: 'State change events', loading: 'Loading health details…', empty: 'No state change events', loadFailed: 'Failed to load Key health details' },
+    events: {
+      title: 'Key health details',
+      trendTitle: 'Health trend',
+      trendDescription: 'Active probes, real requests, and administrator evidence are aggregated together. Failed buckets break the first-token line.',
+      range: 'Time range',
+      metric: 'Chart metric',
+      metrics: { health: 'Health status', ttft: 'First token' },
+      healthChartLabel: 'Upstream Key health status trend',
+      ttftChartLabel: 'Upstream Key first-token trend',
+      trendLoading: 'Loading health trend…',
+      trendEmpty: 'No health observations in this time range',
+      trendLoadFailed: 'Failed to load Key health trend',
+      time: 'Time',
+      bucket: '{value} aggregation buckets',
+      sampleSummary: '{buckets} buckets · {samples} evidence records',
+      ttftP50: 'First token P50',
+      failedOrMissing: 'Failed / no valid TTFT',
+      noValidTTFT: 'No valid TTFT',
+      tooltipState: 'Health state: {state}',
+      tooltipSamples: 'Samples: {count}',
+      tooltipSource: 'Primary source: {source}',
+      tooltipP95: 'First token P95: {value}',
+      tooltipDuration: 'Average duration: {value}',
+      tooltipReason: 'Latest reason: {reason}',
+      tooltipResult: 'Latest result: {result}',
+      stateChanges: 'State changes and probe events',
+      loading: 'Loading health details…',
+      empty: 'No state change events',
+      loadFailed: 'Failed to load Key health details'
+    },
     columns: { accountKey: 'Account / Key', upstream: 'Upstream', config: 'Config', key: 'Key', modelMapping: 'Model mapping', health: 'Health' },
     export: { action: 'Export upstream status', success: 'Upstream status exported', failed: 'Failed to export upstream status' },
     filters: { allConfigs: 'All upstream configs', allKeys: 'All Keys', loadFailed: 'Failed to load upstream filter options' }

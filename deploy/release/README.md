@@ -136,7 +136,15 @@ profile 233 使用版本 `0.1.174-baiyu`，完整继承 profile 232 的 49 项 m
 `upstream_key_id IS NOT NULL AND deleted_at IS NULL`。Gate 同时要求 `migration_233_status`、
 `migration_233_preflight_verified` 与 `migration_233_postflight_verified`。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232 和 233
+profile 234 使用版本 `0.1.175-baiyu`，完整继承 profile 233 的 50 项 migration，并追加
+`234_upstream_health_observations.sql`，共 51 项。profile 234 继续继承 profile 232 的显式旧镜像兼容身份；
+迁移前后独立记录 `migration_234_status=absent|verified`，只读断言验证
+`upstream_health_observations` 表、19 个关键列及
+`idx_upstream_health_observations_key_observed` 的 valid/ready 和
+`(upstream_key_id, observed_at)` 列顺序。Gate 同时要求
+`migration_234_preflight_verified` 与 `migration_234_postflight_verified`，并保留 profile 233 的全部证据。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233 和 234
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -153,6 +161,7 @@ python deploy/tests/release/backup_dr_profile_213_integration.py
 python deploy/tests/release/backup_dr_profile_215_integration.py
 python deploy/tests/release/backup_dr_profile_232_integration.py
 python deploy/tests/release/backup_dr_profile_233_integration.py
+python deploy/tests/release/backup_dr_profile_234_integration.py
 ```
 
 首次安装信任根使用：

@@ -1864,6 +1864,51 @@ var (
 			},
 		},
 	}
+	// UpstreamHealthObservationsColumns holds the columns for the "upstream_health_observations" table.
+	UpstreamHealthObservationsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "upstream_config_id", Type: field.TypeInt64},
+		{Name: "upstream_key_id", Type: field.TypeInt64},
+		{Name: "account_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "platform", Type: field.TypeString, Size: 50, Default: ""},
+		{Name: "model", Type: field.TypeString, Size: 255, Default: ""},
+		{Name: "protocol", Type: field.TypeString, Size: 50, Default: ""},
+		{Name: "source", Type: field.TypeString, Size: 20, Default: "probe"},
+		{Name: "state", Type: field.TypeString, Size: 20},
+		{Name: "result", Type: field.TypeString, Size: 100, Default: ""},
+		{Name: "reason", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "http_status", Type: field.TypeInt, Nullable: true},
+		{Name: "ttft_ms", Type: field.TypeInt64, Nullable: true},
+		{Name: "duration_ms", Type: field.TypeInt64, Nullable: true},
+		{Name: "input_tokens", Type: field.TypeInt64, Nullable: true},
+		{Name: "output_tokens", Type: field.TypeInt64, Nullable: true},
+		{Name: "output_tps", Type: field.TypeFloat64, Nullable: true},
+		{Name: "observed_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// UpstreamHealthObservationsTable holds the schema information for the "upstream_health_observations" table.
+	UpstreamHealthObservationsTable = &schema.Table{
+		Name:       "upstream_health_observations",
+		Columns:    UpstreamHealthObservationsColumns,
+		PrimaryKey: []*schema.Column{UpstreamHealthObservationsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "upstreamhealthobservation_upstream_key_id_observed_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamHealthObservationsColumns[2], UpstreamHealthObservationsColumns[17]},
+			},
+			{
+				Name:    "upstreamhealthobservation_upstream_config_id_observed_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamHealthObservationsColumns[1], UpstreamHealthObservationsColumns[17]},
+			},
+			{
+				Name:    "upstreamhealthobservation_observed_at",
+				Unique:  false,
+				Columns: []*schema.Column{UpstreamHealthObservationsColumns[17]},
+			},
+		},
+	}
 	// UpstreamIncidentsColumns holds the columns for the "upstream_incidents" table.
 	UpstreamIncidentsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2705,6 +2750,7 @@ var (
 		UpstreamBalanceSnapshotsTable,
 		UpstreamConfigsTable,
 		UpstreamEventsTable,
+		UpstreamHealthObservationsTable,
 		UpstreamIncidentsTable,
 		UpstreamKeysTable,
 		UpstreamKeyRateSnapshotsTable,
@@ -2861,6 +2907,9 @@ func init() {
 	UpstreamEventsTable.ForeignKeys[3].RefTable = UpstreamSyncRunsTable
 	UpstreamEventsTable.Annotation = &entsql.Annotation{
 		Table: "upstream_events",
+	}
+	UpstreamHealthObservationsTable.Annotation = &entsql.Annotation{
+		Table: "upstream_health_observations",
 	}
 	UpstreamIncidentsTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
 	UpstreamIncidentsTable.ForeignKeys[1].RefTable = UpstreamEventsTable
