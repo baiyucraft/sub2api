@@ -326,25 +326,6 @@
               </div>
             </div>
           </template>
-          <template #cell-upstream_source="{ row }">
-            <div class="flex min-w-[190px] flex-col gap-1 text-xs">
-              <div class="font-medium text-gray-700 dark:text-gray-200">
-                {{ row.upstream_config_name || `${t('admin.upstreamManagement.columns.config')} #${row.upstream_config_id ?? '-'}` }}
-              </div>
-              <a
-                v-if="row.upstream_site_url"
-                :href="row.upstream_site_url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="max-w-[220px] truncate text-primary-600 hover:underline dark:text-primary-400"
-                :title="row.upstream_site_url"
-              >{{ row.upstream_site_url }}</a>
-              <div class="font-mono text-[11px] text-gray-500 dark:text-dark-400">
-                {{ row.upstream_key_name || `${t('admin.upstreamManagement.columns.key')} #${row.upstream_key_id ?? '-'}` }}
-                <span v-if="row.upstream_key_masked"> · {{ row.upstream_key_masked }}</span>
-              </div>
-            </div>
-          </template>
           <template #cell-model_mapping="{ row }">
             <div v-if="modelMappingEntries(row).length" class="flex max-w-[260px] flex-col gap-1 text-[11px]">
               <div v-for="entry in modelMappingEntries(row).slice(0, 4)" :key="entry" class="truncate font-mono text-gray-600 dark:text-dark-300" :title="entry">{{ entry }}</div>
@@ -359,6 +340,9 @@
             <div class="flex items-center gap-1.5">
               <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" />
             </div>
+          </template>
+          <template #cell-upstream_health="{ row }">
+            <UpstreamHealthCell :account="row" @show-history="openUpstreamKeyEvents(row)" />
           </template>
           <template #cell-schedulable="{ row }">
             <div class="flex min-w-[132px] flex-col items-start gap-1">
@@ -650,6 +634,7 @@ import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
+import UpstreamHealthCell from '@/components/account/UpstreamHealthCell.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountQualityCell from '@/components/account/AccountQualityCell.vue'
@@ -806,8 +791,12 @@ const hiddenColumns = reactive<Set<string>>(new Set())
 const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'quality_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = props.scope === 'upstream' ? 'upstream-account-hidden-columns' : 'account-hidden-columns'
 // One-time migration: keep newly expensive statistics opt-in for existing admins too.
-const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
-const HIDDEN_COLUMNS_CURRENT_VERSION = 'quality-stats-merged-v3'
+const HIDDEN_COLUMNS_VERSION_KEY = props.scope === 'upstream'
+  ? 'upstream-account-hidden-columns-version'
+  : 'account-hidden-columns-version'
+const HIDDEN_COLUMNS_CURRENT_VERSION = props.scope === 'upstream'
+  ? 'health-quality-today-visible-v1'
+  : 'quality-stats-merged-v3'
 const PREVIOUS_QUALITY_COLUMNS_VERSION = 'quality-stats-hidden-by-default-v2'
 
 // Sorting settings
@@ -1208,7 +1197,13 @@ const loadSavedColumns = () => {
       })
       // Preserve explicit scheduler-score choices after its earlier migration; only legacy layouts need that default.
       const storedVersion = localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)
-      if (storedVersion !== HIDDEN_COLUMNS_CURRENT_VERSION) {
+      if (props.scope === 'upstream' && storedVersion !== HIDDEN_COLUMNS_CURRENT_VERSION) {
+        hiddenColumns.delete('upstream_health')
+        hiddenColumns.delete('quality_stats')
+        hiddenColumns.delete('today_stats')
+        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+        localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
+      } else if (props.scope !== 'upstream' && storedVersion !== HIDDEN_COLUMNS_CURRENT_VERSION) {
         if (storedVersion !== PREVIOUS_QUALITY_COLUMNS_VERSION) {
           if (storedVersion !== 'scheduler-score-hidden-by-default') {
             hiddenColumns.add('scheduler_score')
@@ -1223,23 +1218,24 @@ const loadSavedColumns = () => {
         else hiddenColumns.add('quality_stats')
         localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
         localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
-      } else if (hiddenColumns.delete('quality_stats_1h')) {
+      } else if (props.scope !== 'upstream' && hiddenColumns.delete('quality_stats_1h')) {
         localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
       }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
+        if (props.scope === 'upstream' && (key === 'today_stats' || key === 'quality_stats')) return
         hiddenColumns.add(key)
       })
       localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
     }
     if (props.scope === 'upstream') {
-      hiddenColumns.delete('quality_stats')
       hiddenColumns.delete('priority')
       hiddenColumns.delete('rate_multiplier')
     }
   } catch (e) {
     console.error('Failed to load saved columns:', e)
     DEFAULT_HIDDEN_COLUMNS.forEach(key => {
+      if (props.scope === 'upstream' && (key === 'today_stats' || key === 'quality_stats')) return
       hiddenColumns.add(key)
     })
   }
@@ -2096,14 +2092,16 @@ const allColumns = computed(() => {
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     ...(props.scope === 'upstream' ? [
-      { key: 'upstream_source', label: t('admin.upstreamManagement.columns.upstream'), sortable: false },
       { key: 'model_mapping', label: t('admin.upstreamManagement.columns.modelMapping'), sortable: false }
     ] : []),
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
-    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
-    { key: 'quality_stats', label: t('admin.accounts.columns.qualityStats'), sortable: false }
+    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
+    ...(props.scope === 'upstream' ? [
+      { key: 'upstream_health', label: t('admin.upstreamManagement.columns.health'), sortable: false }
+    ] : []),
+    { key: 'quality_stats', label: t('admin.accounts.columns.qualityStats'), sortable: false },
+    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })

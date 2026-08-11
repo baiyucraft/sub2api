@@ -107,7 +107,10 @@ const mountView = () => mount(AccountsView, {
     stubs: {
       AppLayout: { template: '<div><slot /></div>' },
       TablePageLayout: { template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>' },
-      DataTable: { props: ['data'], template: '<div data-test="data-table" :data-count="data.length" />' },
+      DataTable: {
+        props: ['data', 'columns'],
+        template: '<div data-test="data-table" :data-count="data.length" :data-columns="columns.map((column) => column.key).join(\',\')" />'
+      },
       Pagination: true,
       ConfirmDialog: true,
       AccountTableActions: AccountTableActionsStub,
@@ -130,6 +133,7 @@ const mountView = () => mount(AccountsView, {
       PlatformTypeBadge: true,
       AccountCapacityCell: true,
       AccountStatusIndicator: true,
+      UpstreamHealthCell: true,
       AccountQualityCell: true,
       AccountTodayStatsCell: true,
       AccountGroupsCell: true,
@@ -204,9 +208,42 @@ describe('admin AccountsView upstream management mode', () => {
     expect(wrapper.get('[data-test="bulk-actions"]').attributes('data-show-delete')).toBe('false')
     expect(wrapper.get('[data-test="bulk-actions"]').attributes('data-show-refresh-token')).toBe('false')
     expect(wrapper.get('[data-test="bulk-actions"]').attributes('data-show-billing-probe')).toBe('false')
-    expect(wrapper.get('[data-test="data-table"]').attributes('data-count')).toBe('1')
+    const dataTable = wrapper.get('[data-test="data-table"]')
+    const columns = dataTable.attributes('data-columns').split(',')
+    expect(dataTable.attributes('data-count')).toBe('1')
+    expect(columns).not.toContain('upstream_source')
+    expect(columns).toContain('model_mapping')
+    expect(columns).toContain('upstream_health')
+    expect(columns).toContain('quality_stats')
+    expect(columns).toContain('today_stats')
+    expect(columns.slice(columns.indexOf('schedulable'), columns.indexOf('today_stats') + 1)).toEqual([
+      'schedulable',
+      'status',
+      'upstream_health',
+      'quality_stats',
+      'today_stats'
+    ])
     expect(wrapper.text()).toContain('admin.upstreamManagement.ttftGuard.title')
     expect(wrapper.text()).toContain('admin.upstreamManagement.probeModels.title')
+
+    wrapper.unmount()
+  })
+
+  it('keeps explicit upstream column choices after the visibility migration', async () => {
+    localStorage.setItem('upstream-account-hidden-columns', JSON.stringify([
+      'upstream_health',
+      'quality_stats',
+      'today_stats'
+    ]))
+    localStorage.setItem('upstream-account-hidden-columns-version', 'health-quality-today-visible-v1')
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const columns = wrapper.get('[data-test="data-table"]').attributes('data-columns').split(',')
+    expect(columns).not.toContain('upstream_health')
+    expect(columns).not.toContain('quality_stats')
+    expect(columns).not.toContain('today_stats')
 
     wrapper.unmount()
   })

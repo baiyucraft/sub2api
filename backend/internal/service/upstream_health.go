@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"sort"
 	"strings"
 	"sync"
@@ -20,7 +22,86 @@ const (
 	UpstreamHealthDisabled   UpstreamHealthStatus = "disabled"
 
 	upstreamHealthRecoverySamplesRequired = 3
+	UpstreamHealthHistoryLimit            = 30
+	UpstreamHealthListHistoryLimit        = 12
+	UpstreamHealthTrafficSuccessInterval  = 5 * time.Minute
 )
+
+type UpstreamHealthObservation struct {
+	ObservedAt time.Time            `json:"observed_at"`
+	State      UpstreamHealthStatus `json:"state"`
+	Source     string               `json:"source"`
+	Result     string               `json:"result"`
+	Reason     string               `json:"reason,omitempty"`
+}
+
+type UpstreamHealthHistoryReader interface {
+	ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]UpstreamHealthObservation, error)
+}
+
+func UpstreamHealthHistoryFromExtra(extra map[string]any, limit int) []UpstreamHealthObservation {
+	if extra == nil {
+		return nil
+	}
+	raw, ok := extra["health_history"]
+	if !ok || raw == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var history []UpstreamHealthObservation
+	if err := json.Unmarshal(encoded, &history); err != nil {
+		return nil
+	}
+	valid := history[:0]
+	for _, item := range history {
+		if item.ObservedAt.IsZero() || !validUpstreamHealthStatus(item.State) {
+			continue
+		}
+		item.ObservedAt = item.ObservedAt.UTC()
+		item.Source = strings.TrimSpace(item.Source)
+		item.Result = strings.TrimSpace(item.Result)
+		item.Reason = strings.TrimSpace(item.Reason)
+		valid = append(valid, item)
+	}
+	if limit > 0 && len(valid) > limit {
+		valid = valid[len(valid)-limit:]
+	}
+	return append([]UpstreamHealthObservation(nil), valid...)
+}
+
+// AppendUpstreamHealthObservation mutates the already row-locked extra map.
+// Traffic successes are durably sampled at most once every five minutes;
+// failures, probes and administrator changes are always retained.
+func AppendUpstreamHealthObservation(extra map[string]any, item UpstreamHealthObservation) {
+	if extra == nil || item.ObservedAt.IsZero() || !validUpstreamHealthStatus(item.State) {
+		return
+	}
+	item.ObservedAt = item.ObservedAt.UTC()
+	item.Source = strings.TrimSpace(item.Source)
+	item.Result = strings.TrimSpace(item.Result)
+	item.Reason = strings.TrimSpace(item.Reason)
+	history := UpstreamHealthHistoryFromExtra(extra, UpstreamHealthHistoryLimit)
+	if item.Source == "traffic" && item.Reason == "traffic_succeeded" {
+		for i := len(history) - 1; i >= 0; i-- {
+			previous := history[i]
+			if previous.Source != "traffic" || previous.Reason != "traffic_succeeded" {
+				continue
+			}
+			if item.ObservedAt.Sub(previous.ObservedAt) < UpstreamHealthTrafficSuccessInterval {
+				return
+			}
+			break
+		}
+	}
+	history = append(history, item)
+	if len(history) > UpstreamHealthHistoryLimit {
+		history = history[len(history)-UpstreamHealthHistoryLimit:]
+	}
+	extra["health_history"] = history
+}
 
 func validUpstreamHealthStatus(status UpstreamHealthStatus) bool {
 	switch status {
