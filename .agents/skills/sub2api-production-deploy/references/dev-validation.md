@@ -35,8 +35,10 @@
 
 - 严格纯前端改动可以在本机运行 Vite；启动时必须设置 `VITE_DEV_PROXY_TARGET` 为 VM Gate 的服务地址，本机不启动后端。
 - 前后端混合、后端、数据库、迁移或 fork 改动，直接访问 VM Gate candidate 的页面或入口，在 VM Gate 的 Compose、PostgreSQL、Redis 和真实认证链路上验收；不要使用本机 Vite 拼接一个缺失的本机后端。
+- 面向用户展示的 VM 入口固定为 VM LAN 地址的 `8211`，最终只保留 `sub2api-dev` 一个持久应用容器。禁止保留 `sub2api-preview-*`、`18211/18220` 代理或其他并行展示栈；Gate 内部短生命周期隔离容器必须在验证结束后清理。
+- 需要展示新 candidate 时，在确认 Gate 已签名后原位切换 `sub2api-dev`，显式固定 `SERVER_HOST=0.0.0.0`、`SERVER_PORT=8211` 并复用 `data-dev`。切换验收完成后删除 next/backup 临时容器，只保留旧 image ID 作为回滚证据。
 - 开始检查前核对页面版本与 candidate evidence，并确认至少一个关键 API 的真实响应；仅看到登录缓存、旧版本号或空列表不算通过。
-- 本地页面验证完成后关闭 Vite，并确认 3000 端口没有残留监听；VM Gate 验收结束后恢复原验证容器和镜像状态。
+- 本地页面验证完成后关闭 Vite，并确认 3000 端口没有残留监听。VM Gate 若无需继续向用户展示 candidate，则恢复原验证容器和镜像状态；若用户要求查看效果，则按上述 `8211` 单实例合同将 candidate 原位切换到 `sub2api-dev`，不得另建 preview 栈。
 
 ## 进入 VM 前
 
