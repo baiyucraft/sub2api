@@ -1324,13 +1324,14 @@ func (s *UpstreamConfigService) reconcileUpstreamAccounts(ctx context.Context, c
 			return created, err
 		}
 		platform := strings.ToLower(strings.TrimSpace(*key.Platform))
-		concurrency := normalizeAccountConcurrency(platform, AccountTypeAPIKey, 0)
+		const defaultUpstreamAccountConcurrency = 100
+		concurrency := normalizeAccountConcurrency(platform, AccountTypeAPIKey, defaultUpstreamAccountConcurrency)
 		priority := Sub2APIUpstreamPriority(*key.RateMultiplier)
 		loadFactor := AutoUpstreamLoadFactor(priority, concurrency)
 		configID, keyID, rate := cfg.ID, key.ID, *key.RateMultiplier
 		account := &Account{
 			Name: name, Platform: platform, Type: AccountTypeAPIKey,
-			Credentials:      map[string]any{},
+			Credentials:      map[string]any{"pool_mode": true},
 			Extra:            map[string]any{AccountUpstreamProviderKey: cfg.Provider, AccountSub2APIRateSyncAdapterKey: cfg.AuthMode},
 			UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
 			Concurrency: concurrency, Priority: priority, RateMultiplier: &rate, LoadFactor: &loadFactor,

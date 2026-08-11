@@ -430,7 +430,7 @@ func TestAccountHandlerListSeparatesOrdinaryAndUpstreamScopes(t *testing.T) {
 	require.Equal(t, []int64{601}, []int64{ordinaryPayload.Data.Items[0].ID})
 	require.Empty(t, ordinaryPayload.Data.Items[0].AvailableActions)
 	require.Equal(t, []int64{602}, []int64{upstreamPayload.Data.Items[0].ID})
-	require.ElementsMatch(t, []string{"edit", "test", "stats", "schedule", "toggle_schedulable", "recover_state", "probe_key", "toggle_observation", "events"}, upstreamPayload.Data.Items[0].AvailableActions)
+	require.ElementsMatch(t, []string{"edit", "test", "stats", "schedule", "toggle_schedulable", "recover_state", "probe_key", "toggle_observation", "events", "rate_trend"}, upstreamPayload.Data.Items[0].AvailableActions)
 	require.Equal(t, []int64{keyID}, healthReader.keyIDs)
 	require.Equal(t, service.UpstreamHealthListHistoryLimit, healthReader.limit)
 	require.Len(t, upstreamPayload.Data.Items[0].UpstreamHealth.History, 1)

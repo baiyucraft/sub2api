@@ -601,14 +601,22 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if account.IsUpstreamBound() {
 		if input.Name != "" || input.Type != "" || input.ProxyID != nil || input.UpstreamConfigID != nil || input.UpstreamKeyID != nil ||
-			input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil || input.ProbeEnabled != nil || input.RateSyncEnabled != nil ||
-			input.Extra != nil || !isAllowedUpstreamAccountCredentialsUpdate(input.Credentials) {
+			input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil || input.ProbeEnabled != nil || input.RateSyncEnabled != nil {
 			return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account identity, credentials, proxy, rate, priority, and load factor are derived from the upstream key")
+		}
+		if err := validateUpstreamAccountEditableUpdate(input); err != nil {
+			return nil, err
+		}
+		if input.Extra != nil {
+			input.Extra = mergeUpstreamAccountEditableExtra(account.Extra, input.Extra)
 		}
 	}
 	// Repository hydration injects the shared upstream URL and key for forwarding.
 	// Strip them before applying updates so an unbind cannot persist runtime-only secrets.
 	sanitizeUpstreamBoundCredentials(account)
+	if account.IsUpstreamBound() && input.Credentials != nil {
+		input.Credentials = mergeUpstreamAccountEditableCredentials(account.Credentials, input.Credentials)
+	}
 	var normalizedExtra map[string]any
 	if input.Extra != nil {
 		normalizedExtra, err = normalizeOpenAILongContextBillingUpdateExtra(account, input)
@@ -939,18 +947,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	return updated, nil
 }
 
-func isAllowedUpstreamAccountCredentialsUpdate(credentials map[string]any) bool {
-	if credentials == nil {
-		return true
-	}
-	for key := range credentials {
-		if key != "model_mapping" {
-			return false
-		}
-	}
-	return true
-}
-
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
@@ -1137,7 +1133,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			if acc == nil || !acc.IsUpstreamBound() {
 				continue
 			}
-			if len(input.Extra) > 0 || input.ProbeEnabled != nil || !isAllowedUpstreamAccountCredentialsUpdate(input.Credentials) {
+			if len(input.Extra) > 0 || input.ProbeEnabled != nil || !isAllowedUpstreamAccountBulkCredentialsUpdate(input.Credentials) {
 				return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account bulk edits only allow model mapping, groups, concurrency, status, and scheduling")
 			}
 		}

@@ -6,9 +6,13 @@ export default {
     derivedAccount: {
       title: '上游派生账号',
       description: 'Key、站点、代理、倍率、Priority 和 LoadFactor 由“上游配置”派生，不能在上游管理中修改。',
-      bulkDescription: '上游 Key、站点、代理、倍率、Priority、LoadFactor 和凭据由“上游配置”维护，本批量操作只修改账号运行时可调度属性。'
+      bulkDescription: '上游 Key、站点、代理、倍率、Priority、LoadFactor 和凭据由“上游配置”维护，本批量操作只修改账号运行时可调度属性。',
+      configId: '上游配置 ID',
+      keyId: '上游 Key ID',
+      site: '上游站点'
     },
     saveFailed: '保存上游管理配置失败',
+    rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
       title: '首 Token 性能保护',
       description: '仅作用于上游账号；慢账号会被临时降级，原有调度策略保持不变。',

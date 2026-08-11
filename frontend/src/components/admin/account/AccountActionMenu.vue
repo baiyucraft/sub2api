@@ -15,6 +15,10 @@
               <Icon name="clock" size="sm" class="text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
             </button>
+            <button v-if="canShowRateTrend" role="menuitem" @click="$emit('rate-trend', account); close()">
+              <Icon name="trendingUp" size="sm" class="text-cyan-500" />
+              {{ t('admin.upstreamConfigs.actions.rateTrend') }}
+            </button>
             <button v-if="canDuplicate && canUseAction('duplicate')" role="menuitem" @click="$emit('duplicate', account); close()">
               <Icon name="copy" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
@@ -61,7 +65,7 @@ import ActionMenu from '@/components/common/ActionMenu.vue'
 import type { Account } from '@/types'
 
 const props = defineProps<{ show: boolean; account: Account | null; anchorEl: HTMLElement | null }>()
-const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
+const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'rate-trend', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
 const { t } = useI18n()
 const canDuplicate = computed(() => {
   if (
@@ -76,6 +80,11 @@ const canUseAction = (action: string) => {
   const actions = props.account?.available_actions
   return actions == null || actions.includes(action)
 }
+const canShowRateTrend = computed(() =>
+  props.account?.upstream_config_id != null &&
+  props.account?.upstream_key_id != null &&
+  canUseAction('rate_trend')
+)
 const isRateLimited = computed(() => {
   if (props.account?.rate_limit_reset_at && new Date(props.account.rate_limit_reset_at) > new Date()) {
     return true
