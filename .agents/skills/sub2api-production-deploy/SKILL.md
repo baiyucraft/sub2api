@@ -96,6 +96,14 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 - 前后端混合改动禁止用“本机 Vite + 本机没有后端”作验收。`3000` 只代表页面开发服务器，若 `8080` 或代理目标没有后端，登录缓存、旧版本号和空列表都不能作为功能结论。
 - 浏览器检查范围切换、登录、关键 endpoint、console 和响应版本；验收结束关闭本地 Vite，并确认监听端口已释放。
 
+### VM 展示入口单实例合同
+
+- 面向用户的 VM 页面固定使用 VM LAN 地址的 `8211` 端口；不得再创建 `18211`、`18220` 或其他临时展示端口。
+- 页面与 API 都由唯一持久应用容器 `sub2api-dev` 提供，不创建或保留 `sub2api-preview-*` 容器，也不使用 Python/TCP 代理拼接第二套页面。
+- VM Gate 内部允许使用验证器自带的短生命周期隔离容器；Gate 结束后必须清理。用户验收交接时只允许一个持久 Sub2API 应用容器存在。
+- Gate 通过后需要展示 candidate 时，将已签名的 `candidate_image_id` 原位切换到 `sub2api-dev`。切换过程可短暂创建 next/backup 容器，但必须先验证 `8211` 页面、health、实际 image ID 和日志，再删除临时容器后交接。
+- `8211` 已被非 `sub2api-dev` 进程占用、存在额外 preview 容器或临时代理时，先停止展示并整理到上述单实例状态；禁止为绕过冲突继续增加端口。
+
 灾备 candidate 在进入任何晋升写操作前，必须先通过 [backup-and-restore.md](references/backup-and-restore.md) 的 exact-content bundle 合同。测试自测签名只能证明 signer 可用，不能替代真实解密、PostgreSQL/Redis 恢复和临时材料销毁；缺少批准的解密身份或恢复 helper 时必须停在 `restore pending`，保留 `candidate`，不得伪造 `verified`。
 
 不兼容 migration 还必须在生产停写后完成数据 preflight、migration plan checksum 和 postflight 语义校验。VM fixture 通过不能替代生产数据证据；没有可证明来源的历史行必须停止。
