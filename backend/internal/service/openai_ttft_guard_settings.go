@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -132,6 +133,42 @@ func (s *SettingService) SetOpenAITTFTGuardSettings(ctx context.Context, setting
 	}
 	if err := s.settingRepo.Set(ctx, SettingKeyOpenAITTFTGuardSettings, string(raw)); err != nil {
 		return fmt.Errorf("set OpenAI TTFT guard settings: %w", err)
+	}
+	s.openAITTFTGuardRevision.Add(1)
+	s.storeOpenAITTFTGuardSnapshot(openAITTFTGuardSnapshot(settings), openAITTFTGuardConfigCacheTTL)
+	return nil
+}
+
+// SetOpenAITTFTGuardAndProbeModels persists both upstream-management settings
+// in one repository operation and refreshes the TTFT hot snapshot afterwards.
+func (s *SettingService) SetOpenAITTFTGuardAndProbeModels(ctx context.Context, settings *OpenAITTFTGuardSettings, models UpstreamProbeModels) error {
+	if err := validateOpenAITTFTGuardSettings(settings); err != nil {
+		return err
+	}
+	models.OpenAI = strings.TrimSpace(models.OpenAI)
+	models.Anthropic = strings.TrimSpace(models.Anthropic)
+	models.Gemini = strings.TrimSpace(models.Gemini)
+	if err := validateUpstreamProbeModels(models); err != nil {
+		return err
+	}
+	if s == nil || s.settingRepo == nil {
+		return fmt.Errorf("setting repository is unavailable")
+	}
+	ttftRaw, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("marshal OpenAI TTFT guard settings: %w", err)
+	}
+	probeRaw, err := json.Marshal(models)
+	if err != nil {
+		return fmt.Errorf("marshal upstream probe models: %w", err)
+	}
+	s.openAITTFTGuardUpdateMu.Lock()
+	defer s.openAITTFTGuardUpdateMu.Unlock()
+	if err := s.settingRepo.SetMultiple(ctx, map[string]string{
+		SettingKeyOpenAITTFTGuardSettings: string(ttftRaw),
+		SettingKeyUpstreamProbeModels:     string(probeRaw),
+	}); err != nil {
+		return fmt.Errorf("set upstream management settings: %w", err)
 	}
 	s.openAITTFTGuardRevision.Add(1)
 	s.storeOpenAITTFTGuardSnapshot(openAITTFTGuardSnapshot(settings), openAITTFTGuardConfigCacheTTL)

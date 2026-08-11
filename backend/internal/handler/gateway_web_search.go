@@ -295,7 +295,7 @@ func (h *GatewayHandler) acquireWebSearchAccountSlot(
 	}
 	account := selected.Account
 	accountWaitCounted := false
-	canWait, waitErr := h.concurrencyHelper.IncrementAccountWaitCount(c.Request.Context(), account.ID, selected.WaitPlan.MaxWaiting)
+	canWait, waitErr := h.concurrencyHelper.IncrementAccountWaitCountForAccount(c.Request.Context(), account, selected.WaitPlan.MaxWaiting)
 	if waitErr != nil {
 		logger.L().Warn("gateway.web_search.account_wait_counter_increment_failed",
 			zap.Int64("account_id", account.ID),
@@ -309,15 +309,14 @@ func (h *GatewayHandler) acquireWebSearchAccountSlot(
 	}
 	releaseWait := func() {
 		if accountWaitCounted {
-			h.concurrencyHelper.DecrementAccountWaitCount(c.Request.Context(), account.ID)
+			h.concurrencyHelper.DecrementAccountWaitCountForAccount(c.Request.Context(), account)
 			accountWaitCounted = false
 		}
 	}
 	streamStarted := false
-	slotRelease, err := h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
+	slotRelease, err := h.concurrencyHelper.AcquireAccountSlotWithWaitTimeoutForAccount(
 		c,
-		account.ID,
-		selected.WaitPlan.MaxConcurrency,
+		account,
 		selected.WaitPlan.Timeout,
 		false,
 		&streamStarted,

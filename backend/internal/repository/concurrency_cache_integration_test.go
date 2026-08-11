@@ -50,6 +50,79 @@ func (s *ConcurrencyCacheSuite) apiKeyConcurrencyCache() apiKeyConcurrencyCacheF
 	return cache
 }
 
+func (s *ConcurrencyCacheSuite) TestUpstreamTarget_SharedLimitLoadAndIsolation() {
+	cache, ok := s.cache.(service.ConcurrencyTargetCache)
+	require.True(s.T(), ok)
+
+	shared := service.ConcurrencyTarget{Kind: service.ConcurrencyTargetUpstream, ID: 7101, Limit: 2}
+	other := service.ConcurrencyTarget{Kind: service.ConcurrencyTargetUpstream, ID: 7102, Limit: 1}
+	account := service.ConcurrencyTarget{Kind: service.ConcurrencyTargetAccount, ID: 7103, Limit: 1}
+
+	ok, err := cache.AcquireConcurrencyTargetSlot(s.ctx, shared, "shared-a")
+	require.NoError(s.T(), err)
+	require.True(s.T(), ok)
+	ok, err = cache.AcquireConcurrencyTargetSlot(s.ctx, shared, "shared-b")
+	require.NoError(s.T(), err)
+	require.True(s.T(), ok)
+	ok, err = cache.AcquireConcurrencyTargetSlot(s.ctx, shared, "shared-c")
+	require.NoError(s.T(), err)
+	require.False(s.T(), ok, "all keys under one upstream must share the same hard limit")
+
+	ok, err = cache.AcquireConcurrencyTargetSlot(s.ctx, other, "other-a")
+	require.NoError(s.T(), err)
+	require.True(s.T(), ok, "a different upstream must have an isolated pool")
+	ok, err = cache.AcquireConcurrencyTargetSlot(s.ctx, account, "account-a")
+	require.NoError(s.T(), err)
+	require.True(s.T(), ok, "an ordinary account must remain isolated")
+
+	allowed, err := cache.IncrementConcurrencyTargetWaitCount(s.ctx, shared, 5)
+	require.NoError(s.T(), err)
+	require.True(s.T(), allowed)
+
+	loads, err := s.cache.GetAccountsLoadBatch(s.ctx, []service.AccountWithConcurrency{
+		{ID: 8101, MaxConcurrency: 2, TargetKind: service.ConcurrencyTargetUpstream, TargetID: shared.ID},
+		{ID: 8102, MaxConcurrency: 2, TargetKind: service.ConcurrencyTargetUpstream, TargetID: shared.ID},
+		{ID: account.ID, MaxConcurrency: 1, TargetKind: service.ConcurrencyTargetAccount, TargetID: account.ID},
+	})
+	require.NoError(s.T(), err)
+	for _, accountID := range []int64{8101, 8102} {
+		require.Equal(s.T(), 2, loads[accountID].CurrentConcurrency)
+		require.Equal(s.T(), 1, loads[accountID].WaitingCount)
+		require.Equal(s.T(), 150, loads[accountID].LoadRate)
+	}
+	require.Equal(s.T(), 1, loads[account.ID].CurrentConcurrency)
+	require.Equal(s.T(), 100, loads[account.ID].LoadRate)
+}
+
+func (s *ConcurrencyCacheSuite) TestUpstreamTarget_UnlimitedTracksWithoutLimiting() {
+	cache, ok := s.cache.(service.ConcurrencyTargetCache)
+	require.True(s.T(), ok)
+	target := service.ConcurrencyTarget{Kind: service.ConcurrencyTargetUpstream, ID: 7201, Limit: 0}
+
+	for _, requestID := range []string{"unlimited-a", "unlimited-b", "unlimited-c"} {
+		acquired, err := cache.AcquireConcurrencyTargetSlot(s.ctx, target, requestID)
+		require.NoError(s.T(), err)
+		require.True(s.T(), acquired)
+	}
+
+	loads, err := s.cache.GetAccountsLoadBatch(s.ctx, []service.AccountWithConcurrency{
+		{ID: 8201, MaxConcurrency: 0, TargetKind: service.ConcurrencyTargetUpstream, TargetID: target.ID},
+		{ID: 8202, MaxConcurrency: 0, TargetKind: service.ConcurrencyTargetUpstream, TargetID: target.ID},
+	})
+	require.NoError(s.T(), err)
+	for _, accountID := range []int64{8201, 8202} {
+		require.Equal(s.T(), 3, loads[accountID].CurrentConcurrency)
+		require.Zero(s.T(), loads[accountID].LoadRate)
+	}
+
+	require.NoError(s.T(), cache.ReleaseConcurrencyTargetSlot(s.ctx, target, "unlimited-b"))
+	loads, err = s.cache.GetAccountsLoadBatch(s.ctx, []service.AccountWithConcurrency{
+		{ID: 8201, MaxConcurrency: 0, TargetKind: service.ConcurrencyTargetUpstream, TargetID: target.ID},
+	})
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), 2, loads[8201].CurrentConcurrency)
+}
+
 func (s *ConcurrencyCacheSuite) TestOpenAIWSIngressAPIKeySlot_HardLimitRefreshAndRelease() {
 	apiKeyID := int64(9011)
 	firstLeaseID := "ingress-first"

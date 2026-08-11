@@ -15,6 +15,11 @@ type upstreamProbeModelsRequest struct {
 	Models map[string]string `json:"models"`
 }
 
+type upstreamManagementSettingsRequest struct {
+	TTFTGuard   service.OpenAITTFTGuardSettings `json:"ttft_guard"`
+	ProbeModels service.UpstreamProbeModels     `json:"probe_models"`
+}
+
 func (h *UpstreamConfigHandler) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
 	return h.service.ListUpstreamHealthHistories(ctx, keyIDs, limit)
 }
@@ -64,6 +69,38 @@ func (h *UpstreamConfigHandler) PutUpstreamProbeModels(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"models": gin.H{"openai": models.OpenAI, "anthropic": models.Anthropic, "gemini": models.Gemini}})
+}
+
+func (h *UpstreamConfigHandler) GetUpstreamManagementSettings(c *gin.Context) {
+	settings, err := h.service.GetManagementSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
+	var req upstreamManagementSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "invalid upstream management settings: "+err.Error())
+		return
+	}
+	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels}
+	if err := h.service.SetManagementSettings(c.Request.Context(), settings); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+func (h *UpstreamConfigHandler) GetUpstreamProbeModelCandidates(c *gin.Context) {
+	candidates, err := h.service.GetProbeModelCandidates(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"candidates": candidates})
 }
 
 func parseUpstreamManagementKeyID(c *gin.Context) (int64, bool) {

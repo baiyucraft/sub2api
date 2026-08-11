@@ -601,8 +601,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if account.IsUpstreamBound() {
 		if input.Name != "" || input.Type != "" || input.ProxyID != nil || input.UpstreamConfigID != nil || input.UpstreamKeyID != nil ||
-			input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil || input.ProbeEnabled != nil || input.RateSyncEnabled != nil {
-			return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account identity, credentials, proxy, rate, priority, and load factor are derived from the upstream key")
+			input.Concurrency != nil || input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil || input.ProbeEnabled != nil || input.RateSyncEnabled != nil {
+			return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account identity, credentials, proxy, concurrency, rate, priority, and load factor are derived from the upstream config or key")
 		}
 		if err := validateUpstreamAccountEditableUpdate(input); err != nil {
 			return nil, err
@@ -1128,13 +1128,20 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			}
 		}
 	}
+	if input.Concurrency != nil {
+		for _, acc := range cachedTargets {
+			if acc != nil && acc.IsUpstreamBound() {
+				return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account concurrency is managed by the parent upstream config")
+			}
+		}
+	}
 	if len(input.Credentials) > 0 || len(input.Extra) > 0 || input.ProbeEnabled != nil {
 		for _, acc := range cachedTargets {
 			if acc == nil || !acc.IsUpstreamBound() {
 				continue
 			}
 			if len(input.Extra) > 0 || input.ProbeEnabled != nil || !isAllowedUpstreamAccountBulkCredentialsUpdate(input.Credentials) {
-				return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account bulk edits only allow model mapping, groups, concurrency, status, and scheduling")
+				return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account bulk edits only allow model mapping, groups, status, and scheduling")
 			}
 		}
 	}

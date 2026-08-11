@@ -414,7 +414,17 @@ func (c *OpsMetricsCollector) collectConcurrencyQueueDepth(parentCtx context.Con
 
 func (c *OpsMetricsCollector) listSchedulableAccountLoads(ctx context.Context) ([]AccountWithConcurrency, error) {
 	if repo, ok := c.accountRepo.(opsSchedulableAccountLoadRepository); ok {
-		return repo.ListSchedulableAccountLoads(ctx)
+		loads, err := repo.ListSchedulableAccountLoads(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for i := range loads {
+			if loads[i].TargetKind == "" || loads[i].TargetID <= 0 {
+				loads[i].TargetKind = ConcurrencyTargetAccount
+				loads[i].TargetID = loads[i].ID
+			}
+		}
+		return loads, nil
 	}
 
 	accounts, err := c.accountRepo.ListSchedulable(ctx)
@@ -426,10 +436,7 @@ func (c *OpsMetricsCollector) listSchedulableAccountLoads(ctx context.Context) (
 		if account.ID <= 0 {
 			continue
 		}
-		loads = append(loads, AccountWithConcurrency{
-			ID:             account.ID,
-			MaxConcurrency: account.EffectiveLoadFactor(),
-		})
+		loads = append(loads, AccountConcurrencyLoadDescriptor(&account))
 	}
 	return loads, nil
 }

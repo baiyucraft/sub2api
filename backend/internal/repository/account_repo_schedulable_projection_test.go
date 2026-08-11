@@ -39,9 +39,9 @@ func TestListSchedulableAccountLoadsUsesSingleProjectionQuery(t *testing.T) {
 	repo := newAccountRepositoryWithSQL(client, db, nil)
 
 	mock.ExpectQuery("schedulable account load projection").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "concurrency", "load_factor"}).
-			AddRow(int64(11), 3, nil).
-			AddRow(int64(12), 2, 7))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "concurrency", "load_factor", "upstream_config_id"}).
+			AddRow(int64(11), 3, nil, nil).
+			AddRow(int64(12), 2, 7, nil))
 
 	loads, err := repo.ListSchedulableAccountLoads(context.Background())
 	require.NoError(t, err)
@@ -50,15 +50,16 @@ func TestListSchedulableAccountLoadsUsesSingleProjectionQuery(t *testing.T) {
 	require.Equal(t, 3, loads[0].MaxConcurrency)
 	require.Equal(t, int64(12), loads[1].ID)
 	require.Equal(t, 7, loads[1].MaxConcurrency)
-	require.NoError(t, mock.ExpectationsWereMet(), "projection path must execute exactly one query")
+	require.NoError(t, mock.ExpectationsWereMet(), "projection path must avoid account/group/credential hydration when no upstream binding exists")
 
 	normalized := normalizeSQLWhitespace(capturedSQL)
 	selectClause, _, found := strings.Cut(normalized, " FROM ")
 	require.True(t, found, "unexpected projection SQL: %s", normalized)
-	require.Equal(t, 2, strings.Count(selectClause, ","), "projection must select exactly three columns: %s", selectClause)
+	require.Equal(t, 3, strings.Count(selectClause, ","), "projection must select exactly four columns: %s", selectClause)
 	require.Contains(t, selectClause, `"id"`)
 	require.Contains(t, selectClause, `"concurrency"`)
 	require.Contains(t, selectClause, `"load_factor"`)
+	require.Contains(t, selectClause, `"upstream_config_id"`)
 	require.NotContains(t, selectClause, "credentials")
 	require.NotContains(t, selectClause, "extra")
 	require.NotContains(t, selectClause, "proxy_id")

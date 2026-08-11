@@ -12,6 +12,12 @@ export default {
       site: 'Upstream site'
     },
     saveFailed: 'Failed to save upstream management settings',
+    settings: {
+      title: 'Upstream management settings',
+      open: 'Upstream management settings',
+      loadFailed: 'Failed to load upstream management settings',
+      invalid: 'Check the first-token threshold, sample count, and probe models.'
+    },
     rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
       title: 'First-token performance protection',
@@ -19,9 +25,28 @@ export default {
       enabled: 'Enabled',
       threshold: 'Threshold (seconds)',
       minSamples: 'Minimum samples',
-      invalid: 'The threshold must be 5–300 seconds and minimum samples must be an integer from 2–20.'
+      invalid: 'The threshold must be 5–300 seconds and minimum samples must be an integer from 2–20.',
+      tip: {
+        definition: 'TTFT is the time from sending a request until the first valid token is received.',
+        scope: 'It applies only to upstream accounts and does not change multipliers, priority, billing, or scheduler scoring.',
+        normal: 'Degrade when the minimum sample count is reached and EWMA meets the threshold.',
+        fast: 'Degrade quickly after two samples at 1.5× the threshold, or immediately after one sample at 3×.',
+        immediate: 'A degraded account retains about 5% of scheduling opportunities for recovery probes.',
+        recovery: 'Recover after three probes at or below 0.6×; if the entire group is degraded, the original scheduler fails open.'
+      }
     },
-    probeModels: { title: 'Platform probe models', invalid: 'All three probe models are required and must be at most 255 characters.' },
+    probeModels: {
+      title: 'Platform probe models',
+      description: 'Candidates come from upstream accounts, configured models, and the server catalog. You can enter a new model when needed.',
+      invalid: 'All three probe models are required and must be at most 120 characters.',
+      search: 'Search models',
+      placeholder: 'Select or enter a model',
+      useCustom: 'Use custom model: '
+    },
+    concurrency: {
+      sharedTooltip: 'All Keys under this upstream config share one concurrency pool. Source: {source}; effective limit: {limit}',
+      sources: { override: 'Manual override', provider: 'Upstream snapshot', unlimited: 'Upstream unlimited', default: 'Default 100' }
+    },
     actions: { probe: 'Probe', observation: 'Observe', events: 'Events', probeRecorded: 'Probe result recorded', probeFailed: 'Failed to probe upstream Key', observationFailed: 'Failed to update Key observation' },
     health: {
       keyHealth: 'Key health',

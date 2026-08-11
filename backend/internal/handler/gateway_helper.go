@@ -189,9 +189,17 @@ func (h *ConcurrencyHelper) IncrementAccountWaitCount(ctx context.Context, accou
 	return h.concurrencyService.IncrementAccountWaitCount(ctx, accountID, maxWait)
 }
 
+func (h *ConcurrencyHelper) IncrementAccountWaitCountForAccount(ctx context.Context, account *service.Account, maxWait int) (bool, error) {
+	return h.concurrencyService.IncrementTargetWaitCount(ctx, account.SchedulingConcurrencyTarget(), maxWait)
+}
+
 // DecrementAccountWaitCount decrements the wait count for an account
 func (h *ConcurrencyHelper) DecrementAccountWaitCount(ctx context.Context, accountID int64) {
 	h.concurrencyService.DecrementAccountWaitCount(ctx, accountID)
+}
+
+func (h *ConcurrencyHelper) DecrementAccountWaitCountForAccount(ctx context.Context, account *service.Account) {
+	h.concurrencyService.DecrementTargetWaitCount(ctx, account.SchedulingConcurrencyTarget())
 }
 
 // TryAcquireUserSlot 尝试立即获取用户并发槽位。
@@ -228,6 +236,17 @@ func (h *ConcurrencyHelper) AcquireOpenAIWSIngressLease(ctx context.Context, api
 // 返回值: (releaseFunc, acquired, error)
 func (h *ConcurrencyHelper) TryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (func(), bool, error) {
 	result, err := h.concurrencyService.AcquireAccountSlot(ctx, accountID, maxConcurrency)
+	if err != nil {
+		return nil, false, err
+	}
+	if !result.Acquired {
+		return nil, false, nil
+	}
+	return result.ReleaseFunc, true, nil
+}
+
+func (h *ConcurrencyHelper) TryAcquireAccountSlotForAccount(ctx context.Context, account *service.Account) (func(), bool, error) {
+	result, err := h.concurrencyService.AcquireTargetSlot(ctx, account.SchedulingConcurrencyTarget())
 	if err != nil {
 		return nil, false, err
 	}
@@ -332,18 +351,20 @@ func (h *ConcurrencyHelper) waitForSlotWithPing(c *gin.Context, slotType string,
 
 // waitForSlotWithPingTimeout waits for a concurrency slot with a custom timeout.
 func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType string, id int64, maxConcurrency int, timeout time.Duration, isStream bool, streamStarted *bool, tryImmediate bool) (func(), error) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
-	defer cancel()
-
-	acquireSlot := func() (*service.AcquireResult, error) {
+	return h.waitForAcquireWithPingTimeout(c, slotType, timeout, isStream, streamStarted, tryImmediate, func(ctx context.Context) (*service.AcquireResult, error) {
 		if slotType == "user" {
 			return h.concurrencyService.AcquireUserSlot(ctx, id, maxConcurrency)
 		}
 		return h.concurrencyService.AcquireAccountSlot(ctx, id, maxConcurrency)
-	}
+	})
+}
+
+func (h *ConcurrencyHelper) waitForAcquireWithPingTimeout(c *gin.Context, slotType string, timeout time.Duration, isStream bool, streamStarted *bool, tryImmediate bool, acquire func(context.Context) (*service.AcquireResult, error)) (func(), error) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+	defer cancel()
 
 	if tryImmediate {
-		result, err := acquireSlot()
+		result, err := acquire(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -403,7 +424,7 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 
 		case <-timer.C:
 			// Try to acquire slot
-			result, err := acquireSlot()
+			result, err := acquire(ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -420,6 +441,12 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 // AcquireAccountSlotWithWaitTimeout acquires an account slot with a custom timeout (keeps SSE ping).
 func (h *ConcurrencyHelper) AcquireAccountSlotWithWaitTimeout(c *gin.Context, accountID int64, maxConcurrency int, timeout time.Duration, isStream bool, streamStarted *bool) (func(), error) {
 	return h.waitForSlotWithPingTimeout(c, "account", accountID, maxConcurrency, timeout, isStream, streamStarted, true)
+}
+
+func (h *ConcurrencyHelper) AcquireAccountSlotWithWaitTimeoutForAccount(c *gin.Context, account *service.Account, timeout time.Duration, isStream bool, streamStarted *bool) (func(), error) {
+	return h.waitForAcquireWithPingTimeout(c, "account", timeout, isStream, streamStarted, true, func(ctx context.Context) (*service.AcquireResult, error) {
+		return h.concurrencyService.AcquireTargetSlot(ctx, account.SchedulingConcurrencyTarget())
+	})
 }
 
 // nextBackoff 计算下一次退避时间

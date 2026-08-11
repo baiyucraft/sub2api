@@ -67,10 +67,17 @@ type Account struct {
 	// UpstreamSchedulingEnabled is hydrated from the parent upstream config.
 	// nil keeps old scheduler snapshots compatible and means no parent gate.
 	UpstreamSchedulingEnabled *bool
-	UpstreamStalePauseKeyID   *int64
-	UpstreamStalePausedAt     *time.Time
-	Concurrency               int
-	Priority                  int
+	// Upstream concurrency is hydrated from the parent config and is shared by
+	// every derived account under the same upstream_config_id.
+	UpstreamConcurrencyLimit       int
+	UpstreamConcurrencySource      string
+	UpstreamConcurrencyUsesDefault bool
+	UpstreamConcurrencyUnlimited   bool
+	UpstreamConcurrencyOverride    *int
+	UpstreamStalePauseKeyID        *int64
+	UpstreamStalePausedAt          *time.Time
+	Concurrency                    int
+	Priority                       int
 	// RateMultiplier 账号计费倍率（>=0，允许 0 表示该账号计费为 0）。
 	// 使用指针用于兼容旧版本调度缓存（Redis）中缺字段的情况：nil 表示按 1.0 处理。
 	RateMultiplier *float64

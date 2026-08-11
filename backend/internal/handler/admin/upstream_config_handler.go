@@ -21,21 +21,23 @@ func NewUpstreamConfigHandler(service *service.UpstreamConfigService) *UpstreamC
 }
 
 type upstreamConfigRequest struct {
-	Name                  string         `json:"name"`
-	Provider              string         `json:"provider"`
-	SiteURL               string         `json:"site_url"`
-	APIURL                *string        `json:"api_url"`
-	ClearAPIURL           bool           `json:"clear_api_url"`
-	AuthMode              string         `json:"auth_mode"`
-	Credentials           map[string]any `json:"credentials"`
-	Extra                 map[string]any `json:"extra"`
-	ProxyID               *int64         `json:"proxy_id"`
-	ClearProxy            bool           `json:"clear_proxy"`
-	RechargeRate          *float64       `json:"recharge_rate"`
-	BalanceToCNYRate      *float64       `json:"balance_to_cny_rate"`
-	ClearBalanceToCNYRate bool           `json:"clear_balance_to_cny_rate"`
-	SchedulingEnabled     *bool          `json:"scheduling_enabled"`
-	Status                string         `json:"status"`
+	Name                              string         `json:"name"`
+	Provider                          string         `json:"provider"`
+	SiteURL                           string         `json:"site_url"`
+	APIURL                            *string        `json:"api_url"`
+	ClearAPIURL                       bool           `json:"clear_api_url"`
+	AuthMode                          string         `json:"auth_mode"`
+	Credentials                       map[string]any `json:"credentials"`
+	Extra                             map[string]any `json:"extra"`
+	SchedulerConcurrencyOverride      *int           `json:"scheduler_concurrency_override"`
+	ClearSchedulerConcurrencyOverride bool           `json:"clear_scheduler_concurrency_override"`
+	ProxyID                           *int64         `json:"proxy_id"`
+	ClearProxy                        bool           `json:"clear_proxy"`
+	RechargeRate                      *float64       `json:"recharge_rate"`
+	BalanceToCNYRate                  *float64       `json:"balance_to_cny_rate"`
+	ClearBalanceToCNYRate             bool           `json:"clear_balance_to_cny_rate"`
+	SchedulingEnabled                 *bool          `json:"scheduling_enabled"`
+	Status                            string         `json:"status"`
 }
 
 type upstreamSchedulingRequest struct {
@@ -407,16 +409,18 @@ func parseUpstreamIDParam(c *gin.Context, name string) (int64, bool) {
 
 func upstreamConfigFromRequest(req upstreamConfigRequest) *service.UpstreamConfig {
 	return &service.UpstreamConfig{
-		Name:        req.Name,
-		Provider:    req.Provider,
-		SiteURL:     req.SiteURL,
-		APIURL:      req.APIURL,
-		ClearAPIURL: req.ClearAPIURL,
-		AuthMode:    req.AuthMode,
-		Credentials: req.Credentials,
-		Extra:       req.Extra,
-		ProxyID:     req.ProxyID,
-		ClearProxy:  req.ClearProxy,
+		Name:                              req.Name,
+		Provider:                          req.Provider,
+		SiteURL:                           req.SiteURL,
+		APIURL:                            req.APIURL,
+		ClearAPIURL:                       req.ClearAPIURL,
+		AuthMode:                          req.AuthMode,
+		Credentials:                       req.Credentials,
+		Extra:                             req.Extra,
+		SchedulerConcurrencyOverride:      req.SchedulerConcurrencyOverride,
+		ClearSchedulerConcurrencyOverride: req.ClearSchedulerConcurrencyOverride,
+		ProxyID:                           req.ProxyID,
+		ClearProxy:                        req.ClearProxy,
 		RechargeRate: func() float64 {
 			if req.RechargeRate != nil {
 				return *req.RechargeRate
@@ -442,18 +446,20 @@ func sanitizeUpstreamConfig(config *service.UpstreamConfig) gin.H {
 	if config == nil {
 		return nil
 	}
+	resolvedConcurrency := service.ResolveUpstreamSchedulerConcurrency(config.Extra)
 	return gin.H{
-		"id":                  config.ID,
-		"name":                config.Name,
-		"provider":            config.Provider,
-		"site_url":            config.SiteURL,
-		"api_url":             config.APIURL,
-		"auth_mode":           config.AuthMode,
-		"credentials_status":  upstreamCredentialsStatus(config.Credentials),
-		"extra":               redactedUpstreamExtra(config.Extra),
-		"proxy_id":            config.ProxyID,
-		"recharge_rate":       config.RechargeRate,
-		"balance_to_cny_rate": config.BalanceToCNYRate,
+		"id":                    config.ID,
+		"name":                  config.Name,
+		"provider":              config.Provider,
+		"site_url":              config.SiteURL,
+		"api_url":               config.APIURL,
+		"auth_mode":             config.AuthMode,
+		"credentials_status":    upstreamCredentialsStatus(config.Credentials),
+		"extra":                 redactedUpstreamExtra(config.Extra),
+		"scheduler_concurrency": resolvedConcurrency,
+		"proxy_id":              config.ProxyID,
+		"recharge_rate":         config.RechargeRate,
+		"balance_to_cny_rate":   config.BalanceToCNYRate,
 		"scheduling_enabled": func() bool {
 			return config.SchedulingEnabled == nil || *config.SchedulingEnabled
 		}(),

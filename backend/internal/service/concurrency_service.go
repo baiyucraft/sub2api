@@ -55,6 +55,17 @@ type ConcurrencyCache interface {
 	CleanupStaleProcessSlots(ctx context.Context, activeRequestPrefix string) error
 }
 
+// ConcurrencyTargetCache extends the legacy account-scoped cache with generic
+// scheduling targets. Production Redis implements it; keeping it optional
+// preserves compatibility with narrow test doubles and older integrations.
+type ConcurrencyTargetCache interface {
+	AcquireConcurrencyTargetSlot(ctx context.Context, target ConcurrencyTarget, requestID string) (bool, error)
+	ReleaseConcurrencyTargetSlot(ctx context.Context, target ConcurrencyTarget, requestID string) error
+	IncrementConcurrencyTargetWaitCount(ctx context.Context, target ConcurrencyTarget, maxWait int) (bool, error)
+	DecrementConcurrencyTargetWaitCount(ctx context.Context, target ConcurrencyTarget) error
+	GetConcurrencyTargetWaitingCount(ctx context.Context, target ConcurrencyTarget) (int, error)
+}
+
 type APIKeyConcurrencyCache interface {
 	TrackAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
 	ReleaseAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
@@ -315,6 +326,8 @@ type AcquireResult struct {
 type AccountWithConcurrency struct {
 	ID             int64
 	MaxConcurrency int
+	TargetKind     string
+	TargetID       int64
 }
 
 type UserWithConcurrency struct {
@@ -340,8 +353,25 @@ type UserLoadInfo struct {
 // If the account is at max concurrency, it waits until a slot is available or timeout.
 // Returns a release function that MUST be called when the request completes.
 func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
-	// If maxConcurrency is 0 or negative, no limit
-	if maxConcurrency <= 0 {
+	return s.AcquireTargetSlot(ctx, ConcurrencyTarget{Kind: ConcurrencyTargetAccount, ID: accountID, Limit: maxConcurrency})
+}
+
+// AcquireTargetSlot reserves a slot from either an account-local pool or a
+// shared upstream pool.
+func (s *ConcurrencyService) AcquireTargetSlot(ctx context.Context, target ConcurrencyTarget) (*AcquireResult, error) {
+	target = target.normalized()
+	// Legacy caches cannot observe generic unlimited targets. Production Redis
+	// implements ConcurrencyTargetCache and records them without enforcing a
+	// hard limit, keeping current usage visible while LoadRate remains zero.
+	if target.Limit <= 0 {
+		if _, ok := s.cache.(ConcurrencyTargetCache); !ok {
+			return &AcquireResult{
+				Acquired:    true,
+				ReleaseFunc: func() {}, // no-op
+			}, nil
+		}
+	}
+	if s.cache == nil {
 		return &AcquireResult{
 			Acquired:    true,
 			ReleaseFunc: func() {}, // no-op
@@ -351,7 +381,13 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 	// Generate unique request ID for this slot
 	requestID := generateRequestID()
 
-	acquired, err := s.cache.AcquireAccountSlot(ctx, accountID, maxConcurrency, requestID)
+	var acquired bool
+	var err error
+	if cache, ok := s.cache.(ConcurrencyTargetCache); ok {
+		acquired, err = cache.AcquireConcurrencyTargetSlot(ctx, target, requestID)
+	} else {
+		acquired, err = s.cache.AcquireAccountSlot(ctx, target.ID, target.Limit, requestID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -362,8 +398,14 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 			ReleaseFunc: func() {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				if err := s.cache.ReleaseAccountSlot(bgCtx, accountID, requestID); err != nil {
-					logger.LegacyPrintf("service.concurrency", "Warning: failed to release account slot for %d (req=%s): %v", accountID, requestID, err)
+				var releaseErr error
+				if cache, ok := s.cache.(ConcurrencyTargetCache); ok {
+					releaseErr = cache.ReleaseConcurrencyTargetSlot(bgCtx, target, requestID)
+				} else {
+					releaseErr = s.cache.ReleaseAccountSlot(bgCtx, target.ID, requestID)
+				}
+				if releaseErr != nil {
+					logger.LegacyPrintf("service.concurrency", "Warning: failed to release concurrency target %s (req=%s): %v", target.Key(), requestID, releaseErr)
 				}
 			},
 		}, nil
@@ -525,13 +567,23 @@ func (s *ConcurrencyService) DecrementWaitCount(ctx context.Context, userID int6
 
 // IncrementAccountWaitCount increments the wait queue counter for an account.
 func (s *ConcurrencyService) IncrementAccountWaitCount(ctx context.Context, accountID int64, maxWait int) (bool, error) {
+	return s.IncrementTargetWaitCount(ctx, ConcurrencyTarget{Kind: ConcurrencyTargetAccount, ID: accountID}, maxWait)
+}
+
+func (s *ConcurrencyService) IncrementTargetWaitCount(ctx context.Context, target ConcurrencyTarget, maxWait int) (bool, error) {
 	if s.cache == nil {
 		return true, nil
 	}
-
-	result, err := s.cache.IncrementAccountWaitCount(ctx, accountID, maxWait)
+	target = target.normalized()
+	var result bool
+	var err error
+	if cache, ok := s.cache.(ConcurrencyTargetCache); ok {
+		result, err = cache.IncrementConcurrencyTargetWaitCount(ctx, target, maxWait)
+	} else {
+		result, err = s.cache.IncrementAccountWaitCount(ctx, target.ID, maxWait)
+	}
 	if err != nil {
-		logger.LegacyPrintf("service.concurrency", "Warning: increment wait count failed for account %d: %v", accountID, err)
+		logger.LegacyPrintf("service.concurrency", "Warning: increment wait count failed for target %s: %v", target.Key(), err)
 		return true, nil
 	}
 	return result, nil
@@ -539,24 +591,43 @@ func (s *ConcurrencyService) IncrementAccountWaitCount(ctx context.Context, acco
 
 // DecrementAccountWaitCount decrements the wait queue counter for an account.
 func (s *ConcurrencyService) DecrementAccountWaitCount(ctx context.Context, accountID int64) {
+	s.DecrementTargetWaitCount(ctx, ConcurrencyTarget{Kind: ConcurrencyTargetAccount, ID: accountID})
+}
+
+func (s *ConcurrencyService) DecrementTargetWaitCount(ctx context.Context, target ConcurrencyTarget) {
 	if s.cache == nil {
 		return
 	}
+	target = target.normalized()
 
 	bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := s.cache.DecrementAccountWaitCount(bgCtx, accountID); err != nil {
-		logger.LegacyPrintf("service.concurrency", "Warning: decrement wait count failed for account %d: %v", accountID, err)
+	var err error
+	if cache, ok := s.cache.(ConcurrencyTargetCache); ok {
+		err = cache.DecrementConcurrencyTargetWaitCount(bgCtx, target)
+	} else {
+		err = s.cache.DecrementAccountWaitCount(bgCtx, target.ID)
+	}
+	if err != nil {
+		logger.LegacyPrintf("service.concurrency", "Warning: decrement wait count failed for target %s: %v", target.Key(), err)
 	}
 }
 
 // GetAccountWaitingCount gets current wait queue count for an account.
 func (s *ConcurrencyService) GetAccountWaitingCount(ctx context.Context, accountID int64) (int, error) {
+	return s.GetTargetWaitingCount(ctx, ConcurrencyTarget{Kind: ConcurrencyTargetAccount, ID: accountID})
+}
+
+func (s *ConcurrencyService) GetTargetWaitingCount(ctx context.Context, target ConcurrencyTarget) (int, error) {
 	if s.cache == nil {
 		return 0, nil
 	}
-	return s.cache.GetAccountWaitingCount(ctx, accountID)
+	target = target.normalized()
+	if cache, ok := s.cache.(ConcurrencyTargetCache); ok {
+		return cache.GetConcurrencyTargetWaitingCount(ctx, target)
+	}
+	return s.cache.GetAccountWaitingCount(ctx, target.ID)
 }
 
 // CalculateMaxWait calculates the maximum wait queue size for a user
@@ -678,11 +749,13 @@ func (s *ConcurrencyService) storeCachedAccountLoadBatch(key string, loadMap map
 
 func accountLoadBatchCacheKey(accounts []AccountWithConcurrency) string {
 	hash := sha256.New()
-	var buf [16]byte
+	var buf [24]byte
 	for _, account := range accounts {
 		binary.LittleEndian.PutUint64(buf[:8], uint64(account.ID))
 		binary.LittleEndian.PutUint64(buf[8:], uint64(int64(account.MaxConcurrency)))
+		binary.LittleEndian.PutUint64(buf[16:], uint64(account.TargetID))
 		_, _ = hash.Write(buf[:])
+		_, _ = hash.Write([]byte(account.TargetKind))
 	}
 	sum := hash.Sum(nil)
 	return strconv.Itoa(len(accounts)) + ":" + hex.EncodeToString(sum)

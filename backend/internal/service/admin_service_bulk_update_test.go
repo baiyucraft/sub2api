@@ -293,7 +293,7 @@ func TestAdminService_BulkUpdateAccounts_RejectsProxyChangeOnUpstreamBound(t *te
 	require.Empty(t, repo.bulkUpdateIDs)
 }
 
-func TestAdminService_BulkUpdateAccounts_AutoLoadFactorForUpstreamBoundOnly(t *testing.T) {
+func TestAdminService_BulkUpdateAccounts_RejectsConcurrencyWhenUpstreamBoundIncluded(t *testing.T) {
 	cfgID := int64(10)
 	keyID := int64(20)
 	repo := &accountRepoStubForBulkUpdate{
@@ -310,14 +310,10 @@ func TestAdminService_BulkUpdateAccounts_AutoLoadFactorForUpstreamBoundOnly(t *t
 		Concurrency: &concurrency,
 	})
 
-	require.NoError(t, err)
-	require.Equal(t, 2, result.Success)
-	require.Len(t, repo.bulkUpdates, 2)
-	require.Equal(t, []int64{1, 2}, repo.bulkUpdates[0].ids)
-	require.Nil(t, repo.bulkUpdates[0].updates.LoadFactor)
-	require.Equal(t, []int64{2}, repo.bulkUpdates[1].ids)
-	require.NotNil(t, repo.bulkUpdates[1].updates.LoadFactor)
-	require.Equal(t, 75, *repo.bulkUpdates[1].updates.LoadFactor)
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY")
+	require.Empty(t, repo.bulkUpdates)
 }
 
 func TestAdminServiceBulkUpdateAccountsRejectsRenameWhenUpstreamBoundAccountIncluded(t *testing.T) {

@@ -442,21 +442,9 @@ func TestAdminServiceCreateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
 	require.Equal(t, 40, *account.LoadFactor)
 }
 
-func TestAdminServiceUpdateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
+func TestAdminServiceRejectsUpstreamBoundAccountConcurrencyUpdate(t *testing.T) {
 	cfgID := int64(10)
 	keyID := int64(20)
-	repo := &upstreamConfigServiceRepo{
-		configs: []UpstreamConfig{testUpstreamConfig(cfgID, "NewAPI Main", UpstreamProviderNewAPI, StatusActive, "https://upstream.example.com")},
-		keys: []UpstreamKey{{
-			ID:               keyID,
-			UpstreamConfigID: cfgID,
-			Name:             "pro",
-			Platform:         upstreamPlatformPtr(PlatformOpenAI),
-			Key:              "sk-upstream",
-			KeyHash:          HashUpstreamKey("sk-upstream"),
-			Status:           StatusActive,
-		}},
-	}
 	staleLoadFactor := 999
 	accountID := int64(101)
 	accountRepo := newAdminSub2APIRateSyncAccountRepo(&Account{
@@ -475,20 +463,18 @@ func TestAdminServiceUpdateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
 		},
 		Extra: map[string]any{AccountUpstreamProviderKey: UpstreamProviderNewAPI},
 	})
-	svc := &adminServiceImpl{accountRepo: accountRepo, upstreamConfigRepo: repo}
+	svc := &adminServiceImpl{accountRepo: accountRepo}
 	concurrency := 40
 
 	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
 		Concurrency: &concurrency,
 	})
 
-	require.NoError(t, err)
-	require.Equal(t, 40, updated.Concurrency)
-	require.Equal(t, 100, updated.Priority)
-	require.NotNil(t, updated.RateMultiplier)
-	require.Equal(t, 1.0, *updated.RateMultiplier)
-	require.NotNil(t, updated.LoadFactor)
-	require.Equal(t, 20, *updated.LoadFactor)
+	require.Error(t, err)
+	require.Nil(t, updated)
+	require.Contains(t, err.Error(), "UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY")
+	require.Equal(t, 10, accountRepo.accounts[accountID].Concurrency)
+	require.Equal(t, staleLoadFactor, *accountRepo.accounts[accountID].LoadFactor)
 }
 
 func TestAdminServiceRejectsManualUnbindOfDerivedUpstreamAccount(t *testing.T) {

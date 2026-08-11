@@ -15,14 +15,7 @@
             {{ t('admin.upstreamManagement.derivedAccount.bulkDescription') }}
           </p>
         </div>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <div class="mb-3 flex items-center justify-between">
-              <label class="input-label mb-0">{{ t('admin.accounts.concurrency') }}</label>
-              <input id="bulk-edit-upstream-concurrency-enabled" v-model="enableConcurrency" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-            </div>
-            <input v-model.number="concurrency" type="number" min="1" :disabled="!enableConcurrency" class="input" :class="!enableConcurrency && 'cursor-not-allowed opacity-50'" />
-          </div>
+        <div class="grid grid-cols-1 gap-4">
           <div>
             <div class="mb-3 flex items-center justify-between">
               <label class="input-label mb-0">{{ t('common.status') }}</label>
@@ -1896,7 +1889,7 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (props.mode === 'upstream') {
     const allowed: Record<string, unknown> = {}
-    for (const key of ['concurrency', 'status', 'group_ids', 'schedulable']) {
+    for (const key of ['status', 'group_ids', 'schedulable']) {
       if (key in updates) allowed[key] = updates[key]
     }
     const mapping = (updates.credentials as Record<string, unknown> | undefined)?.model_mapping

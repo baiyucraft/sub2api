@@ -7,16 +7,16 @@ const {
   ordinaryList,
   upstreamList,
   upstreamListWithEtag,
-  getTTFTGuard,
-  getProbeModels,
+  getSettings,
+  getProbeModelCandidates,
   getBatchTodayStats,
   getUpstreamBillingProbeSettings
 } = vi.hoisted(() => ({
   ordinaryList: vi.fn(),
   upstreamList: vi.fn(),
   upstreamListWithEtag: vi.fn(),
-  getTTFTGuard: vi.fn(),
-  getProbeModels: vi.fn(),
+  getSettings: vi.fn(),
+  getProbeModelCandidates: vi.fn(),
   getBatchTodayStats: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn()
 }))
@@ -44,10 +44,9 @@ vi.mock('@/api/admin/upstreamManagement', () => ({
   default: {
     listAccounts: upstreamList,
     listAccountsWithEtag: upstreamListWithEtag,
-    getTTFTGuard,
-    updateTTFTGuard: vi.fn(),
-    getProbeModels,
-    updateProbeModels: vi.fn(),
+    getSettings,
+    updateSettings: vi.fn(),
+    getProbeModelCandidates,
     probeKey: vi.fn(),
     setKeyObservation: vi.fn(),
     listKeyEvents: vi.fn()
@@ -76,7 +75,7 @@ vi.mock('vue-i18n', async () => {
 
 const AccountTableActionsStub = {
   props: ['showCreate'],
-  template: '<div data-test="table-actions" :data-show-create="String(showCreate)"><slot name="after" /></div>'
+  template: '<div data-test="table-actions" :data-show-create="String(showCreate)"><slot name="afterRefresh" /><slot name="after" /></div>'
 }
 
 const AccountBulkActionsBarStub = {
@@ -130,6 +129,7 @@ const mountView = () => mount(AccountsView, {
       EditAccountModal: true,
       BulkEditAccountModal: true,
       UpstreamKeyEventsDialog: true,
+      UpstreamManagementSettingsDialog: true,
       PlatformTypeBadge: true,
       AccountCapacityCell: true,
       AccountStatusIndicator: true,
@@ -150,8 +150,8 @@ describe('admin AccountsView upstream management mode', () => {
     ordinaryList.mockReset()
     upstreamList.mockReset()
     upstreamListWithEtag.mockReset()
-    getTTFTGuard.mockReset()
-    getProbeModels.mockReset()
+    getSettings.mockReset()
+    getProbeModelCandidates.mockReset()
     getBatchTodayStats.mockReset()
     getUpstreamBillingProbeSettings.mockReset()
 
@@ -178,8 +178,11 @@ describe('admin AccountsView upstream management mode', () => {
       pages: 1
     })
     upstreamListWithEtag.mockResolvedValue({ notModified: true, etag: 'upstream-etag', data: null })
-    getTTFTGuard.mockResolvedValue({ enabled: false, degradation_ttft_seconds: 20, min_samples: 5 })
-    getProbeModels.mockResolvedValue({ models: { openai: 'gpt-5.4-mini', anthropic: 'claude-haiku-4-5', gemini: 'gemini-2.5-flash' } })
+    getSettings.mockResolvedValue({
+      ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
+      probe_models: { openai: 'gpt-5.4-mini', anthropic: 'claude-haiku-4-5', gemini: 'gemini-2.5-flash' }
+    })
+    getProbeModelCandidates.mockResolvedValue({ candidates: { openai: [], anthropic: [], gemini: [] } })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
   })
@@ -194,8 +197,8 @@ describe('admin AccountsView upstream management mode', () => {
       scope: 'upstream'
     }))
     expect(ordinaryList).not.toHaveBeenCalled()
-    expect(getTTFTGuard).toHaveBeenCalledTimes(1)
-    expect(getProbeModels).toHaveBeenCalledTimes(1)
+    expect(getSettings).not.toHaveBeenCalled()
+    expect(getProbeModelCandidates).not.toHaveBeenCalled()
     expect(upstreamList).toHaveBeenCalledWith(expect.not.objectContaining({
       type: expect.anything(),
       privacy_mode: expect.anything(),
@@ -223,8 +226,9 @@ describe('admin AccountsView upstream management mode', () => {
       'quality_stats',
       'today_stats'
     ])
-    expect(wrapper.text()).toContain('admin.upstreamManagement.ttftGuard.title')
-    expect(wrapper.text()).toContain('admin.upstreamManagement.probeModels.title')
+    expect(wrapper.find('[data-test="upstream-management-settings"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('admin.upstreamManagement.ttftGuard.title')
+    expect(wrapper.text()).not.toContain('admin.upstreamManagement.probeModels.title')
 
     wrapper.unmount()
   })
