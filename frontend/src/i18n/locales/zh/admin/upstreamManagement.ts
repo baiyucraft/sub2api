@@ -16,7 +16,7 @@ export default {
       title: '上游管理设置',
       open: '上游管理设置',
       loadFailed: '加载上游管理设置失败',
-      invalid: '请检查首 Token 阈值、样本数和探针模型。'
+      invalid: '请检查首 Token 阈值、样本数、探针模型和探针间隔。'
     },
     rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
@@ -41,7 +41,11 @@ export default {
       invalid: '三个平台的探针模型均不能为空，且最长 120 个字符。',
       search: '搜索模型',
       placeholder: '选择或输入模型',
-      useCustom: '使用自定义模型：'
+      useCustom: '使用自定义模型：',
+      interval: '自动探针间隔',
+      intervalTip: '每个启用观测的 Key 按此频率执行轻量流式探针；缩短间隔会增加上游请求量和少量 Token 消耗。',
+      minutes: '分钟',
+      intervalRange: '1–60 分钟，默认 5 分钟'
     },
     concurrency: {
       sharedTooltip: '同一上游配置下所有 Key 共享并发池；来源：{source}，生效上限：{limit}',
@@ -75,11 +79,16 @@ export default {
       retentionHint: '最多保留最近 30 次',
       observedAt: '观测时间',
       source: '证据来源',
+      model: '探针模型',
+      ttft: '首 Token',
+      duration: '总耗时',
       result: '结果',
       sources: {
         probe: '主动探针',
+        business: '真实请求',
         traffic: '真实请求',
-        admin: '管理员操作'
+        admin: '管理员操作',
+        legacy: '历史记录'
       },
       reasons: {
         probe_succeeded: '主动探测成功',
@@ -93,7 +102,36 @@ export default {
         probe_transport_error: '探测连接或传输失败'
       }
     },
-    events: { title: 'Key 健康详情', stateChanges: '状态变更事件', loading: '加载健康详情中…', empty: '暂无状态变更事件', loadFailed: '加载 Key 健康详情失败' },
+    events: {
+      title: 'Key 健康详情',
+      trendTitle: '健康趋势',
+      trendDescription: '主动探针、真实请求和管理员操作证据统一聚合；失败区间会中断首 Token 曲线。',
+      range: '时间范围',
+      metric: '曲线指标',
+      metrics: { health: '健康状态', ttft: '首 Token' },
+      healthChartLabel: '上游 Key 健康状态趋势',
+      ttftChartLabel: '上游 Key 首 Token 趋势',
+      trendLoading: '加载健康趋势中…',
+      trendEmpty: '该时间范围暂无健康观测',
+      trendLoadFailed: '加载 Key 健康趋势失败',
+      time: '时间',
+      bucket: '聚合粒度 {value}',
+      sampleSummary: '{buckets} 个区间 · {samples} 条证据',
+      ttftP50: '首 Token P50',
+      failedOrMissing: '失败 / 无有效 TTFT',
+      noValidTTFT: '无有效 TTFT',
+      tooltipState: '健康状态：{state}',
+      tooltipSamples: '样本数：{count}',
+      tooltipSource: '主要来源：{source}',
+      tooltipP95: '首 Token P95：{value}',
+      tooltipDuration: '平均总耗时：{value}',
+      tooltipReason: '最近原因：{reason}',
+      tooltipResult: '最近结果：{result}',
+      stateChanges: '状态变更与探针事件',
+      loading: '加载健康详情中…',
+      empty: '暂无状态变更事件',
+      loadFailed: '加载 Key 健康详情失败'
+    },
     columns: { accountKey: '账号 / Key', upstream: '上游配置', config: '配置', key: 'Key', modelMapping: '模型映射', health: '健康' },
     export: { action: '导出上游状态', success: '上游状态已导出', failed: '导出上游状态失败' },
     filters: { allConfigs: '全部上游配置', allKeys: '全部 Key', loadFailed: '加载上游筛选选项失败' }

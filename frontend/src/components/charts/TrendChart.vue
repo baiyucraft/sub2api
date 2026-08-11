@@ -80,6 +80,8 @@ interface Props {
   valueFormatter?: (value: number) => string
   tooltipFooter?: (index: number) => string | string[]
   maxTicks?: number
+  yMin?: number
+  yMax?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -198,6 +200,8 @@ const chartOptions = computed<ChartOptions<'line'>>(() => {
       },
       y: {
         beginAtZero: props.zeroBaseline,
+        min: props.yMin,
+        max: props.yMax,
         grid: {
           color: (context) => Number(context.tick.value) === 0 ? colors.zero : colors.grid,
           lineWidth: (context) => Number(context.tick.value) === 0 ? 1.5 : 1
@@ -229,9 +233,10 @@ function buildDataset(item: TrendChartSeries, index: number): ChartDataset<'line
     tension: item.stepped ? 0 : 0.22,
     stepped: item.stepped || false,
     pointStyle: item.pointStyle || defaultPointStyle(index),
-    pointRadius: item.stepped ? 2.5 : 0,
-    pointHoverRadius: 4,
+    pointRadius: item.pointRadius ?? (item.stepped ? 2.5 : 0),
+    pointHoverRadius: item.pointHoverRadius ?? 4,
     pointHitRadius: 12,
+    showLine: item.showLine ?? true,
     order: item.order ?? index
   }
 }

@@ -84,6 +84,8 @@ type Tx struct {
 	UpstreamConfig *UpstreamConfigClient
 	// UpstreamEvent is the client for interacting with the UpstreamEvent builders.
 	UpstreamEvent *UpstreamEventClient
+	// UpstreamHealthObservation is the client for interacting with the UpstreamHealthObservation builders.
+	UpstreamHealthObservation *UpstreamHealthObservationClient
 	// UpstreamIncident is the client for interacting with the UpstreamIncident builders.
 	UpstreamIncident *UpstreamIncidentClient
 	// UpstreamKey is the client for interacting with the UpstreamKey builders.
@@ -276,6 +278,7 @@ func (tx *Tx) init() {
 	tx.UpstreamBalanceSnapshot = NewUpstreamBalanceSnapshotClient(tx.config)
 	tx.UpstreamConfig = NewUpstreamConfigClient(tx.config)
 	tx.UpstreamEvent = NewUpstreamEventClient(tx.config)
+	tx.UpstreamHealthObservation = NewUpstreamHealthObservationClient(tx.config)
 	tx.UpstreamIncident = NewUpstreamIncidentClient(tx.config)
 	tx.UpstreamKey = NewUpstreamKeyClient(tx.config)
 	tx.UpstreamKeyRateSnapshot = NewUpstreamKeyRateSnapshotClient(tx.config)
