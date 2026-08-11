@@ -173,10 +173,11 @@ type UpstreamConfigService struct {
 	accountProber interface {
 		RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error)
 	}
-	settingService *SettingService
-	syncLocks      sync.Map
-	healthLocks    sync.Map
-	healthProbeSF  singleflight.Group
+	settingService    *SettingService
+	syncLocks         sync.Map
+	healthLocks       sync.Map
+	healthPersistedAt sync.Map
+	healthProbeSF     singleflight.Group
 }
 
 type UpstreamConfigSyncResult struct {
@@ -230,6 +231,14 @@ type upstreamKeyHealthRepository interface {
 
 type upstreamKeyHealthEventRepository interface {
 	PatchKeyHealthWithEvent(ctx context.Context, keyID int64, health map[string]any, event *UpstreamEvent) error
+}
+
+type upstreamKeyHealthObservationRepository interface {
+	PatchKeyHealthWithObservation(ctx context.Context, keyID int64, health map[string]any, event *UpstreamEvent, observation *UpstreamHealthObservation) error
+}
+
+type upstreamKeyHealthHistoryRepository interface {
+	ListKeyHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]UpstreamHealthObservation, error)
 }
 
 type UpstreamKeyReconcileResult struct {
@@ -581,7 +590,14 @@ func (s *UpstreamConfigService) saveKeyHealth(ctx context.Context, keyID int64, 
 }
 
 func (s *UpstreamConfigService) saveKeyHealthTransition(ctx context.Context, keyID int64, transition UpstreamHealthTransition) error {
+	return s.saveKeyHealthTransitionWithObservation(ctx, keyID, transition, nil)
+}
+
+func (s *UpstreamConfigService) saveKeyHealthTransitionWithObservation(ctx context.Context, keyID int64, transition UpstreamHealthTransition, observation *UpstreamHealthObservation) error {
 	health := upstreamHealthSnapshotMap(transition.Current)
+	if repo, ok := s.repo.(upstreamKeyHealthObservationRepository); ok {
+		return repo.PatchKeyHealthWithObservation(ctx, keyID, health, upstreamHealthTransitionEvent(transition), observation)
+	}
 	if repo, ok := s.repo.(upstreamKeyHealthEventRepository); ok {
 		return repo.PatchKeyHealthWithEvent(ctx, keyID, health, upstreamHealthTransitionEvent(transition))
 	}
@@ -643,11 +659,26 @@ func (s *UpstreamConfigService) withHealthKeyLock(keyID int64, fn func() error) 
 }
 
 func (s *UpstreamConfigService) saveHealthTransition(ctx context.Context, keyID int64, transition UpstreamHealthTransition) error {
-	if err := s.saveKeyHealthTransition(ctx, keyID, transition); err != nil {
+	return s.saveHealthTransitionWithObservation(ctx, keyID, transition, nil)
+}
+
+func (s *UpstreamConfigService) saveHealthTransitionWithObservation(ctx context.Context, keyID int64, transition UpstreamHealthTransition, observation *UpstreamHealthObservation) error {
+	if err := s.saveKeyHealthTransitionWithObservation(ctx, keyID, transition, observation); err != nil {
 		GlobalUpstreamHealthRegistry().Hydrate(transition.Previous)
 		return err
 	}
 	return nil
+}
+
+func (s *UpstreamConfigService) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]UpstreamHealthObservation, error) {
+	if limit <= 0 || limit > UpstreamHealthHistoryLimit {
+		limit = UpstreamHealthHistoryLimit
+	}
+	repo, ok := s.repo.(upstreamKeyHealthHistoryRepository)
+	if !ok {
+		return map[int64][]UpstreamHealthObservation{}, nil
+	}
+	return repo.ListKeyHealthHistories(ctx, keyIDs, limit)
 }
 
 func upstreamHealthSnapshotMap(item UpstreamHealthSnapshot) map[string]any {
@@ -743,9 +774,14 @@ func (s *UpstreamConfigService) SetKeyObservation(ctx context.Context, keyID int
 	var item UpstreamHealthSnapshot
 	var saveErr error
 	err := s.withHealthKeyLock(keyID, func() error {
-		transition := GlobalUpstreamHealthRegistry().SetObservationTransition(keyID, enabled, time.Now())
+		transition := GlobalUpstreamHealthRegistry().SetObservationTransition(keyID, enabled, time.Now().UTC())
 		item = transition.Current
-		saveErr = s.saveHealthTransition(ctx, keyID, transition)
+		result := "disabled"
+		if enabled {
+			result = "enabled"
+		}
+		observation := &UpstreamHealthObservation{ObservedAt: item.UpdatedAt, State: item.Status, Source: "admin", Result: result, Reason: item.Reason}
+		saveErr = s.saveHealthTransitionWithObservation(ctx, keyID, transition, observation)
 		return saveErr
 	})
 	if err != nil {
@@ -812,7 +848,7 @@ func (s *UpstreamConfigService) probeKeyOnce(ctx context.Context, keyID int64) (
 	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	result, probeErr := s.accountProber.RunTestBackground(probeCtx, account.ID, model)
-	now := time.Now()
+	now := time.Now().UTC()
 	var item UpstreamHealthSnapshot
 	if err := s.withHealthKeyLock(keyID, func() error {
 		registry := GlobalUpstreamHealthRegistry()
@@ -829,7 +865,8 @@ func (s *UpstreamConfigService) probeKeyOnce(ctx context.Context, keyID int64) (
 			transition = registry.RecordProbeTransition(keyID, "success", "probe_succeeded", now)
 		}
 		item = transition.Current
-		return s.saveHealthTransition(ctx, keyID, transition)
+		observation := &UpstreamHealthObservation{ObservedAt: item.UpdatedAt, State: item.Status, Source: "probe", Result: item.LastProbeStatus, Reason: item.Reason}
+		return s.saveHealthTransitionWithObservation(ctx, keyID, transition, observation)
 	}); err != nil {
 		return UpstreamHealthSnapshot{}, err
 	}

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,18 @@ import (
 type accountListTTFTGuardReader struct {
 	accountIDs []int64
 	states     map[int64][]service.OpenAITTFTGuardDegradation
+}
+
+type accountListUpstreamHealthReader struct {
+	keyIDs []int64
+	limit  int
+	states map[int64][]service.UpstreamHealthObservation
+}
+
+func (r *accountListUpstreamHealthReader) ListUpstreamHealthHistories(_ context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
+	r.keyIDs = append([]int64(nil), keyIDs...)
+	r.limit = limit
+	return r.states, nil
 }
 
 func (r *accountListTTFTGuardReader) OpenAITTFTGuardDegradations(accountIDs []int64) map[int64][]service.OpenAITTFTGuardDegradation {
@@ -385,6 +398,11 @@ func TestAccountHandlerListSeparatesOrdinaryAndUpstreamScopes(t *testing.T) {
 		{ID: 602, Name: "upstream", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: false, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, CreatedAt: now, UpdatedAt: now},
 	}
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	observedAt := now.Add(-time.Minute)
+	healthReader := &accountListUpstreamHealthReader{states: map[int64][]service.UpstreamHealthObservation{
+		keyID: {{ObservedAt: observedAt, State: service.UpstreamHealthHealthy, Source: "probe", Result: "success", Reason: "probe_succeeded"}},
+	}}
+	handler.SetUpstreamHealthHistoryReader(healthReader)
 	router.GET("/api/v1/admin/accounts", handler.List)
 	router.GET("/api/v1/admin/upstream-management/accounts", handler.ListUpstreamManagement)
 
@@ -401,6 +419,9 @@ func TestAccountHandlerListSeparatesOrdinaryAndUpstreamScopes(t *testing.T) {
 			Items []struct {
 				ID               int64    `json:"id"`
 				AvailableActions []string `json:"available_actions"`
+				UpstreamHealth   struct {
+					History []service.UpstreamHealthObservation `json:"history"`
+				} `json:"upstream_health"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -410,6 +431,10 @@ func TestAccountHandlerListSeparatesOrdinaryAndUpstreamScopes(t *testing.T) {
 	require.Empty(t, ordinaryPayload.Data.Items[0].AvailableActions)
 	require.Equal(t, []int64{602}, []int64{upstreamPayload.Data.Items[0].ID})
 	require.ElementsMatch(t, []string{"edit", "test", "stats", "schedule", "toggle_schedulable", "recover_state", "probe_key", "toggle_observation", "events"}, upstreamPayload.Data.Items[0].AvailableActions)
+	require.Equal(t, []int64{keyID}, healthReader.keyIDs)
+	require.Equal(t, service.UpstreamHealthListHistoryLimit, healthReader.limit)
+	require.Len(t, upstreamPayload.Data.Items[0].UpstreamHealth.History, 1)
+	require.Equal(t, "probe", upstreamPayload.Data.Items[0].UpstreamHealth.History[0].Source)
 }
 
 func TestAccountHandlerListRejectsInvalidUpstreamFilterID(t *testing.T) {
@@ -421,4 +446,40 @@ func TestAccountHandlerListRejectsInvalidUpstreamFilterID(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/upstream-management/accounts?upstream_key_id=not-a-number", nil))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAccountHandlerUpstreamHealthHistoryInvalidatesETag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	adminSvc := newStubAdminService()
+	now := time.Now().UTC().Truncate(time.Second)
+	configID, keyID := int64(181), int64(191)
+	adminSvc.accounts = []service.Account{{
+		ID: 701, Name: "upstream-history", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
+		CreatedAt: now, UpdatedAt: now,
+	}}
+	reader := &accountListUpstreamHealthReader{states: map[int64][]service.UpstreamHealthObservation{
+		keyID: {{ObservedAt: now.Add(-time.Minute), State: service.UpstreamHealthHealthy, Source: "probe", Result: "success"}},
+	}}
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler.SetUpstreamHealthHistoryReader(reader)
+	router.GET("/api/v1/admin/upstream-management/accounts", handler.ListUpstreamManagement)
+
+	first := httptest.NewRecorder()
+	router.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/api/v1/admin/upstream-management/accounts", nil))
+	require.Equal(t, http.StatusOK, first.Code)
+	firstETag := first.Header().Get("ETag")
+	require.NotEmpty(t, firstETag)
+	require.Equal(t, []int64{keyID}, reader.keyIDs)
+
+	reader.states[keyID] = append(reader.states[keyID], service.UpstreamHealthObservation{
+		ObservedAt: now, State: service.UpstreamHealthDegraded, Source: "traffic", Result: "500", Reason: "upstream_server_error",
+	})
+	changed := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/upstream-management/accounts", nil)
+	request.Header.Set("If-None-Match", firstETag)
+	router.ServeHTTP(changed, request)
+	require.Equal(t, http.StatusOK, changed.Code)
+	require.NotEqual(t, firstETag, changed.Header().Get("ETag"))
 }

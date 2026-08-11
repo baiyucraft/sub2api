@@ -93,3 +93,35 @@ func TestUpstreamHealthRegistryHasTemporaryExclusions(t *testing.T) {
 	registry.Hydrate(UpstreamHealthSnapshot{KeyID: 16, Status: UpstreamHealthSuspended, ObservationEnabled: true})
 	require.True(t, registry.HasTemporaryExclusions())
 }
+
+func TestUpstreamHealthHistoryKeepsBoundedChronologicalObservations(t *testing.T) {
+	extra := map[string]any{}
+	base := time.Date(2026, 8, 10, 8, 0, 0, 0, time.UTC)
+	for i := 0; i < UpstreamHealthHistoryLimit+4; i++ {
+		AppendUpstreamHealthObservation(extra, UpstreamHealthObservation{
+			ObservedAt: base.Add(time.Duration(i) * time.Minute), State: UpstreamHealthHealthy,
+			Source: "probe", Result: "success", Reason: "probe_succeeded",
+		})
+	}
+	history := UpstreamHealthHistoryFromExtra(extra, UpstreamHealthHistoryLimit)
+	require.Len(t, history, UpstreamHealthHistoryLimit)
+	require.Equal(t, base.Add(4*time.Minute), history[0].ObservedAt)
+	require.Equal(t, base.Add((UpstreamHealthHistoryLimit+3)*time.Minute), history[len(history)-1].ObservedAt)
+}
+
+func TestUpstreamHealthHistoryThrottlesTrafficSuccessesButKeepsFailures(t *testing.T) {
+	extra := map[string]any{}
+	base := time.Date(2026, 8, 10, 8, 0, 0, 0, time.UTC)
+	for _, item := range []UpstreamHealthObservation{
+		{ObservedAt: base, State: UpstreamHealthHealthy, Source: "traffic", Result: "200", Reason: "traffic_succeeded"},
+		{ObservedAt: base.Add(time.Minute), State: UpstreamHealthHealthy, Source: "traffic", Result: "200", Reason: "traffic_succeeded"},
+		{ObservedAt: base.Add(2 * time.Minute), State: UpstreamHealthDegraded, Source: "traffic", Result: "500", Reason: "upstream_server_error"},
+		{ObservedAt: base.Add(6 * time.Minute), State: UpstreamHealthHealthy, Source: "traffic", Result: "200", Reason: "traffic_succeeded"},
+	} {
+		AppendUpstreamHealthObservation(extra, item)
+	}
+	history := UpstreamHealthHistoryFromExtra(extra, 0)
+	require.Len(t, history, 3)
+	require.Equal(t, "500", history[1].Result)
+	require.Equal(t, base.Add(6*time.Minute), history[2].ObservedAt)
+}
