@@ -1261,30 +1261,8 @@
       </template>
 
       <template v-else-if="operationsDrawerMode === 'rateTrend'">
-        <div v-if="operationLoading.rateTrend" class="drawer-state">{{ t('common.loading') }}</div>
-        <div v-else-if="!selectedRateKeyId" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyRateKeys') }}</div>
-        <div v-else class="space-y-4">
-          <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.currentRate') }}</span><strong>{{ formatRateValue(keyRateTrend?.current_rate) }}</strong></div>
-            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.previousRate') }}</span><strong>{{ formatRateValue(keyRateTrend?.previous_rate) }}</strong></div>
-            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.lastChanged') }}</span><strong>{{ formatTime(keyRateTrend?.last_changed_at || null) }}</strong></div>
-            <div class="metric-block"><span>{{ t('admin.upstreamConfigs.operations.observedSince') }}</span><strong>{{ formatTime(keyRateTrend?.first_observed_at || null) }}</strong></div>
-          </div>
-          <UpstreamKeyRateTrendChart :points="keyRateTrend?.points || []" :loading="operationLoading.rateTrend" />
-          <section class="space-y-3">
-            <h3 class="section-title">{{ t('admin.upstreamConfigs.operations.rateChanges') }}</h3>
-            <div v-for="change in keyRateTrend?.changes || []" :key="`${change.type}-${change.occurred_at}`" class="operation-row">
-              <div class="flex items-center justify-between gap-3">
-                <span class="font-medium text-gray-900 dark:text-gray-100">{{ upstreamEventTypeLabel(change.type) }}</span>
-                <span class="text-xs text-gray-500 dark:text-dark-400">{{ formatTime(change.occurred_at) }}</span>
-              </div>
-              <div class="mt-1 text-xs text-gray-600 dark:text-dark-300">
-                {{ formatRateWithUnit(change.old_rate) }} → {{ formatRateWithUnit(change.new_rate) }}
-              </div>
-            </div>
-            <div v-if="!(keyRateTrend?.changes || []).length" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyRateChanges') }}</div>
-          </section>
-        </div>
+        <div v-if="!selectedRateKeyId" class="drawer-state">{{ t('admin.upstreamConfigs.operations.emptyRateKeys') }}</div>
+        <UpstreamKeyRateTrendPanel v-else :trend="keyRateTrend" :loading="operationLoading.rateTrend" />
       </template>
 
       <template v-else-if="operationsDrawerMode === 'settings'">
@@ -1421,7 +1399,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UpstreamActionMenu from './upstream/UpstreamActionMenu.vue'
 import UpstreamCostTrendChart from './upstream/UpstreamCostTrendChart.vue'
-import UpstreamKeyRateTrendChart from './upstream/UpstreamKeyRateTrendChart.vue'
+import UpstreamKeyRateTrendPanel from './upstream/UpstreamKeyRateTrendPanel.vue'
 import type { Column } from '@/components/common/types'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminAPI } from '@/api/admin'

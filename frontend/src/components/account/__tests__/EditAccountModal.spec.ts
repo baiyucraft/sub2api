@@ -447,7 +447,7 @@ describe('EditAccountModal', () => {
     expect(upstreamConfigKeysListMock).toHaveBeenCalledWith(10)
   })
 
-  it('上游模式只展示允许字段，并以白名单 payload 更新', async () => {
+  it('上游模式复用完整 API Key 配置并以白名单 payload 更新', async () => {
     authIsSimpleMode.value = false
     const account = buildUpstreamBoundAccount()
     account.credentials = {
@@ -462,30 +462,38 @@ describe('EditAccountModal', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="proxy-selector"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="pool-mode-toggle"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="account-scheduling-threshold-section"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pool-mode-toggle"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="account-scheduling-threshold-section"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('admin.accounts.loadFactor')
     expect(wrapper.text()).not.toContain('admin.accounts.priority')
     expect(wrapper.text()).not.toContain('admin.accounts.billingRateMultiplier')
-    expect(wrapper.text()).not.toContain('admin.accounts.expiresAt')
+    expect(wrapper.text()).toContain('admin.accounts.expiresAt')
     expect(wrapper.get('[data-testid="upstream-derived-account-notice"]').exists()).toBe(true)
-    expect(wrapper.find('button.select-trigger').exists()).toBe(false)
 
-    await wrapper.get('[data-testid="upstream-model-mapping-from"]').setValue('gpt-5.2-2025-12-11')
-    await wrapper.get('[data-testid="upstream-model-mapping-to"]').setValue('gpt-5.2-2025-12-11')
+    await wrapper.get('[data-testid="pool-mode-retry-count"]').setValue('6')
     await wrapper.get('[data-testid="set-shadow-group"]').trigger('click')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(updateAccountMock).toHaveBeenCalledWith(1, {
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
       notes: '',
       concurrency: 1,
       status: 'active',
       group_ids: [7],
-      credentials: {
-        model_mapping: { 'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11' }
-      }
-    })
+      credentials: expect.objectContaining({
+        model_mapping: { 'gpt-5.2': 'gpt-5.2' },
+        pool_mode: true,
+        pool_mode_retry_count: 6
+      })
+    }))
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload).not.toHaveProperty('name')
+    expect(payload).not.toHaveProperty('proxy_id')
+    expect(payload).not.toHaveProperty('priority')
+    expect(payload).not.toHaveProperty('load_factor')
+    expect(payload).not.toHaveProperty('rate_multiplier')
+    expect(payload?.credentials).not.toHaveProperty('api_key')
+    expect(payload?.credentials).not.toHaveProperty('base_url')
   })
 
   it('keeps the original stale key selectable state, warns, and saves the existing binding', async () => {

@@ -565,7 +565,7 @@
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-el="menu.anchorEl" @close="closeMenu" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-el="menu.anchorEl" @close="closeMenu" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @rate-trend="handleRateTrend" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -598,6 +598,11 @@
       :key-label="upstreamKeyEventsAccount?.name"
       @close="closeUpstreamKeyEvents"
     />
+    <UpstreamRateTrendDialog
+      :show="showUpstreamRateTrend"
+      :account="upstreamRateTrendAccount"
+      @close="closeUpstreamRateTrend"
+    />
   </AppLayout>
 </template>
 
@@ -621,6 +626,7 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import UpstreamKeyEventsDialog from '@/components/admin/account/UpstreamKeyEventsDialog.vue'
+import UpstreamRateTrendDialog from '@/components/admin/account/UpstreamRateTrendDialog.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
@@ -689,6 +695,8 @@ const probingKeyIDs = reactive(new Set<number>())
 const togglingObservationKeyIDs = reactive(new Set<number>())
 const showUpstreamKeyEvents = ref(false)
 const upstreamKeyEventsAccount = ref<Account | null>(null)
+const showUpstreamRateTrend = ref(false)
+const upstreamRateTrendAccount = ref<Account | null>(null)
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
@@ -1817,6 +1825,16 @@ const openUpstreamKeyEvents = (account: Account) => {
 const closeUpstreamKeyEvents = () => {
   showUpstreamKeyEvents.value = false
   upstreamKeyEventsAccount.value = null
+}
+
+const handleRateTrend = (account: Account) => {
+  upstreamRateTrendAccount.value = account
+  showUpstreamRateTrend.value = true
+}
+
+const closeUpstreamRateTrend = () => {
+  showUpstreamRateTrend.value = false
+  upstreamRateTrendAccount.value = null
 }
 
 const handleExportUpstreamStatus = async () => {

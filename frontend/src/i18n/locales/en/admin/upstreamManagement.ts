@@ -6,9 +6,13 @@ export default {
     derivedAccount: {
       title: 'Upstream-derived account',
       description: 'The key, endpoint, proxy, multiplier, priority and load factor are derived from Upstream Configuration and cannot be edited here.',
-      bulkDescription: 'Keys, endpoints, proxies, multipliers, priorities, load factors and credentials are maintained in Upstream Configuration. Bulk edits here only change runtime scheduling properties.'
+      bulkDescription: 'Keys, endpoints, proxies, multipliers, priorities, load factors and credentials are maintained in Upstream Configuration. Bulk edits here only change runtime scheduling properties.',
+      configId: 'Upstream config ID',
+      keyId: 'Upstream Key ID',
+      site: 'Upstream site'
     },
     saveFailed: 'Failed to save upstream management settings',
+    rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
       title: 'First-token performance protection',
       description: 'Applies only to upstream accounts; slow accounts are temporarily downgraded without changing the built-in scheduler.',

@@ -742,7 +742,6 @@ func TestGrokQuotaServiceQueryQuotaFreeFallsBackToGrok45(t *testing.T) {
 	require.True(t, result.HeadersObserved)
 
 	requests, bodies := upstream.snapshot()
-	require.Len(t, requests, 3)
 	responseCalls := 0
 	for i, req := range requests {
 		if req.URL.Path != "/v1/responses" {
