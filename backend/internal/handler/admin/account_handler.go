@@ -62,6 +62,7 @@ type AccountHandler struct {
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
 	ttftGuardReader         service.OpenAITTFTGuardDegradationReader
+	upstreamHealthReader    service.UpstreamHealthHistoryReader
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
@@ -77,6 +78,10 @@ func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamB
 // signature so focused tests and non-production constructors stay unchanged.
 func (h *AccountHandler) SetOpenAITTFTGuardDegradationReader(reader service.OpenAITTFTGuardDegradationReader) {
 	h.ttftGuardReader = reader
+}
+
+func (h *AccountHandler) SetUpstreamHealthHistoryReader(reader service.UpstreamHealthHistoryReader) {
+	h.upstreamHealthReader = reader
 }
 
 func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUsageService) {
@@ -207,12 +212,17 @@ type AccountWithConcurrency struct {
 	SchedulerScore        *AccountSchedulerScore               `json:"scheduler_score,omitempty"`
 	SchedulerScores       []AccountSchedulerGroupScore         `json:"scheduler_scores,omitempty"`
 	TTFTGuardDegradations []service.OpenAITTFTGuardDegradation `json:"ttft_guard_degradations,omitempty"`
-	UpstreamHealth        *service.UpstreamHealthSnapshot      `json:"upstream_health,omitempty"`
+	UpstreamHealth        *AccountUpstreamHealth               `json:"upstream_health,omitempty"`
 	AvailableActions      []string                             `json:"available_actions,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+}
+
+type AccountUpstreamHealth struct {
+	service.UpstreamHealthSnapshot
+	History []service.UpstreamHealthObservation `json:"history,omitempty"`
 }
 
 type AccountSchedulerScore struct {
@@ -249,7 +259,12 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	}
 	if account.UpstreamKeyID != nil {
 		health := service.GlobalUpstreamHealthRegistry().Snapshot(*account.UpstreamKeyID)
-		item.UpstreamHealth = &health
+		item.UpstreamHealth = &AccountUpstreamHealth{UpstreamHealthSnapshot: health}
+		if h.upstreamHealthReader != nil {
+			if histories, err := h.upstreamHealthReader.ListUpstreamHealthHistories(ctx, []int64{*account.UpstreamKeyID}, service.UpstreamHealthListHistoryLimit); err == nil {
+				item.UpstreamHealth.History = histories[*account.UpstreamKeyID]
+			}
+		}
 	}
 	if account.IsUpstreamBound() {
 		item.AvailableActions = upstreamAccountAvailableActions(account)
@@ -642,6 +657,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 
 	concurrencyCounts := make(map[int64]int)
 	var ttftGuardDegradations map[int64][]service.OpenAITTFTGuardDegradation
+	var upstreamHealthHistories map[int64][]service.UpstreamHealthObservation
 	var windowCosts map[int64]float64
 	var activeSessions map[int64]int
 	var rpmCounts map[int64]int
@@ -669,6 +685,21 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 	if h.ttftGuardReader != nil && len(ttftGuardAccountIDs) > 0 {
 		ttftGuardDegradations = h.ttftGuardReader.OpenAITTFTGuardDegradations(ttftGuardAccountIDs)
+	}
+	if scope == service.AccountListScopeUpstream && h.upstreamHealthReader != nil {
+		keyIDs := make([]int64, 0, len(accounts))
+		for i := range accounts {
+			if accounts[i].UpstreamKeyID != nil && *accounts[i].UpstreamKeyID > 0 {
+				keyIDs = append(keyIDs, *accounts[i].UpstreamKeyID)
+			}
+		}
+		if len(keyIDs) > 0 {
+			upstreamHealthHistories, err = h.upstreamHealthReader.ListUpstreamHealthHistories(c.Request.Context(), keyIDs, service.UpstreamHealthListHistoryLimit)
+			if err != nil {
+				slog.Warn("failed to load upstream health histories", "error", err)
+				upstreamHealthHistories = nil
+			}
+		}
 	}
 
 	// 识别需要查询窗口费用、会话数和 RPM 的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
@@ -756,7 +787,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 		if acc.UpstreamKeyID != nil {
 			health := service.GlobalUpstreamHealthRegistry().Snapshot(*acc.UpstreamKeyID)
-			item.UpstreamHealth = &health
+			item.UpstreamHealth = &AccountUpstreamHealth{UpstreamHealthSnapshot: health, History: upstreamHealthHistories[*acc.UpstreamKeyID]}
 		}
 
 		// 添加窗口费用（仅当启用时）

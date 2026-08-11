@@ -94,19 +94,29 @@ func (s *UpstreamConfigService) recordUpstreamTrafficEvidence(ctx context.Contex
 			transition = registry.RecordTrafficFailureTransition(keyID, status, reason, now)
 		}
 
-		persist := !success || transition.StateChanged() || transition.Previous.LastEvidenceAt == nil ||
-			now.Sub(*transition.Previous.LastEvidenceAt) >= upstreamHealthTrafficPersistInterval
+		lastPersistedValue, hasLastPersisted := s.healthPersistedAt.Load(keyID)
+		lastPersisted, _ := lastPersistedValue.(time.Time)
+		persist := !success || transition.StateChanged() || !hasLastPersisted ||
+			now.Sub(lastPersisted) >= upstreamHealthTrafficPersistInterval
 		if !persist {
 			return nil
 		}
 
 		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer cancel()
-		if err := s.saveHealthTransition(persistCtx, keyID, transition); err != nil {
+		observation := &UpstreamHealthObservation{
+			ObservedAt: transition.Current.UpdatedAt,
+			State:      transition.Current.Status,
+			Source:     "traffic",
+			Result:     status,
+			Reason:     reason,
+		}
+		if err := s.saveHealthTransitionWithObservation(persistCtx, keyID, transition, observation); err != nil {
 			// Health evidence is fail-open. The persistence helper restores the
 			// previous in-memory snapshot on failure.
 			return err
 		}
+		s.healthPersistedAt.Store(keyID, now)
 		return nil
 	})
 }

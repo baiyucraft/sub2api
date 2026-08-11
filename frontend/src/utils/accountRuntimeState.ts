@@ -33,6 +33,16 @@ export const buildUpstreamHealthKey = (account: Account): string => {
     last_probe_status: health.last_probe_status ?? '',
     last_evidence_at: health.last_evidence_at ?? '',
     consecutive_failures: health.consecutive_failures,
+    last_traffic_status: health.last_traffic_status ?? '',
+    recovery_samples: health.recovery_samples ?? 0,
+    recovery_samples_required: health.recovery_samples_required ?? 0,
+    history: (health.history ?? []).map(item => ({
+      observed_at: item.observed_at,
+      state: item.state,
+      source: item.source,
+      result: item.result,
+      reason: item.reason ?? ''
+    })),
     updated_at: health.updated_at
   })
 }
@@ -46,6 +56,11 @@ export const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account)
     updatedAccount.platform === 'openai'
       ? updatedAccount.ttft_guard_degradations ?? oldAccount.ttft_guard_degradations
       : undefined,
-  upstream_health: updatedAccount.upstream_health ?? oldAccount.upstream_health,
+  upstream_health: updatedAccount.upstream_health
+    ? {
+        ...updatedAccount.upstream_health,
+        history: updatedAccount.upstream_health.history ?? oldAccount.upstream_health?.history
+      }
+    : oldAccount.upstream_health,
   available_actions: updatedAccount.available_actions ?? oldAccount.available_actions
 })

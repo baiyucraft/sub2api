@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,25 @@ import (
 
 type upstreamProbeModelsRequest struct {
 	Models map[string]string `json:"models"`
+}
+
+func (h *UpstreamConfigHandler) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
+	return h.service.ListUpstreamHealthHistories(ctx, keyIDs, limit)
+}
+
+func (h *UpstreamConfigHandler) upstreamHealthAdminResponse(ctx context.Context, item service.UpstreamHealthSnapshot, limit int) (gin.H, error) {
+	histories, err := h.service.ListUpstreamHealthHistories(ctx, []int64{item.KeyID}, limit)
+	if err != nil {
+		return nil, err
+	}
+	return gin.H{
+		"key_id": item.KeyID, "status": item.Status, "observation_enabled": item.ObservationEnabled,
+		"reason": item.Reason, "last_probe_at": item.LastProbeAt, "last_probe_status": item.LastProbeStatus,
+		"last_evidence_at": item.LastEvidenceAt, "last_traffic_status": item.LastTrafficStatus,
+		"consecutive_failures": item.ConsecutiveFails, "recovery_samples": item.RecoverySamples,
+		"recovery_samples_required": item.RecoverySamplesRequired, "updated_at": item.UpdatedAt,
+		"history": histories[item.KeyID],
+	}, nil
 }
 
 func (h *AccountHandler) ListUpstreamManagement(c *gin.Context) {
@@ -72,7 +92,12 @@ func (h *UpstreamConfigHandler) SetKeyObservationAdmin(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, item)
+	payload, err := h.upstreamHealthAdminResponse(c.Request.Context(), item, service.UpstreamHealthListHistoryLimit)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, payload)
 }
 
 func (h *UpstreamConfigHandler) ProbeKeyAdmin(c *gin.Context) {
@@ -85,7 +110,12 @@ func (h *UpstreamConfigHandler) ProbeKeyAdmin(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, item)
+	payload, err := h.upstreamHealthAdminResponse(c.Request.Context(), item, service.UpstreamHealthListHistoryLimit)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, payload)
 }
 
 func (h *UpstreamConfigHandler) ListKeyEventsAdmin(c *gin.Context) {
@@ -119,5 +149,10 @@ func (h *UpstreamConfigHandler) ListKeyEventsAdmin(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"items": items, "total": total, "limit": limit, "offset": offset})
+	histories, err := h.service.ListUpstreamHealthHistories(c.Request.Context(), []int64{id}, service.UpstreamHealthHistoryLimit)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"items": items, "total": total, "limit": limit, "offset": offset, "health_history": histories[id]})
 }

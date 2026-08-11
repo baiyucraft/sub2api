@@ -327,6 +327,10 @@ func (r *upstreamConfigRepository) PatchKeyHealth(ctx context.Context, keyID int
 // JSON is updated, so a health observation cannot overwrite a concurrently
 // refreshed rate, platform or lifecycle field.
 func (r *upstreamConfigRepository) PatchKeyHealthWithEvent(ctx context.Context, keyID int64, health map[string]any, event *service.UpstreamEvent) error {
+	return r.PatchKeyHealthWithObservation(ctx, keyID, health, event, nil)
+}
+
+func (r *upstreamConfigRepository) PatchKeyHealthWithObservation(ctx context.Context, keyID int64, health map[string]any, event *service.UpstreamEvent, observation *service.UpstreamHealthObservation) error {
 	return r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
 		row, err := client.UpstreamKey.Query().
 			Where(dbupstreamkey.IDEQ(keyID)).
@@ -343,6 +347,9 @@ func (r *upstreamConfigRepository) PatchKeyHealthWithEvent(ctx context.Context, 
 			extra = map[string]any{}
 		}
 		extra["health"] = normalizeJSONMap(health)
+		if observation != nil {
+			service.AppendUpstreamHealthObservation(extra, *observation)
+		}
 		if err := client.UpstreamKey.UpdateOneID(keyID).SetExtra(extra).Exec(txCtx); err != nil {
 			return err
 		}
@@ -367,6 +374,31 @@ func (r *upstreamConfigRepository) PatchKeyHealthWithEvent(ctx context.Context, 
 		}
 		return builder.Exec(txCtx)
 	})
+}
+
+func (r *upstreamConfigRepository) ListKeyHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
+	keyIDs = uniqueSortedInt64s(keyIDs)
+	out := make(map[int64][]service.UpstreamHealthObservation, len(keyIDs))
+	if len(keyIDs) == 0 {
+		return out, nil
+	}
+	if limit <= 0 || limit > service.UpstreamHealthHistoryLimit {
+		limit = service.UpstreamHealthHistoryLimit
+	}
+	rows, err := r.client.UpstreamKey.Query().
+		Where(dbupstreamkey.IDIn(keyIDs...)).
+		Select(dbupstreamkey.FieldID, dbupstreamkey.FieldExtra).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		history := service.UpstreamHealthHistoryFromExtra(row.Extra, limit)
+		if len(history) > 0 {
+			out[row.ID] = history
+		}
+	}
+	return out, nil
 }
 
 func (r *upstreamConfigRepository) ListKeysForMaskedFallback(ctx context.Context, upstreamConfigID int64, remoteKeyIDs []int64) ([]service.UpstreamKey, error) {

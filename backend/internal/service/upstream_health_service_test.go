@@ -13,11 +13,12 @@ import (
 
 type healthEventCaptureRepo struct {
 	UpstreamConfigRepository
-	mu      sync.Mutex
-	patches []map[string]any
-	events  []*UpstreamEvent
-	err     error
-	keys    []UpstreamKey
+	mu        sync.Mutex
+	patches   []map[string]any
+	events    []*UpstreamEvent
+	err       error
+	keys      []UpstreamKey
+	histories map[int64][]UpstreamHealthObservation
 }
 
 func (r *healthEventCaptureRepo) ListAllKeysForHealth(context.Context) ([]UpstreamKey, error) {
@@ -46,6 +47,35 @@ func (r *healthEventCaptureRepo) PatchKeyHealthWithEvent(_ context.Context, _ in
 	return nil
 }
 
+func (r *healthEventCaptureRepo) PatchKeyHealthWithObservation(ctx context.Context, keyID int64, health map[string]any, event *UpstreamEvent, observation *UpstreamHealthObservation) error {
+	if err := r.PatchKeyHealthWithEvent(ctx, keyID, health, event); err != nil {
+		return err
+	}
+	if observation != nil {
+		r.mu.Lock()
+		if r.histories == nil {
+			r.histories = map[int64][]UpstreamHealthObservation{}
+		}
+		r.histories[keyID] = append(r.histories[keyID], *observation)
+		r.mu.Unlock()
+	}
+	return nil
+}
+
+func (r *healthEventCaptureRepo) ListKeyHealthHistories(_ context.Context, keyIDs []int64, limit int) (map[int64][]UpstreamHealthObservation, error) {
+	out := map[int64][]UpstreamHealthObservation{}
+	for _, keyID := range keyIDs {
+		items := append([]UpstreamHealthObservation(nil), r.histories[keyID]...)
+		if limit > 0 && len(items) > limit {
+			items = items[len(items)-limit:]
+		}
+		if len(items) > 0 {
+			out[keyID] = items
+		}
+	}
+	return out, nil
+}
+
 func TestUpstreamConfigServiceObservationWritesStateChangeEvent(t *testing.T) {
 	const keyID = 92001
 	GlobalUpstreamHealthRegistry().Hydrate(defaultUpstreamHealthSnapshot(keyID))
@@ -60,6 +90,9 @@ func TestUpstreamConfigServiceObservationWritesStateChangeEvent(t *testing.T) {
 	require.Equal(t, "warning", repo.events[0].Severity)
 	require.Equal(t, "observing", repo.events[0].Payload["previous_status"])
 	require.Equal(t, "disabled", repo.events[0].Payload["current_status"])
+	require.Len(t, repo.histories[keyID], 1)
+	require.Equal(t, "admin", repo.histories[keyID][0].Source)
+	require.Equal(t, "disabled", repo.histories[keyID][0].Result)
 
 	_, err = svc.SetKeyObservation(context.Background(), keyID, false)
 	require.NoError(t, err)
@@ -227,6 +260,8 @@ func TestUpstreamTrafficEvidenceClassifiesAndPersistsTransitions(t *testing.T) {
 	require.Equal(t, UpstreamHealthDegraded, item.Status)
 	require.Equal(t, "capacity_limited", item.Reason)
 	require.Zero(t, item.ConsecutiveFails)
+	require.Equal(t, "traffic", repo.histories[keyID][0].Source)
+	require.Equal(t, "429", repo.histories[keyID][0].Result)
 
 	svc.RecordUpstreamTrafficFailure(context.Background(), account, 401)
 	item = GlobalUpstreamHealthRegistry().Snapshot(keyID)
@@ -240,6 +275,7 @@ func TestUpstreamTrafficEvidenceClassifiesAndPersistsTransitions(t *testing.T) {
 	require.Equal(t, UpstreamHealthHealthy, item.Status)
 	require.Equal(t, "recovered", item.Reason)
 	require.GreaterOrEqual(t, len(repo.events), 3)
+	require.GreaterOrEqual(t, len(repo.histories[keyID]), 3)
 }
 
 func TestUpstreamTrafficEvidenceIgnoresRequestScopedErrorsAndOrdinaryAccounts(t *testing.T) {
@@ -276,6 +312,24 @@ func TestUpstreamConfigServiceListDueHealthProbeKeys(t *testing.T) {
 	ids, err := svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
 	require.NoError(t, err)
 	require.Equal(t, []int64{92011}, ids)
+}
+
+func TestUpstreamConfigServiceListsBoundedHealthHistoriesInOneBatch(t *testing.T) {
+	base := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	repo := &healthEventCaptureRepo{histories: map[int64][]UpstreamHealthObservation{
+		81: {
+			{ObservedAt: base, State: UpstreamHealthHealthy, Source: "probe", Result: "success"},
+			{ObservedAt: base.Add(time.Minute), State: UpstreamHealthDegraded, Source: "traffic", Result: "500"},
+		},
+		82: {{ObservedAt: base.Add(2 * time.Minute), State: UpstreamHealthHealthy, Source: "traffic", Result: "200"}},
+	}}
+	svc := &UpstreamConfigService{repo: repo}
+
+	histories, err := svc.ListUpstreamHealthHistories(context.Background(), []int64{82, 81}, 1)
+	require.NoError(t, err)
+	require.Len(t, histories[81], 1)
+	require.Equal(t, "500", histories[81][0].Result)
+	require.Len(t, histories[82], 1)
 }
 
 func upstreamHealthTimePtr(value time.Time) *time.Time { return &value }

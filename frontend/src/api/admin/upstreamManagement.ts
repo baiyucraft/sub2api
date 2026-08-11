@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { Account, PaginatedResponse } from '@/types'
+import type { Account, PaginatedResponse, UpstreamHealthObservation } from '@/types'
 
 export interface TTFTGuardSettings {
   enabled: boolean
@@ -22,6 +22,7 @@ export interface UpstreamHealthSnapshot {
   recovery_samples?: number
   recovery_samples_required?: number
   updated_at: string
+  history?: UpstreamHealthObservation[]
 }
 
 export interface UpstreamKeyEvent {
@@ -96,8 +97,8 @@ export async function probeKey(id: number): Promise<UpstreamHealthSnapshot> {
   return data
 }
 
-export async function getKeyEvents(id: number): Promise<{ items: UpstreamKeyEvent[]; total: number }> {
-  const { data } = await apiClient.get<{ items: UpstreamKeyEvent[]; total: number }>(`/admin/upstream-management/keys/${id}/events`)
+export async function getKeyEvents(id: number): Promise<{ items: UpstreamKeyEvent[]; total: number; health_history: UpstreamHealthObservation[] }> {
+  const { data } = await apiClient.get<{ items: UpstreamKeyEvent[]; total: number; health_history: UpstreamHealthObservation[] }>(`/admin/upstream-management/keys/${id}/events`)
   return data
 }
 

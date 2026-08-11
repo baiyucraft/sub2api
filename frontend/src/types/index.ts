@@ -1182,6 +1182,7 @@ export interface Account {
     recovery_samples?: number
     recovery_samples_required?: number
     updated_at: string
+    history?: UpstreamHealthObservation[]
   }
 
   // Session window fields (5-hour window)
@@ -1265,6 +1266,14 @@ export interface AccountTTFTGuardDegradation {
   expires_at: string
   recovery_samples: number
   recovery_samples_required: number
+}
+
+export interface UpstreamHealthObservation {
+  observed_at: string
+  state: 'healthy' | 'degraded' | 'suspended' | 'observing' | 'recovering' | 'disabled'
+  source: 'probe' | 'traffic' | 'admin' | string
+  result: string
+  reason?: string
 }
 
 export interface AccountSchedulerGroupScore {
