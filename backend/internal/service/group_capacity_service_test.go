@@ -45,6 +45,16 @@ func (s *groupCapacityConcurrencyCacheStub) GetAccountConcurrencyBatch(_ context
 	return out, nil
 }
 
+func (s *groupCapacityConcurrencyCacheStub) GetAccountsLoadBatch(_ context.Context, accounts []AccountWithConcurrency) (map[int64]*AccountLoadInfo, error) {
+	s.requested = s.requested[:0]
+	out := make(map[int64]*AccountLoadInfo, len(accounts))
+	for _, account := range accounts {
+		s.requested = append(s.requested, account.ID)
+		out[account.ID] = &AccountLoadInfo{AccountID: account.ID, CurrentConcurrency: s.counts[account.ID]}
+	}
+	return out, nil
+}
+
 type groupCapacitySessionCacheStub struct {
 	SessionLimitCache
 	counts       map[int64]int
@@ -176,4 +186,19 @@ func TestGetAllGroupCapacityBatchKeepsEmptyGroupRows(t *testing.T) {
 		{GroupID: 10},
 		{GroupID: 20, ConcurrencyMax: 4},
 	}, results)
+}
+
+func TestGetAllGroupCapacityBatchDeduplicatesSharedUpstreamWithinGroup(t *testing.T) {
+	configID := int64(88)
+	accountRepo := &groupCapacityAccountRepoStub{rows: []GroupAccountCapacityRow{
+		{GroupID: 10, AccountID: 1, UpstreamConfigID: &configID, Concurrency: 5, UpstreamConcurrency: UpstreamSchedulerConcurrency{Limit: 100, Source: UpstreamConcurrencySourceDefault, UsesDefault: true}},
+		{GroupID: 10, AccountID: 2, UpstreamConfigID: &configID, Concurrency: 9, UpstreamConcurrency: UpstreamSchedulerConcurrency{Limit: 100, Source: UpstreamConcurrencySourceDefault, UsesDefault: true}},
+	}}
+	groupRepo := &groupCapacityGroupRepoStub{groupIDs: []int64{10}}
+	concurrencyCache := &groupCapacityConcurrencyCacheStub{counts: map[int64]int{1: 7, 2: 7}}
+	svc := NewGroupCapacityService(accountRepo, groupRepo, NewConcurrencyService(concurrencyCache), nil, nil)
+
+	results, err := svc.GetAllGroupCapacity(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []GroupCapacitySummary{{GroupID: 10, ConcurrencyUsed: 7, ConcurrencyMax: 100}}, results)
 }

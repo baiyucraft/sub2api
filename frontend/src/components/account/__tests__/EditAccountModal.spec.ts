@@ -439,7 +439,7 @@ describe('EditAccountModal', () => {
     expect(nameInput.attributes('readonly')).toBeDefined()
     expect((nameInput.element as HTMLInputElement).value).toBe('Sub2API Main-OpenAI upstream key')
     expect(wrapper.find('[data-testid="proxy-selector"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('admin.accounts.concurrency')
+    expect(wrapper.text()).not.toContain('admin.accounts.concurrency')
     expect(wrapper.text()).not.toContain('admin.accounts.loadFactor')
     expect(wrapper.text()).not.toContain('admin.accounts.priority')
     expect(wrapper.text()).not.toContain('admin.accounts.billingRateMultiplier')
@@ -477,7 +477,6 @@ describe('EditAccountModal', () => {
 
     expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
       notes: '',
-      concurrency: 1,
       status: 'active',
       group_ids: [7],
       credentials: expect.objectContaining({
@@ -492,6 +491,7 @@ describe('EditAccountModal', () => {
     expect(payload).not.toHaveProperty('priority')
     expect(payload).not.toHaveProperty('load_factor')
     expect(payload).not.toHaveProperty('rate_multiplier')
+    expect(payload).not.toHaveProperty('concurrency')
     expect(payload?.credentials).not.toHaveProperty('api_key')
     expect(payload?.credentials).not.toHaveProperty('base_url')
   })

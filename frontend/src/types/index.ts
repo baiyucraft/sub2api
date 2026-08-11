@@ -1140,6 +1140,11 @@ export interface Account {
   concurrency: number
   load_factor?: number | null
   current_concurrency?: number // Real-time concurrency count from Redis
+  scheduler_concurrency_limit?: number
+  scheduler_concurrency_scope?: 'account' | 'upstream'
+  scheduler_concurrency_source?: 'override' | 'provider' | 'unlimited' | 'default' | string
+  scheduler_concurrency_uses_default?: boolean
+  scheduler_concurrency_unlimited?: boolean
   scheduler_score?: {
     base_score: number
     sticky_score?: number

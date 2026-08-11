@@ -211,6 +211,9 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 	if input.RateMultiplier != nil || input.Priority != nil || input.LoadFactor != nil {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_RATE_DERIVED", "upstream account rate, priority, and load factor are derived from the upstream key")
 	}
+	if input.Concurrency != nil {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account concurrency is managed by the parent upstream config")
+	}
 	if strings.TrimSpace(account.Platform) != "" && !strings.EqualFold(strings.TrimSpace(account.Platform), strings.TrimSpace(*key.Platform)) {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_PLATFORM_MISMATCH", "upstream key platform does not match account platform")
 	}
@@ -221,11 +224,7 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 	account.Name = autoName
 	actualRate := *key.RateMultiplier
 	priority := Sub2APIUpstreamPriority(actualRate)
-	concurrency := account.Concurrency
-	if input.Concurrency != nil {
-		concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)
-	}
-	loadFactor := AutoUpstreamLoadFactor(priority, concurrency)
+	loadFactor := AutoUpstreamLoadFactor(priority, account.Concurrency)
 	input.RateMultiplier = &actualRate
 	input.Priority = &priority
 	input.LoadFactor = &loadFactor

@@ -416,6 +416,92 @@
 
         <section class="space-y-4">
           <div class="border-b border-gray-200 pb-2 dark:border-dark-700">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {{ t('admin.upstreamConfigs.sections.schedulerConcurrency') }}
+            </h3>
+          </div>
+          <div class="rounded-xl border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900/60 dark:bg-sky-950/20">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div class="max-w-xl">
+                <p class="text-sm font-semibold text-sky-950 dark:text-sky-100">
+                  {{ t('admin.upstreamConfigs.concurrency.sharedTitle') }}
+                </p>
+                <p class="mt-1 text-xs leading-5 text-sky-800/80 dark:text-sky-200/75">
+                  {{ t('admin.upstreamConfigs.concurrency.sharedHint') }}
+                </p>
+              </div>
+              <div class="inline-flex self-start rounded-lg border border-sky-200 bg-white p-1 shadow-sm dark:border-sky-900/70 dark:bg-dark-800">
+                <button
+                  type="button"
+                  data-test="scheduler-concurrency-auto"
+                  :class="[
+                    'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    form.concurrency_mode === 'auto'
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'text-gray-600 hover:bg-sky-50 dark:text-gray-300 dark:hover:bg-sky-950/40'
+                  ]"
+                  @click="form.concurrency_mode = 'auto'"
+                >
+                  {{ t('admin.upstreamConfigs.concurrency.autoMode') }}
+                </button>
+                <button
+                  type="button"
+                  data-test="scheduler-concurrency-override"
+                  :class="[
+                    'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    form.concurrency_mode === 'override'
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'text-gray-600 hover:bg-sky-50 dark:text-gray-300 dark:hover:bg-sky-950/40'
+                  ]"
+                  @click="form.concurrency_mode = 'override'"
+                >
+                  {{ t('admin.upstreamConfigs.concurrency.overrideMode') }}
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-4 grid gap-3 sm:grid-cols-3">
+              <div class="rounded-lg border border-white/80 bg-white/80 px-3 py-2.5 dark:border-dark-700 dark:bg-dark-800/80">
+                <span class="block text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-dark-400">
+                  {{ t('admin.upstreamConfigs.concurrency.currentSource') }}
+                </span>
+                <strong class="mt-1 block text-sm text-gray-900 dark:text-gray-100">
+                  {{ schedulerConcurrencyDraftSourceLabel() }}
+                </strong>
+              </div>
+              <div class="rounded-lg border border-white/80 bg-white/80 px-3 py-2.5 dark:border-dark-700 dark:bg-dark-800/80">
+                <span class="block text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-dark-400">
+                  {{ t('admin.upstreamConfigs.concurrency.effectiveLimit') }}
+                </span>
+                <strong class="mt-1 block text-sm tabular-nums text-gray-900 dark:text-gray-100">
+                  {{ schedulerConcurrencyDraftEffectiveLabel() }}
+                </strong>
+              </div>
+              <label v-if="form.concurrency_mode === 'override'" class="space-y-1 sm:col-span-1">
+                <span class="input-label">{{ t('admin.upstreamConfigs.concurrency.overrideValue') }}</span>
+                <input
+                  v-model.number="form.scheduler_concurrency_override"
+                  type="number"
+                  min="1"
+                  max="1000000"
+                  step="1"
+                  required
+                  class="input tabular-nums"
+                  data-test="scheduler-concurrency-override-input"
+                />
+                <span class="block text-xs text-gray-500 dark:text-dark-400">
+                  {{ t('admin.upstreamConfigs.concurrency.overrideRange') }}
+                </span>
+              </label>
+              <div v-else class="rounded-lg border border-white/80 bg-white/80 px-3 py-2.5 text-xs leading-5 text-gray-600 dark:border-dark-700 dark:bg-dark-800/80 dark:text-gray-300">
+                {{ t('admin.upstreamConfigs.concurrency.autoResolutionHint') }}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="space-y-4">
+          <div class="border-b border-gray-200 pb-2 dark:border-dark-700">
             <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ t('admin.upstreamConfigs.sections.connectionAndAuth') }}</h3>
           </div>
           <div class="grid gap-4 md:grid-cols-2">
@@ -1568,7 +1654,9 @@ const form = reactive({
   access_token: '',
   refresh_token: '',
   recharge_rate: 1,
-  balance_to_cny_rate: null as number | null
+  balance_to_cny_rate: null as number | null,
+  concurrency_mode: 'auto' as 'auto' | 'override',
+  scheduler_concurrency_override: 100 as number | null
 })
 
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -1928,7 +2016,9 @@ function resetForm() {
     access_token: '',
     refresh_token: '',
     recharge_rate: 1,
-    balance_to_cny_rate: null as number | null
+    balance_to_cny_rate: null as number | null,
+    concurrency_mode: 'auto' as 'auto' | 'override',
+    scheduler_concurrency_override: 100 as number | null
   })
 }
 
@@ -1957,7 +2047,9 @@ function openEdit(item: UpstreamConfig) {
     access_token: '',
     refresh_token: '',
     recharge_rate: item.recharge_rate || 1,
-    balance_to_cny_rate: item.balance_to_cny_rate ?? null
+    balance_to_cny_rate: item.balance_to_cny_rate ?? null,
+    concurrency_mode: item.scheduler_concurrency?.override != null ? 'override' : 'auto',
+    scheduler_concurrency_override: item.scheduler_concurrency?.override ?? item.scheduler_concurrency?.limit ?? 100
   })
   dialogOpen.value = true
 }
@@ -2106,6 +2198,10 @@ async function saveConfig() {
       recharge_rate: form.recharge_rate,
       balance_to_cny_rate: finitePositiveNumber(form.balance_to_cny_rate),
       clear_balance_to_cny_rate: Boolean(editing.value && form.balance_to_cny_rate === null),
+      scheduler_concurrency_override: form.concurrency_mode === 'override'
+        ? form.scheduler_concurrency_override
+        : undefined,
+      clear_scheduler_concurrency_override: form.concurrency_mode === 'auto',
       credentials
     }
 
@@ -2138,6 +2234,14 @@ function validateFormBeforeSave(): string {
   }
   if (form.balance_to_cny_rate !== null && finitePositiveNumber(form.balance_to_cny_rate) === null) {
     return t('admin.upstreamConfigs.messages.balanceToCnyRateInvalid')
+  }
+  if (
+    form.concurrency_mode === 'override' &&
+    (!Number.isInteger(form.scheduler_concurrency_override) ||
+      (form.scheduler_concurrency_override ?? 0) < 1 ||
+      (form.scheduler_concurrency_override ?? 0) > 1_000_000)
+  ) {
+    return t('admin.upstreamConfigs.messages.schedulerConcurrencyInvalid')
   }
   const status = editing.value?.credentials_status || {}
   if (form.provider === 'lcodex') {
@@ -3171,19 +3275,17 @@ function upstreamConcurrencyDisplay(item: UpstreamConfig): UpstreamConcurrencyDi
 }
 
 function upstreamConcurrencyLabel(item: UpstreamConfig): string {
-  const display = upstreamConcurrencyDisplay(item)
-  if (display.state === 'unlimited') return t('admin.upstreamConfigs.concurrency.unlimited')
-  if (display.state === 'stale' && display.value !== null) {
-    return t('admin.upstreamConfigs.concurrency.stale', { value: display.value })
-  }
-  if (display.state === 'initialFailure') return t('admin.upstreamConfigs.concurrency.initialFailure')
-  if (display.state === 'unsupported' || display.value === null) {
-    return t('admin.upstreamConfigs.concurrency.unsupported')
-  }
-  return t('admin.upstreamConfigs.concurrency.limited', { count: display.value })
+  return schedulerConcurrencyEffectiveLabel(item)
+}
+
+function validSchedulerConcurrencyDisplayValue(display: UpstreamConcurrencyDisplay): boolean {
+  if (display.value === null) return false
+  const value = Number(display.value.replace(/,/g, ''))
+  return Number.isInteger(value) && value >= 1 && value <= 1_000_000
 }
 
 function upstreamConcurrencyTextClass(item: UpstreamConfig): string {
+  if (item.scheduler_concurrency?.uses_default) return 'text-amber-600 dark:text-amber-400'
   const state = upstreamConcurrencyDisplay(item).state
   if (state === 'stale' || state === 'initialFailure') return 'text-amber-600 dark:text-amber-400'
   if (state === 'unsupported') return 'text-gray-400 dark:text-dark-500'
@@ -3195,7 +3297,13 @@ function upstreamConcurrencyTitle(item: UpstreamConfig): string {
   const status = typeof snapshot?.status === 'string' ? snapshot.status.trim().toLowerCase() : ''
   const semantics = typeof snapshot?.semantics === 'string' ? snapshot.semantics.trim().toLowerCase() : ''
 
-  const parts: string[] = [t('admin.upstreamConfigs.concurrency.headerTitle')]
+  const parts: string[] = [
+    t('admin.upstreamConfigs.concurrency.headerTitle'),
+    t('admin.upstreamConfigs.concurrency.sourceTooltip', {
+      source: schedulerConcurrencySourceLabel(item),
+      limit: schedulerConcurrencyEffectiveLabel(item)
+    })
+  ]
   if (semantics === 'provider_defined') {
     parts.push(t('admin.upstreamConfigs.concurrency.providerReportedHint'))
   }
@@ -3210,6 +3318,58 @@ function upstreamConcurrencyTitle(item: UpstreamConfig): string {
     parts.push(t('admin.upstreamConfigs.concurrency.lastCheckedAt', { time: formatTime(lastCheckedAt) }))
   }
   return parts.join('\n')
+}
+
+function schedulerConcurrencyEffectiveLabel(item: UpstreamConfig | null): string {
+  if (!item?.scheduler_concurrency) {
+    if (item) {
+      const display = upstreamConcurrencyDisplay(item)
+      if (display.state === 'unlimited') return t('admin.upstreamConfigs.concurrency.unlimited')
+      if ((display.state === 'limited' || display.state === 'providerDefined') && validSchedulerConcurrencyDisplayValue(display)) {
+        return t('admin.upstreamConfigs.concurrency.limited', { count: display.value })
+      }
+    }
+    return t('admin.upstreamConfigs.concurrency.defaultValue', { count: 100 })
+  }
+  if (item.scheduler_concurrency.unlimited) return t('admin.upstreamConfigs.concurrency.unlimited')
+  return t('admin.upstreamConfigs.concurrency.limited', { count: item.scheduler_concurrency.limit })
+}
+
+function schedulerConcurrencySourceLabel(item: UpstreamConfig | null): string {
+  let source = item?.scheduler_concurrency?.source
+  if (!source && item) {
+    const display = upstreamConcurrencyDisplay(item)
+    source = display.state === 'unlimited'
+      ? 'unlimited'
+      : (display.state === 'limited' || display.state === 'providerDefined') && validSchedulerConcurrencyDisplayValue(display)
+        ? 'provider'
+        : 'default'
+  }
+  source ||= 'default'
+  return t(`admin.upstreamConfigs.concurrency.sources.${source}`)
+}
+
+function schedulerConcurrencyDraftSourceLabel(): string {
+  if (form.concurrency_mode === 'override') {
+    return t('admin.upstreamConfigs.concurrency.sources.override')
+  }
+  const source = editing.value?.scheduler_concurrency?.source === 'override'
+    ? 'default'
+    : editing.value?.scheduler_concurrency?.source || 'default'
+  return t(`admin.upstreamConfigs.concurrency.sources.${source}`)
+}
+
+function schedulerConcurrencyDraftEffectiveLabel(): string {
+  if (form.concurrency_mode === 'override') {
+    const value = form.scheduler_concurrency_override
+    return Number.isInteger(value) && (value ?? 0) > 0
+      ? t('admin.upstreamConfigs.concurrency.limited', { count: value })
+      : '—'
+  }
+  if (editing.value?.scheduler_concurrency?.source === 'override') {
+    return t('admin.upstreamConfigs.concurrency.defaultValue', { count: 100 })
+  }
+  return schedulerConcurrencyEffectiveLabel(editing.value)
 }
 
 function finiteNumberFromExtra(value: unknown): number | null {

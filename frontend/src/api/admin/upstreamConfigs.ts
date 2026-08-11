@@ -72,6 +72,13 @@ export interface UpstreamConfig {
   auth_mode: UpstreamAuthMode
   credentials_status?: UpstreamCredentialsStatus
   extra?: Record<string, unknown>
+  scheduler_concurrency?: {
+    limit: number
+    source: 'override' | 'provider' | 'unlimited' | 'default'
+    uses_default: boolean
+    unlimited: boolean
+    override?: number | null
+  }
   proxy_id?: number | null
   clear_proxy?: boolean
   recharge_rate: number
@@ -100,6 +107,8 @@ export interface UpstreamConfigPayload {
   status?: string
   credentials?: Record<string, string>
   extra?: Record<string, unknown>
+  scheduler_concurrency_override?: number | null
+  clear_scheduler_concurrency_override?: boolean
 }
 
 export interface UpstreamSyncResult {

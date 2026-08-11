@@ -176,17 +176,15 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 		}
 
 		account := selection.Account
+		concurrencyTarget := account.SchedulingConcurrencyTarget()
 		leaseID := generateRequestID()
-		acquired, acquireErr := liveCache.AcquireLiveLease(
-			ctx,
-			account.ID,
-			account.Concurrency,
-			identity.UserID,
-			userMaxConcurrency,
-			identity.APIKeyID,
-			leaseID,
-			true,
-		)
+		var acquired bool
+		var acquireErr error
+		if targetCache, ok := liveCache.(TargetLiveConcurrencyCache); ok {
+			acquired, acquireErr = targetCache.AcquireLiveTargetLease(ctx, concurrencyTarget, identity.UserID, userMaxConcurrency, identity.APIKeyID, leaseID, true)
+		} else {
+			acquired, acquireErr = liveCache.AcquireLiveLease(ctx, account.ID, account.Concurrency, identity.UserID, userMaxConcurrency, identity.APIKeyID, leaseID, true)
+		}
 		if acquireErr != nil || !acquired {
 			selection.ReleaseFunc()
 			if acquireErr != nil {
@@ -198,7 +196,7 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 		created, createErr := s.createUpstreamLiveCall(ctx, account, request, attestation)
 		selection.ReleaseFunc()
 		if createErr != nil {
-			s.releaseLiveLease(account.ID, identity.UserID, identity.APIKeyID, leaseID)
+			s.releaseLiveTargetLease(concurrencyTarget, account.ID, identity.UserID, identity.APIKeyID, leaseID)
 			if !s.shouldFailoverLiveCreateError(createErr) {
 				return nil, createErr
 			}
@@ -216,6 +214,8 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			CallID:                created.CallID,
 			CallHash:              hashLiveCallID(created.CallID),
 			AccountID:             account.ID,
+			ConcurrencyTargetKind: concurrencyTarget.Kind,
+			ConcurrencyTargetID:   concurrencyTarget.ID,
 			APIKeyID:              identity.APIKeyID,
 			UserID:                identity.UserID,
 			GroupID:               liveGroupID(identity.GroupID),
@@ -232,7 +232,7 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 		}
 		mappingTTL := s.liveMaxSessionDuration() + 5*time.Minute
 		if saveErr := store.SaveLiveCall(ctx, record, mappingTTL); saveErr != nil {
-			s.releaseLiveLease(account.ID, identity.UserID, identity.APIKeyID, leaseID)
+			s.releaseLiveTargetLease(concurrencyTarget, account.ID, identity.UserID, identity.APIKeyID, leaseID)
 			return nil, fmt.Errorf("save live call mapping: %w", saveErr)
 		}
 		created.Account = account
@@ -780,18 +780,59 @@ func (s *OpenAIGatewayService) refreshLiveLease(record *LiveCallRecord) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), liveRedisOperationTimeout)
 	defer cancel()
-	refreshed, err := cache.RefreshLiveLease(ctx, record.AccountID, record.UserID, record.APIKeyID, record.LeaseID)
+	target := liveRecordConcurrencyTarget(record)
+	var refreshed bool
+	if targetCache, ok := cache.(TargetLiveConcurrencyCache); ok {
+		refreshed, err = targetCache.RefreshLiveTargetLease(ctx, target, record.UserID, record.APIKeyID, record.LeaseID)
+	} else {
+		refreshed, err = cache.RefreshLiveLease(ctx, record.AccountID, record.UserID, record.APIKeyID, record.LeaseID)
+	}
 	return err == nil && refreshed
 }
 
 func (s *OpenAIGatewayService) releaseLiveLease(accountID, userID, apiKeyID int64, leaseID string) {
+	s.releaseLiveTargetLease(ConcurrencyTarget{Kind: ConcurrencyTargetAccount, ID: accountID}, accountID, userID, apiKeyID, leaseID)
+}
+
+func (s *OpenAIGatewayService) releaseLiveTargetLease(target ConcurrencyTarget, accountID, userID, apiKeyID int64, leaseID string) {
 	cache, err := s.liveConcurrencyCache()
 	if err != nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), liveRedisOperationTimeout)
 	defer cancel()
+	if targetCache, ok := cache.(TargetLiveConcurrencyCache); ok {
+		_ = targetCache.ReleaseLiveTargetLease(ctx, target, userID, apiKeyID, leaseID)
+		return
+	}
 	_ = cache.ReleaseLiveLease(ctx, accountID, userID, apiKeyID, leaseID)
+}
+
+func (s *OpenAIGatewayService) releaseLiveRecordLease(record *LiveCallRecord) {
+	if record == nil {
+		return
+	}
+	cache, err := s.liveConcurrencyCache()
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), liveRedisOperationTimeout)
+	defer cancel()
+	if targetCache, ok := cache.(TargetLiveConcurrencyCache); ok {
+		_ = targetCache.ReleaseLiveTargetLease(ctx, liveRecordConcurrencyTarget(record), record.UserID, record.APIKeyID, record.LeaseID)
+		return
+	}
+	_ = cache.ReleaseLiveLease(ctx, record.AccountID, record.UserID, record.APIKeyID, record.LeaseID)
+}
+
+func liveRecordConcurrencyTarget(record *LiveCallRecord) ConcurrencyTarget {
+	if record != nil && record.ConcurrencyTargetKind == ConcurrencyTargetUpstream && record.ConcurrencyTargetID > 0 {
+		return ConcurrencyTarget{Kind: ConcurrencyTargetUpstream, ID: record.ConcurrencyTargetID}
+	}
+	if record == nil {
+		return ConcurrencyTarget{Kind: ConcurrencyTargetAccount}
+	}
+	return ConcurrencyTarget{Kind: ConcurrencyTargetAccount, ID: record.AccountID}
 }
 
 func (s *OpenAIGatewayService) finalizeLiveCall(record *LiveCallRecord) {
@@ -808,7 +849,7 @@ func (s *OpenAIGatewayService) finalizeLiveCall(record *LiveCallRecord) {
 	if err != nil || !first {
 		return
 	}
-	s.releaseLiveLease(record.AccountID, record.UserID, record.APIKeyID, record.LeaseID)
+	s.releaseLiveRecordLease(record)
 	if s.usageLogRepo == nil {
 		return
 	}

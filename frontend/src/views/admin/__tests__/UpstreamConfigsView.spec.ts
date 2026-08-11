@@ -612,16 +612,17 @@ describe('UpstreamConfigsView', () => {
 
     const cells = wrapper.findAll('[data-test="upstream-concurrency"]')
     expect(cells.map((cell) => cell.text())).toEqual([
-      'admin.upstreamConfigs.concurrency.limited:{"count":"9,223,372,036,854,775,807"}',
+      'admin.upstreamConfigs.concurrency.defaultValue:{"count":100}',
       'admin.upstreamConfigs.concurrency.unlimited',
       'admin.upstreamConfigs.concurrency.limited:{"count":"42"}',
-      'admin.upstreamConfigs.concurrency.stale:{"value":"6,000"}',
-      'admin.upstreamConfigs.concurrency.unsupported',
-      'admin.upstreamConfigs.concurrency.initialFailure',
-      'admin.upstreamConfigs.concurrency.stale:{"value":"admin.upstreamConfigs.concurrency.unlimited"}',
-      'admin.upstreamConfigs.concurrency.stale:{"value":"42"}'
+      'admin.upstreamConfigs.concurrency.defaultValue:{"count":100}',
+      'admin.upstreamConfigs.concurrency.defaultValue:{"count":100}',
+      'admin.upstreamConfigs.concurrency.defaultValue:{"count":100}',
+      'admin.upstreamConfigs.concurrency.defaultValue:{"count":100}',
+      'admin.upstreamConfigs.concurrency.defaultValue:{"count":100}'
     ])
-    expect(cells[0].attributes('title')).toBe('admin.upstreamConfigs.concurrency.headerTitle')
+    expect(cells[0].attributes('title')).toContain('admin.upstreamConfigs.concurrency.headerTitle')
+    expect(cells[0].attributes('title')).toContain('admin.upstreamConfigs.concurrency.sourceTooltip')
     expect(cells[2].attributes('title')).toContain('admin.upstreamConfigs.concurrency.providerReportedHint')
     expect(cells[0].find('div > div').classes()).not.toContain('font-semibold')
     expect(cells[3].attributes('title')).toContain('admin.upstreamConfigs.concurrency.lastObservedAt')

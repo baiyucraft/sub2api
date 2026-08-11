@@ -208,12 +208,17 @@ type CheckMixedChannelRequest struct {
 // AccountWithConcurrency extends Account with real-time concurrency info
 type AccountWithConcurrency struct {
 	*dto.Account
-	CurrentConcurrency    int                                  `json:"current_concurrency"`
-	SchedulerScore        *AccountSchedulerScore               `json:"scheduler_score,omitempty"`
-	SchedulerScores       []AccountSchedulerGroupScore         `json:"scheduler_scores,omitempty"`
-	TTFTGuardDegradations []service.OpenAITTFTGuardDegradation `json:"ttft_guard_degradations,omitempty"`
-	UpstreamHealth        *AccountUpstreamHealth               `json:"upstream_health,omitempty"`
-	AvailableActions      []string                             `json:"available_actions,omitempty"`
+	CurrentConcurrency              int                                  `json:"current_concurrency"`
+	SchedulerConcurrencyLimit       int                                  `json:"scheduler_concurrency_limit"`
+	SchedulerConcurrencyScope       string                               `json:"scheduler_concurrency_scope"`
+	SchedulerConcurrencySource      string                               `json:"scheduler_concurrency_source,omitempty"`
+	SchedulerConcurrencyUsesDefault bool                                 `json:"scheduler_concurrency_uses_default,omitempty"`
+	SchedulerConcurrencyUnlimited   bool                                 `json:"scheduler_concurrency_unlimited,omitempty"`
+	SchedulerScore                  *AccountSchedulerScore               `json:"scheduler_score,omitempty"`
+	SchedulerScores                 []AccountSchedulerGroupScore         `json:"scheduler_scores,omitempty"`
+	TTFTGuardDegradations           []service.OpenAITTFTGuardDegradation `json:"ttft_guard_degradations,omitempty"`
+	UpstreamHealth                  *AccountUpstreamHealth               `json:"upstream_health,omitempty"`
+	AvailableActions                []string                             `json:"available_actions,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
@@ -257,6 +262,12 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	if account == nil {
 		return item
 	}
+	target := account.SchedulingConcurrencyTarget()
+	item.SchedulerConcurrencyLimit = target.Limit
+	item.SchedulerConcurrencyScope = target.Kind
+	item.SchedulerConcurrencySource = account.UpstreamConcurrencySource
+	item.SchedulerConcurrencyUsesDefault = account.UpstreamConcurrencyUsesDefault
+	item.SchedulerConcurrencyUnlimited = account.UpstreamConcurrencyUnlimited
 	if account.UpstreamKeyID != nil {
 		health := service.GlobalUpstreamHealthRegistry().Snapshot(*account.UpstreamKeyID)
 		item.UpstreamHealth = &AccountUpstreamHealth{UpstreamHealthSnapshot: health}
@@ -274,8 +285,8 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	}
 
 	if h.concurrencyService != nil {
-		if counts, err := h.concurrencyService.GetAccountConcurrencyBatch(ctx, []int64{account.ID}); err == nil {
-			item.CurrentConcurrency = counts[account.ID]
+		if loads, err := h.concurrencyService.GetAccountsLoadBatch(ctx, []service.AccountWithConcurrency{service.AccountConcurrencyLoadDescriptor(account)}); err == nil && loads[account.ID] != nil {
+			item.CurrentConcurrency = loads[account.ID].CurrentConcurrency
 		}
 	}
 
@@ -382,10 +393,7 @@ func (h *AccountHandler) fetchOpenAIAccountLoadMap(ctx context.Context, openAIAc
 			continue
 		}
 		seen[account.ID] = struct{}{}
-		loadReq = append(loadReq, service.AccountWithConcurrency{
-			ID:             account.ID,
-			MaxConcurrency: account.EffectiveLoadFactor(),
-		})
+		loadReq = append(loadReq, service.AccountConcurrencyLoadDescriptor(account))
 	}
 	if batchLoad, err := h.concurrencyService.GetAccountsLoadBatch(ctx, loadReq); err != nil {
 		slog.Warn("openai_scheduler_score_load_batch_failed", "error", err)
@@ -677,10 +685,18 @@ func (h *AccountHandler) List(c *gin.Context) {
 		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool)
 	}
 
-	// 始终获取并发数（Redis ZCARD，极低开销）
+	// 始终获取调度并发数；上游账号按 upstream_config_id 共享同一目标。
 	if h.concurrencyService != nil {
-		if cc, ccErr := h.concurrencyService.GetAccountConcurrencyBatch(c.Request.Context(), accountIDs); ccErr == nil && cc != nil {
-			concurrencyCounts = cc
+		loadReq := make([]service.AccountWithConcurrency, 0, len(accounts))
+		for i := range accounts {
+			loadReq = append(loadReq, service.AccountConcurrencyLoadDescriptor(&accounts[i]))
+		}
+		if loads, loadErr := h.concurrencyService.GetAccountsLoadBatch(c.Request.Context(), loadReq); loadErr == nil {
+			for accountID, load := range loads {
+				if load != nil {
+					concurrencyCounts[accountID] = load.CurrentConcurrency
+				}
+			}
 		}
 	}
 	if h.ttftGuardReader != nil && len(ttftGuardAccountIDs) > 0 {
@@ -782,6 +798,12 @@ func (h *AccountHandler) List(c *gin.Context) {
 			SchedulerScores:       schedulerGroupScores[acc.ID],
 			TTFTGuardDegradations: accountTTFTGuardDegradations,
 		}
+		target := acc.SchedulingConcurrencyTarget()
+		item.SchedulerConcurrencyLimit = target.Limit
+		item.SchedulerConcurrencyScope = target.Kind
+		item.SchedulerConcurrencySource = acc.UpstreamConcurrencySource
+		item.SchedulerConcurrencyUsesDefault = acc.UpstreamConcurrencyUsesDefault
+		item.SchedulerConcurrencyUnlimited = acc.UpstreamConcurrencyUnlimited
 		if scope == service.AccountListScopeUpstream {
 			item.AvailableActions = upstreamAccountAvailableActions(acc)
 		}
