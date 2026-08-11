@@ -5,9 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+)
+
+const (
+	DefaultUpstreamProbeIntervalSeconds = 300
+	MinUpstreamProbeIntervalSeconds     = 60
+	MaxUpstreamProbeIntervalSeconds     = 3600
 )
 
 type UpstreamProbeModels struct {
@@ -89,4 +96,32 @@ func (s *SettingService) SetUpstreamProbeModels(ctx context.Context, models Upst
 		return err
 	}
 	return s.settingRepo.Set(ctx, SettingKeyUpstreamProbeModels, string(raw))
+}
+
+func validateUpstreamProbeIntervalSeconds(seconds int) error {
+	if seconds < MinUpstreamProbeIntervalSeconds || seconds > MaxUpstreamProbeIntervalSeconds {
+		return infraerrors.BadRequest("UPSTREAM_PROBE_INTERVAL_INVALID", "probe_interval_seconds must be between 60 and 3600")
+	}
+	return nil
+}
+
+func (s *SettingService) GetUpstreamProbeIntervalSeconds(ctx context.Context) (int, error) {
+	if s == nil || s.settingRepo == nil {
+		return DefaultUpstreamProbeIntervalSeconds, nil
+	}
+	raw, err := s.settingRepo.GetValue(ctx, SettingKeyUpstreamProbeIntervalSeconds)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultUpstreamProbeIntervalSeconds, nil
+		}
+		return DefaultUpstreamProbeIntervalSeconds, err
+	}
+	seconds, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return DefaultUpstreamProbeIntervalSeconds, fmt.Errorf("parse upstream probe interval: %w", err)
+	}
+	if err := validateUpstreamProbeIntervalSeconds(seconds); err != nil {
+		return DefaultUpstreamProbeIntervalSeconds, err
+	}
+	return seconds, nil
 }

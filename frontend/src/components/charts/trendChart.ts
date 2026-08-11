@@ -9,5 +9,8 @@ export interface TrendChartSeries {
   fill?: boolean
   stepped?: boolean | 'before' | 'after' | 'middle'
   pointStyle?: TrendChartPointStyle
+  pointRadius?: number
+  pointHoverRadius?: number
+  showLine?: boolean
   order?: number
 }

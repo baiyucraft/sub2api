@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -142,6 +143,16 @@ func (s *SettingService) SetOpenAITTFTGuardSettings(ctx context.Context, setting
 // SetOpenAITTFTGuardAndProbeModels persists both upstream-management settings
 // in one repository operation and refreshes the TTFT hot snapshot afterwards.
 func (s *SettingService) SetOpenAITTFTGuardAndProbeModels(ctx context.Context, settings *OpenAITTFTGuardSettings, models UpstreamProbeModels) error {
+	intervalSeconds, err := s.GetUpstreamProbeIntervalSeconds(ctx)
+	if err != nil {
+		return err
+	}
+	return s.SetOpenAITTFTGuardProbeModelsAndInterval(ctx, settings, models, intervalSeconds)
+}
+
+// SetOpenAITTFTGuardProbeModelsAndInterval validates the complete management
+// settings payload before atomically persisting any of it.
+func (s *SettingService) SetOpenAITTFTGuardProbeModelsAndInterval(ctx context.Context, settings *OpenAITTFTGuardSettings, models UpstreamProbeModels, intervalSeconds int) error {
 	if err := validateOpenAITTFTGuardSettings(settings); err != nil {
 		return err
 	}
@@ -149,6 +160,9 @@ func (s *SettingService) SetOpenAITTFTGuardAndProbeModels(ctx context.Context, s
 	models.Anthropic = strings.TrimSpace(models.Anthropic)
 	models.Gemini = strings.TrimSpace(models.Gemini)
 	if err := validateUpstreamProbeModels(models); err != nil {
+		return err
+	}
+	if err := validateUpstreamProbeIntervalSeconds(intervalSeconds); err != nil {
 		return err
 	}
 	if s == nil || s.settingRepo == nil {
@@ -165,8 +179,9 @@ func (s *SettingService) SetOpenAITTFTGuardAndProbeModels(ctx context.Context, s
 	s.openAITTFTGuardUpdateMu.Lock()
 	defer s.openAITTFTGuardUpdateMu.Unlock()
 	if err := s.settingRepo.SetMultiple(ctx, map[string]string{
-		SettingKeyOpenAITTFTGuardSettings: string(ttftRaw),
-		SettingKeyUpstreamProbeModels:     string(probeRaw),
+		SettingKeyOpenAITTFTGuardSettings:      string(ttftRaw),
+		SettingKeyUpstreamProbeModels:          string(probeRaw),
+		SettingKeyUpstreamProbeIntervalSeconds: strconv.Itoa(intervalSeconds),
 	}); err != nil {
 		return fmt.Errorf("set upstream management settings: %w", err)
 	}

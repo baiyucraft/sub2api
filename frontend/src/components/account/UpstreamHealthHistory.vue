@@ -30,7 +30,10 @@
         <div class="font-medium" :class="textClass(item.state)">{{ stateLabel(item.state) }}</div>
         <div class="mt-1">{{ t('admin.upstreamManagement.health.observedAt') }}: {{ formatDateTime(item.observed_at) }}</div>
         <div>{{ t('admin.upstreamManagement.health.source') }}: {{ sourceLabel(item.source) }}</div>
+        <div v-if="item.model">{{ t('admin.upstreamManagement.health.model') }}: {{ item.model }}</div>
         <div>{{ t('admin.upstreamManagement.health.result') }}: {{ item.result || '-' }}</div>
+        <div v-if="item.ttft_ms != null">{{ t('admin.upstreamManagement.health.ttft') }}: {{ formatDuration(item.ttft_ms) }}</div>
+        <div v-if="item.duration_ms != null">{{ t('admin.upstreamManagement.health.duration') }}: {{ formatDuration(item.duration_ms) }}</div>
         <div>{{ t('admin.upstreamManagement.health.reason') }}: {{ reasonLabel(item.reason) }}</div>
       </HelpTooltip>
     </div>
@@ -60,12 +63,12 @@ const props = withDefaults(defineProps<{
   interactive?: boolean
 }>(), {
   observations: () => [],
-  limit: 12,
+  limit: 24,
   interactive: true
 })
 const emit = defineEmits<{ (event: 'showHistory'): void }>()
 const { t, te } = useI18n()
-const visibleObservations = computed(() => props.observations.slice(-Math.max(1, props.limit)))
+const visibleObservations = computed(() => props.observations.slice(-Math.min(24, Math.max(1, props.limit))))
 const healthyCount = computed(() => visibleObservations.value.filter(item => item.state === 'healthy').length)
 
 const barHeight = (state: UpstreamHealthObservation['state']) => ({ healthy: '100%', recovering: '82%', degraded: '65%', observing: '52%', suspended: '35%', disabled: '18%' }[state] || '18%')
@@ -87,4 +90,7 @@ const reasonLabel = (reason?: string) => {
   const key = `admin.upstreamManagement.health.reasons.${value}`
   return te(key) ? t(key) : value
 }
+const formatDuration = (milliseconds: number) => milliseconds >= 1000
+  ? `${(milliseconds / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} s`
+  : `${milliseconds.toLocaleString()} ms`
 </script>

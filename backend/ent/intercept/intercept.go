@@ -44,6 +44,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamhealthobservation"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
@@ -1060,6 +1061,33 @@ func (f TraverseUpstreamEvent) Traverse(ctx context.Context, q ent.Query) error 
 	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamEventQuery", q)
 }
 
+// The UpstreamHealthObservationFunc type is an adapter to allow the use of ordinary function as a Querier.
+type UpstreamHealthObservationFunc func(context.Context, *ent.UpstreamHealthObservationQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f UpstreamHealthObservationFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.UpstreamHealthObservationQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamHealthObservationQuery", q)
+}
+
+// The TraverseUpstreamHealthObservation type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseUpstreamHealthObservation func(context.Context, *ent.UpstreamHealthObservationQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseUpstreamHealthObservation) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseUpstreamHealthObservation) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.UpstreamHealthObservationQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamHealthObservationQuery", q)
+}
+
 // The UpstreamIncidentFunc type is an adapter to allow the use of ordinary function as a Querier.
 type UpstreamIncidentFunc func(context.Context, *ent.UpstreamIncidentQuery) (ent.Value, error)
 
@@ -1484,6 +1512,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.UpstreamConfigQuery, predicate.UpstreamConfig, upstreamconfig.OrderOption]{typ: ent.TypeUpstreamConfig, tq: q}, nil
 	case *ent.UpstreamEventQuery:
 		return &query[*ent.UpstreamEventQuery, predicate.UpstreamEvent, upstreamevent.OrderOption]{typ: ent.TypeUpstreamEvent, tq: q}, nil
+	case *ent.UpstreamHealthObservationQuery:
+		return &query[*ent.UpstreamHealthObservationQuery, predicate.UpstreamHealthObservation, upstreamhealthobservation.OrderOption]{typ: ent.TypeUpstreamHealthObservation, tq: q}, nil
 	case *ent.UpstreamIncidentQuery:
 		return &query[*ent.UpstreamIncidentQuery, predicate.UpstreamIncident, upstreamincident.OrderOption]{typ: ent.TypeUpstreamIncident, tq: q}, nil
 	case *ent.UpstreamKeyQuery:

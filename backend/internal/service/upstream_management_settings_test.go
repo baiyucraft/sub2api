@@ -68,15 +68,17 @@ func TestSetManagementSettingsPersistsAtomicallyAndPublishesTTFT(t *testing.T) {
 	upstreamService := NewUpstreamConfigService(nil, nil, nil)
 	upstreamService.SetHealthProbeDependencies(nil, settingService)
 	settings := UpstreamManagementSettings{
-		TTFTGuard:   OpenAITTFTGuardSettings{Enabled: true, DegradationTTFTSeconds: 35, MinSamples: 6},
-		ProbeModels: UpstreamProbeModels{OpenAI: " gpt-custom ", Anthropic: "claude-custom", Gemini: "gemini-custom"},
+		TTFTGuard:            OpenAITTFTGuardSettings{Enabled: true, DegradationTTFTSeconds: 35, MinSamples: 6},
+		ProbeModels:          UpstreamProbeModels{OpenAI: " gpt-custom ", Anthropic: "claude-custom", Gemini: "gemini-custom"},
+		ProbeIntervalSeconds: 600,
 	}
 
 	require.NoError(t, upstreamService.SetManagementSettings(context.Background(), settings))
 	require.Equal(t, 1, repo.setMultipleCalls)
-	require.Len(t, repo.lastMultiple, 2)
+	require.Len(t, repo.lastMultiple, 3)
 	require.JSONEq(t, `{"enabled":true,"degradation_ttft_seconds":35,"min_samples":6}`, repo.lastMultiple[SettingKeyOpenAITTFTGuardSettings])
 	require.JSONEq(t, `{"openai":"gpt-custom","anthropic":"claude-custom","gemini":"gemini-custom"}`, repo.lastMultiple[SettingKeyUpstreamProbeModels])
+	require.Equal(t, "600", repo.lastMultiple[SettingKeyUpstreamProbeIntervalSeconds])
 	snapshot := settingService.OpenAITTFTGuardConfigSnapshot()
 	require.True(t, snapshot.Enabled)
 	require.Equal(t, 35*time.Second, snapshot.Threshold)
@@ -89,13 +91,29 @@ func TestSetManagementSettingsValidatesEverythingBeforeWriting(t *testing.T) {
 	upstreamService := NewUpstreamConfigService(nil, nil, nil)
 	upstreamService.SetHealthProbeDependencies(nil, settingService)
 	settings := UpstreamManagementSettings{
-		TTFTGuard:   OpenAITTFTGuardSettings{Enabled: true, DegradationTTFTSeconds: 20, MinSamples: 5},
-		ProbeModels: UpstreamProbeModels{OpenAI: "", Anthropic: "claude-custom", Gemini: "gemini-custom"},
+		TTFTGuard:            OpenAITTFTGuardSettings{Enabled: true, DegradationTTFTSeconds: 20, MinSamples: 5},
+		ProbeModels:          UpstreamProbeModels{OpenAI: "", Anthropic: "claude-custom", Gemini: "gemini-custom"},
+		ProbeIntervalSeconds: 300,
 	}
 
 	require.Error(t, upstreamService.SetManagementSettings(context.Background(), settings))
 	require.Zero(t, repo.setMultipleCalls)
 	require.Empty(t, repo.values)
+}
+
+func TestUpstreamProbeIntervalDefaultsAndValidatesRange(t *testing.T) {
+	repo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
+	settingService := NewSettingService(repo, nil)
+
+	value, err := settingService.GetUpstreamProbeIntervalSeconds(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, DefaultUpstreamProbeIntervalSeconds, value)
+
+	for _, invalid := range []int{59, 3601} {
+		err := settingService.SetOpenAITTFTGuardProbeModelsAndInterval(context.Background(), DefaultOpenAITTFTGuardSettings(), DefaultUpstreamProbeModels(), invalid)
+		require.Error(t, err)
+		require.Zero(t, repo.setMultipleCalls)
+	}
 }
 
 type upstreamProbeCandidateRepoStub struct {

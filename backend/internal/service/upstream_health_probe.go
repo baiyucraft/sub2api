@@ -13,7 +13,6 @@ import (
 
 const (
 	defaultUpstreamHealthProbeInterval    = 30 * time.Second
-	defaultUpstreamHealthProbeFreshness   = 60 * time.Second
 	defaultUpstreamHealthProbeBudget      = 20
 	defaultUpstreamHealthProbeConcurrency = 4
 )
@@ -181,7 +180,8 @@ func (r *UpstreamHealthProbeRunner) ProbeKey(ctx context.Context, keyID int64) (
 }
 
 // ListDueHealthProbeKeyIDs returns active, observing keys whose last probe is
-// older than the fixed freshness window. It is intentionally deterministic.
+// older than the current configured freshness window. It is deterministic for
+// a given settings snapshot.
 func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, now time.Time, limit int) ([]int64, error) {
 	if limit <= 0 {
 		limit = defaultUpstreamHealthProbeBudget
@@ -197,7 +197,7 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	cutoff := now.Add(-defaultUpstreamHealthProbeFreshness)
+	cutoff := now.Add(-s.effectiveHealthProbeInterval(ctx))
 	ids := make([]int64, 0, len(keys))
 	for _, key := range keys {
 		if key.ID <= 0 || !upstreamKeyIsActive(&key) {
@@ -217,4 +217,20 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 		ids = ids[:limit]
 	}
 	return ids, nil
+}
+
+func (s *UpstreamConfigService) effectiveHealthProbeInterval(ctx context.Context) time.Duration {
+	seconds := int64(DefaultUpstreamProbeIntervalSeconds)
+	if s != nil {
+		if cached := s.healthProbeIntervalSeconds.Load(); cached >= MinUpstreamProbeIntervalSeconds && cached <= MaxUpstreamProbeIntervalSeconds {
+			seconds = cached
+		}
+		if s.settingService != nil {
+			if configured, err := s.settingService.GetUpstreamProbeIntervalSeconds(ctx); err == nil {
+				seconds = int64(configured)
+				s.healthProbeIntervalSeconds.Store(seconds)
+			}
+		}
+	}
+	return time.Duration(seconds) * time.Second
 }

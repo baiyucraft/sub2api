@@ -48,6 +48,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamhealthobservation"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
@@ -108,6 +109,7 @@ const (
 	TypeUpstreamBalanceSnapshot       = "UpstreamBalanceSnapshot"
 	TypeUpstreamConfig                = "UpstreamConfig"
 	TypeUpstreamEvent                 = "UpstreamEvent"
+	TypeUpstreamHealthObservation     = "UpstreamHealthObservation"
 	TypeUpstreamIncident              = "UpstreamIncident"
 	TypeUpstreamKey                   = "UpstreamKey"
 	TypeUpstreamKeyRateSnapshot       = "UpstreamKeyRateSnapshot"
@@ -50811,6 +50813,1693 @@ func (m *UpstreamEventMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown UpstreamEvent edge %s", name)
+}
+
+// UpstreamHealthObservationMutation represents an operation that mutates the UpstreamHealthObservation nodes in the graph.
+type UpstreamHealthObservationMutation struct {
+	config
+	op                    Op
+	typ                   string
+	id                    *int64
+	upstream_config_id    *int64
+	addupstream_config_id *int64
+	upstream_key_id       *int64
+	addupstream_key_id    *int64
+	account_id            *int64
+	addaccount_id         *int64
+	platform              *string
+	model                 *string
+	protocol              *string
+	source                *string
+	state                 *string
+	result                *string
+	reason                *string
+	http_status           *int
+	addhttp_status        *int
+	ttft_ms               *int64
+	addttft_ms            *int64
+	duration_ms           *int64
+	addduration_ms        *int64
+	input_tokens          *int64
+	addinput_tokens       *int64
+	output_tokens         *int64
+	addoutput_tokens      *int64
+	output_tps            *float64
+	addoutput_tps         *float64
+	observed_at           *time.Time
+	created_at            *time.Time
+	clearedFields         map[string]struct{}
+	done                  bool
+	oldValue              func(context.Context) (*UpstreamHealthObservation, error)
+	predicates            []predicate.UpstreamHealthObservation
+}
+
+var _ ent.Mutation = (*UpstreamHealthObservationMutation)(nil)
+
+// upstreamhealthobservationOption allows management of the mutation configuration using functional options.
+type upstreamhealthobservationOption func(*UpstreamHealthObservationMutation)
+
+// newUpstreamHealthObservationMutation creates new mutation for the UpstreamHealthObservation entity.
+func newUpstreamHealthObservationMutation(c config, op Op, opts ...upstreamhealthobservationOption) *UpstreamHealthObservationMutation {
+	m := &UpstreamHealthObservationMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeUpstreamHealthObservation,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withUpstreamHealthObservationID sets the ID field of the mutation.
+func withUpstreamHealthObservationID(id int64) upstreamhealthobservationOption {
+	return func(m *UpstreamHealthObservationMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *UpstreamHealthObservation
+		)
+		m.oldValue = func(ctx context.Context) (*UpstreamHealthObservation, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().UpstreamHealthObservation.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withUpstreamHealthObservation sets the old UpstreamHealthObservation of the mutation.
+func withUpstreamHealthObservation(node *UpstreamHealthObservation) upstreamhealthobservationOption {
+	return func(m *UpstreamHealthObservationMutation) {
+		m.oldValue = func(context.Context) (*UpstreamHealthObservation, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m UpstreamHealthObservationMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m UpstreamHealthObservationMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *UpstreamHealthObservationMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *UpstreamHealthObservationMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().UpstreamHealthObservation.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (m *UpstreamHealthObservationMutation) SetUpstreamConfigID(i int64) {
+	m.upstream_config_id = &i
+	m.addupstream_config_id = nil
+}
+
+// UpstreamConfigID returns the value of the "upstream_config_id" field in the mutation.
+func (m *UpstreamHealthObservationMutation) UpstreamConfigID() (r int64, exists bool) {
+	v := m.upstream_config_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamConfigID returns the old "upstream_config_id" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldUpstreamConfigID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamConfigID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamConfigID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamConfigID: %w", err)
+	}
+	return oldValue.UpstreamConfigID, nil
+}
+
+// AddUpstreamConfigID adds i to the "upstream_config_id" field.
+func (m *UpstreamHealthObservationMutation) AddUpstreamConfigID(i int64) {
+	if m.addupstream_config_id != nil {
+		*m.addupstream_config_id += i
+	} else {
+		m.addupstream_config_id = &i
+	}
+}
+
+// AddedUpstreamConfigID returns the value that was added to the "upstream_config_id" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedUpstreamConfigID() (r int64, exists bool) {
+	v := m.addupstream_config_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetUpstreamConfigID resets all changes to the "upstream_config_id" field.
+func (m *UpstreamHealthObservationMutation) ResetUpstreamConfigID() {
+	m.upstream_config_id = nil
+	m.addupstream_config_id = nil
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (m *UpstreamHealthObservationMutation) SetUpstreamKeyID(i int64) {
+	m.upstream_key_id = &i
+	m.addupstream_key_id = nil
+}
+
+// UpstreamKeyID returns the value of the "upstream_key_id" field in the mutation.
+func (m *UpstreamHealthObservationMutation) UpstreamKeyID() (r int64, exists bool) {
+	v := m.upstream_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamKeyID returns the old "upstream_key_id" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldUpstreamKeyID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamKeyID: %w", err)
+	}
+	return oldValue.UpstreamKeyID, nil
+}
+
+// AddUpstreamKeyID adds i to the "upstream_key_id" field.
+func (m *UpstreamHealthObservationMutation) AddUpstreamKeyID(i int64) {
+	if m.addupstream_key_id != nil {
+		*m.addupstream_key_id += i
+	} else {
+		m.addupstream_key_id = &i
+	}
+}
+
+// AddedUpstreamKeyID returns the value that was added to the "upstream_key_id" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedUpstreamKeyID() (r int64, exists bool) {
+	v := m.addupstream_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetUpstreamKeyID resets all changes to the "upstream_key_id" field.
+func (m *UpstreamHealthObservationMutation) ResetUpstreamKeyID() {
+	m.upstream_key_id = nil
+	m.addupstream_key_id = nil
+}
+
+// SetAccountID sets the "account_id" field.
+func (m *UpstreamHealthObservationMutation) SetAccountID(i int64) {
+	m.account_id = &i
+	m.addaccount_id = nil
+}
+
+// AccountID returns the value of the "account_id" field in the mutation.
+func (m *UpstreamHealthObservationMutation) AccountID() (r int64, exists bool) {
+	v := m.account_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountID returns the old "account_id" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldAccountID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountID: %w", err)
+	}
+	return oldValue.AccountID, nil
+}
+
+// AddAccountID adds i to the "account_id" field.
+func (m *UpstreamHealthObservationMutation) AddAccountID(i int64) {
+	if m.addaccount_id != nil {
+		*m.addaccount_id += i
+	} else {
+		m.addaccount_id = &i
+	}
+}
+
+// AddedAccountID returns the value that was added to the "account_id" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedAccountID() (r int64, exists bool) {
+	v := m.addaccount_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (m *UpstreamHealthObservationMutation) ClearAccountID() {
+	m.account_id = nil
+	m.addaccount_id = nil
+	m.clearedFields[upstreamhealthobservation.FieldAccountID] = struct{}{}
+}
+
+// AccountIDCleared returns if the "account_id" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) AccountIDCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldAccountID]
+	return ok
+}
+
+// ResetAccountID resets all changes to the "account_id" field.
+func (m *UpstreamHealthObservationMutation) ResetAccountID() {
+	m.account_id = nil
+	m.addaccount_id = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldAccountID)
+}
+
+// SetPlatform sets the "platform" field.
+func (m *UpstreamHealthObservationMutation) SetPlatform(s string) {
+	m.platform = &s
+}
+
+// Platform returns the value of the "platform" field in the mutation.
+func (m *UpstreamHealthObservationMutation) Platform() (r string, exists bool) {
+	v := m.platform
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPlatform returns the old "platform" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldPlatform(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPlatform is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPlatform requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPlatform: %w", err)
+	}
+	return oldValue.Platform, nil
+}
+
+// ResetPlatform resets all changes to the "platform" field.
+func (m *UpstreamHealthObservationMutation) ResetPlatform() {
+	m.platform = nil
+}
+
+// SetModel sets the "model" field.
+func (m *UpstreamHealthObservationMutation) SetModel(s string) {
+	m.model = &s
+}
+
+// Model returns the value of the "model" field in the mutation.
+func (m *UpstreamHealthObservationMutation) Model() (r string, exists bool) {
+	v := m.model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModel returns the old "model" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModel: %w", err)
+	}
+	return oldValue.Model, nil
+}
+
+// ResetModel resets all changes to the "model" field.
+func (m *UpstreamHealthObservationMutation) ResetModel() {
+	m.model = nil
+}
+
+// SetProtocol sets the "protocol" field.
+func (m *UpstreamHealthObservationMutation) SetProtocol(s string) {
+	m.protocol = &s
+}
+
+// Protocol returns the value of the "protocol" field in the mutation.
+func (m *UpstreamHealthObservationMutation) Protocol() (r string, exists bool) {
+	v := m.protocol
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProtocol returns the old "protocol" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldProtocol(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProtocol is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProtocol requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProtocol: %w", err)
+	}
+	return oldValue.Protocol, nil
+}
+
+// ResetProtocol resets all changes to the "protocol" field.
+func (m *UpstreamHealthObservationMutation) ResetProtocol() {
+	m.protocol = nil
+}
+
+// SetSource sets the "source" field.
+func (m *UpstreamHealthObservationMutation) SetSource(s string) {
+	m.source = &s
+}
+
+// Source returns the value of the "source" field in the mutation.
+func (m *UpstreamHealthObservationMutation) Source() (r string, exists bool) {
+	v := m.source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSource returns the old "source" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldSource(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSource: %w", err)
+	}
+	return oldValue.Source, nil
+}
+
+// ResetSource resets all changes to the "source" field.
+func (m *UpstreamHealthObservationMutation) ResetSource() {
+	m.source = nil
+}
+
+// SetState sets the "state" field.
+func (m *UpstreamHealthObservationMutation) SetState(s string) {
+	m.state = &s
+}
+
+// State returns the value of the "state" field in the mutation.
+func (m *UpstreamHealthObservationMutation) State() (r string, exists bool) {
+	v := m.state
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldState returns the old "state" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldState(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldState is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldState requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldState: %w", err)
+	}
+	return oldValue.State, nil
+}
+
+// ResetState resets all changes to the "state" field.
+func (m *UpstreamHealthObservationMutation) ResetState() {
+	m.state = nil
+}
+
+// SetResult sets the "result" field.
+func (m *UpstreamHealthObservationMutation) SetResult(s string) {
+	m.result = &s
+}
+
+// Result returns the value of the "result" field in the mutation.
+func (m *UpstreamHealthObservationMutation) Result() (r string, exists bool) {
+	v := m.result
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResult returns the old "result" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldResult(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResult is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResult requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResult: %w", err)
+	}
+	return oldValue.Result, nil
+}
+
+// ResetResult resets all changes to the "result" field.
+func (m *UpstreamHealthObservationMutation) ResetResult() {
+	m.result = nil
+}
+
+// SetReason sets the "reason" field.
+func (m *UpstreamHealthObservationMutation) SetReason(s string) {
+	m.reason = &s
+}
+
+// Reason returns the value of the "reason" field in the mutation.
+func (m *UpstreamHealthObservationMutation) Reason() (r string, exists bool) {
+	v := m.reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReason returns the old "reason" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReason: %w", err)
+	}
+	return oldValue.Reason, nil
+}
+
+// ResetReason resets all changes to the "reason" field.
+func (m *UpstreamHealthObservationMutation) ResetReason() {
+	m.reason = nil
+}
+
+// SetHTTPStatus sets the "http_status" field.
+func (m *UpstreamHealthObservationMutation) SetHTTPStatus(i int) {
+	m.http_status = &i
+	m.addhttp_status = nil
+}
+
+// HTTPStatus returns the value of the "http_status" field in the mutation.
+func (m *UpstreamHealthObservationMutation) HTTPStatus() (r int, exists bool) {
+	v := m.http_status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldHTTPStatus returns the old "http_status" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldHTTPStatus(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldHTTPStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldHTTPStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldHTTPStatus: %w", err)
+	}
+	return oldValue.HTTPStatus, nil
+}
+
+// AddHTTPStatus adds i to the "http_status" field.
+func (m *UpstreamHealthObservationMutation) AddHTTPStatus(i int) {
+	if m.addhttp_status != nil {
+		*m.addhttp_status += i
+	} else {
+		m.addhttp_status = &i
+	}
+}
+
+// AddedHTTPStatus returns the value that was added to the "http_status" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedHTTPStatus() (r int, exists bool) {
+	v := m.addhttp_status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearHTTPStatus clears the value of the "http_status" field.
+func (m *UpstreamHealthObservationMutation) ClearHTTPStatus() {
+	m.http_status = nil
+	m.addhttp_status = nil
+	m.clearedFields[upstreamhealthobservation.FieldHTTPStatus] = struct{}{}
+}
+
+// HTTPStatusCleared returns if the "http_status" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) HTTPStatusCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldHTTPStatus]
+	return ok
+}
+
+// ResetHTTPStatus resets all changes to the "http_status" field.
+func (m *UpstreamHealthObservationMutation) ResetHTTPStatus() {
+	m.http_status = nil
+	m.addhttp_status = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldHTTPStatus)
+}
+
+// SetTtftMs sets the "ttft_ms" field.
+func (m *UpstreamHealthObservationMutation) SetTtftMs(i int64) {
+	m.ttft_ms = &i
+	m.addttft_ms = nil
+}
+
+// TtftMs returns the value of the "ttft_ms" field in the mutation.
+func (m *UpstreamHealthObservationMutation) TtftMs() (r int64, exists bool) {
+	v := m.ttft_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTtftMs returns the old "ttft_ms" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldTtftMs(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTtftMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTtftMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTtftMs: %w", err)
+	}
+	return oldValue.TtftMs, nil
+}
+
+// AddTtftMs adds i to the "ttft_ms" field.
+func (m *UpstreamHealthObservationMutation) AddTtftMs(i int64) {
+	if m.addttft_ms != nil {
+		*m.addttft_ms += i
+	} else {
+		m.addttft_ms = &i
+	}
+}
+
+// AddedTtftMs returns the value that was added to the "ttft_ms" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedTtftMs() (r int64, exists bool) {
+	v := m.addttft_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearTtftMs clears the value of the "ttft_ms" field.
+func (m *UpstreamHealthObservationMutation) ClearTtftMs() {
+	m.ttft_ms = nil
+	m.addttft_ms = nil
+	m.clearedFields[upstreamhealthobservation.FieldTtftMs] = struct{}{}
+}
+
+// TtftMsCleared returns if the "ttft_ms" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) TtftMsCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldTtftMs]
+	return ok
+}
+
+// ResetTtftMs resets all changes to the "ttft_ms" field.
+func (m *UpstreamHealthObservationMutation) ResetTtftMs() {
+	m.ttft_ms = nil
+	m.addttft_ms = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldTtftMs)
+}
+
+// SetDurationMs sets the "duration_ms" field.
+func (m *UpstreamHealthObservationMutation) SetDurationMs(i int64) {
+	m.duration_ms = &i
+	m.addduration_ms = nil
+}
+
+// DurationMs returns the value of the "duration_ms" field in the mutation.
+func (m *UpstreamHealthObservationMutation) DurationMs() (r int64, exists bool) {
+	v := m.duration_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDurationMs returns the old "duration_ms" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldDurationMs(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDurationMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDurationMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDurationMs: %w", err)
+	}
+	return oldValue.DurationMs, nil
+}
+
+// AddDurationMs adds i to the "duration_ms" field.
+func (m *UpstreamHealthObservationMutation) AddDurationMs(i int64) {
+	if m.addduration_ms != nil {
+		*m.addduration_ms += i
+	} else {
+		m.addduration_ms = &i
+	}
+}
+
+// AddedDurationMs returns the value that was added to the "duration_ms" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedDurationMs() (r int64, exists bool) {
+	v := m.addduration_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearDurationMs clears the value of the "duration_ms" field.
+func (m *UpstreamHealthObservationMutation) ClearDurationMs() {
+	m.duration_ms = nil
+	m.addduration_ms = nil
+	m.clearedFields[upstreamhealthobservation.FieldDurationMs] = struct{}{}
+}
+
+// DurationMsCleared returns if the "duration_ms" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) DurationMsCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldDurationMs]
+	return ok
+}
+
+// ResetDurationMs resets all changes to the "duration_ms" field.
+func (m *UpstreamHealthObservationMutation) ResetDurationMs() {
+	m.duration_ms = nil
+	m.addduration_ms = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldDurationMs)
+}
+
+// SetInputTokens sets the "input_tokens" field.
+func (m *UpstreamHealthObservationMutation) SetInputTokens(i int64) {
+	m.input_tokens = &i
+	m.addinput_tokens = nil
+}
+
+// InputTokens returns the value of the "input_tokens" field in the mutation.
+func (m *UpstreamHealthObservationMutation) InputTokens() (r int64, exists bool) {
+	v := m.input_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInputTokens returns the old "input_tokens" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldInputTokens(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInputTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInputTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInputTokens: %w", err)
+	}
+	return oldValue.InputTokens, nil
+}
+
+// AddInputTokens adds i to the "input_tokens" field.
+func (m *UpstreamHealthObservationMutation) AddInputTokens(i int64) {
+	if m.addinput_tokens != nil {
+		*m.addinput_tokens += i
+	} else {
+		m.addinput_tokens = &i
+	}
+}
+
+// AddedInputTokens returns the value that was added to the "input_tokens" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedInputTokens() (r int64, exists bool) {
+	v := m.addinput_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearInputTokens clears the value of the "input_tokens" field.
+func (m *UpstreamHealthObservationMutation) ClearInputTokens() {
+	m.input_tokens = nil
+	m.addinput_tokens = nil
+	m.clearedFields[upstreamhealthobservation.FieldInputTokens] = struct{}{}
+}
+
+// InputTokensCleared returns if the "input_tokens" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) InputTokensCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldInputTokens]
+	return ok
+}
+
+// ResetInputTokens resets all changes to the "input_tokens" field.
+func (m *UpstreamHealthObservationMutation) ResetInputTokens() {
+	m.input_tokens = nil
+	m.addinput_tokens = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldInputTokens)
+}
+
+// SetOutputTokens sets the "output_tokens" field.
+func (m *UpstreamHealthObservationMutation) SetOutputTokens(i int64) {
+	m.output_tokens = &i
+	m.addoutput_tokens = nil
+}
+
+// OutputTokens returns the value of the "output_tokens" field in the mutation.
+func (m *UpstreamHealthObservationMutation) OutputTokens() (r int64, exists bool) {
+	v := m.output_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOutputTokens returns the old "output_tokens" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldOutputTokens(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOutputTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOutputTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOutputTokens: %w", err)
+	}
+	return oldValue.OutputTokens, nil
+}
+
+// AddOutputTokens adds i to the "output_tokens" field.
+func (m *UpstreamHealthObservationMutation) AddOutputTokens(i int64) {
+	if m.addoutput_tokens != nil {
+		*m.addoutput_tokens += i
+	} else {
+		m.addoutput_tokens = &i
+	}
+}
+
+// AddedOutputTokens returns the value that was added to the "output_tokens" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedOutputTokens() (r int64, exists bool) {
+	v := m.addoutput_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearOutputTokens clears the value of the "output_tokens" field.
+func (m *UpstreamHealthObservationMutation) ClearOutputTokens() {
+	m.output_tokens = nil
+	m.addoutput_tokens = nil
+	m.clearedFields[upstreamhealthobservation.FieldOutputTokens] = struct{}{}
+}
+
+// OutputTokensCleared returns if the "output_tokens" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) OutputTokensCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldOutputTokens]
+	return ok
+}
+
+// ResetOutputTokens resets all changes to the "output_tokens" field.
+func (m *UpstreamHealthObservationMutation) ResetOutputTokens() {
+	m.output_tokens = nil
+	m.addoutput_tokens = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldOutputTokens)
+}
+
+// SetOutputTps sets the "output_tps" field.
+func (m *UpstreamHealthObservationMutation) SetOutputTps(f float64) {
+	m.output_tps = &f
+	m.addoutput_tps = nil
+}
+
+// OutputTps returns the value of the "output_tps" field in the mutation.
+func (m *UpstreamHealthObservationMutation) OutputTps() (r float64, exists bool) {
+	v := m.output_tps
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOutputTps returns the old "output_tps" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldOutputTps(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOutputTps is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOutputTps requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOutputTps: %w", err)
+	}
+	return oldValue.OutputTps, nil
+}
+
+// AddOutputTps adds f to the "output_tps" field.
+func (m *UpstreamHealthObservationMutation) AddOutputTps(f float64) {
+	if m.addoutput_tps != nil {
+		*m.addoutput_tps += f
+	} else {
+		m.addoutput_tps = &f
+	}
+}
+
+// AddedOutputTps returns the value that was added to the "output_tps" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedOutputTps() (r float64, exists bool) {
+	v := m.addoutput_tps
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearOutputTps clears the value of the "output_tps" field.
+func (m *UpstreamHealthObservationMutation) ClearOutputTps() {
+	m.output_tps = nil
+	m.addoutput_tps = nil
+	m.clearedFields[upstreamhealthobservation.FieldOutputTps] = struct{}{}
+}
+
+// OutputTpsCleared returns if the "output_tps" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) OutputTpsCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldOutputTps]
+	return ok
+}
+
+// ResetOutputTps resets all changes to the "output_tps" field.
+func (m *UpstreamHealthObservationMutation) ResetOutputTps() {
+	m.output_tps = nil
+	m.addoutput_tps = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldOutputTps)
+}
+
+// SetObservedAt sets the "observed_at" field.
+func (m *UpstreamHealthObservationMutation) SetObservedAt(t time.Time) {
+	m.observed_at = &t
+}
+
+// ObservedAt returns the value of the "observed_at" field in the mutation.
+func (m *UpstreamHealthObservationMutation) ObservedAt() (r time.Time, exists bool) {
+	v := m.observed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldObservedAt returns the old "observed_at" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldObservedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldObservedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldObservedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldObservedAt: %w", err)
+	}
+	return oldValue.ObservedAt, nil
+}
+
+// ResetObservedAt resets all changes to the "observed_at" field.
+func (m *UpstreamHealthObservationMutation) ResetObservedAt() {
+	m.observed_at = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *UpstreamHealthObservationMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *UpstreamHealthObservationMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *UpstreamHealthObservationMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// Where appends a list predicates to the UpstreamHealthObservationMutation builder.
+func (m *UpstreamHealthObservationMutation) Where(ps ...predicate.UpstreamHealthObservation) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the UpstreamHealthObservationMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *UpstreamHealthObservationMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.UpstreamHealthObservation, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *UpstreamHealthObservationMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *UpstreamHealthObservationMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (UpstreamHealthObservation).
+func (m *UpstreamHealthObservationMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *UpstreamHealthObservationMutation) Fields() []string {
+	fields := make([]string, 0, 18)
+	if m.upstream_config_id != nil {
+		fields = append(fields, upstreamhealthobservation.FieldUpstreamConfigID)
+	}
+	if m.upstream_key_id != nil {
+		fields = append(fields, upstreamhealthobservation.FieldUpstreamKeyID)
+	}
+	if m.account_id != nil {
+		fields = append(fields, upstreamhealthobservation.FieldAccountID)
+	}
+	if m.platform != nil {
+		fields = append(fields, upstreamhealthobservation.FieldPlatform)
+	}
+	if m.model != nil {
+		fields = append(fields, upstreamhealthobservation.FieldModel)
+	}
+	if m.protocol != nil {
+		fields = append(fields, upstreamhealthobservation.FieldProtocol)
+	}
+	if m.source != nil {
+		fields = append(fields, upstreamhealthobservation.FieldSource)
+	}
+	if m.state != nil {
+		fields = append(fields, upstreamhealthobservation.FieldState)
+	}
+	if m.result != nil {
+		fields = append(fields, upstreamhealthobservation.FieldResult)
+	}
+	if m.reason != nil {
+		fields = append(fields, upstreamhealthobservation.FieldReason)
+	}
+	if m.http_status != nil {
+		fields = append(fields, upstreamhealthobservation.FieldHTTPStatus)
+	}
+	if m.ttft_ms != nil {
+		fields = append(fields, upstreamhealthobservation.FieldTtftMs)
+	}
+	if m.duration_ms != nil {
+		fields = append(fields, upstreamhealthobservation.FieldDurationMs)
+	}
+	if m.input_tokens != nil {
+		fields = append(fields, upstreamhealthobservation.FieldInputTokens)
+	}
+	if m.output_tokens != nil {
+		fields = append(fields, upstreamhealthobservation.FieldOutputTokens)
+	}
+	if m.output_tps != nil {
+		fields = append(fields, upstreamhealthobservation.FieldOutputTps)
+	}
+	if m.observed_at != nil {
+		fields = append(fields, upstreamhealthobservation.FieldObservedAt)
+	}
+	if m.created_at != nil {
+		fields = append(fields, upstreamhealthobservation.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *UpstreamHealthObservationMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case upstreamhealthobservation.FieldUpstreamConfigID:
+		return m.UpstreamConfigID()
+	case upstreamhealthobservation.FieldUpstreamKeyID:
+		return m.UpstreamKeyID()
+	case upstreamhealthobservation.FieldAccountID:
+		return m.AccountID()
+	case upstreamhealthobservation.FieldPlatform:
+		return m.Platform()
+	case upstreamhealthobservation.FieldModel:
+		return m.Model()
+	case upstreamhealthobservation.FieldProtocol:
+		return m.Protocol()
+	case upstreamhealthobservation.FieldSource:
+		return m.Source()
+	case upstreamhealthobservation.FieldState:
+		return m.State()
+	case upstreamhealthobservation.FieldResult:
+		return m.Result()
+	case upstreamhealthobservation.FieldReason:
+		return m.Reason()
+	case upstreamhealthobservation.FieldHTTPStatus:
+		return m.HTTPStatus()
+	case upstreamhealthobservation.FieldTtftMs:
+		return m.TtftMs()
+	case upstreamhealthobservation.FieldDurationMs:
+		return m.DurationMs()
+	case upstreamhealthobservation.FieldInputTokens:
+		return m.InputTokens()
+	case upstreamhealthobservation.FieldOutputTokens:
+		return m.OutputTokens()
+	case upstreamhealthobservation.FieldOutputTps:
+		return m.OutputTps()
+	case upstreamhealthobservation.FieldObservedAt:
+		return m.ObservedAt()
+	case upstreamhealthobservation.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *UpstreamHealthObservationMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case upstreamhealthobservation.FieldUpstreamConfigID:
+		return m.OldUpstreamConfigID(ctx)
+	case upstreamhealthobservation.FieldUpstreamKeyID:
+		return m.OldUpstreamKeyID(ctx)
+	case upstreamhealthobservation.FieldAccountID:
+		return m.OldAccountID(ctx)
+	case upstreamhealthobservation.FieldPlatform:
+		return m.OldPlatform(ctx)
+	case upstreamhealthobservation.FieldModel:
+		return m.OldModel(ctx)
+	case upstreamhealthobservation.FieldProtocol:
+		return m.OldProtocol(ctx)
+	case upstreamhealthobservation.FieldSource:
+		return m.OldSource(ctx)
+	case upstreamhealthobservation.FieldState:
+		return m.OldState(ctx)
+	case upstreamhealthobservation.FieldResult:
+		return m.OldResult(ctx)
+	case upstreamhealthobservation.FieldReason:
+		return m.OldReason(ctx)
+	case upstreamhealthobservation.FieldHTTPStatus:
+		return m.OldHTTPStatus(ctx)
+	case upstreamhealthobservation.FieldTtftMs:
+		return m.OldTtftMs(ctx)
+	case upstreamhealthobservation.FieldDurationMs:
+		return m.OldDurationMs(ctx)
+	case upstreamhealthobservation.FieldInputTokens:
+		return m.OldInputTokens(ctx)
+	case upstreamhealthobservation.FieldOutputTokens:
+		return m.OldOutputTokens(ctx)
+	case upstreamhealthobservation.FieldOutputTps:
+		return m.OldOutputTps(ctx)
+	case upstreamhealthobservation.FieldObservedAt:
+		return m.OldObservedAt(ctx)
+	case upstreamhealthobservation.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown UpstreamHealthObservation field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UpstreamHealthObservationMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case upstreamhealthobservation.FieldUpstreamConfigID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamConfigID(v)
+		return nil
+	case upstreamhealthobservation.FieldUpstreamKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamKeyID(v)
+		return nil
+	case upstreamhealthobservation.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountID(v)
+		return nil
+	case upstreamhealthobservation.FieldPlatform:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPlatform(v)
+		return nil
+	case upstreamhealthobservation.FieldModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModel(v)
+		return nil
+	case upstreamhealthobservation.FieldProtocol:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProtocol(v)
+		return nil
+	case upstreamhealthobservation.FieldSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSource(v)
+		return nil
+	case upstreamhealthobservation.FieldState:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetState(v)
+		return nil
+	case upstreamhealthobservation.FieldResult:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResult(v)
+		return nil
+	case upstreamhealthobservation.FieldReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReason(v)
+		return nil
+	case upstreamhealthobservation.FieldHTTPStatus:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetHTTPStatus(v)
+		return nil
+	case upstreamhealthobservation.FieldTtftMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTtftMs(v)
+		return nil
+	case upstreamhealthobservation.FieldDurationMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDurationMs(v)
+		return nil
+	case upstreamhealthobservation.FieldInputTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInputTokens(v)
+		return nil
+	case upstreamhealthobservation.FieldOutputTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOutputTokens(v)
+		return nil
+	case upstreamhealthobservation.FieldOutputTps:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOutputTps(v)
+		return nil
+	case upstreamhealthobservation.FieldObservedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetObservedAt(v)
+		return nil
+	case upstreamhealthobservation.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamHealthObservation field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *UpstreamHealthObservationMutation) AddedFields() []string {
+	var fields []string
+	if m.addupstream_config_id != nil {
+		fields = append(fields, upstreamhealthobservation.FieldUpstreamConfigID)
+	}
+	if m.addupstream_key_id != nil {
+		fields = append(fields, upstreamhealthobservation.FieldUpstreamKeyID)
+	}
+	if m.addaccount_id != nil {
+		fields = append(fields, upstreamhealthobservation.FieldAccountID)
+	}
+	if m.addhttp_status != nil {
+		fields = append(fields, upstreamhealthobservation.FieldHTTPStatus)
+	}
+	if m.addttft_ms != nil {
+		fields = append(fields, upstreamhealthobservation.FieldTtftMs)
+	}
+	if m.addduration_ms != nil {
+		fields = append(fields, upstreamhealthobservation.FieldDurationMs)
+	}
+	if m.addinput_tokens != nil {
+		fields = append(fields, upstreamhealthobservation.FieldInputTokens)
+	}
+	if m.addoutput_tokens != nil {
+		fields = append(fields, upstreamhealthobservation.FieldOutputTokens)
+	}
+	if m.addoutput_tps != nil {
+		fields = append(fields, upstreamhealthobservation.FieldOutputTps)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *UpstreamHealthObservationMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case upstreamhealthobservation.FieldUpstreamConfigID:
+		return m.AddedUpstreamConfigID()
+	case upstreamhealthobservation.FieldUpstreamKeyID:
+		return m.AddedUpstreamKeyID()
+	case upstreamhealthobservation.FieldAccountID:
+		return m.AddedAccountID()
+	case upstreamhealthobservation.FieldHTTPStatus:
+		return m.AddedHTTPStatus()
+	case upstreamhealthobservation.FieldTtftMs:
+		return m.AddedTtftMs()
+	case upstreamhealthobservation.FieldDurationMs:
+		return m.AddedDurationMs()
+	case upstreamhealthobservation.FieldInputTokens:
+		return m.AddedInputTokens()
+	case upstreamhealthobservation.FieldOutputTokens:
+		return m.AddedOutputTokens()
+	case upstreamhealthobservation.FieldOutputTps:
+		return m.AddedOutputTps()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UpstreamHealthObservationMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case upstreamhealthobservation.FieldUpstreamConfigID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUpstreamConfigID(v)
+		return nil
+	case upstreamhealthobservation.FieldUpstreamKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUpstreamKeyID(v)
+		return nil
+	case upstreamhealthobservation.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAccountID(v)
+		return nil
+	case upstreamhealthobservation.FieldHTTPStatus:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddHTTPStatus(v)
+		return nil
+	case upstreamhealthobservation.FieldTtftMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTtftMs(v)
+		return nil
+	case upstreamhealthobservation.FieldDurationMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddDurationMs(v)
+		return nil
+	case upstreamhealthobservation.FieldInputTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddInputTokens(v)
+		return nil
+	case upstreamhealthobservation.FieldOutputTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOutputTokens(v)
+		return nil
+	case upstreamhealthobservation.FieldOutputTps:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOutputTps(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamHealthObservation numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *UpstreamHealthObservationMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(upstreamhealthobservation.FieldAccountID) {
+		fields = append(fields, upstreamhealthobservation.FieldAccountID)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldHTTPStatus) {
+		fields = append(fields, upstreamhealthobservation.FieldHTTPStatus)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldTtftMs) {
+		fields = append(fields, upstreamhealthobservation.FieldTtftMs)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldDurationMs) {
+		fields = append(fields, upstreamhealthobservation.FieldDurationMs)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldInputTokens) {
+		fields = append(fields, upstreamhealthobservation.FieldInputTokens)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldOutputTokens) {
+		fields = append(fields, upstreamhealthobservation.FieldOutputTokens)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldOutputTps) {
+		fields = append(fields, upstreamhealthobservation.FieldOutputTps)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *UpstreamHealthObservationMutation) ClearField(name string) error {
+	switch name {
+	case upstreamhealthobservation.FieldAccountID:
+		m.ClearAccountID()
+		return nil
+	case upstreamhealthobservation.FieldHTTPStatus:
+		m.ClearHTTPStatus()
+		return nil
+	case upstreamhealthobservation.FieldTtftMs:
+		m.ClearTtftMs()
+		return nil
+	case upstreamhealthobservation.FieldDurationMs:
+		m.ClearDurationMs()
+		return nil
+	case upstreamhealthobservation.FieldInputTokens:
+		m.ClearInputTokens()
+		return nil
+	case upstreamhealthobservation.FieldOutputTokens:
+		m.ClearOutputTokens()
+		return nil
+	case upstreamhealthobservation.FieldOutputTps:
+		m.ClearOutputTps()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamHealthObservation nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *UpstreamHealthObservationMutation) ResetField(name string) error {
+	switch name {
+	case upstreamhealthobservation.FieldUpstreamConfigID:
+		m.ResetUpstreamConfigID()
+		return nil
+	case upstreamhealthobservation.FieldUpstreamKeyID:
+		m.ResetUpstreamKeyID()
+		return nil
+	case upstreamhealthobservation.FieldAccountID:
+		m.ResetAccountID()
+		return nil
+	case upstreamhealthobservation.FieldPlatform:
+		m.ResetPlatform()
+		return nil
+	case upstreamhealthobservation.FieldModel:
+		m.ResetModel()
+		return nil
+	case upstreamhealthobservation.FieldProtocol:
+		m.ResetProtocol()
+		return nil
+	case upstreamhealthobservation.FieldSource:
+		m.ResetSource()
+		return nil
+	case upstreamhealthobservation.FieldState:
+		m.ResetState()
+		return nil
+	case upstreamhealthobservation.FieldResult:
+		m.ResetResult()
+		return nil
+	case upstreamhealthobservation.FieldReason:
+		m.ResetReason()
+		return nil
+	case upstreamhealthobservation.FieldHTTPStatus:
+		m.ResetHTTPStatus()
+		return nil
+	case upstreamhealthobservation.FieldTtftMs:
+		m.ResetTtftMs()
+		return nil
+	case upstreamhealthobservation.FieldDurationMs:
+		m.ResetDurationMs()
+		return nil
+	case upstreamhealthobservation.FieldInputTokens:
+		m.ResetInputTokens()
+		return nil
+	case upstreamhealthobservation.FieldOutputTokens:
+		m.ResetOutputTokens()
+		return nil
+	case upstreamhealthobservation.FieldOutputTps:
+		m.ResetOutputTps()
+		return nil
+	case upstreamhealthobservation.FieldObservedAt:
+		m.ResetObservedAt()
+		return nil
+	case upstreamhealthobservation.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamHealthObservation field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *UpstreamHealthObservationMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *UpstreamHealthObservationMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *UpstreamHealthObservationMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown UpstreamHealthObservation unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *UpstreamHealthObservationMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown UpstreamHealthObservation edge %s", name)
 }
 
 // UpstreamIncidentMutation represents an operation that mutates the UpstreamIncident nodes in the graph.

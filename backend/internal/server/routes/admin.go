@@ -143,6 +143,7 @@ func registerUpstreamManagementRoutes(admin *gin.RouterGroup, h *handler.Handler
 	group.PUT("/keys/:id/observation", h.Admin.UpstreamConfig.SetKeyObservationAdmin)
 	group.POST("/keys/:id/probe", h.Admin.UpstreamConfig.ProbeKeyAdmin)
 	group.GET("/keys/:id/events", h.Admin.UpstreamConfig.ListKeyEventsAdmin)
+	group.GET("/keys/:id/health-trend", h.Admin.UpstreamConfig.GetKeyHealthTrendAdmin)
 }
 
 func registerPromptAuditRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

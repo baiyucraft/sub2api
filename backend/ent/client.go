@@ -50,6 +50,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamhealthobservation"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
@@ -142,6 +143,8 @@ type Client struct {
 	UpstreamConfig *UpstreamConfigClient
 	// UpstreamEvent is the client for interacting with the UpstreamEvent builders.
 	UpstreamEvent *UpstreamEventClient
+	// UpstreamHealthObservation is the client for interacting with the UpstreamHealthObservation builders.
+	UpstreamHealthObservation *UpstreamHealthObservationClient
 	// UpstreamIncident is the client for interacting with the UpstreamIncident builders.
 	UpstreamIncident *UpstreamIncidentClient
 	// UpstreamKey is the client for interacting with the UpstreamKey builders.
@@ -214,6 +217,7 @@ func (c *Client) init() {
 	c.UpstreamBalanceSnapshot = NewUpstreamBalanceSnapshotClient(c.config)
 	c.UpstreamConfig = NewUpstreamConfigClient(c.config)
 	c.UpstreamEvent = NewUpstreamEventClient(c.config)
+	c.UpstreamHealthObservation = NewUpstreamHealthObservationClient(c.config)
 	c.UpstreamIncident = NewUpstreamIncidentClient(c.config)
 	c.UpstreamKey = NewUpstreamKeyClient(c.config)
 	c.UpstreamKeyRateSnapshot = NewUpstreamKeyRateSnapshotClient(c.config)
@@ -354,6 +358,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		UpstreamBalanceSnapshot:       NewUpstreamBalanceSnapshotClient(cfg),
 		UpstreamConfig:                NewUpstreamConfigClient(cfg),
 		UpstreamEvent:                 NewUpstreamEventClient(cfg),
+		UpstreamHealthObservation:     NewUpstreamHealthObservationClient(cfg),
 		UpstreamIncident:              NewUpstreamIncidentClient(cfg),
 		UpstreamKey:                   NewUpstreamKeyClient(cfg),
 		UpstreamKeyRateSnapshot:       NewUpstreamKeyRateSnapshotClient(cfg),
@@ -421,6 +426,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		UpstreamBalanceSnapshot:       NewUpstreamBalanceSnapshotClient(cfg),
 		UpstreamConfig:                NewUpstreamConfigClient(cfg),
 		UpstreamEvent:                 NewUpstreamEventClient(cfg),
+		UpstreamHealthObservation:     NewUpstreamHealthObservationClient(cfg),
 		UpstreamIncident:              NewUpstreamIncidentClient(cfg),
 		UpstreamKey:                   NewUpstreamKeyClient(cfg),
 		UpstreamKeyRateSnapshot:       NewUpstreamKeyRateSnapshotClient(cfg),
@@ -472,11 +478,11 @@ func (c *Client) Use(hooks ...Hook) {
 		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
 		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
 		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UpstreamBalanceSnapshot,
-		c.UpstreamConfig, c.UpstreamEvent, c.UpstreamIncident, c.UpstreamKey,
-		c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult, c.UpstreamSyncRun,
-		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
-		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
-		c.UserSubscription,
+		c.UpstreamConfig, c.UpstreamEvent, c.UpstreamHealthObservation,
+		c.UpstreamIncident, c.UpstreamKey, c.UpstreamKeyRateSnapshot,
+		c.UpstreamSyncResult, c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog,
+		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Use(hooks...)
 	}
@@ -495,11 +501,11 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
 		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
 		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UpstreamBalanceSnapshot,
-		c.UpstreamConfig, c.UpstreamEvent, c.UpstreamIncident, c.UpstreamKey,
-		c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult, c.UpstreamSyncRun,
-		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
-		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
-		c.UserSubscription,
+		c.UpstreamConfig, c.UpstreamEvent, c.UpstreamHealthObservation,
+		c.UpstreamIncident, c.UpstreamKey, c.UpstreamKeyRateSnapshot,
+		c.UpstreamSyncResult, c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog,
+		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -578,6 +584,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.UpstreamConfig.mutate(ctx, m)
 	case *UpstreamEventMutation:
 		return c.UpstreamEvent.mutate(ctx, m)
+	case *UpstreamHealthObservationMutation:
+		return c.UpstreamHealthObservation.mutate(ctx, m)
 	case *UpstreamIncidentMutation:
 		return c.UpstreamIncident.mutate(ctx, m)
 	case *UpstreamKeyMutation:
@@ -6347,6 +6355,139 @@ func (c *UpstreamEventClient) mutate(ctx context.Context, m *UpstreamEventMutati
 	}
 }
 
+// UpstreamHealthObservationClient is a client for the UpstreamHealthObservation schema.
+type UpstreamHealthObservationClient struct {
+	config
+}
+
+// NewUpstreamHealthObservationClient returns a client for the UpstreamHealthObservation from the given config.
+func NewUpstreamHealthObservationClient(c config) *UpstreamHealthObservationClient {
+	return &UpstreamHealthObservationClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `upstreamhealthobservation.Hooks(f(g(h())))`.
+func (c *UpstreamHealthObservationClient) Use(hooks ...Hook) {
+	c.hooks.UpstreamHealthObservation = append(c.hooks.UpstreamHealthObservation, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `upstreamhealthobservation.Intercept(f(g(h())))`.
+func (c *UpstreamHealthObservationClient) Intercept(interceptors ...Interceptor) {
+	c.inters.UpstreamHealthObservation = append(c.inters.UpstreamHealthObservation, interceptors...)
+}
+
+// Create returns a builder for creating a UpstreamHealthObservation entity.
+func (c *UpstreamHealthObservationClient) Create() *UpstreamHealthObservationCreate {
+	mutation := newUpstreamHealthObservationMutation(c.config, OpCreate)
+	return &UpstreamHealthObservationCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of UpstreamHealthObservation entities.
+func (c *UpstreamHealthObservationClient) CreateBulk(builders ...*UpstreamHealthObservationCreate) *UpstreamHealthObservationCreateBulk {
+	return &UpstreamHealthObservationCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *UpstreamHealthObservationClient) MapCreateBulk(slice any, setFunc func(*UpstreamHealthObservationCreate, int)) *UpstreamHealthObservationCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &UpstreamHealthObservationCreateBulk{err: fmt.Errorf("calling to UpstreamHealthObservationClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*UpstreamHealthObservationCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &UpstreamHealthObservationCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for UpstreamHealthObservation.
+func (c *UpstreamHealthObservationClient) Update() *UpstreamHealthObservationUpdate {
+	mutation := newUpstreamHealthObservationMutation(c.config, OpUpdate)
+	return &UpstreamHealthObservationUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *UpstreamHealthObservationClient) UpdateOne(_m *UpstreamHealthObservation) *UpstreamHealthObservationUpdateOne {
+	mutation := newUpstreamHealthObservationMutation(c.config, OpUpdateOne, withUpstreamHealthObservation(_m))
+	return &UpstreamHealthObservationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *UpstreamHealthObservationClient) UpdateOneID(id int64) *UpstreamHealthObservationUpdateOne {
+	mutation := newUpstreamHealthObservationMutation(c.config, OpUpdateOne, withUpstreamHealthObservationID(id))
+	return &UpstreamHealthObservationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for UpstreamHealthObservation.
+func (c *UpstreamHealthObservationClient) Delete() *UpstreamHealthObservationDelete {
+	mutation := newUpstreamHealthObservationMutation(c.config, OpDelete)
+	return &UpstreamHealthObservationDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *UpstreamHealthObservationClient) DeleteOne(_m *UpstreamHealthObservation) *UpstreamHealthObservationDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *UpstreamHealthObservationClient) DeleteOneID(id int64) *UpstreamHealthObservationDeleteOne {
+	builder := c.Delete().Where(upstreamhealthobservation.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &UpstreamHealthObservationDeleteOne{builder}
+}
+
+// Query returns a query builder for UpstreamHealthObservation.
+func (c *UpstreamHealthObservationClient) Query() *UpstreamHealthObservationQuery {
+	return &UpstreamHealthObservationQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeUpstreamHealthObservation},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a UpstreamHealthObservation entity by its id.
+func (c *UpstreamHealthObservationClient) Get(ctx context.Context, id int64) (*UpstreamHealthObservation, error) {
+	return c.Query().Where(upstreamhealthobservation.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *UpstreamHealthObservationClient) GetX(ctx context.Context, id int64) *UpstreamHealthObservation {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *UpstreamHealthObservationClient) Hooks() []Hook {
+	return c.hooks.UpstreamHealthObservation
+}
+
+// Interceptors returns the client interceptors.
+func (c *UpstreamHealthObservationClient) Interceptors() []Interceptor {
+	return c.inters.UpstreamHealthObservation
+}
+
+func (c *UpstreamHealthObservationClient) mutate(ctx context.Context, m *UpstreamHealthObservationMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&UpstreamHealthObservationCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&UpstreamHealthObservationUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&UpstreamHealthObservationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&UpstreamHealthObservationDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown UpstreamHealthObservation mutation op: %q", m.Op())
+	}
+}
+
 // UpstreamIncidentClient is a client for the UpstreamIncident schema.
 type UpstreamIncidentClient struct {
 	config
@@ -8832,10 +8973,10 @@ type (
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
 		PromoCode, PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting,
 		SubscriptionPlan, TLSFingerprintProfile, UpstreamBalanceSnapshot,
-		UpstreamConfig, UpstreamEvent, UpstreamIncident, UpstreamKey,
-		UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask,
-		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
-		UserPlatformQuota, UserSubscription []ent.Hook
+		UpstreamConfig, UpstreamEvent, UpstreamHealthObservation, UpstreamIncident,
+		UpstreamKey, UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
@@ -8846,10 +8987,10 @@ type (
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
 		PromoCode, PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting,
 		SubscriptionPlan, TLSFingerprintProfile, UpstreamBalanceSnapshot,
-		UpstreamConfig, UpstreamEvent, UpstreamIncident, UpstreamKey,
-		UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask,
-		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
-		UserPlatformQuota, UserSubscription []ent.Interceptor
+		UpstreamConfig, UpstreamEvent, UpstreamHealthObservation, UpstreamIncident,
+		UpstreamKey, UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )
 

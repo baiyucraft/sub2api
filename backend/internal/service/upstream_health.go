@@ -23,20 +23,57 @@ const (
 
 	upstreamHealthRecoverySamplesRequired = 3
 	UpstreamHealthHistoryLimit            = 30
-	UpstreamHealthListHistoryLimit        = 12
+	UpstreamHealthListHistoryLimit        = 24
 	UpstreamHealthTrafficSuccessInterval  = 5 * time.Minute
+	UpstreamHealthObservationRetention    = 35 * 24 * time.Hour
 )
 
 type UpstreamHealthObservation struct {
-	ObservedAt time.Time            `json:"observed_at"`
-	State      UpstreamHealthStatus `json:"state"`
-	Source     string               `json:"source"`
-	Result     string               `json:"result"`
-	Reason     string               `json:"reason,omitempty"`
+	ID               int64                `json:"id,omitempty"`
+	UpstreamConfigID int64                `json:"upstream_config_id,omitempty"`
+	UpstreamKeyID    int64                `json:"upstream_key_id,omitempty"`
+	AccountID        *int64               `json:"account_id,omitempty"`
+	Platform         string               `json:"platform,omitempty"`
+	Model            string               `json:"model,omitempty"`
+	Protocol         string               `json:"protocol,omitempty"`
+	ObservedAt       time.Time            `json:"observed_at"`
+	State            UpstreamHealthStatus `json:"state"`
+	Source           string               `json:"source"`
+	Result           string               `json:"result"`
+	Reason           string               `json:"reason,omitempty"`
+	HTTPStatus       *int                 `json:"http_status,omitempty"`
+	TTFTMs           *int64               `json:"ttft_ms,omitempty"`
+	DurationMs       *int64               `json:"duration_ms,omitempty"`
+	InputTokens      *int64               `json:"input_tokens,omitempty"`
+	OutputTokens     *int64               `json:"output_tokens,omitempty"`
+	OutputTPS        *float64             `json:"output_tps,omitempty"`
 }
 
 type UpstreamHealthHistoryReader interface {
 	ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]UpstreamHealthObservation, error)
+}
+
+type UpstreamHealthTrendPoint struct {
+	Bucket          time.Time                    `json:"bucket"`
+	State           UpstreamHealthStatus         `json:"state"`
+	StateCounts     map[UpstreamHealthStatus]int `json:"state_counts"`
+	TTFTP50Ms       *float64                     `json:"ttft_p50_ms,omitempty"`
+	TTFTP95Ms       *float64                     `json:"ttft_p95_ms,omitempty"`
+	DurationAvgMs   *float64                     `json:"duration_avg_ms,omitempty"`
+	SampleCount     int                          `json:"sample_count"`
+	TTFTSampleCount int                          `json:"ttft_sample_count"`
+	PrimarySource   string                       `json:"primary_source,omitempty"`
+	LatestReason    string                       `json:"latest_reason,omitempty"`
+	LatestResult    string                       `json:"latest_result,omitempty"`
+}
+
+type UpstreamHealthTrend struct {
+	KeyID         int64                      `json:"key_id"`
+	Range         string                     `json:"range"`
+	StartAt       time.Time                  `json:"start_at"`
+	EndAt         time.Time                  `json:"end_at"`
+	BucketSeconds int64                      `json:"bucket_seconds"`
+	Points        []UpstreamHealthTrendPoint `json:"points"`
 }
 
 func UpstreamHealthHistoryFromExtra(extra map[string]any, limit int) []UpstreamHealthObservation {
@@ -120,6 +157,7 @@ type UpstreamHealthSnapshot struct {
 	Reason                  string               `json:"reason,omitempty"`
 	LastProbeAt             *time.Time           `json:"last_probe_at,omitempty"`
 	LastProbeStatus         string               `json:"last_probe_status,omitempty"`
+	LastProbeTTFTMs         *int64               `json:"last_probe_ttft_ms,omitempty"`
 	LastEvidenceAt          *time.Time           `json:"last_evidence_at,omitempty"`
 	LastTrafficStatus       string               `json:"last_traffic_status,omitempty"`
 	ConsecutiveFails        int                  `json:"consecutive_failures"`
@@ -229,7 +267,7 @@ func (r *UpstreamHealthRegistry) SetObservation(keyID int64, enabled bool, now t
 	return r.SetObservationTransition(keyID, enabled, now).Current
 }
 
-func (r *UpstreamHealthRegistry) recordSuccessTransition(keyID int64, status, reason string, now time.Time, probe bool) UpstreamHealthTransition {
+func (r *UpstreamHealthRegistry) recordSuccessTransition(keyID int64, status, reason string, ttftMs *int64, now time.Time, probe bool) UpstreamHealthTransition {
 	if now.IsZero() {
 		now = time.Now()
 	}
@@ -244,6 +282,7 @@ func (r *UpstreamHealthRegistry) recordSuccessTransition(keyID int64, status, re
 		if probe {
 			item.LastProbeAt = &now
 			item.LastProbeStatus = strings.TrimSpace(status)
+			item.LastProbeTTFTMs = cloneUpstreamHealthInt64(ttftMs)
 			item.Reason = strings.TrimSpace(reason)
 			item.UpdatedAt = now
 			r.items[keyID] = normalizeUpstreamHealthSnapshot(item)
@@ -256,6 +295,7 @@ func (r *UpstreamHealthRegistry) recordSuccessTransition(keyID int64, status, re
 	if probe {
 		item.LastProbeAt = &now
 		item.LastProbeStatus = strings.TrimSpace(status)
+		item.LastProbeTTFTMs = cloneUpstreamHealthInt64(ttftMs)
 	} else {
 		item.LastEvidenceAt = &now
 		item.LastTrafficStatus = strings.TrimSpace(status)
@@ -277,7 +317,7 @@ func (r *UpstreamHealthRegistry) recordSuccessTransition(keyID int64, status, re
 	return UpstreamHealthTransition{Previous: previous, Current: item}
 }
 
-func (r *UpstreamHealthRegistry) recordFailureTransition(keyID int64, status, reason string, now time.Time, probe bool) UpstreamHealthTransition {
+func (r *UpstreamHealthRegistry) recordFailureTransition(keyID int64, status, reason string, ttftMs *int64, now time.Time, probe bool) UpstreamHealthTransition {
 	if now.IsZero() {
 		now = time.Now()
 	}
@@ -292,6 +332,7 @@ func (r *UpstreamHealthRegistry) recordFailureTransition(keyID int64, status, re
 		if probe {
 			item.LastProbeAt = &now
 			item.LastProbeStatus = strings.TrimSpace(status)
+			item.LastProbeTTFTMs = cloneUpstreamHealthInt64(ttftMs)
 			item.Reason = strings.TrimSpace(reason)
 			item.UpdatedAt = now
 			r.items[keyID] = normalizeUpstreamHealthSnapshot(item)
@@ -304,6 +345,7 @@ func (r *UpstreamHealthRegistry) recordFailureTransition(keyID int64, status, re
 	if probe {
 		item.LastProbeAt = &now
 		item.LastProbeStatus = strings.TrimSpace(status)
+		item.LastProbeTTFTMs = cloneUpstreamHealthInt64(ttftMs)
 	} else {
 		item.LastEvidenceAt = &now
 		item.LastTrafficStatus = strings.TrimSpace(status)
@@ -332,7 +374,11 @@ func (r *UpstreamHealthRegistry) RecordProbe(keyID int64, status, reason string,
 }
 
 func (r *UpstreamHealthRegistry) RecordProbeTransition(keyID int64, status, reason string, now time.Time) UpstreamHealthTransition {
-	return r.recordSuccessTransition(keyID, status, reason, now, true)
+	return r.RecordProbeWithTTFTTransition(keyID, status, reason, nil, now)
+}
+
+func (r *UpstreamHealthRegistry) RecordProbeWithTTFTTransition(keyID int64, status, reason string, ttftMs *int64, now time.Time) UpstreamHealthTransition {
+	return r.recordSuccessTransition(keyID, status, reason, ttftMs, now, true)
 }
 
 func (r *UpstreamHealthRegistry) RecordProbeFailure(keyID int64, status, reason string, now time.Time) UpstreamHealthSnapshot {
@@ -340,7 +386,11 @@ func (r *UpstreamHealthRegistry) RecordProbeFailure(keyID int64, status, reason 
 }
 
 func (r *UpstreamHealthRegistry) RecordProbeFailureTransition(keyID int64, status, reason string, now time.Time) UpstreamHealthTransition {
-	return r.recordFailureTransition(keyID, status, reason, now, true)
+	return r.RecordProbeFailureWithTTFTTransition(keyID, status, reason, nil, now)
+}
+
+func (r *UpstreamHealthRegistry) RecordProbeFailureWithTTFTTransition(keyID int64, status, reason string, ttftMs *int64, now time.Time) UpstreamHealthTransition {
+	return r.recordFailureTransition(keyID, status, reason, ttftMs, now, true)
 }
 
 func (r *UpstreamHealthRegistry) RecordTrafficSuccess(keyID int64, status, reason string, now time.Time) UpstreamHealthSnapshot {
@@ -348,7 +398,7 @@ func (r *UpstreamHealthRegistry) RecordTrafficSuccess(keyID int64, status, reaso
 }
 
 func (r *UpstreamHealthRegistry) RecordTrafficSuccessTransition(keyID int64, status, reason string, now time.Time) UpstreamHealthTransition {
-	return r.recordSuccessTransition(keyID, status, reason, now, false)
+	return r.recordSuccessTransition(keyID, status, reason, nil, now, false)
 }
 
 func (r *UpstreamHealthRegistry) RecordTrafficFailure(keyID int64, status, reason string, now time.Time) UpstreamHealthSnapshot {
@@ -356,7 +406,15 @@ func (r *UpstreamHealthRegistry) RecordTrafficFailure(keyID int64, status, reaso
 }
 
 func (r *UpstreamHealthRegistry) RecordTrafficFailureTransition(keyID int64, status, reason string, now time.Time) UpstreamHealthTransition {
-	return r.recordFailureTransition(keyID, status, reason, now, false)
+	return r.recordFailureTransition(keyID, status, reason, nil, now, false)
+}
+
+func cloneUpstreamHealthInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 // RecordFailure remains as a compatibility alias for probe failures.

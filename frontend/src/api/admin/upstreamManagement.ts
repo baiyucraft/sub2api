@@ -12,6 +12,7 @@ export interface ProbeModels { models: Record<string, string> }
 export interface UpstreamManagementSettings {
   ttft_guard: TTFTGuardSettings
   probe_models: Record<'openai' | 'anthropic' | 'gemini', string>
+  probe_interval_seconds: number
 }
 
 export interface ProbeModelCandidates {
@@ -44,6 +45,31 @@ export interface UpstreamKeyEvent {
   message: string
   payload?: Record<string, unknown>
   created_at: string
+}
+
+export type UpstreamHealthTrendRange = '6h' | '24h' | '7d' | '30d'
+
+export interface UpstreamHealthTrendPoint {
+  bucket: string
+  state: UpstreamHealthObservation['state']
+  state_counts: Partial<Record<UpstreamHealthObservation['state'], number>>
+  ttft_p50_ms?: number
+  ttft_p95_ms?: number
+  duration_avg_ms?: number
+  sample_count: number
+  ttft_sample_count: number
+  primary_source?: string
+  latest_reason?: string
+  latest_result?: string
+}
+
+export interface UpstreamHealthTrend {
+  key_id: number
+  range: UpstreamHealthTrendRange
+  start_at: string
+  end_at: string
+  bucket_seconds: number
+  points: UpstreamHealthTrendPoint[]
 }
 
 export async function listAccounts(params: Record<string, unknown> = {}): Promise<PaginatedResponse<Account>> {
@@ -126,8 +152,15 @@ export async function getKeyEvents(id: number): Promise<{ items: UpstreamKeyEven
   return data
 }
 
+export async function getKeyHealthTrend(id: number, range: UpstreamHealthTrendRange): Promise<UpstreamHealthTrend> {
+  const { data } = await apiClient.get<UpstreamHealthTrend>(`/admin/upstream-management/keys/${id}/health-trend`, {
+    params: { range }
+  })
+  return data
+}
+
 export default {
   listAccounts, listAccountsWithEtag, getTTFTGuard, updateTTFTGuard, getProbeModels, updateProbeModels,
   getSettings, updateSettings, getProbeModelCandidates,
-  setKeyObservation, probeKey, getKeyEvents
+  setKeyObservation, probeKey, getKeyEvents, getKeyHealthTrend
 }

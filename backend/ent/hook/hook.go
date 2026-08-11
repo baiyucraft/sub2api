@@ -429,6 +429,18 @@ func (f UpstreamEventFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Valu
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamEventMutation", m)
 }
 
+// The UpstreamHealthObservationFunc type is an adapter to allow the use of ordinary
+// function as UpstreamHealthObservation mutator.
+type UpstreamHealthObservationFunc func(context.Context, *ent.UpstreamHealthObservationMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f UpstreamHealthObservationFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.UpstreamHealthObservationMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamHealthObservationMutation", m)
+}
+
 // The UpstreamIncidentFunc type is an adapter to allow the use of ordinary
 // function as UpstreamIncident mutator.
 type UpstreamIncidentFunc func(context.Context, *ent.UpstreamIncidentMutation) (ent.Value, error)
