@@ -316,7 +316,7 @@ func upstreamAccountAvailableActions(account *service.Account) []string {
 	}
 	actions := []string{
 		"edit", "test", "stats", "schedule", "toggle_schedulable", "recover_state",
-		"probe_key", "toggle_observation", "events",
+		"probe_key", "toggle_observation", "events", "rate_trend",
 	}
 	if account.HasAnyQuotaLimit() {
 		actions = append(actions, "reset_quota")

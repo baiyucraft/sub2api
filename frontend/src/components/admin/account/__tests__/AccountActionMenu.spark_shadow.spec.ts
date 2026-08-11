@@ -63,6 +63,26 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     wrapper.unmount()
   })
 
+  it('普通账号不显示倍率趋势入口', () => {
+    const account = makeAccount({ platform: 'openai', type: 'apikey', available_actions: undefined })
+    const wrapper = mountMenu(account)
+    expect(getBodyText()).not.toContain('admin.upstreamConfigs.actions.rateTrend')
+    wrapper.unmount()
+  })
+
+  it('绑定上游账号显示倍率趋势入口', () => {
+    const account = makeAccount({
+      platform: 'openai',
+      type: 'apikey',
+      upstream_config_id: 7,
+      upstream_key_id: 9,
+      available_actions: ['rate_trend']
+    })
+    const wrapper = mountMenu(account)
+    expect(getBodyText()).toContain('admin.upstreamConfigs.actions.rateTrend')
+    wrapper.unmount()
+  })
+
   it('影子账号隐藏「复制账号」按钮', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: 42 })
     const wrapper = mountMenu(account)
