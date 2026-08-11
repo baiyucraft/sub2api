@@ -112,10 +112,9 @@ describe('BulkEditAccountModal', () => {
     expect(wrapper.find('#bulk-edit-load-factor-enabled').exists()).toBe(false)
     expect(wrapper.find('#bulk-edit-priority-enabled').exists()).toBe(false)
     expect(wrapper.find('#bulk-edit-rate-multiplier-enabled').exists()).toBe(false)
+    expect(wrapper.find('#bulk-edit-upstream-concurrency-enabled').exists()).toBe(false)
     expect(wrapper.find('#bulk-edit-upstream-billing-auto-probe-enabled').exists()).toBe(false)
 
-    await wrapper.get('#bulk-edit-upstream-concurrency-enabled').setValue(true)
-    await wrapper.get('input[type="number"]').setValue('3')
     await wrapper.get('#bulk-edit-upstream-model-mapping-enabled').setValue(true)
     await wrapper.get('button[type="button"].w-full').trigger('click')
     await wrapper.get('[data-testid="bulk-edit-upstream-model-from"]').setValue('gpt-5.4-mini')
@@ -124,7 +123,6 @@ describe('BulkEditAccountModal', () => {
     await flushPromises()
 
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
-      concurrency: 3,
       credentials: {
         model_mapping: {
           'gpt-5.4-mini': 'gpt-5.4-mini'

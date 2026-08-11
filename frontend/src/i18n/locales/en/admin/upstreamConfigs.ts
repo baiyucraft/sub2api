@@ -28,9 +28,26 @@ export default {
       error: 'Quota error: {error}'
     },
     concurrency: {
-      headerTitle: 'Total upstream user concurrency, not local account concurrency',
+      headerTitle: 'Shared scheduling concurrency across every key in this upstream config',
       limited: '{count}',
       unlimited: 'Unlimited',
+      defaultValue: 'Default {count}',
+      sharedTitle: 'One concurrency pool shared by every key',
+      sharedHint: 'All derived accounts under this upstream config share the same slots, wait queue, and load rate. Lowering the limit does not interrupt active requests; it only pauses new slot grants.',
+      autoMode: 'Follow upstream',
+      overrideMode: 'Manual override',
+      currentSource: 'Current source',
+      effectiveLimit: 'Effective limit',
+      overrideValue: 'Shared concurrency',
+      overrideRange: 'Enter an integer from 1 to 1,000,000. Switching back to follow upstream clears the override.',
+      autoResolutionHint: 'Automatic mode resolves an active provider snapshot first, then explicit unlimited, then the default of 100.',
+      sourceTooltip: 'Scheduling source: {source}; effective limit: {limit}',
+      sources: {
+        override: 'Manual override',
+        provider: 'Upstream snapshot',
+        unlimited: 'Upstream unlimited',
+        default: 'Default 100'
+      },
       providerReportedHint: 'This value is reported by the upstream provider',
       stale: '{value} (Expired)',
       unsupported: '-- (Not provided)',
@@ -187,6 +204,7 @@ export default {
     },
     sections: {
       basicInfo: 'Basic Information',
+      schedulerConcurrency: 'Shared Scheduling Concurrency',
       connectionAndAuth: 'Connection and Authentication',
       costSettings: 'Cost Settings'
     },
@@ -287,6 +305,7 @@ export default {
       invalidDashboardUrl: 'Invalid upstream site URL; cannot open dashboard',
       rechargeRateInvalid: 'Recharge rate must be greater than 0 and at most 100',
       balanceToCnyRateInvalid: 'Balance to CNY rate must be a positive number',
+      schedulerConcurrencyInvalid: 'Shared concurrency must be an integer between 1 and 1,000,000',
       loadSyncRunsFailed: 'Failed to load sync runs',
       loadSyncRunFailed: 'Failed to load sync run results',
       loadEventsFailed: 'Failed to load upstream events',

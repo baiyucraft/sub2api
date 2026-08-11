@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,30 +55,37 @@ const (
 )
 
 type UpstreamConfig struct {
-	ID                      int64
-	Name                    string
-	Provider                string
-	SiteURL                 string
-	APIURL                  *string
-	ClearAPIURL             bool
-	Sub2APINotInCNConfirmed bool
-	AuthMode                string
-	Credentials             map[string]any
-	Extra                   map[string]any
-	ProxyID                 *int64
-	ClearProxy              bool
-	RechargeRate            float64
-	BalanceToCNYRate        *float64
-	ClearBalanceToCNYRate   bool
-	SchedulingEnabled       *bool
-	Status                  string
-	LastError               *string
-	LastCheckedAt           *time.Time
-	LastSuccessAt           *time.Time
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	ID                                int64
+	Name                              string
+	Provider                          string
+	SiteURL                           string
+	APIURL                            *string
+	ClearAPIURL                       bool
+	Sub2APINotInCNConfirmed           bool
+	AuthMode                          string
+	Credentials                       map[string]any
+	Extra                             map[string]any
+	SchedulerConcurrencyOverride      *int
+	ClearSchedulerConcurrencyOverride bool
+	ProxyID                           *int64
+	ClearProxy                        bool
+	RechargeRate                      float64
+	BalanceToCNYRate                  *float64
+	ClearBalanceToCNYRate             bool
+	SchedulingEnabled                 *bool
+	Status                            string
+	LastError                         *string
+	LastCheckedAt                     *time.Time
+	LastSuccessAt                     *time.Time
+	CreatedAt                         time.Time
+	UpdatedAt                         time.Time
 
 	Keys []*UpstreamKey
+}
+
+type UpstreamManagementSettings struct {
+	TTFTGuard   OpenAITTFTGuardSettings `json:"ttft_guard"`
+	ProbeModels UpstreamProbeModels     `json:"probe_models"`
 }
 
 func (c *UpstreamConfig) EffectiveAPIURL() string {
@@ -220,6 +228,10 @@ type upstreamAccountBindingLister interface {
 	ListByUpstreamKeyID(ctx context.Context, keyID int64) ([]Account, error)
 }
 
+type upstreamProbeModelUsageReader interface {
+	ListRecentUpstreamProbeModels(ctx context.Context, since time.Time, limit int) (map[string][]string, error)
+}
+
 type upstreamMaskedKeyFallbackRepository interface {
 	ListKeysForMaskedFallback(ctx context.Context, upstreamConfigID int64, remoteKeyIDs []int64) ([]UpstreamKey, error)
 }
@@ -315,6 +327,121 @@ func (s *UpstreamConfigService) GetProbeModels(ctx context.Context) (UpstreamPro
 	return s.settingService.GetUpstreamProbeModels(ctx)
 }
 
+func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (UpstreamManagementSettings, error) {
+	if s == nil || s.settingService == nil {
+		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels()}, nil
+	}
+	ttft, err := s.settingService.GetOpenAITTFTGuardSettings(ctx)
+	if err != nil {
+		return UpstreamManagementSettings{}, err
+	}
+	models, err := s.settingService.GetUpstreamProbeModels(ctx)
+	if err != nil {
+		return UpstreamManagementSettings{}, err
+	}
+	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models}, nil
+}
+
+func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, settings UpstreamManagementSettings) error {
+	if s == nil || s.settingService == nil {
+		return infraerrors.ServiceUnavailable("UPSTREAM_MANAGEMENT_SETTINGS_UNAVAILABLE", "upstream management settings are unavailable")
+	}
+	return s.settingService.SetOpenAITTFTGuardAndProbeModels(ctx, &settings.TTFTGuard, settings.ProbeModels)
+}
+
+func (s *UpstreamConfigService) GetProbeModelCandidates(ctx context.Context) (map[string][]string, error) {
+	models, err := s.GetProbeModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	candidates := map[string]map[string]struct{}{
+		PlatformOpenAI:    {models.OpenAI: {}},
+		PlatformAnthropic: {models.Anthropic: {}},
+		PlatformGemini:    {models.Gemini: {}},
+	}
+	for platform, values := range map[string][]string{
+		PlatformOpenAI:    defaultModelsListCandidateIDs(PlatformOpenAI),
+		PlatformAnthropic: defaultModelsListCandidateIDs(PlatformAnthropic),
+		PlatformGemini:    defaultModelsListCandidateIDs(PlatformGemini),
+	} {
+		for _, value := range values {
+			candidates[platform][value] = struct{}{}
+		}
+	}
+	if scoped, ok := s.accountRepo.(ScopedAccountLister); ok {
+		accounts, _, listErr := scoped.ListWithFiltersScoped(ctx, pagination.PaginationParams{Page: 1, PageSize: 1000}, "", "", "", "", 0, "", AccountListScopeUpstream)
+		if listErr != nil {
+			return nil, listErr
+		}
+		for _, account := range accounts {
+			bucket, exists := candidates[strings.ToLower(strings.TrimSpace(account.Platform))]
+			if !exists {
+				continue
+			}
+			for key, value := range account.GetModelMapping() {
+				if strings.TrimSpace(key) != "" {
+					bucket[key] = struct{}{}
+				}
+				if strings.TrimSpace(value) != "" {
+					bucket[value] = struct{}{}
+				}
+			}
+			if raw, ok := account.Credentials["model_whitelist"]; ok {
+				for _, value := range stringSliceFromAny(raw) {
+					if strings.TrimSpace(value) != "" {
+						bucket[value] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	if usageReader, ok := s.accountRepo.(upstreamProbeModelUsageReader); ok {
+		recent, usageErr := usageReader.ListRecentUpstreamProbeModels(ctx, time.Now().UTC().Add(-30*24*time.Hour), 500)
+		if usageErr != nil {
+			slog.Warn("failed to load recent upstream probe model candidates", "error", usageErr)
+		} else {
+			for platform, values := range recent {
+				bucket, exists := candidates[strings.ToLower(strings.TrimSpace(platform))]
+				if !exists {
+					continue
+				}
+				for _, value := range values {
+					if value = strings.TrimSpace(value); value != "" {
+						bucket[value] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	result := make(map[string][]string, len(candidates))
+	for platform, values := range candidates {
+		items := make([]string, 0, len(values))
+		for value := range values {
+			items = append(items, value)
+		}
+		sort.Strings(items)
+		result[platform] = items
+	}
+	return result, nil
+}
+
+func stringSliceFromAny(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		return typed
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text, ok := item.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
 func (s *UpstreamConfigService) SetProbeModels(ctx context.Context, models UpstreamProbeModels) error {
 	if s == nil || s.settingService == nil {
 		return infraerrors.ServiceUnavailable("UPSTREAM_PROBE_SETTINGS_UNAVAILABLE", "upstream probe settings are unavailable")
@@ -381,6 +508,9 @@ func (s *UpstreamConfigService) Create(ctx context.Context, config *UpstreamConf
 			config.SchedulingEnabled = &enabled
 		}
 		pruneUpstreamProviderCredentials(config.Credentials, config.Provider, config.AuthMode)
+		if err := applyUpstreamSchedulerConcurrencyOverride(config); err != nil {
+			return nil, err
+		}
 	}
 	if err := normalizeAndValidateUpstreamConfig(config, true); err != nil {
 		return nil, err
@@ -438,8 +568,20 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 	}
 	current.Credentials = mergePreservingUpstreamSecrets(current.Credentials, patch.Credentials)
 	pruneUpstreamProviderCredentials(current.Credentials, current.Provider, current.AuthMode)
+	previousOverride := extraValue(current.Extra, UpstreamSchedulerConcurrencyOverrideKey)
 	if patch.Extra != nil {
 		current.Extra = patch.Extra
+	}
+	if !patch.ClearSchedulerConcurrencyOverride && patch.SchedulerConcurrencyOverride == nil && previousOverride != nil {
+		if current.Extra == nil {
+			current.Extra = map[string]any{}
+		}
+		current.Extra[UpstreamSchedulerConcurrencyOverrideKey] = previousOverride
+	}
+	current.SchedulerConcurrencyOverride = patch.SchedulerConcurrencyOverride
+	current.ClearSchedulerConcurrencyOverride = patch.ClearSchedulerConcurrencyOverride
+	if err := applyUpstreamSchedulerConcurrencyOverride(current); err != nil {
+		return nil, err
 	}
 	if err := normalizeAndValidateUpstreamConfig(current, false); err != nil {
 		return nil, err
@@ -448,6 +590,28 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 		return nil, err
 	}
 	return s.GetByID(ctx, id)
+}
+
+func applyUpstreamSchedulerConcurrencyOverride(config *UpstreamConfig) error {
+	if config == nil {
+		return nil
+	}
+	if config.Extra == nil {
+		config.Extra = map[string]any{}
+	}
+	if config.ClearSchedulerConcurrencyOverride {
+		delete(config.Extra, UpstreamSchedulerConcurrencyOverrideKey)
+		return nil
+	}
+	if config.SchedulerConcurrencyOverride == nil {
+		return nil
+	}
+	value := *config.SchedulerConcurrencyOverride
+	if value < 1 || value > MaxUpstreamSchedulerConcurrency {
+		return infraerrors.BadRequest("UPSTREAM_SCHEDULER_CONCURRENCY_INVALID", "scheduler_concurrency_override must be between 1 and 1000000")
+	}
+	config.Extra[UpstreamSchedulerConcurrencyOverrideKey] = value
+	return nil
 }
 
 func (s *UpstreamConfigService) SetSchedulingEnabled(ctx context.Context, id int64, enabled bool) (*UpstreamConfig, error) {

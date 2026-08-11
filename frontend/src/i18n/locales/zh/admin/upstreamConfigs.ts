@@ -28,9 +28,26 @@ export default {
       error: '额度错误：{error}'
     },
     concurrency: {
-      headerTitle: '上游用户级总并发，不是本地账号并发',
+      headerTitle: '同一上游配置下所有 Key 共享的调度总并发，不是单个账号并发',
       limited: '{count}',
       unlimited: '无限制',
+      defaultValue: '默认 {count}',
+      sharedTitle: '所有 Key 共用一个并发池',
+      sharedHint: '该上游配置下的全部派生账号共享同一组槽位、等待队列和负载率。降低上限不会中断正在进行的请求，只会暂停发放新槽位。',
+      autoMode: '跟随上游',
+      overrideMode: '手工覆盖',
+      currentSource: '当前来源',
+      effectiveLimit: '最终生效值',
+      overrideValue: '共享总并发',
+      overrideRange: '可填写 1–1,000,000；切回跟随上游后清除覆盖值。',
+      autoResolutionHint: '自动模式按“有效上游快照 → 明确无限制 → 默认 100”解析。',
+      sourceTooltip: '调度来源：{source}；最终生效：{limit}',
+      sources: {
+        override: '手工覆盖',
+        provider: '上游同步值',
+        unlimited: '上游明确无限制',
+        default: '默认 100'
+      },
       providerReportedHint: '该数值由上游返回',
       stale: '{value}（已过期）',
       unsupported: '--（未提供）',
@@ -187,6 +204,7 @@ export default {
     },
     sections: {
       basicInfo: '基本信息',
+      schedulerConcurrency: '共享调度并发',
       connectionAndAuth: '连接与认证',
       costSettings: '成本设置'
     },
@@ -287,6 +305,7 @@ export default {
       invalidDashboardUrl: '上游站点地址无效，无法打开后台',
       rechargeRateInvalid: '充值倍率必须大于 0 且不超过 100',
       balanceToCnyRateInvalid: '余额兑人民币汇率必须为正数',
+      schedulerConcurrencyInvalid: '共享总并发必须是 1–1,000,000 之间的整数',
       loadSyncRunsFailed: '加载同步记录失败',
       loadSyncRunFailed: '加载同步结果失败',
       loadEventsFailed: '加载上游事件失败',

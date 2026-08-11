@@ -50,22 +50,24 @@ type LiveCallIdentity struct {
 }
 
 type LiveCallRecord struct {
-	CallID          string
-	CallHash        string
-	AccountID       int64
-	APIKeyID        int64
-	UserID          int64
-	GroupID         int64
-	SubscriptionID  int64
-	LeaseID         string
-	Model           string
-	CreatedAt       time.Time
-	ExpiresAt       time.Time
-	Controller      string
-	ControllerOwner string
-	UserAgent       string
-	IPAddress       string
-	InboundEndpoint string
+	CallID                string
+	CallHash              string
+	AccountID             int64
+	ConcurrencyTargetKind string
+	ConcurrencyTargetID   int64
+	APIKeyID              int64
+	UserID                int64
+	GroupID               int64
+	SubscriptionID        int64
+	LeaseID               string
+	Model                 string
+	CreatedAt             time.Time
+	ExpiresAt             time.Time
+	Controller            string
+	ControllerOwner       string
+	UserAgent             string
+	IPAddress             string
+	InboundEndpoint       string
 	// AttestationCiphertext 仅用于让同一会话的 Sideband 复用创建时的证明。
 	AttestationCiphertext string
 }
@@ -100,4 +102,18 @@ type LiveConcurrencyCache interface {
 	) (bool, error)
 	RefreshLiveLease(ctx context.Context, accountID, userID, apiKeyID int64, leaseID string) (bool, error)
 	ReleaseLiveLease(ctx context.Context, accountID, userID, apiKeyID int64, leaseID string) error
+}
+
+type TargetLiveConcurrencyCache interface {
+	AcquireLiveTargetLease(
+		ctx context.Context,
+		target ConcurrencyTarget,
+		userID int64,
+		userMax int,
+		apiKeyID int64,
+		leaseID string,
+		replacingRegularSlots bool,
+	) (bool, error)
+	RefreshLiveTargetLease(ctx context.Context, target ConcurrencyTarget, userID, apiKeyID int64, leaseID string) (bool, error)
+	ReleaseLiveTargetLease(ctx context.Context, target ConcurrencyTarget, userID, apiKeyID int64, leaseID string) error
 }

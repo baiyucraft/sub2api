@@ -9,6 +9,15 @@ export interface TTFTGuardSettings {
 
 export interface ProbeModels { models: Record<string, string> }
 
+export interface UpstreamManagementSettings {
+  ttft_guard: TTFTGuardSettings
+  probe_models: Record<'openai' | 'anthropic' | 'gemini', string>
+}
+
+export interface ProbeModelCandidates {
+  candidates: Record<'openai' | 'anthropic' | 'gemini', string[]>
+}
+
 export interface UpstreamHealthSnapshot {
   key_id: number
   status: 'healthy' | 'degraded' | 'suspended' | 'observing' | 'recovering' | 'disabled'
@@ -87,6 +96,21 @@ export async function updateProbeModels(models: Record<string, string>): Promise
   return data
 }
 
+export async function getSettings(): Promise<UpstreamManagementSettings> {
+  const { data } = await apiClient.get<UpstreamManagementSettings>('/admin/upstream-management/settings')
+  return data
+}
+
+export async function updateSettings(payload: UpstreamManagementSettings): Promise<UpstreamManagementSettings> {
+  const { data } = await apiClient.put<UpstreamManagementSettings>('/admin/upstream-management/settings', payload)
+  return data
+}
+
+export async function getProbeModelCandidates(): Promise<ProbeModelCandidates> {
+  const { data } = await apiClient.get<ProbeModelCandidates>('/admin/upstream-management/probe-model-candidates')
+  return data
+}
+
 export async function setKeyObservation(id: number, enabled: boolean): Promise<UpstreamHealthSnapshot> {
   const { data } = await apiClient.put<UpstreamHealthSnapshot>(`/admin/upstream-management/keys/${id}/observation`, { enabled })
   return data
@@ -104,5 +128,6 @@ export async function getKeyEvents(id: number): Promise<{ items: UpstreamKeyEven
 
 export default {
   listAccounts, listAccountsWithEtag, getTTFTGuard, updateTTFTGuard, getProbeModels, updateProbeModels,
+  getSettings, updateSettings, getProbeModelCandidates,
   setKeyObservation, probeKey, getKeyEvents
 }

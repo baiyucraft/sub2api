@@ -3,37 +3,6 @@
     <TablePageLayout>
       <template #filters>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
-          <div v-if="props.scope === 'upstream'" class="mb-3 w-full rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-800/60 dark:bg-amber-950/20">
-            <div class="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <div class="text-sm font-semibold text-amber-900 dark:text-amber-100">{{ t('admin.upstreamManagement.ttftGuard.title') }}</div>
-                <div class="mt-1 text-xs text-amber-800/80 dark:text-amber-200/80">{{ t('admin.upstreamManagement.ttftGuard.description') }}</div>
-              </div>
-              <div class="flex flex-wrap items-end gap-3">
-                <label class="flex items-center gap-2 text-sm text-amber-900 dark:text-amber-100">
-                  <Toggle v-model="upstreamTTFTGuard.enabled" :aria-label="t('admin.upstreamManagement.ttftGuard.enabled')" />
-                  {{ t('admin.upstreamManagement.ttftGuard.enabled') }}
-                </label>
-                <label class="flex flex-col gap-1 text-xs text-amber-900 dark:text-amber-100">
-                  {{ t('admin.upstreamManagement.ttftGuard.threshold') }}
-                  <input v-model.number="upstreamTTFTGuard.degradation_ttft_seconds" type="number" min="5" max="300" class="input w-24" />
-                </label>
-                <label class="flex flex-col gap-1 text-xs text-amber-900 dark:text-amber-100">
-                  {{ t('admin.upstreamManagement.ttftGuard.minSamples') }}
-                  <input v-model.number="upstreamTTFTGuard.min_samples" type="number" min="2" max="20" class="input w-20" />
-                </label>
-                <button class="btn btn-primary btn-sm" :disabled="upstreamTTFTGuardSaving || !upstreamTTFTGuardValid" @click="saveUpstreamTTFTGuard">{{ t('common.save') }}</button>
-              </div>
-            </div>
-            <div class="mt-3 flex flex-wrap items-end gap-3 border-t border-amber-200/70 pt-3 dark:border-amber-800/40">
-              <div class="text-xs font-semibold text-amber-900 dark:text-amber-100">{{ t('admin.upstreamManagement.probeModels.title') }}</div>
-              <label v-for="platform in ['openai', 'anthropic', 'gemini']" :key="platform" class="flex items-center gap-2 text-xs text-amber-900 dark:text-amber-100">
-                <span class="capitalize">{{ platform }}</span>
-                <input v-model="upstreamProbeModels[platform]" class="input w-48" />
-              </label>
-              <button class="btn btn-secondary btn-sm" :disabled="upstreamProbeModelsSaving || !upstreamProbeModelsValid" @click="saveUpstreamProbeModels">{{ t('common.save') }}</button>
-            </div>
-          </div>
           <AccountTableFilters
             v-model:searchQuery="params.search"
             :filters="params"
@@ -49,6 +18,19 @@
             @refresh="handleManualRefresh"
             @create="showCreate = true"
           >
+            <template #afterRefresh>
+              <button
+                v-if="props.scope === 'upstream'"
+                type="button"
+                class="btn btn-secondary px-2.5"
+                data-test="upstream-management-settings"
+                :title="t('admin.upstreamManagement.settings.open')"
+                :aria-label="t('admin.upstreamManagement.settings.open')"
+                @click="showUpstreamManagementSettings = true"
+              >
+                <Icon name="cog" size="md" />
+              </button>
+            </template>
             <template #after>
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
@@ -603,6 +585,10 @@
       :account="upstreamRateTrendAccount"
       @close="closeUpstreamRateTrend"
     />
+    <UpstreamManagementSettingsDialog
+      :show="showUpstreamManagementSettings"
+      @close="showUpstreamManagementSettings = false"
+    />
   </AppLayout>
 </template>
 
@@ -613,7 +599,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
-import upstreamManagementAPI, { type TTFTGuardSettings } from '@/api/admin/upstreamManagement'
+import upstreamManagementAPI from '@/api/admin/upstreamManagement'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
@@ -627,6 +613,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import UpstreamKeyEventsDialog from '@/components/admin/account/UpstreamKeyEventsDialog.vue'
 import UpstreamRateTrendDialog from '@/components/admin/account/UpstreamRateTrendDialog.vue'
+import UpstreamManagementSettingsDialog from '@/components/admin/account/UpstreamManagementSettingsDialog.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
@@ -673,24 +660,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
-const upstreamTTFTGuard = reactive<TTFTGuardSettings>({ enabled: false, degradation_ttft_seconds: 20, min_samples: 5 })
-const upstreamTTFTGuardSaving = ref(false)
-const upstreamProbeModels = reactive<Record<string, string>>({ openai: '', anthropic: '', gemini: '' })
-const upstreamProbeModelsSaving = ref(false)
-const upstreamTTFTGuardValid = computed(() =>
-  Number.isFinite(Number(upstreamTTFTGuard.degradation_ttft_seconds)) &&
-  upstreamTTFTGuard.degradation_ttft_seconds >= 5 &&
-  upstreamTTFTGuard.degradation_ttft_seconds <= 300 &&
-  Number.isInteger(Number(upstreamTTFTGuard.min_samples)) &&
-  upstreamTTFTGuard.min_samples >= 2 &&
-  upstreamTTFTGuard.min_samples <= 20
-)
-const upstreamProbeModelsValid = computed(() =>
-  ['openai', 'anthropic', 'gemini'].every((platform) => {
-    const model = upstreamProbeModels[platform]?.trim() || ''
-    return model.length > 0 && model.length <= 255
-  })
-)
+const showUpstreamManagementSettings = ref(false)
 const probingKeyIDs = reactive(new Set<number>())
 const togglingObservationKeyIDs = reactive(new Set<number>())
 const showUpstreamKeyEvents = ref(false)
@@ -1739,49 +1709,6 @@ const loadUpstreamBillingProbeGlobalState = async () => {
   } catch (error) {
     console.error('Failed to load upstream billing probe settings:', error)
   }
-}
-
-const loadUpstreamManagementSettings = async () => {
-  if (props.scope !== 'upstream') return
-  try {
-    const [ttft, probes] = await Promise.all([upstreamManagementAPI.getTTFTGuard(), upstreamManagementAPI.getProbeModels()])
-    Object.assign(upstreamTTFTGuard, ttft)
-    Object.assign(upstreamProbeModels, probes.models)
-  } catch (error) {
-    console.error('Failed to load upstream management settings:', error)
-  }
-}
-
-const saveUpstreamTTFTGuard = async () => {
-  if (!upstreamTTFTGuardValid.value) {
-    appStore.showError(t('admin.upstreamManagement.ttftGuard.invalid'))
-    return
-  }
-  upstreamTTFTGuardSaving.value = true
-  try {
-    const saved = await upstreamManagementAPI.updateTTFTGuard({ ...upstreamTTFTGuard })
-    Object.assign(upstreamTTFTGuard, saved)
-    appStore.showSuccess(t('admin.upstreamManagement.saved'))
-  } catch (error) {
-    console.error('Failed to save TTFT Guard settings:', error)
-    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.saveFailed')))
-  } finally { upstreamTTFTGuardSaving.value = false }
-}
-
-const saveUpstreamProbeModels = async () => {
-  if (!upstreamProbeModelsValid.value) {
-    appStore.showError(t('admin.upstreamManagement.probeModels.invalid'))
-    return
-  }
-  upstreamProbeModelsSaving.value = true
-  try {
-    const saved = await upstreamManagementAPI.updateProbeModels({ ...upstreamProbeModels })
-    Object.assign(upstreamProbeModels, saved.models)
-    appStore.showSuccess(t('admin.upstreamManagement.saved'))
-  } catch (error) {
-    console.error('Failed to save probe models:', error)
-    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.saveFailed')))
-  } finally { upstreamProbeModelsSaving.value = false }
 }
 
 const replaceUpstreamHealth = (accountID: number, health: Account['upstream_health']) => {
@@ -2850,7 +2777,6 @@ onMounted(async () => {
 
   load()
   loadUpstreamBillingProbeGlobalState()
-  loadUpstreamManagementSettings()
   try {
     const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])
     proxies.value = p

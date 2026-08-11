@@ -4,6 +4,7 @@
     <button @click="$emit('refresh')" :disabled="loading" class="btn btn-secondary">
       <Icon name="refresh" size="md" :class="[loading ? 'animate-spin' : '']" />
     </button>
+    <slot name="afterRefresh"></slot>
     <slot name="after"></slot>
     <slot name="beforeCreate"></slot>
     <button v-if="showCreate" @click="$emit('create')" class="btn btn-primary">{{ t('admin.accounts.createAccount') }}</button>

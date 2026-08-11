@@ -12,6 +12,12 @@ export default {
       site: '上游站点'
     },
     saveFailed: '保存上游管理配置失败',
+    settings: {
+      title: '上游管理设置',
+      open: '上游管理设置',
+      loadFailed: '加载上游管理设置失败',
+      invalid: '请检查首 Token 阈值、样本数和探针模型。'
+    },
     rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
       title: '首 Token 性能保护',
@@ -19,9 +25,28 @@ export default {
       enabled: '启用',
       threshold: '降级阈值（秒）',
       minSamples: '最少样本',
-      invalid: '降级阈值需为 5–300 秒，最少样本需为 2–20 的整数。'
+      invalid: '降级阈值需为 5–300 秒，最少样本需为 2–20 的整数。',
+      tip: {
+        definition: 'TTFT 是请求发出到收到首个有效 Token 的耗时。',
+        scope: '仅对上游账号生效，不修改倍率、Priority、计费或原调度评分。',
+        normal: '有效样本达到最少样本数且 EWMA 达到阈值时降级。',
+        fast: '连续 2 次达到阈值的 1.5 倍时快速降级；单次达到 3 倍时立即降级。',
+        immediate: '降级账号仍保留约 5% 调度机会用于恢复探测。',
+        recovery: '连续 3 次探测低于 0.6 倍阈值后恢复；若全组都被降级则按原策略 fail-open。'
+      }
     },
-    probeModels: { title: '平台探针模型', invalid: '三个平台的探针模型均不能为空，且最长 255 个字符。' },
+    probeModels: {
+      title: '平台探针模型',
+      description: '候选来自当前上游账号、已配置模型和服务端目录；列表中没有时可直接输入新模型。',
+      invalid: '三个平台的探针模型均不能为空，且最长 120 个字符。',
+      search: '搜索模型',
+      placeholder: '选择或输入模型',
+      useCustom: '使用自定义模型：'
+    },
+    concurrency: {
+      sharedTooltip: '同一上游配置下所有 Key 共享并发池；来源：{source}，生效上限：{limit}',
+      sources: { override: '手工覆盖', provider: '上游同步', unlimited: '上游无限制', default: '默认值 100' }
+    },
     actions: { probe: '探测', observation: '观测', events: '事件', probeRecorded: '探测结果已记录', probeFailed: '探测上游 Key 失败', observationFailed: '更新 Key 观测状态失败' },
     health: {
       keyHealth: 'Key 健康',

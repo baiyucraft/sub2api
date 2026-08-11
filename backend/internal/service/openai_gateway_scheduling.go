@@ -932,12 +932,12 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if err != nil {
 			return nil, err
 		}
-		result, err := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+		result, err := s.tryAcquireAccountSlot(ctx, account)
 		if err == nil && result != nil && result.Acquired {
 			return s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
 		}
 		if stickyAccountID > 0 && stickyAccountID == account.ID && s.concurrencyService != nil {
-			waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
+			waitingCount, _ := s.concurrencyService.GetTargetWaitingCount(ctx, account.SchedulingConcurrencyTarget())
 			if waitingCount < cfg.StickySessionMaxWaiting {
 				return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 					AccountID:      account.ID,
@@ -994,7 +994,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 					} else if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else {
-						result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
+						result, err := s.tryAcquireAccountSlot(ctx, account)
 						if err == nil && result != nil && result.Acquired {
 							selection, selectErr := s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
 							if selectErr != nil {
@@ -1004,7 +1004,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 							return selection, nil
 						}
 
-						waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
+						waitingCount, _ := s.concurrencyService.GetTargetWaitingCount(ctx, account.SchedulingConcurrencyTarget())
 						if waitingCount < cfg.StickySessionMaxWaiting {
 							return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 								AccountID:      accountID,
@@ -1070,10 +1070,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
 	for _, acc := range candidates {
-		accountLoads = append(accountLoads, AccountWithConcurrency{
-			ID:             acc.ID,
-			MaxConcurrency: acc.EffectiveLoadFactor(),
-		})
+		accountLoads = append(accountLoads, AccountConcurrencyLoadDescriptor(acc))
 	}
 
 	tryAcquireFromLoadMap := func(loadMap map[int64]*AccountLoadInfo) (*AccountSelectionResult, bool, error) {
@@ -1155,7 +1152,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, fresh, requestedModel, requireCompact) {
 				continue
 			}
-			result, err := s.tryAcquireAccountSlot(ctx, fresh.ID, fresh.Concurrency)
+			result, err := s.tryAcquireAccountSlot(ctx, fresh)
 			if err == nil && result != nil && result.Acquired {
 				selection, selectErr := s.newAcquiredSelectionResult(ctx, fresh, result.ReleaseFunc)
 				if selectErr != nil {
@@ -1197,7 +1194,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, fresh, requestedModel, requireCompact) {
 				continue
 			}
-			result, err := s.tryAcquireAccountSlot(ctx, fresh.ID, fresh.Concurrency)
+			result, err := s.tryAcquireAccountSlot(ctx, fresh)
 			if err == nil && result != nil && result.Acquired {
 				selection, selectErr := s.newAcquiredSelectionResult(ctx, fresh, result.ReleaseFunc)
 				if selectErr != nil {
@@ -1296,11 +1293,11 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	return accounts, nil
 }
 
-func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
+func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, account *Account) (*AcquireResult, error) {
 	if s.concurrencyService == nil {
 		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
 	}
-	return s.concurrencyService.AcquireAccountSlot(ctx, accountID, maxConcurrency)
+	return s.concurrencyService.AcquireTargetSlot(ctx, account.SchedulingConcurrencyTarget())
 }
 
 func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) *Account {

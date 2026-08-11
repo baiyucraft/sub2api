@@ -21,7 +21,9 @@ type GroupCapacitySummary struct {
 type GroupAccountCapacityRow struct {
 	GroupID             int64
 	AccountID           int64
+	UpstreamConfigID    *int64
 	Concurrency         int
+	UpstreamConcurrency UpstreamSchedulerConcurrency
 	Extra               map[string]any
 	SessionWindowStart  *time.Time
 	SessionWindowEnd    *time.Time
@@ -111,6 +113,11 @@ type groupCapacityAccountRef struct {
 	accountID int64
 }
 
+type groupCapacityTargetRef struct {
+	groupID int64
+	target  string
+}
+
 func (s *GroupCapacityService) getGroupCapacitiesBatch(ctx context.Context, groupIDs []int64, lister groupCapacityAccountLister) ([]GroupCapacitySummary, error) {
 	results := make([]GroupCapacitySummary, len(groupIDs))
 	groupIndex := make(map[int64]int, len(groupIDs))
@@ -134,6 +141,8 @@ func (s *GroupCapacityService) getGroupCapacitiesBatch(ctx context.Context, grou
 	seenGroupAccount := make(map[groupCapacityAccountRef]struct{}, len(rows))
 	accountIDSet := make(map[int64]struct{}, len(rows))
 	accountIDs := make([]int64, 0, len(rows))
+	loadDescriptors := make(map[int64]AccountWithConcurrency, len(rows))
+	seenGroupTargets := make(map[groupCapacityTargetRef]struct{}, len(rows))
 	sessionTimeouts := make(map[int64]time.Duration)
 
 	for _, row := range rows {
@@ -156,14 +165,31 @@ func (s *GroupCapacityService) getGroupCapacitiesBatch(ctx context.Context, grou
 
 		acc := Account{
 			ID:                  row.AccountID,
+			UpstreamConfigID:    row.UpstreamConfigID,
 			Concurrency:         row.Concurrency,
 			Extra:               row.Extra,
 			SessionWindowStart:  row.SessionWindowStart,
 			SessionWindowEnd:    row.SessionWindowEnd,
 			SessionWindowStatus: row.SessionWindowStatus,
 		}
+		if row.UpstreamConfigID != nil {
+			acc.UpstreamConcurrencyLimit = row.UpstreamConcurrency.Limit
+			acc.UpstreamConcurrencySource = row.UpstreamConcurrency.Source
+			acc.UpstreamConcurrencyUsesDefault = row.UpstreamConcurrency.UsesDefault
+			acc.UpstreamConcurrencyUnlimited = row.UpstreamConcurrency.Unlimited
+			acc.UpstreamConcurrencyOverride = row.UpstreamConcurrency.Override
+		}
 
-		results[idx].ConcurrencyMax += acc.Concurrency
+		descriptor := AccountConcurrencyLoadDescriptor(&acc)
+		loadDescriptors[acc.ID] = descriptor
+		targetRef := groupCapacityTargetRef{
+			groupID: row.GroupID,
+			target:  ConcurrencyTarget{Kind: descriptor.TargetKind, ID: descriptor.TargetID}.Key(),
+		}
+		if _, exists := seenGroupTargets[targetRef]; !exists {
+			seenGroupTargets[targetRef] = struct{}{}
+			results[idx].ConcurrencyMax += descriptor.MaxConcurrency
+		}
 
 		if maxSessions := acc.GetMaxSessions(); maxSessions > 0 {
 			results[idx].SessionsMax += maxSessions
@@ -183,9 +209,13 @@ func (s *GroupCapacityService) getGroupCapacitiesBatch(ctx context.Context, grou
 		return results, nil
 	}
 
-	concurrencyMap := map[int64]int{}
+	concurrencyMap := map[int64]*AccountLoadInfo{}
 	if s.concurrencyService != nil {
-		concurrencyMap, _ = s.concurrencyService.GetAccountConcurrencyBatch(ctx, accountIDs)
+		loads := make([]AccountWithConcurrency, 0, len(loadDescriptors))
+		for _, accountID := range accountIDs {
+			loads = append(loads, loadDescriptors[accountID])
+		}
+		concurrencyMap, _ = s.concurrencyService.GetAccountsLoadBatch(ctx, loads)
 	}
 
 	sessionAccountIDs := accountIDsForGroupsWithLimit(refs, groupIndex, results, func(summary GroupCapacitySummary) bool {
@@ -204,9 +234,21 @@ func (s *GroupCapacityService) getGroupCapacitiesBatch(ctx context.Context, grou
 		rpmMap, _ = s.rpmCache.GetRPMBatch(ctx, rpmAccountIDs)
 	}
 
+	countedGroupTargets := make(map[groupCapacityTargetRef]struct{}, len(refs))
 	for _, ref := range refs {
 		idx := groupIndex[ref.groupID]
-		results[idx].ConcurrencyUsed += concurrencyMap[ref.accountID]
+		if descriptor, ok := loadDescriptors[ref.accountID]; ok {
+			targetRef := groupCapacityTargetRef{
+				groupID: ref.groupID,
+				target:  ConcurrencyTarget{Kind: descriptor.TargetKind, ID: descriptor.TargetID}.Key(),
+			}
+			if _, counted := countedGroupTargets[targetRef]; !counted {
+				countedGroupTargets[targetRef] = struct{}{}
+				if load := concurrencyMap[ref.accountID]; load != nil {
+					results[idx].ConcurrencyUsed += load.CurrentConcurrency
+				}
+			}
+		}
 		if sessionsMap != nil && results[idx].SessionsMax > 0 {
 			results[idx].SessionsUsed += sessionsMap[ref.accountID]
 		}
@@ -245,13 +287,21 @@ func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int
 
 	// Collect account IDs and config values
 	accountIDs := make([]int64, 0, len(accounts))
+	loadDescriptors := make([]AccountWithConcurrency, 0, len(accounts))
+	seenTargets := make(map[string]struct{}, len(accounts))
 	sessionTimeouts := make(map[int64]time.Duration)
 	var concurrencyMax, sessionsMax, rpmMax int
 
 	for i := range accounts {
 		acc := &accounts[i]
 		accountIDs = append(accountIDs, acc.ID)
-		concurrencyMax += acc.Concurrency
+		descriptor := AccountConcurrencyLoadDescriptor(acc)
+		loadDescriptors = append(loadDescriptors, descriptor)
+		targetKey := ConcurrencyTarget{Kind: descriptor.TargetKind, ID: descriptor.TargetID}.Key()
+		if _, exists := seenTargets[targetKey]; !exists {
+			seenTargets[targetKey] = struct{}{}
+			concurrencyMax += descriptor.MaxConcurrency
+		}
 
 		if ms := acc.GetMaxSessions(); ms > 0 {
 			sessionsMax += ms
@@ -268,7 +318,7 @@ func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int
 	}
 
 	// Batch query runtime data from Redis
-	concurrencyMap, _ := s.concurrencyService.GetAccountConcurrencyBatch(ctx, accountIDs)
+	concurrencyMap, _ := s.concurrencyService.GetAccountsLoadBatch(ctx, loadDescriptors)
 
 	var sessionsMap map[int64]int
 	if sessionsMax > 0 && s.sessionLimitCache != nil {
@@ -282,8 +332,16 @@ func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int
 
 	// Aggregate
 	var concurrencyUsed, sessionsUsed, rpmUsed int
-	for _, id := range accountIDs {
-		concurrencyUsed += concurrencyMap[id]
+	countedTargets := make(map[string]struct{}, len(accounts))
+	for i, id := range accountIDs {
+		descriptor := loadDescriptors[i]
+		targetKey := ConcurrencyTarget{Kind: descriptor.TargetKind, ID: descriptor.TargetID}.Key()
+		if _, counted := countedTargets[targetKey]; !counted {
+			countedTargets[targetKey] = struct{}{}
+			if load := concurrencyMap[id]; load != nil {
+				concurrencyUsed += load.CurrentConcurrency
+			}
+		}
 		if sessionsMap != nil {
 			sessionsUsed += sessionsMap[id]
 		}

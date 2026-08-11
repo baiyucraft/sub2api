@@ -174,7 +174,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 				return nil, err
 			}
 
-			result, err := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+			result, err := s.tryAcquireAccountSlot(ctx, account)
 			if err == nil && result.Acquired {
 				// 获取槽位后检查会话限制（使用 sessionHash 作为会话标识符）
 				if !s.checkAndRegisterSession(ctx, account, sessionHash) {
@@ -192,7 +192,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 			}
 
 			if stickyAccountID > 0 && stickyAccountID == account.ID && s.concurrencyService != nil {
-				waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
+				waitingCount, _ := s.concurrencyService.GetTargetWaitingCount(ctx, account.SchedulingConcurrencyTarget())
 				if waitingCount < cfg.StickySessionMaxWaiting {
 					return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 						AccountID:      account.ID,
@@ -354,7 +354,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 						rpmPass := gatePass && s.isAccountSchedulableForRPM(ctx, stickyAccount, true)
 
 						if rpmPass { // 粘性会话窗口费用+RPM 检查
-							result, err := s.tryAcquireAccountSlot(ctx, stickyAccountID, stickyAccount.Concurrency)
+							result, err := s.tryAcquireAccountSlot(ctx, stickyAccount)
 							if err == nil && result.Acquired {
 								// 会话数量限制检查
 								if !s.checkAndRegisterSession(ctx, stickyAccount, sessionHash) {
@@ -375,7 +375,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 							}
 
 							if stickyCacheMissReason == "" {
-								waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, stickyAccountID)
+								waitingCount, _ := s.concurrencyService.GetTargetWaitingCount(ctx, stickyAccount.SchedulingConcurrencyTarget())
 								if waitingCount < cfg.StickySessionMaxWaiting {
 									// 会话数量限制检查（等待计划也需要占用会话配额）
 									if !s.checkAndRegisterSession(ctx, stickyAccount, sessionHash) {
@@ -424,10 +424,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 			// 2. 批量获取负载信息
 			routingLoads := make([]AccountWithConcurrency, 0, len(routingCandidates))
 			for _, acc := range routingCandidates {
-				routingLoads = append(routingLoads, AccountWithConcurrency{
-					ID:             acc.ID,
-					MaxConcurrency: acc.EffectiveLoadFactor(),
-				})
+				routingLoads = append(routingLoads, AccountConcurrencyLoadDescriptor(acc))
 			}
 			routingLoadMap, _ := s.concurrencyService.GetAccountsLoadBatch(ctx, routingLoads)
 
@@ -468,7 +465,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 
 				// 4. 尝试获取槽位
 				for _, item := range routingAvailable {
-					result, err := s.tryAcquireAccountSlot(ctx, item.account.ID, item.account.Concurrency)
+					result, err := s.tryAcquireAccountSlot(ctx, item.account)
 					if err == nil && result.Acquired {
 						// 会话数量限制检查
 						if !s.checkAndRegisterSession(ctx, item.account, sessionHash) {
@@ -552,7 +549,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 				)
 
 				if !clearSticky && platformOK && profitOK && modelSupported && modelSchedulable && quotaOK && windowCostOK && rpmOK && schedulable {
-					result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
+					result, err := s.tryAcquireAccountSlot(ctx, account)
 					if err == nil && result.Acquired {
 						// 会话数量限制检查
 						if !s.checkAndRegisterSession(ctx, account, sessionHash) {
@@ -580,7 +577,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 						)
 					}
 
-					waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
+					waitingCount, _ := s.concurrencyService.GetTargetWaitingCount(ctx, account.SchedulingConcurrencyTarget())
 					if waitingCount < cfg.StickySessionMaxWaiting {
 						// 会话数量限制检查（等待计划也需要占用会话配额）
 						if !s.checkAndRegisterSession(ctx, account, sessionHash) {
@@ -680,10 +677,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
 	for _, acc := range candidates {
-		accountLoads = append(accountLoads, AccountWithConcurrency{
-			ID:             acc.ID,
-			MaxConcurrency: acc.EffectiveLoadFactor(),
-		})
+		accountLoads = append(accountLoads, AccountConcurrencyLoadDescriptor(acc))
 	}
 
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
@@ -726,7 +720,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 				break
 			}
 
-			result, err := s.tryAcquireAccountSlot(ctx, selected.account.ID, selected.account.Concurrency)
+			result, err := s.tryAcquireAccountSlot(ctx, selected.account)
 			if err == nil && result.Acquired {
 				// 会话数量限制检查
 				if !s.checkAndRegisterSession(ctx, selected.account, sessionHash) {
@@ -773,7 +767,7 @@ func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates
 	sortAccountsByPriorityAndLastUsed(ordered, preferOAuth)
 
 	for _, acc := range ordered {
-		result, err := s.tryAcquireAccountSlot(ctx, acc.ID, acc.Concurrency)
+		result, err := s.tryAcquireAccountSlot(ctx, acc)
 		if err == nil && result.Acquired {
 			// 会话数量限制检查
 			if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
@@ -1126,11 +1120,11 @@ func (s *GatewayService) isAccountInGroup(account *Account, groupID *int64) bool
 	return false
 }
 
-func (s *GatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
+func (s *GatewayService) tryAcquireAccountSlot(ctx context.Context, account *Account) (*AcquireResult, error) {
 	if s.concurrencyService == nil {
 		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
 	}
-	return s.concurrencyService.AcquireAccountSlot(ctx, accountID, maxConcurrency)
+	return s.concurrencyService.AcquireTargetSlot(ctx, account.SchedulingConcurrencyTarget())
 }
 
 type usageLogWindowStatsBatchProvider interface {

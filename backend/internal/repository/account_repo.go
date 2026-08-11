@@ -2116,23 +2116,50 @@ func (r *accountRepository) ListSchedulableAccountLoads(ctx context.Context) ([]
 			dbaccount.FieldID,
 			dbaccount.FieldConcurrency,
 			dbaccount.FieldLoadFactor,
+			dbaccount.FieldUpstreamConfigID,
 		).
 		All(ctx)
 	if err != nil {
 		return nil, err
 	}
+	upstreamIDs := make([]int64, 0)
+	for _, account := range accounts {
+		if account.UpstreamConfigID != nil {
+			upstreamIDs = append(upstreamIDs, *account.UpstreamConfigID)
+		}
+	}
+	upstreamIDs = uniquePositiveInt64s(upstreamIDs)
+	upstreamConcurrency := make(map[int64]service.UpstreamSchedulerConcurrency, len(upstreamIDs))
+	if len(upstreamIDs) > 0 {
+		configs, loadErr := r.client.UpstreamConfig.Query().
+			Where(dbupstreamconfig.IDIn(upstreamIDs...), dbupstreamconfig.DeletedAtIsNil()).
+			Select(dbupstreamconfig.FieldID, dbupstreamconfig.FieldExtra).
+			All(ctx)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		for _, config := range configs {
+			upstreamConcurrency[config.ID] = service.ResolveUpstreamSchedulerConcurrency(config.Extra)
+		}
+	}
 
 	loads := make([]service.AccountWithConcurrency, 0, len(accounts))
 	for _, account := range accounts {
 		projection := service.Account{
-			ID:          account.ID,
-			Concurrency: account.Concurrency,
-			LoadFactor:  account.LoadFactor,
+			ID:               account.ID,
+			Concurrency:      account.Concurrency,
+			LoadFactor:       account.LoadFactor,
+			UpstreamConfigID: account.UpstreamConfigID,
 		}
-		loads = append(loads, service.AccountWithConcurrency{
-			ID:             account.ID,
-			MaxConcurrency: projection.EffectiveLoadFactor(),
-		})
+		if account.UpstreamConfigID != nil {
+			resolved := upstreamConcurrency[*account.UpstreamConfigID]
+			projection.UpstreamConcurrencyLimit = resolved.Limit
+			projection.UpstreamConcurrencySource = resolved.Source
+			projection.UpstreamConcurrencyUsesDefault = resolved.UsesDefault
+			projection.UpstreamConcurrencyUnlimited = resolved.Unlimited
+			projection.UpstreamConcurrencyOverride = resolved.Override
+		}
+		loads = append(loads, service.AccountConcurrencyLoadDescriptor(&projection))
 	}
 	return loads, nil
 }
@@ -2175,7 +2202,9 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 				rows = append(rows, service.GroupAccountCapacityRow{
 					GroupID:             groupID,
 					AccountID:           acc.ID,
+					UpstreamConfigID:    acc.UpstreamConfigID,
 					Concurrency:         acc.Concurrency,
+					UpstreamConcurrency: service.UpstreamSchedulerConcurrency{Limit: acc.UpstreamConcurrencyLimit, Source: acc.UpstreamConcurrencySource, UsesDefault: acc.UpstreamConcurrencyUsesDefault, Unlimited: acc.UpstreamConcurrencyUnlimited, Override: acc.UpstreamConcurrencyOverride},
 					Extra:               copyJSONMap(acc.Extra),
 					SessionWindowStart:  acc.SessionWindowStart,
 					SessionWindowEnd:    acc.SessionWindowEnd,
@@ -2190,8 +2219,10 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 		SELECT
 			ag.group_id,
 			a.id AS account_id,
+			a.upstream_config_id,
 			a.concurrency,
 			COALESCE(a.extra, '{}'::jsonb)::text AS extra,
+			COALESCE(uc.extra, '{}'::jsonb)::text AS upstream_extra,
 			a.session_window_start,
 			a.session_window_end,
 			COALESCE(a.session_window_status, '') AS session_window_status
@@ -2224,12 +2255,14 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 	out := make([]service.GroupAccountCapacityRow, 0)
 	for rows.Next() {
 		var row service.GroupAccountCapacityRow
-		var extraRaw string
+		var extraRaw, upstreamExtraRaw string
 		if err := rows.Scan(
 			&row.GroupID,
 			&row.AccountID,
+			&row.UpstreamConfigID,
 			&row.Concurrency,
 			&extraRaw,
+			&upstreamExtraRaw,
 			&row.SessionWindowStart,
 			&row.SessionWindowEnd,
 			&row.SessionWindowStatus,
@@ -2242,6 +2275,15 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 				return nil, err
 			}
 			row.Extra = extra
+		}
+		if row.UpstreamConfigID != nil {
+			var upstreamExtra map[string]any
+			if upstreamExtraRaw != "" && upstreamExtraRaw != "null" {
+				if err := json.Unmarshal([]byte(upstreamExtraRaw), &upstreamExtra); err != nil {
+					return nil, err
+				}
+			}
+			row.UpstreamConcurrency = service.ResolveUpstreamSchedulerConcurrency(upstreamExtra)
 		}
 		out = append(out, row)
 	}
@@ -3512,6 +3554,12 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 					enabled = *cfg.SchedulingEnabled
 				}
 				out.UpstreamSchedulingEnabled = &enabled
+				resolvedConcurrency := service.ResolveUpstreamSchedulerConcurrency(cfg.Extra)
+				out.UpstreamConcurrencyLimit = resolvedConcurrency.Limit
+				out.UpstreamConcurrencySource = resolvedConcurrency.Source
+				out.UpstreamConcurrencyUsesDefault = resolvedConcurrency.UsesDefault
+				out.UpstreamConcurrencyUnlimited = resolvedConcurrency.Unlimited
+				out.UpstreamConcurrencyOverride = resolvedConcurrency.Override
 				if cfg.ProxyID != nil {
 					out.ProxyID = cfg.ProxyID
 					if proxy, ok := proxyMap[*cfg.ProxyID]; ok {
