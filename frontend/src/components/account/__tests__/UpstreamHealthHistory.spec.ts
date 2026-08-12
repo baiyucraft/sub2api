@@ -29,6 +29,10 @@ describe('UpstreamHealthHistory', () => {
     const bars = wrapper.findAll('[data-observation-state]')
     expect(bars).toHaveLength(24)
     expect(bars[0].attributes('data-observation-state')).toBe(observations[3].state)
+    const chart = wrapper.get('[data-upstream-health-bars]')
+    expect(chart.classes()).toContain('grid')
+    expect(chart.classes()).toContain('max-w-[210px]')
+    expect(chart.attributes('style')).toContain('repeat(24, minmax(0, 1fr))')
     expect(wrapper.text()).toContain('admin.upstreamManagement.health.historySummary')
   })
 
