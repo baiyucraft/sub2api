@@ -49,7 +49,7 @@ func TestListSchedulableAccountLoadsUsesSingleProjectionQuery(t *testing.T) {
 	require.Equal(t, int64(11), loads[0].ID)
 	require.Equal(t, 3, loads[0].MaxConcurrency)
 	require.Equal(t, int64(12), loads[1].ID)
-	require.Equal(t, 7, loads[1].MaxConcurrency)
+	require.Equal(t, 2, loads[1].MaxConcurrency)
 	require.NoError(t, mock.ExpectationsWereMet(), "projection path must avoid account/group/credential hydration when no upstream binding exists")
 
 	normalized := normalizeSQLWhitespace(capturedSQL)

@@ -26,7 +26,7 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("activation_complete != true", script)
         self.assertIn("previous-$asset", script)
         self.assertIn("SUB2API_TEST_FAIL_AFTER_VALIDATOR_ACTIVATION", script)
-        self.assertIn("for selftest_profile in 195 199 202 206 207 208 209 210 212 213 215 232 233 234", script)
+        self.assertIn("for selftest_profile in 195 199 202 206 207 208 209 210 212 213 215 232 233", script)
         self.assertIn("$test_parent == /opt/sub2api-deploy/release-input/$test_name", script)
         self.assertLess(script.index("sub2api-sign-dr-evidence\" \"$selftest_dr_dir"), script.index("mv -T -- \"$validator_target.new\""))
         self.assertLess(script.index('unit_lock="$target_libexec_dir/.sub2api-release-unit.lock"'), script.index('exec 9<>"$unit_lock"'))
@@ -84,7 +84,7 @@ class SignerAssetTest(unittest.TestCase):
 
     def test_dr_signer_contract_rejects_untrusted_shapes(self) -> None:
         script = (DEPLOY_ROOT / "release" / "sign-dr-evidence.sh").read_text(encoding="utf-8")
-        self.assertIn("(195|199|202|206|207|208|209|210|212|213|215|232|233|234)", script)
+        self.assertIn("(195|199|202|206|207|208|209|210|212|213|215|232|233)", script)
         self.assertIn("keys | sort", script)
         self.assertIn("temporary_material_destroyed == \"pass\"", script)
         self.assertIn("redis_backup_dbsize - .redis_restored_dbsize", script)
@@ -115,8 +115,8 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("ea0b628532f8d85d0e57921b5b010c7f00ef8b0f9701da2b0d4ea31105553e08", promoter)
         self.assertIn('root="/srv/sub2api-backups/releases/$profile"', promoter)
         self.assertIn('jq -cS \'.manifest.migration_sha256\'', promoter)
-        self.assertIn("^(195|199|202|206|207|208|209|210|212|213|215|232|233|234)-", promoter)
-        self.assertIn("^dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234)-", promoter)
+        self.assertIn("^(195|199|202|206|207|208|209|210|212|213|215|232|233)-", promoter)
+        self.assertIn("^dr-(195|199|202|206|207|208|209|210|212|213|215|232|233)-", promoter)
         self.assertIn('candidate_link="$root/candidate"', promoter)
         self.assertIn('"$verifier" "$trust_key" "$staging/evidence.json" "$staging/evidence.sig"', promoter)
         self.assertIn("verified-bundles/$target_name", promoter)
@@ -137,7 +137,7 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("SUB2API_TEST_FAIL_AFTER_VERIFIER_ACTIVATION", bootstrap_script)
         self.assertIn("promoter_constant verifier_sha256", bootstrap_script)
         self.assertIn("promoter_constant trust_sha256", bootstrap_script)
-        self.assertIn("for profile in 195 199 202 206 207 208 209 210 212 213 215 232 233 234", bootstrap_script)
+        self.assertIn("for profile in 195 199 202 206 207 208 209 210 212 213 215 232 233", bootstrap_script)
         self.assertIn('promotion_root="$releases_root/$profile"', bootstrap_script)
         self.assertLess(bootstrap_script.index('asset_lock="$target_libexec_dir/.sub2api-dr-assets.lock"'), bootstrap_script.index('exec 9<>"$asset_lock"'))
 

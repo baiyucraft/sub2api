@@ -1472,7 +1472,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			continue
 		}
 		filtered = append(filtered, account)
-		loadReq = append(loadReq, AccountConcurrencyLoadDescriptor(account))
+		loadReq = append(loadReq, AccountSchedulingLoadDescriptor(account))
 	}
 	if len(filtered) == 0 {
 		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, filterStats.summary(""))
@@ -1649,7 +1649,7 @@ func buildOpenAIAccountLoadRequest(accounts []*Account) []AccountWithConcurrency
 		if account == nil {
 			continue
 		}
-		loadReq = append(loadReq, AccountConcurrencyLoadDescriptor(account))
+		loadReq = append(loadReq, AccountSchedulingLoadDescriptor(account))
 	}
 	return loadReq
 }
