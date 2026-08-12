@@ -495,7 +495,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("[[ $old_image_auth_status =~ ^[0-9]{3}$ ]]", validator)
         self.assertIn('old_image_auth_headers=$(docker exec "$old_probe_app" sh -lc', validator)
         self.assertIn('HTTP\\/[0-9.][0-9.]*', validator)
-        self.assertIn('old_image_auth_command_status == 0 || $old_image_auth_command_status == 1 || $old_image_auth_command_status == 8', validator)
+        self.assertNotIn('old_image_auth_command_status', validator)
         self.assertIn('if [[ $old_image_auth_status =~ ^[0-9]{3}$ ]]', validator)
         self.assertIn('printf \'%s\\n\' "$old_image_auth_status" > "$state_dir/old-image-auth-status"', validator)
         self.assertIn('-p "127.0.0.1::$server_port"', validator)
