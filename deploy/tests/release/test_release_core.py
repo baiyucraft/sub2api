@@ -544,6 +544,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("mark_stage migration_assertion_profile_195_fixture", validator)
         self.assertIn("INSERT INTO scheduler_outbox (event_type, payload)", validator)
         self.assertIn("payload->'account_ids' = expected_accounts.ids", validator)
+        self.assertIn('docker exec -i sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1', validator)
         self.assertIn('redis-cli SET sched:v2:outbox:watermark "$probe_outbox_highwater"', validator)
         self.assertIn('[[ $consumed_event_id == 0 || $sentinel_event_id -gt $consumed_event_id ]]', validator)
         self.assertIn("ASSERT_DB_USER=\"$database_owner\"", validator)
