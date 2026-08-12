@@ -10,7 +10,9 @@ const {
   getSettings,
   getProbeModelCandidates,
   getBatchTodayStats,
-  getUpstreamBillingProbeSettings
+  getUpstreamBillingProbeSettings,
+  probeKey,
+  setKeyObservation
 } = vi.hoisted(() => ({
   ordinaryList: vi.fn(),
   upstreamList: vi.fn(),
@@ -18,7 +20,9 @@ const {
   getSettings: vi.fn(),
   getProbeModelCandidates: vi.fn(),
   getBatchTodayStats: vi.fn(),
-  getUpstreamBillingProbeSettings: vi.fn()
+  getUpstreamBillingProbeSettings: vi.fn(),
+  probeKey: vi.fn(),
+  setKeyObservation: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -47,8 +51,8 @@ vi.mock('@/api/admin/upstreamManagement', () => ({
     getSettings,
     updateSettings: vi.fn(),
     getProbeModelCandidates,
-    probeKey: vi.fn(),
-    setKeyObservation: vi.fn(),
+    probeKey,
+    setKeyObservation,
     listKeyEvents: vi.fn()
   }
 }))
@@ -108,7 +112,11 @@ const mountView = () => mount(AccountsView, {
       TablePageLayout: { template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>' },
       DataTable: {
         props: ['data', 'columns'],
-        template: '<div data-test="data-table" :data-count="data.length" :data-columns="columns.map((column) => column.key).join(\',\')" />'
+        template: `
+          <div data-test="data-table" :data-count="data.length" :data-columns="columns.map((column) => column.key).join(',')">
+            <div v-for="row in data" :key="row.id"><slot name="cell-actions" :row="row" /></div>
+          </div>
+        `
       },
       Pagination: true,
       ConfirmDialog: true,
@@ -154,6 +162,8 @@ describe('admin AccountsView upstream management mode', () => {
     getProbeModelCandidates.mockReset()
     getBatchTodayStats.mockReset()
     getUpstreamBillingProbeSettings.mockReset()
+    probeKey.mockReset()
+    setKeyObservation.mockReset()
 
     upstreamList.mockResolvedValue({
       items: [{
@@ -168,7 +178,8 @@ describe('admin AccountsView upstream management mode', () => {
         upstream_config_name: 'Transit Hub',
         upstream_key_name: 'Key A',
         upstream_key_masked: 'sk-abc...7890',
-        available_actions: ['edit', 'test', 'probe_key'],
+        available_actions: ['edit', 'test', 'probe_key', 'toggle_observation'],
+        upstream_health: { observation_enabled: false },
         created_at: '2026-08-10T00:00:00Z',
         updated_at: '2026-08-10T00:00:00Z'
       }],
@@ -185,6 +196,8 @@ describe('admin AccountsView upstream management mode', () => {
     getProbeModelCandidates.mockResolvedValue({ candidates: { openai: [], anthropic: [], gemini: [] } })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
+    probeKey.mockResolvedValue({ observation_enabled: false })
+    setKeyObservation.mockResolvedValue({ observation_enabled: true })
   })
 
   it('uses the dedicated upstream API and hides ordinary-only mutations', async () => {
@@ -249,6 +262,58 @@ describe('admin AccountsView upstream management mode', () => {
     expect(columns).not.toContain('quality_stats')
     expect(columns).not.toContain('today_stats')
 
+    wrapper.unmount()
+  })
+
+  it('keeps the probe label while replacing its icon during a probe', async () => {
+    let resolveProbe: ((value: { observation_enabled: boolean }) => void) | undefined
+    probeKey.mockReturnValue(new Promise(resolve => { resolveProbe = resolve }))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const action = wrapper.get('[data-test="upstream-probe-action"]')
+    expect(action.text()).toBe('admin.upstreamManagement.actions.probe')
+    expect(action.attributes('title')).toBe('admin.upstreamManagement.actions.probeTip')
+    expect(action.get('icon-stub').attributes('name')).toBe('play')
+
+    await action.trigger('click')
+
+    expect(action.attributes('disabled')).toBeDefined()
+    expect(action.text()).toBe('admin.upstreamManagement.actions.probe')
+    expect(action.get('icon-stub').attributes('name')).toBe('refresh')
+    expect(action.get('icon-stub').classes()).toContain('animate-spin')
+
+    resolveProbe?.({ observation_enabled: false })
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('shows observe and cancel as distinct automatic observation states', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const action = wrapper.get('[data-test="upstream-observation-action"]')
+    expect(action.text()).toBe('admin.upstreamManagement.actions.observation')
+    expect(action.attributes('title')).toBe('admin.upstreamManagement.actions.observationTip')
+    expect(action.get('icon-stub').attributes('name')).toBe('eye')
+    expect(action.classes()).toContain('text-sky-600')
+
+    await action.trigger('click')
+    await flushPromises()
+
+    expect(setKeyObservation).toHaveBeenCalledWith(91, true)
+    expect(action.text()).toBe('admin.upstreamManagement.actions.cancelObservation')
+    expect(action.attributes('title')).toBe('admin.upstreamManagement.actions.cancelObservationTip')
+    expect(action.get('icon-stub').attributes('name')).toBe('eyeOff')
+    expect(action.classes()).toContain('text-rose-600')
+
+    setKeyObservation.mockResolvedValueOnce({ observation_enabled: false })
+    await action.trigger('click')
+    await flushPromises()
+
+    expect(setKeyObservation).toHaveBeenLastCalledWith(91, false)
+    expect(action.text()).toBe('admin.upstreamManagement.actions.observation')
     wrapper.unmount()
   })
 })
