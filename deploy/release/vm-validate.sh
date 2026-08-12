@@ -563,13 +563,15 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   vm_old_image_compatibility_verified=true
 fi
 if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 ]]; then
-  mark_stage runtime_fixture_profile_206
-  docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT setval(pg_get_serial_sequence('groups','id'), COALESCE(MAX(id),0)+1, false) FROM groups; SELECT setval(pg_get_serial_sequence('api_keys','id'), COALESCE(MAX(id),0)+1, false) FROM api_keys\"" >/dev/null
+  mark_stage runtime_fixture_profile_206_sequences
+  docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT setval(pg_get_serial_sequence('groups','id'), COALESCE(MAX(id),0)+1, false) FROM groups; SELECT setval(pg_get_serial_sequence('api_keys','id'), COALESCE(MAX(id),0)+1, false) FROM api_keys; SELECT setval(pg_get_serial_sequence('group_rate_snapshots','id'), COALESCE(MAX(id),0)+1, false) FROM group_rate_snapshots\"" >/dev/null
+  mark_stage runtime_fixture_profile_206_admin
   admin_user_id=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT id FROM users WHERE role='admin' AND status='active' AND deleted_at IS NULL ORDER BY id LIMIT 1\"" | tr -d '\r')
   [[ $admin_user_id =~ ^[1-9][0-9]*$ ]]
   fixture_admin_key="admin-vm-gate-profile-206-${release_id}"
   fixture_live_key="sk-vm-gate-profile-206-${release_id}"
   fixture_live_group="vm-gate-live-${release_id}"
+  mark_stage runtime_fixture_profile_206_insert
   docker exec -i \
     -e FIXTURE_ADMIN_KEY="$fixture_admin_key" \
     -e FIXTURE_ADMIN_USER_ID="$admin_user_id" \
