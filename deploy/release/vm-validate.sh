@@ -551,10 +551,8 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   mark_stage old_image_compatibility_auth
   set +e
   old_image_auth_headers=$(docker exec "$old_probe_app" sh -lc "wget -S -O /dev/null --timeout=10 http://127.0.0.1:$server_port/api/v1/auth/me" 2>&1)
-  old_image_auth_command_status=$?
   set -e
   old_image_auth_status=$(sed -n 's/.*HTTP\/[0-9.][0-9.]*[[:space:]]\+\([0-9][0-9][0-9]\).*/\1/p' <<<"$old_image_auth_headers" | tail -n1)
-  [[ $old_image_auth_command_status == 0 || $old_image_auth_command_status == 1 || $old_image_auth_command_status == 8 ]]
   if [[ $old_image_auth_status =~ ^[0-9]{3}$ ]]; then
     printf '%s\n' "$old_image_auth_status" > "$state_dir/old-image-auth-status"
   fi
