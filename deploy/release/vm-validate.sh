@@ -344,14 +344,30 @@ migration_233_status=not_applicable
 if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 ]]; then
   mark_stage migration_assertion_profile_212_status
   profile_212_migration_status() {
-    local filename=$1 expected actual
+    local filename=$1 migration_number expected actual command_status
+    migration_number=${filename%%_*}
+    mark_stage "migration_assertion_status_${migration_number}"
+    set +e
     expected=$(jq -er --arg filename "$filename" '.migration_sha256[$filename]' "$manifest")
-    actual=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT checksum FROM schema_migrations WHERE filename='$filename'\"" | tr -d '\r\n')
+    command_status=$?
+    set -e
+    if [[ $command_status != 0 || ! $expected =~ ^[0-9a-f]{64}$ ]]; then
+      mark_stage "migration_assertion_status_manifest_${migration_number}"
+      return 1
+    fi
+    set +e
+    actual=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT checksum FROM schema_migrations WHERE filename='$filename'\"" 2>/dev/null | tr -d '\r\n')
+    command_status=$?
+    set -e
+    if [[ $command_status != 0 ]]; then
+      mark_stage "migration_assertion_status_query_${migration_number}"
+      return 1
+    fi
     if [[ -z $actual ]]; then
       printf 'absent\n'
     else
       if [[ ! $actual =~ ^[0-9a-f]{64}$ || $actual != "$expected" ]]; then
-        mark_stage "migration_assertion_status_checksum_${filename%%_*}"
+        mark_stage "migration_assertion_status_checksum_${migration_number}"
         return 1
       fi
       printf 'verified\n'
