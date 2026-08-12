@@ -344,13 +344,16 @@ migration_233_status=not_applicable
 if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 ]]; then
   mark_stage migration_assertion_profile_212_status
   profile_212_migration_status() {
-    local filename=$1 expected row
+    local filename=$1 expected actual
     expected=$(jq -er --arg filename "$filename" '.migration_sha256[$filename]' "$manifest")
-    row=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT filename,checksum FROM schema_migrations WHERE filename='$filename'\"")
-    if [[ -z $row ]]; then
+    actual=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT checksum FROM schema_migrations WHERE filename='$filename'\"" | tr -d '\r\n')
+    if [[ -z $actual ]]; then
       printf 'absent\n'
     else
-      [[ $row == "$filename|$expected" ]]
+      if [[ ! $actual =~ ^[0-9a-f]{64}$ || $actual != "$expected" ]]; then
+        mark_stage "migration_assertion_status_checksum_${filename%%_*}"
+        return 1
+      fi
       printf 'verified\n'
     fi
   }
