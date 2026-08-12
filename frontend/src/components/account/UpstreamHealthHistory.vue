@@ -8,15 +8,20 @@
     :aria-label="interactive ? t('admin.upstreamManagement.health.openDetails') : undefined"
     @click="interactive && emit('showHistory')"
   >
-    <div class="flex h-8 items-end gap-[3px]" aria-hidden="true">
+    <div
+      data-upstream-health-bars
+      class="grid h-8 w-full max-w-[210px] items-end gap-[2px]"
+      :style="{ gridTemplateColumns: `repeat(${visibleObservations.length}, minmax(0, 1fr))` }"
+      aria-hidden="true"
+    >
       <HelpTooltip
         v-for="(item, index) in visibleObservations"
         :key="`${item.observed_at}-${index}`"
         width-class="w-64 max-w-[calc(100vw-2rem)]"
-        trigger-class="!ml-0 flex h-8 items-end"
+        trigger-class="!ml-0 flex h-8 w-full min-w-0 items-end justify-center"
       >
         <template #trigger>
-          <span class="flex h-8 w-2 items-end sm:w-2.5">
+          <span class="flex h-8 w-full min-w-0 max-w-[6px] items-end">
             <span
               :data-observation-state="item.state"
               :class="[
@@ -37,7 +42,7 @@
         <div>{{ t('admin.upstreamManagement.health.reason') }}: {{ reasonLabel(item.reason) }}</div>
       </HelpTooltip>
     </div>
-    <div class="mt-1 flex items-center justify-between gap-3 text-[10px] leading-3 text-gray-400 dark:text-dark-500">
+    <div class="mt-1 flex w-full max-w-[210px] items-center justify-between gap-3 text-[10px] leading-3 text-gray-400 dark:text-dark-500">
       <span>{{ t('admin.upstreamManagement.health.past') }}</span>
       <span class="font-medium text-gray-500 transition-colors group-hover:text-primary-600 dark:text-dark-400 dark:group-hover:text-primary-400">
         {{ t('admin.upstreamManagement.health.historySummary', { healthy: healthyCount, total: visibleObservations.length }) }}
