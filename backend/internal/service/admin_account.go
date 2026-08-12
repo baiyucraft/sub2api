@@ -498,7 +498,6 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		}
 		account.LoadFactor = input.LoadFactor
 	}
-	account.ApplyUpstreamAutoLoadFactor()
 	sanitizeUpstreamBoundCredentials(account)
 	if err := validateAndNormalizeSub2APIUpstreamCredentials(account); err != nil {
 		return nil, err
@@ -602,7 +601,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if account.IsUpstreamBound() {
 		if input.Name != "" || input.Type != "" || input.ProxyID != nil || input.UpstreamConfigID != nil || input.UpstreamKeyID != nil ||
 			input.Concurrency != nil || input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil || input.ProbeEnabled != nil || input.RateSyncEnabled != nil {
-			return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account identity, credentials, proxy, concurrency, rate, priority, and load factor are derived from the upstream config or key")
+			return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account identity, credentials, proxy, concurrency, rate, and priority are managed by the upstream config or key; load factor is not configurable for upstream accounts")
 		}
 		if err := validateUpstreamAccountEditableUpdate(input); err != nil {
 			return nil, err
@@ -851,7 +850,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			account.LoadFactor = input.LoadFactor
 		}
 	}
-	account.ApplyUpstreamAutoLoadFactor()
 	if input.Status != "" {
 		account.Status = input.Status
 	}
@@ -1124,7 +1122,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		for _, acc := range cachedTargets {
 			if acc != nil && acc.IsUpstreamBound() {
 				return nil, infraerrors.Newf(http.StatusBadRequest, "UPSTREAM_ACCOUNT_RATE_DERIVED",
-					"upstream-bound account %d rate, priority, and load factor are derived from its upstream key", acc.ID)
+					"upstream-bound account %d rate and priority are derived from its upstream key; load factor is not configurable", acc.ID)
 			}
 		}
 	}
@@ -1267,23 +1265,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
 		return nil, err
 	}
-	if input.Concurrency != nil {
-		for _, acc := range cachedTargets {
-			if acc == nil || !acc.IsUpstreamBound() {
-				continue
-			}
-			priority := acc.Priority
-			concurrency := acc.Concurrency
-			if input.Concurrency != nil {
-				concurrency = *input.Concurrency
-			}
-			loadFactor := AutoUpstreamLoadFactor(priority, concurrency)
-			if _, err := s.accountRepo.BulkUpdate(ctx, []int64{acc.ID}, AccountBulkUpdate{LoadFactor: &loadFactor}); err != nil {
-				return nil, err
-			}
-		}
-	}
-
 	// 将 proxy 变更传播到每个目标账号的 spark 影子账号
 	if repoUpdates.ProxyID != nil {
 		var effectiveProxyID *int64

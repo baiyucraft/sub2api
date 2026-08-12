@@ -129,22 +129,14 @@ profile 232 使用版本 `0.1.173-baiyu`，完整继承 profile 215 的 32 项 m
 隐私默认值及媒体价格 schema。迁移 232 必须在停写后生成数据计划，绑定协调恢复点，验证备份表行数/hash、
 Grok/Composite 保护集、媒体鉴权缓存触发器和清理后零残留；回滚必须协调恢复 PostgreSQL、Redis、配置和旧镜像。
 
-profile 233 使用版本 `0.1.174-baiyu`，完整继承 profile 232 的 49 项 migration，并追加
-`233_upstream_account_key_unique.sql`，共 50 项。profile 233 保留 profile 232 的显式旧镜像兼容身份，
-因为两者合并为同一条待发布 Candidate 线。迁移前必须确认未删除账号不存在重复 `upstream_key_id`；
-迁移后必须验证 `idx_accounts_upstream_key_id_active` 为 valid/ready 的部分唯一索引，且谓词限定
-`upstream_key_id IS NOT NULL AND deleted_at IS NULL`。Gate 同时要求 `migration_233_status`、
-`migration_233_preflight_verified` 与 `migration_233_postflight_verified`。
+profile 233 保持版本 `0.1.173-baiyu`，完整继承 profile 232 的 49 项 migration，并追加唯一的
+`233_upstream_management.sql`，共 50 项。该迁移合并尚未生产的上游账号 Key 唯一约束、健康观测历史、
+运行角色权限和账号绑定触发器语义，保留 profile 232 的显式旧镜像兼容身份。迁移前必须确认未删除账号
+不存在重复 `upstream_key_id`；迁移后必须验证部分唯一索引、健康观测表的 19 个关键列、
+`(upstream_key_id, observed_at)` 索引以及触发器不再派生或覆盖 `load_factor`。Gate 同时要求
+`migration_233_status`、`migration_233_preflight_verified` 与 `migration_233_postflight_verified`。
 
-profile 234 使用版本 `0.1.175-baiyu`，完整继承 profile 233 的 50 项 migration，并追加
-`234_upstream_health_observations.sql`，共 51 项。profile 234 继续继承 profile 232 的显式旧镜像兼容身份；
-迁移前后独立记录 `migration_234_status=absent|verified`，只读断言验证
-`upstream_health_observations` 表、19 个关键列及
-`idx_upstream_health_observations_key_observed` 的 valid/ready 和
-`(upstream_key_id, observed_at)` 列顺序。Gate 同时要求
-`migration_234_preflight_verified` 与 `migration_234_postflight_verified`，并保留 profile 233 的全部证据。
-
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233 和 234
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232 和 233
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -161,7 +153,6 @@ python deploy/tests/release/backup_dr_profile_213_integration.py
 python deploy/tests/release/backup_dr_profile_215_integration.py
 python deploy/tests/release/backup_dr_profile_232_integration.py
 python deploy/tests/release/backup_dr_profile_233_integration.py
-python deploy/tests/release/backup_dr_profile_234_integration.py
 ```
 
 首次安装信任根使用：

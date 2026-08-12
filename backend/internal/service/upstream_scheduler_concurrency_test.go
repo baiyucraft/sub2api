@@ -134,3 +134,54 @@ func TestAcquireTargetSlot_UnlimitedStillTracksAndReleases(t *testing.T) {
 	result.ReleaseFunc()
 	require.Equal(t, []ConcurrencyTarget{target}, cache.releasedTargets)
 }
+
+func TestOrdinaryAccountSeparatesHardConcurrencyFromLoadCapacity(t *testing.T) {
+	loadFactor := 20
+	account := &Account{ID: 42, Concurrency: 5, LoadFactor: &loadFactor}
+
+	target := account.SchedulingConcurrencyTarget()
+	require.Equal(t, ConcurrencyTargetAccount, target.Kind)
+	require.Equal(t, int64(42), target.ID)
+	require.Equal(t, 5, target.Limit)
+
+	capacityDescriptor := AccountConcurrencyLoadDescriptor(account)
+	require.Equal(t, 5, capacityDescriptor.MaxConcurrency)
+	require.Equal(t, ConcurrencyTargetAccount, capacityDescriptor.TargetKind)
+	require.Equal(t, int64(42), capacityDescriptor.TargetID)
+
+	schedulingDescriptor := AccountSchedulingLoadDescriptor(account)
+	require.Equal(t, 20, schedulingDescriptor.MaxConcurrency)
+	require.Equal(t, ConcurrencyTargetAccount, schedulingDescriptor.TargetKind)
+	require.Equal(t, int64(42), schedulingDescriptor.TargetID)
+}
+
+func TestOrdinaryAccountHardConcurrencyHasSafeMinimum(t *testing.T) {
+	account := &Account{ID: 42, Concurrency: 0}
+	require.Equal(t, 1, account.SchedulingConcurrencyTarget().Limit)
+	require.Equal(t, 1, AccountConcurrencyLoadDescriptor(account).MaxConcurrency)
+	require.Equal(t, 1, AccountSchedulingLoadDescriptor(account).MaxConcurrency)
+}
+
+func TestUpstreamAccountIgnoresKeyLevelLoadFactor(t *testing.T) {
+	configID := int64(91)
+	loadFactor := 999
+	account := &Account{
+		ID: 42, Concurrency: 5, LoadFactor: &loadFactor, UpstreamConfigID: &configID,
+		UpstreamConcurrencyLimit: 37,
+	}
+
+	target := account.SchedulingConcurrencyTarget()
+	require.Equal(t, ConcurrencyTargetUpstream, target.Kind)
+	require.Equal(t, configID, target.ID)
+	require.Equal(t, 37, target.Limit)
+
+	descriptor := AccountConcurrencyLoadDescriptor(account)
+	require.Equal(t, 37, descriptor.MaxConcurrency)
+	require.Equal(t, ConcurrencyTargetUpstream, descriptor.TargetKind)
+	require.Equal(t, configID, descriptor.TargetID)
+
+	schedulingDescriptor := AccountSchedulingLoadDescriptor(account)
+	require.Equal(t, 37, schedulingDescriptor.MaxConcurrency)
+	require.Equal(t, ConcurrencyTargetUpstream, schedulingDescriptor.TargetKind)
+	require.Equal(t, configID, schedulingDescriptor.TargetID)
+}
