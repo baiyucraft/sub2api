@@ -494,6 +494,9 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('category="old_image_compatibility_auth_http_$old_image_auth_status"', validator)
         self.assertIn("[[ $old_image_auth_status =~ ^[0-9]{3}$ ]]", validator)
         self.assertIn("curl --noproxy '*'", validator)
+        self.assertIn('-p "127.0.0.1::$server_port"', validator)
+        self.assertIn('old_probe_port=$(docker port "$old_probe_app"', validator)
+        self.assertIn('http://127.0.0.1:$old_probe_port/api/v1/auth/me', validator)
         self.assertNotIn("old-probe-app.log", validator)
 
     def test_profile_209_migration_defines_permanent_user_usage_aggregation_contract(self) -> None:
