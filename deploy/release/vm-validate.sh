@@ -564,7 +564,12 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
 fi
 if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 ]]; then
   mark_stage runtime_fixture_profile_206_sequences
-  docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT setval(pg_get_serial_sequence('groups','id'), COALESCE(MAX(id),0)+1, false) FROM groups; SELECT setval(pg_get_serial_sequence('api_keys','id'), COALESCE(MAX(id),0)+1, false) FROM api_keys; SELECT setval(pg_get_serial_sequence('group_rate_snapshots','id'), COALESCE(MAX(id),0)+1, false) FROM group_rate_snapshots\"" >/dev/null
+  docker exec -i sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" >/dev/null <<'SQL'
+SELECT setval(pg_get_serial_sequence('groups','id'), COALESCE(MAX(id),0)+1, false) FROM groups;
+SELECT setval(pg_get_serial_sequence('api_keys','id'), COALESCE(MAX(id),0)+1, false) FROM api_keys;
+SELECT setval(pg_get_serial_sequence('group_rate_snapshots','id'), COALESCE(MAX(id),0)+1, false) FROM group_rate_snapshots;
+SELECT setval(pg_get_serial_sequence('upstream_events','id'), COALESCE(MAX(id),0)+1, false) FROM upstream_events;
+SQL
   mark_stage runtime_fixture_profile_206_admin
   admin_user_id=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT id FROM users WHERE role='admin' AND status='active' AND deleted_at IS NULL ORDER BY id LIMIT 1\"" | tr -d '\r')
   [[ $admin_user_id =~ ^[1-9][0-9]*$ ]]

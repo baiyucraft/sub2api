@@ -497,21 +497,42 @@
                 v-if="props.scope === 'upstream' && row.upstream_key_id && canUseAccountAction(row, 'probe_key')"
                 :disabled="probingKeyIDs.has(row.upstream_key_id)"
                 @click="handleProbeUpstreamKey(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-amber-600 transition-colors hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
-                :title="t('admin.upstreamManagement.actions.probe')"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-amber-600 transition-colors hover:bg-amber-50 disabled:cursor-wait disabled:opacity-60 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                :title="t('admin.upstreamManagement.actions.probeTip')"
+                data-test="upstream-probe-action"
               >
-                <Icon name="play" size="sm" />
+                <Icon
+                  :name="probingKeyIDs.has(row.upstream_key_id) ? 'refresh' : 'play'"
+                  size="sm"
+                  :class="probingKeyIDs.has(row.upstream_key_id) ? 'animate-spin' : ''"
+                />
                 <span class="text-xs">{{ t('admin.upstreamManagement.actions.probe') }}</span>
               </button>
               <button
                 v-if="props.scope === 'upstream' && row.upstream_key_id && canUseAccountAction(row, 'toggle_observation')"
                 :disabled="togglingObservationKeyIDs.has(row.upstream_key_id)"
                 @click="handleToggleUpstreamObservation(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-sky-600 transition-colors hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-900/20"
-                :title="t('admin.upstreamManagement.actions.observation')"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 transition-colors disabled:cursor-wait disabled:opacity-60"
+                :class="row.upstream_health?.observation_enabled === true
+                  ? 'text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-900/20'
+                  : 'text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-900/20'"
+                :title="row.upstream_health?.observation_enabled === true
+                  ? t('admin.upstreamManagement.actions.cancelObservationTip')
+                  : t('admin.upstreamManagement.actions.observationTip')"
+                data-test="upstream-observation-action"
               >
-                <Icon name="eye" size="sm" />
-                <span class="text-xs">{{ t('admin.upstreamManagement.actions.observation') }}</span>
+                <Icon
+                  :name="togglingObservationKeyIDs.has(row.upstream_key_id)
+                    ? 'refresh'
+                    : row.upstream_health?.observation_enabled === true ? 'eyeOff' : 'eye'"
+                  size="sm"
+                  :class="togglingObservationKeyIDs.has(row.upstream_key_id) ? 'animate-spin' : ''"
+                />
+                <span class="text-xs">
+                  {{ row.upstream_health?.observation_enabled === true
+                    ? t('admin.upstreamManagement.actions.cancelObservation')
+                    : t('admin.upstreamManagement.actions.observation') }}
+                </span>
               </button>
               <button
                 v-if="props.scope === 'upstream' && row.upstream_key_id && canUseAccountAction(row, 'events')"
@@ -643,7 +664,7 @@ import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { buildTTFTGuardDegradationKey, buildUpstreamHealthKey, mergeRuntimeFields } from '@/utils/accountRuntimeState'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
@@ -1725,7 +1746,12 @@ const handleProbeUpstreamKey = async (account: Account) => {
     appStore.showSuccess(t('admin.upstreamManagement.actions.probeRecorded'))
   } catch (error) {
     console.error('Failed to probe upstream key:', error)
-    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.actions.probeFailed')))
+    appStore.showError(extractI18nErrorMessage(
+      error,
+      t,
+      'admin.upstreamManagement.actions.errors',
+      t('admin.upstreamManagement.actions.probeFailed')
+    ))
   }
   finally { probingKeyIDs.delete(keyID) }
 }

@@ -51,7 +51,21 @@ export default {
       sharedTooltip: '同一上游配置下所有 Key 共享并发池；来源：{source}，生效上限：{limit}',
       sources: { override: '手工覆盖', provider: '上游同步', unlimited: '上游无限制', default: '默认值 100' }
     },
-    actions: { probe: '探测', observation: '观测', events: '事件', probeRecorded: '探测结果已记录', probeFailed: '探测上游 Key 失败', observationFailed: '更新 Key 观测状态失败' },
+    actions: {
+      probe: '探测',
+      probeTip: '立即执行一次健康探测',
+      observation: '观测',
+      observationTip: '开启定时健康探针',
+      cancelObservation: '取消',
+      cancelObservationTip: '取消定时健康探针，仍可手动探测',
+      events: '事件',
+      probeRecorded: '探测结果已记录',
+      probeFailed: '探测上游 Key 失败',
+      observationFailed: '更新 Key 观测状态失败',
+      errors: {
+        UPSTREAM_HEALTH_EVIDENCE_PERSIST_FAILED: '保存健康探测结果失败，请稍后重试'
+      }
+    },
     health: {
       keyHealth: 'Key 健康',
       healthy: '健康',

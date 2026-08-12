@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -110,6 +111,8 @@ func TestUpstreamConfigServiceHealthPersistenceFailureRollsBackRegistry(t *testi
 
 	_, err := svc.SetKeyObservation(context.Background(), keyID, false)
 	require.Error(t, err)
+	require.Equal(t, "UPSTREAM_HEALTH_EVIDENCE_PERSIST_FAILED", infraerrors.Reason(err))
+	require.Equal(t, "failed to save upstream health evidence", infraerrors.Message(err))
 	require.Equal(t, previous, GlobalUpstreamHealthRegistry().Snapshot(keyID))
 }
 
@@ -206,6 +209,17 @@ type blockingUpstreamHealthProber struct {
 	calls   atomic.Int32
 	started chan struct{}
 	release chan struct{}
+}
+
+type successfulUpstreamHealthProber struct{}
+
+func (*successfulUpstreamHealthProber) RunUpstreamHealthProbe(_ context.Context, _ *Account, model string) (UpstreamHealthProbeResult, error) {
+	ttft := int64(25)
+	duration := int64(40)
+	return UpstreamHealthProbeResult{
+		Model: model, Protocol: upstreamHealthProbeProtocolOpenAI,
+		Result: "success", Reason: "probe_succeeded", TTFTMs: &ttft, DurationMs: &duration,
+	}, nil
 }
 
 func (p *blockingUpstreamHealthProber) RunUpstreamHealthProbe(ctx context.Context, _ *Account, model string) (UpstreamHealthProbeResult, error) {
@@ -323,6 +337,31 @@ func TestUpstreamConfigServiceProbeKeyRejectsCrossInstanceDuplicate(t *testing.T
 
 	close(prober.release)
 	require.NoError(t, <-firstDone)
+}
+
+func TestUpstreamConfigServiceProbeKeyMapsEvidencePersistenceFailure(t *testing.T) {
+	const keyID int64 = 92017
+	previous := defaultUpstreamHealthSnapshot(keyID)
+	previous.Status = UpstreamHealthObserving
+	previous.UpdatedAt = time.Date(2026, 8, 12, 7, 0, 0, 0, time.UTC)
+	GlobalUpstreamHealthRegistry().Hydrate(previous)
+
+	repo := &healthProbeLockRepo{
+		healthEventCaptureRepo: healthEventCaptureRepo{err: errors.New("duplicate key value violates upstream_events_pkey")},
+		key:                    UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: StatusActive},
+	}
+	accountRepo := &healthProbeAccountRepo{account: Account{
+		ID: 84, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, UpstreamKeyID: int64Ptr(keyID),
+	}}
+	svc := NewUpstreamConfigService(repo, nil, accountRepo)
+	svc.SetHealthProbeDependencies(&successfulUpstreamHealthProber{}, nil)
+
+	_, err := svc.ProbeKey(context.Background(), keyID)
+	require.Error(t, err)
+	require.Equal(t, 500, infraerrors.Code(err))
+	require.Equal(t, "UPSTREAM_HEALTH_EVIDENCE_PERSIST_FAILED", infraerrors.Reason(err))
+	require.Equal(t, "failed to save upstream health evidence", infraerrors.Message(err))
+	require.Equal(t, previous, GlobalUpstreamHealthRegistry().Snapshot(keyID))
 }
 
 func TestUpstreamHealthProbeRunnerStopCancelsLoop(t *testing.T) {

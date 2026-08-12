@@ -565,6 +565,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("setval(pg_get_serial_sequence('groups','id'), COALESCE(MAX(id),0)+1, false)", validator)
         self.assertIn("setval(pg_get_serial_sequence('api_keys','id'), COALESCE(MAX(id),0)+1, false)", validator)
         self.assertIn("setval(pg_get_serial_sequence('group_rate_snapshots','id'), COALESCE(MAX(id),0)+1, false)", validator)
+        self.assertIn("setval(pg_get_serial_sequence('upstream_events','id'), COALESCE(MAX(id),0)+1, false)", validator)
         self.assertIn("create_probe_database()", validator)
         self.assertIn("if ASSERT_CONTEXT_FILE=", validator)
         self.assertIn('sh -lc "dropdb -U', validator)

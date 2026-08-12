@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -41,6 +42,8 @@ var (
 	ErrUpstreamConfigNotFound = infraerrors.NotFound("UPSTREAM_CONFIG_NOT_FOUND", "upstream config not found")
 	ErrUpstreamKeyNotFound    = infraerrors.NotFound("UPSTREAM_KEY_NOT_FOUND", "upstream key not found")
 )
+
+var errUpstreamHealthEvidencePersistFailed = infraerrors.InternalServer("UPSTREAM_HEALTH_EVIDENCE_PERSIST_FAILED", "failed to save upstream health evidence")
 
 const (
 	UpstreamKeyPlatformSourceLegacy     = "legacy"
@@ -849,7 +852,11 @@ func (s *UpstreamConfigService) saveHealthTransition(ctx context.Context, keyID 
 func (s *UpstreamConfigService) saveHealthTransitionWithObservation(ctx context.Context, keyID int64, transition UpstreamHealthTransition, observation *UpstreamHealthObservation) error {
 	if err := s.saveKeyHealthTransitionWithObservation(ctx, keyID, transition, observation); err != nil {
 		GlobalUpstreamHealthRegistry().Hydrate(transition.Previous)
-		return err
+		var appErr *infraerrors.ApplicationError
+		if errors.As(err, &appErr) {
+			return err
+		}
+		return errUpstreamHealthEvidencePersistFailed.WithCause(err)
 	}
 	return nil
 }
