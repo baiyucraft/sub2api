@@ -51,7 +51,21 @@ export default {
       sharedTooltip: 'All Keys under this upstream config share one concurrency pool. Source: {source}; effective limit: {limit}',
       sources: { override: 'Manual override', provider: 'Upstream snapshot', unlimited: 'Upstream unlimited', default: 'Default 100' }
     },
-    actions: { probe: 'Probe', observation: 'Observe', events: 'Events', probeRecorded: 'Probe result recorded', probeFailed: 'Failed to probe upstream Key', observationFailed: 'Failed to update Key observation' },
+    actions: {
+      probe: 'Probe',
+      probeTip: 'Run a health probe now',
+      observation: 'Observe',
+      observationTip: 'Enable scheduled health probes',
+      cancelObservation: 'Cancel',
+      cancelObservationTip: 'Disable scheduled health probes; manual probes remain available',
+      events: 'Events',
+      probeRecorded: 'Probe result recorded',
+      probeFailed: 'Failed to probe upstream Key',
+      observationFailed: 'Failed to update Key observation',
+      errors: {
+        UPSTREAM_HEALTH_EVIDENCE_PERSIST_FAILED: 'Failed to save the health probe result. Please try again.'
+      }
+    },
     health: {
       keyHealth: 'Key health',
       healthy: 'Healthy',
