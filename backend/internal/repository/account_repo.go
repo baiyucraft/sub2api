@@ -799,11 +799,9 @@ func validateLockedUpstreamAccountBinding(account *service.Account, key *dbent.U
 	}
 	actualRate := *key.RateMultiplier
 	priority := service.Sub2APIUpstreamPriority(actualRate)
-	loadFactor := service.AutoUpstreamLoadFactor(priority, account.Concurrency)
 	account.RateMultiplier = &actualRate
 	account.UpstreamSourceRateMultiplier = key.SourceRateMultiplier
 	account.Priority = priority
-	account.LoadFactor = &loadFactor
 	return nil
 }
 

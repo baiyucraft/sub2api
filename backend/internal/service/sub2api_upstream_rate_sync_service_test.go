@@ -271,7 +271,7 @@ func TestSub2APIUpstreamRateSync_KeysFallback(t *testing.T) {
 	require.InDelta(t, 0.03, *repo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.InDelta(t, 0.025, *repo.bulkUpdates[0].updates.UpstreamSourceRateMultiplier, 1e-12)
 	require.Equal(t, 3, *repo.bulkUpdates[0].updates.Priority)
-	require.Equal(t, 200, *repo.bulkUpdates[0].updates.LoadFactor)
+	require.Nil(t, repo.bulkUpdates[0].updates.LoadFactor)
 }
 
 func TestSub2APIUpstreamRateSync_ManualJWTSkipsLogin(t *testing.T) {
@@ -304,7 +304,7 @@ func TestSub2APIUpstreamRateSync_ManualJWTSkipsLogin(t *testing.T) {
 	require.Len(t, repo.bulkUpdates, 1)
 	require.InDelta(t, 0.12, *repo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.Equal(t, 12, *repo.bulkUpdates[0].updates.Priority)
-	require.Equal(t, 100, *repo.bulkUpdates[0].updates.LoadFactor)
+	require.Nil(t, repo.bulkUpdates[0].updates.LoadFactor)
 }
 
 func TestSub2APIUpstreamRateSync_LegacyUserLoginFailsClosedWhenComplianceSettingsUnavailable(t *testing.T) {
@@ -378,7 +378,7 @@ func TestSub2APIUpstreamRateSync_ManualJWTRefreshesExpiredTokenAndRetries(t *tes
 	rateUpdate := repo.bulkUpdates[1]
 	require.InDelta(t, 0.07, *rateUpdate.updates.RateMultiplier, 1e-12)
 	require.Equal(t, 7, *rateUpdate.updates.Priority)
-	require.Equal(t, 150, *rateUpdate.updates.LoadFactor)
+	require.Nil(t, rateUpdate.updates.LoadFactor)
 	require.Empty(t, repo.extraUpdates)
 }
 

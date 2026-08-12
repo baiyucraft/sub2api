@@ -153,10 +153,9 @@ func (s *adminServiceImpl) normalizeUpstreamAccountInput(ctx context.Context, in
 	input.Extra[AccountSub2APIRateSyncAdapterKey] = cfg.AuthMode
 	actualRate := *key.RateMultiplier
 	priority := Sub2APIUpstreamPriority(actualRate)
-	loadFactor := AutoUpstreamLoadFactor(priority, normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency))
 	input.RateMultiplier = &actualRate
 	input.Priority = priority
-	input.LoadFactor = &loadFactor
+	input.LoadFactor = nil
 	input.ProxyID = nil
 	return nil
 }
@@ -209,7 +208,7 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_RATE_UNAVAILABLE", "upstream key actual rate is unavailable")
 	}
 	if input.RateMultiplier != nil || input.Priority != nil || input.LoadFactor != nil {
-		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_RATE_DERIVED", "upstream account rate, priority, and load factor are derived from the upstream key")
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_RATE_DERIVED", "upstream account rate and priority are derived from the upstream key; load factor is not configurable for upstream accounts")
 	}
 	if input.Concurrency != nil {
 		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account concurrency is managed by the parent upstream config")
@@ -224,10 +223,9 @@ func (s *adminServiceImpl) normalizeUpstreamAccountUpdate(ctx context.Context, a
 	account.Name = autoName
 	actualRate := *key.RateMultiplier
 	priority := Sub2APIUpstreamPriority(actualRate)
-	loadFactor := AutoUpstreamLoadFactor(priority, account.Concurrency)
 	input.RateMultiplier = &actualRate
 	input.Priority = &priority
-	input.LoadFactor = &loadFactor
+	input.LoadFactor = nil
 	if input.Extra == nil {
 		if account.Extra == nil {
 			account.Extra = map[string]any{}

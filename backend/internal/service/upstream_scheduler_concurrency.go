@@ -168,7 +168,11 @@ func (a *Account) SchedulingConcurrencyTarget() ConcurrencyTarget {
 		}
 		return ConcurrencyTarget{Kind: ConcurrencyTargetUpstream, ID: *a.UpstreamConfigID, Limit: limit}
 	}
-	return ConcurrencyTarget{Kind: ConcurrencyTargetAccount, ID: a.ID, Limit: a.EffectiveLoadFactor()}
+	limit := a.Concurrency
+	if limit < 1 {
+		limit = 1
+	}
+	return ConcurrencyTarget{Kind: ConcurrencyTargetAccount, ID: a.ID, Limit: limit}
 }
 
 func AccountConcurrencyLoadDescriptor(account *Account) AccountWithConcurrency {
@@ -179,6 +183,26 @@ func AccountConcurrencyLoadDescriptor(account *Account) AccountWithConcurrency {
 	return AccountWithConcurrency{
 		ID:             account.ID,
 		MaxConcurrency: target.Limit,
+		TargetKind:     target.Kind,
+		TargetID:       target.ID,
+	}
+}
+
+// AccountSchedulingLoadDescriptor keeps LoadFactor as a scheduling-only
+// virtual capacity for ordinary accounts. Upstream-bound accounts always use
+// the shared upstream concurrency limit for both capacity and load ranking.
+func AccountSchedulingLoadDescriptor(account *Account) AccountWithConcurrency {
+	if account == nil {
+		return AccountWithConcurrency{}
+	}
+	target := account.SchedulingConcurrencyTarget()
+	maxConcurrency := target.Limit
+	if target.Kind == ConcurrencyTargetAccount {
+		maxConcurrency = account.EffectiveLoadFactor()
+	}
+	return AccountWithConcurrency{
+		ID:             account.ID,
+		MaxConcurrency: maxConcurrency,
 		TargetKind:     target.Kind,
 		TargetID:       target.ID,
 	}

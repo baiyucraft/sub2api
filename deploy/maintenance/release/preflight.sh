@@ -59,7 +59,6 @@ migration_230_status=not_applicable
 migration_231_status=not_applicable
 migration_232_status=not_applicable
 migration_233_status=not_applicable
-migration_234_status=not_applicable
 while IFS=$'\t' read -r migration migration_checksum; do
   case "$migration" in
     196_ops_ingress_reject_aggregates.sql) migration_196_status=verified ;;
@@ -96,8 +95,7 @@ while IFS=$'\t' read -r migration migration_checksum; do
     230_group_audio_voice_pricing.sql) migration_230_status=verified ;;
     231_group_search_price_per_1k.sql) migration_231_status=verified ;;
     232_clear_non_grok_video_generation_config.sql) migration_232_status=verified ;;
-    233_upstream_account_key_unique.sql) migration_233_status=verified ;;
-    234_upstream_health_observations.sql) migration_234_status=verified ;;
+    233_upstream_management.sql) migration_233_status=verified ;;
   esac
   migration_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
   if [[ -z $migration_state ]]; then
@@ -138,8 +136,7 @@ while IFS=$'\t' read -r migration migration_checksum; do
       230_group_audio_voice_pricing.sql) migration_230_status=absent ;;
       231_group_search_price_per_1k.sql) migration_231_status=absent ;;
       232_clear_non_grok_video_generation_config.sql) migration_232_status=absent ;;
-      233_upstream_account_key_unique.sql) migration_233_status=absent ;;
-      234_upstream_health_observations.sql) migration_234_status=absent ;;
+      233_upstream_management.sql) migration_233_status=absent ;;
     esac
   else
     [[ $migration_state == "$migration|$migration_checksum" ]]
@@ -194,4 +191,3 @@ printf 'migration_230_status=%s\n' "$migration_230_status"
 printf 'migration_231_status=%s\n' "$migration_231_status"
 printf 'migration_232_status=%s\n' "$migration_232_status"
 printf 'migration_233_status=%s\n' "$migration_233_status"
-printf 'migration_234_status=%s\n' "$migration_234_status"

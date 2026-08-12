@@ -1445,7 +1445,6 @@ func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbe
 	if key.RateMultiplier != nil && validUpstreamRateMultiplier(*key.RateMultiplier) {
 		multiplier := *key.RateMultiplier
 		priority := service.Sub2APIUpstreamPriority(multiplier)
-		loadFactor := service.AutoUpstreamLoadFactor(priority, account.Concurrency)
 		extra := copyJSONMap(account.Extra)
 		if extra == nil {
 			extra = map[string]any{}
@@ -1456,7 +1455,6 @@ func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbe
 		builder.
 			SetRateMultiplier(multiplier).
 			SetPriority(priority).
-			SetLoadFactor(loadFactor).
 			SetExtra(extra)
 		if key.SourceRateMultiplier != nil {
 			builder.SetUpstreamSourceRateMultiplier(*key.SourceRateMultiplier)

@@ -55,7 +55,7 @@ func TestCollectConcurrencyQueueDepthUsesProjectionAndPreservesFallbackResult(t 
 		{ID: 13},
 	}
 	accountLoads := []AccountWithConcurrency{
-		{ID: 11, MaxConcurrency: 7},
+		{ID: 11, MaxConcurrency: 2},
 		{ID: 12, MaxConcurrency: 3},
 		{ID: 13, MaxConcurrency: 1},
 	}
@@ -109,7 +109,7 @@ func BenchmarkOpsMetricsCollectorCollectConcurrencyQueueDepth(b *testing.B) {
 			Concurrency: 4,
 			LoadFactor:  &loadFactor,
 		}
-		accountLoads[i] = AccountWithConcurrency{ID: id, MaxConcurrency: loadFactor}
+		accountLoads[i] = AccountWithConcurrency{ID: id, MaxConcurrency: accounts[i].Concurrency}
 	}
 
 	repo := &opsMetricsProjectionRepo{accounts: accounts, accountLoads: accountLoads}

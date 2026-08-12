@@ -399,7 +399,7 @@ func TestNormalizeUpstreamAccountInputStripsLocalForwardingSecrets(t *testing.T)
 	require.Equal(t, true, created.Credentials["pool_mode"])
 }
 
-func TestAdminServiceCreateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
+func TestAdminServiceCreateUpstreamBoundAccountDoesNotDeriveLoadFactor(t *testing.T) {
 	cfgID := int64(10)
 	keyID := int64(20)
 	repo := &upstreamConfigServiceRepo{
@@ -435,11 +435,10 @@ func TestAdminServiceCreateUpstreamBoundAccountAutoLoadFactor(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, AccountTypeAPIKey, account.Type)
 	require.Equal(t, 80, account.Concurrency)
-	require.NotNil(t, account.LoadFactor)
+	require.Nil(t, account.LoadFactor)
 	require.Equal(t, 100, account.Priority)
 	require.NotNil(t, account.RateMultiplier)
 	require.Equal(t, 1.0, *account.RateMultiplier)
-	require.Equal(t, 40, *account.LoadFactor)
 }
 
 func TestAdminServiceRejectsUpstreamBoundAccountConcurrencyUpdate(t *testing.T) {
@@ -598,8 +597,7 @@ func TestUpstreamConfigService_SyncKeysUpsertsKeysAndUpdatesBoundAccounts(t *tes
 	require.InDelta(t, 0.07, *accountRepo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.NotNil(t, accountRepo.bulkUpdates[0].updates.Priority)
 	require.Equal(t, 7, *accountRepo.bulkUpdates[0].updates.Priority)
-	require.NotNil(t, accountRepo.bulkUpdates[0].updates.LoadFactor)
-	require.Equal(t, 150, *accountRepo.bulkUpdates[0].updates.LoadFactor)
+	require.Nil(t, accountRepo.bulkUpdates[0].updates.LoadFactor)
 	require.Equal(t, "Plus Group", accountRepo.bulkUpdates[0].updates.Extra["sub2api_upstream_group_name"])
 	require.Len(t, repo.checks, 1)
 	require.True(t, repo.checks[0].success)
@@ -746,7 +744,7 @@ func TestUpstreamConfigService_Sub2APIGroupRatesFallbacks(t *testing.T) {
 		require.InDelta(t, 0.012, *keys[0].ImagePricing.FinalCost1K, 1e-12)
 		require.Len(t, accountRepo.bulkUpdates, 1)
 		require.Equal(t, 12, *accountRepo.bulkUpdates[0].updates.Priority)
-		require.Equal(t, 100, *accountRepo.bulkUpdates[0].updates.LoadFactor)
+		require.Nil(t, accountRepo.bulkUpdates[0].updates.LoadFactor)
 	})
 
 	t.Run("available unavailable still uses dedicated group rate", func(t *testing.T) {
@@ -1315,8 +1313,7 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 	require.Len(t, accountRepo.bulkUpdates, 1)
 	require.InDelta(t, 0.06, *accountRepo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.Equal(t, 6, *accountRepo.bulkUpdates[0].updates.Priority)
-	require.NotNil(t, accountRepo.bulkUpdates[0].updates.LoadFactor)
-	require.Equal(t, 150, *accountRepo.bulkUpdates[0].updates.LoadFactor)
+	require.Nil(t, accountRepo.bulkUpdates[0].updates.LoadFactor)
 	require.Len(t, repo.extraUpdates, 1)
 	snapshot, ok := repo.extraUpdates[0].updates["upstream_provider_snapshot"].(map[string]any)
 	require.True(t, ok)

@@ -139,7 +139,8 @@ func TestLCodexImageCapabilityDoesNotAffectAccountScheduling(t *testing.T) {
 	require.Len(t, accountRepo.bulkUpdates, 2)
 	require.Equal(t, accountRepo.bulkUpdates[0].updates.RateMultiplier, accountRepo.bulkUpdates[1].updates.RateMultiplier)
 	require.Equal(t, accountRepo.bulkUpdates[0].updates.Priority, accountRepo.bulkUpdates[1].updates.Priority)
-	require.Equal(t, accountRepo.bulkUpdates[0].updates.LoadFactor, accountRepo.bulkUpdates[1].updates.LoadFactor)
+	require.Nil(t, accountRepo.bulkUpdates[0].updates.LoadFactor)
+	require.Nil(t, accountRepo.bulkUpdates[1].updates.LoadFactor)
 }
 
 func TestLCodexGroupsRejectsUnspecifiedEnvelope(t *testing.T) {

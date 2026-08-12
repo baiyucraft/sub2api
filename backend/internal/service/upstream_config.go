@@ -1548,14 +1548,13 @@ func (s *UpstreamConfigService) reconcileUpstreamAccounts(ctx context.Context, c
 		const defaultUpstreamAccountConcurrency = 100
 		concurrency := normalizeAccountConcurrency(platform, AccountTypeAPIKey, defaultUpstreamAccountConcurrency)
 		priority := Sub2APIUpstreamPriority(*key.RateMultiplier)
-		loadFactor := AutoUpstreamLoadFactor(priority, concurrency)
 		configID, keyID, rate := cfg.ID, key.ID, *key.RateMultiplier
 		account := &Account{
 			Name: name, Platform: platform, Type: AccountTypeAPIKey,
 			Credentials:      map[string]any{"pool_mode": true},
 			Extra:            map[string]any{AccountUpstreamProviderKey: cfg.Provider, AccountSub2APIRateSyncAdapterKey: cfg.AuthMode},
 			UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
-			Concurrency: concurrency, Priority: priority, RateMultiplier: &rate, LoadFactor: &loadFactor,
+			Concurrency: concurrency, Priority: priority, RateMultiplier: &rate,
 			Status: StatusActive, Schedulable: false,
 		}
 		if err := s.accountRepo.Create(ctx, account); err != nil {
@@ -1844,7 +1843,6 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, cfg *
 			continue
 		}
 		priority := Sub2APIUpstreamPriority(multiplier)
-		loadFactor := AutoUpstreamLoadFactor(priority, account.Concurrency)
 		extra := map[string]any{
 			"upstream_rate_sync_last_success_at": now,
 			"upstream_rate_sync_last_error":      "",
@@ -1871,7 +1869,6 @@ func (s *UpstreamConfigService) syncBoundAccountRates(ctx context.Context, cfg *
 		if _, err := s.accountRepo.BulkUpdate(ctx, []int64{account.ID}, AccountBulkUpdate{
 			RateMultiplier: &multiplier,
 			Priority:       &priority,
-			LoadFactor:     &loadFactor,
 			Extra:          extra,
 		}); err != nil {
 			return updated, fmt.Errorf("update bound account %d rate: %w", account.ID, err)

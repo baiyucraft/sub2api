@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUpstreamActualRateTriggerDerivesAccountFields(t *testing.T) {
+func TestUpstreamActualRateTriggerDerivesRateAndPriorityWithoutOverwritingLoadFactor(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
 	config, err := client.UpstreamConfig.Create().
@@ -64,7 +64,7 @@ func TestUpstreamActualRateTriggerDerivesAccountFields(t *testing.T) {
 	require.InDelta(t, 0.025, *account.UpstreamSourceRateMultiplier, 0.00001)
 	require.Equal(t, 3, account.Priority)
 	require.NotNil(t, account.LoadFactor)
-	require.Equal(t, 400, *account.LoadFactor)
+	require.Equal(t, 9999, *account.LoadFactor)
 
 	updated, err := client.Account.UpdateOneID(account.ID).
 		SetConcurrency(100).
@@ -78,7 +78,7 @@ func TestUpstreamActualRateTriggerDerivesAccountFields(t *testing.T) {
 	require.InDelta(t, 0.025, *updated.UpstreamSourceRateMultiplier, 0.00001)
 	require.Equal(t, 3, updated.Priority)
 	require.NotNil(t, updated.LoadFactor)
-	require.Equal(t, 200, *updated.LoadFactor)
+	require.Equal(t, 7777, *updated.LoadFactor)
 }
 
 func TestUpstreamActualRateTriggerRejectsKeyWithoutActualRate(t *testing.T) {
@@ -129,7 +129,7 @@ func TestUpstreamActualRateTriggerRejectsKeyWithoutActualRate(t *testing.T) {
 	require.Zero(t, count)
 }
 
-func TestUpstreamActualRateTriggerRecalculatesRestoredAccountAndRejectsConcurrencyOverflow(t *testing.T) {
+func TestUpstreamActualRateTriggerRecalculatesRestoredRateWithoutConcurrencyDerivedLoadFactor(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
 	config, err := client.UpstreamConfig.Create().SetName(fmt.Sprintf("restore-actual-rate-%d", time.Now().UnixNano())).SetProvider(service.UpstreamProviderNewAPI).SetSiteURL("https://example.com").SetAuthMode(service.UpstreamAuthModeCookie).Save(ctx)
@@ -154,10 +154,10 @@ func TestUpstreamActualRateTriggerRecalculatesRestoredAccountAndRejectsConcurren
 	require.NoError(t, err)
 	require.InDelta(t, 0.2, restored.RateMultiplier, 0.00001)
 	require.Equal(t, 20, restored.Priority)
-	require.NotNil(t, restored.LoadFactor)
-	require.Equal(t, 100, *restored.LoadFactor)
+	require.Nil(t, restored.LoadFactor)
 
-	_, err = client.Account.UpdateOneID(account.ID).SetConcurrency(1073741824).Save(ctx)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot derive a safe load factor")
+	updated, err := client.Account.UpdateOneID(account.ID).SetConcurrency(1073741824).Save(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1073741824, updated.Concurrency)
+	require.Nil(t, updated.LoadFactor)
 }

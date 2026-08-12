@@ -109,7 +109,7 @@ func TestReconcileUpstreamAccountsUsesOperationalDefaults(t *testing.T) {
 	require.Equal(t, 100, account.Concurrency)
 	require.Equal(t, true, account.Credentials["pool_mode"])
 	require.False(t, account.Schedulable)
-	require.Equal(t, AutoUpstreamLoadFactor(account.Priority, 100), *account.LoadFactor)
+	require.Nil(t, account.LoadFactor)
 	require.NotContains(t, account.Credentials, "pool_mode_retry_count")
 	require.NotContains(t, account.Credentials, "pool_mode_retry_status_codes")
 }
