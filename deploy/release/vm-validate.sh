@@ -532,6 +532,7 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   fi
   docker run -d --name "$old_probe_app" --network "$probe_network" \
     -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
+    -p "127.0.0.1::$server_port" \
     --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
     --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
     -v "$probe_dir:/app/data" "$compat_image_id" >/dev/null 2>&1
@@ -545,10 +546,10 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   mark_stage old_image_compatibility_health
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]]
   mark_stage old_image_compatibility_network
-  old_probe_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$old_probe_app")
-  [[ $old_probe_ip =~ ^[0-9a-fA-F:.]+$ ]]
+  old_probe_port=$(docker port "$old_probe_app" "$server_port/tcp" | sed -n 's/^127\.0\.0\.1://p')
+  [[ $old_probe_port =~ ^[1-9][0-9]{0,4}$ && $old_probe_port -le 65535 ]]
   mark_stage old_image_compatibility_auth
-  old_image_auth_status=$(curl --noproxy '*' -sS -o /dev/null -w '%{http_code}' "http://$old_probe_ip:$server_port/api/v1/auth/me")
+  old_image_auth_status=$(curl --noproxy '*' -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$old_probe_port/api/v1/auth/me")
   printf '%s\n' "$old_image_auth_status" > "$state_dir/old-image-auth-status"
   [[ $old_image_auth_status == 401 ]]
   rm -f "$state_dir/old-image-auth-status"
