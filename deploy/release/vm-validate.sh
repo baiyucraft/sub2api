@@ -403,6 +403,7 @@ if [[ $profile == 233 ]]; then
   migration_233_status=$(profile_212_migration_status 233_upstream_management.sql)
 fi
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 ]]; then
+  mark_stage migration_assertion_profile_195_fixture
   migration_195_context="$state_dir/migration-195-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_195_context"
   chmod 400 "$migration_195_context"
@@ -425,6 +426,25 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   [[ $probe_migration_195_recorded =~ ^[01]$ ]]
   migration_195_status=absent
   if [[ $probe_migration_195_recorded == 1 ]]; then
+    docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" >/dev/null <<'SQL'
+WITH expected_accounts AS (
+  SELECT COALESCE(jsonb_agg(id ORDER BY id), '[]'::jsonb) AS ids,
+         COUNT(*) AS affected
+    FROM accounts
+   WHERE deleted_at IS NULL
+     AND upstream_key_id IS NOT NULL
+)
+INSERT INTO scheduler_outbox (event_type, payload)
+SELECT 'account_bulk_changed', jsonb_build_object('account_ids', expected_accounts.ids)
+  FROM expected_accounts
+ WHERE expected_accounts.affected > 0
+   AND NOT EXISTS (
+     SELECT 1
+       FROM scheduler_outbox
+      WHERE event_type = 'account_bulk_changed'
+        AND payload->'account_ids' = expected_accounts.ids
+   );
+SQL
     probe_outbox_highwater=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COALESCE(MAX(id),0) FROM scheduler_outbox\"" | tr -d '\r')
     [[ $probe_outbox_highwater =~ ^[0-9]+$ ]]
     docker exec "$probe_redis" redis-cli SET sched:v2:outbox:watermark "$probe_outbox_highwater" >/dev/null
