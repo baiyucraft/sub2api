@@ -136,7 +136,11 @@ profile 233 保持版本 `0.1.173-baiyu`，完整继承 profile 232 的 49 项 m
 `(upstream_key_id, observed_at)` 索引以及触发器不再派生或覆盖 `load_factor`。Gate 同时要求
 `migration_233_status`、`migration_233_preflight_verified` 与 `migration_233_postflight_verified`。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232 和 233
+profile 234 使用版本 `0.1.175-baiyu`，是 profile 233 的纯版本继承：完整复用同一 50 项
+migration map、checksum 与显式旧镜像兼容身份，不新增、重编号或改写任何 migration。
+它用于记录合并官方 `0.1.175` 代码后的 fork 发布身份。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233 和 234
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -153,6 +157,7 @@ python deploy/tests/release/backup_dr_profile_213_integration.py
 python deploy/tests/release/backup_dr_profile_215_integration.py
 python deploy/tests/release/backup_dr_profile_232_integration.py
 python deploy/tests/release/backup_dr_profile_233_integration.py
+python deploy/tests/release/backup_dr_profile_234_integration.py
 ```
 
 首次安装信任根使用：

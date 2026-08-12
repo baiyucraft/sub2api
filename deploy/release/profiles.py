@@ -412,6 +412,16 @@ PROFILES["233"] = {
     ],
 }
 
+# Profile 234 is a version-only fork sync profile. It deliberately reuses the
+# exact migration contract and production compatibility identity from profile
+# 233; no database migration is added for the upstream 0.1.175 merge.
+PROFILES["234"] = {
+    **PROFILES["233"],
+    "name": "234",
+    "version": "0.1.175-baiyu",
+    "migrations": [*PROFILES["233"]["migrations"]],
+}
+
 
 def get_profile(name: str) -> dict:
     try:

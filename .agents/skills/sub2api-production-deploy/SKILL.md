@@ -182,7 +182,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 jq -cS '.manifest.migration_sha256' | sha256sum
 ```
 
-- signer 必须同时自测 profile 195、199、202、206、207、208、209、210、212、213、215、232 和 233；集成测试至少覆盖 195/199/202/206 历史回归、207 纯继承回归、208/209 成功和错误 checksum 拒绝、210/213 纯版本继承回归、212/215/232/233 新迁移成功和错误 checksum 拒绝。profile 232 必须完整继承 215 的 32 项 map 并追加 216–232 共 49 项，同时绑定显式 compatibility version/commit/image；profile 233 在此基础上只追加 `233_upstream_management.sql`，共 50 项，继续继承同一显式 compatibility identity 且应用版本保持 `0.1.173-baiyu`。migration 232 的数据计划、恢复点绑定、备份表和协调恢复证据缺一不可；migration 233 必须同时验证上游 Key 唯一索引、健康观测表及 `(upstream_key_id, observed_at)` 索引、CURRENT_USER 权限和不再覆盖 LoadFactor 的绑定触发器。DR evidence 绑定完整 map 的规范化 checksum，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
+- signer 必须同时自测 profile 195、199、202、206、207、208、209、210、212、213、215、232、233 和 234；集成测试至少覆盖 195/199/202/206 历史回归、207/210/213/234 纯继承回归、208/209 成功和错误 checksum 拒绝、212/215/232/233 新迁移成功和错误 checksum 拒绝。profile 232 必须完整继承 215 的 32 项 map 并追加 216–232 共 49 项，同时绑定显式 compatibility version/commit/image；profile 233 在此基础上只追加 `233_upstream_management.sql`，共 50 项并保持版本 `0.1.173-baiyu`；profile 234 仅将应用版本更新为 `0.1.175-baiyu`，完整继承 profile 233 的 50 项 map、checksum 和 compatibility identity，不新增 migration。migration 232 的数据计划、恢复点绑定、备份表和协调恢复证据缺一不可；migration 233/234 必须同时验证上游 Key 唯一索引、健康观测表及 `(upstream_key_id, observed_at)` 索引、CURRENT_USER 权限和不再覆盖 LoadFactor 的绑定触发器。DR evidence 绑定完整 map 的规范化 checksum，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
 
 ### 生产成功与灾备基线
 
