@@ -550,12 +550,13 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   [[ $old_probe_port =~ ^[1-9][0-9]{0,4}$ && $old_probe_port -le 65535 ]]
   mark_stage old_image_compatibility_auth
   set +e
-  old_image_auth_headers=$(docker exec "$old_probe_app" sh -lc "wget -S -O /dev/null -T 10 http://127.0.0.1:$server_port/api/v1/auth/me" 2>&1)
+  old_image_auth_status=$(curl -q --noproxy '*' --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 10 "http://127.0.0.1:$old_probe_port/api/v1/auth/me")
+  old_image_auth_command_status=$?
   set -e
-  old_image_auth_status=$(grep -Eo 'HTTP/[0-9.]+[[:space:]]+[0-9]{3}' <<<"$old_image_auth_headers" | awk '{print $2}' | tail -n1 || true)
-  if [[ $old_image_auth_status =~ ^[0-9]{3}$ ]]; then
+  if [[ $old_image_auth_command_status == 0 && $old_image_auth_status =~ ^[0-9]{3}$ ]]; then
     printf '%s\n' "$old_image_auth_status" > "$state_dir/old-image-auth-status"
   fi
+  [[ $old_image_auth_command_status == 0 ]]
   [[ $old_image_auth_status == 401 ]]
   rm -f "$state_dir/old-image-auth-status"
   docker rm -f "$old_probe_app" >/dev/null
