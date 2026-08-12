@@ -426,7 +426,7 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   [[ $probe_migration_195_recorded =~ ^[01]$ ]]
   migration_195_status=absent
   if [[ $probe_migration_195_recorded == 1 ]]; then
-    docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" >/dev/null <<'SQL'
+    docker exec -i sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" >/dev/null <<'SQL'
 WITH expected_accounts AS (
   SELECT COALESCE(jsonb_agg(id ORDER BY id), '[]'::jsonb) AS ids,
          COUNT(*) AS affected
