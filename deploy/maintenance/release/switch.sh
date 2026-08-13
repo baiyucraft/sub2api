@@ -13,7 +13,7 @@ load_release_compose_files "$deploy_dir"
 switch_stage_file="$state_dir/switch-stage"
 mark_switch_stage() {
   local value=${1:?switch stage is required}
-  [[ $value =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]
+  [[ $value =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_probe_started|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]
   printf '%s\n' "$value" > "$switch_stage_file.tmp.$$"
   chmod 600 "$switch_stage_file.tmp.$$"
   mv -T -- "$switch_stage_file.tmp.$$" "$switch_stage_file"
@@ -197,7 +197,22 @@ printf 'container=%s\nport=%s\nimage_id=%s\n' "$candidate_container" "$candidate
 chmod 600 "$state_dir/candidate-app"
 candidate_headers=$(mktemp /tmp/sub2api-candidate-health.XXXXXX)
 trap 'rm -f "$candidate_headers"' EXIT
-[[ $(curl -sS -D "$candidate_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health") == 200 ]]
+mark_switch_stage candidate_probe_started
+candidate_http_code=000
+candidate_curl_exit=0
+for _ in $(seq 1 30); do
+  if candidate_http_code=$(curl -sS -D "$candidate_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health"); then
+    candidate_curl_exit=0
+  else
+    candidate_curl_exit=$?
+  fi
+  printf '%s\n' "$candidate_http_code" > "$state_dir/candidate-http.code"
+  printf '%s\n' "$candidate_curl_exit" > "$state_dir/candidate-curl.exit"
+  chmod 600 "$state_dir/candidate-http.code" "$state_dir/candidate-curl.exit"
+  [[ $candidate_curl_exit == 0 && $candidate_http_code == 200 ]] && break
+  sleep 1
+done
+[[ $candidate_curl_exit == 0 && $candidate_http_code == 200 ]]
 mark_switch_stage candidate_http_verified
 assert_http_header_equals "$candidate_headers" X-Sub2API-Instance "$candidate_instance_id"
 assert_http_header_equals "$candidate_headers" X-Sub2API-Background-Ready false

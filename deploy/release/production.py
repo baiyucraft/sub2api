@@ -711,9 +711,14 @@ class ProductionRelease:
                     f"set -Eeuo pipefail; marker={shlex.quote(self.state_dir + '/switch-stage')}; "
                     "test -f \"$marker\" && test ! -L \"$marker\" && "
                     "stage=$(cat \"$marker\"); "
-                    "[[ $stage =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]; "
-                    "printf 'switch_failure_stage=%s\n' \"$stage\"",
-                    {"switch_failure_stage"},
+                    "[[ $stage =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_probe_started|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]; "
+                    "http_code=unknown; curl_exit=unknown; "
+                    f"code_file={shlex.quote(self.state_dir + '/candidate-http.code')}; "
+                    f"exit_file={shlex.quote(self.state_dir + '/candidate-curl.exit')}; "
+                    "if test -f \"$code_file\" && test ! -L \"$code_file\"; then value=$(cat \"$code_file\"); [[ $value =~ ^[0-9]{3}$ ]]; http_code=$value; fi; "
+                    "if test -f \"$exit_file\" && test ! -L \"$exit_file\"; then value=$(cat \"$exit_file\"); [[ $value =~ ^[0-9]{1,3}$ ]]; curl_exit=$value; fi; "
+                    "printf 'switch_failure_stage=%s\ncandidate_http_code=%s\ncandidate_curl_exit=%s\n' \"$stage\" \"$http_code\" \"$curl_exit\"",
+                    {"switch_failure_stage", "candidate_http_code", "candidate_curl_exit"},
                 )
             except BaseException:
                 self.stage("migration_switch_failed", {"switch_failure_stage": "unknown"})
