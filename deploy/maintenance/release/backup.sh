@@ -3,7 +3,9 @@ set -Eeuo pipefail
 
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
+backup_attempt_id=${BACKUP_ATTEMPT_ID:?BACKUP_ATTEMPT_ID is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
+[[ $backup_attempt_id == "$release_id-1" || $backup_attempt_id == "$release_id-2" || $backup_attempt_id == "$release_id-3" ]]
 backup_root=${BACKUP_ROOT:-$deploy_dir/backups/automated}
 recipient_file=${AGE_RECIPIENT_FILE:-/root/.config/sub2api-backup/age-recipient.txt}
 upload_key=${BACKUP_UPLOAD_KEY:-/root/.ssh/sub2api_backup_upload}
@@ -31,7 +33,7 @@ redis_password=$(docker inspect sub2api-redis | jq -er '
 cleanup() {
   code=$?
   if (( code != 0 )); then
-    printf 'stage=%s\nexit_code=%s\n' "$backup_stage" "$code" > "$failure_file.tmp"
+    printf 'attempt_id=%s\nstage=%s\nexit_code=%s\n' "$backup_attempt_id" "$backup_stage" "$code" > "$failure_file.tmp"
     chmod 400 "$failure_file.tmp"
     mv -f "$failure_file.tmp" "$failure_file"
   fi

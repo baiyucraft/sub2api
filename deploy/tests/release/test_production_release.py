@@ -298,10 +298,71 @@ class ProductionRecoveryTest(unittest.TestCase):
     def test_backup_reports_preserved_failure_stage_when_result_missing(self) -> None:
         release = self.release()
         release.profile = {"minimum_backup_free_bytes": 1}
-        release.run_remote = mock.Mock(side_effect=[RuntimeError("backup failed"), RuntimeError("result absent"), {"backup_failure_stage": "upload", "backup_failure_exit_code": "1"}])
+        release.run_remote = mock.Mock(side_effect=[
+            RuntimeError("backup failed"), RuntimeError("result absent"),
+            {"backup_failure_stage": "upload", "backup_failure_exit_code": "1"},
+        ] * 3)
 
-        with self.assertRaisesRegex(RuntimeError, "stage=upload exit_code=1"):
+        with mock.patch.object(time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "stage=upload exit_code=1"):
+                release.backup()
+
+        self.assertEqual(sleep.call_args_list, [mock.call(5), mock.call(15)])
+        failure_stages = [call for call in release.stage.call_args_list if call.args[0] == "backup_generation_failed"]
+        self.assertEqual(len(failure_stages), 3)
+        self.assertEqual(failure_stages[0].args[1]["backup_failure_stage"], "upload")
+
+    def test_backup_retries_only_explicit_upload_failure_with_new_generation(self) -> None:
+        release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
+        release.runner = mock.Mock()
+        release.runner.create_temp_dir.return_value = "/tmp/release-promote.test"
+        release.runner.upload_file = mock.Mock()
+        complete = {
+            "artifact": "artifact", "transport_artifact": "transport", "artifact_size": "1",
+            "artifact_sha256": "digest", "traffic_preserved": "true", "redis_backup_mode": "rdb",
+            "no_restart_path_proven": "true", "local_restore_point_ready": "true",
+        }
+        release.run_remote = mock.Mock(side_effect=[
+            RuntimeError("backup failed"), RuntimeError("result absent"),
+            {"backup_failure_stage": "upload", "backup_failure_exit_code": "255"},
+            complete,
+            {"backup_promotion": "verified", "release_artifact": release.release_id, "release_sha256": "digest", "release_free_bytes": "2"},
+            {"cleanup": "true"},
+        ])
+
+        with mock.patch.object(time, "sleep") as sleep:
             release.backup()
+
+        self.assertEqual(sleep.call_args_list, [mock.call(5)])
+        generation_calls = [call for call in release.run_remote.call_args_list if call.args[1].endswith("/backup.sh")]
+        self.assertEqual(len(generation_calls), 2)
+        self.assertIn("BACKUP_ATTEMPT_ID=", generation_calls[0].args[1])
+        self.assertNotEqual(generation_calls[0].args[1], generation_calls[1].args[1])
+        failure_stage = [call for call in release.stage.call_args_list if call.args[0] == "backup_generation_failed"]
+        self.assertEqual(failure_stage[0].args[1]["backup_generation_attempt"], "1")
+
+    def test_backup_does_not_retry_non_upload_generation_failure(self) -> None:
+        release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
+        release.run_remote = mock.Mock(side_effect=[
+            RuntimeError("backup failed"), RuntimeError("result absent"),
+            {"backup_failure_stage": "redis", "backup_failure_exit_code": "1"},
+        ])
+
+        with mock.patch.object(time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "stage=redis exit_code=1"):
+                release.backup()
+
+        sleep.assert_not_called()
+
+    def test_backup_script_binds_failure_marker_to_generation_attempt(self) -> None:
+        script = (DEPLOY_ROOT / "maintenance" / "release" / "backup.sh").read_text(encoding="utf-8")
+        self.assertIn("BACKUP_ATTEMPT_ID", script)
+        self.assertIn("attempt_id=%s", script)
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        self.assertIn("s/^attempt_id=//p", production)
+        self.assertIn("BackupGenerationFailure", production)
 
     def test_backup_promotion_retry_window_is_bounded(self) -> None:
         release = self.release()

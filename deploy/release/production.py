@@ -27,6 +27,15 @@ CANARY_RETRY_DELAYS = (5, 15)
 BACKUP_PROMOTION_RETRY_DELAYS = (5, 15, 30, 60, 120)
 BACKUP_PROMOTION_STAGING_RETRY_DELAYS = (5, 15, 30)
 BACKUP_RESULT_RECONCILE_RETRY_DELAYS = (2, 5, 10, 20)
+BACKUP_GENERATION_UPLOAD_RETRY_DELAYS = (5, 15)
+
+
+class BackupGenerationFailure(RuntimeError):
+    def __init__(self, message: str, failure: dict[str, str]) -> None:
+        super().__init__(message)
+        self.failure = failure
+
+
 BACKUP_FIELDS = {
     "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "traffic_preserved",
     "redis_backup_mode", "no_restart_path_proven", "local_restore_point_ready",
@@ -411,11 +420,11 @@ class ProductionRelease:
             raise RuntimeError("freeze did not preserve production traffic")
         self.stage("release_state_captured", values)
 
-    def backup(self) -> None:
-        self.stage("backup", timeout=600)
-        backup_env = quoted_env({"RELEASE_DIR": self.release_dir})
+    def _generate_backup(self, attempt: int) -> dict[str, str]:
+        attempt_id = f"{self.release_id}-{attempt}"
+        backup_env = quoted_env({"RELEASE_DIR": self.release_dir, "BACKUP_ATTEMPT_ID": attempt_id})
         try:
-            values = self.run_remote(
+            return self.run_remote(
                 "racknerd",
                 f"RELEASE_LOCK_HELD=false {backup_env} {self.active_assets}/backup.sh",
                 BACKUP_FIELDS,
@@ -447,7 +456,8 @@ class ProductionRelease:
                         failure = self.run_remote(
                             "racknerd",
                             f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
-                            "if test -f \"$state/backup-failure\" && test ! -L \"$state/backup-failure\"; then "
+                            "if test -f \"$state/backup-failure\" && test ! -L \"$state/backup-failure\" && "
+                            f"test \"$(sed -n 's/^attempt_id=//p' \"$state/backup-failure\")\" = {shlex.quote(attempt_id)}; then "
                             "stage=$(sed -n 's/^stage=//p' \"$state/backup-failure\"); "
                             "code=$(sed -n 's/^exit_code=//p' \"$state/backup-failure\"); "
                             "printf 'backup_failure_stage=%s\\nbackup_failure_exit_code=%s\\n' \"$stage\" \"$code\"; "
@@ -457,12 +467,37 @@ class ProductionRelease:
                     except BaseException:
                         continue
                     if failure["backup_failure_stage"] != "absent":
-                        raise RuntimeError(
+                        raise BackupGenerationFailure(
                             f"production backup failed at stage={failure['backup_failure_stage']} "
-                            f"exit_code={failure['backup_failure_exit_code']}"
+                            f"exit_code={failure['backup_failure_exit_code']}",
+                            failure,
                         ) from backup_error
             if not reconciled:
                 raise backup_error
+        return values
+
+    def backup(self) -> None:
+        self.stage("backup", timeout=600)
+        values: dict[str, str] | None = None
+        generation_delays = (0, *BACKUP_GENERATION_UPLOAD_RETRY_DELAYS)
+        for attempt, delay in enumerate(generation_delays, start=1):
+            if delay:
+                time.sleep(delay)
+            try:
+                values = self._generate_backup(attempt)
+                break
+            except BackupGenerationFailure as error:
+                failure = error.failure
+                evidence = {
+                    "backup_failure_stage": str(failure.get("backup_failure_stage", "unknown")),
+                    "backup_failure_exit_code": str(failure.get("backup_failure_exit_code", "unknown")),
+                    "backup_generation_attempt": str(attempt),
+                }
+                self.stage("backup_generation_failed", evidence)
+                if evidence["backup_failure_stage"] != "upload" or attempt == len(generation_delays):
+                    raise
+        if values is None:
+            raise RuntimeError("production backup did not produce a result")
         self.backup_values = values
         if values.get("local_restore_point_ready") != "true":
             raise RuntimeError("local coordinated restore point is not ready")
