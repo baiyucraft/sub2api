@@ -211,6 +211,24 @@ func (s *SchedulerSnapshotService) Start() {
 	}
 }
 
+// WaitInitialReady waits for the initial scheduler snapshot rebuild and
+// returns its result. This is a release-readiness acknowledgement; request
+// handlers can still use the existing fallback path while it is pending.
+func (s *SchedulerSnapshotService) WaitInitialReady(ctx context.Context) error {
+	if s == nil || s.cache == nil {
+		return nil
+	}
+	select {
+	case <-s.initialReady:
+		s.fullRebuildStateMu.Lock()
+		err := s.fullRebuildLastErr
+		s.fullRebuildStateMu.Unlock()
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (s *SchedulerSnapshotService) Stop() {
 	if s == nil {
 		return

@@ -10,7 +10,7 @@ direct_ip=${DIRECT_IP:?DIRECT_IP is required}
 [[ $(systemctl is-active nginx) == active ]]
 health_headers=$(mktemp /tmp/sub2api-release-health.XXXXXX)
 [[ $(curl -sS --resolve "$domain:443:$direct_ip" --max-time 15 -D "$health_headers" -o /dev/null -w '%{http_code}' "https://$domain/health") == 200 ]]
-grep -Eiq "^x-sub2api-instance:[[:space:]]*$release_id\r?$" "$health_headers"
+grep -Eiq "^x-sub2api-instance:[[:space:]]*$candidate_instance_id\r?$" "$health_headers"
 tmp=$(mktemp -d /tmp/sub2api-release-verify.XXXXXX)
 chmod 700 "$tmp"
 cleanup() { rm -rf "$tmp"; }

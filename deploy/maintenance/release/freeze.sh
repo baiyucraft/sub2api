@@ -32,7 +32,7 @@ if [[ " ${release_compose_files[*]} " != *" docker-compose.release-active.yml "*
 fi
 printf '%s\n' "$pre_image_id" > "$state_dir/pre-image-id"
 printf '%s\n' "$pre_image_ref" > "$state_dir/pre-image-ref"
-printf 'container=%s\nport=%s\n' "$active_container" "$active_port" > "$state_dir/pre-active-app"
+printf 'container=%s\nport=%s\ninstance_id=%s\n' "$active_container" "$active_port" "$active_instance_id" > "$state_dir/pre-active-app"
 state_files+=(pre-image-id pre-image-ref pre-active-app pre-migrations.tsv)
 docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations ORDER BY filename" > "$state_dir/pre-migrations.tsv"
 managed_upstream=/etc/nginx/conf.d/sub2api-release-upstream.conf

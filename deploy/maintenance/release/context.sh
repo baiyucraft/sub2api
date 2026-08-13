@@ -6,7 +6,8 @@ release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 release_id=${BASH_REMATCH[1]}
 [[ -d $release_dir && ! -L $release_dir ]]
 [[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]]
-active_claim=/opt/sub2api/releases/.active-release
+active_claim=${ACTIVE_CLAIM:-/opt/sub2api/releases/.active-release}
+[[ $active_claim == /opt/sub2api/releases/.active-release || $active_claim == "$release_dir/.consumed" ]]
 [[ -d $active_claim && ! -L $active_claim ]]
 grep -Fxq "release_id=$release_id" "$active_claim/release_id"
 [[ -f $active_claim/gate.json && ! -L $active_claim/gate.json ]]
@@ -35,6 +36,7 @@ state_dir="/opt/sub2api/backups/release-state/$release_id"
 active_slot_file=${ACTIVE_SLOT_FILE:-/opt/sub2api/active-app}
 active_container=sub2api
 active_port=18080
+active_instance_id=
 if [[ -f $active_slot_file && ! -L $active_slot_file ]]; then
   [[ $(grep -c '^container=' "$active_slot_file") == 1 ]]
   [[ $(grep -c '^port=' "$active_slot_file") == 1 ]]
@@ -44,6 +46,7 @@ if [[ -f $active_slot_file && ! -L $active_slot_file ]]; then
     case "$key" in
       container) [[ $value =~ ^[a-zA-Z0-9_.-]{1,80}$ ]]; parsed_container=$value ;;
       port) [[ $value == 18080 || $value == 18081 ]]; parsed_port=$value ;;
+      instance_id) [[ -z $value || $value =~ ^[a-zA-Z0-9_.-]{1,128}$ ]]; active_instance_id=$value ;;
     esac
   done < "$active_slot_file"
   [[ -n $parsed_container && -n $parsed_port ]]
@@ -55,6 +58,8 @@ fi
 candidate_port=18081
 [[ $active_port == 18081 ]] && candidate_port=18080
 candidate_container="sub2api-candidate-$release_id"
+candidate_instance_id="$release_id-candidate"
+final_instance_id="$release_id-active"
 if [[ -f $state_dir/candidate-app && ! -L $state_dir/candidate-app ]]; then
   while IFS='=' read -r key value; do
     case "$key" in
@@ -64,6 +69,34 @@ if [[ -f $state_dir/candidate-app && ! -L $state_dir/candidate-app ]]; then
   done < "$state_dir/candidate-app"
 fi
 [[ $candidate_container =~ ^[a-zA-Z0-9_.-]{1,100}$ ]]
+[[ $candidate_instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]]
+[[ $final_instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]]
+
+application_connection_count() {
+  local container=${1:?container is required}
+  docker exec "$container" sh -lc 'awk "NR>1 && \$2 ~ /:1F90\$/ && \$4 == \"01\" {count++} END {print count+0}" /proc/net/tcp /proc/net/tcp6' 2>/dev/null || printf 'unknown'
+}
+
+nginx_draining_worker_count() {
+  ps -eo args= | grep -Ec '^nginx: worker process is shutting down$' || true
+}
+
+wait_for_application_drain() {
+  local container=${1:?container is required}
+  local timeout=${2:?timeout is required}
+  local deadline=$((SECONDS + timeout))
+  local connections=unknown
+  while docker inspect "$container" >/dev/null 2>&1; do
+    connections=$(application_connection_count "$container")
+    draining_workers=$(nginx_draining_worker_count)
+    [[ $connections == 0 && $draining_workers == 0 ]] && break
+    [[ $connections =~ ^[0-9]+$ ]] || break
+    [[ $draining_workers =~ ^[0-9]+$ ]] || break
+    (( SECONDS >= deadline )) && break
+    sleep 2
+  done
+  printf '%s\n' "$connections"
+}
 
 # Resolve the exact Compose closure declared by the deployment .env.  Release
 # scripts must not silently fall back to docker-compose.yml because production
@@ -103,6 +136,24 @@ release_compose_value_with_active_override() {
   done
   [[ -n $result ]]
   printf '%s:docker-compose.release-active.yml\n' "$result"
+}
+
+assert_final_compose_closure() {
+  local root=${1:?compose root is required}
+  local expected_port=${2:?published port is required}
+  [[ $expected_port == 18080 || $expected_port == 18081 ]]
+  load_release_compose_files "$root"
+  local compose_json compose_image
+  compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
+  compose_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
+  [[ -n $compose_image ]]
+  [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
+  jq -e --arg port "$expected_port" --arg instance "$final_instance_id" '
+    .services.sub2api.container_name == "sub2api" and
+    .services.sub2api.environment.SUB2API_INSTANCE_ID == $instance and
+    .services.sub2api.environment.SUB2API_BACKGROUND_ACTIVATION_FILE == "/app/data/.sub2api-active-instance" and
+    ((.services.sub2api.ports // []) | any(.target == 8080 and (.published | tostring) == $port and .host_ip == "127.0.0.1"))
+  ' <<<"$compose_json" >/dev/null
 }
 
 assert_prompt_audit_disabled() {
