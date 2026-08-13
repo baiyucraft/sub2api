@@ -258,7 +258,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertEqual(release.stage.call_args_list[1].args[0], "backup_result_reconciled")
         reconcile_script = release.run_remote.call_args_list[1].args[1]
         self.assertIn("sha256sum -c backup-result.sha256", reconcile_script)
-        self.assertIn("grep -c", reconcile_script)
+        self.assertIn("grep -c '^[a-z_][a-z0-9_]*='", reconcile_script)
 
     def test_backup_waits_for_committed_result_after_lost_remote_reply(self) -> None:
         release = self.release()

@@ -435,7 +435,7 @@ class ProductionRelease:
                         "test \"$(stat -c '%U:%G:%a' \"$state/backup-result\")\" = root:root:400 && "
                         "test \"$(stat -c '%U:%G:%a' \"$state/backup-result.sha256\")\" = root:root:400 && "
                         "(cd \"$state\" && sha256sum -c backup-result.sha256 >/dev/null) && "
-                        "test \"$(grep -c '^[a-z_][a-z_]*=' \"$state/backup-result\")\" = 8 && "
+                        "test \"$(grep -c '^[a-z_][a-z0-9_]*=' \"$state/backup-result\")\" = 8 && "
                         "cat \"$state/backup-result\"",
                         BACKUP_FIELDS,
                     )
