@@ -697,12 +697,29 @@ class ProductionRelease:
             })
         if getattr(self, "profile", {}).get("name") == "235":
             allowed.update({"migration_234_schema_state", "migration_234_schema_verified", "migration_234_postflight"})
-        values = self.run_remote(
-            "racknerd",
-            f"{env} {self.active_assets}/switch.sh",
-            allowed,
-            timeout=1200,
-        )
+        try:
+            values = self.run_remote(
+                "racknerd",
+                f"{env} {self.active_assets}/switch.sh",
+                allowed,
+                timeout=1200,
+            )
+        except BaseException:
+            try:
+                failure = self.run_remote(
+                    "racknerd",
+                    f"set -Eeuo pipefail; marker={shlex.quote(self.state_dir + '/switch-stage')}; "
+                    "test -f \"$marker\" && test ! -L \"$marker\" && "
+                    "stage=$(cat \"$marker\"); "
+                    "[[ $stage =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|runtime_verified)$ ]]; "
+                    "printf 'switch_failure_stage=%s\n' \"$stage\"",
+                    {"switch_failure_stage"},
+                )
+            except BaseException:
+                self.stage("migration_switch_failed", {"switch_failure_stage": "unknown"})
+            else:
+                self.stage("migration_switch_failed", failure)
+            raise
         self.stage("candidate_started", {
             "candidate_container": values["candidate_container"],
             "candidate_port": values["candidate_port"],
