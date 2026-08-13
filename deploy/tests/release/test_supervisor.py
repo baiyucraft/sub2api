@@ -167,6 +167,47 @@ class SupervisorTest(unittest.TestCase):
             value = supervisor._inspect_reconciliation(identifier)
         self.assertEqual(value["decision"], "blocked")
 
+    def test_coordinated_recovery_uses_versioned_restore_and_reconciles_claim(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        self.minimum_release(identifier)
+        self.write(identifier, "runner.json", {"status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1})
+        self.write(identifier, "release-state.json", {"schema": 1, "release_id": identifier, "stage": "production_release", "status": "blocked_reconciliation", "history": []})
+        self.write(identifier, "gate/production-result.json", {"release_id": identifier, "stage": "blocked_reconciliation", "status": "blocked_reconciliation", "history": []})
+        inspection = {"decision": "coordinated_restore_required", "runner_alive": False}
+        ssh = mock.Mock()
+        ssh.create_temp_dir.return_value = "/opt/sub2api/releases/coordinated-restore.abcdefgh"
+        ssh.run.side_effect = [
+            mock.Mock(values={"coordinated_restore": "verified", "restored_image_id": "old", "application_health": "pass"}),
+            mock.Mock(values={"backup_units_restored": "true", "release_claim_reconciled": "true", "plaintext_state_removed": "true"}),
+            mock.Mock(values={"cleanup": "true"}),
+        ]
+
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
+            supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="coordinated-recover"))
+
+        ssh.upload_file.assert_called_once_with(
+            "racknerd",
+            supervisor.COORDINATED_RESTORE,
+            "/opt/sub2api/releases/coordinated-restore.abcdefgh/restore.sh",
+            0o500,
+        )
+        restore_command = ssh.run.call_args_list[0].args[1]
+        self.assertIn(f"RELEASE_DIR=/opt/sub2api/releases/{identifier}", restore_command)
+        self.assertIn("/coordinated-restore.abcdefgh/restore.sh", restore_command)
+        finish_command = ssh.run.call_args_list[1].args[1]
+        self.assertIn("restore-backup-units.sh", finish_command)
+        self.assertIn("cleanup-state.sh", finish_command)
+        self.assertIn("reconcile.sh", finish_command)
+        production = json.loads((self.root / identifier / "gate" / "production-result.json").read_text(encoding="utf-8"))
+        self.assertEqual(production["status"], "recovered")
+        self.assertEqual(production["stage"], "recovered_after_coordinated_restore")
+
+    def test_coordinated_recovery_rejects_active_runner(self) -> None:
+        inspection = {"decision": "coordinated_restore_required", "runner_alive": True}
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection):
+            with self.assertRaisesRegex(RuntimeError, "coordinated recovery is not allowed"):
+                supervisor.reconcile(argparse.Namespace(release_id="198-aaaaaaaaaaaa-1-deadbeef", mode="coordinated-recover"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1128,13 +1128,15 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_coordinated_restore_seeds_redis_7_multipart_aof_from_verified_rdb(self) -> None:
         restore = self.script("restore.sh")
         checksum_check = 'diff -u "$recovery/metadata/redis-files.sha256"'
-        aof_seed = 'install -m 644 "$redis_source/dump.rdb" "$redis_source/appendonlydir/appendonly.aof.1.base.rdb"'
+        aof_seed = 'install -o "$redis_data_uid" -g "$redis_data_gid" -m 600 "$redis_source/dump.rdb" "$redis_source/appendonlydir/appendonly.aof.1.base.rdb"'
         redis_start = "docker start sub2api-redis"
 
         self.assertIn('index("--appendonly")', restore)
         self.assertIn('startswith("--appendonly=")', restore)
         self.assertIn("appendonly.aof.manifest", restore)
         self.assertIn("startoffset 0", restore)
+        self.assertIn('redis_data_uid=$(stat -c %u "$redis_source/dump.rdb")', restore)
+        self.assertIn('chown "$redis_data_uid:$redis_data_gid"', restore)
         self.assertLess(restore.index(checksum_check), restore.index(aof_seed))
         self.assertLess(restore.index(aof_seed), restore.index(redis_start))
 
