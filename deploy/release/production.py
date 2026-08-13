@@ -26,6 +26,7 @@ CANARY_RETRY_DELAYS = (5, 15)
 # window without retrying the whole release.
 BACKUP_PROMOTION_RETRY_DELAYS = (5, 15, 30, 60, 120)
 BACKUP_PROMOTION_STAGING_RETRY_DELAYS = (5, 15, 30)
+BACKUP_RESULT_RECONCILE_RETRY_DELAYS = (2, 5, 10, 20)
 BACKUP_FIELDS = {
     "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "traffic_preserved",
     "redis_backup_mode", "no_restart_path_proven", "local_restore_point_ready",
@@ -421,40 +422,47 @@ class ProductionRelease:
                 timeout=2400,
             )
         except BaseException as backup_error:
-            try:
-                values = self.run_remote(
-                    "racknerd",
-                    f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
-                    "test -f \"$state/backup-result\" && test ! -L \"$state/backup-result\" && "
-                    "test -f \"$state/backup-result.sha256\" && test ! -L \"$state/backup-result.sha256\" && "
-                    "test \"$(stat -c '%U:%G:%a' \"$state/backup-result\")\" = root:root:400 && "
-                    "test \"$(stat -c '%U:%G:%a' \"$state/backup-result.sha256\")\" = root:root:400 && "
-                    "(cd \"$state\" && sha256sum -c backup-result.sha256 >/dev/null) && "
-                    "test \"$(grep -c '^[a-z_][a-z_]*=' \"$state/backup-result\")\" = 8 && "
-                    "cat \"$state/backup-result\"",
-                    BACKUP_FIELDS,
-                )
-                self.stage("backup_result_reconciled", {"backup_result_reconciled": "true"})
-            except BaseException:
+            reconciled = False
+            for delay in (0, *BACKUP_RESULT_RECONCILE_RETRY_DELAYS):
+                if delay:
+                    time.sleep(delay)
                 try:
-                    failure = self.run_remote(
+                    values = self.run_remote(
                         "racknerd",
                         f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
-                        "if test -f \"$state/backup-failure\" && test ! -L \"$state/backup-failure\"; then "
-                        "stage=$(sed -n 's/^stage=//p' \"$state/backup-failure\"); "
-                        "code=$(sed -n 's/^exit_code=//p' \"$state/backup-failure\"); "
-                        "printf 'backup_failure_stage=%s\\nbackup_failure_exit_code=%s\\n' \"$stage\" \"$code\"; "
-                        "else printf 'backup_failure_stage=unknown\\nbackup_failure_exit_code=unknown\\n'; fi",
-                        {"backup_failure_stage", "backup_failure_exit_code"},
+                        "test -f \"$state/backup-result\" && test ! -L \"$state/backup-result\" && "
+                        "test -f \"$state/backup-result.sha256\" && test ! -L \"$state/backup-result.sha256\" && "
+                        "test \"$(stat -c '%U:%G:%a' \"$state/backup-result\")\" = root:root:400 && "
+                        "test \"$(stat -c '%U:%G:%a' \"$state/backup-result.sha256\")\" = root:root:400 && "
+                        "(cd \"$state\" && sha256sum -c backup-result.sha256 >/dev/null) && "
+                        "test \"$(grep -c '^[a-z_][a-z_]*=' \"$state/backup-result\")\" = 8 && "
+                        "cat \"$state/backup-result\"",
+                        BACKUP_FIELDS,
                     )
-                    raise RuntimeError(
-                        f"production backup failed at stage={failure['backup_failure_stage']} "
-                        f"exit_code={failure['backup_failure_exit_code']}"
-                    ) from backup_error
-                except BaseException as failure_error:
-                    if isinstance(failure_error, RuntimeError) and str(failure_error).startswith("production backup failed at stage="):
-                        raise
-                    raise backup_error
+                    self.stage("backup_result_reconciled", {"backup_result_reconciled": "true"})
+                    reconciled = True
+                    break
+                except BaseException:
+                    try:
+                        failure = self.run_remote(
+                            "racknerd",
+                            f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
+                            "if test -f \"$state/backup-failure\" && test ! -L \"$state/backup-failure\"; then "
+                            "stage=$(sed -n 's/^stage=//p' \"$state/backup-failure\"); "
+                            "code=$(sed -n 's/^exit_code=//p' \"$state/backup-failure\"); "
+                            "printf 'backup_failure_stage=%s\\nbackup_failure_exit_code=%s\\n' \"$stage\" \"$code\"; "
+                            "else printf 'backup_failure_stage=absent\\nbackup_failure_exit_code=absent\\n'; fi",
+                            {"backup_failure_stage", "backup_failure_exit_code"},
+                        )
+                    except BaseException:
+                        continue
+                    if failure["backup_failure_stage"] != "absent":
+                        raise RuntimeError(
+                            f"production backup failed at stage={failure['backup_failure_stage']} "
+                            f"exit_code={failure['backup_failure_exit_code']}"
+                        ) from backup_error
+            if not reconciled:
+                raise backup_error
         self.backup_values = values
         if values.get("local_restore_point_ready") != "true":
             raise RuntimeError("local coordinated restore point is not ready")

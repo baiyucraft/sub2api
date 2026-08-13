@@ -260,13 +260,40 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIn("sha256sum -c backup-result.sha256", reconcile_script)
         self.assertIn("grep -c", reconcile_script)
 
+    def test_backup_waits_for_committed_result_after_lost_remote_reply(self) -> None:
+        release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
+        release.runner = mock.Mock()
+        release.runner.create_temp_dir.return_value = "/tmp/release-promote.test"
+        release.runner.upload_file = mock.Mock()
+        complete = {
+            "artifact": "artifact", "transport_artifact": "transport", "artifact_size": "1",
+            "artifact_sha256": "digest", "traffic_preserved": "true", "redis_backup_mode": "rdb",
+            "no_restart_path_proven": "true", "local_restore_point_ready": "true",
+        }
+        release.run_remote = mock.Mock(side_effect=[
+            RuntimeError("remote reply lost"),
+            RuntimeError("result not visible yet"),
+            {"backup_failure_stage": "absent", "backup_failure_exit_code": "absent"},
+            complete,
+            {"backup_promotion": "verified", "release_artifact": release.release_id, "release_sha256": "digest", "release_free_bytes": "2"},
+            {"cleanup": "true"},
+        ])
+
+        with mock.patch.object(time, "sleep") as sleep:
+            release.backup()
+
+        self.assertEqual(sleep.call_args_list, [mock.call(2)])
+        self.assertEqual(release.stage.call_args_list[1].args[0], "backup_result_reconciled")
+
     def test_backup_does_not_reconcile_uncommitted_result(self) -> None:
         release = self.release()
         release.profile = {"minimum_backup_free_bytes": 1}
         release.run_remote = mock.Mock(side_effect=[RuntimeError("backup failed"), RuntimeError("result absent")])
 
-        with self.assertRaisesRegex(RuntimeError, "backup failed"):
-            release.backup()
+        with mock.patch.object(time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "backup failed"):
+                release.backup()
 
     def test_backup_reports_preserved_failure_stage_when_result_missing(self) -> None:
         release = self.release()
