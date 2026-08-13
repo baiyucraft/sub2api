@@ -67,11 +67,14 @@ diff -u "$recovery/metadata/redis-files.sha256" "$recovery/metadata/redis-files-
 if [[ ${redis_appendonly,,} == yes ]]; then
   # Redis 7 prefers multipart AOF over dump.rdb. Seed its base RDB from the
   # verified recovery point so enabling AOF cannot start an empty database.
-  install -d -m 755 "$redis_source/appendonlydir"
-  install -m 644 "$redis_source/dump.rdb" "$redis_source/appendonlydir/appendonly.aof.1.base.rdb"
+  redis_data_uid=$(stat -c %u "$redis_source/dump.rdb")
+  redis_data_gid=$(stat -c %g "$redis_source/dump.rdb")
+  install -d -o "$redis_data_uid" -g "$redis_data_gid" -m 700 "$redis_source/appendonlydir"
+  install -o "$redis_data_uid" -g "$redis_data_gid" -m 600 "$redis_source/dump.rdb" "$redis_source/appendonlydir/appendonly.aof.1.base.rdb"
   : > "$redis_source/appendonlydir/appendonly.aof.1.incr.aof"
   printf 'file appendonly.aof.1.base.rdb seq 1 type b\nfile appendonly.aof.1.incr.aof seq 1 type i startoffset 0\n' > "$redis_source/appendonlydir/appendonly.aof.manifest"
-  chmod 644 "$redis_source/appendonlydir/appendonly.aof.1.incr.aof" "$redis_source/appendonlydir/appendonly.aof.manifest"
+  chown "$redis_data_uid:$redis_data_gid" "$redis_source/appendonlydir/appendonly.aof.1.incr.aof" "$redis_source/appendonlydir/appendonly.aof.manifest"
+  chmod 600 "$redis_source/appendonlydir/appendonly.aof.1.incr.aof" "$redis_source/appendonlydir/appendonly.aof.manifest"
 fi
 docker start sub2api-redis >/dev/null
 for _ in $(seq 1 60); do

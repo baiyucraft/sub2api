@@ -23,6 +23,7 @@ DEPLOY_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = Path(__file__).resolve().parents[2]
 RUN_ROOT = WORKSPACE / ".tmp" / "releases"
 TRUSTED_VM_PUBLIC_KEY = DEPLOY_ROOT / "release" / "trust" / "vm-gate-ed25519.pub"
+COORDINATED_RESTORE = DEPLOY_ROOT / "maintenance" / "release" / "restore.sh"
 RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$")
 MAX_JSON_BYTES = 2 * 1024 * 1024
 STATUS_FIELDS = (
@@ -424,12 +425,56 @@ def reconcile_inspect(args: argparse.Namespace) -> None:
 
 def reconcile(args: argparse.Namespace) -> None:
     inspection = _inspect_reconciliation(args.release_id)
-    if inspection["decision"] not in {"claim_only_recover", "cleanup_completed_recover"}:
-        raise RuntimeError(f"automatic recovery is not allowed: {inspection['decision']}")
     identifier = args.release_id
     release_dir = f"/opt/sub2api/releases/{identifier}"
-    cleanup_command = "/opt/sub2api/releases/.active-release/assets/cleanup-state.sh" if inspection["decision"] == "claim_only_recover" else ":"
-    script = f"""set -Eeuo pipefail
+    if args.mode == "coordinated-recover":
+        if inspection["decision"] != "coordinated_restore_required" or inspection["runner_alive"]:
+            raise RuntimeError(f"coordinated recovery is not allowed: {inspection['decision']}")
+        runner = SSHRunner()
+        remote_temp = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "coordinated-restore")
+        remote_restore = f"{remote_temp}/restore.sh"
+        runner.upload_file("racknerd", COORDINATED_RESTORE, remote_restore, 0o500)
+        try:
+            restore = runner.run(
+                "racknerd",
+                f"RELEASE_DIR={release_dir} {remote_restore}",
+                {"coordinated_restore", "restored_image_id", "application_health"},
+                timeout=2400,
+            ).values
+            state_dir = f"/opt/sub2api/backups/release-state/{identifier}"
+            finish_script = f"""set -Eeuo pipefail
+export RELEASE_DIR={release_dir}
+export STATE_ROOT=/opt/sub2api/backups/release-state
+export STATE_DIR={state_dir}
+/opt/sub2api/releases/.active-release/assets/restore-backup-units.sh
+/opt/sub2api/releases/.active-release/assets/cleanup-state.sh
+/opt/sub2api/releases/.active-release/assets/reconcile.sh
+test -f {release_dir}/.recovered/marker
+test -f {release_dir}/.recovered/plaintext-cleaned
+test ! -e /opt/sub2api/releases/.active-release
+active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
+test -n "$active_container"
+test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container")" = healthy
+test "$(systemctl is-active nginx)" = active
+test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
+test "$(systemctl is-active sub2api-backup.timer)" = active
+printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_state_removed=true\n'
+"""
+            finished = runner.run(
+                "racknerd",
+                finish_script,
+                {"backup_units_restored", "release_claim_reconciled", "plaintext_state_removed"},
+                timeout=900,
+            ).values
+        finally:
+            runner.run("racknerd", f"rm -rf {remote_temp} && printf 'cleanup=true\\n'", {"cleanup"})
+        values = {**restore, **finished}
+        recovery_stage = "recovered_after_coordinated_restore"
+    else:
+        if inspection["decision"] not in {"claim_only_recover", "cleanup_completed_recover"}:
+            raise RuntimeError(f"automatic recovery is not allowed: {inspection['decision']}")
+        cleanup_command = "/opt/sub2api/releases/.active-release/assets/cleanup-state.sh" if inspection["decision"] == "claim_only_recover" else ":"
+        script = f"""set -Eeuo pipefail
 export RELEASE_DIR={release_dir}
 {cleanup_command}
 /opt/sub2api/releases/.active-release/assets/reconcile.sh
@@ -442,16 +487,17 @@ test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container")" =
 test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
 printf 'release_claim_reconciled=true\nplaintext_state_removed=true\n'
 """
-    values = SSHRunner().run("racknerd", script, {"release_claim_reconciled", "plaintext_state_removed"}, timeout=600).values
+        values = SSHRunner().run("racknerd", script, {"release_claim_reconciled", "plaintext_state_removed"}, timeout=600).values
+        recovery_stage = "recovered_after_interruption"
     run_dir = _run_dir(identifier)
     production_path = run_dir / "gate" / "production-result.json"
     production = _read_json(production_path, required=True) or {}
     production["status"] = "recovered"
-    production["stage"] = "recovered_after_interruption"
+    production["stage"] = recovery_stage
     history = production.setdefault("history", [])
     if not isinstance(history, list):
         raise RuntimeError("production history is invalid")
-    history.append({"stage": "recovered_after_interruption", "at": int(time.time()), "evidence": values})
+    history.append({"stage": recovery_stage, "at": int(time.time()), "evidence": values})
     _write_json(production_path, production)
     state_path = run_dir / "release-state.json"
     state = RunState.load(state_path) if state_path.exists() else RunState.create(state_path, identifier)
