@@ -76,8 +76,8 @@ final_headers=$(mktemp /tmp/sub2api-final-health.XXXXXX)
 rollback_upstream=$(mktemp /tmp/sub2api-final-upstream.XXXXXX)
 trap 'rm -f "$final_headers" "$rollback_upstream"' EXIT
 curl -sS -D "$final_headers" -o /dev/null "http://127.0.0.1:${old_port}/health"
-grep -Eiq "^x-sub2api-instance:[[:space:]]*$final_instance_id\r?$" "$final_headers"
-grep -Eiq '^x-sub2api-background-ready:[[:space:]]*false\r?$' "$final_headers"
+assert_http_header_equals "$final_headers" X-Sub2API-Instance "$final_instance_id"
+assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready false
 
 # Activate and prove that all process-wide background services accepted the
 # marker before routing traffic to the final Compose-managed instance.
@@ -89,10 +89,10 @@ mv -T -- "$activation_host_dir/.sub2api-active-instance.tmp" "$activation_host_d
 for _ in $(seq 1 30); do
   : > "$final_headers"
   curl -sS -D "$final_headers" -o /dev/null "http://127.0.0.1:${old_port}/health"
-  grep -Eiq '^x-sub2api-background-ready:[[:space:]]*true\r?$' "$final_headers" && break
+  assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready true && break
   sleep 1
 done
-grep -Eiq '^x-sub2api-background-ready:[[:space:]]*true\r?$' "$final_headers"
+assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready true
 
 # Phase 2: atomically route new requests to the final instance.  Keep the
 # temporary candidate alive until its own accepted requests drain naturally.
@@ -105,7 +105,7 @@ nginx -t >/dev/null 2>&1
 systemctl reload nginx
 public_headers=$(mktemp /tmp/sub2api-final-public.XXXXXX)
 if ! [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health") == 200 ]] ||
-   ! grep -Eiq "^x-sub2api-instance:[[:space:]]*$final_instance_id\r?$" "$public_headers"; then
+   ! assert_http_header_equals "$public_headers" X-Sub2API-Instance "$final_instance_id"; then
   install -m 600 "$rollback_upstream" "$managed_upstream"
   nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1
   rm -f "$public_headers"
