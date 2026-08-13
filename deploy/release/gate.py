@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .atomic import atomic_write, canonical_json
-from .manifest import release_asset_checksums, runner_checksum, sha256_file, validate_commit, validate_image_id, validate_manifest_profile_contract
+from .manifest import release_asset_checksums, runner_checksum, runner_checksum_for_commit, sha256_file, validate_commit, validate_image_id, validate_manifest_profile_contract
 from .profiles import get_profile
 
 
@@ -19,7 +19,7 @@ def gate_payload(manifest: dict[str, Any], evidence: dict[str, Any]) -> bytes:
     return canonical_json(value) + b"\n"
 
 
-def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow_expired: bool = False) -> dict[str, Any]:
+def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow_expired: bool = False, allow_historical_runner: bool = False) -> dict[str, Any]:
     payload_path = bundle_dir / "gate.json"
     signature_path = bundle_dir / "gate.sig"
     if not payload_path.is_file() or not signature_path.is_file():
@@ -46,7 +46,8 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
         validate_commit(manifest["compatibility_commit"])
         validate_image_id(manifest["compatibility_image_id"])
     if manifest["runner_sha256"] != runner_checksum():
-        raise RuntimeError("gate was created by a different release runner")
+        if not allow_historical_runner or manifest["runner_sha256"] != runner_checksum_for_commit(manifest["commit_sha"]):
+            raise RuntimeError("gate was created by a different release runner")
     if manifest.get("vm_validator_sha256") != sha256_file(Path(__file__).resolve().parent / "vm-validate.sh"):
         raise RuntimeError("gate was created by a different VM validator")
     if manifest.get("vm_gate_signer_sha256") != sha256_file(Path(__file__).resolve().parent / "sign-gate.sh"):
