@@ -1227,13 +1227,27 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         switch = self.script("switch.sh")
         stages = (
             "initialized", "migration_started", "migration_completed", "schema_verified",
-            "migration_committed", "candidate_started", "candidate_healthy", "runtime_verified",
+            "migration_committed", "candidate_started", "candidate_healthy", "candidate_http_verified",
+            "candidate_headers_verified", "active_health_verified", "prompt_audit_verified", "runtime_verified",
         )
         for stage in stages:
             self.assertIn(f"mark_switch_stage {stage}", switch)
         self.assertIn("switch_failure_stage", production)
         self.assertIn('self.stage("migration_switch_failed"', production)
         self.assertLess(production.index('self.stage("migration_switch_failed"'), production.index("def verify_and_finalize"))
+
+    def test_switch_records_candidate_runtime_assertion_stages(self) -> None:
+        switch = self.script("switch.sh")
+        expected = (
+            "candidate_healthy",
+            "candidate_http_verified",
+            "candidate_headers_verified",
+            "active_health_verified",
+            "prompt_audit_verified",
+            "runtime_verified",
+        )
+        offsets = [switch.index(f"mark_switch_stage {stage}") for stage in expected]
+        self.assertEqual(offsets, sorted(offsets))
 
     def test_candidate_forces_the_container_port_matching_its_publish_target(self) -> None:
         switch = self.script("switch.sh")
