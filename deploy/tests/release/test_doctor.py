@@ -47,6 +47,13 @@ class DoctorTest(unittest.TestCase):
         self.assertLess(claim_check, directory_install)
         self.assertGreater(first_app_check, directory_install)
         self.assertIn("active_container=$(sed -n 's/^container=//p'", scripts)
+        self.assertIn("legacy_proxy_count=$(grep -Ec", scripts)
+        self.assertIn('test "$legacy_proxy_count" -ge 1', scripts)
+        self.assertNotIn(
+            "test \"$(grep -Ec '^[[:space:]]*proxy_pass[[:space:]]+http://127\\.0\\.0\\.1:18080;[[:space:]]*$' <<<\"$nginx_text\")\" = 1",
+            scripts,
+        )
+        self.assertIn('test "$(wc -l <<<"$site")" = 1', scripts)
 
     def test_remote_scripts_do_not_contain_control_characters(self) -> None:
         runner = mock.Mock()
