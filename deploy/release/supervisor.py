@@ -367,10 +367,14 @@ route_started=false; if test -e {state_dir}/route-switch-intent || test -e {stat
 migration_started=false; if test -e {state_dir}/migration-committed || find {release_dir} {state_dir} -maxdepth 2 -type f -name '*migration*committed*' -print -quit 2>/dev/null | grep -q .; then migration_started=true; fi
 slot=/opt/sub2api/active-app
 active_container=$(sed -n 's/^container=//p' "$slot" 2>/dev/null || true)
-app_health=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container" 2>/dev/null || printf unknown)
+app_health=unknown
+running_image_id=unknown
+if test -n "$active_container" && docker inspect "$active_container" >/dev/null 2>&1; then
+  app_health=$(docker inspect -f '{{{{if .State.Health}}{{{{.State.Health.Status}}}}{{{{else}}}}none{{{{end}}}}' "$active_container" 2>/dev/null || printf unknown)
+  running_image_id=$(docker inspect -f '{{{{.Image}}}}' "$active_container" 2>/dev/null || printf unknown)
+fi
 nginx_active=false; test "$(systemctl is-active nginx 2>/dev/null || true)" = active && nginx_active=true
 backup_timer_enabled=false; test "$(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true)" = enabled && backup_timer_enabled=true
-running_image_id=$(docker inspect -f '{{{{.Image}}}}' "$active_container" 2>/dev/null || printf unknown)
 printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\nplaintext_cleaned=%s\nroute_started=%s\nmigration_started=%s\napp_health=%s\nnginx_active=%s\nbackup_timer_enabled=%s\nrunning_image_id=%s\n' "$claim" "$consumed" "$recovered" "$state_present" "$plaintext_cleaned" "$route_started" "$migration_started" "$app_health" "$nginx_active" "$backup_timer_enabled" "$running_image_id"
 """
     remote = SSHRunner().run("racknerd", script, {"active_claim", "consumed", "recovered", "state_present", "plaintext_cleaned", "route_started", "migration_started", "app_health", "nginx_active", "backup_timer_enabled", "running_image_id"}).values
