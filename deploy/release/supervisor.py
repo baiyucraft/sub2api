@@ -373,7 +373,7 @@ active_container=$(sed -n 's/^container=//p' "$slot" 2>/dev/null || true)
 app_health=unknown
 running_image_id=unknown
 if test -n "$active_container" && docker inspect "$active_container" >/dev/null 2>&1; then
-  app_health=$(docker inspect -f '{{{{if .State.Health}}{{{{.State.Health.Status}}}}{{{{else}}}}none{{{{end}}}}' "$active_container" 2>/dev/null || printf unknown)
+  app_health=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container" 2>/dev/null || printf unknown)
   running_image_id=$(docker inspect -f '{{{{.Image}}}}' "$active_container" 2>/dev/null || printf unknown)
 fi
 nginx_active=false; test "$(systemctl is-active nginx 2>/dev/null || true)" = active && nginx_active=true
