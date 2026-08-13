@@ -967,7 +967,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("timeout=7500", production)
         self.assertIn('wait_for_application_drain "$old_container"', finalize)
         self.assertIn('wait_for_application_drain "$candidate_container"', finalize)
-        self.assertIn('x-sub2api-background-ready:', finalize)
+        self.assertIn('assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready', finalize)
         self.assertIn('docker rm "$old_container"', finalize)
         self.assertIn("docker-compose.release-active.yml", finalize)
         self.assertIn("SUB2API_RELEASE_IMAGE", finalize)
@@ -999,6 +999,24 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance", switch)
         self.assertIn("SUB2API_INSTANCE_ID", compose)
         self.assertIn("SUB2API_BACKGROUND_ACTIVATION_FILE", compose)
+
+    def test_release_health_headers_are_crlf_normalized(self) -> None:
+        context = self.script("context.sh")
+        self.assertIn("assert_http_header_equals()", context)
+        self.assertIn("tr -d '\\r'", context)
+        self.assertIn('[[ $actual == "$expected" ]]', context)
+        for name in (
+            "switch.sh",
+            "expose.sh",
+            "finalize.sh",
+            "consume.sh",
+            "cleanup-slots.sh",
+            "verify.sh",
+            "rollback-route.sh",
+        ):
+            script = self.script(name)
+            self.assertNotIn("\\r?$", script)
+            self.assertIn("assert_http_header_equals", script)
 
     def test_backup_reads_redis_requirepass_without_cli_secret(self) -> None:
         backup = self.script("backup.sh")
@@ -1083,7 +1101,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         script = self.script("consume.sh")
         self.assertIn('mv -T -- "$active_claim" "$release_dir/.consumed"', script)
         self.assertIn('[[ $active_container == sub2api ]]', script)
-        self.assertIn('x-sub2api-background-ready:', script)
+        self.assertIn('assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready', script)
         self.assertIn('server 127.0.0.1:$active_port;', script)
         self.assertIn('assert_final_compose_closure "$deploy_dir" "$active_port"', script)
         self.assertNotIn('rm -rf "$active_claim"', script)
@@ -1092,10 +1110,13 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_slot_cleanup_rebinds_final_route_before_removing_candidate(self) -> None:
         script = self.script("cleanup-slots.sh")
         self.assertIn('instance_id=//p', script)
-        self.assertIn('x-sub2api-background-ready:', script)
+        self.assertIn('assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready', script)
         self.assertIn('server 127.0.0.1:$active_port;', script)
         self.assertIn('assert_final_compose_closure "$deploy_dir" "$active_port"', script)
-        self.assertLess(script.index('x-sub2api-background-ready:'), script.index('docker rm "$candidate_container"'))
+        self.assertLess(
+            script.index('assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready'),
+            script.index('docker rm "$candidate_container"'),
+        )
 
     def test_cleanup_state_reports_when_recovery_point_is_preserved(self) -> None:
         script = self.script("cleanup-state.sh")

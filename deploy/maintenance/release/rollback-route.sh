@@ -84,7 +84,7 @@ headers=$(mktemp /tmp/sub2api-route-rollback.XXXXXX)
 trap 'rm -f "$headers"' EXIT
 [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health") == 200 ]]
 if [[ -n $old_instance_id ]]; then
-  grep -Eiq "^x-sub2api-instance:[[:space:]]*$old_instance_id\r?$" "$headers"
+  assert_http_header_equals "$headers" X-Sub2API-Instance "$old_instance_id"
 fi
 slot_tmp="$active_slot_file.tmp.$$"
 printf 'container=%s\nport=%s\nimage_id=%s\ninstance_id=%s\n' "$old_container" "$old_port" "$pre_image_id" "$old_instance_id" > "$slot_tmp"

@@ -172,8 +172,8 @@ chmod 600 "$state_dir/candidate-app"
 candidate_headers=$(mktemp /tmp/sub2api-candidate-health.XXXXXX)
 trap 'rm -f "$candidate_headers"' EXIT
 [[ $(curl -sS -D "$candidate_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health") == 200 ]]
-grep -Eiq "^x-sub2api-instance:[[:space:]]*$candidate_instance_id\r?$" "$candidate_headers"
-grep -Eiq '^x-sub2api-background-ready:[[:space:]]*false\r?$' "$candidate_headers"
+assert_http_header_equals "$candidate_headers" X-Sub2API-Instance "$candidate_instance_id"
+assert_http_header_equals "$candidate_headers" X-Sub2API-Background-Ready false
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
 assert_prompt_audit_disabled
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 ]]; then

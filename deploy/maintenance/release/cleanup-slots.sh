@@ -17,8 +17,8 @@ active_port=$(sed -n 's/^port=//p' "$active_slot_file")
 health_headers=$(mktemp /tmp/sub2api-cleanup-health.XXXXXX)
 trap 'rm -f "$health_headers"' EXIT
 [[ $(curl -sS --max-time 15 -D "$health_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${active_port}/health") == 200 ]]
-grep -Eiq "^x-sub2api-instance:[[:space:]]*$final_instance_id\r?$" "$health_headers"
-grep -Eiq '^x-sub2api-background-ready:[[:space:]]*true\r?$' "$health_headers"
+assert_http_header_equals "$health_headers" X-Sub2API-Instance "$final_instance_id"
+assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready true
 grep -Fq "server 127.0.0.1:$active_port;" "$managed_upstream"
 [[ $(systemctl is-active nginx) == active ]]
 assert_final_compose_closure "$deploy_dir" "$active_port"

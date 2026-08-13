@@ -25,8 +25,8 @@ cleanup() {
 }
 trap cleanup EXIT
 [[ $(curl -sS -D "$health_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health") == 200 ]]
-grep -Eiq "^x-sub2api-instance:[[:space:]]*$candidate_instance_id\r?$" "$health_headers"
-grep -Eiq '^x-sub2api-background-ready:[[:space:]]*false\r?$' "$health_headers"
+assert_http_header_equals "$health_headers" X-Sub2API-Instance "$candidate_instance_id"
+assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready false
 [[ -f $managed_upstream && ! -L $managed_upstream ]]
 upstream_tmp="$managed_upstream.tmp.$$"
 printf 'upstream sub2api_release_backend {\n    server 127.0.0.1:%s;\n    keepalive 128;\n}\n' "$candidate_port" > "$upstream_tmp"
@@ -39,7 +39,7 @@ systemctl reload nginx
 grep -Fq "server 127.0.0.1:$candidate_port;" "$managed_upstream"
 public_headers=$(mktemp /tmp/sub2api-public-expose.XXXXXX)
 [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health") == 200 ]]
-grep -Eiq "^x-sub2api-instance:[[:space:]]*$candidate_instance_id\r?$" "$public_headers"
+assert_http_header_equals "$public_headers" X-Sub2API-Instance "$candidate_instance_id"
 slot_tmp="$active_slot_file.tmp.$$"
 printf 'container=%s\nport=%s\nimage_id=%s\nrelease_id=%s\n' "$candidate_container" "$candidate_port" "$candidate_image_id" "$release_id" > "$slot_tmp"
 chmod 600 "$slot_tmp"

@@ -98,6 +98,28 @@ wait_for_application_drain() {
   printf '%s\n' "$connections"
 }
 
+# curl writes response headers with CRLF line endings.  GNU grep -E does not
+# interpret \r as a carriage return, so patterns ending in \r? silently reject
+# valid headers.  Normalize the file first, then compare the complete value.
+assert_http_header_equals() {
+  local headers=${1:?headers file is required}
+  local name=${2:?header name is required}
+  local expected=${3:?expected header value is required}
+  [[ -f $headers && ! -L $headers ]]
+  [[ $name =~ ^[A-Za-z0-9-]+$ ]]
+  [[ $expected =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
+  local actual
+  actual=$(tr -d '\r' < "$headers" | awk -F: -v name="$name" '
+    BEGIN { IGNORECASE = 1 }
+    tolower($1) == tolower(name) {
+      sub(/^[^:]*:[[:space:]]*/, "")
+      print
+    }
+  ')
+  [[ $(printf '%s\n' "$actual" | grep -c .) == 1 ]]
+  [[ $actual == "$expected" ]]
+}
+
 # Resolve the exact Compose closure declared by the deployment .env.  Release
 # scripts must not silently fall back to docker-compose.yml because production
 # commonly adds docker-compose.local.yml for the real /app/data bind mount.
