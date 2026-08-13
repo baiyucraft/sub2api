@@ -14,6 +14,24 @@ from release.production_bootstrap import bootstrap_production
 
 
 class DoctorTest(unittest.TestCase):
+    def test_local_git_reads_use_retrying_helper(self) -> None:
+        commit = "a" * 40
+        profile = {"origin": "https://example.invalid/repo.git"}
+        outputs = ["", profile["origin"] + "\n", commit + "\n", b""]
+        with (
+            mock.patch("release.doctor.get_profile", return_value=profile),
+            mock.patch("release.doctor.SSH_CONFIG", mock.Mock(is_file=mock.Mock(return_value=True))),
+            mock.patch("release.doctor.TRUSTED_KEY", mock.Mock(is_file=mock.Mock(return_value=True))),
+            mock.patch("release.doctor.import_trusted_host_keys"),
+            mock.patch("release.doctor._git_output", side_effect=outputs) as git_output,
+        ):
+            self.assertEqual(
+                ReleaseDoctor("182", commit=commit, runner=mock.Mock()).check_local(),
+                {"local_ready": "true", "host_keys_ready": "true"},
+            )
+        self.assertEqual(git_output.call_count, 4)
+        self.assertEqual(git_output.call_args_list[-1].args[0][1:3], ["merge-base", "--is-ancestor"])
+
     def test_requested_nodes_only_are_checked(self) -> None:
         doctor = ReleaseDoctor("182", runner=mock.Mock())
         doctor.check_vm = mock.Mock(return_value={"vm_ready": "true"})

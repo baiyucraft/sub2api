@@ -6,7 +6,7 @@ import subprocess
 import paramiko
 import yaml
 
-from .manifest import migration_checksums, sha256_file, validate_commit
+from .manifest import _git_output, migration_checksums, sha256_file, validate_commit
 from .profiles import get_profile
 from .ssh import KNOWN_HOSTS, SSH_CONFIG, SSHRunner
 
@@ -52,17 +52,17 @@ class ReleaseDoctor:
         if not SSH_CONFIG.is_file() or not TRUSTED_KEY.is_file():
             raise RuntimeError("release SSH config or VM trust key is missing")
         import_trusted_host_keys()
-        status = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True)
+        status = _git_output(["git", "status", "--porcelain"], cwd=ROOT, text=True)
         if status.strip():
             raise RuntimeError("tracked workspace changes must be committed before deployment")
-        origin = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=ROOT, text=True).strip()
+        origin = _git_output(["git", "remote", "get-url", "origin"], cwd=ROOT, text=True).strip()
         if origin != self.profile["origin"]:
             raise RuntimeError("local origin does not match the release profile")
         if self.commit:
-            head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+            head = _git_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
             if head != self.commit:
                 raise RuntimeError("deployment commit must be the checked-out HEAD")
-            subprocess.run(["git", "merge-base", "--is-ancestor", self.commit, "origin/main"], cwd=ROOT, check=True)
+            _git_output(["git", "merge-base", "--is-ancestor", self.commit, "origin/main"], cwd=ROOT)
         return {"local_ready": "true", "host_keys_ready": "true"}
 
     def _ssh(self) -> SSHRunner:
