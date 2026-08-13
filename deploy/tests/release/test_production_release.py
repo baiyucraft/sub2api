@@ -218,6 +218,14 @@ class ProductionRecoveryTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "backup failed"):
             release.backup()
 
+    def test_backup_reports_preserved_failure_stage_when_result_missing(self) -> None:
+        release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
+        release.run_remote = mock.Mock(side_effect=[RuntimeError("backup failed"), RuntimeError("result absent"), {"backup_failure_stage": "upload", "backup_failure_exit_code": "1"}])
+
+        with self.assertRaisesRegex(RuntimeError, "stage=upload exit_code=1"):
+            release.backup()
+
     def test_backup_promotion_retry_window_is_bounded(self) -> None:
         release = self.release()
         release.profile = {"minimum_backup_free_bytes": 1}

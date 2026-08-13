@@ -17,7 +17,7 @@ if [[ -d $state_dir && ! -L $state_dir ]]; then
   if [[ -f $state_dir/recovery-point.age && -f $state_dir/recovery-point.age.sha256 ]]; then
     find "$state_dir" -mindepth 1 -maxdepth 1 \
       ! -name recovery-point.age ! -name recovery-point.age.sha256 ! -name pre-image-id \
-      ! -name backup-failure \
+      ! -name backup-result ! -name backup-result.sha256 ! -name backup-failure \
       -exec rm -rf -- {} +
     state_cleanup=recovery_point_preserved
   elif [[ -f $state_dir/pre-image-id && -f $state_dir/SHA256SUMS ]]; then
