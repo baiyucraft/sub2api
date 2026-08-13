@@ -33,7 +33,9 @@ STATUS_FIELDS = (
 DANGEROUS_STAGES = {
     "production_preflight", "pre_switch_streaming_verified", "freeze", "freeze_verified",
     "migration_preflight", "backup", "backup_verified", "migration_and_switch",
-    "candidate_internal_verified", "public_route_verification", "split_route_verified",
+    "candidate_internal_verified", "candidate_started", "candidate_healthy",
+    "public_route_verification", "nginx_reloaded", "split_route_verified",
+    "old_slot_draining", "old_slot_drained",
     "production_verified", "production_verified_after_reconciliation",
 }
 
@@ -359,10 +361,12 @@ fi
 consumed=false; test -d {release_dir}/.consumed && test ! -L {release_dir}/.consumed && consumed=true
 recovered=false; test -d {release_dir}/.recovered && test ! -L {release_dir}/.recovered && recovered=true
 state_present=false; test -e {state_dir} && state_present=true
-app_health=$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api 2>/dev/null || printf unknown)
+slot=/opt/sub2api/active-app
+active_container=$(sed -n 's/^container=//p' "$slot" 2>/dev/null || true)
+app_health=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container" 2>/dev/null || printf unknown)
 nginx_active=false; test "$(systemctl is-active nginx 2>/dev/null || true)" = active && nginx_active=true
 backup_timer_enabled=false; test "$(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true)" = enabled && backup_timer_enabled=true
-running_image_id=$(docker inspect -f '{{{{.Image}}}}' sub2api 2>/dev/null || printf unknown)
+running_image_id=$(docker inspect -f '{{{{.Image}}}}' "$active_container" 2>/dev/null || printf unknown)
 printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\napp_health=%s\nnginx_active=%s\nbackup_timer_enabled=%s\nrunning_image_id=%s\n' "$claim" "$consumed" "$recovered" "$state_present" "$app_health" "$nginx_active" "$backup_timer_enabled" "$running_image_id"
 """
     remote = SSHRunner().run("racknerd", script, {"active_claim", "consumed", "recovered", "state_present", "app_health", "nginx_active", "backup_timer_enabled", "running_image_id"}).values
@@ -418,7 +422,9 @@ export RELEASE_DIR={release_dir}
 test -f {release_dir}/.recovered/marker
 test -f {release_dir}/.recovered/plaintext-cleaned
 test ! -e /opt/sub2api/releases/.active-release
-test "$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api)" = healthy
+active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
+test -n "$active_container"
+test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container")" = healthy
 test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
 printf 'release_claim_reconciled=true\nplaintext_state_removed=true\n'
 """

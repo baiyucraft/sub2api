@@ -28,6 +28,83 @@ grep -Fxq "candidate_image_id=$candidate_image_id" "$release_dir/.prepared"
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
 state_dir="/opt/sub2api/backups/release-state/$release_id"
 
+# Production is allowed to have two application slots during a graceful
+# release.  The active slot is recorded outside the release claim so a
+# subsequent release can select the opposite loopback port without relying on
+# a floating Docker tag or a hard-coded container name.
+active_slot_file=${ACTIVE_SLOT_FILE:-/opt/sub2api/active-app}
+active_container=sub2api
+active_port=18080
+if [[ -f $active_slot_file && ! -L $active_slot_file ]]; then
+  [[ $(grep -c '^container=' "$active_slot_file") == 1 ]]
+  [[ $(grep -c '^port=' "$active_slot_file") == 1 ]]
+  parsed_container=
+  parsed_port=
+  while IFS='=' read -r key value; do
+    case "$key" in
+      container) [[ $value =~ ^[a-zA-Z0-9_.-]{1,80}$ ]]; parsed_container=$value ;;
+      port) [[ $value == 18080 || $value == 18081 ]]; parsed_port=$value ;;
+    esac
+  done < "$active_slot_file"
+  [[ -n $parsed_container && -n $parsed_port ]]
+  active_container=$parsed_container
+  active_port=$parsed_port
+elif [[ -e $active_slot_file || -L $active_slot_file ]]; then
+  exit 1
+fi
+candidate_port=18081
+[[ $active_port == 18081 ]] && candidate_port=18080
+candidate_container="sub2api-candidate-$release_id"
+if [[ -f $state_dir/candidate-app && ! -L $state_dir/candidate-app ]]; then
+  while IFS='=' read -r key value; do
+    case "$key" in
+      container) [[ $value =~ ^sub2api-candidate-[a-zA-Z0-9_.-]+$ ]] && candidate_container=$value ;;
+      port) [[ $value == 18080 || $value == 18081 ]] && candidate_port=$value ;;
+    esac
+  done < "$state_dir/candidate-app"
+fi
+[[ $candidate_container =~ ^[a-zA-Z0-9_.-]{1,100}$ ]]
+
+# Resolve the exact Compose closure declared by the deployment .env.  Release
+# scripts must not silently fall back to docker-compose.yml because production
+# commonly adds docker-compose.local.yml for the real /app/data bind mount.
+load_release_compose_files() {
+  local root=${1:?compose root is required}
+  local env_file="$root/.env"
+  [[ -f $env_file && ! -L $env_file ]]
+  local count raw item
+  count=$(grep -c '^COMPOSE_FILE=' "$env_file" || true)
+  [[ $count == 0 || $count == 1 ]]
+  if [[ $count == 1 ]]; then
+    raw=$(sed -n 's/^COMPOSE_FILE=//p' "$env_file")
+    [[ -n $raw && $raw != *[[:space:]]* ]]
+  else
+    raw=docker-compose.yml
+  fi
+  IFS=':' read -r -a release_compose_files <<<"$raw"
+  [[ ${#release_compose_files[@]} -gt 0 ]]
+  release_compose_args=()
+  local seen=':'
+  for item in "${release_compose_files[@]}"; do
+    [[ $item =~ ^[A-Za-z0-9_.-]+\.ya?ml$ ]]
+    [[ $seen != *":$item:"* ]]
+    [[ -f $root/$item && ! -L $root/$item ]]
+    seen+="$item:"
+    release_compose_args+=(-f "$root/$item")
+  done
+  [[ " $raw " == *docker-compose.yml* ]]
+}
+
+release_compose_value_with_active_override() {
+  local result= item
+  for item in "${release_compose_files[@]}"; do
+    [[ $item == docker-compose.release-active.yml ]] && continue
+    [[ -z $result ]] && result=$item || result+=":$item"
+  done
+  [[ -n $result ]]
+  printf '%s:docker-compose.release-active.yml\n' "$result"
+}
+
 assert_prompt_audit_disabled() {
   if [[ $profile != 194 && $profile != 195 && $profile != 197 && $profile != 198 && $profile != 199 && $profile != 202 && $profile != 206 && $profile != 207 && $profile != 208 && $profile != 209 && $profile != 210 && $profile != 212 && $profile != 213 && $profile != 215 && $profile != 232 && $profile != 233 && $profile != 234 ]]; then
     printf 'prompt_audit_disabled=not_applicable\n'

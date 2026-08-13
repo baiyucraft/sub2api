@@ -126,7 +126,18 @@ test "$(sha256sum /opt/sub2api-release-trust/vm-gate-ed25519.pub | awk '{{print 
 test -f /root/.config/sub2api-release/canary-api-key && test ! -L /root/.config/sub2api-release/canary-api-key
 test "$(stat -c '%a' /root/.config/sub2api-release/canary-api-key)" = 600
 test ! -e /opt/sub2api/releases/.active-release && test ! -L /opt/sub2api/releases/.active-release
-for container in sub2api sub2api-postgres sub2api-redis; do test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$container")" = healthy; done
+active_slot=/opt/sub2api/active-app
+test -f "$active_slot" && test ! -L "$active_slot"
+test "$(grep -c '^container=' "$active_slot")" = 1 && test "$(grep -c '^port=' "$active_slot")" = 1 && test "$(grep -c '^image_id=' "$active_slot")" = 1
+active_container=$(sed -n 's/^container=//p' "$active_slot")
+active_port=$(sed -n 's/^port=//p' "$active_slot")
+active_image=$(sed -n 's/^image_id=//p' "$active_slot")
+[[ $active_container =~ ^[A-Za-z0-9_.-]{{1,80}}$ ]]
+[[ $active_port == 18080 || $active_port == 18081 ]]
+[[ $active_image =~ ^sha256:[0-9a-f]{{64}}$ ]]
+for container in "$active_container" sub2api-postgres sub2api-redis; do test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$container")" = healthy; done
+test "$(docker inspect -f '{{{{.Image}}}}' "$active_container")" = "$active_image"
+grep -Fq "server 127.0.0.1:$active_port;" /etc/nginx/conf.d/sub2api-release-upstream.conf
 test "$(systemctl is-active nginx)" = active
 test "$(systemctl is-active sub2api-backup.service 2>/dev/null || true)" != active
 test "$(systemctl is-enabled sub2api-backup.timer)" = enabled

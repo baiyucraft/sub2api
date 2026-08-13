@@ -7,6 +7,10 @@ verify_migrations_restored() {
   [[ -f $state_dir/pre-migrations.tsv && ! -L $state_dir/pre-migrations.tsv ]]
   diff -u "$state_dir/pre-migrations.tsv" <(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations ORDER BY filename") >/dev/null
 }
+active_container_from_slot() {
+  [[ -f /opt/sub2api/active-app && ! -L /opt/sub2api/active-app ]]
+  sed -n 's/^container=//p' /opt/sub2api/active-app
+}
 if [[ -d $state_dir && ! -L $state_dir ]]; then
   if [[ -f $state_dir/recovery-point.age && -f $state_dir/recovery-point.age.sha256 ]]; then
     find "$state_dir" -mindepth 1 -maxdepth 1 \
@@ -17,7 +21,7 @@ if [[ -d $state_dir && ! -L $state_dir ]]; then
     [[ ! -e $state_dir/recovery-point.age.sha256 && ! -L $state_dir/recovery-point.age.sha256 ]]
     (cd "$state_dir" && sha256sum -c SHA256SUMS >/dev/null)
     verify_migrations_restored
-    [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
+    active_container=$(active_container_from_slot); [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
     [[ $(systemctl is-active nginx) == active ]]
     [[ $(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true) == enabled ]]
     rm -rf -- "$state_dir"
@@ -26,14 +30,14 @@ if [[ -d $state_dir && ! -L $state_dir ]]; then
     [[ ! -e $state_dir/SHA256SUMS && ! -L $state_dir/SHA256SUMS ]]
     [[ -f $state_dir/restored.committed && ! -L $state_dir/restored.committed ]]
     verify_migrations_restored
-    [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
+    active_container=$(active_container_from_slot); [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
     [[ $(systemctl is-active nginx) == active ]]
     [[ $(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true) == enabled ]]
     rm -rf -- "$state_dir"
   fi
 else
   [[ ! -e $state_dir && ! -L $state_dir ]]
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
+  active_container=$(active_container_from_slot); [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
   [[ $(systemctl is-active nginx) == active ]]
   [[ $(systemctl is-active sub2api-backup.service 2>/dev/null || true) != active ]]
   [[ $(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true) == enabled ]]
