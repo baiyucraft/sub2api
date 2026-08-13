@@ -28,6 +28,8 @@ schema_state=$(query "SELECT
 FROM information_schema.columns
 WHERE table_schema='public' AND table_name='groups'"
 )
+printf '%s\n' "$migration_status" > "$state_dir/migration-234-status"
+chmod 600 "$state_dir/migration-234-status"
 
 if [[ $migration_status == absent && $phase == preflight ]]; then
   [[ $schema_state == '0|0|0' ]]
