@@ -347,7 +347,7 @@ def _inspect_reconciliation(identifier: str) -> dict[str, Any]:
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
     runner = _read_json(run_dir / "runner.json", required=True) or {}
     production = _read_json(run_dir / "gate" / "production-result.json", required=True) or {}
-    document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")), allow_expired=True)
+    document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")), allow_expired=True, allow_historical_runner=True)
     candidate = document["evidence"]["candidate_image_id"]
     release_dir = f"/opt/sub2api/releases/{identifier}"
     state_dir = f"/opt/sub2api/backups/release-state/{identifier}"
