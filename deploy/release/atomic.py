@@ -17,10 +17,16 @@ def atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
     temporary_path = Path(temporary_name)
     descriptor_open = True
     try:
-        if hasattr(os, "fchmod"):
-            os.fchmod(descriptor, mode)
-        else:
-            os.chmod(temporary_path, mode)
+        # Windows maps POSIX write bits to ACL/read-only state. Applying 0400
+        # here can make release evidence unreadable to the next process even
+        # though it runs as the same user. The parent release directory owns
+        # the Windows access boundary; strict file modes remain enforced on
+        # POSIX hosts where they have the intended semantics.
+        if os.name != "nt":
+            if hasattr(os, "fchmod"):
+                os.fchmod(descriptor, mode)
+            else:
+                os.chmod(temporary_path, mode)
         with os.fdopen(descriptor, "wb") as stream:
             descriptor_open = False
             stream.write(data)
