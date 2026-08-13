@@ -13,7 +13,7 @@ load_release_compose_files "$deploy_dir"
 switch_stage_file="$state_dir/switch-stage"
 mark_switch_stage() {
   local value=${1:?switch stage is required}
-  [[ $value =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|runtime_verified)$ ]]
+  [[ $value =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]
   printf '%s\n' "$value" > "$switch_stage_file.tmp.$$"
   chmod 600 "$switch_stage_file.tmp.$$"
   mv -T -- "$switch_stage_file.tmp.$$" "$switch_stage_file"
@@ -198,10 +198,14 @@ chmod 600 "$state_dir/candidate-app"
 candidate_headers=$(mktemp /tmp/sub2api-candidate-health.XXXXXX)
 trap 'rm -f "$candidate_headers"' EXIT
 [[ $(curl -sS -D "$candidate_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health") == 200 ]]
+mark_switch_stage candidate_http_verified
 assert_http_header_equals "$candidate_headers" X-Sub2API-Instance "$candidate_instance_id"
 assert_http_header_equals "$candidate_headers" X-Sub2API-Background-Ready false
+mark_switch_stage candidate_headers_verified
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
+mark_switch_stage active_health_verified
 assert_prompt_audit_disabled
+mark_switch_stage prompt_audit_verified
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 ]]; then
   "$assets_dir/migration-195-assert.sh" postflight_runtime
 fi
