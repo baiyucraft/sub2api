@@ -711,7 +711,7 @@ class ProductionRelease:
                     f"set -Eeuo pipefail; marker={shlex.quote(self.state_dir + '/switch-stage')}; "
                     "test -f \"$marker\" && test ! -L \"$marker\" && "
                     "stage=$(cat \"$marker\"); "
-                    "[[ $stage =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_probe_started|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]; "
+                    "[[ $stage =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_port_verified|candidate_probe_started|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]; "
                     "http_code=unknown; curl_exit=unknown; "
                     f"code_file={shlex.quote(self.state_dir + '/candidate-http.code')}; "
                     f"exit_file={shlex.quote(self.state_dir + '/candidate-curl.exit')}; "
