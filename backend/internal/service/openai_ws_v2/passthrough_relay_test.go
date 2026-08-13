@@ -919,6 +919,45 @@ func TestRelay_NoSemanticOutputTerminalSequence_FirstTokenMsNil(t *testing.T) {
 	}
 }
 
+func TestRelay_EmptyTokenEvents_DoNotRecordFirstToken(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		payload string
+	}{
+		{name: "output text delta", payload: `{"type":"response.output_text.delta","response_id":"resp_empty","delta":""}`},
+		{name: "function arguments delta", payload: `{"type":"response.function_call_arguments.delta","response_id":"resp_empty","delta":""}`},
+		{name: "output text done", payload: `{"type":"response.output_text.done","response_id":"resp_empty","text":""}`},
+		{name: "function arguments done", payload: `{"type":"response.function_call_arguments.done","response_id":"resp_empty","arguments":""}`},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			clientConn := newPassthroughTestFrameConn(nil, false)
+			upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{
+				{msgType: coderws.MessageText, payload: []byte(`{"type":"response.created","response":{"id":"resp_empty"}}`)},
+				{msgType: coderws.MessageText, payload: []byte(tt.payload)},
+				{msgType: coderws.MessageText, payload: []byte(`{"type":"response.completed","response":{"id":"resp_empty","usage":{"input_tokens":2,"output_tokens":0}}}`)},
+			}, true)
+
+			var turn RelayTurnResult
+			result, relayExit := Relay(
+				context.Background(),
+				clientConn,
+				upstreamConn,
+				[]byte(`{"type":"response.create","model":"gpt-5.3-codex","input":[]}`),
+				RelayOptions{OnTurnComplete: func(current RelayTurnResult) { turn = current }},
+			)
+
+			require.Nil(t, relayExit)
+			require.Nil(t, turn.FirstTokenMs)
+			require.Nil(t, result.FirstTokenMs)
+		})
+	}
+}
+
 func TestRelay_NoDeltaOutputDoneEvent_RecordsFirstTokenBeforeTerminal(t *testing.T) {
 	t.Parallel()
 

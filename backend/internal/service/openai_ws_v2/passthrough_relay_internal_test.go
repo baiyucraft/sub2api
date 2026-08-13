@@ -244,11 +244,11 @@ func TestHelperFunctionsCoverage(t *testing.T) {
 	require.True(t, isDisconnectError(errors.New("broken pipe")))
 	require.False(t, isDisconnectError(errors.New("unrelated")))
 
-	require.True(t, isTokenEvent("response.output_text.delta"))
-	require.True(t, isTokenEvent("response.output_audio.delta"))
-	require.False(t, isTokenEvent("response.completed"))
-	require.False(t, isTokenEvent(""))
-	require.False(t, isTokenEvent("response.created"))
+	require.True(t, isTokenEvent("response.output_text.delta", []byte(`{"delta":"text"}`)))
+	require.True(t, isTokenEvent("response.output_audio.delta", []byte(`{"delta":"audio"}`)))
+	require.False(t, isTokenEvent("response.completed", []byte(`{"type":"response.completed"}`)))
+	require.False(t, isTokenEvent("", []byte(`{"delta":"text"}`)))
+	require.False(t, isTokenEvent("response.created", []byte(`{"type":"response.created"}`)))
 
 	require.Equal(t, 2*time.Second, minDuration(2*time.Second, 5*time.Second))
 	require.Equal(t, 2*time.Second, minDuration(5*time.Second, 2*time.Second))
@@ -404,19 +404,24 @@ func TestIsDisconnectErrorCoverage_CloseStatusesAndMessageBranches(t *testing.T)
 func TestIsTokenEventCoverageBranches(t *testing.T) {
 	t.Parallel()
 
-	require.False(t, isTokenEvent("response.in_progress"))
-	require.False(t, isTokenEvent("response.output_item.added"))
-	require.True(t, isTokenEvent("response.output_audio.delta"))
-	require.True(t, isTokenEvent("response.function_call_arguments.delta"))
-	require.True(t, isTokenEvent("response.reasoning_summary_text.delta"))
-	require.True(t, isTokenEvent("response.output_text.done"))
-	require.True(t, isTokenEvent("response.function_call_arguments.done"))
-	require.False(t, isTokenEvent("response.output"))
-	require.False(t, isTokenEvent("response.output_audio.done"))
-	require.False(t, isTokenEvent("response.content_part.done"))
-	require.False(t, isTokenEvent("response.output_item.done"))
-	require.False(t, isTokenEvent("response.output_text.annotation.added"))
-	require.False(t, isTokenEvent("response.done"))
+	require.False(t, isTokenEvent("response.in_progress", []byte(`{"type":"response.in_progress"}`)))
+	require.False(t, isTokenEvent("response.output_item.added", []byte(`{"type":"response.output_item.added"}`)))
+	require.True(t, isTokenEvent("response.output_audio.delta", []byte(`{"delta":"audio"}`)))
+	require.True(t, isTokenEvent("response.function_call_arguments.delta", []byte(`{"delta":"{}"}`)))
+	require.True(t, isTokenEvent("response.reasoning_summary_text.delta", []byte(`{"delta":"reasoning"}`)))
+	require.True(t, isTokenEvent("response.output_text.done", []byte(`{"text":"done"}`)))
+	require.True(t, isTokenEvent("response.function_call_arguments.done", []byte(`{"arguments":"{}"}`)))
+	require.False(t, isTokenEvent("response.output", []byte(`{"type":"response.output"}`)))
+	require.False(t, isTokenEvent("response.output_audio.done", []byte(`{"text":"audio"}`)))
+	require.False(t, isTokenEvent("response.content_part.done", []byte(`{"text":"part"}`)))
+	require.False(t, isTokenEvent("response.output_item.done", []byte(`{"item":{"result":"x"}}`)))
+	require.False(t, isTokenEvent("response.output_text.annotation.added", []byte(`{"type":"response.output_text.annotation.added"}`)))
+	require.False(t, isTokenEvent("response.done", []byte(`{"type":"response.done"}`)))
+	require.False(t, isTokenEvent("response.output_text.delta", []byte(`{"delta":""}`)))
+	require.False(t, isTokenEvent("response.output_text.delta", []byte(`{"type":"response.output_text.delta"}`)))
+	require.False(t, isTokenEvent("response.output_text.done", []byte(`{"text":""}`)))
+	require.False(t, isTokenEvent("response.function_call_arguments.done", []byte(`{"arguments":""}`)))
+	require.False(t, isTokenEvent("response.output_text.delta", []byte(`not-json`)))
 }
 
 func TestTerminalAndTokenEventSetsAreDisjoint(t *testing.T) {
@@ -431,7 +436,7 @@ func TestTerminalAndTokenEventSetsAreDisjoint(t *testing.T) {
 		"response.canceled",
 	} {
 		require.True(t, isTerminalEvent(eventType), eventType)
-		require.False(t, isTokenEvent(eventType), eventType)
+		require.False(t, isTokenEvent(eventType, []byte(`{"type":"`+eventType+`"}`)), eventType)
 	}
 }
 
