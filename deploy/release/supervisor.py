@@ -432,21 +432,44 @@ def reconcile(args: argparse.Namespace) -> None:
     identifier = args.release_id
     release_dir = f"/opt/sub2api/releases/{identifier}"
     if args.mode == "coordinated-recover":
-        if inspection["decision"] != "coordinated_restore_required" or inspection["runner_alive"]:
-            raise RuntimeError(f"coordinated recovery is not allowed: {inspection['decision']}")
-        runner = SSHRunner()
-        remote_temp = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "coordinated-restore")
-        remote_restore = f"{remote_temp}/restore.sh"
-        runner.upload_file("racknerd", COORDINATED_RESTORE, remote_restore, 0o500)
-        try:
-            restore = runner.run(
+        if inspection["decision"] == "already_recovered" and not inspection["runner_alive"]:
+            verify_script = f"""set -Eeuo pipefail
+test -d {release_dir}/.recovered
+test ! -L {release_dir}/.recovered
+test -f {release_dir}/.recovered/marker
+test -f {release_dir}/.recovered/plaintext-cleaned
+test ! -e /opt/sub2api/releases/.active-release
+active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
+test -n "$active_container"
+test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container")" = healthy
+test "$(systemctl is-active nginx)" = active
+test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
+test "$(systemctl is-active sub2api-backup.timer)" = active
+printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_state_removed=true\n'
+"""
+            values = SSHRunner().run(
                 "racknerd",
-                f"RELEASE_DIR={release_dir} {remote_restore}",
-                {"coordinated_restore", "restored_image_id", "application_health"},
-                timeout=2400,
+                verify_script,
+                {"backup_units_restored", "release_claim_reconciled", "plaintext_state_removed"},
+                timeout=300,
             ).values
-            state_dir = f"/opt/sub2api/backups/release-state/{identifier}"
-            finish_script = f"""set -Eeuo pipefail
+            recovery_stage = "recovered_after_coordinated_restore"
+        elif inspection["decision"] != "coordinated_restore_required" or inspection["runner_alive"]:
+            raise RuntimeError(f"coordinated recovery is not allowed: {inspection['decision']}")
+        else:
+            runner = SSHRunner()
+            remote_temp = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "coordinated-restore")
+            remote_restore = f"{remote_temp}/restore.sh"
+            runner.upload_file("racknerd", COORDINATED_RESTORE, remote_restore, 0o500)
+            try:
+                restore = runner.run(
+                    "racknerd",
+                    f"RELEASE_DIR={release_dir} {remote_restore}",
+                    {"coordinated_restore", "restored_image_id", "application_health"},
+                    timeout=2400,
+                ).values
+                state_dir = f"/opt/sub2api/backups/release-state/{identifier}"
+                finish_script = f"""set -Eeuo pipefail
 export RELEASE_DIR={release_dir}
 export STATE_ROOT=/opt/sub2api/backups/release-state
 export STATE_DIR={state_dir}
@@ -464,16 +487,16 @@ test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
 test "$(systemctl is-active sub2api-backup.timer)" = active
 printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_state_removed=true\n'
 """
-            finished = runner.run(
-                "racknerd",
-                finish_script,
-                {"backup_units_restored", "release_claim_reconciled", "plaintext_state_removed"},
-                timeout=900,
-            ).values
-        finally:
-            runner.run("racknerd", f"rm -rf {remote_temp} && printf 'cleanup=true\\n'", {"cleanup"})
-        values = {**restore, **finished}
-        recovery_stage = "recovered_after_coordinated_restore"
+                finished = runner.run(
+                    "racknerd",
+                    finish_script,
+                    {"backup_units_restored", "release_claim_reconciled", "plaintext_state_removed", "state_cleanup"},
+                    timeout=900,
+                ).values
+            finally:
+                runner.run("racknerd", f"rm -rf {remote_temp} && printf 'cleanup=true\\n'", {"cleanup"})
+            values = {**restore, **finished}
+            recovery_stage = "recovered_after_coordinated_restore"
     else:
         if inspection["decision"] not in {"claim_only_recover", "cleanup_completed_recover"}:
             raise RuntimeError(f"automatic recovery is not allowed: {inspection['decision']}")
