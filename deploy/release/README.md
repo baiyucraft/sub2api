@@ -22,6 +22,8 @@ python deploy/release.py cleanup-production <release_id> --mode apply --plan-sha
 
 `deploy-start` 会在停写前使用当前生产版本完成 RackNerd direct 与 DMIT 两条流式基线 Canary，避免把既有上游或链路故障带入切换阶段；该请求会像普通请求一样产生 usage 记录，但不会使用候选容器。候选公开后使用相同合同复验；只有 `curl 28` 和 `502/503/504` 会以新 marker 最多尝试三次，所有实际落库的尝试都会核验 API Key、endpoint 和真实 IP，其他错误立即停止。worker 在 doctor 到最终收口期间持有同一把 OS 锁；调用端关闭 stdout 或超时不会中止 runner。
 
+发布恢复点仅在受限上传阶段明确失败时，才以新的 transport 名称重新生成并重试最多两次；数据库、Redis、配置、归档或加密阶段失败仍立即停止。每次失败的阶段、退出码和尝试次数进入 `production-result.json`，协调恢复不得抹去该诊断证据。
+
 `doctor` 和 `bootstrap-production` 可独立用于排查或首次初始化。日常只需执行 `deploy-start`：
 它先检查本地、VM 与外部节点，再幂等执行生产 bootstrap，最后检查 RackNerd；任何
 预检失败都不得进入 Gate、停写或迁移。
