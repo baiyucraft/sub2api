@@ -39,11 +39,14 @@ class DoctorTest(unittest.TestCase):
         self.assertNotIn("docker system prune", scripts)
         self.assertNotIn("install -o root -g root -m 644", scripts)
         self.assertNotIn("systemctl daemon-reload", scripts)
-        health_check = scripts.index("for container in sub2api sub2api-postgres sub2api-redis")
+        health_check = scripts.index("for container in sub2api-postgres sub2api-redis")
+        first_app_check = scripts.index("docker inspect -f", scripts.index("if test ! -e \"$active_slot\""))
         claim_check = scripts.index("test ! -e /opt/sub2api/releases/.active-release")
         directory_install = scripts.index("install -d -m 700")
         self.assertLess(health_check, directory_install)
         self.assertLess(claim_check, directory_install)
+        self.assertGreater(first_app_check, directory_install)
+        self.assertIn("active_container=$(sed -n 's/^container=//p'", scripts)
 
     def test_remote_scripts_do_not_contain_control_characters(self) -> None:
         runner = mock.Mock()

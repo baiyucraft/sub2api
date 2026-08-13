@@ -16,6 +16,8 @@
 
 ## 标准入口
 
+蓝绿发布的权威运行态不是固定容器名 `sub2api`，而是 `/opt/sub2api/active-app` 中唯一的 `container`、`port` 与 `image_id`。doctor 必须验证该容器健康、端口仅为 `18080/18081`、镜像 ID 与容器一致，并确认 `/etc/nginx/conf.d/sub2api-release-upstream.conf` 指向同一端口。第一次 bootstrap 可从稳定 `sub2api:18080` 建立该状态；后续发布不得退回固定名称判断。
+
 对已提供 profile 的 RackNerd 应用发布，固定使用：
 
 ```text

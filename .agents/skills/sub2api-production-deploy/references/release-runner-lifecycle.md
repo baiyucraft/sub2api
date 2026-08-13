@@ -27,6 +27,10 @@ python deploy/release.py verify-result <release_id>
 
 `wait --timeout` 到期只返回 `still_running`，绝不杀进程、重启发布或并发执行第二个 `deploy`。成功不能由退出码、健康接口或 Gate 单项推出；`verify-result` 必须重新验签并核对 VM 状态、production-result、双链路、备份 units、claim 和 signed candidate image。
 
+蓝绿生产阶段会依次记录 `candidate_started`、`candidate_healthy`、`nginx_reloaded`、`old_slot_draining` 和 `old_slot_drained`。`old_slot_draining` 默认 deadline 为 3900 秒（含命令余量），实际连接排空上限为 3600 秒。该阶段长时间无控制台输出属于预期，必须用 `status`/`wait` 观察，不得启动第二个 runner。
+
+路由已经切换但旧 slot 未排空时，失败恢复优先执行 `rollback-route.sh`：恢复 pre-release upstream、`nginx -t`、graceful reload、写回 active slot并删除未使用 candidate。只有进入协调数据恢复时才允许停止 Nginx、PostgreSQL/Redis 或稳定应用容器。
+
 ## 故障边界
 
 `stage_assets_verified` 之后没有 `production_preflight`，且 runner 已退出时，归类为 caller/runner interruption。只有 active claim 精确匹配、没有 production state、旧应用 healthy、Nginx active、backup timer enabled 且没有危险阶段，才允许 claim-only recovery。任何状态不明、迁移或公开流量已开始，都保持 `blocked`，不得删除 marker 或手工编辑 JSON。

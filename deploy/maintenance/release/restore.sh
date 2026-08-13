@@ -22,7 +22,7 @@ fail_closed() {
   trap - ERR INT TERM EXIT
   set +e
   systemctl stop nginx >/dev/null 2>&1 || failed=1
-  docker stop sub2api >/dev/null 2>&1 || true
+  docker stop "$active_container" >/dev/null 2>&1 || true
   cleanup_recovery || failed=1
   nginx_status=$(systemctl is-active nginx 2>/dev/null)
   case "$nginx_status" in
@@ -31,13 +31,13 @@ fail_closed() {
   esac
   if ! docker info >/dev/null 2>&1; then
     failed=1
-  elif docker inspect sub2api >/dev/null 2>&1; then
-    app_status=$(docker inspect -f '{{.State.Status}}' sub2api 2>/dev/null) || failed=1
+  elif docker inspect "$active_container" >/dev/null 2>&1; then
+    app_status=$(docker inspect -f '{{.State.Status}}' "$active_container" 2>/dev/null) || failed=1
     [[ -n $app_status && $app_status != running ]] || failed=1
   else
     if ! container_names=$(docker ps -a --format '{{.Names}}' 2>/dev/null); then
       failed=1
-    elif grep -Fxq sub2api <<<"$container_names"; then
+    elif grep -Fxq "$active_container" <<<"$container_names"; then
       failed=1
     fi
   fi
@@ -47,7 +47,8 @@ fail_closed() {
 trap fail_closed ERR INT TERM
 trap cleanup_recovery EXIT
 systemctl stop nginx
-docker rm -f sub2api >/dev/null 2>&1 || true
+docker rm -f "$active_container" >/dev/null 2>&1 || true
+[[ "$active_container" == sub2api ]] || docker rm -f sub2api >/dev/null 2>&1 || true
 [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
 tar -C "$recovery" -xf "$state_dir/recovery-point.tar"
 (cd "$recovery" && sha256sum -c SHA256SUMS >/dev/null)
@@ -59,6 +60,7 @@ redis_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}
 docker stop sub2api-redis >/dev/null
 find "$redis_source" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 cp -a "$recovery/redis/." "$redis_source/"
+(cd "$redis_source" && [[ -f dump.rdb && ! -L dump.rdb ]] && [[ $(find . -mindepth 1 -maxdepth 1 -type f | wc -l) == 1 ]])
 (cd "$redis_source" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) > "$recovery/metadata/redis-files-restored.sha256"
 diff -u "$recovery/metadata/redis-files.sha256" "$recovery/metadata/redis-files-restored.sha256" >/dev/null
 docker start sub2api-redis >/dev/null
@@ -78,11 +80,12 @@ redis_restored_expiring=$(printf '%s\n' "$redis_keyspace" | sed -n 's/^db[0-9]*:
 [[ $redis_backup_dbsize -ge $redis_dbsize ]]
 [[ $redis_backup_expiring -ge $redis_restored_expiring ]]
 [[ $((redis_backup_dbsize - redis_dbsize)) -eq $((redis_backup_expiring - redis_restored_expiring)) ]]
+load_release_compose_files "$recovery/config/app"
 cp -a "$recovery/config/app/.env" "$deploy_dir/.env"
-cp -a "$recovery/config/app/docker-compose.yml" "$deploy_dir/docker-compose.yml"
-if [[ -f $recovery/config/app/docker-compose.release-active.yml && ! -L $recovery/config/app/docker-compose.release-active.yml ]]; then
-  cp -a "$recovery/config/app/docker-compose.release-active.yml" "$deploy_dir/docker-compose.release-active.yml"
-else
+for compose_file in "${release_compose_files[@]}"; do
+  cp -a "$recovery/config/app/$compose_file" "$deploy_dir/$compose_file"
+done
+if [[ " ${release_compose_files[*]} " != *" docker-compose.release-active.yml "* ]]; then
   [[ -f $recovery/config/app/no-release-active-override && ! -L $recovery/config/app/no-release-active-override ]]
   rm -f "$deploy_dir/docker-compose.release-active.yml"
 fi
@@ -96,7 +99,7 @@ chmod 600 "$restore_override_tmp"
 mv -T -- "$restore_override_tmp" "$deploy_dir/docker-compose.release-active.yml"
 env_tmp="$deploy_dir/.env.restore.$$"
 awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE)=/' "$deploy_dir/.env" > "$env_tmp"
-printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.release-active.yml\n' >> "$env_tmp"
+printf 'COMPOSE_FILE=%s\n' "$(release_compose_value_with_active_override)" >> "$env_tmp"
 printf 'SUB2API_RELEASE_IMAGE=%s\n' "$(<"$state_dir/pre-image-id")" >> "$env_tmp"
 chmod --reference="$deploy_dir/.env" "$env_tmp"
 mv -T -- "$env_tmp" "$deploy_dir/.env"
@@ -111,10 +114,11 @@ diff -u "$recovery/metadata/core-content-digests.txt" "$recovery/metadata/core-c
 docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT version(); SELECT datcollate||'|'||datctype FROM pg_database WHERE datname=current_database(); SELECT extname||'|'||extversion FROM pg_extension ORDER BY 1; SELECT filename||'|'||checksum FROM schema_migrations ORDER BY filename" > "$recovery/metadata/postgres-restored.txt"
 diff -u "$recovery/metadata/postgres.txt" "$recovery/metadata/postgres-restored.txt" >/dev/null
 cd "$deploy_dir"
-compose_image=$(docker compose config --format json | jq -r '.services.sub2api.image // empty')
+load_release_compose_files "$deploy_dir"
+compose_image=$(docker compose "${release_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
 [[ -n $compose_image ]]
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$(<"$state_dir/pre-image-id")" ]]
-docker compose up -d --no-deps sub2api >/dev/null 2>&1
+docker compose "${release_compose_args[@]}" up -d --no-deps sub2api >/dev/null 2>&1
 for _ in $(seq 1 90); do
   [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]] && break
   sleep 2
@@ -122,6 +126,10 @@ done
 [[ $(docker inspect -f '{{.Image}}' sub2api) == "$(<"$state_dir/pre-image-id")" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
 systemctl start nginx
+slot_tmp="$active_slot_file.tmp.$$"
+printf 'container=sub2api\nport=18080\nimage_id=%s\n' "$(docker inspect -f '{{.Image}}' sub2api)" > "$slot_tmp"
+chmod 600 "$slot_tmp"
+mv -T -- "$slot_tmp" "$active_slot_file"
 cleanup_recovery
 trap - ERR INT TERM EXIT
 printf 'coordinated_restore=verified\n'

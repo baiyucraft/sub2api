@@ -80,8 +80,11 @@ class ProductionRecoveryTest(unittest.TestCase):
         instance.units_masked = True
         instance.mask_intent = False
         instance.public_exposed = False
+        instance.route_switch_attempted = False
+        instance.route_switched = False
         instance.migration_started = False
         instance.state_dir = "/state"
+        instance.profile = {"public_domain": "example.test", "rack_public_ip": "192.0.2.1"}
         instance.release_id = "182-aaaaaaaaaaaa-1-aaaaaaaa"
         instance.release_dir = "/release"
         instance.image_id = "sha256:" + "a" * 64
@@ -98,8 +101,9 @@ class ProductionRecoveryTest(unittest.TestCase):
 
     def test_pre_migration_failure_resumes_old_application(self) -> None:
         release = self.release()
+        release.remote_pre_switch_recovery_needed = mock.Mock(return_value=True)
         release.recover()
-        first_script = release.run_remote.call_args_list[0].args[1]
+        first_script = next(call.args[1] for call in release.run_remote.call_args_list if "resume-old.sh" in call.args[1])
         self.assertIn("resume-old.sh", first_script)
         self.assertNotIn("restore.sh", first_script)
         self.assertEqual(release.result["status"], "recovered")
@@ -114,17 +118,17 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertFalse(release.frozen)
         self.assertFalse(release.units_masked)
 
-    def test_freeze_drains_scheduler_outbox_before_stopping_application(self) -> None:
+    def test_freeze_checkpoints_scheduler_outbox_without_stopping_traffic(self) -> None:
         freeze = (DEPLOY_ROOT / "maintenance" / "release" / "freeze.sh").read_text(encoding="utf-8")
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
 
-        self.assertLess(freeze.index("systemctl stop nginx"), freeze.index("sched:v2:outbox:watermark"))
-        self.assertLess(freeze.index("sched:v2:outbox:watermark"), freeze.index("docker compose stop -t 30 sub2api"))
-        self.assertEqual(freeze.count("$outbox_watermark -ge $outbox_highwater"), 3)
-        self.assertEqual(freeze.count("timeout 3s docker exec"), 4)
-        self.assertGreater(freeze.rindex("sched:v2:outbox:watermark"), freeze.index("docker compose stop -t 30 sub2api"))
+        self.assertIn("sched:v2:outbox:watermark", freeze)
+        self.assertNotIn("systemctl stop nginx", freeze)
+        self.assertNotIn("docker compose stop -t 30 sub2api", freeze)
+        self.assertIn("traffic_preserved=true", freeze)
+        self.assertIn("outbox_checkpoint=true", freeze)
         self.assertIn("drain_deadline=$((SECONDS + 30))", freeze)
-        self.assertIn('"outbox_drained"', production)
+        self.assertIn('"outbox_checkpoint"', production)
 
     def test_backup_rejects_unready_local_restore_point(self) -> None:
         release = self.release()
@@ -180,6 +184,7 @@ class ProductionRecoveryTest(unittest.TestCase):
     def test_post_migration_failure_runs_coordinated_restore(self) -> None:
         release = self.release()
         release.migration_started = True
+        release.remote_pre_switch_recovery_needed = mock.Mock(return_value=True)
         release.run_remote.side_effect = [
             {"coordinated_restore": "verified", "restored_image_id": "old", "application_health": "pass"},
             {"backup_units_restored": "true"},
@@ -207,12 +212,12 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.claimed = True
         release.public_exposed = True
         release.remote_gate_consumed = mock.Mock(return_value=False)
-        release.emergency_close = mock.Mock()
+        release.rollback_route = mock.Mock(return_value={"route_rollback": "true"})
         release.recover = mock.Mock()
         release.upload_assets = mock.Mock(side_effect=RuntimeError("canary failed"))
         with self.assertRaisesRegex(RuntimeError, "canary failed"):
             release.execute()
-        release.emergency_close.assert_called_once()
+        release.rollback_route.assert_called_once()
         release.recover.assert_not_called()
         self.assertEqual(release.result["status"], "blocked_reconciliation")
 
@@ -347,7 +352,10 @@ class ProductionRecoveryTest(unittest.TestCase):
                 "FAKE_IMAGE_ID": image_id,
                 "PATH": str(fake_bin) + os.pathsep + environment.get("PATH", ""),
             })
-            script = gate_consumption_probe_script(release_dir.as_posix(), release_id, image_id, active.as_posix())
+            slot = root / "active-app"
+            script = gate_consumption_probe_script(
+                release_dir.as_posix(), release_id, image_id, active.as_posix(), slot.as_posix()
+            )
 
             valid = subprocess.run([bash, "-c", script], check=True, capture_output=True, text=True, env=environment)
             self.assertEqual(valid.stdout, "gate_consumed=false\n")
@@ -377,8 +385,10 @@ class ProductionRecoveryTest(unittest.TestCase):
             self.assertEqual(wrong_release.stdout, "gate_consumed=unknown\n")
 
             marker.write_bytes(f"release_id={release_id}\ncandidate_image_id={image_id}\n".encode())
+            slot.write_text(f"container=sub2api-candidate\nport=18081\nimage_id={image_id}\nrelease_id={release_id}\n", encoding="utf-8")
             completed = subprocess.run([bash, "-c", script], check=True, capture_output=True, text=True, env=environment)
             self.assertEqual(completed.stdout, "gate_consumed=true\n")
+            slot.unlink()
 
     def test_unconsumed_claim_before_public_exposure_runs_recovery(self) -> None:
         release = self.release()
@@ -393,18 +403,18 @@ class ProductionRecoveryTest(unittest.TestCase):
 
         release.recover.assert_called_once()
 
-    def test_unknown_consumption_status_closes_public_traffic(self) -> None:
+    def test_unknown_consumption_status_rolls_route_back(self) -> None:
         release = self.release()
         release.claimed = True
         release.public_exposed = True
         release.upload_assets = mock.Mock(side_effect=RuntimeError("reply lost"))
         release.remote_gate_consumed = mock.Mock(return_value=None)
-        release.emergency_close = mock.Mock()
+        release.rollback_route = mock.Mock(return_value={"route_rollback": "true"})
 
         with self.assertRaisesRegex(RuntimeError, "reply lost"):
             release.execute()
 
-        release.emergency_close.assert_called_once()
+        release.rollback_route.assert_called_once()
         self.assertEqual(release.result["status"], "blocked_reconciliation")
 
     def test_unknown_consumption_status_without_public_exposure_does_not_close(self) -> None:
@@ -413,27 +423,27 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.public_exposed = False
         release.upload_assets = mock.Mock(side_effect=RuntimeError("reply lost"))
         release.remote_gate_consumed = mock.Mock(return_value=None)
-        release.emergency_close = mock.Mock()
+        release.rollback_route = mock.Mock()
 
         with self.assertRaisesRegex(RuntimeError, "reply lost"):
             release.execute()
 
-        release.emergency_close.assert_not_called()
+        release.rollback_route.assert_not_called()
 
-    def test_unknown_consumption_status_stays_blocked_when_close_is_unconfirmed(self) -> None:
+    def test_unknown_consumption_status_stays_blocked_when_rollback_is_unconfirmed(self) -> None:
         release = self.release()
         release.claimed = True
         release.public_exposed = True
         release.upload_assets = mock.Mock(side_effect=RuntimeError("reply lost"))
         release.remote_gate_consumed = mock.Mock(return_value=None)
-        release.emergency_close = mock.Mock(side_effect=RuntimeError("close reply lost"))
+        release.rollback_route = mock.Mock(side_effect=RuntimeError("rollback reply lost"))
 
         with self.assertRaisesRegex(RuntimeError, "reply lost"):
             release.execute()
 
         self.assertEqual(release.result["status"], "blocked_reconciliation")
         evidence = release.stage.call_args.args[1]
-        self.assertEqual(evidence["public_close"], "unknown")
+        self.assertEqual(evidence["route_rollback"], "unknown")
 
     def test_mask_probe_detects_committed_remote_mask(self) -> None:
         release = self.release()
@@ -550,7 +560,10 @@ class RouteCanaryRetryTest(unittest.TestCase):
                 return {"backup_public_ip": "198.51.100.1"}
             if "SELECT user_agent" in script:
                 captured["usage_script"] = script
-            return {key: "pass" for key in allowed}
+            values = {key: "pass" for key in allowed}
+            if "drain_status" in allowed:
+                values["drain_status"] = "drained"
+            return values
 
         release.run_remote = mock.Mock(side_effect=run_remote)
         release.verify_and_finalize()
@@ -854,8 +867,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("migration_195_constraint_missing", assertion)
         self.assertIn("migration_195_trigger_missing", assertion)
         self.assertIn("[[ $recompute_mismatch == 0", assertion)
-        self.assertGreater(switch.index('migration-195-assert.sh" postflight_db'), switch.index("docker compose run"))
-        self.assertGreater(switch.index('migration-195-assert.sh" postflight_runtime'), switch.index("docker compose up"))
+        self.assertGreater(switch.index('migration-195-assert.sh" postflight_db'), switch.index('docker compose "${candidate_compose_args[@]}"'))
+        self.assertGreater(switch.index('migration-195-assert.sh" postflight_runtime'), switch.index('docker compose "${candidate_compose_args[@]}"'))
 
     def test_migration_195_assertion_ignores_soft_deleted_accounts(self) -> None:
         assertion = self.script("migration-195-assert.sh")
@@ -895,7 +908,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertLess(execute.index("self.migration_preflight()"), execute.index("self.backup()"))
         self.assertLess(execute.index("self.backup()"), execute.index("self.bind_migration_plan()"))
         self.assertLess(execute.index("self.bind_migration_plan()"), execute.index("self.switch()"))
-        self.assertLess(switch.index('migration-195-assert.sh" postflight_db'), switch.index("docker compose up"))
+        self.assertLess(switch.index('migration-195-assert.sh" postflight_db'), switch.index(" run -d --name"))
         self.assertIn("migration-committed", switch)
         self.assertIn("migration_manifest_sha256", switch)
         self.assertIn("printf 'migration=%s checksum=%s", switch)
@@ -905,16 +918,63 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_freeze_creates_release_state_root(self) -> None:
         freeze = self.script("freeze-backup.sh")
         self.assertIn("install -d -m 700 /opt/sub2api/backups/release-state", freeze)
-        self.assertIn("docker compose stop -t 30 sub2api >/dev/null 2>&1", self.script("freeze.sh"))
+        self.assertNotIn("docker compose stop -t 30 sub2api", self.script("freeze.sh"))
+        self.assertIn("traffic_preserved=true", self.script("freeze.sh"))
         self.assertNotIn('"$assets_dir/backup.sh"', freeze)
+
+    def test_blue_green_uses_active_slot_and_graceful_route_switch(self) -> None:
+        preflight = self.script("preflight.sh")
+        expose = self.script("expose.sh")
+        finalize = self.script("finalize.sh")
+        rollback = self.script("rollback-route.sh")
+        emergency = self.script("emergency-close.sh")
+
+        self.assertIn('active_container=$(sed -n \'s/^container=//p\'', preflight)
+        self.assertNotIn("docker inspect -f '{{.State.Status}}' sub2api", preflight)
+        self.assertIn("systemctl reload nginx", expose)
+        self.assertNotIn("systemctl stop nginx", expose)
+        route_write = expose.index('mv -T -- "$upstream_tmp" "$managed_upstream"')
+        switched = expose.index("switched=true", route_write)
+        validation = expose.index("nginx -t", switched)
+        self.assertLess(route_write, switched)
+        self.assertLess(switched, validation)
+        self.assertIn("DRAIN_TIMEOUT_SECONDS:-3600", finalize)
+        self.assertIn("drain_status=unknown", finalize)
+        self.assertIn("rollback-route.sh", finalize)
+        self.assertIn("docker-compose.release-active.yml", finalize)
+        self.assertIn("SUB2API_RELEASE_IMAGE", finalize)
+        self.assertIn("systemctl reload nginx", rollback)
+        self.assertNotIn("systemctl stop nginx", rollback)
+        self.assertIn('exec "$assets_dir/rollback-route.sh"', emergency)
+        self.assertNotIn("systemctl stop nginx", emergency)
+
+    def test_bootstrap_restores_original_nginx_site_on_failure(self) -> None:
+        bootstrap = (DEPLOY_ROOT / "release" / "production_bootstrap.py").read_text(encoding="utf-8")
+        self.assertIn('site_backup="$site.sub2api-release-backup"', bootstrap)
+        self.assertIn('install -m 600 "$site_backup" "$site"', bootstrap)
+        self.assertIn('rm -f -- "$managed_upstream"', bootstrap)
+        self.assertIn("nginx -t >/dev/null 2>&1 && systemctl reload nginx", bootstrap)
+        self.assertIn("grep -c '^image_id='", bootstrap)
+        self.assertIn("active_image=$(sed -n 's/^image_id=//p'", bootstrap)
+
+    def test_candidate_preserves_sync_setting_but_waits_for_activation(self) -> None:
+        switch = self.script("switch.sh")
+        compose = (DEPLOY_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertIn("UPSTREAM_SYNC_AUTO_ENABLED: \\${UPSTREAM_SYNC_AUTO_ENABLED:-true}", switch)
+        self.assertIn('SUB2API_INSTANCE_ID=$release_id', switch)
+        self.assertIn("SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance", switch)
+        self.assertIn("SUB2API_INSTANCE_ID", compose)
+        self.assertIn("SUB2API_BACKGROUND_ACTIVATION_FILE", compose)
 
     def test_backup_reads_redis_requirepass_without_cli_secret(self) -> None:
         backup = self.script("backup.sh")
         self.assertIn('index("--requirepass")', backup)
         self.assertIn('printf \'%s\\n\' "$redis_password" | docker exec -i', backup)
         self.assertNotIn("redis-cli -a", backup)
-        self.assertIn("docker compose stop -t 30 redis >/dev/null 2>&1", backup)
-        self.assertIn("docker compose start redis >/dev/null 2>&1", backup)
+        self.assertIn("redis_command --rdb /tmp/sub2api-release.rdb", backup)
+        self.assertIn("redis-check-rdb /tmp/sub2api-release.rdb", backup)
+        self.assertIn('docker compose "${release_compose_args[@]}" config --format json', backup)
+        self.assertNotIn("docker compose stop", backup)
 
     def test_backup_keeps_temporary_local_restore_tar_until_release_finishes(self) -> None:
         backup = self.script("backup.sh")
@@ -928,11 +988,12 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('sha256sum -c recovery-point.tar.sha256', restore)
         self.assertIn('tar -C "$recovery" -xf "$state_dir/recovery-point.tar"', restore)
         self.assertIn('image: $(<"$state_dir/pre-image-id")', restore)
-        self.assertIn("COMPOSE_FILE=docker-compose.yml:docker-compose.release-active.yml", restore)
+        self.assertIn("release_compose_value_with_active_override", restore)
+        self.assertIn("load_release_compose_files", restore)
         self.assertIn("SUB2API_RELEASE_IMAGE=%s", restore)
         self.assertNotIn("age-identity", restore)
         self.assertIn("if ! docker info", restore)
-        self.assertIn("elif docker inspect sub2api", restore)
+        self.assertIn('elif docker inspect "$active_container"', restore)
         self.assertIn("if ! container_names=$(docker ps -a", restore)
         self.assertIn('case "$nginx_status" in', restore)
         self.assertIn("inactive|failed", restore)

@@ -86,9 +86,15 @@ assert_release_identity() {
 }
 
 assert_services() {
-  [[ $(docker inspect -f '{{.Image}}' sub2api) == "$expected_current_image" ]]
-  [[ $(docker inspect -f '{{.State.Status}}' sub2api) == running ]]
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
+  [[ -f /opt/sub2api/active-app && ! -L /opt/sub2api/active-app ]]
+  local active_container active_port
+  active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
+  active_port=$(sed -n 's/^port=//p' /opt/sub2api/active-app)
+  [[ $active_container =~ ^[A-Za-z0-9_.-]{1,100}$ ]]
+  [[ $active_port == 18080 || $active_port == 18081 ]]
+  [[ $(docker inspect -f '{{.Image}}' "$active_container") == "$expected_current_image" ]]
+  [[ $(docker inspect -f '{{.State.Status}}' "$active_container") == running ]]
+  [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
   [[ $(docker inspect -f '{{.State.Status}}' sub2api-postgres) == running ]]
   [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-postgres) == healthy ]]
   [[ $(docker inspect -f '{{.State.Status}}' sub2api-redis) == running ]]
@@ -98,7 +104,7 @@ assert_services() {
   [[ $(systemctl is-active sub2api-backup.timer) == active ]]
   [[ $(systemctl is-enabled sub2api-backup.timer) == enabled ]]
   [[ $(docker image inspect -f '{{.Id}}' "$pre_switch_image") == "$pre_switch_image" ]]
-  [[ $(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/health) == 200 ]]
+  [[ $(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$active_port/health") == 200 ]]
 }
 
 write_container_images() {

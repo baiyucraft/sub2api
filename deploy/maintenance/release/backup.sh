@@ -14,7 +14,6 @@ work="$backup_root/.release-$release_id-$timestamp"
 plain="$backup_root/sub2api-$release_id-$timestamp.tar"
 encrypted="$plain.age"
 transport="sub2api-$timestamp.tar.age"
-redis_stopped=false
 redis_password=$(docker inspect sub2api-redis | jq -er '
   ((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $args
   | ($args | index("--requirepass")) as $index
@@ -27,7 +26,7 @@ redis_password=$(docker inspect sub2api-redis | jq -er '
 
 cleanup() {
   code=$?
-  if [[ $redis_stopped == true ]]; then (cd "$deploy_dir" && docker compose start redis >/dev/null 2>&1) || true; fi
+  docker exec sub2api-redis rm -f /tmp/sub2api-release.rdb >/dev/null 2>&1 || true
   rm -rf "$work" "$plain"
   exit "$code"
 }
@@ -35,15 +34,16 @@ trap cleanup EXIT
 [[ -d $state_dir && ! -L $state_dir ]]
 (cd "$state_dir" && sha256sum -c SHA256SUMS >/dev/null)
 cd "$deploy_dir"
-[[ $(docker inspect -f '{{.State.Status}}' sub2api) != running ]]
-[[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
+load_release_compose_files "$deploy_dir"
+[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
+[[ $(systemctl is-active nginx) == active ]]
 [[ $(systemctl is-active sub2api-backup.service 2>/dev/null || true) != active ]]
 [[ $(systemctl is-active sub2api-backup.timer 2>/dev/null || true) != active ]]
 [[ $(systemctl is-enabled sub2api-backup.service 2>/dev/null || true) == masked ]]
 [[ $(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true) == masked ]]
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.Image}}' sub2api) == "$(<"$state_dir/pre-image-id")" ]]
-compose_image=$(docker compose config --format json | jq -r '.services.sub2api.image // empty')
+[[ $(docker inspect -f '{{.Image}}' "$active_container") == "$(<"$state_dir/pre-image-id")" ]]
+compose_image=$(docker compose "${release_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
 [[ -n $compose_image ]]
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$(<"$state_dir/pre-image-id")" ]]
 if [[ ${RELEASE_LOCK_HELD:-false} != true ]]; then
@@ -61,32 +61,18 @@ redis_command() {
     exec redis-cli --no-auth-warning "$@"
   ' sh "$@"
 }
-redis_command BGSAVE >/dev/null || true
-for _ in $(seq 1 120); do
-  persistence=$(redis_command INFO persistence | tr -d '\r')
-  in_progress=$(awk -F: '$1=="rdb_bgsave_in_progress"{print $2}' <<<"$persistence")
-  last_status=$(awk -F: '$1=="rdb_last_bgsave_status"{print $2}' <<<"$persistence")
-  [[ $in_progress == 0 ]] && break
-  sleep 1
-done
-[[ $in_progress == 0 && $last_status == ok ]]
-redis_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' sub2api-redis)
-[[ -n $redis_source && -d $redis_source ]]
-docker compose stop -t 30 redis >/dev/null 2>&1
-redis_stopped=true
-cp -a "$redis_source/." "$work/redis/"
-docker compose start redis >/dev/null 2>&1
-redis_stopped=false
-for _ in $(seq 1 60); do
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]] && break
-  sleep 1
-done
+docker exec sub2api-redis rm -f /tmp/sub2api-release.rdb
+redis_command --rdb /tmp/sub2api-release.rdb >/dev/null
+docker exec sub2api-redis redis-check-rdb /tmp/sub2api-release.rdb >/dev/null
+docker cp sub2api-redis:/tmp/sub2api-release.rdb "$work/redis/dump.rdb" >/dev/null
+docker exec sub2api-redis rm -f /tmp/sub2api-release.rdb
+[[ -s $work/redis/dump.rdb ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
 install -m 600 "$deploy_dir/.env" "$work/config/app/.env"
-install -m 600 "$deploy_dir/docker-compose.yml" "$work/config/app/docker-compose.yml"
-if [[ -f $deploy_dir/docker-compose.release-active.yml && ! -L $deploy_dir/docker-compose.release-active.yml ]]; then
-  install -m 600 "$deploy_dir/docker-compose.release-active.yml" "$work/config/app/docker-compose.release-active.yml"
-else
+for compose_file in "${release_compose_files[@]}"; do
+  install -m 600 "$deploy_dir/$compose_file" "$work/config/app/$compose_file"
+done
+if [[ " ${release_compose_files[*]} " != *" docker-compose.release-active.yml "* ]]; then
   : > "$work/config/app/no-release-active-override"
   chmod 600 "$work/config/app/no-release-active-override"
 fi
@@ -96,21 +82,22 @@ nginx -T > "$work/config/nginx/nginx-T.txt" 2>&1
 cp -a /etc/nginx/nginx.conf /etc/nginx/sites-enabled "$work/config/nginx/"
 cp -aL /etc/letsencrypt/live "$work/config/certbot/"
 cp -a /etc/letsencrypt/archive /etc/letsencrypt/renewal "$work/config/certbot/"
-docker inspect sub2api sub2api-postgres sub2api-redis --format '{{.Name}} {{.Config.Image}} {{.Image}}' > "$work/metadata/images.txt"
+docker inspect "$active_container" sub2api-postgres sub2api-redis --format '{{.Name}} {{.Config.Image}} {{.Image}}' > "$work/metadata/images.txt"
 docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT version(); SELECT datcollate||'|'||datctype FROM pg_database WHERE datname=current_database(); SELECT extname||'|'||extversion FROM pg_extension ORDER BY 1; SELECT filename||'|'||checksum FROM schema_migrations ORDER BY filename" > "$work/metadata/postgres.txt"
 redis_command INFO server persistence keyspace > "$work/metadata/redis.txt"
 redis_command DBSIZE | tr -d '\r' > "$work/metadata/redis-dbsize.txt"
+redis_command --raw SCAN 0 COUNT 1 >/dev/null
 docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT 'accounts='||count(*) FROM accounts UNION ALL SELECT 'users='||count(*) FROM users UNION ALL SELECT 'api_keys='||count(*) FROM api_keys UNION ALL SELECT 'upstream_configs='||count(*) FROM upstream_configs UNION ALL SELECT 'upstream_keys='||count(*) FROM upstream_keys" > "$work/metadata/core-counts.txt"
 docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT 'accounts='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM accounts t UNION ALL SELECT 'users='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM users t UNION ALL SELECT 'api_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM api_keys t UNION ALL SELECT 'upstream_configs='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM upstream_configs t UNION ALL SELECT 'upstream_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM upstream_keys t" > "$work/metadata/core-content-digests.txt"
 (cd "$work/redis" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > "$work/metadata/redis-files.sha256")
-printf 'release_id=%s\ncandidate_image_id=%s\npre_switch_image_id=%s\nwrites_frozen=true\n' "$release_id" "$candidate_image_id" "$(<"$state_dir/pre-image-id")" > "$work/metadata/manifest.txt"
+printf 'release_id=%s\ncandidate_image_id=%s\npre_switch_image_id=%s\ntraffic_preserved=true\nredis_backup_mode=rdb\n' "$release_id" "$candidate_image_id" "$(<"$state_dir/pre-image-id")" > "$work/metadata/manifest.txt"
 (cd "$work" && find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS)
 tar -C "$work" -cf "$plain" .
 age -R "$recipient_file" -o "$encrypted" "$plain"
 artifact_sha=$(sha256sum "$encrypted" | awk '{print $1}')
 remote_result=$(ssh -i "$upload_key" -o BatchMode=yes -o StrictHostKeyChecking=yes "$upload_target" "upload daily $transport $artifact_sha" < "$encrypted")
 grep -Fq "OK $transport $artifact_sha" <<<"$remote_result"
-[[ $(docker inspect -f '{{.State.Status}}' sub2api) != running ]]
+[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
 cp -a "$encrypted" "$state_dir/recovery-point.age"
 printf '%s  recovery-point.age\n' "$artifact_sha" > "$state_dir/recovery-point.age.sha256"
 install -m 600 "$plain" "$state_dir/recovery-point.tar"
@@ -122,7 +109,8 @@ printf 'artifact=%s\n' "$(basename "$encrypted")"
 printf 'transport_artifact=%s\n' "$transport"
 printf 'artifact_size=%s\n' "$(stat -c %s "$encrypted")"
 printf 'artifact_sha256=%s\n' "$artifact_sha"
-printf 'writes_frozen=true\n'
+printf 'traffic_preserved=true\n'
+printf 'redis_backup_mode=rdb\n'
 printf 'no_restart_path_proven=true\n'
 printf 'local_restore_point_ready=true\n'
 trap - EXIT

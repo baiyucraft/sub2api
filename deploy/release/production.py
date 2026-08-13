@@ -26,13 +26,27 @@ def quoted_env(values: dict[str, str | int]) -> str:
     return " ".join(f"{key}={shlex.quote(str(value))}" for key, value in values.items())
 
 
-def gate_consumption_probe_script(release_dir: str, release_id: str, image_id: str, active_claim: str = "/opt/sub2api/releases/.active-release") -> str:
+def gate_consumption_probe_script(
+    release_dir: str,
+    release_id: str,
+    image_id: str,
+    active_claim: str = "/opt/sub2api/releases/.active-release",
+    active_slot: str = "/opt/sub2api/active-app",
+) -> str:
     consumed = f"{release_dir}/.consumed"
     recovered = f"{release_dir}/.recovered"
     return f"""active={shlex.quote(active_claim)}
 consumed={shlex.quote(consumed)}
 recovered={shlex.quote(recovered)}
-if test -d \"$consumed\" && test ! -L \"$consumed\" && test -f \"$consumed/marker\" && test ! -L \"$consumed/marker\" && test -f \"$consumed/plaintext-cleaned\" && test ! -L \"$consumed/plaintext-cleaned\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test ! -e \"$active\" && test ! -L \"$active\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$consumed/marker\" && grep -Fxq {shlex.quote(f'candidate_image_id={image_id}')} \"$consumed/marker\" && test \"$(docker inspect -f '{{{{.Image}}}}' sub2api 2>/dev/null)\" = {shlex.quote(image_id)} && test \"$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api 2>/dev/null)\" = healthy && test \"$(systemctl is-enabled sub2api-backup.timer 2>/dev/null)\" = enabled; then
+slot={shlex.quote(active_slot)}
+slot_container=$(sed -n 's/^container=//p' \"$slot\" 2>/dev/null || true)
+slot_image=$(sed -n 's/^image_id=//p' \"$slot\" 2>/dev/null || true)
+slot_release=$(sed -n 's/^release_id=//p' \"$slot\" 2>/dev/null || true)
+slot_valid=false
+if test -f \"$slot\" && test ! -L \"$slot\" && test \"$(grep -c '^container=' \"$slot\")\" = 1 && test \"$(grep -c '^image_id=' \"$slot\")\" = 1 && test \"$(grep -c '^release_id=' \"$slot\")\" = 1 && test -n \"$slot_container\" && test \"$slot_image\" = {shlex.quote(image_id)} && test \"$slot_release\" = {shlex.quote(release_id)} && test \"$(docker inspect -f '{{{{.Image}}}}' \"$slot_container\" 2>/dev/null)\" = {shlex.quote(image_id)} && test \"$(docker inspect -f '{{{{.State.Health.Status}}}}' \"$slot_container\" 2>/dev/null)\" = healthy; then
+  slot_valid=true
+fi
+if test -d \"$consumed\" && test ! -L \"$consumed\" && test -f \"$consumed/marker\" && test ! -L \"$consumed/marker\" && test -f \"$consumed/plaintext-cleaned\" && test ! -L \"$consumed/plaintext-cleaned\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test ! -e \"$active\" && test ! -L \"$active\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$consumed/marker\" && grep -Fxq {shlex.quote(f'candidate_image_id={image_id}')} \"$consumed/marker\" && test \"$slot_valid\" = true && test \"$(systemctl is-enabled sub2api-backup.timer 2>/dev/null)\" = enabled; then
   printf 'gate_consumed=true\\n'
 elif test ! -e \"$consumed\" && test ! -L \"$consumed\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test -d \"$active\" && test ! -L \"$active\" && test -f \"$active/release_id\" && test ! -L \"$active/release_id\" && test -f \"$active/gate.json\" && test ! -L \"$active/gate.json\" && test -f \"$active/CLAIM_SHA256SUMS\" && test ! -L \"$active/CLAIM_SHA256SUMS\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$active/release_id\" && (cd \"$active\" && sha256sum -c CLAIM_SHA256SUMS >/dev/null 2>&1) && test \"$(jq -er '.manifest.release_id' \"$active/gate.json\" 2>/dev/null)\" = {shlex.quote(release_id)} && test \"$(jq -er '.evidence.candidate_image_id' \"$active/gate.json\" 2>/dev/null)\" = {shlex.quote(image_id)}; then
   printf 'gate_consumed=false\\n'
@@ -68,6 +82,8 @@ class ProductionRelease:
         self.units_masked = False
         self.claimed = False
         self.public_exposed = False
+        self.route_switched = False
+        self.route_switch_attempted = False
         self.mask_intent = False
         self.backup_values: dict[str, str] | None = None
         self.migration_status: str | None = None
@@ -193,6 +209,8 @@ class ProductionRelease:
             {
                 "preflight",
                 "pre_switch_image_id",
+                "active_container",
+                "active_port",
                 "free_bytes",
                 "migration_status",
                 "migration_195_status",
@@ -356,7 +374,8 @@ class ProductionRelease:
             "racknerd",
             f"{freeze_env} {self.active_assets}/freeze-backup.sh",
             {
-                "backup_units_masked", "writes_frozen", "outbox_drained", "state_dir", "pre_switch_image_id", "compose_sha256",
+                "backup_units_masked", "traffic_preserved", "release_state_captured", "outbox_checkpoint",
+                "state_dir", "pre_switch_image_id", "compose_sha256",
             },
             timeout=2400,
         )
@@ -364,18 +383,9 @@ class ProductionRelease:
         self.units_masked = True
         if values["state_dir"] != self.state_dir:
             raise RuntimeError("freeze state directory differs from release state")
-        external_env = quoted_env({"PUBLIC_DOMAIN": self.profile["public_domain"]})
-        for host in ("dmit", "backup"):
-            script = (MAINTENANCE_ROOT / "external-freeze-check.sh").read_bytes()
-            base = "/root" if host == "dmit" else "/srv/sub2api-backups"
-            temp_dir = self.runner.create_temp_dir(host, base, "release-check")
-            remote = f"{temp_dir}/external-freeze-check.sh"
-            self.runner.upload(host, script, remote, 0o700)
-            try:
-                self.run_remote(host, f"{external_env} {remote}", {"public_health_blocked"}, timeout=30)
-            finally:
-                self.run_remote(host, f"rm -rf {temp_dir} && printf 'cleanup=true\\n'", {"cleanup"})
-        self.stage("writes_frozen", values)
+        if values.get("traffic_preserved") != "true":
+            raise RuntimeError("freeze did not preserve production traffic")
+        self.stage("release_state_captured", values)
 
     def backup(self) -> None:
         self.stage("backup", timeout=600)
@@ -384,8 +394,8 @@ class ProductionRelease:
             "racknerd",
             f"RELEASE_LOCK_HELD=false {backup_env} {self.active_assets}/backup.sh",
             {
-                "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "writes_frozen",
-                "no_restart_path_proven", "local_restore_point_ready",
+                "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "traffic_preserved",
+                "redis_backup_mode", "no_restart_path_proven", "local_restore_point_ready",
             },
             timeout=2400,
         )
@@ -497,6 +507,7 @@ class ProductionRelease:
         env = quoted_env({"RELEASE_DIR": self.release_dir})
         allowed = {
             "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
+            "candidate_container", "candidate_port", "active_container", "active_port",
             "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
         }
         if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
@@ -562,13 +573,30 @@ class ProductionRelease:
             allowed,
             timeout=1200,
         )
-        self.stage("candidate_internal_verified", values)
+        self.stage("candidate_started", {
+            "candidate_container": values["candidate_container"],
+            "candidate_port": values["candidate_port"],
+            "active_container": values["active_container"],
+            "active_port": values["active_port"],
+        })
+        self.stage("candidate_healthy", values)
 
     def verify_and_finalize(self) -> None:
         self.stage("public_route_verification", timeout=3300)
-        expose_env = quoted_env({"RELEASE_DIR": self.release_dir})
+        expose_env = quoted_env({
+            "RELEASE_DIR": self.release_dir,
+            "PUBLIC_DOMAIN": self.profile["public_domain"],
+            "DIRECT_IP": self.profile["rack_public_ip"],
+        })
+        self.route_switch_attempted = True
+        exposed = self.run_remote(
+            "racknerd",
+            f"{expose_env} {self.active_assets}/expose.sh",
+            {"public_traffic_enabled", "nginx_reload", "new_active_container", "new_active_port", "previous_container", "previous_port"},
+        )
         self.public_exposed = True
-        self.run_remote("racknerd", f"{expose_env} {self.active_assets}/expose.sh", {"public_traffic_enabled"})
+        self.route_switched = True
+        self.stage("nginx_reloaded", exposed)
         verify_env = quoted_env(
             {
                 "RELEASE_DIR": self.release_dir,
@@ -644,15 +672,20 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
                 "DIRECT_IP": self.profile["rack_public_ip"],
             }
         )
+        self.stage("old_slot_draining", timeout=3900)
         final = self.run_remote(
             "racknerd",
             f"{finalize_env} {self.active_assets}/finalize.sh",
             {
                 "auto_sync_enabled", "running_image_id", "final_health", "final_logs",
+                "old_container", "old_port", "drain_status", "drain_connections",
                 "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
             },
-            timeout=600,
+            timeout=3900,
         )
+        if final["drain_status"] not in {"drained", "not_applicable"}:
+            raise RuntimeError(f"old application slot did not drain: {final['drain_status']}")
+        self.stage("old_slot_drained", final)
         external_final = self.run_remote(
             "backup",
             f"test $(curl -sS --resolve {self.profile['public_domain']}:443:{self.profile['dmit_public_ip']} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{self.profile['public_domain']}/health) = 200 && printf 'dmit_final_health=pass\\n'",
@@ -679,17 +712,15 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
 
     def recover(self) -> None:
         self.stage("recovery_started")
-        if not self.migration_started and not self.frozen:
-            recovery_needed = self.remote_pre_switch_recovery_needed()
-            if recovery_needed is None:
-                raise RuntimeError("remote pre-switch recovery state is unknown")
-            self.frozen = recovery_needed
+        recovery_needed = self.remote_pre_switch_recovery_needed()
+        if recovery_needed is None:
+            raise RuntimeError("old application slot state is unknown")
         migration_committed = self.migration_started
         if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
             migration_committed = self.remote_migration_committed()
             if migration_committed is None:
                 raise RuntimeError("migration 195 committed state is unknown")
-        if migration_committed:
+        if recovery_needed and migration_committed:
             env = quoted_env({"RELEASE_DIR": self.release_dir})
             values = self.run_remote(
                 "racknerd",
@@ -697,7 +728,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
                 {"coordinated_restore", "restored_image_id", "application_health"},
                 timeout=2400,
             )
-        elif self.frozen:
+        elif recovery_needed:
             env = quoted_env({"RELEASE_DIR": self.release_dir})
             values = self.run_remote(
                 "racknerd",
@@ -732,7 +763,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         except BaseException:
             reconciled = self.run_remote(
                 "racknerd",
-                f"test -f {self.release_dir}/.recovered/marker && test -f {self.release_dir}/.recovered/plaintext-cleaned && test ! -e /opt/sub2api/releases/.active-release && test $(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api) = healthy && test $(systemctl is-enabled sub2api-backup.timer) = enabled && printf 'release_claim_reconciled=true\\n'",
+                f"slot=/opt/sub2api/active-app; active_container=$(sed -n 's/^container=//p' \"$slot\" 2>/dev/null || true); test -f {self.release_dir}/.recovered/marker && test -f {self.release_dir}/.recovered/plaintext-cleaned && test ! -e /opt/sub2api/releases/.active-release && test -n \"$active_container\" && test \"$(docker inspect -f '{{{{.State.Health.Status}}}}' \"$active_container\")\" = healthy && test $(systemctl is-enabled sub2api-backup.timer) = enabled && printf 'release_claim_reconciled=true\\n'",
                 {"release_claim_reconciled"},
             )
         values.update(reconciled)
@@ -827,7 +858,7 @@ fi
         try:
             values = self.run_remote(
                 "racknerd",
-                f"app_status=$(docker inspect -f '{{{{.State.Status}}}}' sub2api) && nginx_status=$(systemctl is-active nginx 2>/dev/null || true) && if test -f {self.state_dir}/pre-image-id && test -f {self.state_dir}/SHA256SUMS && {{ test \"$app_status\" != running || test \"$nginx_status\" != active; }}; then printf 'recovery_needed=true\\n'; else printf 'recovery_needed=false\\n'; fi",
+                f"slot=/opt/sub2api/active-app; active_container=$(sed -n 's/^container=//p' \"$slot\" 2>/dev/null || true); active_port=$(sed -n 's/^port=//p' \"$slot\" 2>/dev/null || true); slot_valid=false; if test -f \"$slot\" && test ! -L \"$slot\" && test \"$(grep -c '^container=' \"$slot\")\" = 1 && test \"$(grep -c '^port=' \"$slot\")\" = 1 && test -n \"$active_container\" && {{ test \"$active_port\" = 18080 || test \"$active_port\" = 18081; }}; then slot_valid=true; fi; app_status=$(docker inspect -f '{{{{.State.Status}}}}' \"$active_container\" 2>/dev/null || true); nginx_status=$(systemctl is-active nginx 2>/dev/null || true); if test -f {self.state_dir}/pre-image-id && test -f {self.state_dir}/SHA256SUMS && {{ test \"$slot_valid\" != true || test \"$app_status\" != running || test \"$nginx_status\" != active; }}; then printf 'recovery_needed=true\\n'; else printf 'recovery_needed=false\\n'; fi",
                 {"recovery_needed"},
             )
         except BaseException:
@@ -845,12 +876,20 @@ fi
             return None
         return values.get("units_masked") == "true"
 
-    def emergency_close(self) -> None:
-        self.run_remote(
+    def rollback_route(self) -> dict[str, str]:
+        values = self.run_remote(
             "racknerd",
-            f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.active_assets}/emergency-close.sh",
-            {"public_traffic_closed"},
+            f"{quoted_env({'RELEASE_DIR': self.release_dir, 'PUBLIC_DOMAIN': self.profile['public_domain'], 'DIRECT_IP': self.profile['rack_public_ip']})} {self.active_assets}/rollback-route.sh",
+            {"route_rollback", "nginx_reload", "active_container", "active_port", "candidate_removed"},
         )
+        self.route_switched = False
+        self.public_exposed = False
+        return values
+
+    def emergency_close(self) -> None:
+        # Backward-compatible method name: blue/green recovery restores the
+        # old route and keeps Nginx serving instead of closing public traffic.
+        self.rollback_route()
 
     def remote_gate_consumed(self) -> bool | None:
         try:
@@ -925,25 +964,29 @@ fi
             gate_consumed = self.remote_gate_consumed()
             if gate_consumed is None:
                 self.result["status"] = "blocked_reconciliation"
-                public_close = "not_required"
-                if self.public_exposed:
+                route_rollback = "not_required"
+                if getattr(self, "route_switch_attempted", False) or self.public_exposed:
                     try:
-                        self.emergency_close()
-                        public_close = "closed"
+                        self.rollback_route()
+                        route_rollback = "restored"
                     except BaseException:
-                        public_close = "unknown"
-                self.stage("gate_consumption_status_unknown", {"public_close": public_close})
+                        route_rollback = "unknown"
+                self.stage("gate_consumption_status_unknown", {"route_rollback": route_rollback})
                 raise
             if gate_consumed:
                 self.result["status"] = "verified"
                 self.stage("production_verified_after_reconciliation", {"gate_consumed": "true"})
                 return
-            if self.public_exposed:
+            if getattr(self, "route_switch_attempted", False) or self.public_exposed:
+                rollback: dict[str, str] | None = None
                 try:
-                    self.emergency_close()
-                finally:
+                    rollback = self.rollback_route()
+                    self.stage("route_restored", rollback)
+                except BaseException:
                     self.result["status"] = "blocked_reconciliation"
-                    self.stage("public_exposure_requires_reconciliation")
+                    self.stage("route_rollback_requires_reconciliation")
+                else:
+                    self.result["status"] = "blocked_reconciliation"
                 raise
             try:
                 self.recover()

@@ -28,14 +28,14 @@
 海外/默认访问
   -> RackNerd 173.254.217.135:443
   -> Nginx
-  -> Sub2API 127.0.0.1:18080
+  -> active Sub2API slot 127.0.0.1:18080 或 18081
 
 国内访问
   -> DMIT 179.255.148.240:443
   -> HAProxy TCP + PROXY v2
   -> RackNerd:18443
   -> Nginx proxy_protocol
-  -> Sub2API 127.0.0.1:18080
+  -> active Sub2API slot 127.0.0.1:18080 或 18081
 
 生产数据
   RackNerd PostgreSQL + Redis
@@ -79,7 +79,7 @@
 - RackNerd 的 PostgreSQL 和 Redis 是生产唯一数据源。
 - VM 的 PostgreSQL、Redis、`data-dev` 必须是本地资源；SSH 隧道端口、RackNerd 地址、生产 DSN 一旦出现在 dev 容器配置中，立即停止验证。
 - DMIT 的 `80/443/1030` 是线路或管理入口；DMIT 不接收备份流量。
-- RackNerd 的 `18443` 只接受 DMIT 转发；生产应用监听 `127.0.0.1:18080`，不直接暴露应用端口。
+- RackNerd 的 `18443` 只接受 DMIT 转发；生产应用只监听 `127.0.0.1:18080/18081` 双槽之一，由 `/opt/sub2api/active-app` 和受管 Nginx upstream 指向当前 active slot，不直接暴露应用端口。
 - Nginx `http {}` 必须保持 `underscores_in_headers on;`，双链路都要验证。
 
 ## 观测态记录格式

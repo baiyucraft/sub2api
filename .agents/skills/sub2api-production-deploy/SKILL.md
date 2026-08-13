@@ -12,6 +12,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 读取 `.ssh.local` 只能作为连接输入；禁止输出、提交或记录密码、私钥、token、`.env`、完整环境变量、展开后的 Compose 和原始连接资料。
 - 任何远程写操作前先给出方案并获得用户确认；只读核验也必须采用字段白名单。
 - 生产旧容器在 candidate 构建、传输和验证完成前保持运行。
+- 正常应用发布使用 active/candidate 双槽：候选先在备用 loopback 端口启动，Nginx 通过原子 upstream 文件和 graceful reload 切流，旧容器最长排空 60 分钟后再停止。排空超时或连接状态不确定时优先把路由 reload 回旧槽，禁止强杀旧长连接。协调数据恢复仍允许停机。
 - 应用发布身份必须是完整 40 位 commit SHA、唯一 full-SHA tag 和不可变 `candidate_image_id`；运维资产至少记录完整 commit SHA。禁止用 `latest`、`main` 或短版本作为应用身份。
 - 执行 `doctor`、`bootstrap-production` 或 `deploy` 前，必须用 `git rev-parse --verify <commit>^{commit}` 得到实际完整 SHA，并将同一个 40 位小写值传入所有阶段；禁止手工复制、截断或补写 SHA。
 - 后端、数据库、迁移、fork/upstream、共享契约、配置语义、混合改动和不确定改动必须经过 VM Gate 的 `sub2api-dev`；本机可以运行跨平台静态/unit 门禁，但不得启动本地后端作为最终联调服务。
@@ -32,9 +33,9 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 ## 当前链路摘要
 
 ```text
-海外/默认 -> RackNerd:443 -> Nginx -> Sub2API:18080
+海外/默认 -> RackNerd:443 -> Nginx -> active slot:18080/18081
 国内      -> DMIT:443 -> HAProxy(PROXY v2)
-                         -> RackNerd:18443 -> Nginx -> Sub2API:18080
+                         -> RackNerd:18443 -> Nginx -> active slot:18080/18081
 
 RackNerd -> PostgreSQL + Redis + 加密备份源
          -> 47.85.205.94（只保存和校验密文）

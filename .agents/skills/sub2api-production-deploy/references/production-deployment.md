@@ -19,7 +19,7 @@
 
 ## 生产前置检查
 
-远程写操作前必须先给出计划并获得用户确认。发布计划应明确包含失败时的自动 `emergency-close`、恢复 backup units 和既定 rollback/recovery；用户确认该计划后，这些同一 release 内的自动安全动作无需逐项重新确认。runner 已退出后的人工 reconciliation、改变恢复分支或计划外写操作仍须再次确认。确认后：
+远程写操作前必须先给出计划并获得用户确认。发布计划应明确包含失败时的自动路由回切、恢复 backup units 和既定 rollback/recovery；用户确认该计划后，这些同一 release 内的自动安全动作无需逐项重新确认。runner 已退出后的人工 reconciliation、改变恢复分支或计划外写操作仍须再次确认。确认后：
 
 以下清单用于应用产物发布。运维资产先按下一节分流，只执行适用项，不得伪造 candidate 或 VM 结果。
 
@@ -116,7 +116,11 @@ preflight 或 postflight 任一不通过，禁止部分迁移和继续启动；�
 - Compose 备份 SHA-256 未变化。
 - PostgreSQL 和 Redis 健康。
 
-切换动作只更新 `sub2api` 的 image reference，并执行 targeted Compose update。除批准的 migration 方案外，不重启 PostgreSQL 或 Redis。
+正常应用发布使用两个固定 loopback 端口 `18080/18081`。当前 active slot 从 `/opt/sub2api/active-app` 读取，candidate 总是在相反端口启动。候选通过内部 health、实例身份和 migration postflight 后，发布器原子替换受管 Nginx upstream，执行 `nginx -t && systemctl reload nginx`。Nginx graceful reload 保留旧 worker 的既有 SSE/WebSocket 连接，新请求进入 candidate。
+
+切流后旧容器最长排空 3600 秒；只有能确认旧容器 ESTABLISHED 连接为零时才停止并删除。超时或连接状态无法读取时不强杀旧容器，而是尝试 reload 回旧 upstream，并保持 release 为待 reconciliation。候选成为 active 后不进行第二次容器重建，只持久化 image override、active slot 与后台 activation marker。除批准的 migration 方案外，不重启 PostgreSQL 或 Redis。
+
+候选预热期间，请求面服务立即可用；主动探针、同步、cron、quota flusher 等非多实例安全后台任务保持休眠。旧容器排空并停止后才写 activation marker 接管这些任务。蓝绿 candidate 永久跳过启动时的全局 stale slot 清理，避免误删旧实例仍在使用的 Redis 并发槽位。
 
 不兼容 migration 在生产验收前保持写入冻结。
 
@@ -188,9 +192,9 @@ SSH 中断或脚本报错时，先从远端重新读取 committed marker、`.env
 
 ### 无 migration
 
-1. 恢复保存的 Compose image reference 到 `pre_switch_image_id`。
-2. 只 recreate `sub2api`。
-3. 重新验证应用健康、认证、RackNerd/DMIT 双路径和日志。
+1. 若旧 slot 尚存且健康，原子恢复 pre-release Nginx upstream 并 graceful reload，写回 active slot；不停止 Nginx。
+2. 停止未使用的 candidate，重新验证应用健康、认证、RackNerd/DMIT 双路径和日志。
+3. 只有旧 slot 已不可用时，才恢复 Compose image reference 到 `pre_switch_image_id` 并 targeted recreate 稳定 `sub2api:18080`。
 
 ### Backward-compatible migration
 
