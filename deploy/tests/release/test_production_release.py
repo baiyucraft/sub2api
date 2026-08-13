@@ -1227,7 +1227,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         switch = self.script("switch.sh")
         stages = (
             "initialized", "migration_started", "migration_completed", "schema_verified",
-            "migration_committed", "candidate_started", "candidate_healthy", "candidate_http_verified",
+            "migration_committed", "candidate_started", "candidate_healthy", "candidate_probe_started", "candidate_http_verified",
             "candidate_headers_verified", "active_health_verified", "prompt_audit_verified", "runtime_verified",
         )
         for stage in stages:
@@ -1240,6 +1240,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         switch = self.script("switch.sh")
         expected = (
             "candidate_healthy",
+            "candidate_probe_started",
             "candidate_http_verified",
             "candidate_headers_verified",
             "active_health_verified",
@@ -1248,6 +1249,16 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         )
         offsets = [switch.index(f"mark_switch_stage {stage}") for stage in expected]
         self.assertEqual(offsets, sorted(offsets))
+
+    def test_candidate_http_probe_has_bounded_retry_and_failure_evidence(self) -> None:
+        switch = self.script("switch.sh")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        self.assertIn("for _ in $(seq 1 30)", switch)
+        self.assertIn('candidate_http_code == 200', switch)
+        self.assertIn('candidate-http.code', switch)
+        self.assertIn('candidate-curl.exit', switch)
+        self.assertIn('candidate_http_code', production)
+        self.assertIn('candidate_curl_exit', production)
 
     def test_candidate_forces_the_container_port_matching_its_publish_target(self) -> None:
         switch = self.script("switch.sh")
