@@ -435,7 +435,25 @@ class ProductionRelease:
                 )
                 self.stage("backup_result_reconciled", {"backup_result_reconciled": "true"})
             except BaseException:
-                raise backup_error
+                try:
+                    failure = self.run_remote(
+                        "racknerd",
+                        f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
+                        "if test -f \"$state/backup-failure\" && test ! -L \"$state/backup-failure\"; then "
+                        "stage=$(sed -n 's/^stage=//p' \"$state/backup-failure\"); "
+                        "code=$(sed -n 's/^exit_code=//p' \"$state/backup-failure\"); "
+                        "printf 'backup_failure_stage=%s\\nbackup_failure_exit_code=%s\\n' \"$stage\" \"$code\"; "
+                        "else printf 'backup_failure_stage=unknown\\nbackup_failure_exit_code=unknown\\n'; fi",
+                        {"backup_failure_stage", "backup_failure_exit_code"},
+                    )
+                    raise RuntimeError(
+                        f"production backup failed at stage={failure['backup_failure_stage']} "
+                        f"exit_code={failure['backup_failure_exit_code']}"
+                    ) from backup_error
+                except BaseException as failure_error:
+                    if isinstance(failure_error, RuntimeError) and str(failure_error).startswith("production backup failed at stage="):
+                        raise
+                    raise backup_error
         self.backup_values = values
         if values.get("local_restore_point_ready") != "true":
             raise RuntimeError("local coordinated restore point is not ready")
