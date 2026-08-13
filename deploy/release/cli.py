@@ -215,7 +215,7 @@ def main() -> None:
     inspect_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["reconcile_inspect"]).reconcile_inspect(args))
     reconcile_parser = subparsers.add_parser("reconcile")
     reconcile_parser.add_argument("release_id")
-    reconcile_parser.add_argument("--mode", choices=("recover",), required=True)
+    reconcile_parser.add_argument("--mode", choices=("recover", "coordinated-recover"), required=True)
     reconcile_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["reconcile"]).reconcile(args))
     worker_parser = subparsers.add_parser("_deploy-worker", help=argparse.SUPPRESS)
     worker_parser.add_argument("--profile", required=True)
