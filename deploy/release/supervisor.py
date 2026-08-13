@@ -35,6 +35,8 @@ DANGEROUS_STAGES = {
     "production_preflight", "pre_switch_streaming_verified", "freeze", "freeze_verified",
     "migration_preflight", "backup", "backup_verified", "migration_and_switch",
     "candidate_internal_verified", "candidate_started", "candidate_healthy",
+    "candidate_http_verified", "candidate_headers_verified", "active_health_verified",
+    "prompt_audit_verified",
     "public_route_verification", "nginx_reloaded", "split_route_verified",
     "old_slot_draining", "old_slot_drained",
     "production_verified", "production_verified_after_reconciliation",
