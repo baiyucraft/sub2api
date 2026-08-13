@@ -1124,6 +1124,10 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("redis_backup_expiring", restore)
         self.assertIn("redis_restored_expiring", restore)
         self.assertIn("redis_backup_dbsize - redis_dbsize", restore)
+        self.assertIn("redis-check-rdb /tmp/sub2api-restore.rdb", restore)
+        self.assertIn("redis_already_expired", restore)
+        self.assertNotIn("core-counts-restored.txt", restore)
+        self.assertNotIn("core-content-digests-restored.txt", restore)
 
     def test_coordinated_restore_seeds_redis_7_multipart_aof_from_verified_rdb(self) -> None:
         restore = self.script("restore.sh")
@@ -1154,6 +1158,13 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("printf 'migration=%s checksum=%s", switch)
         self.assertIn("remote_migration_committed", production)
         self.assertIn("migration 195 committed state is unknown", production)
+
+    def test_candidate_forces_the_container_port_matching_its_publish_target(self) -> None:
+        switch = self.script("switch.sh")
+        candidate_start = switch[switch.index('docker compose "${candidate_compose_args[@]}" run -d'):]
+        self.assertIn('-p "127.0.0.1:${candidate_port}:8080"', candidate_start)
+        self.assertIn("-e SERVER_PORT=8080", candidate_start)
+        self.assertLess(candidate_start.index("-e SERVER_PORT=8080"), candidate_start.index(" sub2api >/dev/null"))
 
     def test_freeze_creates_release_state_root(self) -> None:
         freeze = self.script("freeze-backup.sh")
@@ -1256,6 +1267,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertNotIn("redis-cli -a", backup)
         self.assertIn("redis_command --rdb /tmp/sub2api-release.rdb", backup)
         self.assertIn("redis-check-rdb /tmp/sub2api-release.rdb", backup)
+        self.assertIn("redis_rdb_keys", backup)
+        self.assertIn("redis-rdb-counts.txt", backup)
         self.assertIn('docker compose "${release_compose_args[@]}" config --format json', backup)
         self.assertNotIn("docker compose stop", backup)
 
