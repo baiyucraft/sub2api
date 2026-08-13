@@ -47,6 +47,10 @@ fail_closed() {
 trap fail_closed ERR INT TERM
 trap cleanup_recovery EXIT
 systemctl stop nginx
+if docker inspect "$candidate_container" >/dev/null 2>&1; then
+  docker stop -t 30 "$candidate_container" >/dev/null 2>&1 || true
+  docker rm "$candidate_container" >/dev/null 2>&1 || true
+fi
 docker rm -f "$active_container" >/dev/null 2>&1 || true
 [[ "$active_container" == sub2api ]] || docker rm -f sub2api >/dev/null 2>&1 || true
 [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
