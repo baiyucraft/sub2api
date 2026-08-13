@@ -185,6 +185,39 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertTrue(release.stage.called)
         self.assertEqual(release.stage.call_args_list[-1].args[0], "backup_verified")
 
+    def test_backup_recovers_committed_result_after_lost_remote_reply(self) -> None:
+        release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
+        release.runner = mock.Mock()
+        release.runner.create_temp_dir.return_value = "/tmp/release-promote.test"
+        release.runner.upload_file = mock.Mock()
+        complete = {
+            "artifact": "artifact", "transport_artifact": "transport", "artifact_size": "1",
+            "artifact_sha256": "digest", "traffic_preserved": "true", "redis_backup_mode": "rdb",
+            "no_restart_path_proven": "true", "local_restore_point_ready": "true",
+        }
+        release.run_remote = mock.Mock(side_effect=[
+            RuntimeError("remote reply lost"),
+            complete,
+            {"backup_promotion": "verified", "release_artifact": release.release_id, "release_sha256": "digest", "release_free_bytes": "2"},
+            {"cleanup": "true"},
+        ])
+
+        release.backup()
+
+        self.assertEqual(release.stage.call_args_list[1].args[0], "backup_result_reconciled")
+        reconcile_script = release.run_remote.call_args_list[1].args[1]
+        self.assertIn("sha256sum -c backup-result.sha256", reconcile_script)
+        self.assertIn("grep -c", reconcile_script)
+
+    def test_backup_does_not_reconcile_uncommitted_result(self) -> None:
+        release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
+        release.run_remote = mock.Mock(side_effect=[RuntimeError("backup failed"), RuntimeError("result absent")])
+
+        with self.assertRaisesRegex(RuntimeError, "backup failed"):
+            release.backup()
+
     def test_backup_promotion_retry_window_is_bounded(self) -> None:
         release = self.release()
         release.profile = {"minimum_backup_free_bytes": 1}

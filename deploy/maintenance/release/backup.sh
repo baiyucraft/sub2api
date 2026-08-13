@@ -14,6 +14,10 @@ work="$backup_root/.release-$release_id-$timestamp"
 plain="$backup_root/sub2api-$release_id-$timestamp.tar"
 encrypted="$plain.age"
 transport="sub2api-$timestamp.tar.age"
+backup_stage=initializing
+result_file="$state_dir/backup-result"
+result_checksum="$state_dir/backup-result.sha256"
+failure_file="$state_dir/backup-failure"
 redis_password=$(docker inspect sub2api-redis | jq -er '
   ((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $args
   | ($args | index("--requirepass")) as $index
@@ -26,11 +30,18 @@ redis_password=$(docker inspect sub2api-redis | jq -er '
 
 cleanup() {
   code=$?
+  if (( code != 0 )); then
+    printf 'stage=%s\nexit_code=%s\n' "$backup_stage" "$code" > "$failure_file.tmp"
+    chmod 400 "$failure_file.tmp"
+    mv -f "$failure_file.tmp" "$failure_file"
+  fi
   docker exec sub2api-redis rm -f /tmp/sub2api-release.rdb >/dev/null 2>&1 || true
   rm -rf "$work" "$plain"
   exit "$code"
 }
 trap cleanup EXIT
+rm -f "$result_file" "$result_checksum" "$failure_file" "$failure_file.tmp"
+backup_stage=preflight
 [[ -d $state_dir && ! -L $state_dir ]]
 (cd "$state_dir" && sha256sum -c SHA256SUMS >/dev/null)
 cd "$deploy_dir"
@@ -51,9 +62,11 @@ if [[ ${RELEASE_LOCK_HELD:-false} != true ]]; then
   flock -n 9
 fi
 install -d -m 700 "$work/database" "$work/redis" "$work/config/app" "$work/config/nginx" "$work/config/certbot" "$work/metadata"
+backup_stage=database
 docker exec sub2api-postgres pg_dump -U sub2api -d sub2api -Fc -Z 6 > "$work/database/sub2api.dump"
 docker exec sub2api-postgres pg_dumpall -U sub2api --globals-only > "$work/database/globals.sql"
 [[ -s $work/database/sub2api.dump ]]
+backup_stage=redis
 redis_command() {
   printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c '
     IFS= read -r REDISCLI_AUTH
@@ -68,6 +81,7 @@ docker cp sub2api-redis:/tmp/sub2api-release.rdb "$work/redis/dump.rdb" >/dev/nu
 docker exec sub2api-redis rm -f /tmp/sub2api-release.rdb
 [[ -s $work/redis/dump.rdb ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
+backup_stage=config
 install -m 600 "$deploy_dir/.env" "$work/config/app/.env"
 for compose_file in "${release_compose_files[@]}"; do
   install -m 600 "$deploy_dir/$compose_file" "$work/config/app/$compose_file"
@@ -87,17 +101,22 @@ docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT vers
 redis_command INFO server persistence keyspace > "$work/metadata/redis.txt"
 redis_command DBSIZE | tr -d '\r' > "$work/metadata/redis-dbsize.txt"
 redis_command --raw SCAN 0 COUNT 1 >/dev/null
+backup_stage=metadata
 docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT 'accounts='||count(*) FROM accounts UNION ALL SELECT 'users='||count(*) FROM users UNION ALL SELECT 'api_keys='||count(*) FROM api_keys UNION ALL SELECT 'upstream_configs='||count(*) FROM upstream_configs UNION ALL SELECT 'upstream_keys='||count(*) FROM upstream_keys" > "$work/metadata/core-counts.txt"
 docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT 'accounts='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM accounts t UNION ALL SELECT 'users='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM users t UNION ALL SELECT 'api_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM api_keys t UNION ALL SELECT 'upstream_configs='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM upstream_configs t UNION ALL SELECT 'upstream_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM upstream_keys t" > "$work/metadata/core-content-digests.txt"
 (cd "$work/redis" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > "$work/metadata/redis-files.sha256")
 printf 'release_id=%s\ncandidate_image_id=%s\npre_switch_image_id=%s\ntraffic_preserved=true\nredis_backup_mode=rdb\n' "$release_id" "$candidate_image_id" "$(<"$state_dir/pre-image-id")" > "$work/metadata/manifest.txt"
 (cd "$work" && find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS)
+backup_stage=archive
 tar -C "$work" -cf "$plain" .
+backup_stage=encrypt
 age -R "$recipient_file" -o "$encrypted" "$plain"
 artifact_sha=$(sha256sum "$encrypted" | awk '{print $1}')
+backup_stage=upload
 remote_result=$(ssh -i "$upload_key" -o BatchMode=yes -o StrictHostKeyChecking=yes "$upload_target" "upload daily $transport $artifact_sha" < "$encrypted")
 grep -Fq "OK $transport $artifact_sha" <<<"$remote_result"
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
+backup_stage=local_restore_point
 cp -a "$encrypted" "$state_dir/recovery-point.age"
 printf '%s  recovery-point.age\n' "$artifact_sha" > "$state_dir/recovery-point.age.sha256"
 install -m 600 "$plain" "$state_dir/recovery-point.tar"
@@ -105,13 +124,16 @@ plain_sha=$(sha256sum "$state_dir/recovery-point.tar" | awk '{print $1}')
 printf '%s  recovery-point.tar\n' "$plain_sha" > "$state_dir/recovery-point.tar.sha256"
 (cd "$state_dir" && sha256sum -c recovery-point.tar.sha256 >/dev/null)
 tar -tf "$state_dir/recovery-point.tar" >/dev/null
-printf 'artifact=%s\n' "$(basename "$encrypted")"
-printf 'transport_artifact=%s\n' "$transport"
-printf 'artifact_size=%s\n' "$(stat -c %s "$encrypted")"
-printf 'artifact_sha256=%s\n' "$artifact_sha"
-printf 'traffic_preserved=true\n'
-printf 'redis_backup_mode=rdb\n'
-printf 'no_restart_path_proven=true\n'
-printf 'local_restore_point_ready=true\n'
+backup_stage=commit_result
+result_tmp="$result_file.tmp"
+printf 'artifact=%s\ntransport_artifact=%s\nartifact_size=%s\nartifact_sha256=%s\ntraffic_preserved=true\nredis_backup_mode=rdb\nno_restart_path_proven=true\nlocal_restore_point_ready=true\n' \
+  "$(basename "$encrypted")" "$transport" "$(stat -c %s "$encrypted")" "$artifact_sha" > "$result_tmp"
+chmod 400 "$result_tmp"
+mv -f "$result_tmp" "$result_file"
+(cd "$state_dir" && sha256sum backup-result > backup-result.sha256.tmp)
+chmod 400 "$result_checksum.tmp"
+mv -f "$result_checksum.tmp" "$result_checksum"
+rm -f "$failure_file"
+cat "$result_file"
 trap - EXIT
 rm -rf "$work" "$plain"

@@ -25,6 +25,10 @@ CANARY_RETRY_DELAYS = (5, 15)
 # retry window bounded, but long enough to cover that eventual-consistency
 # window without retrying the whole release.
 BACKUP_PROMOTION_RETRY_DELAYS = (5, 15, 30, 60, 120)
+BACKUP_FIELDS = {
+    "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "traffic_preserved",
+    "redis_backup_mode", "no_restart_path_proven", "local_restore_point_ready",
+}
 
 
 def quoted_env(values: dict[str, str | int]) -> str:
@@ -408,15 +412,30 @@ class ProductionRelease:
     def backup(self) -> None:
         self.stage("backup", timeout=600)
         backup_env = quoted_env({"RELEASE_DIR": self.release_dir})
-        values = self.run_remote(
-            "racknerd",
-            f"RELEASE_LOCK_HELD=false {backup_env} {self.active_assets}/backup.sh",
-            {
-                "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "traffic_preserved",
-                "redis_backup_mode", "no_restart_path_proven", "local_restore_point_ready",
-            },
-            timeout=2400,
-        )
+        try:
+            values = self.run_remote(
+                "racknerd",
+                f"RELEASE_LOCK_HELD=false {backup_env} {self.active_assets}/backup.sh",
+                BACKUP_FIELDS,
+                timeout=2400,
+            )
+        except BaseException as backup_error:
+            try:
+                values = self.run_remote(
+                    "racknerd",
+                    f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
+                    "test -f \"$state/backup-result\" && test ! -L \"$state/backup-result\" && "
+                    "test -f \"$state/backup-result.sha256\" && test ! -L \"$state/backup-result.sha256\" && "
+                    "test \"$(stat -c '%U:%G:%a' \"$state/backup-result\")\" = root:root:400 && "
+                    "test \"$(stat -c '%U:%G:%a' \"$state/backup-result.sha256\")\" = root:root:400 && "
+                    "(cd \"$state\" && sha256sum -c backup-result.sha256 >/dev/null) && "
+                    "test \"$(grep -c '^[a-z_][a-z_]*=' \"$state/backup-result\")\" = 8 && "
+                    "cat \"$state/backup-result\"",
+                    BACKUP_FIELDS,
+                )
+                self.stage("backup_result_reconciled", {"backup_result_reconciled": "true"})
+            except BaseException:
+                raise backup_error
         self.backup_values = values
         if values.get("local_restore_point_ready") != "true":
             raise RuntimeError("local coordinated restore point is not ready")
