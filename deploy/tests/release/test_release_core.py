@@ -531,6 +531,8 @@ class ReleaseCoreTest(unittest.TestCase):
         assertion = (DEPLOY_ROOT / "maintenance" / "release" / "migration-234-assert.sh").read_text(encoding="utf-8")
         self.assertIn("long_context_pricing_enabled", assertion)
         self.assertIn("model_pricing", assertion)
+        self.assertIn('> "$state_dir/migration-234-status"', assertion)
+        self.assertIn('chmod 600 "$state_dir/migration-234-status"', assertion)
         self.assertIn("migration_234_preflight=pass", assertion)
         self.assertIn("migration_234_postflight=pass", assertion)
 
