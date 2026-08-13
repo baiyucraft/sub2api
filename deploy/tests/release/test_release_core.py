@@ -105,6 +105,21 @@ class ReleaseCoreTest(unittest.TestCase):
             atomic_write(path, b"old\n")
             atomic_write(path, b"new\n")
             self.assertEqual(path.read_bytes(), b"new\n")
+
+    @unittest.skipUnless(os.name == "nt", "Windows ACL regression")
+    def test_atomic_write_read_only_mode_remains_readable_by_next_process_on_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest.json"
+            atomic_write(path, b'{"schema":1}\n', 0o400)
+            result = subprocess.run(
+                [sys.executable, "-c", "import pathlib,sys; print(pathlib.Path(sys.argv[1]).read_text())", str(path)],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('"schema":1', result.stdout)
             self.assertFalse(list(path.parent.glob(f".{path.name}.*")))
 
     def test_stale_lock_file_does_not_block_new_process(self) -> None:
