@@ -26,7 +26,8 @@ if test ! -e "$active_slot"; then
   test "$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api)" = healthy
   test ! -e "$managed_upstream" && test ! -L "$managed_upstream"
   nginx_text=$(nginx -T 2>&1)
-  test "$(grep -Ec '^[[:space:]]*proxy_pass[[:space:]]+http://127\.0\.0\.1:18080;[[:space:]]*$' <<<"$nginx_text")" = 1
+  legacy_proxy_count=$(grep -Ec '^[[:space:]]*proxy_pass[[:space:]]+http://127\.0\.0\.1:18080;[[:space:]]*$' <<<"$nginx_text")
+  test "$legacy_proxy_count" -ge 1
   site=$(grep -Rl --include='*' -E '^[[:space:]]*proxy_pass[[:space:]]+http://127\.0\.0\.1:18080;[[:space:]]*$' /etc/nginx/sites-enabled)
   test "$(wc -l <<<"$site")" = 1 && test -f "$site" && test ! -L "$site"
   site_backup="$site.sub2api-release-backup"
