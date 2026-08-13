@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -155,6 +156,34 @@ class ProductionRecoveryTest(unittest.TestCase):
 
         self.assertFalse(release.frozen)
         self.assertFalse(release.units_masked)
+
+    def test_backup_promotion_retries_with_bounded_backoff(self) -> None:
+        release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
+        release.runner = mock.Mock()
+        release.runner.create_temp_dir.return_value = "/tmp/release-promote.test"
+        release.runner.upload_file = mock.Mock()
+        release.run_remote = mock.Mock(side_effect=[
+            {
+                "artifact": "artifact",
+                "transport_artifact": "transport",
+                "artifact_size": "1",
+                "artifact_sha256": "digest",
+                "traffic_preserved": "true",
+                "redis_backup_mode": "rdb",
+                "no_restart_path_proven": "true",
+                "local_restore_point_ready": "true",
+            },
+            RuntimeError("artifact visibility pending"),
+            RuntimeError("artifact visibility pending"),
+            {"backup_promotion": "verified", "release_artifact": release.release_id, "release_sha256": "digest", "release_free_bytes": "2"},
+            {"cleanup": "true"},
+        ])
+        with mock.patch.object(time, "sleep") as sleep:
+            release.backup()
+        self.assertEqual(sleep.call_args_list, [mock.call(5), mock.call(15)])
+        self.assertTrue(release.stage.called)
+        self.assertEqual(release.stage.call_args_list[-1].args[0], "backup_verified")
 
     def test_recovery_detects_committed_remote_freeze(self) -> None:
         release = self.release()
