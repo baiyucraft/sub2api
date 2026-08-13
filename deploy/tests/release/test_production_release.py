@@ -1227,7 +1227,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         switch = self.script("switch.sh")
         stages = (
             "initialized", "migration_started", "migration_completed", "schema_verified",
-            "migration_committed", "candidate_started", "candidate_healthy", "candidate_probe_started", "candidate_http_verified",
+            "migration_committed", "candidate_started", "candidate_healthy", "candidate_port_verified", "candidate_probe_started", "candidate_http_verified",
             "candidate_headers_verified", "active_health_verified", "prompt_audit_verified", "runtime_verified",
         )
         for stage in stages:
@@ -1240,6 +1240,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         switch = self.script("switch.sh")
         expected = (
             "candidate_healthy",
+            "candidate_port_verified",
             "candidate_probe_started",
             "candidate_http_verified",
             "candidate_headers_verified",
@@ -1262,9 +1263,11 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
 
     def test_candidate_forces_the_container_port_matching_its_publish_target(self) -> None:
         switch = self.script("switch.sh")
-        candidate_start = switch[switch.index('docker compose "${candidate_compose_args[@]}" run -d'):]
-        self.assertIn('-p "127.0.0.1:${candidate_port}:8080"', candidate_start)
+        candidate_start = switch[switch.index('BIND_HOST=127.0.0.1 SERVER_PORT="$candidate_port" docker compose'):]
+        self.assertIn('--service-ports', candidate_start)
         self.assertIn("-e SERVER_PORT=8080", candidate_start)
+        self.assertIn('docker port "$candidate_container" 8080/tcp', candidate_start)
+        self.assertIn('mark_switch_stage candidate_port_verified', candidate_start)
         self.assertLess(candidate_start.index("-e SERVER_PORT=8080"), candidate_start.index(" sub2api >/dev/null"))
 
     def test_freeze_creates_release_state_root(self) -> None:
@@ -1352,7 +1355,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("WaitInitialReady", provider)
 
         switch = self.script("switch.sh")
-        candidate_start = switch.index('docker compose "${candidate_compose_args[@]}" run -d')
+        candidate_start = switch.index('BIND_HOST=127.0.0.1 SERVER_PORT="$candidate_port" docker compose')
         runtime_assertion = switch.index('migration-195-assert.sh" postflight_runtime')
         self.assertLess(candidate_start, runtime_assertion)
         self.assertIn('X-Sub2API-Background-Ready false', switch[candidate_start:runtime_assertion])
