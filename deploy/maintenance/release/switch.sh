@@ -169,6 +169,7 @@ docker rm "$migration_container" >/dev/null
 [[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
 docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_container" --no-deps \
   -p "127.0.0.1:${candidate_port}:8080" \
+  -e SERVER_PORT=8080 \
   -e "SUB2API_INSTANCE_ID=$candidate_instance_id" \
   -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null
 for _ in $(seq 1 90); do

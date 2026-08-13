@@ -76,7 +76,13 @@ redis_command() {
 }
 docker exec sub2api-redis rm -f /tmp/sub2api-release.rdb
 redis_command --rdb /tmp/sub2api-release.rdb >/dev/null
-docker exec sub2api-redis redis-check-rdb /tmp/sub2api-release.rdb >/dev/null
+redis_rdb_check=$(docker exec sub2api-redis redis-check-rdb /tmp/sub2api-release.rdb)
+redis_rdb_keys=$(sed -n 's/^\[info\] \([0-9][0-9]*\) keys read$/\1/p' <<<"$redis_rdb_check")
+redis_rdb_expires=$(sed -n 's/^\[info\] \([0-9][0-9]*\) expires$/\1/p' <<<"$redis_rdb_check")
+redis_rdb_already_expired=$(sed -n 's/^\[info\] \([0-9][0-9]*\) already expired$/\1/p' <<<"$redis_rdb_check")
+[[ $redis_rdb_keys =~ ^[0-9]+$ && $redis_rdb_expires =~ ^[0-9]+$ && $redis_rdb_already_expired =~ ^[0-9]+$ ]]
+[[ $redis_rdb_already_expired -le $redis_rdb_expires && $redis_rdb_expires -le $redis_rdb_keys ]]
+printf 'keys=%s\nexpires=%s\nalready_expired=%s\n' "$redis_rdb_keys" "$redis_rdb_expires" "$redis_rdb_already_expired" > "$work/metadata/redis-rdb-counts.txt"
 docker cp sub2api-redis:/tmp/sub2api-release.rdb "$work/redis/dump.rdb" >/dev/null
 docker exec sub2api-redis rm -f /tmp/sub2api-release.rdb
 [[ -s $work/redis/dump.rdb ]]
@@ -98,7 +104,7 @@ cp -aL /etc/letsencrypt/live "$work/config/certbot/"
 cp -a /etc/letsencrypt/archive /etc/letsencrypt/renewal "$work/config/certbot/"
 docker inspect "$active_container" sub2api-postgres sub2api-redis --format '{{.Name}} {{.Config.Image}} {{.Image}}' > "$work/metadata/images.txt"
 docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT version(); SELECT datcollate||'|'||datctype FROM pg_database WHERE datname=current_database(); SELECT extname||'|'||extversion FROM pg_extension ORDER BY 1; SELECT filename||'|'||checksum FROM schema_migrations ORDER BY filename" > "$work/metadata/postgres.txt"
-redis_command INFO server persistence keyspace > "$work/metadata/redis.txt"
+redis_command INFO keyspace > "$work/metadata/redis.txt"
 redis_command DBSIZE | tr -d '\r' > "$work/metadata/redis-dbsize.txt"
 redis_command --raw SCAN 0 COUNT 1 >/dev/null
 backup_stage=metadata

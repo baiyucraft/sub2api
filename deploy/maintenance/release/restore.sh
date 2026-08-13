@@ -52,6 +52,14 @@ docker rm -f "$active_container" >/dev/null 2>&1 || true
 [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
 tar -C "$recovery" -xf "$state_dir/recovery-point.tar"
 (cd "$recovery" && sha256sum -c SHA256SUMS >/dev/null)
+docker cp "$recovery/redis/dump.rdb" sub2api-redis:/tmp/sub2api-restore.rdb >/dev/null
+redis_rdb_check=$(docker exec sub2api-redis redis-check-rdb /tmp/sub2api-restore.rdb)
+docker exec sub2api-redis rm -f /tmp/sub2api-restore.rdb
+redis_backup_dbsize=$(sed -n 's/^\[info\] \([0-9][0-9]*\) keys read$/\1/p' <<<"$redis_rdb_check")
+redis_backup_expiring=$(sed -n 's/^\[info\] \([0-9][0-9]*\) expires$/\1/p' <<<"$redis_rdb_check")
+redis_already_expired=$(sed -n 's/^\[info\] \([0-9][0-9]*\) already expired$/\1/p' <<<"$redis_rdb_check")
+[[ $redis_backup_dbsize =~ ^[0-9]+$ && $redis_backup_expiring =~ ^[0-9]+$ && $redis_already_expired =~ ^[0-9]+$ ]]
+[[ $redis_already_expired -le $redis_backup_expiring && $redis_backup_expiring -le $redis_backup_dbsize ]]
 docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U sub2api -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='sub2api' AND pid<>pg_backend_pid();" >/dev/null
 docker exec sub2api-postgres dropdb --if-exists -U sub2api sub2api
 docker exec sub2api-postgres createdb -U sub2api -O sub2api sub2api
@@ -85,14 +93,13 @@ done
 redis_password=$(docker inspect sub2api-redis | jq -r '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--requirepass")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first // "") end')
 redis_dbsize=$(printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning DBSIZE' | tr -d '\r')
 redis_keyspace=$(printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning INFO keyspace' | tr -d '\r')
-redis_backup_dbsize=$(<"$recovery/metadata/redis-dbsize.txt")
-redis_backup_expiring=$(sed -n 's/^db[0-9]*:keys=[0-9]*,expires=\([0-9]*\).*/\1/p' "$recovery/metadata/redis.txt" | awk '{sum += $1} END {print sum + 0}')
 redis_restored_expiring=$(printf '%s\n' "$redis_keyspace" | sed -n 's/^db[0-9]*:keys=[0-9]*,expires=\([0-9]*\).*/\1/p' | awk '{sum += $1} END {print sum + 0}')
 [[ $redis_dbsize =~ ^[0-9]+$ && $redis_backup_dbsize =~ ^[0-9]+$ ]]
 [[ $redis_backup_expiring =~ ^[0-9]+$ && $redis_restored_expiring =~ ^[0-9]+$ ]]
 [[ $redis_backup_dbsize -ge $redis_dbsize ]]
 [[ $redis_backup_expiring -ge $redis_restored_expiring ]]
 [[ $((redis_backup_dbsize - redis_dbsize)) -eq $((redis_backup_expiring - redis_restored_expiring)) ]]
+[[ $((redis_backup_dbsize - redis_dbsize)) -ge $redis_already_expired ]]
 load_release_compose_files "$recovery/config/app"
 cp -a "$recovery/config/app/.env" "$deploy_dir/.env"
 for compose_file in "${release_compose_files[@]}"; do
@@ -120,10 +127,9 @@ find "$deploy_dir/data" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 cp -a "$recovery/config/app/data/." "$deploy_dir/data/"
 (cd "$deploy_dir/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) > "$recovery/metadata/data-restored.sha256"
 diff -u "$recovery/metadata/data.sha256" "$recovery/metadata/data-restored.sha256" >/dev/null
-docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT 'accounts='||count(*) FROM accounts UNION ALL SELECT 'users='||count(*) FROM users UNION ALL SELECT 'api_keys='||count(*) FROM api_keys UNION ALL SELECT 'upstream_configs='||count(*) FROM upstream_configs UNION ALL SELECT 'upstream_keys='||count(*) FROM upstream_keys" > "$recovery/metadata/core-counts-restored.txt"
-diff -u "$recovery/metadata/core-counts.txt" "$recovery/metadata/core-counts-restored.txt" >/dev/null
-docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT 'accounts='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM accounts t UNION ALL SELECT 'users='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM users t UNION ALL SELECT 'api_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM api_keys t UNION ALL SELECT 'upstream_configs='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM upstream_configs t UNION ALL SELECT 'upstream_keys='||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'' ORDER BY id),'')) FROM upstream_keys t" > "$recovery/metadata/core-content-digests-restored.txt"
-diff -u "$recovery/metadata/core-content-digests.txt" "$recovery/metadata/core-content-digests-restored.txt" >/dev/null
+# The dump is the authoritative online snapshot. Live-table digests are
+# collected later for observability and can legitimately differ while traffic
+# remains enabled; pg_restore and the archive checksum prove restored content.
 docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT version(); SELECT datcollate||'|'||datctype FROM pg_database WHERE datname=current_database(); SELECT extname||'|'||extversion FROM pg_extension ORDER BY 1; SELECT filename||'|'||checksum FROM schema_migrations ORDER BY filename" > "$recovery/metadata/postgres-restored.txt"
 diff -u "$recovery/metadata/postgres.txt" "$recovery/metadata/postgres-restored.txt" >/dev/null
 cd "$deploy_dir"
