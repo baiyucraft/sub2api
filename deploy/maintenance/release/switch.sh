@@ -5,8 +5,9 @@ deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
 cd "$deploy_dir"
-[[ $(docker inspect -f '{{.State.Status}}' sub2api) != running ]]
-[[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
+load_release_compose_files "$deploy_dir"
+[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
+[[ $(systemctl is-active nginx) == active ]]
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
 [[ -d $state_dir && ! -L $state_dir ]]
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 ]]; then
@@ -24,32 +25,26 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 ]]; then
     [[ $migration_233_status == absent || $migration_233_status == verified ]]
   fi
 fi
-active_override="$deploy_dir/docker-compose.release-active.yml"
-override_tmp="$active_override.tmp.$$"
+candidate_override="$state_dir/docker-compose.release-candidate.yml"
+override_tmp="$candidate_override.tmp.$$"
 cat > "$override_tmp" <<EOF
 services:
   sub2api:
     image: $candidate_image_id
     environment:
-      UPSTREAM_SYNC_AUTO_ENABLED: \${UPSTREAM_SYNC_AUTO_ENABLED:-false}
+      UPSTREAM_SYNC_AUTO_ENABLED: \${UPSTREAM_SYNC_AUTO_ENABLED:-true}
 EOF
 chmod 600 "$override_tmp"
-mv -T -- "$override_tmp" "$active_override"
-env_tmp="$deploy_dir/.env.release.$$"
-awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE|UPSTREAM_SYNC_AUTO_ENABLED)=/' "$deploy_dir/.env" > "$env_tmp"
-printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.release-active.yml\n' >> "$env_tmp"
-printf 'SUB2API_RELEASE_IMAGE=%s\n' "$candidate_image_id" >> "$env_tmp"
-printf 'UPSTREAM_SYNC_AUTO_ENABLED=false\n' >> "$env_tmp"
-chmod --reference="$deploy_dir/.env" "$env_tmp"
-mv -T -- "$env_tmp" "$deploy_dir/.env"
+mv -T -- "$override_tmp" "$candidate_override"
 export BIND_HOST=127.0.0.1
-compose_image=$(docker compose config --format json | jq -r '.services.sub2api.image // empty')
+candidate_compose_args=("${release_compose_args[@]}" -f "$candidate_override")
+compose_image=$(docker compose "${candidate_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
-[[ $(docker compose config --format json | jq -r '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED') == false ]]
+[[ $(docker compose "${candidate_compose_args[@]}" config --format json | jq -r '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED') == true ]]
 mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
 migration_container="sub2api-migrate-$release_id"
 [[ -z $(docker ps -aq -f "name=^${migration_container}$") ]]
-docker compose run --name "$migration_container" --no-deps sub2api /app/sub2api --migrate-only >/dev/null 2>&1
+docker compose "${candidate_compose_args[@]}" run --name "$migration_container" --no-deps sub2api /app/sub2api --migrate-only >/dev/null 2>&1
 while IFS=$'\t' read -r migration migration_checksum; do
   recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
   [[ $recorded == "$migration_checksum" ]]
@@ -161,17 +156,24 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   "$assets_dir/migration-195-assert.sh" postflight_db
 fi
 docker rm "$migration_container" >/dev/null
-docker compose up -d --no-deps --force-recreate sub2api >/dev/null 2>&1
+[[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
+docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_container" --no-deps \
+  -p "127.0.0.1:${candidate_port}:8080" \
+  -e "SUB2API_INSTANCE_ID=$release_id" \
+  -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null
 for _ in $(seq 1 90); do
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]] && break
+  [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]] && break
   sleep 2
 done
-[[ $(docker inspect -f '{{.Image}}' sub2api) == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
-[[ $(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/health) == 200 ]]
-[[ $(docker inspect -f '{{.Image}}' sub2api) == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
-[[ $(docker compose config --format json | jq -r '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED') == false ]]
+[[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
+[[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]]
+printf 'container=%s\nport=%s\nimage_id=%s\n' "$candidate_container" "$candidate_port" "$candidate_image_id" > "$state_dir/candidate-app"
+chmod 600 "$state_dir/candidate-app"
+candidate_headers=$(mktemp /tmp/sub2api-candidate-health.XXXXXX)
+trap 'rm -f "$candidate_headers"' EXIT
+[[ $(curl -sS -D "$candidate_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health") == 200 ]]
+grep -Eiq "^x-sub2api-instance:[[:space:]]*$release_id\r?$" "$candidate_headers"
+[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
 assert_prompt_audit_disabled
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 ]]; then
   "$assets_dir/migration-195-assert.sh" postflight_runtime
@@ -180,6 +182,10 @@ printf 'migration_verified=true\n'
 printf 'running_image_id=%s\n' "$candidate_image_id"
 printf 'internal_health=pass\n'
 printf 'public_traffic_enabled=false\n'
+printf 'candidate_container=%s\n' "$candidate_container"
+printf 'candidate_port=%s\n' "$candidate_port"
+printf 'active_container=%s\n' "$active_container"
+printf 'active_port=%s\n' "$active_port"
 if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 ]]; then
   printf 'managed_monitor_key_names_verified=true\n'
 fi

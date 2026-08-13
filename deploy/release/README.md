@@ -41,10 +41,14 @@ VM 唯一构建 candidate
   -> VM 本地 PostgreSQL/Redis/data-dev 迁移与恢复验证
   -> VM 签名 Gate
   -> RackNerd 验签并导入同一镜像
-  -> 停写、持久 mask、协调恢复点和异地校验
-  -> 唯一 migrate-only、候选启动和双链路 canary
-  -> 开启自动同步、恢复备份 units、消费 Gate
+  -> 在线保存 release state、持久 mask、协调恢复点和异地校验
+  -> 唯一 migrate-only、备用端口候选启动
+  -> Nginx upstream 原子切换与 graceful reload
+  -> direct/DMIT 双链路 canary、旧 SSE/WebSocket 最长排空 60 分钟
+  -> 旧 slot 停止后激活独占后台任务、恢复备份 units、消费 Gate
 ```
+
+正常发布不停止 Nginx。active slot 记录在 `/opt/sub2api/active-app`，端口在 `18080/18081` 之间交替；候选启动时主动探针、同步、cron、quota flusher 等任务由 activation marker 暂停，旧 slot 停止后再接管。排空超时或连接状态不确定时会优先 reload 回旧 upstream，不强杀旧连接。协调数据恢复仍是停机流程，蓝绿不能消除非兼容 migration 的锁和回滚风险；schema 变更应优先采用 expand/contract。
 
 profile 194 会在 manifest 中固定记录 profile 192 的完整 migration 列表及新增的
 `193-194`，并保存有序 checksum；已执行过的迁移允许原样跳过，缺失迁移必须逐项

@@ -11,8 +11,16 @@ source /opt/sub2api/releases/.active-release/assets/context.sh
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
 cd "$deploy_dir"
 [[ -f docker-compose.yml && -f .env ]]
-[[ $(docker inspect -f '{{.State.Status}}' sub2api) == running ]]
-[[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api) == healthy ]]
+load_release_compose_files "$deploy_dir"
+[[ -f $active_slot_file && ! -L $active_slot_file ]]
+active_container=$(sed -n 's/^container=//p' "$active_slot_file")
+active_port=$(sed -n 's/^port=//p' "$active_slot_file")
+active_image=$(sed -n 's/^image_id=//p' "$active_slot_file")
+[[ $active_container =~ ^[A-Za-z0-9_.-]{1,100}$ ]]
+[[ $active_port == 18080 || $active_port == 18081 ]]
+[[ $active_image =~ ^sha256:[0-9a-f]{64}$ ]]
+[[ $(docker inspect -f '{{.State.Status}}' "$active_container") == running ]]
+[[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$active_container") == healthy ]]
 [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-postgres) == healthy ]]
 [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis) == healthy ]]
 [[ $(systemctl is-active nginx) == active ]]
@@ -144,14 +152,17 @@ while IFS=$'\t' read -r migration migration_checksum; do
 done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
 (( free_bytes >= minimum_free_bytes ))
-compose_json=$(docker compose config --format json)
+compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
 rendered_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
 [[ -n $rendered_image ]]
-pre_image_id=$(docker inspect -f '{{.Image}}' sub2api)
+pre_image_id=$(docker inspect -f '{{.Image}}' "$active_container")
+[[ $active_image == "$pre_image_id" ]]
 [[ $(docker image inspect -f '{{.Id}}' "$rendered_image") == "$pre_image_id" ]]
 jq -e '.services.sub2api.volumes | any(.target == "/app/data" and (.type == "bind" or .type == "volume"))' <<<"$compose_json" >/dev/null
 jq -e '(.services.sub2api.network_mode == "host" and .services.sub2api.environment.SERVER_HOST == "127.0.0.1" and (.services.sub2api.environment.SERVER_PORT | tostring) == "18080") or ((.services.sub2api.ports // []) | any(.target == 8080 and (.published | tostring) == "18080" and .host_ip == "127.0.0.1"))' <<<"$compose_json" >/dev/null
 printf 'preflight=pass\n'
+printf 'active_container=%s\n' "$active_container"
+printf 'active_port=%s\n' "$active_port"
 printf 'pre_switch_image_id=%s\n' "$pre_image_id"
 printf 'free_bytes=%s\n' "$free_bytes"
 printf 'migration_status=%s\n' "$migration_status"

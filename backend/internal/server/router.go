@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"log"
+	"os"
+	"regexp"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -16,6 +19,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
+
+var releaseInstanceIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
+
+func releaseInstanceID() string {
+	instanceID := strings.TrimSpace(os.Getenv("SUB2API_INSTANCE_ID"))
+	if !releaseInstanceIDPattern.MatchString(instanceID) {
+		return ""
+	}
+	return instanceID
+}
 
 const frameSrcRefreshTimeout = 5 * time.Second
 
@@ -37,6 +50,13 @@ func SetupRouter(
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) *gin.Engine {
+	instanceID := releaseInstanceID()
+	if instanceID != "" {
+		r.Use(func(c *gin.Context) {
+			c.Header("X-Sub2API-Instance", instanceID)
+			c.Next()
+		})
+	}
 	middleware2.SetIngressRejectRecorder(opsService)
 	// 缓存 iframe 页面的 origin 列表，用于动态注入 CSP frame-src
 	var cachedFrameOrigins atomic.Pointer[[]string]

@@ -63,7 +63,7 @@ DMIT
 
 ### 发布恢复点
 
-后端、数据库、migration、配置或 fork 发布前生成。它必须包含可协调恢复的 PostgreSQL、Redis、配置和镜像身份。不兼容 migration 必须在应用停机和写入冻结状态下生成。
+后端、数据库、migration、配置或 fork 发布前生成。它必须包含可协调恢复的 PostgreSQL、Redis、配置和镜像身份。不兼容且不能 expand/contract 的 migration 必须在应用停机和写入冻结状态下生成。正常蓝绿发布使用在线 PostgreSQL `pg_dump` 与 Redis `redis-cli --rdb`，不得为备份重启 Redis、Nginx 或 active 应用。
 
 ### 版本基线
 
