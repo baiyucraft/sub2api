@@ -20,6 +20,11 @@ MAINTENANCE_ROOT = DEPLOY_ROOT / "maintenance" / "release"
 UNIT_ROOT = DEPLOY_ROOT / "maintenance" / "181"
 CANARY_FIELDS = {"route_health", "streaming", "curl_exit", "http_code", "canary_status"}
 CANARY_RETRY_DELAYS = (5, 15)
+# The backup upload endpoint acknowledges receipt before the artifact is
+# guaranteed to be visible to the restricted promotion account.  Keep the
+# retry window bounded, but long enough to cover that eventual-consistency
+# window without retrying the whole release.
+BACKUP_PROMOTION_RETRY_DELAYS = (5, 15, 30, 60, 120)
 
 
 def quoted_env(values: dict[str, str | int]) -> str:
@@ -430,7 +435,7 @@ class ProductionRelease:
             )
             promoted = None
             last_error: BaseException | None = None
-            for attempt, delay in enumerate((0, 5, 15), start=1):
+            for attempt, delay in enumerate((0, *BACKUP_PROMOTION_RETRY_DELAYS), start=1):
                 if delay:
                     time.sleep(delay)
                 try:

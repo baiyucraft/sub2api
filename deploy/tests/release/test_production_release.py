@@ -185,6 +185,44 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertTrue(release.stage.called)
         self.assertEqual(release.stage.call_args_list[-1].args[0], "backup_verified")
 
+    def test_backup_promotion_retry_window_is_bounded(self) -> None:
+        release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
+        release.runner = mock.Mock()
+        release.runner.create_temp_dir.return_value = "/tmp/release-promote.test"
+        release.runner.upload_file = mock.Mock()
+        responses: list[object] = [
+            {
+                "artifact": "artifact",
+                "transport_artifact": "transport",
+                "artifact_size": "1",
+                "artifact_sha256": "digest",
+                "traffic_preserved": "true",
+                "redis_backup_mode": "rdb",
+                "no_restart_path_proven": "true",
+                "local_restore_point_ready": "true",
+            }
+        ]
+        responses.extend(RuntimeError("artifact visibility pending") for _ in range(5))
+        responses.extend(
+            [
+                {
+                    "backup_promotion": "verified",
+                    "release_artifact": release.release_id,
+                    "release_sha256": "digest",
+                    "release_free_bytes": "2",
+                },
+                {"cleanup": "true"},
+            ]
+        )
+        release.run_remote = mock.Mock(side_effect=responses)
+        with mock.patch.object(time, "sleep") as sleep:
+            release.backup()
+        self.assertEqual(
+            sleep.call_args_list,
+            [mock.call(5), mock.call(15), mock.call(30), mock.call(60), mock.call(120)],
+        )
+
     def test_recovery_detects_committed_remote_freeze(self) -> None:
         release = self.release()
         release.frozen = False
