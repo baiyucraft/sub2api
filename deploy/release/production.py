@@ -25,6 +25,7 @@ CANARY_RETRY_DELAYS = (5, 15)
 # retry window bounded, but long enough to cover that eventual-consistency
 # window without retrying the whole release.
 BACKUP_PROMOTION_RETRY_DELAYS = (5, 15, 30, 60, 120)
+BACKUP_PROMOTION_STAGING_RETRY_DELAYS = (5, 15, 30)
 BACKUP_FIELDS = {
     "artifact", "transport_artifact", "artifact_size", "artifact_sha256", "traffic_preserved",
     "redis_backup_mode", "no_restart_path_proven", "local_restore_point_ready",
@@ -458,9 +459,23 @@ class ProductionRelease:
         if values.get("local_restore_point_ready") != "true":
             raise RuntimeError("local coordinated restore point is not ready")
         promotion_script = MAINTENANCE_ROOT / "promote-backup.sh"
-        temp_dir = self.runner.create_temp_dir("backup", "/srv/sub2api-backups", "release-promote")
+        temp_dir: str | None = None
+        staging_error: BaseException | None = None
+        for delay in (0, *BACKUP_PROMOTION_STAGING_RETRY_DELAYS):
+            if delay:
+                time.sleep(delay)
+            try:
+                if temp_dir is None:
+                    temp_dir = self.runner.create_temp_dir("backup", "/srv/sub2api-backups", "release-promote")
+                self.runner.upload_file("backup", promotion_script, f"{temp_dir}/promote-backup.sh", 0o700)
+                staging_error = None
+                break
+            except BaseException as error:
+                staging_error = error
+        if staging_error is not None or temp_dir is None:
+            assert staging_error is not None
+            raise staging_error
         remote = f"{temp_dir}/promote-backup.sh"
-        self.runner.upload_file("backup", promotion_script, remote, 0o700)
         try:
             promote_env = quoted_env(
                 {

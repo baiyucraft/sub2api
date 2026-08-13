@@ -185,6 +185,56 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertTrue(release.stage.called)
         self.assertEqual(release.stage.call_args_list[-1].args[0], "backup_verified")
 
+    def test_backup_promotion_retries_temp_directory_creation(self) -> None:
+        release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
+        release.runner = mock.Mock()
+        release.runner.create_temp_dir.side_effect = [
+            RuntimeError("temporary SSH failure"),
+            "/tmp/release-promote.test",
+        ]
+        release.run_remote = mock.Mock(side_effect=[
+            {
+                "artifact": "artifact", "transport_artifact": "transport", "artifact_size": "1",
+                "artifact_sha256": "digest", "traffic_preserved": "true", "redis_backup_mode": "rdb",
+                "no_restart_path_proven": "true", "local_restore_point_ready": "true",
+            },
+            {"backup_promotion": "verified", "release_artifact": release.release_id, "release_sha256": "digest", "release_free_bytes": "2"},
+            {"cleanup": "true"},
+        ])
+
+        with mock.patch.object(time, "sleep") as sleep:
+            release.backup()
+
+        self.assertEqual(sleep.call_args_list, [mock.call(5)])
+        self.assertEqual(release.runner.create_temp_dir.call_count, 2)
+        release.runner.upload_file.assert_called_once()
+        self.assertEqual(release.stage.call_args_list[-1].args[0], "backup_verified")
+
+    def test_backup_promotion_retries_script_upload_in_same_temp_directory(self) -> None:
+        release = self.release()
+        release.profile = {"minimum_backup_free_bytes": 1}
+        release.runner = mock.Mock()
+        release.runner.create_temp_dir.return_value = "/tmp/release-promote.test"
+        release.runner.upload_file.side_effect = [RuntimeError("temporary SFTP failure"), None]
+        release.run_remote = mock.Mock(side_effect=[
+            {
+                "artifact": "artifact", "transport_artifact": "transport", "artifact_size": "1",
+                "artifact_sha256": "digest", "traffic_preserved": "true", "redis_backup_mode": "rdb",
+                "no_restart_path_proven": "true", "local_restore_point_ready": "true",
+            },
+            {"backup_promotion": "verified", "release_artifact": release.release_id, "release_sha256": "digest", "release_free_bytes": "2"},
+            {"cleanup": "true"},
+        ])
+
+        with mock.patch.object(time, "sleep") as sleep:
+            release.backup()
+
+        self.assertEqual(sleep.call_args_list, [mock.call(5)])
+        release.runner.create_temp_dir.assert_called_once()
+        self.assertEqual(release.runner.upload_file.call_count, 2)
+        self.assertEqual(release.stage.call_args_list[-1].args[0], "backup_verified")
+
     def test_backup_recovers_committed_result_after_lost_remote_reply(self) -> None:
         release = self.release()
         release.profile = {"minimum_backup_free_bytes": 1}
