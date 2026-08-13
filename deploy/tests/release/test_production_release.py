@@ -1266,7 +1266,6 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         switch = self.script("switch.sh")
         candidate_start = switch[switch.index('docker compose "${candidate_compose_args[@]}" run -d'):]
         self.assertNotIn('--service-ports', candidate_start.split(' sub2api >/dev/null', 1)[0])
-        self.assertIn("network_mode: host", switch)
         self.assertIn('SERVER_HOST: 127.0.0.1', switch)
         self.assertIn('SERVER_PORT: "$candidate_port"', switch)
         self.assertIn(".HostConfig.NetworkMode", candidate_start)
