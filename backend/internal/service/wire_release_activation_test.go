@@ -86,3 +86,50 @@ func TestReleaseActivationControllerUngatedFailureStaysNotReady(t *testing.T) {
 	require.True(t, controller.failed.Load())
 	require.False(t, controller.ready.Load())
 }
+
+func TestReleaseActivationControllerBlockingAsyncTaskDoesNotBlockCheckedReadiness(t *testing.T) {
+	activationFile := filepath.Join(t.TempDir(), "active-instance")
+	controller := &releaseActivationController{
+		activationFile: activationFile,
+		instanceID:     "candidate-1",
+	}
+	blockingStarted := make(chan struct{})
+	checkedCalled := make(chan struct{})
+	controller.registerAsync(func() error {
+		close(blockingStarted)
+		select {}
+	})
+	controller.register(func() error {
+		close(checkedCalled)
+		return nil
+	})
+	controller.closeRegistration()
+	require.NoError(t, os.WriteFile(activationFile, []byte("candidate-1\n"), 0o600))
+	require.Eventually(t, func() bool { return controller.ready.Load() }, 2*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool {
+		select {
+		case <-blockingStarted:
+			return true
+		default:
+			return false
+		}
+	}, 2*time.Second, 20*time.Millisecond)
+	select {
+	case <-checkedCalled:
+	default:
+		t.Fatal("checked activation task was not called")
+	}
+}
+
+func TestReleaseActivationControllerAsyncPanicRevokesReadiness(t *testing.T) {
+	activationFile := filepath.Join(t.TempDir(), "active-instance")
+	controller := &releaseActivationController{
+		activationFile: activationFile,
+		instanceID:     "candidate-1",
+	}
+	controller.registerAsync(func() error { panic("startup panic") })
+	controller.closeRegistration()
+	require.NoError(t, os.WriteFile(activationFile, []byte("candidate-1\n"), 0o600))
+	require.Eventually(t, controller.failed.Load, 2*time.Second, 20*time.Millisecond)
+	require.False(t, controller.ready.Load() && !controller.failed.Load())
+}
