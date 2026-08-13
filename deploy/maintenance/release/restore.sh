@@ -57,12 +57,22 @@ docker exec sub2api-postgres dropdb --if-exists -U sub2api sub2api
 docker exec sub2api-postgres createdb -U sub2api -O sub2api sub2api
 docker exec -i sub2api-postgres pg_restore --exit-on-error --no-owner -U sub2api -d sub2api < "$recovery/database/sub2api.dump"
 redis_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' sub2api-redis)
+redis_appendonly=$(docker inspect sub2api-redis | jq -r '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--appendonly")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--appendonly=")) | ltrimstr("--appendonly=") ] | first // "no") end')
 docker stop sub2api-redis >/dev/null
 find "$redis_source" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 cp -a "$recovery/redis/." "$redis_source/"
 (cd "$redis_source" && [[ -f dump.rdb && ! -L dump.rdb ]] && [[ $(find . -mindepth 1 -maxdepth 1 -type f | wc -l) == 1 ]])
 (cd "$redis_source" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) > "$recovery/metadata/redis-files-restored.sha256"
 diff -u "$recovery/metadata/redis-files.sha256" "$recovery/metadata/redis-files-restored.sha256" >/dev/null
+if [[ ${redis_appendonly,,} == yes ]]; then
+  # Redis 7 prefers multipart AOF over dump.rdb. Seed its base RDB from the
+  # verified recovery point so enabling AOF cannot start an empty database.
+  install -d -m 755 "$redis_source/appendonlydir"
+  install -m 644 "$redis_source/dump.rdb" "$redis_source/appendonlydir/appendonly.aof.1.base.rdb"
+  : > "$redis_source/appendonlydir/appendonly.aof.1.incr.aof"
+  printf 'file appendonly.aof.1.base.rdb seq 1 type b\nfile appendonly.aof.1.incr.aof seq 1 type i startoffset 0\n' > "$redis_source/appendonlydir/appendonly.aof.manifest"
+  chmod 644 "$redis_source/appendonlydir/appendonly.aof.1.incr.aof" "$redis_source/appendonlydir/appendonly.aof.manifest"
+fi
 docker start sub2api-redis >/dev/null
 for _ in $(seq 1 60); do
   [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis) == healthy ]] && break
