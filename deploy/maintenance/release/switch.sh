@@ -281,3 +281,18 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 ]
   printf 'group_media_pricing_schema_verified=true\n'
   printf 'group_media_auth_cache_trigger_verified=true\n'
 fi
+if [[ $profile == 233 || $profile == 234 || $profile == 235 ]]; then
+  printf 'migration_233_duplicate_keys=0\n'
+  printf 'migration_233_index_verified=true\n'
+  printf 'migration_233_table_state=verified\n'
+  printf 'migration_233_columns_verified=true\n'
+  printf 'migration_233_health_index_verified=true\n'
+  printf 'migration_233_privileges_verified=true\n'
+  printf 'migration_233_trigger_verified=true\n'
+  printf 'migration_233_postflight=pass\n'
+fi
+if [[ $profile == 235 ]]; then
+  printf 'migration_234_schema_state=verified\n'
+  printf 'migration_234_schema_verified=true\n'
+  printf 'migration_234_postflight=pass\n'
+fi

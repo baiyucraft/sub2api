@@ -1262,6 +1262,25 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('candidate_http_code', production)
         self.assertIn('candidate_curl_exit', production)
 
+    def test_switch_outputs_all_verified_profile_235_migration_evidence(self) -> None:
+        switch = self.script("switch.sh")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        for field in (
+            "migration_233_duplicate_keys=0",
+            "migration_233_index_verified=true",
+            "migration_233_table_state=verified",
+            "migration_233_columns_verified=true",
+            "migration_233_health_index_verified=true",
+            "migration_233_privileges_verified=true",
+            "migration_233_trigger_verified=true",
+            "migration_233_postflight=pass",
+            "migration_234_schema_state=verified",
+            "migration_234_schema_verified=true",
+            "migration_234_postflight=pass",
+        ):
+            self.assertIn(field, switch)
+            self.assertIn(field.split("=")[0], production)
+
     def test_candidate_forces_the_container_port_matching_its_publish_target(self) -> None:
         switch = self.script("switch.sh")
         candidate_start = switch[switch.index('docker compose "${candidate_compose_args[@]}" run -d'):]
