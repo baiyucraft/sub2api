@@ -14,6 +14,8 @@ from .atomic import atomic_write, canonical_json
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 RELEASE_ID = re.compile(r"^([0-9]+)-([0-9a-f]{12})-([0-9]+)-([0-9a-f]{8})$")
+_GIT_PROCESS_INIT_FAILURES = frozenset({0xC0000142, -1073741502})
+_GIT_READ_RETRY_DELAYS = (0, 1, 2)
 
 
 def sha256_file(path: Path) -> str:
@@ -67,9 +69,30 @@ def release_asset_paths() -> list[Path]:
     return sorted(candidates, key=lambda path: path.relative_to(root).as_posix())
 
 
+def _git_output(args: list[str], *, cwd: Path, text: bool = False) -> bytes | str:
+    """Read committed bytes while tolerating a transient Windows Git startup failure.
+
+    ``0xC0000142`` is emitted by Windows before Git has executed any command
+    logic (DLL/process initialization failure).  It is safe to retry this
+    narrow class a few times; real Git errors such as a missing commit or path
+    must still fail immediately and remain visible to the release gate.
+    """
+    for attempt, delay in enumerate(_GIT_READ_RETRY_DELAYS):
+        if delay:
+            time.sleep(delay)
+        try:
+            if text:
+                return subprocess.check_output(args, cwd=cwd, text=True)
+            return subprocess.check_output(args, cwd=cwd)
+        except subprocess.CalledProcessError as error:
+            if error.returncode not in _GIT_PROCESS_INIT_FAILURES or attempt == len(_GIT_READ_RETRY_DELAYS) - 1:
+                raise
+    raise AssertionError("unreachable git read retry state")
+
+
 def git_blob_sha256(commit: str, relative_path: str) -> str:
     root = workspace_root()
-    blob = subprocess.check_output(
+    blob = _git_output(
         ["git", "show", f"{validate_commit(commit)}:{relative_path}"],
         cwd=root,
     )
@@ -88,7 +111,7 @@ def migration_checksums(profile: dict[str, Any], commit: str | None = None) -> d
         commit = validate_commit(commit)
         return {
             name: hashlib.sha256(
-                subprocess.check_output(
+                _git_output(
                     ["git", "show", f"{commit}:backend/migrations/{name}"],
                     cwd=root,
                 ).decode("utf-8").strip().encode()

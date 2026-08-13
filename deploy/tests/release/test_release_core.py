@@ -170,6 +170,40 @@ class ReleaseCoreTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "complete 40-character"):
             git_blob_sha256("abc123", "deploy/release/cli.py")
 
+    def test_git_blob_checksum_retries_transient_windows_process_init_failure(self) -> None:
+        error = subprocess.CalledProcessError(0xC0000142, ["git", "show"])
+        with (
+            mock.patch("release.manifest.workspace_root", return_value=Path("C:/repo")),
+            mock.patch("release.manifest.subprocess.check_output", side_effect=[error, b"blob"]),
+            mock.patch("release.manifest.time.sleep") as sleep,
+        ):
+            self.assertEqual(git_blob_sha256("a" * 40, "path.txt"), hashlib.sha256(b"blob").hexdigest())
+        self.assertEqual(sleep.call_args_list, [mock.call(1)])
+
+    def test_migration_checksums_retries_transient_windows_process_init_failure(self) -> None:
+        error = subprocess.CalledProcessError(0xC0000142, ["git", "show"])
+        profile = {"migrations": ["migration.sql"]}
+        with (
+            mock.patch("release.manifest.workspace_root", return_value=Path("C:/repo")),
+            mock.patch("release.manifest.subprocess.check_output", side_effect=[error, b"SELECT 1;\n"]),
+            mock.patch("release.manifest.time.sleep") as sleep,
+        ):
+            checksums = migration_checksums(profile, "b" * 40)
+        self.assertEqual(checksums["migration.sql"], hashlib.sha256(b"SELECT 1;").hexdigest())
+        self.assertEqual(sleep.call_args_list, [mock.call(1)])
+
+    def test_git_read_does_not_retry_real_git_errors(self) -> None:
+        error = subprocess.CalledProcessError(128, ["git", "show"])
+        with (
+            mock.patch("release.manifest.workspace_root", return_value=Path("C:/repo")),
+            mock.patch("release.manifest.subprocess.check_output", side_effect=error) as check_output,
+            mock.patch("release.manifest.time.sleep") as sleep,
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                git_blob_sha256("c" * 40, "missing.txt")
+        check_output.assert_called_once()
+        sleep.assert_not_called()
+
     def test_profile_191_extends_profile_187_with_official_migrations(self) -> None:
         profile_187 = get_profile("187")
         profile_191 = get_profile("191")
