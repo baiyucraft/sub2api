@@ -13,7 +13,7 @@ load_release_compose_files "$deploy_dir"
 switch_stage_file="$state_dir/switch-stage"
 mark_switch_stage() {
   local value=${1:?switch stage is required}
-  [[ $value =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_port_verified|candidate_probe_started|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]
+  [[ $value =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_network_verified|candidate_port_verified|candidate_probe_started|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]
   printf '%s\n' "$value" > "$switch_stage_file.tmp.$$"
   chmod 600 "$switch_stage_file.tmp.$$"
   mv -T -- "$switch_stage_file.tmp.$$" "$switch_stage_file"
@@ -45,7 +45,10 @@ cat > "$override_tmp" <<EOF
 services:
   sub2api:
     image: $candidate_image_id
+    network_mode: host
     environment:
+      SERVER_HOST: 127.0.0.1
+      SERVER_PORT: "$candidate_port"
       UPSTREAM_SYNC_AUTO_ENABLED: \${UPSTREAM_SYNC_AUTO_ENABLED:-true}
 EOF
 chmod 600 "$override_tmp"
@@ -54,7 +57,13 @@ export BIND_HOST=127.0.0.1
 candidate_compose_args=("${release_compose_args[@]}" -f "$candidate_override")
 compose_image=$(docker compose "${candidate_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
-[[ $(docker compose "${candidate_compose_args[@]}" config --format json | jq -r '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED') == true ]]
+candidate_compose_json=$(docker compose "${candidate_compose_args[@]}" config --format json)
+jq -e --arg port "$candidate_port" '
+  .services.sub2api.network_mode == "host" and
+  .services.sub2api.environment.SERVER_HOST == "127.0.0.1" and
+  (.services.sub2api.environment.SERVER_PORT | tostring) == $port and
+  .services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED == "true"
+' <<<"$candidate_compose_json" >/dev/null
 mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
 migration_container="sub2api-migrate-$release_id"
 [[ -z $(docker ps -aq -f "name=^${migration_container}$") ]]
@@ -180,8 +189,7 @@ fi
 mark_switch_stage migration_committed
 docker rm "$migration_container" >/dev/null
 [[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
-BIND_HOST=127.0.0.1 SERVER_PORT="$candidate_port" docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_container" --no-deps --service-ports \
-  -e SERVER_PORT=8080 \
+docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_container" --no-deps \
   -e "SUB2API_INSTANCE_ID=$candidate_instance_id" \
   -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null
 mark_switch_stage candidate_started
@@ -192,7 +200,10 @@ done
 [[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]]
 mark_switch_stage candidate_healthy
-[[ $(docker port "$candidate_container" 8080/tcp) == "127.0.0.1:${candidate_port}" ]]
+[[ $(docker inspect -f '{{.HostConfig.NetworkMode}}' "$candidate_container") == host ]]
+mark_switch_stage candidate_network_verified
+[[ $(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$candidate_container" | grep -Fx "SERVER_HOST=127.0.0.1") == "SERVER_HOST=127.0.0.1" ]]
+[[ $(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$candidate_container" | grep -Fx "SERVER_PORT=$candidate_port") == "SERVER_PORT=$candidate_port" ]]
 mark_switch_stage candidate_port_verified
 printf 'container=%s\nport=%s\nimage_id=%s\n' "$candidate_container" "$candidate_port" "$candidate_image_id" > "$state_dir/candidate-app"
 chmod 600 "$state_dir/candidate-app"
