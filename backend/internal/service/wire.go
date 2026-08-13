@@ -23,7 +23,7 @@ import (
 
 type releaseActivationController struct {
 	mu             sync.Mutex
-	tasks          []func() error
+	tasks          []releaseActivationTask
 	watchStarted   bool
 	registrationOK bool
 	activated      bool
@@ -31,6 +31,11 @@ type releaseActivationController struct {
 	instanceID     string
 	ready          atomic.Bool
 	failed         atomic.Bool
+}
+
+type releaseActivationTask struct {
+	start   func() error
+	checked bool
 }
 
 var backgroundReleaseActivation = newReleaseActivationControllerFromEnv()
@@ -47,6 +52,14 @@ func (c *releaseActivationController) gated() bool {
 }
 
 func (c *releaseActivationController) register(start func() error) {
+	c.registerTask(start, true)
+}
+
+func (c *releaseActivationController) registerAsync(start func() error) {
+	c.registerTask(start, false)
+}
+
+func (c *releaseActivationController) registerTask(start func() error, checked bool) {
 	if !c.gated() {
 		if err := runReleaseActivationTask(start); err != nil {
 			c.failed.Store(true)
@@ -55,7 +68,7 @@ func (c *releaseActivationController) register(start func() error) {
 		return
 	}
 	c.mu.Lock()
-	c.tasks = append(c.tasks, start)
+	c.tasks = append(c.tasks, releaseActivationTask{start: start, checked: checked})
 	c.mu.Unlock()
 }
 
@@ -92,14 +105,28 @@ func (c *releaseActivationController) watch() {
 				return
 			}
 			c.activated = true
-			tasks := append([]func() error{}, c.tasks...)
+			tasks := append([]releaseActivationTask{}, c.tasks...)
 			c.mu.Unlock()
-			for _, start := range tasks {
-				if err := runReleaseActivationTask(start); err != nil {
+			for _, task := range tasks {
+				if !task.checked {
+					continue
+				}
+				if err := runReleaseActivationTask(task.start); err != nil {
 					c.failed.Store(true)
 					logger.LegacyPrintf("service.release_activation", "Background activation failed for instance %s: %v", c.instanceID, err)
 					return
 				}
+			}
+			for _, task := range tasks {
+				if task.checked {
+					continue
+				}
+				go func(start func() error) {
+					if err := runReleaseActivationTask(start); err != nil {
+						c.failed.Store(true)
+						logger.LegacyPrintf("service.release_activation", "Background activation failed for instance %s: %v", c.instanceID, err)
+					}
+				}(task.start)
 			}
 			c.ready.Store(true)
 			return
@@ -120,7 +147,7 @@ func runReleaseActivationTask(start func() error) (err error) {
 // startReleaseActivatedTask keeps non-request background jobs dormant while a
 // blue/green candidate is being warmed beside the active production process.
 func startReleaseActivatedTask(start func()) {
-	backgroundReleaseActivation.register(func() error {
+	backgroundReleaseActivation.registerAsync(func() error {
 		start()
 		return nil
 	})
@@ -143,7 +170,7 @@ func CloseReleaseActivationRegistration() {
 // release runner can prove that every registered background service was
 // started before declaring the new Compose-managed instance active.
 func ReleaseBackgroundActivationReady() bool {
-	return backgroundReleaseActivation.ready.Load()
+	return backgroundReleaseActivation.ready.Load() && !backgroundReleaseActivation.failed.Load()
 }
 
 func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthClient, cfg *config.Config, redisClient *redis.Client) *GrokOAuthService {
