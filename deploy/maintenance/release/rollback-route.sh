@@ -18,11 +18,20 @@ old_instance_id=$(sed -n 's/^instance_id=//p' "$old_state")
 route_to_port() {
   local port=${1:?port is required}
   local tmp="$managed_upstream.rollback.$$"
+  local previous="$managed_upstream.previous.$$"
+  local restore="$managed_upstream.restore.$$"
+  install -m 600 "$managed_upstream" "$previous"
   printf 'upstream sub2api_release_backend {\n    server 127.0.0.1:%s;\n    keepalive 128;\n}\n' "$port" > "$tmp"
   chmod 600 "$tmp"
   mv -T -- "$tmp" "$managed_upstream"
-  nginx -t >/dev/null 2>&1
-  systemctl reload nginx >/dev/null 2>&1
+  if ! nginx -t >/dev/null 2>&1 || ! systemctl reload nginx >/dev/null 2>&1; then
+    install -m 600 "$previous" "$restore"
+    mv -T -- "$restore" "$managed_upstream"
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+    rm -f "$previous" "$tmp" "$restore"
+    return 1
+  fi
+  rm -f "$previous" "$tmp" "$restore"
 }
 wait_healthy() {
   local container=${1:?container is required}
@@ -90,7 +99,7 @@ slot_tmp="$active_slot_file.tmp.$$"
 printf 'container=%s\nport=%s\nimage_id=%s\ninstance_id=%s\n' "$old_container" "$old_port" "$pre_image_id" "$old_instance_id" > "$slot_tmp"
 chmod 600 "$slot_tmp"
 mv -T -- "$slot_tmp" "$active_slot_file"
-rm -f "$state_dir/route-switched"
+rm -f "$state_dir/route-switch-intent" "$state_dir/route-switched"
 candidate_preserved=false
 if docker inspect "$candidate_container" >/dev/null 2>&1; then
   candidate_preserved=true
