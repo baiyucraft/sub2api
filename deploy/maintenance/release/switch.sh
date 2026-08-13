@@ -10,6 +10,15 @@ load_release_compose_files "$deploy_dir"
 [[ $(systemctl is-active nginx) == active ]]
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
 [[ -d $state_dir && ! -L $state_dir ]]
+switch_stage_file="$state_dir/switch-stage"
+mark_switch_stage() {
+  local value=${1:?switch stage is required}
+  [[ $value =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|runtime_verified)$ ]]
+  printf '%s\n' "$value" > "$switch_stage_file.tmp.$$"
+  chmod 600 "$switch_stage_file.tmp.$$"
+  mv -T -- "$switch_stage_file.tmp.$$" "$switch_stage_file"
+}
+mark_switch_stage initialized
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 ]]; then
   [[ -f $state_dir/migration-195-plan.sha256 && ! -L $state_dir/migration-195-plan.sha256 ]]
   migration_status=$(<"$state_dir/migration-195-status")
@@ -49,7 +58,9 @@ compose_image=$(docker compose "${candidate_compose_args[@]}" config --format js
 mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
 migration_container="sub2api-migrate-$release_id"
 [[ -z $(docker ps -aq -f "name=^${migration_container}$") ]]
+mark_switch_stage migration_started
 docker compose "${candidate_compose_args[@]}" run --name "$migration_container" --no-deps sub2api /app/sub2api --migrate-only >/dev/null 2>&1
+mark_switch_stage migration_completed
 while IFS=$'\t' read -r migration migration_checksum; do
   recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
   [[ $recorded == "$migration_checksum" ]]
@@ -150,6 +161,7 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 ]
   group_media_pricing_schema_verified=true
   group_media_auth_cache_trigger_verified=true
 fi
+mark_switch_stage schema_verified
 [[ $(docker inspect -f '{{.Image}}' "$migration_container") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.ExitCode}}' "$migration_container") == 0 ]]
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 ]]; then
@@ -165,6 +177,7 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   mv -T -- "$marker_tmp" "$state_dir/migration-committed"
   "$assets_dir/migration-195-assert.sh" postflight_db
 fi
+mark_switch_stage migration_committed
 docker rm "$migration_container" >/dev/null
 [[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
 docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_container" --no-deps \
@@ -172,12 +185,14 @@ docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_containe
   -e SERVER_PORT=8080 \
   -e "SUB2API_INSTANCE_ID=$candidate_instance_id" \
   -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null
+mark_switch_stage candidate_started
 for _ in $(seq 1 90); do
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]] && break
   sleep 2
 done
 [[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]]
+mark_switch_stage candidate_healthy
 printf 'container=%s\nport=%s\nimage_id=%s\n' "$candidate_container" "$candidate_port" "$candidate_image_id" > "$state_dir/candidate-app"
 chmod 600 "$state_dir/candidate-app"
 candidate_headers=$(mktemp /tmp/sub2api-candidate-health.XXXXXX)
@@ -190,6 +205,7 @@ assert_prompt_audit_disabled
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 ]]; then
   "$assets_dir/migration-195-assert.sh" postflight_runtime
 fi
+mark_switch_stage runtime_verified
 printf 'migration_verified=true\n'
 printf 'running_image_id=%s\n' "$candidate_image_id"
 printf 'internal_health=pass\n'
