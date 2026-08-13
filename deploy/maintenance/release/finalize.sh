@@ -6,92 +6,129 @@ release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
 domain=${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
 direct_ip=${DIRECT_IP:?DIRECT_IP is required}
+managed_upstream=/etc/nginx/conf.d/sub2api-release-upstream.conf
+drain_timeout=${DRAIN_TIMEOUT_SECONDS:-3600}
 cd "$deploy_dir"
 load_release_compose_files "$deploy_dir"
 [[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]]
 [[ $(systemctl is-active nginx) == active ]]
-[[ $(grep -F "server 127.0.0.1:$candidate_port;" /etc/nginx/conf.d/sub2api-release-upstream.conf) ]]
-# The candidate remains a separate slot.  Never recreate the active container
-# after traffic has switched; that would break existing SSE/WebSocket streams.
-docker exec "$candidate_container" sh -lc 'true' >/dev/null
-for _ in $(seq 1 90); do
-  [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$candidate_container") == healthy ]] && break
-  sleep 2
-done
-[[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]]
-[[ $(curl -sS --resolve "$domain:443:$direct_ip" --max-time 15 -o /dev/null -w '%{http_code}' "https://$domain/health") == 200 ]]
-critical=$(docker logs --since 5m "$candidate_container" 2>&1 | grep -Eic 'panic|fatal|migration.*(failed|error)|database.*(failed|error)|redis.*(failed|error)' || true)
-[[ $critical == 0 ]]
-assert_prompt_audit_disabled
-drain_timeout=${DRAIN_TIMEOUT_SECONDS:-3600}
-drain_deadline=$((SECONDS + drain_timeout))
+grep -Fq "server 127.0.0.1:$candidate_port;" "$managed_upstream"
 [[ -f $state_dir/pre-active-app && ! -L $state_dir/pre-active-app ]]
 old_container=$(sed -n 's/^container=//p' "$state_dir/pre-active-app")
 old_port=$(sed -n 's/^port=//p' "$state_dir/pre-active-app")
+old_instance_id=$(sed -n 's/^instance_id=//p' "$state_dir/pre-active-app")
 [[ $old_container =~ ^[A-Za-z0-9_.-]{1,80}$ ]]
 [[ $old_port == 18080 || $old_port == 18081 ]]
-drain_observed=unknown
-while [[ $old_container != "$candidate_container" && $old_container != "" ]]; do
-  connections=$(docker exec "$old_container" sh -lc 'awk "NR>1 && \$2 ~ /:1F90\$/ && \$4 == \"01\" {count++} END {print count+0}" /proc/net/tcp /proc/net/tcp6' 2>/dev/null || printf 'unknown')
-  [[ $connections =~ ^[0-9]+$ ]] && drain_observed=$connections
-  [[ $connections == 0 ]] && break
-  (( SECONDS >= drain_deadline )) && break
-  sleep 2
-done
-if [[ $old_container != "$candidate_container" && $old_container != "" ]]; then
-  if [[ $drain_observed == 0 ]]; then
-    docker stop -t 30 "$old_container" >/dev/null
-    docker rm "$old_container" >/dev/null
-    drain_status=drained
-  elif [[ $drain_observed == unknown ]]; then
-    drain_status=unknown
-  else
-    drain_status=timeout
-  fi
-else
-  drain_status=not_applicable
-fi
-if [[ $drain_status == timeout || $drain_status == unknown ]]; then
-  RELEASE_DIR="$release_dir" PUBLIC_DOMAIN="$domain" DIRECT_IP="$direct_ip" \
-    "$assets_dir/rollback-route.sh" >/dev/null 2>&1 || true
+
+# Phase 1: traffic already targets the temporary candidate.  Wait for the old
+# active slot to finish every established HTTP/SSE/WebSocket connection before
+# replacing its Compose-managed slot.
+old_connections=$(wait_for_application_drain "$old_container" "$drain_timeout")
+if [[ $old_connections != 0 ]]; then
+  printf 'old_container=%s\nold_port=%s\ndrain_status=%s\ndrain_connections=%s\n' \
+    "$old_container" "$old_port" "$([[ $old_connections == unknown ]] && printf unknown || printf timeout)" "$old_connections"
   exit 1
 fi
-# Persist the active image only after the old slot has drained.  The running
-# candidate is not recreated: this state is for the next release, recovery and
-# operator-driven compose actions.
+if [[ $old_container != "$candidate_container" ]]; then
+  docker stop -t 30 "$old_container" >/dev/null
+  docker rm "$old_container" >/dev/null
+fi
+
+# Persist the exact final Compose closure.  The standard service is rebuilt on
+# the now-free old port and waits on the shared activation marker.
 active_override_tmp="$deploy_dir/docker-compose.release-active.yml.tmp.$$"
 cat > "$active_override_tmp" <<EOF
 services:
   sub2api:
     image: $candidate_image_id
+    container_name: sub2api
+    environment:
+      SUB2API_INSTANCE_ID: $final_instance_id
+      SUB2API_BACKGROUND_ACTIVATION_FILE: /app/data/.sub2api-active-instance
 EOF
 chmod 600 "$active_override_tmp"
 mv -T -- "$active_override_tmp" "$deploy_dir/docker-compose.release-active.yml"
 env_tmp="$deploy_dir/.env.active.$$"
-awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE)=/' "$deploy_dir/.env" > "$env_tmp"
+awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE|BIND_HOST|SERVER_PORT)=/' "$deploy_dir/.env" > "$env_tmp"
 printf 'COMPOSE_FILE=%s\n' "$(release_compose_value_with_active_override)" >> "$env_tmp"
-printf 'SUB2API_RELEASE_IMAGE=%s\n' "$candidate_image_id" >> "$env_tmp"
+printf 'SUB2API_RELEASE_IMAGE=%s\nBIND_HOST=127.0.0.1\nSERVER_PORT=%s\n' "$candidate_image_id" "$old_port" >> "$env_tmp"
 chmod --reference="$deploy_dir/.env" "$env_tmp"
 mv -T -- "$env_tmp" "$deploy_dir/.env"
 load_release_compose_files "$deploy_dir"
-compose_image=$(docker compose "${release_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
-[[ -n $compose_image ]]
+compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
+compose_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
-printf '%s\n' "$release_id" > "$deploy_dir/data/.sub2api-active-instance.tmp"
-chmod 600 "$deploy_dir/data/.sub2api-active-instance.tmp"
-mv -T -- "$deploy_dir/data/.sub2api-active-instance.tmp" "$deploy_dir/data/.sub2api-active-instance"
-for _ in $(seq 1 10); do
-  [[ $(docker exec "$candidate_container" sh -lc 'cat /app/data/.sub2api-active-instance') == "$release_id" ]] && break
+jq -e --arg port "$old_port" --arg instance "$final_instance_id" '
+  .services.sub2api.container_name == "sub2api" and
+  .services.sub2api.environment.SUB2API_INSTANCE_ID == $instance and
+  .services.sub2api.environment.SUB2API_BACKGROUND_ACTIVATION_FILE == "/app/data/.sub2api-active-instance" and
+  ((.services.sub2api.ports // []) | any(.target == 8080 and (.published | tostring) == $port and .host_ip == "127.0.0.1"))
+' <<<"$compose_json" >/dev/null
+docker compose "${release_compose_args[@]}" up -d --no-deps --force-recreate sub2api >/dev/null 2>&1
+for _ in $(seq 1 90); do
+  [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api) == healthy ]] && break
+  sleep 2
+done
+[[ $(docker inspect -f '{{.Image}}' sub2api) == "$candidate_image_id" ]]
+[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
+final_headers=$(mktemp /tmp/sub2api-final-health.XXXXXX)
+rollback_upstream=$(mktemp /tmp/sub2api-final-upstream.XXXXXX)
+trap 'rm -f "$final_headers" "$rollback_upstream"' EXIT
+curl -sS -D "$final_headers" -o /dev/null "http://127.0.0.1:${old_port}/health"
+grep -Eiq "^x-sub2api-instance:[[:space:]]*$final_instance_id\r?$" "$final_headers"
+grep -Eiq '^x-sub2api-background-ready:[[:space:]]*false\r?$' "$final_headers"
+
+# Activate and prove that all process-wide background services accepted the
+# marker before routing traffic to the final Compose-managed instance.
+activation_host_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$candidate_container")
+[[ -n $activation_host_dir && -d $activation_host_dir && ! -L $activation_host_dir ]]
+printf '%s\n' "$final_instance_id" > "$activation_host_dir/.sub2api-active-instance.tmp"
+chmod 600 "$activation_host_dir/.sub2api-active-instance.tmp"
+mv -T -- "$activation_host_dir/.sub2api-active-instance.tmp" "$activation_host_dir/.sub2api-active-instance"
+for _ in $(seq 1 30); do
+  : > "$final_headers"
+  curl -sS -D "$final_headers" -o /dev/null "http://127.0.0.1:${old_port}/health"
+  grep -Eiq '^x-sub2api-background-ready:[[:space:]]*true\r?$' "$final_headers" && break
   sleep 1
 done
-[[ $(docker exec "$candidate_container" sh -lc 'cat /app/data/.sub2api-active-instance') == "$release_id" ]]
+grep -Eiq '^x-sub2api-background-ready:[[:space:]]*true\r?$' "$final_headers"
+
+# Phase 2: atomically route new requests to the final instance.  Keep the
+# temporary candidate alive until its own accepted requests drain naturally.
+install -m 600 "$managed_upstream" "$rollback_upstream"
+upstream_tmp="$managed_upstream.tmp.$$"
+printf 'upstream sub2api_release_backend {\n    server 127.0.0.1:%s;\n    keepalive 128;\n}\n' "$old_port" > "$upstream_tmp"
+chmod 600 "$upstream_tmp"
+mv -T -- "$upstream_tmp" "$managed_upstream"
+nginx -t >/dev/null 2>&1
+systemctl reload nginx
+public_headers=$(mktemp /tmp/sub2api-final-public.XXXXXX)
+if ! [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health") == 200 ]] ||
+   ! grep -Eiq "^x-sub2api-instance:[[:space:]]*$final_instance_id\r?$" "$public_headers"; then
+  install -m 600 "$rollback_upstream" "$managed_upstream"
+  nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1
+  rm -f "$public_headers"
+  exit 1
+fi
+rm -f "$public_headers"
+slot_tmp="$active_slot_file.tmp.$$"
+printf 'container=sub2api\nport=%s\nimage_id=%s\nrelease_id=%s\ninstance_id=%s\n' \
+  "$old_port" "$candidate_image_id" "$release_id" "$final_instance_id" > "$slot_tmp"
+chmod 600 "$slot_tmp"
+mv -T -- "$slot_tmp" "$active_slot_file"
+
+candidate_connections=$(wait_for_application_drain "$candidate_container" "$drain_timeout")
+if [[ $candidate_connections != 0 ]]; then
+  printf 'old_container=%s\nold_port=%s\ndrain_status=candidate_%s\ndrain_connections=%s\n' \
+    "$old_container" "$old_port" "$([[ $candidate_connections == unknown ]] && printf unknown || printf timeout)" "$candidate_connections"
+  exit 1
+fi
+critical=$(docker logs --since 5m sub2api 2>&1 | grep -Eic 'panic|fatal|migration.*(failed|error)|database.*(failed|error)|redis.*(failed|error)' || true)
+[[ $critical == 0 ]]
+assert_prompt_audit_disabled
 printf 'auto_sync_enabled=true\n'
 printf 'running_image_id=%s\n' "$candidate_image_id"
-printf 'final_health=pass\n'
-printf 'final_logs=pass\n'
-printf 'old_container=%s\n' "$old_container"
-printf 'old_port=%s\n' "$old_port"
-printf 'drain_status=%s\n' "$drain_status"
-printf 'drain_connections=%s\n' "$drain_observed"
+printf 'final_health=pass\nfinal_logs=pass\nbackground_activation=pass\ncompose_managed=pass\n'
+printf 'old_container=%s\nold_port=%s\ndrain_status=drained\ndrain_connections=%s\n' "$old_container" "$old_port" "$old_connections"
+printf 'candidate_drain_connections=%s\n' "$candidate_connections"

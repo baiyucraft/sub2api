@@ -3,8 +3,11 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -18,29 +21,129 @@ import (
 	"go.uber.org/zap"
 )
 
-// startReleaseActivatedTask keeps non-request background jobs dormant while a
-// blue/green candidate is being warmed beside the active production process.
-// Normal single-instance deployments do not set the activation file and retain
-// the original immediate-start behavior.
-func startReleaseActivatedTask(start func()) {
-	activationFile := strings.TrimSpace(os.Getenv("SUB2API_BACKGROUND_ACTIVATION_FILE"))
-	instanceID := strings.TrimSpace(os.Getenv("SUB2API_INSTANCE_ID"))
-	if activationFile == "" || instanceID == "" {
-		start()
+type releaseActivationController struct {
+	mu             sync.Mutex
+	tasks          []func() error
+	watchStarted   bool
+	registrationOK bool
+	activated      bool
+	activationFile string
+	instanceID     string
+	ready          atomic.Bool
+	failed         atomic.Bool
+}
+
+var backgroundReleaseActivation = newReleaseActivationControllerFromEnv()
+
+func newReleaseActivationControllerFromEnv() *releaseActivationController {
+	return &releaseActivationController{
+		activationFile: strings.TrimSpace(os.Getenv("SUB2API_BACKGROUND_ACTIVATION_FILE")),
+		instanceID:     strings.TrimSpace(os.Getenv("SUB2API_INSTANCE_ID")),
+	}
+}
+
+func (c *releaseActivationController) gated() bool {
+	return c.activationFile != "" && c.instanceID != ""
+}
+
+func (c *releaseActivationController) register(start func() error) {
+	if !c.gated() {
+		if err := runReleaseActivationTask(start); err != nil {
+			c.failed.Store(true)
+			logger.LegacyPrintf("service.release_activation", "Background activation failed: %v", err)
+		}
 		return
 	}
-	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		for {
-			value, err := os.ReadFile(activationFile)
-			if err == nil && strings.TrimSpace(string(value)) == instanceID {
-				start()
+	c.mu.Lock()
+	c.tasks = append(c.tasks, start)
+	c.mu.Unlock()
+}
+
+func (c *releaseActivationController) closeRegistration() {
+	if !c.gated() {
+		c.ready.Store(!c.failed.Load())
+		return
+	}
+	c.mu.Lock()
+	c.registrationOK = true
+	if c.watchStarted {
+		c.mu.Unlock()
+		return
+	}
+	c.watchStarted = true
+	c.mu.Unlock()
+	go c.watch()
+}
+
+func (c *releaseActivationController) watch() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		value, err := os.ReadFile(c.activationFile)
+		if err == nil && strings.TrimSpace(string(value)) == c.instanceID {
+			c.mu.Lock()
+			if !c.registrationOK {
+				c.mu.Unlock()
+				<-ticker.C
+				continue
+			}
+			if c.activated {
+				c.mu.Unlock()
 				return
 			}
-			<-ticker.C
+			c.activated = true
+			tasks := append([]func() error{}, c.tasks...)
+			c.mu.Unlock()
+			for _, start := range tasks {
+				if err := runReleaseActivationTask(start); err != nil {
+					c.failed.Store(true)
+					logger.LegacyPrintf("service.release_activation", "Background activation failed for instance %s: %v", c.instanceID, err)
+					return
+				}
+			}
+			c.ready.Store(true)
+			return
+		}
+		<-ticker.C
+	}
+}
+
+func runReleaseActivationTask(start func() error) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic during background activation: %v", recovered)
 		}
 	}()
+	return start()
+}
+
+// startReleaseActivatedTask keeps non-request background jobs dormant while a
+// blue/green candidate is being warmed beside the active production process.
+func startReleaseActivatedTask(start func()) {
+	backgroundReleaseActivation.register(func() error {
+		start()
+		return nil
+	})
+}
+
+// startReleaseActivatedCheckedTask is used by process-wide jobs whose startup
+// performs an observable initialization step. A failed acknowledgement keeps
+// the release readiness header false so the route cannot be committed.
+func startReleaseActivatedCheckedTask(start func() error) {
+	backgroundReleaseActivation.register(start)
+}
+
+// CloseReleaseActivationRegistration starts the single activation watcher only
+// after Wire has constructed every process-wide background service.
+func CloseReleaseActivationRegistration() {
+	backgroundReleaseActivation.closeRegistration()
+}
+
+// ReleaseBackgroundActivationReady is exposed on health responses so the
+// release runner can prove that every registered background service was
+// started before declaring the new Compose-managed instance active.
+func ReleaseBackgroundActivationReady() bool {
+	return backgroundReleaseActivation.ready.Load()
 }
 
 func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthClient, cfg *config.Config, redisClient *redis.Client) *GrokOAuthService {
@@ -439,15 +542,23 @@ func ProvideDeferredService(accountRepo AccountRepository, timingWheel *TimingWh
 // ProvideConcurrencyService creates ConcurrencyService and starts slot cleanup worker.
 func ProvideConcurrencyService(cache ConcurrencyCache, accountRepo AccountRepository, cfg *config.Config) *ConcurrencyService {
 	svc := NewConcurrencyService(cache)
-	if strings.TrimSpace(os.Getenv("SUB2API_BACKGROUND_ACTIVATION_FILE")) == "" {
-		if err := svc.CleanupStaleProcessSlots(context.Background()); err != nil {
-			logger.LegacyPrintf("service.concurrency", "Warning: startup cleanup stale process slots failed: %v", err)
-		}
-	}
 	if cfg != nil {
 		svc.SetAccountLoadBatchCacheTTL(time.Duration(cfg.Gateway.Scheduling.LoadBatchCacheTTLMS) * time.Millisecond)
-		svc.StartSlotCleanupWorker(accountRepo, cfg.Gateway.Scheduling.SlotCleanupInterval)
 	}
+	startReleaseActivatedTask(func() {
+		// During blue/green overlap another healthy process still owns live
+		// slots. Never perform process-prefix cleanup in that mode; TTL cleanup
+		// remains safe and starts below. A normal single-process boot retains the
+		// legacy stale-process cleanup.
+		if strings.TrimSpace(os.Getenv("SUB2API_BACKGROUND_ACTIVATION_FILE")) == "" {
+			if err := svc.CleanupStaleProcessSlots(context.Background()); err != nil {
+				logger.LegacyPrintf("service.concurrency", "Warning: startup cleanup stale process slots failed: %v", err)
+			}
+		}
+		if cfg != nil {
+			svc.StartSlotCleanupWorker(accountRepo, cfg.Gateway.Scheduling.SlotCleanupInterval)
+		}
+	})
 	return svc
 }
 
@@ -455,7 +566,9 @@ func ProvideConcurrencyService(cache ConcurrencyCache, accountRepo AccountReposi
 func ProvideUserMessageQueueService(cache UserMsgQueueCache, rpmCache RPMCache, cfg *config.Config) *UserMessageQueueService {
 	svc := NewUserMessageQueueService(cache, rpmCache, &cfg.Gateway.UserMessageQueue)
 	if cfg.Gateway.UserMessageQueue.CleanupIntervalSeconds > 0 {
-		svc.StartCleanupWorker(time.Duration(cfg.Gateway.UserMessageQueue.CleanupIntervalSeconds) * time.Second)
+		startReleaseActivatedTask(func() {
+			svc.StartCleanupWorker(time.Duration(cfg.Gateway.UserMessageQueue.CleanupIntervalSeconds) * time.Second)
+		})
 	}
 	return svc
 }
@@ -469,7 +582,12 @@ func ProvideSchedulerSnapshotService(
 	cfg *config.Config,
 ) *SchedulerSnapshotService {
 	svc := NewSchedulerSnapshotService(cache, outboxRepo, accountRepo, groupRepo, cfg)
-	startReleaseActivatedTask(svc.Start)
+	startReleaseActivatedCheckedTask(func() error {
+		svc.Start()
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+		defer cancel()
+		return svc.WaitInitialReady(ctx)
+	})
 	return svc
 }
 
@@ -550,7 +668,7 @@ func ProvideOpsCleanupService(
 	opsService *OpsService,
 ) *OpsCleanupService {
 	svc := NewOpsCleanupService(opsRepo, db, redisClient, cfg, channelMonitorSvc, settingRepo)
-	startReleaseActivatedTask(svc.Start)
+	startReleaseActivatedCheckedTask(svc.StartChecked)
 	if opsService != nil {
 		opsService.SetCleanupReloader(svc)
 	}
@@ -998,7 +1116,7 @@ func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *Set
 		svc.SetRuntimeReader(settingService)
 		svc.SetScheduler(r)
 	}
-	startReleaseActivatedTask(r.Start)
+	startReleaseActivatedCheckedTask(r.StartChecked)
 	return r
 }
 

@@ -54,6 +54,11 @@ func SetupRouter(
 	if instanceID != "" {
 		r.Use(func(c *gin.Context) {
 			c.Header("X-Sub2API-Instance", instanceID)
+			if service.ReleaseBackgroundActivationReady() {
+				c.Header("X-Sub2API-Background-Ready", "true")
+			} else {
+				c.Header("X-Sub2API-Background-Ready", "false")
+			}
 			c.Next()
 		})
 	}

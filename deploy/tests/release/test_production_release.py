@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -342,16 +343,32 @@ class ProductionRecoveryTest(unittest.TestCase):
                 ).encode(),
             )
             systemctl = fake_bin / "systemctl"
-            systemctl.write_bytes(b"#!/usr/bin/env bash\nprintf 'enabled\\n'\n")
-            for executable in (jq, docker, systemctl):
+            systemctl.write_bytes(b"#!/usr/bin/env bash\nif [[ $* == *is-active* ]]; then printf 'active\\n'; else printf 'enabled\\n'; fi\n")
+            curl = fake_bin / "curl"
+            curl.write_bytes(
+                b"#!/usr/bin/env bash\n"
+                b"for ((i=1;i<=$#;i++)); do if [[ ${!i} == -D ]]; then j=$((i+1)); printf 'x-sub2api-instance: 182-aaaaaaaaaaaa-1-aaaaaaaa-active\\nx-sub2api-background-ready: true\\n' > \"${!j}\"; fi; done\n"
+                b"for ((i=1;i<=$#;i++)); do if [[ ${!i} == -w ]]; then printf '200'; fi; done\n"
+            )
+            nginx_path = root / "sub2api-release-upstream-test.conf"
+            nginx_path.write_text("server 127.0.0.1:18081;\n", encoding="utf-8")
+            for executable in (jq, docker, systemctl, curl):
                 executable.chmod(0o755)
 
             environment = os.environ.copy()
+            bash_fake_bin = fake_bin.as_posix()
             environment.update({
                 "FAKE_RELEASE_ID": release_id,
                 "FAKE_IMAGE_ID": image_id,
-                "PATH": str(fake_bin) + os.pathsep + environment.get("PATH", ""),
+                "NGINX_MANAGED_UPSTREAM": nginx_path.as_posix(),
             })
+            if os.name == "nt":
+                converted = subprocess.run(
+                    [bash, "-lc", f"cygpath -u {shlex.quote(str(fake_bin))}; cygpath -u {shlex.quote(str(nginx_path))}"],
+                    check=True, capture_output=True, text=True,
+                ).stdout.splitlines()
+                bash_fake_bin, environment["NGINX_MANAGED_UPSTREAM"] = converted
+            environment["PATH"] = f"{bash_fake_bin}:/usr/bin:/bin"
             slot = root / "active-app"
             script = gate_consumption_probe_script(
                 release_dir.as_posix(), release_id, image_id, active.as_posix(), slot.as_posix()
@@ -385,9 +402,12 @@ class ProductionRecoveryTest(unittest.TestCase):
             self.assertEqual(wrong_release.stdout, "gate_consumed=unknown\n")
 
             marker.write_bytes(f"release_id={release_id}\ncandidate_image_id={image_id}\n".encode())
-            slot.write_text(f"container=sub2api-candidate\nport=18081\nimage_id={image_id}\nrelease_id={release_id}\n", encoding="utf-8")
+            slot.write_text(f"container=sub2api\nport=18081\nimage_id={image_id}\nrelease_id={release_id}\ninstance_id={release_id}-active\n", encoding="utf-8")
+            # This fixture intentionally lacks a real Compose closure; the
+            # hardened probe must refuse to consume it rather than trusting the
+            # marker and health headers alone.
             completed = subprocess.run([bash, "-c", script], check=True, capture_output=True, text=True, env=environment)
-            self.assertEqual(completed.stdout, "gate_consumed=true\n")
+            self.assertEqual(completed.stdout, "gate_consumed=unknown\n")
             slot.unlink()
 
     def test_unconsumed_claim_before_public_exposure_runs_recovery(self) -> None:
@@ -403,7 +423,7 @@ class ProductionRecoveryTest(unittest.TestCase):
 
         release.recover.assert_called_once()
 
-    def test_unknown_consumption_status_rolls_route_back(self) -> None:
+    def test_unknown_consumption_status_defers_route_rollback(self) -> None:
         release = self.release()
         release.claimed = True
         release.public_exposed = True
@@ -414,8 +434,10 @@ class ProductionRecoveryTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "reply lost"):
             release.execute()
 
-        release.rollback_route.assert_called_once()
+        release.rollback_route.assert_not_called()
         self.assertEqual(release.result["status"], "blocked_reconciliation")
+        evidence = release.stage.call_args.args[1]
+        self.assertEqual(evidence["route_rollback"], "deferred_reconciliation")
 
     def test_unknown_consumption_status_without_public_exposure_does_not_close(self) -> None:
         release = self.release()
@@ -430,7 +452,7 @@ class ProductionRecoveryTest(unittest.TestCase):
 
         release.rollback_route.assert_not_called()
 
-    def test_unknown_consumption_status_stays_blocked_when_rollback_is_unconfirmed(self) -> None:
+    def test_unknown_consumption_status_never_attempts_an_unconfirmed_rollback(self) -> None:
         release = self.release()
         release.claimed = True
         release.public_exposed = True
@@ -441,9 +463,10 @@ class ProductionRecoveryTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "reply lost"):
             release.execute()
 
+        release.rollback_route.assert_not_called()
         self.assertEqual(release.result["status"], "blocked_reconciliation")
         evidence = release.stage.call_args.args[1]
-        self.assertEqual(evidence["route_rollback"], "unknown")
+        self.assertEqual(evidence["route_rollback"], "deferred_reconciliation")
 
     def test_mask_probe_detects_committed_remote_mask(self) -> None:
         release = self.release()
@@ -939,12 +962,23 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertLess(route_write, switched)
         self.assertLess(switched, validation)
         self.assertIn("DRAIN_TIMEOUT_SECONDS:-3600", finalize)
-        self.assertIn("drain_status=unknown", finalize)
-        self.assertIn("rollback-route.sh", finalize)
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        self.assertIn('self.stage("old_slot_draining", timeout=7500)', production)
+        self.assertIn("timeout=7500", production)
+        self.assertIn('wait_for_application_drain "$old_container"', finalize)
+        self.assertIn('wait_for_application_drain "$candidate_container"', finalize)
+        self.assertIn('x-sub2api-background-ready:', finalize)
+        self.assertIn('docker rm "$old_container"', finalize)
         self.assertIn("docker-compose.release-active.yml", finalize)
         self.assertIn("SUB2API_RELEASE_IMAGE", finalize)
+        self.assertIn('container_name: sub2api', finalize)
         self.assertIn("systemctl reload nginx", rollback)
         self.assertNotIn("systemctl stop nginx", rollback)
+        self.assertNotIn('docker stop -t 30 "$candidate_container"', rollback)
+        self.assertIn('candidate_preserved=', rollback)
+        self.assertIn('docker compose "${release_compose_args[@]}" up -d --no-deps sub2api', rollback)
+        self.assertIn('current_sub2api_image != "$pre_image_id"', rollback)
+        self.assertIn('docker inspect -f \'{{.Image}}\' "$old_container") == "$pre_image_id"', rollback)
         self.assertIn('exec "$assets_dir/rollback-route.sh"', emergency)
         self.assertNotIn("systemctl stop nginx", emergency)
 
@@ -961,7 +995,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         switch = self.script("switch.sh")
         compose = (DEPLOY_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertIn("UPSTREAM_SYNC_AUTO_ENABLED: \\${UPSTREAM_SYNC_AUTO_ENABLED:-true}", switch)
-        self.assertIn('SUB2API_INSTANCE_ID=$release_id', switch)
+        self.assertIn('SUB2API_INSTANCE_ID=$candidate_instance_id', switch)
         self.assertIn("SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance", switch)
         self.assertIn("SUB2API_INSTANCE_ID", compose)
         self.assertIn("SUB2API_BACKGROUND_ACTIVATION_FILE", compose)
@@ -1048,8 +1082,30 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_consume_atomically_commits_active_claim(self) -> None:
         script = self.script("consume.sh")
         self.assertIn('mv -T -- "$active_claim" "$release_dir/.consumed"', script)
+        self.assertIn('[[ $active_container == sub2api ]]', script)
+        self.assertIn('x-sub2api-background-ready:', script)
+        self.assertIn('server 127.0.0.1:$active_port;', script)
+        self.assertIn('assert_final_compose_closure "$deploy_dir" "$active_port"', script)
         self.assertNotIn('rm -rf "$active_claim"', script)
         self.assertNotIn(".claimed", script)
+
+    def test_slot_cleanup_rebinds_final_route_before_removing_candidate(self) -> None:
+        script = self.script("cleanup-slots.sh")
+        self.assertIn('instance_id=//p', script)
+        self.assertIn('x-sub2api-background-ready:', script)
+        self.assertIn('server 127.0.0.1:$active_port;', script)
+        self.assertIn('assert_final_compose_closure "$deploy_dir" "$active_port"', script)
+        self.assertLess(script.index('x-sub2api-background-ready:'), script.index('docker rm "$candidate_container"'))
+
+    def test_cleanup_state_reports_when_recovery_point_is_preserved(self) -> None:
+        script = self.script("cleanup-state.sh")
+        self.assertIn("state_cleanup=recovery_point_preserved", script)
+        self.assertIn("state_cleanup=%s", script)
+
+    def test_consumed_probe_rebinds_compose_before_accepting_commit(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        self.assertIn("assert_final_compose_closure", production)
+        self.assertIn('test \\"$compose_valid\\" = true', production)
 
     def test_reconcile_atomically_commits_active_claim(self) -> None:
         script = self.script("reconcile.sh")

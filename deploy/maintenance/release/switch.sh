@@ -159,7 +159,7 @@ docker rm "$migration_container" >/dev/null
 [[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
 docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_container" --no-deps \
   -p "127.0.0.1:${candidate_port}:8080" \
-  -e "SUB2API_INSTANCE_ID=$release_id" \
+  -e "SUB2API_INSTANCE_ID=$candidate_instance_id" \
   -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null
 for _ in $(seq 1 90); do
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]] && break
@@ -172,7 +172,8 @@ chmod 600 "$state_dir/candidate-app"
 candidate_headers=$(mktemp /tmp/sub2api-candidate-health.XXXXXX)
 trap 'rm -f "$candidate_headers"' EXIT
 [[ $(curl -sS -D "$candidate_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health") == 200 ]]
-grep -Eiq "^x-sub2api-instance:[[:space:]]*$release_id\r?$" "$candidate_headers"
+grep -Eiq "^x-sub2api-instance:[[:space:]]*$candidate_instance_id\r?$" "$candidate_headers"
+grep -Eiq '^x-sub2api-background-ready:[[:space:]]*false\r?$' "$candidate_headers"
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
 assert_prompt_audit_disabled
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 ]]; then

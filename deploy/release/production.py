@@ -42,11 +42,21 @@ slot={shlex.quote(active_slot)}
 slot_container=$(sed -n 's/^container=//p' \"$slot\" 2>/dev/null || true)
 slot_image=$(sed -n 's/^image_id=//p' \"$slot\" 2>/dev/null || true)
 slot_release=$(sed -n 's/^release_id=//p' \"$slot\" 2>/dev/null || true)
+slot_port=$(sed -n 's/^port=//p' \"$slot\" 2>/dev/null || true)
+slot_instance=$(sed -n 's/^instance_id=//p' \"$slot\" 2>/dev/null || true)
+expected_instance={shlex.quote(f'{release_id}-active')}
+health_headers=$(mktemp /tmp/sub2api-consumed-probe.XXXXXX)
+trap 'rm -f \"$health_headers\"' EXIT
+managed_upstream=${{NGINX_MANAGED_UPSTREAM:-/etc/nginx/conf.d/sub2api-release-upstream.conf}}
 slot_valid=false
-if test -f \"$slot\" && test ! -L \"$slot\" && test \"$(grep -c '^container=' \"$slot\")\" = 1 && test \"$(grep -c '^image_id=' \"$slot\")\" = 1 && test \"$(grep -c '^release_id=' \"$slot\")\" = 1 && test -n \"$slot_container\" && test \"$slot_image\" = {shlex.quote(image_id)} && test \"$slot_release\" = {shlex.quote(release_id)} && test \"$(docker inspect -f '{{{{.Image}}}}' \"$slot_container\" 2>/dev/null)\" = {shlex.quote(image_id)} && test \"$(docker inspect -f '{{{{.State.Health.Status}}}}' \"$slot_container\" 2>/dev/null)\" = healthy; then
+if test -f \"$slot\" && test ! -L \"$slot\" && test \"$slot_container\" = sub2api && {{ test \"$slot_port\" = 18080 || test \"$slot_port\" = 18081; }} && test \"$slot_instance\" = \"$expected_instance\" && test \"$slot_image\" = {shlex.quote(image_id)} && test \"$slot_release\" = {shlex.quote(release_id)} && test \"$(docker inspect -f '{{{{.Image}}}}' \"$slot_container\" 2>/dev/null)\" = {shlex.quote(image_id)} && test \"$(docker inspect -f '{{{{.State.Health.Status}}}}' \"$slot_container\" 2>/dev/null)\" = healthy && curl -sS -D \"$health_headers\" -o /dev/null \"http://127.0.0.1:$slot_port/health\" && grep -Eiq \"^x-sub2api-instance:[[:space:]]*$expected_instance\\r?$\" \"$health_headers\" && grep -Eiq '^x-sub2api-background-ready:[[:space:]]*true\\r?$' \"$health_headers\" && grep -Fq \"server 127.0.0.1:$slot_port;\" \"$managed_upstream\" && test \"$(systemctl is-active nginx 2>/dev/null)\" = active; then
   slot_valid=true
 fi
-if test -d \"$consumed\" && test ! -L \"$consumed\" && test -f \"$consumed/marker\" && test ! -L \"$consumed/marker\" && test -f \"$consumed/plaintext-cleaned\" && test ! -L \"$consumed/plaintext-cleaned\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test ! -e \"$active\" && test ! -L \"$active\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$consumed/marker\" && grep -Fxq {shlex.quote(f'candidate_image_id={image_id}')} \"$consumed/marker\" && test \"$slot_valid\" = true && test \"$(systemctl is-enabled sub2api-backup.timer 2>/dev/null)\" = enabled; then
+compose_valid=false
+if test -d \"$consumed\" && test ! -L \"$consumed\" && (export ACTIVE_CLAIM=\"$consumed\" RELEASE_DIR={shlex.quote(release_dir)}; source \"$consumed/assets/context.sh\"; assert_final_compose_closure \"${{DEPLOY_DIR:-/opt/sub2api}}\" \"$slot_port\") >/dev/null 2>&1; then
+  compose_valid=true
+fi
+if test -d \"$consumed\" && test ! -L \"$consumed\" && test -f \"$consumed/marker\" && test ! -L \"$consumed/marker\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test ! -e \"$active\" && test ! -L \"$active\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$consumed/marker\" && grep -Fxq {shlex.quote(f'candidate_image_id={image_id}')} \"$consumed/marker\" && test \"$slot_valid\" = true && test \"$compose_valid\" = true && test \"$(systemctl is-enabled sub2api-backup.timer 2>/dev/null)\" = enabled; then
   printf 'gate_consumed=true\\n'
 elif test ! -e \"$consumed\" && test ! -L \"$consumed\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test -d \"$active\" && test ! -L \"$active\" && test -f \"$active/release_id\" && test ! -L \"$active/release_id\" && test -f \"$active/gate.json\" && test ! -L \"$active/gate.json\" && test -f \"$active/CLAIM_SHA256SUMS\" && test ! -L \"$active/CLAIM_SHA256SUMS\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$active/release_id\" && (cd \"$active\" && sha256sum -c CLAIM_SHA256SUMS >/dev/null 2>&1) && test \"$(jq -er '.manifest.release_id' \"$active/gate.json\" 2>/dev/null)\" = {shlex.quote(release_id)} && test \"$(jq -er '.evidence.candidate_image_id' \"$active/gate.json\" 2>/dev/null)\" = {shlex.quote(image_id)}; then
   printf 'gate_consumed=false\\n'
@@ -672,16 +682,17 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
                 "DIRECT_IP": self.profile["rack_public_ip"],
             }
         )
-        self.stage("old_slot_draining", timeout=3900)
+        self.stage("old_slot_draining", timeout=7500)
         final = self.run_remote(
             "racknerd",
             f"{finalize_env} {self.active_assets}/finalize.sh",
             {
                 "auto_sync_enabled", "running_image_id", "final_health", "final_logs",
-                "old_container", "old_port", "drain_status", "drain_connections",
+                "background_activation", "compose_managed", "old_container", "old_port",
+                "drain_status", "drain_connections", "candidate_drain_connections",
                 "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
             },
-            timeout=3900,
+            timeout=7500,
         )
         if final["drain_status"] not in {"drained", "not_applicable"}:
             raise RuntimeError(f"old application slot did not drain: {final['drain_status']}")
@@ -694,13 +705,20 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         restore_env = quoted_env({"STATE_ROOT": "/opt/sub2api/backups/release-state", "STATE_DIR": self.state_dir})
         backup_units = self.run_remote("racknerd", f"{restore_env} {self.active_assets}/restore-backup-units.sh", {"backup_units_restored"})
         self.units_masked = False
+        self.stage("post_switch_services_restored", {**external_final, **backup_units})
         consume_env = quoted_env({"RELEASE_DIR": self.release_dir})
+        consumed = self.run_remote("racknerd", f"{consume_env} {self.active_assets}/consume.sh", {"gate_consumed"})
+        consumed_assets = f"{self.release_dir}/.consumed/assets"
         cleaned = self.run_remote(
             "racknerd",
-            f"{consume_env} {self.active_assets}/cleanup-state.sh",
-            {"plaintext_state_removed"},
+            f"{consume_env} ACTIVE_CLAIM={self.release_dir}/.consumed {consumed_assets}/cleanup-state.sh",
+            {"plaintext_state_removed", "state_cleanup"},
         )
-        consumed = self.run_remote("racknerd", f"{consume_env} {self.active_assets}/consume.sh", {"gate_consumed"})
+        slot_cleanup = self.run_remote(
+            "racknerd",
+            f"{consume_env} ACTIVE_CLAIM={self.release_dir}/.consumed {consumed_assets}/cleanup-slots.sh",
+            {"candidate_removed", "previous_removed"},
+        )
         self.result["status"] = "verified"
         route_evidence = {
             "direct_route_health": direct["route_health"],
@@ -708,7 +726,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             "dmit_route_health": dmit["route_health"],
             "dmit_streaming": dmit["streaming"],
         }
-        self.stage("production_verified", {**verified, **route_evidence, **attribution, **final, **external_final, **backup_units, **consumed, **cleaned})
+        self.stage("production_verified", {**verified, **route_evidence, **attribution, **final, **external_final, **backup_units, **consumed, **slot_cleanup, **cleaned})
 
     def recover(self) -> None:
         self.stage("recovery_started")
@@ -877,10 +895,12 @@ fi
         return values.get("units_masked") == "true"
 
     def rollback_route(self) -> dict[str, str]:
+        claim = "/opt/sub2api/releases/.active-release"
+        consumed = f"{self.release_dir}/.consumed"
         values = self.run_remote(
             "racknerd",
-            f"{quoted_env({'RELEASE_DIR': self.release_dir, 'PUBLIC_DOMAIN': self.profile['public_domain'], 'DIRECT_IP': self.profile['rack_public_ip']})} {self.active_assets}/rollback-route.sh",
-            {"route_rollback", "nginx_reload", "active_container", "active_port", "candidate_removed"},
+            f"claim={claim}; if test ! -d \"$claim\" && test -d {consumed}; then claim={consumed}; fi; {quoted_env({'RELEASE_DIR': self.release_dir, 'PUBLIC_DOMAIN': self.profile['public_domain'], 'DIRECT_IP': self.profile['rack_public_ip']})} ACTIVE_CLAIM=\"$claim\" \"$claim/assets/rollback-route.sh\"",
+            {"route_rollback", "nginx_reload", "active_container", "active_port", "candidate_preserved"},
         )
         self.route_switched = False
         self.public_exposed = False
@@ -906,6 +926,22 @@ fi
         if consumed == "false":
             return False
         return None
+
+    def finish_consumed_cleanup(self) -> dict[str, str]:
+        consume_env = quoted_env({"RELEASE_DIR": self.release_dir})
+        consumed = f"{self.release_dir}/.consumed"
+        assets = f"{consumed}/assets"
+        cleaned = self.run_remote(
+            "racknerd",
+            f"{consume_env} ACTIVE_CLAIM={consumed} {assets}/cleanup-state.sh",
+            {"plaintext_state_removed", "state_cleanup"},
+        )
+        slots = self.run_remote(
+            "racknerd",
+            f"{consume_env} ACTIVE_CLAIM={consumed} {assets}/cleanup-slots.sh",
+            {"candidate_removed", "previous_removed"},
+        )
+        return {**cleaned, **slots}
 
     def remote_gate_claimed(self) -> bool | None:
         try:
@@ -964,18 +1000,24 @@ fi
             gate_consumed = self.remote_gate_consumed()
             if gate_consumed is None:
                 self.result["status"] = "blocked_reconciliation"
-                route_rollback = "not_required"
-                if getattr(self, "route_switch_attempted", False) or self.public_exposed:
-                    try:
-                        self.rollback_route()
-                        route_rollback = "restored"
-                    except BaseException:
-                        route_rollback = "unknown"
-                self.stage("gate_consumption_status_unknown", {"route_rollback": route_rollback})
+                # Consumption is the irreversible commit point.  If its
+                # outcome cannot be proven, a route rollback could undo a
+                # release that has already been committed and leave the
+                # database/application pair inconsistent.  Freeze the
+                # decision at reconciliation instead; a later status/recovery
+                # pass will either finish cleanup or perform the pre-consume
+                # rollback once the marker is known to be absent.
+                self.stage("gate_consumption_status_unknown", {"route_rollback": "deferred_reconciliation"})
                 raise
             if gate_consumed:
+                try:
+                    cleanup = self.finish_consumed_cleanup()
+                except BaseException:
+                    self.result["status"] = "blocked_reconciliation"
+                    self.stage("consumed_cleanup_requires_reconciliation", {"gate_consumed": "true"})
+                    raise
                 self.result["status"] = "verified"
-                self.stage("production_verified_after_reconciliation", {"gate_consumed": "true"})
+                self.stage("production_verified_after_reconciliation", {"gate_consumed": "true", **cleanup})
                 return
             if getattr(self, "route_switch_attempted", False) or self.public_exposed:
                 rollback: dict[str, str] | None = None

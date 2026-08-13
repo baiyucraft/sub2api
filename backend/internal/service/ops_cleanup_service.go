@@ -86,26 +86,35 @@ func NewOpsCleanupService(
 // Start 首次启动 cron 调度。Enabled / Schedule 由 effective 配置决定（settings 优先 cfg）。
 // 重复调用幂等。
 func (s *OpsCleanupService) Start() {
+	if err := s.StartChecked(); err != nil {
+		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] not started: %v", err)
+	}
+}
+
+// StartChecked starts the configured cron and returns schedule initialization
+// errors to the release activation controller.
+func (s *OpsCleanupService) StartChecked() error {
 	if s == nil {
-		return
+		return nil
 	}
 	if s.cfg != nil && !s.cfg.Ops.Enabled {
-		return
+		return nil
 	}
 	if s.opsRepo == nil || s.db == nil {
 		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] not started (missing deps)")
-		return
+		return nil
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started || s.stopped {
-		return
+		return nil
 	}
 	s.started = true
 	if err := s.applyScheduleLocked(context.Background()); err != nil {
-		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] not started: %v", err)
+		return err
 	}
+	return nil
 }
 
 // Stop 关闭 cron。幂等。

@@ -115,13 +115,22 @@ func newChannelMonitorRunner(svc monitorRunnerSvc, settingService *SettingServic
 // Start 加载所有 enabled monitor 并为每个建立独立定时任务。
 // 调用方需保证只调一次（wire ProvideChannelMonitorRunner 内只调一次）。
 func (r *ChannelMonitorRunner) Start() {
+	if err := r.StartChecked(); err != nil {
+		slog.Error("channel_monitor: load enabled monitors failed at startup", "error", err)
+	}
+}
+
+// StartChecked starts the runner and returns the initial database load result.
+// The release activation controller uses this acknowledgement before it marks
+// a blue/green instance ready for the final route commit.
+func (r *ChannelMonitorRunner) StartChecked() error {
 	if r == nil || r.svc == nil {
-		return
+		return nil
 	}
 	r.mu.Lock()
 	if r.started || r.stopped {
 		r.mu.Unlock()
-		return
+		return nil
 	}
 	r.started = true
 	r.mu.Unlock()
@@ -130,13 +139,13 @@ func (r *ChannelMonitorRunner) Start() {
 	defer cancel()
 	enabled, err := r.svc.ListEnabledMonitors(ctx)
 	if err != nil {
-		slog.Error("channel_monitor: load enabled monitors failed at startup", "error", err)
-		return
+		return err
 	}
 	for _, m := range enabled {
 		r.Schedule(m)
 	}
 	slog.Info("channel_monitor: runner started", "scheduled_tasks", len(enabled))
+	return nil
 }
 
 // Schedule 为指定监控创建（或重置）独立定时任务。
