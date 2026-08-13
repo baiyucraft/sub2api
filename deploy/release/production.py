@@ -785,7 +785,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         cleaned = self.run_remote(
             "racknerd",
             f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.active_assets}/cleanup-state.sh",
-            {"plaintext_state_removed"},
+            {"plaintext_state_removed", "state_cleanup"},
         )
         values.update(cleaned)
         try:
