@@ -59,6 +59,13 @@ func (c *releaseActivationController) registerAsync(start func() error) {
 	c.registerTask(start, false)
 }
 
+func (c *releaseActivationController) startBeforeActivation(start func() error) {
+	if err := runReleaseActivationTask(start); err != nil {
+		c.failed.Store(true)
+		logger.LegacyPrintf("service.release_activation", "Pre-activation background startup failed: %v", err)
+	}
+}
+
 func (c *releaseActivationController) registerTask(start func() error, checked bool) {
 	if !c.gated() {
 		if err := runReleaseActivationTask(start); err != nil {
@@ -158,6 +165,14 @@ func startReleaseActivatedTask(start func()) {
 // the release readiness header false so the route cannot be committed.
 func startReleaseActivatedCheckedTask(start func() error) {
 	backgroundReleaseActivation.register(start)
+}
+
+// startReleasePreactivatedCheckedTask is reserved for multi-instance-safe
+// infrastructure that must establish release consistency before public
+// traffic can move to a gated candidate. It does not make the remaining
+// background task set ready for activation.
+func startReleasePreactivatedCheckedTask(start func() error) {
+	backgroundReleaseActivation.startBeforeActivation(start)
 }
 
 // CloseReleaseActivationRegistration starts the single activation watcher only
@@ -609,7 +624,11 @@ func ProvideSchedulerSnapshotService(
 	cfg *config.Config,
 ) *SchedulerSnapshotService {
 	svc := NewSchedulerSnapshotService(cache, outboxRepo, accountRepo, groupRepo, cfg)
-	startReleaseActivatedCheckedTask(func() error {
+	// Scheduler snapshots use Redis fencing and distributed cleanup locks, so
+	// they can safely overlap with the active slot. Starting this service while
+	// the candidate is still gated lets migration outbox events reach Redis
+	// before switch.sh performs its runtime consistency assertion.
+	startReleasePreactivatedCheckedTask(func() error {
 		svc.Start()
 		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 		defer cancel()

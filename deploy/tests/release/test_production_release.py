@@ -1244,6 +1244,20 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("SUB2API_INSTANCE_ID", compose)
         self.assertIn("SUB2API_BACKGROUND_ACTIVATION_FILE", compose)
 
+    def test_scheduler_outbox_starts_before_candidate_activation(self) -> None:
+        wire = (DEPLOY_ROOT.parent / "backend" / "internal" / "service" / "wire.go").read_text(encoding="utf-8")
+        provider = wire[wire.index("func ProvideSchedulerSnapshotService("):]
+        provider = provider[:provider.index("\n}\n", provider.index(") *SchedulerSnapshotService")) + 3]
+        self.assertIn("startReleasePreactivatedCheckedTask", provider)
+        self.assertNotIn("startReleaseActivatedCheckedTask", provider)
+        self.assertIn("WaitInitialReady", provider)
+
+        switch = self.script("switch.sh")
+        candidate_start = switch.index('docker compose "${candidate_compose_args[@]}" run -d')
+        runtime_assertion = switch.index('migration-195-assert.sh" postflight_runtime')
+        self.assertLess(candidate_start, runtime_assertion)
+        self.assertIn('X-Sub2API-Background-Ready false', switch[candidate_start:runtime_assertion])
+
     def test_release_health_headers_are_crlf_normalized(self) -> None:
         context = self.script("context.sh")
         self.assertIn("assert_http_header_equals()", context)

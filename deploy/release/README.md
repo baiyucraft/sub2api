@@ -48,7 +48,7 @@ VM 唯一构建 candidate
   -> 旧 slot 停止后激活独占后台任务、恢复备份 units、消费 Gate
 ```
 
-正常发布不停止 Nginx。active slot 记录在 `/opt/sub2api/active-app`，端口在 `18080/18081` 之间交替；候选启动时主动探针、同步、cron、quota flusher 等任务由 activation marker 暂停，旧 slot 停止后再接管。排空超时或连接状态不确定时会优先 reload 回旧 upstream，不强杀旧连接。协调数据恢复仍是停机流程，蓝绿不能消除非兼容 migration 的锁和回滚风险；schema 变更应优先采用 expand/contract。
+正常发布不停止 Nginx。active slot 记录在 `/opt/sub2api/active-app`，端口在 `18080/18081` 之间交替；候选启动时主动探针、同步、cron、quota flusher 等任务由 activation marker 暂停，旧 slot 停止后再接管。具备 Redis fencing 和分布式清理锁的调度快照服务是唯一预激活例外，用于在候选公开前消费 migration outbox 并完成运行时一致性断言；它不会把候选的后台 ready 状态提前置为 true。排空超时或连接状态不确定时会优先 reload 回旧 upstream，不强杀旧连接。协调数据恢复仍是停机流程，蓝绿不能消除非兼容 migration 的锁和回滚风险；schema 变更应优先采用 expand/contract。
 
 profile 194 会在 manifest 中固定记录 profile 192 的完整 migration 列表及新增的
 `193-194`，并保存有序 checksum；已执行过的迁移允许原样跳过，缺失迁移必须逐项
