@@ -314,7 +314,7 @@ def verify_result(args: argparse.Namespace) -> None:
     production = _read_json(run_dir / "gate" / "production-result.json", required=True) or {}
     if _runner_alive(runner) or runner.get("status") != "verified" or runner.get("exit_code") != 0:
         raise RuntimeError("release runner is not successfully terminal")
-    document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")), allow_expired=True)
+    document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")), allow_expired=True, allow_historical_runner=True)
     if document["manifest"] != manifest or manifest.get("release_id") != args.release_id:
         raise RuntimeError("manifest and signed Gate identity differ")
     if vm.get("stage") != "vm_validate" or vm.get("status") != "verified":
