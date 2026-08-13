@@ -25,7 +25,9 @@ old_instance_id=$(sed -n 's/^instance_id=//p' "$state_dir/pre-active-app")
 # active slot to finish every established HTTP/SSE/WebSocket connection before
 # replacing its Compose-managed slot.
 old_connections=$(wait_for_application_drain "$old_container" "$drain_timeout")
-if [[ $old_connections != 0 ]]; then
+old_drain_status=drained
+[[ $old_connections == 0 ]] || old_drain_status=$([[ $old_connections == unknown ]] && printf unknown || printf timeout)
+if [[ $old_drain_status != drained ]]; then
   printf 'old_container=%s\nold_port=%s\ndrain_status=%s\ndrain_connections=%s\n' \
     "$old_container" "$old_port" "$([[ $old_connections == unknown ]] && printf unknown || printf timeout)" "$old_connections"
   exit 1
@@ -106,7 +108,9 @@ systemctl reload nginx
 public_headers=$(mktemp /tmp/sub2api-final-public.XXXXXX)
 if ! [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health") == 200 ]] ||
    ! assert_http_header_equals "$public_headers" X-Sub2API-Instance "$final_instance_id"; then
-  install -m 600 "$rollback_upstream" "$managed_upstream"
+  upstream_restore_tmp="$managed_upstream.restore.$$"
+  install -m 600 "$rollback_upstream" "$upstream_restore_tmp"
+  mv -T -- "$upstream_restore_tmp" "$managed_upstream"
   nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1
   rm -f "$public_headers"
   exit 1
@@ -117,9 +121,14 @@ printf 'container=sub2api\nport=%s\nimage_id=%s\nrelease_id=%s\ninstance_id=%s\n
   "$old_port" "$candidate_image_id" "$release_id" "$final_instance_id" > "$slot_tmp"
 chmod 600 "$slot_tmp"
 mv -T -- "$slot_tmp" "$active_slot_file"
+printf 'phase=final\nroute_port=%s\nprevious_port=%s\n' "$old_port" "$candidate_port" > "$state_dir/route-switched.tmp"
+chmod 600 "$state_dir/route-switched.tmp"
+mv -T -- "$state_dir/route-switched.tmp" "$state_dir/route-switched"
 
 candidate_connections=$(wait_for_application_drain "$candidate_container" "$drain_timeout")
-if [[ $candidate_connections != 0 ]]; then
+candidate_drain_status=drained
+[[ $candidate_connections == 0 ]] || candidate_drain_status=$([[ $candidate_connections == unknown ]] && printf unknown || printf timeout)
+if [[ $candidate_drain_status != drained ]]; then
   printf 'old_container=%s\nold_port=%s\ndrain_status=candidate_%s\ndrain_connections=%s\n' \
     "$old_container" "$old_port" "$([[ $candidate_connections == unknown ]] && printf unknown || printf timeout)" "$candidate_connections"
   exit 1

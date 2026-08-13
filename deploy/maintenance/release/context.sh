@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]]
+[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]]
 release_id=${BASH_REMATCH[1]}
 [[ -d $release_dir && ! -L $release_dir ]]
 [[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]]
@@ -86,16 +86,30 @@ wait_for_application_drain() {
   local timeout=${2:?timeout is required}
   local deadline=$((SECONDS + timeout))
   local connections=unknown
+  local draining_workers=unknown
   while docker inspect "$container" >/dev/null 2>&1; do
     connections=$(application_connection_count "$container")
     draining_workers=$(nginx_draining_worker_count)
-    [[ $connections == 0 && $draining_workers == 0 ]] && break
-    [[ $connections =~ ^[0-9]+$ ]] || break
-    [[ $draining_workers =~ ^[0-9]+$ ]] || break
-    (( SECONDS >= deadline )) && break
+    if [[ $connections == 0 && $draining_workers == 0 ]]; then
+      printf '0\n'
+      return 0
+    fi
+    if [[ ! $connections =~ ^[0-9]+$ || ! $draining_workers =~ ^[0-9]+$ ]]; then
+      printf 'unknown\n'
+      return 0
+    fi
+    if (( SECONDS >= deadline )); then
+      # A zero application connection count is not sufficient while an old
+      # Nginx worker is still shutting down.  Returning a distinct timeout
+      # keeps callers fail-closed instead of reporting the slot as drained.
+      printf 'timeout\n'
+      return 0
+    fi
     sleep 2
   done
-  printf '%s\n' "$connections"
+  # A container disappearing before both counters reached zero is an
+  # unproven drain, not a successful one.
+  printf 'unknown\n'
 }
 
 # curl writes response headers with CRLF line endings.  GNU grep -E does not
@@ -179,7 +193,7 @@ assert_final_compose_closure() {
 }
 
 assert_prompt_audit_disabled() {
-  if [[ $profile != 194 && $profile != 195 && $profile != 197 && $profile != 198 && $profile != 199 && $profile != 202 && $profile != 206 && $profile != 207 && $profile != 208 && $profile != 209 && $profile != 210 && $profile != 212 && $profile != 213 && $profile != 215 && $profile != 232 && $profile != 233 && $profile != 234 ]]; then
+  if [[ $profile != 194 && $profile != 195 && $profile != 197 && $profile != 198 && $profile != 199 && $profile != 202 && $profile != 206 && $profile != 207 && $profile != 208 && $profile != 209 && $profile != 210 && $profile != 212 && $profile != 213 && $profile != 215 && $profile != 232 && $profile != 233 && $profile != 234 && $profile != 235 ]]; then
     printf 'prompt_audit_disabled=not_applicable\n'
     printf 'prompt_audit_jobs=not_applicable\n'
     printf 'prompt_audit_events=not_applicable\n'

@@ -144,7 +144,13 @@ profile 234 使用版本 `0.1.175-baiyu`，是 profile 233 的纯版本继承：
 migration map、checksum 与显式旧镜像兼容身份，不新增、重编号或改写任何 migration。
 它用于记录合并官方 `0.1.175` 代码后的 fork 发布身份。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233 和 234
+profile 235 使用版本 `0.1.176-baiyu`，完整继承 profile 234 的 50 项 migration map、checksum
+和显式旧镜像兼容身份，并追加重编号后的 `234_group_model_pricing.sql`，共 51 项。该迁移来自
+后续官方分组模型定价能力；由于本 fork 已占用 migration 221，不能保留官方冲突编号。
+生产 preflight、VM Gate 和 postflight 必须独立验证 `groups.long_context_pricing_enabled` 与
+`groups.model_pricing` 的类型、默认值和可空语义。profile 233/234 的历史 manifest 保持不可变。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234 和 235
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -162,6 +168,7 @@ python deploy/tests/release/backup_dr_profile_215_integration.py
 python deploy/tests/release/backup_dr_profile_232_integration.py
 python deploy/tests/release/backup_dr_profile_233_integration.py
 python deploy/tests/release/backup_dr_profile_234_integration.py
+python deploy/tests/release/backup_dr_profile_235_integration.py
 ```
 
 首次安装信任根使用：

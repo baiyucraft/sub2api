@@ -25,6 +25,10 @@ assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready true
 grep -Fq "server 127.0.0.1:$active_port;" "$managed_upstream"
 [[ $(systemctl is-active nginx) == active ]]
 assert_final_compose_closure "$deploy_dir" "$active_port"
+if [[ -f $state_dir/route-switched && ! -L $state_dir/route-switched ]]; then
+  grep -Fxq "phase=final" "$state_dir/route-switched"
+  grep -Fxq "route_port=$active_port" "$state_dir/route-switched"
+fi
 printf 'release_id=%s\ncandidate_image_id=%s\nconsumed_at=%s\n' "$release_id" "$candidate_image_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$active_claim/marker"
 chmod 400 "$active_claim/marker"
 mv -T -- "$active_claim" "$release_dir/.consumed"

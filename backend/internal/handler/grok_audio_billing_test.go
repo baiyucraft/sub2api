@@ -7,7 +7,6 @@ import (
 	"time"
 
 	coderws "github.com/coder/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 func TestIsExpectedGrokRealtimeClose(t *testing.T) {
@@ -26,14 +25,28 @@ func TestIsExpectedGrokRealtimeClose(t *testing.T) {
 	}
 }
 
-func TestGrokRealtimeUsageResultBillsAbnormalExitDuration(t *testing.T) {
-	started := time.Unix(100, 0)
-	result := grokRealtimeUsageResult("grok-voice-latest", started, started.Add(90*time.Second))
-	require.NotNil(t, result)
-	require.NotEmpty(t, result.RequestID)
-	require.Equal(t, 90*time.Second, result.Duration)
-	require.NotNil(t, result.AudioUsage)
-	require.Equal(t, "realtime", result.AudioUsage.Mode)
-	require.InDelta(t, 1.5, result.AudioUsage.DurationOrUnits, 1e-12)
-	require.Nil(t, grokRealtimeUsageResult("grok-voice-latest", started, started))
+func TestGrokRealtimeBillingResultRequiresObservedAudio(t *testing.T) {
+	if grokRealtimeBillingResult("grok-voice-latest", time.Second, false) != nil {
+		t.Fatal("a session without observed audio must not be billed")
+	}
+	if grokRealtimeBillingResult("grok-voice-latest", 0, true) != nil {
+		t.Fatal("zero-duration sessions must not be billed")
+	}
+}
+
+func TestGrokRealtimeBillingResultUsesForcedUniqueID(t *testing.T) {
+	first := grokRealtimeBillingResult("grok-voice-latest", 90*time.Second, true)
+	second := grokRealtimeBillingResult("grok-voice-latest", 90*time.Second, true)
+	if first == nil || second == nil {
+		t.Fatal("observed audio sessions should be billable")
+	}
+	if first.RequestID == "" {
+		t.Fatalf("unexpected billing request ID %q", first.RequestID)
+	}
+	if first.RequestID == second.RequestID {
+		t.Fatal("independent realtime connections must not share a billing request ID")
+	}
+	if first.AudioUsage == nil || first.AudioUsage.Mode != "realtime" || first.AudioUsage.DurationOrUnits != 1.5 {
+		t.Fatalf("unexpected audio usage: %#v", first.AudioUsage)
+	}
 }

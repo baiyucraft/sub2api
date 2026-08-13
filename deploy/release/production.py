@@ -133,6 +133,7 @@ class ProductionRelease:
         self.migration_231_status: str | None = None
         self.migration_232_status: str | None = None
         self.migration_233_status: str | None = None
+        self.migration_234_status: str | None = None
         self.result_path = gate_dir / "production-result.json"
         self.result: dict[str, object] = {"release_id": self.release_id, "status": "running", "stage": "init", "history": []}
         self._save_result()
@@ -259,6 +260,7 @@ class ProductionRelease:
                 "migration_231_status",
                 "migration_232_status",
                 "migration_233_status",
+                "migration_234_status",
             },
         )
         self.migration_status = values["migration_status"]
@@ -298,6 +300,7 @@ class ProductionRelease:
         self.migration_231_status = values["migration_231_status"]
         self.migration_232_status = values["migration_232_status"]
         self.migration_233_status = values["migration_233_status"]
+        self.migration_234_status = values["migration_234_status"]
         self.stage("production_preflight_verified", values)
 
     def run_route_canary(
@@ -446,7 +449,7 @@ class ProductionRelease:
         self.stage("backup_verified", {**values, **promoted})
 
     def migration_preflight(self) -> None:
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             return
         self.stage("migration_195_preflight")
         if self.migration_195_status not in {"absent", "verified"}:
@@ -462,7 +465,7 @@ class ProductionRelease:
             },
         )
         self.stage("migration_195_preflight_verified", values)
-        if self.profile["name"] in {"232", "233", "234"}:
+        if self.profile["name"] in {"232", "233", "234", "235"}:
             if self.migration_232_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 232 preflight status is unknown")
             self.stage("migration_232_preflight")
@@ -478,7 +481,7 @@ class ProductionRelease:
                 },
             )
             self.stage("migration_232_preflight_verified", values)
-        if self.profile["name"] in {"233", "234"}:
+        if self.profile["name"] in {"233", "234", "235"}:
             if self.migration_233_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 233 preflight status is unknown")
             self.stage("migration_233_preflight")
@@ -489,9 +492,20 @@ class ProductionRelease:
                 {"migration_233_duplicate_keys", "migration_233_table_state", "migration_233_preflight"},
             )
             self.stage("migration_233_preflight_verified", values)
+        if self.profile["name"] == "235" and self.migration_234_status not in {"absent", "verified"}:
+            raise RuntimeError("migration 234 preflight status is unknown")
+        if self.profile["name"] == "235":
+            self.stage("migration_234_preflight")
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_234_status})
+            values = self.run_remote(
+                "racknerd",
+                f"{env} {self.active_assets}/migration-234-assert.sh preflight",
+                {"migration_234_schema_state", "migration_234_preflight"},
+            )
+            self.stage("migration_234_preflight_verified", values)
 
     def bind_migration_plan(self) -> None:
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             return
         self.stage("migration_195_bind_recovery_point")
         env = quoted_env({"RELEASE_DIR": self.release_dir})
@@ -501,7 +515,7 @@ class ProductionRelease:
             {"migration_195_plan_sha256", "migration_195_recovery_sha256"},
         )
         self.stage("migration_195_plan_bound", values)
-        if self.profile["name"] in {"232", "233", "234"}:
+        if self.profile["name"] in {"232", "233", "234", "235"}:
             self.stage("migration_232_bind_recovery_point")
             env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_232_status})
             values = self.run_remote(
@@ -520,7 +534,7 @@ class ProductionRelease:
             "candidate_container", "candidate_port", "active_container", "active_port",
             "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
         }
-        if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             allowed.update({
                 "migration_195_affected", "migration_195_unproven",
                 "migration_195_plan_sha256", "migration_195_database_postflight", "migration_195_postflight",
@@ -528,34 +542,34 @@ class ProductionRelease:
                 "migration_195_account_mismatch", "migration_195_snapshot_missing", "migration_195_outbox_missing",
                 "migration_195_constraint_missing", "migration_195_trigger_missing",
             })
-        if getattr(self, "profile", {}).get("name") in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             allowed.add("managed_monitor_key_names_verified")
-        if getattr(self, "profile", {}).get("name") in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             allowed.add("reasoning_effort_policy_verified")
-        if getattr(self, "profile", {}).get("name") in {"202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             allowed.update({
                 "alipay_mobile_precreate_migration_verified",
                 "group_auth_cache_image_generation_verified",
                 "composite_model_routes_verified",
             })
-        if getattr(self, "profile", {}).get("name") in {"206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             allowed.update({
                 "session_id_columns_verified",
                 "live_request_type_verified",
                 "group_allow_live_verified",
                 "email_alias_index_verified",
             })
-        if getattr(self, "profile", {}).get("name") in {"208", "209", "210", "212", "213", "215", "232", "233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             allowed.add("passkey_schema_verified")
-        if getattr(self, "profile", {}).get("name") in {"209", "210", "212", "213", "215", "232", "233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             allowed.add("user_usage_aggregation_schema_verified")
-        if getattr(self, "profile", {}).get("name") in {"212", "213", "215", "232", "233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"212", "213", "215", "232", "233", "234", "235"}:
             allowed.add("group_profit_control_schema_verified")
             allowed.add("group_profit_auth_cache_trigger_verified")
-        if getattr(self, "profile", {}).get("name") in {"215", "232", "233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"215", "232", "233", "234", "235"}:
             allowed.add("usage_log_upstream_model_columns_verified")
             allowed.add("usage_log_upstream_model_mismatch_index_verified")
-        if getattr(self, "profile", {}).get("name") in {"232", "233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"232", "233", "234", "235"}:
             allowed.update({
                 "migration_232_backup_rows",
                 "migration_232_remaining_rows",
@@ -566,7 +580,7 @@ class ProductionRelease:
                 "group_media_pricing_schema_verified",
                 "group_media_auth_cache_trigger_verified",
             })
-        if getattr(self, "profile", {}).get("name") in {"233", "234"}:
+        if getattr(self, "profile", {}).get("name") in {"233", "234", "235"}:
             allowed.update({
                 "migration_233_duplicate_keys",
                 "migration_233_index_verified",
@@ -577,6 +591,8 @@ class ProductionRelease:
                 "migration_233_trigger_verified",
                 "migration_233_postflight",
             })
+        if getattr(self, "profile", {}).get("name") == "235":
+            allowed.update({"migration_234_schema_state", "migration_234_schema_verified", "migration_234_postflight"})
         values = self.run_remote(
             "racknerd",
             f"{env} {self.active_assets}/switch.sh",
@@ -734,7 +750,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         if recovery_needed is None:
             raise RuntimeError("old application slot state is unknown")
         migration_committed = self.migration_started
-        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
+        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             migration_committed = self.remote_migration_committed()
             if migration_committed is None:
                 raise RuntimeError("migration 195 committed state is unknown")
@@ -789,7 +805,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         self.stage("recovered", values)
 
     def remote_migration_committed(self) -> bool | None:
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
             return self.migration_started
         status_by_migration = {
             "195_upstream_scheduling_monitor_rates.sql": self.migration_195_status,
@@ -828,6 +844,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             "231_group_search_price_per_1k.sql": self.migration_231_status,
             "232_clear_non_grok_video_generation_config.sql": self.migration_232_status,
             "233_upstream_management.sql": self.migration_233_status,
+            "234_group_model_pricing.sql": self.migration_234_status,
         }
         pending = [migration for migration in self.manifest["migrations"] if status_by_migration.get(migration) == "absent"]
         pending_words = " ".join(shlex.quote(migration) for migration in pending)
@@ -873,10 +890,48 @@ fi
         return None
 
     def remote_pre_switch_recovery_needed(self) -> bool | None:
+        managed_upstream = "/etc/nginx/conf.d/sub2api-release-upstream.conf"
+        route_intent = f"{self.state_dir}/route-switch-intent"
+        route_switched = f"{self.state_dir}/route-switched"
+        script = f"""
+set -Eeuo pipefail
+slot=/opt/sub2api/active-app
+managed_upstream={managed_upstream}
+active_container=$(sed -n 's/^container=//p' "$slot" 2>/dev/null || true)
+active_port=$(sed -n 's/^port=//p' "$slot" 2>/dev/null || true)
+slot_valid=false
+if test -f "$slot" && test ! -L "$slot" && test "$(grep -c '^container=' "$slot")" = 1 && test "$(grep -c '^port=' "$slot")" = 1 && test -n "$active_container" && {{ test "$active_port" = 18080 || test "$active_port" = 18081; }}; then
+  slot_valid=true
+fi
+app_status=$(docker inspect -f '{{{{.State.Status}}}}' "$active_container" 2>/dev/null || true)
+nginx_status=$(systemctl is-active nginx 2>/dev/null || true)
+upstream_port=$(sed -nE 's/^[[:space:]]*server[[:space:]]+127[.]0[.]0[.]1:(18080|18081);[[:space:]]*$/\1/p' "$managed_upstream" 2>/dev/null || true)
+upstream_valid=false
+if test -f "$managed_upstream" && test ! -L "$managed_upstream" && test "$(printf '%s\n' "$upstream_port" | grep -c .)" = 1 && test "$upstream_port" = "$active_port"; then
+  upstream_valid=true
+fi
+route_marker_valid=true
+if test -e {route_intent} || test -L {route_intent}; then
+  route_marker_valid=false
+  if test -f {route_intent} && test ! -L {route_intent} && test -f {route_switched} && test ! -L {route_switched}; then
+    switched_port=$(sed -n 's/^route_port=//p' {route_switched})
+    if test "$(grep -c '^route_port=' {route_switched})" = 1 && test "$switched_port" = "$active_port"; then
+      route_marker_valid=true
+    fi
+  fi
+elif test -e {route_switched} || test -L {route_switched}; then
+  route_marker_valid=false
+fi
+if test -f {self.state_dir}/pre-image-id && test -f {self.state_dir}/SHA256SUMS && {{ test "$slot_valid" != true || test "$app_status" != running || test "$nginx_status" != active || test "$upstream_valid" != true || test "$route_marker_valid" != true; }}; then
+  printf 'recovery_needed=true\n'
+else
+  printf 'recovery_needed=false\n'
+fi
+"""
         try:
             values = self.run_remote(
                 "racknerd",
-                f"slot=/opt/sub2api/active-app; active_container=$(sed -n 's/^container=//p' \"$slot\" 2>/dev/null || true); active_port=$(sed -n 's/^port=//p' \"$slot\" 2>/dev/null || true); slot_valid=false; if test -f \"$slot\" && test ! -L \"$slot\" && test \"$(grep -c '^container=' \"$slot\")\" = 1 && test \"$(grep -c '^port=' \"$slot\")\" = 1 && test -n \"$active_container\" && {{ test \"$active_port\" = 18080 || test \"$active_port\" = 18081; }}; then slot_valid=true; fi; app_status=$(docker inspect -f '{{{{.State.Status}}}}' \"$active_container\" 2>/dev/null || true); nginx_status=$(systemctl is-active nginx 2>/dev/null || true); if test -f {self.state_dir}/pre-image-id && test -f {self.state_dir}/SHA256SUMS && {{ test \"$slot_valid\" != true || test \"$app_status\" != running || test \"$nginx_status\" != active; }}; then printf 'recovery_needed=true\\n'; else printf 'recovery_needed=false\\n'; fi",
+                script,
                 {"recovery_needed"},
             )
         except BaseException:
