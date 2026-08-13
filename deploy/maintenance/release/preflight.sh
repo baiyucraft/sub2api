@@ -159,7 +159,7 @@ pre_image_id=$(docker inspect -f '{{.Image}}' "$active_container")
 [[ $active_image == "$pre_image_id" ]]
 [[ $(docker image inspect -f '{{.Id}}' "$rendered_image") == "$pre_image_id" ]]
 jq -e '.services.sub2api.volumes | any(.target == "/app/data" and (.type == "bind" or .type == "volume"))' <<<"$compose_json" >/dev/null
-jq -e '(.services.sub2api.network_mode == "host" and .services.sub2api.environment.SERVER_HOST == "127.0.0.1" and (.services.sub2api.environment.SERVER_PORT | tostring) == "18080") or ((.services.sub2api.ports // []) | any(.target == 8080 and (.published | tostring) == "18080" and .host_ip == "127.0.0.1"))' <<<"$compose_json" >/dev/null
+jq -e --arg port "$active_port" '(.services.sub2api.network_mode == "host" and .services.sub2api.environment.SERVER_HOST == "127.0.0.1" and (.services.sub2api.environment.SERVER_PORT | tostring) == $port) or ((.services.sub2api.ports // []) | any(.target == 8080 and (.published | tostring) == $port and .host_ip == "127.0.0.1"))' <<<"$compose_json" >/dev/null
 printf 'preflight=pass\n'
 printf 'active_container=%s\n' "$active_container"
 printf 'active_port=%s\n' "$active_port"
