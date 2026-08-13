@@ -45,7 +45,6 @@ cat > "$override_tmp" <<EOF
 services:
   sub2api:
     image: $candidate_image_id
-    network_mode: host
     environment:
       SERVER_HOST: 127.0.0.1
       SERVER_PORT: "$candidate_port"
