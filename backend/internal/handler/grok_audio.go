@@ -90,25 +90,23 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 		model = "grok-voice-latest"
 	}
 	started := time.Now()
-	defer func() {
-		if result := grokRealtimeUsageResult(model, started, time.Now()); result != nil {
-			h.recordGrokVoiceUsage(c, apiKey, selection.Account, subscription, "realtime", nil, result)
-		}
-	}()
 	realtimeCtx, cancel := context.WithTimeout(c.Request.Context(), h.gatewayService.GrokRealtimeMaxSessionDuration())
 	defer cancel()
-	proxyErr := h.gatewayService.ProxyGrokRealtime(realtimeCtx, c, conn, selection.Account, token, model)
+	audioObserved, proxyErr := h.gatewayService.ProxyGrokRealtime(realtimeCtx, c, conn, selection.Account, token, model)
+	elapsed := time.Since(started)
 	if proxyErr != nil {
 		reqLog.Info("grok_realtime.proxy_failed", zap.Error(proxyErr))
 		if !isExpectedGrokRealtimeClose(proxyErr) {
 			_ = conn.Close(coderws.StatusInternalError, "upstream realtime websocket failed")
 		}
 	}
+	if result := grokRealtimeBillingResult(model, elapsed, audioObserved); result != nil {
+		h.recordGrokVoiceUsage(c, apiKey, selection.Account, subscription, "realtime", nil, result)
+	}
 }
 
-func grokRealtimeUsageResult(model string, startedAt, endedAt time.Time) *service.OpenAIForwardResult {
-	elapsed := endedAt.Sub(startedAt)
-	if elapsed <= 0 {
+func grokRealtimeBillingResult(model string, elapsed time.Duration, audioObserved bool) *service.OpenAIForwardResult {
+	if !audioObserved || elapsed <= 0 {
 		return nil
 	}
 	return &service.OpenAIForwardResult{

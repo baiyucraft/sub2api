@@ -422,6 +422,16 @@ PROFILES["234"] = {
     "migrations": [*PROFILES["233"]["migrations"]],
 }
 
+# Profile 235 combines the official group model-pricing migration with the
+# already released upstream-management contract. The historical 233/234
+# profiles remain immutable.
+PROFILES["235"] = {
+    **PROFILES["234"],
+    "name": "235",
+    "version": "0.1.176-baiyu",
+    "migrations": [*PROFILES["234"]["migrations"], "234_group_model_pricing.sql"],
+}
+
 
 def get_profile(name: str) -> dict:
     try:
