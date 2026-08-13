@@ -13,7 +13,7 @@ load_release_compose_files "$deploy_dir"
 switch_stage_file="$state_dir/switch-stage"
 mark_switch_stage() {
   local value=${1:?switch stage is required}
-  [[ $value =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_probe_started|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]
+  [[ $value =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_port_verified|candidate_probe_started|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]
   printf '%s\n' "$value" > "$switch_stage_file.tmp.$$"
   chmod 600 "$switch_stage_file.tmp.$$"
   mv -T -- "$switch_stage_file.tmp.$$" "$switch_stage_file"
@@ -180,8 +180,7 @@ fi
 mark_switch_stage migration_committed
 docker rm "$migration_container" >/dev/null
 [[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
-docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_container" --no-deps \
-  -p "127.0.0.1:${candidate_port}:8080" \
+BIND_HOST=127.0.0.1 SERVER_PORT="$candidate_port" docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_container" --no-deps --service-ports \
   -e SERVER_PORT=8080 \
   -e "SUB2API_INSTANCE_ID=$candidate_instance_id" \
   -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null
@@ -193,6 +192,8 @@ done
 [[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]]
 mark_switch_stage candidate_healthy
+[[ $(docker port "$candidate_container" 8080/tcp) == "127.0.0.1:${candidate_port}" ]]
+mark_switch_stage candidate_port_verified
 printf 'container=%s\nport=%s\nimage_id=%s\n' "$candidate_container" "$candidate_port" "$candidate_image_id" > "$state_dir/candidate-app"
 chmod 600 "$state_dir/candidate-app"
 candidate_headers=$(mktemp /tmp/sub2api-candidate-health.XXXXXX)
