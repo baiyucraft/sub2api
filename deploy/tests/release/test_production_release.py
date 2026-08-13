@@ -1222,6 +1222,19 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("remote_migration_committed", production)
         self.assertIn("migration 195 committed state is unknown", production)
 
+    def test_switch_failure_stage_is_preserved_before_recovery(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        switch = self.script("switch.sh")
+        stages = (
+            "initialized", "migration_started", "migration_completed", "schema_verified",
+            "migration_committed", "candidate_started", "candidate_healthy", "runtime_verified",
+        )
+        for stage in stages:
+            self.assertIn(f"mark_switch_stage {stage}", switch)
+        self.assertIn("switch_failure_stage", production)
+        self.assertIn('self.stage("migration_switch_failed"', production)
+        self.assertLess(production.index('self.stage("migration_switch_failed"'), production.index("def verify_and_finalize"))
+
     def test_candidate_forces_the_container_port_matching_its_publish_target(self) -> None:
         switch = self.script("switch.sh")
         candidate_start = switch[switch.index('docker compose "${candidate_compose_args[@]}" run -d'):]

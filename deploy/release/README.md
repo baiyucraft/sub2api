@@ -24,6 +24,8 @@ python deploy/release.py cleanup-production <release_id> --mode apply --plan-sha
 
 发布恢复点仅在受限上传阶段明确失败时，才以新的 transport 名称重新生成并重试最多两次；数据库、Redis、配置、归档或加密阶段失败仍立即停止。每次失败的阶段、退出码和尝试次数进入 `production-result.json`，协调恢复不得抹去该诊断证据。
 
+迁移与候选启动阶段使用不含凭据的原子 stage marker。`switch.sh` 失败时，runner 必须在协调恢复前把最后完成的阶段写入 `production-result.json`；恢复仍按原合同清理远端明文 marker，不因诊断而保留额外敏感状态。
+
 `doctor` 和 `bootstrap-production` 可独立用于排查或首次初始化。日常只需执行 `deploy-start`：
 它先检查本地、VM 与外部节点，再幂等执行生产 bootstrap，最后检查 RackNerd；任何
 预检失败都不得进入 Gate、停写或迁移。
