@@ -428,20 +428,24 @@ class ProductionRelease:
                     "MINIMUM_FREE_BYTES": self.profile["minimum_backup_free_bytes"],
                 }
             )
-            try:
-                promoted = self.run_remote(
-                    "backup",
-                    f"{promote_env} {remote}",
-                    {"backup_promotion", "release_artifact", "release_sha256", "release_free_bytes"},
-                    timeout=600,
-                )
-            except BaseException:
-                promoted = self.run_remote(
-                    "backup",
-                    f"{promote_env} {remote}",
-                    {"backup_promotion", "release_artifact", "release_sha256", "release_free_bytes"},
-                    timeout=600,
-                )
+            promoted = None
+            last_error: BaseException | None = None
+            for attempt, delay in enumerate((0, 5, 15), start=1):
+                if delay:
+                    time.sleep(delay)
+                try:
+                    promoted = self.run_remote(
+                        "backup",
+                        f"{promote_env} {remote}",
+                        {"backup_promotion", "release_artifact", "release_sha256", "release_free_bytes"},
+                        timeout=600,
+                    )
+                    break
+                except BaseException as error:
+                    last_error = error
+            if promoted is None:
+                assert last_error is not None
+                raise last_error
         finally:
             self.run_remote("backup", f"rm -rf {temp_dir} && printf 'cleanup=true\\n'", {"cleanup"})
         if promoted["release_sha256"] != values["artifact_sha256"]:
