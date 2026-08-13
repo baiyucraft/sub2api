@@ -1128,6 +1128,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("redis_already_expired", restore)
         self.assertNotIn("core-counts-restored.txt", restore)
         self.assertNotIn("core-content-digests-restored.txt", restore)
+        self.assertIn('docker stop -t 30 "$candidate_container"', restore)
+        self.assertLess(restore.index('docker stop -t 30 "$candidate_container"'), restore.index('docker rm -f "$active_container"'))
 
     def test_coordinated_restore_seeds_redis_7_multipart_aof_from_verified_rdb(self) -> None:
         restore = self.script("restore.sh")

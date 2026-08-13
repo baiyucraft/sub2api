@@ -146,7 +146,7 @@ class SupervisorTest(unittest.TestCase):
         self.write(identifier, "runner.json", {"status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1})
         self.write(identifier, "gate/production-result.json", {"stage": "stage_assets_verified", "status": "blocked_reconciliation", "history": [{"stage": "stage_assets"}, {"stage": "stage_assets_verified"}]})
         document = {"manifest": {"release_id": identifier}, "evidence": {"candidate_image_id": "sha256:" + "b" * 64}}
-        remote = {"active_claim": "matching", "consumed": "false", "recovered": "false", "state_present": "false", "app_health": "healthy", "nginx_active": "true", "backup_timer_enabled": "true", "running_image_id": "sha256:" + "a" * 64}
+        remote = {"active_claim": "matching", "consumed": "false", "recovered": "false", "state_present": "false", "app_health": "healthy", "nginx_active": "true", "backup_timer_enabled": "true", "running_image_id": "sha256:" + "a" * 64, "candidate_exists": "false", "candidate_health": "absent"}
         ssh = mock.Mock()
         ssh.run.return_value.values = remote
         with mock.patch.object(supervisor, "verify_gate", return_value=document), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch.object(supervisor, "_runner_alive", return_value=False):
@@ -160,7 +160,7 @@ class SupervisorTest(unittest.TestCase):
         self.write(identifier, "runner.json", {"status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1})
         self.write(identifier, "gate/production-result.json", {"stage": "stage_assets_verified", "status": "blocked_reconciliation", "history": [{"stage": "stage_assets_verified"}]})
         document = {"manifest": {"release_id": identifier}, "evidence": {"candidate_image_id": "sha256:" + "b" * 64}}
-        remote = {"active_claim": "matching", "consumed": "false", "recovered": "false", "state_present": "false", "app_health": "healthy", "nginx_active": "true", "backup_timer_enabled": "true", "running_image_id": "unknown"}
+        remote = {"active_claim": "matching", "consumed": "false", "recovered": "false", "state_present": "false", "app_health": "healthy", "nginx_active": "true", "backup_timer_enabled": "true", "running_image_id": "unknown", "candidate_exists": "false", "candidate_health": "absent"}
         ssh = mock.Mock()
         ssh.run.return_value.values = remote
         with mock.patch.object(supervisor, "verify_gate", return_value=document), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch.object(supervisor, "_runner_alive", return_value=False):

@@ -365,6 +365,9 @@ state_present=false; test -e {state_dir} && state_present=true
 plaintext_cleaned=false; test -f /opt/sub2api/releases/.active-release/plaintext-cleaned && test ! -L /opt/sub2api/releases/.active-release/plaintext-cleaned && plaintext_cleaned=true
 route_started=false; if test -e {state_dir}/route-switch-intent || test -e {state_dir}/route-switched; then route_started=true; fi
 migration_started=false; if test -e {state_dir}/migration-committed || find {release_dir} {state_dir} -maxdepth 2 -type f -name '*migration*committed*' -print -quit 2>/dev/null | grep -q .; then migration_started=true; fi
+candidate_container=sub2api-candidate-{identifier}
+candidate_exists=false; docker inspect "$candidate_container" >/dev/null 2>&1 && candidate_exists=true
+candidate_health=absent; test "$candidate_exists" = true && candidate_health=$(docker inspect -f '{{{{if .State.Health}}}}{{{{.State.Health.Status}}}}{{{{else}}}}none{{{{end}}}}' "$candidate_container" 2>/dev/null || printf unknown)
 slot=/opt/sub2api/active-app
 active_container=$(sed -n 's/^container=//p' "$slot" 2>/dev/null || true)
 app_health=unknown
@@ -375,9 +378,9 @@ if test -n "$active_container" && docker inspect "$active_container" >/dev/null 
 fi
 nginx_active=false; test "$(systemctl is-active nginx 2>/dev/null || true)" = active && nginx_active=true
 backup_timer_enabled=false; test "$(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true)" = enabled && backup_timer_enabled=true
-printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\nplaintext_cleaned=%s\nroute_started=%s\nmigration_started=%s\napp_health=%s\nnginx_active=%s\nbackup_timer_enabled=%s\nrunning_image_id=%s\n' "$claim" "$consumed" "$recovered" "$state_present" "$plaintext_cleaned" "$route_started" "$migration_started" "$app_health" "$nginx_active" "$backup_timer_enabled" "$running_image_id"
+printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\nplaintext_cleaned=%s\nroute_started=%s\nmigration_started=%s\ncandidate_exists=%s\ncandidate_health=%s\napp_health=%s\nnginx_active=%s\nbackup_timer_enabled=%s\nrunning_image_id=%s\n' "$claim" "$consumed" "$recovered" "$state_present" "$plaintext_cleaned" "$route_started" "$migration_started" "$candidate_exists" "$candidate_health" "$app_health" "$nginx_active" "$backup_timer_enabled" "$running_image_id"
 """
-    remote = SSHRunner().run("racknerd", script, {"active_claim", "consumed", "recovered", "state_present", "plaintext_cleaned", "route_started", "migration_started", "app_health", "nginx_active", "backup_timer_enabled", "running_image_id"}).values
+    remote = SSHRunner().run("racknerd", script, {"active_claim", "consumed", "recovered", "state_present", "plaintext_cleaned", "route_started", "migration_started", "candidate_exists", "candidate_health", "app_health", "nginx_active", "backup_timer_enabled", "running_image_id"}).values
     history = production.get("history") if isinstance(production.get("history"), list) else []
     stages = {item.get("stage") for item in history if isinstance(item, dict)}
     runner_alive = _runner_alive(runner)
@@ -400,6 +403,7 @@ printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\nplaintext_
         and remote["backup_timer_enabled"] == "true" and remote["running_image_id"] != candidate
         and running_image_valid
         and "stage_assets_verified" in stages and not stages.intersection(DANGEROUS_STAGES)
+        and remote.get("candidate_exists") == "false"
     ):
         decision, failure_code = "claim_only_recover", "caller_interrupted_after_claim"
     elif (
@@ -408,6 +412,7 @@ printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\nplaintext_
         and remote.get("migration_started", "true") == "false" and remote["app_health"] == "healthy"
         and remote["nginx_active"] == "true" and remote["backup_timer_enabled"] == "true"
         and remote["running_image_id"] != candidate and running_image_valid
+        and remote.get("candidate_exists") == "true"
     ):
         decision, failure_code = "cleanup_completed_recover", "cleanup_reply_rejected"
     elif remote["state_present"] == "true":
@@ -420,6 +425,7 @@ printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\nplaintext_
         "app_health": remote["app_health"],
         "nginx_active": remote["nginx_active"], "backup_timer_enabled": remote["backup_timer_enabled"],
         "running_image_id": remote["running_image_id"], "candidate_image_id": candidate,
+        "candidate_exists": remote.get("candidate_exists", "false"), "candidate_health": remote.get("candidate_health", "absent"),
     }
 
 
@@ -500,7 +506,9 @@ printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_sta
     else:
         if inspection["decision"] not in {"claim_only_recover", "cleanup_completed_recover"}:
             raise RuntimeError(f"automatic recovery is not allowed: {inspection['decision']}")
-        cleanup_command = "/opt/sub2api/releases/.active-release/assets/cleanup-state.sh" if inspection["decision"] == "claim_only_recover" else ":"
+        candidate_name = f"sub2api-candidate-{identifier}"
+        cleanup_candidate = f"if docker inspect {candidate_name} >/dev/null 2>&1; then docker stop -t 30 {candidate_name} >/dev/null 2>&1 || true; docker rm {candidate_name} >/dev/null 2>&1 || true; fi"
+        cleanup_command = f"{cleanup_candidate}\n/opt/sub2api/releases/.active-release/assets/cleanup-state.sh" if inspection["decision"] == "claim_only_recover" else cleanup_candidate
         script = f"""set -Eeuo pipefail
 export RELEASE_DIR={release_dir}
 {cleanup_command}
