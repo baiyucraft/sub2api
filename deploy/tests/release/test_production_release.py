@@ -1125,6 +1125,19 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("redis_restored_expiring", restore)
         self.assertIn("redis_backup_dbsize - redis_dbsize", restore)
 
+    def test_coordinated_restore_seeds_redis_7_multipart_aof_from_verified_rdb(self) -> None:
+        restore = self.script("restore.sh")
+        checksum_check = 'diff -u "$recovery/metadata/redis-files.sha256"'
+        aof_seed = 'install -m 644 "$redis_source/dump.rdb" "$redis_source/appendonlydir/appendonly.aof.1.base.rdb"'
+        redis_start = "docker start sub2api-redis"
+
+        self.assertIn('index("--appendonly")', restore)
+        self.assertIn('startswith("--appendonly=")', restore)
+        self.assertIn("appendonly.aof.manifest", restore)
+        self.assertIn("startoffset 0", restore)
+        self.assertLess(restore.index(checksum_check), restore.index(aof_seed))
+        self.assertLess(restore.index(aof_seed), restore.index(redis_start))
+
     def test_migration_195_preflight_precedes_switch_and_commit_is_reconciled(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         switch = self.script("switch.sh")
