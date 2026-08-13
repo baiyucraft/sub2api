@@ -55,20 +55,6 @@ def runner_checksum() -> str:
     return digest.hexdigest()
 
 
-def runner_checksum_for_commit(commit: str) -> str:
-    """Calculate the release-runner identity recorded by a historical Gate."""
-    root = workspace_root()
-    commit = validate_commit(commit)
-    digest = hashlib.sha256()
-    for path in release_asset_paths():
-        relative = path.relative_to(root).as_posix()
-        digest.update(relative.encode())
-        digest.update(b"\0")
-        digest.update(subprocess.check_output(["git", "show", f"{commit}:{relative}"], cwd=root))
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
 def release_asset_paths() -> list[Path]:
     root = workspace_root()
     candidates = [root / "deploy" / "release.py"]
