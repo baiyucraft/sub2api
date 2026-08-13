@@ -87,6 +87,37 @@ func TestReleaseActivationControllerUngatedFailureStaysNotReady(t *testing.T) {
 	require.False(t, controller.ready.Load())
 }
 
+func TestReleaseActivationControllerStartsPreactivationTaskWhileGateIsClosed(t *testing.T) {
+	controller := &releaseActivationController{
+		activationFile: filepath.Join(t.TempDir(), "active-instance"),
+		instanceID:     "candidate-1",
+	}
+	var calls atomic.Int32
+	controller.startBeforeActivation(func() error {
+		calls.Add(1)
+		return nil
+	})
+	controller.closeRegistration()
+
+	require.Equal(t, int32(1), calls.Load())
+	require.False(t, controller.ready.Load(), "pre-activation work must not activate the remaining background tasks")
+}
+
+func TestReleaseActivationControllerPreactivationFailureBlocksReadiness(t *testing.T) {
+	activationFile := filepath.Join(t.TempDir(), "active-instance")
+	controller := &releaseActivationController{
+		activationFile: activationFile,
+		instanceID:     "candidate-1",
+	}
+	controller.startBeforeActivation(func() error { return errors.New("snapshot failed") })
+	controller.closeRegistration()
+	require.NoError(t, os.WriteFile(activationFile, []byte("candidate-1\n"), 0o600))
+
+	require.Eventually(t, func() bool { return controller.failed.Load() }, 2*time.Second, 20*time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	require.False(t, controller.ready.Load() && !controller.failed.Load())
+}
+
 func TestReleaseActivationControllerBlockingAsyncTaskDoesNotBlockCheckedReadiness(t *testing.T) {
 	activationFile := filepath.Join(t.TempDir(), "active-instance")
 	controller := &releaseActivationController{
