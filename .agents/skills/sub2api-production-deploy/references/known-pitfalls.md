@@ -29,6 +29,15 @@
 - 预防测试：历史无字段兼容、新布局 allowlist、commit blob checksum、非法嵌套路径和 migration assertion 路径。
 - 状态：收尾中，需通过完整 release suite 与 VM Gate 后关闭。
 
+## 候选启动失败后的日志丢失
+
+- 现象：停机发布在 `candidate_started` 后未达到 healthy，协调恢复删除候选容器后只能看到失败阶段，无法继续读取候选启动日志。
+- 根因：生产 Docker 使用 `json-file` 日志驱动；容器删除会同时删除对应日志文件，而原始 release 日志此前只在最终接管阶段追加容器日志。
+- 证据：release `235-5063cf9fd0c4-1786713743-0d64fa51` 在 `candidate_started -> candidate_healthy` 之间失败并完成协调恢复；候选无 OOM、端口占用或数据库/Redis 分类证据，但容器删除后日志不可恢复。
+- 修复：候选健康等待失败时，在任何恢复或容器删除前，把候选最近 15 分钟日志追加到生产机 root-only `production.raw.log`，并原子保存状态、健康、退出码、OOM、重启次数、healthcheck 记录数、失败类型和脚本行号。
+- 预防测试：候选提前退出立即失败、健康超时分类、root-only 原始日志追加、结构化字段白名单、协调恢复前证据已落盘。
+- 状态：修复中，需通过 release suite、VM Gate 和下一次生产停机发布验证。
+
 ## SSH 超时与重复 runner
 
 - 现象：调用端超时后误以为 runner 未执行，重新启动第二个发布。
