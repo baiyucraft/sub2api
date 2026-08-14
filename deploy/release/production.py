@@ -704,7 +704,17 @@ class ProductionRelease:
                 allowed,
                 timeout=1200,
             )
-        except BaseException:
+        except BaseException as error:
+            message = str(error)
+            failure_reason = "unknown"
+            if "returned an undeclared field:" in message:
+                failure_reason = "undeclared_field"
+            elif "omitted required fields:" in message:
+                failure_reason = "missing_field"
+            elif "returned unexpected stderr" in message:
+                failure_reason = "unexpected_stderr"
+            elif "stage failed with exit code" in message:
+                failure_reason = "remote_exit"
             try:
                 failure = self.run_remote(
                     "racknerd",
@@ -721,8 +731,9 @@ class ProductionRelease:
                     {"switch_failure_stage", "candidate_http_code", "candidate_curl_exit"},
                 )
             except BaseException:
-                self.stage("migration_switch_failed", {"switch_failure_stage": "unknown"})
+                self.stage("migration_switch_failed", {"switch_failure_stage": "unknown", "switch_failure_reason": failure_reason})
             else:
+                failure["switch_failure_reason"] = failure_reason
                 self.stage("migration_switch_failed", failure)
             raise
         self.stage("candidate_started", {
