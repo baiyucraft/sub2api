@@ -349,7 +349,9 @@ def verify_result(args: argparse.Namespace) -> None:
 def _inspect_reconciliation(identifier: str) -> dict[str, Any]:
     run_dir = _run_dir(identifier)
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
-    runner = _read_json(run_dir / "runner.json", required=True) or {}
+    runner_document = _read_json(run_dir / "runner.json")
+    runner_metadata_present = runner_document is not None
+    runner = runner_document or {}
     production = _read_json(run_dir / "gate" / "production-result.json", required=True) or {}
     document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")), allow_expired=True, allow_historical_runner=True)
     candidate = document["evidence"]["candidate_image_id"]
@@ -420,6 +422,8 @@ printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\nplaintext_
         decision, failure_code = "cleanup_completed_recover", "cleanup_reply_rejected"
     elif remote["state_present"] == "true":
         decision, failure_code = "coordinated_restore_required", "release_state_exists"
+    if not runner_metadata_present and decision not in {"already_consumed", "already_recovered", "coordinated_restore_required"}:
+        decision, failure_code = "blocked", "runner_metadata_missing"
     return {
         "release_id": identifier, "decision": decision, "failure_code": failure_code,
         "runner_alive": runner_alive, "active_claim": remote["active_claim"],
@@ -540,7 +544,7 @@ printf 'release_claim_reconciled=true\nplaintext_state_removed=true\n'
     state_path = run_dir / "release-state.json"
     state = RunState.load(state_path) if state_path.exists() else RunState.create(state_path, identifier)
     state.transition("production_release", "recovered", values)
-    runner = _read_json(run_dir / "runner.json", required=True) or {}
-    if runner.get("status") != "verified":
+    runner = _read_json(run_dir / "runner.json")
+    if runner is not None and runner.get("status") != "verified":
         _update_runner(run_dir, status="recovered")
     print(canonical_json({"release_id": identifier, "status": "recovered", "claim_final_state": "recovered"}).decode("ascii"))
