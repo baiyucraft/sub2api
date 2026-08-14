@@ -26,6 +26,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - signer 公钥、私钥派生公钥、RackNerd trust key、validator 和 Gate 中记录的 checksum 任一不一致，必须停止，不得通过 bootstrap 自动修复后继续发布。
 - validator 与 signer helper 必须作为同一版本单元暂存、验签自测后一次激活；不得单独升级其中一个，也不得在 Compose 闭包未验证前删除旧容器或恢复数据库。
 - 一个 release 只允许一个 runner、一个 active claim 和一个 candidate；runner 返回异常、SSH 超时或测试断言失败后，必须先按 committed marker 和结构化状态做 reconciliation，禁止并发或重复启动第二个 `deploy`。
+- 生产 release 的完整远端 stdout/stderr 与最终容器启动日志只允许写入该 release 目录下 root-only 原始日志（目录 `0700`、文件 `0600`）；不得上传、复制到本地 `.tmp`、直接回显到控制台或最终报告。故障诊断先读取结构化阶段、退出码和固定分类，原始日志仅在生产机上做受控脱敏检索。
 - profile 级迁移状态不能代替单个迁移状态。生产 preflight 必须同时返回整体状态和每个关键迁移的 `absent`/`verified`/`unknown` 状态；混合状态按已提交迁移跳过、缺失迁移按顺序执行，任何 checksum 或语义不一致立即停止。
 - 任何备份、checksum、image ID、迁移、磁盘、健康、认证或空间断言失败，立即停止并报告。
 - 生产 deploy 的生命周期必须长于调用工具生命周期；调用端只负责启动和观察，不能拥有或终止 release runner。标准入口为 `deploy-start`、`status`、`wait`、`verify-result`，不得把裸前台 `deploy` 作为日常入口。
