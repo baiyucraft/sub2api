@@ -13,7 +13,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .bootstrap import bootstrap_trust
+from .bootstrap import bootstrap_trust, install_vm_validator
 from .atomic import atomic_write, canonical_json
 from .doctor import NODES, ReleaseDoctor
 from .gate import verify_gate
@@ -203,10 +203,18 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
         if logger:
             logger.emit(stage="doctor", script="release.cli", event="stage_started", message="Release doctor started")
         doctor = ReleaseDoctor(args.profile, args.commit)
-        doctor.run(("local", "vm", "dmit", "backup"))
+        doctor.run(("local",))
+        runner = doctor._ssh()
+        install_vm_validator(runner)
+        if logger:
+            logger.emit(
+                stage="vm_release_unit", script="release.cli", event="stage_finished",
+                message="Existing VM release unit updated atomically", exit_code=0,
+            )
+        doctor.run(("vm", "dmit", "backup"))
         if logger:
             logger.emit(stage="doctor", script="release.cli", event="nodes_verified", message="Local, VM, DMIT and backup checks verified")
-        bootstrap_production(args.profile, doctor.runner)
+        bootstrap_production(args.profile, runner)
         if logger:
             logger.emit(stage="bootstrap_production", script="release.cli", event="stage_finished", message="Production bootstrap verified", exit_code=0)
         doctor.run(("racknerd",))
