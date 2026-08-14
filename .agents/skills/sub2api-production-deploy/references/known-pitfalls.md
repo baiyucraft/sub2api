@@ -80,6 +80,14 @@
 - 预防测试：拒绝硬编码 `127.0.0.1:18080/health`，验证动态端口命令、非法端口 fail-closed，并在脚本复查中统一搜索固定槽位 URL。
 - 状态：已修复，等待下一次只读巡检与 VM Gate 验证。
 
+## VM release unit 更新晚于 doctor
+
+- 现象：仓库中的 `vm-validate` 更新后，`deploy-start` 在 VM doctor 阶段因 checksum 不一致停止；真正负责原子更新 validator 的 VM Gate 尚未开始，形成顺序死锁。
+- 根因：编排先执行完整 local/VM doctor，随后才创建 VM Gate；`install_vm_validator` 位于 Gate 内部，无法在 doctor 前生效。
+- 修复：先执行本地 Git、origin 和完整 SHA doctor，再使用已有 signer key 原子更新 validator、Gate signer、DR signer 同一版本单元；更新成功后才执行 VM、DMIT、备份机和生产 doctor。
+- 预防测试：验证本地 doctor 失败时不写 VM；release unit 更新失败时不进入远端 doctor、Gate 或生产；成功路径严格保持 `local doctor -> release unit update -> VM/external doctor -> production bootstrap -> RackNerd doctor -> VM Gate`。
+- 状态：已修复，等待新提交的实际 deploy-start 验证。
+
 ## SSH 超时与重复 runner
 
 - 现象：调用端超时后误以为 runner 未执行，重新启动第二个发布。
