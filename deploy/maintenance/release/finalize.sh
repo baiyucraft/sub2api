@@ -77,9 +77,18 @@ done
 final_headers=$(mktemp /tmp/sub2api-final-health.XXXXXX)
 rollback_upstream=$(mktemp /tmp/sub2api-final-upstream.XXXXXX)
 trap 'rm -f "$final_headers" "$rollback_upstream"' EXIT
-curl -sS -D "$final_headers" -o /dev/null "http://127.0.0.1:${old_port}/health"
-assert_http_header_equals "$final_headers" X-Sub2API-Instance "$final_instance_id"
-assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready false
+final_instance_ready=false
+for _ in $(seq 1 30); do
+  : > "$final_headers"
+  if [[ $(curl -sS -D "$final_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${old_port}/health" 2>/dev/null || true) == 200 ]] &&
+     assert_http_header_equals "$final_headers" X-Sub2API-Instance "$final_instance_id" &&
+     assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready false; then
+    final_instance_ready=true
+    break
+  fi
+  sleep 1
+done
+[[ $final_instance_ready == true ]]
 
 # Activate and prove that all process-wide background services accepted the
 # marker before routing traffic to the final Compose-managed instance.
@@ -88,13 +97,18 @@ activation_host_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "
 printf '%s\n' "$final_instance_id" > "$activation_host_dir/.sub2api-active-instance.tmp"
 chmod 600 "$activation_host_dir/.sub2api-active-instance.tmp"
 mv -T -- "$activation_host_dir/.sub2api-active-instance.tmp" "$activation_host_dir/.sub2api-active-instance"
+background_ready=false
 for _ in $(seq 1 30); do
   : > "$final_headers"
-  curl -sS -D "$final_headers" -o /dev/null "http://127.0.0.1:${old_port}/health"
-  assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready true && break
+  if [[ $(curl -sS -D "$final_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${old_port}/health" 2>/dev/null || true) == 200 ]] &&
+     assert_http_header_equals "$final_headers" X-Sub2API-Instance "$final_instance_id" &&
+     assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready true; then
+    background_ready=true
+    break
+  fi
   sleep 1
 done
-assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready true
+[[ $background_ready == true ]]
 
 # Phase 2: atomically route new requests to the final instance.  Keep the
 # temporary candidate alive until its own accepted requests drain naturally.
