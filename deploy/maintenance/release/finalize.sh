@@ -16,6 +16,14 @@ public_headers=
 finalize_cleanup() {
   local code=$?
   set +e
+  if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} && $SUB2API_RELEASE_RAW_LOG == "$release_dir/logs/production.raw.log" && -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]]; then
+    printf '\n[%s] container=sub2api\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SUB2API_RELEASE_RAW_LOG"
+    docker logs --since 15m sub2api >> "$SUB2API_RELEASE_RAW_LOG" 2>&1 || true
+    if docker inspect "$candidate_container" >/dev/null 2>&1; then
+      printf '\n[%s] container=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$candidate_container" >> "$SUB2API_RELEASE_RAW_LOG"
+      docker logs --since 15m "$candidate_container" >> "$SUB2API_RELEASE_RAW_LOG" 2>&1 || true
+    fi
+  fi
   rm -f ${final_headers:+"$final_headers"} ${rollback_upstream:+"$rollback_upstream"} ${public_headers:+"$public_headers"}
   if [[ $code -ne 0 ]]; then
     local failure_tmp="$state_dir/finalize-failure.tmp.$$"
@@ -87,7 +95,12 @@ jq -e --arg port "$old_port" --arg instance "$final_instance_id" '
   .services.sub2api.container_name == "sub2api" and
   .services.sub2api.environment.SUB2API_INSTANCE_ID == $instance and
   .services.sub2api.environment.SUB2API_BACKGROUND_ACTIVATION_FILE == "/app/data/.sub2api-active-instance" and
-  ((.services.sub2api.ports // []) | any(.target == 8080 and (.published | tostring) == $port and .host_ip == "127.0.0.1"))
+  (
+    (.services.sub2api.network_mode == "host" and
+     .services.sub2api.environment.SERVER_HOST == "127.0.0.1" and
+     (.services.sub2api.environment.SERVER_PORT | tostring) == $port) or
+    ((.services.sub2api.ports // []) | any((.target | tostring) == "8080" and (.published | tostring) == $port and .host_ip == "127.0.0.1"))
+  )
 ' <<<"$compose_json" >/dev/null
 finalize_phase=final_container_start
 docker compose "${release_compose_args[@]}" up -d --no-deps --force-recreate sub2api >/dev/null 2>&1
