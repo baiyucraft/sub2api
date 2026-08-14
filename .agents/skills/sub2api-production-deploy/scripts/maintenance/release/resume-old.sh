@@ -28,10 +28,23 @@ if [[ " ${release_compose_files[*]} " != *" docker-compose.release-active.yml "*
   rm -f "$deploy_dir/docker-compose.release-active.yml"
 fi
 load_release_compose_files "$deploy_dir"
+resume_base_compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
+resume_network_mode=$(sub2api_compose_network_mode "$resume_base_compose_json" "$old_port")
+resume_override_tmp="$deploy_dir/docker-compose.release-active.yml.resume.$$"
+write_release_active_override "$resume_override_tmp" "$(<"$state_dir/pre-image-id")" "$old_instance_id" "$old_port" "$resume_network_mode"
+chmod 600 "$resume_override_tmp"
+mv -T -- "$resume_override_tmp" "$deploy_dir/docker-compose.release-active.yml"
+env_tmp="$deploy_dir/.env.resume.$$"
+awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE|BIND_HOST|SERVER_PORT)=/' "$deploy_dir/.env" > "$env_tmp"
+printf 'COMPOSE_FILE=%s\n' "$(release_compose_value_with_active_override)" >> "$env_tmp"
+printf 'SUB2API_RELEASE_IMAGE=%s\nBIND_HOST=127.0.0.1\nSERVER_PORT=%s\n' "$(<"$state_dir/pre-image-id")" "$old_port" >> "$env_tmp"
+chmod --reference="$deploy_dir/.env" "$env_tmp"
+mv -T -- "$env_tmp" "$deploy_dir/.env"
+load_release_compose_files "$deploy_dir"
 compose_image=$(docker compose "${release_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
 [[ -n $compose_image ]]
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$(<"$state_dir/pre-image-id")" ]]
-resume_network_mode=$(assert_sub2api_compose_closure "$deploy_dir" "$old_port" "$(<"$state_dir/pre-image-id")" "$old_instance_id")
+[[ $(assert_sub2api_compose_closure "$deploy_dir" "$old_port" "$(<"$state_dir/pre-image-id")" "$old_instance_id") == "$resume_network_mode" ]]
 docker compose "${release_compose_args[@]}" up -d --no-deps --force-recreate sub2api >/dev/null 2>&1
 for _ in $(seq 1 90); do
   [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api) == healthy ]] && break

@@ -6,10 +6,30 @@ release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 minimum_free_bytes=${MINIMUM_FREE_BYTES:-10737418240}
 canary_key_file=${CANARY_KEY_FILE:-/root/.config/sub2api-release/canary-api-key}
 source /opt/sub2api/releases/.active-release/assets/context.sh
+preflight_phase=identity
+failure_line=0
+preflight_failure_file="$release_dir/preflight-failure"
+record_preflight_result() {
+  local code=$?
+  trap - ERR EXIT
+  if [[ $code -eq 0 ]]; then
+    rm -f "$preflight_failure_file"
+  else
+    local failure_tmp="$preflight_failure_file.tmp.$$"
+    printf 'preflight_failure_phase=%s\npreflight_failure_line=%s\n' "$preflight_phase" "$failure_line" > "$failure_tmp"
+    chmod 600 "$failure_tmp"
+    mv -T -- "$failure_tmp" "$preflight_failure_file"
+    printf 'preflight_failure_phase=%s preflight_failure_line=%s\n' "$preflight_phase" "$failure_line" >&2
+  fi
+  exit "$code"
+}
+trap 'failure_line=$LINENO' ERR
+trap record_preflight_result EXIT
 [[ ! -e $release_dir/.consumed ]]
 [[ -f $canary_key_file && ! -L $canary_key_file && $(stat -c '%a' "$canary_key_file") == 600 ]]
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
 cd "$deploy_dir"
+preflight_phase=active_runtime
 [[ -f docker-compose.yml && -f .env ]]
 load_release_compose_files "$deploy_dir"
 [[ -f $active_slot_file && ! -L $active_slot_file ]]
@@ -24,12 +44,14 @@ active_image=$(sed -n 's/^image_id=//p' "$active_slot_file")
 [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-postgres) == healthy ]]
 [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis) == healthy ]]
 [[ $(systemctl is-active nginx) == active ]]
+preflight_phase=backup_contract
 [[ $(systemctl is-active sub2api-backup.service 2>/dev/null || true) != active ]]
 [[ $(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true) == enabled ]]
 backup_exec=$(systemctl show sub2api-backup.service -p ExecStart --value)
 backup_path=$(sed -n 's/.*path=\([^ ;}]*\).*/\1/p' <<<"$backup_exec" | head -n1)
 [[ -f $backup_path && ! -L $backup_path ]]
 grep -Fq '/run/lock/sub2api-backup-global.lock' "$backup_path"
+preflight_phase=migration_contract
 migration_status=verified
 migration_195_status=verified
 migration_196_status=not_applicable
@@ -153,8 +175,10 @@ while IFS=$'\t' read -r migration migration_checksum; do
     [[ $migration_state == "$migration|$migration_checksum" ]]
   fi
 done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
+preflight_phase=capacity
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
 (( free_bytes >= minimum_free_bytes ))
+preflight_phase=compose_contract
 compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
 rendered_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
 [[ -n $rendered_image ]]
@@ -163,8 +187,9 @@ pre_image_id=$(docker inspect -f '{{.Image}}' "$active_container")
 [[ $(docker image inspect -f '{{.Id}}' "$rendered_image") == "$pre_image_id" ]]
 jq -e '.services.sub2api.volumes | any(.target == "/app/data" and (.type == "bind" or .type == "volume"))' <<<"$compose_json" >/dev/null
 compose_network_mode=$(sub2api_compose_network_mode "$compose_json" "$active_port")
-assert_sub2api_healthcheck_contract "$compose_json" "$compose_network_mode" "$active_port"
-assert_sub2api_runtime_contract "$active_container" "$pre_image_id" "$compose_network_mode" "$active_port"
+assert_sub2api_healthcheck_contract "$compose_json" "$compose_network_mode" "$active_port" active_compat
+assert_sub2api_runtime_contract "$active_container" "$pre_image_id" "$compose_network_mode" "$active_port" active_compat
+preflight_phase=completed
 printf 'preflight=pass\n'
 printf 'active_container=%s\n' "$active_container"
 printf 'active_port=%s\n' "$active_port"

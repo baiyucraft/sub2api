@@ -290,10 +290,7 @@ exit "$code"
                 "MINIMUM_FREE_BYTES": self.profile["minimum_rack_free_bytes"],
             }
         )
-        values = self.run_remote(
-            "racknerd",
-            f"{env} {self.active_assets}/preflight.sh",
-            {
+        allowed = {
                 "preflight",
                 "pre_switch_image_id",
                 "active_container",
@@ -337,8 +334,30 @@ exit "$code"
                 "migration_232_status",
                 "migration_233_status",
                 "migration_234_status",
-            },
-        )
+            }
+        try:
+            values = self.run_remote(
+                "racknerd",
+                f"{env} {self.active_assets}/preflight.sh",
+                allowed,
+            )
+        except BaseException:
+            try:
+                failure = self.run_remote(
+                    "racknerd",
+                    f"test -f {self.release_dir}/preflight-failure && test ! -L {self.release_dir}/preflight-failure && "
+                    f"test \"$(stat -c '%U:%G:%a:%h' {self.release_dir}/preflight-failure)\" = root:root:600:1 && "
+                    f"phase=$(sed -n 's/^preflight_failure_phase=//p' {self.release_dir}/preflight-failure); "
+                    f"line=$(sed -n 's/^preflight_failure_line=//p' {self.release_dir}/preflight-failure); "
+                    "case \"$phase\" in identity|active_runtime|backup_contract|migration_contract|capacity|compose_contract|completed) ;; *) exit 1 ;; esac; "
+                    "case \"$line\" in ''|*[!0-9]*) exit 1 ;; esac; "
+                    "printf 'preflight_failure_phase=%s\\npreflight_failure_line=%s\\n' \"$phase\" \"$line\"",
+                    {"preflight_failure_phase", "preflight_failure_line"},
+                )
+            except BaseException:
+                failure = {"preflight_failure_phase": "unknown", "preflight_failure_line": "0"}
+            self.stage("production_preflight_failed", failure)
+            raise
         self.migration_status = values["migration_status"]
         self.migration_195_status = values["migration_195_status"]
         self.migration_196_status = values["migration_196_status"]

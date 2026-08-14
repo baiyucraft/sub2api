@@ -1536,7 +1536,31 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('restore_network_mode=$(sub2api_compose_network_mode', restore)
         self.assertIn('write_release_active_override', restore)
         self.assertIn('assert_sub2api_runtime_contract', restore)
-        self.assertIn('resume_network_mode=$(assert_sub2api_compose_closure', resume)
+        self.assertIn('resume_network_mode=$(sub2api_compose_network_mode', resume)
+        self.assertIn('assert_sub2api_compose_closure "$deploy_dir" "$old_port"', resume)
+
+    def test_preflight_accepts_only_exact_legacy_active_healthcheck_and_records_failure_phase(self) -> None:
+        contract = self.script("compose-contract.sh")
+        preflight = self.script("preflight.sh")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+
+        self.assertIn('local policy=${4:-strict}', contract)
+        self.assertIn('local policy=${5:-strict}', contract)
+        self.assertIn('["CMD", "wget", "-q", "--spider", $expected]', contract)
+        self.assertIn('assert_sub2api_healthcheck_contract "$compose_json" "$compose_network_mode" "$active_port" active_compat', preflight)
+        self.assertIn('assert_sub2api_runtime_contract "$active_container" "$pre_image_id" "$compose_network_mode" "$active_port" active_compat', preflight)
+        self.assertIn('preflight_failure_phase=%s', preflight)
+        self.assertIn('production_preflight_failed', production)
+
+    def test_resume_old_canonicalizes_legacy_healthcheck_before_start(self) -> None:
+        resume = self.script("resume-old.sh")
+
+        self.assertIn('resume_base_compose_json=$(docker compose', resume)
+        self.assertIn('resume_network_mode=$(sub2api_compose_network_mode', resume)
+        self.assertIn('write_release_active_override "$resume_override_tmp"', resume)
+        self.assertIn('COMPOSE_FILE=%s', resume)
+        self.assertIn('BIND_HOST=127.0.0.1', resume)
+        self.assertLess(resume.index('write_release_active_override'), resume.index('docker compose "${release_compose_args[@]}" up -d'))
 
     def test_release_healthcheck_contracts_compare_the_exact_command_array(self) -> None:
         finalize = self.script("finalize.sh")
