@@ -98,34 +98,49 @@ class DeployCommandTest(unittest.TestCase):
 
     def test_vm_failure_never_calls_production_release(self) -> None:
         args = argparse.Namespace(profile="182", commit="a" * 40, deployment_mode="blue-green")
-        with mock.patch.object(cli, "ReleaseDoctor") as doctor, mock.patch.object(cli, "bootstrap_production"), mock.patch.object(cli, "create_vm_gate", side_effect=RuntimeError("vm failed")), mock.patch.object(cli, "release") as production:
+        with mock.patch.object(cli, "ReleaseDoctor") as doctor, mock.patch.object(cli, "install_vm_validator") as install_unit, mock.patch.object(cli, "bootstrap_production"), mock.patch.object(cli, "create_vm_gate", side_effect=RuntimeError("vm failed")), mock.patch.object(cli, "release") as production:
             with self.assertRaisesRegex(RuntimeError, "vm failed"):
                 cli.deploy(args)
         production.assert_not_called()
-        self.assertEqual(doctor.return_value.run.call_args_list[0].args[0], ("local", "vm", "dmit", "backup"))
-        self.assertEqual(doctor.return_value.run.call_args_list[1].args[0], ("racknerd",))
+        self.assertEqual(doctor.return_value.run.call_args_list[0].args[0], ("local",))
+        self.assertEqual(doctor.return_value.run.call_args_list[1].args[0], ("vm", "dmit", "backup"))
+        self.assertEqual(doctor.return_value.run.call_args_list[2].args[0], ("racknerd",))
+        install_unit.assert_called_once_with(doctor.return_value._ssh.return_value)
 
     def test_verified_vm_gate_is_passed_to_release(self) -> None:
         args = argparse.Namespace(profile="182", commit="a" * 40, deployment_mode="blue-green")
         gate = Path("gate")
-        with mock.patch.object(cli, "ReleaseDoctor") as doctor, mock.patch.object(cli, "bootstrap_production") as bootstrap, mock.patch.object(cli, "create_vm_gate", return_value=gate), mock.patch.object(cli, "release") as production, mock.patch("builtins.print"):
+        with mock.patch.object(cli, "ReleaseDoctor") as doctor, mock.patch.object(cli, "install_vm_validator") as install_unit, mock.patch.object(cli, "bootstrap_production") as bootstrap, mock.patch.object(cli, "create_vm_gate", return_value=gate), mock.patch.object(cli, "release") as production, mock.patch("builtins.print"):
             cli.deploy(args)
         self.assertEqual(production.call_args.args[0].gate, str(gate))
-        bootstrap.assert_called_once_with("182", doctor.return_value.runner)
-        self.assertEqual(doctor.return_value.run.call_count, 2)
+        install_unit.assert_called_once_with(doctor.return_value._ssh.return_value)
+        bootstrap.assert_called_once_with("182", doctor.return_value._ssh.return_value)
+        self.assertEqual(doctor.return_value.run.call_count, 3)
 
     def test_doctor_failure_stops_before_vm(self) -> None:
         args = argparse.Namespace(profile="182", commit="a" * 40, deployment_mode="blue-green")
-        with mock.patch.object(cli, "ReleaseDoctor") as doctor, mock.patch.object(cli, "bootstrap_production") as bootstrap, mock.patch.object(cli, "create_vm_gate") as vm:
+        with mock.patch.object(cli, "ReleaseDoctor") as doctor, mock.patch.object(cli, "install_vm_validator") as install_unit, mock.patch.object(cli, "bootstrap_production") as bootstrap, mock.patch.object(cli, "create_vm_gate") as vm:
             doctor.return_value.run.side_effect = RuntimeError("not ready")
             with self.assertRaisesRegex(RuntimeError, "not ready"):
                 cli.deploy(args)
         vm.assert_not_called()
         bootstrap.assert_not_called()
+        install_unit.assert_not_called()
+
+    def test_vm_release_unit_failure_stops_before_remote_doctor_and_gate(self) -> None:
+        args = argparse.Namespace(profile="182", commit="a" * 40, deployment_mode="blue-green")
+        with mock.patch.object(cli, "ReleaseDoctor") as doctor, mock.patch.object(cli, "install_vm_validator", side_effect=RuntimeError("unit update failed")) as install_unit, mock.patch.object(cli, "bootstrap_production") as bootstrap, mock.patch.object(cli, "create_vm_gate") as vm:
+            with self.assertRaisesRegex(RuntimeError, "unit update failed"):
+                cli.deploy(args)
+        self.assertEqual(doctor.return_value.run.call_args_list[0].args[0], ("local",))
+        self.assertEqual(doctor.return_value.run.call_count, 1)
+        install_unit.assert_called_once_with(doctor.return_value._ssh.return_value)
+        bootstrap.assert_not_called()
+        vm.assert_not_called()
 
     def test_bootstrap_failure_stops_before_vm(self) -> None:
         args = argparse.Namespace(profile="182", commit="a" * 40, deployment_mode="blue-green")
-        with mock.patch.object(cli, "ReleaseDoctor"), mock.patch.object(cli, "bootstrap_production", side_effect=RuntimeError("bootstrap failed")), mock.patch.object(cli, "create_vm_gate") as vm:
+        with mock.patch.object(cli, "ReleaseDoctor"), mock.patch.object(cli, "install_vm_validator"), mock.patch.object(cli, "bootstrap_production", side_effect=RuntimeError("bootstrap failed")), mock.patch.object(cli, "create_vm_gate") as vm:
             with self.assertRaisesRegex(RuntimeError, "bootstrap failed"):
                 cli.deploy(args)
         vm.assert_not_called()
