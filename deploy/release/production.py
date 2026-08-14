@@ -836,17 +836,37 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             }
         )
         self.stage("old_slot_draining", timeout=7500)
-        final = self.run_remote(
-            "racknerd",
-            f"{finalize_env} {self.active_assets}/finalize.sh",
-            {
-                "auto_sync_enabled", "running_image_id", "final_health", "final_logs",
-                "background_activation", "compose_managed", "old_container", "old_port",
-                "drain_status", "drain_connections", "candidate_drain_connections",
-                "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
-            },
-            timeout=7500,
-        )
+        try:
+            final = self.run_remote(
+                "racknerd",
+                f"{finalize_env} {self.active_assets}/finalize.sh",
+                {
+                    "auto_sync_enabled", "running_image_id", "final_health", "final_logs",
+                    "background_activation", "compose_managed", "old_container", "old_port",
+                    "drain_status", "drain_connections", "candidate_drain_connections",
+                    "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
+                },
+                timeout=7500,
+            )
+        except BaseException:
+            try:
+                failure = self.run_remote(
+                    "racknerd",
+                    f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
+                    "test -f \"$state/finalize-failure\" && test ! -L \"$state/finalize-failure\" && "
+                    "test \"$(stat -c '%U:%G:%a' \"$state/finalize-failure\")\" = root:root:600 && "
+                    "phase=$(sed -n 's/^finalize_failure_phase=//p' \"$state/finalize-failure\"); "
+                    "line=$(sed -n 's/^finalize_failure_line=//p' \"$state/finalize-failure\"); "
+                    "test \"$(grep -c '^finalize_failure_' \"$state/finalize-failure\")\" = 2 && "
+                    "case \"$phase\" in preflight|old_slot_drain|old_slot_remove|compose_prepare|final_container_start|final_instance_readiness|background_activation|final_route|candidate_drain|final_log_gate) ;; *) exit 1 ;; esac; "
+                    "case \"$line\" in ''|*[!0-9]*) exit 1 ;; esac; "
+                    "printf 'finalize_failure_phase=%s\\nfinalize_failure_line=%s\\n' \"$phase\" \"$line\"",
+                    {"finalize_failure_phase", "finalize_failure_line"},
+                )
+            except BaseException:
+                failure = {"finalize_failure_phase": "unknown", "finalize_failure_line": "0"}
+            self.stage("finalize_failed", failure)
+            raise
         if final["drain_status"] not in {"drained", "not_applicable"}:
             raise RuntimeError(f"old application slot did not drain: {final['drain_status']}")
         self.stage("old_slot_drained", final)
