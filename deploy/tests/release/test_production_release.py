@@ -1252,6 +1252,13 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         offsets = [switch.index(f"mark_switch_stage {stage}") for stage in expected]
         self.assertEqual(offsets, sorted(offsets))
 
+    def test_switch_failure_records_only_a_sanitized_reason_category(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        for reason in ("undeclared_field", "missing_field", "unexpected_stderr", "remote_exit", "unknown"):
+            self.assertIn(f'"{reason}"', production)
+        self.assertIn('failure["switch_failure_reason"] = failure_reason', production)
+        self.assertNotIn('failure["switch_failure_error"]', production)
+
     def test_candidate_http_probe_has_bounded_retry_and_failure_evidence(self) -> None:
         switch = self.script("switch.sh")
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
