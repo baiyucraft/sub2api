@@ -88,6 +88,14 @@
 - 预防测试：验证本地 doctor 失败时不写 VM；release unit 更新失败时不进入远端 doctor、Gate 或生产；成功路径严格保持 `local doctor -> release unit update -> VM/external doctor -> production bootstrap -> RackNerd doctor -> VM Gate`。
 - 状态：已修复，等待新提交的实际 deploy-start 验证。
 
+## 新严格合同误要求旧生产实例预先满足
+
+- 现象：新 Candidate 已通过 VM Gate，但生产在停机前的 preflight 退出；旧应用、Nginx、备份、空间和 migration 均正常。
+- 根因：新版本将 healthcheck 固定为完整 IPv4 参数数组，preflight 却使用同一严格合同验证仍在运行的旧容器。旧容器使用精确的历史 `CMD wget -q --spider <IPv4 slot URL>`，因此在有机会升级前被拒绝；迁移前恢复脚本也可能重新加载该历史 Compose 后被严格断言阻断。
+- 修复：仅 production preflight 的旧活动实例允许两种精确数组，禁止子串和任意参数；Candidate、最终实例及恢复后的 Compose 继续只允许新严格数组。`resume-old` 启动前主动生成规范化 active override。preflight 失败另存 root-only 阶段和行号，并进入结构化结果。
+- 预防测试：Host/Bridge、两个槽位分别验证严格数组和历史数组；历史数组在默认严格模式必须失败，仅 `active_compat` 可通过；迁移前恢复必须先规范化再启动。
+- 状态：代码已修复，等待新 full-SHA VM Gate 和生产停机发布验证。
+
 ## SSH 超时与重复 runner
 
 - 现象：调用端超时后误以为 runner 未执行，重新启动第二个发布。

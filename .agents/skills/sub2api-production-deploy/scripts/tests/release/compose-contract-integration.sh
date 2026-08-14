@@ -135,12 +135,24 @@ for host_port in 18080 18081; do
   host_compose=$(compose_json host "$host_port" "$host_health")
   [[ $(sub2api_compose_network_mode "$host_compose" "$host_port") == host ]]
   assert_sub2api_healthcheck_contract "$host_compose" host "$host_port"
+  legacy_host_health=$(jq -cn --arg url "$host_url" '["CMD", "wget", "-q", "--spider", $url]')
+  legacy_host_compose=$(compose_json host "$host_port" "$legacy_host_health")
+  if assert_sub2api_healthcheck_contract "$legacy_host_compose" host "$host_port"; then
+    exit 1
+  fi
+  assert_sub2api_healthcheck_contract "$legacy_host_compose" host "$host_port" active_compat
 
   bridge_url=http://127.0.0.1:8080/health
   bridge_health=$(jq -cn --arg url "$bridge_url" '["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", $url]')
   bridge_compose=$(compose_json bridge "$host_port" "$bridge_health")
   [[ $(sub2api_compose_network_mode "$bridge_compose" "$host_port") == bridge ]]
   assert_sub2api_healthcheck_contract "$bridge_compose" bridge "$host_port"
+  legacy_bridge_health=$(jq -cn --arg url "$bridge_url" '["CMD", "wget", "-q", "--spider", $url]')
+  legacy_bridge_compose=$(compose_json bridge "$host_port" "$legacy_bridge_health")
+  if assert_sub2api_healthcheck_contract "$legacy_bridge_compose" bridge "$host_port"; then
+    exit 1
+  fi
+  assert_sub2api_healthcheck_contract "$legacy_bridge_compose" bridge "$host_port" active_compat
 
   localhost_health='["CMD","wget","-q","-T","5","-O","/dev/null","http://localhost:8080/health"]'
   localhost_compose=$(compose_json bridge "$host_port" "$localhost_health")
@@ -169,10 +181,22 @@ for host_port in 18080 18081; do
   host_inspect="$tmp/host-$host_port.json"
   runtime_json host "$host_port" "$host_url" > "$host_inspect"
   FAKE_DOCKER_INSPECT="$host_inspect" assert_sub2api_runtime_contract sub2api "$image_id" host "$host_port"
+  legacy_host_inspect="$tmp/host-legacy-$host_port.json"
+  runtime_json host "$host_port" "$host_url" | jq '.[0].Config.Healthcheck.Test = ["CMD", "wget", "-q", "--spider", .[0].Config.Healthcheck.Test[-1]]' > "$legacy_host_inspect"
+  if FAKE_DOCKER_INSPECT="$legacy_host_inspect" assert_sub2api_runtime_contract sub2api "$image_id" host "$host_port"; then
+    exit 1
+  fi
+  FAKE_DOCKER_INSPECT="$legacy_host_inspect" assert_sub2api_runtime_contract sub2api "$image_id" host "$host_port" active_compat
 
   bridge_inspect="$tmp/bridge-$host_port.json"
   runtime_json bridge "$host_port" "$bridge_url" > "$bridge_inspect"
   FAKE_DOCKER_INSPECT="$bridge_inspect" assert_sub2api_runtime_contract sub2api "$image_id" bridge "$host_port"
+  legacy_bridge_inspect="$tmp/bridge-legacy-$host_port.json"
+  runtime_json bridge "$host_port" "$bridge_url" | jq '.[0].Config.Healthcheck.Test = ["CMD", "wget", "-q", "--spider", .[0].Config.Healthcheck.Test[-1]]' > "$legacy_bridge_inspect"
+  if FAKE_DOCKER_INSPECT="$legacy_bridge_inspect" assert_sub2api_runtime_contract sub2api "$image_id" bridge "$host_port"; then
+    exit 1
+  fi
+  FAKE_DOCKER_INSPECT="$legacy_bridge_inspect" assert_sub2api_runtime_contract sub2api "$image_id" bridge "$host_port" active_compat
 
   wrong_bridge="$tmp/bridge-wrong-$host_port.json"
   runtime_json bridge "$host_port" "$bridge_url" | jq '.[0].NetworkSettings.Ports["8080/tcp"][0].HostPort = "19999"' > "$wrong_bridge"
