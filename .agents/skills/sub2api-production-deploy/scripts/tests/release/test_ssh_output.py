@@ -15,7 +15,7 @@ import paramiko
 DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
-from release.ssh import KNOWN_HOSTS, ROOT, SSH_CONFIG, SSHRunner
+from release.ssh import KNOWN_HOSTS, REMOTE_RAW_LOGS, ROOT, SSH_CONFIG, SSHRunner
 
 
 class FakeChannel:
@@ -168,6 +168,28 @@ class SSHOutputTest(unittest.TestCase):
             self.assertEqual(events[0]["event"], "command_started")
             self.assertEqual(events[-1]["event"], "command_finished")
             self.assertTrue(all(event["node"] == "vm" for event in events))
+
+    def test_release_remote_commands_write_root_only_raw_logs_on_every_node(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.release_id = "235-aaaaaaaaaaaa-1-deadbeef"
+        runner.deployment_mode = "downtime"
+        command_id = "0123456789abcdef"
+        for node, template in REMOTE_RAW_LOGS.items():
+            command = runner._wrap_remote_raw_logging(node, "printf 'health=pass\\n'", command_id)
+            expected = template.format(release_id=runner.release_id)
+            self.assertIn(expected, command)
+            self.assertIn("install -d -o 0 -g 0 -m 700", command)
+            self.assertIn("0:0:600:1", command)
+            self.assertIn(command_id, command)
+            self.assertIn("stream=stdout", command)
+            self.assertIn("stream=stderr", command)
+
+    def test_non_release_remote_commands_do_not_create_raw_logs(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.release_id = None
+        runner.deployment_mode = None
+        command = runner._wrap_remote_raw_logging("backup", "printf 'health=pass\\n'", "0123456789abcdef")
+        self.assertNotIn("remote.raw.log", command)
 
     def test_reads_only_protected_structured_remote_event_log(self) -> None:
         value = b'{"schema":1}\n'
