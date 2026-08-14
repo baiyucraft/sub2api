@@ -188,7 +188,12 @@ assert_final_compose_closure() {
     .services.sub2api.container_name == "sub2api" and
     .services.sub2api.environment.SUB2API_INSTANCE_ID == $instance and
     .services.sub2api.environment.SUB2API_BACKGROUND_ACTIVATION_FILE == "/app/data/.sub2api-active-instance" and
-    ((.services.sub2api.ports // []) | any(.target == 8080 and (.published | tostring) == $port and .host_ip == "127.0.0.1"))
+    (
+      (.services.sub2api.network_mode == "host" and
+       .services.sub2api.environment.SERVER_HOST == "127.0.0.1" and
+       (.services.sub2api.environment.SERVER_PORT | tostring) == $port) or
+      ((.services.sub2api.ports // []) | any((.target | tostring) == "8080" and (.published | tostring) == $port and .host_ip == "127.0.0.1"))
+    )
   ' <<<"$compose_json" >/dev/null
 }
 

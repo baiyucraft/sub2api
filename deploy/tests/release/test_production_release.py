@@ -76,6 +76,31 @@ class ProductionRecoveryTest(unittest.TestCase):
     def test_quoted_env_quotes_shell_metacharacters(self) -> None:
         self.assertEqual(quoted_env({"VALUE": "a b;$(x)"}), "VALUE='a b;$(x)'")
 
+    def test_remote_raw_log_capture_is_root_only_and_preserves_stderr_failure(self) -> None:
+        release = object.__new__(ProductionRelease)
+        release.release_dir = "/opt/sub2api/releases/235-aaaaaaaaaaaa-1-aaaaaaaa"
+        release.result = {"stage": "backup"}
+        release._remote_log_sequence = 0
+
+        wrapped = release._wrap_remote_logging("printf 'ok=true\\n'")
+
+        self.assertIn("logs/production.raw.log", wrapped)
+        self.assertIn("install -d -m 700", wrapped)
+        self.assertIn("root:root:700", wrapped)
+        self.assertIn("root:root:600:1", wrapped)
+        self.assertIn("[[ $code -eq 0 && -s $stderr_tmp ]]", wrapped)
+        self.assertIn("code=97", wrapped)
+        self.assertIn("stage=backup", wrapped)
+
+    def test_remote_raw_log_capture_rejects_unsafe_stage_name(self) -> None:
+        release = object.__new__(ProductionRelease)
+        release.release_dir = "/opt/sub2api/releases/235-aaaaaaaaaaaa-1-aaaaaaaa"
+        release.result = {"stage": "backup;touch"}
+        release._remote_log_sequence = 0
+
+        with self.assertRaisesRegex(RuntimeError, "not safe"):
+            release._wrap_remote_logging("true")
+
     def release(self) -> ProductionRelease:
         instance = object.__new__(ProductionRelease)
         instance.frozen = True
@@ -1324,6 +1349,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("systemctl reload nginx >/dev/null 2>&1", finalize)
         self.assertIn("for _ in $(seq 1 30)", finalize)
         self.assertIn("X-Sub2API-Instance \"$final_instance_id\"", finalize)
+        self.assertIn('.services.sub2api.network_mode == "host"', finalize)
+        self.assertIn('.services.sub2api.environment.SERVER_PORT | tostring', finalize)
         self.assertIn("final_instance_ready=false", finalize)
         self.assertIn("[[ $final_instance_ready == true ]]", finalize)
         self.assertIn("background_ready=false", finalize)
@@ -1342,11 +1369,18 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         self.assertIn('self.stage("finalize_failed", failure)', production)
         self.assertIn('"finalize_failure_phase", "finalize_failure_line"', production)
+        self.assertIn("production.raw.log", production)
+        self.assertIn("chmod 600", production)
+        self.assertIn("_remote_raw_logging_ready = True", production)
+        self.assertIn("SUB2API_RELEASE_RAW_LOG", finalize)
+        self.assertIn("docker logs --since 15m", finalize)
         self.assertIn('self.stage("old_slot_draining", timeout=7500)', production)
         self.assertIn("timeout=7500", production)
         self.assertIn('wait_for_application_drain "$old_container"', finalize)
         self.assertIn('wait_for_application_drain "$candidate_container"', finalize)
         context = self.script("context.sh")
+        self.assertIn('.services.sub2api.network_mode == "host"', context)
+        self.assertIn('.services.sub2api.environment.SERVER_PORT | tostring', context)
         self.assertIn("if [[ $connections == 0 && $draining_workers == 0 ]]", context)
         self.assertIn("printf 'timeout\\n'", context)
         self.assertIn("printf 'unknown\\n'", context)

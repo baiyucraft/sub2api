@@ -116,6 +116,8 @@ class ProductionRelease:
         self.route_switch_attempted = False
         self.mask_intent = False
         self.backup_values: dict[str, str] | None = None
+        self._remote_raw_logging_ready = False
+        self._remote_log_sequence = 0
         self.migration_status: str | None = None
         self.migration_195_status: str | None = None
         self.migration_196_status: str | None = None
@@ -176,10 +178,56 @@ class ProductionRelease:
         emit_progress(f"release_id={self.release_id} stage={name} status={self.result['status']}")
 
     def run_remote(self, host: str, script: str, allowed: set[str], timeout: int = 300) -> dict[str, str]:
+        if host == "racknerd" and self._remote_raw_logging_ready:
+            script = self._wrap_remote_logging(script)
         return self.runner.run(host, script, allowed, timeout=timeout).values
 
     def run_remote_with_input(self, host: str, script: str, allowed: set[str], data: bytes, timeout: int = 300) -> dict[str, str]:
+        if host == "racknerd" and self._remote_raw_logging_ready:
+            script = self._wrap_remote_logging(script)
         return self.runner.run_with_input(host, script, allowed, data, timeout=timeout).values
+
+    def _wrap_remote_logging(self, script: str) -> str:
+        self._remote_log_sequence += 1
+        stage = str(self.result.get("stage", "unknown"))
+        if not stage or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789_" for character in stage):
+            raise RuntimeError("release stage is not safe for remote log metadata")
+        log_dir = f"{self.release_dir}/logs"
+        log_file = f"{log_dir}/production.raw.log"
+        sequence = self._remote_log_sequence
+        return f"""set -Eeuo pipefail
+umask 077
+test -d {shlex.quote(self.release_dir)} && test ! -L {shlex.quote(self.release_dir)}
+if test -e {shlex.quote(log_dir)}; then
+  test -d {shlex.quote(log_dir)} && test ! -L {shlex.quote(log_dir)}
+else
+  install -d -m 700 {shlex.quote(log_dir)}
+fi
+test "$(stat -c '%U:%G:%a' {shlex.quote(log_dir)})" = root:root:700
+touch {shlex.quote(log_file)}
+test -f {shlex.quote(log_file)} && test ! -L {shlex.quote(log_file)}
+chmod 600 {shlex.quote(log_file)}
+test "$(stat -c '%U:%G:%a:%h' {shlex.quote(log_file)})" = root:root:600:1
+stdout_tmp=$(mktemp {shlex.quote(log_dir + '/.stdout.XXXXXX')})
+stderr_tmp=$(mktemp {shlex.quote(log_dir + '/.stderr.XXXXXX')})
+cleanup_remote_log_capture() {{ rm -f "$stdout_tmp" "$stderr_tmp"; }}
+trap cleanup_remote_log_capture EXIT
+set +e
+SUB2API_RELEASE_RAW_LOG={shlex.quote(log_file)} bash -lc {shlex.quote(script)} >"$stdout_tmp" 2>"$stderr_tmp"
+code=$?
+set -e
+if [[ $code -eq 0 && -s $stderr_tmp ]]; then
+  code=97
+fi
+{{
+  printf '\n[%s] sequence={sequence} stage={stage} stream=stdout\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  cat "$stdout_tmp"
+  printf '\n[%s] sequence={sequence} stage={stage} stream=stderr exit=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$code"
+  cat "$stderr_tmp"
+}} >> {shlex.quote(log_file)}
+cat "$stdout_tmp"
+exit "$code"
+"""
 
     def upload_assets(self) -> None:
         self.stage("stage_assets")
@@ -214,6 +262,7 @@ class ProductionRelease:
             f"test ! -e {shlex.quote(self.release_dir)} && (cd {shlex.quote(stage_dir)} && sha256sum -c ASSET_SHA256SUMS >/dev/null) && mv -T -- {shlex.quote(stage_dir)} {shlex.quote(self.release_dir)} && printf 'release_directory_created=true\\n'",
             {"release_directory_created"},
         )
+        self._remote_raw_logging_ready = True
         env = quoted_env({"RELEASE_ID": self.release_id, "RELEASE_DIR": self.release_dir})
         prepared = self.run_remote(
             "racknerd",
