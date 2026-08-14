@@ -184,6 +184,21 @@ class SupervisorTest(unittest.TestCase):
         self.assertIn('if test -n "$active_container" && docker inspect "$active_container"', probe)
         self.assertEqual(value["decision"], "coordinated_restore_required")
 
+    def test_foreground_release_without_runner_metadata_only_allows_coordinated_restore(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        run_dir = self.minimum_release(identifier)
+        (run_dir / "runner.json").unlink()
+        self.write(identifier, "gate/production-result.json", {"stage": "route_restored", "status": "blocked_reconciliation", "history": []})
+        document = {"manifest": {"release_id": identifier}, "evidence": {"candidate_image_id": "sha256:" + "b" * 64}}
+        remote = {"active_claim": "matching", "consumed": "false", "recovered": "false", "state_present": "true", "plaintext_cleaned": "false", "route_started": "false", "migration_started": "true", "app_health": "healthy", "nginx_active": "true", "backup_timer_enabled": "false", "running_image_id": "sha256:" + "a" * 64, "candidate_exists": "true", "candidate_health": "healthy"}
+        ssh = mock.Mock()
+        ssh.run.return_value.values = remote
+
+        with mock.patch.object(supervisor, "verify_gate", return_value=document), mock.patch.object(supervisor, "SSHRunner", return_value=ssh):
+            value = supervisor._inspect_reconciliation(identifier)
+
+        self.assertEqual(value["decision"], "coordinated_restore_required")
+
     def test_coordinated_recovery_uses_versioned_restore_and_reconciles_claim(self) -> None:
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"
         self.minimum_release(identifier)
