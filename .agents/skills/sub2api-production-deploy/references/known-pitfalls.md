@@ -36,7 +36,16 @@
 - 证据：release `235-5063cf9fd0c4-1786713743-0d64fa51` 在 `candidate_started -> candidate_healthy` 之间失败并完成协调恢复；候选无 OOM、端口占用或数据库/Redis 分类证据，但容器删除后日志不可恢复。
 - 修复：候选健康等待失败时，在任何恢复或容器删除前，把候选最近 15 分钟日志追加到生产机 root-only `production.raw.log`，并原子保存状态、健康、退出码、OOM、重启次数、healthcheck 记录数、失败类型和脚本行号。
 - 预防测试：候选提前退出立即失败、健康超时分类、root-only 原始日志追加、结构化字段白名单、协调恢复前证据已落盘。
-- 状态：修复中，需通过 release suite、VM Gate 和下一次生产停机发布验证。
+- 状态：代码与完整 release suite 已通过，待新 full-SHA VM Gate 和下一次生产停机发布验证。
+
+## 后台激活标记由 root 创建导致非 root 应用不可读
+
+- 现象：停机候选容器和 `/health` 均正常，实例 Header 正确，但 `X-Sub2API-Background-Ready` 在写入激活标记后持续为 `false`，约 120 秒后进入协调恢复。
+- 根因：镜像 entrypoint 会把 PID 1 降权为 `sub2api` 用户；发布脚本却在宿主机以 root 创建 `0600 root:root` 的 `.sub2api-active-instance`。非 root 应用无法读取标记，激活 watcher 只会继续轮询而不会改变 readiness。
+- 证据：release `235-b21899c931cb-1786730845-4c28f2f0` 在 `candidate_headers_verified` 后失败；候选 HTTP 200，恢复后旧应用、Nginx、备份 timer 和 claim 均已对账。生产容器 PID 1 与 `/app/data` 均为 `1000:1000`，旧写法固定生成 root-owned `0600` 文件。
+- 修复：共享 helper 明确拒绝 Docker userns/rootless，从目标容器 `/proc/1/status` 读取 PID 1 的 FSUID/FSGID，以该身份和 `0600`、单硬链接权限原子发布标记；首次切换、最终 Compose 接管和路由回滚全部复用。旧实例回滚必须先在 loopback 上确认实例 ID 与 `Background-Ready=true`，再恢复 Nginx 路由。Header 通过后的任意失败以及 Compose 启动失败也会在恢复前保存原始日志、失败行和结构化分类。
+- 预防测试：验证 marker owner/mode/content、userns/rootless 拒绝、三条写入路径统一调用 helper、激活写入失败与 readiness 超时分类、Compose 启动及未处理的候选后启动错误在恢复前落 root-only 证据。
+- 状态：代码与完整 release suite 已通过，待新 full-SHA VM Gate 和生产停机发布验证。
 
 ## Loopback 健康检查与生产绑定地址不一致
 

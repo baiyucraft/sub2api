@@ -56,15 +56,6 @@ if [[ -n $current_sub2api_image && $current_sub2api_image != "$pre_image_id" ]];
   docker stop -t 30 sub2api >/dev/null
   docker rm sub2api >/dev/null
 fi
-if [[ -n $old_instance_id ]]; then
-  marker_source=$candidate_container
-  docker inspect "$marker_source" >/dev/null 2>&1 || marker_source=$old_container
-  activation_host_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$marker_source")
-  [[ -n $activation_host_dir && -d $activation_host_dir && ! -L $activation_host_dir ]]
-  printf '%s\n' "$old_instance_id" > "$activation_host_dir/.sub2api-active-instance.tmp"
-  chmod 600 "$activation_host_dir/.sub2api-active-instance.tmp"
-  mv -T -- "$activation_host_dir/.sub2api-active-instance.tmp" "$activation_host_dir/.sub2api-active-instance"
-fi
 old_container_image=$(docker inspect -f '{{.Image}}' "$old_container" 2>/dev/null || true)
 if [[ $old_container_image != "$pre_image_id" ]]; then
   [[ -z $old_container_image ]] || { docker stop -t 30 "$old_container" >/dev/null 2>&1 || true; docker rm "$old_container" >/dev/null; }
@@ -80,7 +71,7 @@ if [[ $old_container_image != "$pre_image_id" ]]; then
   fi
   cd "$deploy_dir"
   load_release_compose_files "$deploy_dir"
-  docker compose "${release_compose_args[@]}" up -d --no-deps sub2api >/dev/null 2>&1
+  run_release_logged_command docker compose "${release_compose_args[@]}" up -d --no-deps sub2api
   old_container=sub2api
 fi
 if [[ $(docker inspect -f '{{.State.Status}}' "$old_container" 2>/dev/null || true) != running ]]; then
@@ -88,12 +79,30 @@ if [[ $(docker inspect -f '{{.State.Status}}' "$old_container" 2>/dev/null || tr
 fi
 wait_healthy "$old_container"
 [[ $(docker inspect -f '{{.Image}}' "$old_container") == "$pre_image_id" ]]
+if [[ -n $old_instance_id ]]; then
+  write_release_activation_marker "$old_container" "$old_instance_id"
+  readiness_headers=$(mktemp /tmp/sub2api-route-rollback-readiness.XXXXXX)
+  rollback_background_ready=false
+  for _ in $(seq 1 120); do
+    : > "$readiness_headers"
+    if [[ $(curl -sS -D "$readiness_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${old_port}/health" 2>/dev/null || true) == 200 ]] &&
+       assert_http_header_equals "$readiness_headers" X-Sub2API-Instance "$old_instance_id" &&
+       assert_http_header_equals "$readiness_headers" X-Sub2API-Background-Ready true; then
+      rollback_background_ready=true
+      break
+    fi
+    sleep 1
+  done
+  rm -f "$readiness_headers"
+  [[ $rollback_background_ready == true ]]
+fi
 route_to_port "$old_port"
 headers=$(mktemp /tmp/sub2api-route-rollback.XXXXXX)
 trap 'rm -f "$headers"' EXIT
 [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health") == 200 ]]
 if [[ -n $old_instance_id ]]; then
   assert_http_header_equals "$headers" X-Sub2API-Instance "$old_instance_id"
+  assert_http_header_equals "$headers" X-Sub2API-Background-Ready true
 fi
 slot_tmp="$active_slot_file.tmp.$$"
 printf 'container=%s\nport=%s\nimage_id=%s\ninstance_id=%s\n' "$old_container" "$old_port" "$pre_image_id" "$old_instance_id" > "$slot_tmp"

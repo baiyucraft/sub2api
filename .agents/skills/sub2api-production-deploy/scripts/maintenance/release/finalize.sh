@@ -15,6 +15,7 @@ rollback_upstream=
 public_headers=
 finalize_cleanup() {
   local code=$?
+  trap - ERR
   set +e
   if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} && $SUB2API_RELEASE_RAW_LOG == "$release_dir/logs/production.raw.log" && -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]]; then
     printf '\n[%s] container=sub2api\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SUB2API_RELEASE_RAW_LOG"
@@ -121,7 +122,7 @@ compose_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
 [[ $(assert_sub2api_compose_closure "$deploy_dir" "$old_port" "$candidate_image_id" "$final_instance_id") == "$final_network_mode" ]]
 finalize_phase=final_container_start
-docker compose "${release_compose_args[@]}" up -d --no-deps --force-recreate sub2api >/dev/null 2>&1
+run_release_logged_command docker compose "${release_compose_args[@]}" up -d --no-deps --force-recreate sub2api
 for _ in $(seq 1 90); do
   [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api) == healthy ]] && break
   sleep 2
@@ -148,11 +149,7 @@ done
 # Activate and prove that all process-wide background services accepted the
 # marker before routing traffic to the final Compose-managed instance.
 finalize_phase=background_activation
-activation_host_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$candidate_container")
-[[ -n $activation_host_dir && -d $activation_host_dir && ! -L $activation_host_dir ]]
-printf '%s\n' "$final_instance_id" > "$activation_host_dir/.sub2api-active-instance.tmp"
-chmod 600 "$activation_host_dir/.sub2api-active-instance.tmp"
-mv -T -- "$activation_host_dir/.sub2api-active-instance.tmp" "$activation_host_dir/.sub2api-active-instance"
+write_release_activation_marker sub2api "$final_instance_id"
 background_ready=false
 for _ in $(seq 1 120); do
   : > "$final_headers"

@@ -804,35 +804,37 @@ exit "$code"
                     f"failure_file={shlex.quote(self.state_dir + '/candidate-failure')}; "
                     "if test -f \"$code_file\" && test ! -L \"$code_file\"; then value=$(cat \"$code_file\"); [[ $value =~ ^[0-9]{3}$ ]]; http_code=$value; fi; "
                     "if test -f \"$exit_file\" && test ! -L \"$exit_file\"; then value=$(cat \"$exit_file\"); [[ $value =~ ^[0-9]{1,3}$ ]]; curl_exit=$value; fi; "
-                    "candidate_failure_kind=unknown; candidate_state=unknown; candidate_health=unknown; candidate_exit_code=unknown; "
+                    "candidate_failure_kind=unknown; candidate_state=unknown; candidate_health=unknown; candidate_exit_code=unknown; candidate_original_exit_code=unknown; "
                     "candidate_oom_killed=unknown; candidate_restart_count=unknown; candidate_health_log_entries=unknown; "
                     "candidate_log_capture=unknown; candidate_failure_line=unknown; "
                     "if test -f \"$failure_file\" && test ! -L \"$failure_file\"; then "
                     "test \"$(stat -c '%U:%G:%a:%h' \"$failure_file\")\" = root:root:600:1; "
-                    "test \"$(grep -c '^candidate_' \"$failure_file\")\" = 9; "
+                    "test \"$(grep -c '^candidate_' \"$failure_file\")\" = 10; "
                     "candidate_failure_kind=$(sed -n 's/^candidate_failure_kind=//p' \"$failure_file\"); "
                     "candidate_state=$(sed -n 's/^candidate_state=//p' \"$failure_file\"); "
                     "candidate_health=$(sed -n 's/^candidate_health=//p' \"$failure_file\"); "
                     "candidate_exit_code=$(sed -n 's/^candidate_exit_code=//p' \"$failure_file\"); "
+                    "candidate_original_exit_code=$(sed -n 's/^candidate_original_exit_code=//p' \"$failure_file\"); "
                     "candidate_oom_killed=$(sed -n 's/^candidate_oom_killed=//p' \"$failure_file\"); "
                     "candidate_restart_count=$(sed -n 's/^candidate_restart_count=//p' \"$failure_file\"); "
                     "candidate_health_log_entries=$(sed -n 's/^candidate_health_log_entries=//p' \"$failure_file\"); "
                     "candidate_log_capture=$(sed -n 's/^candidate_log_capture=//p' \"$failure_file\"); "
                     "candidate_failure_line=$(sed -n 's/^candidate_failure_line=//p' \"$failure_file\"); "
-                    "case \"$candidate_failure_kind\" in container_missing|container_exited|inspect_failed|health_unhealthy|health_timeout|runtime_contract_mismatch) ;; *) exit 1 ;; esac; "
+                    "case \"$candidate_failure_kind\" in container_missing|container_exited|inspect_failed|health_unhealthy|health_timeout|runtime_contract_mismatch|post_start_contract_failure|activation_marker_write_failed|background_activation_timeout) ;; *) exit 1 ;; esac; "
                     "case \"$candidate_state\" in created|running|paused|restarting|removing|exited|dead|missing|unknown) ;; *) exit 1 ;; esac; "
                     "case \"$candidate_health\" in starting|healthy|unhealthy|none|missing|unknown) ;; *) exit 1 ;; esac; "
                     "[[ $candidate_exit_code == unknown || $candidate_exit_code =~ ^[0-9]+$ ]]; "
+                    "[[ $candidate_original_exit_code == unknown || $candidate_original_exit_code =~ ^[0-9]+$ ]]; "
                     "[[ $candidate_oom_killed == true || $candidate_oom_killed == false || $candidate_oom_killed == unknown ]]; "
                     "[[ $candidate_restart_count == unknown || $candidate_restart_count =~ ^[0-9]+$ ]]; "
                     "[[ $candidate_health_log_entries == unknown || $candidate_health_log_entries =~ ^[0-9]+$ ]]; "
                     "case \"$candidate_log_capture\" in saved|unavailable|not_configured|unknown) ;; *) exit 1 ;; esac; "
                     "[[ $candidate_failure_line == unknown || $candidate_failure_line =~ ^[0-9]+$ ]]; fi; "
-                    "printf 'switch_failure_stage=%s\ncandidate_http_code=%s\ncandidate_curl_exit=%s\ncandidate_failure_kind=%s\ncandidate_state=%s\ncandidate_health=%s\ncandidate_exit_code=%s\ncandidate_oom_killed=%s\ncandidate_restart_count=%s\ncandidate_health_log_entries=%s\ncandidate_log_capture=%s\ncandidate_failure_line=%s\n' "
-                    "\"$stage\" \"$http_code\" \"$curl_exit\" \"$candidate_failure_kind\" \"$candidate_state\" \"$candidate_health\" \"$candidate_exit_code\" \"$candidate_oom_killed\" \"$candidate_restart_count\" \"$candidate_health_log_entries\" \"$candidate_log_capture\" \"$candidate_failure_line\"",
+                    "printf 'switch_failure_stage=%s\ncandidate_http_code=%s\ncandidate_curl_exit=%s\ncandidate_failure_kind=%s\ncandidate_state=%s\ncandidate_health=%s\ncandidate_exit_code=%s\ncandidate_original_exit_code=%s\ncandidate_oom_killed=%s\ncandidate_restart_count=%s\ncandidate_health_log_entries=%s\ncandidate_log_capture=%s\ncandidate_failure_line=%s\n' "
+                    "\"$stage\" \"$http_code\" \"$curl_exit\" \"$candidate_failure_kind\" \"$candidate_state\" \"$candidate_health\" \"$candidate_exit_code\" \"$candidate_original_exit_code\" \"$candidate_oom_killed\" \"$candidate_restart_count\" \"$candidate_health_log_entries\" \"$candidate_log_capture\" \"$candidate_failure_line\"",
                     {
                         "switch_failure_stage", "candidate_http_code", "candidate_curl_exit",
-                        "candidate_failure_kind", "candidate_state", "candidate_health", "candidate_exit_code",
+                        "candidate_failure_kind", "candidate_state", "candidate_health", "candidate_exit_code", "candidate_original_exit_code",
                         "candidate_oom_killed", "candidate_restart_count", "candidate_health_log_entries",
                         "candidate_log_capture", "candidate_failure_line",
                     },
@@ -841,7 +843,7 @@ exit "$code"
                 self.stage("migration_switch_failed", {
                     "switch_failure_stage": "unknown", "switch_failure_reason": failure_reason,
                     "candidate_failure_kind": "unknown", "candidate_state": "unknown", "candidate_health": "unknown",
-                    "candidate_exit_code": "unknown", "candidate_oom_killed": "unknown",
+                    "candidate_exit_code": "unknown", "candidate_original_exit_code": "unknown", "candidate_oom_killed": "unknown",
                     "candidate_restart_count": "unknown", "candidate_health_log_entries": "unknown",
                     "candidate_log_capture": "unknown", "candidate_failure_line": "unknown",
                 })

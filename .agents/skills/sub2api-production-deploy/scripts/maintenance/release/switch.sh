@@ -77,7 +77,7 @@ if [[ $deployment_mode == downtime ]]; then
   mark_switch_stage downtime_stopped
 fi
 mark_switch_stage migration_started
-docker compose "${candidate_compose_args[@]}" run --name "$migration_container" --no-deps sub2api /app/sub2api --migrate-only >/dev/null 2>&1
+run_release_logged_command docker compose "${candidate_compose_args[@]}" run --name "$migration_container" --no-deps sub2api /app/sub2api --migrate-only
 mark_switch_stage migration_completed
 while IFS=$'\t' read -r migration migration_checksum; do
   recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
@@ -197,6 +197,9 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
 fi
 mark_switch_stage migration_committed
 docker rm "$migration_container" >/dev/null 2>&1
+candidate_start_exit=0
+candidate_original_exit_code=unknown
+candidate_start_failure_line=0
 if [[ $deployment_mode == downtime ]]; then
   [[ $active_container == sub2api ]]
   candidate_container=sub2api
@@ -217,16 +220,23 @@ if [[ $deployment_mode == downtime ]]; then
   candidate_compose_json=$(docker compose "${candidate_compose_args[@]}" config --format json)
   [[ $(assert_sub2api_compose_closure "$deploy_dir" "$candidate_port" "$candidate_image_id" "$candidate_instance_id") == "$candidate_network_mode" ]]
   mark_switch_stage downtime_compose_prepared
-  docker compose "${candidate_compose_args[@]}" up -d --no-deps --force-recreate sub2api >/dev/null 2>&1
+  candidate_start_failure_line=$((LINENO + 1))
+  run_release_logged_command docker compose "${candidate_compose_args[@]}" up -d --no-deps --force-recreate sub2api || {
+    candidate_start_exit=$?
+    candidate_original_exit_code=$candidate_start_exit
+  }
 else
   [[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
   candidate_run_args=(run -d --name "$candidate_container" --no-deps)
   [[ $candidate_network_mode == host ]] || candidate_run_args+=(--service-ports)
-  docker compose "${candidate_compose_args[@]}" "${candidate_run_args[@]}" \
+  candidate_start_failure_line=$((LINENO + 1))
+  run_release_logged_command docker compose "${candidate_compose_args[@]}" "${candidate_run_args[@]}" \
     -e "SUB2API_INSTANCE_ID=$candidate_instance_id" \
-    -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null 2>&1
+    -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api || {
+      candidate_start_exit=$?
+      candidate_original_exit_code=$candidate_start_exit
+    }
 fi
-mark_switch_stage candidate_started
 candidate_failure_file="$state_dir/candidate-failure"
 capture_candidate_failure() {
   local failure_line=${1:?candidate failure line is required}
@@ -240,6 +250,8 @@ capture_candidate_failure() {
   local candidate_health_log_entries=unknown
   local candidate_failure_kind=container_missing
   local candidate_log_capture=not_configured
+  [[ $failure_line =~ ^[0-9]+$ ]] || return 1
+  [[ $candidate_original_exit_code == unknown || $candidate_original_exit_code =~ ^[0-9]+$ ]] || return 1
   if docker inspect "$candidate_container" >/dev/null 2>&1; then
     candidate_state=$(docker inspect -f '{{.State.Status}}' "$candidate_container" 2>/dev/null || true)
     candidate_health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$candidate_container" 2>/dev/null || true)
@@ -265,6 +277,8 @@ capture_candidate_failure() {
       *)
         if [[ $candidate_health == unhealthy ]]; then
           candidate_failure_kind=health_unhealthy
+        elif [[ $candidate_health == healthy ]]; then
+          candidate_failure_kind=post_start_contract_failure
         else
           candidate_failure_kind=health_timeout
         fi
@@ -272,34 +286,114 @@ capture_candidate_failure() {
     esac
   fi
   if [[ -n $forced_failure_kind ]]; then
-    [[ $forced_failure_kind == runtime_contract_mismatch ]]
+    [[ $forced_failure_kind == runtime_contract_mismatch || $forced_failure_kind == activation_marker_write_failed || $forced_failure_kind == background_activation_timeout ]] || return 1
     candidate_failure_kind=$forced_failure_kind
   fi
   if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} ]]; then
     candidate_log_capture=unavailable
-    if [[ $SUB2API_RELEASE_RAW_LOG == "$release_dir/logs/production.raw.log" && -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]] &&
-       [[ $(stat -c '%U:%G:%a:%h' "$SUB2API_RELEASE_RAW_LOG") == root:root:600:1 ]]; then
-      candidate_log_capture=saved
-      {
-        printf '\n[%s] stage=candidate_failure stream=container\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        printf 'candidate_state=%s candidate_health=%s candidate_exit_code=%s candidate_oom_killed=%s candidate_restart_count=%s candidate_health_log_entries=%s candidate_failure_kind=%s failure_line=%s\n' \
-          "$candidate_state" "$candidate_health" "$candidate_exit_code" "$candidate_oom_killed" "$candidate_restart_count" "$candidate_health_log_entries" "$candidate_failure_kind" "$failure_line"
-        printf '[%s] stage=candidate_failure stream=healthcheck\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        docker inspect -f '{{range .State.Health.Log}}{{printf "start=%s end=%s exit_code=%d output=%q\n" .Start .End .ExitCode .Output}}{{end}}' "$candidate_container" 2>&1 || true
-        docker logs --since 15m "$candidate_container" 2>&1 || true
-      } >> "$SUB2API_RELEASE_RAW_LOG"
+    [[ $SUB2API_RELEASE_RAW_LOG == "$release_dir/logs/production.raw.log" && -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]] || return 1
+    [[ $(stat -c '%U:%G:%a:%h' "$SUB2API_RELEASE_RAW_LOG") == root:root:600:1 ]] || return 1
+    {
+      printf '\n[%s] stage=candidate_failure stream=container\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" || return 1
+      printf 'candidate_state=%s candidate_health=%s candidate_exit_code=%s candidate_original_exit_code=%s candidate_oom_killed=%s candidate_restart_count=%s candidate_health_log_entries=%s candidate_failure_kind=%s failure_line=%s\n' \
+        "$candidate_state" "$candidate_health" "$candidate_exit_code" "$candidate_original_exit_code" "$candidate_oom_killed" "$candidate_restart_count" "$candidate_health_log_entries" "$candidate_failure_kind" "$failure_line" || return 1
+      printf '[%s] stage=candidate_failure stream=healthcheck\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" || return 1
+      docker inspect -f '{{range .State.Health.Log}}{{printf "start=%s end=%s exit_code=%d output=%q\n" .Start .End .ExitCode .Output}}{{end}}' "$candidate_container" 2>&1 || true
+      docker logs --since 15m "$candidate_container" 2>&1 || true
+    } >> "$SUB2API_RELEASE_RAW_LOG" || return 1
+    candidate_log_capture=saved
+  fi
+  failure_tmp="$candidate_failure_file.tmp.$$"
+  [[ ! -e $failure_tmp && ! -L $failure_tmp ]] || return 1
+  if ! printf 'candidate_failure_kind=%s\ncandidate_state=%s\ncandidate_health=%s\ncandidate_exit_code=%s\ncandidate_original_exit_code=%s\ncandidate_oom_killed=%s\ncandidate_restart_count=%s\ncandidate_health_log_entries=%s\ncandidate_log_capture=%s\ncandidate_failure_line=%s\n' \
+    "$candidate_failure_kind" "$candidate_state" "$candidate_health" "$candidate_exit_code" "$candidate_original_exit_code" "$candidate_oom_killed" "$candidate_restart_count" "$candidate_health_log_entries" "$candidate_log_capture" "$failure_line" > "$failure_tmp" ||
+     ! chmod 600 "$failure_tmp" ||
+     [[ $(stat -c '%U:%G:%a:%h' "$failure_tmp") != root:root:600:1 ]] ||
+     [[ -e $candidate_failure_file || -L $candidate_failure_file ]] ||
+     ! mv -T -- "$failure_tmp" "$candidate_failure_file"; then
+    rm -f -- "$failure_tmp"
+    return 1
+  fi
+  [[ -f $candidate_failure_file && ! -L $candidate_failure_file ]] || return 1
+  [[ $(stat -c '%U:%G:%a:%h' "$candidate_failure_file") == root:root:600:1 ]] || return 1
+  [[ $(grep -c '^candidate_' "$candidate_failure_file") == 10 ]] || return 1
+  grep -Fxq "candidate_failure_line=$failure_line" "$candidate_failure_file" || return 1
+  grep -Fxq "candidate_original_exit_code=$candidate_original_exit_code" "$candidate_failure_file" || return 1
+}
+candidate_failure_capture_marker="$state_dir/candidate-failure-capture-started"
+candidate_failure_capture_started=false
+candidate_failure_committed=false
+candidate_unhandled_failure_line=0
+candidate_headers=
+capture_candidate_failure_once() {
+  local failure_line=${1:?candidate failure line is required}
+  local forced_failure_kind=${2:-}
+  local capture_marker_tmp
+  trap - ERR
+  [[ $failure_line =~ ^[0-9]+$ ]] || return 1
+  if [[ -f $candidate_failure_capture_marker && ! -L $candidate_failure_capture_marker ]]; then
+    [[ $(stat -c '%U:%G:%a:%h' "$candidate_failure_capture_marker") == root:root:600:1 ]] || return 1
+    grep -Fxq 'candidate_failure_capture_started=true' "$candidate_failure_capture_marker" || return 1
+    grep -Fxq "candidate_failure_line=$failure_line" "$candidate_failure_capture_marker" || return 1
+    candidate_failure_capture_started=true
+    if [[ -f $candidate_failure_file && ! -L $candidate_failure_file ]]; then
+      [[ $(stat -c '%U:%G:%a:%h' "$candidate_failure_file") == root:root:600:1 ]] || return 1
+      [[ $(grep -c '^candidate_' "$candidate_failure_file") == 10 ]] || return 1
+      grep -Fxq "candidate_failure_line=$failure_line" "$candidate_failure_file" || return 1
+      candidate_failure_committed=true
+      return 0
+    fi
+    return 1
+  fi
+  [[ ! -e $candidate_failure_capture_marker && ! -L $candidate_failure_capture_marker ]] || return 1
+  capture_marker_tmp="$candidate_failure_capture_marker.tmp.$$"
+  if ! printf 'candidate_failure_capture_started=true\ncandidate_failure_line=%s\n' "$failure_line" > "$capture_marker_tmp" ||
+     ! chmod 600 "$capture_marker_tmp" ||
+     ! mv -T -- "$capture_marker_tmp" "$candidate_failure_capture_marker"; then
+    rm -f -- "$capture_marker_tmp"
+    return 1
+  fi
+  candidate_failure_capture_started=true
+  if ! capture_candidate_failure "$failure_line" "$forced_failure_kind"; then
+    return 1
+  fi
+  candidate_failure_committed=true
+}
+remember_candidate_failure_line() {
+  candidate_unhandled_failure_line=${1:-0}
+}
+capture_candidate_failure_on_exit() {
+  local exit_code=$?
+  trap - ERR EXIT
+  set +e
+  if [[ -n $candidate_headers ]]; then
+    rm -f -- "$candidate_headers"
+  fi
+  if [[ $exit_code -ne 0 && $candidate_failure_committed == false ]]; then
+    [[ $candidate_unhandled_failure_line =~ ^[0-9]+$ ]] || candidate_unhandled_failure_line=0
+    capture_status=1
+    if [[ $candidate_failure_capture_started == false ]] && capture_candidate_failure_once "$candidate_unhandled_failure_line"; then
+      capture_status=0
+    fi
+    if [[ $capture_status -ne 0 ]]; then
+      if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} && $SUB2API_RELEASE_RAW_LOG == "$release_dir/logs/production.raw.log" && -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]]; then
+        printf '\n[%s] stage=candidate_failure_capture status=failed failure_line=%s original_exit_code=%s\n' \
+          "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$candidate_unhandled_failure_line" "$candidate_original_exit_code" >> "$SUB2API_RELEASE_RAW_LOG"
+      fi
+      exit_code=98
     fi
   fi
-  [[ $failure_line =~ ^[0-9]+$ ]]
-  failure_tmp="$candidate_failure_file.tmp.$$"
-  printf 'candidate_failure_kind=%s\ncandidate_state=%s\ncandidate_health=%s\ncandidate_exit_code=%s\ncandidate_oom_killed=%s\ncandidate_restart_count=%s\ncandidate_health_log_entries=%s\ncandidate_log_capture=%s\ncandidate_failure_line=%s\n' \
-    "$candidate_failure_kind" "$candidate_state" "$candidate_health" "$candidate_exit_code" "$candidate_oom_killed" "$candidate_restart_count" "$candidate_health_log_entries" "$candidate_log_capture" "$failure_line" > "$failure_tmp"
-  chmod 600 "$failure_tmp"
-  [[ ! -L $candidate_failure_file ]]
-  mv -T -- "$failure_tmp" "$candidate_failure_file"
+  exit "$exit_code"
 }
+trap 'remember_candidate_failure_line "$LINENO"' ERR
+trap capture_candidate_failure_on_exit EXIT
+if [[ $candidate_start_exit -ne 0 ]]; then
+  capture_candidate_failure_once "$candidate_start_failure_line"
+  exit "$candidate_start_exit"
+fi
+mark_switch_stage candidate_started
 if ! assert_sub2api_runtime_contract "$candidate_container" "$candidate_image_id" "$candidate_network_mode" "$candidate_port"; then
-  capture_candidate_failure "$LINENO" runtime_contract_mismatch
+  capture_candidate_failure_once "$LINENO" runtime_contract_mismatch
   exit 1
 fi
 candidate_ready=false
@@ -315,13 +409,13 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 if [[ $candidate_ready != true ]]; then
-  capture_candidate_failure "$LINENO"
+  capture_candidate_failure_once "$LINENO"
   exit 1
 fi
 candidate_runtime_image=$(docker inspect -f '{{.Image}}' "$candidate_container" 2>/dev/null || true)
 candidate_runtime_health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$candidate_container" 2>/dev/null || true)
 if [[ $candidate_runtime_image != "$candidate_image_id" || $candidate_runtime_health != healthy ]]; then
-  capture_candidate_failure "$LINENO"
+  capture_candidate_failure_once "$LINENO"
   exit 1
 fi
 mark_switch_stage candidate_healthy
@@ -331,7 +425,6 @@ mark_switch_stage candidate_port_verified
 printf 'container=%s\nport=%s\nimage_id=%s\ninstance_id=%s\n' "$candidate_container" "$candidate_port" "$candidate_image_id" "$candidate_instance_id" > "$state_dir/candidate-app"
 chmod 600 "$state_dir/candidate-app"
 candidate_headers=$(mktemp /tmp/sub2api-candidate-health.XXXXXX)
-trap 'rm -f "$candidate_headers"' EXIT
 mark_switch_stage candidate_probe_started
 candidate_http_code=000
 candidate_curl_exit=0
@@ -355,11 +448,10 @@ mark_switch_stage candidate_headers_verified
 if [[ $deployment_mode == blue-green ]]; then
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
 else
-  activation_host_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$candidate_container")
-  [[ -n $activation_host_dir && -d $activation_host_dir && ! -L $activation_host_dir ]]
-  printf '%s\n' "$candidate_instance_id" > "$activation_host_dir/.sub2api-active-instance.tmp"
-  chmod 600 "$activation_host_dir/.sub2api-active-instance.tmp"
-  mv -T -- "$activation_host_dir/.sub2api-active-instance.tmp" "$activation_host_dir/.sub2api-active-instance"
+  if ! write_release_activation_marker "$candidate_container" "$candidate_instance_id"; then
+    capture_candidate_failure_once "$LINENO" activation_marker_write_failed
+    exit 1
+  fi
   background_ready=false
   for _ in $(seq 1 120); do
     : > "$candidate_headers"
@@ -371,7 +463,10 @@ else
     fi
     sleep 1
   done
-  [[ $background_ready == true ]]
+  if [[ $background_ready != true ]]; then
+    capture_candidate_failure_once "$LINENO" background_activation_timeout
+    exit 1
+  fi
   slot_tmp="$active_slot_file.tmp.$$"
   printf 'container=sub2api\nport=%s\nimage_id=%s\nrelease_id=%s\ninstance_id=%s\n' \
     "$candidate_port" "$candidate_image_id" "$release_id" "$candidate_instance_id" > "$slot_tmp"
@@ -386,6 +481,9 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   "$assets_dir/migration-195-assert.sh" postflight_runtime
 fi
 mark_switch_stage runtime_verified
+trap - ERR EXIT
+rm -f "$candidate_headers"
+candidate_headers=
 printf 'migration_verified=true\n'
 printf 'running_image_id=%s\n' "$candidate_image_id"
 printf 'internal_health=pass\n'
