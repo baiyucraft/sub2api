@@ -104,10 +104,18 @@ printf 'upstream sub2api_release_backend {\n    server 127.0.0.1:%s;\n    keepal
 chmod 600 "$upstream_tmp"
 mv -T -- "$upstream_tmp" "$managed_upstream"
 nginx -t >/dev/null 2>&1
-systemctl reload nginx
+systemctl reload nginx >/dev/null 2>&1
 public_headers=$(mktemp /tmp/sub2api-final-public.XXXXXX)
-if ! [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health") == 200 ]] ||
-   ! assert_http_header_equals "$public_headers" X-Sub2API-Instance "$final_instance_id"; then
+public_verified=false
+for _ in $(seq 1 30); do
+  : > "$public_headers"
+  if [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health" 2>/dev/null || true) == 200 ]] && assert_http_header_equals "$public_headers" X-Sub2API-Instance "$final_instance_id"; then
+    public_verified=true
+    break
+  fi
+  sleep 1
+done
+if [[ $public_verified != true ]]; then
   upstream_restore_tmp="$managed_upstream.restore.$$"
   install -m 600 "$rollback_upstream" "$upstream_restore_tmp"
   mv -T -- "$upstream_restore_tmp" "$managed_upstream"
