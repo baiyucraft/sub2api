@@ -47,6 +47,39 @@
 - 预防测试：Dockerfile 合同测试拒绝恢复为 `localhost`；VM Gate 必须验证候选 Docker health、内部 `/health` 和实例 Header。
 - 状态：修复中，需由新 full-SHA candidate 的 VM Gate 与生产停机发布验证。
 
+## Compose 健康检查插值固定到旧槽位
+
+- 现象：镜像 HEALTHCHECK 已改为 IPv4 且候选应用持续监听新槽位，但停机发布仍在 `candidate_started -> candidate_healthy` 失败；Docker health 连续失败，手工从同一镜像访问当前健康端点却成功。
+- 根因：生产 Compose 自己定义了 healthcheck。Compose 在合并候选 override 前，先使用当前 `.env` 的 `SERVER_PORT` 展开基础 healthcheck，因此候选服务环境虽然是新槽位，容器 healthcheck 仍固定访问旧槽位。停机模式已停止旧应用后，该检查必然失败。
+- 证据：release `235-a60e3895f1b1-1786720374-ab9a4857` 的候选监听 `18081` 达 184 秒且无 panic、fatal、OOM 或 bind 错误；镜像健康命令的 IPv4 对照通过，但生产 Compose 的解析结果仍指向旧槽位 `18080`。
+- 修复：候选 override 显式写入绑定 `candidate_port` 的 IPv4 healthcheck；最终 active override 同样显式绑定最终槽位端口。Compose config 在启动容器前断言 healthcheck URL、服务监听端口和目标槽位完全一致。
+- 预防测试：候选/最终 override 的端口绑定合同、Compose healthcheck 断言、候选失败时将 Docker health log 原样保存在生产机 root-only 日志。
+- 状态：修复中，需通过完整 release suite、新 full-SHA Gate 和生产停机发布验证。
+
+## 停机模式误复用蓝绿双槽状态机
+
+- 现象：已选择简单停机更新，脚本仍创建相反端口的临时候选、切换 Nginx、等待旧槽排空、再回原端口重建；旧容器已经停止时，排空检查返回 `unknown`，导致候选健康也无法收口。
+- 根因：`downtime` 只在前置阶段停止服务，后续仍复用了蓝绿的 candidate/expose/finalize 状态机；恢复判断又只检查当前 active 是否健康，没有核对运行镜像是否仍为 `pre-image-id`。
+- 修复：停机模式固定使用原 `active_port` 和正式 `sub2api` 容器，迁移后直接 `compose up --force-recreate`，后台任务激活后只启动一次 Nginx；finalize 不排空、不二次切流。恢复判断同时核对运行镜像与 `pre-image-id`，清理器禁止删除正式容器。
+- 预防测试：分别以 `18080/18081` 为 active 覆盖停机成功、迁移前后失败、健康失败、Nginx 启动失败和恢复；Shell/Python 阶段枚举必须一致。
+- 状态：代码已修复，等待完整 VM Gate 和生产停机发布验证。
+
+## Host 与 Bridge 混淆宿主槽位和容器端口
+
+- 现象：Bridge Compose 的宿主端口为 `18080/18081`、容器内应用端口为 `8080`，但最终 override 或恢复脚本把宿主端口写入容器内 healthcheck，导致正确的 Bridge 配置在重建后变为 unhealthy。
+- 根因：脚本在多个位置分别拼接监听环境、发布端口和 healthcheck，没有共享网络合同；预检还使用 `join | test` 子串判断，可能放行额外参数、`CMD-SHELL` 或错误 URL。
+- 修复：新增共享 Compose/runtime 合同。Host 固定 `127.0.0.1:<slot>`，Bridge 固定容器内 `0.0.0.0:8080`、宿主 `127.0.0.1:<slot>` 和 healthcheck `127.0.0.1:8080`；完整命令数组精确比较，候选、finalize、resume-old 和 coordinated restore 全部复用。
+- 预防测试：VM Gate 对 Host/Bridge 与两个槽位执行 JSON/runtime 合同，明确拒绝 `CMD-SHELL`、多余参数、错误路径和错误发布端口。
+- 状态：代码已修复，等待完整 VM Gate 验证。
+
+## 只读巡检硬编码默认活动端口
+
+- 现象：正式应用和 Nginx 均健康，但只读巡检在活动槽为 `18081` 时仍固定请求 `18080`，产生内部健康假故障。
+- 根因：发布、恢复和 doctor 已以 `/opt/sub2api/active-app` 为活动槽事实源，较早的独立只读巡检仍保留初始端口常量。
+- 修复：只读巡检先验证 `active-app` 是普通文件且只有一个合法 `port` 字段，再仅允许 `18080/18081` 并请求对应 loopback 健康端点。
+- 预防测试：拒绝硬编码 `127.0.0.1:18080/health`，验证动态端口命令、非法端口 fail-closed，并在脚本复查中统一搜索固定槽位 URL。
+- 状态：已修复，等待下一次只读巡检与 VM Gate 验证。
+
 ## SSH 超时与重复 runner
 
 - 现象：调用端超时后误以为 runner 未执行，重新启动第二个发布。

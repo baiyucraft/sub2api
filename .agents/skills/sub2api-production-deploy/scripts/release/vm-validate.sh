@@ -108,6 +108,7 @@ while IFS=$'\t' read -r relative expected; do
   [[ -f $source_dir/$relative && ! -L $source_dir/$relative ]]
   [[ $(sha256sum "$source_dir/$relative" | awk '{print $1}') == "$expected" ]]
 done < <(jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
+bash "$source_dir/.agents/skills/sub2api-production-deploy/scripts/tests/release/compose-contract-integration.sh" >/dev/null
 [[ -d $data_dir && ! -L $data_dir ]]
 old_image_id=$(docker inspect -f '{{.Image}}' sub2api-dev)
 old_image_ref=$(docker inspect -f '{{.Config.Image}}' sub2api-dev)
