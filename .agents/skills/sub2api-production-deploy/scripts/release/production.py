@@ -692,6 +692,7 @@ exit "$code"
         allowed = {
             "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
             "candidate_container", "candidate_port", "active_container", "active_port",
+            "background_activation",
             "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
         }
         if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
@@ -777,7 +778,7 @@ exit "$code"
                     f"set -Eeuo pipefail; marker={shlex.quote(self.state_dir + '/switch-stage')}; "
                     "test -f \"$marker\" && test ! -L \"$marker\" && "
                     "stage=$(cat \"$marker\"); "
-                    "[[ $stage =~ ^(initialized|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_network_verified|candidate_port_verified|candidate_probe_started|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]; "
+                    "[[ $stage =~ ^(initialized|downtime_stopped|migration_started|migration_completed|schema_verified|migration_committed|downtime_compose_prepared|candidate_started|candidate_healthy|candidate_network_verified|candidate_port_verified|candidate_probe_started|candidate_http_verified|candidate_headers_verified|background_activated|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]; "
                     "http_code=unknown; curl_exit=unknown; "
                     f"code_file={shlex.quote(self.state_dir + '/candidate-http.code')}; "
                     f"exit_file={shlex.quote(self.state_dir + '/candidate-curl.exit')}; "
@@ -799,7 +800,7 @@ exit "$code"
                     "candidate_health_log_entries=$(sed -n 's/^candidate_health_log_entries=//p' \"$failure_file\"); "
                     "candidate_log_capture=$(sed -n 's/^candidate_log_capture=//p' \"$failure_file\"); "
                     "candidate_failure_line=$(sed -n 's/^candidate_failure_line=//p' \"$failure_file\"); "
-                    "case \"$candidate_failure_kind\" in container_missing|container_exited|inspect_failed|health_unhealthy|health_timeout) ;; *) exit 1 ;; esac; "
+                    "case \"$candidate_failure_kind\" in container_missing|container_exited|inspect_failed|health_unhealthy|health_timeout|runtime_contract_mismatch) ;; *) exit 1 ;; esac; "
                     "case \"$candidate_state\" in created|running|paused|restarting|removing|exited|dead|missing|unknown) ;; *) exit 1 ;; esac; "
                     "case \"$candidate_health\" in starting|healthy|unhealthy|none|missing|unknown) ;; *) exit 1 ;; esac; "
                     "[[ $candidate_exit_code == unknown || $candidate_exit_code =~ ^[0-9]+$ ]]; "
@@ -930,7 +931,8 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
                 "DIRECT_IP": self.profile["rack_public_ip"],
             }
         )
-        self.stage("old_slot_draining", timeout=7500)
+        finalize_stage = "downtime_finalizing" if deployment_mode == "downtime" else "old_slot_draining"
+        self.stage(finalize_stage, timeout=7500)
         try:
             final = self.run_remote(
                 "racknerd",
@@ -953,7 +955,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
                     "phase=$(sed -n 's/^finalize_failure_phase=//p' \"$state/finalize-failure\"); "
                     "line=$(sed -n 's/^finalize_failure_line=//p' \"$state/finalize-failure\"); "
                     "test \"$(grep -c '^finalize_failure_' \"$state/finalize-failure\")\" = 2 && "
-                    "case \"$phase\" in preflight|old_slot_drain|old_slot_remove|compose_prepare|final_container_start|final_instance_readiness|background_activation|final_route|candidate_drain|final_log_gate) ;; *) exit 1 ;; esac; "
+                    "case \"$phase\" in preflight|downtime_preflight|downtime_log_gate|old_slot_drain|old_slot_remove|compose_prepare|final_container_start|final_instance_readiness|background_activation|final_route|candidate_drain|final_log_gate) ;; *) exit 1 ;; esac; "
                     "case \"$line\" in ''|*[!0-9]*) exit 1 ;; esac; "
                     "printf 'finalize_failure_phase=%s\\nfinalize_failure_line=%s\\n' \"$phase\" \"$line\"",
                     {"finalize_failure_phase", "finalize_failure_line"},
@@ -964,7 +966,8 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             raise
         if final["drain_status"] not in {"drained", "not_applicable"}:
             raise RuntimeError(f"old application slot did not drain: {final['drain_status']}")
-        self.stage("old_slot_drained", final)
+        completed_stage = "downtime_finalized" if deployment_mode == "downtime" else "old_slot_drained"
+        self.stage(completed_stage, final)
         external_final = self.run_remote(
             "backup",
             f"test $(curl -sS --resolve {self.profile['public_domain']}:443:{self.profile['dmit_public_ip']} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{self.profile['public_domain']}/health) = 200 && printf 'dmit_final_health=pass\\n'",
@@ -1156,6 +1159,8 @@ if test -f "$slot" && test ! -L "$slot" && test "$(grep -c '^container=' "$slot"
   slot_valid=true
 fi
 app_status=$(docker inspect -f '{{{{.State.Status}}}}' "$active_container" 2>/dev/null || true)
+active_image=$(docker inspect -f '{{{{.Image}}}}' "$active_container" 2>/dev/null || true)
+pre_image=$(cat {self.state_dir}/pre-image-id 2>/dev/null || true)
 nginx_status=$(systemctl is-active nginx 2>/dev/null || true)
 upstream_port=$(sed -nE 's/^[[:space:]]*server[[:space:]]+127[.]0[.]0[.]1:(18080|18081);[[:space:]]*$/\1/p' "$managed_upstream" 2>/dev/null || true)
 upstream_valid=false
@@ -1174,7 +1179,7 @@ if test -e {route_intent} || test -L {route_intent}; then
 elif test -e {route_switched} || test -L {route_switched}; then
   route_marker_valid=false
 fi
-if test -f {self.state_dir}/pre-image-id && test -f {self.state_dir}/SHA256SUMS && {{ test "$slot_valid" != true || test "$app_status" != running || test "$nginx_status" != active || test "$upstream_valid" != true || test "$route_marker_valid" != true; }}; then
+if test -f {self.state_dir}/pre-image-id && test -f {self.state_dir}/SHA256SUMS && {{ test "$slot_valid" != true || test "$app_status" != running || test "$active_image" != "$pre_image" || test "$nginx_status" != active || test "$upstream_valid" != true || test "$route_marker_valid" != true; }}; then
   printf 'recovery_needed=true\n'
 else
   printf 'recovery_needed=false\n'

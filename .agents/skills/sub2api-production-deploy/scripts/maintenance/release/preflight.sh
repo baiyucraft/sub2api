@@ -162,7 +162,9 @@ pre_image_id=$(docker inspect -f '{{.Image}}' "$active_container")
 [[ $active_image == "$pre_image_id" ]]
 [[ $(docker image inspect -f '{{.Id}}' "$rendered_image") == "$pre_image_id" ]]
 jq -e '.services.sub2api.volumes | any(.target == "/app/data" and (.type == "bind" or .type == "volume"))' <<<"$compose_json" >/dev/null
-jq -e --arg port "$active_port" '(.services.sub2api.network_mode == "host" and .services.sub2api.environment.SERVER_HOST == "127.0.0.1" and (.services.sub2api.environment.SERVER_PORT | tostring) == $port) or ((.services.sub2api.ports // []) | any(.target == 8080 and (.published | tostring) == $port and .host_ip == "127.0.0.1"))' <<<"$compose_json" >/dev/null
+compose_network_mode=$(sub2api_compose_network_mode "$compose_json" "$active_port")
+assert_sub2api_healthcheck_contract "$compose_json" "$compose_network_mode" "$active_port"
+assert_sub2api_runtime_contract "$active_container" "$pre_image_id" "$compose_network_mode" "$active_port"
 printf 'preflight=pass\n'
 printf 'active_container=%s\n' "$active_container"
 printf 'active_port=%s\n' "$active_port"

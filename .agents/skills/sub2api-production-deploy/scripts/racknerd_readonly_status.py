@@ -252,7 +252,12 @@ CHECKS = (
     ),
     Check(
         "internal_health_http",
-        "curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/health",
+        "active_slot=/opt/sub2api/active-app; "
+        "test -f \"$active_slot\" && test ! -L \"$active_slot\" && "
+        "test \"$(grep -c '^port=' \"$active_slot\")\" = 1; "
+        "active_port=$(sed -n 's/^port=//p' \"$active_slot\"); "
+        "case \"$active_port\" in 18080|18081) ;; *) exit 1 ;; esac; "
+        "curl -fsS -o /dev/null -w '%{http_code}' \"http://127.0.0.1:${active_port}/health\"",
         frozenset({0}),
         parse_http,
     ),

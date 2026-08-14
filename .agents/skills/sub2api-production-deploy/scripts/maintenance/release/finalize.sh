@@ -19,7 +19,7 @@ finalize_cleanup() {
   if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} && $SUB2API_RELEASE_RAW_LOG == "$release_dir/logs/production.raw.log" && -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]]; then
     printf '\n[%s] container=sub2api\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SUB2API_RELEASE_RAW_LOG"
     docker logs --since 15m sub2api >> "$SUB2API_RELEASE_RAW_LOG" 2>&1 || true
-    if docker inspect "$candidate_container" >/dev/null 2>&1; then
+    if [[ $candidate_container != sub2api ]] && docker inspect "$candidate_container" >/dev/null 2>&1; then
       printf '\n[%s] container=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$candidate_container" >> "$SUB2API_RELEASE_RAW_LOG"
       docker logs --since 15m "$candidate_container" >> "$SUB2API_RELEASE_RAW_LOG" 2>&1 || true
     fi
@@ -37,6 +37,40 @@ trap 'failure_line=$LINENO' ERR
 trap finalize_cleanup EXIT
 cd "$deploy_dir"
 load_release_compose_files "$deploy_dir"
+if [[ $deployment_mode == downtime ]]; then
+  finalize_phase=downtime_preflight
+  [[ $candidate_container == sub2api ]]
+  [[ $candidate_port == "$active_port" ]]
+  final_network_mode=$(assert_sub2api_compose_closure "$deploy_dir" "$candidate_port" "$candidate_image_id" "$candidate_instance_id")
+  assert_sub2api_runtime_contract sub2api "$candidate_image_id" "$final_network_mode" "$candidate_port"
+  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
+  [[ $(systemctl is-active nginx) == active ]]
+  grep -Fq "server 127.0.0.1:$candidate_port;" "$managed_upstream"
+  [[ $(sed -n 's/^container=//p' "$active_slot_file") == sub2api ]]
+  [[ $(sed -n 's/^port=//p' "$active_slot_file") == "$candidate_port" ]]
+  [[ $(sed -n 's/^image_id=//p' "$active_slot_file") == "$candidate_image_id" ]]
+  [[ $(sed -n 's/^release_id=//p' "$active_slot_file") == "$release_id" ]]
+  [[ $(sed -n 's/^instance_id=//p' "$active_slot_file") == "$candidate_instance_id" ]]
+  final_headers=$(mktemp /tmp/sub2api-final-health.XXXXXX)
+  [[ $(curl -sS -D "$final_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health") == 200 ]]
+  assert_http_header_equals "$final_headers" X-Sub2API-Instance "$candidate_instance_id"
+  assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready true
+  finalize_phase=downtime_log_gate
+  critical=$(docker logs --since 5m sub2api 2>&1 | grep -Eic 'panic|fatal|migration.*(failed|error)|database.*(failed|error)|redis.*(failed|error)' || true)
+  [[ $critical == 0 ]]
+  assert_prompt_audit_disabled
+  old_container=$(sed -n 's/^container=//p' "$state_dir/pre-active-app")
+  old_port=$(sed -n 's/^port=//p' "$state_dir/pre-active-app")
+  [[ $old_container =~ ^[A-Za-z0-9_.-]{1,80}$ ]]
+  [[ $old_port == 18080 || $old_port == 18081 ]]
+  finalize_phase=completed
+  printf 'auto_sync_enabled=true\n'
+  printf 'running_image_id=%s\n' "$candidate_image_id"
+  printf 'final_health=pass\nfinal_logs=pass\nbackground_activation=pass\ncompose_managed=pass\n'
+  printf 'old_container=%s\nold_port=%s\ndrain_status=not_applicable\ndrain_connections=not_applicable\n' "$old_container" "$old_port"
+  printf 'candidate_drain_connections=not_applicable\n'
+  exit 0
+fi
 [[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]]
 [[ $(systemctl is-active nginx) == active ]]
@@ -47,6 +81,8 @@ old_port=$(sed -n 's/^port=//p' "$state_dir/pre-active-app")
 old_instance_id=$(sed -n 's/^instance_id=//p' "$state_dir/pre-active-app")
 [[ $old_container =~ ^[A-Za-z0-9_.-]{1,80}$ ]]
 [[ $old_port == 18080 || $old_port == 18081 ]]
+pre_finalize_compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
+final_network_mode=$(sub2api_compose_network_mode "$pre_finalize_compose_json" "$old_port")
 
 # Phase 1: traffic already targets the temporary candidate.  Wait for the old
 # active slot to finish every established HTTP/SSE/WebSocket connection before
@@ -70,15 +106,7 @@ fi
 # the now-free old port and waits on the shared activation marker.
 finalize_phase=compose_prepare
 active_override_tmp="$deploy_dir/docker-compose.release-active.yml.tmp.$$"
-cat > "$active_override_tmp" <<EOF
-services:
-  sub2api:
-    image: $candidate_image_id
-    container_name: sub2api
-    environment:
-      SUB2API_INSTANCE_ID: $final_instance_id
-      SUB2API_BACKGROUND_ACTIVATION_FILE: /app/data/.sub2api-active-instance
-EOF
+write_release_active_override "$active_override_tmp" "$candidate_image_id" "$final_instance_id" "$old_port" "$final_network_mode"
 chmod 600 "$active_override_tmp"
 mv -T -- "$active_override_tmp" "$deploy_dir/docker-compose.release-active.yml"
 env_tmp="$deploy_dir/.env.active.$$"
@@ -91,24 +119,14 @@ load_release_compose_files "$deploy_dir"
 compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
 compose_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
-jq -e --arg port "$old_port" --arg instance "$final_instance_id" '
-  .services.sub2api.container_name == "sub2api" and
-  .services.sub2api.environment.SUB2API_INSTANCE_ID == $instance and
-  .services.sub2api.environment.SUB2API_BACKGROUND_ACTIVATION_FILE == "/app/data/.sub2api-active-instance" and
-  (
-    (.services.sub2api.network_mode == "host" and
-     .services.sub2api.environment.SERVER_HOST == "127.0.0.1" and
-     (.services.sub2api.environment.SERVER_PORT | tostring) == $port) or
-    ((.services.sub2api.ports // []) | any((.target | tostring) == "8080" and (.published | tostring) == $port and .host_ip == "127.0.0.1"))
-  )
-' <<<"$compose_json" >/dev/null
+[[ $(assert_sub2api_compose_closure "$deploy_dir" "$old_port" "$candidate_image_id" "$final_instance_id") == "$final_network_mode" ]]
 finalize_phase=final_container_start
 docker compose "${release_compose_args[@]}" up -d --no-deps --force-recreate sub2api >/dev/null 2>&1
 for _ in $(seq 1 90); do
   [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api) == healthy ]] && break
   sleep 2
 done
-[[ $(docker inspect -f '{{.Image}}' sub2api) == "$candidate_image_id" ]]
+assert_sub2api_runtime_contract sub2api "$candidate_image_id" "$final_network_mode" "$old_port"
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
 final_headers=$(mktemp /tmp/sub2api-final-health.XXXXXX)
 rollback_upstream=$(mktemp /tmp/sub2api-final-upstream.XXXXXX)

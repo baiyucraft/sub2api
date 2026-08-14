@@ -454,7 +454,9 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.run_remote = mock.Mock(return_value={"recovery_needed": "true"})
         self.assertTrue(release.remote_pre_switch_recovery_needed())
         script = release.run_remote.call_args.args[1]
-        self.assertIn('test "$app_status" != running || test "$nginx_status" != active', script)
+        self.assertIn('test "$app_status" != running', script)
+        self.assertIn('test "$active_image" != "$pre_image"', script)
+        self.assertIn('test "$nginx_status" != active', script)
         self.assertIn('test "$upstream_valid" != true', script)
         self.assertIn('test "$route_marker_valid" != true', script)
         self.assertIn("route-switch-intent", script)
@@ -517,6 +519,56 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.rollback_route.assert_called_once()
         release.recover.assert_not_called()
         self.assertEqual(release.result["status"], "blocked_reconciliation")
+
+    def test_downtime_switch_failure_runs_recovery_instead_of_route_rollback(self) -> None:
+        release = self.release()
+        release.deployment_mode = "downtime"
+        release.claimed = True
+        release.frozen = False
+        release.migration_started = False
+        release.remote_gate_consumed = mock.Mock(return_value=False)
+        release.upload_assets = mock.Mock()
+        release.preflight = mock.Mock()
+        release.verify_streaming_routes = mock.Mock()
+        release.freeze = mock.Mock(side_effect=lambda: setattr(release, "frozen", True))
+        release.migration_preflight = mock.Mock()
+        release.backup = mock.Mock()
+        release.bind_migration_plan = mock.Mock()
+        release.switch = mock.Mock(side_effect=RuntimeError("switch failed"))
+        release.recover = mock.Mock()
+        release.rollback_route = mock.Mock()
+
+        with self.assertRaisesRegex(RuntimeError, "switch failed"):
+            release.execute()
+
+        release.recover.assert_called_once()
+        release.rollback_route.assert_not_called()
+
+    def test_downtime_nginx_or_public_verification_failure_runs_coordinated_recovery(self) -> None:
+        release = self.release()
+        release.deployment_mode = "downtime"
+        release.claimed = True
+        release.migration_started = True
+        release.route_switch_attempted = True
+        release.public_exposed = True
+        release.remote_gate_consumed = mock.Mock(return_value=False)
+        release.upload_assets = mock.Mock()
+        release.preflight = mock.Mock()
+        release.verify_streaming_routes = mock.Mock()
+        release.freeze = mock.Mock()
+        release.migration_preflight = mock.Mock()
+        release.backup = mock.Mock()
+        release.bind_migration_plan = mock.Mock()
+        release.switch = mock.Mock()
+        release.verify_and_finalize = mock.Mock(side_effect=RuntimeError("nginx start failed"))
+        release.recover = mock.Mock()
+        release.rollback_route = mock.Mock()
+
+        with self.assertRaisesRegex(RuntimeError, "nginx start failed"):
+            release.execute()
+
+        release.recover.assert_called_once()
+        release.rollback_route.assert_not_called()
 
     def test_remote_claim_probe_is_fail_closed(self) -> None:
         release = self.release()
@@ -1248,7 +1300,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertLess(execute.index("self.migration_preflight()"), execute.index("self.backup()"))
         self.assertLess(execute.index("self.backup()"), execute.index("self.bind_migration_plan()"))
         self.assertLess(execute.index("self.bind_migration_plan()"), execute.index("self.switch()"))
-        self.assertLess(switch.index('migration-195-assert.sh" postflight_db'), switch.index(" run -d --name"))
+        self.assertLess(switch.index('migration-195-assert.sh" postflight_db'), switch.index("candidate_run_args=(run -d"))
         self.assertIn("migration-committed", switch)
         self.assertIn("migration_manifest_sha256", switch)
         self.assertIn("printf 'migration=%s checksum=%s", switch)
@@ -1280,6 +1332,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('candidate_failure_kind=health_unhealthy', switch)
         self.assertIn('candidate_failure_kind=health_timeout', switch)
         self.assertIn('candidate_failure_kind=container_exited', switch)
+        self.assertIn('runtime_contract_mismatch', switch)
+        self.assertIn('runtime_contract_mismatch', production)
         self.assertIn('candidate_oom_killed', switch)
         self.assertIn('candidate_health_log_entries', switch)
         self.assertIn('if [[ $candidate_ready != true ]]', switch)
@@ -1350,18 +1404,32 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
             self.assertIn(field, switch)
             self.assertIn(field.split("=")[0], production)
 
-    def test_candidate_forces_the_container_port_matching_its_publish_target(self) -> None:
+    def test_candidate_uses_network_aware_container_and_publish_ports(self) -> None:
+        contract = self.script("compose-contract.sh")
         switch = self.script("switch.sh")
-        candidate_start = switch[switch.index('docker compose "${candidate_compose_args[@]}" run -d'):]
-        self.assertNotIn('--service-ports', candidate_start.split(' sub2api >/dev/null', 1)[0])
+        candidate_start = switch[switch.index("candidate_run_args=(run -d"):]
+        self.assertIn('[[ $candidate_network_mode == host ]] || candidate_run_args+=(--service-ports)', candidate_start)
         self.assertIn('SERVER_HOST: 127.0.0.1', switch)
-        self.assertIn('SERVER_PORT: "$candidate_port"', switch)
-        self.assertIn(".HostConfig.NetworkMode", candidate_start)
-        self.assertIn('grep -Fx "SERVER_HOST=127.0.0.1"', candidate_start)
-        self.assertIn('grep -Fx "SERVER_PORT=$candidate_port"', candidate_start)
+        self.assertIn('SERVER_HOST: 0.0.0.0', switch)
+        self.assertIn('SERVER_PORT: "8080"', switch)
+        self.assertIn('export SERVER_PORT="$candidate_port"', switch)
+        self.assertIn('candidate_health_url=$(sub2api_healthcheck_url', switch)
+        self.assertIn('assert_sub2api_healthcheck_contract', switch)
+        self.assertIn('assert_sub2api_runtime_contract', switch)
+        self.assertIn('$container.HostConfig.NetworkMode == "host"', contract)
+        self.assertIn('$container.NetworkSettings.Ports["8080/tcp"]', contract)
         self.assertIn('mark_switch_stage candidate_network_verified', candidate_start)
         self.assertIn('mark_switch_stage candidate_port_verified', candidate_start)
         self.assertIn('sub2api >/dev/null 2>&1', candidate_start)
+        self.assertIn('capture_candidate_failure "$LINENO" runtime_contract_mismatch', candidate_start)
+
+    def test_candidate_failure_captures_docker_healthcheck_output_in_root_only_raw_log(self) -> None:
+        switch = self.script("switch.sh")
+
+        self.assertIn('stage=candidate_failure stream=healthcheck', switch)
+        self.assertIn('.State.Health.Log', switch)
+        self.assertIn('exit_code=%d output=%q', switch)
+        self.assertIn('>> "$SUB2API_RELEASE_RAW_LOG"', switch)
 
     def test_freeze_creates_release_state_root(self) -> None:
         freeze = self.script("freeze-backup.sh")
@@ -1386,8 +1454,10 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("systemctl reload nginx >/dev/null 2>&1", finalize)
         self.assertIn("for _ in $(seq 1 30)", finalize)
         self.assertIn("X-Sub2API-Instance \"$final_instance_id\"", finalize)
-        self.assertIn('.services.sub2api.network_mode == "host"', finalize)
-        self.assertIn('.services.sub2api.environment.SERVER_PORT | tostring', finalize)
+        self.assertIn('final_network_mode=$(sub2api_compose_network_mode', finalize)
+        self.assertIn('write_release_active_override', finalize)
+        self.assertIn('assert_sub2api_compose_closure', finalize)
+        self.assertIn('assert_sub2api_runtime_contract', finalize)
         self.assertIn("final_instance_ready=false", finalize)
         self.assertIn("[[ $final_instance_ready == true ]]", finalize)
         self.assertIn("background_ready=false", finalize)
@@ -1412,14 +1482,90 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("chmod 600", production)
         self.assertIn("_remote_raw_logging_ready = True", production)
         self.assertIn("SUB2API_RELEASE_RAW_LOG", finalize)
+
+    def test_downtime_uses_single_compose_managed_container_on_the_active_port(self) -> None:
+        context = self.script("context.sh")
+        switch = self.script("switch.sh")
+        expose = self.script("expose.sh")
+        finalize = self.script("finalize.sh")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+
+        self.assertIn("if [[ $deployment_mode == downtime ]]; then", context)
+        self.assertIn("candidate_port=$active_port", context)
+        self.assertIn("candidate_container=sub2api", context)
+        self.assertIn("candidate_instance_id=$final_instance_id", context)
+        downtime_context = context[context.index("if [[ $deployment_mode == downtime ]]; then"):]
+        downtime_context = downtime_context[:downtime_context.index("\nelse\n")]
+        self.assertNotIn("candidate_port=18081", downtime_context)
+        self.assertNotIn("sub2api-candidate-", downtime_context)
+
+        downtime = switch[switch.index("if [[ $deployment_mode == downtime ]]; then", switch.index("docker rm \"$migration_container\"")):]
+        downtime = downtime[:downtime.index("\nelse\n")]
+        self.assertIn('docker compose "${candidate_compose_args[@]}" up -d --no-deps --force-recreate sub2api', downtime)
+        self.assertNotIn('docker compose "${candidate_compose_args[@]}" run -d', downtime)
+        self.assertIn('SERVER_PORT=%s', downtime)
+        self.assertIn('mark_switch_stage downtime_compose_prepared', downtime)
+        self.assertIn('mark_switch_stage background_activated', switch)
+
+        downtime_expose = expose[expose.index("if [[ $deployment_mode == downtime ]]; then"):]
+        downtime_expose = downtime_expose[:downtime_expose.index("\nfi\n") + 4]
+        self.assertIn('[[ $candidate_port == "$active_port" ]]', downtime_expose)
+        self.assertIn("systemctl start nginx", downtime_expose)
+        self.assertNotIn('mv -T -- "$upstream_tmp"', downtime_expose)
+
+        downtime_finalize = finalize[finalize.index("if [[ $deployment_mode == downtime ]]; then"):]
+        downtime_finalize = downtime_finalize[:downtime_finalize.index("\nfi\n") + 4]
+        self.assertIn("drain_status=not_applicable", downtime_finalize)
+        self.assertNotIn("wait_for_application_drain", downtime_finalize)
+        self.assertIn('finalize_stage = "downtime_finalizing"', production)
+        self.assertIn('completed_stage = "downtime_finalized"', production)
+
+    def test_downtime_cleanup_and_recovery_preserve_the_recorded_active_slot(self) -> None:
+        cleanup = self.script("cleanup-slots.sh")
+        freeze = self.script("freeze.sh")
+        restore = self.script("restore.sh")
+        resume = self.script("resume-old.sh")
+
+        self.assertIn('[[ $candidate_container != sub2api ]]', cleanup)
+        self.assertIn("release_id=%s", freeze)
+        for script in (restore, resume):
+            self.assertIn("old_port=$(sed -n 's/^port=//p'", script)
+            self.assertIn('port=%s\\nimage_id=%s\\nrelease_id=%s\\ninstance_id=%s', script)
+            self.assertNotIn("port=18080\\nimage_id", script)
+        self.assertIn('SERVER_PORT=%s', restore)
+        self.assertIn('restore_network_mode=$(sub2api_compose_network_mode', restore)
+        self.assertIn('write_release_active_override', restore)
+        self.assertIn('assert_sub2api_runtime_contract', restore)
+        self.assertIn('resume_network_mode=$(assert_sub2api_compose_closure', resume)
+
+    def test_release_healthcheck_contracts_compare_the_exact_command_array(self) -> None:
+        finalize = self.script("finalize.sh")
+        rollback = self.script("rollback-route.sh")
+        expose = self.script("expose.sh")
+        emergency = self.script("emergency-close.sh")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        for name in ("compose-contract.sh", "context.sh", "preflight.sh", "switch.sh", "finalize.sh", "restore.sh", "resume-old.sh"):
+            script = self.script(name)
+            self.assertNotIn('join(" ") | contains(', script)
+            self.assertNotIn('join(" ") | test(', script)
+        context = self.script("context.sh")
+        contract = self.script("compose-contract.sh")
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        self.assertIn('["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", $expected]', contract)
+        self.assertIn('http://127.0.0.1:8080/health', contract)
+        self.assertIn('http://localhost:8080/health', contract)
+        self.assertIn('sub2api_compose_network_mode()', contract)
+        self.assertIn('assert_sub2api_runtime_contract()', contract)
+        self.assertIn('source "$assets_dir/compose-contract.sh"', context)
+        self.assertIn('compose-contract-integration.sh', validator)
         self.assertIn("docker logs --since 15m", finalize)
-        self.assertIn('self.stage("old_slot_draining", timeout=7500)', production)
+        self.assertIn('finalize_stage = "downtime_finalizing" if deployment_mode == "downtime" else "old_slot_draining"', production)
         self.assertIn("timeout=7500", production)
         self.assertIn('wait_for_application_drain "$old_container"', finalize)
         self.assertIn('wait_for_application_drain "$candidate_container"', finalize)
-        context = self.script("context.sh")
-        self.assertIn('.services.sub2api.network_mode == "host"', context)
-        self.assertIn('.services.sub2api.environment.SERVER_PORT | tostring', context)
+        self.assertIn('$service.network_mode == "host"', contract)
+        self.assertIn('($service.environment.SERVER_PORT | tostring) == $port', contract)
+        self.assertIn('($service.environment.SERVER_PORT | tostring) == "8080"', contract)
         self.assertIn("if [[ $connections == 0 && $draining_workers == 0 ]]", context)
         self.assertIn("printf 'timeout\\n'", context)
         self.assertIn("printf 'unknown\\n'", context)
@@ -1428,7 +1574,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('docker rm "$old_container"', finalize)
         self.assertIn("docker-compose.release-active.yml", finalize)
         self.assertIn("SUB2API_RELEASE_IMAGE", finalize)
-        self.assertIn('container_name: sub2api', finalize)
+        self.assertIn('container_name: sub2api', contract)
         self.assertIn("systemctl reload nginx", rollback)
         self.assertIn('install -m 600 "$managed_upstream" "$previous"', rollback)
         self.assertIn('install -m 600 "$previous" "$restore"', rollback)
@@ -1460,7 +1606,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_candidate_preserves_sync_setting_but_waits_for_activation(self) -> None:
         switch = self.script("switch.sh")
         compose = (WORKSPACE / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
-        self.assertIn("UPSTREAM_SYNC_AUTO_ENABLED: \\${UPSTREAM_SYNC_AUTO_ENABLED:-true}", switch)
+        self.assertIn("UPSTREAM_SYNC_AUTO_ENABLED: ${UPSTREAM_SYNC_AUTO_ENABLED:-true}", switch)
         self.assertIn('SUB2API_INSTANCE_ID=$candidate_instance_id', switch)
         self.assertIn("SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance", switch)
         self.assertIn("SUB2API_INSTANCE_ID", compose)
@@ -1475,7 +1621,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("WaitInitialReady", provider)
 
         switch = self.script("switch.sh")
-        candidate_start = switch.index('docker compose "${candidate_compose_args[@]}" run -d')
+        candidate_start = switch.index("candidate_run_args=(run -d")
         runtime_assertion = switch.index('migration-195-assert.sh" postflight_runtime')
         self.assertLess(candidate_start, runtime_assertion)
         self.assertIn('X-Sub2API-Background-Ready false', switch[candidate_start:runtime_assertion])
@@ -1521,7 +1667,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("find . -type f ! -name SHA256SUMS", backup)
         self.assertIn('sha256sum -c recovery-point.tar.sha256', restore)
         self.assertIn('tar -C "$recovery" -xf "$state_dir/recovery-point.tar"', restore)
-        self.assertIn('image: $(<"$state_dir/pre-image-id")', restore)
+        self.assertIn('write_release_active_override "$restore_override_tmp" "$(<"$state_dir/pre-image-id")"', restore)
         self.assertIn("release_compose_value_with_active_override", restore)
         self.assertIn("load_release_compose_files", restore)
         self.assertIn("SUB2API_RELEASE_IMAGE=%s", restore)

@@ -83,6 +83,13 @@ class ConfigTests(unittest.TestCase):
 
 
 class ParserTests(unittest.TestCase):
+    def test_internal_health_uses_the_recorded_active_port(self) -> None:
+        check = next(item for item in MODULE.CHECKS if item.name == "internal_health_http")
+        self.assertIn("active_slot=/opt/sub2api/active-app", check.command)
+        self.assertIn("18080|18081", check.command)
+        self.assertIn("${active_port}/health", check.command)
+        self.assertNotIn("127.0.0.1:18080/health", check.command)
+
     def test_parses_expected_app_output(self) -> None:
         image_id = "sha256:" + "a" * 64
         self.assertEqual(

@@ -13,7 +13,7 @@ load_release_compose_files "$deploy_dir"
 switch_stage_file="$state_dir/switch-stage"
 mark_switch_stage() {
   local value=${1:?switch stage is required}
-  [[ $value =~ ^(initialized|downtime_stopped|migration_started|migration_completed|schema_verified|migration_committed|candidate_started|candidate_healthy|candidate_network_verified|candidate_port_verified|candidate_probe_started|candidate_http_verified|candidate_headers_verified|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]
+  [[ $value =~ ^(initialized|downtime_stopped|migration_started|migration_completed|schema_verified|migration_committed|downtime_compose_prepared|candidate_started|candidate_healthy|candidate_network_verified|candidate_port_verified|candidate_probe_started|candidate_http_verified|candidate_headers_verified|background_activated|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]
   printf '%s\n' "$value" > "$switch_stage_file.tmp.$$"
   chmod 600 "$switch_stage_file.tmp.$$"
   mv -T -- "$switch_stage_file.tmp.$$" "$switch_stage_file"
@@ -39,30 +39,33 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 ]
     [[ $migration_234_status == absent || $migration_234_status == verified ]]
   fi
 fi
+active_compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
+candidate_network_mode=$(sub2api_compose_network_mode "$active_compose_json" "$active_port")
+candidate_health_url=$(sub2api_healthcheck_url "$candidate_network_mode" "$candidate_port")
 candidate_override="$state_dir/docker-compose.release-candidate.yml"
 override_tmp="$candidate_override.tmp.$$"
-cat > "$override_tmp" <<EOF
-services:
-  sub2api:
-    image: $candidate_image_id
-    environment:
-      SERVER_HOST: 127.0.0.1
-      SERVER_PORT: "$candidate_port"
-      UPSTREAM_SYNC_AUTO_ENABLED: \${UPSTREAM_SYNC_AUTO_ENABLED:-true}
-EOF
+{
+  printf 'services:\n  sub2api:\n    image: %s\n    environment:\n' "$candidate_image_id"
+  if [[ $candidate_network_mode == host ]]; then
+    printf '      SERVER_HOST: 127.0.0.1\n      SERVER_PORT: "%s"\n' "$candidate_port"
+  else
+    printf '      SERVER_HOST: 0.0.0.0\n      SERVER_PORT: "8080"\n'
+  fi
+  printf '      UPSTREAM_SYNC_AUTO_ENABLED: ${UPSTREAM_SYNC_AUTO_ENABLED:-true}\n'
+  printf '    healthcheck:\n'
+  printf '      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "%s"]\n' "$candidate_health_url"
+} > "$override_tmp"
 chmod 600 "$override_tmp"
 mv -T -- "$override_tmp" "$candidate_override"
 export BIND_HOST=127.0.0.1
+export SERVER_PORT="$candidate_port"
 candidate_compose_args=("${release_compose_args[@]}" -f "$candidate_override")
 compose_image=$(docker compose "${candidate_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
 candidate_compose_json=$(docker compose "${candidate_compose_args[@]}" config --format json)
-jq -e --arg port "$candidate_port" '
-  .services.sub2api.network_mode == "host" and
-  .services.sub2api.environment.SERVER_HOST == "127.0.0.1" and
-  (.services.sub2api.environment.SERVER_PORT | tostring) == $port and
-  .services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED == "true"
-' <<<"$candidate_compose_json" >/dev/null
+[[ $(sub2api_compose_network_mode "$candidate_compose_json" "$candidate_port") == "$candidate_network_mode" ]]
+assert_sub2api_healthcheck_contract "$candidate_compose_json" "$candidate_network_mode" "$candidate_port"
+jq -e '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED == "true"' <<<"$candidate_compose_json" >/dev/null
 mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
 migration_container="sub2api-migrate-$release_id"
 [[ -z $(docker ps -aq -f "name=^${migration_container}$") ]]
@@ -194,14 +197,40 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
 fi
 mark_switch_stage migration_committed
 docker rm "$migration_container" >/dev/null 2>&1
-[[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
-docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_container" --no-deps \
-  -e "SUB2API_INSTANCE_ID=$candidate_instance_id" \
-  -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null 2>&1
+if [[ $deployment_mode == downtime ]]; then
+  [[ $active_container == sub2api ]]
+  candidate_container=sub2api
+  candidate_port=$active_port
+  candidate_instance_id=$final_instance_id
+  active_override_tmp="$deploy_dir/docker-compose.release-active.yml.tmp.$$"
+  write_release_active_override "$active_override_tmp" "$candidate_image_id" "$candidate_instance_id" "$candidate_port" "$candidate_network_mode"
+  chmod 600 "$active_override_tmp"
+  mv -T -- "$active_override_tmp" "$deploy_dir/docker-compose.release-active.yml"
+  env_tmp="$deploy_dir/.env.active.$$"
+  awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE|BIND_HOST|SERVER_PORT)=/' "$deploy_dir/.env" > "$env_tmp"
+  printf 'COMPOSE_FILE=%s\n' "$(release_compose_value_with_active_override)" >> "$env_tmp"
+  printf 'SUB2API_RELEASE_IMAGE=%s\nBIND_HOST=127.0.0.1\nSERVER_PORT=%s\n' "$candidate_image_id" "$candidate_port" >> "$env_tmp"
+  chmod --reference="$deploy_dir/.env" "$env_tmp"
+  mv -T -- "$env_tmp" "$deploy_dir/.env"
+  load_release_compose_files "$deploy_dir"
+  candidate_compose_args=("${release_compose_args[@]}")
+  candidate_compose_json=$(docker compose "${candidate_compose_args[@]}" config --format json)
+  [[ $(assert_sub2api_compose_closure "$deploy_dir" "$candidate_port" "$candidate_image_id" "$candidate_instance_id") == "$candidate_network_mode" ]]
+  mark_switch_stage downtime_compose_prepared
+  docker compose "${candidate_compose_args[@]}" up -d --no-deps --force-recreate sub2api >/dev/null 2>&1
+else
+  [[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
+  candidate_run_args=(run -d --name "$candidate_container" --no-deps)
+  [[ $candidate_network_mode == host ]] || candidate_run_args+=(--service-ports)
+  docker compose "${candidate_compose_args[@]}" "${candidate_run_args[@]}" \
+    -e "SUB2API_INSTANCE_ID=$candidate_instance_id" \
+    -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null 2>&1
+fi
 mark_switch_stage candidate_started
 candidate_failure_file="$state_dir/candidate-failure"
 capture_candidate_failure() {
   local failure_line=${1:?candidate failure line is required}
+  local forced_failure_kind=${2:-}
   local failure_tmp
   local candidate_state=missing
   local candidate_health=missing
@@ -242,6 +271,10 @@ capture_candidate_failure() {
         ;;
     esac
   fi
+  if [[ -n $forced_failure_kind ]]; then
+    [[ $forced_failure_kind == runtime_contract_mismatch ]]
+    candidate_failure_kind=$forced_failure_kind
+  fi
   if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} ]]; then
     candidate_log_capture=unavailable
     if [[ $SUB2API_RELEASE_RAW_LOG == "$release_dir/logs/production.raw.log" && -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]] &&
@@ -251,6 +284,8 @@ capture_candidate_failure() {
         printf '\n[%s] stage=candidate_failure stream=container\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'candidate_state=%s candidate_health=%s candidate_exit_code=%s candidate_oom_killed=%s candidate_restart_count=%s candidate_health_log_entries=%s candidate_failure_kind=%s failure_line=%s\n' \
           "$candidate_state" "$candidate_health" "$candidate_exit_code" "$candidate_oom_killed" "$candidate_restart_count" "$candidate_health_log_entries" "$candidate_failure_kind" "$failure_line"
+        printf '[%s] stage=candidate_failure stream=healthcheck\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        docker inspect -f '{{range .State.Health.Log}}{{printf "start=%s end=%s exit_code=%d output=%q\n" .Start .End .ExitCode .Output}}{{end}}' "$candidate_container" 2>&1 || true
         docker logs --since 15m "$candidate_container" 2>&1 || true
       } >> "$SUB2API_RELEASE_RAW_LOG"
     fi
@@ -263,6 +298,10 @@ capture_candidate_failure() {
   [[ ! -L $candidate_failure_file ]]
   mv -T -- "$failure_tmp" "$candidate_failure_file"
 }
+if ! assert_sub2api_runtime_contract "$candidate_container" "$candidate_image_id" "$candidate_network_mode" "$candidate_port"; then
+  capture_candidate_failure "$LINENO" runtime_contract_mismatch
+  exit 1
+fi
 candidate_ready=false
 for _ in $(seq 1 90); do
   candidate_state_now=$(docker inspect -f '{{.State.Status}}' "$candidate_container" 2>/dev/null || true)
@@ -286,12 +325,10 @@ if [[ $candidate_runtime_image != "$candidate_image_id" || $candidate_runtime_he
   exit 1
 fi
 mark_switch_stage candidate_healthy
-[[ $(docker inspect -f '{{.HostConfig.NetworkMode}}' "$candidate_container") == host ]]
+assert_sub2api_runtime_contract "$candidate_container" "$candidate_image_id" "$candidate_network_mode" "$candidate_port"
 mark_switch_stage candidate_network_verified
-[[ $(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$candidate_container" | grep -Fx "SERVER_HOST=127.0.0.1") == "SERVER_HOST=127.0.0.1" ]]
-[[ $(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$candidate_container" | grep -Fx "SERVER_PORT=$candidate_port") == "SERVER_PORT=$candidate_port" ]]
 mark_switch_stage candidate_port_verified
-printf 'container=%s\nport=%s\nimage_id=%s\n' "$candidate_container" "$candidate_port" "$candidate_image_id" > "$state_dir/candidate-app"
+printf 'container=%s\nport=%s\nimage_id=%s\ninstance_id=%s\n' "$candidate_container" "$candidate_port" "$candidate_image_id" "$candidate_instance_id" > "$state_dir/candidate-app"
 chmod 600 "$state_dir/candidate-app"
 candidate_headers=$(mktemp /tmp/sub2api-candidate-health.XXXXXX)
 trap 'rm -f "$candidate_headers"' EXIT
@@ -318,7 +355,29 @@ mark_switch_stage candidate_headers_verified
 if [[ $deployment_mode == blue-green ]]; then
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
 else
-  [[ $(docker inspect -f '{{.State.Status}}' "$active_container") != running ]]
+  activation_host_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$candidate_container")
+  [[ -n $activation_host_dir && -d $activation_host_dir && ! -L $activation_host_dir ]]
+  printf '%s\n' "$candidate_instance_id" > "$activation_host_dir/.sub2api-active-instance.tmp"
+  chmod 600 "$activation_host_dir/.sub2api-active-instance.tmp"
+  mv -T -- "$activation_host_dir/.sub2api-active-instance.tmp" "$activation_host_dir/.sub2api-active-instance"
+  background_ready=false
+  for _ in $(seq 1 120); do
+    : > "$candidate_headers"
+    if [[ $(curl -sS -D "$candidate_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health" 2>/dev/null || true) == 200 ]] &&
+       assert_http_header_equals "$candidate_headers" X-Sub2API-Instance "$candidate_instance_id" &&
+       assert_http_header_equals "$candidate_headers" X-Sub2API-Background-Ready true; then
+      background_ready=true
+      break
+    fi
+    sleep 1
+  done
+  [[ $background_ready == true ]]
+  slot_tmp="$active_slot_file.tmp.$$"
+  printf 'container=sub2api\nport=%s\nimage_id=%s\nrelease_id=%s\ninstance_id=%s\n' \
+    "$candidate_port" "$candidate_image_id" "$release_id" "$candidate_instance_id" > "$slot_tmp"
+  chmod 600 "$slot_tmp"
+  mv -T -- "$slot_tmp" "$active_slot_file"
+  mark_switch_stage background_activated
 fi
 mark_switch_stage active_health_verified
 assert_prompt_audit_disabled
@@ -335,6 +394,7 @@ printf 'candidate_container=%s\n' "$candidate_container"
 printf 'candidate_port=%s\n' "$candidate_port"
 printf 'active_container=%s\n' "$active_container"
 printf 'active_port=%s\n' "$active_port"
+printf 'background_activation=%s\n' "$([[ $deployment_mode == downtime ]] && printf pass || printf pending)"
 if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 ]]; then
   printf 'managed_monitor_key_names_verified=true\n'
 fi
