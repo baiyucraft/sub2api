@@ -1263,6 +1263,35 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('self.stage("migration_switch_failed"', production)
         self.assertLess(production.index('self.stage("migration_switch_failed"'), production.index("def verify_and_finalize"))
 
+    def test_candidate_start_failure_preserves_root_only_logs_and_structured_evidence(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        switch = self.script("switch.sh")
+
+        self.assertIn('candidate_failure_file="$state_dir/candidate-failure"', switch)
+        self.assertIn("capture_candidate_failure", switch)
+        self.assertIn("docker logs --since 15m", switch)
+        self.assertIn('root:root:600:1', switch)
+        self.assertIn('candidate_failure_kind=health_unhealthy', switch)
+        self.assertIn('candidate_failure_kind=health_timeout', switch)
+        self.assertIn('candidate_failure_kind=container_exited', switch)
+        self.assertIn('candidate_oom_killed', switch)
+        self.assertIn('candidate_health_log_entries', switch)
+        self.assertIn('if [[ $candidate_ready != true ]]', switch)
+        self.assertIn('candidate_runtime_image=$(docker inspect', switch)
+        self.assertIn('candidate_runtime_health=$(docker inspect', switch)
+        self.assertIn('candidate_runtime_image != "$candidate_image_id"', switch)
+        candidate_started = switch.index("mark_switch_stage candidate_started")
+        self.assertLess(
+            switch.index('capture_candidate_failure "$LINENO"', candidate_started),
+            switch.index("mark_switch_stage candidate_healthy", candidate_started),
+        )
+        for field in (
+            "candidate_failure_kind", "candidate_state", "candidate_health", "candidate_exit_code",
+            "candidate_oom_killed", "candidate_restart_count", "candidate_health_log_entries",
+            "candidate_log_capture", "candidate_failure_line",
+        ):
+            self.assertIn(field, production)
+
     def test_switch_records_candidate_runtime_assertion_stages(self) -> None:
         switch = self.script("switch.sh")
         expected = (
