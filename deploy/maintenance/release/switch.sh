@@ -186,11 +186,11 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   "$assets_dir/migration-195-assert.sh" postflight_db
 fi
 mark_switch_stage migration_committed
-docker rm "$migration_container" >/dev/null
+docker rm "$migration_container" >/dev/null 2>&1
 [[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
 docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_container" --no-deps \
   -e "SUB2API_INSTANCE_ID=$candidate_instance_id" \
-  -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null
+  -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null 2>&1
 mark_switch_stage candidate_started
 for _ in $(seq 1 90); do
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]] && break
