@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import argparse
+import json
+import shlex
+from pathlib import Path
+
+from .gate import verify_gate
+from .manifest import manifest_release_asset_layout, release_unit_relative_paths, validate_manifest_profile_contract
+from .profiles import get_profile
+from .bootstrap import install_vm_validator
+from .paths import LAYOUT_SKILL_V1, RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY
+from .ssh import SSHRunner
+
+
+TRUSTED_KEY = TRUSTED_VM_PUBLIC_KEY
+SPACE_CLEANER = RELEASE_PACKAGE_ROOT / "vm-space-clean.sh"
+SPACE_FIELDS = {
+    "cleanup_mode",
+    "space_status",
+    "free_bytes",
+    "required_bytes",
+    "container_candidates",
+    "container_candidate_logical_bytes",
+    "image_candidates",
+    "image_candidate_logical_bytes",
+    "removed_containers",
+    "removed_images",
+    "build_cache_policy",
+    "build_cache_records",
+    "build_cache_gc_attempted",
+}
+
+
+def space_cleaner_checksum(manifest: dict[str, object]) -> str:
+    layout = manifest_release_asset_layout(manifest)
+    if layout != LAYOUT_SKILL_V1:
+        raise RuntimeError("VM validation only accepts new skill-v1 manifests")
+    release_assets = manifest.get("release_asset_sha256")
+    if not isinstance(release_assets, dict):
+        raise RuntimeError("manifest release asset checksums are missing")
+    cleaner_key = release_unit_relative_paths(layout)["space_cleaner"]
+    checksum = release_assets.get(cleaner_key)
+    if not isinstance(checksum, str):
+        raise RuntimeError("manifest VM space cleaner checksum is missing")
+    return checksum
+
+
+def ensure_vm_space(runner: SSHRunner, cleaner: str, manifest: dict[str, object]) -> dict[str, str]:
+    arguments = [shlex.quote(str(manifest["commit_sha"]))]
+    compatibility_fields = ("compatibility_version", "compatibility_commit", "compatibility_image_id")
+    if any(field in manifest for field in compatibility_fields):
+        if not all(field in manifest for field in compatibility_fields):
+            raise RuntimeError("manifest compatibility identity is incomplete")
+        arguments.extend(shlex.quote(str(manifest[field])) for field in compatibility_fields)
+    argument_text = " ".join(arguments)
+    command = f"{shlex.quote(cleaner)} dry-run {argument_text}"
+    report = runner.run("local_vm", command, SPACE_FIELDS).values
+    if report["space_status"] == "sufficient":
+        return report
+    if report["space_status"] != "insufficient":
+        raise RuntimeError("VM space cleaner returned an invalid status")
+    runner.run(
+        "local_vm",
+        f"{shlex.quote(cleaner)} apply {argument_text}",
+        SPACE_FIELDS,
+        timeout=600,
+    )
+    verified = runner.run("local_vm", command, SPACE_FIELDS).values
+    if verified["space_status"] != "sufficient":
+        raise RuntimeError("VM disk space remains insufficient after one allowlisted cleanup")
+    return verified
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--manifest", required=True)
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+    manifest_path = Path(args.manifest)
+    output = Path(args.output)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    validate_manifest_profile_contract(manifest, get_profile(str(manifest.get("profile", ""))))
+    space_cleaner_checksum(manifest)
+    runner = SSHRunner()
+    install_vm_validator(runner)
+    runner.run(
+        "local_vm",
+        "install -d -m 700 /opt/sub2api-deploy/release-input && test $(stat -c '%u:%a' /opt/sub2api-deploy/release-input) = $(id -u):700 && printf 'input_root_ready=true\\n'",
+        {"input_root_ready"},
+    )
+    remote_root = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "validation")
+    remote_manifest = f"{remote_root}/manifest.json"
+    remote_cleaner = f"{remote_root}/vm-space-clean.sh"
+    remote_output = f"/opt/sub2api-deploy/release-gates/{manifest['release_id']}/output"
+    runner.upload("local_vm", manifest_path.read_bytes(), remote_manifest, 0o400)
+    runner.upload_file("local_vm", SPACE_CLEANER, remote_cleaner, 0o700)
+    try:
+        cleaner_checksum = space_cleaner_checksum(manifest)
+        runner.run(
+            "local_vm",
+            f"test $(sha256sum {shlex.quote(remote_cleaner)} | awk '{{print $1}}') = {shlex.quote(cleaner_checksum)} && printf 'space_cleaner_verified=true\\n'",
+            {"space_cleaner_verified"},
+        )
+        ensure_vm_space(runner, remote_cleaner, manifest)
+        result = runner.run(
+            "local_vm",
+            f"for asset in /usr/local/libexec/sub2api-vm-validate /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do test -f $asset && test ! -L $asset && test $(stat -c '%U:%G:%a' $asset) = root:root:700; done && test $(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}') = {manifest['vm_validator_sha256']} && test $(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{{print $1}}') = {manifest['vm_gate_signer_sha256']} && test $(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{{print $1}}') = {manifest['vm_dr_signer_sha256']} && /usr/local/libexec/sub2api-vm-validate {remote_manifest} {remote_output}",
+            {"gate_status", "candidate_image_id", "candidate_archive_sha256"},
+            timeout=7200,
+        )
+        download_dir = f"{remote_root}/download"
+        runner.run(
+            "local_vm",
+            f"install -d -m 700 {download_dir} && for name in gate.json gate.sig candidate.tar.gz SHA256SUMS; do ln {remote_output}/$name {download_dir}/$name; done && printf 'download_ready=true\\n'",
+            {"download_ready"},
+        )
+        output.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for name in ("gate.json", "gate.sig", "candidate.tar.gz", "SHA256SUMS"):
+            runner.download_file("local_vm", f"{download_dir}/{name}", output / name)
+    finally:
+        runner.run("local_vm", f"rm -rf {remote_root} && printf 'input_removed=true\\n'", {"input_removed"})
+    verify_gate(output, TRUSTED_KEY, manifest["profile"])
+    if result.values["candidate_image_id"] != json.loads((output / "gate.json").read_text())["evidence"]["candidate_image_id"]:
+        raise RuntimeError("VM output and signed gate image identities differ")
+
+
+if __name__ == "__main__":
+    main()
