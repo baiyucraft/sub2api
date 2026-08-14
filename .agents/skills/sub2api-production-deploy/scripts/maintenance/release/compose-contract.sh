@@ -5,6 +5,58 @@
 # host published port is never confused with the port used inside a bridge
 # container.
 
+# The runtime image starts as root only long enough to repair /app/data and
+# then execs the application as the non-root sub2api user. Release scripts run
+# as host root, so a plain `printf > marker && chmod 600` creates a root-owned
+# file that PID 1 cannot read. Resolve the actual PID 1 identity and publish
+# the marker atomically with matching ownership.
+write_release_activation_marker() {
+  local container=${1:?container is required}
+  local instance_id=${2:?instance ID is required}
+  [[ $container =~ ^[a-zA-Z0-9_.-]{1,100}$ ]] || return 1
+  [[ $instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]] || return 1
+  docker inspect "$container" >/dev/null 2>&1 || return 1
+  local security_options
+  security_options=$(docker info --format '{{json .SecurityOptions}}') || return 1
+  [[ $security_options != *'name=userns'* && $security_options != *'name=rootless'* ]] || return 1
+
+  local activation_host_dir runtime_uid runtime_gid marker_tmp marker_path
+  activation_host_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$container") || return 1
+  [[ -n $activation_host_dir && -d $activation_host_dir && ! -L $activation_host_dir ]] || return 1
+  runtime_uid=$(docker exec "$container" sh -c 'set -- $(grep "^Uid:" /proc/1/status); printf "%s\n" "$5"') || return 1
+  runtime_gid=$(docker exec "$container" sh -c 'set -- $(grep "^Gid:" /proc/1/status); printf "%s\n" "$5"') || return 1
+  [[ $runtime_uid =~ ^[0-9]+$ && $runtime_gid =~ ^[0-9]+$ ]] || return 1
+
+  marker_path="$activation_host_dir/.sub2api-active-instance"
+  marker_tmp=$(mktemp "$activation_host_dir/.sub2api-active-instance.XXXXXXXX") || return 1
+  if ! printf '%s\n' "$instance_id" > "$marker_tmp" ||
+     ! chown "$runtime_uid:$runtime_gid" "$marker_tmp" ||
+     ! chmod 600 "$marker_tmp" ||
+     [[ $(stat -c '%u:%g:%a:%h' "$marker_tmp") != "$runtime_uid:$runtime_gid:600:1" ]] ||
+     ! mv -T -- "$marker_tmp" "$marker_path"; then
+    rm -f -- "$marker_tmp"
+    return 1
+  fi
+  [[ ! -L $marker_path ]] || return 1
+  [[ $(stat -c '%u:%g:%a:%h' "$marker_path") == "$runtime_uid:$runtime_gid:600:1" ]] || return 1
+  [[ $(<"$marker_path") == "$instance_id" ]] || return 1
+}
+
+# Keep human-oriented Docker/Compose progress out of the structured stdout
+# contract while retaining the complete original output in the release's
+# root-only production log. Non-production integration tests may omit the raw
+# log and receive the same quiet command behavior.
+run_release_logged_command() {
+  if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} ]]; then
+    [[ $SUB2API_RELEASE_RAW_LOG == /opt/sub2api/releases/*/logs/production.raw.log ]] || return 1
+    [[ -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]] || return 1
+    [[ $(stat -c '%U:%G:%a:%h' "$SUB2API_RELEASE_RAW_LOG") == root:root:600:1 ]] || return 1
+    "$@" >> "$SUB2API_RELEASE_RAW_LOG" 2>&1
+  else
+    "$@" >/dev/null 2>&1
+  fi
+}
+
 sub2api_compose_network_mode() {
   local compose_json=${1:?compose json is required}
   local host_port=${2:?host port is required}

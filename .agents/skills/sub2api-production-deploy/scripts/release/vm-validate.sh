@@ -109,6 +109,9 @@ while IFS=$'\t' read -r relative expected; do
   [[ $(sha256sum "$source_dir/$relative" | awk '{print $1}') == "$expected" ]]
 done < <(jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
 bash "$source_dir/.agents/skills/sub2api-production-deploy/scripts/tests/release/compose-contract-integration.sh" >/dev/null
+if [[ $release_asset_layout == skill-v1 ]]; then
+  source "$migration_assertion_dir/compose-contract.sh"
+fi
 [[ -d $data_dir && ! -L $data_dir ]]
 old_image_id=$(docker inspect -f '{{.Image}}' sub2api-dev)
 old_image_ref=$(docker inspect -f '{{.Config.Image}}' sub2api-dev)
@@ -651,8 +654,12 @@ SQL
 fi
 
 mark_stage candidate_health
+activation_instance="$release_id-vm-gate"
+rm -f "$probe_dir/.sub2api-active-instance"
 docker run -d --name "$probe_app" --network "$probe_network" \
   -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
+  -e "SUB2API_INSTANCE_ID=$activation_instance" \
+  -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance \
   -p "127.0.0.1::$server_port" \
   --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
   --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
@@ -663,6 +670,29 @@ for _ in $(seq 1 90); do
 done
 [[ $(docker inspect -f '{{.Image}}' "$probe_app") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]]
+if [[ $release_asset_layout == skill-v1 ]]; then
+  mark_stage candidate_background_activation
+  probe_app_port=$(docker port "$probe_app" "$server_port/tcp" | sed -n 's/^127\.0\.0\.1://p')
+  [[ $probe_app_port =~ ^[1-9][0-9]{0,4}$ && $probe_app_port -le 65535 ]]
+  activation_headers="$state_dir/activation-health.headers"
+  [[ $(curl -sS -D "$activation_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_app_port/health") == 200 ]]
+  assert_http_header_equals "$activation_headers" X-Sub2API-Instance "$activation_instance"
+  assert_http_header_equals "$activation_headers" X-Sub2API-Background-Ready false
+  write_release_activation_marker "$probe_app" "$activation_instance"
+  activation_ready=false
+  for _ in $(seq 1 120); do
+    : > "$activation_headers"
+    if [[ $(curl -sS -D "$activation_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_app_port/health" 2>/dev/null || true) == 200 ]] &&
+       assert_http_header_equals "$activation_headers" X-Sub2API-Instance "$activation_instance" &&
+       assert_http_header_equals "$activation_headers" X-Sub2API-Background-Ready true; then
+      activation_ready=true
+      break
+    fi
+    sleep 1
+  done
+  rm -f "$activation_headers"
+  [[ $activation_ready == true ]]
+fi
 
 if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 ]]; then
   mark_stage runtime_assertion_profile_206_live_capability
