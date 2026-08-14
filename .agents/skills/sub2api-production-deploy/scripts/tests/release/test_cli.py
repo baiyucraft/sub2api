@@ -28,6 +28,11 @@ class DeployCommandTest(unittest.TestCase):
         with self.assertRaises(argparse.ArgumentTypeError):
             cli._parse_since("yesterday")
 
+    def test_retention_unreadable_metadata_is_fail_closed(self) -> None:
+        unreadable = mock.Mock()
+        unreadable.is_symlink.side_effect = PermissionError("denied")
+        self.assertEqual(cli._retention_read_json(unreadable), {})
+
     def test_retention_dry_run_persists_plan_and_apply_requires_checksum(self) -> None:
         identifier = "235-aaaaaaaaaaaa-1-deadbeef"
         current_identifier = "235-bbbbbbbbbbbb-2-cafebabe"

@@ -266,9 +266,9 @@ _RETENTION_RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$")
 
 
 def _retention_read_json(path: Path) -> dict:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
-        return {}
     try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
+            return {}
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return {}
