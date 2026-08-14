@@ -44,8 +44,16 @@ systemctl reload nginx >/dev/null 2>&1
 [[ $(systemctl is-active nginx) == active ]]
 grep -Fq "server 127.0.0.1:$candidate_port;" "$managed_upstream"
 public_headers=$(mktemp /tmp/sub2api-public-expose.XXXXXX)
-[[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health") == 200 ]]
-assert_http_header_equals "$public_headers" X-Sub2API-Instance "$candidate_instance_id"
+public_verified=false
+for _ in $(seq 1 30); do
+  : > "$public_headers"
+  if [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health" 2>/dev/null || true) == 200 ]] && assert_http_header_equals "$public_headers" X-Sub2API-Instance "$candidate_instance_id"; then
+    public_verified=true
+    break
+  fi
+  sleep 1
+done
+[[ $public_verified == true ]]
 slot_tmp="$active_slot_file.tmp.$$"
 printf 'container=%s\nport=%s\nimage_id=%s\nrelease_id=%s\n' "$candidate_container" "$candidate_port" "$candidate_image_id" "$release_id" > "$slot_tmp"
 chmod 600 "$slot_tmp"
