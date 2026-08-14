@@ -21,18 +21,24 @@ NODES = ("local", "vm", "racknerd", "dmit", "backup")
 
 def import_trusted_host_keys() -> None:
     document = yaml.safe_load(SSH_CONFIG.read_text(encoding="utf-8"))
-    user_hosts = paramiko.HostKeys()
-    user_hosts.load(str(pathlib.Path.home() / ".ssh" / "known_hosts"))
     private_hosts = paramiko.HostKeys()
     if KNOWN_HOSTS.exists():
         private_hosts.load(str(KNOWN_HOSTS))
+
+    missing = []
     for config in document["servers"].values():
         host = str(config["host"])
         port = int(config.get("port", 22))
         candidates = [host] if port == 22 else [f"[{host}]:{port}", host]
-        existing = private_hosts.lookup(candidates[0])
-        if existing:
-            continue
+        if not private_hosts.lookup(candidates[0]):
+            missing.append(candidates)
+
+    if not missing:
+        return
+
+    user_hosts = paramiko.HostKeys()
+    user_hosts.load(str(pathlib.Path.home() / ".ssh" / "known_hosts"))
+    for candidates in missing:
         trusted = next((user_hosts.lookup(candidate) for candidate in candidates if user_hosts.lookup(candidate)), None)
         if not trusted:
             raise RuntimeError("an SSH host key is not present in the trusted user known_hosts file")
