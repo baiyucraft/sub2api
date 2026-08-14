@@ -9,11 +9,28 @@ from unittest import mock
 DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
-from release.doctor import ReleaseDoctor
+from release.doctor import ReleaseDoctor, import_trusted_host_keys
 from release.production_bootstrap import bootstrap_production
 
 
 class DoctorTest(unittest.TestCase):
+    def test_complete_repo_host_key_snapshot_does_not_read_user_home(self) -> None:
+        private_hosts = mock.Mock()
+        private_hosts.lookup.return_value = {"ssh-ed25519": mock.Mock()}
+        ssh_config = mock.Mock()
+        ssh_config.read_text.return_value = "servers:\n  vm:\n    host: vm.example\n"
+        known_hosts = mock.Mock()
+        known_hosts.exists.return_value = True
+        with (
+            mock.patch("release.doctor.SSH_CONFIG", ssh_config),
+            mock.patch("release.doctor.KNOWN_HOSTS", known_hosts),
+            mock.patch("release.doctor.paramiko.HostKeys", return_value=private_hosts),
+            mock.patch("release.doctor.pathlib.Path.home", side_effect=AssertionError("user home must not be read")),
+        ):
+            import_trusted_host_keys()
+        private_hosts.load.assert_called_once()
+        private_hosts.save.assert_not_called()
+
     def test_local_git_reads_use_retrying_helper(self) -> None:
         commit = "a" * 40
         profile = {"origin": "https://example.invalid/repo.git"}
