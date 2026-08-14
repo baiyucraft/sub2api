@@ -1299,6 +1299,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('grep -Fx "SERVER_PORT=$candidate_port"', candidate_start)
         self.assertIn('mark_switch_stage candidate_network_verified', candidate_start)
         self.assertIn('mark_switch_stage candidate_port_verified', candidate_start)
+        self.assertIn('sub2api >/dev/null 2>&1', candidate_start)
 
     def test_freeze_creates_release_state_root(self) -> None:
         freeze = self.script("freeze-backup.sh")
