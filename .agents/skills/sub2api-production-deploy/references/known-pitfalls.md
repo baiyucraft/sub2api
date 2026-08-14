@@ -20,6 +20,15 @@
 - 预防测试：额外/缺失字段拒绝、敏感字段脱敏、symlink/多硬链接拒绝、远端状态不明时禁止重试。
 - 状态：已修复。
 
+## Doctor 早期失败没有节点原始日志
+
+- 现象：`deploy-start` 在 VM Gate 和生产阶段前以 `doctor.backup failed` 退出，只能看到远端 exit code，无法判断是目录、空间、DMIT 健康还是公网 IP 检查失败。
+- 根因：原始日志包装只在生产 release 目录完成 staging 后启用；doctor、trust、临时目录和资产 staging 等更早的 SSH 命令仍只返回结构化 stdout，并隐藏远端 stderr。
+- 证据：release `235-ada768cae453-1786735969-9712b65e` 在 `production_status=not_started` 时失败；拆分后的白名单检查确认只有备份机空间门禁失败，可用空间约 `4.90 GiB`，要求为 `5.00 GiB`。
+- 修复：release 上下文中的所有 SSH 命令从第一条开始写节点本地 root-only `remote.raw.log`，同时保持 stdout allowlist 和 stderr 失败语义；使用稳定的独立日志根，避免预创建正式 release/Gate 目录。空间恢复只删除三个经过 inode/mtime/size 计划 SHA 绑定、无 release 引用且超过 7 天的 DR 临时目录，不触碰 daily、baseline、releases 或 verified 指针。
+- 预防测试：四节点日志路径、目录 `0700`、文件 `0600`、root owner、单硬链接、命令 ID、stdout/stderr 双流、非 release 命令不落日志，以及备份机真实 smoke。
+- 状态：代码、完整 release suite 与备份机日志 smoke 已通过，待新 full-SHA VM Gate 和生产停机发布验证。
+
 ## Release asset layout 迁移
 
 - 现象：发布脚本从 `deploy/` 迁移到 skill 后，旧 Gate 或 VM 校验仍引用旧路径。

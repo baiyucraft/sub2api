@@ -40,6 +40,12 @@ REMOTE_EVENT_LOGS = {
     "dmit": "/var/lib/sub2api-release/logs/{release_id}/events.jsonl",
     "backup": "/srv/sub2api-backups/release-logs/{release_id}/events.jsonl",
 }
+REMOTE_RAW_LOGS = {
+    "vm": "/opt/sub2api-deploy/release-logs/{release_id}/remote.raw.log",
+    "racknerd": "/opt/sub2api/release-logs/{release_id}/remote.raw.log",
+    "dmit": "/var/lib/sub2api-release/logs/{release_id}/remote.raw.log",
+    "backup": "/srv/sub2api-backups/release-logs/{release_id}/remote.raw.log",
+}
 
 
 @dataclass
@@ -68,6 +74,55 @@ class SSHRunner:
         logger = self._logger(node)
         if logger is not None:
             logger.emit(script="release.ssh", **event)
+
+    def _wrap_remote_raw_logging(self, node: str, script: str, command_id: str) -> str:
+        release_id = getattr(self, "release_id", None)
+        mode = getattr(self, "deployment_mode", None)
+        template = REMOTE_RAW_LOGS.get(node)
+        if not template or not release_id or not RELEASE_ID.fullmatch(release_id) or mode not in {"blue-green", "downtime"}:
+            return "bash -lc " + shlex.quote(script)
+        if not re.fullmatch(r"[0-9a-f]{16}", command_id):
+            raise RuntimeError("remote command ID is invalid")
+        log_file = template.format(release_id=release_id)
+        log_dir = posixpath.dirname(log_file)
+        log_root = posixpath.dirname(log_dir)
+        wrapped = f'''set -Eeuo pipefail
+umask 077
+if [[ -e {shlex.quote(log_root)} ]]; then
+  [[ -d {shlex.quote(log_root)} && ! -L {shlex.quote(log_root)} ]]
+else
+  install -d -o 0 -g 0 -m 700 {shlex.quote(log_root)}
+fi
+[[ $(stat -c '%u:%g:%a' {shlex.quote(log_root)}) == 0:0:700 ]]
+if [[ -e {shlex.quote(log_dir)} ]]; then
+  [[ -d {shlex.quote(log_dir)} && ! -L {shlex.quote(log_dir)} ]]
+else
+  install -d -o 0 -g 0 -m 700 {shlex.quote(log_dir)}
+fi
+[[ $(stat -c '%u:%g:%a' {shlex.quote(log_dir)}) == 0:0:700 ]]
+touch {shlex.quote(log_file)}
+[[ -f {shlex.quote(log_file)} && ! -L {shlex.quote(log_file)} ]]
+chmod 600 {shlex.quote(log_file)}
+[[ $(stat -c '%u:%g:%a:%h' {shlex.quote(log_file)}) == 0:0:600:1 ]]
+stdout_tmp=$(mktemp {shlex.quote(log_dir + '/.stdout.XXXXXXXX')})
+stderr_tmp=$(mktemp {shlex.quote(log_dir + '/.stderr.XXXXXXXX')})
+cleanup_remote_raw_log() {{ rm -f -- "$stdout_tmp" "$stderr_tmp"; }}
+trap cleanup_remote_raw_log EXIT
+set +e
+bash -lc {shlex.quote(script)} >"$stdout_tmp" 2>"$stderr_tmp"
+code=$?
+set -e
+{{
+  printf '\n[%s] command_id={command_id} stream=stdout\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  cat "$stdout_tmp"
+  printf '\n[%s] command_id={command_id} stream=stderr exit=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$code"
+  cat "$stderr_tmp"
+}} >> {shlex.quote(log_file)}
+cat "$stdout_tmp"
+cat "$stderr_tmp" >&2
+exit "$code"
+'''
+        return "bash -lc " + shlex.quote(wrapped)
 
     def _require_temp_path(self, name: str, remote_path: str) -> None:
         normalized = posixpath.normpath(remote_path)
@@ -160,7 +215,7 @@ class SSHRunner:
         )
         client = self.connect(name)
         try:
-            command = "bash -lc " + shlex.quote(script)
+            command = self._wrap_remote_raw_logging(name, script, command_id)
             stdin, stdout, stderr = client.exec_command(command, timeout=timeout, get_pty=False)
             if data:
                 stdin.write(data)
