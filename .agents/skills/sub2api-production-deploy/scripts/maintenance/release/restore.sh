@@ -8,6 +8,14 @@ exec 9>/run/lock/sub2api-backup-global.lock
 flock -n 9
 [[ -d $state_dir && ! -L $state_dir ]]
 (cd "$state_dir" && sha256sum -c SHA256SUMS >/dev/null)
+old_container=$(sed -n 's/^container=//p' "$state_dir/pre-active-app")
+old_port=$(sed -n 's/^port=//p' "$state_dir/pre-active-app")
+old_instance_id=$(sed -n 's/^instance_id=//p' "$state_dir/pre-active-app")
+old_release_id=$(sed -n 's/^release_id=//p' "$state_dir/pre-active-app")
+[[ $old_container =~ ^[A-Za-z0-9_.-]{1,80}$ ]]
+[[ $old_port == 18080 || $old_port == 18081 ]]
+[[ -z $old_instance_id || $old_instance_id =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
+[[ -z $old_release_id || $old_release_id =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
 (cd "$state_dir" && sha256sum -c recovery-point.age.sha256 >/dev/null)
 [[ -f $state_dir/recovery-point.tar && ! -L $state_dir/recovery-point.tar ]]
 [[ -f $state_dir/recovery-point.tar.sha256 && ! -L $state_dir/recovery-point.tar.sha256 ]]
@@ -113,18 +121,18 @@ if [[ " ${release_compose_files[*]} " != *" docker-compose.release-active.yml "*
   [[ -f $recovery/config/app/no-release-active-override && ! -L $recovery/config/app/no-release-active-override ]]
   rm -f "$deploy_dir/docker-compose.release-active.yml"
 fi
+cd "$deploy_dir"
+load_release_compose_files "$deploy_dir"
+restore_base_compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
+restore_network_mode=$(sub2api_compose_network_mode "$restore_base_compose_json" "$old_port")
 restore_override_tmp="$deploy_dir/docker-compose.release-active.yml.restore.$$"
-cat > "$restore_override_tmp" <<EOF
-services:
-  sub2api:
-    image: $(<"$state_dir/pre-image-id")
-EOF
+write_release_active_override "$restore_override_tmp" "$(<"$state_dir/pre-image-id")" "$old_instance_id" "$old_port" "$restore_network_mode"
 chmod 600 "$restore_override_tmp"
 mv -T -- "$restore_override_tmp" "$deploy_dir/docker-compose.release-active.yml"
 env_tmp="$deploy_dir/.env.restore.$$"
-awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE)=/' "$deploy_dir/.env" > "$env_tmp"
+awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE|BIND_HOST|SERVER_PORT)=/' "$deploy_dir/.env" > "$env_tmp"
 printf 'COMPOSE_FILE=%s\n' "$(release_compose_value_with_active_override)" >> "$env_tmp"
-printf 'SUB2API_RELEASE_IMAGE=%s\n' "$(<"$state_dir/pre-image-id")" >> "$env_tmp"
+printf 'SUB2API_RELEASE_IMAGE=%s\nBIND_HOST=127.0.0.1\nSERVER_PORT=%s\n' "$(<"$state_dir/pre-image-id")" "$old_port" >> "$env_tmp"
 chmod --reference="$deploy_dir/.env" "$env_tmp"
 mv -T -- "$env_tmp" "$deploy_dir/.env"
 find "$deploy_dir/data" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
@@ -141,16 +149,17 @@ load_release_compose_files "$deploy_dir"
 compose_image=$(docker compose "${release_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
 [[ -n $compose_image ]]
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$(<"$state_dir/pre-image-id")" ]]
+[[ $(assert_sub2api_compose_closure "$deploy_dir" "$old_port" "$(<"$state_dir/pre-image-id")" "$old_instance_id") == "$restore_network_mode" ]]
 docker compose "${release_compose_args[@]}" up -d --no-deps sub2api >/dev/null 2>&1
 for _ in $(seq 1 90); do
   [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]] && break
   sleep 2
 done
-[[ $(docker inspect -f '{{.Image}}' sub2api) == "$(<"$state_dir/pre-image-id")" ]]
+assert_sub2api_runtime_contract sub2api "$(<"$state_dir/pre-image-id")" "$restore_network_mode" "$old_port"
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
 systemctl start nginx
 slot_tmp="$active_slot_file.tmp.$$"
-printf 'container=sub2api\nport=18080\nimage_id=%s\n' "$(docker inspect -f '{{.Image}}' sub2api)" > "$slot_tmp"
+printf 'container=sub2api\nport=%s\nimage_id=%s\nrelease_id=%s\ninstance_id=%s\n' "$old_port" "$(docker inspect -f '{{.Image}}' sub2api)" "$old_release_id" "$old_instance_id" > "$slot_tmp"
 chmod 600 "$slot_tmp"
 mv -T -- "$slot_tmp" "$active_slot_file"
 cleanup_recovery

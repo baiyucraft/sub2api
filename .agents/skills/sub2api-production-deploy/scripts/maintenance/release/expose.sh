@@ -36,8 +36,44 @@ cleanup() {
 trap cleanup EXIT
 [[ $(curl -sS -D "$health_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health") == 200 ]]
 assert_http_header_equals "$health_headers" X-Sub2API-Instance "$candidate_instance_id"
-assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready false
+if [[ $deployment_mode == blue-green ]]; then
+  assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready false
+else
+  assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready true
+fi
 [[ -f $managed_upstream && ! -L $managed_upstream ]]
+if [[ $deployment_mode == downtime ]]; then
+  [[ $candidate_container == sub2api ]]
+  [[ $candidate_port == "$active_port" ]]
+  [[ $(sed -n 's/^container=//p' "$active_slot_file") == sub2api ]]
+  [[ $(sed -n 's/^port=//p' "$active_slot_file") == "$candidate_port" ]]
+  [[ $(sed -n 's/^image_id=//p' "$active_slot_file") == "$candidate_image_id" ]]
+  [[ $(sed -n 's/^release_id=//p' "$active_slot_file") == "$release_id" ]]
+  [[ $(sed -n 's/^instance_id=//p' "$active_slot_file") == "$candidate_instance_id" ]]
+  grep -Fq "server 127.0.0.1:$candidate_port;" "$managed_upstream"
+  switched=true
+  systemctl start nginx >/dev/null 2>&1
+  [[ $(systemctl is-active nginx) == active ]]
+  public_headers=$(mktemp /tmp/sub2api-public-expose.XXXXXX)
+  public_verified=false
+  for _ in $(seq 1 30); do
+    : > "$public_headers"
+    if [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health" 2>/dev/null || true) == 200 ]] &&
+       assert_http_header_equals "$public_headers" X-Sub2API-Instance "$candidate_instance_id"; then
+      public_verified=true
+      break
+    fi
+    sleep 1
+  done
+  [[ $public_verified == true ]]
+  printf 'public_traffic_enabled=true\n'
+  printf 'nginx_reload=pass\n'
+  printf 'new_active_container=%s\n' "$candidate_container"
+  printf 'new_active_port=%s\n' "$candidate_port"
+  printf 'previous_container=%s\n' "$active_container"
+  printf 'previous_port=%s\n' "$active_port"
+  exit 0
+fi
 printf 'phase=candidate\nroute_port=%s\nprevious_port=%s\n' "$candidate_port" "$active_port" > "$state_dir/route-switch-intent.tmp"
 chmod 600 "$state_dir/route-switch-intent.tmp"
 mv -T -- "$state_dir/route-switch-intent.tmp" "$state_dir/route-switch-intent"

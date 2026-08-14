@@ -23,7 +23,7 @@ grep -Fq "server 127.0.0.1:$active_port;" "$managed_upstream"
 [[ $(systemctl is-active nginx) == active ]]
 assert_final_compose_closure "$deploy_dir" "$active_port"
 candidate_removed=false
-if docker inspect "$candidate_container" >/dev/null 2>&1; then
+if [[ $candidate_container != sub2api ]] && docker inspect "$candidate_container" >/dev/null 2>&1; then
   [[ $(application_connection_count "$candidate_container") == 0 ]]
   docker stop -t 30 "$candidate_container" >/dev/null
   docker rm "$candidate_container" >/dev/null

@@ -46,7 +46,7 @@ DANGEROUS_STAGES = {
     "prompt_audit_verified",
     "switch_failure_reason",
     "public_route_verification", "nginx_reloaded", "split_route_verified",
-    "old_slot_draining", "old_slot_drained",
+    "old_slot_draining", "old_slot_drained", "downtime_finalizing", "downtime_finalized",
     "production_verified", "production_verified_after_reconciliation",
 }
 

@@ -13,6 +13,7 @@ grep -Fxq "release_id=$release_id" "$active_claim/release_id"
 [[ -f $active_claim/gate.json && ! -L $active_claim/gate.json ]]
 (cd "$active_claim" && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
 assets_dir="$active_claim/assets"
+source "$assets_dir/compose-contract.sh"
 candidate_image_id=$(jq -er '.evidence.candidate_image_id' "$active_claim/gate.json")
 candidate_archive_sha=$(jq -er '.evidence.candidate_archive_sha256' "$active_claim/gate.json")
 commit=$(jq -er '.manifest.commit_sha' "$active_claim/gate.json")
@@ -57,18 +58,25 @@ if [[ -f $active_slot_file && ! -L $active_slot_file ]]; then
 elif [[ -e $active_slot_file || -L $active_slot_file ]]; then
   exit 1
 fi
-candidate_port=18081
-[[ $active_port == 18081 ]] && candidate_port=18080
-candidate_container="sub2api-candidate-$release_id"
-candidate_instance_id="$release_id-candidate"
 final_instance_id="$release_id-active"
-if [[ -f $state_dir/candidate-app && ! -L $state_dir/candidate-app ]]; then
-  while IFS='=' read -r key value; do
-    case "$key" in
-      container) [[ $value =~ ^sub2api-candidate-[a-zA-Z0-9_.-]+$ ]] && candidate_container=$value ;;
-      port) [[ $value == 18080 || $value == 18081 ]] && candidate_port=$value ;;
-    esac
-  done < "$state_dir/candidate-app"
+if [[ $deployment_mode == downtime ]]; then
+  candidate_port=$active_port
+  candidate_container=sub2api
+  candidate_instance_id=$final_instance_id
+else
+  candidate_port=18081
+  [[ $active_port == 18081 ]] && candidate_port=18080
+  candidate_container="sub2api-candidate-$release_id"
+  candidate_instance_id="$release_id-candidate"
+  if [[ -f $state_dir/candidate-app && ! -L $state_dir/candidate-app ]]; then
+    while IFS='=' read -r key value; do
+      case "$key" in
+        container) [[ $value =~ ^sub2api-candidate-[a-zA-Z0-9_.-]+$ ]] && candidate_container=$value ;;
+        port) [[ $value == 18080 || $value == 18081 ]] && candidate_port=$value ;;
+        instance_id) [[ $value =~ ^[a-zA-Z0-9_.-]{1,128}$ ]] && candidate_instance_id=$value ;;
+      esac
+    done < "$state_dir/candidate-app"
+  fi
 fi
 [[ $candidate_container =~ ^[a-zA-Z0-9_.-]{1,100}$ ]]
 [[ $candidate_instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]]
@@ -176,27 +184,37 @@ release_compose_value_with_active_override() {
   printf '%s:docker-compose.release-active.yml\n' "$result"
 }
 
-assert_final_compose_closure() {
+assert_sub2api_compose_closure() {
   local root=${1:?compose root is required}
   local expected_port=${2:?published port is required}
+  local expected_image=${3:?expected image is required}
+  local expected_instance=${4-}
   [[ $expected_port == 18080 || $expected_port == 18081 ]]
   load_release_compose_files "$root"
-  local compose_json compose_image
+  local compose_json compose_image network_mode
   compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
   compose_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
   [[ -n $compose_image ]]
-  [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
-  jq -e --arg port "$expected_port" --arg instance "$final_instance_id" '
+  [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$expected_image" ]]
+  network_mode=$(sub2api_compose_network_mode "$compose_json" "$expected_port")
+  assert_sub2api_healthcheck_contract "$compose_json" "$network_mode" "$expected_port"
+  jq -e --arg instance "$expected_instance" '
     .services.sub2api.container_name == "sub2api" and
-    .services.sub2api.environment.SUB2API_INSTANCE_ID == $instance and
-    .services.sub2api.environment.SUB2API_BACKGROUND_ACTIVATION_FILE == "/app/data/.sub2api-active-instance" and
     (
-      (.services.sub2api.network_mode == "host" and
-       .services.sub2api.environment.SERVER_HOST == "127.0.0.1" and
-       (.services.sub2api.environment.SERVER_PORT | tostring) == $port) or
-      ((.services.sub2api.ports // []) | any((.target | tostring) == "8080" and (.published | tostring) == $port and .host_ip == "127.0.0.1"))
+      $instance == "" or
+      (
+        .services.sub2api.environment.SUB2API_INSTANCE_ID == $instance and
+        .services.sub2api.environment.SUB2API_BACKGROUND_ACTIVATION_FILE == "/app/data/.sub2api-active-instance"
+      )
     )
   ' <<<"$compose_json" >/dev/null
+  printf '%s\n' "$network_mode"
+}
+
+assert_final_compose_closure() {
+  local root=${1:?compose root is required}
+  local expected_port=${2:?published port is required}
+  assert_sub2api_compose_closure "$root" "$expected_port" "$candidate_image_id" "$final_instance_id" >/dev/null
 }
 
 assert_prompt_audit_disabled() {
