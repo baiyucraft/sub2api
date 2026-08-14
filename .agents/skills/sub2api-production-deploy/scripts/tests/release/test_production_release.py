@@ -952,10 +952,13 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         return (DEPLOY_ROOT / "maintenance" / "release" / name).read_text(encoding="utf-8")
 
     def run_route_canary(self, *, stream_exit: int = 0, stream_code: str = "200", stream_body: str = "data: ok") -> dict[str, str]:
-        bash = shutil.which("bash")
+        bash = None
+        if os.name == "nt":
+            configured_bash = os.environ.get("SUB2API_BASH_EXE")
+            git_bash = Path(configured_bash) if configured_bash else Path("C:/Program Files/Git/bin/bash.exe")
+            bash = str(git_bash) if git_bash.is_file() else None
         if bash is None:
-            git_bash = Path("C:/Program Files/Git/bin/bash.exe")
-            bash = str(git_bash) if git_bash.exists() else None
+            bash = shutil.which("bash")
         if bash is None:
             self.skipTest("bash is unavailable")
         with tempfile.TemporaryDirectory() as directory:
@@ -1002,6 +1005,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
                 env["FAKE_CURL_DIR"] = directory
                 command = [
                     bash,
+                    "--noprofile",
+                    "--norc",
                     "-lc",
                     'export PATH="$(cygpath -u "$FAKE_CURL_DIR"):$PATH"; exec bash maintenance/release/route-canary.sh',
                 ]
@@ -1013,6 +1018,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
                 env=env,
                 input="sk-test-key-1234\n",
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=15,
                 check=False,
@@ -1031,6 +1037,40 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_context_reads_release_id_in_prepared_format(self) -> None:
         context = self.script("context.sh")
         self.assertIn('grep -Fxq "release_id=$release_id" "$active_claim/release_id"', context)
+
+    def test_activation_marker_uses_the_runtime_process_identity(self) -> None:
+        compose = self.script("compose-contract.sh")
+        switch = self.script("switch.sh")
+        finalize = self.script("finalize.sh")
+        rollback = self.script("rollback-route.sh")
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+
+        self.assertIn("write_release_activation_marker()", compose)
+        self.assertIn("/proc/1/status", compose)
+        self.assertIn("chown \"$runtime_uid:$runtime_gid\"", compose)
+        self.assertIn("$runtime_uid:$runtime_gid:600:1", compose)
+        self.assertIn("name=userns", compose)
+        self.assertIn("name=rootless", compose)
+        self.assertIn('printf "%s\\n" "$5"', compose)
+        self.assertIn('docker inspect "$container" >/dev/null 2>&1 || return 1', compose)
+        self.assertIn('! -L $activation_host_dir ]] || return 1', compose)
+        self.assertIn("run_release_logged_command()", compose)
+        self.assertIn('>> "$SUB2API_RELEASE_RAW_LOG" 2>&1', compose)
+        self.assertIn('write_release_activation_marker "$candidate_container" "$candidate_instance_id"', switch)
+        self.assertIn('write_release_activation_marker sub2api "$final_instance_id"', finalize)
+        self.assertIn('write_release_activation_marker "$old_container" "$old_instance_id"', rollback)
+        self.assertNotIn('marker_source=$candidate_container', rollback)
+        self.assertIn('X-Sub2API-Background-Ready true', rollback)
+        self.assertLess(
+            rollback.index('[[ $rollback_background_ready == true ]]'),
+            rollback.index('route_to_port "$old_port"'),
+        )
+        self.assertIn('source "$migration_assertion_dir/compose-contract.sh"', validator)
+        self.assertIn('write_release_activation_marker "$probe_app" "$activation_instance"', validator)
+        self.assertIn('X-Sub2API-Background-Ready false', validator)
+        self.assertIn('X-Sub2API-Background-Ready true', validator)
+        for script in (switch, finalize, rollback):
+            self.assertNotIn('.sub2api-active-instance.tmp"', script)
 
     def test_cleanup_supports_failure_before_recovery_point(self) -> None:
         cleanup = self.script("cleanup-state.sh")
@@ -1332,21 +1372,47 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('candidate_failure_kind=health_unhealthy', switch)
         self.assertIn('candidate_failure_kind=health_timeout', switch)
         self.assertIn('candidate_failure_kind=container_exited', switch)
+        self.assertIn('candidate_failure_kind=post_start_contract_failure', switch)
         self.assertIn('runtime_contract_mismatch', switch)
+        self.assertIn('activation_marker_write_failed', switch)
+        self.assertIn('background_activation_timeout', switch)
         self.assertIn('runtime_contract_mismatch', production)
+        self.assertIn('activation_marker_write_failed', production)
+        self.assertIn('background_activation_timeout', production)
         self.assertIn('candidate_oom_killed', switch)
         self.assertIn('candidate_health_log_entries', switch)
         self.assertIn('if [[ $candidate_ready != true ]]', switch)
         self.assertIn('candidate_runtime_image=$(docker inspect', switch)
         self.assertIn('candidate_runtime_health=$(docker inspect', switch)
         self.assertIn('candidate_runtime_image != "$candidate_image_id"', switch)
+        self.assertIn('capture_candidate_failure_on_exit', switch)
+        self.assertIn('candidate-failure-capture-started', switch)
+        self.assertIn('candidate_failure_capture_started=true', switch)
+        self.assertIn('candidate_failure_committed=true', switch)
+        self.assertIn("trap 'remember_candidate_failure_line", switch)
+        self.assertIn('trap capture_candidate_failure_on_exit EXIT', switch)
+        self.assertIn('trap - ERR EXIT', switch)
+        self.assertIn('stage=candidate_failure_capture status=failed', switch)
+        self.assertIn('exit_code=98', switch)
+        self.assertIn('candidate_start_exit=0', switch)
+        self.assertIn('candidate_original_exit_code=unknown', switch)
+        self.assertIn('candidate_start_failure_line=$((LINENO + 1))', switch)
+        self.assertIn('capture_candidate_failure_once "$candidate_start_failure_line"', switch)
+        self.assertIn('[[ $(grep -c \'^candidate_\' "$candidate_failure_file") == 10 ]] || return 1', switch)
+        self.assertIn('candidate_original_exit_code=$candidate_start_exit', switch)
+        self.assertIn('original_exit_code=%s', switch)
+        self.assertLess(
+            switch.index('trap capture_candidate_failure_on_exit EXIT'),
+            switch.index('mark_switch_stage candidate_started'),
+        )
         candidate_started = switch.index("mark_switch_stage candidate_started")
         self.assertLess(
-            switch.index('capture_candidate_failure "$LINENO"', candidate_started),
+            switch.index('capture_candidate_failure_once "$LINENO"', candidate_started),
             switch.index("mark_switch_stage candidate_healthy", candidate_started),
         )
         for field in (
             "candidate_failure_kind", "candidate_state", "candidate_health", "candidate_exit_code",
+            "candidate_original_exit_code",
             "candidate_oom_killed", "candidate_restart_count", "candidate_health_log_entries",
             "candidate_log_capture", "candidate_failure_line",
         ):
@@ -1420,8 +1486,9 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('$container.NetworkSettings.Ports["8080/tcp"]', contract)
         self.assertIn('mark_switch_stage candidate_network_verified', candidate_start)
         self.assertIn('mark_switch_stage candidate_port_verified', candidate_start)
-        self.assertIn('sub2api >/dev/null 2>&1', candidate_start)
-        self.assertIn('capture_candidate_failure "$LINENO" runtime_contract_mismatch', candidate_start)
+        self.assertIn('run_release_logged_command docker compose', candidate_start)
+        self.assertNotIn('sub2api >/dev/null 2>&1', candidate_start)
+        self.assertIn('capture_candidate_failure_once "$LINENO" runtime_contract_mismatch', candidate_start)
 
     def test_candidate_failure_captures_docker_healthcheck_output_in_root_only_raw_log(self) -> None:
         switch = self.script("switch.sh")
@@ -1482,6 +1549,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("chmod 600", production)
         self.assertIn("_remote_raw_logging_ready = True", production)
         self.assertIn("SUB2API_RELEASE_RAW_LOG", finalize)
+        self.assertIn("trap - ERR", finalize)
 
     def test_downtime_uses_single_compose_managed_container_on_the_active_port(self) -> None:
         context = self.script("context.sh")
