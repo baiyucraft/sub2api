@@ -1317,7 +1317,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
 
         self.assertIn('active_container=$(sed -n \'s/^container=//p\'', preflight)
         self.assertNotIn("docker inspect -f '{{.State.Status}}' sub2api", preflight)
-        self.assertIn("systemctl reload nginx", expose)
+        self.assertIn("systemctl reload nginx >/dev/null 2>&1", expose)
         self.assertNotIn("systemctl stop nginx", expose)
         route_write = expose.index('mv -T -- "$upstream_tmp" "$managed_upstream"')
         switched = expose.index("switched=true", route_write)

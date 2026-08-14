@@ -40,7 +40,7 @@ chmod 600 "$upstream_tmp"
 mv -T -- "$upstream_tmp" "$managed_upstream"
 switched=true
 nginx -t >/dev/null 2>&1
-systemctl reload nginx
+systemctl reload nginx >/dev/null 2>&1
 [[ $(systemctl is-active nginx) == active ]]
 grep -Fq "server 127.0.0.1:$candidate_port;" "$managed_upstream"
 public_headers=$(mktemp /tmp/sub2api-public-expose.XXXXXX)
