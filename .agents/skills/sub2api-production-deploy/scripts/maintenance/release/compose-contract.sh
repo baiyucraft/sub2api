@@ -53,16 +53,26 @@ assert_sub2api_healthcheck_contract() {
   local compose_json=${1:?compose json is required}
   local network_mode=${2:?network mode is required}
   local host_port=${3:?host port is required}
+  local policy=${4:-strict}
+  [[ $policy == strict || $policy == active_compat ]]
   local expected_url
   expected_url=$(sub2api_healthcheck_url "$network_mode" "$host_port")
   if [[ $network_mode == bridge ]]; then
-    jq -e --arg expected "$expected_url" '
+    jq -e --arg expected "$expected_url" --arg policy "$policy" '
       .services.sub2api.healthcheck.test == ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", $expected] or
-      .services.sub2api.healthcheck.test == ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
+      .services.sub2api.healthcheck.test == ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"] or
+      (
+        $policy == "active_compat" and
+        (
+          .services.sub2api.healthcheck.test == ["CMD", "wget", "-q", "--spider", $expected] or
+          .services.sub2api.healthcheck.test == ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+        )
+      )
     ' <<<"$compose_json" >/dev/null
   else
-    jq -e --arg expected "$expected_url" '
-      .services.sub2api.healthcheck.test == ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", $expected]
+    jq -e --arg expected "$expected_url" --arg policy "$policy" '
+      .services.sub2api.healthcheck.test == ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", $expected] or
+      ($policy == "active_compat" and .services.sub2api.healthcheck.test == ["CMD", "wget", "-q", "--spider", $expected])
     ' <<<"$compose_json" >/dev/null
   fi
 }
@@ -72,6 +82,8 @@ assert_sub2api_runtime_contract() {
   local expected_image=${2:?expected image is required}
   local network_mode=${3:?network mode is required}
   local host_port=${4:?host port is required}
+  local policy=${5:-strict}
+  [[ $policy == strict || $policy == active_compat ]]
   local expected_host expected_internal_port expected_health_url inspect_json
   case "$network_mode" in
     host)
@@ -92,7 +104,8 @@ assert_sub2api_runtime_contract() {
     --arg host "$expected_host" \
     --arg internal_port "$expected_internal_port" \
     --arg host_port "$host_port" \
-    --arg health_url "$expected_health_url" '
+    --arg health_url "$expected_health_url" \
+    --arg policy "$policy" '
       .[0] as $container |
       ($container.Image == $image) and
       ([ $container.Config.Env[] | select(startswith("SERVER_HOST=")) ] == [("SERVER_HOST=" + $host)]) and
@@ -102,6 +115,16 @@ assert_sub2api_runtime_contract() {
         (
           $mode == "bridge" and
           $container.Config.Healthcheck.Test == ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
+        ) or
+        (
+          $policy == "active_compat" and
+          (
+            $container.Config.Healthcheck.Test == ["CMD", "wget", "-q", "--spider", $health_url] or
+            (
+              $mode == "bridge" and
+              $container.Config.Healthcheck.Test == ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+            )
+          )
         )
       ) and
       if $mode == "host" then
