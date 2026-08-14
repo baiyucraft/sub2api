@@ -199,12 +199,92 @@ docker compose "${candidate_compose_args[@]}" run -d --name "$candidate_containe
   -e "SUB2API_INSTANCE_ID=$candidate_instance_id" \
   -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance sub2api >/dev/null 2>&1
 mark_switch_stage candidate_started
+candidate_failure_file="$state_dir/candidate-failure"
+capture_candidate_failure() {
+  local failure_line=${1:?candidate failure line is required}
+  local failure_tmp
+  local candidate_state=missing
+  local candidate_health=missing
+  local candidate_exit_code=unknown
+  local candidate_oom_killed=unknown
+  local candidate_restart_count=unknown
+  local candidate_health_log_entries=unknown
+  local candidate_failure_kind=container_missing
+  local candidate_log_capture=not_configured
+  if docker inspect "$candidate_container" >/dev/null 2>&1; then
+    candidate_state=$(docker inspect -f '{{.State.Status}}' "$candidate_container" 2>/dev/null || true)
+    candidate_health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$candidate_container" 2>/dev/null || true)
+    candidate_exit_code=$(docker inspect -f '{{.State.ExitCode}}' "$candidate_container" 2>/dev/null || true)
+    candidate_oom_killed=$(docker inspect -f '{{.State.OOMKilled}}' "$candidate_container" 2>/dev/null || true)
+    candidate_restart_count=$(docker inspect -f '{{.RestartCount}}' "$candidate_container" 2>/dev/null || true)
+    candidate_health_log_entries=$(docker inspect -f '{{if .State.Health}}{{len .State.Health.Log}}{{else}}0{{end}}' "$candidate_container" 2>/dev/null || true)
+    case "$candidate_state" in
+      created|running|paused|restarting|removing|exited|dead) ;;
+      *) candidate_state=unknown ;;
+    esac
+    case "$candidate_health" in
+      starting|healthy|unhealthy|none) ;;
+      *) candidate_health=unknown ;;
+    esac
+    [[ $candidate_exit_code =~ ^[0-9]+$ ]] || candidate_exit_code=unknown
+    [[ $candidate_oom_killed == true || $candidate_oom_killed == false ]] || candidate_oom_killed=unknown
+    [[ $candidate_restart_count =~ ^[0-9]+$ ]] || candidate_restart_count=unknown
+    [[ $candidate_health_log_entries =~ ^[0-9]+$ ]] || candidate_health_log_entries=unknown
+    case "$candidate_state" in
+      exited|dead) candidate_failure_kind=container_exited ;;
+      unknown) candidate_failure_kind=inspect_failed ;;
+      *)
+        if [[ $candidate_health == unhealthy ]]; then
+          candidate_failure_kind=health_unhealthy
+        else
+          candidate_failure_kind=health_timeout
+        fi
+        ;;
+    esac
+  fi
+  if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} ]]; then
+    candidate_log_capture=unavailable
+    if [[ $SUB2API_RELEASE_RAW_LOG == "$release_dir/logs/production.raw.log" && -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]] &&
+       [[ $(stat -c '%U:%G:%a:%h' "$SUB2API_RELEASE_RAW_LOG") == root:root:600:1 ]]; then
+      candidate_log_capture=saved
+      {
+        printf '\n[%s] stage=candidate_failure stream=container\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'candidate_state=%s candidate_health=%s candidate_exit_code=%s candidate_oom_killed=%s candidate_restart_count=%s candidate_health_log_entries=%s candidate_failure_kind=%s failure_line=%s\n' \
+          "$candidate_state" "$candidate_health" "$candidate_exit_code" "$candidate_oom_killed" "$candidate_restart_count" "$candidate_health_log_entries" "$candidate_failure_kind" "$failure_line"
+        docker logs --since 15m "$candidate_container" 2>&1 || true
+      } >> "$SUB2API_RELEASE_RAW_LOG"
+    fi
+  fi
+  [[ $failure_line =~ ^[0-9]+$ ]]
+  failure_tmp="$candidate_failure_file.tmp.$$"
+  printf 'candidate_failure_kind=%s\ncandidate_state=%s\ncandidate_health=%s\ncandidate_exit_code=%s\ncandidate_oom_killed=%s\ncandidate_restart_count=%s\ncandidate_health_log_entries=%s\ncandidate_log_capture=%s\ncandidate_failure_line=%s\n' \
+    "$candidate_failure_kind" "$candidate_state" "$candidate_health" "$candidate_exit_code" "$candidate_oom_killed" "$candidate_restart_count" "$candidate_health_log_entries" "$candidate_log_capture" "$failure_line" > "$failure_tmp"
+  chmod 600 "$failure_tmp"
+  [[ ! -L $candidate_failure_file ]]
+  mv -T -- "$failure_tmp" "$candidate_failure_file"
+}
+candidate_ready=false
 for _ in $(seq 1 90); do
-  [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]] && break
+  candidate_state_now=$(docker inspect -f '{{.State.Status}}' "$candidate_container" 2>/dev/null || true)
+  candidate_health_now=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$candidate_container" 2>/dev/null || true)
+  if [[ $candidate_health_now == healthy ]]; then
+    candidate_ready=true
+    break
+  fi
+  [[ -n $candidate_state_now ]] || break
+  [[ $candidate_state_now != exited && $candidate_state_now != dead ]] || break
   sleep 2
 done
-[[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]]
+if [[ $candidate_ready != true ]]; then
+  capture_candidate_failure "$LINENO"
+  exit 1
+fi
+candidate_runtime_image=$(docker inspect -f '{{.Image}}' "$candidate_container" 2>/dev/null || true)
+candidate_runtime_health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$candidate_container" 2>/dev/null || true)
+if [[ $candidate_runtime_image != "$candidate_image_id" || $candidate_runtime_health != healthy ]]; then
+  capture_candidate_failure "$LINENO"
+  exit 1
+fi
 mark_switch_stage candidate_healthy
 [[ $(docker inspect -f '{{.HostConfig.NetworkMode}}' "$candidate_container") == host ]]
 mark_switch_stage candidate_network_verified
