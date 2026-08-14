@@ -38,6 +38,15 @@
 - 预防测试：候选提前退出立即失败、健康超时分类、root-only 原始日志追加、结构化字段白名单、协调恢复前证据已落盘。
 - 状态：修复中，需通过 release suite、VM Gate 和下一次生产停机发布验证。
 
+## Loopback 健康检查与生产绑定地址不一致
+
+- 现象：候选进程保持 running、退出码为 0、无 OOM，应用日志明确显示已经监听 `127.0.0.1`，但 Docker 连续五次将容器判定为 unhealthy。
+- 根因：生产候选显式绑定 IPv4 loopback，镜像 HEALTHCHECK 却访问 `localhost`；生产 Docker 环境中的 `localhost` 解析路径没有命中 IPv4 监听。
+- 证据：candidate `sha256:6eb8dd24b84ec569171fc389e99d8e0b2b55e8450ae6faa51092f8a1de1de3d1` 在同一生产主机访问当前健康端点时，`localhost` 返回 exit 1，而 `127.0.0.1` 返回 exit 0；release `235-8f40f75ad81b-1786717077-274b236b` 随后完成协调恢复。
+- 修复：Dockerfile HEALTHCHECK 固定使用 `127.0.0.1:${SERVER_PORT:-8080}`，与蓝绿和停机候选的 `SERVER_HOST=127.0.0.1` 合同一致。
+- 预防测试：Dockerfile 合同测试拒绝恢复为 `localhost`；VM Gate 必须验证候选 Docker health、内部 `/health` 和实例 Header。
+- 状态：修复中，需由新 full-SHA candidate 的 VM Gate 与生产停机发布验证。
+
 ## SSH 超时与重复 runner
 
 - 现象：调用端超时后误以为 runner 未执行，重新启动第二个发布。

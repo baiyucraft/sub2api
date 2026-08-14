@@ -24,6 +24,12 @@ from release.production import quoted_env
 
 
 class ProductionRecoveryTest(unittest.TestCase):
+    def test_container_healthcheck_uses_ipv4_loopback_for_release_bind(self) -> None:
+        dockerfile = (WORKSPACE / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("http://127.0.0.1:${SERVER_PORT:-8080}/health", dockerfile)
+        self.assertNotIn("http://localhost:${SERVER_PORT:-8080}/health", dockerfile)
+
     def test_migration_232_postflight_hashes_backup_for_new_migration(self) -> None:
         assertion = (DEPLOY_ROOT / "maintenance" / "release" / "migration-232-assert.sh").read_text(encoding="utf-8")
 
