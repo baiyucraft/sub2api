@@ -17,10 +17,10 @@
 ## 标准命令
 
 ```text
-python deploy/release.py deploy-start --profile <profile> --commit <完整40位SHA>
-python deploy/release.py status <release_id>
-python deploy/release.py wait <release_id> --timeout 900
-python deploy/release.py verify-result <release_id>
+python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-start --profile <profile> --commit <完整40位SHA> --mode blue-green|downtime
+python .agents/skills/sub2api-production-deploy/scripts/release.py status <release_id>
+python .agents/skills/sub2api-production-deploy/scripts/release.py wait <release_id> --timeout 900
+python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result <release_id>
 ```
 
 `status` 只输出固定字段：release/profile/commit、runner 存活与退出码、VM/production 阶段、候选和运行镜像、claim 最终状态、更新时间。禁止输出完整 JSON、argv、日志、secret 或远端原始回包。PID 必须同时匹配记录的进程启动 token，防止 PID 重用。

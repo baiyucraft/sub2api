@@ -141,7 +141,7 @@ VM 构建规则：
 - 使用 VM `/opt/sub2api-src` 固定工作树。
 - 构建完成后必须在 `sub2api-dev` 完成完整验证。
 - 从 VM 导出已经验证的 `candidate_image_id`，传到 RackNerd。
-- 若 profile 已接入 `deploy/release.py`，使用 `python deploy/release.py deploy-start --profile <profile> --commit <full SHA>`，再用 `status/wait/verify-result` 收口；候选只在 VM 构建，RackNerd 只验签、导入和核对 image ID。
+- 若 profile 已接入 skill 发布入口，使用 `python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-start --profile <profile> --commit <full SHA> --mode blue-green|downtime`，再用 `status/wait/verify-result` 收口；候选只在 VM 构建，RackNerd 只验签、导入和核对 image ID。
 - RackNerd 不得重新构建同一个候选。
 - VM 空间或依赖无法安全满足时停止，不得退回 RackNerd 未验证构建。
 - 构建链在 VM 至少执行五次空间门禁：构建前、构建后、导出前、导入前、导入后；同时检查 Docker Root Dir、containerd、`/tmp` 和传输临时目录。

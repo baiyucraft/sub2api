@@ -133,6 +133,13 @@ CLAUDE.md
 scripts
 !backend/scripts/
 !backend/scripts/resolve-version.sh
+!.agents/
+!.agents/skills/
+!.agents/skills/sub2api-production-deploy/
+!.agents/skills/sub2api-production-deploy/scripts/
+!.agents/skills/sub2api-production-deploy/scripts/**
+.agents/skills/sub2api-production-deploy/scripts/**/__pycache__/
+.agents/skills/sub2api-production-deploy/scripts/**/*.py[cod]
 .code-review-state
 #openspec/
 code-reviews/

@@ -21,12 +21,12 @@
 对已提供 profile 的 RackNerd 应用发布，固定使用：
 
 ```text
-python deploy/release.py doctor --profile <profile> --commit <40位完整SHA>
-python deploy/release.py bootstrap-production --profile <profile>
-python deploy/release.py deploy-start --profile <profile> --commit <40位完整SHA>
-python deploy/release.py status <release_id>
-python deploy/release.py wait <release_id> --timeout 900
-python deploy/release.py verify-result <release_id>
+python .agents/skills/sub2api-production-deploy/scripts/release.py doctor --profile <profile> --commit <40位完整SHA>
+python .agents/skills/sub2api-production-deploy/scripts/release.py bootstrap-production --profile <profile>
+python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-start --profile <profile> --commit <40位完整SHA> --mode blue-green|downtime
+python .agents/skills/sub2api-production-deploy/scripts/release.py status <release_id>
+python .agents/skills/sub2api-production-deploy/scripts/release.py wait <release_id> --timeout 900
+python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result <release_id>
 ```
 
 - `doctor` 只读检查本地、VM、RackNerd、DMIT 和异地节点，输出字段白名单；失败时禁止进入发布。
@@ -303,8 +303,8 @@ RackNerd  -> 按 marker 核验 usage 记录和真实客户端 IP
 生产空间清理是独立的 `ops-control-assets` 维护动作，不得借机部署、迁移或切换应用。固定入口：
 
 ```text
-python deploy/release.py cleanup-production <verified_release_id> --mode dry-run
-python deploy/release.py cleanup-production <verified_release_id> --mode apply --plan-sha256 <dry-run输出>
+python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production <verified_release_id> --mode dry-run
+python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production <verified_release_id> --mode apply --plan-sha256 <dry-run输出>
 ```
 
 执行合同：
