@@ -71,14 +71,19 @@ func TestSetManagementSettingsPersistsAtomicallyAndPublishesTTFT(t *testing.T) {
 		TTFTGuard:            OpenAITTFTGuardSettings{Enabled: true, DegradationTTFTSeconds: 35, MinSamples: 6},
 		ProbeModels:          UpstreamProbeModels{OpenAI: " gpt-custom ", Anthropic: "claude-custom", Gemini: "gemini-custom"},
 		ProbeIntervalSeconds: 600,
+		ProbeGuard: UpstreamProbeGuardSettings{
+			Enabled: true, SuspendAfterFailures: 4, RecoverySuccesses: 2,
+			CustomErrorCodesEnabled: true, CustomErrorCodes: []int{429, 404, 404},
+		},
 	}
 
 	require.NoError(t, upstreamService.SetManagementSettings(context.Background(), settings))
 	require.Equal(t, 1, repo.setMultipleCalls)
-	require.Len(t, repo.lastMultiple, 3)
+	require.Len(t, repo.lastMultiple, 4)
 	require.JSONEq(t, `{"enabled":true,"degradation_ttft_seconds":35,"min_samples":6}`, repo.lastMultiple[SettingKeyOpenAITTFTGuardSettings])
 	require.JSONEq(t, `{"openai":"gpt-custom","anthropic":"claude-custom","gemini":"gemini-custom"}`, repo.lastMultiple[SettingKeyUpstreamProbeModels])
 	require.Equal(t, "600", repo.lastMultiple[SettingKeyUpstreamProbeIntervalSeconds])
+	require.JSONEq(t, `{"enabled":true,"suspend_after_failures":4,"recovery_successes":2,"custom_error_codes_enabled":true,"custom_error_codes":[404,429]}`, repo.lastMultiple[SettingKeyUpstreamProbeGuardSettings])
 	snapshot := settingService.OpenAITTFTGuardConfigSnapshot()
 	require.True(t, snapshot.Enabled)
 	require.Equal(t, 35*time.Second, snapshot.Threshold)

@@ -88,9 +88,10 @@ type UpstreamConfig struct {
 }
 
 type UpstreamManagementSettings struct {
-	TTFTGuard            OpenAITTFTGuardSettings `json:"ttft_guard"`
-	ProbeModels          UpstreamProbeModels     `json:"probe_models"`
-	ProbeIntervalSeconds int                     `json:"probe_interval_seconds"`
+	TTFTGuard            OpenAITTFTGuardSettings    `json:"ttft_guard"`
+	ProbeModels          UpstreamProbeModels        `json:"probe_models"`
+	ProbeIntervalSeconds int                        `json:"probe_interval_seconds"`
+	ProbeGuard           UpstreamProbeGuardSettings `json:"probe_guard"`
 }
 
 func (c *UpstreamConfig) EffectiveAPIURL() string {
@@ -340,7 +341,7 @@ func (s *UpstreamConfigService) GetProbeModels(ctx context.Context) (UpstreamPro
 
 func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (UpstreamManagementSettings, error) {
 	if s == nil || s.settingService == nil {
-		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds}, nil
+		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings()}, nil
 	}
 	ttft, err := s.settingService.GetOpenAITTFTGuardSettings(ctx)
 	if err != nil {
@@ -355,7 +356,11 @@ func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (Upst
 		return UpstreamManagementSettings{}, err
 	}
 	s.healthProbeIntervalSeconds.Store(int64(interval))
-	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval}, nil
+	guard, err := s.settingService.GetUpstreamProbeGuardSettings(ctx)
+	if err != nil {
+		return UpstreamManagementSettings{}, err
+	}
+	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard}, nil
 }
 
 func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, settings UpstreamManagementSettings) error {
@@ -365,8 +370,20 @@ func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, setti
 	if settings.ProbeIntervalSeconds == 0 {
 		settings.ProbeIntervalSeconds = DefaultUpstreamProbeIntervalSeconds
 	}
-	if err := s.settingService.SetOpenAITTFTGuardProbeModelsAndInterval(ctx, &settings.TTFTGuard, settings.ProbeModels, settings.ProbeIntervalSeconds); err != nil {
+	if settings.ProbeGuard.SuspendAfterFailures == 0 && settings.ProbeGuard.RecoverySuccesses == 0 && settings.ProbeGuard.CustomErrorCodes == nil {
+		settings.ProbeGuard = DefaultUpstreamProbeGuardSettings()
+	}
+	if err := s.settingService.SetOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx, &settings.TTFTGuard, settings.ProbeModels, settings.ProbeIntervalSeconds, settings.ProbeGuard); err != nil {
 		return err
+	}
+	settings.ProbeGuard, _ = NormalizeUpstreamProbeGuardSettings(settings.ProbeGuard)
+	transitions := GlobalUpstreamHealthRegistry().ReevaluateProbeGuard(settings.ProbeGuard, time.Now().UTC())
+	if s.repo != nil {
+		for _, transition := range transitions {
+			if err := s.saveHealthTransition(ctx, transition.Current.KeyID, transition); err != nil {
+				slog.Warn("failed to persist upstream probe guard re-evaluation", "key_id", transition.Current.KeyID, "error", err)
+			}
+		}
 	}
 	s.healthProbeIntervalSeconds.Store(int64(settings.ProbeIntervalSeconds))
 	return nil
@@ -882,6 +899,9 @@ func upstreamHealthSnapshotMap(item UpstreamHealthSnapshot) map[string]any {
 		"consecutive_failures":      item.ConsecutiveFails,
 		"recovery_samples":          item.RecoverySamples,
 		"recovery_samples_required": item.RecoverySamplesRequired,
+		"last_failure_source":       item.LastFailureSource,
+		"last_failure_class":        item.LastFailureClass,
+		"suspension_source":         item.SuspensionSource,
 	}
 	if item.LastProbeAt != nil {
 		out["last_probe_at"] = item.LastProbeAt.UTC().Format(time.RFC3339Nano)
@@ -928,6 +948,15 @@ func upstreamHealthSnapshotFromExtra(keyID int64, extra map[string]any) (Upstrea
 	if value, ok := raw["last_traffic_status"].(string); ok {
 		item.LastTrafficStatus = value
 	}
+	if value, ok := raw["last_failure_source"].(string); ok {
+		item.LastFailureSource = strings.TrimSpace(value)
+	}
+	if value, ok := raw["last_failure_class"].(string); ok {
+		item.LastFailureClass = strings.TrimSpace(value)
+	}
+	if value, ok := raw["suspension_source"].(string); ok {
+		item.SuspensionSource = strings.TrimSpace(value)
+	}
 	item.ConsecutiveFails = upstreamHealthInt(raw["consecutive_failures"])
 	item.RecoverySamples = upstreamHealthInt(raw["recovery_samples"])
 	if required := upstreamHealthInt(raw["recovery_samples_required"]); required > 0 {
@@ -935,6 +964,15 @@ func upstreamHealthSnapshotFromExtra(keyID int64, extra map[string]any) (Upstrea
 	}
 	item.LastProbeAt = upstreamHealthTime(raw["last_probe_at"])
 	item.LastEvidenceAt = upstreamHealthTime(raw["last_evidence_at"])
+	if item.SuspensionSource == "" && (item.Status == UpstreamHealthSuspended || item.Status == UpstreamHealthRecovering) && item.LastProbeAt != nil && (item.LastEvidenceAt == nil || !item.LastProbeAt.Before(*item.LastEvidenceAt)) {
+		item.SuspensionSource = "probe"
+		if item.LastFailureSource == "" {
+			item.LastFailureSource = "probe"
+		}
+		if item.LastFailureClass == "" {
+			item.LastFailureClass = upstreamProbeFailureClass(item.LastProbeStatus, item.Reason)
+		}
+	}
 	if updated := upstreamHealthTime(raw["updated_at"]); updated != nil {
 		item.UpdatedAt = *updated
 	}
@@ -1055,9 +1093,13 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 	}
 	account := accounts[0]
 	models := DefaultUpstreamProbeModels()
+	probeGuard := DefaultUpstreamProbeGuardSettings()
 	if s.settingService != nil {
 		if configured, loadErr := s.settingService.GetUpstreamProbeModels(ctx); loadErr == nil {
 			models = configured
+		}
+		if configured, loadErr := s.settingService.GetUpstreamProbeGuardSettings(ctx); loadErr == nil {
+			probeGuard = configured
 		}
 	}
 	model := models.ModelFor(account.Platform)
@@ -1081,9 +1123,9 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 			if reason == "" {
 				reason = upstreamProbeReason(probeErr.Error())
 			}
-			transition = registry.RecordProbeFailureWithTTFTTransition(keyID, status, reason, result.TTFTMs, now)
+			transition = registry.RecordProbeFailureWithGuardTransition(keyID, status, reason, result.TTFTMs, now, probeGuard)
 		} else {
-			transition = registry.RecordProbeWithTTFTTransition(keyID, "success", "probe_succeeded", result.TTFTMs, now)
+			transition = registry.RecordProbeWithGuardSuccessTransition(keyID, "success", "probe_succeeded", result.TTFTMs, now, probeGuard)
 		}
 		item = transition.Current
 		accountID := account.ID

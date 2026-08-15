@@ -16,9 +16,10 @@ type upstreamProbeModelsRequest struct {
 }
 
 type upstreamManagementSettingsRequest struct {
-	TTFTGuard            service.OpenAITTFTGuardSettings `json:"ttft_guard"`
-	ProbeModels          service.UpstreamProbeModels     `json:"probe_models"`
-	ProbeIntervalSeconds int                             `json:"probe_interval_seconds"`
+	TTFTGuard            service.OpenAITTFTGuardSettings     `json:"ttft_guard"`
+	ProbeModels          service.UpstreamProbeModels         `json:"probe_models"`
+	ProbeIntervalSeconds int                                 `json:"probe_interval_seconds"`
+	ProbeGuard           *service.UpstreamProbeGuardSettings `json:"probe_guard"`
 }
 
 func (h *UpstreamConfigHandler) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
@@ -35,7 +36,8 @@ func (h *UpstreamConfigHandler) upstreamHealthAdminResponse(ctx context.Context,
 		"reason": item.Reason, "last_probe_at": item.LastProbeAt, "last_probe_status": item.LastProbeStatus,
 		"last_evidence_at": item.LastEvidenceAt, "last_traffic_status": item.LastTrafficStatus,
 		"consecutive_failures": item.ConsecutiveFails, "recovery_samples": item.RecoverySamples,
-		"recovery_samples_required": item.RecoverySamplesRequired, "updated_at": item.UpdatedAt,
+		"recovery_samples_required": item.RecoverySamplesRequired, "last_failure_source": item.LastFailureSource,
+		"last_failure_class": item.LastFailureClass, "suspension_source": item.SuspensionSource, "updated_at": item.UpdatedAt,
 		"history": histories[item.KeyID],
 	}, nil
 }
@@ -87,7 +89,13 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 		response.BadRequest(c, "invalid upstream management settings: "+err.Error())
 		return
 	}
-	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds}
+	probeGuard := service.DefaultUpstreamProbeGuardSettings()
+	if req.ProbeGuard != nil {
+		probeGuard = *req.ProbeGuard
+	} else if current, getErr := h.service.GetManagementSettings(c.Request.Context()); getErr == nil {
+		probeGuard = current.ProbeGuard
+	}
+	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard}
 	if settings.ProbeIntervalSeconds == 0 {
 		settings.ProbeIntervalSeconds = service.DefaultUpstreamProbeIntervalSeconds
 	}
@@ -95,7 +103,12 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, settings)
+	saved, err := h.service.GetManagementSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, saved)
 }
 
 func (h *UpstreamConfigHandler) GetUpstreamProbeModelCandidates(c *gin.Context) {

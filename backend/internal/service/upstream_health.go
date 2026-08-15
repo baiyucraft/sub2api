@@ -163,6 +163,9 @@ type UpstreamHealthSnapshot struct {
 	ConsecutiveFails        int                  `json:"consecutive_failures"`
 	RecoverySamples         int                  `json:"recovery_samples"`
 	RecoverySamplesRequired int                  `json:"recovery_samples_required"`
+	LastFailureSource       string               `json:"last_failure_source,omitempty"`
+	LastFailureClass        string               `json:"last_failure_class,omitempty"`
+	SuspensionSource        string               `json:"suspension_source,omitempty"`
 	UpdatedAt               time.Time            `json:"updated_at"`
 }
 
@@ -209,6 +212,181 @@ func normalizeUpstreamHealthSnapshot(item UpstreamHealthSnapshot) UpstreamHealth
 		item.RecoverySamples = 0
 	}
 	return item
+}
+
+func (r *UpstreamHealthRegistry) RecordProbeWithGuardSuccessTransition(keyID int64, status, reason string, ttftMs *int64, now time.Time, settings UpstreamProbeGuardSettings) UpstreamHealthTransition {
+	return r.recordProbeSuccessWithGuard(keyID, status, reason, ttftMs, now, settings)
+}
+
+func (r *UpstreamHealthRegistry) RecordProbeFailureWithGuardTransition(keyID int64, status, reason string, ttftMs *int64, now time.Time, settings UpstreamProbeGuardSettings) UpstreamHealthTransition {
+	return r.recordProbeFailureWithGuard(keyID, status, reason, ttftMs, now, settings)
+}
+
+func (r *UpstreamHealthRegistry) recordProbeSuccessWithGuard(keyID int64, status, reason string, ttftMs *int64, now time.Time, settings UpstreamProbeGuardSettings) UpstreamHealthTransition {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	settings, _ = NormalizeUpstreamProbeGuardSettings(settings)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.items[keyID]
+	if !ok {
+		item = defaultUpstreamHealthSnapshot(keyID)
+	}
+	previous := item
+	item.UpdatedAt = now
+	item.Reason = strings.TrimSpace(reason)
+	item.LastProbeAt = &now
+	item.LastProbeStatus = strings.TrimSpace(status)
+	item.LastProbeTTFTMs = cloneUpstreamHealthInt64(ttftMs)
+	item.RecoverySamplesRequired = settings.RecoverySuccesses
+	item.ConsecutiveFails = 0
+	if !item.ObservationEnabled || item.Status == UpstreamHealthDisabled {
+		r.items[keyID] = normalizeUpstreamHealthSnapshot(item)
+		return UpstreamHealthTransition{Previous: previous, Current: r.items[keyID]}
+	}
+	if !settings.Enabled && item.SuspensionSource == "probe" {
+		item.Status = UpstreamHealthDegraded
+		item.RecoverySamples = 0
+		item.SuspensionSource = ""
+		item.Reason = "probe_guard_disabled"
+	} else if item.Status == UpstreamHealthSuspended || item.Status == UpstreamHealthRecovering {
+		item.Status = UpstreamHealthRecovering
+		item.RecoverySamples++
+		if item.RecoverySamples >= settings.RecoverySuccesses {
+			item.Status = UpstreamHealthHealthy
+			item.RecoverySamples = 0
+			item.SuspensionSource = ""
+			item.Reason = "recovered"
+		}
+	} else {
+		item.Status = UpstreamHealthHealthy
+		item.RecoverySamples = 0
+	}
+	item = normalizeUpstreamHealthSnapshot(item)
+	r.items[keyID] = item
+	return UpstreamHealthTransition{Previous: previous, Current: item}
+}
+
+func (r *UpstreamHealthRegistry) recordProbeFailureWithGuard(keyID int64, status, reason string, ttftMs *int64, now time.Time, settings UpstreamProbeGuardSettings) UpstreamHealthTransition {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	settings, _ = NormalizeUpstreamProbeGuardSettings(settings)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.items[keyID]
+	if !ok {
+		item = defaultUpstreamHealthSnapshot(keyID)
+	}
+	previous := item
+	item.UpdatedAt = now
+	item.Reason = strings.TrimSpace(reason)
+	item.LastProbeAt = &now
+	item.LastProbeStatus = strings.TrimSpace(status)
+	item.LastProbeTTFTMs = cloneUpstreamHealthInt64(ttftMs)
+	item.RecoverySamples = 0
+	item.RecoverySamplesRequired = settings.RecoverySuccesses
+	item.LastFailureSource = "probe"
+	item.LastFailureClass = upstreamProbeFailureClass(status, reason)
+	if !item.ObservationEnabled || item.Status == UpstreamHealthDisabled {
+		r.items[keyID] = normalizeUpstreamHealthSnapshot(item)
+		return UpstreamHealthTransition{Previous: previous, Current: r.items[keyID]}
+	}
+	if !settings.Enabled {
+		if item.SuspensionSource == "probe" {
+			item.Status = UpstreamHealthDegraded
+			item.SuspensionSource = ""
+		}
+		item.ConsecutiveFails = 0
+		item.Reason = "probe_guard_disabled"
+		r.items[keyID] = normalizeUpstreamHealthSnapshot(item)
+		return UpstreamHealthTransition{Previous: previous, Current: r.items[keyID]}
+	}
+	code := upstreamProbeStatusCode(status)
+	customCodes := upstreamProbeGuardCustomCodeSet(settings)
+	authFailure := (code == 401 || code == 403) && strings.TrimSpace(reason) != "gateway_intercepted"
+	_, customCode := customCodes[code]
+	countFailure := authFailure || (code >= 500 && code != 529) || (code >= 400 && code < 500 && customCode) || ((code == 429 || code == 529) && customCode)
+	if code == 0 {
+		countFailure = true
+	}
+	if !countFailure {
+		item.ConsecutiveFails = 0
+		item.Status = UpstreamHealthDegraded
+		item.SuspensionSource = ""
+	} else {
+		item.ConsecutiveFails++
+		if authFailure || item.ConsecutiveFails >= settings.SuspendAfterFailures {
+			item.Status = UpstreamHealthSuspended
+			item.SuspensionSource = "probe"
+		} else {
+			item.Status = UpstreamHealthDegraded
+		}
+	}
+	item = normalizeUpstreamHealthSnapshot(item)
+	r.items[keyID] = item
+	return UpstreamHealthTransition{Previous: previous, Current: item}
+}
+
+func upstreamProbeFailureClass(status, reason string) string {
+	if strings.TrimSpace(reason) == "gateway_intercepted" {
+		return "gateway_intercepted"
+	}
+	code := upstreamProbeStatusCode(status)
+	switch {
+	case code == 401 || code == 403:
+		return "authentication"
+	case code == 429 || code == 529:
+		return "capacity"
+	case code >= 500:
+		return "server"
+	case code >= 400:
+		return "http_client"
+	default:
+		return "transport"
+	}
+}
+
+// ReevaluateProbeGuard removes stale probe-only suspensions after a global
+// rule change. Business evidence suspensions remain untouched.
+func (r *UpstreamHealthRegistry) ReevaluateProbeGuard(settings UpstreamProbeGuardSettings, now time.Time) []UpstreamHealthTransition {
+	if r == nil {
+		return nil
+	}
+	settings, _ = NormalizeUpstreamProbeGuardSettings(settings)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	transitions := make([]UpstreamHealthTransition, 0)
+	for keyID, item := range r.items {
+		if item.SuspensionSource != "probe" {
+			continue
+		}
+		if !settings.Enabled || !probeFailureStillCounts(item.LastProbeStatus, item.Reason, settings) {
+			previous := item
+			item.Status = UpstreamHealthDegraded
+			item.ConsecutiveFails = 0
+			item.RecoverySamples = 0
+			item.SuspensionSource = ""
+			item.Reason = "probe_guard_reconfigured"
+			item.UpdatedAt = now
+			r.items[keyID] = normalizeUpstreamHealthSnapshot(item)
+			transitions = append(transitions, UpstreamHealthTransition{Previous: previous, Current: r.items[keyID]})
+		}
+	}
+	return transitions
+}
+
+func probeFailureStillCounts(status, reason string, settings UpstreamProbeGuardSettings) bool {
+	code := upstreamProbeStatusCode(status)
+	if (code == 401 || code == 403) && strings.TrimSpace(reason) != "gateway_intercepted" {
+		return true
+	}
+	if code == 0 || (code >= 500 && code != 529) {
+		return true
+	}
+	_, custom := upstreamProbeGuardCustomCodeSet(settings)[code]
+	return custom && ((code >= 400 && code < 500) || code == 529)
 }
 
 func (r *UpstreamHealthRegistry) Snapshot(keyID int64) UpstreamHealthSnapshot {
@@ -306,11 +484,13 @@ func (r *UpstreamHealthRegistry) recordSuccessTransition(keyID int64, status, re
 		if item.RecoverySamples >= upstreamHealthRecoverySamplesRequired {
 			item.Status = UpstreamHealthHealthy
 			item.RecoverySamples = 0
+			item.SuspensionSource = ""
 			item.Reason = "recovered"
 		}
 	} else {
 		item.Status = UpstreamHealthHealthy
 		item.RecoverySamples = 0
+		item.SuspensionSource = ""
 	}
 	item = normalizeUpstreamHealthSnapshot(item)
 	r.items[keyID] = item
@@ -350,6 +530,12 @@ func (r *UpstreamHealthRegistry) recordFailureTransition(keyID int64, status, re
 		item.LastEvidenceAt = &now
 		item.LastTrafficStatus = strings.TrimSpace(status)
 	}
+	if probe {
+		item.LastFailureSource = "probe"
+	} else {
+		item.LastFailureSource = "traffic"
+	}
+	item.LastFailureClass = upstreamProbeFailureClass(status, reason)
 	if item.Reason == "capacity_limited" {
 		// Provider-wide capacity signals are useful observations but do not prove
 		// that this key is invalid. Keep the key degraded without accumulating
@@ -361,8 +547,12 @@ func (r *UpstreamHealthRegistry) recordFailureTransition(keyID int64, status, re
 	}
 	if status == "401" || status == "403" || item.ConsecutiveFails >= 3 {
 		item.Status = UpstreamHealthSuspended
+		item.SuspensionSource = item.LastFailureSource
 	} else if item.Status != UpstreamHealthDegraded {
 		item.Status = UpstreamHealthDegraded
+	}
+	if item.Status != UpstreamHealthSuspended && item.Status != UpstreamHealthRecovering {
+		item.SuspensionSource = ""
 	}
 	item = normalizeUpstreamHealthSnapshot(item)
 	r.items[keyID] = item

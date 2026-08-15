@@ -190,6 +190,52 @@ func (s *SettingService) SetOpenAITTFTGuardProbeModelsAndInterval(ctx context.Co
 	return nil
 }
 
+// SetOpenAITTFTGuardProbeModelsIntervalAndGuard atomically persists all
+// upstream-management settings. The legacy three-setting method above stays
+// available for older callers.
+func (s *SettingService) SetOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx context.Context, settings *OpenAITTFTGuardSettings, models UpstreamProbeModels, intervalSeconds int, guard UpstreamProbeGuardSettings) error {
+	if err := validateOpenAITTFTGuardSettings(settings); err != nil {
+		return err
+	}
+	models.OpenAI = strings.TrimSpace(models.OpenAI)
+	models.Anthropic = strings.TrimSpace(models.Anthropic)
+	models.Gemini = strings.TrimSpace(models.Gemini)
+	if err := validateUpstreamProbeModels(models); err != nil {
+		return err
+	}
+	if err := validateUpstreamProbeIntervalSeconds(intervalSeconds); err != nil {
+		return err
+	}
+	guardRaw, _, err := s.validateAndMarshalUpstreamProbeGuard(guard)
+	if err != nil {
+		return err
+	}
+	if s == nil || s.settingRepo == nil {
+		return fmt.Errorf("setting repository is unavailable")
+	}
+	ttftRaw, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("marshal OpenAI TTFT guard settings: %w", err)
+	}
+	probeRaw, err := json.Marshal(models)
+	if err != nil {
+		return fmt.Errorf("marshal upstream probe models: %w", err)
+	}
+	s.openAITTFTGuardUpdateMu.Lock()
+	defer s.openAITTFTGuardUpdateMu.Unlock()
+	if err := s.settingRepo.SetMultiple(ctx, map[string]string{
+		SettingKeyOpenAITTFTGuardSettings:      string(ttftRaw),
+		SettingKeyUpstreamProbeModels:          string(probeRaw),
+		SettingKeyUpstreamProbeIntervalSeconds: strconv.Itoa(intervalSeconds),
+		SettingKeyUpstreamProbeGuardSettings:   guardRaw,
+	}); err != nil {
+		return fmt.Errorf("set upstream management settings: %w", err)
+	}
+	s.openAITTFTGuardRevision.Add(1)
+	s.storeOpenAITTFTGuardSnapshot(openAITTFTGuardSnapshot(settings), openAITTFTGuardConfigCacheTTL)
+	return nil
+}
+
 // OpenAITTFTGuardConfigSnapshot implements OpenAITTFTGuardConfigProvider. It
 // only performs an atomic read on the hot path and refreshes stale data in the
 // background.

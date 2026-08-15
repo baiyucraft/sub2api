@@ -16,7 +16,7 @@ export default {
       title: '上游管理设置',
       open: '上游管理设置',
       loadFailed: '加载上游管理设置失败',
-      invalid: '请检查首 Token 阈值、样本数、探针模型和探针间隔。'
+      invalid: '请检查首 Token 阈值、样本数、探针模型、探针间隔和探针错误码。'
     },
     rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
@@ -47,6 +47,21 @@ export default {
       minutes: '分钟',
       intervalRange: '1–60 分钟，默认 5 分钟'
     },
+    probeGuard: {
+      title: '探针调度保护',
+      description: '控制探针连续失败时是否将上游 Key 暂停调度；暂停后探针仍会继续执行。',
+      enabled: '启用探针调度保护',
+      suspendAfterFailures: '连续失败次数',
+      recoverySuccesses: '连续恢复成功次数',
+      customErrorCodesTitle: '追加探针错误码',
+      customErrorCodesHint: '对所有上游账号生效；追加错误码会加入默认探针规则，并按连续失败阈值处理。',
+      customErrorCodesWarning: '这是全局探针配置，不会修改普通账号或单个上游账号的自定义错误码。',
+      appendHint: '默认规则仍然保留：401/403 立即暂停，429/529 默认仅降级，5xx 和传输/协议错误按阈值暂停。',
+      enterErrorCode: '输入 HTTP 状态码（100–599）',
+      noneSelected: '未追加错误码，将使用默认规则',
+      customErrorCodes429Warning: '追加 429 后，连续达到失败阈值时会暂停该上游 Key 的调度。确定继续吗？',
+      customErrorCodes529Warning: '追加 529 后，连续达到失败阈值时会暂停该上游 Key 的调度。确定继续吗？'
+    },
     concurrency: {
       sharedTooltip: '同一上游配置下所有 Key 共享并发池；来源：{source}，生效上限：{limit}',
       sources: { override: '手工覆盖', provider: '上游同步', unlimited: '上游无限制', default: '默认值 100' }
@@ -70,9 +85,9 @@ export default {
       keyHealth: 'Key 健康',
       healthy: '健康',
       degraded: '降级',
-      suspended: '探测暂停',
+      suspended: '暂停调度',
       observing: '观测中',
-      recovering: '恢复中',
+      recovering: '恢复验证中',
       disabled: '观测已关闭',
       noData: '暂无健康数据',
       reason: '原因',
@@ -84,6 +99,7 @@ export default {
       recovery: '恢复进度',
       observationDisabled: 'Key 观测已关闭，不会执行自动探测。',
       temporarilyExcluded: '当前因 Key 健康临时排除',
+      recoveryInProgress: '正在执行恢复探测，连续成功后会恢复调度',
       past: '过去',
       now: '现在',
       historySummary: '{healthy} / {total} 正常',
@@ -113,7 +129,10 @@ export default {
         authentication_failed: '上游鉴权失败',
         capacity_limited: '上游容量或频率受限',
         upstream_server_error: '上游服务端错误',
-        probe_transport_error: '探测连接或传输失败'
+        probe_transport_error: '探测连接或传输失败',
+        gateway_intercepted: '网关或 WAF 拦截',
+        probe_guard_disabled: '探针调度保护已关闭',
+        probe_guard_reconfigured: '探针规则已重新评估'
       }
     },
     events: {
