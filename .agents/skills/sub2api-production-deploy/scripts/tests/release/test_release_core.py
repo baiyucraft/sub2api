@@ -615,7 +615,7 @@ class ReleaseCoreTest(unittest.TestCase):
         profile_235 = get_profile("235")
         profile_236 = get_profile("236")
 
-        self.assertEqual(profile_236["version"], "0.1.177-baiyu")
+        self.assertEqual(profile_236["version"], "0.176-baiyu")
         self.assertEqual(profile_236["migrations"], profile_235["migrations"])
         self.assertIsNot(profile_236["migrations"], profile_235["migrations"])
         self.assertEqual(profile_236["compatibility_version"], profile_235["compatibility_version"])
@@ -625,7 +625,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(list(migration_checksums(profile_236)), profile_236["migrations"])
 
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
-        self.assertIn('[[ $version == 0.1.177-baiyu ]]', validator)
+        self.assertIn('[[ $version == 0.176-baiyu ]]', validator)
         self.assertIn('$profile == 235 || $profile == 236', validator)
 
         integration = DEPLOY_ROOT / "tests" / "release" / "backup_dr_profile_236_integration.py"
