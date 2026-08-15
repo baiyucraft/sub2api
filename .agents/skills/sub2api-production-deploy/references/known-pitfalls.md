@@ -120,8 +120,8 @@
 - 现象：VM Gate 已完成候选构建和迁移，但失败阶段仍停留在 `migration_assertion_profile_195_fixture`，无法区分数据库 postflight、低水位拒绝还是 verified replay。
 - 根因：多个 migration-195 断言连续执行，阶段 marker 只在整段开始处设置；任一中间断言失败都会丢失具体位置。
 - 证据：release `237-548576818df5-1786821819-005f5ec3` 已生成 migration-195/232/233/234 状态文件，但没有进入后续 old-image 阶段，说明失败发生在 migration-195 后置断言区间。
-- 修复：在 postflight DB、low-watermark 和 verified replay 前增加独立 stage marker，沿用现有 failure-category 映射；不放宽任何迁移或恢复断言。
-- 预防测试：静态检查要求三个 marker 存在；Gate 失败时只需读取 `stage` 和 `failure-category` 即可定位，无需回传原始日志。
+- 修复：在 postflight DB、low-watermark 和 verified replay 前增加独立 stage marker，同时由 ERR trap 把实际 shell 行号写入 root-only `failure-line`；沿用现有 failure-category 映射，不放宽任何迁移或恢复断言。
+- 预防测试：静态检查要求三个 marker、ERR trap 行号传递和 root-only `failure-line` 存在；Gate 失败时只需读取 `stage`、`failure-category` 和行号即可定位，无需回传原始日志。
 - 状态：代码已修复，等待新 full-SHA VM Gate 验证。
 
 ## 新严格合同误要求旧生产实例预先满足
