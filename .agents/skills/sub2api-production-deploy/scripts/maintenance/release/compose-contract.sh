@@ -17,7 +17,7 @@ write_release_activation_marker() {
   RELEASE_ACTIVATION_MARKER_FAILURE_REASON=unknown
   if ! [[ $container =~ ^[a-zA-Z0-9_.-]{1,100}$ ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=invalid_container; return 1; fi
   if ! [[ $instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=invalid_instance; return 1; fi
-  if ! docker inspect "$container" >/dev/null 2>&1; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=container_inspect; return 1; fi
+  docker inspect "$container" >/dev/null 2>&1 || { RELEASE_ACTIVATION_MARKER_FAILURE_REASON=container_inspect; return 1; }
   local security_options
   if ! security_options=$(docker info --format '{{json .SecurityOptions}}'); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=docker_security_info; return 1; fi
   if [[ $security_options == *'name=userns'* || $security_options == *'name=rootless'* ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=unsupported_user_namespace; return 1; fi
