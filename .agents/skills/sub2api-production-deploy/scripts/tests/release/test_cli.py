@@ -179,6 +179,10 @@ class DeployCommandTest(unittest.TestCase):
                 gate = cli.create_vm_gate("199", commit, "blue-green", identifier=identifier, acquire_lock=False)
         self.assertEqual(gate, run_dir / "gate")
         child.assert_called_once()
+        child_env = child.call_args.kwargs["env"]
+        self.assertEqual(child_env["SUB2API_RELEASE_ID"], identifier)
+        self.assertEqual(child_env["SUB2API_DEPLOYMENT_MODE"], "blue-green")
+        self.assertEqual(child_env["SUB2API_EVENT_LOG"], str(run_dir / "logs" / "events.jsonl"))
 
     def test_vm_gate_rejects_incomplete_preallocation(self) -> None:
         identifier = "199-aaaaaaaaaaaa-1-deadbeef"

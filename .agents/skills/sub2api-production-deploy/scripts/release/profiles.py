@@ -441,6 +441,20 @@ PROFILES["236"] = {
     "migrations": [*PROFILES["235"]["migrations"]],
 }
 
+# Profile 237 is the official 0.1.177 fork merge.  It keeps the historical
+# profile 236 contract immutable and appends the two official group-usage
+# migrations under the next locally available numbers.
+PROFILES["237"] = {
+    **PROFILES["236"],
+    "name": "237",
+    "version": "0.1.177-baiyu",
+    "migrations": [
+        *PROFILES["236"]["migrations"],
+        "235_group_usage_daily_rollups.sql",
+        "236_group_usage_rollup_timezone.sql",
+    ],
+}
+
 
 def get_profile(name: str) -> dict:
     try:

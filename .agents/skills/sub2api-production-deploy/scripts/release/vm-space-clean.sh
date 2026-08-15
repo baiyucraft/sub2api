@@ -69,8 +69,13 @@ database_size=$(docker exec sub2api-postgres sh -lc \
   'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_database_size('\''sub2api_dev'\'')"' \
   | tr -d '\r')
 [[ $database_size =~ ^[0-9]+$ ]]
-current_image_size=$(docker image inspect -f '{{.Size}}' "$(docker inspect -f '{{.Image}}' sub2api-dev)")
-[[ $current_image_size =~ ^[0-9]+$ ]]
+current_image_id=$(docker inspect -f '{{.Image}}' sub2api-dev)
+[[ $current_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
+current_image_size=$(docker image inspect -f '{{.Size}}' "$current_image_id" 2>/dev/null || true)
+if [[ ! $current_image_size =~ ^[0-9]+$ ]]; then
+  current_image_size=$(docker inspect --size -f '{{.SizeRootFs}}' sub2api-dev 2>/dev/null || true)
+fi
+[[ $current_image_size =~ ^[0-9]+$ && $current_image_size -gt 0 ]]
 required_bytes=$((database_size * 2 + current_image_size * 2 + 1073741824))
 minimum_free_bytes=$((8 * 1024 * 1024 * 1024))
 if (( required_bytes < minimum_free_bytes )); then

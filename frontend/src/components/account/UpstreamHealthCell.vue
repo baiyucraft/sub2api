@@ -59,7 +59,6 @@
     </span>
 
     <UpstreamHealthHistory :observations="health?.history" :limit="24" @show-history="emit('showHistory')" />
-    <TTFTGuardStatusBadge :degradations="account.ttft_guard_degradations" />
   </div>
 </template>
 
@@ -69,7 +68,6 @@ import { useI18n } from 'vue-i18n'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import type { Account } from '@/types'
 import { formatDateTime } from '@/utils/format'
-import TTFTGuardStatusBadge from './TTFTGuardStatusBadge.vue'
 import UpstreamHealthHistory from './UpstreamHealthHistory.vue'
 
 const props = defineProps<{

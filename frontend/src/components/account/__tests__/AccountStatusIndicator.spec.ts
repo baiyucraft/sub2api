@@ -223,7 +223,7 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).toContain('admin.accounts.status.creditsExhausted')
   })
 
-  it('基础状态列不再混入上游健康和 TTFT Guard 标签', () => {
+  it('状态列展示 TTFT Guard 模型临时排除', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
         account: makeAccount({
@@ -254,8 +254,7 @@ describe('AccountStatusIndicator', () => {
     })
 
     expect(wrapper.text()).toContain('admin.accounts.status.active')
-    expect(wrapper.text()).not.toContain('gpt-5.4-mini')
-    expect(wrapper.text()).not.toContain('admin.accounts.status.ttftGuard.criticalSample')
+    expect(wrapper.text()).toContain('gpt-5.4-mini')
     wrapper.unmount()
   })
 })

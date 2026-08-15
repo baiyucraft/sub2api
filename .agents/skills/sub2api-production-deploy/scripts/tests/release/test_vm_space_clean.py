@@ -129,6 +129,9 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertNotIn('docker image rm -f', script)
         self.assertNotIn('dropdb', script)
         self.assertNotIn('DROP DATABASE', script)
+        self.assertIn("current_image_id=$(docker inspect -f '{{.Image}}' sub2api-dev)", script)
+        self.assertIn("docker image inspect -f '{{.Size}}' \"$current_image_id\"", script)
+        self.assertIn("docker inspect --size -f '{{.SizeRootFs}}' sub2api-dev", script)
         self.assertIn("database_size * 2 + current_image_size * 2 + 1073741824", script)
         self.assertIn("minimum_free_bytes=$((8 * 1024 * 1024 * 1024))", script)
         self.assertIn("required_bytes=$minimum_free_bytes", script)
@@ -148,6 +151,7 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertLess(trap, build)
         self.assertLess(trap, post_build_space_check)
         self.assertIn("cleanup_candidate_tag", validator)
+        self.assertIn("docker inspect --size -f '{{.SizeRootFs}}' sub2api-dev", validator)
 
     def test_vm_entry_verifies_cleaner_checksum_before_execution(self) -> None:
         entry = (DEPLOY_ROOT / "release" / "vm_validate.py").read_text(encoding="utf-8")

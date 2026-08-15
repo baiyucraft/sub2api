@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,6 +44,8 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsRequiresUserAggregateCove
 func TestDashboardAggregationRepositoryCleanupUsageLogsAllowsCoveredRange(t *testing.T) {
 	repo, mock := newDashboardAggregationSQLMock(t)
 	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	fixedNow := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
+	repo.clock = func() time.Time { return fixedNow }
 	earliest := cutoff.AddDate(0, 0, -30)
 	latest := cutoff.Add(-time.Second)
 
@@ -55,9 +58,19 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsAllowsCoveredRange(t *tes
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT MIN(created_at), MAX(created_at)")).
 		WithArgs(cutoff).
 		WillReturnRows(sqlmock.NewRows([]string{"min", "max"}).AddRow(earliest, latest))
-	mock.ExpectExec("WITH victims AS").
+	mock.ExpectQuery("SELECT id FROM usage_group_rollup_state.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery("WITH victims AS").
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
-		WillReturnResult(sqlmock.NewResult(0, 2))
+		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(latest).AddRow(earliest))
+	mock.ExpectExec("UPDATE usage_group_rollup_state").
+		WithArgs(earliest, service.GroupUsageTimezoneName()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT closed_before::text, retained_from.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
+			AddRow("2026-08-14", time.Unix(0, 0).UTC(), service.GroupUsageTimezoneName()))
 	mock.ExpectCommit()
 
 	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))

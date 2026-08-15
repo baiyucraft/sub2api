@@ -131,6 +131,9 @@ def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identif
         try:
             child_env = os.environ.copy()
             child_env["PYTHONUNBUFFERED"] = "1"
+            child_env["SUB2API_RELEASE_ID"] = identifier
+            child_env["SUB2API_DEPLOYMENT_MODE"] = deployment_mode
+            child_env["SUB2API_EVENT_LOG"] = str(run_dir / "logs" / "events.jsonl")
             subprocess.run(command, cwd=SCRIPTS_ROOT, check=True, env=child_env)
             verify_gate(gate_path, TRUSTED_VM_PUBLIC_KEY, profile_name)
         except BaseException as error:

@@ -105,7 +105,7 @@ describe('UpstreamHealthCell', () => {
     expect(wrapper.emitted('showHistory')).toHaveLength(1)
   })
 
-  it('renders suspended health separately from TTFT model degradation', () => {
+  it('健康列不展示 TTFT 模型临时排除', () => {
     const wrapper = mount(UpstreamHealthCell, {
       props: {
         account: account({
@@ -137,7 +137,7 @@ describe('UpstreamHealthCell', () => {
 
     expect(wrapper.get('[data-upstream-health-state="suspended"]').classes()).toContain('bg-red-100')
     expect(wrapper.text()).toContain('admin.upstreamManagement.health.temporarilyExcluded')
-    expect(wrapper.text()).toContain('gpt-5.4-mini')
+    expect(wrapper.text()).not.toContain('gpt-5.4-mini')
   })
 
   it('does not fabricate a healthy state when there is no health snapshot', () => {
