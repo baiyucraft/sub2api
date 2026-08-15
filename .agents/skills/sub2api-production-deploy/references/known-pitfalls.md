@@ -151,6 +151,15 @@
 - 预防测试：release core 扫描 `backend/migrations` 与 `frontend/src` 的版本化源码，发现固定 Starship 噪声立即失败；VM Gate 必须重新执行 migration 235/236。
 - 状态：代码已修复，等待新 full-SHA VM Gate 验证。
 
+## VM Gate 执行了新迁移 preflight 但未签入 evidence
+
+- 现象：VM 端候选构建、迁移和运行验证全部完成，下载后的 Gate 却因缺少 migration 235 preflight evidence 被本地验签器拒绝。
+- 根因：validator 调用了 migration 235/236 preflight，但只记录 status 与 postflight schema flags，遗漏两个 preflight 布尔字段；Gate verifier 已按 profile 237 合同要求这些字段。
+- 证据：release `237-182e8414dacb-1786824449-7562443d` 在远端完成并生成 Gate 后，本地 `verify_gate` 报告缺少 migration 235 preflight evidence。
+- 修复：初始化、成功置位、jq 参数和签名 evidence 同时加入 `migration_235_preflight_verified` 与 `migration_236_preflight_verified`。
+- 预防测试：release core 检查两个字段的置位和 Gate JSON 映射；profile 237 Gate verifier 继续要求 status、preflight、schema 三类证据齐全。
+- 状态：代码已修复，等待新 full-SHA VM Gate 验证。
+
 ## 新严格合同误要求旧生产实例预先满足
 
 - 现象：新 Candidate 已通过 VM Gate，但生产在停机前的 preflight 退出；旧应用、Nginx、备份、空间和 migration 均正常。
