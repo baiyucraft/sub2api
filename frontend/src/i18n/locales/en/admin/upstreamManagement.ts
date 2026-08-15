@@ -16,7 +16,7 @@ export default {
       title: 'Upstream management settings',
       open: 'Upstream management settings',
       loadFailed: 'Failed to load upstream management settings',
-      invalid: 'Check the first-token threshold, sample count, probe models, and probe interval.'
+      invalid: 'Check the first-token threshold, sample count, probe models, probe interval, and probe error codes.'
     },
     rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
@@ -47,6 +47,21 @@ export default {
       minutes: 'min',
       intervalRange: '1–60 minutes; default 5 minutes'
     },
+    probeGuard: {
+      title: 'Probe scheduling protection',
+      description: 'Control whether consecutive probe failures suspend an upstream Key from scheduling. Probes continue while suspended.',
+      enabled: 'Enable probe scheduling protection',
+      suspendAfterFailures: 'Consecutive failures',
+      recoverySuccesses: 'Consecutive recovery successes',
+      customErrorCodesTitle: 'Additional probe error codes',
+      customErrorCodesHint: 'Applies to all upstream accounts. Added codes extend the default probe rules and use the consecutive-failure threshold.',
+      customErrorCodesWarning: 'This is a global probe setting. It does not change ordinary accounts or per-account custom error codes.',
+      appendHint: 'Default rules remain active: 401/403 suspend immediately, 429/529 degrade by default, and 5xx plus transport/protocol errors suspend after the threshold.',
+      enterErrorCode: 'Enter an HTTP status code (100–599)',
+      noneSelected: 'No additional codes; use default rules',
+      customErrorCodes429Warning: 'After adding 429, consecutive failures reaching the threshold will suspend this upstream Key from scheduling. Continue?',
+      customErrorCodes529Warning: 'After adding 529, consecutive failures reaching the threshold will suspend this upstream Key from scheduling. Continue?'
+    },
     concurrency: {
       sharedTooltip: 'All Keys under this upstream config share one concurrency pool. Source: {source}; effective limit: {limit}',
       sources: { override: 'Manual override', provider: 'Upstream snapshot', unlimited: 'Upstream unlimited', default: 'Default 100' }
@@ -70,9 +85,9 @@ export default {
       keyHealth: 'Key health',
       healthy: 'Healthy',
       degraded: 'Degraded',
-      suspended: 'Probe suspended',
+      suspended: 'Scheduling suspended',
       observing: 'Observing',
-      recovering: 'Recovering',
+      recovering: 'Recovery verification',
       disabled: 'Observation disabled',
       noData: 'No health data',
       reason: 'Reason',
@@ -84,6 +99,7 @@ export default {
       recovery: 'Recovery progress',
       observationDisabled: 'Key observation is disabled; automatic probes will not run.',
       temporarilyExcluded: 'Temporarily excluded by Key health',
+      recoveryInProgress: 'Recovery probes are running; scheduling resumes after consecutive successes',
       past: 'Past',
       now: 'Now',
       historySummary: '{healthy} / {total} healthy',
@@ -113,7 +129,10 @@ export default {
         authentication_failed: 'Upstream authentication failed',
         capacity_limited: 'Upstream capacity or rate limited',
         upstream_server_error: 'Upstream server error',
-        probe_transport_error: 'Probe connection or transport failed'
+        probe_transport_error: 'Probe connection or transport failed',
+        gateway_intercepted: 'Gateway or WAF interception',
+        probe_guard_disabled: 'Probe scheduling protection is disabled',
+        probe_guard_reconfigured: 'Probe rules were re-evaluated'
       }
     },
     events: {

@@ -24,9 +24,13 @@ vi.mock('@/stores/app', () => ({
   useAppStore: () => ({ showError, showSuccess })
 }))
 
-vi.mock('vue-i18n', () => ({
-  useI18n: () => ({ t: (key: string) => key })
-}))
+vi.mock('vue-i18n', async () => {
+  const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
+  return {
+    ...actual,
+    useI18n: () => ({ t: (key: string) => key })
+  }
+})
 
 const BaseDialogStub = defineComponent({
   props: ['show', 'title'],
@@ -62,6 +66,13 @@ describe('UpstreamManagementSettingsDialog', () => {
     showSuccess.mockReset()
     getSettings.mockResolvedValue({
       ttft_guard: { enabled: true, degradation_ttft_seconds: 30, min_samples: 7 },
+      probe_guard: {
+        enabled: true,
+        suspend_after_failures: 4,
+        recovery_successes: 2,
+        custom_error_codes_enabled: true,
+        custom_error_codes: [404]
+      },
       probe_models: { openai: 'gpt-live', anthropic: 'claude-live', gemini: 'gemini-live' },
       probe_interval_seconds: 420
     })
@@ -72,6 +83,13 @@ describe('UpstreamManagementSettingsDialog', () => {
     } })
     updateSettings.mockResolvedValue({
       ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
+      probe_guard: {
+        enabled: true,
+        suspend_after_failures: 4,
+        recovery_successes: 2,
+        custom_error_codes_enabled: true,
+        custom_error_codes: [404]
+      },
       probe_models: { openai: 'custom-model', anthropic: 'claude-live', gemini: 'gemini-live' },
       probe_interval_seconds: 300
     })
@@ -126,6 +144,13 @@ describe('UpstreamManagementSettingsDialog', () => {
     await flushPromises()
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
       ttft_guard: { enabled: true, degradation_ttft_seconds: 30, min_samples: 7 },
+      probe_guard: {
+        enabled: true,
+        suspend_after_failures: 4,
+        recovery_successes: 2,
+        custom_error_codes_enabled: true,
+        custom_error_codes: [404]
+      },
       probe_models: expect.objectContaining({ openai: 'custom-model' }),
       probe_interval_seconds: 720
     }))

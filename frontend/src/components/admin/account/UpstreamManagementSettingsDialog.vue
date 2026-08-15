@@ -85,6 +85,49 @@
           </div>
           <span class="block text-xs text-gray-400 dark:text-dark-500">{{ t('admin.upstreamManagement.probeModels.intervalRange') }}</span>
         </label>
+        <div class="mt-6 border-t border-gray-200 pt-5 dark:border-dark-700">
+          <div class="flex items-start justify-between gap-5">
+            <div class="min-w-0">
+              <h5 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.probeGuard.title') }}</h5>
+              <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.probeGuard.description') }}</p>
+            </div>
+            <Toggle v-model="draft.probe_guard.enabled" :aria-label="t('admin.upstreamManagement.probeGuard.enabled')" />
+          </div>
+          <div class="mt-4 grid gap-4 sm:grid-cols-2">
+            <label class="space-y-1.5">
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.probeGuard.suspendAfterFailures') }}</span>
+              <input v-model.number="draft.probe_guard.suspend_after_failures" type="number" min="1" max="20" class="input" />
+              <span class="block text-xs text-gray-400">1–20</span>
+            </label>
+            <label class="space-y-1.5">
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.probeGuard.recoverySuccesses') }}</span>
+              <input v-model.number="draft.probe_guard.recovery_successes" type="number" min="1" max="20" class="input" />
+              <span class="block text-xs text-gray-400">1–20</span>
+            </label>
+          </div>
+        </div>
+        <div class="mt-6 border-t border-gray-200 pt-5 dark:border-dark-700">
+          <CustomErrorCodeSelector
+            v-model="draft.probe_guard.custom_error_codes"
+            v-model:enabled="draft.probe_guard.custom_error_codes_enabled"
+            :title="t('admin.upstreamManagement.probeGuard.customErrorCodesTitle')"
+            :hint="t('admin.upstreamManagement.probeGuard.customErrorCodesHint')"
+            :warning="t('admin.upstreamManagement.probeGuard.customErrorCodesWarning')"
+            :input-placeholder="t('admin.upstreamManagement.probeGuard.enterErrorCode')"
+            :none-selected-text="t('admin.upstreamManagement.probeGuard.noneSelected')"
+            :add-label="t('common.add')"
+            :remove-label="t('common.remove')"
+            :confirm-429-message="t('admin.upstreamManagement.probeGuard.customErrorCodes429Warning')"
+            :confirm-529-message="t('admin.upstreamManagement.probeGuard.customErrorCodes529Warning')"
+            :invalid-error-message="t('admin.accounts.invalidErrorCode')"
+            :duplicate-error-message="t('admin.accounts.errorCodeExists')"
+            @error="appStore.showError"
+            @info="appStore.showInfo"
+          />
+          <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+            {{ t('admin.upstreamManagement.probeGuard.appendHint') }}
+          </p>
+        </div>
       </section>
     </div>
 
@@ -111,6 +154,7 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
+import CustomErrorCodeSelector from '@/components/account/CustomErrorCodeSelector.vue'
 
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ (event: 'close'): void; (event: 'saved', value: UpstreamManagementSettings): void }>()
@@ -122,6 +166,13 @@ type ProbePlatform = (typeof platforms)[number]
 const platformLabels: Record<ProbePlatform, string> = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini' }
 const defaults: UpstreamManagementSettings = {
   ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
+  probe_guard: {
+    enabled: true,
+    suspend_after_failures: 3,
+    recovery_successes: 3,
+    custom_error_codes_enabled: false,
+    custom_error_codes: []
+  },
   probe_models: { openai: 'gpt-4o-mini', anthropic: 'claude-3-5-haiku-latest', gemini: 'gemini-2.0-flash' },
   probe_interval_seconds: 300
 }
@@ -141,9 +192,15 @@ const valid = computed(() => {
   const threshold = Number(draft.ttft_guard.degradation_ttft_seconds)
   const samples = Number(draft.ttft_guard.min_samples)
   const intervalMinutes = Number(probeIntervalMinutes.value)
+  const suspendAfterFailures = Number(draft.probe_guard.suspend_after_failures)
+  const recoverySuccesses = Number(draft.probe_guard.recovery_successes)
+  const customCodes = draft.probe_guard.custom_error_codes || []
   return Number.isFinite(threshold) && threshold >= 5 && threshold <= 300 &&
     Number.isInteger(samples) && samples >= 2 && samples <= 20 &&
     Number.isInteger(intervalMinutes) && intervalMinutes >= 1 && intervalMinutes <= 60 &&
+    Number.isInteger(suspendAfterFailures) && suspendAfterFailures >= 1 && suspendAfterFailures <= 20 &&
+    Number.isInteger(recoverySuccesses) && recoverySuccesses >= 1 && recoverySuccesses <= 20 &&
+    customCodes.every(code => Number.isInteger(code) && code >= 100 && code <= 599) &&
     platforms.every(platform => {
       const value = draft.probe_models[platform]?.trim() || ''
       return value.length > 0 && value.length <= 120
@@ -158,6 +215,7 @@ async function load() {
       upstreamManagementAPI.getProbeModelCandidates()
     ])
     Object.assign(draft.ttft_guard, settings.ttft_guard)
+    Object.assign(draft.probe_guard, settings.probe_guard || defaults.probe_guard)
     Object.assign(draft.probe_models, settings.probe_models)
     draft.probe_interval_seconds = settings.probe_interval_seconds ?? defaults.probe_interval_seconds
     probeIntervalMinutes.value = Math.max(1, Math.min(60, Math.round(draft.probe_interval_seconds / 60)))
@@ -179,6 +237,13 @@ async function save() {
   try {
     const payload: UpstreamManagementSettings = {
       ttft_guard: { ...draft.ttft_guard },
+      probe_guard: {
+        enabled: Boolean(draft.probe_guard.enabled),
+        suspend_after_failures: Number(draft.probe_guard.suspend_after_failures),
+        recovery_successes: Number(draft.probe_guard.recovery_successes),
+        custom_error_codes_enabled: Boolean(draft.probe_guard.custom_error_codes_enabled),
+        custom_error_codes: Array.from(new Set(draft.probe_guard.custom_error_codes || [])).sort((a, b) => a - b)
+      },
       probe_models: {
         openai: draft.probe_models.openai.trim(),
         anthropic: draft.probe_models.anthropic.trim(),

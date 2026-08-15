@@ -41,8 +41,11 @@
       <div v-if="health.observation_enabled !== true" class="mt-1 text-gray-300">
         {{ t('admin.upstreamManagement.health.observationDisabled') }}
       </div>
-      <div v-if="health.status === 'suspended' || health.status === 'recovering'" class="mt-1 font-medium text-red-200">
+      <div v-if="health.status === 'suspended'" class="mt-1 font-medium text-red-200">
         {{ t('admin.upstreamManagement.health.temporarilyExcluded') }}
+      </div>
+      <div v-else-if="health.status === 'recovering'" class="mt-1 font-medium text-cyan-200">
+        {{ t('admin.upstreamManagement.health.recoveryInProgress') }}
       </div>
     </HelpTooltip>
 
