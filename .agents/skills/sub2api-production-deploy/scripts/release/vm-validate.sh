@@ -109,7 +109,7 @@ cd "$source_dir"
 [[ -f .sub2api-deploy-worktree ]]
 [[ $(git remote get-url origin) == https://github.com/baiyucraft/sub2api.git ]]
 [[ -z $(git status --porcelain --untracked-files=all | grep -v '^?? .sub2api-deploy-worktree$' || true) ]]
-git fetch origin main:refs/remotes/origin/main >/dev/null 2>&1
+git fetch origin +main:refs/remotes/origin/main >/dev/null 2>&1
 [[ $(git rev-parse origin/main) == "$commit" ]]
 git reset --hard "$commit" >/dev/null
 while IFS=$'\t' read -r relative expected; do
