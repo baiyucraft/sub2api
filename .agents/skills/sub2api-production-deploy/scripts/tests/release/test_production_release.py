@@ -1486,6 +1486,10 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         ):
             self.assertIn(field, production)
 
+    def test_migration_234_preflight_accepts_schema_verified_field(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        self.assertIn('"migration_234_schema_state", "migration_234_schema_verified", "migration_234_preflight"', production)
+
     def test_candidate_uses_network_aware_container_and_publish_ports(self) -> None:
         contract = self.script("compose-contract.sh")
         switch = self.script("switch.sh")
