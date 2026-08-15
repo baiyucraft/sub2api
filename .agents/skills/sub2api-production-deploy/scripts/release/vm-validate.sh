@@ -582,6 +582,7 @@ fi
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
 rm -f "$state_dir/migrate-candidate.log"
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+  mark_stage migration_assertion_profile_195_postflight_db
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-195-assert.sh" postflight_db >/dev/null
   consumed_event_id=$(<"$state_dir/migration-195-outbox-event.id")
   if [[ $migration_195_status == absent ]]; then
@@ -593,6 +594,7 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   [[ $sentinel_event_id =~ ^[1-9][0-9]*$ ]]
   [[ $consumed_event_id == 0 || $sentinel_event_id -gt $consumed_event_id ]]
   docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"WITH expected_accounts AS (SELECT COALESCE(jsonb_agg(id ORDER BY id),'[]'::jsonb) AS ids FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL) DELETE FROM scheduler_outbox o USING expected_accounts e WHERE o.event_type='account_bulk_changed' AND o.payload->'account_ids'=e.ids\"" >/dev/null
+  mark_stage migration_assertion_profile_195_low_watermark
   low_watermark=$((sentinel_event_id - 1))
   docker exec "$probe_redis" redis-cli SET sched:v2:outbox:watermark "$low_watermark" >/dev/null
   migration_195_low_state="$state_dir/migration-195-verified-low"
@@ -605,6 +607,7 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   fi
   verified_low_watermark_rejected=true
   docker exec "$probe_redis" redis-cli SET sched:v2:outbox:watermark "$sentinel_event_id" >/dev/null
+  mark_stage migration_assertion_profile_195_verified_replay
   migration_195_verified_state="$state_dir/migration-195-verified"
   migration_195_verified_context="$state_dir/migration-195-verified-context.sh"
   install -d -m 700 "$migration_195_verified_state"
