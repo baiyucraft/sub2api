@@ -286,7 +286,7 @@ on_failure() {
     if [[ $category == migration_timezone || $category == migration_group_rate_snapshot ]] && [[ -n $timezone_length && -n $timezone_sha ]]; then
       category="migration_timezone_${timezone_length}_$timezone_sha"
     fi
-    rm -f "$state_dir/migrate-candidate.log"
+    chmod 400 "$state_dir/migrate-candidate.log" || true
   fi
   if [[ -f $state_dir/stage && ( $(<"$state_dir/stage") == candidate_health || $(<"$state_dir/stage") == candidate_background_activation ) ]] && docker inspect "$probe_app" >/dev/null 2>&1; then
     probe_log="$state_dir/probe-app.log"

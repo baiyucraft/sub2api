@@ -133,6 +133,15 @@
 - 预防测试：release core 静态合同覆盖 absent 分支和零对象断言；VM Gate 覆盖 absent→postflight verified 及部分 schema 拒绝。
 - 状态：代码已修复，等待新 full-SHA VM Gate 验证。
 
+## VM 候选迁移失败日志被清理
+
+- 现象：`--migrate-only` 返回非零时只能看到 `migration_syntax` 等分类，无法确认具体迁移文件或数据库错误。
+- 根因：失败 trap 为复用成功路径，分类后无条件删除 `migrate-candidate.log`；远端结构化 stdout 又只保留 allowlist 字段。
+- 证据：release `237-d45e852cd3a7-1786823504-aa88a5ea` 的 failure line 为 validator 第 586 行，分类为 `migration_syntax`，但失败收口后候选迁移日志不存在。
+- 修复：失败路径保留 `migrate-candidate.log` 为 root-only `0400`；成功路径仍在 post-migrate 检查后删除，避免成功 release 无限积累。
+- 预防测试：静态检查失败 trap 对候选迁移日志执行权限收紧而非删除；日志查询只允许返回脱敏迁移编号和固定错误类别。
+- 状态：代码已修复，等待新 full-SHA VM Gate 验证。
+
 ## 新严格合同误要求旧生产实例预先满足
 
 - 现象：新 Candidate 已通过 VM Gate，但生产在停机前的 preflight 退出；旧应用、Nginx、备份、空间和 migration 均正常。
