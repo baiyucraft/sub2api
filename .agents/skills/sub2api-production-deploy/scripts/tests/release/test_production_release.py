@@ -1722,8 +1722,11 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
 
     def test_release_health_headers_are_crlf_normalized(self) -> None:
         context = self.script("context.sh")
+        compose = self.script("compose-contract.sh")
         self.assertIn("assert_http_header_equals()", context)
+        self.assertIn("assert_http_header_equals()", compose)
         self.assertIn("tr -d '\\r'", context)
+        self.assertIn("tr -d '\\r'", compose)
         self.assertIn('[[ $actual == "$expected" ]]', context)
         for name in (
             "switch.sh",
