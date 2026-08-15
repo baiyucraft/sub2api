@@ -717,6 +717,10 @@ if [[ $release_asset_layout == skill-v1 ]]; then
     chmod 400 "$state_dir/candidate-background-failure" || true
     exit 1
   fi
+  marker_before_loop=false
+  [[ -f "$probe_dir/.sub2api-active-instance" && ! -L "$probe_dir/.sub2api-active-instance" ]] && marker_before_loop=true
+  printf 'before_loop=%s\n' "$marker_before_loop" > "$state_dir/candidate-marker-presence"
+  chmod 400 "$state_dir/candidate-marker-presence" || true
   activation_ready=false
   for _ in $(seq 1 120); do
     : > "$activation_headers"
@@ -728,6 +732,9 @@ if [[ $release_asset_layout == skill-v1 ]]; then
     fi
     sleep 1
   done
+  marker_after_loop=false
+  [[ -f "$probe_dir/.sub2api-active-instance" && ! -L "$probe_dir/.sub2api-active-instance" ]] && marker_after_loop=true
+  printf 'after_loop=%s\n' "$marker_after_loop" >> "$state_dir/candidate-marker-presence"
   rm -f "$activation_headers"
   [[ $activation_ready == true ]]
 fi
