@@ -124,6 +124,15 @@
 - 预防测试：静态检查要求三个 marker、ERR trap 行号传递和 root-only `failure-line` 存在；Gate 失败时只需读取 `stage`、`failure-category` 和行号即可定位，无需回传原始日志。
 - 状态：代码已修复，等待新 full-SHA VM Gate 验证。
 
+## 新增 migration 的 preflight 错把 absent 当 verified
+
+- 现象：profile 237 在候选迁移前执行 `migration-235-assert.sh` 时失败，实际数据库还没有 235/236 的表和列。
+- 根因：新增迁移断言只检查目标 schema 已存在，未按 `MIGRATION_STATUS=absent` 与 `verified` 区分 preflight 合同；因此合法的“待执行”状态被误判为失败。
+- 证据：release `237-9e20917feeab-1786823069-231ba3c2` 的 failure line 为 validator 第 583 行，对应 migration 235 preflight；前序 migration 195/232/233/234 已完成，候选 migration-only 尚未开始。
+- 修复：235/236 preflight 在 `absent` 时要求目标对象数量为 0，在 `verified` 或 postflight 时要求完整 schema；部分存在仍 fail-closed。
+- 预防测试：release core 静态合同覆盖 absent 分支和零对象断言；VM Gate 覆盖 absent→postflight verified 及部分 schema 拒绝。
+- 状态：代码已修复，等待新 full-SHA VM Gate 验证。
+
 ## 新严格合同误要求旧生产实例预先满足
 
 - 现象：新 Candidate 已通过 VM Gate，但生产在停机前的 preflight 退出；旧应用、Nginx、备份、空间和 migration 均正常。
