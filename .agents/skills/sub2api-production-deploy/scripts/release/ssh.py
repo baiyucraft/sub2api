@@ -35,12 +35,14 @@ CANARY_KEY_FILE = "/root/.config/sub2api-release/canary-api-key"
 RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$")
 MAX_EVENT_LOG_BYTES = 16 * 1024 * 1024
 REMOTE_EVENT_LOGS = {
+    "local_vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
     "vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
     "racknerd": "/opt/sub2api/releases/{release_id}/logs/events.jsonl",
     "dmit": "/var/lib/sub2api-release/logs/{release_id}/events.jsonl",
     "backup": "/srv/sub2api-backups/release-logs/{release_id}/events.jsonl",
 }
 REMOTE_RAW_LOGS = {
+    "local_vm": "/opt/sub2api-deploy/release-logs/{release_id}/remote.raw.log",
     "vm": "/opt/sub2api-deploy/release-logs/{release_id}/remote.raw.log",
     "racknerd": "/opt/sub2api/release-logs/{release_id}/remote.raw.log",
     "dmit": "/var/lib/sub2api-release/logs/{release_id}/remote.raw.log",
@@ -68,7 +70,8 @@ class SSHRunner:
         mode = getattr(self, "deployment_mode", None)
         if not path or not identifier or mode not in {"blue-green", "downtime"} or node not in REMOTE_EVENT_LOGS:
             return None
-        return JSONLEventLogger(pathlib.Path(path), EventContext(identifier, mode, node))
+        event_node = "vm" if node == "local_vm" else node
+        return JSONLEventLogger(pathlib.Path(path), EventContext(identifier, mode, event_node))
 
     def _emit(self, node: str, **event) -> None:
         logger = self._logger(node)

@@ -137,6 +137,12 @@
       </div>
     </div>
 
+    <TTFTGuardStatusBadge
+      v-if="account.ttft_guard_degradations && Object.keys(account.ttft_guard_degradations).length > 0"
+      :degradations="account.ttft_guard_degradations"
+      class="max-w-full"
+    />
+
     <!-- Overload Indicator (529) -->
     <div v-if="isOverloaded" class="group relative">
       <span
@@ -165,6 +171,7 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import type { Account } from '@/types'
 import { formatCountdown, formatDateTime, formatDateTimeToMinute, formatCountdownWithSuffix, formatTime } from '@/utils/format'
+import TTFTGuardStatusBadge from './TTFTGuardStatusBadge.vue'
 
 const { t } = useI18n()
 

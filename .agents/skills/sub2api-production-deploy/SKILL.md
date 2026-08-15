@@ -14,7 +14,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 生产旧容器在 candidate 构建、传输和验证完成前保持运行。
 - 正常应用发布使用 active/candidate 双槽：候选先在备用 loopback 端口启动，Nginx 通过原子 upstream 文件和 graceful reload 切流，旧容器最长排空 60 分钟后再停止。排空超时或连接状态不确定时优先把路由 reload 回旧槽，禁止强杀旧长连接。协调数据恢复仍允许停机。
 - 应用发布身份必须是完整 40 位 commit SHA、唯一 full-SHA tag 和不可变 `candidate_image_id`；运维资产至少记录完整 commit SHA。禁止用 `latest`、`main` 或短版本作为应用身份。
-- Fork 版本号必须直接继承官方源版本并追加 `-baiyu`，不自行补写或重复 `0.1.` 前缀：官方源为 `0.176` 时 fork 版本为 `0.176-baiyu`。历史 profile 的既有版本字符串和证据保持不可变；仅当前新 profile 使用最新官方源版本。
+- Fork 版本号必须直接继承官方源版本并追加 `-baiyu`，不自行补写或重复前缀：官方源 `VERSION=0.1.177` 时 fork 版本为 `0.1.177-baiyu`。历史 profile 的既有版本字符串和证据保持不可变；仅当前新 profile 使用最新官方源版本。
 - 执行 `doctor`、`bootstrap-production` 或 `deploy` 前，必须用 `git rev-parse --verify <commit>^{commit}` 得到实际完整 SHA，并将同一个 40 位小写值传入所有阶段；禁止手工复制、截断或补写 SHA。
 - 后端、数据库、迁移、fork/upstream、共享契约、配置语义、混合改动和不确定改动必须经过 VM Gate 的 `sub2api-dev`；本机可以运行跨平台静态/unit 门禁，但不得启动本地后端作为最终联调服务。
 - 只有最终 diff 严格限定在 `frontend/`，且只包含 UI、样式、静态资源或前端测试时，才允许不导入新的 candidate 到 VM；浏览器 smoke 仍应把 API 代理到已验证的 VM Gate 服务。
@@ -174,7 +174,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - 将 `deploy-start` 预创建的 release 目录视为 workspace 合同，worker 只能安全复用。复用前确认它是普通目录且不是 symlink，并核对 `manifest.json`、`state.json` 中的 schema、release ID、profile 和完整 commit；启动 VM Gate 前要求 `gate/` 完全不存在。
 - 遇到 release 目录 `FileExistsError` 且生产阶段仍为 `not_started` 时停止当前 runner，不重复启动同一 release。修复发布资产后必须使用新 commit、新 release ID 和新签名 Gate。
 - `wait` 超时或 runner 非零退出只触发只读诊断，不代表可以重试。先执行 `status`；Gate 或 `production-result.json` 尚未生成时不得执行 `reconcile-inspect`，只核对 `runner.json`、`state.json`、committed marker 和受限错误摘要。
-- 生产成功后仍必须执行 `verify-result` 和 post-deploy `doctor`；两者分别确认签名 Candidate/运行镜像、claim/backup units、迁移状态和三节点健康。一次性导入、恢复和诊断脚本在发布收口后删除，但失败 release 目录、Gate、checksum、marker 和 production-result 必须保留。
+- 生产成功后仍必须执行 `verify-result` 和 post-deploy `doctor`；两者分别确认签名 Candidate/运行镜像、claim/backup units、迁移状态和三节点健康。仅当二者都通过后，才关闭 VM 唯一 `sub2api-dev:8211` 展示容器；只停止/移除该应用容器，保留 PostgreSQL、Redis、`data-dev`、旧 image、Gate 和恢复证据，不创建其他展示端口、不删除 VM 数据。一次性导入、恢复和诊断脚本在发布收口后删除，但失败 release 目录、Gate、checksum、marker 和 production-result 必须保留。
 
 ### 签名资产与 profile 兼容
 

@@ -92,7 +92,7 @@ class SignerAssetTest(unittest.TestCase):
 
     def test_dr_signer_contract_rejects_untrusted_shapes(self) -> None:
         script = (DEPLOY_ROOT / "release" / "sign-dr-evidence.sh").read_text(encoding="utf-8")
-        self.assertIn("(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236)", script)
+        self.assertIn("(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237)", script)
         self.assertIn("keys | sort", script)
         self.assertIn("temporary_material_destroyed == \"pass\"", script)
         self.assertIn("redis_backup_dbsize - .redis_restored_dbsize", script)
@@ -123,8 +123,8 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("ea0b628532f8d85d0e57921b5b010c7f00ef8b0f9701da2b0d4ea31105553e08", promoter)
         self.assertIn('root="/srv/sub2api-backups/releases/$profile"', promoter)
         self.assertIn('jq -cS \'.manifest.migration_sha256\'', promoter)
-        self.assertIn("^(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236)-", promoter)
-        self.assertIn("^dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236)-", promoter)
+        self.assertIn("^(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237)-", promoter)
+        self.assertIn("^dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237)-", promoter)
         self.assertIn('candidate_link="$root/candidate"', promoter)
         self.assertIn('"$verifier" "$trust_key" "$staging/evidence.json" "$staging/evidence.sig"', promoter)
         self.assertIn("verified-bundles/$target_name", promoter)

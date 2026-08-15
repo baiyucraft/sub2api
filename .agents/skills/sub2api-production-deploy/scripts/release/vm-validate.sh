@@ -28,8 +28,8 @@ tag="sub2api:baiyu-$version-$commit"
 test_tag="sub2api:vm-test-$commit"
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 profile=$(jq -er '.profile' "$manifest")
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]
 [[ $release_id == "$profile-${commit:0:12}-"* ]]
 [[ $(jq -er '.schema' "$manifest") == 1 ]]
 [[ $(jq -er '.version' "$manifest") == "$version" ]]
@@ -51,7 +51,7 @@ case "$layout_field" in
 esac
 [[ $(jq -er '.migrations | length' "$manifest") == $(jq -er '.migration_sha256 | length' "$manifest") ]]
 jq -e '.migrations as $m | (.migration_sha256 | keys) == ($m | sort)' "$manifest" >/dev/null
-if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   if [[ $profile == 232 ]]; then
     [[ $version == 0.1.173-baiyu ]]
     [[ $(jq -er '.migrations | length' "$manifest") == 49 ]]
@@ -75,6 +75,11 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
     [[ $(jq -er '.migrations | length' "$manifest") == 51 ]]
     expected_tail='216_channel_monitor_v2.sql|217_channel_monitor_mode.sql|218_channel_monitor_v2_ignored_error_categories.sql|219_channel_monitor_v2_seed_popular_models.sql|220_channel_monitor_v2_health_thresholds.sql|221_channel_monitor_v2_fixed_rollups.sql|222_channel_monitor_v2_rollup_permissions.sql|223_channel_monitor_v2_refresh_5m.sql|224_channel_monitor_v2_full_table_permissions.sql|225_channel_monitor_v2_default_ignore_and_cache.sql|226_channel_monitor_hide_throughput.sql|227_channel_monitor_v2_reset_factory_cache_thresholds.sql|228_channel_monitor_v2_privacy_defaults.sql|229_group_video_model_prices.sql|230_group_audio_voice_pricing.sql|231_group_search_price_per_1k.sql|232_clear_non_grok_video_generation_config.sql|233_upstream_management.sql|234_group_model_pricing.sql'
     [[ $(jq -er '.migrations[-19:] | join("|")' "$manifest") == "$expected_tail" ]]
+  elif [[ $profile == 237 ]]; then
+    [[ $version == 0.1.177-baiyu ]]
+    [[ $(jq -er '.migrations | length' "$manifest") == 53 ]]
+    expected_tail='233_upstream_management.sql|234_group_model_pricing.sql|235_group_usage_daily_rollups.sql|236_group_usage_rollup_timezone.sql'
+    [[ $(jq -er '.migrations[-4:] | join("|")' "$manifest") == "$expected_tail" ]]
   fi
 fi
 [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
@@ -130,7 +135,7 @@ if [[ $profile == 215 ]]; then
   compat_image_id=$(docker image inspect -f '{{.Id}}' "$compat_tag")
   [[ $compat_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 fi
-if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   compat_version=$(jq -er '.compatibility_version' "$manifest")
   compat_commit=$(jq -er '.compatibility_commit' "$manifest")
   expected_compat_image_id=$(jq -er '.compatibility_image_id' "$manifest")
@@ -158,7 +163,11 @@ free_before=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df 
 database_size=$(docker exec sub2api-postgres sh -lc \
   'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_database_size('"'"'sub2api_dev'"'"')"' \
   | tr -d '\r')
-current_image_size=$(docker image inspect -f '{{.Size}}' "$old_image_id")
+current_image_size=$(docker image inspect -f '{{.Size}}' "$old_image_id" 2>/dev/null || true)
+if [[ ! $current_image_size =~ ^[0-9]+$ ]]; then
+  current_image_size=$(docker inspect --size -f '{{.SizeRootFs}}' sub2api-dev 2>/dev/null || true)
+fi
+[[ $current_image_size =~ ^[0-9]+$ && $current_image_size -gt 0 ]]
 required_before=$((database_size * 2 + current_image_size * 2 + 1073741824))
 [[ $free_before -gt $required_before ]]
 preexisting_tag_image=$(docker image inspect -f '{{.Id}}' "$tag" 2>/dev/null || true)
@@ -186,7 +195,7 @@ export DOCKER_BUILDKIT=1
 mark_stage candidate_build
 docker build --network=host --progress=plain \
   --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
-  --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.5-alpine \
+  --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.6-alpine \
   --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
   --build-arg POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:18-alpine \
   --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
@@ -384,6 +393,8 @@ group_media_auth_cache_trigger_verified=false
 migration_232_data_plan_verified=false
 migration_232_postflight_verified=false
 migration_233_preflight_verified=false
+migration_235_schema_verified=false
+migration_236_schema_verified=false
 migration_233_postflight_verified=false
 migration_234_preflight_verified=false
 vm_old_image_compatibility_verified=false
@@ -410,7 +421,7 @@ migration_231_status=not_applicable
 migration_232_status=not_applicable
 migration_233_status=not_applicable
 migration_234_status=not_applicable
-if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_212_status
   profile_212_migration_status() {
     local filename=$1 migration_number expected actual command_status
@@ -445,11 +456,11 @@ if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 |
   migration_211_status=$(profile_212_migration_status 211_group_profit_control.sql)
   migration_212_status=$(profile_212_migration_status 212_group_profit_control_auth_cache_invalidation.sql)
 fi
-if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   migration_214_status=$(profile_212_migration_status 214_add_usage_log_upstream_response_model.sql)
   migration_215_status=$(profile_212_migration_status 215_add_usage_log_upstream_model_mismatch_index_notx.sql)
 fi
-if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   migration_216_status=$(profile_212_migration_status 216_channel_monitor_v2.sql)
   migration_217_status=$(profile_212_migration_status 217_channel_monitor_mode.sql)
   migration_218_status=$(profile_212_migration_status 218_channel_monitor_v2_ignored_error_categories.sql)
@@ -468,13 +479,17 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
   migration_231_status=$(profile_212_migration_status 231_group_search_price_per_1k.sql)
   migration_232_status=$(profile_212_migration_status 232_clear_non_grok_video_generation_config.sql)
 fi
-if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   migration_233_status=$(profile_212_migration_status 233_upstream_management.sql)
 fi
-if [[ $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   migration_234_status=$(profile_212_migration_status 234_group_model_pricing.sql)
 fi
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 237 ]]; then
+  migration_235_status=$(profile_212_migration_status 235_group_usage_daily_rollups.sql)
+  migration_236_status=$(profile_212_migration_status 236_group_usage_rollup_timezone.sql)
+fi
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_195_fixture
   migration_195_context="$state_dir/migration-195-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_195_context"
@@ -528,10 +543,10 @@ SQL
   printf '%s  recovery-point.age\n' "$(<"$state_dir/fake-recovery.sha256")" > "$state_dir/recovery-point.age.sha256"
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-195-assert.sh" bind >/dev/null
 fi
-if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   docker exec sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"INSERT INTO settings (key,value,updated_at) VALUES ('ALIPAY_MOBILE_PRECREATE_DEEP_LINK','true',NOW()) ON CONFLICT (key) DO UPDATE SET value='true',updated_at=NOW()\"" >/dev/null
 fi
-if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   migration_232_context="$state_dir/migration-232-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_232_context"
   chmod 400 "$migration_232_context"
@@ -546,23 +561,27 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
   ASSERT_CONTEXT_FILE="$migration_232_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_232_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-232-assert.sh" bind >/dev/null
   migration_232_data_plan_verified=true
 fi
-if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   migration_233_context="$state_dir/migration-233-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_233_context"
   chmod 400 "$migration_233_context"
   ASSERT_CONTEXT_FILE="$migration_233_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_233_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-233-assert.sh" preflight >/dev/null
   migration_233_preflight_verified=true
 fi
-if [[ $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   group_model_pricing_context="$state_dir/migration-234-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$group_model_pricing_context"
   chmod 400 "$group_model_pricing_context"
   ASSERT_CONTEXT_FILE="$group_model_pricing_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_234_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-234-assert.sh" preflight >/dev/null
   migration_234_preflight_verified=true
 fi
+if [[ $profile == 237 ]]; then
+  ASSERT_CONTEXT_FILE="$group_model_pricing_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_235_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-235-assert.sh" preflight >/dev/null
+  ASSERT_CONTEXT_FILE="$group_model_pricing_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_236_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-236-assert.sh" preflight >/dev/null
+fi
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
 rm -f "$state_dir/migrate-candidate.log"
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-195-assert.sh" postflight_db >/dev/null
   consumed_event_id=$(<"$state_dir/migration-195-outbox-event.id")
   if [[ $migration_195_status == absent ]]; then
@@ -597,9 +616,9 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$migration_assertion_dir/migration-195-assert.sh" bind >/dev/null
   ASSERT_CONTEXT_FILE="$migration_195_verified_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS=verified RELEASE_DIR="$migration_195_verified_state" bash "$migration_assertion_dir/migration-195-assert.sh" postflight_db >/dev/null
 fi
-if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage old_image_compatibility_start
-  if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+  if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
     mark_stage old_image_compatibility_version
     old_image_version_output=$(docker run --rm --entrypoint /app/sub2api "$compat_image_id" --version 2>&1)
     if [[ $profile == 215 ]]; then
@@ -641,7 +660,7 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   docker rm -f "$old_probe_app" >/dev/null
   vm_old_image_compatibility_verified=true
 fi
-if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage runtime_fixture_profile_206_sequences
   docker exec -i sub2api-postgres sh -lc "psql -X -q -v ON_ERROR_STOP=1 -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" >/dev/null <<'SQL'
 SELECT setval(pg_get_serial_sequence('groups','id'), COALESCE(MAX(id),0)+1, false) FROM groups;
@@ -743,7 +762,7 @@ if [[ $release_asset_layout == skill-v1 ]]; then
   [[ $activation_ready == true ]]
 fi
 
-if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage runtime_assertion_profile_206_live_capability
   probe_app_port=$(docker port "$probe_app" "$server_port/tcp" | sed -n 's/^127\.0\.0\.1://p')
   [[ $probe_app_port =~ ^[1-9][0-9]{0,4}$ && $probe_app_port -le 65535 ]]
@@ -785,24 +804,24 @@ done < <(jq -r '.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$manif
 mark_stage migration_assertion_account_rates
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.priority IS DISTINCT FROM ROUND(k.rate_multiplier*100)::int)\"") == 0 ]]
 [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts WHERE extra ?| ARRAY['upstream_rate_multiplier','upstream_source_rate_multiplier','upstream_recharge_rate','upstream_effective_cost_multiplier','sub2api_upstream_rate_multiplier']\"") == 0 ]]
-if [[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_prompt_audit
   prompt_audit_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"WITH config AS (SELECT COALESCE(NULLIF((SELECT value FROM settings WHERE key='prompt_audit_config'), ''), '{}')::jsonb AS value) SELECT NOT COALESCE((value->>'enabled')::boolean, false) AND NOT COALESCE((value->>'blocking_enabled')::boolean, false) AND NOT COALESCE((value->>'store_pass_events')::boolean, false) AND jsonb_typeof(COALESCE(value->'endpoints', '[]'::jsonb)) = 'array' AND jsonb_array_length(COALESCE(value->'endpoints', '[]'::jsonb)) = 0, (SELECT COUNT(*) FROM prompt_audit_jobs), (SELECT COUNT(*) FROM prompt_audit_events) FROM config\"")
   [[ $prompt_audit_state == 't|0|0' ]]
 fi
-if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_managed_monitor
   managed_monitor_key_name_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT character_maximum_length, (SELECT COUNT(*) FROM api_keys k JOIN channel_monitors m ON m.id=k.managed_monitor_id AND m.managed_api_key_id=k.id WHERE k.purpose='managed_monitor' AND k.deleted_at IS NULL AND k.name IS DISTINCT FROM '监控-' || BTRIM(m.name)) FROM information_schema.columns WHERE table_schema='public' AND table_name='api_keys' AND column_name='name'\"")
   [[ $managed_monitor_key_name_state == '103|0' ]]
   managed_monitor_key_names_verified=true
 fi
-if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_reasoning_effort
   reasoning_effort_policy_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COALESCE(MAX(CASE WHEN column_name='max_reasoning_effort' THEN data_type || ':' || is_nullable || ':' || column_default END),''), COALESCE(MAX(CASE WHEN column_name='reasoning_effort_mappings' THEN data_type || ':' || is_nullable || ':' || column_default END),'') FROM information_schema.columns WHERE table_schema='public' AND table_name='groups' AND column_name IN ('max_reasoning_effort','reasoning_effort_mappings')\"")
   [[ $reasoning_effort_policy_state == *'character varying:NO:'*"''::character varying"*'|'*'jsonb:NO:'*"'[]'::jsonb"* ]]
   reasoning_effort_policy_verified=true
 fi
-if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_202_alipay
   alipay_mobile_precreate_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*)=1 AND BOOL_AND(value='true') FROM settings WHERE key='ALIPAY_MOBILE_PRECREATE_DEEP_LINK'\"")
   [[ $alipay_mobile_precreate_state == t ]]
@@ -844,7 +863,7 @@ SQL
   [[ $composite_model_routes_state == 't|t|t|t' ]]
   composite_model_routes_verified=true
 fi
-if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_206_session_id
   session_id_columns_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FILTER (WHERE table_name='usage_logs' AND data_type='character varying' AND character_maximum_length=255 AND is_nullable='YES'), COUNT(*) FILTER (WHERE table_name='batch_image_jobs' AND data_type='character varying' AND character_maximum_length=255 AND is_nullable='YES') FROM information_schema.columns WHERE table_schema='public' AND column_name='session_id'\"")
   [[ $session_id_columns_state == '1|1' ]]
@@ -862,19 +881,19 @@ if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 |
   [[ $email_alias_index_state == 't|t|t|t|t' ]]
   email_alias_index_verified=true
 fi
-if [[ $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_208_passkey_schema
   passkey_schema_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT to_regclass('public.passkey_user_handles') IS NOT NULL, to_regclass('public.passkey_credentials') IS NOT NULL, (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='passkey_user_handles' AND ((column_name='user_id' AND data_type='bigint' AND is_nullable='NO') OR (column_name='user_handle' AND data_type='bytea' AND is_nullable='NO') OR (column_name='created_at' AND data_type='timestamp with time zone' AND is_nullable='NO' AND column_default LIKE 'now()%'))), (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='passkey_credentials' AND ((column_name='id' AND data_type='bigint' AND is_nullable='NO' AND column_default LIKE 'nextval(%') OR (column_name='user_id' AND data_type='bigint' AND is_nullable='NO') OR (column_name='credential_id' AND data_type='bytea' AND is_nullable='NO') OR (column_name='name' AND data_type='character varying' AND character_maximum_length=100 AND is_nullable='NO' AND column_default LIKE '''Passkey''%') OR (column_name='credential_data' AND data_type='jsonb' AND is_nullable='NO') OR (column_name='last_used_at' AND data_type='timestamp with time zone' AND is_nullable='YES') OR (column_name IN ('created_at','updated_at') AND data_type='timestamp with time zone' AND is_nullable='NO' AND column_default LIKE 'now()%'))), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid IN ('passkey_user_handles'::regclass,'passkey_credentials'::regclass) AND contype='p'), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid IN ('passkey_user_handles'::regclass,'passkey_credentials'::regclass) AND contype='u'), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid IN ('passkey_user_handles'::regclass,'passkey_credentials'::regclass) AND contype='f' AND confrelid='users'::regclass AND confdeltype='c'), (SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND tablename='passkey_credentials' AND indexname IN ('passkey_credentials_user_id_idx','passkey_credentials_last_used_at_idx'))\"")
   [[ $passkey_schema_state == 't|t|3|8|2|2|2|2' ]]
   passkey_schema_verified=true
 fi
-if [[ $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_209_user_usage_aggregation_schema
   user_usage_aggregation_schema_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT to_regclass('public.usage_dashboard_user_hourly') IS NOT NULL, to_regclass('public.usage_dashboard_user_daily') IS NOT NULL, to_regclass('public.usage_dashboard_user_backfill_state') IS NOT NULL, (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='usage_dashboard_user_hourly' AND ((column_name='bucket_start' AND data_type='timestamp with time zone' AND is_nullable='NO') OR (column_name='user_id' AND data_type='bigint' AND is_nullable='NO') OR (column_name IN ('input_tokens','output_tokens','cache_creation_tokens','cache_read_tokens') AND data_type='bigint' AND is_nullable='NO' AND column_default LIKE '0%') OR (column_name IN ('user_spend','account_cost') AND data_type='numeric' AND numeric_precision=20 AND numeric_scale=10 AND is_nullable='NO' AND column_default LIKE '0%') OR (column_name='computed_at' AND data_type='timestamp with time zone' AND is_nullable='NO' AND column_default LIKE 'now()%'))), (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='usage_dashboard_user_daily' AND ((column_name='bucket_date' AND data_type='date' AND is_nullable='NO') OR (column_name='user_id' AND data_type='bigint' AND is_nullable='NO') OR (column_name IN ('input_tokens','output_tokens','cache_creation_tokens','cache_read_tokens') AND data_type='bigint' AND is_nullable='NO' AND column_default LIKE '0%') OR (column_name IN ('user_spend','account_cost') AND data_type='numeric' AND numeric_precision=20 AND numeric_scale=10 AND is_nullable='NO' AND column_default LIKE '0%') OR (column_name='computed_at' AND data_type='timestamp with time zone' AND is_nullable='NO' AND column_default LIKE 'now()%'))), (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='usage_dashboard_user_backfill_state' AND ((column_name='id' AND data_type='smallint' AND is_nullable='NO') OR (column_name IN ('earliest_covered_date','last_completed_date') AND data_type='date' AND is_nullable='YES') OR (column_name='status' AND data_type='character varying' AND character_maximum_length=20 AND is_nullable='NO' AND column_default LIKE '''unavailable''%') OR (column_name IN ('coverage_start','coverage_end','target_end','completed_at') AND data_type='timestamp with time zone' AND is_nullable='YES') OR (column_name='attempt_count' AND data_type='bigint' AND is_nullable='NO' AND column_default LIKE '0%') OR (column_name='last_error' AND data_type='text' AND is_nullable='YES') OR (column_name='updated_at' AND data_type='timestamp with time zone' AND is_nullable='NO' AND column_default LIKE 'now()%'))), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid IN ('usage_dashboard_user_hourly'::regclass,'usage_dashboard_user_daily'::regclass,'usage_dashboard_user_backfill_state'::regclass) AND contype='p'), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid IN ('usage_dashboard_user_hourly'::regclass,'usage_dashboard_user_daily'::regclass) AND contype='f' AND confrelid='users'::regclass AND confdeltype='c'), (SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('idx_usage_dashboard_user_hourly_user_bucket','idx_usage_dashboard_user_daily_user_bucket')), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid='usage_dashboard_user_backfill_state'::regclass AND contype='c'), (SELECT COUNT(*)=1 AND BOOL_AND(id=1 AND status IN ('available','building','partial','unavailable')) FROM usage_dashboard_user_backfill_state)\"")
   [[ $user_usage_aggregation_schema_state == 't|t|t|9|9|11|3|2|2|3|t' ]]
   user_usage_aggregation_schema_verified=true
 fi
-if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_212_profit_schema
   group_profit_control_schema_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FILTER (WHERE column_name='profit_control_enabled' AND data_type='boolean' AND is_nullable='NO' AND column_default='false'), COUNT(*) FILTER (WHERE column_name IN ('profit_min_margin','profit_safety_buffer') AND data_type='numeric' AND numeric_precision=10 AND numeric_scale=4 AND is_nullable='NO' AND column_default='0') FROM information_schema.columns WHERE table_schema='public' AND table_name='groups'\"")
   [[ $group_profit_control_schema_state == '1|2' ]]
@@ -919,7 +938,7 @@ SQL
   [[ $group_profit_trigger_state == t ]]
   group_profit_auth_cache_trigger_verified=true
 fi
-if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_215_usage_log_model
   usage_log_upstream_model_columns_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FILTER (WHERE column_name='upstream_response_model' AND data_type='character varying' AND character_maximum_length=200 AND is_nullable='YES'), COUNT(*) FILTER (WHERE column_name='upstream_model_mismatch' AND data_type='boolean' AND is_nullable='YES') FROM information_schema.columns WHERE table_schema='public' AND table_name='usage_logs'\"")
   [[ $usage_log_upstream_model_columns_state == '1|1' ]]
@@ -928,7 +947,7 @@ if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 |
   [[ $usage_log_upstream_model_mismatch_index_state == 't|t|t|t' ]]
   usage_log_upstream_model_mismatch_index_verified=true
 fi
-if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_232_channel_monitor_media
   ASSERT_CONTEXT_FILE="$migration_232_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_232_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-232-assert.sh" postflight >/dev/null
   channel_monitor_v2_schema_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"WITH expected_tables(name) AS (VALUES ('channel_monitor_v2_config'),('channel_monitor_v2_metrics_1m'),('channel_monitor_v2_user_metrics_1m'),('channel_monitor_v2_error_metrics_1m'),('channel_monitor_v2_latency_histograms_1m'),('channel_monitor_v2_watermarks'),('channel_monitor_v2_metrics_rollup'),('channel_monitor_v2_user_metrics_rollup'),('channel_monitor_v2_error_metrics_rollup'),('channel_monitor_v2_latency_histograms_rollup')), expected_indexes(name) AS (VALUES ('idx_channel_monitor_v2_metrics_platform_time'),('idx_channel_monitor_v2_metrics_group_time'),('idx_channel_monitor_v2_metrics_model_time'),('idx_channel_monitor_v2_user_metrics_user_time'),('idx_channel_monitor_v2_user_metrics_time'),('idx_channel_monitor_v2_errors_time'),('idx_channel_monitor_v2_errors_category_time'),('idx_channel_monitor_v2_histograms_time'),('idx_channel_monitor_v2_metrics_rollup_platform_time'),('idx_channel_monitor_v2_metrics_rollup_group_time'),('idx_channel_monitor_v2_metrics_rollup_model_time'),('idx_channel_monitor_v2_user_rollup_user_time'),('idx_channel_monitor_v2_user_rollup_time'),('idx_channel_monitor_v2_errors_rollup_time'),('idx_channel_monitor_v2_errors_rollup_category_time'),('idx_channel_monitor_v2_histograms_rollup_time')) SELECT (SELECT COUNT(*) FROM expected_tables WHERE to_regclass('public.' || name) IS NOT NULL), (SELECT COUNT(*) FROM pg_constraint WHERE contype='p' AND conrelid IN (SELECT to_regclass('public.' || name) FROM expected_tables)), (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='channel_monitor_v2_config' AND ((column_name='id' AND data_type='smallint' AND is_nullable='NO') OR (column_name='version' AND data_type='integer' AND is_nullable='NO') OR (column_name='enabled' AND data_type='boolean' AND is_nullable='NO') OR (column_name='refresh_interval_seconds' AND data_type='integer' AND is_nullable='NO') OR (column_name='platforms' AND data_type='jsonb' AND is_nullable='NO') OR (column_name='group_ids' AND data_type='ARRAY' AND is_nullable='NO') OR (column_name='updated_by' AND data_type='bigint' AND is_nullable='YES') OR (column_name='updated_at' AND data_type='timestamp with time zone' AND is_nullable='NO') OR (column_name='ignored_error_categories' AND data_type='ARRAY' AND is_nullable='NO') OR (column_name='health_thresholds' AND data_type='jsonb' AND is_nullable='NO'))), (SELECT COUNT(*) FROM pg_constraint WHERE contype='c' AND conrelid IN (SELECT to_regclass('public.' || name) FROM expected_tables)), (SELECT COUNT(*) FROM expected_indexes e JOIN pg_class c ON c.relname=e.name JOIN pg_namespace n ON n.oid=c.relnamespace AND n.nspname='public' JOIN pg_index i ON i.indexrelid=c.oid WHERE i.indisvalid AND i.indisready), (SELECT COUNT(*) FROM expected_tables WHERE has_table_privilege(current_user, 'public.' || name, 'SELECT,INSERT,UPDATE,DELETE'))\"")
@@ -953,16 +972,22 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
   group_media_auth_cache_trigger_verified=true
   migration_232_postflight_verified=true
 fi
-if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_233_upstream_management
   ASSERT_CONTEXT_FILE="$migration_233_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_233_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-233-assert.sh" postflight >/dev/null
   migration_233_postflight_verified=true
 fi
-if [[ $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   ASSERT_CONTEXT_FILE="$group_model_pricing_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_234_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-234-assert.sh" postflight >/dev/null
   migration_234_schema_verified=true
 fi
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]]; then
+if [[ $profile == 237 ]]; then
+  ASSERT_CONTEXT_FILE="$group_model_pricing_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_235_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-235-assert.sh" postflight >/dev/null
+  ASSERT_CONTEXT_FILE="$group_model_pricing_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_236_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-236-assert.sh" postflight >/dev/null
+  migration_235_schema_verified=true
+  migration_236_schema_verified=true
+fi
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_195_runtime_current
   ASSERT_CONTEXT_FILE="$migration_195_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$migration_195_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-195-assert.sh" postflight_runtime >/dev/null
   mark_stage migration_assertion_195_runtime_replay
@@ -987,8 +1012,8 @@ jq -n --slurpfile manifest "$manifest" \
   --arg candidate_image_id "$candidate_image_id" \
   --arg candidate_archive_sha256 "$candidate_archive_sha" \
   --argjson candidate_size "$candidate_size" \
-  --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]] && printf true || printf false)" \
-  --argjson migration_195_verified "$([[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 ]] && printf true || printf false)" \
+  --argjson prompt_audit_disabled "$([[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]] && printf true || printf false)" \
+  --argjson migration_195_verified "$([[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]] && printf true || printf false)" \
   --argjson managed_monitor_key_names_verified "$managed_monitor_key_names_verified" \
   --argjson reasoning_effort_policy_verified "$reasoning_effort_policy_verified" \
   --argjson alipay_mobile_precreate_migration_verified "$alipay_mobile_precreate_migration_verified" \
@@ -1026,6 +1051,8 @@ jq -n --slurpfile manifest "$manifest" \
   --arg migration_232_status "$migration_232_status" \
   --arg migration_233_status "$migration_233_status" \
   --arg migration_234_status "$migration_234_status" \
+  --arg migration_235_status "$migration_235_status" \
+  --arg migration_236_status "$migration_236_status" \
   --argjson usage_log_upstream_model_columns_verified "$usage_log_upstream_model_columns_verified" \
   --argjson usage_log_upstream_model_mismatch_index_verified "$usage_log_upstream_model_mismatch_index_verified" \
   --argjson channel_monitor_v2_schema_verified "$channel_monitor_v2_schema_verified" \
@@ -1038,6 +1065,8 @@ jq -n --slurpfile manifest "$manifest" \
   --argjson migration_233_postflight_verified "$migration_233_postflight_verified" \
   --argjson migration_234_preflight_verified "$migration_234_preflight_verified" \
   --argjson migration_234_schema_verified "${migration_234_schema_verified:-false}" \
+  --argjson migration_235_schema_verified "$migration_235_schema_verified" \
+  --argjson migration_236_schema_verified "$migration_236_schema_verified" \
   --arg vm_old_image_id "$compat_image_id" \
   --argjson vm_old_image_compatibility_verified "$vm_old_image_compatibility_verified" \
   --argjson fixture_rejected "$fixture_rejected" \
@@ -1045,7 +1074,7 @@ jq -n --slurpfile manifest "$manifest" \
   --argjson clean_preflight "$clean_preflight" \
   --argjson verified_replay "$verified_replay" \
   --argjson verified_low_watermark_rejected "$verified_low_watermark_rejected" \
-  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,alipay_mobile_precreate_migration_verified:$alipay_mobile_precreate_migration_verified,group_auth_cache_image_generation_verified:$group_auth_cache_image_generation_verified,composite_model_routes_verified:$composite_model_routes_verified,session_id_columns_verified:$session_id_columns_verified,live_request_type_verified:$live_request_type_verified,group_allow_live_verified:$group_allow_live_verified,email_alias_index_verified:$email_alias_index_verified,live_runtime_capability_verified:$live_runtime_capability_verified,passkey_schema_verified:$passkey_schema_verified,user_usage_aggregation_schema_verified:$user_usage_aggregation_schema_verified,migration_211_status:$migration_211_status,migration_212_status:$migration_212_status,migration_214_status:$migration_214_status,migration_215_status:$migration_215_status,migration_216_status:$migration_216_status,migration_217_status:$migration_217_status,migration_218_status:$migration_218_status,migration_219_status:$migration_219_status,migration_220_status:$migration_220_status,migration_221_status:$migration_221_status,migration_222_status:$migration_222_status,migration_223_status:$migration_223_status,migration_224_status:$migration_224_status,migration_225_status:$migration_225_status,migration_226_status:$migration_226_status,migration_227_status:$migration_227_status,migration_228_status:$migration_228_status,migration_229_status:$migration_229_status,migration_230_status:$migration_230_status,migration_231_status:$migration_231_status,migration_232_status:$migration_232_status,migration_233_status:$migration_233_status,migration_234_status:$migration_234_status,usage_log_upstream_model_columns_verified:$usage_log_upstream_model_columns_verified,usage_log_upstream_model_mismatch_index_verified:$usage_log_upstream_model_mismatch_index_verified,channel_monitor_v2_schema_verified:$channel_monitor_v2_schema_verified,channel_monitor_v2_defaults_verified:$channel_monitor_v2_defaults_verified,group_media_pricing_schema_verified:$group_media_pricing_schema_verified,group_media_auth_cache_trigger_verified:$group_media_auth_cache_trigger_verified,migration_232_data_plan_verified:$migration_232_data_plan_verified,migration_232_postflight_verified:$migration_232_postflight_verified,migration_233_preflight_verified:$migration_233_preflight_verified,migration_233_postflight_verified:$migration_233_postflight_verified,migration_234_preflight_verified:$migration_234_preflight_verified,migration_234_schema_verified:$migration_234_schema_verified,group_profit_control_schema_verified:$group_profit_control_schema_verified,group_profit_auth_cache_trigger_verified:$group_profit_auth_cache_trigger_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
+  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,alipay_mobile_precreate_migration_verified:$alipay_mobile_precreate_migration_verified,group_auth_cache_image_generation_verified:$group_auth_cache_image_generation_verified,composite_model_routes_verified:$composite_model_routes_verified,session_id_columns_verified:$session_id_columns_verified,live_request_type_verified:$live_request_type_verified,group_allow_live_verified:$group_allow_live_verified,email_alias_index_verified:$email_alias_index_verified,live_runtime_capability_verified:$live_runtime_capability_verified,passkey_schema_verified:$passkey_schema_verified,user_usage_aggregation_schema_verified:$user_usage_aggregation_schema_verified,migration_211_status:$migration_211_status,migration_212_status:$migration_212_status,migration_214_status:$migration_214_status,migration_215_status:$migration_215_status,migration_216_status:$migration_216_status,migration_217_status:$migration_217_status,migration_218_status:$migration_218_status,migration_219_status:$migration_219_status,migration_220_status:$migration_220_status,migration_221_status:$migration_221_status,migration_222_status:$migration_222_status,migration_223_status:$migration_223_status,migration_224_status:$migration_224_status,migration_225_status:$migration_225_status,migration_226_status:$migration_226_status,migration_227_status:$migration_227_status,migration_228_status:$migration_228_status,migration_229_status:$migration_229_status,migration_230_status:$migration_230_status,migration_231_status:$migration_231_status,migration_232_status:$migration_232_status,migration_233_status:$migration_233_status,migration_234_status:$migration_234_status,migration_235_status:$migration_235_status,migration_236_status:$migration_236_status,migration_235_schema_verified:$migration_235_schema_verified,migration_236_schema_verified:$migration_236_schema_verified,usage_log_upstream_model_columns_verified:$usage_log_upstream_model_columns_verified,usage_log_upstream_model_mismatch_index_verified:$usage_log_upstream_model_mismatch_index_verified,channel_monitor_v2_schema_verified:$channel_monitor_v2_schema_verified,channel_monitor_v2_defaults_verified:$channel_monitor_v2_defaults_verified,group_media_pricing_schema_verified:$group_media_pricing_schema_verified,group_media_auth_cache_trigger_verified:$group_media_auth_cache_trigger_verified,migration_232_data_plan_verified:$migration_232_data_plan_verified,migration_232_postflight_verified:$migration_232_postflight_verified,migration_233_preflight_verified:$migration_233_preflight_verified,migration_233_postflight_verified:$migration_233_postflight_verified,migration_234_preflight_verified:$migration_234_preflight_verified,migration_234_schema_verified:$migration_234_schema_verified,group_profit_control_schema_verified:$group_profit_control_schema_verified,group_profit_auth_cache_trigger_verified:$group_profit_auth_cache_trigger_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
   | jq -cS . > "$output_dir/gate.json.tmp"
 chmod 400 "$output_dir/gate.json.tmp"
 mv -T -- "$output_dir/gate.json.tmp" "$output_dir/gate.json"
