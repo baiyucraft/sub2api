@@ -10,36 +10,39 @@
 # as host root, so a plain `printf > marker && chmod 600` creates a root-owned
 # file that PID 1 cannot read. Resolve the actual PID 1 identity and publish
 # the marker atomically with matching ownership.
+RELEASE_ACTIVATION_MARKER_FAILURE_REASON=unknown
 write_release_activation_marker() {
   local container=${1:?container is required}
   local instance_id=${2:?instance ID is required}
-  [[ $container =~ ^[a-zA-Z0-9_.-]{1,100}$ ]] || return 1
-  [[ $instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]] || return 1
-  docker inspect "$container" >/dev/null 2>&1 || return 1
+  RELEASE_ACTIVATION_MARKER_FAILURE_REASON=unknown
+  if ! [[ $container =~ ^[a-zA-Z0-9_.-]{1,100}$ ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=invalid_container; return 1; fi
+  if ! [[ $instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=invalid_instance; return 1; fi
+  if ! docker inspect "$container" >/dev/null 2>&1; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=container_inspect; return 1; fi
   local security_options
-  security_options=$(docker info --format '{{json .SecurityOptions}}') || return 1
-  [[ $security_options != *'name=userns'* && $security_options != *'name=rootless'* ]] || return 1
+  if ! security_options=$(docker info --format '{{json .SecurityOptions}}'); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=docker_security_info; return 1; fi
+  if [[ $security_options == *'name=userns'* || $security_options == *'name=rootless'* ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=unsupported_user_namespace; return 1; fi
 
   local activation_host_dir runtime_uid runtime_gid marker_tmp marker_path
-  activation_host_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$container") || return 1
-  [[ -n $activation_host_dir && -d $activation_host_dir && ! -L $activation_host_dir ]] || return 1
-  runtime_uid=$(docker exec "$container" sh -c 'set -- $(grep "^Uid:" /proc/1/status); printf "%s\n" "$5"') || return 1
-  runtime_gid=$(docker exec "$container" sh -c 'set -- $(grep "^Gid:" /proc/1/status); printf "%s\n" "$5"') || return 1
-  [[ $runtime_uid =~ ^[0-9]+$ && $runtime_gid =~ ^[0-9]+$ ]] || return 1
+  if ! activation_host_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$container"); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=data_mount_inspect; return 1; fi
+  if ! [[ -n $activation_host_dir && -d $activation_host_dir && ! -L $activation_host_dir ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=data_mount_invalid; return 1; fi
+  if ! runtime_uid=$(docker exec "$container" sh -c 'set -- $(grep "^Uid:" /proc/1/status); printf "%s\n" "$5"'); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=runtime_uid_read; return 1; fi
+  if ! runtime_gid=$(docker exec "$container" sh -c 'set -- $(grep "^Gid:" /proc/1/status); printf "%s\n" "$5"'); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=runtime_gid_read; return 1; fi
+  if ! [[ $runtime_uid =~ ^[0-9]+$ && $runtime_gid =~ ^[0-9]+$ ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=runtime_identity_invalid; return 1; fi
 
   marker_path="$activation_host_dir/.sub2api-active-instance"
-  marker_tmp=$(mktemp "$activation_host_dir/.sub2api-active-instance.XXXXXXXX") || return 1
+  if ! marker_tmp=$(mktemp "$activation_host_dir/.sub2api-active-instance.XXXXXXXX"); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=marker_temp_create; return 1; fi
   if ! printf '%s\n' "$instance_id" > "$marker_tmp" ||
      ! chown "$runtime_uid:$runtime_gid" "$marker_tmp" ||
      ! chmod 600 "$marker_tmp" ||
      [[ $(stat -c '%u:%g:%a:%h' "$marker_tmp") != "$runtime_uid:$runtime_gid:600:1" ]] ||
      ! mv -T -- "$marker_tmp" "$marker_path"; then
     rm -f -- "$marker_tmp"
+    RELEASE_ACTIVATION_MARKER_FAILURE_REASON=marker_publish
     return 1
   fi
-  [[ ! -L $marker_path ]] || return 1
-  [[ $(stat -c '%u:%g:%a:%h' "$marker_path") == "$runtime_uid:$runtime_gid:600:1" ]] || return 1
-  [[ $(<"$marker_path") == "$instance_id" ]] || return 1
+  if ! [[ ! -L $marker_path ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=marker_symlink; return 1; fi
+  if ! [[ $(stat -c '%u:%g:%a:%h' "$marker_path") == "$runtime_uid:$runtime_gid:600:1" ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=marker_metadata; return 1; fi
+  if ! [[ $(<"$marker_path") == "$instance_id" ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=marker_content; return 1; fi
 }
 
 # Keep human-oriented Docker/Compose progress out of the structured stdout

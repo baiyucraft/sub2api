@@ -700,7 +700,11 @@ if [[ $release_asset_layout == skill-v1 ]]; then
   [[ $(curl -sS -D "$activation_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_app_port/health") == 200 ]]
   assert_http_header_equals "$activation_headers" X-Sub2API-Instance "$activation_instance"
   assert_http_header_equals "$activation_headers" X-Sub2API-Background-Ready false
-  write_release_activation_marker "$probe_app" "$activation_instance"
+  if ! write_release_activation_marker "$probe_app" "$activation_instance"; then
+    printf '%s\n' "${RELEASE_ACTIVATION_MARKER_FAILURE_REASON:-unknown}" > "$state_dir/candidate-background-failure"
+    chmod 400 "$state_dir/candidate-background-failure" || true
+    exit 1
+  fi
   activation_ready=false
   for _ in $(seq 1 120); do
     : > "$activation_headers"
