@@ -172,6 +172,11 @@ profile 236 使用版本 `0.176-baiyu`，是 profile 235 的纯版本继承：�
 migration map、checksum 与显式旧镜像兼容身份，不新增、重编号或改写任何 migration。
 它用于记录上游配置与上游管理拆分为两个一级侧栏入口的 UI 发布身份。
 
+profile 237 使用版本 `0.1.177-baiyu`，完整继承 profile 236 的 51 项 migration，追加
+`235_group_usage_daily_rollups.sql` 与 `236_group_usage_rollup_timezone.sql`，共 53 项。
+这两个文件是官方 222/223 迁移按本地序列重编号后的版本，SQL 语义保持不变；profile 233–236
+的历史 Gate、candidate、checksum 和兼容身份保持不可变。
+
 VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235 和 236
 合同。发布资产定向回归至少执行：
 

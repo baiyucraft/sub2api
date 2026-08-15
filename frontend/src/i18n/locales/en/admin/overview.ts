@@ -839,6 +839,7 @@ export default {
         userStatus: 'Status'
       },
       usageToday: 'Today',
+      usageYesterday: 'Yesterday',
       usageTotal: 'Total',
       quality: {
         loadFailed: 'Failed to load',

@@ -40,6 +40,7 @@ def run(runner: SSHRunner, remote_temps: list[str]) -> None:
 set -Eeuo pipefail
 remote={shlex.quote(remote)}
 release=199-000000000000-0-deadbeef
+failure_line_file="$remote/failure-line"
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 drill="dr-199-$(tr -d ':-' <<<"$now")"
 gate_dir=/opt/sub2api-deploy/release-gates/$release/output
@@ -53,8 +54,12 @@ before_validator=$(asset_state /usr/local/libexec/sub2api-vm-validate)
 before_gate=$(asset_state /usr/local/libexec/sub2api-sign-gate)
 before_dr=$(asset_state /usr/local/libexec/sub2api-sign-dr-evidence)
 cleanup() {{
+  if [[ -f $failure_line_file ]]; then
+    printf 'failure_line=%s\n' "$(tr -dc '0-9' < "$failure_line_file")" >&2
+  fi
   rm -rf -- "/opt/sub2api-deploy/release-gates/$release" "$dr_root/$release" "$remote"
 }}
+trap 'printf "%s\n" "$LINENO" > "$failure_line_file"' ERR
 trap cleanup EXIT
 bash -n "$remote/validator" "$remote/bootstrap" "$remote/sign-gate" "$remote/sign-dr"
 test_libexec="$remote/libexec"
