@@ -432,6 +432,15 @@ PROFILES["235"] = {
     "migrations": [*PROFILES["234"]["migrations"], "234_group_model_pricing.sql"],
 }
 
+# Profile 236 is a version-only UI release. It inherits profile 235's complete
+# 51-migration contract and compatibility identity without adding schema work.
+PROFILES["236"] = {
+    **PROFILES["235"],
+    "name": "236",
+    "version": "0.1.177-baiyu",
+    "migrations": [*PROFILES["235"]["migrations"]],
+}
+
 
 def get_profile(name: str) -> dict:
     try:
