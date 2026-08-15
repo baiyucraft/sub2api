@@ -107,8 +107,9 @@ func TestProbeGuardRecoveryUsesConfiguredSuccessCountAndReevaluation(t *testing.
 	settings.CustomErrorCodesEnabled = true
 	settings.CustomErrorCodes = []int{404}
 	settings.RecoverySuccesses = 2
-	registry.RecordProbeFailureWithGuardTransition(1, "404", "upstream_http_error", nil, time.Now(), settings)
-	registry.RecordProbeFailureWithGuardTransition(1, "404", "upstream_http_error", nil, time.Now(), settings)
+	for i := 0; i < settings.SuspendAfterFailures; i++ {
+		registry.RecordProbeFailureWithGuardTransition(1, "404", "upstream_http_error", nil, time.Now(), settings)
+	}
 	for i := 1; i <= 2; i++ {
 		transition := registry.RecordProbeWithGuardSuccessTransition(1, "success", "probe_succeeded", nil, time.Now(), settings)
 		if i == 1 {

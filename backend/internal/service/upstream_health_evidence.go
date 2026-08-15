@@ -18,9 +18,21 @@ type UpstreamHealthEvidenceRecorder interface {
 	RecordUpstreamTrafficFailure(ctx context.Context, account *Account, statusCode int)
 }
 
+// UpstreamHealthManualRecoveryHandler lets the existing account recovery
+// endpoint reset probe-owned health state without coupling RateLimitService to
+// the upstream persistence implementation.
+type UpstreamHealthManualRecoveryHandler interface {
+	ClearProbeSuspension(ctx context.Context, keyID int64) error
+}
+
 var globalUpstreamHealthEvidenceRecorder struct {
 	sync.RWMutex
 	value UpstreamHealthEvidenceRecorder
+}
+
+var globalUpstreamHealthManualRecovery struct {
+	sync.RWMutex
+	value UpstreamHealthManualRecoveryHandler
 }
 
 func SetGlobalUpstreamHealthEvidenceRecorder(recorder UpstreamHealthEvidenceRecorder) {
@@ -46,6 +58,27 @@ func ReportUpstreamTrafficFailure(ctx context.Context, account *Account, statusC
 	if recorder := upstreamHealthEvidenceRecorder(); recorder != nil {
 		recorder.RecordUpstreamTrafficFailure(ctx, account, statusCode)
 	}
+}
+
+func SetGlobalUpstreamHealthManualRecoveryHandler(handler UpstreamHealthManualRecoveryHandler) {
+	globalUpstreamHealthManualRecovery.Lock()
+	globalUpstreamHealthManualRecovery.value = handler
+	globalUpstreamHealthManualRecovery.Unlock()
+}
+
+func upstreamHealthManualRecoveryHandler() UpstreamHealthManualRecoveryHandler {
+	globalUpstreamHealthManualRecovery.RLock()
+	handler := globalUpstreamHealthManualRecovery.value
+	globalUpstreamHealthManualRecovery.RUnlock()
+	return handler
+}
+
+func ClearUpstreamProbeSuspension(ctx context.Context, keyID int64) error {
+	if handler := upstreamHealthManualRecoveryHandler(); handler != nil {
+		return handler.ClearProbeSuspension(ctx, keyID)
+	}
+	_, _ = GlobalUpstreamHealthRegistry().ResetProbeSuspension(keyID, time.Now().UTC())
+	return nil
 }
 
 func (s *UpstreamConfigService) RecordUpstreamTrafficSuccess(ctx context.Context, account *Account, statusCode int) {

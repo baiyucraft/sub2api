@@ -46,6 +46,13 @@ var (
 var errUpstreamHealthEvidencePersistFailed = infraerrors.InternalServer("UPSTREAM_HEALTH_EVIDENCE_PERSIST_FAILED", "failed to save upstream health evidence")
 
 const (
+	upstreamProbeTempUnschedReasonPrefix = "upstream_probe:"
+	// Keep the durable account exclusion long enough for the slowest configured
+	// probe interval and recovery window. Successful probes clear it earlier.
+	upstreamProbeTempUnschedulableDuration = 24 * time.Hour
+)
+
+const (
 	UpstreamKeyPlatformSourceLegacy     = "legacy"
 	UpstreamKeyPlatformSourceAuto       = "auto"
 	UpstreamKeyPlatformSourceManual     = "manual"
@@ -875,7 +882,90 @@ func (s *UpstreamConfigService) saveHealthTransitionWithObservation(ctx context.
 		}
 		return errUpstreamHealthEvidencePersistFailed.WithCause(err)
 	}
+	if err := s.syncProbeSchedulingState(ctx, keyID, transition.Current); err != nil {
+		// Health evidence must remain fail-open: a transient account-repository
+		// failure must not turn a successful probe into an internal-error result.
+		slog.Warn("failed to synchronize probe temporary scheduling state", "key_id", keyID, "error", err)
+	}
 	return nil
+}
+
+func isProbeTempUnschedulableReason(reason string) bool {
+	return strings.HasPrefix(strings.TrimSpace(reason), upstreamProbeTempUnschedReasonPrefix)
+}
+
+func probeTempUnschedulableReason(item UpstreamHealthSnapshot) string {
+	class := strings.TrimSpace(item.LastFailureClass)
+	if class == "" {
+		class = "failure"
+	}
+	return upstreamProbeTempUnschedReasonPrefix + class
+}
+
+// syncProbeSchedulingState mirrors probe-owned health quarantine into the
+// account's existing temporary-unschedulable field. It never overwrites or
+// clears a block created by a human, quota, auth, proxy, or another policy.
+func (s *UpstreamConfigService) syncProbeSchedulingState(ctx context.Context, keyID int64, item UpstreamHealthSnapshot) error {
+	if s == nil || s.accountRepo == nil || keyID <= 0 {
+		return nil
+	}
+	lister, ok := s.accountRepo.(upstreamAccountBindingLister)
+	if !ok {
+		return nil
+	}
+	accounts, err := lister.ListByUpstreamKeyID(ctx, keyID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	probeQuarantine := item.SuspensionSource == "probe" && (item.Status == UpstreamHealthSuspended || item.Status == UpstreamHealthRecovering)
+	for i := range accounts {
+		account := accounts[i]
+		probeOwned := isProbeTempUnschedulableReason(account.TempUnschedulableReason)
+		if probeQuarantine {
+			// Never take over an active block owned by another subsystem.
+			if account.TempUnschedulableUntil != nil && account.TempUnschedulableUntil.After(now) && !probeOwned {
+				continue
+			}
+			if probeOwned && account.TempUnschedulableUntil != nil && account.TempUnschedulableUntil.After(now) {
+				continue
+			}
+			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, now.Add(upstreamProbeTempUnschedulableDuration), probeTempUnschedulableReason(item)); err != nil {
+				return err
+			}
+			continue
+		}
+		if probeOwned {
+			if err := s.accountRepo.ClearTempUnschedulable(ctx, account.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// ClearProbeSuspension is called by the existing admin recovery action. It
+// persists the reset as an administrator observation and only affects a
+// probe-owned suspension.
+func (s *UpstreamConfigService) ClearProbeSuspension(ctx context.Context, keyID int64) error {
+	if s == nil || keyID <= 0 {
+		return nil
+	}
+	return s.withHealthKeyLock(keyID, func() error {
+		transition, changed := GlobalUpstreamHealthRegistry().ResetProbeSuspension(keyID, time.Now().UTC())
+		if !changed {
+			return nil
+		}
+		observation := &UpstreamHealthObservation{
+			UpstreamKeyID: keyID,
+			ObservedAt:    transition.Current.UpdatedAt,
+			State:         transition.Current.Status,
+			Source:        "admin",
+			Result:        "manual_recovery",
+			Reason:        transition.Current.Reason,
+		}
+		return s.saveHealthTransitionWithObservation(ctx, keyID, transition, observation)
+	})
 }
 
 func (s *UpstreamConfigService) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]UpstreamHealthObservation, error) {

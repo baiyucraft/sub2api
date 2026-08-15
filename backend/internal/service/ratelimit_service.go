@@ -1926,6 +1926,12 @@ func (s *RateLimitService) RecoverAccountAfterSuccessfulTest(ctx context.Context
 }
 
 func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID int64) error {
+	var account *Account
+	if s.accountRepo != nil {
+		// Best-effort read: clearing the durable account block must preserve its
+		// existing behavior even if the pre-read is unavailable.
+		account, _ = s.accountRepo.GetByID(ctx, accountID)
+	}
 	if err := s.accountRepo.ClearTempUnschedulable(ctx, accountID); err != nil {
 		return err
 	}
@@ -1939,6 +1945,11 @@ func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID
 		slog.Warn("clear_model_rate_limits_on_temp_unsched_reset_failed", "account_id", accountID, "error", err)
 	}
 	s.notifyAccountSchedulingBlockCleared(accountID)
+	if account != nil && account.UpstreamKeyID != nil && isProbeTempUnschedulableReason(account.TempUnschedulableReason) {
+		if err := ClearUpstreamProbeSuspension(ctx, *account.UpstreamKeyID); err != nil {
+			slog.Warn("clear_probe_suspension_after_manual_recovery_failed", "account_id", accountID, "key_id", *account.UpstreamKeyID, "error", err)
+		}
+	}
 	return nil
 }
 

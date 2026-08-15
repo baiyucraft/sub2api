@@ -10,7 +10,9 @@ import (
 )
 
 // UpstreamHealthStatus is provider-neutral. Suspended and recovering keys are
-// temporarily excluded from business scheduling; probes remain allowed.
+// temporarily excluded from business scheduling; probes remain allowed. The
+// durable account-level exclusion is synchronized by UpstreamConfigService so
+// manual recovery uses the same existing account control as other sources.
 type UpstreamHealthStatus string
 
 const (
@@ -220,6 +222,37 @@ func (r *UpstreamHealthRegistry) RecordProbeWithGuardSuccessTransition(keyID int
 
 func (r *UpstreamHealthRegistry) RecordProbeFailureWithGuardTransition(keyID int64, status, reason string, ttftMs *int64, now time.Time, settings UpstreamProbeGuardSettings) UpstreamHealthTransition {
 	return r.recordProbeFailureWithGuard(keyID, status, reason, ttftMs, now, settings)
+}
+
+// ResetProbeSuspension clears only a probe-owned suspension. It is used by the
+// existing admin "恢复调度" action; other suspension sources are left intact.
+func (r *UpstreamHealthRegistry) ResetProbeSuspension(keyID int64, now time.Time) (UpstreamHealthTransition, bool) {
+	if r == nil || keyID <= 0 {
+		return UpstreamHealthTransition{}, false
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.items[keyID]
+	if !ok || (item.SuspensionSource != "probe" && item.Status != UpstreamHealthSuspended && item.Status != UpstreamHealthRecovering) {
+		return UpstreamHealthTransition{}, false
+	}
+	previous := item
+	item.UpdatedAt = now
+	item.ConsecutiveFails = 0
+	item.RecoverySamples = 0
+	item.SuspensionSource = ""
+	item.Reason = "manual_recovery"
+	if item.ObservationEnabled {
+		item.Status = UpstreamHealthDegraded
+	} else {
+		item.Status = UpstreamHealthDisabled
+	}
+	item = normalizeUpstreamHealthSnapshot(item)
+	r.items[keyID] = item
+	return UpstreamHealthTransition{Previous: previous, Current: item}, true
 }
 
 func (r *UpstreamHealthRegistry) recordProbeSuccessWithGuard(keyID int64, status, reason string, ttftMs *int64, now time.Time, settings UpstreamProbeGuardSettings) UpstreamHealthTransition {
