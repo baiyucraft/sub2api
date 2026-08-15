@@ -70,7 +70,7 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
     if [[ $profile == 235 ]]; then
       [[ $version == 0.1.176-baiyu ]]
     else
-      [[ $version == 0.1.177-baiyu ]]
+      [[ $version == 0.176-baiyu ]]
     fi
     [[ $(jq -er '.migrations | length' "$manifest") == 51 ]]
     expected_tail='216_channel_monitor_v2.sql|217_channel_monitor_mode.sql|218_channel_monitor_v2_ignored_error_categories.sql|219_channel_monitor_v2_seed_popular_models.sql|220_channel_monitor_v2_health_thresholds.sql|221_channel_monitor_v2_fixed_rollups.sql|222_channel_monitor_v2_rollup_permissions.sql|223_channel_monitor_v2_refresh_5m.sql|224_channel_monitor_v2_full_table_permissions.sql|225_channel_monitor_v2_default_ignore_and_cache.sql|226_channel_monitor_hide_throughput.sql|227_channel_monitor_v2_reset_factory_cache_thresholds.sql|228_channel_monitor_v2_privacy_defaults.sql|229_group_video_model_prices.sql|230_group_audio_voice_pricing.sql|231_group_search_price_per_1k.sql|232_clear_non_grok_video_generation_config.sql|233_upstream_management.sql|234_group_model_pricing.sql'
