@@ -160,6 +160,15 @@
 - 预防测试：release core 检查两个字段的置位和 Gate JSON 映射；profile 237 Gate verifier 继续要求 status、preflight、schema 三类证据齐全。
 - 状态：代码已修复，等待新 full-SHA VM Gate 验证。
 
+## 生产 migration-233 preflight allowlist 漏掉成功字段
+
+- 现象：生产 schema、索引、权限和触发器只读检查全部通过，但 release 在 `migration_233_preflight` 被判失败并进入恢复。
+- 根因：`migration-233-assert.sh` 在已执行状态会返回 7 个结构化 schema evidence 字段；生产 `migration_preflight()` 的 SSH allowlist 只声明了 duplicate/table/preflight 三个字段，导致成功命令被当作 undeclared field 失败。
+- 证据：release `237-32413cd11f05-1786825173-a7587bed` 的生产 migration 233/234/235/236 checksum 与 profile 237 一致，精确 SQL 断言均为通过；失败发生在停机前的 preflight，`migration_started=false`。
+- 修复：生产 preflight allowlist 与 migration-233 assert 的完整成功输出保持一致；不放宽 stderr、退出码或迁移语义。
+- 预防测试：production release 测试覆盖 8 个 migration-233 preflight 字段；后续未声明字段仍 fail-closed。
+- 状态：代码已修复，等待新 full-SHA VM Gate 和生产停机发布验证。
+
 ## 新严格合同误要求旧生产实例预先满足
 
 - 现象：新 Candidate 已通过 VM Gate，但生产在停机前的 preflight 退出；旧应用、Nginx、备份、空间和 migration 均正常。

@@ -675,7 +675,16 @@ exit "$code"
                 values = self.run_remote(
                     "racknerd",
                     f"{env} {self.active_assets}/migration-233-assert.sh preflight",
-                    {"migration_233_duplicate_keys", "migration_233_table_state", "migration_233_preflight"},
+                    {
+                        "migration_233_duplicate_keys",
+                        "migration_233_index_verified",
+                        "migration_233_table_state",
+                        "migration_233_columns_verified",
+                        "migration_233_health_index_verified",
+                        "migration_233_privileges_verified",
+                        "migration_233_trigger_verified",
+                        "migration_233_preflight",
+                    },
                 )
             except BaseException:
                 try:
