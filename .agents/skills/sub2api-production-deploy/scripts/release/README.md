@@ -1,5 +1,9 @@
 # RackNerd 一键发布
 
+## Fork 版本命名
+
+Fork 版本号直接使用官方源版本并追加 `-baiyu`，不补写或重复 `0.1.` 前缀。例如官方源版本为 `0.176` 时，fork 版本必须是 `0.176-baiyu`。历史 profile 的版本、Gate、candidate 和 checksum 不回写；只有当前新 profile 使用最新官方源版本。
+
 标准入口（启动后调用端可断开）：
 
 ```text
@@ -164,7 +168,7 @@ profile 235 使用版本 `0.1.176-baiyu`，完整继承 profile 234 的 50 项 m
 生产 preflight、VM Gate 和 postflight 必须独立验证 `groups.long_context_pricing_enabled` 与
 `groups.model_pricing` 的类型、默认值和可空语义。profile 233/234 的历史 manifest 保持不可变。
 
-profile 236 使用版本 `0.1.177-baiyu`，是 profile 235 的纯版本继承：完整复用同一 51 项
+profile 236 使用版本 `0.176-baiyu`，是 profile 235 的纯版本继承：完整复用同一 51 项
 migration map、checksum 与显式旧镜像兼容身份，不新增、重编号或改写任何 migration。
 它用于记录上游配置与上游管理拆分为两个一级侧栏入口的 UI 发布身份。
 

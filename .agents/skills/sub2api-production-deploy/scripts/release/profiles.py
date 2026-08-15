@@ -437,7 +437,7 @@ PROFILES["235"] = {
 PROFILES["236"] = {
     **PROFILES["235"],
     "name": "236",
-    "version": "0.1.177-baiyu",
+    "version": "0.176-baiyu",
     "migrations": [*PROFILES["235"]["migrations"]],
 }
 

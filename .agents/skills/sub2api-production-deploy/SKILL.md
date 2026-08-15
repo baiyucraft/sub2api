@@ -14,6 +14,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 生产旧容器在 candidate 构建、传输和验证完成前保持运行。
 - 正常应用发布使用 active/candidate 双槽：候选先在备用 loopback 端口启动，Nginx 通过原子 upstream 文件和 graceful reload 切流，旧容器最长排空 60 分钟后再停止。排空超时或连接状态不确定时优先把路由 reload 回旧槽，禁止强杀旧长连接。协调数据恢复仍允许停机。
 - 应用发布身份必须是完整 40 位 commit SHA、唯一 full-SHA tag 和不可变 `candidate_image_id`；运维资产至少记录完整 commit SHA。禁止用 `latest`、`main` 或短版本作为应用身份。
+- Fork 版本号必须直接继承官方源版本并追加 `-baiyu`，不自行补写或重复 `0.1.` 前缀：官方源为 `0.176` 时 fork 版本为 `0.176-baiyu`。历史 profile 的既有版本字符串和证据保持不可变；仅当前新 profile 使用最新官方源版本。
 - 执行 `doctor`、`bootstrap-production` 或 `deploy` 前，必须用 `git rev-parse --verify <commit>^{commit}` 得到实际完整 SHA，并将同一个 40 位小写值传入所有阶段；禁止手工复制、截断或补写 SHA。
 - 后端、数据库、迁移、fork/upstream、共享契约、配置语义、混合改动和不确定改动必须经过 VM Gate 的 `sub2api-dev`；本机可以运行跨平台静态/unit 门禁，但不得启动本地后端作为最终联调服务。
 - 只有最终 diff 严格限定在 `frontend/`，且只包含 UI、样式、静态资源或前端测试时，才允许不导入新的 candidate 到 VM；浏览器 smoke 仍应把 API 代理到已验证的 VM Gate 服务。
@@ -184,7 +185,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 jq -cS '.manifest.migration_sha256' | sha256sum
 ```
 
-- signer 必须同时自测 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235 和 236；集成测试至少覆盖 195/199/202/206 历史回归、207/210/213/234/236 纯继承回归、208/209 成功和错误 checksum 拒绝、212/215/232/233/235 新迁移成功和错误 checksum 拒绝。profile 232 必须完整继承 215 的 32 项 map 并追加 216–232 共 49 项，同时绑定显式 compatibility version/commit/image；profile 233 在此基础上只追加 `233_upstream_management.sql`，共 50 项并保持版本 `0.1.173-baiyu`；profile 234 仅将应用版本更新为 `0.1.175-baiyu`，完整继承 profile 233 的 50 项 map、checksum 和 compatibility identity，不新增 migration；profile 235 追加 `234_group_model_pricing.sql` 后共 51 项；profile 236 仅将应用版本更新为 `0.1.177-baiyu`，完整继承 profile 235 的 51 项 map、checksum 和 compatibility identity，不新增 migration。migration 232 的数据计划、恢复点绑定、备份表和协调恢复证据缺一不可；migration 233/234 必须同时验证上游 Key 唯一索引、健康观测表及 `(upstream_key_id, observed_at)` 索引、CURRENT_USER 权限和不再覆盖 LoadFactor 的绑定触发器。DR evidence 绑定完整 map 的规范化 checksum，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
+- signer 必须同时自测 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235 和 236；集成测试至少覆盖 195/199/202/206 历史回归、207/210/213/234/236 纯继承回归、208/209 成功和错误 checksum 拒绝、212/215/232/233/235 新迁移成功和错误 checksum 拒绝。profile 232 必须完整继承 215 的 32 项 map 并追加 216–232 共 49 项，同时绑定显式 compatibility version/commit/image；profile 233 在此基础上只追加 `233_upstream_management.sql`，共 50 项并保持版本 `0.1.173-baiyu`；profile 234 仅将应用版本更新为 `0.1.175-baiyu`，完整继承 profile 233 的 50 项 map、checksum 和 compatibility identity，不新增 migration；profile 235 追加 `234_group_model_pricing.sql` 后共 51 项；profile 236 仅将应用版本更新为 `0.176-baiyu`，完整继承 profile 235 的 51 项 map、checksum 和 compatibility identity，不新增 migration。migration 232 的数据计划、恢复点绑定、备份表和协调恢复证据缺一不可；migration 233/234 必须同时验证上游 Key 唯一索引、健康观测表及 `(upstream_key_id, observed_at)` 索引、CURRENT_USER 权限和不再覆盖 LoadFactor 的绑定触发器。DR evidence 绑定完整 map 的规范化 checksum，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
 
 ### 生产成功与灾备基线
 
