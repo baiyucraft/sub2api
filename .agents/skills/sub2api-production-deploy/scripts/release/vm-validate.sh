@@ -231,7 +231,9 @@ cleanup_probe() {
 }
 on_failure() {
   code=$?
+  failed_line=${1:-0}
   trap - ERR INT TERM
+  [[ $failed_line =~ ^[0-9]+$ ]] || failed_line=0
   category=unknown
   current_stage=$(<"$state_dir/stage")
   if [[ $current_stage == migration_assertion_* || $current_stage == runtime_assertion_* ]]; then
@@ -327,6 +329,8 @@ on_failure() {
     fi
   fi
   printf '%s\n' "$category" > "$state_dir/failure-category"
+  printf '%s\n' "$failed_line" > "$state_dir/failure-line"
+  chmod 400 "$state_dir/failure-category" "$state_dir/failure-line" || true
   if [[ -f $state_dir/validator.stderr && ! -L $state_dir/validator.stderr ]]; then
     chmod 400 "$state_dir/validator.stderr" || true
   fi
@@ -335,7 +339,7 @@ on_failure() {
   cleanup_candidate_tag
   exit "$code"
 }
-trap on_failure ERR INT TERM
+trap 'on_failure $LINENO' ERR INT TERM
 exec 2>"$state_dir/validator.stderr"
 
 mark_stage isolated_database
