@@ -63,6 +63,12 @@ func TestReleaseActivationControllerDoesNotReportReadyOnStartupFailure(t *testin
 	require.NoError(t, os.WriteFile(activationFile, []byte("candidate-1\n"), 0o600))
 	time.Sleep(1100 * time.Millisecond)
 	require.False(t, controller.ready.Load())
+	require.Equal(t, "background_failed", func() string {
+		if value := controller.failureReason.Load(); value != nil {
+			return value.(string)
+		}
+		return "unknown"
+	}())
 	require.Len(t, controller.tasks, 1)
 }
 

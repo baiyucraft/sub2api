@@ -31,11 +31,13 @@ type releaseActivationController struct {
 	instanceID     string
 	ready          atomic.Bool
 	failed         atomic.Bool
+	failureReason  atomic.Value // string; fixed, non-sensitive diagnostic category
 }
 
 type releaseActivationTask struct {
 	start   func() error
 	checked bool
+	name    string
 }
 
 var backgroundReleaseActivation = newReleaseActivationControllerFromEnv()
@@ -61,22 +63,37 @@ func (c *releaseActivationController) registerAsync(start func() error) {
 
 func (c *releaseActivationController) startBeforeActivation(start func() error) {
 	if err := runReleaseActivationTask(start); err != nil {
-		c.failed.Store(true)
+		c.markFailure("pre_activation_failed")
 		logger.LegacyPrintf("service.release_activation", "Pre-activation background startup failed: %v", err)
 	}
 }
 
 func (c *releaseActivationController) registerTask(start func() error, checked bool) {
+	c.registerTaskNamed("background", start, checked)
+}
+
+func (c *releaseActivationController) registerTaskNamed(name string, start func() error, checked bool) {
 	if !c.gated() {
 		if err := runReleaseActivationTask(start); err != nil {
-			c.failed.Store(true)
+			c.markFailure(name + "_failed")
 			logger.LegacyPrintf("service.release_activation", "Background activation failed: %v", err)
 		}
 		return
 	}
+	if name == "" {
+		name = "background"
+	}
 	c.mu.Lock()
-	c.tasks = append(c.tasks, releaseActivationTask{start: start, checked: checked})
+	c.tasks = append(c.tasks, releaseActivationTask{start: start, checked: checked, name: name})
 	c.mu.Unlock()
+}
+
+func (c *releaseActivationController) markFailure(reason string) {
+	if reason == "" {
+		reason = "background_failed"
+	}
+	c.failureReason.Store(reason)
+	c.failed.Store(true)
 }
 
 func (c *releaseActivationController) closeRegistration() {
@@ -119,7 +136,7 @@ func (c *releaseActivationController) watch() {
 					continue
 				}
 				if err := runReleaseActivationTask(task.start); err != nil {
-					c.failed.Store(true)
+					c.markFailure(task.name + "_failed")
 					logger.LegacyPrintf("service.release_activation", "Background activation failed for instance %s: %v", c.instanceID, err)
 					return
 				}
@@ -130,7 +147,7 @@ func (c *releaseActivationController) watch() {
 				}
 				go func(start func() error) {
 					if err := runReleaseActivationTask(start); err != nil {
-						c.failed.Store(true)
+						c.markFailure("background_failed")
 						logger.LegacyPrintf("service.release_activation", "Background activation failed for instance %s: %v", c.instanceID, err)
 					}
 				}(task.start)
@@ -164,7 +181,11 @@ func startReleaseActivatedTask(start func()) {
 // performs an observable initialization step. A failed acknowledgement keeps
 // the release readiness header false so the route cannot be committed.
 func startReleaseActivatedCheckedTask(start func() error) {
-	backgroundReleaseActivation.register(start)
+	backgroundReleaseActivation.registerTaskNamed("checked", start, true)
+}
+
+func startReleaseActivatedCheckedTaskNamed(name string, start func() error) {
+	backgroundReleaseActivation.registerTaskNamed(name, start, true)
 }
 
 // startReleasePreactivatedCheckedTask is reserved for multi-instance-safe
@@ -186,6 +207,17 @@ func CloseReleaseActivationRegistration() {
 // started before declaring the new Compose-managed instance active.
 func ReleaseBackgroundActivationReady() bool {
 	return backgroundReleaseActivation.ready.Load() && !backgroundReleaseActivation.failed.Load()
+}
+
+// ReleaseBackgroundActivationFailureReason returns a fixed diagnostic category
+// suitable for a health response. It never exposes the underlying error text.
+func ReleaseBackgroundActivationFailureReason() string {
+	if value := backgroundReleaseActivation.failureReason.Load(); value != nil {
+		if reason, ok := value.(string); ok && reason != "" {
+			return reason
+		}
+	}
+	return "unknown"
 }
 
 func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthClient, cfg *config.Config, redisClient *redis.Client) *GrokOAuthService {
@@ -714,7 +746,7 @@ func ProvideOpsCleanupService(
 	opsService *OpsService,
 ) *OpsCleanupService {
 	svc := NewOpsCleanupService(opsRepo, db, redisClient, cfg, channelMonitorSvc, settingRepo)
-	startReleaseActivatedCheckedTask(svc.StartChecked)
+	startReleaseActivatedCheckedTaskNamed("ops_cleanup", svc.StartChecked)
 	if opsService != nil {
 		opsService.SetCleanupReloader(svc)
 	}
@@ -1166,7 +1198,7 @@ func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *Set
 		svc.SetRuntimeReader(settingService)
 		svc.SetScheduler(r)
 	}
-	startReleaseActivatedCheckedTask(r.StartChecked)
+	startReleaseActivatedCheckedTaskNamed("channel_monitor", r.StartChecked)
 	return r
 }
 
