@@ -60,6 +60,29 @@ run_release_logged_command() {
   fi
 }
 
+# curl writes response headers with CRLF line endings.  Normalize line endings,
+# header-name casing, and optional value whitespace before comparing the single
+# expected health header.  This helper is also consumed directly by the VM
+# validator, which sources this contract without loading the production context.
+assert_http_header_equals() {
+  local headers=${1:?headers file is required}
+  local name=${2:?header name is required}
+  local expected=${3:?expected header value is required}
+  [[ -f $headers && ! -L $headers ]]
+  [[ $name =~ ^[A-Za-z0-9-]+$ ]]
+  [[ $expected =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
+  local actual
+  actual=$(tr -d '\r' < "$headers" | awk -F: -v name="$name" '
+    tolower($1) == tolower(name) {
+      sub(/^[^:]*:[[:space:]]*/, "")
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+      print
+    }
+  ')
+  [[ $(printf '%s\n' "$actual" | grep -c .) == 1 ]]
+  [[ $actual == "$expected" ]]
+}
+
 sub2api_compose_network_mode() {
   local compose_json=${1:?compose json is required}
   local host_port=${2:?host port is required}
