@@ -9,6 +9,11 @@ source "${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/cont
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 query(){ docker exec "${ASSERT_DB_CONTAINER:-sub2api-postgres}" psql -X -A -t -F '|' -v ON_ERROR_STOP=1 -U "${ASSERT_DB_USER:-sub2api}" -d "${ASSERT_DB_NAME:-sub2api}" -c "$1"; }
 state=$(query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('usage_group_daily_rollups','usage_group_rollup_state')") || exit 1
-[[ $state == 2 ]] || exit 1
-printf 'migration_235_schema_state=verified\n'
+if [[ $phase == preflight && $migration_status == absent ]]; then
+  [[ $state == 0 ]] || exit 1
+  printf 'migration_235_schema_state=absent\n'
+else
+  [[ $state == 2 ]] || exit 1
+  printf 'migration_235_schema_state=verified\n'
+fi
 printf 'migration_235_%s=pass\n' "$phase"
