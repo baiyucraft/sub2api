@@ -1472,6 +1472,20 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
             self.assertIn(field, switch)
             self.assertIn(field.split("=")[0], production)
 
+    def test_migration_233_preflight_accepts_all_schema_evidence_fields(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        for field in (
+            '"migration_233_duplicate_keys"',
+            '"migration_233_index_verified"',
+            '"migration_233_table_state"',
+            '"migration_233_columns_verified"',
+            '"migration_233_health_index_verified"',
+            '"migration_233_privileges_verified"',
+            '"migration_233_trigger_verified"',
+            '"migration_233_preflight"',
+        ):
+            self.assertIn(field, production)
+
     def test_candidate_uses_network_aware_container_and_publish_ports(self) -> None:
         contract = self.script("compose-contract.sh")
         switch = self.script("switch.sh")
