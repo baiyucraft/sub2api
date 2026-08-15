@@ -145,6 +145,8 @@ class VMSpaceCleanTest(unittest.TestCase):
 
     def test_validator_installs_build_failure_cleanup_before_build(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        self.assertIn("git fetch origin main:refs/remotes/origin/main", validator)
+        self.assertIn('[[ $(git rev-parse origin/main) == "$commit" ]]', validator)
         trap = validator.index("trap on_build_failure ERR INT TERM")
         build = validator.index("docker build --network=host")
         post_build_space_check = validator.index("[[ $free_after_build -gt $required_free ]]")

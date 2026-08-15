@@ -106,6 +106,15 @@
 - 预防测试：验证本地 doctor 失败时不写 VM；release unit 更新失败时不进入远端 doctor、Gate 或生产；成功路径严格保持 `local doctor -> release unit update -> VM/external doctor -> production bootstrap -> RackNerd doctor -> VM Gate`。
 - 状态：已修复，等待新提交的实际 deploy-start 验证。
 
+## VM fetch 只更新 FETCH_HEAD 未更新 origin/main
+
+- 现象：VM 能通过 `ls-remote` 看到远端最新 `main`，但 Gate 在 `preflight` 立即退出；`/opt/sub2api-src` 的 `HEAD`、`origin/main` 和 `FETCH_HEAD` 仍停在上一次候选提交。
+- 根因：validator 使用 `git fetch origin main` 后以 `origin/main` 作为发布事实源。在 VM 仓库的 fetch/refspec 组合下，该命令可以成功但不保证更新远端跟踪引用，后续完整 SHA 断言因此误判。
+- 证据：失败 release `237-3627695f444f-1786820638-8ca6ec59` 的阶段为 `preflight`；同一时点 `git ls-remote origin refs/heads/main` 返回新 SHA，而本地 `origin/main` 仍为旧 SHA。
+- 修复：validator 显式执行 `git fetch origin main:refs/remotes/origin/main`，随后继续用完整 SHA 严格核对并 `reset --hard`；不放宽 origin、工作树、asset checksum 或 commit 合同。
+- 预防测试：静态合同要求显式 refspec 和紧随其后的完整 SHA 断言；真实 VM Gate 必须证明源码工作树切到新 candidate 后才允许构建。
+- 状态：代码已修复，等待新 full-SHA VM Gate 验证。
+
 ## 新严格合同误要求旧生产实例预先满足
 
 - 现象：新 Candidate 已通过 VM Gate，但生产在停机前的 preflight 退出；旧应用、Nginx、备份、空间和 migration 均正常。
