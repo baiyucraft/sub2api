@@ -153,6 +153,7 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertIn("failed_line=${1:-0}", validator)
         self.assertIn("trap 'on_failure $LINENO' ERR INT TERM", validator)
         self.assertIn('> "$state_dir/failure-line"', validator)
+        self.assertIn('chmod 400 "$state_dir/migrate-candidate.log"', validator)
         trap = validator.index("trap on_build_failure ERR INT TERM")
         build = validator.index("docker build --network=host")
         post_build_space_check = validator.index("[[ $free_after_build -gt $required_free ]]")
