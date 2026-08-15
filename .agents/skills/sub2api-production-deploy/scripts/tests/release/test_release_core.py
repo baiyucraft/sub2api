@@ -32,6 +32,16 @@ from release.state import RunLock, RunState
 
 
 class ReleaseCoreTest(unittest.TestCase):
+    def test_versioned_sources_do_not_contain_shell_prompt_noise(self) -> None:
+        marker = "[ERROR] - (starship::print): Under a 'dumb' terminal (TERM=dumb)."
+        polluted: list[str] = []
+        for root in (WORKSPACE / "backend" / "migrations", WORKSPACE / "frontend" / "src"):
+            for path in root.rglob("*"):
+                if path.is_file() and path.suffix in {".sql", ".vue", ".ts", ".tsx", ".js", ".go"}:
+                    if marker in path.read_text(encoding="utf-8"):
+                        polluted.append(str(path.relative_to(WORKSPACE)))
+        self.assertEqual(polluted, [])
+
     @staticmethod
     def release_assets(layout: str = LAYOUT_SKILL_V1) -> dict[str, str]:
         units = release_unit_relative_paths(layout)
