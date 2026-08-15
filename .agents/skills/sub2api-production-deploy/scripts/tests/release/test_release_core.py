@@ -664,6 +664,10 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("state == 0", migration_235)
         self.assertIn("migration_status == absent", migration_236)
         self.assertIn("state == 0", migration_236)
+        self.assertIn("migration_235_preflight_verified=true", validator)
+        self.assertIn("migration_236_preflight_verified=true", validator)
+        self.assertIn("migration_235_preflight_verified:$migration_235_preflight_verified", validator)
+        self.assertIn("migration_236_preflight_verified:$migration_236_preflight_verified", validator)
 
     def test_profile_212_release_chain_requires_profit_control_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
