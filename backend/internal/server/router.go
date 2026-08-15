@@ -58,6 +58,7 @@ func SetupRouter(
 				c.Header("X-Sub2API-Background-Ready", "true")
 			} else {
 				c.Header("X-Sub2API-Background-Ready", "false")
+				c.Header("X-Sub2API-Background-Failure", service.ReleaseBackgroundActivationFailureReason())
 			}
 			c.Next()
 		})

@@ -279,7 +279,10 @@ on_failure() {
     grep -qi 'permission denied' "$probe_log" && category=permission
     grep -qi 'connection refused\|no such host\|dial tcp' "$probe_log" && category=connection
     grep -qi 'redis' "$probe_log" && category=redis
-    grep -qi 'database\|postgres' "$probe_log" && category=database
+    # Only classify database failures when an error-like token is present on
+    # the same log line. Ordinary startup messages mentioning the database
+    # must not mask the real candidate stage (for example activation timeout).
+    grep -Eiq '(error|failed|fatal|panic).*(database|postgres)|(database|postgres).*(error|failed|fatal|panic)' "$probe_log" && category=database
     grep -qi 'address already in use' "$probe_log" && category=port_conflict
     grep -qi 'panic\|fatal' "$probe_log" && category=fatal
     chmod 400 "$probe_log" || true
@@ -288,6 +291,10 @@ on_failure() {
     if [[ -f ${activation_headers:-} && ! -L ${activation_headers:-} ]]; then
       cp -- "$activation_headers" "$state_dir/candidate-background-headers"
       chmod 400 "$state_dir/candidate-background-headers" || true
+      if grep -Eiq '^x-sub2api-background-failure:[[:space:]]*[a-z0-9_]+[[:space:]]*$' "$activation_headers"; then
+        sed -nE 's/^x-sub2api-background-failure:[[:space:]]*([a-z0-9_]+)[[:space:]]*$/\1/ip' "$activation_headers" | head -n1 > "$state_dir/candidate-background-failure"
+        chmod 400 "$state_dir/candidate-background-failure" || true
+      fi
     fi
     if [[ -f ${probe_dir:-}/.sub2api-active-instance && ! -L ${probe_dir:-}/.sub2api-active-instance ]]; then
       cp -- "$probe_dir/.sub2api-active-instance" "$state_dir/candidate-activation-marker"
