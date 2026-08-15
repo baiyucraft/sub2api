@@ -178,6 +178,15 @@
 - 预防测试：production release 测试覆盖 migration-234 三个 preflight 输出字段。
 - 状态：代码已修复，等待新 full-SHA VM Gate 和生产停机发布验证。
 
+## 停机发布恢复备份单元的 benign stderr 被判失败
+
+- 现象：候选切换、迁移、双链路 canary 和 downtime finalize 全部通过，随后 release 进入恢复；生产旧镜像最终健康，但 runner 报 exit 97。
+- 根因：`restore-backup-units.sh` 返回结构化成功 stdout 的同时写出 benign stderr；SSH runner 的通用合同把任意非空 stderr 统一视为失败。
+- 证据：release `237-8691759b2452-1786828578-37913f43` 的 history 已到 `downtime_finalized`，raw log 随后出现 `backup_units_restored=true` 和 `exit=97`。
+- 修复：生产脚本通过共享 helper 将该命令 stderr 追加到 release root-only `restore-backup-units.stderr`，stdout 只返回 `backup_units_restored=true`；命令真正非零仍 fail-closed。
+- 预防测试：production release 测试检查 stderr 捕获路径、结构化字段和不扩展 allowlist；恢复与正常收口都复用同一 helper。
+- 状态：代码已修复，等待新 full-SHA VM Gate 和生产停机发布验证。
+
 ## 新严格合同误要求旧生产实例预先满足
 
 - 现象：新 Candidate 已通过 VM Gate，但生产在停机前的 preflight 退出；旧应用、Nginx、备份、空间和 migration 均正常。

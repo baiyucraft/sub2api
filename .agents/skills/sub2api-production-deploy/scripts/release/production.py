@@ -191,6 +191,23 @@ class ProductionRelease:
             script = self._wrap_remote_logging(script)
         return self.runner.run(host, script, allowed, timeout=timeout).values
 
+    def restore_backup_units(self, restore_env: str) -> dict[str, str]:
+        """Restore backup units while retaining benign stderr in root-only logs."""
+
+        stderr_file = f"{self.release_dir}/restore-backup-units.stderr"
+        script = f"""set -Eeuo pipefail
+err_file={shlex.quote(stderr_file)}
+if test -e "$err_file"; then
+  test -f "$err_file" && test ! -L "$err_file"
+else
+  install -m 600 /dev/null "$err_file"
+fi
+chmod 600 "$err_file"
+{restore_env} {shlex.quote(self.active_assets)}/restore-backup-units.sh 2>>"$err_file"
+printf 'backup_units_restored=true\\n'
+"""
+        return self.run_remote("racknerd", script, {"backup_units_restored"})
+
     def run_remote_with_input(self, host: str, script: str, allowed: set[str], data: bytes, timeout: int = 300) -> dict[str, str]:
         if host == "racknerd" and self._remote_raw_logging_ready:
             script = self._wrap_remote_logging(script)
@@ -1042,7 +1059,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             {"dmit_final_health"},
         )
         restore_env = quoted_env({"STATE_ROOT": "/opt/sub2api/backups/release-state", "STATE_DIR": self.state_dir})
-        backup_units = self.run_remote("racknerd", f"{restore_env} {self.active_assets}/restore-backup-units.sh", {"backup_units_restored"})
+        backup_units = self.restore_backup_units(restore_env)
         self.units_masked = False
         self.stage("post_switch_services_restored", {**external_final, **backup_units})
         consume_env = quoted_env({"RELEASE_DIR": self.release_dir})
@@ -1102,7 +1119,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             self.units_masked = masked
         if self.units_masked:
             restore_env = quoted_env({"STATE_ROOT": "/opt/sub2api/backups/release-state", "STATE_DIR": self.state_dir})
-            unit_values = self.run_remote("racknerd", f"{restore_env} {self.active_assets}/restore-backup-units.sh", {"backup_units_restored"})
+            unit_values = self.restore_backup_units(restore_env)
             values.update(unit_values)
             self.units_masked = False
         cleaned = self.run_remote(
