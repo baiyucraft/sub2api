@@ -7,9 +7,9 @@ drill_id=${2:?drill ID is required}
 input_dir=${3:?promotion input directory is required}
 test_mode=${SUB2API_PROMOTION_TEST_MODE:-false}
 test_root=${PROMOTION_TEST_ROOT:-}
-[[ $release_id =~ ^(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $release_id =~ ^(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 profile=${BASH_REMATCH[1]}
-[[ $drill_id =~ ^dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235)-[0-9]{8}T[0-9]{6}Z$ ]]
+[[ $drill_id =~ ^dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236)-[0-9]{8}T[0-9]{6}Z$ ]]
 drill_profile=${BASH_REMATCH[1]}
 [[ $drill_profile == "$profile" ]]
 if [[ $test_mode == true || -n $test_root ]]; then

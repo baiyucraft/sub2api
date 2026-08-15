@@ -54,7 +54,7 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
     profile = get_profile(expected_profile)
     validate_manifest_profile_contract(manifest, profile)
     layout = manifest_release_asset_layout(manifest)
-    if expected_profile in {"232", "233", "234", "235"}:
+    if expected_profile in {"232", "233", "234", "235", "236"}:
         for field in ("compatibility_version", "compatibility_commit", "compatibility_image_id"):
             if manifest.get(field) != profile[field]:
                 raise RuntimeError(f"gate {field} does not match profile {expected_profile}")
@@ -93,21 +93,21 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
         raise RuntimeError("gate has expired")
     if evidence.get("vm_restore_verified") is not True or evidence.get("integration_verified") is not True:
         raise RuntimeError("gate lacks VM restore or integration evidence")
-    if expected_profile in {"194", "195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"} and evidence.get("prompt_audit_disabled") is not True:
+    if expected_profile in {"194", "195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236"} and evidence.get("prompt_audit_disabled") is not True:
         raise RuntimeError("gate lacks Prompt Audit disabled-state evidence")
-    if expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
+    if expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236"}:
         required_migration_evidence = ("migration_195_verified", "fixture_rejected", "restore_completed", "clean_preflight", "verified_replay", "verified_low_watermark_rejected")
         if any(evidence.get(field) is not True for field in required_migration_evidence):
             raise RuntimeError("gate lacks migration 195 semantic evidence")
-    if expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"} and evidence.get("managed_monitor_key_names_verified") is not True:
+    if expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236"} and evidence.get("managed_monitor_key_names_verified") is not True:
         raise RuntimeError("gate lacks managed monitor key-name evidence")
-    if expected_profile in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
+    if expected_profile in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236"}:
         if evidence.get("reasoning_effort_policy_verified") is not True:
             raise RuntimeError("gate lacks group reasoning-effort policy evidence")
         if evidence.get("vm_old_image_compatibility_verified") is not True:
             raise RuntimeError("gate lacks VM old-image compatibility evidence")
         validate_image_id(evidence.get("vm_old_image_id", ""))
-    if expected_profile in {"202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
+    if expected_profile in {"202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236"}:
         required_profile_202_evidence = (
             "alipay_mobile_precreate_migration_verified",
             "group_auth_cache_image_generation_verified",
@@ -115,7 +115,7 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
         )
         if any(evidence.get(field) is not True for field in required_profile_202_evidence):
             raise RuntimeError("gate lacks profile 202 migration semantic evidence")
-    if expected_profile in {"206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235"}:
+    if expected_profile in {"206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236"}:
         required_profile_206_evidence = (
             "session_id_columns_verified",
             "live_request_type_verified",
@@ -125,11 +125,11 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
         )
         if any(evidence.get(field) is not True for field in required_profile_206_evidence):
             raise RuntimeError("gate lacks profile 206 migration semantic evidence")
-    if expected_profile in {"208", "209", "210", "212", "213", "215", "232", "233", "234", "235"} and evidence.get("passkey_schema_verified") is not True:
+    if expected_profile in {"208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236"} and evidence.get("passkey_schema_verified") is not True:
         raise RuntimeError("gate lacks profile 208 passkey schema evidence")
-    if expected_profile in {"209", "210", "212", "213", "215", "232", "233", "234", "235"} and evidence.get("user_usage_aggregation_schema_verified") is not True:
+    if expected_profile in {"209", "210", "212", "213", "215", "232", "233", "234", "235", "236"} and evidence.get("user_usage_aggregation_schema_verified") is not True:
         raise RuntimeError("gate lacks profile 209 user usage aggregation schema evidence")
-    if expected_profile in {"212", "213", "215", "232", "233", "234", "235"}:
+    if expected_profile in {"212", "213", "215", "232", "233", "234", "235", "236"}:
         if evidence.get("migration_211_status") not in {"absent", "verified"} or evidence.get("migration_212_status") not in {"absent", "verified"}:
             raise RuntimeError("gate lacks profile 212 migration status evidence")
         required_profile_212_evidence = (
@@ -138,14 +138,14 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
         )
         if any(evidence.get(field) is not True for field in required_profile_212_evidence):
             raise RuntimeError("gate lacks profile 212 profit-control migration evidence")
-    if expected_profile in {"215", "232", "233", "234", "235"}:
+    if expected_profile in {"215", "232", "233", "234", "235", "236"}:
         if evidence.get("migration_214_status") not in {"absent", "verified"} or evidence.get("migration_215_status") not in {"absent", "verified"}:
             raise RuntimeError("gate lacks profile 215 migration status evidence")
         if evidence.get("usage_log_upstream_model_columns_verified") is not True:
             raise RuntimeError("gate lacks usage log upstream-model column evidence")
         if evidence.get("usage_log_upstream_model_mismatch_index_verified") is not True:
             raise RuntimeError("gate lacks usage log upstream-model mismatch index evidence")
-    if expected_profile in {"232", "233", "234", "235"}:
+    if expected_profile in {"232", "233", "234", "235", "236"}:
         for migration_number in range(216, 233):
             if evidence.get(f"migration_{migration_number}_status") not in {"absent", "verified"}:
                 raise RuntimeError(f"gate lacks migration {migration_number} status evidence")
@@ -163,16 +163,16 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
             raise RuntimeError(f"gate lacks profile {expected_profile} inherited migration semantic evidence")
         if evidence.get("vm_old_image_id") != manifest["compatibility_image_id"]:
             raise RuntimeError(f"gate profile {expected_profile} compatibility image does not match manifest")
-    if expected_profile in {"233", "234", "235"}:
+    if expected_profile in {"233", "234", "235", "236"}:
         if evidence.get("migration_233_status") not in {"absent", "verified"}:
             raise RuntimeError("gate lacks migration 233 status evidence")
         if evidence.get("migration_233_preflight_verified") is not True or evidence.get("migration_233_postflight_verified") is not True:
             raise RuntimeError("gate lacks profile 233 migration semantic evidence")
-    if expected_profile == "235" and evidence.get("migration_234_status") not in {"absent", "verified"}:
+    if expected_profile in {"235", "236"} and evidence.get("migration_234_status") not in {"absent", "verified"}:
         raise RuntimeError("gate lacks migration 234 status evidence")
-    if expected_profile == "235" and evidence.get("migration_234_preflight_verified") is not True:
+    if expected_profile in {"235", "236"} and evidence.get("migration_234_preflight_verified") is not True:
         raise RuntimeError("gate lacks profile 235 migration preflight evidence")
-    if expected_profile == "235" and evidence.get("migration_234_schema_verified") is not True:
+    if expected_profile in {"235", "236"} and evidence.get("migration_234_schema_verified") is not True:
         raise RuntimeError("gate lacks profile 235 migration semantic evidence")
     archive_path = bundle_dir / "candidate.tar.gz"
     if not archive_path.is_file():
