@@ -169,6 +169,15 @@
 - 预防测试：production release 测试覆盖 8 个 migration-233 preflight 字段；后续未声明字段仍 fail-closed。
 - 状态：代码已修复，等待新 full-SHA VM Gate 和生产停机发布验证。
 
+## 生产 migration-234 preflight allowlist 漏掉 schema_verified
+
+- 现象：新 release 的 migration 233 preflight 已通过，migration 234 preflight 随后失败并触发恢复；生产没有开始 migration。
+- 根因：migration-234 assert 在 `verified` 状态输出 `migration_234_schema_verified=true`，生产 preflight allowlist 只有 schema_state 和 preflight 两项。
+- 证据：release `237-6965621e0962-1786827315-76e0e117` 的 production-result 显示 migration_233_preflight_verified 成功，失败紧接着发生在 migration_234_preflight。
+- 修复：将 schema_verified 纳入 migration-234 preflight allowlist；仍保持未声明字段 fail-closed。
+- 预防测试：production release 测试覆盖 migration-234 三个 preflight 输出字段。
+- 状态：代码已修复，等待新 full-SHA VM Gate 和生产停机发布验证。
+
 ## 新严格合同误要求旧生产实例预先满足
 
 - 现象：新 Candidate 已通过 VM Gate，但生产在停机前的 preflight 退出；旧应用、Nginx、备份、空间和 migration 均正常。

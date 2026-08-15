@@ -710,7 +710,7 @@ exit "$code"
             values = self.run_remote(
                 "racknerd",
                 f"{env} {self.active_assets}/migration-234-assert.sh preflight",
-                {"migration_234_schema_state", "migration_234_preflight"},
+                {"migration_234_schema_state", "migration_234_schema_verified", "migration_234_preflight"},
             )
             self.stage("migration_234_preflight_verified", values)
         if self.profile["name"] == "237":
