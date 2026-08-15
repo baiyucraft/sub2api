@@ -296,9 +296,21 @@ on_failure() {
         chmod 400 "$state_dir/candidate-background-header-failure" || true
       fi
     fi
-    if [[ -f ${probe_dir:-}/.sub2api-active-instance && ! -L ${probe_dir:-}/.sub2api-active-instance ]]; then
-      cp -- "$probe_dir/.sub2api-active-instance" "$state_dir/candidate-activation-marker"
+    marker_source=
+    if docker inspect "$probe_app" >/dev/null 2>&1; then
+      marker_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$probe_app" 2>/dev/null || true)
+    fi
+    if [[ -n $marker_source && -f $marker_source/.sub2api-active-instance && ! -L $marker_source/.sub2api-active-instance ]]; then
+      cp -- "$marker_source/.sub2api-active-instance" "$state_dir/candidate-activation-marker"
       chmod 400 "$state_dir/candidate-activation-marker" || true
+    fi
+    if [[ -n $marker_source ]]; then
+      marker_exists=false
+      [[ -f $marker_source/.sub2api-active-instance && ! -L $marker_source/.sub2api-active-instance ]] && marker_exists=true
+      printf 'source_kind=%s marker_exists=%s\n' \
+        "$(case "$marker_source" in "$probe_dir") printf expected;; /opt/sub2api-deploy/release-gates/*) printf release_gate;; *) printf other;; esac)" \
+        "$marker_exists" > "$state_dir/candidate-marker-location"
+      chmod 400 "$state_dir/candidate-marker-location" || true
     fi
   fi
   printf '%s\n' "$category" > "$state_dir/failure-category"
