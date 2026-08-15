@@ -142,6 +142,15 @@
 - 预防测试：静态检查失败 trap 对候选迁移日志执行权限收紧而非删除；日志查询只允许返回脱敏迁移编号和固定错误类别。
 - 状态：代码已修复，等待新 full-SHA VM Gate 验证。
 
+## Windows Shell 提示文本污染版本化源码
+
+- 现象：migration 235 在 PostgreSQL 中报告 `syntax error`，错误 token 来自应用或 shell 文本，而不是迁移 SQL 关键字。
+- 根因：早期在 PowerShell/Starship 环境中捕获命令输出并写文件时，把终端初始化错误一并写入了两个 SQL migration 和一个 Vue 文件的开头。
+- 证据：release `237-f225e290e54b-1786823832-3da9d197` 明确命中 migration 235；版本化文件首字节为固定 Starship `[ERROR]` 文本，仓库扫描共发现 3 个污染文件。
+- 修复：删除三个文件的固定污染前缀；不改 migration 235/236 的 SQL 语义。生成或编辑文件继续只用 `apply_patch` 或版本化脚本，禁止把带 shell 初始化输出的 stdout 直接重定向到源码。
+- 预防测试：release core 扫描 `backend/migrations` 与 `frontend/src` 的版本化源码，发现固定 Starship 噪声立即失败；VM Gate 必须重新执行 migration 235/236。
+- 状态：代码已修复，等待新 full-SHA VM Gate 验证。
+
 ## 新严格合同误要求旧生产实例预先满足
 
 - 现象：新 Candidate 已通过 VM Gate，但生产在停机前的 preflight 退出；旧应用、Nginx、备份、空间和 migration 均正常。
