@@ -292,8 +292,8 @@ on_failure() {
       cp -- "$activation_headers" "$state_dir/candidate-background-headers"
       chmod 400 "$state_dir/candidate-background-headers" || true
       if grep -Eiq '^x-sub2api-background-failure:[[:space:]]*[a-z0-9_]+[[:space:]]*$' "$activation_headers"; then
-        sed -nE 's/^x-sub2api-background-failure:[[:space:]]*([a-z0-9_]+)[[:space:]]*$/\1/ip' "$activation_headers" | head -n1 > "$state_dir/candidate-background-failure"
-        chmod 400 "$state_dir/candidate-background-failure" || true
+        sed -nE 's/^x-sub2api-background-failure:[[:space:]]*([a-z0-9_]+)[[:space:]]*$/\1/ip' "$activation_headers" | head -n1 > "$state_dir/candidate-background-header-failure"
+        chmod 400 "$state_dir/candidate-background-header-failure" || true
       fi
     fi
     if [[ -f ${probe_dir:-}/.sub2api-active-instance && ! -L ${probe_dir:-}/.sub2api-active-instance ]]; then
