@@ -642,7 +642,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("migration_212_status:$migration_212_status", validator)
         self.assertIn('evidence.get("migration_211_status") not in {"absent", "verified"}', gate)
 
-    def test_vm_old_image_compatibility_failures_are_classified_without_logs(self) -> None:
+    def test_vm_old_image_compatibility_and_candidate_failures_retain_diagnostics(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn("if [[ $current_stage == old_image_compatibility_* ]]", validator)
         for stage in ("start", "health", "image", "network", "auth"):
@@ -661,6 +661,11 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('old_probe_port=$(docker port "$old_probe_app"', validator)
         self.assertNotIn('wget -S -O /dev/null --timeout=10', validator)
         self.assertNotIn("old-probe-app.log", validator)
+        self.assertIn("candidate_health || $(<\"$state_dir/stage\") == candidate_background_activation", validator)
+        self.assertIn('category=$current_stage', validator)
+        self.assertIn('candidate-background-headers', validator)
+        self.assertIn('candidate-activation-marker', validator)
+        self.assertIn('chmod 400 "$state_dir/validator.stderr"', validator)
 
     def test_profile_209_migration_defines_permanent_user_usage_aggregation_contract(self) -> None:
         migration = (WORKSPACE / "backend" / "migrations" / "209_user_usage_aggregation.sql").read_text(encoding="utf-8")
