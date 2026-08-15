@@ -134,9 +134,13 @@ assert_http_header_equals() {
   [[ $expected =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
   local actual
   actual=$(tr -d '\r' < "$headers" | awk -F: -v name="$name" '
-    BEGIN { IGNORECASE = 1 }
     tolower($1) == tolower(name) {
+      # Header names are case-insensitive and proxies may leave optional
+      # whitespace around the field value.  Normalize both sides before the
+      # single-value assertion so curl/HTTP/1.1 formatting cannot make a
+      # valid health response fail closed.
       sub(/^[^:]*:[[:space:]]*/, "")
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "")
       print
     }
   ')
