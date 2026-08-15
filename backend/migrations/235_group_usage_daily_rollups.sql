@@ -1,5 +1,3 @@
-[ERROR] - (starship::print): Under a 'dumb' terminal (TERM=dumb).
-
 -- /admin/groups 分组用量日汇总。
 -- 迁移创建结构与源表失效触发器，历史数据由后台聚合作业按持久水位回填。
 
