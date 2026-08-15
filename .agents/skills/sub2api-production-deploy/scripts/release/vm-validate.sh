@@ -227,6 +227,9 @@ on_failure() {
   if [[ $current_stage == old_image_compatibility_* ]]; then
     category=$current_stage
   fi
+  if [[ $current_stage == candidate_health || $current_stage == candidate_background_activation ]]; then
+    category=$current_stage
+  fi
   if [[ $current_stage == old_image_compatibility_auth && -f $state_dir/old-image-auth-status ]]; then
     old_image_auth_status=$(<"$state_dir/old-image-auth-status")
     [[ $old_image_auth_status =~ ^[0-9]{3}$ ]] && category="old_image_compatibility_auth_http_$old_image_auth_status"
@@ -270,7 +273,7 @@ on_failure() {
     fi
     rm -f "$state_dir/migrate-candidate.log"
   fi
-  if [[ -f $state_dir/stage && $(<"$state_dir/stage") == candidate_health ]] && docker inspect "$probe_app" >/dev/null 2>&1; then
+  if [[ -f $state_dir/stage && ( $(<"$state_dir/stage") == candidate_health || $(<"$state_dir/stage") == candidate_background_activation ) ]] && docker inspect "$probe_app" >/dev/null 2>&1; then
     probe_log="$state_dir/probe-app.log"
     docker logs --tail 300 "$probe_app" > "$probe_log" 2>&1 || true
     grep -qi 'permission denied' "$probe_log" && category=permission
@@ -279,10 +282,22 @@ on_failure() {
     grep -qi 'database\|postgres' "$probe_log" && category=database
     grep -qi 'address already in use' "$probe_log" && category=port_conflict
     grep -qi 'panic\|fatal' "$probe_log" && category=fatal
-    rm -f "$probe_log"
+    chmod 400 "$probe_log" || true
+  fi
+  if [[ -f $state_dir/stage && $(<"$state_dir/stage") == candidate_background_activation ]]; then
+    if [[ -f ${activation_headers:-} && ! -L ${activation_headers:-} ]]; then
+      cp -- "$activation_headers" "$state_dir/candidate-background-headers"
+      chmod 400 "$state_dir/candidate-background-headers" || true
+    fi
+    if [[ -f ${probe_dir:-}/.sub2api-active-instance && ! -L ${probe_dir:-}/.sub2api-active-instance ]]; then
+      cp -- "$probe_dir/.sub2api-active-instance" "$state_dir/candidate-activation-marker"
+      chmod 400 "$state_dir/candidate-activation-marker" || true
+    fi
   fi
   printf '%s\n' "$category" > "$state_dir/failure-category"
-  rm -f "$state_dir/validator.stderr"
+  if [[ -f $state_dir/validator.stderr && ! -L $state_dir/validator.stderr ]]; then
+    chmod 400 "$state_dir/validator.stderr" || true
+  fi
   cleanup_probe
   rm -f "$state_dir/candidate.tar.gz"
   cleanup_candidate_tag
