@@ -1490,6 +1490,13 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         self.assertIn('"migration_234_schema_state", "migration_234_schema_verified", "migration_234_preflight"', production)
 
+    def test_backup_unit_restore_captures_stderr_without_widening_allowlist(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        self.assertIn("def restore_backup_units", production)
+        self.assertIn("restore-backup-units.stderr", production)
+        self.assertIn('2>>\"$err_file\"', production)
+        self.assertIn('printf \'backup_units_restored=true\\\\n\'', production)
+
     def test_candidate_uses_network_aware_container_and_publish_ports(self) -> None:
         contract = self.script("compose-contract.sh")
         switch = self.script("switch.sh")
