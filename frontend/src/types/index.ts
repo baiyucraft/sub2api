@@ -1192,6 +1192,9 @@ export interface Account {
     consecutive_failures: number
     recovery_samples?: number
     recovery_samples_required?: number
+    last_failure_source?: string
+    last_failure_class?: string
+    suspension_source?: string
     updated_at: string
     history?: UpstreamHealthObservation[]
   }

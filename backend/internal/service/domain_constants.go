@@ -506,6 +506,8 @@ const (
 	SettingKeyUpstreamProbeModels = "upstream_probe_models"
 	// SettingKeyUpstreamProbeIntervalSeconds controls active key health probe freshness.
 	SettingKeyUpstreamProbeIntervalSeconds = "upstream_probe_interval_seconds"
+	// SettingKeyUpstreamProbeGuardSettings stores the global health-probe scheduling guard.
+	SettingKeyUpstreamProbeGuardSettings = "upstream_probe_guard_settings"
 
 	// =========================
 	// Claude Code Version Check

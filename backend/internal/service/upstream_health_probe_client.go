@@ -236,9 +236,13 @@ func (s *AccountTestService) executeUpstreamHealthProbe(req *http.Request, accou
 	status := resp.StatusCode
 	result.HTTPStatus = &status
 	if status < http.StatusOK || status >= http.StatusMultipleChoices {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, upstreamHealthProbeBodyLimit))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, upstreamHealthProbeBodyLimit))
 		setUpstreamHealthProbeDuration(&result, started)
-		return failUpstreamHealthProbe(result, fmt.Sprintf("%d", status), classifyUpstreamHealthProbeHTTPReason(status), fmt.Errorf("upstream returned HTTP %d", status))
+		reason := classifyUpstreamHealthProbeHTTPReason(status)
+		if status == http.StatusForbidden && looksLikeGatewayIntercepted(body, resp.Header.Get("Content-Type")) {
+			reason = "gateway_intercepted"
+		}
+		return failUpstreamHealthProbe(result, fmt.Sprintf("%d", status), reason, fmt.Errorf("upstream returned HTTP %d", status))
 	}
 	text, err := parse(resp.Body, started, &result)
 	setUpstreamHealthProbeDuration(&result, started)
@@ -258,6 +262,23 @@ func (s *AccountTestService) executeUpstreamHealthProbe(req *http.Request, accou
 	result.Reason = "probe_succeeded"
 	setUpstreamHealthProbeOutputTPS(&result)
 	return result, nil
+}
+
+func looksLikeGatewayIntercepted(body []byte, contentType string) bool {
+	if len(body) == 0 {
+		return false
+	}
+	text := strings.ToLower(string(body))
+	contentType = strings.ToLower(contentType)
+	if !strings.Contains(contentType, "text/html") && !strings.Contains(text, "<html") && !strings.Contains(text, "<!doctype html") {
+		return false
+	}
+	for _, marker := range []string{"cloudflare", "access denied", "request blocked", "web application firewall", "waf", "nginx"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return strings.Contains(contentType, "text/html")
 }
 
 func classifyUpstreamHealthProbeHTTPReason(status int) string {

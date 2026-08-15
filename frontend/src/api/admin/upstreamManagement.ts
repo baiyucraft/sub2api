@@ -7,10 +7,19 @@ export interface TTFTGuardSettings {
   min_samples: number
 }
 
+export interface ProbeGuardSettings {
+  enabled: boolean
+  suspend_after_failures: number
+  recovery_successes: number
+  custom_error_codes_enabled: boolean
+  custom_error_codes: number[]
+}
+
 export interface ProbeModels { models: Record<string, string> }
 
 export interface UpstreamManagementSettings {
   ttft_guard: TTFTGuardSettings
+  probe_guard: ProbeGuardSettings
   probe_models: Record<'openai' | 'anthropic' | 'gemini', string>
   probe_interval_seconds: number
 }
@@ -31,6 +40,9 @@ export interface UpstreamHealthSnapshot {
   consecutive_failures: number
   recovery_samples?: number
   recovery_samples_required?: number
+  last_failure_source?: string
+  last_failure_class?: string
+  suspension_source?: string
   updated_at: string
   history?: UpstreamHealthObservation[]
 }
