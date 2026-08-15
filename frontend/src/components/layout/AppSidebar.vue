@@ -472,6 +472,36 @@ const ServerIcon = {
     )
 }
 
+const UpstreamConfigIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M4.5 4.5h15a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 9V6a1.5 1.5 0 011.5-1.5zM4.5 13.5h15A1.5 1.5 0 0121 15v3a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18v-3a1.5 1.5 0 011.5-1.5zM7.5 7.5h.008v.008H7.5V7.5zM7.5 16.5h.008v.008H7.5V16.5zM12 7.5h6M12 16.5h6'
+        })
+      ]
+    )
+}
+
+const UpstreamManagementIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M12 9.75a2.25 2.25 0 110 4.5 2.25 2.25 0 010-4.5zM5.25 3.75a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM18.75 3.75a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM5.25 17.25a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM18.75 17.25a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM10.41 10.41L6.31 6.31M13.59 10.41l4.1-4.1M10.41 13.59l-4.1 4.1M13.59 13.59l4.1 4.1'
+        })
+      ]
+    )
+}
+
 const BellIcon = {
   render: () =>
     h(
@@ -769,16 +799,8 @@ const adminNavItems = computed((): NavItem[] => {
     },
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
-    {
-      path: '/admin/upstream-configs',
-      label: t('nav.upstreamConfigs'),
-      icon: ServerIcon,
-      expandOnly: true,
-      children: [
-        { path: '/admin/upstream-configs', label: t('nav.upstreamConfigs'), icon: ServerIcon },
-        { path: '/admin/upstream-management', label: t('nav.upstreamManagement'), icon: GlobeIcon }
-      ]
-    },
+    { path: '/admin/upstream-configs', label: t('nav.upstreamConfigs'), icon: UpstreamConfigIcon },
+    { path: '/admin/upstream-management', label: t('nav.upstreamManagement'), icon: UpstreamManagementIcon },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
     {
