@@ -648,8 +648,12 @@ class ReleaseCoreTest(unittest.TestCase):
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn("0.1.177-baiyu", validator)
         self.assertIn("235_group_usage_daily_rollups.sql|236_group_usage_rollup_timezone.sql", validator)
-        self.assertTrue((DEPLOY_ROOT / "maintenance" / "release" / "migration-235-assert.sh").is_file())
-        self.assertTrue((DEPLOY_ROOT / "maintenance" / "release" / "migration-236-assert.sh").is_file())
+        migration_235 = (DEPLOY_ROOT / "maintenance" / "release" / "migration-235-assert.sh").read_text(encoding="utf-8")
+        migration_236 = (DEPLOY_ROOT / "maintenance" / "release" / "migration-236-assert.sh").read_text(encoding="utf-8")
+        self.assertIn("migration_status == absent", migration_235)
+        self.assertIn("state == 0", migration_235)
+        self.assertIn("migration_status == absent", migration_236)
+        self.assertIn("state == 0", migration_236)
 
     def test_profile_212_release_chain_requires_profit_control_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
