@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "catalog_version": "2026-08-16",
+  "version_contract": {
+    "upstream_path": "backend/cmd/server/VERSION",
+    "fork_suffix": "-baiyu",
+    "format": "official VERSION + -baiyu"
+  },
+  "profile_source": ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py",
+  "historical_profiles": {
+    "233": {"version": "0.1.173-baiyu", "migration_count": 50, "migration_map_sha256": "19a9303dbbb69dab8be3c2de420b0bba0d84c35b85c92475e4edbdeb7c5716d6", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"},
+    "234": {"version": "0.1.175-baiyu", "migration_count": 50, "migration_map_sha256": "19a9303dbbb69dab8be3c2de420b0bba0d84c35b85c92475e4edbdeb7c5716d6", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"},
+    "235": {"version": "0.1.176-baiyu", "migration_count": 51, "migration_map_sha256": "cd5991579202a830ea95db3913e896da83bd678911e80b6fd1e1adb5e21b0b83", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"},
+    "236": {"version": "0.176-baiyu", "migration_count": 51, "migration_map_sha256": "cd5991579202a830ea95db3913e896da83bd678911e80b6fd1e1adb5e21b0b83", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"},
+    "237": {"version": "0.1.177-baiyu", "migration_count": 53, "migration_map_sha256": "b9e167304aa2ac092fff10b4db56495dc2c1e92826f2201cce4520fd2fd877e4", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"}
+  },
+  "migration_contracts": {
+    "159_upstream_configs.sql": "9df20ba0512a2f8b10fcea84d3483c04075edef2d8457be8751f6c124f9e3466",
+    "173_upstream_operations.sql": "047365e6a5f9bf92e7c64f5d354a5500ccaa67115cac817873abd69b157da065",
+    "174_upstream_operations_indexes_notx.sql": "a77368341122ff2cff9390a6a9b9bc3f8301fe86a77a3773ffa715fe328cd80a",
+    "175_enforce_upstream_account_binding.sql": "233460e1576a76094502b443f7464ed7c451c5753adfdf2c7fc3433d4a75726c",
+    "176_batch_image_upstream_attribution_snapshot.sql": "13788fa31bfcd8548b3341f4f7f7995115f92d771ead2d384c9d4615c6e4ea97",
+    "177_upstream_config_site_and_api_urls.sql": "4bc142ff8b1d7e32d0aa78bbafa427869d46413aec4aa86e8247f4e43eb018b1",
+    "178_upstream_key_missing_state.sql": "6409108ec9e24999759b2828f030b105f6ff333b6c636185c404ad8e69a39626",
+    "179_upstream_key_rate_snapshots.sql": "c60841c046dd371d414a0100077f85013fc1112314ed15c3ce32c2c58efce104",
+    "181_upstream_key_platform_detection.sql": "370fd01336da3d1807e8d8efd14aee7a328de7b827c6b4c9a4903036f982c134",
+    "182_upstream_actual_rate_multiplier.sql": "8c1e3a6c86dfec37577f42fdcd1cea10cb3dff0a203a33a19b0b3748352cbcba",
+    "187_upstream_actual_balance_and_cost_groups.sql": "b19bd2f2c6b2ccffc38ec9fc75d67c40c94285716cb3d04ffad5e8224a2b0e99",
+    "195_upstream_scheduling_monitor_rates.sql": "7789c9fc6138345fb080748f9ebff060bf5a6caad6ce0a25fae5db7e070aae75",
+    "198_normalize_managed_monitor_key_names.sql": "10d4210c459f025c051c0c463a219b63a2a130f5e68acfe4118ecd32dec0b364",
+    "180_add_usage_logs_api_key_latest_ip_index_notx.sql": "83cc57ae6f3a036ad4fb3959c04bec0f153adff7574b2f351517d31b06f6da96",
+    "209_user_usage_aggregation.sql": "744457b3a42d83f21ead86cb1063fd7de749a60cc0bcd12f3bc48b650982867a",
+    "233_upstream_management.sql": "d08196ded14ee2182ae126522ff659def712c8018d6f132827d86bf5b34130c6",
+    "234_group_model_pricing.sql": "3e2895b7263d80c7d8bd93741d63d80f9300f5e0a723fcbe4f73611411fc3df5",
+    "235_group_usage_daily_rollups.sql": "d22c1e2fac2e8d2087d029eabbef1b5c581d981113e9e5c3b6cf352d1184022b",
+    "236_group_usage_rollup_timezone.sql": "dfea690bc6a821c8fb72ae8d5d0f5112ee03e0b478a21715199c72d9438e7c99"
+  },
+  "migration_renames": {"official_221": "234_group_model_pricing.sql", "official_222": "235_group_usage_daily_rollups.sql", "official_223": "236_group_usage_rollup_timezone.sql"},
+  "migration_assertions": {
+    "backend/migrations/233_upstream_management.sql": [
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_upstream_key_id_active",
+      "CREATE TABLE IF NOT EXISTS upstream_health_observations",
+      "ON upstream_health_observations(upstream_key_id, observed_at)",
+      "INTERVAL '35 days'",
+      "CREATE OR REPLACE FUNCTION validate_account_upstream_key_binding()"
+    ]
+  },
+  "high_risk_paths": [
+    "backend/internal/service/openai_gateway_*.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/service/gateway_scheduling.go", "backend/internal/service/concurrency_service.go", "backend/internal/repository/concurrency_cache.go", "backend/internal/repository/account_repo.go", "backend/internal/handler/admin/account_handler.go", "backend/internal/server/routes/admin.go", "backend/cmd/server/wire.go", "backend/cmd/server/wire_gen.go", "backend/ent/schema/*.go", "backend/migrations/*.sql", "frontend/src/views/admin/AccountsView.vue", "frontend/src/components/account/AccountStatusIndicator.vue", "frontend/src/components/account/UpstreamHealthCell.vue", "frontend/src/i18n/locales/zh/admin/*.ts", "frontend/src/i18n/locales/en/admin/*.ts"
+  ],
+  "registered_support_paths": [".agents/skills/sub2api-production-deploy/**", ".agents/skills/sub2api-fork-extension-audit/**", "backend/**", "frontend/**", "deploy/**", "Dockerfile", "DEV_GUIDE.md", "README*.md", "docs/**", "openspec/**", ".gitignore", ".dockerignore"],
+  "extensions": [
+    {
+      "id": "upstream-config-management", "title": "上游配置、Key 与两个一级入口", "description": "独立管理 upstream configs/keys、派生账号、provider 同步、账号编辑白名单及局部运行态刷新。", "ownership": "fork", "risk_level": "high",
+      "paths": ["backend/internal/service/upstream_*.go", "backend/internal/service/admin_upstream_account.go", "backend/internal/repository/upstream_*.go", "backend/internal/handler/admin/upstream_*.go", "backend/internal/server/routes/admin.go", "frontend/src/views/admin/UpstreamConfigsView.vue", "frontend/src/views/admin/AccountsView.vue", "frontend/src/components/layout/AppSidebar.vue", "frontend/src/router/index.ts"],
+      "symbols": ["IsUpstreamBound", "ListUpstreamManagement", "UpstreamConfigID", "upstream-management"], "api_routes": ["/upstream-management", "/upstream-configs"], "settings_keys": [], "migration_files": ["159_upstream_configs.sql", "233_upstream_management.sql"], "required_tests": ["backend/internal/handler/admin/account_handler_list_test.go", "frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts"], "invariants": ["派生身份和凭据字段只读", "一个有效 Key 最多绑定一个未删除派生账号", "两个入口保持独立"]
+    },
+    {
+      "id": "newapi-compatibility", "title": "NewAPI 新旧登录会话适配", "description": "兼容平铺 data.id + Cookie 与嵌套 data.user.id + access_token，并在当前同步会话注入 Bearer 和 New-Api-User。", "ownership": "fork", "risk_level": "high",
+      "paths": ["backend/internal/service/newapi_upstream_adapter.go", "backend/internal/service/*newapi*.go"], "symbols": ["newAPILoginData", "access_token", "New-Api-User", "newapi login returned no user id"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/service/*newapi*_test.go"], "invariants": ["Token 不写回数据库", "Cookie、access_token、user_login 语义互不改变", "Cookie 或 Token 至少存在一个"]
+    },
+    {
+      "id": "upstream-edit-policy", "title": "上游派生账号编辑白名单", "description": "上游派生账号的身份、Key、URL、代理、倍率和 Priority 受保护，只允许局部运行行为字段。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/upstream_account_edit_policy.go", "backend/internal/service/admin_upstream_account.go", "backend/internal/handler/admin/account_handler.go", "frontend/src/components/account/upstreamAccountEditPolicy.ts", "frontend/src/components/account/EditAccountModal.vue"], "symbols": ["validateUpstreamAccountEditableUpdate", "upstreamAccountEditableCredentialKeys"], "api_routes": ["/accounts"], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/service/upstream_account_edit_policy.go", "frontend/src/components/account/__tests__/EditAccountModal.spec.ts"], "invariants": ["普通账号编辑不受影响", "批量编辑不能扩大上游白名单"]
+    },
+    {
+      "id": "shared-concurrency-loadfactor", "title": "共享并发与 LoadFactor 原始语义", "description": "同一 upstream_config_id 共享 Redis 槽位、lease、等待队列和负载率；普通账号保留 Concurrency/LoadFactor 原始语义。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/*concurrency*.go", "backend/internal/service/*scheduler*.go", "backend/internal/repository/concurrency_cache.go", "backend/internal/repository/account_repo.go", "backend/internal/handler/gateway_helper.go", "backend/migrations/233_upstream_management.sql"], "symbols": ["upstream_config_id", "EffectiveLoadFactor", "UpstreamConcurrency", "WaitQueue", "active slot"], "api_routes": [], "settings_keys": [], "migration_files": ["233_upstream_management.sql"], "required_tests": ["backend/internal/service/account_load_factor_test.go", "backend/internal/service/upstream_scheduler_concurrency_test.go", "backend/internal/repository/account_repo_schedulable_projection_test.go"], "invariants": ["上游 Key 不读取派生账号 Concurrency/LoadFactor", "普通账号 LoadFactor 无效时回退 Concurrency", "不同 upstream_config_id 相互隔离"]
+    },
+    {
+      "id": "ttft-guard", "title": "OpenAI TTFT Guard", "description": "按 account_id + canonical model 保护真实业务流量；主动探针 TTFT 不进入 Guard，模型临时排除统一显示在状态列。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/openai_ttft_guard*.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/admin/setting_handler_openai_ttft_guard.go", "frontend/src/components/account/TTFTGuardStatusBadge.vue", "frontend/src/components/account/AccountStatusIndicator.vue"], "symbols": ["OpenAITTFTGuard", "reportOpenAITTFTGuard", "ttft_guard_degradations"], "api_routes": ["/settings/openai-ttft-guard"], "settings_keys": ["openai_ttft_guard_settings"], "migration_files": [], "required_tests": ["backend/internal/service/openai_ttft_guard_test.go", "frontend/src/components/account/__tests__/AccountStatusIndicator.spec.ts"], "invariants": ["只采样真实业务可见首 Token", "探针 TTFT 不调用 Guard 采样", "多模型状态独立"]
+    },
+    {
+      "id": "upstream-health-probes", "title": "三平台上游健康探针与趋势", "description": "OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流式探针，保存健康证据、趋势和最近状态点。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/upstream_health*.go", "backend/internal/repository/upstream_health*.go", "backend/internal/handler/admin/upstream_management_handler.go", "frontend/src/components/account/UpstreamHealth*.vue", "frontend/src/components/admin/account/UpstreamHealth*.vue", "frontend/src/components/charts/TrendChart.vue"], "symbols": ["response.output_text.delta", "content_block_delta", "streamGenerateContent", "upstream_health_observations", "HealthTrend"], "api_routes": ["/health-trend", "/upstream-management/keys"], "settings_keys": ["upstream_probe_models", "upstream_probe_interval_seconds"], "migration_files": ["233_upstream_management.sql"], "required_tests": ["backend/internal/service/upstream_health_probe_client_test.go", "frontend/src/components/admin/account/__tests__/UpstreamHealthTrendChart.spec.ts"], "invariants": ["首 Token 只认首个非空文本", "列表最多 24 点", "历史保留 35 天", "探针暂停后仍继续探测"]
+    },
+    {
+      "id": "probe-guard", "title": "全局 Probe Guard 与临时不可调度联动", "description": "全局错误码追加、失败/恢复阈值、默认错误分类及 probe-owned 临时不可调度联动。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/upstream_probe_guard*.go", "backend/internal/service/upstream_health.go", "backend/internal/handler/admin/upstream_management_handler.go", "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue", "frontend/src/components/account/CustomErrorCodeSelector.vue"], "symbols": ["UpstreamProbeGuardSettings", "custom_error_codes", "suspend_after_failures", "recovery_successes"], "api_routes": ["/upstream-management/settings"], "settings_keys": ["upstream_probe_guard_settings"], "migration_files": [], "required_tests": ["backend/internal/service/upstream_probe_guard_settings_test.go", "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts"], "invariants": ["自定义错误码追加而非替换默认规则", "429/529 默认降级", "业务来源状态不受全局探针开关覆盖"]
+    },
+    {
+      "id": "upstream-cost-attribution", "title": "上游成本、倍率、余额与用量归因", "description": "保存原始/实际倍率、Priority、余额、价格、usage 和 batch-image 的上游快照归因。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/*rate*.go", "backend/internal/service/*balance*.go", "backend/internal/service/upstream_operations*.go", "backend/internal/repository/upstream_*rate*.go", "backend/internal/repository/upstream_*usage*.go", "backend/migrations/187_upstream_actual_balance_and_cost_groups.sql", "backend/migrations/195_upstream_scheduling_monitor_rates.sql"], "symbols": ["RateMultiplier", "Priority", "actual_rate_multiplier", "upstream_config_id"], "api_routes": ["/upstream-management"], "settings_keys": [], "migration_files": ["187_upstream_actual_balance_and_cost_groups.sql", "195_upstream_scheduling_monitor_rates.sql"], "required_tests": ["backend/internal/repository/account_repo_upstream_billing_probe_update_test.go"], "invariants": ["原始倍率不出现在产品 API", "usage 归因不随后续解绑改变", "同步失败保留上一份有效快照"]
+    },
+    {
+      "id": "channel-monitor-v2", "title": "Channel Monitor V2", "description": "managed API Key、倍率趋势、分组可见性、权限、隐私默认值和错误分类。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/channel_monitor*.go", "backend/internal/repository/channel_monitor*.go", "backend/migrations/216_channel_monitor_v2.sql", "backend/migrations/217_channel_monitor_mode.sql", "frontend/src/views/admin/ChannelMonitorView.vue", "frontend/src/views/user/ChannelStatusView.spec.ts"], "symbols": ["ManagedMonitor", "channel_monitor", "rate trend"], "api_routes": ["/channel-monitor"], "settings_keys": [], "migration_files": ["216_channel_monitor_v2.sql", "217_channel_monitor_mode.sql", "218_channel_monitor_v2_ignored_error_categories.sql", "228_channel_monitor_v2_privacy_defaults.sql"], "required_tests": ["backend/internal/service/channel_monitor_v2_test.go", "frontend/src/views/admin/__tests__/ChannelMonitorView.duplicate.spec.ts"], "invariants": ["managed Key 生命周期与监控事务一致", "隐私默认值不可因合并丢失"]
+    },
+    {
+      "id": "quality-and-usage-aggregation", "title": "质量遥测与用户累计用量", "description": "账号/分组质量只读展示，用户 hourly/daily 聚合、coverage/backfill 和 raw usage 清理边界。", "ownership": "fork", "risk_level": "medium", "paths": ["backend/internal/service/account_quality.go", "backend/internal/repository/usage_log_repo_stats.go", "backend/internal/handler/admin/dashboard_handler.go", "backend/internal/handler/admin/group_handler.go", "backend/migrations/209_user_usage_aggregation.sql", "backend/migrations/235_group_usage_daily_rollups.sql", "backend/migrations/236_group_usage_rollup_timezone.sql", "frontend/src/components/account/AccountQualityCell.vue", "frontend/src/components/user/UserUsageStatsMatrix.vue"], "symbols": ["AccountQuality", "coverage", "backfill", "group_usage_daily"], "api_routes": ["/dashboard", "/usage"], "settings_keys": [], "migration_files": ["209_user_usage_aggregation.sql", "235_group_usage_daily_rollups.sql", "236_group_usage_rollup_timezone.sql"], "required_tests": ["frontend/src/components/account/__tests__/AccountQualityCell.spec.ts", "frontend/src/components/user/__tests__/UserUsageStatsMatrix.spec.ts"], "invariants": ["质量分数不参与调度", "coverage 未完整前不清理 raw usage", "日聚合时区正确"]
+    },
+    {
+      "id": "migration-profile-contract", "title": "Migration、profile、版本与历史证据", "description": "维护 fork migration、官方重编号、profile 233–237、版本命名、checksum 和 compatibility identity。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/migrations/**", ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py", ".agents/skills/sub2api-production-deploy/scripts/release/manifest.py", "backend/cmd/server/VERSION"], "symbols": ["PROFILES", "migration_sha256", "compatibility_commit", "0.1.177-baiyu"], "api_routes": [], "settings_keys": [], "migration_files": ["233_upstream_management.sql", "234_group_model_pricing.sql", "235_group_usage_daily_rollups.sql", "236_group_usage_rollup_timezone.sql"], "required_tests": ["backend/migrations/profile_233_migrations_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py"], "invariants": ["历史 profile 233–237 不回写", "官方 221/222/223 本地重编号内容不变", "fork VERSION 始终是官方 VERSION + -baiyu"]
+    },
+    {
+      "id": "release-operations-isolation", "title": "发布 skill 隔离、日志、清理与 8211 收口", "description": "fork 专用发布资产隔离在 production-deploy skill，完整日志、Windows Git Bash、VM/备份容量清理和 8211 单实例收口。", "ownership": "fork-operations", "risk_level": "critical", "paths": [".agents/skills/sub2api-production-deploy/**", "deploy/maintenance/181/**"], "symbols": ["skill-v1", "plan_sha256", "sub2api-dev", "8211", "backup-retention-clean.sh", "run-bash.ps1"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_backup_retention_clean.py", ".agents/skills/sub2api-production-deploy/scripts/tests/windows/test_run_bash.py"], "invariants": ["生产成功 verify-result 和 post-deploy doctor 后才关闭 8211", "清理先 dry-run 再绑定 plan_sha256 apply", "原始日志留在节点 root-only 目录"]
+    },
+    {
+      "id": "prompt-security-audit", "title": "Prompt 输入与安全审计扩展", "description": "仓库内的 prompt audit 实现与安全审计治理资产属于 fork 额外扩展。", "ownership": "fork", "risk_level": "medium", "paths": ["backend/internal/securityaudit/**"], "symbols": ["prompt_audit_", "package securityaudit"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/securityaudit/prompt_config_test.go"], "invariants": ["审计实现与测试一起维护", "不把 prompt 原文写入发布日志"]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sub2API Fork 扩展审计"
+  short_description: "合并官方上游前后审计并保护 Sub2API fork 扩展"
+  default_prompt: "Use $sub2api-fork-extension-audit to audit this upstream merge against the fork extension contracts."
