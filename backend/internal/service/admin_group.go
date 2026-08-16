@@ -264,6 +264,30 @@ func defaultAllowImageGenerationForPlatform(platform string) bool {
 	return platform == PlatformGrok
 }
 
+func normalizeImageCostRouting(enabled bool, mode string, tolerance *float64, staleAfter *int) (bool, string, float64, int, error) {
+	if mode == "" {
+		mode = "prefer_lowest"
+	}
+	if mode != "prefer_lowest" && mode != "strict_lowest" {
+		return false, "", 0, 0, errors.New("image_cost_routing_mode must be prefer_lowest or strict_lowest")
+	}
+	tol := 5.0
+	if tolerance != nil {
+		tol = *tolerance
+	}
+	if tol < 0 || tol > 100 {
+		return false, "", 0, 0, errors.New("image_cost_tolerance_percent must be between 0 and 100")
+	}
+	stale := 86400
+	if staleAfter != nil {
+		stale = *staleAfter
+	}
+	if stale < 300 || stale > 604800 {
+		return false, "", 0, 0, errors.New("image_cost_stale_after_seconds must be between 300 and 604800")
+	}
+	return enabled, mode, tol, stale, nil
+}
+
 func compositeDefaultModelsListCandidateIDs() []string {
 	seen := make(map[string]struct{})
 	ids := make([]string, 0)
@@ -301,6 +325,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	platform := NormalizeGroupPlatform(input.Platform)
+	routingEnabled, routingMode, routingTolerance, routingStaleAfter, err := normalizeImageCostRouting(input.ImageCostRoutingEnabled, input.ImageCostRoutingMode, input.ImageCostTolerancePercent, input.ImageCostStaleAfterSeconds)
+	if err != nil {
+		return nil, err
+	}
 	modelPricing, err := normalizeGroupModelPricing(platform, input.ModelPricing)
 	if err != nil {
 		return nil, err
@@ -483,6 +511,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ImagePrice1K:                    imagePrice1K,
 		ImagePrice2K:                    imagePrice2K,
 		ImagePrice4K:                    imagePrice4K,
+		ImageCostRoutingEnabled:         routingEnabled,
+		ImageCostRoutingMode:            routingMode,
+		ImageCostTolerancePercent:       routingTolerance,
+		ImageCostStaleAfterSeconds:      routingStaleAfter,
 		VideoPrice480P:                  videoPrice480P,
 		VideoPrice720P:                  videoPrice720P,
 		VideoPrice1080P:                 videoPrice1080P,
@@ -674,6 +706,38 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 			return nil, normalizeErr
 		}
 		group.ModelPricing = modelPricing
+	}
+	if input.ImageCostRoutingEnabled != nil || input.ImageCostRoutingMode != nil || input.ImageCostTolerancePercent != nil || input.ImageCostStaleAfterSeconds != nil {
+		enabled := group.ImageCostRoutingEnabled
+		mode := group.ImageCostRoutingMode
+		tol := group.ImageCostTolerancePercent
+		stale := group.ImageCostStaleAfterSeconds
+		if input.ImageCostRoutingEnabled != nil {
+			enabled = *input.ImageCostRoutingEnabled
+		}
+		if input.ImageCostRoutingMode != nil {
+			mode = *input.ImageCostRoutingMode
+		}
+		var tolPtr *float64
+		if input.ImageCostTolerancePercent != nil {
+			tolPtr = input.ImageCostTolerancePercent
+		} else {
+			tolPtr = &tol
+		}
+		var stalePtr *int
+		if input.ImageCostStaleAfterSeconds != nil {
+			stalePtr = input.ImageCostStaleAfterSeconds
+		} else {
+			stalePtr = &stale
+		}
+		var normTol float64
+		var normStale int
+		var err error
+		enabled, mode, normTol, normStale, err = normalizeImageCostRouting(enabled, mode, tolPtr, stalePtr)
+		if err != nil {
+			return nil, err
+		}
+		group.ImageCostRoutingEnabled, group.ImageCostRoutingMode, group.ImageCostTolerancePercent, group.ImageCostStaleAfterSeconds = enabled, mode, normTol, normStale
 	}
 
 	// 订阅相关字段

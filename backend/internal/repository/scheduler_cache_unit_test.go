@@ -345,6 +345,30 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	require.Nil(t, got.Extra["unused_large_field"])
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsUpstreamImagePricing(t *testing.T) {
+	cost := 0.024
+	account := service.Account{
+		ID:       45,
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeAPIKey,
+		UpstreamImagePricing: &service.UpstreamKeyImagePricing{
+			Supported:       true,
+			Status:          service.UpstreamKeyImagePricingStatusAvailable,
+			Currency:        "USD",
+			FinalCost2K:     &cost,
+			RateIndependent: true,
+		},
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.NotNil(t, got.UpstreamImagePricing)
+	require.True(t, got.UpstreamImagePricing.Supported)
+	require.True(t, got.UpstreamImagePricing.RateIndependent)
+	require.NotNil(t, got.UpstreamImagePricing.FinalCost2K)
+	require.Equal(t, cost, *got.UpstreamImagePricing.FinalCost2K)
+}
+
 func TestBuildSchedulerMetadataAccount_KeepsGrokMediaEligibility(t *testing.T) {
 	t.Run("explicit override", func(t *testing.T) {
 		account := service.Account{

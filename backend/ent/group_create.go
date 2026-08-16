@@ -388,6 +388,62 @@ func (_c *GroupCreate) SetNillableImagePrice4k(v *float64) *GroupCreate {
 	return _c
 }
 
+// SetImageCostRoutingEnabled sets the "image_cost_routing_enabled" field.
+func (_c *GroupCreate) SetImageCostRoutingEnabled(v bool) *GroupCreate {
+	_c.mutation.SetImageCostRoutingEnabled(v)
+	return _c
+}
+
+// SetNillableImageCostRoutingEnabled sets the "image_cost_routing_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableImageCostRoutingEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetImageCostRoutingEnabled(*v)
+	}
+	return _c
+}
+
+// SetImageCostRoutingMode sets the "image_cost_routing_mode" field.
+func (_c *GroupCreate) SetImageCostRoutingMode(v string) *GroupCreate {
+	_c.mutation.SetImageCostRoutingMode(v)
+	return _c
+}
+
+// SetNillableImageCostRoutingMode sets the "image_cost_routing_mode" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableImageCostRoutingMode(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetImageCostRoutingMode(*v)
+	}
+	return _c
+}
+
+// SetImageCostTolerancePercent sets the "image_cost_tolerance_percent" field.
+func (_c *GroupCreate) SetImageCostTolerancePercent(v float64) *GroupCreate {
+	_c.mutation.SetImageCostTolerancePercent(v)
+	return _c
+}
+
+// SetNillableImageCostTolerancePercent sets the "image_cost_tolerance_percent" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableImageCostTolerancePercent(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetImageCostTolerancePercent(*v)
+	}
+	return _c
+}
+
+// SetImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field.
+func (_c *GroupCreate) SetImageCostStaleAfterSeconds(v int) *GroupCreate {
+	_c.mutation.SetImageCostStaleAfterSeconds(v)
+	return _c
+}
+
+// SetNillableImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableImageCostStaleAfterSeconds(v *int) *GroupCreate {
+	if v != nil {
+		_c.SetImageCostStaleAfterSeconds(*v)
+	}
+	return _c
+}
+
 // SetBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field.
 func (_c *GroupCreate) SetBatchImageDiscountMultiplier(v float64) *GroupCreate {
 	_c.mutation.SetBatchImageDiscountMultiplier(v)
@@ -1079,6 +1135,22 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultImageRateMultiplier
 		_c.mutation.SetImageRateMultiplier(v)
 	}
+	if _, ok := _c.mutation.ImageCostRoutingEnabled(); !ok {
+		v := group.DefaultImageCostRoutingEnabled
+		_c.mutation.SetImageCostRoutingEnabled(v)
+	}
+	if _, ok := _c.mutation.ImageCostRoutingMode(); !ok {
+		v := group.DefaultImageCostRoutingMode
+		_c.mutation.SetImageCostRoutingMode(v)
+	}
+	if _, ok := _c.mutation.ImageCostTolerancePercent(); !ok {
+		v := group.DefaultImageCostTolerancePercent
+		_c.mutation.SetImageCostTolerancePercent(v)
+	}
+	if _, ok := _c.mutation.ImageCostStaleAfterSeconds(); !ok {
+		v := group.DefaultImageCostStaleAfterSeconds
+		_c.mutation.SetImageCostStaleAfterSeconds(v)
+	}
 	if _, ok := _c.mutation.BatchImageDiscountMultiplier(); !ok {
 		v := group.DefaultBatchImageDiscountMultiplier
 		_c.mutation.SetBatchImageDiscountMultiplier(v)
@@ -1261,6 +1333,23 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.ImageRateMultiplier(); !ok {
 		return &ValidationError{Name: "image_rate_multiplier", err: errors.New(`ent: missing required field "Group.image_rate_multiplier"`)}
+	}
+	if _, ok := _c.mutation.ImageCostRoutingEnabled(); !ok {
+		return &ValidationError{Name: "image_cost_routing_enabled", err: errors.New(`ent: missing required field "Group.image_cost_routing_enabled"`)}
+	}
+	if _, ok := _c.mutation.ImageCostRoutingMode(); !ok {
+		return &ValidationError{Name: "image_cost_routing_mode", err: errors.New(`ent: missing required field "Group.image_cost_routing_mode"`)}
+	}
+	if v, ok := _c.mutation.ImageCostRoutingMode(); ok {
+		if err := group.ImageCostRoutingModeValidator(v); err != nil {
+			return &ValidationError{Name: "image_cost_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.image_cost_routing_mode": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ImageCostTolerancePercent(); !ok {
+		return &ValidationError{Name: "image_cost_tolerance_percent", err: errors.New(`ent: missing required field "Group.image_cost_tolerance_percent"`)}
+	}
+	if _, ok := _c.mutation.ImageCostStaleAfterSeconds(); !ok {
+		return &ValidationError{Name: "image_cost_stale_after_seconds", err: errors.New(`ent: missing required field "Group.image_cost_stale_after_seconds"`)}
 	}
 	if _, ok := _c.mutation.BatchImageDiscountMultiplier(); !ok {
 		return &ValidationError{Name: "batch_image_discount_multiplier", err: errors.New(`ent: missing required field "Group.batch_image_discount_multiplier"`)}
@@ -1491,6 +1580,22 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ImagePrice4k(); ok {
 		_spec.SetField(group.FieldImagePrice4k, field.TypeFloat64, value)
 		_node.ImagePrice4k = &value
+	}
+	if value, ok := _c.mutation.ImageCostRoutingEnabled(); ok {
+		_spec.SetField(group.FieldImageCostRoutingEnabled, field.TypeBool, value)
+		_node.ImageCostRoutingEnabled = value
+	}
+	if value, ok := _c.mutation.ImageCostRoutingMode(); ok {
+		_spec.SetField(group.FieldImageCostRoutingMode, field.TypeString, value)
+		_node.ImageCostRoutingMode = value
+	}
+	if value, ok := _c.mutation.ImageCostTolerancePercent(); ok {
+		_spec.SetField(group.FieldImageCostTolerancePercent, field.TypeFloat64, value)
+		_node.ImageCostTolerancePercent = value
+	}
+	if value, ok := _c.mutation.ImageCostStaleAfterSeconds(); ok {
+		_spec.SetField(group.FieldImageCostStaleAfterSeconds, field.TypeInt, value)
+		_node.ImageCostStaleAfterSeconds = value
 	}
 	if value, ok := _c.mutation.BatchImageDiscountMultiplier(); ok {
 		_spec.SetField(group.FieldBatchImageDiscountMultiplier, field.TypeFloat64, value)
@@ -2217,6 +2322,66 @@ func (u *GroupUpsert) AddImagePrice4k(v float64) *GroupUpsert {
 // ClearImagePrice4k clears the value of the "image_price_4k" field.
 func (u *GroupUpsert) ClearImagePrice4k() *GroupUpsert {
 	u.SetNull(group.FieldImagePrice4k)
+	return u
+}
+
+// SetImageCostRoutingEnabled sets the "image_cost_routing_enabled" field.
+func (u *GroupUpsert) SetImageCostRoutingEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldImageCostRoutingEnabled, v)
+	return u
+}
+
+// UpdateImageCostRoutingEnabled sets the "image_cost_routing_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateImageCostRoutingEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldImageCostRoutingEnabled)
+	return u
+}
+
+// SetImageCostRoutingMode sets the "image_cost_routing_mode" field.
+func (u *GroupUpsert) SetImageCostRoutingMode(v string) *GroupUpsert {
+	u.Set(group.FieldImageCostRoutingMode, v)
+	return u
+}
+
+// UpdateImageCostRoutingMode sets the "image_cost_routing_mode" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateImageCostRoutingMode() *GroupUpsert {
+	u.SetExcluded(group.FieldImageCostRoutingMode)
+	return u
+}
+
+// SetImageCostTolerancePercent sets the "image_cost_tolerance_percent" field.
+func (u *GroupUpsert) SetImageCostTolerancePercent(v float64) *GroupUpsert {
+	u.Set(group.FieldImageCostTolerancePercent, v)
+	return u
+}
+
+// UpdateImageCostTolerancePercent sets the "image_cost_tolerance_percent" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateImageCostTolerancePercent() *GroupUpsert {
+	u.SetExcluded(group.FieldImageCostTolerancePercent)
+	return u
+}
+
+// AddImageCostTolerancePercent adds v to the "image_cost_tolerance_percent" field.
+func (u *GroupUpsert) AddImageCostTolerancePercent(v float64) *GroupUpsert {
+	u.Add(group.FieldImageCostTolerancePercent, v)
+	return u
+}
+
+// SetImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field.
+func (u *GroupUpsert) SetImageCostStaleAfterSeconds(v int) *GroupUpsert {
+	u.Set(group.FieldImageCostStaleAfterSeconds, v)
+	return u
+}
+
+// UpdateImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateImageCostStaleAfterSeconds() *GroupUpsert {
+	u.SetExcluded(group.FieldImageCostStaleAfterSeconds)
+	return u
+}
+
+// AddImageCostStaleAfterSeconds adds v to the "image_cost_stale_after_seconds" field.
+func (u *GroupUpsert) AddImageCostStaleAfterSeconds(v int) *GroupUpsert {
+	u.Add(group.FieldImageCostStaleAfterSeconds, v)
 	return u
 }
 
@@ -3339,6 +3504,76 @@ func (u *GroupUpsertOne) UpdateImagePrice4k() *GroupUpsertOne {
 func (u *GroupUpsertOne) ClearImagePrice4k() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearImagePrice4k()
+	})
+}
+
+// SetImageCostRoutingEnabled sets the "image_cost_routing_enabled" field.
+func (u *GroupUpsertOne) SetImageCostRoutingEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageCostRoutingEnabled(v)
+	})
+}
+
+// UpdateImageCostRoutingEnabled sets the "image_cost_routing_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateImageCostRoutingEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageCostRoutingEnabled()
+	})
+}
+
+// SetImageCostRoutingMode sets the "image_cost_routing_mode" field.
+func (u *GroupUpsertOne) SetImageCostRoutingMode(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageCostRoutingMode(v)
+	})
+}
+
+// UpdateImageCostRoutingMode sets the "image_cost_routing_mode" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateImageCostRoutingMode() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageCostRoutingMode()
+	})
+}
+
+// SetImageCostTolerancePercent sets the "image_cost_tolerance_percent" field.
+func (u *GroupUpsertOne) SetImageCostTolerancePercent(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageCostTolerancePercent(v)
+	})
+}
+
+// AddImageCostTolerancePercent adds v to the "image_cost_tolerance_percent" field.
+func (u *GroupUpsertOne) AddImageCostTolerancePercent(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddImageCostTolerancePercent(v)
+	})
+}
+
+// UpdateImageCostTolerancePercent sets the "image_cost_tolerance_percent" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateImageCostTolerancePercent() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageCostTolerancePercent()
+	})
+}
+
+// SetImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field.
+func (u *GroupUpsertOne) SetImageCostStaleAfterSeconds(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageCostStaleAfterSeconds(v)
+	})
+}
+
+// AddImageCostStaleAfterSeconds adds v to the "image_cost_stale_after_seconds" field.
+func (u *GroupUpsertOne) AddImageCostStaleAfterSeconds(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddImageCostStaleAfterSeconds(v)
+	})
+}
+
+// UpdateImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateImageCostStaleAfterSeconds() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageCostStaleAfterSeconds()
 	})
 }
 
@@ -4729,6 +4964,76 @@ func (u *GroupUpsertBulk) UpdateImagePrice4k() *GroupUpsertBulk {
 func (u *GroupUpsertBulk) ClearImagePrice4k() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearImagePrice4k()
+	})
+}
+
+// SetImageCostRoutingEnabled sets the "image_cost_routing_enabled" field.
+func (u *GroupUpsertBulk) SetImageCostRoutingEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageCostRoutingEnabled(v)
+	})
+}
+
+// UpdateImageCostRoutingEnabled sets the "image_cost_routing_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateImageCostRoutingEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageCostRoutingEnabled()
+	})
+}
+
+// SetImageCostRoutingMode sets the "image_cost_routing_mode" field.
+func (u *GroupUpsertBulk) SetImageCostRoutingMode(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageCostRoutingMode(v)
+	})
+}
+
+// UpdateImageCostRoutingMode sets the "image_cost_routing_mode" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateImageCostRoutingMode() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageCostRoutingMode()
+	})
+}
+
+// SetImageCostTolerancePercent sets the "image_cost_tolerance_percent" field.
+func (u *GroupUpsertBulk) SetImageCostTolerancePercent(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageCostTolerancePercent(v)
+	})
+}
+
+// AddImageCostTolerancePercent adds v to the "image_cost_tolerance_percent" field.
+func (u *GroupUpsertBulk) AddImageCostTolerancePercent(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddImageCostTolerancePercent(v)
+	})
+}
+
+// UpdateImageCostTolerancePercent sets the "image_cost_tolerance_percent" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateImageCostTolerancePercent() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageCostTolerancePercent()
+	})
+}
+
+// SetImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field.
+func (u *GroupUpsertBulk) SetImageCostStaleAfterSeconds(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageCostStaleAfterSeconds(v)
+	})
+}
+
+// AddImageCostStaleAfterSeconds adds v to the "image_cost_stale_after_seconds" field.
+func (u *GroupUpsertBulk) AddImageCostStaleAfterSeconds(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddImageCostStaleAfterSeconds(v)
+	})
+}
+
+// UpdateImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateImageCostStaleAfterSeconds() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageCostStaleAfterSeconds()
 	})
 }
 

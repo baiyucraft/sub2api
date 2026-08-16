@@ -302,8 +302,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(list(migration_checksums(profile_191)), profile_191["migrations"])
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237)"
-        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237"
+        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
@@ -601,7 +601,7 @@ class ReleaseCoreTest(unittest.TestCase):
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         preflight = (DEPLOY_ROOT / "maintenance" / "release" / "preflight.sh").read_text(encoding="utf-8")
         switch = (DEPLOY_ROOT / "maintenance" / "release" / "switch.sh").read_text(encoding="utf-8")
-        self.assertIn('expected_profile in {"235", "236", "237"}', gate)
+        self.assertIn('expected_profile in {"235", "236", "237", "238"}', gate)
         self.assertIn('evidence.get("migration_234_status")', gate)
         self.assertIn('evidence.get("migration_234_preflight_verified")', gate)
         self.assertIn('evidence.get("migration_234_schema_verified")', gate)
@@ -668,6 +668,17 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("migration_236_preflight_verified=true", validator)
         self.assertIn("migration_235_preflight_verified:$migration_235_preflight_verified", validator)
         self.assertIn("migration_236_preflight_verified:$migration_236_preflight_verified", validator)
+
+    def test_profile_238_appends_image_cost_routing_migration(self) -> None:
+        profile_237 = get_profile("237")
+        profile_238 = get_profile("238")
+        self.assertEqual(profile_238["version"], "0.1.177-baiyu")
+        self.assertEqual(
+            profile_238["migrations"],
+            profile_237["migrations"] + ["237_image_cost_routing.sql"],
+        )
+        self.assertEqual(len(profile_238["migrations"]), 54)
+        self.assertEqual(list(migration_checksums(profile_238)), profile_238["migrations"])
 
     def test_profile_212_release_chain_requires_profit_control_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
@@ -750,7 +761,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("assert_prompt_audit_disabled()", context)
         self.assertIn("$profile != 197 && $profile != 198 && $profile != 199 && $profile != 202 && $profile != 206 && $profile != 207 && $profile != 208", context)
         self.assertEqual(production.count('"prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events"'), 3)
-        self.assertIn('expected_profile in {"194", "195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237"}', gate)
+        self.assertIn('expected_profile in {"194", "195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', gate)
 
     def test_profile_195_requires_semantic_migration_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
@@ -840,11 +851,11 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('migration-195-assert.sh preflight', production)
         self.assertIn('migration-195-assert.sh" postflight', switch)
         self.assertIn("unproven == 0 && $conflict == 0 && $unexpected == 0", assertion)
-        self.assertIn('expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237"}', gate)
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236"}', production)
-        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]', switch)
-        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]', assertion)
-        self.assertIn('expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237"}', gate)
+        self.assertIn('expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', gate)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', production)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]', switch)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]', assertion)
+        self.assertIn('expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', gate)
         self.assertIn("managed monitor key-name evidence", gate)
 
     def test_profile_199_requires_reasoning_and_old_image_evidence(self) -> None:
@@ -859,7 +870,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("mark_stage old_image_compatibility", validator)
         self.assertIn('"reasoning_effort_policy_verified"', production)
         self.assertIn("reasoning_effort_policy_verified=true", switch)
-        self.assertIn('expected_profile in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237"}', gate)
+        self.assertIn('expected_profile in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', gate)
         self.assertIn("group reasoning-effort policy evidence", gate)
         self.assertIn("VM old-image compatibility evidence", gate)
 
@@ -878,7 +889,7 @@ class ReleaseCoreTest(unittest.TestCase):
             self.assertIn(f'"{evidence}"', production)
             self.assertIn(f"{evidence}=true", switch)
             self.assertIn(f'"{evidence}"', gate)
-        self.assertIn('expected_profile in {"202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237"}', gate)
+        self.assertIn('expected_profile in {"202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', gate)
         self.assertIn("profile 202 migration semantic evidence", gate)
         seed = "INSERT INTO settings (key,value,updated_at) VALUES ('ALIPAY_MOBILE_PRECREATE_DEEP_LINK','true',NOW())"
         self.assertGreater(validator.index(seed), validator.index("restore_completed=true"))
@@ -917,7 +928,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('"live_runtime_capability_verified"', gate)
         self.assertNotIn('"live_runtime_capability_verified"', production)
         self.assertNotIn("live_runtime_capability_verified=true", switch)
-        self.assertIn('expected_profile in {"206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237"}', gate)
+        self.assertIn('expected_profile in {"206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', gate)
         self.assertIn("profile 206 migration semantic evidence", gate)
         for stage in (
             "migration_assertion_profile_206_session_id",
@@ -953,7 +964,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("passkey_credentials_user_id_idx", validator)
         self.assertIn("passkey_credentials_last_used_at_idx", validator)
         self.assertIn("mark_stage migration_assertion_profile_208_passkey_schema", validator)
-        self.assertIn('expected_profile in {"208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237"}', gate)
+        self.assertIn('expected_profile in {"208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', gate)
         self.assertIn("profile 208 passkey schema evidence", gate)
 
     def test_profile_209_requires_user_usage_aggregation_schema_evidence(self) -> None:
@@ -975,7 +986,7 @@ class ReleaseCoreTest(unittest.TestCase):
             self.assertIn(schema_object, validator)
             self.assertIn(schema_object, switch)
         self.assertIn("mark_stage migration_assertion_profile_209_user_usage_aggregation_schema", validator)
-        self.assertIn('expected_profile in {"209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237"}', gate)
+        self.assertIn('expected_profile in {"209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', gate)
         self.assertIn("profile 209 user usage aggregation schema evidence", gate)
 
     def test_profile_194_gate_rejects_missing_prompt_audit_disabled_evidence(self) -> None:

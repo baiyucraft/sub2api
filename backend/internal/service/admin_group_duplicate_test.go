@@ -145,6 +145,10 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 		ImagePrice1K:                 groupDuplicateTestPointer(0.01),
 		ImagePrice2K:                 groupDuplicateTestPointer(0.02),
 		ImagePrice4K:                 groupDuplicateTestPointer(0.04),
+		ImageCostRoutingEnabled:      true,
+		ImageCostRoutingMode:         "strict_lowest",
+		ImageCostTolerancePercent:    2.5,
+		ImageCostStaleAfterSeconds:   7200,
 		BatchImageDiscountMultiplier: 0.4,
 		BatchImageHoldMultiplier:     0.7,
 		VideoRateIndependent:         true,
@@ -207,6 +211,10 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 	require.Equal(t, source.PeakRateMultiplier, duplicate.PeakRateMultiplier)
 	require.Equal(t, source.DefaultValidityDays, duplicate.DefaultValidityDays)
 	require.Equal(t, source.ImagePrice4K, duplicate.ImagePrice4K)
+	require.Equal(t, source.ImageCostRoutingEnabled, duplicate.ImageCostRoutingEnabled)
+	require.Equal(t, source.ImageCostRoutingMode, duplicate.ImageCostRoutingMode)
+	require.Equal(t, source.ImageCostTolerancePercent, duplicate.ImageCostTolerancePercent)
+	require.Equal(t, source.ImageCostStaleAfterSeconds, duplicate.ImageCostStaleAfterSeconds)
 	require.Equal(t, source.VideoModelPrices, duplicate.VideoModelPrices)
 	require.Equal(t, source.WebSearchPricePerCall, duplicate.WebSearchPricePerCall)
 	require.Equal(t, source.FallbackGroupID, duplicate.FallbackGroupID)

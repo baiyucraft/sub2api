@@ -82,6 +82,10 @@ type OpenAIAccountScheduleRequest struct {
 	RequiredTransport           OpenAIUpstreamTransport
 	RequiredCapability          OpenAIEndpointCapability
 	RequiredImageCapability     OpenAIImagesCapability
+	ImageSizeTier               string
+	ImageCostRoutingMode        string
+	ImageCostTolerancePercent   float64
+	ImageCostStaleAfterSeconds  int
 	RequireCompact              bool
 	ExcludedIDs                 map[int64]struct{}
 	PreviousResponseExcludedIDs map[int64]struct{}
@@ -98,6 +102,12 @@ type OpenAIAccountScheduleDecision struct {
 	LoadSkew            float64
 	SelectedAccountID   int64
 	SelectedAccountType string
+	ImageCostRouteMode  string
+	ImageCostSizeTier   string
+	ImageCostKnown      bool
+	ImageCostStatus     string
+	ImageCostRank       int
+	ImageCostValue      float64
 }
 
 type OpenAIAccountSchedulerMetricsSnapshot struct {
@@ -374,6 +384,17 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	req OpenAIAccountScheduleRequest,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	decision := OpenAIAccountScheduleDecision{}
+	imageCostRouting := req.RequiredImageCapability != "" && req.ImageCostRoutingMode != "" && req.ImageCostRoutingMode != "off"
+	if imageCostRouting {
+		decision.ImageCostRouteMode = req.ImageCostRoutingMode
+		decision.ImageCostSizeTier = req.ImageSizeTier
+		// Sticky preference is applied inside the selected price layer. It must
+		// not bypass image-cost ordering through the early session-sticky path.
+		req.StickyWeighted = true
+		// Price classes are the outer routing tier for image requests. Account
+		// subscription type remains part of the existing within-tier score only.
+		req.SubscriptionPriority = false
+	}
 	start := time.Now()
 	defer func() {
 		decision.LatencyMs = time.Since(start).Milliseconds()
@@ -419,7 +440,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	if !req.StickyWeighted {
+	if !req.StickyWeighted && !imageCostRouting {
 		selection, escapedSticky, err := s.selectBySessionHash(ctx, req)
 		if err != nil {
 			return nil, decision, err
@@ -455,6 +476,10 @@ func (s *defaultOpenAIAccountScheduler) Select(
 				decision.StickySessionHit = true
 			}
 		}
+		decision.ImageCostKnown = selection.imageCostKnown
+		decision.ImageCostStatus = selection.imageCostStatus
+		decision.ImageCostRank = selection.imageCostRank
+		decision.ImageCostValue = selection.imageCostValue
 	}
 	return selection, decision, nil
 }
@@ -611,14 +636,18 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int6
 }
 
 type openAIAccountCandidateScore struct {
-	account   *Account
-	loadInfo  *AccountLoadInfo
-	loadKnown bool
-	score     float64
-	priority  int
-	errorRate float64
-	ttft      float64
-	hasTTFT   bool
+	account         *Account
+	loadInfo        *AccountLoadInfo
+	loadKnown       bool
+	score           float64
+	priority        int
+	errorRate       float64
+	ttft            float64
+	hasTTFT         bool
+	imageCostKnown  bool
+	imageCostStatus string
+	imageCostRank   int
+	imageCostValue  float64
 }
 
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
@@ -1108,7 +1137,134 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		return selectionOrder
 	}
 
+	if req.RequiredImageCapability != "" && req.ImageCostRoutingMode != "" && req.ImageCostRoutingMode != "off" {
+		return buildImageCostSelectionOrder(req, plan.candidates, buildPriorityAwareSelectionOrder)
+	}
 	return buildPriorityAwareSelectionOrder(plan.candidates)
+}
+
+func buildImageCostSelectionOrder(req OpenAIAccountScheduleRequest, pool []openAIAccountCandidateScore, fallback func([]openAIAccountCandidateScore) []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+	if len(pool) == 0 {
+		return nil
+	}
+	type imageCostBucket struct {
+		known      bool
+		statusRank int
+		stale      bool
+		value      float64
+		candidates []openAIAccountCandidateScore
+	}
+	type imageCostClass struct {
+		stale      bool
+		statusRank int
+	}
+	classes := []imageCostClass{{false, 0}, {false, 1}, {true, 0}, {true, 1}}
+	byClass := make(map[imageCostClass][]openAIAccountCandidateScore, len(classes))
+	unknown := make([]openAIAccountCandidateScore, 0)
+	for _, candidate := range pool {
+		known, value, stale, statusRank, status := imageCostCandidateMetadata(req, candidate.account)
+		candidate.imageCostKnown = known
+		candidate.imageCostStatus = status
+		candidate.imageCostValue = value
+		if !known || statusRank > 1 {
+			candidate.imageCostStatus = "unknown"
+			unknown = append(unknown, candidate)
+			continue
+		}
+		class := imageCostClass{stale: stale, statusRank: statusRank}
+		byClass[class] = append(byClass[class], candidate)
+	}
+
+	buckets := make([]imageCostBucket, 0, len(pool))
+	tolerance := req.ImageCostTolerancePercent
+	if req.ImageCostRoutingMode == "strict_lowest" {
+		tolerance = 0
+	}
+	for _, class := range classes {
+		candidates := byClass[class]
+		sort.SliceStable(candidates, func(i, j int) bool {
+			if candidates[i].imageCostValue != candidates[j].imageCostValue {
+				return candidates[i].imageCostValue < candidates[j].imageCostValue
+			}
+			return candidates[i].account.ID < candidates[j].account.ID
+		})
+		for _, candidate := range candidates {
+			if len(buckets) == 0 || buckets[len(buckets)-1].stale != class.stale || buckets[len(buckets)-1].statusRank != class.statusRank {
+				buckets = append(buckets, imageCostBucket{known: true, statusRank: class.statusRank, stale: class.stale, value: candidate.imageCostValue})
+			}
+			current := &buckets[len(buckets)-1]
+			anchor := current.value
+			within := (anchor == 0 && candidate.imageCostValue == 0) || (anchor > 0 && math.Abs(candidate.imageCostValue-anchor) <= anchor*tolerance/100+1e-12)
+			if !within {
+				buckets = append(buckets, imageCostBucket{known: true, statusRank: class.statusRank, stale: class.stale, value: candidate.imageCostValue})
+				current = &buckets[len(buckets)-1]
+			}
+			current.candidates = append(current.candidates, candidate)
+		}
+	}
+	if len(unknown) > 0 {
+		buckets = append(buckets, imageCostBucket{candidates: unknown})
+	}
+	for rank := range buckets {
+		for i := range buckets[rank].candidates {
+			buckets[rank].candidates[i].imageCostRank = rank + 1
+		}
+	}
+	out := make([]openAIAccountCandidateScore, 0, len(pool))
+	for _, b := range buckets {
+		out = append(out, fallback(b.candidates)...)
+	}
+	return out
+}
+
+func imageCostCandidateMetadata(req OpenAIAccountScheduleRequest, account *Account) (known bool, value float64, stale bool, statusRank int, status string) {
+	stale = true
+	statusRank = 2
+	status = "unknown"
+	if account == nil || account.UpstreamImagePricing == nil {
+		return false, 0, stale, statusRank, status
+	}
+	p := account.UpstreamImagePricing
+	stale = p.Stale
+	switch p.Status {
+	case UpstreamKeyImagePricingStatusAvailable:
+		statusRank = 0
+	case UpstreamKeyImagePricingStatusPartial:
+		statusRank = 1
+	default:
+		return false, 0, stale, statusRank, status
+	}
+	switch req.ImageSizeTier {
+	case "1K":
+		if p.FinalCost1K != nil {
+			value, known = *p.FinalCost1K, true
+		}
+	case "4K":
+		if p.FinalCost4K != nil {
+			value, known = *p.FinalCost4K, true
+		}
+	default:
+		if p.FinalCost2K != nil {
+			value, known = *p.FinalCost2K, true
+		}
+	}
+	if !known || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return false, 0, stale, statusRank, status
+	}
+	if req.ImageCostStaleAfterSeconds > 0 && p.ObservedAt != nil && time.Since(*p.ObservedAt) > time.Duration(req.ImageCostStaleAfterSeconds)*time.Second {
+		stale = true
+	}
+	if stale {
+		status = "stale"
+		if statusRank == 1 {
+			status = "partial_stale"
+		}
+	} else if statusRank == 1 {
+		status = "partial"
+	} else {
+		status = "available"
+	}
+	return true, value, stale, statusRank, status
 }
 
 func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
@@ -1229,9 +1385,13 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 			_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, fresh.ID)
 		}
 		return attachSelectionProfitGate(ctx, &AccountSelectionResult{
-			Account:     fresh,
-			Acquired:    true,
-			ReleaseFunc: result.ReleaseFunc,
+			Account:         fresh,
+			Acquired:        true,
+			ReleaseFunc:     result.ReleaseFunc,
+			imageCostKnown:  candidate.imageCostKnown,
+			imageCostStatus: candidate.imageCostStatus,
+			imageCostRank:   candidate.imageCostRank,
+			imageCostValue:  candidate.imageCostValue,
 		}), compactBlocked, nil
 	}
 	return nil, compactBlocked, nil
@@ -1264,7 +1424,9 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
 ) (*AccountSelectionResult, error) {
-	if !req.StickyWeighted {
+	if !req.StickyWeighted || (req.RequiredImageCapability != "" && req.ImageCostRoutingMode != "" && req.ImageCostRoutingMode != "off") {
+		// Image routing already applies stickiness inside each price layer. A
+		// second direct sticky fallback here could jump to a more expensive tier.
 		return nil, nil
 	}
 	for _, accountID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
@@ -1719,6 +1881,10 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 					Timeout:        cfg.FallbackWaitTimeout,
 					MaxWaiting:     cfg.FallbackMaxWaiting,
 				},
+				imageCostKnown:  candidate.imageCostKnown,
+				imageCostStatus: candidate.imageCostStatus,
+				imageCostRank:   candidate.imageCostRank,
+				imageCostValue:  candidate.imageCostValue,
 			}), candidateCount, topK, loadSkew, nil
 		}
 	}
@@ -1801,12 +1967,32 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if !accountSupportsOpenAICapabilities(account, req.RequiredCapability, req.RequiredImageCapability) {
 		return false, "capability_mismatch"
 	}
+	if req.RequiredImageCapability != "" && req.ImageCostRoutingMode != "" && req.ImageCostRoutingMode != "off" &&
+		upstreamImagePricingExplicitlyUnsupported(account.UpstreamImagePricing) {
+		return false, "image_capability_snapshot"
+	}
 	// 分组利润控制：不合格账号在候选过滤与抢槽后终检阶段即被排除，
 	// 排序/评分/粘性/熔断只在合格账号之间工作；named reason 进入 filter stats。
 	if vetoed, reason := openAIProfitControlVetoReason(ctx, account); vetoed {
 		return false, reason
 	}
 	return true, ""
+}
+
+func upstreamImagePricingExplicitlyUnsupported(pricing *UpstreamKeyImagePricing) bool {
+	if pricing == nil || pricing.Supported {
+		return false
+	}
+	switch pricing.Status {
+	case UpstreamKeyImagePricingStatusDisabled,
+		UpstreamKeyImagePricingStatusAvailable,
+		UpstreamKeyImagePricingStatusPartial:
+		return true
+	default:
+		// Missing/unavailable pricing is unknown capability and remains a final
+		// fallback. It must not be treated as either free or explicitly disabled.
+		return false
+	}
 }
 
 func (s *defaultOpenAIAccountScheduler) ReportResult(accountID int64, success bool, firstTokenMs *int) {
@@ -2118,14 +2304,18 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	requestedModel string,
 	excludedIDs map[int64]struct{},
 	requiredCapability OpenAIImagesCapability,
+	imageSizeTier string,
+	imageCostRoutingMode string,
+	imageCostTolerancePercent float64,
+	imageCostStaleAfterSeconds int,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
-	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, PlatformOpenAI, false, false)
+	selection, decision, err := s.selectAccountWithSchedulerWithImageCost(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, PlatformOpenAI, false, false, imageSizeTier, imageCostRoutingMode, imageCostTolerancePercent, imageCostStaleAfterSeconds)
 	if err == nil && selection != nil && selection.Account != nil {
 		return selection, decision, nil
 	}
 	// 如果要求 native 能力（如指定了模型）但没有可用的 APIKey 账号，回退到 basic（OAuth 账号）
 	if requiredCapability == OpenAIImagesCapabilityNative {
-		return s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", OpenAIImagesCapabilityBasic, false, PlatformOpenAI, false, false)
+		return s.selectAccountWithSchedulerWithImageCost(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", OpenAIImagesCapabilityBasic, false, PlatformOpenAI, false, false, imageSizeTier, imageCostRoutingMode, imageCostTolerancePercent, imageCostStaleAfterSeconds)
 	}
 	return selection, decision, err
 }
@@ -2202,7 +2392,23 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerCore(
 	}
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	decision := OpenAIAccountScheduleDecision{}
+	imageSizeTier, imageCostMode, imageCostTolerance, imageCostStale := imageCostRoutingFromContext(ctx)
+	imageCostRouting := requiredImageCapability != "" && imageCostMode != "" && imageCostMode != "off"
 	scheduler := s.getOpenAIAccountScheduler(ctx)
+	if scheduler == nil && imageCostRouting {
+		// A group can opt into image-cost routing independently of the global
+		// advanced scheduler switch. Reuse the same scheduler implementation so
+		// price layers still retain health, load, queue and shared-slot checks.
+		s.openaiSchedulerOnce.Do(func() {
+			if s.openaiAccountStats == nil {
+				s.openaiAccountStats = newOpenAIAccountRuntimeStats()
+			}
+			if s.openaiScheduler == nil {
+				s.openaiScheduler = newDefaultOpenAIAccountScheduler(s, s.openaiAccountStats)
+			}
+		})
+		scheduler = s.openaiScheduler
+	}
 	if scheduler == nil {
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
@@ -2293,6 +2499,10 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerCore(
 		RequiredTransport:           requiredTransport,
 		RequiredCapability:          requiredCapability,
 		RequiredImageCapability:     requiredImageCapability,
+		ImageSizeTier:               imageSizeTier,
+		ImageCostRoutingMode:        imageCostMode,
+		ImageCostTolerancePercent:   imageCostTolerance,
+		ImageCostStaleAfterSeconds:  imageCostStale,
 		RequireCompact:              requireCompact,
 		ExcludedIDs:                 excludedIDs,
 		PreviousResponseExcludedIDs: previousResponseExcludedIDs,

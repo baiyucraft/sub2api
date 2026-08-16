@@ -13,7 +13,7 @@ fi
 db_container=${ASSERT_DB_CONTAINER:-sub2api-postgres}
 db_user=${ASSERT_DB_USER:-sub2api}
 db_name=${ASSERT_DB_NAME:-sub2api}
-[[ $profile == 235 || $profile == 236 || $profile == 237 ]]
+[[ $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]
 [[ $phase == preflight || $phase == postflight ]]
 [[ $migration_status == absent || $migration_status == verified ]]
 

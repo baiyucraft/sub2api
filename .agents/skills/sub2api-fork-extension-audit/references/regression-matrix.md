@@ -13,7 +13,8 @@
 | 成本与归因 | 倍率/Priority 独立、原始倍率不公开、余额与价格快照、usage/batch-image 归因不随后续解绑变化 |
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 质量与累计用量 | 质量仅展示不参与调度；coverage/backfill 完整后才允许 raw cleanup；日聚合时区正确 |
-| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、profile 233–237 map/checksum/compatibility identity、`VERSION = upstream VERSION + -baiyu` |
+| 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
+| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–237 map/checksum/compatibility identity 不可变；当前 profile 238 为 pending/current 合同，54 项 migration，追加 `237_image_cost_routing.sql`，migration map digest 为 `322ec9fe133e3209611a0c1cad357732512a381baed685334d00d8c8ede0cdf5`；`VERSION = upstream VERSION + -baiyu` |
 | 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
 
 ## 全量门禁
@@ -32,3 +33,40 @@ git diff --check
 ```
 
 审计 skill 只输出清单，不执行这些应用与发布门禁。构建和环境验证由 `sub2api-production-deploy` skill 决定。
+
+## 当前 profile 238 专项合同
+
+profile 238 仍属于当前待发布合同，不得登记为已发布历史证据：
+
+```text
+base profile: 237
+version: 0.1.177-baiyu
+migration count: 54
+appended migration: 237_image_cost_routing.sql
+migration sha256: f34d5ed6ae8c7b9fba9cf20d80f78308fa0b562657f936f2b2617a0a48b27d33
+migration map sha256: 322ec9fe133e3209611a0c1cad357732512a381baed685334d00d8c8ede0cdf5
+```
+
+最低专项测试：
+
+```text
+backend/internal/service/upstream_key_image_pricing_test.go
+backend/internal/service/openai_account_scheduler_upstream_cost_test.go
+backend/internal/service/openai_image_cost_routing_test.go
+backend/internal/service/admin_group_image_cost_routing_test.go
+backend/migrations/profile_238_migrations_test.go
+frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts
+```
+
+后续补强测试：
+
+```text
+GroupsView 图片成本创建、编辑、复制、校验和提交
+API Key auth cache 图片成本字段 round-trip
+scheduler cache UpstreamImagePricing round-trip
+account hydration 的 Key 定价快照映射
+1K/2K/4K 尺寸成本排序
+stale/partial/unknown 与免费成本 0 的区分
+关闭 image_cost_routing_enabled 时保持原调度顺序
+prefer_lowest/strict_lowest 与健康、共享并发、TTFT Guard、Priority 的组合回归
+```

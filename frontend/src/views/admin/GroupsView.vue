@@ -1040,6 +1040,19 @@
           </p>
         </div>
 
+        <div v-if="supportsImagePricingPlatform(createForm.platform) && createForm.allow_image_generation" class="rounded-lg border border-dashed border-blue-200 bg-blue-50/50 p-3 dark:border-blue-900/50 dark:bg-blue-950/20">
+          <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+            <input v-model="createForm.image_cost_routing_enabled" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            {{ t("admin.groups.imageCostRouting.title") }}
+          </label>
+          <div v-if="createForm.image_cost_routing_enabled" class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <select v-model="createForm.image_cost_routing_mode" class="input"><option value="prefer_lowest">{{ t("admin.groups.imageCostRouting.preferLowest") }}</option><option value="strict_lowest">{{ t("admin.groups.imageCostRouting.strictLowest") }}</option></select>
+            <input v-model.number="createForm.image_cost_tolerance_percent" type="number" min="0" max="100" step="0.5" class="input" :placeholder="t('admin.groups.imageCostRouting.tolerance')" />
+            <input v-model.number="createForm.image_cost_stale_after_seconds" type="number" min="300" max="604800" step="60" class="input" :placeholder="t('admin.groups.imageCostRouting.staleAfter')" />
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.imageCostRouting.hint") }}</p>
+        </div>
+
         <!-- 视频生成计费配置（仅 Grok 平台） -->
         <div
           v-if="supportsVideoPricingPlatform(createForm.platform)"
@@ -2764,6 +2777,19 @@
           >
             {{ t("admin.groups.imagePricing.batchGeminiOnlyHint") }}
           </p>
+        </div>
+
+        <div v-if="supportsImagePricingPlatform(editForm.platform) && editForm.allow_image_generation" class="rounded-lg border border-dashed border-blue-200 bg-blue-50/50 p-3 dark:border-blue-900/50 dark:bg-blue-950/20">
+          <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+            <input v-model="editForm.image_cost_routing_enabled" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            {{ t("admin.groups.imageCostRouting.title") }}
+          </label>
+          <div v-if="editForm.image_cost_routing_enabled" class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <select v-model="editForm.image_cost_routing_mode" class="input"><option value="prefer_lowest">{{ t("admin.groups.imageCostRouting.preferLowest") }}</option><option value="strict_lowest">{{ t("admin.groups.imageCostRouting.strictLowest") }}</option></select>
+            <input v-model.number="editForm.image_cost_tolerance_percent" type="number" min="0" max="100" step="0.5" class="input" :placeholder="t('admin.groups.imageCostRouting.tolerance')" />
+            <input v-model.number="editForm.image_cost_stale_after_seconds" type="number" min="300" max="604800" step="60" class="input" :placeholder="t('admin.groups.imageCostRouting.staleAfter')" />
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.imageCostRouting.hint") }}</p>
         </div>
 
         <!-- 视频生成计费配置（仅 Grok 平台） -->
@@ -4501,6 +4527,7 @@ import {
   supportsVideoPricingPlatform,
   videoPricingI18nKey,
 } from "./groupsImagePricing";
+import { validateImageCostRoutingFormState } from "./groupsImageCostRouting";
 import {
   createVideoModelPricesForm,
   grokVideoPriceResolutions,
@@ -5095,6 +5122,10 @@ const createForm = reactive({
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
   image_price_4k: null as number | null,
+  image_cost_routing_enabled: false,
+  image_cost_routing_mode: "prefer_lowest" as "prefer_lowest" | "strict_lowest",
+  image_cost_tolerance_percent: 5,
+  image_cost_stale_after_seconds: 86400,
   // 视频生成计费配置（仅 Grok 平台）
   video_rate_independent: false,
   video_rate_multiplier: 1,
@@ -5456,6 +5487,10 @@ const editForm = reactive({
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
   image_price_4k: null as number | null,
+  image_cost_routing_enabled: false,
+  image_cost_routing_mode: "prefer_lowest" as "prefer_lowest" | "strict_lowest",
+  image_cost_tolerance_percent: 5,
+  image_cost_stale_after_seconds: 86400,
   // 视频生成计费配置（仅 Grok 平台）
   video_rate_independent: false,
   video_rate_multiplier: 1,
@@ -5983,6 +6018,10 @@ const closeCreateModal = () => {
   createForm.image_price_1k = null;
   createForm.image_price_2k = null;
   createForm.image_price_4k = null;
+  createForm.image_cost_routing_enabled = false;
+  createForm.image_cost_routing_mode = "prefer_lowest";
+  createForm.image_cost_tolerance_percent = 5;
+  createForm.image_cost_stale_after_seconds = 86400;
   createForm.video_rate_independent = false;
   createForm.video_rate_multiplier = 1;
   createForm.video_price_480p = null;
@@ -6063,6 +6102,15 @@ const validateProfitControlForm = (form: ProfitControlFormState): boolean => {
   return true;
 };
 
+const validateImageCostRoutingForm = (form: Parameters<typeof validateImageCostRoutingFormState>[0]): boolean => {
+  const errorKey = validateImageCostRoutingFormState(form);
+  if (errorKey) {
+    appStore.showError(t(`admin.groups.imageCostRouting.${errorKey}`));
+    return false;
+  }
+  return true;
+};
+
 const handleCreateGroup = async () => {
   if (!createForm.name.trim()) {
     appStore.showError(t("admin.groups.nameRequired"));
@@ -6076,6 +6124,9 @@ const handleCreateGroup = async () => {
     return;
   }
   if (!validateProfitControlForm(createForm)) {
+    return;
+  }
+  if (createForm.allow_image_generation && !validateImageCostRoutingForm(createForm)) {
     return;
   }
   submitting.value = true;
@@ -6230,6 +6281,10 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.image_price_1k = group.image_price_1k;
   editForm.image_price_2k = group.image_price_2k;
   editForm.image_price_4k = group.image_price_4k;
+  editForm.image_cost_routing_enabled = group.image_cost_routing_enabled ?? false;
+  editForm.image_cost_routing_mode = group.image_cost_routing_mode === "strict_lowest" ? "strict_lowest" : "prefer_lowest";
+  editForm.image_cost_tolerance_percent = group.image_cost_tolerance_percent ?? 5;
+  editForm.image_cost_stale_after_seconds = group.image_cost_stale_after_seconds ?? 86400;
   editForm.video_rate_independent = group.video_rate_independent ?? false;
   editForm.video_rate_multiplier = group.video_rate_multiplier ?? 1;
   editForm.video_price_480p = group.video_price_480p;
@@ -6317,6 +6372,10 @@ const closeEditModal = () => {
   editForm.profit_control_enabled = false;
   editForm.profit_min_margin_percent = 0;
   editForm.profit_safety_buffer_percent = 0;
+  editForm.image_cost_routing_enabled = false;
+  editForm.image_cost_routing_mode = "prefer_lowest";
+  editForm.image_cost_tolerance_percent = 5;
+  editForm.image_cost_stale_after_seconds = 86400;
   editForm.video_rate_independent = false;
   editForm.video_rate_multiplier = 1;
   editForm.video_price_480p = null;
@@ -6349,6 +6408,9 @@ const handleUpdateGroup = async () => {
     return;
   }
   if (!validateProfitControlForm(editForm)) {
+    return;
+  }
+  if (editForm.allow_image_generation && !validateImageCostRoutingForm(editForm)) {
     return;
   }
 

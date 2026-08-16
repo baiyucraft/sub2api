@@ -907,6 +907,7 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		UpstreamConcurrencyUsesDefault: account.UpstreamConcurrencyUsesDefault,
 		UpstreamConcurrencyUnlimited:   account.UpstreamConcurrencyUnlimited,
 		UpstreamConcurrencyOverride:    account.UpstreamConcurrencyOverride,
+		UpstreamImagePricing:           account.UpstreamImagePricing,
 		AccountGroups:                  filterSchedulerAccountGroups(account.AccountGroups),
 		GroupIDs:                       filterSchedulerGroupIDs(account.GroupIDs, account.AccountGroups),
 		Credentials:                    filterSchedulerCredentials(account.Credentials),

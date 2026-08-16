@@ -145,3 +145,32 @@ func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {
 	require.Contains(t, string(raw), `"upstream_key_masked":"sk-abc...7890"`)
 	require.NotContains(t, string(raw), "sk-secret")
 }
+
+func TestAccountFromServiceShallow_ProjectsOnlyRedactedImagePricing(t *testing.T) {
+	cost := 0.024
+	rate := 0.8
+	src := &service.Account{
+		ID: 43,
+		UpstreamImagePricing: &service.UpstreamKeyImagePricing{
+			Supported:               true,
+			Status:                  service.UpstreamKeyImagePricingStatusAvailable,
+			Currency:                "USD",
+			RateIndependent:         true,
+			EffectiveRateMultiplier: &rate,
+			FinalCost2K:             &cost,
+		},
+		Credentials: map[string]any{"api_key": "sk-secret"},
+	}
+
+	got := AccountFromServiceShallow(src)
+	require.NotNil(t, got.UpstreamImagePricing)
+	require.True(t, got.UpstreamImagePricing.Supported)
+	require.True(t, got.UpstreamImagePricing.RateIndependent)
+	require.Equal(t, cost, *got.UpstreamImagePricing.FinalCost2K)
+
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"upstream_image_pricing"`)
+	require.NotContains(t, string(raw), "sk-secret")
+	require.NotContains(t, string(raw), "sub2api_image_pricing_snapshot")
+}

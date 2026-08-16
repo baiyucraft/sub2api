@@ -48,6 +48,10 @@ type Group struct {
 	ImagePrice1K                 *float64
 	ImagePrice2K                 *float64
 	ImagePrice4K                 *float64
+	ImageCostRoutingEnabled      bool
+	ImageCostRoutingMode         string
+	ImageCostTolerancePercent    float64
+	ImageCostStaleAfterSeconds   int
 	BatchImageDiscountMultiplier float64
 	BatchImageHoldMultiplier     float64
 	VideoRateIndependent         bool

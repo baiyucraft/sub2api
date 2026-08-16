@@ -485,6 +485,76 @@ func (_u *GroupUpdate) ClearImagePrice4k() *GroupUpdate {
 	return _u
 }
 
+// SetImageCostRoutingEnabled sets the "image_cost_routing_enabled" field.
+func (_u *GroupUpdate) SetImageCostRoutingEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetImageCostRoutingEnabled(v)
+	return _u
+}
+
+// SetNillableImageCostRoutingEnabled sets the "image_cost_routing_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableImageCostRoutingEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetImageCostRoutingEnabled(*v)
+	}
+	return _u
+}
+
+// SetImageCostRoutingMode sets the "image_cost_routing_mode" field.
+func (_u *GroupUpdate) SetImageCostRoutingMode(v string) *GroupUpdate {
+	_u.mutation.SetImageCostRoutingMode(v)
+	return _u
+}
+
+// SetNillableImageCostRoutingMode sets the "image_cost_routing_mode" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableImageCostRoutingMode(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetImageCostRoutingMode(*v)
+	}
+	return _u
+}
+
+// SetImageCostTolerancePercent sets the "image_cost_tolerance_percent" field.
+func (_u *GroupUpdate) SetImageCostTolerancePercent(v float64) *GroupUpdate {
+	_u.mutation.ResetImageCostTolerancePercent()
+	_u.mutation.SetImageCostTolerancePercent(v)
+	return _u
+}
+
+// SetNillableImageCostTolerancePercent sets the "image_cost_tolerance_percent" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableImageCostTolerancePercent(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetImageCostTolerancePercent(*v)
+	}
+	return _u
+}
+
+// AddImageCostTolerancePercent adds value to the "image_cost_tolerance_percent" field.
+func (_u *GroupUpdate) AddImageCostTolerancePercent(v float64) *GroupUpdate {
+	_u.mutation.AddImageCostTolerancePercent(v)
+	return _u
+}
+
+// SetImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field.
+func (_u *GroupUpdate) SetImageCostStaleAfterSeconds(v int) *GroupUpdate {
+	_u.mutation.ResetImageCostStaleAfterSeconds()
+	_u.mutation.SetImageCostStaleAfterSeconds(v)
+	return _u
+}
+
+// SetNillableImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableImageCostStaleAfterSeconds(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetImageCostStaleAfterSeconds(*v)
+	}
+	return _u
+}
+
+// AddImageCostStaleAfterSeconds adds value to the "image_cost_stale_after_seconds" field.
+func (_u *GroupUpdate) AddImageCostStaleAfterSeconds(v int) *GroupUpdate {
+	_u.mutation.AddImageCostStaleAfterSeconds(v)
+	return _u
+}
+
 // SetBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field.
 func (_u *GroupUpdate) SetBatchImageDiscountMultiplier(v float64) *GroupUpdate {
 	_u.mutation.ResetBatchImageDiscountMultiplier()
@@ -1531,6 +1601,11 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "subscription_type", err: fmt.Errorf(`ent: validator failed for field "Group.subscription_type": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.ImageCostRoutingMode(); ok {
+		if err := group.ImageCostRoutingModeValidator(v); err != nil {
+			return &ValidationError{Name: "image_cost_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.image_cost_routing_mode": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.SearchPricePer1k(); ok {
 		if err := group.SearchPricePer1kValidator(v); err != nil {
 			return &ValidationError{Name: "search_price_per_1k", err: fmt.Errorf(`ent: validator failed for field "Group.search_price_per_1k": %w`, err)}
@@ -1704,6 +1779,24 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.ImagePrice4kCleared() {
 		_spec.ClearField(group.FieldImagePrice4k, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.ImageCostRoutingEnabled(); ok {
+		_spec.SetField(group.FieldImageCostRoutingEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ImageCostRoutingMode(); ok {
+		_spec.SetField(group.FieldImageCostRoutingMode, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ImageCostTolerancePercent(); ok {
+		_spec.SetField(group.FieldImageCostTolerancePercent, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedImageCostTolerancePercent(); ok {
+		_spec.AddField(group.FieldImageCostTolerancePercent, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.ImageCostStaleAfterSeconds(); ok {
+		_spec.SetField(group.FieldImageCostStaleAfterSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedImageCostStaleAfterSeconds(); ok {
+		_spec.AddField(group.FieldImageCostStaleAfterSeconds, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.BatchImageDiscountMultiplier(); ok {
 		_spec.SetField(group.FieldBatchImageDiscountMultiplier, field.TypeFloat64, value)
@@ -2768,6 +2861,76 @@ func (_u *GroupUpdateOne) ClearImagePrice4k() *GroupUpdateOne {
 	return _u
 }
 
+// SetImageCostRoutingEnabled sets the "image_cost_routing_enabled" field.
+func (_u *GroupUpdateOne) SetImageCostRoutingEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetImageCostRoutingEnabled(v)
+	return _u
+}
+
+// SetNillableImageCostRoutingEnabled sets the "image_cost_routing_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableImageCostRoutingEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetImageCostRoutingEnabled(*v)
+	}
+	return _u
+}
+
+// SetImageCostRoutingMode sets the "image_cost_routing_mode" field.
+func (_u *GroupUpdateOne) SetImageCostRoutingMode(v string) *GroupUpdateOne {
+	_u.mutation.SetImageCostRoutingMode(v)
+	return _u
+}
+
+// SetNillableImageCostRoutingMode sets the "image_cost_routing_mode" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableImageCostRoutingMode(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetImageCostRoutingMode(*v)
+	}
+	return _u
+}
+
+// SetImageCostTolerancePercent sets the "image_cost_tolerance_percent" field.
+func (_u *GroupUpdateOne) SetImageCostTolerancePercent(v float64) *GroupUpdateOne {
+	_u.mutation.ResetImageCostTolerancePercent()
+	_u.mutation.SetImageCostTolerancePercent(v)
+	return _u
+}
+
+// SetNillableImageCostTolerancePercent sets the "image_cost_tolerance_percent" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableImageCostTolerancePercent(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetImageCostTolerancePercent(*v)
+	}
+	return _u
+}
+
+// AddImageCostTolerancePercent adds value to the "image_cost_tolerance_percent" field.
+func (_u *GroupUpdateOne) AddImageCostTolerancePercent(v float64) *GroupUpdateOne {
+	_u.mutation.AddImageCostTolerancePercent(v)
+	return _u
+}
+
+// SetImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field.
+func (_u *GroupUpdateOne) SetImageCostStaleAfterSeconds(v int) *GroupUpdateOne {
+	_u.mutation.ResetImageCostStaleAfterSeconds()
+	_u.mutation.SetImageCostStaleAfterSeconds(v)
+	return _u
+}
+
+// SetNillableImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableImageCostStaleAfterSeconds(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetImageCostStaleAfterSeconds(*v)
+	}
+	return _u
+}
+
+// AddImageCostStaleAfterSeconds adds value to the "image_cost_stale_after_seconds" field.
+func (_u *GroupUpdateOne) AddImageCostStaleAfterSeconds(v int) *GroupUpdateOne {
+	_u.mutation.AddImageCostStaleAfterSeconds(v)
+	return _u
+}
+
 // SetBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field.
 func (_u *GroupUpdateOne) SetBatchImageDiscountMultiplier(v float64) *GroupUpdateOne {
 	_u.mutation.ResetBatchImageDiscountMultiplier()
@@ -3827,6 +3990,11 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "subscription_type", err: fmt.Errorf(`ent: validator failed for field "Group.subscription_type": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.ImageCostRoutingMode(); ok {
+		if err := group.ImageCostRoutingModeValidator(v); err != nil {
+			return &ValidationError{Name: "image_cost_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.image_cost_routing_mode": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.SearchPricePer1k(); ok {
 		if err := group.SearchPricePer1kValidator(v); err != nil {
 			return &ValidationError{Name: "search_price_per_1k", err: fmt.Errorf(`ent: validator failed for field "Group.search_price_per_1k": %w`, err)}
@@ -4017,6 +4185,24 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if _u.mutation.ImagePrice4kCleared() {
 		_spec.ClearField(group.FieldImagePrice4k, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.ImageCostRoutingEnabled(); ok {
+		_spec.SetField(group.FieldImageCostRoutingEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ImageCostRoutingMode(); ok {
+		_spec.SetField(group.FieldImageCostRoutingMode, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ImageCostTolerancePercent(); ok {
+		_spec.SetField(group.FieldImageCostTolerancePercent, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedImageCostTolerancePercent(); ok {
+		_spec.AddField(group.FieldImageCostTolerancePercent, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.ImageCostStaleAfterSeconds(); ok {
+		_spec.SetField(group.FieldImageCostStaleAfterSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedImageCostStaleAfterSeconds(); ok {
+		_spec.AddField(group.FieldImageCostStaleAfterSeconds, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.BatchImageDiscountMultiplier(); ok {
 		_spec.SetField(group.FieldBatchImageDiscountMultiplier, field.TypeFloat64, value)

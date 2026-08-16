@@ -73,6 +73,10 @@ type APIKeyAuthGroupSnapshot struct {
 	ImagePrice1K                    *float64                      `json:"image_price_1k,omitempty"`
 	ImagePrice2K                    *float64                      `json:"image_price_2k,omitempty"`
 	ImagePrice4K                    *float64                      `json:"image_price_4k,omitempty"`
+	ImageCostRoutingEnabled         bool                          `json:"image_cost_routing_enabled"`
+	ImageCostRoutingMode            string                        `json:"image_cost_routing_mode"`
+	ImageCostTolerancePercent       float64                       `json:"image_cost_tolerance_percent"`
+	ImageCostStaleAfterSeconds      int                           `json:"image_cost_stale_after_seconds"`
 	VideoRateIndependent            bool                          `json:"video_rate_independent"`
 	VideoRateMultiplier             float64                       `json:"video_rate_multiplier"`
 	VideoPrice480P                  *float64                      `json:"video_price_480p,omitempty"`

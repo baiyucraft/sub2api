@@ -127,6 +127,10 @@ type CreateGroupRequest struct {
 	ImagePrice1K                    *float64                      `json:"image_price_1k"`
 	ImagePrice2K                    *float64                      `json:"image_price_2k"`
 	ImagePrice4K                    *float64                      `json:"image_price_4k"`
+	ImageCostRoutingEnabled         bool                          `json:"image_cost_routing_enabled"`
+	ImageCostRoutingMode            string                        `json:"image_cost_routing_mode"`
+	ImageCostTolerancePercent       *float64                      `json:"image_cost_tolerance_percent"`
+	ImageCostStaleAfterSeconds      *int                          `json:"image_cost_stale_after_seconds"`
 	VideoPrice480P                  *float64                      `json:"video_price_480p"`
 	VideoPrice720P                  *float64                      `json:"video_price_720p"`
 	VideoPrice1080P                 *float64                      `json:"video_price_1080p"`
@@ -196,6 +200,10 @@ type UpdateGroupRequest struct {
 	ImagePrice1K                    *float64                      `json:"image_price_1k"`
 	ImagePrice2K                    *float64                      `json:"image_price_2k"`
 	ImagePrice4K                    *float64                      `json:"image_price_4k"`
+	ImageCostRoutingEnabled         *bool                         `json:"image_cost_routing_enabled"`
+	ImageCostRoutingMode            *string                       `json:"image_cost_routing_mode"`
+	ImageCostTolerancePercent       *float64                      `json:"image_cost_tolerance_percent"`
+	ImageCostStaleAfterSeconds      *int                          `json:"image_cost_stale_after_seconds"`
 	VideoPrice480P                  *float64                      `json:"video_price_480p"`
 	VideoPrice720P                  *float64                      `json:"video_price_720p"`
 	VideoPrice1080P                 *float64                      `json:"video_price_1080p"`
@@ -533,6 +541,10 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ImagePrice1K:                    req.ImagePrice1K,
 		ImagePrice2K:                    req.ImagePrice2K,
 		ImagePrice4K:                    req.ImagePrice4K,
+		ImageCostRoutingEnabled:         req.ImageCostRoutingEnabled,
+		ImageCostRoutingMode:            req.ImageCostRoutingMode,
+		ImageCostTolerancePercent:       req.ImageCostTolerancePercent,
+		ImageCostStaleAfterSeconds:      req.ImageCostStaleAfterSeconds,
 		VideoPrice480P:                  req.VideoPrice480P,
 		VideoPrice720P:                  req.VideoPrice720P,
 		VideoPrice1080P:                 req.VideoPrice1080P,
@@ -662,6 +674,10 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ImagePrice1K:                    req.ImagePrice1K,
 		ImagePrice2K:                    req.ImagePrice2K,
 		ImagePrice4K:                    req.ImagePrice4K,
+		ImageCostRoutingEnabled:         req.ImageCostRoutingEnabled,
+		ImageCostRoutingMode:            req.ImageCostRoutingMode,
+		ImageCostTolerancePercent:       req.ImageCostTolerancePercent,
+		ImageCostStaleAfterSeconds:      req.ImageCostStaleAfterSeconds,
 		VideoPrice480P:                  req.VideoPrice480P,
 		VideoPrice720P:                  req.VideoPrice720P,
 		VideoPrice1080P:                 req.VideoPrice1080P,

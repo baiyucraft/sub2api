@@ -1010,6 +1010,17 @@ export default {
         finalPricePreview: 'Final per-image price preview',
         notConfigured: 'Not configured'
       },
+      imageCostRouting: {
+        title: 'Image cost routing',
+        preferLowest: 'Prefer lowest (tolerance tier)',
+        strictLowest: 'Strict lowest',
+        tolerance: 'Price tolerance (%)',
+        staleAfter: 'Price stale threshold (seconds)',
+        hint: 'Only changes upstream account selection; user-facing image prices are unchanged.',
+        modeInvalid: 'Select a valid image cost routing mode.',
+        toleranceInvalid: 'Image cost tolerance must be between 0 and 100.',
+        staleAfterInvalid: 'Image cost stale threshold must be between 300 and 604800 seconds.'
+      },
       videoPricing: {
         title: 'Video Generation Pricing',
         description:

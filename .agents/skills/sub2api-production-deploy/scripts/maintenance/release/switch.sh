@@ -4,6 +4,12 @@ set -Eeuo pipefail
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
+release_profile=$profile
+if [[ $profile == 238 ]]; then
+  # Profile 238 inherits all profile-237 switch assertions; keep the
+  # original value for migration 237-specific handling below.
+  profile=237
+fi
 cd "$deploy_dir"
 load_release_compose_files "$deploy_dir"
 [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
@@ -19,24 +25,29 @@ mark_switch_stage() {
   mv -T -- "$switch_stage_file.tmp.$$" "$switch_stage_file"
 }
 mark_switch_stage initialized
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   [[ -f $state_dir/migration-195-plan.sha256 && ! -L $state_dir/migration-195-plan.sha256 ]]
   migration_status=$(<"$state_dir/migration-195-status")
   export MIGRATION_STATUS="$migration_status"
 fi
-if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   [[ -f $state_dir/migration-232-status && ! -L $state_dir/migration-232-status ]]
   migration_232_status=$(<"$state_dir/migration-232-status")
   [[ $migration_232_status == absent || $migration_232_status == verified ]]
-  if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+  if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
     [[ -f $state_dir/migration-233-status && ! -L $state_dir/migration-233-status ]]
     migration_233_status=$(<"$state_dir/migration-233-status")
     [[ $migration_233_status == absent || $migration_233_status == verified ]]
   fi
-  if [[ $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+  if [[ $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
     [[ -f $state_dir/migration-234-status && ! -L $state_dir/migration-234-status ]]
     migration_234_status=$(<"$state_dir/migration-234-status")
     [[ $migration_234_status == absent || $migration_234_status == verified ]]
+  fi
+  if [[ $release_profile == 238 ]]; then
+    [[ -f $state_dir/migration-237-status && ! -L $state_dir/migration-237-status ]]
+    migration_237_status=$(<"$state_dir/migration-237-status")
+    [[ $migration_237_status == absent || $migration_237_status == verified ]]
   fi
 fi
 active_compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
@@ -83,15 +94,15 @@ while IFS=$'\t' read -r migration migration_checksum; do
   recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
   [[ $recorded == "$migration_checksum" ]]
 done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
-if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   managed_monitor_key_name_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT character_maximum_length, (SELECT COUNT(*) FROM api_keys k JOIN channel_monitors m ON m.id=k.managed_monitor_id AND m.managed_api_key_id=k.id WHERE k.purpose='managed_monitor' AND k.deleted_at IS NULL AND k.name IS DISTINCT FROM '监控-' || BTRIM(m.name)) FROM information_schema.columns WHERE table_schema='public' AND table_name='api_keys' AND column_name='name'")
   [[ $managed_monitor_key_name_state == '103|0' ]]
 fi
-if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   reasoning_effort_policy_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COALESCE(MAX(CASE WHEN column_name='max_reasoning_effort' THEN data_type || ':' || is_nullable || ':' || column_default END),''), COALESCE(MAX(CASE WHEN column_name='reasoning_effort_mappings' THEN data_type || ':' || is_nullable || ':' || column_default END),'') FROM information_schema.columns WHERE table_schema='public' AND table_name='groups' AND column_name IN ('max_reasoning_effort','reasoning_effort_mappings')")
   [[ $reasoning_effort_policy_state == *'character varying:NO:'*"''::character varying"*'|'*'jsonb:NO:'*"'[]'::jsonb"* ]]
 fi
-if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   alipay_mobile_precreate_deep_link_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*), COUNT(*) FILTER (WHERE value IN ('true','false')) FROM settings WHERE key='ALIPAY_MOBILE_PRECREATE_DEEP_LINK'")
   [[ $alipay_mobile_precreate_deep_link_state == '1|1' ]]
   group_auth_cache_image_generation_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*) FILTER (WHERE pg_get_functiondef(p.oid) LIKE '%OLD.allow_image_generation IS NOT DISTINCT FROM NEW.allow_image_generation%'), (SELECT COUNT(*) FROM pg_trigger t WHERE t.tgrelid='groups'::regclass AND t.tgname='trg_groups_auth_cache_invalidation' AND NOT t.tgisinternal AND t.tgenabled <> 'D') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='enqueue_group_auth_cache_invalidation' AND pg_get_function_identity_arguments(p.oid)=''")
@@ -99,7 +110,7 @@ if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 |
   composite_model_routes_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='composite_model_routes'), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid='composite_model_routes'::regclass AND contype='c' AND conname IN ('composite_model_routes_match_type_check','composite_model_routes_endpoint_check','composite_model_routes_target_platform_check')), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid='composite_model_routes'::regclass AND contype='f' AND confrelid='groups'::regclass AND confdeltype='c'), (SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND tablename='composite_model_routes' AND indexname IN ('idx_composite_model_routes_unique_active','idx_composite_model_routes_group_enabled','idx_composite_model_routes_group_priority'))")
   [[ $composite_model_routes_state == '13|3|1|3' ]]
 fi
-if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   session_id_columns_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*) FILTER (WHERE table_name='usage_logs' AND data_type='character varying' AND character_maximum_length=255 AND is_nullable='YES'), COUNT(*) FILTER (WHERE table_name='batch_image_jobs' AND data_type='character varying' AND character_maximum_length=255 AND is_nullable='YES') FROM information_schema.columns WHERE table_schema='public' AND column_name='session_id'")
   [[ $session_id_columns_state == '1|1' ]]
   live_request_type_state=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COUNT(*)=1 AND BOOL_AND(pg_get_constraintdef(oid) LIKE '%request_type <= 5%') FROM pg_constraint WHERE conrelid='usage_logs'::regclass AND conname='usage_logs_request_type_check'")
@@ -109,15 +120,15 @@ if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 |
   email_alias_index_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT i.indisvalid,i.indisready,pg_get_expr(i.indexprs,i.indrelid)='replace(lower(TRIM(BOTH FROM email)), ''.''::text, ''''::text)',pg_get_expr(i.indpred,i.indrelid)='(deleted_at IS NULL)',o.opcname='text_pattern_ops' FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_opclass o ON o.oid=i.indclass[0] WHERE c.relname='idx_users_email_dot_stripped'")
   [[ $email_alias_index_state == 't|t|t|t|t' ]]
 fi
-if [[ $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   passkey_schema_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT to_regclass('public.passkey_user_handles') IS NOT NULL, to_regclass('public.passkey_credentials') IS NOT NULL, (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='passkey_user_handles' AND ((column_name='user_id' AND data_type='bigint' AND is_nullable='NO') OR (column_name='user_handle' AND data_type='bytea' AND is_nullable='NO') OR (column_name='created_at' AND data_type='timestamp with time zone' AND is_nullable='NO' AND column_default LIKE 'now()%'))), (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='passkey_credentials' AND ((column_name='id' AND data_type='bigint' AND is_nullable='NO' AND column_default LIKE 'nextval(%') OR (column_name='user_id' AND data_type='bigint' AND is_nullable='NO') OR (column_name='credential_id' AND data_type='bytea' AND is_nullable='NO') OR (column_name='name' AND data_type='character varying' AND character_maximum_length=100 AND is_nullable='NO' AND column_default LIKE '''Passkey''%') OR (column_name='credential_data' AND data_type='jsonb' AND is_nullable='NO') OR (column_name='last_used_at' AND data_type='timestamp with time zone' AND is_nullable='YES') OR (column_name IN ('created_at','updated_at') AND data_type='timestamp with time zone' AND is_nullable='NO' AND column_default LIKE 'now()%'))), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid IN ('passkey_user_handles'::regclass,'passkey_credentials'::regclass) AND contype='p'), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid IN ('passkey_user_handles'::regclass,'passkey_credentials'::regclass) AND contype='u'), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid IN ('passkey_user_handles'::regclass,'passkey_credentials'::regclass) AND contype='f' AND confrelid='users'::regclass AND confdeltype='c'), (SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND tablename='passkey_credentials' AND indexname IN ('passkey_credentials_user_id_idx','passkey_credentials_last_used_at_idx'))")
   [[ $passkey_schema_state == 't|t|3|8|2|2|2|2' ]]
 fi
-if [[ $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   user_usage_aggregation_schema_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT to_regclass('public.usage_dashboard_user_hourly') IS NOT NULL, to_regclass('public.usage_dashboard_user_daily') IS NOT NULL, to_regclass('public.usage_dashboard_user_backfill_state') IS NOT NULL, (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='usage_dashboard_user_hourly' AND ((column_name='bucket_start' AND data_type='timestamp with time zone' AND is_nullable='NO') OR (column_name='user_id' AND data_type='bigint' AND is_nullable='NO') OR (column_name IN ('input_tokens','output_tokens','cache_creation_tokens','cache_read_tokens') AND data_type='bigint' AND is_nullable='NO' AND column_default LIKE '0%') OR (column_name IN ('user_spend','account_cost') AND data_type='numeric' AND numeric_precision=20 AND numeric_scale=10 AND is_nullable='NO' AND column_default LIKE '0%') OR (column_name='computed_at' AND data_type='timestamp with time zone' AND is_nullable='NO' AND column_default LIKE 'now()%'))), (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='usage_dashboard_user_daily' AND ((column_name='bucket_date' AND data_type='date' AND is_nullable='NO') OR (column_name='user_id' AND data_type='bigint' AND is_nullable='NO') OR (column_name IN ('input_tokens','output_tokens','cache_creation_tokens','cache_read_tokens') AND data_type='bigint' AND is_nullable='NO' AND column_default LIKE '0%') OR (column_name IN ('user_spend','account_cost') AND data_type='numeric' AND numeric_precision=20 AND numeric_scale=10 AND is_nullable='NO' AND column_default LIKE '0%') OR (column_name='computed_at' AND data_type='timestamp with time zone' AND is_nullable='NO' AND column_default LIKE 'now()%'))), (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='usage_dashboard_user_backfill_state' AND ((column_name='id' AND data_type='smallint' AND is_nullable='NO') OR (column_name IN ('earliest_covered_date','last_completed_date') AND data_type='date' AND is_nullable='YES') OR (column_name='status' AND data_type='character varying' AND character_maximum_length=20 AND is_nullable='NO' AND column_default LIKE '''unavailable''%') OR (column_name IN ('coverage_start','coverage_end','target_end','completed_at') AND data_type='timestamp with time zone' AND is_nullable='YES') OR (column_name='attempt_count' AND data_type='bigint' AND is_nullable='NO' AND column_default LIKE '0%') OR (column_name='last_error' AND data_type='text' AND is_nullable='YES') OR (column_name='updated_at' AND data_type='timestamp with time zone' AND is_nullable='NO' AND column_default LIKE 'now()%'))), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid IN ('usage_dashboard_user_hourly'::regclass,'usage_dashboard_user_daily'::regclass,'usage_dashboard_user_backfill_state'::regclass) AND contype='p'), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid IN ('usage_dashboard_user_hourly'::regclass,'usage_dashboard_user_daily'::regclass) AND contype='f' AND confrelid='users'::regclass AND confdeltype='c'), (SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('idx_usage_dashboard_user_hourly_user_bucket','idx_usage_dashboard_user_daily_user_bucket')), (SELECT COUNT(*) FROM pg_constraint WHERE conrelid='usage_dashboard_user_backfill_state'::regclass AND contype='c'), (SELECT COUNT(*)=1 AND BOOL_AND(id=1 AND status IN ('available','building','partial','unavailable')) FROM usage_dashboard_user_backfill_state)")
   [[ $user_usage_aggregation_schema_state == 't|t|t|9|9|11|3|2|2|3|t' ]]
 fi
-if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   group_profit_control_schema_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*) FILTER (WHERE column_name='profit_control_enabled' AND data_type='boolean' AND is_nullable='NO' AND column_default='false'), COUNT(*) FILTER (WHERE column_name IN ('profit_min_margin','profit_safety_buffer') AND data_type='numeric' AND numeric_precision=10 AND numeric_scale=4 AND is_nullable='NO' AND column_default='0') FROM information_schema.columns WHERE table_schema='public' AND table_name='groups'")
   [[ $group_profit_control_schema_state == '1|2' ]]
   group_profit_auth_cache_trigger_definition=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT pg_get_functiondef('enqueue_group_auth_cache_invalidation()'::regprocedure)")
@@ -127,7 +138,7 @@ if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 |
   group_profit_auth_cache_trigger_state=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COUNT(*) FROM pg_trigger t WHERE t.tgrelid='groups'::regclass AND t.tgname='trg_groups_auth_cache_invalidation' AND NOT t.tgisinternal AND t.tgenabled <> 'D'")
   [[ $group_profit_auth_cache_trigger_state == 1 ]]
 fi
-if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 237 ]]; then
+if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   usage_log_response_model_schema_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*) FILTER (WHERE column_name='upstream_response_model' AND data_type='character varying' AND character_maximum_length=200 AND is_nullable='YES'), COUNT(*) FILTER (WHERE column_name='upstream_model_mismatch' AND data_type='boolean' AND is_nullable='YES') FROM information_schema.columns WHERE table_schema='public' AND table_name='usage_logs'")
   [[ $usage_log_response_model_schema_state == '1|1' ]]
   usage_log_upstream_model_columns_verified=true
@@ -135,7 +146,7 @@ if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 |
   [[ $usage_log_model_mismatch_index_state == 't|t|t|t' ]]
   usage_log_upstream_model_mismatch_index_verified=true
 fi
-if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 237 ]]; then
+if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   channel_monitor_v2_schema_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "WITH expected_tables(name) AS (VALUES
     ('channel_monitor_v2_config'),('channel_monitor_v2_metrics_1m'),('channel_monitor_v2_user_metrics_1m'),('channel_monitor_v2_error_metrics_1m'),('channel_monitor_v2_latency_histograms_1m'),('channel_monitor_v2_watermarks'),('channel_monitor_v2_metrics_rollup'),('channel_monitor_v2_user_metrics_rollup'),('channel_monitor_v2_error_metrics_rollup'),('channel_monitor_v2_latency_histograms_rollup')
   ), expected_indexes(name) AS (VALUES
@@ -166,10 +177,10 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
   FROM information_schema.columns WHERE table_schema='public' AND table_name='groups'")
   [[ $group_media_pricing_schema_state == '1|4' ]]
   MIGRATION_STATUS="$migration_232_status" "$assets_dir/migration-232-assert.sh" postflight
-  if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+  if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
     MIGRATION_STATUS="$migration_233_status" "$assets_dir/migration-233-assert.sh" postflight
   fi
-  if [[ $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+  if [[ $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
     group_model_pricing_schema_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*) FILTER (WHERE column_name='long_context_pricing_enabled' AND data_type='boolean' AND is_nullable='NO' AND column_default='true'), COUNT(*) FILTER (WHERE column_name='model_pricing' AND data_type='jsonb' AND is_nullable='YES') FROM information_schema.columns WHERE table_schema='public' AND table_name='groups'")
     [[ $group_model_pricing_schema_state == '1|1' ]]
     MIGRATION_STATUS="$migration_234_status" "$assets_dir/migration-234-assert.sh" postflight
@@ -182,7 +193,7 @@ fi
 mark_switch_stage schema_verified
 [[ $(docker inspect -f '{{.Image}}' "$migration_container") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.State.ExitCode}}' "$migration_container") == 0 ]]
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   migration_checksum=$(jq -er '.manifest.migration_sha256["195_upstream_scheduling_monitor_rates.sql"]' "$active_claim/gate.json")
   migration_manifest_sha256=$(jq -cS '.manifest.migration_sha256' "$active_claim/gate.json" | sha256sum | awk '{print $1}')
   marker_tmp="$state_dir/.migration-committed.tmp.$$"
@@ -477,7 +488,7 @@ fi
 mark_switch_stage active_health_verified
 assert_prompt_audit_disabled
 mark_switch_stage prompt_audit_verified
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   "$assets_dir/migration-195-assert.sh" postflight_runtime
 fi
 mark_switch_stage runtime_verified
@@ -493,44 +504,44 @@ printf 'candidate_port=%s\n' "$candidate_port"
 printf 'active_container=%s\n' "$active_container"
 printf 'active_port=%s\n' "$active_port"
 printf 'background_activation=%s\n' "$([[ $deployment_mode == downtime ]] && printf pass || printf pending)"
-if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'managed_monitor_key_names_verified=true\n'
 fi
-if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'reasoning_effort_policy_verified=true\n'
 fi
-if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'alipay_mobile_precreate_migration_verified=true\n'
   printf 'group_auth_cache_image_generation_verified=true\n'
   printf 'composite_model_routes_verified=true\n'
 fi
-if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'session_id_columns_verified=true\n'
   printf 'live_request_type_verified=true\n'
   printf 'group_allow_live_verified=true\n'
   printf 'email_alias_index_verified=true\n'
 fi
-if [[ $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'passkey_schema_verified=true\n'
 fi
-if [[ $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'user_usage_aggregation_schema_verified=true\n'
 fi
-if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'group_profit_control_schema_verified=true\n'
   printf 'group_profit_auth_cache_trigger_verified=true\n'
 fi
-if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'usage_log_upstream_model_columns_verified=true\n'
   printf 'usage_log_upstream_model_mismatch_index_verified=true\n'
 fi
-if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
+if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'channel_monitor_v2_schema_verified=true\n'
   printf 'channel_monitor_v2_defaults_verified=true\n'
   printf 'group_media_pricing_schema_verified=true\n'
   printf 'group_media_auth_cache_trigger_verified=true\n'
 fi
-if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 237 ]]; then
+if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'migration_233_duplicate_keys=0\n'
   printf 'migration_233_index_verified=true\n'
   printf 'migration_233_table_state=verified\n'
@@ -540,16 +551,26 @@ if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 |
   printf 'migration_233_trigger_verified=true\n'
   printf 'migration_233_postflight=pass\n'
 fi
-if [[ $profile == 235 || $profile == 236 || $profile == 237 || $profile == 237 ]]; then
+if [[ $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   printf 'migration_234_schema_state=verified\n'
   printf 'migration_234_schema_verified=true\n'
   printf 'migration_234_postflight=pass\n'
 fi
-if [[ $profile == 237 ]]; then
+if [[ $profile == 237 || $profile == 238 ]]; then
   printf 'migration_235_schema_state=verified\n'
   printf 'migration_235_schema_verified=true\n'
   printf 'migration_235_postflight=pass\n'
   printf 'migration_236_schema_state=verified\n'
   printf 'migration_236_schema_verified=true\n'
   printf 'migration_236_postflight=pass\n'
+fi
+if [[ $release_profile == 238 ]]; then
+  migration_237_context="$state_dir/migration-237-context.sh"
+  printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_237_context"
+  chmod 400 "$migration_237_context"
+  migration_237_status=$(<"$state_dir/migration-237-status")
+  ASSERT_CONTEXT_FILE="$state_dir/migration-237-context.sh" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER=sub2api ASSERT_DB_NAME=sub2api MIGRATION_STATUS="$migration_237_status" RELEASE_DIR="$state_dir" "$assets_dir/migration-237-assert.sh" postflight
+  printf 'migration_237_schema_state=verified\n'
+  printf 'migration_237_schema_verified=true\n'
+  printf 'migration_237_postflight=pass\n'
 fi
