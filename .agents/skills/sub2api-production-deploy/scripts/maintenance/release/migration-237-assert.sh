@@ -19,6 +19,13 @@ FROM information_schema.columns WHERE table_schema='public' AND table_name='grou
 
 trigger_state=$(query "SELECT COUNT(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='enqueue_group_auth_cache_invalidation' AND pg_get_functiondef(p.oid) LIKE '%image_cost_routing_enabled%'") || exit 1
 
+# Persist the preflight/postflight status in the release recovery state, just
+# like the other profile-specific migration assertions.  The downtime switch
+# consumes this file before stopping the active application; omitting it makes
+# a verified profile-238 preflight fail closed at the initialized stage.
+printf '%s\n' "$migration_status" > "$state_dir/migration-237-status"
+chmod 600 "$state_dir/migration-237-status"
+
 if [[ $phase == preflight && $migration_status == absent ]]; then
   [[ $schema_state == '0|0|0|0' && $trigger_state == 0 ]] || exit 1
   printf 'migration_237_schema_state=absent\n'
