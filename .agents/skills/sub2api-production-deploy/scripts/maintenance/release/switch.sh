@@ -24,6 +24,33 @@ mark_switch_stage() {
   chmod 600 "$switch_stage_file.tmp.$$"
   mv -T -- "$switch_stage_file.tmp.$$" "$switch_stage_file"
 }
+
+migration_substage=not_started
+migration_failure_file="$state_dir/migration-switch-failure"
+mark_migration_substage() {
+  local value=${1:?migration substage is required}
+  [[ $value =~ ^(schema_stage_marker|migration_container_identity|migration_container_exit|migration_marker_prepare|migration_marker_manifest|migration_marker_publish|migration_195_postflight)$ ]]
+  migration_substage=$value
+  local tmp="$state_dir/migration-switch-substage.tmp.$$"
+  printf '%s\n' "$value" > "$tmp"
+  chmod 600 "$tmp"
+  mv -T -- "$tmp" "$state_dir/migration-switch-substage"
+}
+
+record_migration_failure() {
+  local failure_line=${1:?migration failure line is required}
+  local status=${2:?migration failure status is required}
+  if [[ $status -ne 0 && $migration_substage != not_started ]]; then
+    local tmp="$migration_failure_file.tmp.$$"
+    if printf 'switch_failure_stage=schema_verified\nswitch_failure_substage=%s\nswitch_failure_line=%s\n' "$migration_substage" "$failure_line" > "$tmp" &&
+      chmod 600 "$tmp" && mv -T -- "$tmp" "$migration_failure_file"; then
+      :
+    else
+      rm -f -- "$tmp"
+    fi
+  fi
+  return "$status"
+}
 mark_switch_stage initialized
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
   [[ -f $state_dir/migration-195-plan.sha256 && ! -L $state_dir/migration-195-plan.sha256 ]]
@@ -190,22 +217,31 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
   group_media_pricing_schema_verified=true
   group_media_auth_cache_trigger_verified=true
 fi
+mark_migration_substage schema_stage_marker
+trap 'record_migration_failure "$LINENO" "$?"' ERR
 mark_switch_stage schema_verified
+mark_migration_substage migration_container_identity
 [[ $(docker inspect -f '{{.Image}}' "$migration_container") == "$candidate_image_id" ]]
+mark_migration_substage migration_container_exit
 [[ $(docker inspect -f '{{.State.ExitCode}}' "$migration_container") == 0 ]]
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 ]]; then
+  mark_migration_substage migration_marker_prepare
   migration_checksum=$(jq -er '.manifest.migration_sha256["195_upstream_scheduling_monitor_rates.sql"]' "$active_claim/gate.json")
   migration_manifest_sha256=$(jq -cS '.manifest.migration_sha256' "$active_claim/gate.json" | sha256sum | awk '{print $1}')
   marker_tmp="$state_dir/.migration-committed.tmp.$$"
+  mark_migration_substage migration_marker_manifest
   printf 'plan_sha256=%s\nmigration_manifest_sha256=%s\n' "$(<"$state_dir/migration-195-plan.sha256")" "$migration_manifest_sha256" > "$marker_tmp"
   while IFS=$'\t' read -r migration migration_checksum; do
     printf 'migration=%s checksum=%s\n' "$migration" "$migration_checksum" >> "$marker_tmp"
   done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
   chmod 600 "$marker_tmp"
+  mark_migration_substage migration_marker_publish
   [[ ! -e $state_dir/migration-committed && ! -L $state_dir/migration-committed ]]
   mv -T -- "$marker_tmp" "$state_dir/migration-committed"
+  mark_migration_substage migration_195_postflight
   "$assets_dir/migration-195-assert.sh" postflight_db
 fi
+trap - ERR
 mark_switch_stage migration_committed
 docker rm "$migration_container" >/dev/null 2>&1
 candidate_start_exit=0
