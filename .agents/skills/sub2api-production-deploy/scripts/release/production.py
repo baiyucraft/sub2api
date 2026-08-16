@@ -852,7 +852,12 @@ exit "$code"
                 "migration_236_schema_state", "migration_236_schema_verified", "migration_236_postflight",
             })
         if getattr(self, "profile", {}).get("name") == "238":
-            allowed.update({"migration_237_schema_state", "migration_237_schema_verified", "migration_237_postflight"})
+            allowed.update({
+                "migration_237_schema_state",
+                "migration_237_schema_verified",
+                "migration_237_preflight",
+                "migration_237_postflight",
+            })
         try:
             values = self.run_remote(
                 "racknerd",
