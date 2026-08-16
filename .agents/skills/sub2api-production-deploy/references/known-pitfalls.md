@@ -221,3 +221,12 @@
 - 修复：默认成功日志保留 90 天；清理采用 dry-run 生成 `plan_sha256`，apply 必须绑定同一 checksum。
 - 预防测试：计划漂移拒绝、受保护 release 不删除、重复计划幂等和 `git diff --check`。
 - 状态：CLI 已实现，待 VM Gate 复验。
+
+## 上传前空间只贴着 5 GiB
+
+- 现象：备份机 doctor 在发布开始前刚好通过，但生成发布恢复点后，三次上传都返回 `ERROR: less than 5 GiB free`，发布在 migration 前自动恢复。
+- 根因：doctor 只验证当时可用空间达到 5 GiB；receiver 在新加密包落盘后再次要求仍保留 5 GiB。若发布前只高出几十 KiB，任何真实上传都会失败。
+- 证据：失败 release 的 root-only 原始日志显示三个 upload attempt 均命中同一容量错误；备份目录已只剩最新 2 组 daily，而 `/var/log/journal` 占用约 3.9 GiB。
+- 修复：保留 daily retention 的两组下限；新增版本化 `backup-host-space-clean.sh`，仅把 systemd journal 压到 1 GiB，并要求清理后至少保留 `5 GiB + 512 MiB` 上传余量。
+- 预防测试：脚本必须 dry-run、绑定 `plan_sha256`、获取三把锁、拒绝 symlink/跨设备，不得包含 `rm -rf` 或遍历备份根；生产 doctor 通过后仍需验证上传余量。
+- 状态：已实现，等待真实备份机 dry-run/apply 和新 release 验证。

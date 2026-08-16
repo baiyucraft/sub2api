@@ -284,6 +284,34 @@ backup-retention-clean.sh dry-run
 
 如果 daily 只剩 2 组仍无法达到 5 GiB，必须扩容备份机或进入人工 retention 审核，不得扩大删除范围。
 
+### 备份机宿主日志清理合同
+
+当 daily 已只剩默认保留的最新 2 组，但备份机根文件系统仍不足以承接下一个上传时，先检查与备份证据无关的宿主机日志占用。只有 `/var/log/journal` 明确异常增长时，允许使用：
+
+```text
+.agents/skills/sub2api-production-deploy/scripts/release/backup-host-space-clean.sh
+```
+
+固定策略：
+
+- 只执行 `journalctl --rotate` 和容量有界的 `journalctl --vacuum-size=1G`。
+- 不读取日志内容，不删除 `/var/log` 其他文件，不触碰 `/srv/sub2api-backups` 中的 daily、baseline、release、candidate、verified、恢复包或 release 日志。
+- dry-run 绑定根文件系统设备、1 GiB journal 上限、5 GiB 最低余量和 512 MiB 上传预留，生成 `plan_sha256`；apply 必须使用同一 checksum。
+- apply 同时获取备份晋升、daily retention 和宿主清理锁；任一锁忙、路径为 symlink、设备不一致或计划漂移均停止。
+- 清理后必须同时满足 journal 容量上限容差，以及备份文件系统至少 `5 GiB + 512 MiB` 可用空间。
+
+标准流程：
+
+```text
+backup-host-space-clean.sh dry-run
+  -> 核对只包含 journal vacuum
+  -> 记录 plan_sha256
+  -> backup-host-space-clean.sh apply <同一 plan_sha256>
+  -> doctor --node backup
+```
+
+宿主日志清理不能替代备份 retention 或磁盘扩容。若 journal 已在 1 GiB 左右且空间仍不足，停止并扩容或单独审核 release retention；禁止降低 5 GiB 门槛。
+
 ## 密钥与告警
 
 - 加密私钥不得与密文包同库存放，不得进入 Git、日志、manifest 明文或最终报告。
