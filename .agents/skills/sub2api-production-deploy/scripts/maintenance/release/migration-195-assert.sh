@@ -23,6 +23,29 @@ query() {
   docker exec "$db_container" psql -X -A -t -F '|' -v ON_ERROR_STOP=1 -U "$db_user" -d "$db_name" -c "$1"
 }
 
+failure_file="$state_dir/migration-195-failure"
+write_failure() {
+  local code=${1:?failure code is required}
+  local tmp="$failure_file.tmp.$$"
+  if [[ -d $state_dir && ! -L $state_dir ]]; then
+    if printf 'migration_195_failure_phase=%s\nmigration_195_failure_code=%s\n' "$phase" "$code" > "$tmp" &&
+      chmod 600 "$tmp" && mv -T -- "$tmp" "$failure_file"; then
+      return 0
+    fi
+    rm -f -- "$tmp"
+  fi
+  return 1
+}
+
+fail() {
+  local code=${1:?failure code is required}
+  write_failure "$code" || true
+  printf 'migration_195_preflight=fail\n' >&2
+  printf 'migration_195_failure_phase=%s\n' "$phase" >&2
+  printf 'migration_195_failure_code=%s\n' "$code" >&2
+  exit 1
+}
+
 redis_watermark() {
   local redis_password
   redis_password=$(docker inspect "$redis_container" | jq -r '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--requirepass")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first // "") end')
@@ -30,10 +53,10 @@ redis_watermark() {
 }
 
 if [[ $phase == preflight ]]; then
-  [[ -f $config_file && ! -L $config_file ]]
+  [[ -f $config_file && ! -L $config_file ]] || fail config_file
   expected_timezone=$(sed -n 's/^timezone:[[:space:]]*//p' "$config_file" | head -n1 | tr -d '"\r')
   [[ -n $expected_timezone ]] || expected_timezone=Asia/Shanghai
-  [[ $expected_timezone == UTC || $expected_timezone =~ ^[a-zA-Z_+-]+(/[a-zA-Z0-9_+-]+)+$ ]]
+  [[ $expected_timezone == UTC || $expected_timezone =~ ^[a-zA-Z_+-]+(/[a-zA-Z0-9_+-]+)+$ ]] || fail timezone_value
   printf '%s\n' "$expected_timezone" > "$state_dir/migration-195-timezone.name"
   chmod 600 "$state_dir/migration-195-timezone.name"
   if [[ $migration_status == verified ]]; then
@@ -49,18 +72,20 @@ SELECT
   (SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.deleted_at IS NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.upstream_source_rate_multiplier IS DISTINCT FROM k.source_rate_multiplier OR a.priority IS DISTINCT FROM CEIL(k.rate_multiplier*100)::int)),
   (SELECT event_id FROM last_event)")
     IFS='|' read -r affected unproven account_mismatch outbox_event_id <<<"$terminal"
-    [[ $unproven == 0 && $account_mismatch == 0 ]]
-    outbox_highwater=$(query "SELECT COALESCE(MAX(id),0) FROM scheduler_outbox")
-    [[ $outbox_highwater =~ ^[0-9]+$ ]]
+    [[ $unproven == 0 ]] || fail unproven_rate
+    [[ $account_mismatch == 0 ]] || fail account_binding_mismatch
+    outbox_highwater=$(query "SELECT COALESCE(MAX(id),0) FROM scheduler_outbox") || fail outbox_query
+    [[ $outbox_highwater =~ ^[0-9]+$ ]] || fail outbox_value
     outbox_already_consumed=false
     if [[ $affected -gt 0 && $outbox_event_id == 0 ]]; then
       # A missing exact event is only safe when Redis covers every committed outbox row still available as evidence.
       current_watermark=$(redis_watermark)
-      [[ $outbox_highwater =~ ^[1-9][0-9]*$ && $current_watermark =~ ^[0-9]+$ && $current_watermark -gt 0 && $current_watermark -ge $outbox_highwater ]]
+      [[ $outbox_highwater =~ ^[1-9][0-9]*$ && $current_watermark =~ ^[0-9]+$ && $current_watermark -gt 0 && $current_watermark -ge $outbox_highwater ]] || fail outbox_watermark
       outbox_already_consumed=true
     fi
-    terminal_sha=$(query "COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}')
-    account_ids_sha=$(query "COPY (SELECT id FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}')
+    terminal_sha=$(query "COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}') || fail data_plan_query
+    account_ids_sha=$(query "COPY (SELECT id FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}') || fail account_ids_query
+    [[ $terminal_sha =~ ^[0-9a-f]{64}$ && $account_ids_sha =~ ^[0-9a-f]{64}$ ]] || fail data_plan_hash
     printf '%s\n' "$terminal_sha" > "$state_dir/migration-195-data-plan.sha256"
     printf '%s\n' "$account_ids_sha" > "$state_dir/migration-195-account-ids.sha256"
     printf '%s\n' "$affected" > "$state_dir/migration-195-affected.count"
@@ -128,10 +153,12 @@ WITH values AS (
 )
 SELECT affected,recomputed,preserved,skipped,unproven,conflict,unexpected FROM values")
   IFS='|' read -r affected recomputed preserved skipped unproven conflict unexpected <<<"$counts"
-  [[ $unproven == 0 && $conflict == 0 && $unexpected == 0 ]]
-  data_plan_sha=$(query "$canonical_plan_query" | sha256sum | awk '{print $1}')
-  account_ids_sha=$(query "COPY (SELECT id FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}')
-  [[ $data_plan_sha =~ ^[0-9a-f]{64}$ && $account_ids_sha =~ ^[0-9a-f]{64}$ ]]
+  [[ $unproven == 0 ]] || fail unproven_rate
+  [[ $conflict == 0 ]] || fail account_binding_conflict
+  [[ $unexpected == 0 ]] || fail unexpected_data
+  data_plan_sha=$(query "$canonical_plan_query" | sha256sum | awk '{print $1}') || fail data_plan_query
+  account_ids_sha=$(query "COPY (SELECT id FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}') || fail account_ids_query
+  [[ $data_plan_sha =~ ^[0-9a-f]{64}$ && $account_ids_sha =~ ^[0-9a-f]{64}$ ]] || fail data_plan_hash
   printf '%s\n' "$data_plan_sha" > "$state_dir/migration-195-data-plan.sha256"
   printf '%s\n' "$account_ids_sha" > "$state_dir/migration-195-account-ids.sha256"
   printf '%s\n' "$affected" > "$state_dir/migration-195-affected.count"
@@ -150,32 +177,37 @@ SELECT affected,recomputed,preserved,skipped,unproven,conflict,unexpected FROM v
 fi
 
 if [[ $phase == bind ]]; then
-  [[ -f $state_dir/recovery-point.age.sha256 && ! -L $state_dir/recovery-point.age.sha256 ]]
-  [[ -f $state_dir/migration-195-data-plan.sha256 && ! -L $state_dir/migration-195-data-plan.sha256 ]]
+  [[ -f $state_dir/recovery-point.age.sha256 && ! -L $state_dir/recovery-point.age.sha256 ]] || fail recovery_point
+  [[ -f $state_dir/migration-195-data-plan.sha256 && ! -L $state_dir/migration-195-data-plan.sha256 ]] || fail data_plan_missing
   recovery_sha=$(awk 'NR==1{print $1}' "$state_dir/recovery-point.age.sha256")
   data_plan_sha=$(<"$state_dir/migration-195-data-plan.sha256")
-  [[ $recovery_sha =~ ^[0-9a-f]{64}$ && $data_plan_sha =~ ^[0-9a-f]{64}$ ]]
+  [[ $recovery_sha =~ ^[0-9a-f]{64}$ && $data_plan_sha =~ ^[0-9a-f]{64}$ ]] || fail data_plan_hash
   plan_sha=$(printf '%s|%s\n' "$data_plan_sha" "$recovery_sha" | sha256sum | awk '{print $1}')
-  printf '%s\n' "$plan_sha" > "$state_dir/migration-195-plan.sha256"
-  chmod 600 "$state_dir/migration-195-plan.sha256"
+  printf '%s\n' "$plan_sha" > "$state_dir/migration-195-plan.sha256" || fail plan_write
+  chmod 600 "$state_dir/migration-195-plan.sha256" || fail plan_write
   printf 'migration_195_plan_sha256=%s\n' "$plan_sha"
   printf 'migration_195_recovery_sha256=%s\n' "$recovery_sha"
   exit 0
 fi
 
-[[ -f $state_dir/migration-195-plan.sha256 && ! -L $state_dir/migration-195-plan.sha256 ]]
-[[ -f $state_dir/migration-195-affected.count && ! -L $state_dir/migration-195-affected.count ]]
+[[ -f $state_dir/migration-195-plan.sha256 && ! -L $state_dir/migration-195-plan.sha256 ]] || fail plan_missing
+[[ -f $state_dir/migration-195-affected.count && ! -L $state_dir/migration-195-affected.count ]] || fail affected_missing
 
 if [[ $phase == postflight_db ]]; then
-  [[ -f $state_dir/migration-195-timezone.name && ! -L $state_dir/migration-195-timezone.name ]]
+  [[ -f $state_dir/migration-195-timezone.name && ! -L $state_dir/migration-195-timezone.name ]] || fail timezone_file
   expected_timezone=$(<"$state_dir/migration-195-timezone.name")
-  [[ $expected_timezone == UTC || $expected_timezone =~ ^[a-zA-Z_+-]+(/[a-zA-Z0-9_+-]+)+$ ]]
-  actual_data_plan_sha=$(query "COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}')
+  [[ $expected_timezone == UTC || $expected_timezone =~ ^[a-zA-Z_+-]+(/[a-zA-Z0-9_+-]+)+$ ]] || fail timezone_value
+  actual_data_plan_sha=$(query "COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}') || fail data_plan_query
+  [[ $actual_data_plan_sha =~ ^[0-9a-f]{64}$ ]] || fail data_plan_hash
   expected_data_plan_sha=$(<"$state_dir/migration-195-data-plan.sha256")
   if [[ $actual_data_plan_sha == "$expected_data_plan_sha" ]]; then recompute_mismatch=0; else recompute_mismatch=1; fi
-  actual_account_ids_sha=$(query "COPY (SELECT id FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}')
+  [[ $recompute_mismatch == 0 ]] || fail data_plan_mismatch
+  [[ -f $state_dir/migration-195-account-ids.sha256 && ! -L $state_dir/migration-195-account-ids.sha256 ]] || fail account_ids_file
+  actual_account_ids_sha=$(query "COPY (SELECT id FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}') || fail account_ids_query
+  [[ $actual_account_ids_sha =~ ^[0-9a-f]{64}$ ]] || fail account_ids_hash
   if [[ $actual_account_ids_sha == "$(<"$state_dir/migration-195-account-ids.sha256")" ]]; then account_ids_mismatch=0; else account_ids_mismatch=1; fi
-  migration_status=$(<"$state_dir/migration-195-status")
+  migration_status=$(<"$state_dir/migration-195-status") || fail status_file
+  [[ $migration_status == absent || $migration_status == verified ]] || fail status_value
   if [[ $migration_status == verified ]]; then
     [[ $recompute_mismatch == 0 ]]
     printf 'migration_195_database_postflight=true\n'
@@ -190,10 +222,10 @@ if [[ $phase == postflight_db ]]; then
     printf 'migration_195_plan_sha256=%s\n' "$(<"$state_dir/migration-195-plan.sha256")"
     exit 0
   fi
-  outbox_baseline=$(<"$state_dir/migration-195-outbox-baseline.id")
+  outbox_baseline=$(<"$state_dir/migration-195-outbox-baseline.id") || fail outbox_baseline_file
   [[ -f $state_dir/migration-195-source-rate-column-existed && ! -L $state_dir/migration-195-source-rate-column-existed ]]
   source_rate_column_existed=$(<"$state_dir/migration-195-source-rate-column-existed")
-  [[ $source_rate_column_existed == t || $source_rate_column_existed == f ]]
+  [[ $source_rate_column_existed == t || $source_rate_column_existed == f ]] || fail source_rate_state
   postflight=$(query "
 WITH expected_accounts AS (
   SELECT COALESCE(jsonb_agg(id ORDER BY id),'[]'::jsonb) AS ids, COUNT(*) AS affected FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL
@@ -216,6 +248,7 @@ WITH expected_accounts AS (
 )
 SELECT affected,unproven,account_mismatch,snapshot_missing,outbox_missing,outbox_event_id,constraint_missing,trigger_missing FROM values")
   IFS='|' read -r affected unproven account_mismatch snapshot_missing outbox_missing outbox_event_id constraint_missing trigger_missing <<<"$postflight"
+  [[ $affected =~ ^[0-9]+$ && $unproven =~ ^[0-9]+$ && $account_mismatch =~ ^[0-9]+$ && $snapshot_missing =~ ^[0-9]+$ && $outbox_missing =~ ^[0-9]+$ && $outbox_event_id =~ ^[0-9]+$ && $constraint_missing =~ ^[0-9]+$ && $trigger_missing =~ ^[0-9]+$ ]] || fail postflight_shape
   printf '%s\n' "$recompute_mismatch" > "$state_dir/migration-195-recompute-mismatch.count"
   printf '%s\n' "$account_ids_mismatch" > "$state_dir/migration-195-account-ids-mismatch.count"
   printf '%s\n' "$unproven" > "$state_dir/migration-195-unproven.count"
