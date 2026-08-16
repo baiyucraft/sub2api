@@ -267,13 +267,23 @@
                 </template>
               </HelpTooltip>
               <span v-else class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
-              <span
-                v-if="accountDisplayEmail(row)"
-                class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
-                :title="accountDisplayEmail(row) + (row.parent_chatgpt_account_id ? ' · ' + row.parent_chatgpt_account_id : '')"
+              <div
+                v-if="accountDisplayEmail(row) || (scope === 'upstream' && row.upstream_image_pricing?.supported)"
+                class="flex min-w-0 flex-wrap items-center gap-1"
               >
-                {{ accountDisplayEmail(row) }}
-              </span>
+                <span
+                  v-if="accountDisplayEmail(row)"
+                  class="max-w-[200px] truncate text-xs text-gray-500 dark:text-gray-400"
+                  :title="accountDisplayEmail(row) + (row.parent_chatgpt_account_id ? ' · ' + row.parent_chatgpt_account_id : '')"
+                >
+                  {{ accountDisplayEmail(row) }}
+                </span>
+                <span
+                  v-if="scope === 'upstream' && row.upstream_image_pricing?.supported"
+                  :class="upstreamImagePricingBadgeClass(row)"
+                  :title="upstreamImagePricingTooltip(row)"
+                >{{ t('admin.accounts.upstreamImagePricing.badge') }}</span>
+              </div>
             </div>
           </template>
           <template #cell-notes="{ value }">
@@ -410,18 +420,21 @@
             </div>
           </template>
           <template #cell-rate_multiplier="{ row }">
-            <span class="inline-flex items-center gap-1 text-sm font-mono text-gray-700 dark:text-gray-300">
-              <span>{{ formatMultiplier(row.rate_multiplier ?? 1) }}x</span>
-              <span
-                v-if="row.extra?.upstream_billing_rate_sync_enabled === true"
-                class="inline-flex cursor-help text-emerald-600 dark:text-emerald-400"
-                :aria-label="t('admin.accounts.upstreamBilling.syncedRateTooltip')"
-                :title="t('admin.accounts.upstreamBilling.syncedRateTooltip')"
-                data-testid="account-rate-sync-indicator"
-              >
-                <Icon name="sync" size="xs" />
+            <div class="flex flex-col gap-0.5">
+              <span class="inline-flex items-center gap-1 text-sm font-mono text-gray-700 dark:text-gray-300">
+                <span>{{ formatMultiplier(row.rate_multiplier ?? 1) }}x</span>
+                <span
+                  v-if="row.extra?.upstream_billing_rate_sync_enabled === true"
+                  class="inline-flex cursor-help text-emerald-600 dark:text-emerald-400"
+                  :aria-label="t('admin.accounts.upstreamBilling.syncedRateTooltip')"
+                  :title="t('admin.accounts.upstreamBilling.syncedRateTooltip')"
+                  data-testid="account-rate-sync-indicator"
+                ><Icon name="sync" size="xs" /></span>
               </span>
-            </span>
+              <span v-if="scope === 'upstream' && row.upstream_image_pricing?.supported" class="text-[10px] font-mono leading-4 text-gray-500 dark:text-dark-400" :title="t('admin.accounts.upstreamImagePricing.costTitle', { mode: upstreamImagePricingRateLabel(row), status: upstreamImagePricingStatus(row) })">
+                {{ t('admin.accounts.upstreamImagePricing.badge') }} 1K {{ formatImageCost(row.upstream_image_pricing.final_cost_1k, row.upstream_image_pricing.currency) }} / 2K {{ formatImageCost(row.upstream_image_pricing.final_cost_2k, row.upstream_image_pricing.currency) }} / 4K {{ formatImageCost(row.upstream_image_pricing.final_cost_4k, row.upstream_image_pricing.currency) }}（{{ upstreamImagePricingRateLabel(row) }}）
+              </span>
+            </div>
           </template>
           <template #header-upstream_billing_rate="{ column }">
             <div class="flex items-center gap-1">
@@ -671,6 +684,53 @@ import { formatMultiplier } from '@/utils/formatters'
 import { escapeCsvCell } from '@/utils/csv'
 import type { Account, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
+const formatImageCost = (value: number | null | undefined, currency = 'USD') => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '-'
+  const digits = value === 0 ? 0 : value < 0.01 ? 4 : 3
+  return `${currency === 'USD' ? '$' : currency + ' '}${value.toFixed(digits)}`
+}
+
+const upstreamImagePricingStatus = (account: Account) => {
+  const pricing = account.upstream_image_pricing
+  if (!pricing) return t('admin.accounts.upstreamImagePricing.statusUnavailable')
+  if (pricing.stale) return t('admin.accounts.upstreamImagePricing.statusStale')
+  if (pricing.status === 'partial') return t('admin.accounts.upstreamImagePricing.statusPartial')
+  if (pricing.status === 'available') return t('admin.accounts.upstreamImagePricing.statusAvailable')
+  return t('admin.accounts.upstreamImagePricing.statusUnavailable')
+}
+
+const upstreamImagePricingRateLabel = (account: Account) => {
+  const pricing = account.upstream_image_pricing
+  if (!pricing) return '-'
+  const mode = pricing.rate_independent
+    ? t('admin.accounts.upstreamImagePricing.independent')
+    : t('admin.accounts.upstreamImagePricing.shared')
+  return pricing.effective_rate_multiplier === null || pricing.effective_rate_multiplier === undefined
+    ? mode
+    : `${mode} ${formatMultiplier(pricing.effective_rate_multiplier)}x`
+}
+
+const upstreamImagePricingBadgeClass = (account: Account) => [
+  'mt-0.5 inline-flex w-fit items-center rounded px-1.5 py-0.5 text-[10px] font-medium',
+  account.upstream_image_pricing?.stale || account.upstream_image_pricing?.status === 'partial'
+    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+]
+
+const upstreamImagePricingTooltip = (account: Account) => {
+  const pricing = account.upstream_image_pricing
+  if (!pricing) return ''
+  const complete = [pricing.final_cost_1k, pricing.final_cost_2k, pricing.final_cost_4k]
+    .filter((value) => value !== null && value !== undefined && Number.isFinite(value)).length
+  return t('admin.accounts.upstreamImagePricing.badgeTitle', {
+    status: upstreamImagePricingStatus(account),
+    complete,
+    observedAt: pricing.observed_at
+      ? formatDateTime(pricing.observed_at)
+      : t('admin.accounts.upstreamImagePricing.notObserved')
+  })
+}
+
 const props = withDefaults(defineProps<{
   scope?: 'all' | 'ordinary' | 'upstream'
 }>(), {
@@ -788,15 +848,29 @@ const accountToolsDropdownStyle = computed(() => ({
 }))
 const hiddenColumns = reactive<Set<string>>(new Set())
 const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'quality_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
-const HIDDEN_COLUMNS_KEY = props.scope === 'upstream' ? 'upstream-account-hidden-columns' : 'account-hidden-columns'
-// One-time migration: keep newly expensive statistics opt-in for existing admins too.
-const HIDDEN_COLUMNS_VERSION_KEY = props.scope === 'upstream'
-  ? 'upstream-account-hidden-columns-version'
-  : 'account-hidden-columns-version'
-const HIDDEN_COLUMNS_CURRENT_VERSION = props.scope === 'upstream'
-  ? 'health-quality-today-visible-v1'
-  : 'quality-stats-merged-v3'
 const PREVIOUS_QUALITY_COLUMNS_VERSION = 'quality-stats-hidden-by-default-v2'
+
+type AccountScope = 'all' | 'ordinary' | 'upstream'
+type ColumnStorageConfig = {
+  storageKey: string
+  versionKey: string
+  currentVersion: string
+}
+
+const getColumnStorageConfig = (scope: AccountScope = props.scope): ColumnStorageConfig => {
+  if (scope === 'upstream') {
+    return {
+      storageKey: 'upstream-account-hidden-columns',
+      versionKey: 'upstream-account-hidden-columns-version',
+      currentVersion: 'health-quality-today-visible-v1'
+    }
+  }
+  return {
+    storageKey: 'account-hidden-columns',
+    versionKey: 'account-hidden-columns-version',
+    currentVersion: 'quality-stats-merged-v3'
+  }
+}
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -1186,23 +1260,26 @@ const formatSchedulerScoreGroup = (score: AccountSchedulerGroupScore): string =>
   return t('admin.accounts.schedulerScore.ungrouped')
 }
 
-const loadSavedColumns = () => {
+const loadSavedColumns = (scope: AccountScope = props.scope) => {
+  const { storageKey, versionKey, currentVersion } = getColumnStorageConfig(scope)
+  const isUpstream = scope === 'upstream'
+  hiddenColumns.clear()
   try {
-    const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
+    const saved = localStorage.getItem(storageKey)
     if (saved) {
       const parsed = JSON.parse(saved) as string[]
       parsed.forEach(key => {
         hiddenColumns.add(key)
       })
       // Preserve explicit scheduler-score choices after its earlier migration; only legacy layouts need that default.
-      const storedVersion = localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)
-      if (props.scope === 'upstream' && storedVersion !== HIDDEN_COLUMNS_CURRENT_VERSION) {
+      const storedVersion = localStorage.getItem(versionKey)
+      if (isUpstream && storedVersion !== currentVersion) {
         hiddenColumns.delete('upstream_health')
         hiddenColumns.delete('quality_stats')
         hiddenColumns.delete('today_stats')
-        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
-        localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
-      } else if (props.scope !== 'upstream' && storedVersion !== HIDDEN_COLUMNS_CURRENT_VERSION) {
+        localStorage.setItem(storageKey, JSON.stringify([...hiddenColumns]))
+        localStorage.setItem(versionKey, currentVersion)
+      } else if (!isUpstream && storedVersion !== currentVersion) {
         if (storedVersion !== PREVIOUS_QUALITY_COLUMNS_VERSION) {
           if (storedVersion !== 'scheduler-score-hidden-by-default') {
             hiddenColumns.add('scheduler_score')
@@ -1215,35 +1292,40 @@ const loadSavedColumns = () => {
         hiddenColumns.delete('quality_stats_1h')
         if (hadVisibleQualityColumn) hiddenColumns.delete('quality_stats')
         else hiddenColumns.add('quality_stats')
-        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
-        localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
-      } else if (props.scope !== 'upstream' && hiddenColumns.delete('quality_stats_1h')) {
-        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+        localStorage.setItem(storageKey, JSON.stringify([...hiddenColumns]))
+        localStorage.setItem(versionKey, currentVersion)
+      } else if (!isUpstream && hiddenColumns.delete('quality_stats_1h')) {
+        localStorage.setItem(storageKey, JSON.stringify([...hiddenColumns]))
       }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
-        if (props.scope === 'upstream' && (key === 'today_stats' || key === 'quality_stats')) return
+        if (isUpstream && (key === 'today_stats' || key === 'quality_stats')) return
         hiddenColumns.add(key)
       })
-      localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
+      localStorage.setItem(versionKey, currentVersion)
     }
-    if (props.scope === 'upstream') {
+    if (isUpstream) {
       hiddenColumns.delete('priority')
       hiddenColumns.delete('rate_multiplier')
     }
   } catch (e) {
     console.error('Failed to load saved columns:', e)
     DEFAULT_HIDDEN_COLUMNS.forEach(key => {
-      if (props.scope === 'upstream' && (key === 'today_stats' || key === 'quality_stats')) return
+      if (isUpstream && (key === 'today_stats' || key === 'quality_stats')) return
       hiddenColumns.add(key)
     })
+    if (isUpstream) {
+      hiddenColumns.delete('priority')
+      hiddenColumns.delete('rate_multiplier')
+    }
   }
 }
 
 const saveColumnsToStorage = () => {
+  const { storageKey, versionKey, currentVersion } = getColumnStorageConfig()
   try {
-    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
-    localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
+    localStorage.setItem(storageKey, JSON.stringify([...hiddenColumns]))
+    localStorage.setItem(versionKey, currentVersion)
   } catch (e) {
     console.error('Failed to save columns:', e)
   }
@@ -1434,11 +1516,13 @@ const clearSelection = () => {
 
 watch(() => props.scope, (scope, previousScope) => {
   if (scope === previousScope) return
+  loadSavedColumns(scope)
   clearSelection()
   qualityStatsByAccountId.value = {}
   todayStatsByAccountId.value = {}
   autoRefreshETag.value = null
   params.scope = scope === 'all' ? undefined : scope
+  syncAccountListDerivedParams()
   load().catch((error) => console.error('Failed to reload accounts after scope change:', error))
 })
 

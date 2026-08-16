@@ -20,14 +20,16 @@ const (
 )
 
 type UpstreamKeyImagePricing struct {
-	Supported   bool
-	Status      string
-	Stale       bool
-	Currency    string
-	FinalCost1K *float64
-	FinalCost2K *float64
-	FinalCost4K *float64
-	ObservedAt  *time.Time
+	Supported               bool
+	Status                  string
+	Stale                   bool
+	Currency                string
+	RateIndependent         bool
+	EffectiveRateMultiplier *float64
+	FinalCost1K             *float64
+	FinalCost2K             *float64
+	FinalCost4K             *float64
+	ObservedAt              *time.Time
 }
 
 type sub2APIImagePricingSnapshot struct {
@@ -161,11 +163,12 @@ func deriveUpstreamKeyImagePricing(key *UpstreamKey, config *UpstreamConfig) *Up
 		}
 	}
 	out := &UpstreamKeyImagePricing{
-		Supported:  snapshot.AllowImageGeneration,
-		Status:     snapshot.Status,
-		Stale:      snapshot.Stale,
-		Currency:   "USD",
-		ObservedAt: snapshot.ObservedAt,
+		Supported:       snapshot.AllowImageGeneration,
+		Status:          snapshot.Status,
+		Stale:           snapshot.Stale,
+		Currency:        "USD",
+		RateIndependent: snapshot.ImageRateIndependent,
+		ObservedAt:      snapshot.ObservedAt,
 	}
 	if config.LastError != nil && strings.TrimSpace(*config.LastError) != "" {
 		out.Stale = true
@@ -187,6 +190,8 @@ func deriveUpstreamKeyImagePricing(key *UpstreamKey, config *UpstreamConfig) *Up
 		out.Status = UpstreamKeyImagePricingStatusPartial
 		return out
 	}
+	value := normalizedRate
+	out.EffectiveRateMultiplier = &value
 	out.FinalCost1K = multiplyImagePrice(snapshot.ImagePrice1K, normalizedRate)
 	out.FinalCost2K = multiplyImagePrice(snapshot.ImagePrice2K, normalizedRate)
 	out.FinalCost4K = multiplyImagePrice(snapshot.ImagePrice4K, normalizedRate)
@@ -196,6 +201,12 @@ func deriveUpstreamKeyImagePricing(key *UpstreamKey, config *UpstreamConfig) *Up
 		out.Status = UpstreamKeyImagePricingStatusAvailable
 	}
 	return out
+}
+
+// DeriveUpstreamKeyImagePricingForAccount exposes the redacted pricing snapshot
+// calculation to repository hydration without exposing raw key material.
+func DeriveUpstreamKeyImagePricingForAccount(key *UpstreamKey, config *UpstreamConfig) *UpstreamKeyImagePricing {
+	return deriveUpstreamKeyImagePricing(key, config)
 }
 
 func multiplyImagePrice(price *float64, rate float64) *float64 {

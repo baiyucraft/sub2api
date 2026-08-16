@@ -80,6 +80,10 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetNillableImagePrice1k(groupIn.ImagePrice1K).
 		SetNillableImagePrice2k(groupIn.ImagePrice2K).
 		SetNillableImagePrice4k(groupIn.ImagePrice4K).
+		SetImageCostRoutingEnabled(groupIn.ImageCostRoutingEnabled).
+		SetImageCostRoutingMode(groupIn.ImageCostRoutingMode).
+		SetImageCostTolerancePercent(groupIn.ImageCostTolerancePercent).
+		SetImageCostStaleAfterSeconds(groupIn.ImageCostStaleAfterSeconds).
 		SetBatchImageDiscountMultiplier(groupIn.BatchImageDiscountMultiplier).
 		SetBatchImageHoldMultiplier(groupIn.BatchImageHoldMultiplier).
 		SetVideoRateIndependent(groupIn.VideoRateIndependent).
@@ -263,6 +267,10 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetNillableImagePrice1k(groupIn.ImagePrice1K).
 		SetNillableImagePrice2k(groupIn.ImagePrice2K).
 		SetNillableImagePrice4k(groupIn.ImagePrice4K).
+		SetImageCostRoutingEnabled(groupIn.ImageCostRoutingEnabled).
+		SetImageCostRoutingMode(groupIn.ImageCostRoutingMode).
+		SetImageCostTolerancePercent(groupIn.ImageCostTolerancePercent).
+		SetImageCostStaleAfterSeconds(groupIn.ImageCostStaleAfterSeconds).
 		SetBatchImageDiscountMultiplier(groupIn.BatchImageDiscountMultiplier).
 		SetBatchImageHoldMultiplier(groupIn.BatchImageHoldMultiplier).
 		SetVideoRateIndependent(groupIn.VideoRateIndependent).

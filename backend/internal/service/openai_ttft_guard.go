@@ -588,6 +588,38 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	return s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, excludedIDs, false, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 }
 
+type imageCostRoutingContextKey struct{}
+type imageCostRoutingContext struct {
+	sizeTier   string
+	mode       string
+	tolerance  float64
+	staleAfter int
+}
+
+func withImageCostRouting(ctx context.Context, sizeTier, mode string, tolerance float64, staleAfter int) context.Context {
+	return context.WithValue(ctx, imageCostRoutingContextKey{}, imageCostRoutingContext{sizeTier: sizeTier, mode: mode, tolerance: tolerance, staleAfter: staleAfter})
+}
+
+func imageCostRoutingFromContext(ctx context.Context) (string, string, float64, int) {
+	if ctx == nil {
+		return "", "", 0, 0
+	}
+	value, _ := ctx.Value(imageCostRoutingContextKey{}).(imageCostRoutingContext)
+	return value.sizeTier, value.mode, value.tolerance, value.staleAfter
+}
+
+func (s *OpenAIGatewayService) selectAccountWithSchedulerWithImageCost(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID, sessionHash, requestedModel string,
+	excludedIDs map[int64]struct{}, requiredTransport OpenAIUpstreamTransport,
+	requiredCapability OpenAIEndpointCapability, requiredImageCapability OpenAIImagesCapability,
+	requireCompact bool, platform string, previousResponseCanMove, useUpstreamTokenCost bool,
+	imageSizeTier, imageCostMode string, imageCostTolerance float64, imageCostStaleAfter int,
+) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	return s.selectAccountWithScheduler(withImageCostRouting(ctx, imageSizeTier, imageCostMode, imageCostTolerance, imageCostStaleAfter), groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+}
+
 func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 	ctx context.Context,
 	groupID *int64,

@@ -23582,6 +23582,12 @@ type GroupMutation struct {
 	addimage_price_2k                       *float64
 	image_price_4k                          *float64
 	addimage_price_4k                       *float64
+	image_cost_routing_enabled              *bool
+	image_cost_routing_mode                 *string
+	image_cost_tolerance_percent            *float64
+	addimage_cost_tolerance_percent         *float64
+	image_cost_stale_after_seconds          *int
+	addimage_cost_stale_after_seconds       *int
 	batch_image_discount_multiplier         *float64
 	addbatch_image_discount_multiplier      *float64
 	batch_image_hold_multiplier             *float64
@@ -25023,6 +25029,190 @@ func (m *GroupMutation) ResetImagePrice4k() {
 	m.image_price_4k = nil
 	m.addimage_price_4k = nil
 	delete(m.clearedFields, group.FieldImagePrice4k)
+}
+
+// SetImageCostRoutingEnabled sets the "image_cost_routing_enabled" field.
+func (m *GroupMutation) SetImageCostRoutingEnabled(b bool) {
+	m.image_cost_routing_enabled = &b
+}
+
+// ImageCostRoutingEnabled returns the value of the "image_cost_routing_enabled" field in the mutation.
+func (m *GroupMutation) ImageCostRoutingEnabled() (r bool, exists bool) {
+	v := m.image_cost_routing_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldImageCostRoutingEnabled returns the old "image_cost_routing_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldImageCostRoutingEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldImageCostRoutingEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldImageCostRoutingEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldImageCostRoutingEnabled: %w", err)
+	}
+	return oldValue.ImageCostRoutingEnabled, nil
+}
+
+// ResetImageCostRoutingEnabled resets all changes to the "image_cost_routing_enabled" field.
+func (m *GroupMutation) ResetImageCostRoutingEnabled() {
+	m.image_cost_routing_enabled = nil
+}
+
+// SetImageCostRoutingMode sets the "image_cost_routing_mode" field.
+func (m *GroupMutation) SetImageCostRoutingMode(s string) {
+	m.image_cost_routing_mode = &s
+}
+
+// ImageCostRoutingMode returns the value of the "image_cost_routing_mode" field in the mutation.
+func (m *GroupMutation) ImageCostRoutingMode() (r string, exists bool) {
+	v := m.image_cost_routing_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldImageCostRoutingMode returns the old "image_cost_routing_mode" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldImageCostRoutingMode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldImageCostRoutingMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldImageCostRoutingMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldImageCostRoutingMode: %w", err)
+	}
+	return oldValue.ImageCostRoutingMode, nil
+}
+
+// ResetImageCostRoutingMode resets all changes to the "image_cost_routing_mode" field.
+func (m *GroupMutation) ResetImageCostRoutingMode() {
+	m.image_cost_routing_mode = nil
+}
+
+// SetImageCostTolerancePercent sets the "image_cost_tolerance_percent" field.
+func (m *GroupMutation) SetImageCostTolerancePercent(f float64) {
+	m.image_cost_tolerance_percent = &f
+	m.addimage_cost_tolerance_percent = nil
+}
+
+// ImageCostTolerancePercent returns the value of the "image_cost_tolerance_percent" field in the mutation.
+func (m *GroupMutation) ImageCostTolerancePercent() (r float64, exists bool) {
+	v := m.image_cost_tolerance_percent
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldImageCostTolerancePercent returns the old "image_cost_tolerance_percent" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldImageCostTolerancePercent(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldImageCostTolerancePercent is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldImageCostTolerancePercent requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldImageCostTolerancePercent: %w", err)
+	}
+	return oldValue.ImageCostTolerancePercent, nil
+}
+
+// AddImageCostTolerancePercent adds f to the "image_cost_tolerance_percent" field.
+func (m *GroupMutation) AddImageCostTolerancePercent(f float64) {
+	if m.addimage_cost_tolerance_percent != nil {
+		*m.addimage_cost_tolerance_percent += f
+	} else {
+		m.addimage_cost_tolerance_percent = &f
+	}
+}
+
+// AddedImageCostTolerancePercent returns the value that was added to the "image_cost_tolerance_percent" field in this mutation.
+func (m *GroupMutation) AddedImageCostTolerancePercent() (r float64, exists bool) {
+	v := m.addimage_cost_tolerance_percent
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetImageCostTolerancePercent resets all changes to the "image_cost_tolerance_percent" field.
+func (m *GroupMutation) ResetImageCostTolerancePercent() {
+	m.image_cost_tolerance_percent = nil
+	m.addimage_cost_tolerance_percent = nil
+}
+
+// SetImageCostStaleAfterSeconds sets the "image_cost_stale_after_seconds" field.
+func (m *GroupMutation) SetImageCostStaleAfterSeconds(i int) {
+	m.image_cost_stale_after_seconds = &i
+	m.addimage_cost_stale_after_seconds = nil
+}
+
+// ImageCostStaleAfterSeconds returns the value of the "image_cost_stale_after_seconds" field in the mutation.
+func (m *GroupMutation) ImageCostStaleAfterSeconds() (r int, exists bool) {
+	v := m.image_cost_stale_after_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldImageCostStaleAfterSeconds returns the old "image_cost_stale_after_seconds" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldImageCostStaleAfterSeconds(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldImageCostStaleAfterSeconds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldImageCostStaleAfterSeconds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldImageCostStaleAfterSeconds: %w", err)
+	}
+	return oldValue.ImageCostStaleAfterSeconds, nil
+}
+
+// AddImageCostStaleAfterSeconds adds i to the "image_cost_stale_after_seconds" field.
+func (m *GroupMutation) AddImageCostStaleAfterSeconds(i int) {
+	if m.addimage_cost_stale_after_seconds != nil {
+		*m.addimage_cost_stale_after_seconds += i
+	} else {
+		m.addimage_cost_stale_after_seconds = &i
+	}
+}
+
+// AddedImageCostStaleAfterSeconds returns the value that was added to the "image_cost_stale_after_seconds" field in this mutation.
+func (m *GroupMutation) AddedImageCostStaleAfterSeconds() (r int, exists bool) {
+	v := m.addimage_cost_stale_after_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetImageCostStaleAfterSeconds resets all changes to the "image_cost_stale_after_seconds" field.
+func (m *GroupMutation) ResetImageCostStaleAfterSeconds() {
+	m.image_cost_stale_after_seconds = nil
+	m.addimage_cost_stale_after_seconds = nil
 }
 
 // SetBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field.
@@ -27352,7 +27542,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 62)
+	fields := make([]string, 0, 66)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -27430,6 +27620,18 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.image_price_4k != nil {
 		fields = append(fields, group.FieldImagePrice4k)
+	}
+	if m.image_cost_routing_enabled != nil {
+		fields = append(fields, group.FieldImageCostRoutingEnabled)
+	}
+	if m.image_cost_routing_mode != nil {
+		fields = append(fields, group.FieldImageCostRoutingMode)
+	}
+	if m.image_cost_tolerance_percent != nil {
+		fields = append(fields, group.FieldImageCostTolerancePercent)
+	}
+	if m.image_cost_stale_after_seconds != nil {
+		fields = append(fields, group.FieldImageCostStaleAfterSeconds)
 	}
 	if m.batch_image_discount_multiplier != nil {
 		fields = append(fields, group.FieldBatchImageDiscountMultiplier)
@@ -27599,6 +27801,14 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.ImagePrice2k()
 	case group.FieldImagePrice4k:
 		return m.ImagePrice4k()
+	case group.FieldImageCostRoutingEnabled:
+		return m.ImageCostRoutingEnabled()
+	case group.FieldImageCostRoutingMode:
+		return m.ImageCostRoutingMode()
+	case group.FieldImageCostTolerancePercent:
+		return m.ImageCostTolerancePercent()
+	case group.FieldImageCostStaleAfterSeconds:
+		return m.ImageCostStaleAfterSeconds()
 	case group.FieldBatchImageDiscountMultiplier:
 		return m.BatchImageDiscountMultiplier()
 	case group.FieldBatchImageHoldMultiplier:
@@ -27732,6 +27942,14 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldImagePrice2k(ctx)
 	case group.FieldImagePrice4k:
 		return m.OldImagePrice4k(ctx)
+	case group.FieldImageCostRoutingEnabled:
+		return m.OldImageCostRoutingEnabled(ctx)
+	case group.FieldImageCostRoutingMode:
+		return m.OldImageCostRoutingMode(ctx)
+	case group.FieldImageCostTolerancePercent:
+		return m.OldImageCostTolerancePercent(ctx)
+	case group.FieldImageCostStaleAfterSeconds:
+		return m.OldImageCostStaleAfterSeconds(ctx)
 	case group.FieldBatchImageDiscountMultiplier:
 		return m.OldBatchImageDiscountMultiplier(ctx)
 	case group.FieldBatchImageHoldMultiplier:
@@ -27994,6 +28212,34 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetImagePrice4k(v)
+		return nil
+	case group.FieldImageCostRoutingEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetImageCostRoutingEnabled(v)
+		return nil
+	case group.FieldImageCostRoutingMode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetImageCostRoutingMode(v)
+		return nil
+	case group.FieldImageCostTolerancePercent:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetImageCostTolerancePercent(v)
+		return nil
+	case group.FieldImageCostStaleAfterSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetImageCostStaleAfterSeconds(v)
 		return nil
 	case group.FieldBatchImageDiscountMultiplier:
 		v, ok := value.(float64)
@@ -28285,6 +28531,12 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addimage_price_4k != nil {
 		fields = append(fields, group.FieldImagePrice4k)
 	}
+	if m.addimage_cost_tolerance_percent != nil {
+		fields = append(fields, group.FieldImageCostTolerancePercent)
+	}
+	if m.addimage_cost_stale_after_seconds != nil {
+		fields = append(fields, group.FieldImageCostStaleAfterSeconds)
+	}
 	if m.addbatch_image_discount_multiplier != nil {
 		fields = append(fields, group.FieldBatchImageDiscountMultiplier)
 	}
@@ -28364,6 +28616,10 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedImagePrice2k()
 	case group.FieldImagePrice4k:
 		return m.AddedImagePrice4k()
+	case group.FieldImageCostTolerancePercent:
+		return m.AddedImageCostTolerancePercent()
+	case group.FieldImageCostStaleAfterSeconds:
+		return m.AddedImageCostStaleAfterSeconds()
 	case group.FieldBatchImageDiscountMultiplier:
 		return m.AddedBatchImageDiscountMultiplier()
 	case group.FieldBatchImageHoldMultiplier:
@@ -28476,6 +28732,20 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddImagePrice4k(v)
+		return nil
+	case group.FieldImageCostTolerancePercent:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddImageCostTolerancePercent(v)
+		return nil
+	case group.FieldImageCostStaleAfterSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddImageCostStaleAfterSeconds(v)
 		return nil
 	case group.FieldBatchImageDiscountMultiplier:
 		v, ok := value.(float64)
@@ -28835,6 +29105,18 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldImagePrice4k:
 		m.ResetImagePrice4k()
+		return nil
+	case group.FieldImageCostRoutingEnabled:
+		m.ResetImageCostRoutingEnabled()
+		return nil
+	case group.FieldImageCostRoutingMode:
+		m.ResetImageCostRoutingMode()
+		return nil
+	case group.FieldImageCostTolerancePercent:
+		m.ResetImageCostTolerancePercent()
+		return nil
+	case group.FieldImageCostStaleAfterSeconds:
+		m.ResetImageCostStaleAfterSeconds()
 		return nil
 	case group.FieldBatchImageDiscountMultiplier:
 		m.ResetBatchImageDiscountMultiplier()

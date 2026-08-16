@@ -14,6 +14,18 @@
     "236": {"version": "0.176-baiyu", "migration_count": 51, "migration_map_sha256": "cd5991579202a830ea95db3913e896da83bd678911e80b6fd1e1adb5e21b0b83", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"},
     "237": {"version": "0.1.177-baiyu", "migration_count": 53, "migration_map_sha256": "b9e167304aa2ac092fff10b4db56495dc2c1e92826f2201cce4520fd2fd877e4", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"}
   },
+  "current_profile": {
+    "id": "238",
+    "status": "pending",
+    "base_profile": "237",
+    "version": "0.1.177-baiyu",
+    "migration_count": 54,
+    "migration_map_sha256": "322ec9fe133e3209611a0c1cad357732512a381baed685334d00d8c8ede0cdf5",
+    "appended_migrations": ["237_image_cost_routing.sql"],
+    "compatibility_version": "0.1.172-baiyu",
+    "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b",
+    "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"
+  },
   "migration_contracts": {
     "159_upstream_configs.sql": "9df20ba0512a2f8b10fcea84d3483c04075edef2d8457be8751f6c124f9e3466",
     "173_upstream_operations.sql": "047365e6a5f9bf92e7c64f5d354a5500ccaa67115cac817873abd69b157da065",
@@ -33,7 +45,8 @@
     "233_upstream_management.sql": "d08196ded14ee2182ae126522ff659def712c8018d6f132827d86bf5b34130c6",
     "234_group_model_pricing.sql": "3e2895b7263d80c7d8bd93741d63d80f9300f5e0a723fcbe4f73611411fc3df5",
     "235_group_usage_daily_rollups.sql": "d22c1e2fac2e8d2087d029eabbef1b5c581d981113e9e5c3b6cf352d1184022b",
-    "236_group_usage_rollup_timezone.sql": "dfea690bc6a821c8fb72ae8d5d0f5112ee03e0b478a21715199c72d9438e7c99"
+    "236_group_usage_rollup_timezone.sql": "dfea690bc6a821c8fb72ae8d5d0f5112ee03e0b478a21715199c72d9438e7c99",
+    "237_image_cost_routing.sql": "f34d5ed6ae8c7b9fba9cf20d80f78308fa0b562657f936f2b2617a0a48b27d33"
   },
   "migration_renames": {"official_221": "234_group_model_pricing.sql", "official_222": "235_group_usage_daily_rollups.sql", "official_223": "236_group_usage_rollup_timezone.sql"},
   "migration_assertions": {
@@ -43,6 +56,13 @@
       "ON upstream_health_observations(upstream_key_id, observed_at)",
       "INTERVAL '35 days'",
       "CREATE OR REPLACE FUNCTION validate_account_upstream_key_binding()"
+    ],
+    "backend/migrations/237_image_cost_routing.sql": [
+      "ADD COLUMN IF NOT EXISTS image_cost_routing_enabled",
+      "ADD COLUMN IF NOT EXISTS image_cost_routing_mode",
+      "prefer_lowest",
+      "strict_lowest",
+      "image_cost_stale_after_seconds"
     ]
   },
   "high_risk_paths": [
@@ -84,7 +104,10 @@
       "id": "quality-and-usage-aggregation", "title": "质量遥测与用户累计用量", "description": "账号/分组质量只读展示，用户 hourly/daily 聚合、coverage/backfill 和 raw usage 清理边界。", "ownership": "fork", "risk_level": "medium", "paths": ["backend/internal/service/account_quality.go", "backend/internal/repository/usage_log_repo_stats.go", "backend/internal/handler/admin/dashboard_handler.go", "backend/internal/handler/admin/group_handler.go", "backend/migrations/209_user_usage_aggregation.sql", "backend/migrations/235_group_usage_daily_rollups.sql", "backend/migrations/236_group_usage_rollup_timezone.sql", "frontend/src/components/account/AccountQualityCell.vue", "frontend/src/components/user/UserUsageStatsMatrix.vue"], "symbols": ["AccountQuality", "coverage", "backfill", "group_usage_daily"], "api_routes": ["/dashboard", "/usage"], "settings_keys": [], "migration_files": ["209_user_usage_aggregation.sql", "235_group_usage_daily_rollups.sql", "236_group_usage_rollup_timezone.sql"], "required_tests": ["frontend/src/components/account/__tests__/AccountQualityCell.spec.ts", "frontend/src/components/user/__tests__/UserUsageStatsMatrix.spec.ts"], "invariants": ["质量分数不参与调度", "coverage 未完整前不清理 raw usage", "日聚合时区正确"]
     },
     {
-      "id": "migration-profile-contract", "title": "Migration、profile、版本与历史证据", "description": "维护 fork migration、官方重编号、profile 233–237、版本命名、checksum 和 compatibility identity。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/migrations/**", ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py", ".agents/skills/sub2api-production-deploy/scripts/release/manifest.py", "backend/cmd/server/VERSION"], "symbols": ["PROFILES", "migration_sha256", "compatibility_commit", "0.1.177-baiyu"], "api_routes": [], "settings_keys": [], "migration_files": ["233_upstream_management.sql", "234_group_model_pricing.sql", "235_group_usage_daily_rollups.sql", "236_group_usage_rollup_timezone.sql"], "required_tests": ["backend/migrations/profile_233_migrations_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py"], "invariants": ["历史 profile 233–237 不回写", "官方 221/222/223 本地重编号内容不变", "fork VERSION 始终是官方 VERSION + -baiyu"]
+      "id": "image-cost-routing-and-display", "title": "上游生图能力展示与图片成本优先路由", "description": "依据上游 Key 图片定价快照展示生图能力、倍率来源和 1K/2K/4K 最终成本，并仅对开启生图且显式启用路由的分组按成本分层调度。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/upstream_key_image_pricing.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/openai_images.go", "backend/internal/service/account.go", "backend/internal/service/admin_group.go", "backend/internal/repository/account_repo.go", "backend/internal/repository/api_key_repo.go", "backend/internal/repository/scheduler_cache.go", "backend/internal/repository/group_repo.go", "backend/internal/service/api_key_auth_cache.go", "backend/internal/service/api_key_auth_cache_impl.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "backend/ent/schema/group.go", "backend/migrations/237_image_cost_routing.sql", "frontend/src/views/admin/AccountsView.vue", "frontend/src/views/admin/GroupsView.vue", "frontend/src/types/index.ts", "frontend/src/i18n/locales/en/admin/accounts.ts", "frontend/src/i18n/locales/zh/admin/accounts.ts", "frontend/src/i18n/locales/en/admin/overview.ts", "frontend/src/i18n/locales/zh/admin/overview.ts", "backend/internal/service/openai_ttft_guard.go"], "symbols": ["UpstreamKeyImagePricing", "ImageCostRoutingEnabled", "buildImageCostSelectionOrder", "SelectAccountWithSchedulerForImages"], "api_routes": ["/admin/accounts", "/admin/groups", "/v1/images/generations", "/v1/images/edits"], "settings_keys": [], "migration_files": ["237_image_cost_routing.sql"], "required_tests": ["backend/internal/service/upstream_key_image_pricing_test.go", "backend/internal/service/openai_account_scheduler_upstream_cost_test.go", "backend/internal/service/openai_image_cost_routing_test.go", "backend/internal/service/admin_group_image_cost_routing_test.go", "backend/migrations/profile_238_migrations_test.go", "frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts"], "recommended_tests": ["frontend/src/views/admin/__tests__/GroupsView.imageCostRouting.spec.ts", "backend/internal/service/api_key_auth_cache_test.go", "backend/internal/repository/scheduler_cache_test.go"], "invariants": ["生图能力只来自 Key 快照", "普通文本调度不受影响", "未知成本不能当作 0", "用户侧图片计费不改变", "stale/partial/unknown 不得伪装成免费", "prefer_lowest/strict_lowest 不得绕过健康、共享并发、TTFT Guard 或 Priority 约束", "profile 233–237 历史证据不可变"]
+    },
+    {
+      "id": "migration-profile-contract", "title": "Migration、profile、版本与历史证据", "description": "维护 fork migration、官方重编号、历史 profile 233–237、当前 profile 238、版本命名、checksum 和 compatibility identity。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/migrations/**", ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py", ".agents/skills/sub2api-production-deploy/scripts/release/manifest.py", ".agents/skills/sub2api-production-deploy/scripts/release/production.py", ".agents/skills/sub2api-production-deploy/scripts/release/vm-validate.sh", "backend/cmd/server/VERSION"], "symbols": ["PROFILES", "migration_sha256", "compatibility_commit", "0.1.177-baiyu"], "api_routes": [], "settings_keys": [], "migration_files": ["233_upstream_management.sql", "234_group_model_pricing.sql", "235_group_usage_daily_rollups.sql", "236_group_usage_rollup_timezone.sql", "237_image_cost_routing.sql"], "required_tests": ["backend/migrations/profile_233_migrations_test.go", "backend/migrations/profile_238_migrations_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py"], "recommended_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py"], "invariants": ["历史 profile 233–237 不回写", "当前 profile 238 为 pending/current 合同，54 项 migration，追加 237_image_cost_routing.sql", "官方 221/222/223 本地重编号内容不变", "fork VERSION 始终是官方 VERSION + -baiyu", "237_image_cost_routing.sql checksum 必须为 f34d5ed6ae8c7b9fba9cf20d80f78308fa0b562657f936f2b2617a0a48b27d33"]
     },
     {
       "id": "release-operations-isolation", "title": "发布 skill 隔离、日志、清理与 8211 收口", "description": "fork 专用发布资产隔离在 production-deploy skill，完整日志、Windows Git Bash、VM/备份容量清理和 8211 单实例收口。", "ownership": "fork-operations", "risk_level": "critical", "paths": [".agents/skills/sub2api-production-deploy/**", "deploy/maintenance/181/**"], "symbols": ["skill-v1", "plan_sha256", "sub2api-dev", "8211", "backup-retention-clean.sh", "run-bash.ps1"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_backup_retention_clean.py", ".agents/skills/sub2api-production-deploy/scripts/tests/windows/test_run_bash.py"], "invariants": ["生产成功 verify-result 和 post-deploy doctor 后才关闭 8211", "清理先 dry-run 再绑定 plan_sha256 apply", "原始日志留在节点 root-only 目录"]

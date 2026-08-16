@@ -337,6 +337,18 @@ export default {
         batchCompleted: 'Probed {count} account(s)',
         batchPartial: 'Probe partially completed: {success} succeeded, {failed} failed'
       },
+      upstreamImagePricing: {
+        badge: 'Image',
+        shared: 'Shared',
+        independent: 'Independent',
+        costTitle: 'Image cost ({mode} multiplier, {status})',
+        badgeTitle: 'Image status: {status}; cost completeness: {complete}/3; observed: {observedAt}',
+        statusAvailable: 'Available',
+        statusPartial: 'Partial',
+        statusStale: 'Stale',
+        statusUnavailable: 'Unavailable',
+        notObserved: 'Not observed'
+      },
       allPrivacyModes: 'All Privacy States',
       privacyUnset: 'Unset',
       privacyTrainingOff: 'Training data sharing disabled',

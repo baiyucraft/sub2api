@@ -177,7 +177,11 @@ profile 237 使用版本 `0.1.177-baiyu`，完整继承 profile 236 的 51 项 m
 这两个文件是官方 222/223 迁移按本地序列重编号后的版本，SQL 语义保持不变；profile 233–236
 的历史 Gate、candidate、checksum 和兼容身份保持不可变。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235 和 236
+profile 238 继续使用版本 `0.1.177-baiyu`，完整继承 profile 237 的 53 项 migration，追加
+`237_image_cost_routing.sql`，共 54 项。该迁移只增加分组图片成本路由配置列和 auth-cache
+失效触发器字段，不修改普通文本调度、用户侧图片售价或历史 profile 证据。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235、236、237 和 238
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -197,6 +201,8 @@ python deploy/tests/release/backup_dr_profile_233_integration.py
 python deploy/tests/release/backup_dr_profile_234_integration.py
 python deploy/tests/release/backup_dr_profile_235_integration.py
 python deploy/tests/release/backup_dr_profile_236_integration.py
+python .agents/skills/sub2api-production-deploy/scripts/tests/release/backup_dr_profile_237_integration.py
+python .agents/skills/sub2api-production-deploy/scripts/tests/release/backup_dr_profile_238_integration.py
 ```
 
 首次安装信任根使用：

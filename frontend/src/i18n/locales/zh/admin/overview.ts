@@ -1007,6 +1007,17 @@ export default {
         finalPricePreview: '最终单张价格预览',
         notConfigured: '未配置'
       },
+      imageCostRouting: {
+        title: '图片成本优先路由',
+        preferLowest: '价格优先（容差层）',
+        strictLowest: '严格最低价',
+        tolerance: '价格容差（%）',
+        staleAfter: '价格过期阈值（秒）',
+        hint: '只影响上游账号选择，不改变用户侧图片售价。',
+        modeInvalid: '请选择有效的图片成本路由模式。',
+        toleranceInvalid: '图片成本价格容差必须在 0–100 之间。',
+        staleAfterInvalid: '图片成本过期阈值必须在 300–604800 秒之间。'
+      },
       videoPricing: {
         title: '视频生成计费',
         description:

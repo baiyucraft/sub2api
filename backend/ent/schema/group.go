@@ -123,6 +123,20 @@ func (Group) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+		field.Bool("image_cost_routing_enabled").
+			Default(false).
+			Comment("是否按上游图片成本优先路由"),
+		field.String("image_cost_routing_mode").
+			MaxLen(20).
+			Default("prefer_lowest").
+			Comment("图片成本路由模式"),
+		field.Float("image_cost_tolerance_percent").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(5,2)"}).
+			Default(5).
+			Comment("图片成本同层容差百分比"),
+		field.Int("image_cost_stale_after_seconds").
+			Default(86400).
+			Comment("图片成本快照过期阈值（秒）"),
 		field.Float("batch_image_discount_multiplier").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(0.5).

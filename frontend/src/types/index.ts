@@ -569,6 +569,10 @@ export interface Group {
   image_price_1k: number | null
   image_price_2k: number | null
   image_price_4k: number | null
+  image_cost_routing_enabled?: boolean
+  image_cost_routing_mode?: 'prefer_lowest' | 'strict_lowest' | string
+  image_cost_tolerance_percent?: number
+  image_cost_stale_after_seconds?: number
   video_rate_independent: boolean
   video_rate_multiplier: number
   video_price_480p: number | null
@@ -779,6 +783,10 @@ export interface CreateGroupRequest {
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
+  image_cost_routing_enabled?: boolean
+  image_cost_routing_mode?: 'prefer_lowest' | 'strict_lowest' | string
+  image_cost_tolerance_percent?: number
+  image_cost_stale_after_seconds?: number
   video_rate_independent?: boolean
   video_rate_multiplier?: number
   video_price_480p?: number | null
@@ -841,6 +849,10 @@ export interface UpdateGroupRequest {
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
+  image_cost_routing_enabled?: boolean
+  image_cost_routing_mode?: 'prefer_lowest' | 'strict_lowest' | string
+  image_cost_tolerance_percent?: number
+  image_cost_stale_after_seconds?: number
   video_rate_independent?: boolean
   video_rate_multiplier?: number
   video_price_480p?: number | null
@@ -1139,6 +1151,18 @@ export interface Account {
   upstream_config_name?: string | null
   upstream_key_name?: string | null
   upstream_key_masked?: string | null
+  upstream_image_pricing?: {
+    supported: boolean
+    status: string
+    stale: boolean
+    currency: string
+    rate_independent: boolean
+    effective_rate_multiplier?: number | null
+    final_cost_1k?: number | null
+    final_cost_2k?: number | null
+    final_cost_4k?: number | null
+    observed_at?: string | null
+  }
   available_actions?: string[]
   upstream_scheduling_enabled?: boolean | null
   proxy_fallback_origin_id?: number | null

@@ -455,6 +455,15 @@ PROFILES["237"] = {
     ],
 }
 
+# Profile 238 adds fork-only image-cost routing configuration while preserving
+# every historical profile and compatibility identity unchanged.
+PROFILES["238"] = {
+    **PROFILES["237"],
+    "name": "238",
+    "version": "0.1.177-baiyu",
+    "migrations": [*PROFILES["237"]["migrations"], "237_image_cost_routing.sql"],
+}
+
 
 def get_profile(name: str) -> dict:
     try:

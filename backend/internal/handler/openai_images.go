@@ -166,6 +166,25 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			routingModel,
 			failedAccountIDs,
 			parsed.RequiredCapability,
+			parsed.SizeTier,
+			func() string {
+				if apiKey.Group != nil && apiKey.Group.AllowImageGeneration && apiKey.Group.ImageCostRoutingEnabled {
+					return apiKey.Group.ImageCostRoutingMode
+				}
+				return "off"
+			}(),
+			func() float64 {
+				if apiKey.Group != nil {
+					return apiKey.Group.ImageCostTolerancePercent
+				}
+				return 5
+			}(),
+			func() int {
+				if apiKey.Group != nil {
+					return apiKey.Group.ImageCostStaleAfterSeconds
+				}
+				return 86400
+			}(),
 		)
 		if err != nil {
 			if failoverClientGone(c) {
@@ -215,6 +234,12 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			zap.Int("top_k", scheduleDecision.TopK),
 			zap.Int64("latency_ms", scheduleDecision.LatencyMs),
 			zap.Float64("load_skew", scheduleDecision.LoadSkew),
+			zap.String("image_cost_route_mode", scheduleDecision.ImageCostRouteMode),
+			zap.String("image_cost_size_tier", scheduleDecision.ImageCostSizeTier),
+			zap.Bool("image_cost_known", scheduleDecision.ImageCostKnown),
+			zap.String("image_cost_status", scheduleDecision.ImageCostStatus),
+			zap.Int("image_cost_rank", scheduleDecision.ImageCostRank),
+			zap.Float64("image_cost_value", scheduleDecision.ImageCostValue),
 		)
 
 		account := selection.Account

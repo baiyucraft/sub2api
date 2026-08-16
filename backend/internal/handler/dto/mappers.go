@@ -201,6 +201,10 @@ func groupFromServiceBase(g *service.Group) Group {
 		ImagePrice1K:                    g.ImagePrice1K,
 		ImagePrice2K:                    g.ImagePrice2K,
 		ImagePrice4K:                    g.ImagePrice4K,
+		ImageCostRoutingEnabled:         g.ImageCostRoutingEnabled,
+		ImageCostRoutingMode:            g.ImageCostRoutingMode,
+		ImageCostTolerancePercent:       g.ImageCostTolerancePercent,
+		ImageCostStaleAfterSeconds:      g.ImageCostStaleAfterSeconds,
 		VideoPrice480P:                  g.VideoPrice480P,
 		VideoPrice720P:                  g.VideoPrice720P,
 		VideoPrice1080P:                 g.VideoPrice1080P,
@@ -278,6 +282,20 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		GroupIDs:                  a.GroupIDs,
 		ParentAccountID:           a.ParentAccountID,
 		QuotaDimension:            a.QuotaDimension,
+	}
+	if p := a.UpstreamImagePricing; p != nil {
+		out.UpstreamImagePricing = &UpstreamImagePricing{
+			Supported:               p.Supported,
+			Status:                  p.Status,
+			Stale:                   p.Stale,
+			Currency:                p.Currency,
+			RateIndependent:         p.RateIndependent,
+			EffectiveRateMultiplier: p.EffectiveRateMultiplier,
+			FinalCost1K:             p.FinalCost1K,
+			FinalCost2K:             p.FinalCost2K,
+			FinalCost4K:             p.FinalCost4K,
+			ObservedAt:              p.ObservedAt,
+		}
 	}
 
 	// 提取 5h 窗口费用控制和会话数量控制配置（仅 Anthropic OAuth/SetupToken 账号有效）

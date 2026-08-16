@@ -3578,6 +3578,11 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 				maskedKey := maskUpstreamKeyForAdmin(key.Key)
 				out.UpstreamKeyName = &keyName
 				out.UpstreamKeyMasked = &maskedKey
+				if out.UpstreamConfigID != nil {
+					if cfg, ok := upstreamConfigs[*out.UpstreamConfigID]; ok && cfg != nil {
+						out.UpstreamImagePricing = service.DeriveUpstreamKeyImagePricingForAccount(key, cfg)
+					}
+				}
 				out.Credentials["api_key"] = key.Key
 			}
 		}

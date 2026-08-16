@@ -55,6 +55,9 @@ func TestDeriveUpstreamKeyImagePricingUsesSourceOrIndependentRate(t *testing.T) 
 	config := &UpstreamConfig{Provider: UpstreamProviderSub2API, RechargeRate: 2}
 	pricing := deriveUpstreamKeyImagePricing(key, config)
 	require.Equal(t, UpstreamKeyImagePricingStatusAvailable, pricing.Status)
+	require.False(t, pricing.RateIndependent)
+	require.NotNil(t, pricing.EffectiveRateMultiplier)
+	require.InDelta(t, 1.0, *pricing.EffectiveRateMultiplier, 1e-12)
 	require.InDelta(t, 0.1, *pricing.FinalCost1K, 1e-12)
 
 	independent := 0.25
@@ -70,6 +73,9 @@ func TestDeriveUpstreamKeyImagePricingUsesSourceOrIndependentRate(t *testing.T) 
 		ObservedAt:           &now,
 	})
 	pricing = deriveUpstreamKeyImagePricing(key, config)
+	require.True(t, pricing.RateIndependent)
+	require.NotNil(t, pricing.EffectiveRateMultiplier)
+	require.InDelta(t, 0.5, *pricing.EffectiveRateMultiplier, 1e-12)
 	require.InDelta(t, 0.05, *pricing.FinalCost1K, 1e-12)
 }
 
