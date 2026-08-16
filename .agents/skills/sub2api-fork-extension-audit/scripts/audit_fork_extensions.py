@@ -111,6 +111,14 @@ class Audit:
             self.add("pass", "merge_parent", "merge commit 第二父提交严格匹配 upstream", merge_commit=expected_head, parents=parents)
         self.head = actual
         self.parents = parents
+        self.merge_base = self.git("merge-base", self.upstream_ref, self.head).lower()
+        status_lines = self.git("diff", "--name-status", f"{self.upstream_ref}...{self.head}").splitlines()
+        self.diff_status = {}
+        for line in status_lines:
+            fields = line.split("\t")
+            if len(fields) >= 2:
+                self.diff_status[fields[-1]] = fields[0]
+        self.diff_paths = sorted(self.diff_status)
 
     def show(self, ref: str, path: str) -> str | None:
         proc = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=self.root, text=True, encoding="utf-8", errors="replace", capture_output=True)
