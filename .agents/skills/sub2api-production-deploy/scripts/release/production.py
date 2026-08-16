@@ -926,9 +926,50 @@ exit "$code"
                     "candidate_exit_code": "unknown", "candidate_original_exit_code": "unknown", "candidate_oom_killed": "unknown",
                     "candidate_restart_count": "unknown", "candidate_health_log_entries": "unknown",
                     "candidate_log_capture": "unknown", "candidate_failure_line": "unknown",
+                    "switch_failure_substage": "unknown", "switch_failure_line": "unknown",
+                    "migration_195_failure_phase": "unknown", "migration_195_failure_code": "none",
                 })
             else:
                 failure["switch_failure_reason"] = failure_reason
+                try:
+                    migration_failure = self.run_remote(
+                        "racknerd",
+                        f"""set -Eeuo pipefail
+state={shlex.quote(self.state_dir)}
+switch_substage=unknown
+switch_line=unknown
+m195_phase=unknown
+m195_code=none
+switch_file=\"$state/migration-switch-failure\"
+m195_file=\"$state/migration-195-failure\"
+if test -f \"$switch_file\" && test ! -L \"$switch_file\"; then
+  test \"$(stat -c '%U:%G:%a:%h' \"$switch_file\")\" = root:root:600:1
+  test \"$(grep -c '^switch_failure_' \"$switch_file\")\" = 3
+  switch_stage=$(sed -n 's/^switch_failure_stage=//p' \"$switch_file\")
+  switch_substage=$(sed -n 's/^switch_failure_substage=//p' \"$switch_file\")
+  switch_line=$(sed -n 's/^switch_failure_line=//p' \"$switch_file\")
+  [[ $switch_stage == schema_verified ]]
+  case \"$switch_substage\" in schema_stage_marker|migration_container_identity|migration_container_exit|migration_marker_prepare|migration_marker_manifest|migration_marker_publish|migration_195_postflight) ;; *) exit 1 ;; esac
+  [[ $switch_line =~ ^[0-9]+$ ]]
+fi
+if test -f \"$m195_file\" && test ! -L \"$m195_file\"; then
+  test \"$(stat -c '%U:%G:%a:%h' \"$m195_file\")\" = root:root:600:1
+  test \"$(grep -c '^migration_195_failure_' \"$m195_file\")\" = 2
+  m195_phase=$(sed -n 's/^migration_195_failure_phase=//p' \"$m195_file\")
+  m195_code=$(sed -n 's/^migration_195_failure_code=//p' \"$m195_file\")
+  case \"$m195_phase\" in preflight|bind|postflight_db|postflight_runtime) ;; *) exit 1 ;; esac
+  case \"$m195_code\" in config_file|timezone_value|unproven_rate|account_binding_mismatch|outbox_query|outbox_value|outbox_watermark|data_plan_query|account_ids_query|data_plan_hash|account_binding_conflict|unexpected_data|recovery_point|data_plan_missing|plan_write|plan_missing|affected_missing|timezone_file|data_plan_mismatch|account_ids_file|account_ids_hash|status_file|status_value|outbox_baseline_file|source_rate_state|postflight_shape) ;; *) exit 1 ;; esac
+fi
+printf 'switch_failure_substage=%s\\nswitch_failure_line=%s\\nmigration_195_failure_phase=%s\\nmigration_195_failure_code=%s\\n' \"$switch_substage\" \"$switch_line\" \"$m195_phase\" \"$m195_code\"
+""",
+                        {"switch_failure_substage", "switch_failure_line", "migration_195_failure_phase", "migration_195_failure_code"},
+                    )
+                    failure.update(migration_failure)
+                except BaseException:
+                    failure.update({
+                        "switch_failure_substage": "unknown", "switch_failure_line": "unknown",
+                        "migration_195_failure_phase": "unknown", "migration_195_failure_code": "none",
+                    })
                 self.stage("migration_switch_failed", failure)
             raise
         self.stage("candidate_started", {
