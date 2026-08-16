@@ -602,7 +602,7 @@ if [[ $profile == 237 || $profile == 238 ]]; then
 fi
 if [[ $release_profile == 238 ]]; then
   migration_237_context="$state_dir/migration-237-context.sh"
-  printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_237_context"
+  printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_237_context"
   chmod 400 "$migration_237_context"
   migration_237_status=$(<"$state_dir/migration-237-status")
   ASSERT_CONTEXT_FILE="$state_dir/migration-237-context.sh" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER=sub2api ASSERT_DB_NAME=sub2api MIGRATION_STATUS="$migration_237_status" RELEASE_DIR="$state_dir" "$assets_dir/migration-237-assert.sh" postflight
