@@ -255,6 +255,35 @@ drill_id: 恢复演练编号
 
 daily、release recovery point、candidate、verified 和 previous verified 的保留数量或时间必须以现场配置核验为准。没有核验时写 `unknown`，不得凭空填写保留天数。清理前必须确认没有回滚或 verified 指针引用目标 artifact。
 
+### 备份机容量清理合同
+
+备份机空间不足时只允许使用版本化脚本：
+
+```text
+.agents/skills/sub2api-production-deploy/scripts/release/backup-retention-clean.sh
+```
+
+固定策略：
+
+- 只检查 `/srv/sub2api-backups/daily`；默认保留最新 2 组完整 daily 包及其 `.sha256` 文件。
+- 不删除 `baseline`、`releases`、`candidate`、`verified`、`recovery`、`release-logs` 或任何 profile 恢复包。
+- 只接受 root 所有、非 symlink、单硬链接且 checksum 匹配的成对 daily 文件。
+- dry-run 生成候选文件、大小、mtime、checksum 和 `plan_sha256`；apply 必须携带同一 checksum，候选漂移即停止。
+- apply 使用独立锁，逐文件复核后删除；删除后必须重新核对可用空间达到 5 GiB。
+- 禁止 `rm -rf`、`docker/system prune`、手工删除 profile 235，或把 VM 清理器套到备份机。
+
+标准流程：
+
+```text
+backup-retention-clean.sh dry-run
+  -> 核对候选与保护集合
+  -> 记录 plan_sha256
+  -> backup-retention-clean.sh apply <同一 plan_sha256>
+  -> doctor --node backup
+```
+
+如果 daily 只剩 2 组仍无法达到 5 GiB，必须扩容备份机或进入人工 retention 审核，不得扩大删除范围。
+
 ## 密钥与告警
 
 - 加密私钥不得与密文包同库存放，不得进入 Git、日志、manifest 明文或最终报告。
