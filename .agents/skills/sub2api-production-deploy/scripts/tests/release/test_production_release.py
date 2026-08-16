@@ -1490,6 +1490,20 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         self.assertIn('"migration_234_schema_state", "migration_234_schema_verified", "migration_234_preflight"', production)
 
+    def test_profile_238_switch_accepts_all_migration_237_postflight_output_fields(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        switch_allowlist = production[
+            production.index('if getattr(self, "profile", {}).get("name") == "238":'):
+            production.index("try:", production.index('if getattr(self, "profile", {}).get("name") == "238":'))
+        ]
+        for field in (
+            "migration_237_schema_state",
+            "migration_237_schema_verified",
+            "migration_237_preflight",
+            "migration_237_postflight",
+        ):
+            self.assertIn(f'"{field}"', switch_allowlist)
+
     def test_backup_unit_restore_captures_stderr_without_widening_allowlist(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         self.assertIn("def restore_backup_units", production)
