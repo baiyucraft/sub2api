@@ -104,8 +104,8 @@ const AccountTableFiltersStub = {
   `
 }
 
-const mountView = () => mount(AccountsView, {
-  props: { scope: 'upstream' },
+const mountView = (scope: 'ordinary' | 'upstream' = 'upstream') => mount(AccountsView, {
+  props: { scope },
   global: {
     stubs: {
       AppLayout: { template: '<div><slot /></div>' },
@@ -114,7 +114,11 @@ const mountView = () => mount(AccountsView, {
         props: ['data', 'columns'],
         template: `
           <div data-test="data-table" :data-count="data.length" :data-columns="columns.map((column) => column.key).join(',')">
-            <div v-for="row in data" :key="row.id"><slot name="cell-actions" :row="row" /></div>
+            <div v-for="row in data" :key="row.id">
+              <slot name="cell-name" :row="row" :value="row.name" />
+              <slot name="cell-rate_multiplier" :row="row" :value="row.rate_multiplier" />
+              <slot name="cell-actions" :row="row" />
+            </div>
           </div>
         `
       },
@@ -178,8 +182,37 @@ describe('admin AccountsView upstream management mode', () => {
         upstream_config_name: 'Transit Hub',
         upstream_key_name: 'Key A',
         upstream_key_masked: 'sk-abc...7890',
+        rate_multiplier: 0.8,
+        upstream_image_pricing: {
+          supported: true,
+          status: 'available',
+          stale: false,
+          currency: 'USD',
+          rate_independent: false,
+          effective_rate_multiplier: 0.8,
+          final_cost_1k: 0.012,
+          final_cost_2k: 0.024,
+          final_cost_4k: 0.048,
+          observed_at: '2026-08-10T00:00:00Z'
+        },
         available_actions: ['edit', 'test', 'probe_key', 'toggle_observation'],
         upstream_health: { observation_enabled: false },
+        created_at: '2026-08-10T00:00:00Z',
+        updated_at: '2026-08-10T00:00:00Z'
+      }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+    ordinaryList.mockResolvedValue({
+      items: [{
+        id: 11,
+        name: 'ordinary-account',
+        platform: 'openai',
+        type: 'apikey',
+        status: 'active',
+        schedulable: true,
         created_at: '2026-08-10T00:00:00Z',
         updated_at: '2026-08-10T00:00:00Z'
       }],
@@ -244,6 +277,21 @@ describe('admin AccountsView upstream management mode', () => {
     expect(wrapper.text()).not.toContain('admin.upstreamManagement.probeModels.title')
 
     wrapper.unmount()
+  })
+
+  it('shows the upstream image capability badge and costs only in upstream scope', async () => {
+    const wrapper = mountView('upstream')
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.upstreamImagePricing.badge')
+    expect(wrapper.text()).toContain('1K $0.012 / 2K $0.024 / 4K $0.048')
+    expect(wrapper.text()).toContain('admin.accounts.upstreamImagePricing.shared')
+    expect(wrapper.text()).toContain('0.80x')
+    wrapper.unmount()
+
+    const ordinary = mountView('ordinary')
+    await flushPromises()
+    expect(ordinary.text()).not.toContain('1K $0.012 / 2K $0.024 / 4K $0.048')
+    ordinary.unmount()
   })
 
   it('keeps explicit upstream column choices after the visibility migration', async () => {
@@ -314,6 +362,37 @@ describe('admin AccountsView upstream management mode', () => {
 
     expect(setKeyObservation).toHaveBeenLastCalledWith(91, false)
     expect(action.text()).toBe('admin.upstreamManagement.actions.observation')
+    wrapper.unmount()
+  })
+
+  it('reloads isolated column settings when switching between ordinary and upstream scopes', async () => {
+    localStorage.setItem('account-hidden-columns', JSON.stringify(['today_stats']))
+    localStorage.setItem('account-hidden-columns-version', 'quality-stats-merged-v3')
+    localStorage.setItem('upstream-account-hidden-columns', JSON.stringify(['upstream_health']))
+    localStorage.setItem('upstream-account-hidden-columns-version', 'health-quality-today-visible-v1')
+
+    const wrapper = mountView('ordinary')
+    await flushPromises()
+
+    let columns = wrapper.get('[data-test="data-table"]').attributes('data-columns').split(',')
+    expect(columns).not.toContain('today_stats')
+    expect(columns).not.toContain('upstream_health')
+
+    await wrapper.setProps({ scope: 'upstream' })
+    await flushPromises()
+
+    columns = wrapper.get('[data-test="data-table"]').attributes('data-columns').split(',')
+    expect(columns).toContain('today_stats')
+    expect(columns).not.toContain('upstream_health')
+    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual(['today_stats'])
+    expect(JSON.parse(localStorage.getItem('upstream-account-hidden-columns') || '[]')).toEqual(['upstream_health'])
+
+    await wrapper.setProps({ scope: 'ordinary' })
+    await flushPromises()
+
+    columns = wrapper.get('[data-test="data-table"]').attributes('data-columns').split(',')
+    expect(columns).not.toContain('today_stats')
+    expect(columns).not.toContain('upstream_health')
     wrapper.unmount()
   })
 })

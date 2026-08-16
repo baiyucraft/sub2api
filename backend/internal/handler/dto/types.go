@@ -112,16 +112,20 @@ type Group struct {
 	VideoRateIndependent         bool    `json:"video_rate_independent"`
 	VideoRateMultiplier          float64 `json:"video_rate_multiplier"`
 	// 高峰时段倍率配置
-	PeakRateEnabled    bool     `json:"peak_rate_enabled"`
-	PeakStart          string   `json:"peak_start"`
-	PeakEnd            string   `json:"peak_end"`
-	PeakRateMultiplier float64  `json:"peak_rate_multiplier"`
-	ImagePrice1K       *float64 `json:"image_price_1k"`
-	ImagePrice2K       *float64 `json:"image_price_2k"`
-	ImagePrice4K       *float64 `json:"image_price_4k"`
-	VideoPrice480P     *float64 `json:"video_price_480p"`
-	VideoPrice720P     *float64 `json:"video_price_720p"`
-	VideoPrice1080P    *float64 `json:"video_price_1080p"`
+	PeakRateEnabled            bool     `json:"peak_rate_enabled"`
+	PeakStart                  string   `json:"peak_start"`
+	PeakEnd                    string   `json:"peak_end"`
+	PeakRateMultiplier         float64  `json:"peak_rate_multiplier"`
+	ImagePrice1K               *float64 `json:"image_price_1k"`
+	ImagePrice2K               *float64 `json:"image_price_2k"`
+	ImagePrice4K               *float64 `json:"image_price_4k"`
+	ImageCostRoutingEnabled    bool     `json:"image_cost_routing_enabled"`
+	ImageCostRoutingMode       string   `json:"image_cost_routing_mode"`
+	ImageCostTolerancePercent  float64  `json:"image_cost_tolerance_percent"`
+	ImageCostStaleAfterSeconds int      `json:"image_cost_stale_after_seconds"`
+	VideoPrice480P             *float64 `json:"video_price_480p"`
+	VideoPrice720P             *float64 `json:"video_price_720p"`
+	VideoPrice1080P            *float64 `json:"video_price_1080p"`
 	// VideoModelPrices 可选按模型族×分辨率覆盖视频每秒单价 (USD/s)。
 	VideoModelPrices map[string]map[string]float64 `json:"video_model_prices,omitempty"`
 	// Codex alpha/search 网页搜索单次价格（USD/次）；null 表示使用默认价 0.01
@@ -214,6 +218,7 @@ type Account struct {
 	UpstreamConfigName        *string                        `json:"upstream_config_name,omitempty"`
 	UpstreamKeyName           *string                        `json:"upstream_key_name,omitempty"`
 	UpstreamKeyMasked         *string                        `json:"upstream_key_masked,omitempty"`
+	UpstreamImagePricing      *UpstreamImagePricing          `json:"upstream_image_pricing,omitempty"`
 	UpstreamSchedulingEnabled *bool                          `json:"upstream_scheduling_enabled,omitempty"`
 	Concurrency               int                            `json:"concurrency"`
 	LoadFactor                *int                           `json:"load_factor,omitempty"`
@@ -318,6 +323,19 @@ type Account struct {
 
 	GroupIDs []int64  `json:"group_ids,omitempty"`
 	Groups   []*Group `json:"groups,omitempty"`
+}
+
+type UpstreamImagePricing struct {
+	Supported               bool       `json:"supported"`
+	Status                  string     `json:"status"`
+	Stale                   bool       `json:"stale"`
+	Currency                string     `json:"currency"`
+	RateIndependent         bool       `json:"rate_independent"`
+	EffectiveRateMultiplier *float64   `json:"effective_rate_multiplier,omitempty"`
+	FinalCost1K             *float64   `json:"final_cost_1k,omitempty"`
+	FinalCost2K             *float64   `json:"final_cost_2k,omitempty"`
+	FinalCost4K             *float64   `json:"final_cost_4k,omitempty"`
+	ObservedAt              *time.Time `json:"observed_at,omitempty"`
 }
 
 type AccountGroup struct {

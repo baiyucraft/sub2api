@@ -266,6 +266,18 @@ export default {
         batchCompleted: '已完成 {count} 个账号的倍率探测',
         batchPartial: '倍率探测部分完成：成功 {success} 个，失败 {failed} 个'
       },
+      upstreamImagePricing: {
+        badge: '生图',
+        shared: '共享',
+        independent: '独立',
+        costTitle: '生图成本（{mode}倍率，{status}）',
+        badgeTitle: '生图状态：{status}；成本完整度：{complete}/3；更新时间：{observedAt}',
+        statusAvailable: '可用',
+        statusPartial: '部分',
+        statusStale: '过期',
+        statusUnavailable: '不可用',
+        notObserved: '暂无'
+      },
       allPrivacyModes: '全部Privacy状态',
       privacyUnset: '未设置',
       privacyTrainingOff: '已关闭训练数据共享',

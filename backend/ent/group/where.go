@@ -185,6 +185,26 @@ func ImagePrice4k(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldImagePrice4k, v))
 }
 
+// ImageCostRoutingEnabled applies equality check predicate on the "image_cost_routing_enabled" field. It's identical to ImageCostRoutingEnabledEQ.
+func ImageCostRoutingEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldImageCostRoutingEnabled, v))
+}
+
+// ImageCostRoutingMode applies equality check predicate on the "image_cost_routing_mode" field. It's identical to ImageCostRoutingModeEQ.
+func ImageCostRoutingMode(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostTolerancePercent applies equality check predicate on the "image_cost_tolerance_percent" field. It's identical to ImageCostTolerancePercentEQ.
+func ImageCostTolerancePercent(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldImageCostTolerancePercent, v))
+}
+
+// ImageCostStaleAfterSeconds applies equality check predicate on the "image_cost_stale_after_seconds" field. It's identical to ImageCostStaleAfterSecondsEQ.
+func ImageCostStaleAfterSeconds(v int) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldImageCostStaleAfterSeconds, v))
+}
+
 // BatchImageDiscountMultiplier applies equality check predicate on the "batch_image_discount_multiplier" field. It's identical to BatchImageDiscountMultiplierEQ.
 func BatchImageDiscountMultiplier(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldBatchImageDiscountMultiplier, v))
@@ -1508,6 +1528,161 @@ func ImagePrice4kIsNil() predicate.Group {
 // ImagePrice4kNotNil applies the NotNil predicate on the "image_price_4k" field.
 func ImagePrice4kNotNil() predicate.Group {
 	return predicate.Group(sql.FieldNotNull(FieldImagePrice4k))
+}
+
+// ImageCostRoutingEnabledEQ applies the EQ predicate on the "image_cost_routing_enabled" field.
+func ImageCostRoutingEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldImageCostRoutingEnabled, v))
+}
+
+// ImageCostRoutingEnabledNEQ applies the NEQ predicate on the "image_cost_routing_enabled" field.
+func ImageCostRoutingEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldImageCostRoutingEnabled, v))
+}
+
+// ImageCostRoutingModeEQ applies the EQ predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostRoutingModeNEQ applies the NEQ predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostRoutingModeIn applies the In predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldImageCostRoutingMode, vs...))
+}
+
+// ImageCostRoutingModeNotIn applies the NotIn predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldImageCostRoutingMode, vs...))
+}
+
+// ImageCostRoutingModeGT applies the GT predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostRoutingModeGTE applies the GTE predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostRoutingModeLT applies the LT predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostRoutingModeLTE applies the LTE predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostRoutingModeContains applies the Contains predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostRoutingModeHasPrefix applies the HasPrefix predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostRoutingModeHasSuffix applies the HasSuffix predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostRoutingModeEqualFold applies the EqualFold predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostRoutingModeContainsFold applies the ContainsFold predicate on the "image_cost_routing_mode" field.
+func ImageCostRoutingModeContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldImageCostRoutingMode, v))
+}
+
+// ImageCostTolerancePercentEQ applies the EQ predicate on the "image_cost_tolerance_percent" field.
+func ImageCostTolerancePercentEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldImageCostTolerancePercent, v))
+}
+
+// ImageCostTolerancePercentNEQ applies the NEQ predicate on the "image_cost_tolerance_percent" field.
+func ImageCostTolerancePercentNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldImageCostTolerancePercent, v))
+}
+
+// ImageCostTolerancePercentIn applies the In predicate on the "image_cost_tolerance_percent" field.
+func ImageCostTolerancePercentIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldImageCostTolerancePercent, vs...))
+}
+
+// ImageCostTolerancePercentNotIn applies the NotIn predicate on the "image_cost_tolerance_percent" field.
+func ImageCostTolerancePercentNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldImageCostTolerancePercent, vs...))
+}
+
+// ImageCostTolerancePercentGT applies the GT predicate on the "image_cost_tolerance_percent" field.
+func ImageCostTolerancePercentGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldImageCostTolerancePercent, v))
+}
+
+// ImageCostTolerancePercentGTE applies the GTE predicate on the "image_cost_tolerance_percent" field.
+func ImageCostTolerancePercentGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldImageCostTolerancePercent, v))
+}
+
+// ImageCostTolerancePercentLT applies the LT predicate on the "image_cost_tolerance_percent" field.
+func ImageCostTolerancePercentLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldImageCostTolerancePercent, v))
+}
+
+// ImageCostTolerancePercentLTE applies the LTE predicate on the "image_cost_tolerance_percent" field.
+func ImageCostTolerancePercentLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldImageCostTolerancePercent, v))
+}
+
+// ImageCostStaleAfterSecondsEQ applies the EQ predicate on the "image_cost_stale_after_seconds" field.
+func ImageCostStaleAfterSecondsEQ(v int) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldImageCostStaleAfterSeconds, v))
+}
+
+// ImageCostStaleAfterSecondsNEQ applies the NEQ predicate on the "image_cost_stale_after_seconds" field.
+func ImageCostStaleAfterSecondsNEQ(v int) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldImageCostStaleAfterSeconds, v))
+}
+
+// ImageCostStaleAfterSecondsIn applies the In predicate on the "image_cost_stale_after_seconds" field.
+func ImageCostStaleAfterSecondsIn(vs ...int) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldImageCostStaleAfterSeconds, vs...))
+}
+
+// ImageCostStaleAfterSecondsNotIn applies the NotIn predicate on the "image_cost_stale_after_seconds" field.
+func ImageCostStaleAfterSecondsNotIn(vs ...int) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldImageCostStaleAfterSeconds, vs...))
+}
+
+// ImageCostStaleAfterSecondsGT applies the GT predicate on the "image_cost_stale_after_seconds" field.
+func ImageCostStaleAfterSecondsGT(v int) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldImageCostStaleAfterSeconds, v))
+}
+
+// ImageCostStaleAfterSecondsGTE applies the GTE predicate on the "image_cost_stale_after_seconds" field.
+func ImageCostStaleAfterSecondsGTE(v int) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldImageCostStaleAfterSeconds, v))
+}
+
+// ImageCostStaleAfterSecondsLT applies the LT predicate on the "image_cost_stale_after_seconds" field.
+func ImageCostStaleAfterSecondsLT(v int) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldImageCostStaleAfterSeconds, v))
+}
+
+// ImageCostStaleAfterSecondsLTE applies the LTE predicate on the "image_cost_stale_after_seconds" field.
+func ImageCostStaleAfterSecondsLTE(v int) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldImageCostStaleAfterSeconds, v))
 }
 
 // BatchImageDiscountMultiplierEQ applies the EQ predicate on the "batch_image_discount_multiplier" field.

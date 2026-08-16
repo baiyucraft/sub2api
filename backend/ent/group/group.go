@@ -68,6 +68,14 @@ const (
 	FieldImagePrice2k = "image_price_2k"
 	// FieldImagePrice4k holds the string denoting the image_price_4k field in the database.
 	FieldImagePrice4k = "image_price_4k"
+	// FieldImageCostRoutingEnabled holds the string denoting the image_cost_routing_enabled field in the database.
+	FieldImageCostRoutingEnabled = "image_cost_routing_enabled"
+	// FieldImageCostRoutingMode holds the string denoting the image_cost_routing_mode field in the database.
+	FieldImageCostRoutingMode = "image_cost_routing_mode"
+	// FieldImageCostTolerancePercent holds the string denoting the image_cost_tolerance_percent field in the database.
+	FieldImageCostTolerancePercent = "image_cost_tolerance_percent"
+	// FieldImageCostStaleAfterSeconds holds the string denoting the image_cost_stale_after_seconds field in the database.
+	FieldImageCostStaleAfterSeconds = "image_cost_stale_after_seconds"
 	// FieldBatchImageDiscountMultiplier holds the string denoting the batch_image_discount_multiplier field in the database.
 	FieldBatchImageDiscountMultiplier = "batch_image_discount_multiplier"
 	// FieldBatchImageHoldMultiplier holds the string denoting the batch_image_hold_multiplier field in the database.
@@ -259,6 +267,10 @@ var Columns = []string{
 	FieldImagePrice1k,
 	FieldImagePrice2k,
 	FieldImagePrice4k,
+	FieldImageCostRoutingEnabled,
+	FieldImageCostRoutingMode,
+	FieldImageCostTolerancePercent,
+	FieldImageCostStaleAfterSeconds,
 	FieldBatchImageDiscountMultiplier,
 	FieldBatchImageHoldMultiplier,
 	FieldVideoRateIndependent,
@@ -372,6 +384,16 @@ var (
 	DefaultImageRateIndependent bool
 	// DefaultImageRateMultiplier holds the default value on creation for the "image_rate_multiplier" field.
 	DefaultImageRateMultiplier float64
+	// DefaultImageCostRoutingEnabled holds the default value on creation for the "image_cost_routing_enabled" field.
+	DefaultImageCostRoutingEnabled bool
+	// DefaultImageCostRoutingMode holds the default value on creation for the "image_cost_routing_mode" field.
+	DefaultImageCostRoutingMode string
+	// ImageCostRoutingModeValidator is a validator for the "image_cost_routing_mode" field. It is called by the builders before save.
+	ImageCostRoutingModeValidator func(string) error
+	// DefaultImageCostTolerancePercent holds the default value on creation for the "image_cost_tolerance_percent" field.
+	DefaultImageCostTolerancePercent float64
+	// DefaultImageCostStaleAfterSeconds holds the default value on creation for the "image_cost_stale_after_seconds" field.
+	DefaultImageCostStaleAfterSeconds int
 	// DefaultBatchImageDiscountMultiplier holds the default value on creation for the "batch_image_discount_multiplier" field.
 	DefaultBatchImageDiscountMultiplier float64
 	// DefaultBatchImageHoldMultiplier holds the default value on creation for the "batch_image_hold_multiplier" field.
@@ -568,6 +590,26 @@ func ByImagePrice2k(opts ...sql.OrderTermOption) OrderOption {
 // ByImagePrice4k orders the results by the image_price_4k field.
 func ByImagePrice4k(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldImagePrice4k, opts...).ToFunc()
+}
+
+// ByImageCostRoutingEnabled orders the results by the image_cost_routing_enabled field.
+func ByImageCostRoutingEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldImageCostRoutingEnabled, opts...).ToFunc()
+}
+
+// ByImageCostRoutingMode orders the results by the image_cost_routing_mode field.
+func ByImageCostRoutingMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldImageCostRoutingMode, opts...).ToFunc()
+}
+
+// ByImageCostTolerancePercent orders the results by the image_cost_tolerance_percent field.
+func ByImageCostTolerancePercent(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldImageCostTolerancePercent, opts...).ToFunc()
+}
+
+// ByImageCostStaleAfterSeconds orders the results by the image_cost_stale_after_seconds field.
+func ByImageCostStaleAfterSeconds(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldImageCostStaleAfterSeconds, opts...).ToFunc()
 }
 
 // ByBatchImageDiscountMultiplier orders the results by the batch_image_discount_multiplier field.
