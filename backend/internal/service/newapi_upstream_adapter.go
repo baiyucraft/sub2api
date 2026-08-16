@@ -67,9 +67,16 @@ type newAPIEnvelope[T any] struct {
 	Data    T      `json:"data"`
 }
 
-type newAPILoginData struct {
+type newAPIUser struct {
 	ID       int64  `json:"id"`
 	Username string `json:"username"`
+}
+
+type newAPILoginData struct {
+	ID          int64       `json:"id"`
+	Username    string      `json:"username"`
+	User        *newAPIUser `json:"user"`
+	AccessToken string      `json:"access_token"`
 }
 
 type newAPISession struct {
@@ -89,10 +96,22 @@ func (t newAPIAuthTransport) RoundTrip(req *http.Request) (*http.Response, error
 	clone.Header = req.Header.Clone()
 	if t.cookie != "" {
 		clone.Header.Set("Cookie", t.cookie)
-	} else if t.accessToken != "" {
+	}
+	if t.accessToken != "" {
 		clone.Header.Set("Authorization", t.accessToken)
 	}
 	return t.base.RoundTrip(clone)
+}
+
+func newAPIBearerAuthorization(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ""
+	}
+	if len(token) >= len("Bearer ") && strings.EqualFold(token[:len("Bearer ")], "Bearer ") {
+		return token
+	}
+	return "Bearer " + token
 }
 
 type newAPIGroupInfo struct {
@@ -493,17 +512,25 @@ func (a newAPIUpstreamProviderAdapter) login(ctx context.Context, cfg *UpstreamC
 	if !payload.Success {
 		return nil, fmt.Errorf("newapi login failed%s", safeNewAPIMessage(payload.Message))
 	}
-	if payload.Data.ID <= 0 {
+	userID := payload.Data.ID
+	if userID <= 0 && payload.Data.User != nil {
+		userID = payload.Data.User.ID
+	}
+	if userID <= 0 {
 		return nil, fmt.Errorf("newapi login returned no user id")
 	}
 	parsedRoot, err := url.Parse(rootURL)
 	if err != nil {
 		return nil, err
 	}
-	if len(client.Jar.Cookies(parsedRoot)) == 0 {
+	accessToken := strings.TrimSpace(payload.Data.AccessToken)
+	if len(client.Jar.Cookies(parsedRoot)) == 0 && accessToken == "" {
 		return nil, fmt.Errorf("newapi login returned no session cookie")
 	}
-	return &newAPISession{rootURL: rootURL, userID: payload.Data.ID, client: client}, nil
+	if accessToken != "" {
+		client.Transport = newAPIAuthTransport{base: baseTransport, accessToken: newAPIBearerAuthorization(accessToken)}
+	}
+	return &newAPISession{rootURL: rootURL, userID: userID, client: client}, nil
 }
 
 func newAPIConfiguredUserID(credentials map[string]any) (int64, error) {
