@@ -680,8 +680,12 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(len(profile_238["migrations"]), 54)
         self.assertEqual(list(migration_checksums(profile_238)), profile_238["migrations"])
         migration_237 = (DEPLOY_ROOT / "maintenance" / "release" / "migration-237-assert.sh").read_text(encoding="utf-8")
+        switch = (DEPLOY_ROOT / "maintenance" / "release" / "switch.sh").read_text(encoding="utf-8")
         self.assertIn('printf \'%s\\n\' "$migration_status" > "$state_dir/migration-237-status"', migration_237)
         self.assertIn('chmod 600 "$state_dir/migration-237-status"', migration_237)
+        self.assertIn("release_profile=$profile", switch)
+        self.assertIn("printf 'profile=%q\\nstate_dir=%q\\n' \"$release_profile\" \"$state_dir\"", switch)
+        self.assertNotIn("printf 'profile=%q\\nstate_dir=%q\\n' \"$profile\" \"$state_dir\" > \"$migration_237_context\"", switch)
 
     def test_profile_212_release_chain_requires_profit_control_evidence(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
