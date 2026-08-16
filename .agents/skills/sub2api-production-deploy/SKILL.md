@@ -21,6 +21,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 所有会生成或切换应用产物的类别都走仓库根 `Dockerfile` 的完整后端发布流水线；只有严格的 `ops-readonly-assets` 或 `ops-control-assets` 可以按分类规则不构建应用镜像。
 - 禁止 `docker system prune`、缺少缓存上限或保留量的 builder prune、删除卷、数据库、Redis、`data` 或备份目录。VM 空间低于 8 GiB 时只允许执行仓库版本化清理器中的一次容量有界 BuildKit GC：按 LRU 将可回收私有缓存压到 1 GB，并保留至少 1 GB 私有 BuildKit 缓存；不得手工扩大范围。
 - 生产空间清理只能使用 `cleanup-production`：先 dry-run，再把原样 `plan_sha256` 传入 apply。只删所有 tag 均为 full-SHA 发布 tag、没有任何容器引用且不属于运行镜像、pre-switch 或恢复点的旧 Sub2API image；退出的 migration 容器及其镜像作为 reconciliation 证据保留。生产 BuildKit GC 固定为 `max-used-space=2gb,reserved-space=2gb`，禁止扩大范围。
+- 备份机空间清理只能使用版本化 `backup-retention-clean.sh`：先 dry-run，再用同一 `plan_sha256` apply。默认只删除超过最新 2 组的旧 daily 加密包及其 checksum；`baseline`、`releases`、candidate、verified、恢复包和日志均不在自动清理范围。清理后仍低于 5 GiB 时必须扩容或人工审核，禁止扩大删除范围。
 - VM 空间必须按 Docker/containerd、`/tmp`、源码、构建/恢复副本和回滚预留计算峰值；清理最多一次，不能用 `du` 或 Snap 缓存推断可回收空间。
 - VM 扩盘后必须完成分区、`partprobe`、文件系统 resize 和完整 `df`/inode 复核，并重新执行 `doctor`；不能续跑中断阶段。
 - 本地开发机的 Go 全量门禁默认使用 `-p 2 -parallel 2`，并与 Vitest、typecheck、前端生产构建串行执行；该限制不改变 VM 的正式镜像构建并行度。
