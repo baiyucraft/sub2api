@@ -15,6 +15,9 @@ def test_backup_host_space_clean_has_bounded_journal_contract() -> None:
     assert "[[ $backup_device == \"$journal_device\" ]]" in text
     assert "journalctl --rotate" in text
     assert 'journalctl --vacuum-size="$journal_max_bytes"' in text
+    assert 'raw_log="$log_dir/backup-host-space-clean.raw.log"' in text
+    assert '} >>"$raw_log" 2>&1' in text
+    assert '[[ $(stat -c \'%u:%g:%a\' "$raw_log") == 0:0:600 ]]' in text
     assert "(( free_after >= required_free_bytes ))" in text
     assert "rm -rf" not in text
     assert "find \"$backup_root\"" not in text
