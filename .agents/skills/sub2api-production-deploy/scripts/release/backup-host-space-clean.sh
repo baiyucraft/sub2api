@@ -24,9 +24,13 @@ upload_reserve_bytes=${UPLOAD_RESERVE_BYTES:-536870912}
 promotion_lock="$backup_root/.release-promotion.lock"
 retention_lock="$backup_root/.backup-retention.lock"
 host_cleanup_lock="$backup_root/.backup-host-space-clean.lock"
+log_root="$backup_root/release-logs"
+log_dir="$log_root/maintenance"
+raw_log="$log_dir/backup-host-space-clean.raw.log"
 [[ -f $promotion_lock && ! -L $promotion_lock && $(stat -c '%h' "$promotion_lock") == 1 ]]
 [[ ! -e $retention_lock || ! -L $retention_lock ]]
 [[ ! -e $host_cleanup_lock || ! -L $host_cleanup_lock ]]
+[[ -d $log_root && ! -L $log_root ]]
 
 backup_device=$(stat -c '%d' "$backup_root")
 journal_device=$(stat -c '%d' "$journal_root")
@@ -58,8 +62,22 @@ if [[ $mode == apply ]]; then
   [[ -f $retention_lock && ! -L $retention_lock && $(stat -c '%h' "$retention_lock") == 1 ]]
   flock -n 7
 
-  journalctl --rotate >/dev/null
-  journalctl --vacuum-size="$journal_max_bytes" >/dev/null
+  if [[ -e $log_dir ]]; then
+    [[ -d $log_dir && ! -L $log_dir ]]
+  else
+    install -d -o 0 -g 0 -m 700 "$log_dir"
+  fi
+  [[ $(stat -c '%u:%g:%a' "$log_dir") == 0:0:700 ]]
+  touch "$raw_log"
+  [[ -f $raw_log && ! -L $raw_log && $(stat -c '%h' "$raw_log") == 1 ]]
+  chmod 600 "$raw_log"
+  [[ $(stat -c '%u:%g:%a' "$raw_log") == 0:0:600 ]]
+  {
+    printf '[%s] action=journal-vacuum event=start plan_sha256=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$plan_sha"
+    journalctl --rotate
+    journalctl --vacuum-size="$journal_max_bytes"
+    printf '[%s] action=journal-vacuum event=finish plan_sha256=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$plan_sha"
+  } >>"$raw_log" 2>&1
 
   free_after=$(df -PB1 "$backup_root" | awk 'NR==2 {print $4}')
   journal_after=$(du -sbx "$journal_root" | awk '{print $1}')
