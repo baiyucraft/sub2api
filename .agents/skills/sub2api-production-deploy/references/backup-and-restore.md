@@ -295,6 +295,7 @@ backup-retention-clean.sh dry-run
 固定策略：
 
 - 只执行 `journalctl --rotate` 和容量有界的 `journalctl --vacuum-size=1G`。
+- `journalctl` 的 stdout/stderr 原文只追加到备份机 root-only `release-logs/maintenance/backup-host-space-clean.raw.log`，结构化 stdout 不混入进度文本。
 - 不读取日志内容，不删除 `/var/log` 其他文件，不触碰 `/srv/sub2api-backups` 中的 daily、baseline、release、candidate、verified、恢复包或 release 日志。
 - dry-run 绑定根文件系统设备、1 GiB journal 上限、5 GiB 最低余量和 512 MiB 上传预留，生成 `plan_sha256`；apply 必须使用同一 checksum。
 - apply 同时获取备份晋升、daily retention 和宿主清理锁；任一锁忙、路径为 symlink、设备不一致或计划漂移均停止。

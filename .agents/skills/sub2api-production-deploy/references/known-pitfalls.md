@@ -229,4 +229,5 @@
 - 证据：失败 release 的 root-only 原始日志显示三个 upload attempt 均命中同一容量错误；备份目录已只剩最新 2 组 daily，而 `/var/log/journal` 占用约 3.9 GiB。
 - 修复：保留 daily retention 的两组下限；新增版本化 `backup-host-space-clean.sh`，仅把 systemd journal 压到 1 GiB，并要求清理后至少保留 `5 GiB + 512 MiB` 上传余量。
 - 预防测试：脚本必须 dry-run、绑定 `plan_sha256`、获取三把锁、拒绝 symlink/跨设备，不得包含 `rm -rf` 或遍历备份根；生产 doctor 通过后仍需验证上传余量。
-- 状态：已实现，等待真实备份机 dry-run/apply 和新 release 验证。
+- 补充：`journalctl --vacuum-size` 会把正常清理进度写到 stderr；必须把 stdout/stderr 追加到 root-only 原始日志，不能让通用 SSH 严格合同把已完成清理误判为失败并重跑。
+- 状态：真实清理已完成并通过现场空间对账；等待修正日志捕获后的新 release 验证。
