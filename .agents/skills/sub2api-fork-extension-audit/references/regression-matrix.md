@@ -17,7 +17,7 @@
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 质量与累计用量 | 质量仅展示不参与调度；coverage/backfill 完整后才允许 raw cleanup；日聚合时区正确 |
 | 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；成本摘要必须结构化展示能力、倍率来源和分辨率成本；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
-| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–239 map/checksum/compatibility identity 不可变；当前 profile 240 为 pending/current 合同，58 项 migration，追加 `240_upstream_observation_preference.sql` 与 `241_precise_upstream_effective_rate.sql`，源码 migration map digest 为 `c64b389eab191711edf08a61cb51c7e7e1e2760551655e6a33804c4db0dcb94c`；`VERSION = upstream VERSION + -baiyu` |
+| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–239 map/checksum/compatibility identity 不可变；当前 profile 240 为 pending/current 合同，58 项 migration，追加 `240_upstream_observation_preference.sql` 与 `241_precise_upstream_effective_rate.sql`，源码 migration map digest 为 `f1e4e96b3b6a9627257938dc989fef54df9f0d3149f7ee0cb906a72379e3cc57`；`VERSION = upstream VERSION + -baiyu` |
 | 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
 
 ## 全量门禁
@@ -46,11 +46,11 @@ base profile: 239
 version: 0.1.177-baiyu
  migration count: 58
 appended migrations: 240_upstream_observation_preference.sql, 241_precise_upstream_effective_rate.sql
-migration source map sha256: 88c27e822511e169acf74cff55dc621f6cfbef9637cf64e9f955134001c0cd77
+migration source map sha256: bfc5850745608738937af8cf6a9117a8e2a562fd5e78a8b9cc47e4c7e3ca78e0
 migration 239 source sha256: 022c4031ec02f3118ad4dbced90089f2fe8ea6000b43008385751a5ab849e147
 migration 240 source sha256: 7e5958d2a430b8b107f84c91beecdb5f3f3ad418f78ebe6d916d77ccd6a34175
-migration 241 source sha256: 5229449601c00a2af89e1554ef8a5b5577d8ee17b3bb021c376303bc83d419fb
-migration release-manifest map sha256: c64b389eab191711edf08a61cb51c7e7e1e2760551655e6a33804c4db0dcb94c
+migration 241 source sha256: abd398acb31065c683efcc75194c4c2bc5814b083dbbaacf9db43b65edbd96af
+migration release-manifest map sha256: f1e4e96b3b6a9627257938dc989fef54df9f0d3149f7ee0cb906a72379e3cc57
 ```
 
 最低专项测试：
