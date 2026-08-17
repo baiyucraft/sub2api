@@ -125,7 +125,7 @@ func (UsageLog) Fields() []ent.Field {
 		field.Float("account_rate_multiplier").
 			Optional().
 			Nillable().
-			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 		field.String("upstream_cost_currency").
 			MaxLen(8).
 			Optional().

@@ -100,6 +100,27 @@ func TestUpstreamConfigServiceObservationWritesStateChangeEvent(t *testing.T) {
 	require.Len(t, repo.events, 1, "same-state evidence must not append another transition event")
 }
 
+func TestNewUpstreamConfigServiceHydratesDurableObservationPreference(t *testing.T) {
+	const keyID = 92003
+	GlobalUpstreamHealthRegistry().Forget(keyID)
+	defer GlobalUpstreamHealthRegistry().Forget(keyID)
+
+	repo := &healthEventCaptureRepo{keys: []UpstreamKey{{
+		ID:                      keyID,
+		ObservationEnabled:      false,
+		ObservationEnabledKnown: true,
+		Extra: map[string]any{"health": map[string]any{
+			"status":              string(UpstreamHealthHealthy),
+			"observation_enabled": true,
+		}},
+	}}}
+	_ = NewUpstreamConfigService(repo, nil, nil)
+
+	item := GlobalUpstreamHealthRegistry().Snapshot(keyID)
+	require.False(t, item.ObservationEnabled)
+	require.Equal(t, UpstreamHealthDisabled, item.Status)
+}
+
 func TestUpstreamConfigServiceHealthPersistenceFailureRollsBackRegistry(t *testing.T) {
 	const keyID = 92002
 	previous := defaultUpstreamHealthSnapshot(keyID)

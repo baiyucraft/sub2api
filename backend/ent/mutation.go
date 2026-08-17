@@ -54796,6 +54796,7 @@ type UpstreamKeyMutation struct {
 	missing_count             *int
 	addmissing_count          *int
 	missing_since             *time.Time
+	observation_enabled       *bool
 	extra                     *map[string]interface{}
 	clearedFields             map[string]struct{}
 	_config                   *int64
@@ -55908,6 +55909,42 @@ func (m *UpstreamKeyMutation) ResetMissingSince() {
 	delete(m.clearedFields, upstreamkey.FieldMissingSince)
 }
 
+// SetObservationEnabled sets the "observation_enabled" field.
+func (m *UpstreamKeyMutation) SetObservationEnabled(b bool) {
+	m.observation_enabled = &b
+}
+
+// ObservationEnabled returns the value of the "observation_enabled" field in the mutation.
+func (m *UpstreamKeyMutation) ObservationEnabled() (r bool, exists bool) {
+	v := m.observation_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldObservationEnabled returns the old "observation_enabled" field's value of the UpstreamKey entity.
+// If the UpstreamKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyMutation) OldObservationEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldObservationEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldObservationEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldObservationEnabled: %w", err)
+	}
+	return oldValue.ObservationEnabled, nil
+}
+
+// ResetObservationEnabled resets all changes to the "observation_enabled" field.
+func (m *UpstreamKeyMutation) ResetObservationEnabled() {
+	m.observation_enabled = nil
+}
+
 // SetExtra sets the "extra" field.
 func (m *UpstreamKeyMutation) SetExtra(value map[string]interface{}) {
 	m.extra = &value
@@ -56288,7 +56325,7 @@ func (m *UpstreamKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UpstreamKeyMutation) Fields() []string {
-	fields := make([]string, 0, 22)
+	fields := make([]string, 0, 23)
 	if m.created_at != nil {
 		fields = append(fields, upstreamkey.FieldCreatedAt)
 	}
@@ -56352,6 +56389,9 @@ func (m *UpstreamKeyMutation) Fields() []string {
 	if m.missing_since != nil {
 		fields = append(fields, upstreamkey.FieldMissingSince)
 	}
+	if m.observation_enabled != nil {
+		fields = append(fields, upstreamkey.FieldObservationEnabled)
+	}
 	if m.extra != nil {
 		fields = append(fields, upstreamkey.FieldExtra)
 	}
@@ -56405,6 +56445,8 @@ func (m *UpstreamKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.MissingCount()
 	case upstreamkey.FieldMissingSince:
 		return m.MissingSince()
+	case upstreamkey.FieldObservationEnabled:
+		return m.ObservationEnabled()
 	case upstreamkey.FieldExtra:
 		return m.Extra()
 	}
@@ -56458,6 +56500,8 @@ func (m *UpstreamKeyMutation) OldField(ctx context.Context, name string) (ent.Va
 		return m.OldMissingCount(ctx)
 	case upstreamkey.FieldMissingSince:
 		return m.OldMissingSince(ctx)
+	case upstreamkey.FieldObservationEnabled:
+		return m.OldObservationEnabled(ctx)
 	case upstreamkey.FieldExtra:
 		return m.OldExtra(ctx)
 	}
@@ -56615,6 +56659,13 @@ func (m *UpstreamKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetMissingSince(v)
+		return nil
+	case upstreamkey.FieldObservationEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetObservationEnabled(v)
 		return nil
 	case upstreamkey.FieldExtra:
 		v, ok := value.(map[string]interface{})
@@ -56860,6 +56911,9 @@ func (m *UpstreamKeyMutation) ResetField(name string) error {
 		return nil
 	case upstreamkey.FieldMissingSince:
 		m.ResetMissingSince()
+		return nil
+	case upstreamkey.FieldObservationEnabled:
+		m.ResetObservationEnabled()
 		return nil
 	case upstreamkey.FieldExtra:
 		m.ResetExtra()

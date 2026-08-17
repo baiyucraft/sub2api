@@ -268,7 +268,7 @@ func TestSub2APIUpstreamRateSync_KeysFallback(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, repo.bulkUpdates, 1)
-	require.InDelta(t, 0.03, *repo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
+	require.InDelta(t, 0.025, *repo.bulkUpdates[0].updates.RateMultiplier, 1e-12)
 	require.InDelta(t, 0.025, *repo.bulkUpdates[0].updates.UpstreamSourceRateMultiplier, 1e-12)
 	require.Equal(t, 3, *repo.bulkUpdates[0].updates.Priority)
 	require.Nil(t, repo.bulkUpdates[0].updates.LoadFactor)

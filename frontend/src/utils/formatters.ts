@@ -8,10 +8,17 @@ export function formatCacheTokens(tokens: number): string {
 }
 
 /**
- * 自适应精度格式化倍率：保留至多 4 位小数并去掉末尾多余的 0，
- * 但至少保留 2 位小数（0.035 -> "0.035"，0.3 -> "0.30"，1 -> "1.00"）
+ * 自适应精度格式化倍率：保留至多 10 位小数并去掉末尾多余的 0，
+ * 但至少保留 2 位小数（0.045 -> "0.045"，0.3 -> "0.30"，1 -> "1.00"）。
+ * 十进制定点显示与后端 NUMERIC(20,10) 的有效精度一致，避免把原始
+ * 上游倍率（例如 0.045）显示或排序前归一成 0.05。
  */
 export function formatMultiplier(val: number): string {
-  if (val < 0.0001) return val.toPrecision(2)
-  return val.toFixed(4).replace(/(\.\d{2}\d*?)0+$/, '$1')
+  if (!Number.isFinite(val)) return String(val)
+  const abs = Math.abs(val)
+  if (abs > 0 && abs < 1e-10) return val.toPrecision(10)
+  const fixed = val.toFixed(10)
+  const [integer, fraction = ''] = fixed.split('.')
+  const trimmed = fraction.replace(/0+$/, '')
+  return trimmed.length < 2 ? `${integer}.${trimmed.padEnd(2, '0')}` : `${integer}.${trimmed}`
 }

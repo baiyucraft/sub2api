@@ -298,6 +298,20 @@ func (_c *UpstreamKeyCreate) SetNillableMissingSince(v *time.Time) *UpstreamKeyC
 	return _c
 }
 
+// SetObservationEnabled sets the "observation_enabled" field.
+func (_c *UpstreamKeyCreate) SetObservationEnabled(v bool) *UpstreamKeyCreate {
+	_c.mutation.SetObservationEnabled(v)
+	return _c
+}
+
+// SetNillableObservationEnabled sets the "observation_enabled" field if the given value is not nil.
+func (_c *UpstreamKeyCreate) SetNillableObservationEnabled(v *bool) *UpstreamKeyCreate {
+	if v != nil {
+		_c.SetObservationEnabled(*v)
+	}
+	return _c
+}
+
 // SetExtra sets the "extra" field.
 func (_c *UpstreamKeyCreate) SetExtra(v map[string]interface{}) *UpstreamKeyCreate {
 	_c.mutation.SetExtra(v)
@@ -465,6 +479,10 @@ func (_c *UpstreamKeyCreate) defaults() error {
 		v := upstreamkey.DefaultMissingCount
 		_c.mutation.SetMissingCount(v)
 	}
+	if _, ok := _c.mutation.ObservationEnabled(); !ok {
+		v := upstreamkey.DefaultObservationEnabled
+		_c.mutation.SetObservationEnabled(v)
+	}
 	if _, ok := _c.mutation.Extra(); !ok {
 		if upstreamkey.DefaultExtra == nil {
 			return fmt.Errorf("ent: uninitialized upstreamkey.DefaultExtra (forgotten import ent/runtime?)")
@@ -549,6 +567,9 @@ func (_c *UpstreamKeyCreate) check() error {
 	}
 	if _, ok := _c.mutation.MissingCount(); !ok {
 		return &ValidationError{Name: "missing_count", err: errors.New(`ent: missing required field "UpstreamKey.missing_count"`)}
+	}
+	if _, ok := _c.mutation.ObservationEnabled(); !ok {
+		return &ValidationError{Name: "observation_enabled", err: errors.New(`ent: missing required field "UpstreamKey.observation_enabled"`)}
 	}
 	if _, ok := _c.mutation.Extra(); !ok {
 		return &ValidationError{Name: "extra", err: errors.New(`ent: missing required field "UpstreamKey.extra"`)}
@@ -662,6 +683,10 @@ func (_c *UpstreamKeyCreate) createSpec() (*UpstreamKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.MissingSince(); ok {
 		_spec.SetField(upstreamkey.FieldMissingSince, field.TypeTime, value)
 		_node.MissingSince = &value
+	}
+	if value, ok := _c.mutation.ObservationEnabled(); ok {
+		_spec.SetField(upstreamkey.FieldObservationEnabled, field.TypeBool, value)
+		_node.ObservationEnabled = value
 	}
 	if value, ok := _c.mutation.Extra(); ok {
 		_spec.SetField(upstreamkey.FieldExtra, field.TypeJSON, value)
@@ -1146,6 +1171,18 @@ func (u *UpstreamKeyUpsert) ClearMissingSince() *UpstreamKeyUpsert {
 	return u
 }
 
+// SetObservationEnabled sets the "observation_enabled" field.
+func (u *UpstreamKeyUpsert) SetObservationEnabled(v bool) *UpstreamKeyUpsert {
+	u.Set(upstreamkey.FieldObservationEnabled, v)
+	return u
+}
+
+// UpdateObservationEnabled sets the "observation_enabled" field to the value that was provided on create.
+func (u *UpstreamKeyUpsert) UpdateObservationEnabled() *UpstreamKeyUpsert {
+	u.SetExcluded(upstreamkey.FieldObservationEnabled)
+	return u
+}
+
 // SetExtra sets the "extra" field.
 func (u *UpstreamKeyUpsert) SetExtra(v map[string]interface{}) *UpstreamKeyUpsert {
 	u.Set(upstreamkey.FieldExtra, v)
@@ -1585,6 +1622,20 @@ func (u *UpstreamKeyUpsertOne) UpdateMissingSince() *UpstreamKeyUpsertOne {
 func (u *UpstreamKeyUpsertOne) ClearMissingSince() *UpstreamKeyUpsertOne {
 	return u.Update(func(s *UpstreamKeyUpsert) {
 		s.ClearMissingSince()
+	})
+}
+
+// SetObservationEnabled sets the "observation_enabled" field.
+func (u *UpstreamKeyUpsertOne) SetObservationEnabled(v bool) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetObservationEnabled(v)
+	})
+}
+
+// UpdateObservationEnabled sets the "observation_enabled" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertOne) UpdateObservationEnabled() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateObservationEnabled()
 	})
 }
 
@@ -2195,6 +2246,20 @@ func (u *UpstreamKeyUpsertBulk) UpdateMissingSince() *UpstreamKeyUpsertBulk {
 func (u *UpstreamKeyUpsertBulk) ClearMissingSince() *UpstreamKeyUpsertBulk {
 	return u.Update(func(s *UpstreamKeyUpsert) {
 		s.ClearMissingSince()
+	})
+}
+
+// SetObservationEnabled sets the "observation_enabled" field.
+func (u *UpstreamKeyUpsertBulk) SetObservationEnabled(v bool) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetObservationEnabled(v)
+	})
+}
+
+// UpdateObservationEnabled sets the "observation_enabled" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertBulk) UpdateObservationEnabled() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateObservationEnabled()
 	})
 }
 

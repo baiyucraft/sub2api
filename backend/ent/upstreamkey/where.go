@@ -160,6 +160,11 @@ func MissingSince(v time.Time) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEQ(FieldMissingSince, v))
 }
 
+// ObservationEnabled applies equality check predicate on the "observation_enabled" field. It's identical to ObservationEnabledEQ.
+func ObservationEnabled(v bool) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldObservationEnabled, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEQ(FieldCreatedAt, v))
@@ -1303,6 +1308,16 @@ func MissingSinceIsNil() predicate.UpstreamKey {
 // MissingSinceNotNil applies the NotNil predicate on the "missing_since" field.
 func MissingSinceNotNil() predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldNotNull(FieldMissingSince))
+}
+
+// ObservationEnabledEQ applies the EQ predicate on the "observation_enabled" field.
+func ObservationEnabledEQ(v bool) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldObservationEnabled, v))
+}
+
+// ObservationEnabledNEQ applies the NEQ predicate on the "observation_enabled" field.
+func ObservationEnabledNEQ(v bool) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNEQ(FieldObservationEnabled, v))
 }
 
 // HasConfig applies the HasEdge predicate on the "config" edge.
