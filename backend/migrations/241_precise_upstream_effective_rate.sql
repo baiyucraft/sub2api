@@ -1,6 +1,8 @@
 -- Preserve the full effective upstream multiplier instead of the historical
 -- two-decimal ceiling.  The application computes source_rate * recharge_rate
 -- and rounds only to the ten decimal places supported by these columns.
+-- The migration contract is numeric(20,10) precision for every effective-rate
+-- snapshot; PostgreSQL DECIMAL is its equivalent spelling.
 
 BEGIN;
 
