@@ -644,7 +644,10 @@ if [[ $release_profile == 239 ]]; then
   [[ $fixture_group_id =~ ^[1-9][0-9]*$ ]]
   docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U "$database_owner" -d "$probe_db" -c "UPDATE groups SET video_price_480p=0.12345678 WHERE id=$fixture_group_id" >/dev/null
   ASSERT_CONTEXT_FILE="$migration_239_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_239_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-239-assert.sh" preflight >/dev/null
-  printf '%s  recovery-point.age\n' "$(sha256sum "$manifest" | awk '{print $1}')" > "$state_dir/recovery-point.age.sha256"
+  # Profile 239 inherits migration 232, so both data plans must bind to the
+  # same coordinated recovery point. Replacing this file here invalidates the
+  # earlier migration-232 bound checksum and makes its postflight fail.
+  [[ -f $state_dir/recovery-point.age.sha256 && ! -L $state_dir/recovery-point.age.sha256 ]]
   ASSERT_CONTEXT_FILE="$migration_239_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_239_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-239-assert.sh" bind >/dev/null
   migration_239_preflight_verified=true
 fi

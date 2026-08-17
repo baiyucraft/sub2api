@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -376,20 +378,84 @@ def print_status(identifier: str) -> None:
     print(canonical_json(status_view(identifier)).decode("ascii"))
 
 
+def _vm_gate_failure_event(ssh: SSHRunner, release_id: str, deployment_mode: str) -> dict[str, Any] | None:
+    root = f"/opt/sub2api-deploy/release-gates/{release_id}"
+    script = f'''set -Eeuo pipefail
+root={shlex.quote(root)}
+read_one() {{
+  local path=$1 default=$2
+  if [[ -f $path && ! -L $path ]]; then tr -d '\r\n' <"$path"; else printf '%s' "$default"; fi
+}}
+raw_log="$root/logs/vm-validate.raw.log"
+stderr_log="$root/validator.stderr"
+printf 'gate_stage=%s\n' "$(read_one "$root/stage" absent)"
+printf 'gate_failure_category=%s\n' "$(read_one "$root/failure-category" absent)"
+printf 'gate_failure_line=%s\n' "$(read_one "$root/failure-line" 0)"
+if [[ -f $raw_log && ! -L $raw_log ]]; then raw_log_status=ok; raw_log_bytes=$(stat -c '%s' "$raw_log"); else raw_log_status=absent; raw_log_bytes=0; fi
+if [[ -f $stderr_log && ! -L $stderr_log ]]; then validator_stderr_bytes=$(stat -c '%s' "$stderr_log"); else validator_stderr_bytes=0; fi
+printf 'raw_log_status=%s\nraw_log_bytes=%s\nvalidator_stderr_bytes=%s\n' "$raw_log_status" "$raw_log_bytes" "$validator_stderr_bytes"
+'''
+    values = ssh.run(
+        "local_vm",
+        script,
+        {"gate_stage", "gate_failure_category", "gate_failure_line", "raw_log_status", "raw_log_bytes", "validator_stderr_bytes"},
+    ).values
+    stage = values["gate_stage"]
+    category = values["gate_failure_category"]
+    line = values["gate_failure_line"]
+    if category == "absent":
+        return None
+    if not re.fullmatch(r"[a-z0-9_]+", stage) or not re.fullmatch(r"[a-z0-9_]+", category):
+        raise RuntimeError("invalid VM Gate failure evidence")
+    if not line.isdigit() or values["raw_log_status"] not in {"ok", "absent"}:
+        raise RuntimeError("invalid VM Gate failure evidence")
+    if not values["raw_log_bytes"].isdigit() or not values["validator_stderr_bytes"].isdigit():
+        raise RuntimeError("invalid VM Gate failure evidence")
+    command_id = hashlib.sha256(f"{release_id}|{stage}|{category}|{line}".encode()).hexdigest()[:16]
+    return {
+        "schema": 1,
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        "release_id": release_id,
+        "deployment_mode": deployment_mode,
+        "node": "vm",
+        "stage": stage,
+        "script": "vm-validate.sh",
+        "command_id": command_id,
+        "attempt": 1,
+        "stream": "event",
+        "level": "error",
+        "event": "gate_failure_evidence",
+        "message": "VM Gate failure evidence is available on the VM",
+        "exit_code": 1,
+        "details": {
+            "failure_category": category,
+            "failure_line": int(line),
+            "raw_log_status": values["raw_log_status"],
+            "raw_log_bytes": int(values["raw_log_bytes"]),
+            "validator_stderr_bytes": int(values["validator_stderr_bytes"]),
+        },
+    }
+
+
 def logs_view(args: argparse.Namespace) -> dict[str, Any]:
     run_dir = _run_dir(args.release_id)
     if not run_dir.is_dir():
         raise RuntimeError("release does not exist")
+    manifest = _read_json(run_dir / "manifest.json", required=True) or {}
+    deployment_mode = str(manifest.get("deployment_mode", "not_applicable"))
     requested = ("local", "vm", "racknerd", "dmit", "backup") if args.node == "all" else (args.node,)
-    paths: list[Path] = []
-    path_labels: dict[str, str] = {}
+    sources: list[tuple[Path, str]] = []
+    failure_events: list[dict[str, Any]] = []
     external_issues: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="sub2api-release-logs-") as temporary:
         temporary_root = Path(temporary)
-        if "local" in requested:
-            local_path = run_dir / "logs" / "events.jsonl"
-            paths.append(local_path)
-            path_labels[str(local_path)] = "local"
+        local_path = run_dir / "logs" / "events.jsonl"
+        if local_path.is_file():
+            # The detached orchestrator records its own events and every
+            # structured SSH event in this local JSONL. Query it once per
+            # requested display node so VM failures remain visible even when
+            # the node-local event file was never created.
+            sources.extend((local_path, node) for node in requested)
         remote_nodes = [node for node in requested if node != "local"]
         if remote_nodes:
             try:
@@ -400,35 +466,50 @@ def logs_view(args: argparse.Namespace) -> dict[str, Any]:
             else:
                 for node in remote_nodes:
                     try:
-                        content = ssh.read_release_events(node, args.release_id)
+                        ssh_node = "local_vm" if node == "vm" else node
+                        content = ssh.read_release_events(ssh_node, args.release_id)
                         local_copy = temporary_root / f"{node}.events.jsonl"
                         local_copy.write_bytes(content)
                         if os.name != "nt":
                             os.chmod(local_copy, 0o600)
-                        paths.append(local_copy)
-                        path_labels[str(local_copy)] = node
+                        sources.append((local_copy, node))
                     except BaseException as error:
                         external_issues.append({"node": node, "line": 0, "error": f"event log unavailable: {type(error).__name__}"})
+                        if node == "vm":
+                            try:
+                                failure_event = _vm_gate_failure_event(ssh, args.release_id, deployment_mode)
+                            except BaseException as evidence_error:
+                                external_issues.append({"node": node, "line": 0, "error": f"failure evidence unavailable: {type(evidence_error).__name__}"})
+                            else:
+                                if failure_event is not None:
+                                    failure_events.append(failure_event)
 
-        events: list[dict[str, Any]] = []
-        issues = []
-        for path in paths:
-            source_node = path_labels.get(str(path), "local")
+        events: list[dict[str, Any]] = list(failure_events)
+        issue_documents = list(external_issues)
+        for path, source_node in sources:
             result = query_events(
                 [path],
                 LogQuery(node=source_node, stage=args.stage, level=args.level, since=args.since, tail=None),
             )
             events.extend(result.events)
-            issues.extend(result.issues)
+            issue_documents.extend(
+                {"node": source_node, "line": issue.line, "error": issue.error}
+                for issue in result.issues
+            )
+        unique_events: dict[tuple[Any, ...], dict[str, Any]] = {}
+        for event in events:
+            key = (
+                event.get("timestamp"), event.get("command_id"), event.get("node"),
+                event.get("stage"), event.get("script"), event.get("event"),
+                event.get("attempt"), event.get("stream"),
+            )
+            unique_events[key] = event
+        events = list(unique_events.values())
         events.sort(key=lambda item: (item["timestamp"], item["command_id"]))
         if args.tail is not None:
             if args.tail < 0:
                 raise ValueError("tail must not be negative")
             events = events[-args.tail:] if args.tail else []
-        issue_documents = external_issues + [
-            {"node": path_labels.get(issue.path, "local"), "line": issue.line, "error": issue.error}
-            for issue in issues
-        ]
         status = "ok" if not issue_documents else "partial" if events else "unknown"
         return {
             "schema": 1,
