@@ -4,8 +4,6 @@
 -- The migration contract is numeric(20,10) precision for every effective-rate
 -- snapshot; PostgreSQL DECIMAL is its equivalent spelling.
 
-BEGIN;
-
 -- PostgreSQL does not allow changing a column type while an UPDATE OF
 -- trigger definition names that column.  The binding trigger is recreated
 -- below after the precise column types and function body are installed.
@@ -116,5 +114,3 @@ SELECT 'account_bulk_changed', jsonb_build_object('account_ids', jsonb_agg(id OR
   FROM accounts
  WHERE upstream_key_id IS NOT NULL
 HAVING COUNT(*) > 0;
-
-COMMIT;
