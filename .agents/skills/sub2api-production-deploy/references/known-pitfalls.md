@@ -210,6 +210,7 @@
 - 根因：validator 的完整生命周期由一次前台 SSH command 承载，调用端连接同时承担远端进程存活、stdout/stderr 传输和最终结构化结果返回。
 - 证据：profile 239 release `239-a68eeab2790a-1786939986-9a81fc13` 的本地 SSH 已中断，远端阶段仍停留在 `candidate_build` 且构建进程继续存在；确认 30 分钟无推进后才按 manifest、PID、父子关系终止并由 trap 写入失败分类。
 - 修复：VM validator 改为 `nohup + setsid` 独立 worker；worker 使用 boot ID、PID 与 `/proc` start token 建立进程身份，原始 stdout/stderr 仅写入 VM root-only 日志，本地只重连轮询结构化状态。启动 SSH 状态不明时不重复启动；只有连续证明握手不存在才清理 input，worker 运行或状态未知时保留 input 与证据。
+- 补充：首版 detached wrapper 的 `state_write` 把 `key` 和依赖 `$key` 的 `tmp` 放在同一条 `local` 声明中，在 `set -u` 下会于状态握手前触发 `unbound variable`。局部变量必须分两步声明；launcher 先写 `launching`，并把 worker 的早期 stdout/stderr 直接追加到 root-only raw log，禁止重定向到 `/dev/null`。
 - 预防测试：覆盖启动后首次 SSH reset、随后 running、最终 exited；PID token 丢失 fail-closed；非零退出、Gate 文件缺失、日志权限异常；状态未知不清理 input；worker 终态后才允许清理。
 - 状态：代码已修复，等待新 full-SHA profile 239 VM Gate 验证。
 

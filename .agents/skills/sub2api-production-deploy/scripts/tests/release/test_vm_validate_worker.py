@@ -83,11 +83,15 @@ class VMValidateWorkerTest(unittest.TestCase):
             release_id="239-test",
         )
         self.assertIn("command -v setsid", script)
-        self.assertIn('nohup setsid "$wrapper" >/dev/null 2>&1 </dev/null &', script)
+        self.assertIn('launch_state_tmp="$worker_dir/status.tmp"', script)
+        self.assertIn("printf 'launching", script)
+        self.assertIn('nohup setsid "$wrapper" >>"$raw_log" 2>&1 </dev/null &', script)
         self.assertIn('>>"$raw_log" 2>&1', script)
         self.assertIn("/opt/sub2api-deploy/release-logs/239-test/vm-validate.raw.log", script)
         self.assertIn("0:0:700", script)
         self.assertIn("0:0:600:1", script)
+        self.assertIn("local key=$1 value=$2\n  local tmp=", script)
+        self.assertNotIn('local key=$1 value=$2 tmp="$worker_dir/$key.tmp"', script)
         self.assertLess(script.index('state_write exit_code "$exit_code"'), script.index("state_write status exited"))
 
     def test_poll_only_returns_structured_metadata(self) -> None:
@@ -133,6 +137,11 @@ class VMValidateWorkerTest(unittest.TestCase):
     def test_repeated_absent_handshake_is_safe_not_started_failure(self) -> None:
         runner = FakeRunner([worker_result("absent"), worker_result("absent")])
         with self.assertRaisesRegex(VMWorkerNotStartedError, "startup handshake"):
+            self.wait(runner, max_absent_polls=2)
+
+    def test_launcher_handshake_without_worker_progress_preserves_evidence(self) -> None:
+        runner = FakeRunner([worker_result("launching"), worker_result("launching")])
+        with self.assertRaisesRegex(VMWorkerStateUnknownError, "launcher handshake"):
             self.wait(runner, max_absent_polls=2)
 
     def test_running_worker_with_lost_identity_fails_closed(self) -> None:
