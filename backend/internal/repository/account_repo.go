@@ -165,6 +165,12 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	if account.UpstreamStalePausedAt != nil {
 		builder.SetUpstreamStalePausedAt(*account.UpstreamStalePausedAt)
 	}
+	if strings.TrimSpace(account.UpstreamLifecycleOwner) != "" {
+		builder.SetUpstreamLifecycleOwner(account.UpstreamLifecycleOwner)
+	}
+	if account.UpstreamArchiveReason != nil {
+		builder.SetUpstreamArchiveReason(*account.UpstreamArchiveReason)
+	}
 	if account.LastUsedAt != nil {
 		builder.SetLastUsedAt(*account.LastUsedAt)
 	}
@@ -670,6 +676,14 @@ func buildAccountUpdate(client *dbent.Client, account *service.Account, schedula
 		builder.SetUpstreamStalePausedAt(*account.UpstreamStalePausedAt)
 	} else {
 		builder.ClearUpstreamStalePausedAt()
+	}
+	if strings.TrimSpace(account.UpstreamLifecycleOwner) != "" {
+		builder.SetUpstreamLifecycleOwner(account.UpstreamLifecycleOwner)
+	}
+	if account.UpstreamArchiveReason != nil {
+		builder.SetUpstreamArchiveReason(*account.UpstreamArchiveReason)
+	} else {
+		builder.ClearUpstreamArchiveReason()
 	}
 	if account.LastUsedAt != nil {
 		builder.SetLastUsedAt(*account.LastUsedAt)
@@ -3874,6 +3888,8 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		UpstreamKeyID:                m.UpstreamKeyID,
 		UpstreamStalePauseKeyID:      m.UpstreamStalePauseKeyID,
 		UpstreamStalePausedAt:        m.UpstreamStalePausedAt,
+		UpstreamLifecycleOwner:       m.UpstreamLifecycleOwner,
+		UpstreamArchiveReason:        m.UpstreamArchiveReason,
 		Concurrency:                  m.Concurrency,
 		Priority:                     m.Priority,
 		RateMultiplier:               &rateMultiplier,

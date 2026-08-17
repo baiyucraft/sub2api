@@ -263,6 +263,50 @@ class Audit:
             else:
                 self.add("pass", "historical_profile_contract", "历史 profile 合同保持不变", profile=name)
 
+        expected = self.catalog.get("current_profile")
+        if not expected:
+            return
+        name = str(expected.get("id", ""))
+        profile = profiles.get(name)
+        if not profile:
+            self.add("blocker", "current_profile_missing", "当前 profile 不存在", profile=name)
+            return
+        migrations = profile.get("migrations", [])
+        migration_map: dict[str, str] = {}
+        missing = []
+        for migration in migrations:
+            path = self.root / "backend/migrations" / migration
+            if not path.is_file():
+                missing.append(migration)
+            else:
+                migration_map[migration] = hashlib.sha256(path.read_bytes()).hexdigest()
+        digest = hashlib.sha256(json.dumps(migration_map, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        base_name = str(expected.get("base_profile", ""))
+        base = profiles.get(base_name)
+        appended = list(expected.get("appended_migrations", []))
+        actual_contract = {
+            "id": profile.get("name"),
+            "base_profile": base_name if base and migrations == [*base.get("migrations", []), *appended] else None,
+            "version": profile.get("version"),
+            "migration_count": len(migrations),
+            "migration_map_sha256": digest,
+            "appended_migrations": appended if base and migrations == [*base.get("migrations", []), *appended] else None,
+            "compatibility_version": profile.get("compatibility_version"),
+            "compatibility_commit": profile.get("compatibility_commit"),
+            "compatibility_image_id": profile.get("compatibility_image_id"),
+        }
+        mismatches = {
+            key: {"expected": value, "actual": actual_contract.get(key)}
+            for key, value in expected.items()
+            if key != "status" and actual_contract.get(key) != value
+        }
+        if missing:
+            mismatches["missing_migrations"] = missing
+        if mismatches:
+            self.add("blocker", "current_profile_drift", "当前 profile、migration map 或 compatibility identity 漂移", profile=name, mismatches=mismatches)
+        else:
+            self.add("pass", "current_profile_contract", "当前 profile 合同已核验", profile=name)
+
     def check_unregistered_paths(self) -> None:
         support = self.catalog.get("registered_support_paths", [])
         extensions = [pattern for ext in self.catalog.get("extensions", []) for pattern in ext.get("paths", [])]

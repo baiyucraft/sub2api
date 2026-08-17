@@ -181,7 +181,12 @@ profile 238 继续使用版本 `0.1.177-baiyu`，完整继承 profile 237 的 53
 `237_image_cost_routing.sql`，共 54 项。该迁移只增加分组图片成本路由配置列和 auth-cache
 失效触发器字段，不修改普通文本调度、用户侧图片售价或历史 profile 证据。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235、236、237 和 238
+profile 239 继续使用版本 `0.1.177-baiyu`，完整继承 profile 238 的 54 项 migration，追加
+`238_upstream_account_lifecycle.sql`，共 55 项。该迁移只增加上游派生账号生命周期 owner、
+归档原因、约束和归档查找索引；历史账号默认保持 `manual`，由完整同步在持锁状态下按严格
+运行时签名保守认领，profile 233–238 的历史证据保持不可变。
+
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235、236、237、238 和 239
 合同。发布资产定向回归至少执行：
 
 ```text
@@ -203,6 +208,7 @@ python deploy/tests/release/backup_dr_profile_235_integration.py
 python deploy/tests/release/backup_dr_profile_236_integration.py
 python .agents/skills/sub2api-production-deploy/scripts/tests/release/backup_dr_profile_237_integration.py
 python .agents/skills/sub2api-production-deploy/scripts/tests/release/backup_dr_profile_238_integration.py
+python .agents/skills/sub2api-production-deploy/scripts/tests/release/backup_dr_profile_239_integration.py
 ```
 
 首次安装信任根使用：

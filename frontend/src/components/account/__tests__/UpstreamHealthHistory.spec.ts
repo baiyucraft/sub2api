@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import UpstreamHealthHistory from '../UpstreamHealthHistory.vue'
+import HelpTooltip from '@/components/common/HelpTooltip.vue'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -11,7 +12,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 const stubs = {
-  HelpTooltip: { template: '<div><slot name="trigger" /><div><slot /></div></div>' }
+  HelpTooltip: { template: '<div data-test="health-history-tooltip"><slot name="trigger" /><div><slot /></div></div>' }
 }
 
 describe('UpstreamHealthHistory', () => {
@@ -34,6 +35,8 @@ describe('UpstreamHealthHistory', () => {
     expect(chart.classes()).toContain('max-w-[210px]')
     expect(chart.attributes('style')).toContain('repeat(24, minmax(0, 1fr))')
     expect(wrapper.text()).toContain('admin.upstreamManagement.health.historySummary')
+    expect(wrapper.findAll('[data-test="health-history-tooltip"]')).toHaveLength(1)
+    expect(wrapper.findAllComponents(HelpTooltip)).toHaveLength(1)
   })
 
   it('does not fabricate bars when no observations exist', () => {
