@@ -12,7 +12,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 describe('UpstreamImagePricingSummary', () => {
-  it('renders structured 1K/2K/4K costs without repeating the shared multiplier', () => {
+  it('renders a centered 1K/2K/4K matrix and keeps calculation details in hover titles', () => {
     const wrapper = mount(UpstreamImagePricingSummary, {
       props: {
         pricing: {
@@ -30,14 +30,14 @@ describe('UpstreamImagePricingSummary', () => {
       }
     })
 
-    expect(wrapper.get('[data-test="image-pricing-rate-mode"]').text()).toContain(
-      'admin.accounts.upstreamImagePricing.shared'
-    )
-    expect(wrapper.get('[data-test="image-pricing-rate-mode"]').text()).not.toContain('0.80')
+    expect(wrapper.find('[data-test="image-pricing-rate-mode"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="image-pricing-status"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="image-cost-1k"]').text()).toContain('$0.000')
     expect(wrapper.get('[data-test="image-cost-2k"]').text()).toContain('$0.024')
     expect(wrapper.get('[data-test="image-cost-4k"]').text()).toContain('$0.048')
+    expect(wrapper.get('[data-test="image-cost-1k"]').attributes('title')).toContain(
+      'admin.accounts.upstreamImagePricing.costTooltipShared'
+    )
   })
 
   it('renders independent, stale and missing tiers without treating them as zero', () => {
@@ -58,15 +58,15 @@ describe('UpstreamImagePricingSummary', () => {
       }
     })
 
-    expect(wrapper.get('[data-test="image-pricing-rate-mode"]').text()).toContain(
-      'admin.accounts.upstreamImagePricing.independent'
-    )
-    expect(wrapper.get('[data-test="image-pricing-rate-mode"]').text()).toContain('1.25×')
+    expect(wrapper.find('[data-test="image-pricing-rate-mode"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="image-pricing-status"]').attributes('aria-label')).toBe(
       'admin.accounts.upstreamImagePricing.statusStale'
     )
     expect(wrapper.get('[data-test="image-cost-1k"]').text()).toContain('CNY 0.010')
     expect(wrapper.get('[data-test="image-cost-2k"]').text()).toContain('—')
     expect(wrapper.get('[data-test="image-cost-4k"]').text()).toContain('—')
+    expect(wrapper.get('[data-test="image-cost-1k"]').attributes('title')).toContain(
+      'admin.accounts.upstreamImagePricing.costTooltipIndependent'
+    )
   })
 })

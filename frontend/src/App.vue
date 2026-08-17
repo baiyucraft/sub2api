@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
-import { onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
@@ -18,6 +18,11 @@ const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
+const accountRouteInstanceKey = computed(() => (
+  route.name === 'AdminAccounts' || route.name === 'AdminUpstreamManagement'
+    ? String(route.name)
+    : undefined
+))
 
 function updateDocumentTitle() {
   const customMenuItems = [
@@ -138,7 +143,9 @@ onMounted(async () => {
 
 <template>
   <NavigationProgress />
-  <RouterView />
+  <RouterView v-slot="{ Component }">
+    <component :is="Component" :key="accountRouteInstanceKey" />
+  </RouterView>
   <Toast />
   <AnnouncementPopup />
   <AdminComplianceDialog />

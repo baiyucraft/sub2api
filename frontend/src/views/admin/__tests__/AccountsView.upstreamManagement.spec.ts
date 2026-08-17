@@ -171,6 +171,11 @@ const mountView = (scope: 'ordinary' | 'upstream' = 'upstream') => mount(Account
       AccountTodayStatsCell: true,
       AccountGroupsCell: true,
       AccountUsageCell: AccountUsageCellStub,
+      AutoRefreshCountdownLabel: {
+        props: ['enabled'],
+        template: '<span>{{ enabled ? "admin.accounts.autoRefreshCountdown" : "admin.accounts.autoRefresh" }}</span>'
+      },
+      UpstreamModelMappingCell: true,
       Toggle: true,
       Icon: true
     }
@@ -313,7 +318,10 @@ describe('admin AccountsView upstream management mode', () => {
     expect(wrapper.get('[data-test="image-cost-1k"]').text()).toContain('$0.012')
     expect(wrapper.get('[data-test="image-cost-2k"]').text()).toContain('$0.024')
     expect(wrapper.get('[data-test="image-cost-4k"]').text()).toContain('$0.048')
-    expect(wrapper.text()).toContain('admin.accounts.upstreamImagePricing.shared')
+    expect(wrapper.find('[data-test="image-pricing-rate-mode"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="image-cost-1k"]').attributes('title')).toContain(
+      'admin.accounts.upstreamImagePricing.costTooltipShared'
+    )
     expect(wrapper.text()).toContain('0.80x')
     wrapper.unmount()
 

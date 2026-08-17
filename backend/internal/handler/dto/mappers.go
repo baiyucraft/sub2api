@@ -283,6 +283,9 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		ParentAccountID:           a.ParentAccountID,
 		QuotaDimension:            a.QuotaDimension,
 	}
+	if sync := upstreamModelSyncProjection(a); sync != nil {
+		out.UpstreamModelSync = sync
+	}
 	if p := a.UpstreamImagePricing; p != nil {
 		out.UpstreamImagePricing = &UpstreamImagePricing{
 			Supported:               p.Supported,
@@ -425,6 +428,81 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	}
 
 	return out
+}
+
+func upstreamModelSyncProjection(a *service.Account) *UpstreamModelSync {
+	if a == nil || a.UpstreamConfigID == nil || a.UpstreamKeyID == nil {
+		return nil
+	}
+	mode := a.UpstreamLifecycleOwner
+	if mode == "" {
+		mode = service.AccountUpstreamLifecycleOwnerManual
+	}
+	if mode != service.AccountUpstreamLifecycleOwnerSyncManaged {
+		return nil
+	}
+	projection := &UpstreamModelSync{Mode: mode, Status: service.UpstreamModelSyncStatusStale}
+
+	raw, ok := a.Extra[service.AccountUpstreamModelSyncExtraKey]
+	state, okState := raw.(map[string]any)
+	if !ok || !okState {
+		return projection
+	}
+	projection.Source, _ = state["source"].(string)
+	projection.FailureKind, _ = state["failure_kind"].(string)
+	projection.ErrorCode, _ = state["error_code"].(string)
+	projection.Checksum, _ = state["checksum"].(string)
+	projection.ModelCount = intFromJSONNumber(state["model_count"])
+	projection.LastAttemptAt = timeFromRFC3339(state["last_attempt_at"])
+	projection.LastSuccessAt = timeFromRFC3339(state["last_success_at"])
+	projection.FreshUntil = timeFromRFC3339(state["fresh_until"])
+	projection.EnforceUntil = timeFromRFC3339(state["enforce_until"])
+	status, _ := state["status"].(string)
+	switch status {
+	case service.UpstreamModelSyncStatusAvailable, service.UpstreamModelSyncStatusStale, service.UpstreamModelSyncStatusError, service.UpstreamModelSyncStatusUnsupported:
+		projection.Status = status
+	default:
+		projection.Status = service.UpstreamModelSyncStatusStale
+	}
+	now := time.Now()
+	if projection.Status == service.UpstreamModelSyncStatusAvailable {
+		if projection.FreshUntil != nil && now.After(*projection.FreshUntil) {
+			projection.Status = service.UpstreamModelSyncStatusStale
+		} else if projection.FreshUntil == nil && projection.LastSuccessAt != nil && now.Sub(*projection.LastSuccessAt) > service.UpstreamModelSyncFreshDuration {
+			projection.Status = service.UpstreamModelSyncStatusStale
+		}
+	}
+	if projection.EnforceUntil != nil {
+		projection.EnforcementExpired = now.After(*projection.EnforceUntil)
+	} else if projection.LastSuccessAt == nil || time.Since(*projection.LastSuccessAt) > service.UpstreamModelSyncEnforceDuration {
+		projection.EnforcementExpired = true
+	}
+	return projection
+}
+
+func timeFromRFC3339(value any) *time.Time {
+	text, _ := value.(string)
+	if text == "" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339, text)
+	if err != nil {
+		return nil
+	}
+	return &parsed
+}
+
+func intFromJSONNumber(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return 0
+	}
 }
 
 func redactAccountManagedExtra(extra map[string]any) map[string]any {

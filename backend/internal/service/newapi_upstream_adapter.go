@@ -342,6 +342,16 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 			"newapi_unlimited_quota":      row.UnlimitedQuota,
 			"newapi_model_limits_enabled": row.ModelLimitsEnabled,
 		}
+		if row.ModelLimitsEnabled {
+			models, modelLimitsErr := parseNewAPIModelLimits(row.ModelLimits)
+			if modelLimitsErr != nil || len(models) == 0 {
+				extra[AccountNewAPIModelLimitsInvalidExtraKey] = true
+				partial = true
+				warnings = appendNewAPIWarnings(warnings, "newapi key model limits are enabled but invalid")
+			} else {
+				extra[AccountNewAPIModelLimitsExtraKey] = models
+			}
+		}
 		if info, ok := groups[group]; ok && strings.TrimSpace(info.Desc) != "" {
 			extra["newapi_group_desc"] = strings.TrimSpace(info.Desc)
 		}

@@ -1380,6 +1380,12 @@ func restoreSyncManagedAccountArchivedForMissingKey(ctx context.Context, client 
 	builder := client.Account.UpdateOneID(account.ID).
 		ClearDeletedAt().
 		ClearUpstreamArchiveReason()
+	extra := copyJSONMap(account.Extra)
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	extra[service.AccountUpstreamModelSyncForceRefreshExtraKey] = true
+	builder.SetExtra(extra)
 	if account.UpstreamStalePauseKeyID != nil && *account.UpstreamStalePauseKeyID == keyID && account.Status == service.StatusActive {
 		builder.SetSchedulable(true).ClearUpstreamStalePauseKeyID().ClearUpstreamStalePausedAt()
 	}
@@ -1632,6 +1638,17 @@ func renameLockedAccountsForUpstreamConfig(ctx context.Context, client *dbent.Cl
 func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbent.Account, config *dbent.UpstreamConfig, key *dbent.UpstreamKey, balanceExtra map[string]any, checkedAt time.Time) (bool, error) {
 	builder := client.Account.UpdateOneID(account.ID)
 	changed := false
+	extra := copyJSONMap(account.Extra)
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	beforeExtra, _ := json.Marshal(extra)
+	copyUpstreamModelSyncMetadata(extra, key.Extra)
+	afterExtra, _ := json.Marshal(extra)
+	if string(beforeExtra) != string(afterExtra) {
+		builder.SetExtra(extra)
+		changed = true
+	}
 	if name, err := service.BuildUpstreamAccountName(config.Name, key.Name); err == nil && name != account.Name {
 		builder.SetName(name)
 		changed = true
@@ -1639,10 +1656,6 @@ func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbe
 	if key.RateMultiplier != nil && validUpstreamRateMultiplier(*key.RateMultiplier) {
 		multiplier := *key.RateMultiplier
 		priority := service.Sub2APIUpstreamPriority(multiplier)
-		extra := copyJSONMap(account.Extra)
-		if extra == nil {
-			extra = map[string]any{}
-		}
 		for extraKey, value := range upstreamRateSyncExtra(config, key, balanceExtra, checkedAt) {
 			extra[extraKey] = value
 		}
@@ -1664,6 +1677,23 @@ func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbe
 		return false, err
 	}
 	return true, nil
+}
+
+func copyUpstreamModelSyncMetadata(dst, src map[string]any) {
+	if dst == nil || src == nil {
+		return
+	}
+	for _, key := range []string{
+		service.AccountNewAPIModelLimitsEnabledExtraKey,
+		service.AccountNewAPIModelLimitsExtraKey,
+		service.AccountNewAPIModelLimitsInvalidExtraKey,
+	} {
+		if value, ok := src[key]; ok {
+			dst[key] = value
+		} else {
+			delete(dst, key)
+		}
+	}
 }
 
 func validUpstreamRateMultiplier(multiplier float64) bool {

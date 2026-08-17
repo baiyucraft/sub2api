@@ -1132,6 +1132,21 @@ export interface UpstreamImagePricing {
   observed_at?: string | null
 }
 
+export interface UpstreamModelSync {
+  mode: 'manual' | 'sync_managed' | string
+  status: 'available' | 'stale' | 'error' | 'unsupported'
+  source?: string
+  last_attempt_at?: string | null
+  last_success_at?: string | null
+  fresh_until?: string | null
+  enforce_until?: string | null
+  model_count: number
+  checksum?: string
+  failure_kind?: string
+  error_code?: string
+  enforcement_expired: boolean
+}
+
 export interface Account {
   id: number
   name: string
@@ -1165,6 +1180,7 @@ export interface Account {
   upstream_key_name?: string | null
   upstream_key_masked?: string | null
   upstream_image_pricing?: UpstreamImagePricing
+  upstream_model_sync?: UpstreamModelSync
   available_actions?: string[]
   upstream_scheduling_enabled?: boolean | null
   proxy_fallback_origin_id?: number | null

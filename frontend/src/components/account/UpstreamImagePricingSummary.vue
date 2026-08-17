@@ -1,35 +1,27 @@
 <template>
   <div
-    class="mt-1 min-w-[15rem] max-w-[18rem]"
+    class="mx-auto mt-1 w-[15rem] max-w-full border-t border-gray-200/80 pt-1.5 text-center dark:border-dark-600/80"
     :title="summaryTitle"
     data-test="upstream-image-pricing-summary"
   >
-    <div class="grid grid-cols-[repeat(3,minmax(0,1fr))_auto] overflow-hidden rounded-md border border-gray-200/80 bg-gray-50/80 shadow-sm shadow-gray-200/30 dark:border-dark-600/80 dark:bg-dark-800/70 dark:shadow-none">
+    <div class="grid grid-cols-3 gap-1.5 tabular-nums">
       <div
         v-for="tier in tiers"
         :key="tier.key"
-        class="flex min-w-0 flex-col border-r border-gray-200/80 px-2 py-1 dark:border-dark-600/80"
+        class="flex min-w-0 flex-col items-center justify-center rounded-sm px-1 py-0.5 transition-colors hover:bg-gray-50 dark:hover:bg-dark-800"
+        :title="costTooltip(tier)"
         :data-test="`image-cost-${tier.key.toLowerCase()}`"
       >
-        <span class="text-[9px] font-semibold uppercase leading-3 tracking-wide text-gray-400 dark:text-dark-500">{{ tier.key }}</span>
-        <span class="truncate text-[11px] font-semibold leading-4 text-gray-700 tabular-nums dark:text-dark-200">{{ formatCost(tier.value) }}</span>
-      </div>
-      <div class="flex min-w-[3.75rem] items-center justify-center gap-1 px-2 py-1">
-        <span
-          v-if="hasWarning"
-          class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
-          :aria-label="statusLabel"
-          data-test="image-pricing-status"
-        />
-        <span
-          class="whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-4"
-          :class="pricing.rate_independent
-            ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
-            : 'bg-gray-200/80 text-gray-600 dark:bg-dark-700 dark:text-dark-300'"
-          data-test="image-pricing-rate-mode"
-        >
-          {{ rateModeLabel }}
+        <span class="flex items-center gap-1 text-[9px] font-semibold uppercase leading-3 tracking-wide text-gray-400 dark:text-dark-500">
+          {{ tier.key }}
+          <span
+            v-if="hasWarning"
+            class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
+            :aria-label="statusLabel"
+            data-test="image-pricing-status"
+          />
         </span>
+        <span class="truncate text-[11px] font-semibold leading-4 text-gray-700 dark:text-dark-200">{{ formatCost(tier.value) }}</span>
       </div>
     </div>
   </div>
@@ -65,13 +57,9 @@ const statusLabel = computed(() => {
 
 const hasWarning = computed(() => props.pricing.stale || props.pricing.status === 'partial')
 
-const rateModeLabel = computed(() => {
-  const mode = props.pricing.rate_independent
-    ? t('admin.accounts.upstreamImagePricing.independent')
-    : t('admin.accounts.upstreamImagePricing.shared')
+const rateMultiplierLabel = computed(() => {
   const multiplier = props.pricing.effective_rate_multiplier
-  if (!props.pricing.rate_independent || multiplier === null || multiplier === undefined) return mode
-  return `${mode} ${formatMultiplier(multiplier)}×`
+  return formatMultiplier(multiplier === null || multiplier === undefined ? 1 : multiplier)
 })
 
 const tiers = computed(() => [
@@ -80,8 +68,22 @@ const tiers = computed(() => [
   { key: '4K', value: props.pricing.final_cost_4k }
 ])
 
+const costTooltip = (tier: { key: string; value: number | null | undefined }) => t(
+  props.pricing.rate_independent
+    ? 'admin.accounts.upstreamImagePricing.costTooltipIndependent'
+    : 'admin.accounts.upstreamImagePricing.costTooltipShared',
+  {
+    tier: tier.key,
+    cost: formatCost(tier.value),
+    multiplier: rateMultiplierLabel.value,
+    status: statusLabel.value
+  }
+)
+
 const summaryTitle = computed(() => t('admin.accounts.upstreamImagePricing.costTitle', {
-  mode: rateModeLabel.value,
+  mode: props.pricing.rate_independent
+    ? t('admin.accounts.upstreamImagePricing.independent')
+    : t('admin.accounts.upstreamImagePricing.shared'),
   status: statusLabel.value
 }) + (props.pricing.observed_at
   ? ` · ${formatDateTime(props.pricing.observed_at)}`
