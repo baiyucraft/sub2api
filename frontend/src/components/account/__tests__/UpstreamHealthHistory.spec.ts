@@ -12,7 +12,10 @@ vi.mock('vue-i18n', async () => {
 })
 
 const stubs = {
-  HelpTooltip: { template: '<div data-test="health-history-tooltip"><slot name="trigger" /><div><slot /></div></div>' }
+  HelpTooltip: {
+    props: ['triggerClass'],
+    template: '<div data-test="health-history-tooltip" :class="triggerClass"><slot name="trigger" /><div><slot /></div></div>'
+  }
 }
 
 describe('UpstreamHealthHistory', () => {
@@ -32,8 +35,15 @@ describe('UpstreamHealthHistory', () => {
     expect(bars[0].attributes('data-observation-state')).toBe(observations[3].state)
     const chart = wrapper.get('[data-upstream-health-bars]')
     expect(chart.classes()).toContain('grid')
-    expect(chart.classes()).toContain('max-w-[210px]')
+    expect(chart.classes()).toContain('w-full')
     expect(chart.attributes('style')).toContain('repeat(24, minmax(0, 1fr))')
+    const history = wrapper.get('[data-upstream-health-history]')
+    expect(history.classes()).toContain('w-full')
+    expect(history.classes()).toContain('min-w-[150px]')
+    expect(history.classes()).toContain('max-w-[210px]')
+    const tooltipTrigger = wrapper.get('[data-test="health-history-tooltip"]')
+    expect(tooltipTrigger.classes()).toContain('!flex')
+    expect(tooltipTrigger.classes()).toContain('w-full')
     expect(wrapper.text()).toContain('admin.upstreamManagement.health.historySummary')
     expect(wrapper.findAll('[data-test="health-history-tooltip"]')).toHaveLength(1)
     expect(wrapper.findAllComponents(HelpTooltip)).toHaveLength(1)
