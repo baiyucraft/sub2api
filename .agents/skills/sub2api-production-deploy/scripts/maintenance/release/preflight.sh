@@ -95,6 +95,8 @@ migration_236_status=not_applicable
 migration_237_status=not_applicable
 migration_238_status=not_applicable
 migration_239_status=not_applicable
+migration_240_status=not_applicable
+migration_241_status=not_applicable
 while IFS=$'\t' read -r migration migration_checksum; do
   case "$migration" in
     196_ops_ingress_reject_aggregates.sql) migration_196_status=verified ;;
@@ -138,6 +140,8 @@ while IFS=$'\t' read -r migration migration_checksum; do
     237_image_cost_routing.sql) migration_237_status=verified ;;
     238_upstream_account_lifecycle.sql) migration_238_status=verified ;;
     239_reconcile_non_grok_video_pricing.sql) migration_239_status=verified ;;
+    240_upstream_observation_preference.sql) migration_240_status=verified ;;
+    241_precise_upstream_effective_rate.sql) migration_241_status=verified ;;
   esac
   migration_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
   if [[ -z $migration_state ]]; then
@@ -185,6 +189,8 @@ while IFS=$'\t' read -r migration migration_checksum; do
       237_image_cost_routing.sql) migration_237_status=absent ;;
       238_upstream_account_lifecycle.sql) migration_238_status=absent ;;
       239_reconcile_non_grok_video_pricing.sql) migration_239_status=absent ;;
+      240_upstream_observation_preference.sql) migration_240_status=absent ;;
+      241_precise_upstream_effective_rate.sql) migration_241_status=absent ;;
     esac
   else
     [[ $migration_state == "$migration|$migration_checksum" ]]
@@ -253,3 +259,5 @@ printf 'migration_236_status=%s\n' "$migration_236_status"
 printf 'migration_237_status=%s\n' "$migration_237_status"
 printf 'migration_238_status=%s\n' "$migration_238_status"
 printf 'migration_239_status=%s\n' "$migration_239_status"
+printf 'migration_240_status=%s\n' "$migration_240_status"
+printf 'migration_241_status=%s\n' "$migration_241_status"

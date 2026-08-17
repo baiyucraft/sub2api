@@ -478,6 +478,21 @@ PROFILES["239"] = {
     ],
 }
 
+# Profile 240 persists the fork's upstream observation preference and upgrades
+# effective rate multipliers to high-precision decimal values.  It inherits
+# profile 239's complete 56-migration contract and appends both migrations;
+# profiles 233-239 remain immutable historical evidence.
+PROFILES["240"] = {
+    **PROFILES["239"],
+    "name": "240",
+    "version": "0.1.177-baiyu",
+    "migrations": [
+        *PROFILES["239"]["migrations"],
+        "240_upstream_observation_preference.sql",
+        "241_precise_upstream_effective_rate.sql",
+    ],
+}
+
 
 def get_profile(name: str) -> dict:
     try:

@@ -16,12 +16,12 @@ describe('formatMultiplier', () => {
     expect(formatMultiplier(2)).toBe('2.00')
   })
 
-  it('handles small values down to 4 decimals', () => {
+  it('handles small values down to 10 decimals', () => {
     expect(formatMultiplier(0.001)).toBe('0.001')
     expect(formatMultiplier(0.0001)).toBe('0.0001')
   })
 
-  it('falls back to 2 significant digits below 0.0001', () => {
-    expect(formatMultiplier(0.00005)).toBe('0.000050')
+  it('keeps precise values below 0.0001 without coercing them', () => {
+    expect(formatMultiplier(0.00005)).toBe('0.00005')
   })
 })

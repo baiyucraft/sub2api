@@ -2348,8 +2348,12 @@ func init() {
 	upstreamkeyDescMissingCount := upstreamkeyFields[16].Descriptor()
 	// upstreamkey.DefaultMissingCount holds the default value on creation for the missing_count field.
 	upstreamkey.DefaultMissingCount = upstreamkeyDescMissingCount.Default.(int)
+	// upstreamkeyDescObservationEnabled is the schema descriptor for observation_enabled field.
+	upstreamkeyDescObservationEnabled := upstreamkeyFields[18].Descriptor()
+	// upstreamkey.DefaultObservationEnabled holds the default value on creation for the observation_enabled field.
+	upstreamkey.DefaultObservationEnabled = upstreamkeyDescObservationEnabled.Default.(bool)
 	// upstreamkeyDescExtra is the schema descriptor for extra field.
-	upstreamkeyDescExtra := upstreamkeyFields[18].Descriptor()
+	upstreamkeyDescExtra := upstreamkeyFields[19].Descriptor()
 	// upstreamkey.DefaultExtra holds the default value on creation for the extra field.
 	upstreamkey.DefaultExtra = upstreamkeyDescExtra.Default.(func() map[string]interface{})
 	upstreamkeyratesnapshotFields := schema.UpstreamKeyRateSnapshot{}.Fields()

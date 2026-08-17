@@ -42,6 +42,18 @@ type upstreamConfigRepository struct {
 	healthObservationCleanupAtUnix atomic.Int64
 }
 
+func healthObservationEnabled(health map[string]any) (bool, bool) {
+	if health == nil {
+		return false, false
+	}
+	value, ok := health["observation_enabled"]
+	if !ok {
+		return false, false
+	}
+	flag, ok := value.(bool)
+	return flag, ok
+}
+
 const (
 	upstreamNameBackfillMissingConfigBinding = "missing_upstream_config_binding"
 	upstreamNameBackfillMissingKeyBinding    = "missing_upstream_key_binding"
@@ -388,7 +400,15 @@ func (r *upstreamConfigRepository) PatchKeyHealthWithObservation(ctx context.Con
 		if err := persistUpstreamHealthObservation(txCtx, client, keyID, row.UpstreamConfigID, observation); err != nil {
 			return err
 		}
-		if err := client.UpstreamKey.UpdateOneID(keyID).SetExtra(extra).Exec(txCtx); err != nil {
+		keyUpdate := client.UpstreamKey.UpdateOneID(keyID).SetExtra(extra)
+		// Persist the administrator's probe preference in its dedicated column
+		// whenever the health snapshot carries it. This keeps the preference
+		// atomic with the snapshot and state-change event while allowing older
+		// callers that only patch unrelated health fields to remain compatible.
+		if observationEnabled, ok := healthObservationEnabled(health); ok {
+			keyUpdate.SetObservationEnabled(observationEnabled)
+		}
+		if err := keyUpdate.Exec(txCtx); err != nil {
 			return err
 		}
 		if event == nil {
@@ -556,6 +576,8 @@ func (r *upstreamConfigRepository) UpdateKey(ctx context.Context, key *service.U
 }
 
 func createUpstreamKey(ctx context.Context, client *dbent.Client, key *service.UpstreamKey) error {
+	// New keys default to enabled in the database. Existing keys preserve
+	// their persisted preference during sync updates below.
 	builder := client.UpstreamKey.Create().
 		SetUpstreamConfigID(key.UpstreamConfigID).
 		SetName(key.Name).
@@ -862,6 +884,11 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			if err != nil {
 				return err
 			}
+			// Provider snapshots own provider metadata only. Preserve the
+			// durable health snapshot/history (including legacy observation
+			// evidence) so a refresh cannot erase runtime state while the
+			// dedicated observation_enabled column protects the preference.
+			keys[i].Extra = mergeSyncedUpstreamKeyHealthExtra(keys[i].Extra, existing.Extra)
 			reconciledAccountIDs = append(reconciledAccountIDs, platformChangedAccountIDs...)
 			if err := updateUpstreamKey(txCtx, client, &keys[i]); err != nil {
 				return err
@@ -996,10 +1023,39 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 	if err != nil {
 		return nil, service.UpstreamKeyReconcileResult{}, 0, err
 	}
-	for _, keyID := range uniqueSortedInt64s(append(archivedHealthKeyIDs, restoredHealthKeyIDs...)) {
+	for _, keyID := range uniqueSortedInt64s(archivedHealthKeyIDs) {
 		service.GlobalUpstreamHealthRegistry().Forget(keyID)
 	}
+	// Restored keys must immediately re-enter the registry with their durable
+	// observation preference. Do not reset a manually disabled key to the
+	// registry's default enabled state while the next probe is pending.
+	if len(restoredHealthKeyIDs) > 0 {
+		byID := make(map[int64]service.UpstreamKey, len(localKeys))
+		for i := range localKeys {
+			byID[localKeys[i].ID] = localKeys[i]
+		}
+		for _, keyID := range uniqueSortedInt64s(restoredHealthKeyIDs) {
+			key, ok := byID[keyID]
+			if !ok {
+				continue
+			}
+			service.GlobalUpstreamHealthRegistry().SetObservation(key.ID, key.ObservationEnabled, time.Now().UTC())
+		}
+	}
 	return localKeys, reconciled, updated, nil
+}
+
+func mergeSyncedUpstreamKeyHealthExtra(incoming, existing map[string]any) map[string]any {
+	merged := copyJSONMap(incoming)
+	if merged == nil {
+		merged = map[string]any{}
+	}
+	for _, field := range []string{"health", "health_history"} {
+		if value, ok := existing[field]; ok {
+			merged[field] = value
+		}
+	}
+	return merged
 }
 
 func mergeNewUpstreamKeyPlatform(key *service.UpstreamKey) {
@@ -1990,6 +2046,8 @@ func upstreamKeyEntityToService(row *dbent.UpstreamKey) *service.UpstreamKey {
 		LastSeenAt:              row.LastSeenAt,
 		MissingCount:            row.MissingCount,
 		MissingSince:            row.MissingSince,
+		ObservationEnabled:      row.ObservationEnabled,
+		ObservationEnabledKnown: true,
 		Extra:                   copyJSONMap(row.Extra),
 		CreatedAt:               row.CreatedAt,
 		UpdatedAt:               row.UpdatedAt,

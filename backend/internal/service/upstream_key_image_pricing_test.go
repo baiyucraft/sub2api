@@ -79,6 +79,27 @@ func TestDeriveUpstreamKeyImagePricingUsesSourceOrIndependentRate(t *testing.T) 
 	require.InDelta(t, 0.05, *pricing.FinalCost1K, 1e-12)
 }
 
+func TestDeriveUpstreamKeyImagePricingPreservesPreciseEffectiveRate(t *testing.T) {
+	price := 1.0
+	source := 0.045
+	key := &UpstreamKey{
+		SourceRateMultiplier: &source,
+		Extra: map[string]any{Sub2APIImagePricingSnapshotExtraKey: sub2APIImagePricingSnapshotMap(sub2APIImagePricingSnapshot{
+			Version:              sub2APIImagePricingSnapshotVersion,
+			Status:               UpstreamKeyImagePricingStatusAvailable,
+			AllowImageGeneration: true,
+			ImagePrice1K:         &price,
+			ImagePrice2K:         &price,
+			ImagePrice4K:         &price,
+		})},
+	}
+
+	pricing := deriveUpstreamKeyImagePricing(key, &UpstreamConfig{Provider: UpstreamProviderSub2API, RechargeRate: 1})
+	require.NotNil(t, pricing.EffectiveRateMultiplier)
+	require.InDelta(t, 0.045, *pricing.EffectiveRateMultiplier, 1e-12)
+	require.InDelta(t, 0.045, *pricing.FinalCost1K, 1e-12)
+}
+
 func TestDeriveUpstreamKeyImagePricingMarksConfigFailureStale(t *testing.T) {
 	price := 0.1
 	key := &UpstreamKey{SourceRateMultiplier: float64PtrForImagePricing(1), Extra: map[string]any{Sub2APIImagePricingSnapshotExtraKey: sub2APIImagePricingSnapshotMap(sub2APIImagePricingSnapshot{

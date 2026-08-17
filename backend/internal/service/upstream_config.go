@@ -132,6 +132,12 @@ type UpstreamKey struct {
 	LastSeenAt              *time.Time
 	MissingCount            int
 	MissingSince            *time.Time
+	// ObservationEnabled is the durable administrator preference for active
+	// health probing. Provider sync must preserve this value.
+	ObservationEnabled bool
+	// ObservationEnabledKnown distinguishes repository-loaded keys from
+	// provider snapshots and test fixtures that predate the dedicated column.
+	ObservationEnabledKnown bool
 	Extra                   map[string]any
 	ImagePricing            *UpstreamKeyImagePricing
 	CreatedAt               time.Time
@@ -159,6 +165,11 @@ type UpstreamConfigRepository interface {
 const MaxUpstreamActualRate = 999999.9999
 
 // NormalizeUpstreamActualRate is the single authority for persisted upstream cost rates.
+//
+// The returned value is the exact effective rate (source × recharge), rounded
+// only to the ten decimal places supported by the persisted NUMERIC(20,10)
+// columns.  It intentionally does not round up to two decimal places: values
+// such as 0.045 must remain 0.045 for billing and scheduling.
 func NormalizeUpstreamActualRate(sourceRate, rechargeRate float64) (float64, error) {
 	if sourceRate < 0 || math.IsNaN(sourceRate) || math.IsInf(sourceRate, 0) {
 		return 0, infraerrors.BadRequest("UPSTREAM_KEY_RATE_INVALID", "upstream source rate multiplier is invalid")
@@ -171,9 +182,7 @@ func NormalizeUpstreamActualRate(sourceRate, rechargeRate float64) (float64, err
 	}
 	actual := decimal.NewFromFloat(sourceRate).
 		Mul(decimal.NewFromFloat(rechargeRate)).
-		Shift(2).
-		Ceil().
-		Shift(-2).
+		Round(10).
 		InexactFloat64()
 	if actual < 0 || actual > MaxUpstreamActualRate || math.IsNaN(actual) || math.IsInf(actual, 0) {
 		return 0, infraerrors.BadRequest("UPSTREAM_ACTUAL_RATE_INVALID", "upstream actual rate multiplier is out of range")
@@ -329,9 +338,24 @@ func NewUpstreamConfigService(repo UpstreamConfigRepository, proxyRepo ProxyRepo
 			slog.Warn("failed to hydrate upstream key health registry", "error", err)
 		} else {
 			for i := range keys {
-				if item, ok := upstreamHealthSnapshotFromExtra(keys[i].ID, keys[i].Extra); ok {
-					GlobalUpstreamHealthRegistry().Hydrate(item)
+				item, ok := upstreamHealthSnapshotFromExtra(keys[i].ID, keys[i].Extra)
+				if !ok && !keys[i].ObservationEnabledKnown {
+					// Provider snapshots and lightweight test repositories may not
+					// carry the dedicated preference column or a durable Extra
+					// snapshot. Do not erase an already hydrated runtime item.
+					continue
 				}
+				if !ok {
+					item = defaultUpstreamHealthSnapshot(keys[i].ID)
+				}
+				// The dedicated column is authoritative. Extra.health is retained
+				// as the durable snapshot for backwards compatibility, but its
+				// observation flag may be stale after provider synchronization.
+				if keys[i].ObservationEnabledKnown {
+					applyPersistedObservationPreference(&item, keys[i])
+				}
+				item = normalizeUpstreamHealthSnapshot(item)
+				GlobalUpstreamHealthRegistry().Hydrate(item)
 			}
 		}
 	}
@@ -807,8 +831,30 @@ func (s *UpstreamConfigService) GetKeyHealth(ctx context.Context, keyID int64) (
 			item = GlobalUpstreamHealthRegistry().Hydrate(durable)
 		}
 	}
+	if key != nil && key.ObservationEnabledKnown {
+		// The dedicated preference column is authoritative across restarts and
+		// provider refreshes. Keep the rest of the snapshot from the registry or
+		// legacy Extra payload, but always apply this persisted toggle.
+		applyPersistedObservationPreference(&item, *key)
+		item = normalizeUpstreamHealthSnapshot(item)
+	}
 	item.KeyID = keyID
 	return item, nil
+}
+
+func applyPersistedObservationPreference(item *UpstreamHealthSnapshot, key UpstreamKey) {
+	if item == nil || !key.ObservationEnabledKnown {
+		return
+	}
+	item.ObservationEnabled = key.ObservationEnabled
+	if key.ObservationEnabled && item.Status == UpstreamHealthDisabled {
+		// A pre-migration Extra snapshot may still carry the old disabled
+		// status even though no explicit administrator disable event existed.
+		// The dedicated column is authoritative, so resume observation in the
+		// neutral state instead of leaving the key permanently skipped.
+		item.Status = UpstreamHealthObserving
+		item.Reason = "observation_enabled"
+	}
 }
 
 func (s *UpstreamConfigService) saveKeyHealth(ctx context.Context, keyID int64, item UpstreamHealthSnapshot) error {
@@ -1737,7 +1783,7 @@ func (s *UpstreamConfigService) reconcileUpstreamAccounts(ctx context.Context, c
 		if err := s.accountRepo.Create(ctx, account); err != nil {
 			return created, err
 		}
-		GlobalUpstreamHealthRegistry().SetObservation(key.ID, true, time.Now())
+		GlobalUpstreamHealthRegistry().SetObservation(key.ID, key.ObservationEnabled, time.Now())
 		created++
 	}
 	return created, nil

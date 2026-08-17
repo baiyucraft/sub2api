@@ -61,6 +61,8 @@ type UpstreamKey struct {
 	MissingCount int `json:"missing_count,omitempty"`
 	// MissingSince holds the value of the "missing_since" field.
 	MissingSince *time.Time `json:"missing_since,omitempty"`
+	// ObservationEnabled holds the value of the "observation_enabled" field.
+	ObservationEnabled bool `json:"observation_enabled,omitempty"`
 	// Extra holds the value of the "extra" field.
 	Extra map[string]interface{} `json:"extra,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -151,6 +153,8 @@ func (*UpstreamKey) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case upstreamkey.FieldExtra:
 			values[i] = new([]byte)
+		case upstreamkey.FieldObservationEnabled:
+			values[i] = new(sql.NullBool)
 		case upstreamkey.FieldRateMultiplier, upstreamkey.FieldSourceRateMultiplier:
 			values[i] = new(sql.NullFloat64)
 		case upstreamkey.FieldID, upstreamkey.FieldUpstreamConfigID, upstreamkey.FieldRemoteKeyID, upstreamkey.FieldUpstreamGroupID, upstreamkey.FieldMissingCount:
@@ -316,6 +320,12 @@ func (_m *UpstreamKey) assignValues(columns []string, values []any) error {
 				_m.MissingSince = new(time.Time)
 				*_m.MissingSince = value.Time
 			}
+		case upstreamkey.FieldObservationEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field observation_enabled", values[i])
+			} else if value.Valid {
+				_m.ObservationEnabled = value.Bool
+			}
 		case upstreamkey.FieldExtra:
 			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field extra", values[i])
@@ -471,6 +481,9 @@ func (_m *UpstreamKey) String() string {
 		builder.WriteString("missing_since=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("observation_enabled=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ObservationEnabled))
 	builder.WriteString(", ")
 	builder.WriteString("extra=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Extra))

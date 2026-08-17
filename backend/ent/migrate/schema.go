@@ -125,7 +125,7 @@ var (
 		{Name: "concurrency", Type: field.TypeInt, Default: 3},
 		{Name: "load_factor", Type: field.TypeInt, Nullable: true},
 		{Name: "priority", Type: field.TypeInt, Default: 50},
-		{Name: "rate_multiplier", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "rate_multiplier", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "upstream_source_rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
 		{Name: "error_message", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
@@ -2005,12 +2005,13 @@ var (
 		{Name: "detected_platform", Type: field.TypeString, Nullable: true, Size: 50},
 		{Name: "platform_detection_status", Type: field.TypeString, Size: 16, Default: "legacy"},
 		{Name: "platform_detected_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
-		{Name: "rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "source_rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
 		{Name: "last_seen_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "missing_count", Type: field.TypeInt, Default: 0},
 		{Name: "missing_since", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "observation_enabled", Type: field.TypeBool, Default: true},
 		{Name: "extra", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "upstream_config_id", Type: field.TypeInt64},
 	}
@@ -2022,7 +2023,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "upstream_keys_upstream_configs_keys",
-				Columns:    []*schema.Column{UpstreamKeysColumns[22]},
+				Columns:    []*schema.Column{UpstreamKeysColumns[23]},
 				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -2031,12 +2032,12 @@ var (
 			{
 				Name:    "upstreamkey_upstream_config_id",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamKeysColumns[22]},
+				Columns: []*schema.Column{UpstreamKeysColumns[23]},
 			},
 			{
 				Name:    "upstreamkey_upstream_config_id_key_hash",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamKeysColumns[22], UpstreamKeysColumns[6]},
+				Columns: []*schema.Column{UpstreamKeysColumns[23], UpstreamKeysColumns[6]},
 			},
 		},
 	}
@@ -2270,7 +2271,7 @@ var (
 		{Name: "actual_cost", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "rate_multiplier", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
 		{Name: "long_context_billing_applied", Type: field.TypeBool, Default: false},
-		{Name: "account_rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "account_rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "upstream_cost_currency", Type: field.TypeString, Nullable: true, Size: 8},
 		{Name: "upstream_cost_to_cny_rate", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "billing_type", Type: field.TypeInt8, Default: 0},

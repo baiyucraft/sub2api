@@ -129,13 +129,13 @@ func (Account) Fields() []ent.Field {
 		// rate_multiplier: 账号计费倍率（>=0，允许 0 表示该账号计费为 0）
 		// 仅影响账号维度计费口径，不影响用户/API Key 扣费（分组倍率）
 		field.Float("rate_multiplier").
-			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
 			Default(1.0),
 		field.Float("upstream_source_rate_multiplier").
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
-			Comment("Internal unrounded upstream multiplier used only for scheduler tie-breaking."),
+			Comment("Internal provider source multiplier retained for diagnostics; scheduling uses rate_multiplier."),
 
 		// status: 账户状态，如 "active", "error", "disabled"
 		field.String("status").
