@@ -3,7 +3,25 @@ set -Eeuo pipefail
 
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
+pre_state_dir="/opt/sub2api/backups/release-state/${release_dir##*/}"
+switch_init_failure_file="$pre_state_dir/switch-init-failure"
+record_switch_init_failure() {
+  local code=${1:-unknown}
+  local failed_line=${2:-unknown}
+  if [[ -d $pre_state_dir && ! -L $pre_state_dir ]]; then
+    local tmp="$switch_init_failure_file.tmp.$$"
+    if printf 'switch_failure_stage=initialized\nswitch_failure_substage=initial_contract\nswitch_failure_code=%s\nswitch_failure_line=%s\n' "$code" "$failed_line" > "$tmp" &&
+      chmod 600 "$tmp" && mv -T -- "$tmp" "$switch_init_failure_file"; then
+      :
+    else
+      rm -f -- "$tmp"
+    fi
+  fi
+  exit 1
+}
+trap 'record_switch_init_failure context_source "$LINENO"' ERR
 source /opt/sub2api/releases/.active-release/assets/context.sh
+trap - ERR
 release_profile=$profile
 if [[ $profile == 238 || $profile == 239 || $profile == 240 ]]; then
   # Profiles 238-240 all inherit profile-237 schema assertions. Keep the
@@ -66,6 +84,7 @@ record_migration_failure() {
   return "$status"
 }
 mark_switch_stage initialized
+trap 'record_switch_init_failure initial_contract "$LINENO"' ERR
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 ]]; then
   [[ -f $state_dir/migration-195-plan.sha256 && ! -L $state_dir/migration-195-plan.sha256 ]]
   migration_status=$(<"$state_dir/migration-195-status")
@@ -274,6 +293,7 @@ if [[ $release_profile == 240 ]]; then
 fi
 mark_migration_failure_context schema_stage_marker schema_stage_marker
 mark_switch_stage schema_verified
+trap - ERR
 mark_migration_failure_context migration_container_identity migration_container
 [[ $(docker inspect -f '{{.Image}}' "$migration_container") == "$candidate_image_id" ]]
 mark_migration_failure_context migration_container_exit migration_container

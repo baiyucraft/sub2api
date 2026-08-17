@@ -961,6 +961,7 @@ exit "$code"
                     f"code_file={shlex.quote(self.state_dir + '/candidate-http.code')}; "
                     f"exit_file={shlex.quote(self.state_dir + '/candidate-curl.exit')}; "
                     f"failure_file={shlex.quote(self.state_dir + '/candidate-failure')}; "
+                    f"init_failure_file={shlex.quote(self.state_dir + '/switch-init-failure')}; "
                     "if test -f \"$code_file\" && test ! -L \"$code_file\"; then value=$(cat \"$code_file\"); [[ $value =~ ^[0-9]{3}$ ]]; http_code=$value; fi; "
                     "if test -f \"$exit_file\" && test ! -L \"$exit_file\"; then value=$(cat \"$exit_file\"); [[ $value =~ ^[0-9]{1,3}$ ]]; curl_exit=$value; fi; "
                     "candidate_failure_kind=unknown; candidate_state=unknown; candidate_health=unknown; candidate_exit_code=unknown; candidate_original_exit_code=unknown; "
@@ -989,13 +990,24 @@ exit "$code"
                     "[[ $candidate_health_log_entries == unknown || $candidate_health_log_entries =~ ^[0-9]+$ ]]; "
                     "case \"$candidate_log_capture\" in saved|unavailable|not_configured|unknown) ;; *) exit 1 ;; esac; "
                     "[[ $candidate_failure_line == unknown || $candidate_failure_line =~ ^[0-9]+$ ]]; fi; "
-                    "printf 'switch_failure_stage=%s\ncandidate_http_code=%s\ncandidate_curl_exit=%s\ncandidate_failure_kind=%s\ncandidate_state=%s\ncandidate_health=%s\ncandidate_exit_code=%s\ncandidate_original_exit_code=%s\ncandidate_oom_killed=%s\ncandidate_restart_count=%s\ncandidate_health_log_entries=%s\ncandidate_log_capture=%s\ncandidate_failure_line=%s\n' "
-                    "\"$stage\" \"$http_code\" \"$curl_exit\" \"$candidate_failure_kind\" \"$candidate_state\" \"$candidate_health\" \"$candidate_exit_code\" \"$candidate_original_exit_code\" \"$candidate_oom_killed\" \"$candidate_restart_count\" \"$candidate_health_log_entries\" \"$candidate_log_capture\" \"$candidate_failure_line\"",
-                    {
+                    "init_failure_stage=absent; init_failure_substage=absent; init_failure_code=absent; init_failure_line=absent; "
+                    "if test -f \"$init_failure_file\" && test ! -L \"$init_failure_file\"; then "
+                    "test \"$(stat -c '%U:%G:%a:%h' \"$init_failure_file\")\" = root:root:600:1; "
+                    "test \"$(grep -c '^switch_failure_' \"$init_failure_file\")\" = 4; "
+                    "init_failure_stage=$(sed -n 's/^switch_failure_stage=//p' \"$init_failure_file\"); "
+                    "init_failure_substage=$(sed -n 's/^switch_failure_substage=//p' \"$init_failure_file\"); "
+                    "init_failure_code=$(sed -n 's/^switch_failure_code=//p' \"$init_failure_file\"); "
+                    "init_failure_line=$(sed -n 's/^switch_failure_line=//p' \"$init_failure_file\"); "
+                    "case \"$init_failure_stage:$init_failure_substage:$init_failure_code\" in initialized:initial_contract|context_source:*) ;; *) exit 1 ;; esac; "
+                    "[[ $init_failure_line == unknown || $init_failure_line =~ ^[0-9]+$ ]]; fi; "
+                    "printf 'switch_failure_stage=%s\ncandidate_http_code=%s\ncandidate_curl_exit=%s\ncandidate_failure_kind=%s\ncandidate_state=%s\ncandidate_health=%s\ncandidate_exit_code=%s\ncandidate_original_exit_code=%s\ncandidate_oom_killed=%s\ncandidate_restart_count=%s\ncandidate_health_log_entries=%s\ncandidate_log_capture=%s\ncandidate_failure_line=%s\ninit_failure_stage=%s\ninit_failure_substage=%s\ninit_failure_code=%s\ninit_failure_line=%s\n' "
+                    "\"$stage\" \"$http_code\" \"$curl_exit\" \"$candidate_failure_kind\" \"$candidate_state\" \"$candidate_health\" \"$candidate_exit_code\" \"$candidate_original_exit_code\" \"$candidate_oom_killed\" \"$candidate_restart_count\" \"$candidate_health_log_entries\" \"$candidate_log_capture\" \"$candidate_failure_line\" \"$init_failure_stage\" \"$init_failure_substage\" \"$init_failure_code\" \"$init_failure_line\"",
+                        {
                         "switch_failure_stage", "candidate_http_code", "candidate_curl_exit",
                         "candidate_failure_kind", "candidate_state", "candidate_health", "candidate_exit_code", "candidate_original_exit_code",
                         "candidate_oom_killed", "candidate_restart_count", "candidate_health_log_entries",
-                        "candidate_log_capture", "candidate_failure_line",
+                        "candidate_log_capture", "candidate_failure_line", "init_failure_stage", "init_failure_substage",
+                        "init_failure_code", "init_failure_line",
                     },
                 )
             except BaseException:
