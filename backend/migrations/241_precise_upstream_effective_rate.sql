@@ -6,6 +6,11 @@
 
 BEGIN;
 
+-- PostgreSQL does not allow changing a column type while an UPDATE OF
+-- trigger definition names that column.  The binding trigger is recreated
+-- below after the precise column types and function body are installed.
+DROP TRIGGER IF EXISTS trg_validate_account_upstream_key_binding ON accounts;
+
 ALTER TABLE upstream_keys
     ALTER COLUMN rate_multiplier TYPE DECIMAL(20,10)
         USING rate_multiplier::DECIMAL(20,10);
@@ -87,6 +92,11 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_validate_account_upstream_key_binding
+BEFORE INSERT OR UPDATE OF upstream_config_id, upstream_key_id, platform,
+    rate_multiplier, priority, schedulable, deleted_at
+ON accounts FOR EACH ROW EXECUTE FUNCTION validate_account_upstream_key_binding();
 
 -- Recompute current key values from their source and recharge rates, then
 -- force every bound account through the lossless trigger.  Historical usage

@@ -17,5 +17,11 @@ func TestPreciseUpstreamEffectiveRateMigrationPreservesTenDecimalPrecision(t *te
 	require.Contains(t, content, "decimal(20,10)")
 	require.Contains(t, content, "round(k.source_rate_multiplier * coalesce(c.recharge_rate, 1), 10)")
 	require.Contains(t, content, "key_actual_rate numeric(20,10)")
+	require.Contains(t, content, "drop trigger if exists trg_validate_account_upstream_key_binding on accounts")
+	require.Less(t,
+		strings.Index(content, "drop trigger if exists trg_validate_account_upstream_key_binding on accounts"),
+		strings.Index(content, "alter table accounts"),
+	)
+	require.Contains(t, content, "create trigger trg_validate_account_upstream_key_binding")
 	require.NotContains(t, content, "ceil(source_rate_multiplier")
 }
