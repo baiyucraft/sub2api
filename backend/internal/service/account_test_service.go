@@ -36,6 +36,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
+	"golang.org/x/sync/singleflight"
 )
 
 // sseDataPrefix matches SSE data lines with optional whitespace after colon.
@@ -147,6 +148,8 @@ type AccountTestService struct {
 	settingService            *SettingService
 	tlsFPProfileService       *TLSFingerprintProfileService
 	agentIdentityTaskMu       sync.Mutex
+	upstreamModelSyncSF       singleflight.Group
+	upstreamModelSyncLocks    sync.Map
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
 	// WS dialer when nil (supports proxy + coder/websocket handshake).
@@ -2188,7 +2191,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 
 	// For static upstream credentials with model mapping, map the model
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mapping := account.GetModelMapping()
+		mapping := account.schedulableModelMapping(time.Now().UTC())
 		if len(mapping) > 0 {
 			if mappedModel, exists := mapping[testModelID]; exists {
 				testModelID = mappedModel

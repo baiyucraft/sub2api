@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
-const copyToClipboard = vi.fn().mockResolvedValue(true)
+const { copyToClipboard, syncUpstreamModels } = vi.hoisted(() => ({
+  copyToClipboard: vi.fn().mockResolvedValue(true),
+  syncUpstreamModels: vi.fn()
+}))
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -25,6 +28,13 @@ vi.mock('@/composables/useClipboard', () => ({
   useClipboard: () => ({
     copyToClipboard
   })
+}))
+
+vi.mock('@/api/admin/accounts', () => ({
+  accountsAPI: {
+    syncUpstreamModels,
+    syncUpstreamModelsPreview: vi.fn()
+  }
 }))
 
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
@@ -58,6 +68,7 @@ function findModelRow(wrapper: ReturnType<typeof mountSelector>, modelId: string
 describe('ModelWhitelistSelector', () => {
   beforeEach(() => {
     copyToClipboard.mockClear()
+    syncUpstreamModels.mockReset()
   })
 
   it('copies a model ID without selecting the model', async () => {
@@ -85,5 +96,67 @@ describe('ModelWhitelistSelector', () => {
 
     expect(wrapper.emitted('update:modelValue')).toEqual([[['gpt-5.6-sol']]])
     expect(copyToClipboard).not.toHaveBeenCalled()
+  })
+
+  it('refreshes managed upstream models without appending them to the editable whitelist', async () => {
+    syncUpstreamModels.mockResolvedValue({ models: ['gpt-5.6-sol', 'gpt-5.6-terra'], persisted: true })
+    const wrapper = mount(ModelWhitelistSelector, {
+      props: {
+        modelValue: ['existing-model'],
+        platform: 'openai',
+        accountId: 42,
+        syncManaged: true
+      },
+      global: { stubs: { ModelIcon: true } }
+    })
+
+    const button = wrapper.findAll('button').find(candidate => candidate.text() === 'admin.accounts.refreshUpstreamModels')
+    expect(button).toBeTruthy()
+    await button!.trigger('click')
+    await flushPromises()
+
+    expect(syncUpstreamModels).toHaveBeenCalledWith(42)
+    expect(wrapper.emitted('upstream-synced')).toEqual([[['gpt-5.6-sol', 'gpt-5.6-terra']]])
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('keeps manual account sync-and-append behavior', async () => {
+    syncUpstreamModels.mockResolvedValue({ models: ['gpt-5.6-sol'] })
+    const wrapper = mount(ModelWhitelistSelector, {
+      props: {
+        modelValue: ['existing-model'],
+        platform: 'openai',
+        accountId: 43
+      },
+      global: { stubs: { ModelIcon: true } }
+    })
+
+    const button = wrapper.findAll('button').find(candidate => candidate.text() === 'admin.accounts.syncUpstreamModels')
+    expect(button).toBeTruthy()
+    await button!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['existing-model', 'gpt-5.6-sol']]])
+    expect(wrapper.emitted('upstream-synced')).toBeUndefined()
+  })
+
+  it('trusts the backend persisted flag when the local managed state is stale', async () => {
+    syncUpstreamModels.mockResolvedValue({ models: ['server-model'], persisted: false })
+    const wrapper = mount(ModelWhitelistSelector, {
+      props: {
+        modelValue: ['existing-model'],
+        platform: 'openai',
+        accountId: 44,
+        syncManaged: true
+      },
+      global: { stubs: { ModelIcon: true } }
+    })
+
+    const button = wrapper.findAll('button').find(candidate => candidate.text() === 'admin.accounts.refreshUpstreamModels')
+    await button!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['existing-model', 'server-model']]])
+    expect(wrapper.emitted('upstream-synced')).toBeUndefined()
   })
 })

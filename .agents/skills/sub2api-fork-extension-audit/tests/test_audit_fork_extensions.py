@@ -10,6 +10,7 @@ import pytest
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "audit_fork_extensions.py"
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def run(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -220,3 +221,20 @@ def test_post_merge_parent_and_whole_file_resolution(tmp_path: Path) -> None:
     wrong, wrong_report = audit(repo, "post-merge", upstream_base, catalog, merge_commit)
     assert wrong.returncode != 0
     assert any(item["code"] == "wrong_merge_parent" for item in wrong_report["findings"])
+
+
+def test_real_catalog_registers_upstream_model_capability_sync() -> None:
+    catalog_path = REPO_ROOT / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    extension = next(item for item in catalog["extensions"] if item["id"] == "upstream-model-capability-sync")
+
+    for relative in [*extension["paths"], *extension["required_tests"]]:
+        assert (REPO_ROOT / relative).is_file(), relative
+
+    source = "\n".join((REPO_ROOT / relative).read_text(encoding="utf-8") for relative in extension["paths"])
+    for symbol in extension["symbols"]:
+        assert symbol in source, symbol
+
+    invariants = "\n".join(extension["invariants"])
+    for marker in ("sync_managed", "model_limits", "30 分钟", "24 小时", "scheduler", "凭据"):
+        assert marker in invariants, marker

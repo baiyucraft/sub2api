@@ -265,7 +265,7 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 	requestedModel = strings.TrimPrefix(requestedModel, "models/")
 
 	// 获取映射表（未配置时自动使用 DefaultAntigravityModelMapping）
-	mapping := account.GetModelMapping()
+	mapping := account.schedulableModelMapping(time.Now().UTC())
 	if len(mapping) == 0 {
 		return "" // 无映射配置（非 Antigravity 平台）
 	}

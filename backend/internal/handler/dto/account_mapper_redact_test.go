@@ -3,6 +3,7 @@ package dto
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -173,4 +174,85 @@ func TestAccountFromServiceShallow_ProjectsOnlyRedactedImagePricing(t *testing.T
 	require.Contains(t, string(raw), `"upstream_image_pricing"`)
 	require.NotContains(t, string(raw), "sk-secret")
 	require.NotContains(t, string(raw), "sub2api_image_pricing_snapshot")
+}
+
+func TestAccountFromServiceShallow_ProjectsRedactedUpstreamModelSync(t *testing.T) {
+	now := time.Now().UTC()
+	configID := int64(7)
+	keyID := int64(9)
+	src := &service.Account{
+		ID:                     44,
+		UpstreamConfigID:       &configID,
+		UpstreamKeyID:          &keyID,
+		UpstreamLifecycleOwner: service.AccountUpstreamLifecycleOwnerSyncManaged,
+		Credentials:            map[string]any{"api_key": "sk-secret"},
+		Extra: map[string]any{
+			service.AccountUpstreamModelSyncExtraKey: map[string]any{
+				"status":          service.UpstreamModelSyncStatusAvailable,
+				"source":          service.UpstreamModelSyncSourceLive,
+				"last_attempt_at": now.Format(time.RFC3339),
+				"last_success_at": now.Format(time.RFC3339),
+				"model_count":     float64(12),
+			},
+			"upstream_response_body": "must-not-be-projected",
+		},
+	}
+
+	got := AccountFromServiceShallow(src)
+	require.NotNil(t, got.UpstreamModelSync)
+	require.Equal(t, service.AccountUpstreamLifecycleOwnerSyncManaged, got.UpstreamModelSync.Mode)
+	require.Equal(t, "available", got.UpstreamModelSync.Status)
+	require.Equal(t, 12, got.UpstreamModelSync.ModelCount)
+	require.False(t, got.UpstreamModelSync.EnforcementExpired)
+
+	raw, err := json.Marshal(got.UpstreamModelSync)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "sk-secret")
+	require.NotContains(t, string(raw), "must-not-be-projected")
+}
+
+func TestAccountFromServiceShallow_ProjectsExpiredAndOmitsManualModelSyncState(t *testing.T) {
+	configID := int64(7)
+	keyID := int64(9)
+	old := time.Now().UTC().Add(-service.UpstreamModelSyncEnforceDuration - time.Minute)
+	managed := AccountFromServiceShallow(&service.Account{
+		UpstreamConfigID:       &configID,
+		UpstreamKeyID:          &keyID,
+		UpstreamLifecycleOwner: service.AccountUpstreamLifecycleOwnerSyncManaged,
+		Extra: map[string]any{
+			service.AccountUpstreamModelSyncExtraKey: map[string]any{
+				"status":          service.UpstreamModelSyncStatusStale,
+				"last_success_at": old.Format(time.RFC3339),
+			},
+		},
+	})
+	require.NotNil(t, managed.UpstreamModelSync)
+	require.Equal(t, "stale", managed.UpstreamModelSync.Status)
+	require.True(t, managed.UpstreamModelSync.EnforcementExpired)
+
+	manual := AccountFromServiceShallow(&service.Account{
+		UpstreamConfigID: &configID,
+		UpstreamKeyID:    &keyID,
+	})
+	require.Nil(t, manual.UpstreamModelSync)
+}
+
+func TestAccountFromServiceShallow_ProjectsAvailableSnapshotAsStaleAfterFreshWindow(t *testing.T) {
+	configID := int64(7)
+	keyID := int64(9)
+	lastSuccess := time.Now().UTC().Add(-service.UpstreamModelSyncFreshDuration - time.Minute)
+	got := AccountFromServiceShallow(&service.Account{
+		UpstreamConfigID:       &configID,
+		UpstreamKeyID:          &keyID,
+		UpstreamLifecycleOwner: service.AccountUpstreamLifecycleOwnerSyncManaged,
+		Extra: map[string]any{
+			service.AccountUpstreamModelSyncExtraKey: map[string]any{
+				"status":          service.UpstreamModelSyncStatusAvailable,
+				"last_success_at": lastSuccess.Format(time.RFC3339),
+			},
+		},
+	})
+	require.NotNil(t, got.UpstreamModelSync)
+	require.Equal(t, service.UpstreamModelSyncStatusStale, got.UpstreamModelSync.Status)
+	require.False(t, got.UpstreamModelSync.EnforcementExpired)
 }

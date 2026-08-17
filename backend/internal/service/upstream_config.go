@@ -188,10 +188,11 @@ type UpdateUpstreamKeyPlatformRequest struct {
 }
 
 type UpstreamConfigService struct {
-	repo          UpstreamConfigRepository
-	proxyRepo     ProxyRepository
-	accountRepo   AccountRepository
-	accountProber interface {
+	repo               UpstreamConfigRepository
+	proxyRepo          ProxyRepository
+	accountRepo        AccountRepository
+	accountTestService *AccountTestService
+	accountProber      interface {
 		RunUpstreamHealthProbe(ctx context.Context, account *Account, model string) (UpstreamHealthProbeResult, error)
 	}
 	settingService             *SettingService
@@ -203,28 +204,32 @@ type UpstreamConfigService struct {
 }
 
 type UpstreamConfigSyncResult struct {
-	RunID                int64    `json:"run_id,omitempty"`
-	ConfigID             int64    `json:"config_id"`
-	Name                 string   `json:"name"`
-	Provider             string   `json:"provider,omitempty"`
-	Success              bool     `json:"success"`
-	Status               string   `json:"status,omitempty"`
-	Stage                string   `json:"stage,omitempty"`
-	ErrorCode            string   `json:"error_code,omitempty"`
-	Retryable            bool     `json:"retryable,omitempty"`
-	KeyCount             int      `json:"key_count"`
-	FallbackKeyCount     int      `json:"fallback_key_count,omitempty"`
-	UnresolvedKeyCount   int      `json:"unresolved_key_count,omitempty"`
-	UpdatedAccountCount  int      `json:"updated_account_count"`
-	MissingKeyCount      int      `json:"missing_key_count,omitempty"`
-	StaleKeyCount        int      `json:"stale_key_count,omitempty"`
-	DeletedKeyCount      int      `json:"deleted_key_count,omitempty"`
-	RestoredKeyCount     int      `json:"restored_key_count,omitempty"`
-	ArchivedAccountCount int      `json:"archived_account_count,omitempty"`
-	RestoredAccountCount int      `json:"restored_account_count,omitempty"`
-	Warnings             []string `json:"warnings,omitempty"`
-	DurationMS           int64    `json:"duration_ms,omitempty"`
-	Error                string   `json:"error,omitempty"`
+	RunID                   int64    `json:"run_id,omitempty"`
+	ConfigID                int64    `json:"config_id"`
+	Name                    string   `json:"name"`
+	Provider                string   `json:"provider,omitempty"`
+	Success                 bool     `json:"success"`
+	Status                  string   `json:"status,omitempty"`
+	Stage                   string   `json:"stage,omitempty"`
+	ErrorCode               string   `json:"error_code,omitempty"`
+	Retryable               bool     `json:"retryable,omitempty"`
+	KeyCount                int      `json:"key_count"`
+	FallbackKeyCount        int      `json:"fallback_key_count,omitempty"`
+	UnresolvedKeyCount      int      `json:"unresolved_key_count,omitempty"`
+	UpdatedAccountCount     int      `json:"updated_account_count"`
+	MissingKeyCount         int      `json:"missing_key_count,omitempty"`
+	StaleKeyCount           int      `json:"stale_key_count,omitempty"`
+	DeletedKeyCount         int      `json:"deleted_key_count,omitempty"`
+	RestoredKeyCount        int      `json:"restored_key_count,omitempty"`
+	ArchivedAccountCount    int      `json:"archived_account_count,omitempty"`
+	RestoredAccountCount    int      `json:"restored_account_count,omitempty"`
+	ModelSyncAttemptedCount int      `json:"model_sync_attempted,omitempty"`
+	ModelSyncSucceededCount int      `json:"model_sync_succeeded,omitempty"`
+	ModelSyncFailedCount    int      `json:"model_sync_failed,omitempty"`
+	ModelSyncSkippedCount   int      `json:"model_sync_skipped,omitempty"`
+	Warnings                []string `json:"warnings,omitempty"`
+	DurationMS              int64    `json:"duration_ms,omitempty"`
+	Error                   string   `json:"error,omitempty"`
 }
 
 type UpstreamAccountNameBackfillItem struct {
@@ -343,6 +348,12 @@ func (s *UpstreamConfigService) SetHealthProbeDependencies(prober interface {
 	s.settingService = settingService
 }
 
+func (s *UpstreamConfigService) SetAccountTestService(accountTestService *AccountTestService) {
+	if s != nil {
+		s.accountTestService = accountTestService
+	}
+}
+
 func (s *UpstreamConfigService) GetProbeModels(ctx context.Context) (UpstreamProbeModels, error) {
 	if s == nil || s.settingService == nil {
 		return DefaultUpstreamProbeModels(), nil
@@ -429,7 +440,7 @@ func (s *UpstreamConfigService) GetProbeModelCandidates(ctx context.Context) (ma
 			if !exists {
 				continue
 			}
-			for key, value := range account.GetModelMapping() {
+			for key, value := range account.schedulableModelMapping(time.Now().UTC()) {
 				if strings.TrimSpace(key) != "" {
 					bucket[key] = struct{}{}
 				}
@@ -1361,7 +1372,7 @@ func (s *UpstreamConfigService) SyncKeys(ctx context.Context, id int64) ([]Upstr
 		return nil, UpstreamConfigSyncResult{}, err
 	}
 	startedAt := time.Now().UTC()
-	keys, result, syncErr := s.syncProviderConfig(ctx, cfg, runID, settings)
+	keys, result, syncErr := s.syncProviderConfig(ctx, cfg, runID, settings, true)
 	if auditErr := s.persistSyncResult(ctx, startedAt, result); auditErr != nil {
 		result.Success = false
 		result.Status = UpstreamSyncStatusFailed
@@ -1418,7 +1429,7 @@ func (s *UpstreamConfigService) syncActiveUpstreamConfigs(ctx context.Context, p
 			err = settingsErr
 			result = UpstreamConfigSyncResult{RunID: runID, ConfigID: cfg.ID, Name: cfg.Name, Provider: cfg.Provider, Status: UpstreamSyncStatusFailed}
 		} else {
-			_, result, err = s.syncProviderConfig(ctx, &cfg, runID, settings)
+			_, result, err = s.syncProviderConfig(ctx, &cfg, runID, settings, trigger != UpstreamSyncTriggerScheduled)
 		}
 		if err != nil {
 			result.Success = false
@@ -1454,7 +1465,7 @@ func scheduledSyncResults(results []UpstreamConfigSyncResult, err error) []Upstr
 	return append(results, UpstreamConfigSyncResult{Status: UpstreamSyncStatusFailed, Error: logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")})
 }
 
-func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *UpstreamConfig, runID int64, settings *UpstreamSettings) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
+func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *UpstreamConfig, runID int64, settings *UpstreamSettings, forceModelSync bool) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
 	if cfg != nil && cfg.ID > 0 {
 		unlock := s.lockUpstreamConfigSync(cfg.ID)
 		defer unlock()
@@ -1463,7 +1474,7 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 			var result UpstreamConfigSyncResult
 			var syncErr error
 			lockErr := locker.WithUpstreamConfigSyncLock(ctx, cfg.ID, func(lockCtx context.Context) error {
-				keys, result, syncErr = s.syncProviderConfigLocked(lockCtx, cfg, runID, settings)
+				keys, result, syncErr = s.syncProviderConfigLocked(lockCtx, cfg, runID, settings, forceModelSync)
 				return nil
 			})
 			if lockErr != nil {
@@ -1475,10 +1486,10 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 			return keys, result, syncErr
 		}
 	}
-	return s.syncProviderConfigLocked(ctx, cfg, runID, settings)
+	return s.syncProviderConfigLocked(ctx, cfg, runID, settings, forceModelSync)
 }
 
-func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cfg *UpstreamConfig, runID int64, settings *UpstreamSettings) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
+func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cfg *UpstreamConfig, runID int64, settings *UpstreamSettings, forceModelSync bool) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
 	if cfg != nil && cfg.ID > 0 {
 		latest, err := s.repo.GetByID(ctx, cfg.ID)
 		if err != nil {
@@ -1615,6 +1626,15 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 		}
 		cfg.LastError = nil
 		hydrateUpstreamKeysImagePricing(localKeys, cfg)
+		modelStats := s.syncManagedUpstreamAccountModels(ctx, localKeys, forceModelSync)
+		result.ModelSyncAttemptedCount = modelStats.Attempted
+		result.ModelSyncSucceededCount = modelStats.Updated
+		result.ModelSyncFailedCount = modelStats.Failed
+		result.ModelSyncSkippedCount = modelStats.Skipped
+		if modelStats.Failed > 0 {
+			result.Status = UpstreamSyncStatusPartial
+			result.Warnings = append(result.Warnings, "some upstream account model lists could not be refreshed")
+		}
 		return localKeys, result, nil
 	}
 
@@ -1658,6 +1678,15 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 	_ = s.repo.RecordCheckResult(ctx, cfg.ID, true, "")
 	cfg.LastError = nil
 	hydrateUpstreamKeysImagePricing(localKeys, cfg)
+	modelStats := s.syncManagedUpstreamAccountModels(ctx, localKeys, forceModelSync)
+	result.ModelSyncAttemptedCount = modelStats.Attempted
+	result.ModelSyncSucceededCount = modelStats.Updated
+	result.ModelSyncFailedCount = modelStats.Failed
+	result.ModelSyncSkippedCount = modelStats.Skipped
+	if modelStats.Failed > 0 {
+		result.Status = UpstreamSyncStatusPartial
+		result.Warnings = append(result.Warnings, "some upstream account model lists could not be refreshed")
+	}
 	return localKeys, result, nil
 }
 
@@ -1694,10 +1723,12 @@ func (s *UpstreamConfigService) reconcileUpstreamAccounts(ctx context.Context, c
 		concurrency := normalizeAccountConcurrency(platform, AccountTypeAPIKey, defaultUpstreamAccountConcurrency)
 		priority := Sub2APIUpstreamPriority(*key.RateMultiplier)
 		configID, keyID, rate := cfg.ID, key.ID, *key.RateMultiplier
+		accountExtra := map[string]any{AccountUpstreamProviderKey: cfg.Provider, AccountSub2APIRateSyncAdapterKey: cfg.AuthMode}
+		copyUpstreamModelSyncSourceMetadata(accountExtra, key.Extra)
 		account := &Account{
 			Name: name, Platform: platform, Type: AccountTypeAPIKey,
 			Credentials:      map[string]any{"pool_mode": true},
-			Extra:            map[string]any{AccountUpstreamProviderKey: cfg.Provider, AccountSub2APIRateSyncAdapterKey: cfg.AuthMode},
+			Extra:            accountExtra,
 			UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
 			UpstreamLifecycleOwner: AccountUpstreamLifecycleOwnerSyncManaged,
 			Concurrency:            concurrency, Priority: priority, RateMultiplier: &rate,

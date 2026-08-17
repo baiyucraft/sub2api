@@ -120,6 +120,10 @@ export interface UpstreamSyncResult {
   updated_account_count: number
   archived_account_count?: number
   restored_account_count?: number
+  model_sync_attempted?: number
+  model_sync_succeeded?: number
+  model_sync_failed?: number
+  model_sync_skipped?: number
   error?: string
   provider?: string
   status?: string

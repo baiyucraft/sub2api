@@ -271,6 +271,8 @@ export default {
         shared: '共享',
         independent: '独立',
         costTitle: '生图成本（{mode}倍率，{status}）',
+        costTooltipShared: '{tier} 成本 {cost}；共享倍率，使用账号倍率 {multiplier}×；状态：{status}',
+        costTooltipIndependent: '{tier} 成本 {cost}；独立生图倍率 {multiplier}×；状态：{status}',
         badgeTitle: '生图状态：{status}；成本完整度：{complete}/3；更新时间：{observedAt}',
         statusAvailable: '可用',
         statusPartial: '部分',
@@ -850,11 +852,41 @@ export default {
       fillRelatedModels: '同步最新支持模型',
       syncUpstreamModels: '同步上游支持的模型',
       syncUpstreamModelsLoading: '同步上游中...',
+      refreshUpstreamModels: '刷新模型',
+      refreshUpstreamModelsLoading: '刷新模型中...',
+      refreshUpstreamModelsSuccess: '已刷新上游模型（共 {count} 个）',
       syncUpstreamModelsSuccess: '已从上游同步 {count} 个新模型（上游共 {total} 个）',
       syncUpstreamModelsNoChanges: '上游 {count} 个模型均已在白名单中',
       syncUpstreamModelsEmpty: '上游没有返回可同步的模型',
       syncUpstreamModelsFailed: '同步上游模型失败',
       syncUpstreamModelsError: '同步上游模型失败：{message}',
+      upstreamModelSync: {
+        status: {
+          available: '可用',
+          stale: '过期',
+          error: '失败',
+          unsupported: '手工'
+        },
+        mode: {
+          managed: '自动管理',
+          manual: '手工维护'
+        },
+        source: {
+          provider_model_limits: '上游 Key 模型限制',
+          live_models: '上游模型接口'
+        },
+        modelCount: '{count} 个',
+        fallback: '已放行',
+        retained: '沿用上次',
+        tooltipStatus: '模型同步：{status}',
+        tooltipMode: '模式：{mode}',
+        tooltipSource: '来源：{source}',
+        tooltipLastSuccess: '最近成功：{time}',
+        tooltipLastAttempt: '最近尝试：{time}',
+        tooltipFailure: '失败分类：{kind}',
+        tooltipRetained: '本次同步未成功，正在使用上次成功的模型白名单',
+        tooltipExpired: '最近成功已超过 24 小时，自动模型限制已停止强制执行，账号按旧调度能力放行'
+      },
       clearAllModels: '清除所有模型',
       customModelName: '自定义模型名称',
       enterCustomModelName: '输入自定义模型名称',

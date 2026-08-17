@@ -1078,6 +1078,80 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 	return nil
 }
 
+// PersistUpstreamModelSync atomically updates the auto-managed model whitelist
+// and its freshness state. A nil mapping records a failed attempt while keeping
+// the last successful whitelist intact.
+func (r *accountRepository) PersistUpstreamModelSync(ctx context.Context, id int64, mapping map[string]string, state map[string]any) error {
+	if id <= 0 || len(state) == 0 {
+		return service.ErrAccountNilInput
+	}
+	statePayload, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	baseCtx := ctx
+	contextTx := dbent.TxFromContext(ctx)
+	client := clientFromContext(ctx, r.client)
+	var tx *dbent.Tx
+	if contextTx == nil {
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return err
+		}
+		if tx != nil {
+			defer func() { _ = tx.Rollback() }()
+			ctx = dbent.NewTxContext(ctx, tx)
+			client = tx.Client()
+		}
+	}
+
+	var result sql.Result
+	if mapping == nil {
+		result, err = client.ExecContext(ctx, `
+			UPDATE accounts
+			SET extra = jsonb_set(COALESCE(extra, '{}'::jsonb), '{upstream_model_sync}', $1::jsonb, true)
+				- 'upstream_model_sync_force_refresh',
+				updated_at = NOW()
+			WHERE id = $2 AND deleted_at IS NULL AND upstream_lifecycle_owner = $3
+		`, string(statePayload), id, service.AccountUpstreamLifecycleOwnerSyncManaged)
+	} else {
+		mappingPayload, marshalErr := json.Marshal(mapping)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		result, err = client.ExecContext(ctx, `
+			UPDATE accounts
+			SET credentials = jsonb_set(COALESCE(credentials, '{}'::jsonb), '{model_mapping}', $1::jsonb, true),
+				extra = jsonb_set(COALESCE(extra, '{}'::jsonb), '{upstream_model_sync}', $2::jsonb, true)
+					- 'upstream_model_sync_force_refresh',
+				updated_at = NOW()
+			WHERE id = $3 AND deleted_at IS NULL AND upstream_lifecycle_owner = $4
+		`, string(mappingPayload), string(statePayload), id, service.AccountUpstreamLifecycleOwnerSyncManaged)
+	}
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
+	}
+	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		return err
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	if contextTx == nil {
+		r.syncSchedulerAccountSnapshot(baseCtx, id)
+	}
+	return nil
+}
+
 func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 	groupIDs, err := r.loadAccountGroupIDs(ctx, id)
 	if err != nil {
@@ -3598,6 +3672,10 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 					}
 				}
 				out.Credentials["api_key"] = key.Key
+				if out.Extra == nil {
+					out.Extra = map[string]any{}
+				}
+				copyUpstreamModelSyncMetadata(out.Extra, key.Extra)
 			}
 		}
 		out.ProxyFallbackOriginID = acc.ProxyFallbackOriginID

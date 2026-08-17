@@ -342,6 +342,8 @@ export default {
         shared: 'Shared',
         independent: 'Independent',
         costTitle: 'Image cost ({mode} multiplier, {status})',
+        costTooltipShared: '{tier} cost {cost}; shared multiplier using account rate {multiplier}x; status: {status}',
+        costTooltipIndependent: '{tier} cost {cost}; independent image multiplier {multiplier}x; status: {status}',
         badgeTitle: 'Image status: {status}; cost completeness: {complete}/3; observed: {observedAt}',
         statusAvailable: 'Available',
         statusPartial: 'Partial',
@@ -782,11 +784,41 @@ export default {
       fillRelatedModels: 'Sync latest supported models',
       syncUpstreamModels: 'Sync upstream supported models',
       syncUpstreamModelsLoading: 'Syncing upstream...',
+      refreshUpstreamModels: 'Refresh models',
+      refreshUpstreamModelsLoading: 'Refreshing models...',
+      refreshUpstreamModelsSuccess: 'Refreshed upstream models ({count} total)',
       syncUpstreamModelsSuccess: 'Synced {count} new model(s) from upstream ({total} upstream total)',
       syncUpstreamModelsNoChanges: 'All {count} upstream model(s) are already in the whitelist',
       syncUpstreamModelsEmpty: 'Upstream returned no models to sync',
       syncUpstreamModelsFailed: 'Failed to sync upstream models',
       syncUpstreamModelsError: 'Failed to sync upstream models: {message}',
+      upstreamModelSync: {
+        status: {
+          available: 'Available',
+          stale: 'Stale',
+          error: 'Error',
+          unsupported: 'Manual'
+        },
+        mode: {
+          managed: 'Auto-managed',
+          manual: 'Manual'
+        },
+        source: {
+          provider_model_limits: 'Upstream key model limits',
+          live_models: 'Upstream models endpoint'
+        },
+        modelCount: '{count}',
+        fallback: 'Fallback',
+        retained: 'Using previous',
+        tooltipStatus: 'Model sync: {status}',
+        tooltipMode: 'Mode: {mode}',
+        tooltipSource: 'Source: {source}',
+        tooltipLastSuccess: 'Last success: {time}',
+        tooltipLastAttempt: 'Last attempt: {time}',
+        tooltipFailure: 'Failure class: {kind}',
+        tooltipRetained: 'This attempt failed; the last successful model whitelist is still being used.',
+        tooltipExpired: 'The last successful sync is older than 24 hours. Automatic model restrictions are no longer enforced and legacy scheduling is allowed.'
+      },
       clearAllModels: 'Clear all models',
       customModelName: 'Custom model name',
       enterCustomModelName: 'Enter custom model name',

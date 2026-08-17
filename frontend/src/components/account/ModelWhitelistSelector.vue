@@ -108,7 +108,7 @@
         :disabled="isSyncingUpstream"
         class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
       >
-        {{ isSyncingUpstream ? t('admin.accounts.syncUpstreamModelsLoading') : t('admin.accounts.syncUpstreamModels') }}
+        {{ syncButtonLabel }}
       </button>
       <button
         type="button"
@@ -162,6 +162,7 @@ const props = defineProps<{
   platform?: string
   platforms?: string[]
   accountId?: number
+  syncManaged?: boolean
   syncCredentials?: {
     platform: string
     type: string
@@ -172,6 +173,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
+  'upstream-synced': [models: string[]]
 }>()
 
 const appStore = useAppStore()
@@ -209,6 +211,16 @@ const canSyncUpstream = computed(() => {
     return upstreamSyncPlatforms.has(props.syncCredentials.platform.toLowerCase())
   }
   return false
+})
+const syncButtonLabel = computed(() => {
+  if (props.syncManaged) {
+    return t(isSyncingUpstream.value
+      ? 'admin.accounts.refreshUpstreamModelsLoading'
+      : 'admin.accounts.refreshUpstreamModels')
+  }
+  return t(isSyncingUpstream.value
+    ? 'admin.accounts.syncUpstreamModelsLoading'
+    : 'admin.accounts.syncUpstreamModels')
 })
 
 const availableOptions = computed(() => {
@@ -300,6 +312,12 @@ const syncUpstreamModels = async () => {
     const upstreamModels = result.models.map(model => model.trim()).filter(Boolean)
     if (upstreamModels.length === 0) {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsEmpty'))
+      return
+    }
+
+    if (result.persisted === true) {
+      emit('upstream-synced', upstreamModels)
+      appStore.showSuccess(t('admin.accounts.refreshUpstreamModelsSuccess', { count: upstreamModels.length }))
       return
     }
 

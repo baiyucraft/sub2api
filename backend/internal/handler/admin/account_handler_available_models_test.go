@@ -42,6 +42,18 @@ type syncUpstreamHTTPUpstream struct {
 	err  error
 }
 
+type managedModelSyncRepo struct {
+	service.AccountRepository
+	mapping map[string]string
+	state   map[string]any
+}
+
+func (r *managedModelSyncRepo) PersistUpstreamModelSync(_ context.Context, _ int64, mapping map[string]string, state map[string]any) error {
+	r.mapping = mapping
+	r.state = state
+	return nil
+}
+
 func (u *syncUpstreamHTTPUpstream) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
 	if u.err != nil {
 		return nil, u.err
@@ -54,10 +66,14 @@ func (u *syncUpstreamHTTPUpstream) DoWithTLS(req *http.Request, proxyURL string,
 }
 
 func setupSyncUpstreamModelsRouter(adminSvc service.AdminService, upstream service.HTTPUpstream) *gin.Engine {
+	return setupSyncUpstreamModelsRouterWithRepo(adminSvc, upstream, nil)
+}
+
+func setupSyncUpstreamModelsRouterWithRepo(adminSvc service.AdminService, upstream service.HTTPUpstream, repo service.AccountRepository) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	accountTestSvc := service.NewAccountTestService(
-		nil,
+		repo,
 		nil,
 		nil,
 		nil,
@@ -69,6 +85,44 @@ func setupSyncUpstreamModelsRouter(adminSvc service.AdminService, upstream servi
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, accountTestSvc, nil, nil, nil, nil, nil)
 	router.POST("/api/v1/admin/accounts/:id/models/sync-upstream", handler.SyncUpstreamModels)
 	return router
+}
+
+func TestAccountHandlerSyncUpstreamModels_ManagedAccountPersistsReturnedModelSet(t *testing.T) {
+	repo := &managedModelSyncRepo{}
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:                     46,
+			Name:                   "managed-upstream-account",
+			Platform:               service.PlatformOpenAI,
+			Type:                   service.AccountTypeAPIKey,
+			Status:                 service.StatusActive,
+			UpstreamLifecycleOwner: service.AccountUpstreamLifecycleOwnerSyncManaged,
+			Extra: map[string]any{
+				service.AccountUpstreamProviderKey:              service.AccountUpstreamProviderNewAPI,
+				service.AccountNewAPIModelLimitsEnabledExtraKey: true,
+				service.AccountNewAPIModelLimitsExtraKey:        []string{"model-b", "model-a"},
+			},
+		},
+	}
+	router := setupSyncUpstreamModelsRouterWithRepo(svc, &syncUpstreamHTTPUpstream{}, repo)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/46/models/sync-upstream", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data struct {
+			Models    []string `json:"models"`
+			Persisted bool     `json:"persisted"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.True(t, resp.Data.Persisted)
+	require.Equal(t, []string{"model-a", "model-b"}, resp.Data.Models)
+	require.Equal(t, map[string]string{"model-a": "model-a", "model-b": "model-b"}, repo.mapping)
+	require.Equal(t, service.UpstreamModelSyncStatusAvailable, repo.state["status"])
 }
 
 func TestAccountHandlerGetAvailableModels_GrokUsesXAIModels(t *testing.T) {

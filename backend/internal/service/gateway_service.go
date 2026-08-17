@@ -1384,7 +1384,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasAnyMapping := false
 
 	for _, acc := range accounts {
-		mapping := acc.GetModelMapping()
+		mapping := acc.schedulableModelMapping(time.Now().UTC())
 		if len(mapping) > 0 {
 			hasAnyMapping = true
 			for model := range mapping {

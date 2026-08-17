@@ -219,6 +219,7 @@ type Account struct {
 	UpstreamKeyName           *string                        `json:"upstream_key_name,omitempty"`
 	UpstreamKeyMasked         *string                        `json:"upstream_key_masked,omitempty"`
 	UpstreamImagePricing      *UpstreamImagePricing          `json:"upstream_image_pricing,omitempty"`
+	UpstreamModelSync         *UpstreamModelSync             `json:"upstream_model_sync,omitempty"`
 	UpstreamSchedulingEnabled *bool                          `json:"upstream_scheduling_enabled,omitempty"`
 	Concurrency               int                            `json:"concurrency"`
 	LoadFactor                *int                           `json:"load_factor,omitempty"`
@@ -336,6 +337,24 @@ type UpstreamImagePricing struct {
 	FinalCost2K             *float64   `json:"final_cost_2k,omitempty"`
 	FinalCost4K             *float64   `json:"final_cost_4k,omitempty"`
 	ObservedAt              *time.Time `json:"observed_at,omitempty"`
+}
+
+// UpstreamModelSync is a redacted, admin-only projection of the managed
+// upstream model mapping synchronizer. It intentionally contains no upstream
+// URL, credential, response body, or raw error.
+type UpstreamModelSync struct {
+	Mode               string     `json:"mode"`
+	Status             string     `json:"status"`
+	Source             string     `json:"source,omitempty"`
+	LastAttemptAt      *time.Time `json:"last_attempt_at,omitempty"`
+	LastSuccessAt      *time.Time `json:"last_success_at,omitempty"`
+	FreshUntil         *time.Time `json:"fresh_until,omitempty"`
+	EnforceUntil       *time.Time `json:"enforce_until,omitempty"`
+	ModelCount         int        `json:"model_count"`
+	Checksum           string     `json:"checksum,omitempty"`
+	FailureKind        string     `json:"failure_kind,omitempty"`
+	ErrorCode          string     `json:"error_code,omitempty"`
+	EnforcementExpired bool       `json:"enforcement_expired"`
 }
 
 type AccountGroup struct {

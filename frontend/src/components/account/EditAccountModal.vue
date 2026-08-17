@@ -228,7 +228,13 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="account?.platform || 'anthropic'"
+                :account-id="account?.id"
+                :sync-managed="isSyncManagedUpstreamAccount"
+                @upstream-synced="handleManagedUpstreamModelsSynced"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -516,7 +522,13 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              :platform="account?.platform || 'anthropic'"
+              :account-id="account?.id"
+              :sync-managed="isSyncManagedUpstreamAccount"
+              @upstream-synced="handleManagedUpstreamModelsSynced"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -795,7 +807,13 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              :platform="account?.platform || 'anthropic'"
+              :account-id="account?.id"
+              :sync-managed="isSyncManagedUpstreamAccount"
+              @upstream-synced="handleManagedUpstreamModelsSynced"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1150,7 +1168,9 @@
               :disabled="isSyncingAntigravityUpstream || !account?.id"
               class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
             >
-              {{ isSyncingAntigravityUpstream ? t('admin.accounts.syncUpstreamModelsLoading') : t('admin.accounts.syncUpstreamModels') }}
+              {{ isSyncingAntigravityUpstream
+                ? t(isSyncManagedUpstreamAccount ? 'admin.accounts.refreshUpstreamModelsLoading' : 'admin.accounts.syncUpstreamModelsLoading')
+                : t(isSyncManagedUpstreamAccount ? 'admin.accounts.refreshUpstreamModels' : 'admin.accounts.syncUpstreamModels') }}
             </button>
           </div>
 
@@ -2802,6 +2822,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   close: []
   updated: [account: Account]
+  'refresh-list': []
 }>()
 
 const { t } = useI18n()
@@ -3299,6 +3320,9 @@ const defaultBaseUrl = computed(() => {
 
 const isUpstreamBoundAccount = computed(() =>
   props.account?.upstream_config_id != null && props.account?.upstream_key_id != null
+)
+const isSyncManagedUpstreamAccount = computed(() =>
+  props.account?.upstream_model_sync?.mode === 'sync_managed'
 )
 
 const canEditAccountLocalSettings = computed(
@@ -3920,6 +3944,12 @@ const syncAntigravityUpstreamModels = async () => {
       return
     }
 
+    if (result.persisted === true) {
+      emit('refresh-list')
+      appStore.showSuccess(t('admin.accounts.refreshUpstreamModelsSuccess', { count: upstreamModels.length }))
+      return
+    }
+
     let addedCount = 0
     for (const model of upstreamModels) {
       const exists = antigravityModelMappings.value.some((mapping) => mapping.from === model)
@@ -3940,6 +3970,10 @@ const syncAntigravityUpstreamModels = async () => {
   } finally {
     isSyncingAntigravityUpstream.value = false
   }
+}
+
+const handleManagedUpstreamModelsSynced = () => {
+  emit('refresh-list')
 }
 
 const addTempUnschedRule = (preset?: TempUnschedRuleForm) => {
