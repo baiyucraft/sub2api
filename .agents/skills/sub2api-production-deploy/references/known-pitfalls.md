@@ -204,6 +204,15 @@
 - 预防测试：PID 启动 token、单 runner/claim/candidate、marker 已提交但 stdout 解析失败、wait 超时不 kill。
 - 状态：已修复。
 
+## VM 长构建绑定单个 SSH channel
+
+- 现象：VM Gate 在 `candidate_build` 长时间运行时 SSH 被 reset，本地验证进程退出，但远端 Docker build 继续持有 release lock；直接重跑会形成状态不明或重复构建风险。
+- 根因：validator 的完整生命周期由一次前台 SSH command 承载，调用端连接同时承担远端进程存活、stdout/stderr 传输和最终结构化结果返回。
+- 证据：profile 239 release `239-a68eeab2790a-1786939986-9a81fc13` 的本地 SSH 已中断，远端阶段仍停留在 `candidate_build` 且构建进程继续存在；确认 30 分钟无推进后才按 manifest、PID、父子关系终止并由 trap 写入失败分类。
+- 修复：VM validator 改为 `nohup + setsid` 独立 worker；worker 使用 boot ID、PID 与 `/proc` start token 建立进程身份，原始 stdout/stderr 仅写入 VM root-only 日志，本地只重连轮询结构化状态。启动 SSH 状态不明时不重复启动；只有连续证明握手不存在才清理 input，worker 运行或状态未知时保留 input 与证据。
+- 预防测试：覆盖启动后首次 SSH reset、随后 running、最终 exited；PID token 丢失 fail-closed；非零退出、Gate 文件缺失、日志权限异常；状态未知不清理 input；worker 终态后才允许清理。
+- 状态：代码已修复，等待新 full-SHA profile 239 VM Gate 验证。
+
 ## 生产部署模式
 
 - 现象：未明确选择蓝绿或停机模式时，脚本行为与预期不一致。
