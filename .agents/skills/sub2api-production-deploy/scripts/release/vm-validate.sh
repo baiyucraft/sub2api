@@ -1134,16 +1134,43 @@ mark_stage gate_signing
 fail_gate_signing() {
   local category=${1:?gate signing failure category is required}
   local failed_line=${2:?gate signing failure line is required}
+  local detail=${3:-none}
   [[ $category =~ ^gate_signing_(payload|canonicalize|publish|signature|archive|checksum)$ ]]
   printf '%s\n' "$category" > "$state_dir/failure-category.tmp"
   printf '%s\n' "$failed_line" > "$state_dir/failure-line.tmp"
-  chmod 400 "$state_dir/failure-category.tmp" "$state_dir/failure-line.tmp"
+  printf '%s\n' "$detail" > "$state_dir/failure-detail.tmp"
+  chmod 400 "$state_dir/failure-category.tmp" "$state_dir/failure-line.tmp" "$state_dir/failure-detail.tmp"
   mv -T -- "$state_dir/failure-category.tmp" "$state_dir/failure-category"
   mv -T -- "$state_dir/failure-line.tmp" "$state_dir/failure-line"
+  mv -T -- "$state_dir/failure-detail.tmp" "$state_dir/failure-detail"
   exit 1
 }
 gate_payload_tmp="$output_dir/gate.payload.tmp"
 gate_json_tmp="$output_dir/gate.json.tmp"
+gate_payload_stderr="$state_dir/gate-payload.stderr"
+[[ $candidate_size =~ ^[0-9]+$ ]] || fail_gate_signing gate_signing_payload "$LINENO" candidate_size
+gate_bool_args=(
+  managed_monitor_key_names_verified reasoning_effort_policy_verified alipay_mobile_precreate_migration_verified
+  group_auth_cache_image_generation_verified composite_model_routes_verified session_id_columns_verified
+  live_request_type_verified group_allow_live_verified email_alias_index_verified live_runtime_capability_verified
+  passkey_schema_verified user_usage_aggregation_schema_verified group_profit_control_schema_verified
+  group_profit_auth_cache_trigger_verified usage_log_upstream_model_columns_verified usage_log_upstream_model_mismatch_index_verified
+  channel_monitor_v2_schema_verified channel_monitor_v2_defaults_verified group_media_pricing_schema_verified
+  group_media_auth_cache_trigger_verified migration_232_data_plan_verified migration_232_postflight_verified
+  migration_233_preflight_verified migration_233_postflight_verified migration_234_preflight_verified
+  migration_235_preflight_verified migration_236_preflight_verified migration_237_preflight_verified
+  migration_238_preflight_verified migration_239_preflight_verified migration_240_preflight_verified
+  migration_241_preflight_verified migration_235_schema_verified migration_236_schema_verified
+  migration_237_schema_verified migration_238_schema_verified migration_239_schema_verified
+  migration_240_schema_verified migration_241_schema_verified vm_old_image_compatibility_verified
+  fixture_rejected restore_completed clean_preflight verified_replay verified_low_watermark_rejected
+)
+for gate_bool_arg in "${gate_bool_args[@]}"; do
+  gate_bool_value=${!gate_bool_arg}
+  [[ $gate_bool_value == true || $gate_bool_value == false ]] || fail_gate_signing gate_signing_payload "$LINENO" "$gate_bool_arg"
+done
+exec 7>&2
+exec 2> "$gate_payload_stderr"
 if ! jq -n --slurpfile manifest "$manifest" \
   --arg candidate_image_id "$candidate_image_id" \
   --arg candidate_archive_sha256 "$candidate_archive_sha" \
@@ -1228,9 +1255,11 @@ if ! jq -n --slurpfile manifest "$manifest" \
 fi
 [[ -s $gate_payload_tmp ]] || fail_gate_signing gate_signing_payload "$LINENO"
 chmod 400 "$gate_payload_tmp" || fail_gate_signing gate_signing_payload "$LINENO"
-if ! jq -cS . "$gate_payload_tmp" > "$gate_json_tmp"; then
-  fail_gate_signing gate_signing_canonicalize "$LINENO"
-fi
+ if ! jq -cS . "$gate_payload_tmp" > "$gate_json_tmp"; then
+   fail_gate_signing gate_signing_canonicalize "$LINENO"
+ fi
+exec 2>&7
+exec 7>&-
 [[ -s $gate_json_tmp ]] || fail_gate_signing gate_signing_canonicalize "$LINENO"
 chmod 400 "$gate_json_tmp" || fail_gate_signing gate_signing_publish "$LINENO"
 mv -T -- "$gate_json_tmp" "$output_dir/gate.json" || fail_gate_signing gate_signing_publish "$LINENO"
