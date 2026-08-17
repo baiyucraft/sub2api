@@ -1119,6 +1119,19 @@ export interface OllamaCloudUsageSettings {
   debounce_minutes: number
 }
 
+export interface UpstreamImagePricing {
+  supported: boolean
+  status: string
+  stale: boolean
+  currency: string
+  rate_independent: boolean
+  effective_rate_multiplier?: number | null
+  final_cost_1k?: number | null
+  final_cost_2k?: number | null
+  final_cost_4k?: number | null
+  observed_at?: string | null
+}
+
 export interface Account {
   id: number
   name: string
@@ -1151,18 +1164,7 @@ export interface Account {
   upstream_config_name?: string | null
   upstream_key_name?: string | null
   upstream_key_masked?: string | null
-  upstream_image_pricing?: {
-    supported: boolean
-    status: string
-    stale: boolean
-    currency: string
-    rate_independent: boolean
-    effective_rate_multiplier?: number | null
-    final_cost_1k?: number | null
-    final_cost_2k?: number | null
-    final_cost_4k?: number | null
-    observed_at?: string | null
-  }
+  upstream_image_pricing?: UpstreamImagePricing
   available_actions?: string[]
   upstream_scheduling_enabled?: boolean | null
   proxy_fallback_origin_id?: number | null

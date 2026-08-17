@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
@@ -159,6 +160,228 @@ func TestApplySyncSnapshotDoesNotCountMissingKeysForIncompleteSnapshot(t *testin
 	require.NoError(t, err)
 	require.Zero(t, key.MissingCount)
 	require.Nil(t, key.MissingSince)
+}
+
+func TestApplySyncSnapshotArchivesSyncManagedAccountAndRestoresSameIdentity(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := &upstreamConfigRepository{client: client}
+	suffix := time.Now().UnixNano()
+	config, err := client.UpstreamConfig.Create().
+		SetName(fmt.Sprintf("lifecycle-%d", suffix)).
+		SetProvider(service.UpstreamProviderSub2API).
+		SetSiteURL("https://example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetStatus(service.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+	group, err := client.Group.Create().
+		SetName(fmt.Sprintf("lifecycle-group-%d", suffix)).
+		SetPlatform(service.PlatformOpenAI).
+		Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduled_test_results WHERE plan_id IN (SELECT id FROM scheduled_test_plans WHERE account_id IN (SELECT id FROM accounts WHERE upstream_config_id = $1))", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduled_test_plans WHERE account_id IN (SELECT id FROM accounts WHERE upstream_config_id = $1)", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id IN (SELECT id FROM accounts WHERE upstream_config_id = $1)", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM account_groups WHERE account_id IN (SELECT id FROM accounts WHERE upstream_config_id = $1)", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_events WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM groups WHERE id = $1", group.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_keys WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_configs WHERE id = $1", config.ID)
+	})
+
+	remoteID := int64(95001)
+	now := time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC)
+	incoming := []service.UpstreamKey{{
+		UpstreamConfigID: config.ID,
+		Name:             "image-key",
+		Key:              "sk-lifecycle",
+		KeyHash:          service.HashUpstreamKey("sk-lifecycle"),
+		RemoteKeyID:      &remoteID,
+		Platform:         repoStringPtr(service.PlatformOpenAI),
+		Status:           service.StatusActive,
+		LastSeenAt:       &now,
+	}}
+	keys, _, _, err := repo.ApplySyncSnapshot(ctx, config.ID, 0, incoming, nil, now, true)
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	keyID := keys[0].ID
+	accountName, err := service.BuildUpstreamAccountName(config.Name, keys[0].Name)
+	require.NoError(t, err)
+	account, err := client.Account.Create().
+		SetName(accountName).
+		SetPlatform(service.PlatformOpenAI).
+		SetType(service.AccountTypeAPIKey).
+		SetCredentials(map[string]any{"pool_mode": true}).
+		SetExtra(map[string]any{
+			service.AccountUpstreamProviderKey:       config.Provider,
+			service.AccountSub2APIRateSyncAdapterKey: config.AuthMode,
+		}).
+		SetConcurrency(100).
+		SetPriority(5).
+		SetStatus(service.StatusActive).
+		SetSchedulable(true).
+		SetUpstreamConfigID(config.ID).
+		SetUpstreamKeyID(keyID).
+		SetUpstreamLifecycleOwner(service.AccountUpstreamLifecycleOwnerSyncManaged).
+		Save(ctx)
+	require.NoError(t, err)
+	_, err = client.AccountGroup.Create().SetAccountID(account.ID).SetGroupID(group.ID).SetPriority(7).Save(ctx)
+	require.NoError(t, err)
+	var planID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		INSERT INTO scheduled_test_plans (account_id, model_id, cron_expression, enabled, max_results, auto_recover, next_run_at, created_at, updated_at)
+		VALUES ($1, 'gpt-test', '*/30 * * * *', true, 10, false, $2, NOW(), NOW())
+		RETURNING id
+	`, account.ID, now.Add(time.Hour)).Scan(&planID))
+	service.GlobalUpstreamHealthRegistry().Hydrate(service.UpstreamHealthSnapshot{
+		KeyID: keyID, Status: service.UpstreamHealthSuspended, ObservationEnabled: true, ConsecutiveFails: 3,
+	})
+
+	for index, checkedAt := range []time.Time{now.Add(time.Minute), now.Add(16 * time.Minute), now.Add(31 * time.Minute)} {
+		_, reconciled, _, applyErr := repo.ApplySyncSnapshot(ctx, config.ID, 0, nil, nil, checkedAt, true)
+		require.NoError(t, applyErr)
+		if index < 2 {
+			require.Zero(t, reconciled.Deleted)
+			require.Zero(t, reconciled.ArchivedAccountCount)
+		} else {
+			require.Equal(t, 1, reconciled.Deleted)
+			require.Equal(t, 1, reconciled.ArchivedAccountCount)
+		}
+	}
+
+	_, err = client.Account.Get(ctx, account.ID)
+	require.True(t, dbent.IsNotFound(err))
+	archivedAccount, err := client.Account.Get(mixins.SkipSoftDelete(ctx), account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, archivedAccount.DeletedAt)
+	require.Equal(t, service.AccountUpstreamLifecycleOwnerSyncManaged, archivedAccount.UpstreamLifecycleOwner)
+	require.NotNil(t, archivedAccount.UpstreamArchiveReason)
+	require.Equal(t, service.AccountUpstreamArchiveReasonKeyMissing, *archivedAccount.UpstreamArchiveReason)
+	archivedKey, err := client.UpstreamKey.Get(mixins.SkipSoftDelete(ctx), keyID)
+	require.NoError(t, err)
+	require.NotNil(t, archivedKey.DeletedAt)
+	var groupLinkCount, planCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM account_groups WHERE account_id = $1 AND group_id = $2", account.ID, group.ID).Scan(&groupLinkCount))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduled_test_plans WHERE id = $1 AND account_id = $2", planID, account.ID).Scan(&planCount))
+	require.Equal(t, 1, groupLinkCount)
+	require.Equal(t, 1, planCount)
+	require.Equal(t, service.UpstreamHealthObserving, service.GlobalUpstreamHealthRegistry().Snapshot(keyID).Status)
+
+	restoreAt := now.Add(40 * time.Minute)
+	incoming[0].LastSeenAt = &restoreAt
+	restoredKeys, reconciled, _, err := repo.ApplySyncSnapshot(ctx, config.ID, 0, incoming, nil, restoreAt, true)
+	require.NoError(t, err)
+	require.Len(t, restoredKeys, 1)
+	require.Equal(t, keyID, restoredKeys[0].ID)
+	require.Equal(t, 1, reconciled.RestoredAccountCount)
+	restoredAccount, err := client.Account.Get(ctx, account.ID)
+	require.NoError(t, err)
+	require.Nil(t, restoredAccount.DeletedAt)
+	require.Nil(t, restoredAccount.UpstreamArchiveReason)
+	require.Equal(t, keyID, *restoredAccount.UpstreamKeyID)
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM account_groups WHERE account_id = $1 AND group_id = $2", account.ID, group.ID).Scan(&groupLinkCount))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduled_test_plans WHERE id = $1 AND account_id = $2", planID, account.ID).Scan(&planCount))
+	require.Equal(t, 1, groupLinkCount)
+	require.Equal(t, 1, planCount)
+}
+
+func TestApplySyncSnapshotKeepsManualAccountAndDoesNotRestoreManualDeletion(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := &upstreamConfigRepository{client: client}
+	suffix := time.Now().UnixNano()
+	config, err := client.UpstreamConfig.Create().
+		SetName(fmt.Sprintf("manual-lifecycle-%d", suffix)).
+		SetProvider(service.UpstreamProviderSub2API).
+		SetSiteURL("https://example.com").
+		SetAuthMode(service.UpstreamAuthModeManualJWT).
+		SetStatus(service.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id IN (SELECT id FROM accounts WHERE upstream_config_id = $1)", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_events WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_keys WHERE upstream_config_id = $1", config.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM upstream_configs WHERE id = $1", config.ID)
+	})
+
+	now := time.Date(2026, 8, 17, 2, 0, 0, 0, time.UTC)
+	remoteManual := int64(95101)
+	remoteDeleted := int64(95102)
+	incoming := []service.UpstreamKey{
+		{UpstreamConfigID: config.ID, Name: "manual", Key: "sk-manual", KeyHash: service.HashUpstreamKey("sk-manual"), RemoteKeyID: &remoteManual, Platform: repoStringPtr(service.PlatformOpenAI), Status: service.StatusActive, LastSeenAt: &now},
+		{UpstreamConfigID: config.ID, Name: "deleted", Key: "sk-deleted", KeyHash: service.HashUpstreamKey("sk-deleted"), RemoteKeyID: &remoteDeleted, Platform: repoStringPtr(service.PlatformOpenAI), Status: service.StatusActive, LastSeenAt: &now},
+	}
+	keys, _, _, err := repo.ApplySyncSnapshot(ctx, config.ID, 0, incoming, nil, now, true)
+	require.NoError(t, err)
+	require.Len(t, keys, 2)
+	keyByRemote := make(map[int64]service.UpstreamKey, len(keys))
+	for _, key := range keys {
+		keyByRemote[*key.RemoteKeyID] = key
+	}
+	manualAccount, err := client.Account.Create().
+		SetName(fmt.Sprintf("manual-account-%d", suffix)).
+		SetPlatform(service.PlatformOpenAI).
+		SetType(service.AccountTypeAPIKey).
+		SetCredentials(map[string]any{"api_key": "operator-managed"}).
+		SetExtra(map[string]any{}).
+		SetConcurrency(100).
+		SetPriority(5).
+		SetStatus(service.StatusActive).
+		SetSchedulable(true).
+		SetUpstreamConfigID(config.ID).
+		SetUpstreamKeyID(keyByRemote[remoteManual].ID).
+		Save(ctx)
+	require.NoError(t, err)
+	deletedAccount, err := client.Account.Create().
+		SetName(fmt.Sprintf("deleted-account-%d", suffix)).
+		SetPlatform(service.PlatformOpenAI).
+		SetType(service.AccountTypeAPIKey).
+		SetCredentials(map[string]any{"pool_mode": true}).
+		SetExtra(map[string]any{service.AccountUpstreamProviderKey: config.Provider, service.AccountSub2APIRateSyncAdapterKey: config.AuthMode}).
+		SetConcurrency(100).
+		SetPriority(5).
+		SetStatus(service.StatusActive).
+		SetSchedulable(true).
+		SetUpstreamConfigID(config.ID).
+		SetUpstreamKeyID(keyByRemote[remoteDeleted].ID).
+		SetUpstreamLifecycleOwner(service.AccountUpstreamLifecycleOwnerSyncManaged).
+		Save(ctx)
+	require.NoError(t, err)
+	require.NoError(t, client.Account.DeleteOneID(deletedAccount.ID).Exec(ctx))
+
+	for _, checkedAt := range []time.Time{now.Add(time.Minute), now.Add(16 * time.Minute), now.Add(31 * time.Minute)} {
+		_, _, _, err = repo.ApplySyncSnapshot(ctx, config.ID, 0, nil, nil, checkedAt, true)
+		require.NoError(t, err)
+	}
+
+	manualAfter, err := client.Account.Get(ctx, manualAccount.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.AccountUpstreamLifecycleOwnerManual, manualAfter.UpstreamLifecycleOwner)
+	require.Nil(t, manualAfter.DeletedAt)
+	require.Nil(t, manualAfter.UpstreamArchiveReason)
+	require.False(t, manualAfter.Schedulable)
+	manualKey, err := client.UpstreamKey.Get(ctx, keyByRemote[remoteManual].ID)
+	require.NoError(t, err)
+	require.Equal(t, service.UpstreamKeyStatusStale, manualKey.Status)
+
+	restoreAt := now.Add(40 * time.Minute)
+	for index := range incoming {
+		incoming[index].LastSeenAt = &restoreAt
+	}
+	restoredKeys, _, _, err := repo.ApplySyncSnapshot(ctx, config.ID, 0, incoming, nil, restoreAt, true)
+	require.NoError(t, err)
+	require.Len(t, restoredKeys, 2)
+	_, err = client.Account.Get(ctx, deletedAccount.ID)
+	require.True(t, dbent.IsNotFound(err))
+	manuallyDeletedTombstone, err := client.Account.Get(mixins.SkipSoftDelete(ctx), deletedAccount.ID)
+	require.NoError(t, err)
+	require.NotNil(t, manuallyDeletedTombstone.DeletedAt)
+	require.Nil(t, manuallyDeletedTombstone.UpstreamArchiveReason)
 }
 
 func TestApplySyncSnapshotPreservesManualPlatformAndFlagsDetectionConflict(t *testing.T) {

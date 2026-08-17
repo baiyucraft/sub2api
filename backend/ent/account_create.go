@@ -198,6 +198,34 @@ func (_c *AccountCreate) SetNillableUpstreamStalePausedAt(v *time.Time) *Account
 	return _c
 }
 
+// SetUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field.
+func (_c *AccountCreate) SetUpstreamLifecycleOwner(v string) *AccountCreate {
+	_c.mutation.SetUpstreamLifecycleOwner(v)
+	return _c
+}
+
+// SetNillableUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableUpstreamLifecycleOwner(v *string) *AccountCreate {
+	if v != nil {
+		_c.SetUpstreamLifecycleOwner(*v)
+	}
+	return _c
+}
+
+// SetUpstreamArchiveReason sets the "upstream_archive_reason" field.
+func (_c *AccountCreate) SetUpstreamArchiveReason(v string) *AccountCreate {
+	_c.mutation.SetUpstreamArchiveReason(v)
+	return _c
+}
+
+// SetNillableUpstreamArchiveReason sets the "upstream_archive_reason" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableUpstreamArchiveReason(v *string) *AccountCreate {
+	if v != nil {
+		_c.SetUpstreamArchiveReason(*v)
+	}
+	return _c
+}
+
 // SetConcurrency sets the "concurrency" field.
 func (_c *AccountCreate) SetConcurrency(v int) *AccountCreate {
 	_c.mutation.SetConcurrency(v)
@@ -651,6 +679,10 @@ func (_c *AccountCreate) defaults() error {
 		v := account.DefaultExtra()
 		_c.mutation.SetExtra(v)
 	}
+	if _, ok := _c.mutation.UpstreamLifecycleOwner(); !ok {
+		v := account.DefaultUpstreamLifecycleOwner
+		_c.mutation.SetUpstreamLifecycleOwner(v)
+	}
 	if _, ok := _c.mutation.Concurrency(); !ok {
 		v := account.DefaultConcurrency
 		_c.mutation.SetConcurrency(v)
@@ -719,6 +751,19 @@ func (_c *AccountCreate) check() error {
 	}
 	if _, ok := _c.mutation.Extra(); !ok {
 		return &ValidationError{Name: "extra", err: errors.New(`ent: missing required field "Account.extra"`)}
+	}
+	if _, ok := _c.mutation.UpstreamLifecycleOwner(); !ok {
+		return &ValidationError{Name: "upstream_lifecycle_owner", err: errors.New(`ent: missing required field "Account.upstream_lifecycle_owner"`)}
+	}
+	if v, ok := _c.mutation.UpstreamLifecycleOwner(); ok {
+		if err := account.UpstreamLifecycleOwnerValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_lifecycle_owner", err: fmt.Errorf(`ent: validator failed for field "Account.upstream_lifecycle_owner": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.UpstreamArchiveReason(); ok {
+		if err := account.UpstreamArchiveReasonValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_archive_reason", err: fmt.Errorf(`ent: validator failed for field "Account.upstream_archive_reason": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.Concurrency(); !ok {
 		return &ValidationError{Name: "concurrency", err: errors.New(`ent: missing required field "Account.concurrency"`)}
@@ -830,6 +875,14 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.UpstreamStalePausedAt(); ok {
 		_spec.SetField(account.FieldUpstreamStalePausedAt, field.TypeTime, value)
 		_node.UpstreamStalePausedAt = &value
+	}
+	if value, ok := _c.mutation.UpstreamLifecycleOwner(); ok {
+		_spec.SetField(account.FieldUpstreamLifecycleOwner, field.TypeString, value)
+		_node.UpstreamLifecycleOwner = value
+	}
+	if value, ok := _c.mutation.UpstreamArchiveReason(); ok {
+		_spec.SetField(account.FieldUpstreamArchiveReason, field.TypeString, value)
+		_node.UpstreamArchiveReason = &value
 	}
 	if value, ok := _c.mutation.Concurrency(); ok {
 		_spec.SetField(account.FieldConcurrency, field.TypeInt, value)
@@ -1324,6 +1377,36 @@ func (u *AccountUpsert) UpdateUpstreamStalePausedAt() *AccountUpsert {
 // ClearUpstreamStalePausedAt clears the value of the "upstream_stale_paused_at" field.
 func (u *AccountUpsert) ClearUpstreamStalePausedAt() *AccountUpsert {
 	u.SetNull(account.FieldUpstreamStalePausedAt)
+	return u
+}
+
+// SetUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field.
+func (u *AccountUpsert) SetUpstreamLifecycleOwner(v string) *AccountUpsert {
+	u.Set(account.FieldUpstreamLifecycleOwner, v)
+	return u
+}
+
+// UpdateUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateUpstreamLifecycleOwner() *AccountUpsert {
+	u.SetExcluded(account.FieldUpstreamLifecycleOwner)
+	return u
+}
+
+// SetUpstreamArchiveReason sets the "upstream_archive_reason" field.
+func (u *AccountUpsert) SetUpstreamArchiveReason(v string) *AccountUpsert {
+	u.Set(account.FieldUpstreamArchiveReason, v)
+	return u
+}
+
+// UpdateUpstreamArchiveReason sets the "upstream_archive_reason" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateUpstreamArchiveReason() *AccountUpsert {
+	u.SetExcluded(account.FieldUpstreamArchiveReason)
+	return u
+}
+
+// ClearUpstreamArchiveReason clears the value of the "upstream_archive_reason" field.
+func (u *AccountUpsert) ClearUpstreamArchiveReason() *AccountUpsert {
+	u.SetNull(account.FieldUpstreamArchiveReason)
 	return u
 }
 
@@ -2001,6 +2084,41 @@ func (u *AccountUpsertOne) UpdateUpstreamStalePausedAt() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearUpstreamStalePausedAt() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearUpstreamStalePausedAt()
+	})
+}
+
+// SetUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field.
+func (u *AccountUpsertOne) SetUpstreamLifecycleOwner(v string) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetUpstreamLifecycleOwner(v)
+	})
+}
+
+// UpdateUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateUpstreamLifecycleOwner() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateUpstreamLifecycleOwner()
+	})
+}
+
+// SetUpstreamArchiveReason sets the "upstream_archive_reason" field.
+func (u *AccountUpsertOne) SetUpstreamArchiveReason(v string) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetUpstreamArchiveReason(v)
+	})
+}
+
+// UpdateUpstreamArchiveReason sets the "upstream_archive_reason" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateUpstreamArchiveReason() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateUpstreamArchiveReason()
+	})
+}
+
+// ClearUpstreamArchiveReason clears the value of the "upstream_archive_reason" field.
+func (u *AccountUpsertOne) ClearUpstreamArchiveReason() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearUpstreamArchiveReason()
 	})
 }
 
@@ -2905,6 +3023,41 @@ func (u *AccountUpsertBulk) UpdateUpstreamStalePausedAt() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearUpstreamStalePausedAt() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearUpstreamStalePausedAt()
+	})
+}
+
+// SetUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field.
+func (u *AccountUpsertBulk) SetUpstreamLifecycleOwner(v string) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetUpstreamLifecycleOwner(v)
+	})
+}
+
+// UpdateUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateUpstreamLifecycleOwner() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateUpstreamLifecycleOwner()
+	})
+}
+
+// SetUpstreamArchiveReason sets the "upstream_archive_reason" field.
+func (u *AccountUpsertBulk) SetUpstreamArchiveReason(v string) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetUpstreamArchiveReason(v)
+	})
+}
+
+// UpdateUpstreamArchiveReason sets the "upstream_archive_reason" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateUpstreamArchiveReason() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateUpstreamArchiveReason()
+	})
+}
+
+// ClearUpstreamArchiveReason clears the value of the "upstream_archive_reason" field.
+func (u *AccountUpsertBulk) ClearUpstreamArchiveReason() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearUpstreamArchiveReason()
 	})
 }
 

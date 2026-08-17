@@ -118,6 +118,8 @@ export interface UpstreamSyncResult {
   success: boolean
   key_count: number
   updated_account_count: number
+  archived_account_count?: number
+  restored_account_count?: number
   error?: string
   provider?: string
   status?: string

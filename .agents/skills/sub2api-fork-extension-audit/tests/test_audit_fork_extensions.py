@@ -73,6 +73,18 @@ def make_fixture(tmp_path: Path) -> tuple[Path, str, Path]:
                 "compatibility_image_id": "sha256:" + "b" * 64,
             }
         },
+        "current_profile": {
+            "id": "233",
+            "status": "pending",
+            "base_profile": "233",
+            "version": "1.0.0-baiyu",
+            "migration_count": 1,
+            "migration_map_sha256": migration_map_hash,
+            "appended_migrations": [],
+            "compatibility_version": "0.9.0-baiyu",
+            "compatibility_commit": "a" * 40,
+            "compatibility_image_id": "sha256:" + "b" * 64,
+        },
         "migration_contracts": {"001_test.sql": migration_hash},
         "migration_assertions": {},
         "high_risk_paths": ["app.txt"],
@@ -158,6 +170,19 @@ def test_migration_checksum_drift_is_blocker(tmp_path: Path) -> None:
     assert proc.returncode != 0
     assert "migration_checksum_drift" in codes
     assert "historical_profile_drift" in codes
+    assert "current_profile_drift" in codes
+
+
+def test_current_profile_drift_is_blocker(tmp_path: Path) -> None:
+    repo, upstream, catalog = make_fixture(tmp_path)
+    payload = json.loads(catalog.read_text(encoding="utf-8"))
+    payload["current_profile"]["version"] = "9.9.9-baiyu"
+    write(catalog, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    commit_all(repo, "drift current profile catalog")
+    proc, report = audit(repo, "pre-merge", upstream, catalog)
+    assert proc.returncode != 0
+    finding = next(item for item in report["findings"] if item["code"] == "current_profile_drift")
+    assert finding["details"]["mismatches"]["version"]["actual"] == "1.0.0-baiyu"
 
 
 def test_unregistered_path_requires_catalog_update(tmp_path: Path) -> None:

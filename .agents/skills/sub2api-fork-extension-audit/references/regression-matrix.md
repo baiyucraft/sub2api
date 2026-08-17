@@ -3,6 +3,7 @@
 | 扩展域 | 最低回归要求 |
 | --- | --- |
 | 上游配置与管理 | provider 同步、缺失 Key 对账、派生账号绑定、账号编辑白名单、两个一级菜单、局部运行态刷新 |
+| 上游派生账号生命周期 | 仅完整同步推进缺失计数；sync_managed 连续缺失 3 次且至少 30 分钟后与 Key 同事务软归档；manual 永不自动归档；仅 `sync_managed+key_missing` 恢复同 ID 并保留分组、定时计划和历史；定时计划过滤 deleted_at；归档/恢复清理账号缓存、Redis、共享并发和健康 Registry |
 | NewAPI 兼容 | 旧 `data.id + Cookie`、新 `data.user.id + access_token`、Bearer 与 `New-Api-User`、无会话失败、三种认证模式互不影响 |
 | 共享并发 | 同上游多 Key 共享 slot/lease/queue/load，不同上游隔离，优先级来源解析，降低上限不终止已有请求 |
 | LoadFactor | 普通账号硬并发使用 Concurrency，调度容量使用 LoadFactor 或回退；上游账号忽略派生账号字段；Priority/倍率同步不改 LoadFactor |
@@ -10,11 +11,12 @@
 | 健康探针 | OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流；首文本、终止事件、challenge、截断流、超时和非 2xx 分类 |
 | Probe Guard | 默认 401/403、429/529、5xx、其他 4xx 规则；自定义错误码追加；阈值暂停、成功恢复、人工恢复与业务隔离 |
 | 健康趋势 | 列表 24 点、35 天保留、6h/24h/7d/30d 聚合、P50/P95、断点、Tooltip、中英文和暗色模式 |
+| 账号页运行态与渲染 | 普通账号页与上游管理页的隐藏列、排序、自动刷新配置、ETag、请求 generation 和静默窗口完全隔离；切换 scope 后旧响应不得覆盖；健康历史单 Tooltip；TTFT 全页单 ticker；DataTable 测量使用可取消的 rAF 合并 |
 | 成本与归因 | 倍率/Priority 独立、原始倍率不公开、余额与价格快照、usage/batch-image 归因不随后续解绑变化 |
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 质量与累计用量 | 质量仅展示不参与调度；coverage/backfill 完整后才允许 raw cleanup；日聚合时区正确 |
-| 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
-| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–237 map/checksum/compatibility identity 不可变；当前 profile 238 为 pending/current 合同，54 项 migration，追加 `237_image_cost_routing.sql`，migration map digest 为 `322ec9fe133e3209611a0c1cad357732512a381baed685334d00d8c8ede0cdf5`；`VERSION = upstream VERSION + -baiyu` |
+| 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；成本摘要必须结构化展示能力、倍率来源和分辨率成本；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
+| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–238 map/checksum/compatibility identity 不可变；当前 profile 239 为 pending/current 合同，55 项 migration，追加 `238_upstream_account_lifecycle.sql`，migration map digest 为 `e5009ac6bc3fa0f9751f61e4318966f68d56b957ed0d2d13df02651eca3f60e5`；`VERSION = upstream VERSION + -baiyu` |
 | 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
 
 ## 全量门禁
@@ -34,39 +36,44 @@ git diff --check
 
 审计 skill 只输出清单，不执行这些应用与发布门禁。构建和环境验证由 `sub2api-production-deploy` skill 决定。
 
-## 当前 profile 238 专项合同
+## 当前 profile 239 专项合同
 
-profile 238 仍属于当前待发布合同，不得登记为已发布历史证据：
+profile 238 已进入不可变历史合同。profile 239 仍属于当前待发布合同，不得提前登记为已发布历史证据：
 
 ```text
-base profile: 237
+base profile: 238
 version: 0.1.177-baiyu
-migration count: 54
-appended migration: 237_image_cost_routing.sql
-migration sha256: f34d5ed6ae8c7b9fba9cf20d80f78308fa0b562657f936f2b2617a0a48b27d33
-migration map sha256: 322ec9fe133e3209611a0c1cad357732512a381baed685334d00d8c8ede0cdf5
+migration count: 55
+appended migration: 238_upstream_account_lifecycle.sql
+migration sha256: 23156212ee9b8b79bdc55d51e9fadcfaad5f053a1415a53b7808df23aa0980b8
+migration map sha256: e5009ac6bc3fa0f9751f61e4318966f68d56b957ed0d2d13df02651eca3f60e5
 ```
 
 最低专项测试：
 
 ```text
-backend/internal/service/upstream_key_image_pricing_test.go
-backend/internal/service/openai_account_scheduler_upstream_cost_test.go
-backend/internal/service/openai_image_cost_routing_test.go
-backend/internal/service/admin_group_image_cost_routing_test.go
-backend/migrations/profile_238_migrations_test.go
+backend/internal/repository/upstream_account_lifecycle_test.go
+backend/internal/repository/upstream_key_reconcile_integration_test.go
+backend/internal/repository/scheduled_test_repo_lifecycle_test.go
+backend/migrations/profile_239_migrations_test.go
 frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts
+frontend/src/components/account/__tests__/UpstreamHealthHistory.spec.ts
+frontend/src/components/account/__tests__/TTFTGuardStatusBadge.spec.ts
+frontend/src/components/common/__tests__/DataTable.spec.ts
+frontend/src/components/account/__tests__/UpstreamImagePricingSummary.spec.ts
 ```
 
 后续补强测试：
 
 ```text
-GroupsView 图片成本创建、编辑、复制、校验和提交
-API Key auth cache 图片成本字段 round-trip
-scheduler cache UpstreamImagePricing round-trip
-account hydration 的 Key 定价快照映射
-1K/2K/4K 尺寸成本排序
-stale/partial/unknown 与免费成本 0 的区分
-关闭 image_cost_routing_enabled 时保持原调度顺序
-prefer_lowest/strict_lowest 与健康、共享并发、TTFT Guard、Priority 的组合回归
+混合 manual/sync_managed 绑定时不自动归档
+不完整或失败同步不推进缺失计数
+归档事务失败时 Key 与账号均不发生部分删除
+恢复后原账号 ID、分组、定时计划和历史保持不变
+Redis 调度缓存、共享并发 lease/queue 和健康 Registry 不残留旧状态
+普通账号页与上游管理页切换时列、排序、自动刷新和异步响应完全隔离
+多行健康历史只存在一个 Tooltip 宿主
+大量 TTFT 徽标只存在一个全页 ticker
+DataTable 高频 ResizeObserver 通知只触发一帧测量
+图片成本摘要字段缺失、partial、stale 和免费成本 0 的结构化展示
 ```

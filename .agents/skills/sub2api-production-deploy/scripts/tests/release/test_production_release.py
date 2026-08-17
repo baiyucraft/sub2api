@@ -1170,7 +1170,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         preflight = self.script("preflight.sh")
         switch = self.script("switch.sh")
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', production)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239"}', production)
         self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237", switch)
         self.assertIn("migration_206_status", production)
         self.assertIn("migration_206_status", preflight)
@@ -1230,7 +1230,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_profile_213_reuses_profile_212_migration_and_schema_evidence(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         switch = self.script("switch.sh")
-        self.assertIn('{"212", "213", "215", "232", "233", "234", "235", "236", "237", "238"}', production)
+        self.assertIn('{"212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239"}', production)
         self.assertIn("$profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237", switch)
         self.assertNotIn("migration_213_status", production)
         self.assertNotIn("migration_213_status", self.script("preflight.sh"))
@@ -1492,15 +1492,31 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
 
     def test_profile_238_switch_accepts_all_migration_237_postflight_output_fields(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        condition = 'if getattr(self, "profile", {}).get("name") in {"238", "239"}:'
         switch_allowlist = production[
-            production.index('if getattr(self, "profile", {}).get("name") == "238":'):
-            production.index("try:", production.index('if getattr(self, "profile", {}).get("name") == "238":'))
+            production.index(condition):
+            production.index("try:", production.index(condition))
         ]
         for field in (
             "migration_237_schema_state",
             "migration_237_schema_verified",
             "migration_237_preflight",
             "migration_237_postflight",
+        ):
+            self.assertIn(f'"{field}"', switch_allowlist)
+
+    def test_profile_239_switch_accepts_migration_238_postflight_output_fields(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        condition = 'if getattr(self, "profile", {}).get("name") == "239":'
+        switch_allowlist = production[
+            production.index(condition):
+            production.index("try:", production.index(condition))
+        ]
+        for field in (
+            "migration_238_schema_state",
+            "migration_238_schema_verified",
+            "migration_238_preflight",
+            "migration_238_postflight",
         ):
             self.assertIn(f'"{field}"', switch_allowlist)
 

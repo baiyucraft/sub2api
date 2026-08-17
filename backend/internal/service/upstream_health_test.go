@@ -94,6 +94,27 @@ func TestUpstreamHealthRegistryHasTemporaryExclusions(t *testing.T) {
 	require.True(t, registry.HasTemporaryExclusions())
 }
 
+func TestUpstreamHealthRegistryForgetDropsOnlyRuntimeSnapshot(t *testing.T) {
+	registry := &UpstreamHealthRegistry{items: make(map[int64]UpstreamHealthSnapshot)}
+	keyID := int64(17)
+	registry.Hydrate(UpstreamHealthSnapshot{
+		KeyID:              keyID,
+		Status:             UpstreamHealthSuspended,
+		ObservationEnabled: true,
+		ConsecutiveFails:   5,
+		Reason:             "authentication_failed",
+	})
+	require.Contains(t, registry.ExcludedKeyIDs([]int64{keyID}), keyID)
+
+	registry.Forget(keyID)
+
+	item := registry.Snapshot(keyID)
+	require.Equal(t, defaultUpstreamHealthSnapshot(keyID), item)
+	require.NotContains(t, registry.ExcludedKeyIDs([]int64{keyID}), keyID)
+	registry.Forget(0)
+	(*UpstreamHealthRegistry)(nil).Forget(keyID)
+}
+
 func TestUpstreamHealthHistoryKeepsBoundedChronologicalObservations(t *testing.T) {
 	extra := map[string]any{}
 	base := time.Date(2026, 8, 10, 8, 0, 0, 0, time.UTC)

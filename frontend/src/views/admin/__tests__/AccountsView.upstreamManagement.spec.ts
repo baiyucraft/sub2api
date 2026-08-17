@@ -10,6 +10,8 @@ const {
   getSettings,
   getProbeModelCandidates,
   getBatchTodayStats,
+  getBatchQualityStats,
+  getBatchUsage,
   getUpstreamBillingProbeSettings,
   probeKey,
   setKeyObservation
@@ -20,6 +22,8 @@ const {
   getSettings: vi.fn(),
   getProbeModelCandidates: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getBatchQualityStats: vi.fn(),
+  getBatchUsage: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn(),
   probeKey: vi.fn(),
   setKeyObservation: vi.fn()
@@ -31,7 +35,8 @@ vi.mock('@/api/admin', () => ({
       list: ordinaryList,
       listWithEtag: vi.fn(),
       getBatchTodayStats,
-      getBatchQualityStats: vi.fn().mockResolvedValue({ stats: {} }),
+      getBatchQualityStats,
+      getBatchUsage,
       getUpstreamBillingProbeSettings,
       batchDelete: vi.fn(),
       batchClearError: vi.fn(),
@@ -104,19 +109,35 @@ const AccountTableFiltersStub = {
   `
 }
 
+const AccountUsageCellStub = {
+  props: ['account', 'requestBatchedUsage'],
+  mounted() {
+    this.requestBatchedUsage?.(this.account)
+  },
+  template: '<div data-test="usage-cell" />'
+}
+
 const mountView = (scope: 'ordinary' | 'upstream' = 'upstream') => mount(AccountsView, {
   props: { scope },
   global: {
     stubs: {
       AppLayout: { template: '<div><slot /></div>' },
       TablePageLayout: { template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>' },
+      Teleport: true,
       DataTable: {
-        props: ['data', 'columns'],
+        props: ['data', 'columns', 'sortStorageKey'],
         template: `
-          <div data-test="data-table" :data-count="data.length" :data-columns="columns.map((column) => column.key).join(',')">
+          <div
+            data-test="data-table"
+            :data-count="data.length"
+            :data-columns="columns.map((column) => column.key).join(',')"
+            :data-sort-storage-key="sortStorageKey"
+          >
+            <button data-test="sort-status" @click="$emit('sort', 'status', 'desc')">sort</button>
             <div v-for="row in data" :key="row.id">
               <slot name="cell-name" :row="row" :value="row.name" />
               <slot name="cell-rate_multiplier" :row="row" :value="row.rate_multiplier" />
+              <slot name="cell-usage" :row="row" />
               <slot name="cell-actions" :row="row" />
             </div>
           </div>
@@ -149,7 +170,7 @@ const mountView = (scope: 'ordinary' | 'upstream' = 'upstream') => mount(Account
       AccountQualityCell: true,
       AccountTodayStatsCell: true,
       AccountGroupsCell: true,
-      AccountUsageCell: true,
+      AccountUsageCell: AccountUsageCellStub,
       Toggle: true,
       Icon: true
     }
@@ -165,6 +186,8 @@ describe('admin AccountsView upstream management mode', () => {
     getSettings.mockReset()
     getProbeModelCandidates.mockReset()
     getBatchTodayStats.mockReset()
+    getBatchQualityStats.mockReset()
+    getBatchUsage.mockReset()
     getUpstreamBillingProbeSettings.mockReset()
     probeKey.mockReset()
     setKeyObservation.mockReset()
@@ -228,6 +251,8 @@ describe('admin AccountsView upstream management mode', () => {
     })
     getProbeModelCandidates.mockResolvedValue({ candidates: { openai: [], anthropic: [], gemini: [] } })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getBatchQualityStats.mockResolvedValue({ data: { stats: {} }, notModified: false })
+    getBatchUsage.mockResolvedValue({ usage: {}, errors: {} })
     getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     probeKey.mockResolvedValue({ observation_enabled: false })
     setKeyObservation.mockResolvedValue({ observation_enabled: true })
@@ -265,6 +290,8 @@ describe('admin AccountsView upstream management mode', () => {
     expect(columns).toContain('upstream_health')
     expect(columns).toContain('quality_stats')
     expect(columns).toContain('today_stats')
+    expect(columns).toContain('priority')
+    expect(columns).toContain('rate_multiplier')
     expect(columns.slice(columns.indexOf('schedulable'), columns.indexOf('today_stats') + 1)).toEqual([
       'schedulable',
       'status',
@@ -283,14 +310,16 @@ describe('admin AccountsView upstream management mode', () => {
     const wrapper = mountView('upstream')
     await flushPromises()
     expect(wrapper.text()).toContain('admin.accounts.upstreamImagePricing.badge')
-    expect(wrapper.text()).toContain('1K $0.012 / 2K $0.024 / 4K $0.048')
+    expect(wrapper.get('[data-test="image-cost-1k"]').text()).toContain('$0.012')
+    expect(wrapper.get('[data-test="image-cost-2k"]').text()).toContain('$0.024')
+    expect(wrapper.get('[data-test="image-cost-4k"]').text()).toContain('$0.048')
     expect(wrapper.text()).toContain('admin.accounts.upstreamImagePricing.shared')
     expect(wrapper.text()).toContain('0.80x')
     wrapper.unmount()
 
     const ordinary = mountView('ordinary')
     await flushPromises()
-    expect(ordinary.text()).not.toContain('1K $0.012 / 2K $0.024 / 4K $0.048')
+    expect(ordinary.find('[data-test="upstream-image-pricing-summary"]').exists()).toBe(false)
     ordinary.unmount()
   })
 
@@ -310,6 +339,26 @@ describe('admin AccountsView upstream management mode', () => {
     expect(columns).not.toContain('quality_stats')
     expect(columns).not.toContain('today_stats')
 
+    wrapper.unmount()
+  })
+
+  it('keeps upstream priority and multiplier visibility choices after remounting', async () => {
+    localStorage.setItem('upstream-account-hidden-columns', JSON.stringify([
+      'priority',
+      'rate_multiplier'
+    ]))
+    localStorage.setItem('upstream-account-hidden-columns-version', 'health-quality-today-visible-v1')
+
+    const wrapper = mountView('upstream')
+    await flushPromises()
+
+    const columns = wrapper.get('[data-test="data-table"]').attributes('data-columns').split(',')
+    expect(columns).not.toContain('priority')
+    expect(columns).not.toContain('rate_multiplier')
+    expect(JSON.parse(localStorage.getItem('upstream-account-hidden-columns') || '[]')).toEqual([
+      'priority',
+      'rate_multiplier'
+    ])
     wrapper.unmount()
   })
 
@@ -394,5 +443,123 @@ describe('admin AccountsView upstream management mode', () => {
     expect(columns).not.toContain('today_stats')
     expect(columns).not.toContain('upstream_health')
     wrapper.unmount()
+  })
+
+  it('persists real column toggle interactions independently across scope switches', async () => {
+    const wrapper = mountView('ordinary')
+    await flushPromises()
+
+    await wrapper.find('button[title="admin.accounts.moreActions"]').trigger('click')
+    await wrapper.get('[data-test="column-toggle-status"]').trigger('click')
+    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toContain('status')
+
+    await wrapper.setProps({ scope: 'upstream' })
+    await flushPromises()
+    let columns = wrapper.get('[data-test="data-table"]').attributes('data-columns').split(',')
+    expect(columns).toContain('status')
+
+    await wrapper.find('button[title="admin.accounts.moreActions"]').trigger('click')
+    await wrapper.get('[data-test="column-toggle-upstream_health"]').trigger('click')
+    expect(JSON.parse(localStorage.getItem('upstream-account-hidden-columns') || '[]')).toContain('upstream_health')
+
+    await wrapper.setProps({ scope: 'ordinary' })
+    await flushPromises()
+    columns = wrapper.get('[data-test="data-table"]').attributes('data-columns').split(',')
+    expect(columns).not.toContain('status')
+    expect(JSON.parse(localStorage.getItem('upstream-account-hidden-columns') || '[]')).toContain('upstream_health')
+    wrapper.unmount()
+  })
+
+  it('reloads isolated sorting and auto-refresh preferences on every scope switch', async () => {
+    localStorage.setItem('account-table-sort', JSON.stringify({ key: 'status', order: 'desc' }))
+    localStorage.setItem('upstream-account-table-sort', JSON.stringify({ key: 'id', order: 'asc' }))
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    localStorage.setItem('upstream-account-auto-refresh', JSON.stringify({ enabled: false, interval_seconds: 30 }))
+
+    const wrapper = mountView('ordinary')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="data-table"]').attributes('data-sort-storage-key')).toBe('account-table-sort')
+    expect(ordinaryList).toHaveBeenLastCalledWith(1, 20, expect.objectContaining({
+      sort_by: 'status',
+      sort_order: 'desc'
+    }))
+    expect(wrapper.text()).toContain('admin.accounts.autoRefreshCountdown')
+
+    await wrapper.setProps({ scope: 'upstream' })
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="data-table"]').attributes('data-sort-storage-key')).toBe('upstream-account-table-sort')
+    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({
+      sort_by: 'id',
+      sort_order: 'asc'
+    }))
+    expect(wrapper.text()).toContain('admin.accounts.autoRefresh')
+    expect(wrapper.text()).not.toContain('admin.accounts.autoRefreshCountdown')
+
+    await wrapper.get('[data-test="sort-status"]').trigger('click')
+    expect(JSON.parse(localStorage.getItem('upstream-account-table-sort') || '{}')).toEqual({
+      key: 'status',
+      order: 'desc'
+    })
+    expect(JSON.parse(localStorage.getItem('account-table-sort') || '{}')).toEqual({
+      key: 'status',
+      order: 'desc'
+    })
+    wrapper.unmount()
+  })
+
+  it('refreshes list, today stats and quality stats on separate due intervals', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('upstream-account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+
+    const wrapper = mountView('upstream')
+    await flushPromises()
+    expect(getBatchTodayStats).toHaveBeenCalledTimes(1)
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    await flushPromises()
+    expect(upstreamListWithEtag).toHaveBeenCalledTimes(1)
+    expect(getBatchTodayStats).toHaveBeenCalledTimes(1)
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(25_000)
+    await flushPromises()
+    expect(getBatchTodayStats).toHaveBeenCalledTimes(2)
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    await flushPromises()
+    expect(getBatchTodayStats).toHaveBeenCalledTimes(3)
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(2)
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('submits visible usage accounts as one parent-owned batch', async () => {
+    vi.useFakeTimers()
+    ordinaryList.mockResolvedValueOnce({
+      items: [
+        { id: 101, name: 'oauth-a', platform: 'openai', type: 'oauth', status: 'active', schedulable: true },
+        { id: 102, name: 'oauth-b', platform: 'grok', type: 'oauth', status: 'active', schedulable: true },
+        { id: 103, name: 'api-key', platform: 'openai', type: 'apikey', status: 'active', schedulable: true }
+      ],
+      total: 3,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mountView('ordinary')
+    await flushPromises()
+    await vi.runOnlyPendingTimersAsync()
+    await flushPromises()
+
+    expect(getBatchUsage).toHaveBeenCalledTimes(1)
+    expect(getBatchUsage).toHaveBeenCalledWith([101, 102], false)
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 })

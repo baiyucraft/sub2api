@@ -120,6 +120,16 @@ func UpstreamStalePausedAt(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldUpstreamStalePausedAt, v))
 }
 
+// UpstreamLifecycleOwner applies equality check predicate on the "upstream_lifecycle_owner" field. It's identical to UpstreamLifecycleOwnerEQ.
+func UpstreamLifecycleOwner(v string) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamArchiveReason applies equality check predicate on the "upstream_archive_reason" field. It's identical to UpstreamArchiveReasonEQ.
+func UpstreamArchiveReason(v string) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamArchiveReason, v))
+}
+
 // Concurrency applies equality check predicate on the "concurrency" field. It's identical to ConcurrencyEQ.
 func Concurrency(v int) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldConcurrency, v))
@@ -858,6 +868,146 @@ func UpstreamStalePausedAtIsNil() predicate.Account {
 // UpstreamStalePausedAtNotNil applies the NotNil predicate on the "upstream_stale_paused_at" field.
 func UpstreamStalePausedAtNotNil() predicate.Account {
 	return predicate.Account(sql.FieldNotNull(FieldUpstreamStalePausedAt))
+}
+
+// UpstreamLifecycleOwnerEQ applies the EQ predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerEQ(v string) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamLifecycleOwnerNEQ applies the NEQ predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerNEQ(v string) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamLifecycleOwnerIn applies the In predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerIn(vs ...string) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldUpstreamLifecycleOwner, vs...))
+}
+
+// UpstreamLifecycleOwnerNotIn applies the NotIn predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerNotIn(vs ...string) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldUpstreamLifecycleOwner, vs...))
+}
+
+// UpstreamLifecycleOwnerGT applies the GT predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerGT(v string) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamLifecycleOwnerGTE applies the GTE predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerGTE(v string) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamLifecycleOwnerLT applies the LT predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerLT(v string) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamLifecycleOwnerLTE applies the LTE predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerLTE(v string) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamLifecycleOwnerContains applies the Contains predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerContains(v string) predicate.Account {
+	return predicate.Account(sql.FieldContains(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamLifecycleOwnerHasPrefix applies the HasPrefix predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerHasPrefix(v string) predicate.Account {
+	return predicate.Account(sql.FieldHasPrefix(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamLifecycleOwnerHasSuffix applies the HasSuffix predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerHasSuffix(v string) predicate.Account {
+	return predicate.Account(sql.FieldHasSuffix(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamLifecycleOwnerEqualFold applies the EqualFold predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerEqualFold(v string) predicate.Account {
+	return predicate.Account(sql.FieldEqualFold(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamLifecycleOwnerContainsFold applies the ContainsFold predicate on the "upstream_lifecycle_owner" field.
+func UpstreamLifecycleOwnerContainsFold(v string) predicate.Account {
+	return predicate.Account(sql.FieldContainsFold(FieldUpstreamLifecycleOwner, v))
+}
+
+// UpstreamArchiveReasonEQ applies the EQ predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonEQ(v string) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUpstreamArchiveReason, v))
+}
+
+// UpstreamArchiveReasonNEQ applies the NEQ predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonNEQ(v string) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldUpstreamArchiveReason, v))
+}
+
+// UpstreamArchiveReasonIn applies the In predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonIn(vs ...string) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldUpstreamArchiveReason, vs...))
+}
+
+// UpstreamArchiveReasonNotIn applies the NotIn predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonNotIn(vs ...string) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldUpstreamArchiveReason, vs...))
+}
+
+// UpstreamArchiveReasonGT applies the GT predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonGT(v string) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldUpstreamArchiveReason, v))
+}
+
+// UpstreamArchiveReasonGTE applies the GTE predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonGTE(v string) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldUpstreamArchiveReason, v))
+}
+
+// UpstreamArchiveReasonLT applies the LT predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonLT(v string) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldUpstreamArchiveReason, v))
+}
+
+// UpstreamArchiveReasonLTE applies the LTE predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonLTE(v string) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldUpstreamArchiveReason, v))
+}
+
+// UpstreamArchiveReasonContains applies the Contains predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonContains(v string) predicate.Account {
+	return predicate.Account(sql.FieldContains(FieldUpstreamArchiveReason, v))
+}
+
+// UpstreamArchiveReasonHasPrefix applies the HasPrefix predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonHasPrefix(v string) predicate.Account {
+	return predicate.Account(sql.FieldHasPrefix(FieldUpstreamArchiveReason, v))
+}
+
+// UpstreamArchiveReasonHasSuffix applies the HasSuffix predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonHasSuffix(v string) predicate.Account {
+	return predicate.Account(sql.FieldHasSuffix(FieldUpstreamArchiveReason, v))
+}
+
+// UpstreamArchiveReasonIsNil applies the IsNil predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldUpstreamArchiveReason))
+}
+
+// UpstreamArchiveReasonNotNil applies the NotNil predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldUpstreamArchiveReason))
+}
+
+// UpstreamArchiveReasonEqualFold applies the EqualFold predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonEqualFold(v string) predicate.Account {
+	return predicate.Account(sql.FieldEqualFold(FieldUpstreamArchiveReason, v))
+}
+
+// UpstreamArchiveReasonContainsFold applies the ContainsFold predicate on the "upstream_archive_reason" field.
+func UpstreamArchiveReasonContainsFold(v string) predicate.Account {
+	return predicate.Account(sql.FieldContainsFold(FieldUpstreamArchiveReason, v))
 }
 
 // ConcurrencyEQ applies the EQ predicate on the "concurrency" field.

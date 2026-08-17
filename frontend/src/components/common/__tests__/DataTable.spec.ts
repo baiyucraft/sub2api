@@ -357,4 +357,41 @@ describe('DataTable', () => {
 
     expect(wrapper.emitted('update:selectedKeys')?.at(-1)?.[0]).toEqual([99, 1, 2])
   })
+
+  it('coalesces ResizeObserver measurements into one animation frame', async () => {
+    let pendingFrame: FrameRequestCallback | undefined
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      pendingFrame = callback
+      return 1
+    })
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    const ResizeObserverMock = vi.fn(function (this: { callback: () => void, observe: ReturnType<typeof vi.fn>, unobserve: ReturnType<typeof vi.fn>, disconnect: ReturnType<typeof vi.fn> }, callback: () => void) {
+      this.callback = callback
+      this.observe = vi.fn()
+      this.unobserve = vi.fn()
+      this.disconnect = vi.fn()
+    })
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock)
+
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }],
+        data: [{ id: 1, name: 'One' }]
+      }
+    })
+    await wrapper.vm.$nextTick()
+    pendingFrame?.(0)
+    requestAnimationFrameSpy.mockClear()
+
+    const observer = ResizeObserverMock.mock.instances[0] as { callback: () => void }
+    observer.callback()
+    observer.callback()
+
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1)
+
+    wrapper.unmount()
+    requestAnimationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+    vi.unstubAllGlobals()
+  })
 })

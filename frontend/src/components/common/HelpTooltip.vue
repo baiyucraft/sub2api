@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, useTemplateRef, nextTick } from 'vue'
+import { onBeforeUnmount, ref, useTemplateRef, nextTick, watch } from 'vue'
 
 const props = withDefaults(defineProps<{
   content?: string
@@ -19,7 +19,6 @@ const tooltipStyle = ref({ top: '0px', left: '0px' })
 
 function openTooltip() {
   show.value = true
-  nextTick(updatePosition)
 }
 
 function closeTooltip() {
@@ -67,6 +66,7 @@ function onViewportChange() {
 }
 
 function updatePosition() {
+  if (!show.value) return
   const el = triggerRef.value
   if (!el) return
   const rect = el.getBoundingClientRect()
@@ -76,18 +76,39 @@ function updatePosition() {
   }
 }
 
-onMounted(() => {
+let viewportListenersAttached = false
+
+function attachViewportListeners() {
+  if (viewportListenersAttached) return
+  viewportListenersAttached = true
   document.addEventListener('click', onDocumentClick, true)
   document.addEventListener('keydown', onDocumentKeydown)
   window.addEventListener('resize', onViewportChange)
   window.addEventListener('scroll', onViewportChange, true)
-})
+}
 
-onBeforeUnmount(() => {
+function detachViewportListeners() {
+  if (!viewportListenersAttached) return
+  viewportListenersAttached = false
   document.removeEventListener('click', onDocumentClick, true)
   document.removeEventListener('keydown', onDocumentKeydown)
   window.removeEventListener('resize', onViewportChange)
   window.removeEventListener('scroll', onViewportChange, true)
+}
+
+watch(show, async (isOpen) => {
+  if (!isOpen) {
+    detachViewportListeners()
+    return
+  }
+
+  attachViewportListeners()
+  await nextTick()
+  updatePosition()
+})
+
+onBeforeUnmount(() => {
+  detachViewportListeners()
 })
 </script>
 
@@ -116,11 +137,10 @@ onBeforeUnmount(() => {
       </svg>
     </slot>
 
-    <!-- Teleport to body to escape modal overflow clipping -->
-    <Teleport to="body">
+    <!-- Only mount the Teleport while open: long tables otherwise create hundreds of hidden nodes. -->
+    <Teleport v-if="show" to="body">
       <div
         ref="tooltip"
-        v-show="show"
         role="tooltip"
         :class="[
           'fixed z-[99999] -translate-x-1/2 -translate-y-full rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl ring-1 ring-white/10 dark:bg-gray-800',

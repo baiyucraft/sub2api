@@ -51,6 +51,10 @@ type Account struct {
 	UpstreamStalePauseKeyID *int64 `json:"upstream_stale_pause_key_id,omitempty"`
 	// UpstreamStalePausedAt holds the value of the "upstream_stale_paused_at" field.
 	UpstreamStalePausedAt *time.Time `json:"upstream_stale_paused_at,omitempty"`
+	// Lifecycle owner for upstream-bound accounts: manual or sync_managed.
+	UpstreamLifecycleOwner string `json:"upstream_lifecycle_owner,omitempty"`
+	// Reason a sync-managed upstream account was soft-archived.
+	UpstreamArchiveReason *string `json:"upstream_archive_reason,omitempty"`
 	// Concurrency holds the value of the "concurrency" field.
 	Concurrency int `json:"concurrency,omitempty"`
 	// LoadFactor holds the value of the "load_factor" field.
@@ -226,7 +230,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldUpstreamConfigID, account.FieldUpstreamKeyID, account.FieldUpstreamStalePauseKeyID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
 			values[i] = new(sql.NullInt64)
-		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus, account.FieldQuotaDimension:
+		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldUpstreamLifecycleOwner, account.FieldUpstreamArchiveReason, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus, account.FieldQuotaDimension:
 			values[i] = new(sql.NullString)
 		case account.FieldCreatedAt, account.FieldUpdatedAt, account.FieldDeletedAt, account.FieldUpstreamStalePausedAt, account.FieldLastUsedAt, account.FieldExpiresAt, account.FieldRateLimitedAt, account.FieldRateLimitResetAt, account.FieldOverloadUntil, account.FieldTempUnschedulableUntil, account.FieldSessionWindowStart, account.FieldSessionWindowEnd:
 			values[i] = new(sql.NullTime)
@@ -352,6 +356,19 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.UpstreamStalePausedAt = new(time.Time)
 				*_m.UpstreamStalePausedAt = value.Time
+			}
+		case account.FieldUpstreamLifecycleOwner:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_lifecycle_owner", values[i])
+			} else if value.Valid {
+				_m.UpstreamLifecycleOwner = value.String
+			}
+		case account.FieldUpstreamArchiveReason:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_archive_reason", values[i])
+			} else if value.Valid {
+				_m.UpstreamArchiveReason = new(string)
+				*_m.UpstreamArchiveReason = value.String
 			}
 		case account.FieldConcurrency:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -633,6 +650,14 @@ func (_m *Account) String() string {
 	if v := _m.UpstreamStalePausedAt; v != nil {
 		builder.WriteString("upstream_stale_paused_at=")
 		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("upstream_lifecycle_owner=")
+	builder.WriteString(_m.UpstreamLifecycleOwner)
+	builder.WriteString(", ")
+	if v := _m.UpstreamArchiveReason; v != nil {
+		builder.WriteString("upstream_archive_reason=")
+		builder.WriteString(*v)
 	}
 	builder.WriteString(", ")
 	builder.WriteString("concurrency=")

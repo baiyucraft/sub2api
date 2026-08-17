@@ -168,6 +168,7 @@
                         <button
                           v-for="col in toggleableColumns"
                           :key="col.key"
+                          :data-test="`column-toggle-${col.key}`"
                           @click="toggleColumn(col.key)"
                           class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
                         >
@@ -218,6 +219,7 @@
         />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <DataTable
+          :key="`accounts-${props.scope}`"
           ref="dataTableRef"
           :columns="cols"
           :data="accounts"
@@ -227,10 +229,10 @@
           @sort="handleSort"
           default-sort-key="name"
           default-sort-order="asc"
-          :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
+          :sort-storage-key="viewPreferenceStorage.sortStorageKey"
           :estimate-row-height="156"
           :overscan="5"
-          :virtualize-threshold="50"
+          :virtualize-threshold="scope === 'upstream' ? 20 : 50"
         >
           <template #header-select>
             <input
@@ -389,7 +391,6 @@
               :account="row"
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
-              :manual-refresh-token="usageManualRefreshToken"
               :batched-usage="usageBatchByAccountId[String(row.id)] ?? null"
               :batched-usage-error="usageBatchErrorByAccountId[String(row.id)] ?? null"
               :batched-usage-loading="usageBatchLoadingByAccountId[String(row.id)] === true"
@@ -431,9 +432,10 @@
                   data-testid="account-rate-sync-indicator"
                 ><Icon name="sync" size="xs" /></span>
               </span>
-              <span v-if="scope === 'upstream' && row.upstream_image_pricing?.supported" class="text-[10px] font-mono leading-4 text-gray-500 dark:text-dark-400" :title="t('admin.accounts.upstreamImagePricing.costTitle', { mode: upstreamImagePricingRateLabel(row), status: upstreamImagePricingStatus(row) })">
-                {{ t('admin.accounts.upstreamImagePricing.badge') }} 1K {{ formatImageCost(row.upstream_image_pricing.final_cost_1k, row.upstream_image_pricing.currency) }} / 2K {{ formatImageCost(row.upstream_image_pricing.final_cost_2k, row.upstream_image_pricing.currency) }} / 4K {{ formatImageCost(row.upstream_image_pricing.final_cost_4k, row.upstream_image_pricing.currency) }}（{{ upstreamImagePricingRateLabel(row) }}）
-              </span>
+              <UpstreamImagePricingSummary
+                v-if="scope === 'upstream' && row.upstream_image_pricing?.supported"
+                :pricing="row.upstream_image_pricing"
+              />
             </div>
           </template>
           <template #header-upstream_billing_rate="{ column }">
@@ -668,6 +670,7 @@ import AccountQualityCell from '@/components/account/AccountQualityCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
+import UpstreamImagePricingSummary from '@/components/account/UpstreamImagePricingSummary.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
@@ -684,12 +687,6 @@ import { formatMultiplier } from '@/utils/formatters'
 import { escapeCsvCell } from '@/utils/csv'
 import type { Account, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
-const formatImageCost = (value: number | null | undefined, currency = 'USD') => {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '-'
-  const digits = value === 0 ? 0 : value < 0.01 ? 4 : 3
-  return `${currency === 'USD' ? '$' : currency + ' '}${value.toFixed(digits)}`
-}
-
 const upstreamImagePricingStatus = (account: Account) => {
   const pricing = account.upstream_image_pricing
   if (!pricing) return t('admin.accounts.upstreamImagePricing.statusUnavailable')
@@ -697,17 +694,6 @@ const upstreamImagePricingStatus = (account: Account) => {
   if (pricing.status === 'partial') return t('admin.accounts.upstreamImagePricing.statusPartial')
   if (pricing.status === 'available') return t('admin.accounts.upstreamImagePricing.statusAvailable')
   return t('admin.accounts.upstreamImagePricing.statusUnavailable')
-}
-
-const upstreamImagePricingRateLabel = (account: Account) => {
-  const pricing = account.upstream_image_pricing
-  if (!pricing) return '-'
-  const mode = pricing.rate_independent
-    ? t('admin.accounts.upstreamImagePricing.independent')
-    : t('admin.accounts.upstreamImagePricing.shared')
-  return pricing.effective_rate_multiplier === null || pricing.effective_rate_multiplier === undefined
-    ? mode
-    : `${mode} ${formatMultiplier(pricing.effective_rate_multiplier)}x`
 }
 
 const upstreamImagePricingBadgeClass = (account: Account) => [
@@ -851,29 +837,35 @@ const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'quality_stats', 'proxy', 'notes'
 const PREVIOUS_QUALITY_COLUMNS_VERSION = 'quality-stats-hidden-by-default-v2'
 
 type AccountScope = 'all' | 'ordinary' | 'upstream'
-type ColumnStorageConfig = {
+type ViewPreferenceStorageConfig = {
   storageKey: string
   versionKey: string
   currentVersion: string
+  sortStorageKey: string
+  autoRefreshStorageKey: string
 }
 
-const getColumnStorageConfig = (scope: AccountScope = props.scope): ColumnStorageConfig => {
+const getViewPreferenceStorageConfig = (scope: AccountScope = props.scope): ViewPreferenceStorageConfig => {
   if (scope === 'upstream') {
     return {
       storageKey: 'upstream-account-hidden-columns',
       versionKey: 'upstream-account-hidden-columns-version',
-      currentVersion: 'health-quality-today-visible-v1'
+      currentVersion: 'health-quality-today-visible-v1',
+      sortStorageKey: 'upstream-account-table-sort',
+      autoRefreshStorageKey: 'upstream-account-auto-refresh'
     }
   }
   return {
     storageKey: 'account-hidden-columns',
     versionKey: 'account-hidden-columns-version',
-    currentVersion: 'quality-stats-merged-v3'
+    currentVersion: 'quality-stats-merged-v3',
+    sortStorageKey: 'account-table-sort',
+    autoRefreshStorageKey: 'account-auto-refresh'
   }
 }
+const viewPreferenceStorage = computed(() => getViewPreferenceStorageConfig(props.scope))
 
 // Sorting settings
-const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
 type AccountSortOrder = 'asc' | 'desc'
 type AccountSortState = {
   sort_by: string
@@ -891,10 +883,10 @@ const ACCOUNT_SORTABLE_KEYS = new Set([
   'created_at',
   'expires_at'
 ])
-const loadInitialAccountSortState = (): AccountSortState => {
+const loadAccountSortState = (scope: AccountScope = props.scope): AccountSortState => {
   const fallback: AccountSortState = { sort_by: 'name', sort_order: 'asc' }
   try {
-    const raw = localStorage.getItem(ACCOUNT_SORT_STORAGE_KEY)
+    const raw = localStorage.getItem(getViewPreferenceStorageConfig(scope).sortStorageKey)
     if (!raw) return fallback
     const parsed = JSON.parse(raw) as { key?: string; order?: string }
     const key = typeof parsed.key === 'string' ? parsed.key : ''
@@ -907,18 +899,28 @@ const loadInitialAccountSortState = (): AccountSortState => {
     return fallback
   }
 }
-const sortState = reactive<AccountSortState>(loadInitialAccountSortState())
+const sortState = reactive<AccountSortState>(loadAccountSortState())
+const saveAccountSortState = (scope: AccountScope = props.scope) => {
+  try {
+    localStorage.setItem(
+      getViewPreferenceStorageConfig(scope).sortStorageKey,
+      JSON.stringify({ key: sortState.sort_by, order: sortState.sort_order })
+    )
+  } catch (error) {
+    console.error('Failed to save account sort settings:', error)
+  }
+}
 
 // Auto refresh settings
 const showAutoRefreshDropdown = ref(false)
 const autoRefreshDropdownRef = ref<HTMLElement | null>(null)
-const AUTO_REFRESH_STORAGE_KEY = 'account-auto-refresh'
 const autoRefreshIntervals = [5, 10, 15, 30] as const
 const autoRefreshEnabled = ref(false)
 const autoRefreshIntervalSeconds = ref<(typeof autoRefreshIntervals)[number]>(30)
 const autoRefreshCountdown = ref(0)
 const autoRefreshETag = ref<string | null>(null)
 const autoRefreshFetching = ref(false)
+let autoRefreshRequestGeneration = 0
 const AUTO_REFRESH_SILENT_WINDOW_MS = 15000
 const autoRefreshSilentUntil = ref(0)
 const hasPendingListSync = ref(false)
@@ -926,15 +928,19 @@ const todayStatsByAccountId = ref<Record<string, WindowStats>>({})
 const todayStatsLoading = ref(false)
 const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
+const todayStatsSnapshotKey = ref('')
+const todayStatsLastRefreshedAt = ref(0)
 const qualityStatsByAccountId = ref<Record<string, AccountQualityStats>>({})
 const qualityStatsLoading = ref(false)
 const qualityStatsError = ref<string | null>(null)
 const qualityStatsReqSeq = ref(0)
 const qualityStatsSnapshotKey = ref('')
 const qualityStatsETag = ref<string | null>(null)
+const qualityStatsLastRefreshedAt = ref(0)
 let qualityStatsAbortController: AbortController | null = null
 const pendingTodayStatsRefresh = ref(false)
-const usageManualRefreshToken = ref(0)
+const TODAY_STATS_REFRESH_INTERVAL_MS = 30_000
+const QUALITY_STATS_REFRESH_INTERVAL_MS = 60_000
 
 const hasFutureAccountTimestamp = (value: string | null | undefined): boolean => {
   if (!value) return false
@@ -979,6 +985,7 @@ const pendingUsageBatchIds = new Set<number>()
 let usageBatchFlushTimer: ReturnType<typeof setTimeout> | null = null
 let queuedUsageBatchForce = false
 let usageBatchRequestToken = 0
+let usageBatchGeneration = 0
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -997,13 +1004,6 @@ const accountSupportsBatchUsage = (account: Account) => {
   if (account.platform === 'openai') return account.type === 'oauth'
   if (account.platform === 'grok') return account.type === 'oauth'
   return false
-}
-
-const setUsageBatchLoading = (accountID: number, loadingState: boolean) => {
-  usageBatchLoadingByAccountId.value = {
-    ...usageBatchLoadingByAccountId.value,
-    [String(accountID)]: loadingState
-  }
 }
 
 const setUsageBatchState = (accountID: number, usage: AccountUsageInfo | null, error: string | null) => {
@@ -1025,6 +1025,7 @@ const handleAccountUsageLoaded = (accountID: number, usage: AccountUsageInfo) =>
 
 const flushQueuedUsageBatch = async () => {
   usageBatchFlushTimer = null
+  const generation = usageBatchGeneration
   const accountIDs = Array.from(pendingUsageBatchIds)
   const force = queuedUsageBatchForce
   pendingUsageBatchIds.clear()
@@ -1039,6 +1040,7 @@ const flushQueuedUsageBatch = async () => {
 
   try {
     const result = await adminAPI.accounts.getBatchUsage(accountIDs, force)
+    if (generation !== usageBatchGeneration) return
 
     const usageMap = result.usage ?? {}
     const errorMap = result.errors ?? {}
@@ -1067,6 +1069,7 @@ const flushQueuedUsageBatch = async () => {
     usageBatchErrorByAccountId.value = nextErrors
     usageBatchLoadingByAccountId.value = nextLoading
   } catch (error) {
+    if (generation !== usageBatchGeneration) return
     const nextErrors = { ...usageBatchErrorByAccountId.value }
     const nextLoading = { ...usageBatchLoadingByAccountId.value }
     for (const accountID of accountIDs) {
@@ -1083,35 +1086,54 @@ const flushQueuedUsageBatch = async () => {
   }
 }
 
-const queueBatchedUsage = (account: Account, options?: { force?: boolean }) => {
+const queueUsageBatchAccounts = (candidateAccounts: Account[], options?: { force?: boolean }) => {
   if (!isDesktopViewport.value) return
-  if (!accountSupportsBatchUsage(account)) return
+  if (hiddenColumns.has('usage')) return
 
   const force = options?.force === true
-  const cacheKey = account.id
-  const key = String(cacheKey)
+  const nextUsage = { ...usageBatchByAccountId.value }
+  const nextErrors = { ...usageBatchErrorByAccountId.value }
+  const nextLoading = { ...usageBatchLoadingByAccountId.value }
+  const nextTokens = { ...usageBatchRequestTokenByAccountId.value }
+  const now = Date.now()
+  let changed = false
+  let queued = false
 
-  if (force) {
-    usageBatchCache.delete(cacheKey)
-  } else {
-    const cached = usageBatchCache.get(cacheKey)
-    if (cached && Date.now() - cached.ts < USAGE_BATCH_CACHE_TTL) {
-      setUsageBatchState(cacheKey, cached.data, null)
-      setUsageBatchLoading(cacheKey, false)
-      return
+  for (const account of candidateAccounts) {
+    if (!accountSupportsBatchUsage(account)) continue
+    const accountID = account.id
+    const key = String(accountID)
+
+    if (force) {
+      usageBatchCache.delete(accountID)
+    } else {
+      const cached = usageBatchCache.get(accountID)
+      if (cached && now - cached.ts < USAGE_BATCH_CACHE_TTL) {
+        nextUsage[key] = cached.data
+        nextErrors[key] = null
+        nextLoading[key] = false
+        changed = true
+        continue
+      }
+      if (pendingUsageBatchIds.has(accountID) || nextLoading[key] === true) continue
     }
+
+    nextErrors[key] = null
+    nextLoading[key] = true
+    nextTokens[key] = ++usageBatchRequestToken
+    pendingUsageBatchIds.add(accountID)
+    changed = true
+    queued = true
   }
 
-  usageBatchErrorByAccountId.value = {
-    ...usageBatchErrorByAccountId.value,
-    [key]: null
+  if (changed) {
+    usageBatchByAccountId.value = nextUsage
+    usageBatchErrorByAccountId.value = nextErrors
+    usageBatchLoadingByAccountId.value = nextLoading
+    usageBatchRequestTokenByAccountId.value = nextTokens
   }
-  usageBatchRequestTokenByAccountId.value = {
-    ...usageBatchRequestTokenByAccountId.value,
-    [key]: ++usageBatchRequestToken
-  }
-  setUsageBatchLoading(cacheKey, true)
-  pendingUsageBatchIds.add(cacheKey)
+
+  if (!queued) return
   queuedUsageBatchForce = queuedUsageBatchForce || force
 
   if (usageBatchFlushTimer !== null) return
@@ -1120,7 +1142,21 @@ const queueBatchedUsage = (account: Account, options?: { force?: boolean }) => {
   }, 0)
 }
 
-const refreshTodayStatsBatch = async () => {
+const queueVisibleBatchedUsage = (options?: { force?: boolean }) => {
+  queueUsageBatchAccounts(accounts.value, options)
+}
+
+const queueBatchedUsage = (account: Account, options?: { force?: boolean }) => {
+  // Initial row mounts arrive one-by-one. The first request collects every visible
+  // eligible account so loading/error/token state and the HTTP call are committed once.
+  if (options?.force === true) {
+    queueUsageBatchAccounts([account], options)
+    return
+  }
+  queueVisibleBatchedUsage()
+}
+
+const refreshTodayStatsBatch = async (options?: { force?: boolean }) => {
   // Why this checks both columns:
   // - today_stats column shows dedicated today's metrics.
   // - usage column also embeds today's stats for Key/Bedrock rows.
@@ -1131,17 +1167,35 @@ const refreshTodayStatsBatch = async () => {
     return
   }
 
-  const accountIDs = accounts.value.map(account => account.id)
-  const reqSeq = ++todayStatsReqSeq.value
+  const accountIDs = [...new Set(accounts.value.map(account => account.id))].sort((a, b) => a - b)
+  const snapshotKey = accountIDs.join(',')
   if (accountIDs.length === 0) {
+    todayStatsReqSeq.value += 1
+    todayStatsSnapshotKey.value = ''
+    todayStatsLastRefreshedAt.value = 0
     todayStatsByAccountId.value = {}
     todayStatsError.value = null
     todayStatsLoading.value = false
     return
   }
 
+  const sameSnapshot = todayStatsSnapshotKey.value === snapshotKey
+  if (
+    options?.force !== true
+    && sameSnapshot
+    && Date.now() - todayStatsLastRefreshedAt.value < TODAY_STATS_REFRESH_INTERVAL_MS
+  ) {
+    return
+  }
+  if (!sameSnapshot) {
+    todayStatsSnapshotKey.value = snapshotKey
+    todayStatsByAccountId.value = {}
+  }
+
+  const reqSeq = ++todayStatsReqSeq.value
   todayStatsLoading.value = true
   todayStatsError.value = null
+  todayStatsLastRefreshedAt.value = Date.now()
 
   try {
     const result = await adminAPI.accounts.getBatchTodayStats(accountIDs)
@@ -1165,13 +1219,16 @@ const refreshTodayStatsBatch = async () => {
 }
 
 const cancelAccountQualityRequest = () => {
-  qualityStatsAbortController?.abort()
+  if (qualityStatsAbortController) {
+    qualityStatsAbortController.abort()
+    qualityStatsLastRefreshedAt.value = 0
+  }
   qualityStatsAbortController = null
   qualityStatsReqSeq.value += 1
   qualityStatsLoading.value = false
 }
 
-const refreshAccountQualityBatch = async () => {
+const refreshAccountQualityBatch = async (options?: { force?: boolean }) => {
   if (hiddenColumns.has('quality_stats')) {
     cancelAccountQualityRequest()
     qualityStatsError.value = null
@@ -1184,8 +1241,18 @@ const refreshAccountQualityBatch = async () => {
     cancelAccountQualityRequest()
     qualityStatsSnapshotKey.value = ''
     qualityStatsETag.value = null
+    qualityStatsLastRefreshedAt.value = 0
     qualityStatsByAccountId.value = {}
     qualityStatsError.value = null
+    return
+  }
+
+  const sameSnapshot = qualityStatsSnapshotKey.value === snapshotKey
+  if (
+    options?.force !== true
+    && sameSnapshot
+    && Date.now() - qualityStatsLastRefreshedAt.value < QUALITY_STATS_REFRESH_INTERVAL_MS
+  ) {
     return
   }
 
@@ -1193,7 +1260,6 @@ const refreshAccountQualityBatch = async () => {
   const controller = new AbortController()
   qualityStatsAbortController = controller
   const reqSeq = ++qualityStatsReqSeq.value
-  const sameSnapshot = qualityStatsSnapshotKey.value === snapshotKey
   if (!sameSnapshot) {
     qualityStatsSnapshotKey.value = snapshotKey
     qualityStatsETag.value = null
@@ -1201,6 +1267,7 @@ const refreshAccountQualityBatch = async () => {
   }
   qualityStatsLoading.value = true
   qualityStatsError.value = null
+  qualityStatsLastRefreshedAt.value = Date.now()
 
   try {
     const result = await adminAPI.accounts.getBatchQualityStats(accountIDs, {
@@ -1261,7 +1328,7 @@ const formatSchedulerScoreGroup = (score: AccountSchedulerGroupScore): string =>
 }
 
 const loadSavedColumns = (scope: AccountScope = props.scope) => {
-  const { storageKey, versionKey, currentVersion } = getColumnStorageConfig(scope)
+  const { storageKey, versionKey, currentVersion } = getViewPreferenceStorageConfig(scope)
   const isUpstream = scope === 'upstream'
   hiddenColumns.clear()
   try {
@@ -1299,30 +1366,33 @@ const loadSavedColumns = (scope: AccountScope = props.scope) => {
       }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
-        if (isUpstream && (key === 'today_stats' || key === 'quality_stats')) return
+        if (isUpstream && (
+          key === 'today_stats'
+          || key === 'quality_stats'
+          || key === 'priority'
+          || key === 'rate_multiplier'
+        )) return
         hiddenColumns.add(key)
       })
+      localStorage.setItem(storageKey, JSON.stringify([...hiddenColumns]))
       localStorage.setItem(versionKey, currentVersion)
-    }
-    if (isUpstream) {
-      hiddenColumns.delete('priority')
-      hiddenColumns.delete('rate_multiplier')
     }
   } catch (e) {
     console.error('Failed to load saved columns:', e)
     DEFAULT_HIDDEN_COLUMNS.forEach(key => {
-      if (isUpstream && (key === 'today_stats' || key === 'quality_stats')) return
+      if (isUpstream && (
+        key === 'today_stats'
+        || key === 'quality_stats'
+        || key === 'priority'
+        || key === 'rate_multiplier'
+      )) return
       hiddenColumns.add(key)
     })
-    if (isUpstream) {
-      hiddenColumns.delete('priority')
-      hiddenColumns.delete('rate_multiplier')
-    }
   }
 }
 
-const saveColumnsToStorage = () => {
-  const { storageKey, versionKey, currentVersion } = getColumnStorageConfig()
+const saveColumnsToStorage = (scope: AccountScope = props.scope) => {
+  const { storageKey, versionKey, currentVersion } = getViewPreferenceStorageConfig(scope)
   try {
     localStorage.setItem(storageKey, JSON.stringify([...hiddenColumns]))
     localStorage.setItem(versionKey, currentVersion)
@@ -1331,9 +1401,12 @@ const saveColumnsToStorage = () => {
   }
 }
 
-const loadSavedAutoRefresh = () => {
+const loadSavedAutoRefresh = (scope: AccountScope = props.scope) => {
+  autoRefreshEnabled.value = false
+  autoRefreshIntervalSeconds.value = 30
+  autoRefreshCountdown.value = 0
   try {
-    const saved = localStorage.getItem(AUTO_REFRESH_STORAGE_KEY)
+    const saved = localStorage.getItem(getViewPreferenceStorageConfig(scope).autoRefreshStorageKey)
     if (!saved) return
     const parsed = JSON.parse(saved) as { enabled?: boolean; interval_seconds?: number }
     autoRefreshEnabled.value = parsed.enabled === true
@@ -1346,10 +1419,10 @@ const loadSavedAutoRefresh = () => {
   }
 }
 
-const saveAutoRefreshToStorage = () => {
+const saveAutoRefreshToStorage = (scope: AccountScope = props.scope) => {
   try {
     localStorage.setItem(
-      AUTO_REFRESH_STORAGE_KEY,
+      getViewPreferenceStorageConfig(scope).autoRefreshStorageKey,
       JSON.stringify({
         enabled: autoRefreshEnabled.value,
         interval_seconds: autoRefreshIntervalSeconds.value
@@ -1394,13 +1467,13 @@ const toggleColumn = (key: string) => {
   }
   saveColumnsToStorage()
   if ((key === 'today_stats' || key === 'usage') && wasHidden) {
-    refreshTodayStatsBatch().catch((error) => {
+    refreshTodayStatsBatch({ force: true }).catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
   }
   if (key === 'quality_stats') {
     if (wasHidden) {
-      refreshAccountQualityBatch().catch((error) => {
+      refreshAccountQualityBatch({ force: true }).catch((error) => {
         console.error('Failed to load account quality stats after showing column:', error)
       })
     } else {
@@ -1516,12 +1589,47 @@ const clearSelection = () => {
 
 watch(() => props.scope, (scope, previousScope) => {
   if (scope === previousScope) return
+  usageBatchGeneration += 1
+  if (usageBatchFlushTimer !== null) {
+    clearTimeout(usageBatchFlushTimer)
+    usageBatchFlushTimer = null
+  }
+  pendingUsageBatchIds.clear()
+  queuedUsageBatchForce = false
+  usageBatchByAccountId.value = {}
+  usageBatchErrorByAccountId.value = {}
+  usageBatchLoadingByAccountId.value = {}
+  usageBatchRequestTokenByAccountId.value = {}
   loadSavedColumns(scope)
+  const nextSort = loadAccountSortState(scope)
+  sortState.sort_by = nextSort.sort_by
+  sortState.sort_order = nextSort.sort_order
+  loadSavedAutoRefresh(scope)
+  if (autoRefreshEnabled.value) {
+    autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
+    resumeAutoRefresh()
+  } else {
+    pauseAutoRefresh()
+  }
   clearSelection()
+  showAccountToolsDropdown.value = false
+  showAutoRefreshDropdown.value = false
   qualityStatsByAccountId.value = {}
+  qualityStatsSnapshotKey.value = ''
+  qualityStatsETag.value = null
+  qualityStatsLastRefreshedAt.value = 0
   todayStatsByAccountId.value = {}
+  todayStatsSnapshotKey.value = ''
+  todayStatsLastRefreshedAt.value = 0
   autoRefreshETag.value = null
+  autoRefreshRequestGeneration += 1
+  autoRefreshFetching.value = false
+  accounts.value = []
+  pagination.total = 0
+  pagination.pages = 0
   params.scope = scope === 'all' ? undefined : scope
+  params.sort_by = nextSort.sort_by
+  params.sort_order = nextSort.sort_order
   syncAccountListDerivedParams()
   load().catch((error) => console.error('Failed to reload accounts after scope change:', error))
 })
@@ -1571,7 +1679,10 @@ const load = async () => {
     isFirstLoad.value = false
     delete requestParams.lite
   }
-  await Promise.all([refreshTodayStatsBatch(), refreshAccountQualityBatch()])
+  await Promise.all([
+    refreshTodayStatsBatch({ force: true }),
+    refreshAccountQualityBatch({ force: true })
+  ])
 }
 
 const reload = async () => {
@@ -1582,7 +1693,10 @@ const reload = async () => {
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   await baseReload()
-  await Promise.all([refreshTodayStatsBatch(), refreshAccountQualityBatch()])
+  await Promise.all([
+    refreshTodayStatsBatch({ force: true }),
+    refreshAccountQualityBatch({ force: true })
+  ])
 }
 
 const refreshUpstreamBillingSortedList = async (force = false) => {
@@ -1632,6 +1746,7 @@ const handleSort = (key: string, order: AccountSortOrder) => {
   clearSelection()
   sortState.sort_by = key
   sortState.sort_order = order
+  saveAccountSortState()
   const requestParams = params as any
   requestParams.sort_by = key
   requestParams.sort_order = order
@@ -1766,11 +1881,13 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
 
 const refreshAccountsIncrementally = async () => {
   if (autoRefreshFetching.value) return
+  const generation = autoRefreshRequestGeneration
+  const refreshScope = props.scope
   syncAccountListDerivedParams()
   autoRefreshFetching.value = true
   try {
     const filters = toRaw(params) as Record<string, unknown>
-    const result = props.scope === 'upstream'
+    const result = refreshScope === 'upstream'
       ? await upstreamManagementAPI.listAccountsWithEtag(
         { page: pagination.page, page_size: pagination.page_size, ...filters },
         { etag: autoRefreshETag.value }
@@ -1781,6 +1898,8 @@ const refreshAccountsIncrementally = async () => {
         filters,
         { etag: autoRefreshETag.value }
       )
+
+    if (generation !== autoRefreshRequestGeneration || refreshScope !== props.scope) return
 
     if (result.etag) {
       autoRefreshETag.value = result.etag
@@ -1796,16 +1915,18 @@ const refreshAccountsIncrementally = async () => {
 
     await Promise.all([refreshTodayStatsBatch(), refreshAccountQualityBatch()])
   } catch (error) {
+    if (generation !== autoRefreshRequestGeneration) return
     console.error('Auto refresh failed:', error)
   } finally {
-    autoRefreshFetching.value = false
+    if (generation === autoRefreshRequestGeneration) {
+      autoRefreshFetching.value = false
+    }
   }
 }
 
 const handleManualRefresh = async () => {
   await Promise.all([load(), loadUpstreamBillingProbeGlobalState()])
-  // Force usage cells to refetch /usage on explicit user refresh.
-  usageManualRefreshToken.value += 1
+  queueVisibleBatchedUsage({ force: true })
 }
 
 const loadUpstreamBillingProbeGlobalState = async () => {
@@ -1986,8 +2107,7 @@ const openTLSFingerprintProfiles = () => {
 const syncPendingListChanges = async () => {
   hasPendingListSync.value = false
   await load()
-  // Keep behavior consistent with manual refresh.
-  usageManualRefreshToken.value += 1
+  queueVisibleBatchedUsage({ force: true })
 }
 
 const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
@@ -2005,13 +2125,11 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
       return
     }
 
+    autoRefreshCountdown.value = Math.max(0, autoRefreshCountdown.value - 1)
     if (autoRefreshCountdown.value <= 0) {
       autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
       await refreshAccountsIncrementally()
-      return
     }
-
-    autoRefreshCountdown.value -= 1
   },
   1000,
   { immediate: false }

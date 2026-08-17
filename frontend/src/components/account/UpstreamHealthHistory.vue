@@ -1,27 +1,32 @@
 <template>
-  <component
-    :is="interactive ? 'button' : 'div'"
+  <div
     v-if="observations.length"
-    :type="interactive ? 'button' : undefined"
     data-upstream-health-history
     class="group block min-w-0 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-dark-800"
+    :role="interactive ? 'button' : undefined"
+    :tabindex="interactive ? 0 : undefined"
     :aria-label="interactive ? t('admin.upstreamManagement.health.openDetails') : undefined"
     @click="interactive && emit('showHistory')"
+    @keydown.enter.prevent="interactive && emit('showHistory')"
+    @keydown.space.prevent="interactive && emit('showHistory')"
   >
-    <div
-      data-upstream-health-bars
-      class="grid h-8 w-full max-w-[210px] items-end gap-[2px]"
-      :style="{ gridTemplateColumns: `repeat(${visibleObservations.length}, minmax(0, 1fr))` }"
-      aria-hidden="true"
+    <HelpTooltip
+      width-class="w-64 max-w-[calc(100vw-2rem)]"
+      trigger-class="!ml-0 block"
     >
-      <HelpTooltip
-        v-for="(item, index) in visibleObservations"
-        :key="`${item.observed_at}-${index}`"
-        width-class="w-64 max-w-[calc(100vw-2rem)]"
-        trigger-class="!ml-0 flex h-8 w-full min-w-0 items-end justify-center"
-      >
-        <template #trigger>
-          <span class="flex h-8 w-full min-w-0 max-w-[6px] items-end">
+      <template #trigger>
+        <div
+          data-upstream-health-bars
+          class="grid h-8 w-full max-w-[210px] items-end gap-[2px]"
+          :style="{ gridTemplateColumns: `repeat(${visibleObservations.length}, minmax(0, 1fr))` }"
+          aria-hidden="true"
+        >
+          <span
+            v-for="(item, index) in visibleObservations"
+            :key="`${item.observed_at}-${index}`"
+            class="flex h-8 w-full min-w-0 max-w-[6px] items-end"
+            @mouseenter="activeObservationIndex = index"
+          >
             <span
               :data-observation-state="item.state"
               :class="[
@@ -31,17 +36,19 @@
               :style="{ height: barHeight(item.state) }"
             />
           </span>
-        </template>
-        <div class="font-medium" :class="textClass(item.state)">{{ stateLabel(item.state) }}</div>
-        <div class="mt-1">{{ t('admin.upstreamManagement.health.observedAt') }}: {{ formatDateTime(item.observed_at) }}</div>
-        <div>{{ t('admin.upstreamManagement.health.source') }}: {{ sourceLabel(item.source) }}</div>
-        <div v-if="item.model">{{ t('admin.upstreamManagement.health.model') }}: {{ item.model }}</div>
-        <div>{{ t('admin.upstreamManagement.health.result') }}: {{ item.result || '-' }}</div>
-        <div v-if="item.ttft_ms != null">{{ t('admin.upstreamManagement.health.ttft') }}: {{ formatDuration(item.ttft_ms) }}</div>
-        <div v-if="item.duration_ms != null">{{ t('admin.upstreamManagement.health.duration') }}: {{ formatDuration(item.duration_ms) }}</div>
-        <div>{{ t('admin.upstreamManagement.health.reason') }}: {{ reasonLabel(item.reason) }}</div>
-      </HelpTooltip>
-    </div>
+        </div>
+      </template>
+      <template v-if="activeObservation">
+        <div class="font-medium" :class="textClass(activeObservation.state)">{{ stateLabel(activeObservation.state) }}</div>
+        <div class="mt-1">{{ t('admin.upstreamManagement.health.observedAt') }}: {{ formatDateTime(activeObservation.observed_at) }}</div>
+        <div>{{ t('admin.upstreamManagement.health.source') }}: {{ sourceLabel(activeObservation.source) }}</div>
+        <div v-if="activeObservation.model">{{ t('admin.upstreamManagement.health.model') }}: {{ activeObservation.model }}</div>
+        <div>{{ t('admin.upstreamManagement.health.result') }}: {{ activeObservation.result || '-' }}</div>
+        <div v-if="activeObservation.ttft_ms != null">{{ t('admin.upstreamManagement.health.ttft') }}: {{ formatDuration(activeObservation.ttft_ms) }}</div>
+        <div v-if="activeObservation.duration_ms != null">{{ t('admin.upstreamManagement.health.duration') }}: {{ formatDuration(activeObservation.duration_ms) }}</div>
+        <div>{{ t('admin.upstreamManagement.health.reason') }}: {{ reasonLabel(activeObservation.reason) }}</div>
+      </template>
+    </HelpTooltip>
     <div class="mt-1 flex w-full max-w-[210px] items-center justify-between gap-3 text-[10px] leading-3 text-gray-400 dark:text-dark-500">
       <span>{{ t('admin.upstreamManagement.health.past') }}</span>
       <span class="font-medium text-gray-500 transition-colors group-hover:text-primary-600 dark:text-dark-400 dark:group-hover:text-primary-400">
@@ -49,14 +56,14 @@
       </span>
       <span>{{ t('admin.upstreamManagement.health.now') }}</span>
     </div>
-  </component>
+  </div>
   <div v-else data-upstream-health-history-empty class="text-[11px] text-gray-400 dark:text-dark-500">
     {{ t('admin.upstreamManagement.health.noHistory') }}
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import type { UpstreamHealthObservation } from '@/types'
@@ -75,6 +82,12 @@ const emit = defineEmits<{ (event: 'showHistory'): void }>()
 const { t, te } = useI18n()
 const visibleObservations = computed(() => props.observations.slice(-Math.min(24, Math.max(1, props.limit))))
 const healthyCount = computed(() => visibleObservations.value.filter(item => item.state === 'healthy').length)
+const activeObservationIndex = ref(0)
+const activeObservation = computed(() => visibleObservations.value[activeObservationIndex.value] ?? visibleObservations.value.at(-1))
+
+watch(visibleObservations, (observations) => {
+  activeObservationIndex.value = Math.max(0, observations.length - 1)
+}, { immediate: true })
 
 const barHeight = (state: UpstreamHealthObservation['state']) => ({ healthy: '100%', recovering: '82%', degraded: '65%', observing: '52%', suspended: '35%', disabled: '18%' }[state] || '18%')
 const barClass = (state: UpstreamHealthObservation['state']) => ({

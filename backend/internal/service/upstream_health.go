@@ -447,6 +447,19 @@ func (r *UpstreamHealthRegistry) Hydrate(item UpstreamHealthSnapshot) UpstreamHe
 	return item
 }
 
+// Forget removes only the in-memory runtime snapshot for a key. Durable
+// observations remain available for audit and trend queries. A restored key
+// starts from the default observing state instead of inheriting stale failure
+// counters or a probe-owned suspension from before it was archived.
+func (r *UpstreamHealthRegistry) Forget(keyID int64) {
+	if r == nil || keyID <= 0 {
+		return
+	}
+	r.mu.Lock()
+	delete(r.items, keyID)
+	r.mu.Unlock()
+}
+
 func (r *UpstreamHealthRegistry) SetObservationTransition(keyID int64, enabled bool, now time.Time) UpstreamHealthTransition {
 	if now.IsZero() {
 		now = time.Now()

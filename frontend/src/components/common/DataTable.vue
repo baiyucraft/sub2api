@@ -324,7 +324,7 @@ const checkScrollable = () => {
   }
 }
 
-// 检查操作列是否需要展开
+// 检查操作列是否需要展开。只测量当前 DOM，避免为了测量切换响应式 slot 状态造成额外整表渲染。
 const checkActionsColumnWidth = () => {
   if (!props.expandableActions) {
     actionsColumnNeedsExpanding.value = false
@@ -341,38 +341,23 @@ const checkActionsColumnWidth = () => {
   const actionsContainer = firstActionCell.querySelector('div')
   if (!actionsContainer) return
 
-  // 临时展开以测量完整宽度
-  const wasExpanded = actionsExpanded.value
-  actionsExpanded.value = true
+  // 测量所有按钮的总宽度
+  const actionItems = actionsContainer.querySelectorAll('button, a, [role="button"]')
+  if (actionItems.length <= 2) {
+    actionsColumnNeedsExpanding.value = false
+    return
+  }
 
-  // 等待DOM更新
-  nextTick(() => {
-    // 测量所有按钮的总宽度
-    const actionItems = actionsContainer.querySelectorAll('button, a, [role="button"]')
-    if (actionItems.length <= 2) {
-      actionsColumnNeedsExpanding.value = false
-      actionsExpanded.value = wasExpanded
-      return
-    }
-
-    // 计算所有按钮的总宽度（包括gap）
-    let totalWidth = 0
-    actionItems.forEach((item, index) => {
-      totalWidth += (item as HTMLElement).offsetWidth
-      if (index < actionItems.length - 1) {
-        totalWidth += 4 // gap-1 = 4px
-      }
-    })
-
-    // 获取单元格可用宽度（减去padding）
-    const cellWidth = (firstActionCell as HTMLElement).clientWidth - 32 // 减去左右padding
-
-    // 如果总宽度超过可用宽度，需要展开功能
-    actionsColumnNeedsExpanding.value = totalWidth > cellWidth
-
-    // 恢复原来的展开状态
-    actionsExpanded.value = wasExpanded
+  // 计算所有按钮的总宽度（包括 gap）
+  let totalWidth = 0
+  actionItems.forEach((item, index) => {
+    totalWidth += (item as HTMLElement).offsetWidth
+    if (index < actionItems.length - 1) totalWidth += 4 // gap-1 = 4px
   })
+
+  // 获取单元格可用宽度（减去 padding）
+  const cellWidth = (firstActionCell as HTMLElement).clientWidth - 32
+  actionsColumnNeedsExpanding.value = totalWidth > cellWidth
 }
 
 // 监听尺寸变化
@@ -380,10 +365,33 @@ let resizeObserver: ResizeObserver | null = null
 let resizeHandler: (() => void) | null = null
 let desktopViewportMediaQuery: MediaQueryList | null = null
 let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = null
+let resizeAnimationFrame: number | null = null
+
+const scheduleDesktopTableMeasurement = () => {
+  if (resizeAnimationFrame !== null) return
+
+  const run = () => {
+    resizeAnimationFrame = null
+    checkScrollable()
+    checkActionsColumnWidth()
+  }
+
+  resizeAnimationFrame = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+    ? window.requestAnimationFrame(run)
+    : setTimeout(run, 0) as unknown as number
+}
 
 const detachDesktopTableTracking = () => {
   resizeObserver?.disconnect()
   resizeObserver = null
+  if (resizeAnimationFrame !== null) {
+    if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame(resizeAnimationFrame)
+    } else {
+      clearTimeout(resizeAnimationFrame)
+    }
+    resizeAnimationFrame = null
+  }
   if (resizeHandler) {
     window.removeEventListener('resize', resizeHandler)
     resizeHandler = null
@@ -391,19 +399,16 @@ const detachDesktopTableTracking = () => {
 }
 
 const attachDesktopTableTracking = () => {
-  checkScrollable()
-  checkActionsColumnWidth()
+  scheduleDesktopTableMeasurement()
   if (tableWrapperRef.value && typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(() => {
-      checkScrollable()
-      checkActionsColumnWidth()
+      scheduleDesktopTableMeasurement()
     })
     resizeObserver.observe(tableWrapperRef.value)
   } else {
     // 降级方案：不支持 ResizeObserver 时使用 window resize
     resizeHandler = () => {
-      checkScrollable()
-      checkActionsColumnWidth()
+      scheduleDesktopTableMeasurement()
     }
     window.addEventListener('resize', resizeHandler)
   }
@@ -659,7 +664,6 @@ watch(
 )
 
 // 数据/列变化时重新检查滚动状态
-// 注意：不能监听 actionsExpanded，因为 checkActionsColumnWidth 会临时修改它，会导致无限循环
 watch(
   [() => props.data.length, columnsSignature],
   async () => {
