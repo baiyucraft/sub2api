@@ -687,15 +687,18 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("printf 'profile=%q\\nstate_dir=%q\\n' \"$release_profile\" \"$state_dir\"", switch)
         self.assertNotIn("printf 'profile=%q\\nstate_dir=%q\\n' \"$profile\" \"$state_dir\" > \"$migration_237_context\"", switch)
 
-    def test_profile_239_appends_upstream_account_lifecycle_migration(self) -> None:
+    def test_profile_239_appends_lifecycle_and_video_pricing_reconciliation_migrations(self) -> None:
         profile_238 = get_profile("238")
         profile_239 = get_profile("239")
         self.assertEqual(profile_239["version"], "0.1.177-baiyu")
         self.assertEqual(
             profile_239["migrations"],
-            profile_238["migrations"] + ["238_upstream_account_lifecycle.sql"],
+            profile_238["migrations"] + [
+                "238_upstream_account_lifecycle.sql",
+                "239_reconcile_non_grok_video_pricing.sql",
+            ],
         )
-        self.assertEqual(len(profile_239["migrations"]), 55)
+        self.assertEqual(len(profile_239["migrations"]), 56)
         self.assertEqual(list(migration_checksums(profile_239)), profile_239["migrations"])
         migration_238 = (DEPLOY_ROOT / "maintenance" / "release" / "migration-238-assert.sh").read_text(encoding="utf-8")
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
@@ -707,7 +710,10 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertGreater(invalid_rows_query, absent_branch)
         self.assertIn("migration_238_preflight_verified=true", validator)
         self.assertIn("migration_238_schema_verified=true", validator)
+        self.assertIn("migration_239_preflight_verified=true", validator)
+        self.assertIn("migration_239_schema_verified=true", validator)
         self.assertIn("migration-238-assert.sh", switch)
+        self.assertIn("migration-239-assert.sh", switch)
         integration = DEPLOY_ROOT / "tests" / "release" / "backup_dr_profile_239_integration.py"
         self.assertTrue(integration.is_file())
         self.assertIn('main("239")', integration.read_text(encoding="utf-8"))

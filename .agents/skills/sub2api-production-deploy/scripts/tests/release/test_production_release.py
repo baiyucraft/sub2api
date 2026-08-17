@@ -1516,7 +1516,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         ):
             self.assertIn(f'"{field}"', switch_allowlist)
 
-    def test_profile_239_switch_accepts_migration_238_postflight_output_fields(self) -> None:
+    def test_profile_239_switch_accepts_current_postflight_output_fields(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         condition = 'if getattr(self, "profile", {}).get("name") == "239":'
         switch_allowlist = production[
@@ -1528,6 +1528,10 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
             "migration_238_schema_verified",
             "migration_238_preflight",
             "migration_238_postflight",
+            "migration_239_backup_rows",
+            "migration_239_remaining_rows",
+            "migration_239_constraint_verified",
+            "migration_239_postflight",
         ):
             self.assertIn(f'"{field}"', switch_allowlist)
 

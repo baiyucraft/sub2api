@@ -250,3 +250,12 @@
 - 修复：migration 容器成功返回后立即安装 trap；动态读取 `migration_completed` 或 `schema_verified`，并绑定 checksum、schema assertion、stage marker、migration container、migration marker、migration 195 postflight 六类固定 failure code。
 - 预防测试：静态测试要求 trap 早于 migration checksum loop，失败文件固定 4 个 root-only 字段，Python parser 校验 stage、substage 与 failure code 的合法组合；任何未知组合继续 fail-closed。
 - 状态：代码已修复，等待新 full-SHA Gate 和生产停机发布验证。
+
+## 已执行 migration 232 后视频价格再次漂移
+
+- 现象：profile 239 的 migrate-only 已完成，但 `migration-232-assert.sh postflight` 阻断切换；协调恢复后旧生产恢复健康。
+- 根因：migration 232 只做一次性清理，没有数据库约束。后续管理写入重新给非 Grok/Composite 分组设置视频价格；migration 232 已记录为 verified，不会重跑 UPDATE，postflight 因 live remaining 非零而正确失败。
+- 证据：release `239-618e91e8cc3a-1786969364-d4788e0c` 的结构化失败为 `schema_contract_assertion`、line 234；恢复后只读查询显示 migration 232 backup 表存在且 0 行，live remaining 为 1。
+- 修复：pending profile 239 追加 migration 239，先写专用备份表，再清理漂移行并验证约束；preflight 记录受影响计数和规范化 hash，bind 绑定协调恢复点，postflight 核对备份、受保护平台、零残留和约束。
+- 预防测试：VM probe DB 主动注入一条非 Grok 视频价格，要求 migration 239 清理并使数据库约束拒绝再次漂移；生产失败仍先协调恢复，不手工改写 migration 232 历史证据。
+- 状态：代码已修复，等待新的 full-SHA VM Gate 和生产停机发布验证。
