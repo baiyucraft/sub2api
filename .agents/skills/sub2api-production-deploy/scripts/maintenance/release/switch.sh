@@ -32,10 +32,11 @@ mark_switch_stage() {
 }
 
 migration_substage=not_started
+migration_failure_code=none
 migration_failure_file="$state_dir/migration-switch-failure"
 mark_migration_substage() {
   local value=${1:?migration substage is required}
-  [[ $value =~ ^(schema_stage_marker|migration_container_identity|migration_container_exit|migration_marker_prepare|migration_marker_manifest|migration_marker_publish|migration_195_postflight)$ ]]
+  [[ $value =~ ^(migration_record_verification|schema_contract_assertion|schema_stage_marker|migration_container_identity|migration_container_exit|migration_marker_prepare|migration_marker_manifest|migration_marker_publish|migration_195_postflight)$ ]]
   migration_substage=$value
   local tmp="$state_dir/migration-switch-substage.tmp.$$"
   printf '%s\n' "$value" > "$tmp"
@@ -43,12 +44,25 @@ mark_migration_substage() {
   mv -T -- "$tmp" "$state_dir/migration-switch-substage"
 }
 
+mark_migration_failure_context() {
+  local substage=${1:?migration substage is required}
+  local failure_code=${2:?migration failure code is required}
+  [[ $failure_code =~ ^(migration_record_checksum|schema_assertion|schema_stage_marker|migration_container|migration_marker|migration_195_postflight)$ ]]
+  migration_failure_code=$failure_code
+  mark_migration_substage "$substage"
+}
+
 record_migration_failure() {
   local failure_line=${1:?migration failure line is required}
   local status=${2:?migration failure status is required}
   if [[ $status -ne 0 && $migration_substage != not_started ]]; then
     local tmp="$migration_failure_file.tmp.$$"
-    if printf 'switch_failure_stage=schema_verified\nswitch_failure_substage=%s\nswitch_failure_line=%s\n' "$migration_substage" "$failure_line" > "$tmp" &&
+    local failure_stage=unknown
+    if [[ -f $switch_stage_file && ! -L $switch_stage_file ]]; then
+      failure_stage=$(<"$switch_stage_file")
+    fi
+    if [[ $failure_stage =~ ^(migration_completed|schema_verified)$ ]] &&
+      printf 'switch_failure_stage=%s\nswitch_failure_substage=%s\nswitch_failure_code=%s\nswitch_failure_line=%s\n' "$failure_stage" "$migration_substage" "$migration_failure_code" "$failure_line" > "$tmp" &&
       chmod 600 "$tmp" && mv -T -- "$tmp" "$migration_failure_file"; then
       :
     else
@@ -128,10 +142,13 @@ fi
 mark_switch_stage migration_started
 run_release_logged_command docker compose "${candidate_compose_args[@]}" run --name "$migration_container" --no-deps sub2api /app/sub2api --migrate-only
 mark_switch_stage migration_completed
+trap 'record_migration_failure "$LINENO" "$?"' ERR
+mark_migration_failure_context migration_record_verification migration_record_checksum
 while IFS=$'\t' read -r migration migration_checksum; do
   recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
   [[ $recorded == "$migration_checksum" ]]
 done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
+mark_migration_failure_context schema_contract_assertion schema_assertion
 if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 ]]; then
   managed_monitor_key_name_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT character_maximum_length, (SELECT COUNT(*) FROM api_keys k JOIN channel_monitors m ON m.id=k.managed_monitor_id AND m.managed_api_key_id=k.id WHERE k.purpose='managed_monitor' AND k.deleted_at IS NULL AND k.name IS DISTINCT FROM '监控-' || BTRIM(m.name)) FROM information_schema.columns WHERE table_schema='public' AND table_name='api_keys' AND column_name='name'")
   [[ $managed_monitor_key_name_state == '103|0' ]]
@@ -228,28 +245,27 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
   group_media_pricing_schema_verified=true
   group_media_auth_cache_trigger_verified=true
 fi
-mark_migration_substage schema_stage_marker
-trap 'record_migration_failure "$LINENO" "$?"' ERR
+mark_migration_failure_context schema_stage_marker schema_stage_marker
 mark_switch_stage schema_verified
-mark_migration_substage migration_container_identity
+mark_migration_failure_context migration_container_identity migration_container
 [[ $(docker inspect -f '{{.Image}}' "$migration_container") == "$candidate_image_id" ]]
-mark_migration_substage migration_container_exit
+mark_migration_failure_context migration_container_exit migration_container
 [[ $(docker inspect -f '{{.State.ExitCode}}' "$migration_container") == 0 ]]
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 ]]; then
-  mark_migration_substage migration_marker_prepare
+  mark_migration_failure_context migration_marker_prepare migration_marker
   migration_checksum=$(jq -er '.manifest.migration_sha256["195_upstream_scheduling_monitor_rates.sql"]' "$active_claim/gate.json")
   migration_manifest_sha256=$(jq -cS '.manifest.migration_sha256' "$active_claim/gate.json" | sha256sum | awk '{print $1}')
   marker_tmp="$state_dir/.migration-committed.tmp.$$"
-  mark_migration_substage migration_marker_manifest
+  mark_migration_failure_context migration_marker_manifest migration_marker
   printf 'plan_sha256=%s\nmigration_manifest_sha256=%s\n' "$(<"$state_dir/migration-195-plan.sha256")" "$migration_manifest_sha256" > "$marker_tmp"
   while IFS=$'\t' read -r migration migration_checksum; do
     printf 'migration=%s checksum=%s\n' "$migration" "$migration_checksum" >> "$marker_tmp"
   done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
   chmod 600 "$marker_tmp"
-  mark_migration_substage migration_marker_publish
+  mark_migration_failure_context migration_marker_publish migration_marker
   [[ ! -e $state_dir/migration-committed && ! -L $state_dir/migration-committed ]]
   mv -T -- "$marker_tmp" "$state_dir/migration-committed"
-  mark_migration_substage migration_195_postflight
+  mark_migration_failure_context migration_195_postflight migration_195_postflight
   "$assets_dir/migration-195-assert.sh" postflight_db
 fi
 trap - ERR
