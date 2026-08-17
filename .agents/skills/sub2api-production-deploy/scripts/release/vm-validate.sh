@@ -86,9 +86,9 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
       expected_tail='234_group_model_pricing.sql|235_group_usage_daily_rollups.sql|236_group_usage_rollup_timezone.sql|237_image_cost_routing.sql'
       [[ $(jq -er '.migrations[-4:] | join("|")' "$manifest") == "$expected_tail" ]]
     else
-      [[ $(jq -er '.migrations | length' "$manifest") == 55 ]]
-      expected_tail='235_group_usage_daily_rollups.sql|236_group_usage_rollup_timezone.sql|237_image_cost_routing.sql|238_upstream_account_lifecycle.sql'
-      [[ $(jq -er '.migrations[-4:] | join("|")' "$manifest") == "$expected_tail" ]]
+      [[ $(jq -er '.migrations | length' "$manifest") == 56 ]]
+      expected_tail='235_group_usage_daily_rollups.sql|236_group_usage_rollup_timezone.sql|237_image_cost_routing.sql|238_upstream_account_lifecycle.sql|239_reconcile_non_grok_video_pricing.sql'
+      [[ $(jq -er '.migrations[-5:] | join("|")' "$manifest") == "$expected_tail" ]]
     fi
   fi
 fi
@@ -422,12 +422,14 @@ migration_235_schema_verified=false
 migration_236_schema_verified=false
 migration_237_schema_verified=false
 migration_238_schema_verified=false
+migration_239_schema_verified=false
 migration_233_postflight_verified=false
 migration_234_preflight_verified=false
 migration_235_preflight_verified=false
 migration_236_preflight_verified=false
 migration_237_preflight_verified=false
 migration_238_preflight_verified=false
+migration_239_preflight_verified=false
 vm_old_image_compatibility_verified=false
 migration_211_status=not_applicable
 migration_212_status=not_applicable
@@ -454,6 +456,7 @@ migration_233_status=not_applicable
 migration_234_status=not_applicable
 migration_237_status=not_applicable
 migration_238_status=not_applicable
+migration_239_status=not_applicable
 if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_212_status
   profile_212_migration_status() {
@@ -527,6 +530,7 @@ if [[ $release_profile == 238 || $release_profile == 239 ]]; then
 fi
 if [[ $release_profile == 239 ]]; then
   migration_238_status=$(profile_212_migration_status 238_upstream_account_lifecycle.sql)
+  migration_239_status=$(profile_212_migration_status 239_reconcile_non_grok_video_pricing.sql)
 fi
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_195_fixture
@@ -633,6 +637,16 @@ if [[ $release_profile == 239 ]]; then
   chmod 400 "$migration_238_context"
   ASSERT_CONTEXT_FILE="$migration_238_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_238_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-238-assert.sh" preflight >/dev/null
   migration_238_preflight_verified=true
+  migration_239_context="$state_dir/migration-239-context.sh"
+  printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_239_context"
+  chmod 400 "$migration_239_context"
+  fixture_group_id=$(docker exec sub2api-postgres psql -X -A -t -U "$database_owner" -d "$probe_db" -c "SELECT id FROM groups WHERE platform IS DISTINCT FROM 'grok' AND platform IS DISTINCT FROM 'composite' ORDER BY id LIMIT 1")
+  [[ $fixture_group_id =~ ^[1-9][0-9]*$ ]]
+  docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U "$database_owner" -d "$probe_db" -c "UPDATE groups SET video_price_480p=0.12345678 WHERE id=$fixture_group_id" >/dev/null
+  ASSERT_CONTEXT_FILE="$migration_239_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_239_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-239-assert.sh" preflight >/dev/null
+  printf '%s  recovery-point.age\n' "$(sha256sum "$manifest" | awk '{print $1}')" > "$state_dir/recovery-point.age.sha256"
+  ASSERT_CONTEXT_FILE="$migration_239_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_239_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-239-assert.sh" bind >/dev/null
+  migration_239_preflight_verified=true
 fi
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
 rm -f "$state_dir/migrate-candidate.log"
@@ -1052,6 +1066,8 @@ fi
 if [[ $release_profile == 239 ]]; then
   ASSERT_CONTEXT_FILE="$migration_238_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_238_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-238-assert.sh" postflight >/dev/null
   migration_238_schema_verified=true
+  ASSERT_CONTEXT_FILE="$migration_239_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_239_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-239-assert.sh" postflight >/dev/null
+  migration_239_schema_verified=true
 fi
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_195_runtime_current
@@ -1121,6 +1137,7 @@ jq -n --slurpfile manifest "$manifest" \
   --arg migration_236_status "$migration_236_status" \
   --arg migration_237_status "$migration_237_status" \
   --arg migration_238_status "$migration_238_status" \
+  --arg migration_239_status "$migration_239_status" \
   --argjson usage_log_upstream_model_columns_verified "$usage_log_upstream_model_columns_verified" \
   --argjson usage_log_upstream_model_mismatch_index_verified "$usage_log_upstream_model_mismatch_index_verified" \
   --argjson channel_monitor_v2_schema_verified "$channel_monitor_v2_schema_verified" \
@@ -1141,6 +1158,8 @@ jq -n --slurpfile manifest "$manifest" \
   --argjson migration_237_schema_verified "$migration_237_schema_verified" \
   --argjson migration_238_preflight_verified "$migration_238_preflight_verified" \
   --argjson migration_238_schema_verified "$migration_238_schema_verified" \
+  --argjson migration_239_preflight_verified "$migration_239_preflight_verified" \
+  --argjson migration_239_schema_verified "$migration_239_schema_verified" \
   --arg vm_old_image_id "$compat_image_id" \
   --argjson vm_old_image_compatibility_verified "$vm_old_image_compatibility_verified" \
   --argjson fixture_rejected "$fixture_rejected" \
@@ -1148,7 +1167,7 @@ jq -n --slurpfile manifest "$manifest" \
   --argjson clean_preflight "$clean_preflight" \
   --argjson verified_replay "$verified_replay" \
   --argjson verified_low_watermark_rejected "$verified_low_watermark_rejected" \
-  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,alipay_mobile_precreate_migration_verified:$alipay_mobile_precreate_migration_verified,group_auth_cache_image_generation_verified:$group_auth_cache_image_generation_verified,composite_model_routes_verified:$composite_model_routes_verified,session_id_columns_verified:$session_id_columns_verified,live_request_type_verified:$live_request_type_verified,group_allow_live_verified:$group_allow_live_verified,email_alias_index_verified:$email_alias_index_verified,live_runtime_capability_verified:$live_runtime_capability_verified,passkey_schema_verified:$passkey_schema_verified,user_usage_aggregation_schema_verified:$user_usage_aggregation_schema_verified,migration_211_status:$migration_211_status,migration_212_status:$migration_212_status,migration_214_status:$migration_214_status,migration_215_status:$migration_215_status,migration_216_status:$migration_216_status,migration_217_status:$migration_217_status,migration_218_status:$migration_218_status,migration_219_status:$migration_219_status,migration_220_status:$migration_220_status,migration_221_status:$migration_221_status,migration_222_status:$migration_222_status,migration_223_status:$migration_223_status,migration_224_status:$migration_224_status,migration_225_status:$migration_225_status,migration_226_status:$migration_226_status,migration_227_status:$migration_227_status,migration_228_status:$migration_228_status,migration_229_status:$migration_229_status,migration_230_status:$migration_230_status,migration_231_status:$migration_231_status,migration_232_status:$migration_232_status,migration_233_status:$migration_233_status,migration_234_status:$migration_234_status,migration_235_status:$migration_235_status,migration_236_status:$migration_236_status,migration_237_status:$migration_237_status,migration_238_status:$migration_238_status,migration_235_preflight_verified:$migration_235_preflight_verified,migration_236_preflight_verified:$migration_236_preflight_verified,migration_237_preflight_verified:$migration_237_preflight_verified,migration_238_preflight_verified:$migration_238_preflight_verified,migration_235_schema_verified:$migration_235_schema_verified,migration_236_schema_verified:$migration_236_schema_verified,migration_237_schema_verified:$migration_237_schema_verified,migration_238_schema_verified:$migration_238_schema_verified,usage_log_upstream_model_columns_verified:$usage_log_upstream_model_columns_verified,usage_log_upstream_model_mismatch_index_verified:$usage_log_upstream_model_mismatch_index_verified,channel_monitor_v2_schema_verified:$channel_monitor_v2_schema_verified,channel_monitor_v2_defaults_verified:$channel_monitor_v2_defaults_verified,group_media_pricing_schema_verified:$group_media_pricing_schema_verified,group_media_auth_cache_trigger_verified:$group_media_auth_cache_trigger_verified,migration_232_data_plan_verified:$migration_232_data_plan_verified,migration_232_postflight_verified:$migration_232_postflight_verified,migration_233_preflight_verified:$migration_233_preflight_verified,migration_233_postflight_verified:$migration_233_postflight_verified,migration_234_preflight_verified:$migration_234_preflight_verified,migration_234_schema_verified:$migration_234_schema_verified,group_profit_control_schema_verified:$group_profit_control_schema_verified,group_profit_auth_cache_trigger_verified:$group_profit_auth_cache_trigger_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
+  '{manifest:$manifest[0],evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,prompt_audit_disabled:$prompt_audit_disabled,migration_195_verified:$migration_195_verified,managed_monitor_key_names_verified:$managed_monitor_key_names_verified,reasoning_effort_policy_verified:$reasoning_effort_policy_verified,alipay_mobile_precreate_migration_verified:$alipay_mobile_precreate_migration_verified,group_auth_cache_image_generation_verified:$group_auth_cache_image_generation_verified,composite_model_routes_verified:$composite_model_routes_verified,session_id_columns_verified:$session_id_columns_verified,live_request_type_verified:$live_request_type_verified,group_allow_live_verified:$group_allow_live_verified,email_alias_index_verified:$email_alias_index_verified,live_runtime_capability_verified:$live_runtime_capability_verified,passkey_schema_verified:$passkey_schema_verified,user_usage_aggregation_schema_verified:$user_usage_aggregation_schema_verified,migration_211_status:$migration_211_status,migration_212_status:$migration_212_status,migration_214_status:$migration_214_status,migration_215_status:$migration_215_status,migration_216_status:$migration_216_status,migration_217_status:$migration_217_status,migration_218_status:$migration_218_status,migration_219_status:$migration_219_status,migration_220_status:$migration_220_status,migration_221_status:$migration_221_status,migration_222_status:$migration_222_status,migration_223_status:$migration_223_status,migration_224_status:$migration_224_status,migration_225_status:$migration_225_status,migration_226_status:$migration_226_status,migration_227_status:$migration_227_status,migration_228_status:$migration_228_status,migration_229_status:$migration_229_status,migration_230_status:$migration_230_status,migration_231_status:$migration_231_status,migration_232_status:$migration_232_status,migration_233_status:$migration_233_status,migration_234_status:$migration_234_status,migration_235_status:$migration_235_status,migration_236_status:$migration_236_status,migration_237_status:$migration_237_status,migration_238_status:$migration_238_status,migration_239_status:$migration_239_status,migration_235_preflight_verified:$migration_235_preflight_verified,migration_236_preflight_verified:$migration_236_preflight_verified,migration_237_preflight_verified:$migration_237_preflight_verified,migration_238_preflight_verified:$migration_238_preflight_verified,migration_239_preflight_verified:$migration_239_preflight_verified,migration_235_schema_verified:$migration_235_schema_verified,migration_236_schema_verified:$migration_236_schema_verified,migration_237_schema_verified:$migration_237_schema_verified,migration_238_schema_verified:$migration_238_schema_verified,migration_239_schema_verified:$migration_239_schema_verified,usage_log_upstream_model_columns_verified:$usage_log_upstream_model_columns_verified,usage_log_upstream_model_mismatch_index_verified:$usage_log_upstream_model_mismatch_index_verified,channel_monitor_v2_schema_verified:$channel_monitor_v2_schema_verified,channel_monitor_v2_defaults_verified:$channel_monitor_v2_defaults_verified,group_media_pricing_schema_verified:$group_media_pricing_schema_verified,group_media_auth_cache_trigger_verified:$group_media_auth_cache_trigger_verified,migration_232_data_plan_verified:$migration_232_data_plan_verified,migration_232_postflight_verified:$migration_232_postflight_verified,migration_233_preflight_verified:$migration_233_preflight_verified,migration_233_postflight_verified:$migration_233_postflight_verified,migration_234_preflight_verified:$migration_234_preflight_verified,migration_234_schema_verified:$migration_234_schema_verified,group_profit_control_schema_verified:$group_profit_control_schema_verified,group_profit_auth_cache_trigger_verified:$group_profit_auth_cache_trigger_verified,vm_old_image_id:$vm_old_image_id,vm_old_image_compatibility_verified:$vm_old_image_compatibility_verified,fixture_rejected:$fixture_rejected,restore_completed:$restore_completed,clean_preflight:$clean_preflight,verified_replay:$verified_replay,verified_low_watermark_rejected:$verified_low_watermark_rejected}}' \
   | jq -cS . > "$output_dir/gate.json.tmp"
 chmod 400 "$output_dir/gate.json.tmp"
 mv -T -- "$output_dir/gate.json.tmp" "$output_dir/gate.json"

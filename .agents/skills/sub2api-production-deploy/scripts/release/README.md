@@ -182,9 +182,10 @@ profile 238 继续使用版本 `0.1.177-baiyu`，完整继承 profile 237 的 53
 失效触发器字段，不修改普通文本调度、用户侧图片售价或历史 profile 证据。
 
 profile 239 继续使用版本 `0.1.177-baiyu`，完整继承 profile 238 的 54 项 migration，追加
-`238_upstream_account_lifecycle.sql`，共 55 项。该迁移只增加上游派生账号生命周期 owner、
-归档原因、约束和归档查找索引；历史账号默认保持 `manual`，由完整同步在持锁状态下按严格
-运行时签名保守认领，profile 233–238 的历史证据保持不可变。
+`238_upstream_account_lifecycle.sql` 与 `239_reconcile_non_grok_video_pricing.sql`，共 56 项。
+前者增加上游派生账号生命周期 owner、归档原因、约束和归档查找索引；后者备份并清理
+migration 232 之后重新出现的非 Grok/Composite 视频价格，并增加数据库约束阻止再次漂移。
+profile 233–238 的历史证据保持不可变。
 
 VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235、236、237、238 和 239
 合同。发布资产定向回归至少执行：

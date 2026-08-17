@@ -196,6 +196,12 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
             raise RuntimeError("gate lacks migration 238 preflight evidence")
         if evidence.get("migration_238_schema_verified") is not True:
             raise RuntimeError("gate lacks migration 238 semantic evidence")
+        if evidence.get("migration_239_status") not in {"absent", "verified"}:
+            raise RuntimeError("gate lacks migration 239 status evidence")
+        if evidence.get("migration_239_preflight_verified") is not True:
+            raise RuntimeError("gate lacks migration 239 preflight evidence")
+        if evidence.get("migration_239_schema_verified") is not True:
+            raise RuntimeError("gate lacks migration 239 semantic evidence")
     archive_path = bundle_dir / "candidate.tar.gz"
     if not archive_path.is_file():
         raise RuntimeError("gate candidate archive is missing")

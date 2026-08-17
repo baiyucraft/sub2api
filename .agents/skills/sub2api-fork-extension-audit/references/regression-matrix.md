@@ -17,7 +17,7 @@
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 质量与累计用量 | 质量仅展示不参与调度；coverage/backfill 完整后才允许 raw cleanup；日聚合时区正确 |
 | 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；成本摘要必须结构化展示能力、倍率来源和分辨率成本；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
-| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–238 map/checksum/compatibility identity 不可变；当前 profile 239 为 pending/current 合同，55 项 migration，追加 `238_upstream_account_lifecycle.sql`，migration map digest 为 `e5009ac6bc3fa0f9751f61e4318966f68d56b957ed0d2d13df02651eca3f60e5`；`VERSION = upstream VERSION + -baiyu` |
+| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–238 map/checksum/compatibility identity 不可变；当前 profile 239 为 pending/current 合同，56 项 migration，追加 `238_upstream_account_lifecycle.sql` 与 `239_reconcile_non_grok_video_pricing.sql`，migration map digest 为 `851a3436bda2c97d90168c23668a9509a94dda50e0975deb32451f0fdae2158e`；`VERSION = upstream VERSION + -baiyu` |
 | 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
 
 ## 全量门禁
@@ -44,10 +44,11 @@ profile 238 已进入不可变历史合同。profile 239 仍属于当前待发�
 ```text
 base profile: 238
 version: 0.1.177-baiyu
-migration count: 55
-appended migration: 238_upstream_account_lifecycle.sql
+migration count: 56
+appended migrations: 238_upstream_account_lifecycle.sql, 239_reconcile_non_grok_video_pricing.sql
 migration sha256: 23156212ee9b8b79bdc55d51e9fadcfaad5f053a1415a53b7808df23aa0980b8
-migration map sha256: e5009ac6bc3fa0f9751f61e4318966f68d56b957ed0d2d13df02651eca3f60e5
+migration 239 sha256: cd21811556a483f6ea02dbdb2126c07aa67afaf807625a3529b7db1bab35679d
+migration map sha256: 851a3436bda2c97d90168c23668a9509a94dda50e0975deb32451f0fdae2158e
 ```
 
 最低专项测试：

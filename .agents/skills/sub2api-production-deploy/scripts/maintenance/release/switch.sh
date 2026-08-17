@@ -100,6 +100,9 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
     [[ -f $state_dir/migration-238-status && ! -L $state_dir/migration-238-status ]]
     migration_238_status=$(<"$state_dir/migration-238-status")
     [[ $migration_238_status == absent || $migration_238_status == verified ]]
+    [[ -f $state_dir/migration-239-status && ! -L $state_dir/migration-239-status ]]
+    migration_239_status=$(<"$state_dir/migration-239-status")
+    [[ $migration_239_status == absent || $migration_239_status == verified ]]
   fi
 fi
 active_compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
@@ -244,6 +247,12 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
   channel_monitor_v2_defaults_verified=true
   group_media_pricing_schema_verified=true
   group_media_auth_cache_trigger_verified=true
+fi
+if [[ $release_profile == 239 ]]; then
+  migration_239_context="$state_dir/migration-239-context.sh"
+  printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_239_context"
+  chmod 400 "$migration_239_context"
+  ASSERT_CONTEXT_FILE="$migration_239_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER=sub2api ASSERT_DB_NAME=sub2api MIGRATION_STATUS="$migration_239_status" RELEASE_DIR="$state_dir" "$assets_dir/migration-239-assert.sh" postflight
 fi
 mark_migration_failure_context schema_stage_marker schema_stage_marker
 mark_switch_stage schema_verified

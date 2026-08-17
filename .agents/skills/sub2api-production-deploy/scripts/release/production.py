@@ -161,6 +161,7 @@ class ProductionRelease:
         self.migration_236_status: str | None = None
         self.migration_237_status: str | None = None
         self.migration_238_status: str | None = None
+        self.migration_239_status: str | None = None
         self.result_path = gate_dir / "production-result.json"
         self.result: dict[str, object] = {
             "release_id": self.release_id,
@@ -359,6 +360,7 @@ exit "$code"
                 "migration_236_status",
                 "migration_237_status",
                 "migration_238_status",
+                "migration_239_status",
             }
         try:
             values = self.run_remote(
@@ -425,6 +427,7 @@ exit "$code"
         self.migration_236_status = values["migration_236_status"]
         self.migration_237_status = values["migration_237_status"]
         self.migration_238_status = values["migration_238_status"]
+        self.migration_239_status = values["migration_239_status"]
         self.stage("production_preflight_verified", values)
 
     def run_route_canary(
@@ -769,6 +772,16 @@ exit "$code"
                 {"migration_238_schema_state", "migration_238_preflight", "migration_238_postflight"},
             )
             self.stage("migration_238_preflight_verified", values)
+            if self.migration_239_status not in {"absent", "verified"}:
+                raise RuntimeError("migration 239 preflight status is unknown")
+            self.stage("migration_239_preflight")
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_239_status})
+            values = self.run_remote(
+                "racknerd",
+                f"{env} {self.active_assets}/migration-239-assert.sh preflight",
+                {"migration_239_affected", "migration_239_data_plan_sha256", "migration_239_preflight"},
+            )
+            self.stage("migration_239_preflight_verified", values)
 
     def bind_migration_plan(self) -> None:
         if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239"}:
@@ -790,6 +803,15 @@ exit "$code"
                 {"migration_232_plan_sha256", "migration_232_recovery_sha256"},
             )
             self.stage("migration_232_plan_bound", values)
+        if self.profile["name"] == "239":
+            self.stage("migration_239_bind_recovery_point")
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_239_status})
+            values = self.run_remote(
+                "racknerd",
+                f"{env} {self.active_assets}/migration-239-assert.sh bind",
+                {"migration_239_plan_sha256", "migration_239_recovery_sha256"},
+            )
+            self.stage("migration_239_plan_bound", values)
 
     def switch(self) -> None:
         self.stage("migration_and_switch", timeout=1200)
@@ -878,6 +900,10 @@ exit "$code"
                 "migration_238_schema_verified",
                 "migration_238_preflight",
                 "migration_238_postflight",
+                "migration_239_backup_rows",
+                "migration_239_remaining_rows",
+                "migration_239_constraint_verified",
+                "migration_239_postflight",
             })
         try:
             values = self.run_remote(
@@ -1277,6 +1303,7 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
             "236_group_usage_rollup_timezone.sql": self.migration_236_status,
             "237_image_cost_routing.sql": self.migration_237_status,
             "238_upstream_account_lifecycle.sql": self.migration_238_status,
+            "239_reconcile_non_grok_video_pricing.sql": self.migration_239_status,
         }
         pending = [migration for migration in self.manifest["migrations"] if status_by_migration.get(migration) == "absent"]
         pending_words = " ".join(shlex.quote(migration) for migration in pending)

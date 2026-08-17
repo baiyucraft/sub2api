@@ -464,13 +464,18 @@ PROFILES["238"] = {
     "migrations": [*PROFILES["237"]["migrations"], "237_image_cost_routing.sql"],
 }
 
-# Profile 239 adds the fork-only upstream derived-account lifecycle contract.
+# Profile 239 adds the fork-only upstream derived-account lifecycle contract and
+# reconciles video-pricing drift that can reappear after historical migration 232.
 # Historical profiles, checksums, and compatibility identity remain unchanged.
 PROFILES["239"] = {
     **PROFILES["238"],
     "name": "239",
     "version": "0.1.177-baiyu",
-    "migrations": [*PROFILES["238"]["migrations"], "238_upstream_account_lifecycle.sql"],
+    "migrations": [
+        *PROFILES["238"]["migrations"],
+        "238_upstream_account_lifecycle.sql",
+        "239_reconcile_non_grok_video_pricing.sql",
+    ],
 }
 
 
