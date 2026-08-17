@@ -163,6 +163,49 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual(value["issues"][0]["node"], "racknerd")
         ssh.read_release_events.assert_called_once_with("racknerd", identifier)
 
+    def test_logs_view_maps_vm_display_node_to_local_vm_ssh_config(self) -> None:
+        identifier = "239-aaaaaaaaaaaa-1-deadbeef"
+        run_dir = self.minimum_release(identifier)
+        local_log = run_dir / "logs" / "events.jsonl"
+        logger = JSONLEventLogger(local_log, EventContext(identifier, "downtime", "vm"))
+        logger.emit(stage="vm_validate", script="vm-validate.sh", event="failed", message="VM validation failed", level="error")
+        ssh = mock.Mock()
+        ssh.read_release_events.return_value = local_log.read_bytes()
+        args = argparse.Namespace(
+            release_id=identifier, node="vm", stage=None, level="error",
+            tail=100, since=None,
+        )
+        with mock.patch.object(supervisor, "SSHRunner", return_value=ssh):
+            value = supervisor.logs_view(args)
+        self.assertEqual(value["log_status"], "ok")
+        self.assertEqual([item["node"] for item in value["events"]], ["vm"])
+        ssh.read_release_events.assert_called_once_with("local_vm", identifier)
+
+    def test_logs_view_uses_vm_failure_markers_when_remote_jsonl_is_missing(self) -> None:
+        identifier = "239-bbbbbbbbbbbb-2-deadbeef"
+        self.minimum_release(identifier)
+        ssh = mock.Mock()
+        ssh.read_release_events.side_effect = FileNotFoundError("events missing")
+        ssh.run.return_value.values = {
+            "gate_stage": "migration_assertion_profile_232_channel_monitor_media",
+            "gate_failure_category": "migration_assertion_profile_232_channel_monitor_media",
+            "gate_failure_line": "1024",
+            "raw_log_status": "ok",
+            "raw_log_bytes": "0",
+            "validator_stderr_bytes": "138",
+        }
+        args = argparse.Namespace(
+            release_id=identifier, node="vm", stage=None, level="error",
+            tail=100, since=None,
+        )
+        with mock.patch.object(supervisor, "SSHRunner", return_value=ssh):
+            value = supervisor.logs_view(args)
+        self.assertEqual(value["log_status"], "partial")
+        self.assertEqual([item["event"] for item in value["events"]], ["gate_failure_evidence"])
+        self.assertEqual(value["events"][0]["details"]["failure_line"], 1024)
+        ssh.read_release_events.assert_called_once_with("local_vm", identifier)
+        self.assertEqual(ssh.run.call_args.args[0], "local_vm")
+
     def test_worker_holds_one_lock_across_deploy(self) -> None:
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"
         run_dir = self.minimum_release(identifier)

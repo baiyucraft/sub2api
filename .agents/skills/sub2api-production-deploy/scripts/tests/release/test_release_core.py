@@ -712,6 +712,11 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("migration_238_schema_verified=true", validator)
         self.assertIn("migration_239_preflight_verified=true", validator)
         self.assertIn("migration_239_schema_verified=true", validator)
+        migration_239_fixture_start = validator.index('migration_239_context="$state_dir/migration-239-context.sh"')
+        migration_239_fixture_end = validator.index('migration_239_preflight_verified=true', migration_239_fixture_start)
+        migration_239_fixture = validator[migration_239_fixture_start:migration_239_fixture_end]
+        self.assertIn('[[ -f $state_dir/recovery-point.age.sha256 && ! -L $state_dir/recovery-point.age.sha256 ]]', migration_239_fixture)
+        self.assertNotIn("printf '%s  recovery-point.age\\n'", migration_239_fixture)
         self.assertIn("migration-238-assert.sh", switch)
         self.assertIn("migration-239-assert.sh", switch)
         integration = DEPLOY_ROOT / "tests" / "release" / "backup_dr_profile_239_integration.py"

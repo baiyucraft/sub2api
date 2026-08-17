@@ -259,3 +259,21 @@
 - 修复：pending profile 239 追加 migration 239，先写专用备份表，再清理漂移行并验证约束；preflight 记录受影响计数和规范化 hash，bind 绑定协调恢复点，postflight 核对备份、受保护平台、零残留和约束。
 - 预防测试：VM probe DB 主动注入一条非 Grok 视频价格，要求 migration 239 清理并使数据库约束拒绝再次漂移；生产失败仍先协调恢复，不手工改写 migration 232 历史证据。
 - 状态：代码已修复，等待新的 full-SHA VM Gate 和生产停机发布验证。
+
+## 多个数据迁移在 VM Gate 中绑定了不同恢复点 checksum
+
+- 现象：migration 239 已成功执行并清理夹具数据，但继承的 migration 232 postflight 在 bound checksum 校验处失败，Gate 分类仍显示 `migration_assertion_profile_232_channel_monitor_media`。
+- 根因：VM Gate 先为 migration 232 写入并绑定 `recovery-point.age.sha256`，随后 migration 239 夹具又覆盖同一文件；migration 232 postflight 因恢复点 checksum 改变而正确阻断。
+- 证据：失败 release `239-00ae1c06b3ca-1786975258-d402f23d` 的生产阶段为 `not_started`，VM failure line 为 1024；migration 232 状态 `verified/affected=0`，migration 239 状态 `absent/affected=1`，失败发生在共享恢复点被第二次写入后。
+- 修复：profile 239 的 VM 夹具只验证既有 recovery checksum 文件并复用它完成 migration 239 bind；232 与 239 的数据计划绑定同一个协调恢复点，符合生产单 release 恢复合同。
+- 预防测试：release core 测试截取 migration 239 夹具，要求存在 recovery 文件安全断言，并禁止再次 `printf` 覆盖；任何需要独立恢复点的迁移必须使用独立 state 文件和显式合同，不能复用共享文件名。
+- 状态：代码已修复，等待新的完整 SHA Gate 验证。
+
+## `release.py logs --node vm` 使用展示名连接 SSH
+
+- 现象：VM Gate 失败后，`release.py logs <release_id> --node vm` 返回 `event log unavailable: KeyError`，只能人工投影本地事件和 VM failure marker。
+- 根因：CLI 对外节点名是 `vm`，`.ssh.local` 与 `SSHRunner` 的连接键是 `local_vm`；日志查询把展示名直接交给连接器。
+- 证据：同一失败 release 的 VM Gate 目录和 root-only 日志存在，直接使用 `local_vm` 可读取固定字段，但 `logs --node vm` 在连接配置索引前抛出 KeyError。
+- 修复：日志查询保留输出标签 `vm`，连接时显式映射为 `local_vm`；RackNerd、DMIT 和 backup 名称不变。
+- 预防测试：使用内存中的 VM JSONL 事件验证查询结果仍标记为 `vm`，并断言 SSH 调用使用 `local_vm`。
+- 状态：代码已修复，等待随新发布资产验证。
