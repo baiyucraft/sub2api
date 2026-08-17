@@ -268,6 +268,40 @@ func (_u *AccountUpdate) ClearUpstreamStalePausedAt() *AccountUpdate {
 	return _u
 }
 
+// SetUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field.
+func (_u *AccountUpdate) SetUpstreamLifecycleOwner(v string) *AccountUpdate {
+	_u.mutation.SetUpstreamLifecycleOwner(v)
+	return _u
+}
+
+// SetNillableUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableUpstreamLifecycleOwner(v *string) *AccountUpdate {
+	if v != nil {
+		_u.SetUpstreamLifecycleOwner(*v)
+	}
+	return _u
+}
+
+// SetUpstreamArchiveReason sets the "upstream_archive_reason" field.
+func (_u *AccountUpdate) SetUpstreamArchiveReason(v string) *AccountUpdate {
+	_u.mutation.SetUpstreamArchiveReason(v)
+	return _u
+}
+
+// SetNillableUpstreamArchiveReason sets the "upstream_archive_reason" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableUpstreamArchiveReason(v *string) *AccountUpdate {
+	if v != nil {
+		_u.SetUpstreamArchiveReason(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamArchiveReason clears the value of the "upstream_archive_reason" field.
+func (_u *AccountUpdate) ClearUpstreamArchiveReason() *AccountUpdate {
+	_u.mutation.ClearUpstreamArchiveReason()
+	return _u
+}
+
 // SetConcurrency sets the "concurrency" field.
 func (_u *AccountUpdate) SetConcurrency(v int) *AccountUpdate {
 	_u.mutation.ResetConcurrency()
@@ -947,6 +981,16 @@ func (_u *AccountUpdate) check() error {
 			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Account.type": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.UpstreamLifecycleOwner(); ok {
+		if err := account.UpstreamLifecycleOwnerValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_lifecycle_owner", err: fmt.Errorf(`ent: validator failed for field "Account.upstream_lifecycle_owner": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.UpstreamArchiveReason(); ok {
+		if err := account.UpstreamArchiveReasonValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_archive_reason", err: fmt.Errorf(`ent: validator failed for field "Account.upstream_archive_reason": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := account.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Account.status": %w`, err)}
@@ -1030,6 +1074,15 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.UpstreamStalePausedAtCleared() {
 		_spec.ClearField(account.FieldUpstreamStalePausedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.UpstreamLifecycleOwner(); ok {
+		_spec.SetField(account.FieldUpstreamLifecycleOwner, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.UpstreamArchiveReason(); ok {
+		_spec.SetField(account.FieldUpstreamArchiveReason, field.TypeString, value)
+	}
+	if _u.mutation.UpstreamArchiveReasonCleared() {
+		_spec.ClearField(account.FieldUpstreamArchiveReason, field.TypeString)
 	}
 	if value, ok := _u.mutation.Concurrency(); ok {
 		_spec.SetField(account.FieldConcurrency, field.TypeInt, value)
@@ -1704,6 +1757,40 @@ func (_u *AccountUpdateOne) SetNillableUpstreamStalePausedAt(v *time.Time) *Acco
 // ClearUpstreamStalePausedAt clears the value of the "upstream_stale_paused_at" field.
 func (_u *AccountUpdateOne) ClearUpstreamStalePausedAt() *AccountUpdateOne {
 	_u.mutation.ClearUpstreamStalePausedAt()
+	return _u
+}
+
+// SetUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field.
+func (_u *AccountUpdateOne) SetUpstreamLifecycleOwner(v string) *AccountUpdateOne {
+	_u.mutation.SetUpstreamLifecycleOwner(v)
+	return _u
+}
+
+// SetNillableUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableUpstreamLifecycleOwner(v *string) *AccountUpdateOne {
+	if v != nil {
+		_u.SetUpstreamLifecycleOwner(*v)
+	}
+	return _u
+}
+
+// SetUpstreamArchiveReason sets the "upstream_archive_reason" field.
+func (_u *AccountUpdateOne) SetUpstreamArchiveReason(v string) *AccountUpdateOne {
+	_u.mutation.SetUpstreamArchiveReason(v)
+	return _u
+}
+
+// SetNillableUpstreamArchiveReason sets the "upstream_archive_reason" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableUpstreamArchiveReason(v *string) *AccountUpdateOne {
+	if v != nil {
+		_u.SetUpstreamArchiveReason(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamArchiveReason clears the value of the "upstream_archive_reason" field.
+func (_u *AccountUpdateOne) ClearUpstreamArchiveReason() *AccountUpdateOne {
+	_u.mutation.ClearUpstreamArchiveReason()
 	return _u
 }
 
@@ -2399,6 +2486,16 @@ func (_u *AccountUpdateOne) check() error {
 			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Account.type": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.UpstreamLifecycleOwner(); ok {
+		if err := account.UpstreamLifecycleOwnerValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_lifecycle_owner", err: fmt.Errorf(`ent: validator failed for field "Account.upstream_lifecycle_owner": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.UpstreamArchiveReason(); ok {
+		if err := account.UpstreamArchiveReasonValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_archive_reason", err: fmt.Errorf(`ent: validator failed for field "Account.upstream_archive_reason": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := account.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Account.status": %w`, err)}
@@ -2499,6 +2596,15 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if _u.mutation.UpstreamStalePausedAtCleared() {
 		_spec.ClearField(account.FieldUpstreamStalePausedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.UpstreamLifecycleOwner(); ok {
+		_spec.SetField(account.FieldUpstreamLifecycleOwner, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.UpstreamArchiveReason(); ok {
+		_spec.SetField(account.FieldUpstreamArchiveReason, field.TypeString, value)
+	}
+	if _u.mutation.UpstreamArchiveReasonCleared() {
+		_spec.ClearField(account.FieldUpstreamArchiveReason, field.TypeString)
 	}
 	if value, ok := _u.mutation.Concurrency(); ok {
 		_spec.SetField(account.FieldConcurrency, field.TypeInt, value)

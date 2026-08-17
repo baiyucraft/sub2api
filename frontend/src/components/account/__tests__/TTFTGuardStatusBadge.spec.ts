@@ -114,4 +114,24 @@ describe('TTFTGuardStatusBadge', () => {
 
     wrapper.unmount()
   })
+
+  it('多个 badge 共用一个计时器，页面隐藏时暂停', async () => {
+    const first = mountBadge([makeDegradation()])
+    const second = mountBadge([makeDegradation({ model: 'gpt-5.4-pro' })])
+
+    expect(vi.getTimerCount()).toBe(1)
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(vi.getTimerCount()).toBe(0)
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(vi.getTimerCount()).toBe(1)
+
+    first.unmount()
+    expect(vi.getTimerCount()).toBe(1)
+    second.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
 })

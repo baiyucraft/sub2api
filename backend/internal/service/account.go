@@ -45,6 +45,10 @@ const (
 
 	AccountCredentialLCodexLoginIdentifier = "lcodex_login_identifier"
 	AccountCredentialLCodexLoginPassword   = "lcodex_login_password"
+
+	AccountUpstreamLifecycleOwnerManual      = "manual"
+	AccountUpstreamLifecycleOwnerSyncManaged = "sync_managed"
+	AccountUpstreamArchiveReasonKeyMissing   = "key_missing"
 )
 
 type Account struct {
@@ -77,6 +81,8 @@ type Account struct {
 	UpstreamConcurrencyOverride    *int
 	UpstreamStalePauseKeyID        *int64
 	UpstreamStalePausedAt          *time.Time
+	UpstreamLifecycleOwner         string
+	UpstreamArchiveReason          *string
 	Concurrency                    int
 	Priority                       int
 	// RateMultiplier 账号计费倍率（>=0，允许 0 表示该账号计费为 0）。

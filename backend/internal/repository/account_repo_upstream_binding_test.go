@@ -332,7 +332,7 @@ func expectAccountUpdate(mock sqlmock.Sqlmock, account *service.Account) {
 		sqlmock.NewRows(dbaccount.Columns).AddRow(
 			account.ID, now, now, nil, account.Name, nil, account.Platform, account.Type,
 			[]byte("{}"), []byte("{}"), nil, nil, configID, keyID,
-			nil, nil, account.Concurrency, nil, account.Priority, 1.0, nil, account.Status, "", nil, nil,
+			nil, nil, service.AccountUpstreamLifecycleOwnerManual, nil, account.Concurrency, nil, account.Priority, 1.0, nil, account.Status, "", nil, nil,
 			false, account.Schedulable, nil, nil, nil, nil, nil, nil, nil, nil, nil, dbaccount.QuotaDimensionGlobal,
 		),
 	)
@@ -354,7 +354,7 @@ func expectAccountBindingRead(mock sqlmock.Sqlmock, account *service.Account, fo
 	mock.ExpectQuery(query).WillReturnRows(sqlmock.NewRows(dbaccount.Columns).AddRow(
 		account.ID, now, now, nil, account.Name, nil, account.Platform, account.Type,
 		[]byte("{}"), []byte("{}"), nil, nil, configID, keyID,
-		nil, nil, account.Concurrency, nil, account.Priority, 1.0, nil, account.Status, "", nil, nil,
+		nil, nil, service.AccountUpstreamLifecycleOwnerManual, nil, account.Concurrency, nil, account.Priority, 1.0, nil, account.Status, "", nil, nil,
 		false, account.Schedulable, nil, nil, nil, nil, nil, nil, nil, nil, nil, dbaccount.QuotaDimensionGlobal,
 	))
 }

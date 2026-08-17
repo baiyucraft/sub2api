@@ -2563,6 +2563,8 @@ type AccountMutation struct {
 	upstream_stale_pause_key_id        *int64
 	addupstream_stale_pause_key_id     *int64
 	upstream_stale_paused_at           *time.Time
+	upstream_lifecycle_owner           *string
+	upstream_archive_reason            *string
 	concurrency                        *int
 	addconcurrency                     *int
 	load_factor                        *int
@@ -3396,6 +3398,91 @@ func (m *AccountMutation) UpstreamStalePausedAtCleared() bool {
 func (m *AccountMutation) ResetUpstreamStalePausedAt() {
 	m.upstream_stale_paused_at = nil
 	delete(m.clearedFields, account.FieldUpstreamStalePausedAt)
+}
+
+// SetUpstreamLifecycleOwner sets the "upstream_lifecycle_owner" field.
+func (m *AccountMutation) SetUpstreamLifecycleOwner(s string) {
+	m.upstream_lifecycle_owner = &s
+}
+
+// UpstreamLifecycleOwner returns the value of the "upstream_lifecycle_owner" field in the mutation.
+func (m *AccountMutation) UpstreamLifecycleOwner() (r string, exists bool) {
+	v := m.upstream_lifecycle_owner
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamLifecycleOwner returns the old "upstream_lifecycle_owner" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldUpstreamLifecycleOwner(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamLifecycleOwner is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamLifecycleOwner requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamLifecycleOwner: %w", err)
+	}
+	return oldValue.UpstreamLifecycleOwner, nil
+}
+
+// ResetUpstreamLifecycleOwner resets all changes to the "upstream_lifecycle_owner" field.
+func (m *AccountMutation) ResetUpstreamLifecycleOwner() {
+	m.upstream_lifecycle_owner = nil
+}
+
+// SetUpstreamArchiveReason sets the "upstream_archive_reason" field.
+func (m *AccountMutation) SetUpstreamArchiveReason(s string) {
+	m.upstream_archive_reason = &s
+}
+
+// UpstreamArchiveReason returns the value of the "upstream_archive_reason" field in the mutation.
+func (m *AccountMutation) UpstreamArchiveReason() (r string, exists bool) {
+	v := m.upstream_archive_reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamArchiveReason returns the old "upstream_archive_reason" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldUpstreamArchiveReason(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamArchiveReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamArchiveReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamArchiveReason: %w", err)
+	}
+	return oldValue.UpstreamArchiveReason, nil
+}
+
+// ClearUpstreamArchiveReason clears the value of the "upstream_archive_reason" field.
+func (m *AccountMutation) ClearUpstreamArchiveReason() {
+	m.upstream_archive_reason = nil
+	m.clearedFields[account.FieldUpstreamArchiveReason] = struct{}{}
+}
+
+// UpstreamArchiveReasonCleared returns if the "upstream_archive_reason" field was cleared in this mutation.
+func (m *AccountMutation) UpstreamArchiveReasonCleared() bool {
+	_, ok := m.clearedFields[account.FieldUpstreamArchiveReason]
+	return ok
+}
+
+// ResetUpstreamArchiveReason resets all changes to the "upstream_archive_reason" field.
+func (m *AccountMutation) ResetUpstreamArchiveReason() {
+	m.upstream_archive_reason = nil
+	delete(m.clearedFields, account.FieldUpstreamArchiveReason)
 }
 
 // SetConcurrency sets the "concurrency" field.
@@ -4809,7 +4896,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 36)
+	fields := make([]string, 0, 38)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4854,6 +4941,12 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.upstream_stale_paused_at != nil {
 		fields = append(fields, account.FieldUpstreamStalePausedAt)
+	}
+	if m.upstream_lifecycle_owner != nil {
+		fields = append(fields, account.FieldUpstreamLifecycleOwner)
+	}
+	if m.upstream_archive_reason != nil {
+		fields = append(fields, account.FieldUpstreamArchiveReason)
 	}
 	if m.concurrency != nil {
 		fields = append(fields, account.FieldConcurrency)
@@ -4956,6 +5049,10 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.UpstreamStalePauseKeyID()
 	case account.FieldUpstreamStalePausedAt:
 		return m.UpstreamStalePausedAt()
+	case account.FieldUpstreamLifecycleOwner:
+		return m.UpstreamLifecycleOwner()
+	case account.FieldUpstreamArchiveReason:
+		return m.UpstreamArchiveReason()
 	case account.FieldConcurrency:
 		return m.Concurrency()
 	case account.FieldLoadFactor:
@@ -5037,6 +5134,10 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldUpstreamStalePauseKeyID(ctx)
 	case account.FieldUpstreamStalePausedAt:
 		return m.OldUpstreamStalePausedAt(ctx)
+	case account.FieldUpstreamLifecycleOwner:
+		return m.OldUpstreamLifecycleOwner(ctx)
+	case account.FieldUpstreamArchiveReason:
+		return m.OldUpstreamArchiveReason(ctx)
 	case account.FieldConcurrency:
 		return m.OldConcurrency(ctx)
 	case account.FieldLoadFactor:
@@ -5192,6 +5293,20 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetUpstreamStalePausedAt(v)
+		return nil
+	case account.FieldUpstreamLifecycleOwner:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamLifecycleOwner(v)
+		return nil
+	case account.FieldUpstreamArchiveReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamArchiveReason(v)
 		return nil
 	case account.FieldConcurrency:
 		v, ok := value.(int)
@@ -5481,6 +5596,9 @@ func (m *AccountMutation) ClearedFields() []string {
 	if m.FieldCleared(account.FieldUpstreamStalePausedAt) {
 		fields = append(fields, account.FieldUpstreamStalePausedAt)
 	}
+	if m.FieldCleared(account.FieldUpstreamArchiveReason) {
+		fields = append(fields, account.FieldUpstreamArchiveReason)
+	}
 	if m.FieldCleared(account.FieldLoadFactor) {
 		fields = append(fields, account.FieldLoadFactor)
 	}
@@ -5560,6 +5678,9 @@ func (m *AccountMutation) ClearField(name string) error {
 		return nil
 	case account.FieldUpstreamStalePausedAt:
 		m.ClearUpstreamStalePausedAt()
+		return nil
+	case account.FieldUpstreamArchiveReason:
+		m.ClearUpstreamArchiveReason()
 		return nil
 	case account.FieldLoadFactor:
 		m.ClearLoadFactor()
@@ -5655,6 +5776,12 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldUpstreamStalePausedAt:
 		m.ResetUpstreamStalePausedAt()
+		return nil
+	case account.FieldUpstreamLifecycleOwner:
+		m.ResetUpstreamLifecycleOwner()
+		return nil
+	case account.FieldUpstreamArchiveReason:
+		m.ResetUpstreamArchiveReason()
 		return nil
 	case account.FieldConcurrency:
 		m.ResetConcurrency()

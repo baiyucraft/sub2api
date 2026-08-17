@@ -46,6 +46,10 @@ const (
 	FieldUpstreamStalePauseKeyID = "upstream_stale_pause_key_id"
 	// FieldUpstreamStalePausedAt holds the string denoting the upstream_stale_paused_at field in the database.
 	FieldUpstreamStalePausedAt = "upstream_stale_paused_at"
+	// FieldUpstreamLifecycleOwner holds the string denoting the upstream_lifecycle_owner field in the database.
+	FieldUpstreamLifecycleOwner = "upstream_lifecycle_owner"
+	// FieldUpstreamArchiveReason holds the string denoting the upstream_archive_reason field in the database.
+	FieldUpstreamArchiveReason = "upstream_archive_reason"
 	// FieldConcurrency holds the string denoting the concurrency field in the database.
 	FieldConcurrency = "concurrency"
 	// FieldLoadFactor holds the string denoting the load_factor field in the database.
@@ -183,6 +187,8 @@ var Columns = []string{
 	FieldUpstreamKeyID,
 	FieldUpstreamStalePauseKeyID,
 	FieldUpstreamStalePausedAt,
+	FieldUpstreamLifecycleOwner,
+	FieldUpstreamArchiveReason,
 	FieldConcurrency,
 	FieldLoadFactor,
 	FieldPriority,
@@ -246,6 +252,12 @@ var (
 	DefaultCredentials func() map[string]interface{}
 	// DefaultExtra holds the default value on creation for the "extra" field.
 	DefaultExtra func() map[string]interface{}
+	// DefaultUpstreamLifecycleOwner holds the default value on creation for the "upstream_lifecycle_owner" field.
+	DefaultUpstreamLifecycleOwner string
+	// UpstreamLifecycleOwnerValidator is a validator for the "upstream_lifecycle_owner" field. It is called by the builders before save.
+	UpstreamLifecycleOwnerValidator func(string) error
+	// UpstreamArchiveReasonValidator is a validator for the "upstream_archive_reason" field. It is called by the builders before save.
+	UpstreamArchiveReasonValidator func(string) error
 	// DefaultConcurrency holds the default value on creation for the "concurrency" field.
 	DefaultConcurrency int
 	// DefaultPriority holds the default value on creation for the "priority" field.
@@ -361,6 +373,16 @@ func ByUpstreamStalePauseKeyID(opts ...sql.OrderTermOption) OrderOption {
 // ByUpstreamStalePausedAt orders the results by the upstream_stale_paused_at field.
 func ByUpstreamStalePausedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpstreamStalePausedAt, opts...).ToFunc()
+}
+
+// ByUpstreamLifecycleOwner orders the results by the upstream_lifecycle_owner field.
+func ByUpstreamLifecycleOwner(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamLifecycleOwner, opts...).ToFunc()
+}
+
+// ByUpstreamArchiveReason orders the results by the upstream_archive_reason field.
+func ByUpstreamArchiveReason(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamArchiveReason, opts...).ToFunc()
 }
 
 // ByConcurrency orders the results by the concurrency field.

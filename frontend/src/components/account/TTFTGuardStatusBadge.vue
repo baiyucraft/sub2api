@@ -53,22 +53,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import type { AccountTTFTGuardDegradation } from '@/types'
 import { formatDateTime } from '@/utils/format'
+import { useTTFTGuardTicker } from '@/composables/useTTFTGuardTicker'
 
 const props = defineProps<{
   degradations?: AccountTTFTGuardDegradation[]
 }>()
 
 const { t } = useI18n()
-const now = ref(Date.now())
-let timer: ReturnType<typeof setInterval> | null = null
-
 const degradations = computed(() => props.degradations ?? [])
+const now = useTTFTGuardTicker(() => degradations.value.length > 0)
 
 const elapsedSeconds = (degradation: AccountTTFTGuardDegradation, referenceNow = now.value) => {
   const startedAt = Date.parse(degradation.degraded_at)
@@ -106,26 +105,4 @@ const reasonText = (reason: string) => {
   return t(`admin.accounts.status.ttftGuard.${key ?? 'unknownReason'}`)
 }
 
-watch(
-  () => degradations.value.length,
-  (count) => {
-    if (count > 0 && timer === null) {
-      now.value = Date.now()
-      timer = setInterval(() => {
-        now.value = Date.now()
-      }, 1000)
-    } else if (count === 0 && timer !== null) {
-      clearInterval(timer)
-      timer = null
-    }
-  },
-  { immediate: true }
-)
-
-onUnmounted(() => {
-  if (timer !== null) {
-    clearInterval(timer)
-    timer = null
-  }
-})
 </script>

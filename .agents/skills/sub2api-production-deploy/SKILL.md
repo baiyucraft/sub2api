@@ -181,13 +181,13 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 ### 签名资产与 profile 兼容
 
 - validator、Gate signer 或 DR signer checksum 变化时，先在隔离目录完成配套自测，再原子激活同一版本单元。日常更新固定使用 `REQUIRE_EXISTING_SIGNER_KEYS=true`，禁止创建、替换或轮换既有信任根。
-- 在备份机分别 bootstrap verifier 与 promoter，并预置当前支持的 profile 目录。profile 195 保留历史单 migration checksum；profile 199、202、206、207、208、209、210、212、213、215、232、233、234、235、236、237 和 238 的 migration checksum 固定按以下方式生成：
+- 在备份机分别 bootstrap verifier 与 promoter，并预置当前支持的 profile 目录。profile 195 保留历史单 migration checksum；profile 199、202、206、207、208、209、210、212、213、215、232、233、234、235、236、237、238 和 239 的 migration checksum 固定按以下方式生成：
 
 ```text
 jq -cS '.manifest.migration_sha256' | sha256sum
 ```
 
-- signer 必须同时自测 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235、236、237 和 238；集成测试至少覆盖 195/199/202/206 历史回归、207/210/213/234/236 纯继承回归、208/209 成功和错误 checksum 拒绝、212/215/232/233/235/237/238 新迁移成功和错误 checksum 拒绝。profile 232 必须完整继承 215 的 32 项 map并追加 216–232 共 49 项，同时绑定显式 compatibility version/commit/image；profile 233 在此基础上只追加 `233_upstream_management.sql`，共 50 项并保持版本 `0.1.173-baiyu`；profile 234 仅将应用版本更新为 `0.1.175-baiyu`，完整继承 profile 233 的 50 项 map、checksum 和 compatibility identity，不新增 migration；profile 235 追加 `234_group_model_pricing.sql` 后共 51 项；profile 236 仅将应用版本更新为 `0.176-baiyu`，完整继承 profile 235 的 51 项 map、checksum 和 compatibility identity，不新增 migration；profile 237 追加 `235_group_usage_daily_rollups.sql` 与 `236_group_usage_rollup_timezone.sql` 后共 53 项；profile 238 追加 `237_image_cost_routing.sql` 后共 54 项，版本保持 `0.1.177-baiyu`。migration 232 的数据计划、恢复点绑定、备份表和协调恢复证据缺一不可；migration 233/234/235/236/237 必须分别验证其 schema 与语义合同。DR evidence 绑定完整 map 的规范化 checksum，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
+- signer 必须同时自测 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235、236、237、238 和 239；集成测试至少覆盖 195/199/202/206 历史回归、207/210/213/234/236 纯继承回归、208/209 成功和错误 checksum 拒绝、212/215/232/233/235/237/238/239 新迁移成功和错误 checksum 拒绝。profile 232 必须完整继承 215 的 32 项 map并追加 216–232 共 49 项，同时绑定显式 compatibility version/commit/image；profile 233 在此基础上只追加 `233_upstream_management.sql`，共 50 项并保持版本 `0.1.173-baiyu`；profile 234 仅将应用版本更新为 `0.1.175-baiyu`，完整继承 profile 233 的 50 项 map、checksum 和 compatibility identity，不新增 migration；profile 235 追加 `234_group_model_pricing.sql` 后共 51 项；profile 236 仅将应用版本更新为 `0.176-baiyu`，完整继承 profile 235 的 51 项 map、checksum 和 compatibility identity，不新增 migration；profile 237 追加 `235_group_usage_daily_rollups.sql` 与 `236_group_usage_rollup_timezone.sql` 后共 53 项；profile 238 追加 `237_image_cost_routing.sql` 后共 54 项；profile 239 追加 `238_upstream_account_lifecycle.sql` 后共 55 项，版本保持 `0.1.177-baiyu`。migration 232 的数据计划、恢复点绑定、备份表和协调恢复证据缺一不可；migration 233/234/235/236/237/238 必须分别验证其 schema 与语义合同。DR evidence 绑定完整 map 的规范化 checksum，不能只绑定最新迁移。测试 Gate 必须由版本化 fixture 或测试过程生成，禁止依赖未版本化 `.tmp` 资产。
 
 ### 生产成功与灾备基线
 

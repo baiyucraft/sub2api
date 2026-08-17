@@ -203,26 +203,28 @@ type UpstreamConfigService struct {
 }
 
 type UpstreamConfigSyncResult struct {
-	RunID               int64    `json:"run_id,omitempty"`
-	ConfigID            int64    `json:"config_id"`
-	Name                string   `json:"name"`
-	Provider            string   `json:"provider,omitempty"`
-	Success             bool     `json:"success"`
-	Status              string   `json:"status,omitempty"`
-	Stage               string   `json:"stage,omitempty"`
-	ErrorCode           string   `json:"error_code,omitempty"`
-	Retryable           bool     `json:"retryable,omitempty"`
-	KeyCount            int      `json:"key_count"`
-	FallbackKeyCount    int      `json:"fallback_key_count,omitempty"`
-	UnresolvedKeyCount  int      `json:"unresolved_key_count,omitempty"`
-	UpdatedAccountCount int      `json:"updated_account_count"`
-	MissingKeyCount     int      `json:"missing_key_count,omitempty"`
-	StaleKeyCount       int      `json:"stale_key_count,omitempty"`
-	DeletedKeyCount     int      `json:"deleted_key_count,omitempty"`
-	RestoredKeyCount    int      `json:"restored_key_count,omitempty"`
-	Warnings            []string `json:"warnings,omitempty"`
-	DurationMS          int64    `json:"duration_ms,omitempty"`
-	Error               string   `json:"error,omitempty"`
+	RunID                int64    `json:"run_id,omitempty"`
+	ConfigID             int64    `json:"config_id"`
+	Name                 string   `json:"name"`
+	Provider             string   `json:"provider,omitempty"`
+	Success              bool     `json:"success"`
+	Status               string   `json:"status,omitempty"`
+	Stage                string   `json:"stage,omitempty"`
+	ErrorCode            string   `json:"error_code,omitempty"`
+	Retryable            bool     `json:"retryable,omitempty"`
+	KeyCount             int      `json:"key_count"`
+	FallbackKeyCount     int      `json:"fallback_key_count,omitempty"`
+	UnresolvedKeyCount   int      `json:"unresolved_key_count,omitempty"`
+	UpdatedAccountCount  int      `json:"updated_account_count"`
+	MissingKeyCount      int      `json:"missing_key_count,omitempty"`
+	StaleKeyCount        int      `json:"stale_key_count,omitempty"`
+	DeletedKeyCount      int      `json:"deleted_key_count,omitempty"`
+	RestoredKeyCount     int      `json:"restored_key_count,omitempty"`
+	ArchivedAccountCount int      `json:"archived_account_count,omitempty"`
+	RestoredAccountCount int      `json:"restored_account_count,omitempty"`
+	Warnings             []string `json:"warnings,omitempty"`
+	DurationMS           int64    `json:"duration_ms,omitempty"`
+	Error                string   `json:"error,omitempty"`
 }
 
 type UpstreamAccountNameBackfillItem struct {
@@ -272,10 +274,12 @@ type upstreamHealthProbeLockRepository interface {
 }
 
 type UpstreamKeyReconcileResult struct {
-	Missing  int
-	Stale    int
-	Deleted  int
-	Restored int
+	Missing              int
+	Stale                int
+	Deleted              int
+	Restored             int
+	ArchivedAccountCount int
+	RestoredAccountCount int
 }
 
 const UpstreamKeyStatusStale = "stale"
@@ -1602,6 +1606,8 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 		result.StaleKeyCount = reconciled.Stale
 		result.DeletedKeyCount = reconciled.Deleted
 		result.RestoredKeyCount = reconciled.Restored
+		result.ArchivedAccountCount = reconciled.ArchivedAccountCount
+		result.RestoredAccountCount = reconciled.RestoredAccountCount
 		result.Success = true
 		result.Status = UpstreamSyncStatusSucceeded
 		if snapshot.Partial || len(snapshot.Warnings) > 0 || snapshot.UnresolvedKeyCount > 0 {
@@ -1693,7 +1699,8 @@ func (s *UpstreamConfigService) reconcileUpstreamAccounts(ctx context.Context, c
 			Credentials:      map[string]any{"pool_mode": true},
 			Extra:            map[string]any{AccountUpstreamProviderKey: cfg.Provider, AccountSub2APIRateSyncAdapterKey: cfg.AuthMode},
 			UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
-			Concurrency: concurrency, Priority: priority, RateMultiplier: &rate,
+			UpstreamLifecycleOwner: AccountUpstreamLifecycleOwnerSyncManaged,
+			Concurrency:            concurrency, Priority: priority, RateMultiplier: &rate,
 			Status: StatusActive, Schedulable: false,
 		}
 		if err := s.accountRepo.Create(ctx, account); err != nil {
