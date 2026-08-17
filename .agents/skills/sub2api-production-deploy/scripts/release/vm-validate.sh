@@ -1243,6 +1243,10 @@ if ! jq -n --slurpfile manifest "$manifest" \
   --argjson migration_238_schema_verified "$migration_238_schema_verified" \
   --argjson migration_239_preflight_verified "$migration_239_preflight_verified" \
   --argjson migration_239_schema_verified "$migration_239_schema_verified" \
+  --argjson migration_240_preflight_verified "$migration_240_preflight_verified" \
+  --argjson migration_240_schema_verified "$migration_240_schema_verified" \
+  --argjson migration_241_preflight_verified "$migration_241_preflight_verified" \
+  --argjson migration_241_schema_verified "$migration_241_schema_verified" \
   --arg vm_old_image_id "$compat_image_id" \
   --argjson vm_old_image_compatibility_verified "$vm_old_image_compatibility_verified" \
   --argjson fixture_rejected "$fixture_rejected" \

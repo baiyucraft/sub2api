@@ -1089,6 +1089,13 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('[[ -s $gate_json_tmp ]] || fail_gate_signing gate_signing_canonicalize', validator)
         self.assertIn('fail_gate_signing gate_signing_signature', validator)
         self.assertNotIn('| jq -cS . > "$output_dir/gate.json.tmp"', validator)
+        for field in (
+            "migration_240_preflight_verified",
+            "migration_240_schema_verified",
+            "migration_241_preflight_verified",
+            "migration_241_schema_verified",
+        ):
+            self.assertIn(f'--argjson {field} "${field}"', validator)
 
     def test_preflight_accepts_absent_or_matching_migration_only(self) -> None:
         preflight = self.script("preflight.sh")
