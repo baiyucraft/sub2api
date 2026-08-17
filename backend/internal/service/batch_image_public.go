@@ -1281,7 +1281,7 @@ func batchImageModelsFromAccountMapping(account *Account) []string {
 	if account == nil {
 		return nil
 	}
-	mapping := account.GetModelMapping()
+	mapping := account.schedulableModelMapping(time.Now().UTC())
 	if len(mapping) == 0 {
 		return nil
 	}

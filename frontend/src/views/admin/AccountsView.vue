@@ -43,13 +43,11 @@
                   :title="t('admin.accounts.autoRefresh')"
                 >
                   <Icon name="refresh" size="sm" :class="[autoRefreshEnabled ? 'animate-spin' : '']" />
-                  <span class="hidden md:inline">
-                    {{
-                      autoRefreshEnabled
-                        ? t('admin.accounts.autoRefreshCountdown', { seconds: autoRefreshCountdown })
-                        : t('admin.accounts.autoRefresh')
-                    }}
-                  </span>
+                  <AutoRefreshCountdownLabel
+                    class="hidden md:inline"
+                    :enabled="autoRefreshEnabled"
+                    :deadline="autoRefreshDeadline"
+                  />
                 </button>
                 <div
                   v-if="showAutoRefreshDropdown"
@@ -321,11 +319,7 @@
             </div>
           </template>
           <template #cell-model_mapping="{ row }">
-            <div v-if="modelMappingEntries(row).length" class="flex max-w-[260px] flex-col gap-1 text-[11px]">
-              <div v-for="entry in modelMappingEntries(row).slice(0, 4)" :key="entry" class="truncate font-mono text-gray-600 dark:text-dark-300" :title="entry">{{ entry }}</div>
-              <div v-if="modelMappingEntries(row).length > 4" class="text-gray-400 dark:text-dark-500">+{{ modelMappingEntries(row).length - 4 }}</div>
-            </div>
-            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+            <UpstreamModelMappingCell :account="row" />
           </template>
           <template #cell-capacity="{ row }">
             <AccountCapacityCell :account="row" />
@@ -421,8 +415,14 @@
             </div>
           </template>
           <template #cell-rate_multiplier="{ row }">
-            <div class="flex flex-col gap-0.5">
-              <span class="inline-flex items-center gap-1 text-sm font-mono text-gray-700 dark:text-gray-300">
+            <div
+              class="flex flex-col gap-0.5"
+              :class="scope === 'upstream' ? 'items-center text-center' : ''"
+            >
+              <span
+                class="inline-flex items-center gap-1 text-sm font-mono text-gray-700 dark:text-gray-300"
+                :class="scope === 'upstream' ? 'justify-center' : ''"
+              >
                 <span>{{ formatMultiplier(row.rate_multiplier ?? 1) }}x</span>
                 <span
                   v-if="row.extra?.upstream_billing_rate_sync_enabled === true"
@@ -578,7 +578,16 @@
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
-    <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" :mode="props.scope === 'upstream' ? 'upstream' : 'ordinary'" @close="showEdit = false" @updated="handleAccountUpdated" />
+    <EditAccountModal
+      :show="showEdit"
+      :account="edAcc"
+      :proxies="proxies"
+      :groups="groups"
+      :mode="props.scope === 'upstream' ? 'upstream' : 'ordinary'"
+      @close="showEdit = false"
+      @updated="handleAccountUpdated"
+      @refresh-list="handleManagedModelSyncRefresh"
+    />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
@@ -629,7 +638,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, reactive, ref, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -647,20 +656,11 @@ import DataTable from '@/components/common/DataTable.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import UpstreamKeyEventsDialog from '@/components/admin/account/UpstreamKeyEventsDialog.vue'
-import UpstreamRateTrendDialog from '@/components/admin/account/UpstreamRateTrendDialog.vue'
-import UpstreamManagementSettingsDialog from '@/components/admin/account/UpstreamManagementSettingsDialog.vue'
 import Toggle from '@/components/common/Toggle.vue'
-import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
-import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
-import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
-import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
-import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
-import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import UpstreamHealthCell from '@/components/account/UpstreamHealthCell.vue'
@@ -671,10 +671,10 @@ import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
 import UpstreamImagePricingSummary from '@/components/account/UpstreamImagePricingSummary.vue'
+import UpstreamModelMappingCell from '@/components/account/UpstreamModelMappingCell.vue'
+import AutoRefreshCountdownLabel from '@/components/account/AutoRefreshCountdownLabel.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
-import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
-import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { buildTTFTGuardDegradationKey, buildUpstreamHealthKey, mergeRuntimeFields } from '@/utils/accountRuntimeState'
@@ -686,6 +686,22 @@ import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
 import { escapeCsvCell } from '@/utils/csv'
 import type { Account, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
+
+const CreateAccountModal = defineAsyncComponent(() => import('@/components/account/CreateAccountModal.vue'))
+const EditAccountModal = defineAsyncComponent(() => import('@/components/account/EditAccountModal.vue'))
+const BulkEditAccountModal = defineAsyncComponent(() => import('@/components/account/BulkEditAccountModal.vue'))
+const SyncFromCrsModal = defineAsyncComponent(() => import('@/components/account/SyncFromCrsModal.vue'))
+const TempUnschedStatusModal = defineAsyncComponent(() => import('@/components/account/TempUnschedStatusModal.vue'))
+const ImportDataModal = defineAsyncComponent(() => import('@/components/admin/account/ImportDataModal.vue'))
+const ReAuthAccountModal = defineAsyncComponent(() => import('@/components/admin/account/ReAuthAccountModal.vue'))
+const AccountTestModal = defineAsyncComponent(() => import('@/components/admin/account/AccountTestModal.vue'))
+const AccountStatsModal = defineAsyncComponent(() => import('@/components/admin/account/AccountStatsModal.vue'))
+const ScheduledTestsPanel = defineAsyncComponent(() => import('@/components/admin/account/ScheduledTestsPanel.vue'))
+const UpstreamKeyEventsDialog = defineAsyncComponent(() => import('@/components/admin/account/UpstreamKeyEventsDialog.vue'))
+const UpstreamRateTrendDialog = defineAsyncComponent(() => import('@/components/admin/account/UpstreamRateTrendDialog.vue'))
+const UpstreamManagementSettingsDialog = defineAsyncComponent(() => import('@/components/admin/account/UpstreamManagementSettingsDialog.vue'))
+const ErrorPassthroughRulesModal = defineAsyncComponent(() => import('@/components/admin/ErrorPassthroughRulesModal.vue'))
+const TLSFingerprintProfilesModal = defineAsyncComponent(() => import('@/components/admin/TLSFingerprintProfilesModal.vue'))
 
 const upstreamImagePricingStatus = (account: Account) => {
   const pricing = account.upstream_image_pricing
@@ -917,12 +933,12 @@ const autoRefreshDropdownRef = ref<HTMLElement | null>(null)
 const autoRefreshIntervals = [5, 10, 15, 30] as const
 const autoRefreshEnabled = ref(false)
 const autoRefreshIntervalSeconds = ref<(typeof autoRefreshIntervals)[number]>(30)
-const autoRefreshCountdown = ref(0)
+const autoRefreshDeadline = ref(0)
 const autoRefreshETag = ref<string | null>(null)
 const autoRefreshFetching = ref(false)
 let autoRefreshRequestGeneration = 0
 const AUTO_REFRESH_SILENT_WINDOW_MS = 15000
-const autoRefreshSilentUntil = ref(0)
+let autoRefreshSilentUntil = 0
 const hasPendingListSync = ref(false)
 const todayStatsByAccountId = ref<Record<string, WindowStats>>({})
 const todayStatsLoading = ref(false)
@@ -1404,7 +1420,7 @@ const saveColumnsToStorage = (scope: AccountScope = props.scope) => {
 const loadSavedAutoRefresh = (scope: AccountScope = props.scope) => {
   autoRefreshEnabled.value = false
   autoRefreshIntervalSeconds.value = 30
-  autoRefreshCountdown.value = 0
+  autoRefreshDeadline.value = 0
   try {
     const saved = localStorage.getItem(getViewPreferenceStorageConfig(scope).autoRefreshStorageKey)
     if (!saved) return
@@ -1442,11 +1458,11 @@ const setAutoRefreshEnabled = (enabled: boolean) => {
   autoRefreshEnabled.value = enabled
   saveAutoRefreshToStorage()
   if (enabled) {
-    autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
+    autoRefreshDeadline.value = Date.now() + autoRefreshIntervalSeconds.value * 1000
     resumeAutoRefresh()
   } else {
     pauseAutoRefresh()
-    autoRefreshCountdown.value = 0
+    autoRefreshDeadline.value = 0
   }
 }
 
@@ -1454,7 +1470,7 @@ const setAutoRefreshInterval = (seconds: (typeof autoRefreshIntervals)[number]) 
   autoRefreshIntervalSeconds.value = seconds
   saveAutoRefreshToStorage()
   if (autoRefreshEnabled.value) {
-    autoRefreshCountdown.value = seconds
+    autoRefreshDeadline.value = Date.now() + seconds * 1000
   }
 }
 
@@ -1606,7 +1622,7 @@ watch(() => props.scope, (scope, previousScope) => {
   sortState.sort_order = nextSort.sort_order
   loadSavedAutoRefresh(scope)
   if (autoRefreshEnabled.value) {
-    autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
+    autoRefreshDeadline.value = Date.now() + autoRefreshIntervalSeconds.value * 1000
     resumeAutoRefresh()
   } else {
     pauseAutoRefresh()
@@ -1815,12 +1831,12 @@ const isAnyModalOpen = computed(() => {
 })
 
 const enterAutoRefreshSilentWindow = () => {
-  autoRefreshSilentUntil.value = Date.now() + AUTO_REFRESH_SILENT_WINDOW_MS
-  autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
+  autoRefreshSilentUntil = Date.now() + AUTO_REFRESH_SILENT_WINDOW_MS
+  autoRefreshDeadline.value = autoRefreshSilentUntil
 }
 
 const inAutoRefreshSilentWindow = () => {
-  return Date.now() < autoRefreshSilentUntil.value
+  return Date.now() < autoRefreshSilentUntil
 }
 
 const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
@@ -2117,19 +2133,11 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
     if (loading.value || autoRefreshFetching.value) return
     if (isAnyModalOpen.value) return
     if (menu.show || showAccountToolsDropdown.value || showAutoRefreshDropdown.value) return
-    if (inAutoRefreshSilentWindow()) {
-      autoRefreshCountdown.value = Math.max(
-        0,
-        Math.ceil((autoRefreshSilentUntil.value - Date.now()) / 1000)
-      )
-      return
-    }
+    if (inAutoRefreshSilentWindow()) return
+    if (Date.now() < autoRefreshDeadline.value) return
 
-    autoRefreshCountdown.value = Math.max(0, autoRefreshCountdown.value - 1)
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
-      await refreshAccountsIncrementally()
-    }
+    autoRefreshDeadline.value = Date.now() + autoRefreshIntervalSeconds.value * 1000
+    await refreshAccountsIncrementally()
   },
   1000,
   { immediate: false }
@@ -2379,14 +2387,6 @@ const allColumns = computed(() => {
   )
   return c
 })
-
-const modelMappingEntries = (account: Account): string[] => {
-  const mapping = account.credentials?.model_mapping
-  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) return []
-  return Object.entries(mapping as Record<string, unknown>)
-    .map(([source, target]) => `${source} → ${String(target)}`)
-    .sort((a, b) => a.localeCompare(b))
-}
 
 // Columns that can be toggled (exclude select, name, and actions)
 const toggleableColumns = computed(() =>
@@ -2816,6 +2816,12 @@ const handleAccountUpdated = (updatedAccount: Account) => {
   patchAccountInList(updatedAccount)
   enterAutoRefreshSilentWindow()
 }
+const handleManagedModelSyncRefresh = async () => {
+  await load()
+  if (edAcc.value) {
+    edAcc.value = accounts.value.find((account) => account.id === edAcc.value?.id) ?? edAcc.value
+  }
+}
 const formatExportTimestamp = () => {
   const now = new Date()
   const pad2 = (value: number) => String(value).padStart(2, '0')
@@ -3102,7 +3108,7 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
 
   if (autoRefreshEnabled.value) {
-    autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
+    autoRefreshDeadline.value = Date.now() + autoRefreshIntervalSeconds.value * 1000
     resumeAutoRefresh()
   } else {
     pauseAutoRefresh()

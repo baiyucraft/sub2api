@@ -116,6 +116,10 @@ const handleEscape = (event: KeyboardEvent) => {
 watch(
   () => props.show,
   async (isOpen) => {
+    // Some consumers keep the component mounted while a test/runtime document is
+    // being torn down. Avoid scheduling DOM work after that boundary.
+    if (typeof document === 'undefined') return
+
     if (isOpen) {
       // 保存当前焦点元素
       previousActiveElement = document.activeElement as HTMLElement
@@ -146,10 +150,12 @@ watch(
 )
 
 onMounted(() => {
+  if (typeof document === 'undefined') return
   document.addEventListener('keydown', handleEscape)
 })
 
 onUnmounted(() => {
+  if (typeof document === 'undefined') return
   document.removeEventListener('keydown', handleEscape)
   // 确保组件卸载时移除滚动锁定
   document.body.classList.remove('modal-open')

@@ -459,6 +459,7 @@ func ProvideUpstreamConfigService(
 ) *UpstreamConfigService {
 	service := NewUpstreamConfigService(repo, proxyRepo, accountRepo)
 	service.SetHealthProbeDependencies(accountTestService, settingService)
+	service.SetAccountTestService(accountTestService)
 	SetGlobalUpstreamHealthEvidenceRecorder(service)
 	SetGlobalUpstreamHealthManualRecoveryHandler(service)
 	return service

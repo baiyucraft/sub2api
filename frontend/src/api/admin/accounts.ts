@@ -574,6 +574,7 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
 
 export interface SyncUpstreamModelsResult {
   models: string[]
+  persisted?: boolean
 }
 
 /**

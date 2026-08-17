@@ -394,6 +394,8 @@ func sanitizeUpstreamSyncResult(result service.UpstreamConfigSyncResult) gin.H {
 		"key_count": result.KeyCount, "fallback_key_count": result.FallbackKeyCount,
 		"unresolved_key_count": result.UnresolvedKeyCount, "updated_account_count": result.UpdatedAccountCount,
 		"archived_account_count": result.ArchivedAccountCount, "restored_account_count": result.RestoredAccountCount,
+		"model_sync_attempted": result.ModelSyncAttemptedCount, "model_sync_succeeded": result.ModelSyncSucceededCount,
+		"model_sync_failed": result.ModelSyncFailedCount, "model_sync_skipped": result.ModelSyncSkippedCount,
 		"warnings": result.Warnings, "duration_ms": result.DurationMS,
 		"error": logredact.RedactText(result.Error, "password", "api_key", "jwt", "authorization", "refresh_token", "access_token", "cookie", "session"),
 	}

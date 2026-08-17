@@ -2999,7 +2999,7 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 		return
 	}
 
-	models, err := h.accountTestService.FetchUpstreamSupportedModels(c.Request.Context(), account)
+	syncResult, err := h.accountTestService.SyncUpstreamAccountModels(c.Request.Context(), account, nil, true)
 	if err != nil {
 		var syncErr *service.UpstreamModelSyncError
 		if errors.As(err, &syncErr) {
@@ -3018,7 +3018,7 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{"models": models})
+	response.Success(c, gin.H{"models": syncResult.Models, "persisted": syncResult.Updated})
 }
 
 // SyncUpstreamModelsPreview handles syncing live supported models using provided credentials (no account ID needed).

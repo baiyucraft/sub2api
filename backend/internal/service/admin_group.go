@@ -85,7 +85,7 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 		} else if acc.Platform != platform {
 			continue
 		}
-		for model := range acc.GetModelMapping() {
+		for model := range acc.schedulableModelMapping(time.Now().UTC()) {
 			model = strings.TrimSpace(model)
 			if model == "" {
 				continue
