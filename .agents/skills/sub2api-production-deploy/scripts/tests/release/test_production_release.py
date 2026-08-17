@@ -1082,6 +1082,14 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('SELECT filename,checksum FROM schema_migrations ORDER BY filename', cleanup)
         self.assertIn("systemctl is-enabled sub2api-backup.timer", cleanup)
 
+    def test_vm_gate_signing_rejects_empty_or_partial_payloads(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        self.assertIn('gate_payload_tmp="$output_dir/gate.payload.tmp"', validator)
+        self.assertIn('[[ -s $gate_payload_tmp ]] || fail_gate_signing gate_signing_payload', validator)
+        self.assertIn('[[ -s $gate_json_tmp ]] || fail_gate_signing gate_signing_canonicalize', validator)
+        self.assertIn('fail_gate_signing gate_signing_signature', validator)
+        self.assertNotIn('| jq -cS . > "$output_dir/gate.json.tmp"', validator)
+
     def test_preflight_accepts_absent_or_matching_migration_only(self) -> None:
         preflight = self.script("preflight.sh")
         self.assertIn("migration_status=absent", preflight)
