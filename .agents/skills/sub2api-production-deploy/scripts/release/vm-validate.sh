@@ -553,7 +553,7 @@ fi
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_195_fixture
   migration_195_context="$state_dir/migration-195-context.sh"
-  printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$migration_195_context"
+  printf 'profile=%q\nrelease_profile=%q\nstate_dir=%q\n' "$profile" "$release_profile" "$state_dir" > "$migration_195_context"
   chmod 400 "$migration_195_context"
   fixture_key_id=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT k.id FROM upstream_keys k JOIN accounts a ON a.upstream_key_id=k.id WHERE k.rate_multiplier IS NOT NULL ORDER BY k.id LIMIT 1\"")
   [[ $fixture_key_id =~ ^[0-9]+$ ]]

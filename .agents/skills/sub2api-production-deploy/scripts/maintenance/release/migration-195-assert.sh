@@ -10,6 +10,7 @@ if [[ -n ${ASSERT_CONTEXT_FILE:-} ]]; then
 else
   source /opt/sub2api/releases/.active-release/assets/context.sh
 fi
+release_profile=${release_profile:-$profile}
 db_container=${ASSERT_DB_CONTAINER:-sub2api-postgres}
 db_user=${ASSERT_DB_USER:-sub2api}
 db_name=${ASSERT_DB_NAME:-sub2api}
@@ -28,7 +29,7 @@ query() {
 # Keep the historical profile-195 data-plan contract stable by hashing the
 # expected precise target on both sides of migration 241; migration-241's own
 # postflight assertion verifies that the stored rate reached that target.
-if [[ $profile == 240 ]]; then
+if [[ $release_profile == 240 ]]; then
   precise_data_plan_query="COPY (SELECT k.id::text || '|' || to_char(k.source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(ROUND(k.source_rate_multiplier * COALESCE(c.recharge_rate, 1), 10),'FM999999999999990.0000000000') FROM upstream_keys k JOIN upstream_configs c ON c.id=k.upstream_config_id WHERE k.source_rate_multiplier IS NOT NULL ORDER BY k.id) TO STDOUT"
 else
   precise_data_plan_query="COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT"
@@ -150,7 +151,7 @@ SELECT
     rate_present_expression="k.rate_multiplier IS NOT NULL"
     unexpected_rate_expression="CEIL((k.rate_multiplier*c.recharge_rate)*100)/100"
   fi
-  if [[ $profile == 240 ]]; then
+  if [[ $release_profile == 240 ]]; then
     canonical_plan_query="$precise_data_plan_query"
     unexpected_rate_expression="ROUND((k.source_rate_multiplier * COALESCE(c.recharge_rate, 1)), 10)"
   fi
