@@ -30,3 +30,21 @@ func TestUpstreamAccountLifecycleMigrationContract(t *testing.T) {
 	}
 	require.NotContains(t, strings.ToUpper(sql), "UPDATE ACCOUNTS SET UPSTREAM_LIFECYCLE_OWNER")
 }
+
+func TestNonGrokVideoPricingReconciliationMigrationContract(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("239_reconcile_non_grok_video_pricing.sql"))
+	require.NoError(t, err)
+	sql := strings.ToUpper(string(content))
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS groups_video_price_backup_239",
+		"ON CONFLICT (group_id) DO NOTHING",
+		"UPDATE groups",
+		"platform IS DISTINCT FROM 'grok'",
+		"platform IS DISTINCT FROM 'composite'",
+		"groups_video_pricing_platform_check",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT groups_video_pricing_platform_check",
+	} {
+		require.Contains(t, sql, strings.ToUpper(fragment))
+	}
+}
