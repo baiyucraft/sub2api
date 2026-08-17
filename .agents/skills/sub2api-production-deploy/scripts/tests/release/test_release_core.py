@@ -716,6 +716,12 @@ class ReleaseCoreTest(unittest.TestCase):
         migration_239_fixture_end = validator.index('migration_239_preflight_verified=true', migration_239_fixture_start)
         migration_239_fixture = validator[migration_239_fixture_start:migration_239_fixture_end]
         self.assertIn('[[ -f $state_dir/recovery-point.age.sha256 && ! -L $state_dir/recovery-point.age.sha256 ]]', migration_239_fixture)
+        self.assertIn('if [[ $migration_239_status == absent ]]; then', migration_239_fixture)
+        self.assertIn('UPDATE groups SET video_price_480p=0.12345678', migration_239_fixture)
+        self.assertLess(
+            migration_239_fixture.index('if [[ $migration_239_status == absent ]]; then'),
+            migration_239_fixture.index('UPDATE groups SET video_price_480p=0.12345678'),
+        )
         self.assertNotIn("printf '%s  recovery-point.age\\n'", migration_239_fixture)
         self.assertIn("migration-238-assert.sh", switch)
         self.assertIn("migration-239-assert.sh", switch)
