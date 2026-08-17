@@ -23,6 +23,17 @@ query() {
   docker exec "$db_container" psql -X -A -t -F '|' -v ON_ERROR_STOP=1 -U "$db_user" -d "$db_name" -c "$1"
 }
 
+# Profile 240 deliberately changes the effective multiplier from the legacy
+# two-decimal ceiling to source_rate * recharge_rate at ten-decimal precision.
+# Keep the historical profile-195 data-plan contract stable by hashing the
+# expected precise target on both sides of migration 241; migration-241's own
+# postflight assertion verifies that the stored rate reached that target.
+if [[ $profile == 240 ]]; then
+  precise_data_plan_query="COPY (SELECT k.id::text || '|' || to_char(k.source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(ROUND(k.source_rate_multiplier * COALESCE(c.recharge_rate, 1), 10),'FM999999999999990.0000000000') FROM upstream_keys k JOIN upstream_configs c ON c.id=k.upstream_config_id WHERE k.source_rate_multiplier IS NOT NULL ORDER BY k.id) TO STDOUT"
+else
+  precise_data_plan_query="COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT"
+fi
+
 failure_file="$state_dir/migration-195-failure"
 write_failure() {
   local code=${1:?failure code is required}
@@ -83,7 +94,7 @@ SELECT
       [[ $outbox_highwater =~ ^[1-9][0-9]*$ && $current_watermark =~ ^[0-9]+$ && $current_watermark -gt 0 && $current_watermark -ge $outbox_highwater ]] || fail outbox_watermark
       outbox_already_consumed=true
     fi
-    terminal_sha=$(query "COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}') || fail data_plan_query
+    terminal_sha=$(query "$precise_data_plan_query" | sha256sum | awk '{print $1}') || fail data_plan_query
     account_ids_sha=$(query "COPY (SELECT id FROM accounts WHERE deleted_at IS NULL AND upstream_key_id IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}') || fail account_ids_query
     [[ $terminal_sha =~ ^[0-9a-f]{64}$ && $account_ids_sha =~ ^[0-9a-f]{64}$ ]] || fail data_plan_hash
     printf '%s\n' "$terminal_sha" > "$state_dir/migration-195-data-plan.sha256"
@@ -138,6 +149,10 @@ SELECT
     skipped_expression="(SELECT COUNT(*) FROM upstream_keys WHERE rate_multiplier IS NULL)"
     rate_present_expression="k.rate_multiplier IS NOT NULL"
     unexpected_rate_expression="CEIL((k.rate_multiplier*c.recharge_rate)*100)/100"
+  fi
+  if [[ $profile == 240 ]]; then
+    canonical_plan_query="$precise_data_plan_query"
+    unexpected_rate_expression="ROUND((k.source_rate_multiplier * COALESCE(c.recharge_rate, 1)), 10)"
   fi
   counts=$(query "
 WITH values AS (
@@ -197,7 +212,7 @@ if [[ $phase == postflight_db ]]; then
   [[ -f $state_dir/migration-195-timezone.name && ! -L $state_dir/migration-195-timezone.name ]] || fail timezone_file
   expected_timezone=$(<"$state_dir/migration-195-timezone.name")
   [[ $expected_timezone == UTC || $expected_timezone =~ ^[a-zA-Z_+-]+(/[a-zA-Z0-9_+-]+)+$ ]] || fail timezone_value
-  actual_data_plan_sha=$(query "COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT" | sha256sum | awk '{print $1}') || fail data_plan_query
+  actual_data_plan_sha=$(query "$precise_data_plan_query" | sha256sum | awk '{print $1}') || fail data_plan_query
   [[ $actual_data_plan_sha =~ ^[0-9a-f]{64}$ ]] || fail data_plan_hash
   expected_data_plan_sha=$(<"$state_dir/migration-195-data-plan.sha256")
   if [[ $actual_data_plan_sha == "$expected_data_plan_sha" ]]; then recompute_mismatch=0; else recompute_mismatch=1; fi
