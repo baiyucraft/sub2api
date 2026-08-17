@@ -513,23 +513,35 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_Require
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
 }
 
-func TestOpenAIAccountCandidateUsesUnroundedUpstreamRateAsTieBreaker(t *testing.T) {
+func TestOpenAIAccountCandidateUsesExactEffectiveUpstreamRateAsTieBreaker(t *testing.T) {
 	load := &AccountLoadInfo{}
 	rawA, rawB := 0.025, 0.03
 	configID, keyA, keyB := int64(10), int64(11), int64(12)
-	a := &Account{ID: 1, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyA, UpstreamSourceRateMultiplier: &rawA}
-	b := &Account{ID: 2, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyB, UpstreamSourceRateMultiplier: &rawB}
+	a := &Account{ID: 1, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyA, RateMultiplier: &rawA, UpstreamSourceRateMultiplier: &rawA}
+	b := &Account{ID: 2, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyB, RateMultiplier: &rawB, UpstreamSourceRateMultiplier: &rawB}
 	left := openAIAccountCandidateScore{account: a, loadInfo: load}
 	right := openAIAccountCandidateScore{account: b, loadInfo: load}
 	require.True(t, isOpenAIAccountCandidateBetter(left, right))
 	require.False(t, isOpenAIAccountCandidateBetter(right, left))
 }
 
+func TestAccountSchedulingTierUsesEffectiveRateInsteadOfProviderSourceRate(t *testing.T) {
+	configID, keyA, keyB := int64(10), int64(11), int64(12)
+	sourceA, sourceB := 0.045, 0.05
+	effectiveA, effectiveB := 0.05, 0.045
+	a := &Account{ID: 1, Priority: 5, UpstreamConfigID: &configID, UpstreamKeyID: &keyA, RateMultiplier: &effectiveA, UpstreamSourceRateMultiplier: &sourceA}
+	b := &Account{ID: 2, Priority: 5, UpstreamConfigID: &configID, UpstreamKeyID: &keyB, RateMultiplier: &effectiveB, UpstreamSourceRateMultiplier: &sourceB}
+
+	// B has the lower effective cost even though its provider source rate is
+	// higher; billing/scheduling must follow the effective rate consistently.
+	require.Positive(t, compareAccountSchedulingTier(a, b))
+}
+
 func TestAccountSchedulingTierOrdersKnownRatesBeforeUnknownAsStrictOrder(t *testing.T) {
 	rawCheap, rawExpensive := 0.025, 0.03
 	configID, keyCheap, keyExpensive := int64(10), int64(11), int64(12)
-	cheap := &Account{ID: 1, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyCheap, UpstreamSourceRateMultiplier: &rawCheap}
-	expensive := &Account{ID: 2, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyExpensive, UpstreamSourceRateMultiplier: &rawExpensive}
+	cheap := &Account{ID: 1, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyCheap, RateMultiplier: &rawCheap, UpstreamSourceRateMultiplier: &rawCheap}
+	expensive := &Account{ID: 2, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyExpensive, RateMultiplier: &rawExpensive, UpstreamSourceRateMultiplier: &rawExpensive}
 	unknown := &Account{ID: 3, Priority: 3}
 
 	require.Negative(t, compareAccountSchedulingTier(cheap, expensive))
@@ -542,8 +554,8 @@ func TestLegacyOpenAIAndGeminiSelectorsUseUnroundedRateBeforeLRU(t *testing.T) {
 	rawCheap, rawExpensive := 0.025, 0.03
 	configID, keyCheap, keyExpensive := int64(10), int64(11), int64(12)
 	now := time.Now()
-	cheap := &Account{ID: 1, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyCheap, UpstreamSourceRateMultiplier: &rawCheap, LastUsedAt: &now}
-	expensive := &Account{ID: 2, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyExpensive, UpstreamSourceRateMultiplier: &rawExpensive}
+	cheap := &Account{ID: 1, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyCheap, RateMultiplier: &rawCheap, UpstreamSourceRateMultiplier: &rawCheap, LastUsedAt: &now}
+	expensive := &Account{ID: 2, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyExpensive, RateMultiplier: &rawExpensive, UpstreamSourceRateMultiplier: &rawExpensive}
 
 	openAI := &OpenAIGatewayService{}
 	require.True(t, openAI.isBetterAccount(cheap, expensive))
@@ -554,15 +566,16 @@ func TestLegacyOpenAIAndGeminiSelectorsUseUnroundedRateBeforeLRU(t *testing.T) {
 	require.False(t, gemini.isBetterGeminiAccount(expensive, cheap))
 }
 
-func TestLegacySub2APIAccountParticipatesInRawRateOrdering(t *testing.T) {
+func TestLegacySub2APIAccountParticipatesInEffectiveRateOrdering(t *testing.T) {
 	rawLegacy, rawBound := 0.025, 0.03
 	configID, keyID := int64(10), int64(11)
 	legacy := &Account{
 		ID: 1, Priority: 3, Type: AccountTypeAPIKey,
 		Extra:                        map[string]any{AccountUpstreamProviderKey: AccountUpstreamProviderSub2API},
+		RateMultiplier:               &rawLegacy,
 		UpstreamSourceRateMultiplier: &rawLegacy,
 	}
-	bound := &Account{ID: 2, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, UpstreamSourceRateMultiplier: &rawBound}
+	bound := &Account{ID: 2, Priority: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, RateMultiplier: &rawBound, UpstreamSourceRateMultiplier: &rawBound}
 	require.Negative(t, compareAccountSchedulingTier(legacy, bound))
 }
 

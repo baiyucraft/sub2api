@@ -88,7 +88,8 @@ type Account struct {
 	// RateMultiplier 账号计费倍率（>=0，允许 0 表示该账号计费为 0）。
 	// 使用指针用于兼容旧版本调度缓存（Redis）中缺字段的情况：nil 表示按 1.0 处理。
 	RateMultiplier *float64
-	// UpstreamSourceRateMultiplier is the provider's unrounded multiplier.
+	// UpstreamSourceRateMultiplier is the provider's source multiplier retained
+	// for diagnostics; scheduling uses RateMultiplier (the effective value).
 	// It is internal-only and breaks ties between equal billing priorities.
 	UpstreamSourceRateMultiplier *float64
 	LoadFactor                   *int // 调度负载因子；nil 表示使用 Concurrency
@@ -257,7 +258,8 @@ func (a *Account) BillingRateMultiplier() float64 {
 }
 
 // compareAccountSchedulingTier compares the stable scheduling tier before
-// load/LRU signals: billing priority first, then the unrounded upstream rate.
+// load/LRU signals: billing priority first, then the exact effective upstream
+// rate (source rate × recharge rate).
 func compareAccountSchedulingTier(left, right *Account) int {
 	if left == nil || right == nil {
 		return 0
@@ -286,10 +288,14 @@ func compareAccountSchedulingTier(left, right *Account) int {
 }
 
 func upstreamSourceSchedulingRate(account *Account) (float64, bool) {
-	if account == nil || (!account.IsUpstreamBound() && !account.IsSub2APIUpstream()) || account.UpstreamSourceRateMultiplier == nil {
+	if account == nil || (!account.IsUpstreamBound() && !account.IsSub2APIUpstream()) || account.RateMultiplier == nil {
 		return 0, false
 	}
-	rate := *account.UpstreamSourceRateMultiplier
+	// Despite the historical helper name, scheduling must use the persisted
+	// effective rate. The provider source rate is retained for diagnostics only;
+	// using it here would ignore recharge_rate and make 0.045/0.05 comparisons
+	// inconsistent with billing and image-cost routing.
+	rate := *account.RateMultiplier
 	if rate < 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
 		return 0, false
 	}

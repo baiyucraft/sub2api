@@ -46,7 +46,7 @@ func (UpstreamKey) Fields() []ent.Field {
 		field.String("platform_detection_status").MaxLen(16).Default("legacy"),
 		field.Time("platform_detected_at").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 		field.Float("rate_multiplier").
-			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
 			Optional().
 			Nillable(),
 		field.Float("source_rate_multiplier").
@@ -58,6 +58,10 @@ func (UpstreamKey) Fields() []ent.Field {
 		field.Time("last_seen_at").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 		field.Int("missing_count").Default(0),
 		field.Time("missing_since").Optional().Nillable().SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		// observation_enabled is the durable administrator preference for active
+		// health probing. It is intentionally independent from the synchronised
+		// JSON extra payload so provider refreshes cannot reset a manual toggle.
+		field.Bool("observation_enabled").Default(true),
 		field.JSON("extra", map[string]any{}).
 			Default(func() map[string]any { return map[string]any{} }).
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}),

@@ -13,7 +13,7 @@ from .state import RunLock
 
 
 PRODUCTION_SPACE_CLEANER = RELEASE_PACKAGE_ROOT / "production-space-clean.sh"
-RELEASE_ID = re.compile(r"^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$")
+RELEASE_ID = re.compile(r"^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$")
 FINAL_STAGES = {"production_verified", "production_verified_after_reconciliation"}
 PRODUCTION_CLEAN_FIELDS = {
     "cleanup_mode",

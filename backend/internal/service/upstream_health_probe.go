@@ -204,6 +204,12 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 			continue
 		}
 		item := GlobalUpstreamHealthRegistry().Snapshot(key.ID)
+		// The persisted column is authoritative even when the in-memory
+		// registry was rebuilt after a restart or a key was restored.
+		if key.ObservationEnabledKnown {
+			applyPersistedObservationPreference(&item, key)
+			item = normalizeUpstreamHealthSnapshot(item)
+		}
 		if !item.ObservationEnabled || item.Status == UpstreamHealthDisabled {
 			continue
 		}

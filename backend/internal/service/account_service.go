@@ -184,7 +184,8 @@ type AccountBulkUpdate struct {
 	Concurrency    *int
 	Priority       *int
 	RateMultiplier *float64
-	// UpstreamSourceRateMultiplier preserves the unrounded provider rate.
+	// UpstreamSourceRateMultiplier preserves the provider source rate for
+	// diagnostics; scheduling and billing use RateMultiplier.
 	UpstreamSourceRateMultiplier *float64
 	LoadFactor                   *int
 	Status                       *string

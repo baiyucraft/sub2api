@@ -401,6 +401,20 @@ func (_u *UpstreamKeyUpdate) ClearMissingSince() *UpstreamKeyUpdate {
 	return _u
 }
 
+// SetObservationEnabled sets the "observation_enabled" field.
+func (_u *UpstreamKeyUpdate) SetObservationEnabled(v bool) *UpstreamKeyUpdate {
+	_u.mutation.SetObservationEnabled(v)
+	return _u
+}
+
+// SetNillableObservationEnabled sets the "observation_enabled" field if the given value is not nil.
+func (_u *UpstreamKeyUpdate) SetNillableObservationEnabled(v *bool) *UpstreamKeyUpdate {
+	if v != nil {
+		_u.SetObservationEnabled(*v)
+	}
+	return _u
+}
+
 // SetExtra sets the "extra" field.
 func (_u *UpstreamKeyUpdate) SetExtra(v map[string]interface{}) *UpstreamKeyUpdate {
 	_u.mutation.SetExtra(v)
@@ -812,6 +826,9 @@ func (_u *UpstreamKeyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 	}
 	if _u.mutation.MissingSinceCleared() {
 		_spec.ClearField(upstreamkey.FieldMissingSince, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ObservationEnabled(); ok {
+		_spec.SetField(upstreamkey.FieldObservationEnabled, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.Extra(); ok {
 		_spec.SetField(upstreamkey.FieldExtra, field.TypeJSON, value)
@@ -1457,6 +1474,20 @@ func (_u *UpstreamKeyUpdateOne) ClearMissingSince() *UpstreamKeyUpdateOne {
 	return _u
 }
 
+// SetObservationEnabled sets the "observation_enabled" field.
+func (_u *UpstreamKeyUpdateOne) SetObservationEnabled(v bool) *UpstreamKeyUpdateOne {
+	_u.mutation.SetObservationEnabled(v)
+	return _u
+}
+
+// SetNillableObservationEnabled sets the "observation_enabled" field if the given value is not nil.
+func (_u *UpstreamKeyUpdateOne) SetNillableObservationEnabled(v *bool) *UpstreamKeyUpdateOne {
+	if v != nil {
+		_u.SetObservationEnabled(*v)
+	}
+	return _u
+}
+
 // SetExtra sets the "extra" field.
 func (_u *UpstreamKeyUpdateOne) SetExtra(v map[string]interface{}) *UpstreamKeyUpdateOne {
 	_u.mutation.SetExtra(v)
@@ -1898,6 +1929,9 @@ func (_u *UpstreamKeyUpdateOne) sqlSave(ctx context.Context) (_node *UpstreamKey
 	}
 	if _u.mutation.MissingSinceCleared() {
 		_spec.ClearField(upstreamkey.FieldMissingSince, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ObservationEnabled(); ok {
+		_spec.SetField(upstreamkey.FieldObservationEnabled, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.Extra(); ok {
 		_spec.SetField(upstreamkey.FieldExtra, field.TypeJSON, value)

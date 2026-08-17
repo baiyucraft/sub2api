@@ -57,6 +57,8 @@ const (
 	FieldMissingCount = "missing_count"
 	// FieldMissingSince holds the string denoting the missing_since field in the database.
 	FieldMissingSince = "missing_since"
+	// FieldObservationEnabled holds the string denoting the observation_enabled field in the database.
+	FieldObservationEnabled = "observation_enabled"
 	// FieldExtra holds the string denoting the extra field in the database.
 	FieldExtra = "extra"
 	// EdgeConfig holds the string denoting the config edge name in mutations.
@@ -141,6 +143,7 @@ var Columns = []string{
 	FieldLastSeenAt,
 	FieldMissingCount,
 	FieldMissingSince,
+	FieldObservationEnabled,
 	FieldExtra,
 }
 
@@ -196,6 +199,8 @@ var (
 	StatusValidator func(string) error
 	// DefaultMissingCount holds the default value on creation for the "missing_count" field.
 	DefaultMissingCount int
+	// DefaultObservationEnabled holds the default value on creation for the "observation_enabled" field.
+	DefaultObservationEnabled bool
 	// DefaultExtra holds the default value on creation for the "extra" field.
 	DefaultExtra func() map[string]interface{}
 )
@@ -311,6 +316,11 @@ func ByMissingCount(opts ...sql.OrderTermOption) OrderOption {
 // ByMissingSince orders the results by the missing_since field.
 func ByMissingSince(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMissingSince, opts...).ToFunc()
+}
+
+// ByObservationEnabled orders the results by the observation_enabled field.
+func ByObservationEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldObservationEnabled, opts...).ToFunc()
 }
 
 // ByConfigField orders the results by config field.
