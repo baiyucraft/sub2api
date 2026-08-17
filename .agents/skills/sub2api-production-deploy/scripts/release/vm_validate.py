@@ -119,7 +119,8 @@ manifest={shlex.quote(remote_manifest)}
 output={shlex.quote(remote_output)}
 release_id={shlex.quote(release_id)}
 state_write() {{
-  local key=$1 value=$2 tmp="$worker_dir/$key.tmp"
+  local key=$1 value=$2
+  local tmp="$worker_dir/$key.tmp"
   printf '%s\n' "$value" >"$tmp"
   chmod 600 "$tmp"
   mv -T -- "$tmp" "$worker_dir/$key"
@@ -154,7 +155,11 @@ exit "$exit_code"
 RUNNER
 chmod 700 "$wrapper"
 [[ $(stat -c '%u:%g:%a:%h' "$wrapper") == 0:0:700:1 ]]
-nohup setsid "$wrapper" >/dev/null 2>&1 </dev/null &
+launch_state_tmp="$worker_dir/status.tmp"
+printf 'launching\n' >"$launch_state_tmp"
+chmod 600 "$launch_state_tmp"
+mv -T -- "$launch_state_tmp" "$worker_dir/status"
+nohup setsid "$wrapper" >>"$raw_log" 2>&1 </dev/null &
 launcher_pid=$!
 printf 'worker_started=true\n'
 printf 'launcher_pid=%s\n' "$launcher_pid"
@@ -266,6 +271,10 @@ def _wait_for_vm_worker(
             absent_polls += 1
             if absent_polls >= max_absent_polls:
                 raise VMWorkerNotStartedError("detached VM validator did not complete its startup handshake")
+        elif status == "launching":
+            absent_polls += 1
+            if absent_polls >= max_absent_polls:
+                raise VMWorkerStateUnknownError("detached VM validator did not advance beyond its launcher handshake")
         elif status == "running":
             absent_polls = 0
             if result["worker_token_match"] == "yes":
