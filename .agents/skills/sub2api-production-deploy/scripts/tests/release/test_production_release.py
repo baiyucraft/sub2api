@@ -1579,6 +1579,16 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         ):
             self.assertIn(f'"{field}"', switch_allowlist)
 
+    def test_profile_240_migration_status_is_persisted_in_protected_state_dir(self) -> None:
+        observation = self.script("migration-240-assert.sh")
+        precise_rate = self.script("migration-241-assert.sh")
+        for script in (observation, precise_rate):
+            self.assertIn('source "${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/context.sh}"', script)
+            self.assertIn('> "$state_dir/migration-', script)
+            self.assertNotIn('> "$release_dir/migration-', script)
+        self.assertIn('migration-240-status', observation)
+        self.assertIn('migration-241-status', precise_rate)
+
     def test_backup_unit_restore_captures_stderr_without_widening_allowlist(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         self.assertIn("def restore_backup_units", production)
