@@ -1360,6 +1360,17 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         for stage in stages:
             self.assertIn(f"mark_switch_stage {stage}", switch)
         self.assertIn("switch_failure_stage", production)
+        self.assertIn("switch_failure_code", production)
+        self.assertIn("migration_record_verification:migration_record_checksum", production)
+        self.assertIn("schema_contract_assertion:schema_assertion", production)
+        self.assertIn("migration_completed|schema_verified", production)
+        self.assertIn("mark_migration_failure_context migration_record_verification migration_record_checksum", switch)
+        self.assertIn("mark_migration_failure_context schema_contract_assertion schema_assertion", switch)
+        self.assertIn("switch_failure_code=%s", switch)
+        self.assertLess(
+            switch.index("trap 'record_migration_failure"),
+            switch.index("while IFS=$'\\t' read -r migration migration_checksum"),
+        )
         self.assertIn('self.stage("migration_switch_failed"', production)
         self.assertLess(production.index('self.stage("migration_switch_failed"'), production.index("def verify_and_finalize"))
 

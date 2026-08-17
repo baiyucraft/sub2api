@@ -241,3 +241,12 @@
 - 预防测试：脚本必须 dry-run、绑定 `plan_sha256`、获取三把锁、拒绝 symlink/跨设备，不得包含 `rm -rf` 或遍历备份根；生产 doctor 通过后仍需验证上传余量。
 - 补充：`journalctl --vacuum-size` 会把正常清理进度写到 stderr；必须把 stdout/stderr 追加到 root-only 原始日志，不能让通用 SSH 严格合同把已完成清理误判为失败并重跑。
 - 状态：真实清理已完成并通过现场空间对账；等待修正日志捕获后的新 release 验证。
+
+## migration 容器完成后的断言失败缺少结构化定位
+
+- 现象：停机发布已完成 migrate-only，但随后只记录 `switch_failure_stage=migration_completed`、`switch_failure_substage=unknown`，无法区分 migration checksum 与 schema 合同断言失败。
+- 根因：`switch.sh` 在 migration checksum 和全部 schema 断言之后才安装 `ERR` trap，且失败文件把 stage 硬编码为 `schema_verified`；断言提前退出时不会生成有效的结构化失败文件。
+- 证据：profile 239 release `239-97edc418a80f-1786965869-6c2f2fdb` 在 `migration_completed` 后退出，协调恢复后确认 migration 未提交、旧镜像和双链路已恢复，root-only 原始日志仅允许做受控布尔检索。
+- 修复：migration 容器成功返回后立即安装 trap；动态读取 `migration_completed` 或 `schema_verified`，并绑定 checksum、schema assertion、stage marker、migration container、migration marker、migration 195 postflight 六类固定 failure code。
+- 预防测试：静态测试要求 trap 早于 migration checksum loop，失败文件固定 4 个 root-only 字段，Python parser 校验 stage、substage 与 failure code 的合法组合；任何未知组合继续 fail-closed。
+- 状态：代码已修复，等待新 full-SHA Gate 和生产停机发布验证。
