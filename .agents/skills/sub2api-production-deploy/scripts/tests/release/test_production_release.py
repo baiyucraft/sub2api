@@ -1387,6 +1387,11 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("mark_migration_failure_context migration_record_verification migration_record_checksum", switch)
         self.assertIn("mark_migration_failure_context schema_contract_assertion schema_assertion", switch)
         self.assertIn("switch_failure_code=%s", switch)
+        self.assertIn("switch_init_failure_file=\"$pre_state_dir/switch-init-failure\"", switch)
+        self.assertIn("record_switch_init_failure context_source", switch)
+        self.assertIn("record_switch_init_failure initial_contract", switch)
+        self.assertIn("init_failure_substage", production)
+        self.assertIn("init_failure_code", production)
         self.assertLess(
             switch.index("trap 'record_migration_failure"),
             switch.index("while IFS=$'\\t' read -r migration migration_checksum"),
