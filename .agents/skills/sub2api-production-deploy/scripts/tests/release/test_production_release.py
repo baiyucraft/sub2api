@@ -1113,7 +1113,7 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
     def test_profile_197_uses_the_independent_migration_195_status(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         self.assertIn('self.migration_195_status = values["migration_195_status"]', production)
-        self.assertIn('"MIGRATION_STATUS": self.migration_195_status', production)
+        self.assertIn('env = assertion_env(self.migration_195_status)', production)
         self.assertNotIn('"MIGRATION_STATUS": self.migration_status', production)
 
     def test_profile_198_verifies_managed_monitor_key_names(self) -> None:
@@ -1368,6 +1368,15 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("printf 'migration=%s checksum=%s", switch)
         self.assertIn("remote_migration_committed", production)
         self.assertIn("migration 195 committed state is unknown", production)
+
+    def test_migration_preflight_uses_minimal_frozen_context_and_reports_195_failure(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+
+        self.assertIn('assertion_context = f"{self.state_dir}/migration-preflight-context.sh"', production)
+        self.assertIn("migration_preflight_context_verified", production)
+        self.assertIn('"ASSERT_CONTEXT_FILE": assertion_context', production)
+        self.assertIn('self.stage("migration_195_preflight_failed", failure)', production)
+        self.assertIn("code=context_or_state", production)
 
     def test_switch_failure_stage_is_preserved_before_recovery(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
