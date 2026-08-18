@@ -17,7 +17,7 @@
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 质量与累计用量 | 质量仅展示不参与调度；coverage/backfill 完整后才允许 raw cleanup；日聚合时区正确 |
 | 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；成本摘要必须结构化展示能力、倍率来源和分辨率成本；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
-| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–239 map/checksum/compatibility identity 不可变；当前 profile 240 为 pending/current 合同，58 项 migration，追加 `240_upstream_observation_preference.sql` 与 `241_precise_upstream_effective_rate.sql`，源码 migration map digest 为 `49d31f3f27698d030303c9aa3e202637dee8aec9b6549e57bc53b86412ad0841`；`VERSION = upstream VERSION + -baiyu` |
+| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–239 map/checksum/compatibility identity 不可变；当前 profile 240 为 pending/current 合同，58 项 migration，追加 `240_upstream_observation_preference.sql` 与 `241_precise_upstream_effective_rate.sql`，源码 migration map digest 为 `b4a160cc14979fedbf1099591b1e7a47e309ed12090837ba3f72c5feeb1a3b5a`；`VERSION = upstream VERSION + -baiyu` |
 | 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
 
 ## 全量门禁
@@ -46,7 +46,7 @@ base profile: 239
 version: 0.1.177-baiyu
  migration count: 58
 appended migrations: 240_upstream_observation_preference.sql, 241_precise_upstream_effective_rate.sql
-migration source map sha256: 49d31f3f27698d030303c9aa3e202637dee8aec9b6549e57bc53b86412ad0841
+migration source map sha256: b4a160cc14979fedbf1099591b1e7a47e309ed12090837ba3f72c5feeb1a3b5a
 migration 239 source sha256: 022c4031ec02f3118ad4dbced90089f2fe8ea6000b43008385751a5ab849e147
 migration 240 source sha256: 7e5958d2a430b8b107f84c91beecdb5f3f3ad418f78ebe6d916d77ccd6a34175
 migration 241 source sha256: e2b7e4f17be261e3021820e11e827fa4bba3837baddb4f1e43aeb6d97261ef2e
