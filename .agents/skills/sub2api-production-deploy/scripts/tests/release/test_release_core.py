@@ -201,17 +201,18 @@ class ReleaseCoreTest(unittest.TestCase):
                 mock.patch("release.manifest.workspace_root", return_value=root),
                 mock.patch("release.manifest.release_asset_relative_paths_from_commit", return_value=[relative_path]),
                 mock.patch(
-                    "release.manifest.subprocess.check_output",
+                    "release.process.subprocess.check_output",
                     return_value=b"line one\nline two\n",
                 ) as check_output,
             ):
                 checksums = release_asset_checksums(commit, LAYOUT_SKILL_V1)
 
         self.assertEqual(checksums[relative_path], hashlib.sha256(b"line one\nline two\n").hexdigest())
-        check_output.assert_called_once_with(
+        check_output.assert_called_once()
+        self.assertEqual(check_output.call_args.args[0],
             ["git", "show", f"{commit}:{relative_path}"],
-            cwd=root,
         )
+        self.assertEqual(check_output.call_args.kwargs["cwd"], root)
 
     def test_git_blob_checksum_rejects_short_commit(self) -> None:
         with self.assertRaisesRegex(ValueError, "complete 40-character"):
@@ -255,7 +256,7 @@ class ReleaseCoreTest(unittest.TestCase):
         error = subprocess.CalledProcessError(0xC0000142, ["git", "show"])
         with (
             mock.patch("release.manifest.workspace_root", return_value=Path("C:/repo")),
-            mock.patch("release.manifest.subprocess.check_output", side_effect=[error, b"blob"]),
+            mock.patch("release.process.subprocess.check_output", side_effect=[error, b"blob"]),
             mock.patch("release.manifest.time.sleep") as sleep,
         ):
             self.assertEqual(git_blob_sha256("a" * 40, "path.txt"), hashlib.sha256(b"blob").hexdigest())
@@ -266,7 +267,7 @@ class ReleaseCoreTest(unittest.TestCase):
         profile = {"migrations": ["migration.sql"]}
         with (
             mock.patch("release.manifest.workspace_root", return_value=Path("C:/repo")),
-            mock.patch("release.manifest.subprocess.check_output", side_effect=[error, b"SELECT 1;\n"]),
+            mock.patch("release.process.subprocess.check_output", side_effect=[error, b"SELECT 1;\n"]),
             mock.patch("release.manifest.time.sleep") as sleep,
         ):
             checksums = migration_checksums(profile, "b" * 40)
@@ -277,7 +278,7 @@ class ReleaseCoreTest(unittest.TestCase):
         error = subprocess.CalledProcessError(128, ["git", "show"])
         with (
             mock.patch("release.manifest.workspace_root", return_value=Path("C:/repo")),
-            mock.patch("release.manifest.subprocess.check_output", side_effect=error) as check_output,
+            mock.patch("release.process.subprocess.check_output", side_effect=error) as check_output,
             mock.patch("release.manifest.time.sleep") as sleep,
         ):
             with self.assertRaises(subprocess.CalledProcessError):

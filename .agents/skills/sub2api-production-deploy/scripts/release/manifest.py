@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .atomic import atomic_write, canonical_json
+from .process import check_output_hidden
 from .paths import (
     LAYOUT_DEPLOY_V1,
     LAYOUT_SKILL_V1,
@@ -231,8 +232,8 @@ def _git_output(args: list[str], *, cwd: Path, text: bool = False) -> bytes | st
             time.sleep(delay)
         try:
             if text:
-                return subprocess.check_output(args, cwd=cwd, text=True)
-            return subprocess.check_output(args, cwd=cwd)
+                return check_output_hidden(args, cwd=cwd, text=True)
+            return check_output_hidden(args, cwd=cwd)
         except subprocess.CalledProcessError as error:
             if error.returncode not in _GIT_PROCESS_INIT_FAILURES or attempt == len(_GIT_READ_RETRY_DELAYS) - 1:
                 raise
@@ -312,10 +313,10 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
     if deployment_mode not in {"blue-green", "downtime"}:
         raise ValueError("deployment mode must be blue-green or downtime")
     root = workspace_root()
-    origin = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=root, text=True).strip()
+    origin = check_output_hidden(["git", "remote", "get-url", "origin"], cwd=root, text=True).strip()
     if origin != profile["origin"]:
         raise RuntimeError("local origin does not match the release profile")
-    resolved = subprocess.check_output(["git", "rev-parse", commit], cwd=root, text=True).strip()
+    resolved = check_output_hidden(["git", "rev-parse", commit], cwd=root, text=True).strip()
     if resolved != commit:
         raise RuntimeError("commit is not available in the local repository")
     layout = LAYOUT_SKILL_V1
