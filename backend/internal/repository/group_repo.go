@@ -61,6 +61,16 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
 	}
+	videoPrice480P := groupIn.VideoPrice480P
+	videoPrice720P := groupIn.VideoPrice720P
+	videoPrice1080P := groupIn.VideoPrice1080P
+	videoModelPrices := groupIn.VideoModelPrices
+	if !service.SupportsVideoPricingPlatform(groupIn.Platform) {
+		videoPrice480P = nil
+		videoPrice720P = nil
+		videoPrice1080P = nil
+		videoModelPrices = nil
+	}
 	builder := client.Group.Create().
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
@@ -88,10 +98,9 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetBatchImageHoldMultiplier(groupIn.BatchImageHoldMultiplier).
 		SetVideoRateIndependent(groupIn.VideoRateIndependent).
 		SetVideoRateMultiplier(groupIn.VideoRateMultiplier).
-		SetNillableVideoPrice480p(groupIn.VideoPrice480P).
-		SetNillableVideoPrice720p(groupIn.VideoPrice720P).
-		SetNillableVideoPrice1080p(groupIn.VideoPrice1080P).
-		SetVideoModelPrices(service.NormalizeVideoModelPrices(groupIn.VideoModelPrices)).
+		SetNillableVideoPrice480p(videoPrice480P).
+		SetNillableVideoPrice720p(videoPrice720P).
+		SetNillableVideoPrice1080p(videoPrice1080P).
 		SetNillableWebSearchPricePerCall(groupIn.WebSearchPricePerCall).
 		SetNillableSearchPricePer1k(groupIn.SearchPricePer1k).
 		SetNillableAudioRealtimePricePerMin(groupIn.AudioRealtimePricePerMin).
@@ -122,6 +131,9 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetProfitControlEnabled(groupIn.ProfitControlEnabled).
 		SetProfitMinMargin(groupIn.ProfitMinMargin).
 		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer)
+	if service.SupportsVideoPricingPlatform(groupIn.Platform) && videoModelPrices != nil {
+		builder = builder.SetVideoModelPrices(service.NormalizeVideoModelPrices(videoModelPrices))
+	}
 	if groupIn.DuplicateOperationID != "" {
 		builder = builder.SetDuplicateOperationID(groupIn.DuplicateOperationID)
 	}
@@ -249,6 +261,16 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
 	}
+	videoPrice480P := groupIn.VideoPrice480P
+	videoPrice720P := groupIn.VideoPrice720P
+	videoPrice1080P := groupIn.VideoPrice1080P
+	videoModelPrices := groupIn.VideoModelPrices
+	if !service.SupportsVideoPricingPlatform(groupIn.Platform) {
+		videoPrice480P = nil
+		videoPrice720P = nil
+		videoPrice1080P = nil
+		videoModelPrices = nil
+	}
 	builder := r.client.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
@@ -275,10 +297,9 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetBatchImageHoldMultiplier(groupIn.BatchImageHoldMultiplier).
 		SetVideoRateIndependent(groupIn.VideoRateIndependent).
 		SetVideoRateMultiplier(groupIn.VideoRateMultiplier).
-		SetNillableVideoPrice480p(groupIn.VideoPrice480P).
-		SetNillableVideoPrice720p(groupIn.VideoPrice720P).
-		SetNillableVideoPrice1080p(groupIn.VideoPrice1080P).
-		SetVideoModelPrices(service.NormalizeVideoModelPrices(groupIn.VideoModelPrices)).
+		SetNillableVideoPrice480p(videoPrice480P).
+		SetNillableVideoPrice720p(videoPrice720P).
+		SetNillableVideoPrice1080p(videoPrice1080P).
 		SetLongContextPricingEnabled(groupIn.LongContextPricingEnabled).
 		SetModelPricing(modelPricing).
 		SetDefaultValidityDays(groupIn.DefaultValidityDays).
@@ -302,6 +323,11 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetProfitControlEnabled(groupIn.ProfitControlEnabled).
 		SetProfitMinMargin(groupIn.ProfitMinMargin).
 		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer)
+	if service.SupportsVideoPricingPlatform(groupIn.Platform) && videoModelPrices != nil {
+		builder = builder.SetVideoModelPrices(service.NormalizeVideoModelPrices(videoModelPrices))
+	} else {
+		builder = builder.ClearVideoModelPrices()
+	}
 
 	// 显式处理可空字段：nil 需要 clear，非 nil 需要 set。
 	if groupIn.DailyLimitUSD != nil {
