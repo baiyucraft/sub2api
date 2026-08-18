@@ -53,7 +53,7 @@ npm install -g pnpm
 
 ### CI 要求
 
-- Go 版本必须与 `backend/go.mod` 保持一致（当前为 **1.26.6**）：三个 workflow 都用 `go-version-file: backend/go.mod` 取版本，随后硬断言对应的 `go version`。升级 Go 时要同时更新 `backend/go.mod`、各 Dockerfile 和 workflow 版本断言，否则 CI 会在版本校验步骤直接失败。
+- Go 版本必须与 `backend/go.mod` 保持一致（当前为 **1.26.6**）：三个 workflow 都用 `go-version-file: backend/go.mod` 取版本，并硬断言实际 `go version`。升级 Go 时要同时更新 `backend/go.mod`、`backend-ci.yml`、`release.yml`、`security-scan.yml` 的版本断言，以及 `Dockerfile`、`deploy/Dockerfile` 和 `backend/Dockerfile` 的 Go 构建镜像；遗漏 workflow 会直接触发 CI 失败，遗漏 Dockerfile 则会在实际构建时因工具链版本不足失败。
 - 前端使用 `pnpm install --frozen-lockfile`，必须提交 `pnpm-lock.yaml`
 
 ### 本地测试命令

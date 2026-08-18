@@ -73,6 +73,7 @@ func (r *channelMonitorRepository) CreateManaged(ctx context.Context, monitor *s
 		SetGroupID(*monitor.GroupID).
 		SetShowGroupRate(monitor.ShowGroupRate).
 		SetCredentialMode(channelmonitor.CredentialModeManagedLocal).
+		SetCheckMode(defaultCheckModeRepo(monitor.CheckMode)).
 		SetEnabled(monitor.Enabled).
 		SetIntervalSeconds(monitor.IntervalSeconds).
 		SetJitterSeconds(monitor.JitterSeconds).
@@ -80,6 +81,9 @@ func (r *channelMonitorRepository) CreateManaged(ctx context.Context, monitor *s
 		SetCreatedBy(monitor.CreatedBy).
 		SetExtraHeaders(channelMonitorHeadersForPersistence(monitor)).
 		SetBodyOverrideMode(defaultBodyModeRepo(monitor.BodyOverrideMode))
+	if monitor.AccountID != nil {
+		builder.SetAccountID(*monitor.AccountID)
+	}
 	if monitor.TemplateID != nil {
 		builder.SetTemplateID(*monitor.TemplateID)
 	}
@@ -156,10 +160,16 @@ func (r *channelMonitorRepository) UpdateManaged(ctx context.Context, monitor *s
 		SetAPIKeyEncrypted(monitor.APIKey).SetPrimaryModel(monitor.PrimaryModel).
 		SetExtraModels(emptySliceIfNil(monitor.ExtraModels)).SetGroupName(monitor.GroupName).
 		SetGroupID(*monitor.GroupID).SetShowGroupRate(monitor.ShowGroupRate).
+		SetCheckMode(defaultCheckModeRepo(monitor.CheckMode)).
 		SetEnabled(monitor.Enabled).SetIntervalSeconds(monitor.IntervalSeconds).
 		SetJitterSeconds(monitor.JitterSeconds).SetMaxProbeAttempts(monitor.MaxProbeAttempts).
 		SetExtraHeaders(channelMonitorHeadersForPersistence(monitor)).
 		SetBodyOverrideMode(defaultBodyModeRepo(monitor.BodyOverrideMode))
+	if monitor.AccountID != nil {
+		updater.SetAccountID(*monitor.AccountID)
+	} else {
+		updater.ClearAccountID()
+	}
 	if monitor.TemplateID != nil {
 		updater.SetTemplateID(*monitor.TemplateID)
 	} else {

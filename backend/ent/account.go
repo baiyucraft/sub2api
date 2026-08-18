@@ -63,7 +63,7 @@ type Account struct {
 	Priority int `json:"priority,omitempty"`
 	// RateMultiplier holds the value of the "rate_multiplier" field.
 	RateMultiplier float64 `json:"rate_multiplier,omitempty"`
-	// Internal unrounded upstream multiplier used only for scheduler tie-breaking.
+	// Internal provider source multiplier retained for diagnostics; scheduling uses rate_multiplier.
 	UpstreamSourceRateMultiplier *float64 `json:"upstream_source_rate_multiplier,omitempty"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`

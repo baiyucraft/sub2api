@@ -1382,9 +1382,21 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	// Collect unique models from all accounts
 	modelSet := make(map[string]struct{})
 	hasAnyMapping := false
+	now := time.Now().UTC()
 
 	for _, acc := range accounts {
-		mapping := acc.schedulableModelMapping(time.Now().UTC())
+		// Passthrough routing accepts models independently of model_mapping. A stale
+		// mapping on any eligible passthrough account therefore cannot define the
+		// public whitelist; return nil so the handler uses its default model set.
+		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() {
+			if s.modelsListCache != nil {
+				s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
+				modelsListCacheStoreTotal.Add(1)
+			}
+			return nil
+		}
+
+		mapping := acc.schedulableModelMapping(now)
 		if len(mapping) > 0 {
 			hasAnyMapping = true
 			for model := range mapping {
