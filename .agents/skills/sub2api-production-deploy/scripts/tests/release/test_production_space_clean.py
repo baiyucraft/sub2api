@@ -121,7 +121,7 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             release_id = self.write_release(root)
-            with mock.patch("release.production_cleanup.subprocess.run") as verify:
+            with mock.patch("release.production_cleanup.run_hidden") as verify:
                 identity = load_cleanup_identity(release_id, root)
         verify.assert_called_once()
         self.assertEqual(identity.current_image_id, "sha256:" + "a" * 64)
@@ -131,7 +131,7 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             release_id = self.write_release(root, profile="202")
-            with mock.patch("release.production_cleanup.subprocess.run"):
+            with mock.patch("release.production_cleanup.run_hidden"):
                 identity = load_cleanup_identity(release_id, root)
         self.assertEqual(identity.release_id, "202-aaaaaaaaaaaa-1-deadbeef")
 
@@ -139,7 +139,7 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             release_id = self.write_release(root, profile="206")
-            with mock.patch("release.production_cleanup.subprocess.run"):
+            with mock.patch("release.production_cleanup.run_hidden"):
                 identity = load_cleanup_identity(release_id, root)
         self.assertEqual(identity.release_id, "206-aaaaaaaaaaaa-1-deadbeef")
 
@@ -147,7 +147,7 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             release_id = self.write_release(root, profile="207")
-            with mock.patch("release.production_cleanup.subprocess.run"):
+            with mock.patch("release.production_cleanup.run_hidden"):
                 identity = load_cleanup_identity(release_id, root)
         self.assertEqual(identity.release_id, "207-aaaaaaaaaaaa-1-deadbeef")
 
@@ -155,7 +155,7 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             release_id = self.write_release(root, profile="208")
-            with mock.patch("release.production_cleanup.subprocess.run"):
+            with mock.patch("release.production_cleanup.run_hidden"):
                 identity = load_cleanup_identity(release_id, root)
         self.assertEqual(identity.release_id, "208-aaaaaaaaaaaa-1-deadbeef")
 
@@ -163,7 +163,7 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             release_id = self.write_release(root, profile="209")
-            with mock.patch("release.production_cleanup.subprocess.run"):
+            with mock.patch("release.production_cleanup.run_hidden"):
                 identity = load_cleanup_identity(release_id, root)
         self.assertEqual(identity.release_id, "209-aaaaaaaaaaaa-1-deadbeef")
 
@@ -171,7 +171,7 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             release_id = self.write_release(root, consumed=False)
-            with mock.patch("release.production_cleanup.subprocess.run"):
+            with mock.patch("release.production_cleanup.run_hidden"):
                 with self.assertRaisesRegex(RuntimeError, "Gate was consumed"):
                     load_cleanup_identity(release_id, root)
 
@@ -188,7 +188,7 @@ class ProductionSpaceCleanTest(unittest.TestCase):
                 }
             )
             result_path.write_text(json.dumps(result), encoding="utf-8")
-            with mock.patch("release.production_cleanup.subprocess.run"):
+            with mock.patch("release.production_cleanup.run_hidden"):
                 with self.assertRaisesRegex(RuntimeError, "unambiguous pre-switch"):
                     load_cleanup_identity(release_id, root)
 

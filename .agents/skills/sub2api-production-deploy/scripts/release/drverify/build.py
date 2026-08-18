@@ -5,12 +5,16 @@ import hashlib
 import os
 from pathlib import Path
 import struct
-import subprocess
-
+import sys
 
 REQUIRED_GO_VERSION = "go version go1.26.3"
 ROOT = Path(__file__).resolve().parents[6]
 CHECKSUM_FILE = Path(__file__).resolve().with_name("linux-amd64.sha256")
+SCRIPTS_ROOT = ROOT / ".agents" / "skills" / "sub2api-production-deploy" / "scripts"
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from release.process import check_output_hidden, run_hidden  # noqa: E402
 
 
 def sha256_file(path: Path) -> str:
@@ -42,13 +46,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=ROOT / ".tmp" / "sub2api-verify-dr-evidence")
     args = parser.parse_args()
-    version = subprocess.check_output(["go", "version"], text=True).strip()
+    version = check_output_hidden(["go", "version"], text=True).strip()
     if not version.startswith(REQUIRED_GO_VERSION + " "):
         raise RuntimeError(f"Go version must start with {REQUIRED_GO_VERSION}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     environment = os.environ.copy()
     environment.update({"GO111MODULE": "off", "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": "amd64"})
-    subprocess.run(
+    run_hidden(
         ["go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w", "-o", str(args.output), "./.agents/skills/sub2api-production-deploy/scripts/release/drverify"],
         cwd=ROOT,
         env=environment,

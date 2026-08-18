@@ -11,6 +11,31 @@
 - 预防测试：Git Bash 定位、空格与 `!` 路径、stdout/stderr、exit code、`bash -n` 以及缺少命令时的 `vm_required`。
 - 状态：已修复。
 
+## Windows 发布控制台闪烁与英文进度
+
+- 现象：部署期间 Windows 控制台反复闪开、关闭，用户只能看到英文阶段字段；调用端多次执行 `status`/`wait` 后更明显。
+- 根因：旧 runner 同时设置 `DETACHED_PROCESS` 与 `CREATE_NO_WINDOW`；runner 内部的 Python、OpenSSL、Git Bash、Go 子进程又各自直接创建进程；`wait` 只在结束或超时输出 JSON，没有持续的人类进度层。
+- 证据：`supervisor.py` 的 worker flags 包含三个 Windows process flags；`cli.py`、Gate 验签、Git 读取、生产清理和 DR verifier 构建均存在直接子进程调用。
+- 修复：所有发布运行子进程统一经 `scripts/release/process.py`，Windows 使用 `CREATE_NO_WINDOW`、隐藏 `STARTUPINFO` 和单独进程组；增加 `deploy-follow`/`follow` 单控制台中文观察器。机器协议仍保持英文，观察器不读取原始日志。
+- 预防测试：Windows flags 不包含 `DETACHED_PROCESS`；child Python/OpenSSL/Git Bash 使用 no-window；观察器 Ctrl+C 不 kill runner、重连不创建第二 runner；历史 JSON 命令输出协议不漂移。
+- 状态：已修复，等待下一次真实 Windows 发布观察。
+
+## Windows Skill 校验的 UTF-8 环境
+
+- 现象：Skill 内容本身正确，但直接运行 `quick_validate.py` 时出现 GBK 解码错误。
+- 根因：Windows Python 按本地代码页读取中文 `SKILL.md`，而校验脚本未显式指定 UTF-8。
+- 修复：在 Windows 运行 Skill 校验前设置 `PYTHONUTF8=1`，再执行 `python .../quick_validate.py <skill>`；不修改 Skill 内容来绕过编码问题。
+- 预防测试：将 UTF-8 环境变量纳入 Skill validation 命令，并把原始解码异常与真正的 frontmatter 校验失败区分开。
+
+## 单 runner 与观察器重连
+
+- 现象：前台工具超时或窗口关闭后误以为发布失败，重新启动第二个 release。
+- 根因：调用端生命周期短于 runner，控制台沉默不代表远端阶段没有推进。
+- 证据：`.tmp/releases/<release_id>/runner.json`、`state.json`、结构化事件和 committed marker 才是发布事实源。
+- 修复：默认用 `deploy-follow` 启动并观察；断线后只允许 `follow <release_id>`、`status` 或 reconciliation，禁止重复启动。
+- 预防测试：wait timeout 不终止 worker、观察器断线后 attach 原 release、active claim/runner/candidate 唯一性和失败后 fail-closed。
+- 状态：已修复。
+
 ## 远端 stderr 与原始日志
 
 - 现象：远端命令失败后只看到不完整的错误摘要，重复执行可能造成二次写入风险。
@@ -277,3 +302,12 @@
 - 修复：日志查询保留输出标签 `vm`，连接时显式映射为 `local_vm`；RackNerd、DMIT 和 backup 名称不变。
 - 预防测试：使用内存中的 VM JSONL 事件验证查询结果仍标记为 `vm`，并断言 SSH 调用使用 `local_vm`。
 - 状态：代码已修复，等待随新发布资产验证。
+
+## Profile 240 发布链补充约束
+
+- migration preflight 只能使用冻结的最小上下文，不能继承完整 active-claim 环境；migration 事务统一由 migration runner 管理，断言脚本不能再嵌套拥有事务。
+- profile、逐 migration 状态、Gate evidence 和签名 payload 必须成套生成和验证；签名输入缺失、初始化失败或发布中途修复后都必须生成新的完整 SHA、Gate、candidate 和 release ID。
+- 精确倍率迁移必须允许 `sync_managed + key_missing` 的已归档绑定参与可证明重算；历史 usage 不回算。非 Grok/Composite 分组提交的空视频价格对象必须在 service 层归一化为空值，不能再次制造 migration 232 漂移。
+- direct `release.py` 偶发 `WinError 10013` 目前只记录为待复现问题；不能把 `python -c import release.cli` 成功当作长期修复，脚本入口和模块入口都必须保留 Windows smoke。
+- one-shot 备份 service 处于 `inactive` 不等于失败，doctor 必须结合 timer 是否启用、最近执行结果以及当前是否运行进行判定。
+- 状态：规则已沉淀；涉及生产的条目仍以每次新 release 的结构化证据为准。

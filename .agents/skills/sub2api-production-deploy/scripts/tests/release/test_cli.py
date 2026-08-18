@@ -175,7 +175,7 @@ class DeployCommandTest(unittest.TestCase):
                 {"release_id": identifier, "profile": "199", "commit_sha": commit, "deployment_mode": "blue-green"},
             )
             cli.RunState.create(run_dir / "state.json", identifier)
-            with mock.patch.object(cli, "RUN_ROOT", root), mock.patch.object(cli, "get_profile", return_value={"name": "199"}), mock.patch.object(cli.subprocess, "run") as child, mock.patch.object(cli, "verify_gate"):
+            with mock.patch.object(cli, "RUN_ROOT", root), mock.patch.object(cli, "get_profile", return_value={"name": "199"}), mock.patch.object(cli, "run_hidden") as child, mock.patch.object(cli, "verify_gate"):
                 gate = cli.create_vm_gate("199", commit, "blue-green", identifier=identifier, acquire_lock=False)
         self.assertEqual(gate, run_dir / "gate")
         child.assert_called_once()

@@ -22,6 +22,7 @@ from .manifest import (
 )
 from .paths import LAYOUT_DEPLOY_V1, RELEASE_PACKAGE_ROOT
 from .profiles import get_profile
+from .process import run_hidden
 
 
 def gate_payload(manifest: dict[str, Any], evidence: dict[str, Any]) -> bytes:
@@ -38,7 +39,7 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
     signature_path = bundle_dir / "gate.sig"
     if not payload_path.is_file() or not signature_path.is_file():
         raise RuntimeError("gate bundle is incomplete")
-    subprocess.run(
+    run_hidden(
         ["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(public_key), "-rawin", "-in", str(payload_path), "-sigfile", str(signature_path)],
         check=True,
         stdout=subprocess.DEVNULL,
