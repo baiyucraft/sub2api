@@ -23,6 +23,8 @@ func TestPreciseUpstreamEffectiveRateMigrationPreservesTenDecimalPrecision(t *te
 		strings.Index(content, "alter table accounts"),
 	)
 	require.Contains(t, content, "create trigger trg_validate_account_upstream_key_binding")
+	require.Contains(t, content, "key_deleted_at is not null and new.deleted_at is not null")
+	require.Contains(t, content, "restoring the account while the key is still deleted remains forbidden")
 	require.NotContains(t, content, "BEGIN;")
 	require.NotContains(t, content, "COMMIT;")
 	require.NotContains(t, content, "ceil(source_rate_multiplier")

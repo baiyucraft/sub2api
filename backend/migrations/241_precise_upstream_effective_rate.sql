@@ -64,11 +64,23 @@ BEGIN
     SELECT upstream_config_id, status, platform, deleted_at, rate_multiplier, source_rate_multiplier
       INTO key_config_id, key_status, key_platform, key_deleted_at, key_actual_rate, key_source_rate
       FROM upstream_keys WHERE id = NEW.upstream_key_id;
-    IF NOT FOUND OR key_deleted_at IS NOT NULL OR key_config_id IS DISTINCT FROM NEW.upstream_config_id THEN
+    -- A sync-managed account and its key are archived together.  Retain that
+    -- historical binding so migration 241 can recompute the archived account
+    -- without treating a recoverable tombstone as an active invalid binding.
+    -- Restoring the account while the key is still deleted remains forbidden.
+    IF NOT FOUND
+       OR key_config_id IS DISTINCT FROM NEW.upstream_config_id
+       OR (key_deleted_at IS NOT NULL AND NEW.deleted_at IS NULL) THEN
         RAISE EXCEPTION 'invalid upstream key binding' USING ERRCODE = '23514';
     END IF;
     IF key_actual_rate IS NULL THEN
         RAISE EXCEPTION 'cannot bind an upstream key without an actual rate' USING ERRCODE = '23514';
+    END IF;
+    IF key_deleted_at IS NOT NULL AND NEW.deleted_at IS NOT NULL THEN
+        NEW.rate_multiplier := key_actual_rate;
+        NEW.upstream_source_rate_multiplier := key_source_rate;
+        NEW.priority := CEIL(key_actual_rate * 100)::INTEGER;
+        RETURN NEW;
     END IF;
     IF (TG_OP = 'INSERT' OR NEW.upstream_key_id IS DISTINCT FROM OLD.upstream_key_id) AND key_status <> 'active' THEN
         RAISE EXCEPTION 'cannot bind an inactive upstream key' USING ERRCODE = '23514';

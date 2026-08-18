@@ -49,7 +49,7 @@ appended migrations: 240_upstream_observation_preference.sql, 241_precise_upstre
 migration source map sha256: 49d31f3f27698d030303c9aa3e202637dee8aec9b6549e57bc53b86412ad0841
 migration 239 source sha256: 022c4031ec02f3118ad4dbced90089f2fe8ea6000b43008385751a5ab849e147
 migration 240 source sha256: 7e5958d2a430b8b107f84c91beecdb5f3f3ad418f78ebe6d916d77ccd6a34175
-migration 241 source sha256: d65f70a04d086195bfa52fd1e0a0d73794b89b6019c2efbeea84f7b25f306a96
+migration 241 source sha256: e2b7e4f17be261e3021820e11e827fa4bba3837baddb4f1e43aeb6d97261ef2e
 migration release-manifest map sha256: 0a0afac9d991533476f66210d1a7ed1cc18dc81f664910cee240ea0ed12eaf9a
 ```
 
