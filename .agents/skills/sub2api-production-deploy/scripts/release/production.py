@@ -668,25 +668,73 @@ exit "$code"
     def migration_preflight(self) -> None:
         if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240"}:
             return
+        assertion_context = f"{self.state_dir}/migration-preflight-context.sh"
+        profile_name = self.profile["name"]
+        context_values = self.run_remote(
+            "racknerd",
+            f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
+            "test -d \"$state\" && test ! -L \"$state\"; "
+            f"tmp=\"$state/.migration-preflight-context.tmp.$$\"; "
+            f"printf 'profile=%q\\nrelease_profile=%q\\nstate_dir=%q\\n' "
+            f"{shlex.quote(profile_name)} {shlex.quote(profile_name)} \"$state\" >\"$tmp\"; "
+            "chmod 600 \"$tmp\"; mv -T -- \"$tmp\" \"$state/migration-preflight-context.sh\"; "
+            "test \"$(stat -c '%U:%G:%a:%h' \"$state/migration-preflight-context.sh\")\" = root:root:600:1; "
+            "printf 'migration_preflight_context=verified\\n'",
+            {"migration_preflight_context"},
+        )
+        self.stage("migration_preflight_context_verified", context_values)
+
+        def assertion_env(status: str) -> str:
+            return quoted_env(
+                {
+                    "RELEASE_DIR": self.release_dir,
+                    "MIGRATION_STATUS": status,
+                    "ASSERT_CONTEXT_FILE": assertion_context,
+                }
+            )
+
         self.stage("migration_195_preflight")
         if self.migration_195_status not in {"absent", "verified"}:
             raise RuntimeError("migration 195 preflight status is unknown")
-        env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_195_status})
-        values = self.run_remote(
-            "racknerd",
-            f"{env} {self.active_assets}/migration-195-assert.sh preflight",
-            {
-                "migration_195_affected", "migration_195_recomputed", "migration_195_preserved",
-                "migration_195_skipped", "migration_195_unproven", "migration_195_conflict",
-                "migration_195_unexpected", "migration_195_data_plan_sha256",
-            },
-        )
+        env = assertion_env(self.migration_195_status)
+        try:
+            values = self.run_remote(
+                "racknerd",
+                f"{env} {self.active_assets}/migration-195-assert.sh preflight",
+                {
+                    "migration_195_affected", "migration_195_recomputed", "migration_195_preserved",
+                    "migration_195_skipped", "migration_195_unproven", "migration_195_conflict",
+                    "migration_195_unexpected", "migration_195_data_plan_sha256",
+                },
+            )
+        except BaseException:
+            try:
+                failure = self.run_remote(
+                    "racknerd",
+                    f"file={shlex.quote(self.state_dir + '/migration-195-failure')}; "
+                    "if test -f \"$file\" && test ! -L \"$file\" && "
+                    "test \"$(stat -c '%U:%G:%a:%h' \"$file\")\" = root:root:600:1; then "
+                    "phase=$(sed -n 's/^migration_195_failure_phase=//p' \"$file\"); "
+                    "code=$(sed -n 's/^migration_195_failure_code=//p' \"$file\"); "
+                    "else phase=preflight; code=context_or_state; fi; "
+                    "case \"$phase\" in preflight|bind|postflight_db|postflight_runtime) ;; *) exit 1 ;; esac; "
+                    "case \"$code\" in config_file|timezone_value|unproven_rate|account_binding_mismatch|outbox_query|outbox_value|outbox_watermark|data_plan_query|account_ids_query|data_plan_hash|account_binding_conflict|unexpected_data|recovery_point|data_plan_missing|plan_write|plan_missing|affected_missing|timezone_file|data_plan_mismatch|account_ids_file|account_ids_hash|status_file|status_value|outbox_baseline_file|source_rate_state|postflight_shape|context_or_state) ;; *) exit 1 ;; esac; "
+                    "printf 'migration_195_failure_phase=%s\\nmigration_195_failure_code=%s\\n' \"$phase\" \"$code\"",
+                    {"migration_195_failure_phase", "migration_195_failure_code"},
+                )
+            except BaseException:
+                failure = {
+                    "migration_195_failure_phase": "preflight",
+                    "migration_195_failure_code": "unknown",
+                }
+            self.stage("migration_195_preflight_failed", failure)
+            raise
         self.stage("migration_195_preflight_verified", values)
         if self.profile["name"] in {"232", "233", "234", "235", "236", "237", "238", "239", "240"}:
             if self.migration_232_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 232 preflight status is unknown")
             self.stage("migration_232_preflight")
-            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_232_status})
+            env = assertion_env(self.migration_232_status)
             values = self.run_remote(
                 "racknerd",
                 f"{env} {self.active_assets}/migration-232-assert.sh preflight",
@@ -702,7 +750,7 @@ exit "$code"
             if self.migration_233_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 233 preflight status is unknown")
             self.stage("migration_233_preflight")
-            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_233_status})
+            env = assertion_env(self.migration_233_status)
             try:
                 values = self.run_remote(
                     "racknerd",
@@ -738,7 +786,7 @@ exit "$code"
             raise RuntimeError("migration 234 preflight status is unknown")
         if self.profile["name"] in {"235", "236", "237", "238", "239", "240"}:
             self.stage("migration_234_preflight")
-            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_234_status})
+            env = assertion_env(self.migration_234_status)
             values = self.run_remote(
                 "racknerd",
                 f"{env} {self.active_assets}/migration-234-assert.sh preflight",
@@ -753,14 +801,14 @@ exit "$code"
                 if status not in {"absent", "verified"}:
                     raise RuntimeError(f"migration {number} preflight status is unknown")
                 self.stage(f"migration_{number}_preflight")
-                env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": status})
+                env = assertion_env(status)
                 values = self.run_remote("racknerd", f"{env} {self.active_assets}/{script_name} preflight", fields)
                 self.stage(f"migration_{number}_preflight_verified", values)
         if self.profile["name"] in {"238", "239", "240"}:
             if self.migration_237_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 237 preflight status is unknown")
             self.stage("migration_237_preflight")
-            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_237_status})
+            env = assertion_env(self.migration_237_status)
             values = self.run_remote(
                 "racknerd",
                 f"{env} {self.active_assets}/migration-237-assert.sh preflight",
@@ -771,7 +819,7 @@ exit "$code"
             if self.migration_238_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 238 preflight status is unknown")
             self.stage("migration_238_preflight")
-            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_238_status})
+            env = assertion_env(self.migration_238_status)
             values = self.run_remote(
                 "racknerd",
                 f"{env} {self.active_assets}/migration-238-assert.sh preflight",
@@ -781,7 +829,7 @@ exit "$code"
             if self.migration_239_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 239 preflight status is unknown")
             self.stage("migration_239_preflight")
-            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_239_status})
+            env = assertion_env(self.migration_239_status)
             values = self.run_remote(
                 "racknerd",
                 f"{env} {self.active_assets}/migration-239-assert.sh preflight",
@@ -795,7 +843,7 @@ exit "$code"
                 if status not in {"absent", "verified"}:
                     raise RuntimeError(f"migration {number} preflight status is unknown")
                 self.stage(f"migration_{number}_preflight")
-                env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": status})
+                env = assertion_env(status)
                 values = self.run_remote("racknerd", f"{env} {self.active_assets}/{script_name} preflight", fields)
                 self.stage(f"migration_{number}_preflight_verified", values)
 
