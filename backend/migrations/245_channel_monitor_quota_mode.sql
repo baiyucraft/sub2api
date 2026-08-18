@@ -71,6 +71,31 @@ ALTER TABLE channel_monitor_histories
 COMMENT ON COLUMN channel_monitor_histories.quota IS
     '配额模式监控的归一化配额快照（domain.MonitorQuotaSnapshot）；探活模式为 NULL';
 
+-- 历史数据可能曾以显式 ID 写入 settings，导致自增序列落后于当前最大值。
+-- 在插入默认设置前校准序列，避免 settings_pkey 冲突；空表同样保持可插入。
+DO $$
+DECLARE
+    settings_sequence TEXT;
+    settings_max_id BIGINT;
+    settings_has_rows BOOLEAN;
+BEGIN
+    SELECT pg_get_serial_sequence('settings', 'id')
+      INTO settings_sequence;
+
+    IF settings_sequence IS NOT NULL THEN
+        SELECT COALESCE(MAX(id), 0), COUNT(*) > 0
+          INTO settings_max_id, settings_has_rows
+          FROM settings;
+
+        EXECUTE format(
+            'SELECT setval(%L, %s, %L)',
+            settings_sequence,
+            GREATEST(settings_max_id, 1),
+            settings_has_rows
+        );
+    END IF;
+END $$;
+
 -- 用户端是否展示配额/余额（默认关闭，fail-closed 解析：仅 "true" 视为开启）。
 -- 管理端不受此开关影响。
 INSERT INTO settings (key, value)
