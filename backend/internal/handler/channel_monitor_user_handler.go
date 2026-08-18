@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -48,6 +49,15 @@ func (h *ChannelMonitorUserHandler) featureEnabled(c *gin.Context) bool {
 	return runtime.Enabled && runtime.Mode == service.ChannelMonitorModeV1
 }
 
+// quotaVisible 返回用户端是否展示配额/余额快照（channel_monitor_show_quota，
+// fail-closed：未配置/非 "true" 一律视为关闭）。settingService 为 nil 时 fail-closed。
+func (h *ChannelMonitorUserHandler) quotaVisible(c *gin.Context) bool {
+	if h.settingService == nil {
+		return false
+	}
+	return h.settingService.GetChannelMonitorRuntime(c.Request.Context()).ShowQuota
+}
+
 // --- Response ---
 
 type channelMonitorUserListItem struct {
@@ -67,6 +77,9 @@ type channelMonitorUserListItem struct {
 	CurrentPublicRate    *float64                             `json:"current_public_rate,omitempty"`
 	RateObservedSince    *string                              `json:"rate_observed_since,omitempty"`
 	RateTrend            []channelMonitorUserRateTrendPoint   `json:"rate_trend,omitempty"`
+	// LatestQuota 主模型最近配额快照；channel_monitor_show_quota=false 时
+	// 由 userMonitorViewToItem 的调用方传入 false 剥离（服务端脱敏，非仅前端隐藏）。
+	LatestQuota *domain.MonitorQuotaSnapshot `json:"latest_quota,omitempty"`
 }
 
 // channelMonitorUserTimelinePoint 主模型最近一次检测的 timeline 点。
@@ -106,7 +119,7 @@ type channelMonitorUserModelStat struct {
 	AvgLatency7dMs  *int    `json:"avg_latency_7d_ms"`
 }
 
-func userMonitorViewToItem(v *service.UserMonitorView) channelMonitorUserListItem {
+func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channelMonitorUserListItem {
 	extras := make([]dto.ChannelMonitorExtraModelStatus, 0, len(v.ExtraModels))
 	for _, e := range v.ExtraModels {
 		extras = append(extras, dto.ChannelMonitorExtraModelStatus{
@@ -125,7 +138,7 @@ func userMonitorViewToItem(v *service.UserMonitorView) channelMonitorUserListIte
 		})
 	}
 	rateTrend := userMonitorRateTrendToResponse(v.RateTrend)
-	return channelMonitorUserListItem{
+	item := channelMonitorUserListItem{
 		ID:                   v.ID,
 		Name:                 v.Name,
 		Provider:             v.Provider,
@@ -143,6 +156,10 @@ func userMonitorViewToItem(v *service.UserMonitorView) channelMonitorUserListIte
 		RateObservedSince:    formatOptionalMonitorTime(v.RateObservedSince),
 		RateTrend:            rateTrend,
 	}
+	if includeQuota {
+		item.LatestQuota = v.LatestQuota
+	}
+	return item
 }
 
 func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUserDetailResponse {
@@ -221,9 +238,10 @@ func (h *ChannelMonitorUserHandler) List(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	includeQuota := h.quotaVisible(c)
 	items := make([]channelMonitorUserListItem, 0, len(views))
 	for _, v := range views {
-		items = append(items, userMonitorViewToItem(v))
+		items = append(items, userMonitorViewToItem(v, includeQuota))
 	}
 	response.Success(c, gin.H{"items": items, "range": monitorRange})
 }

@@ -11,10 +11,12 @@ import {
   PROVIDER_GROK,
 } from '@/constants/channelMonitor'
 
-const { createMonitor, listTemplates, listGroups } = vi.hoisted(() => ({
+const { createMonitor, listTemplates, listGroups, accountsList, accountsGetById } = vi.hoisted(() => ({
   createMonitor: vi.fn(),
   listTemplates: vi.fn(),
   listGroups: vi.fn(),
+  accountsList: vi.fn(),
+  accountsGetById: vi.fn(),
 }))
 
 
@@ -39,6 +41,10 @@ vi.mock('@/api/admin', () => ({
     },
     groups: {
       getAll: listGroups,
+    },
+    accounts: {
+      list: (...args: unknown[]) => accountsList(...args),
+      getById: (...args: unknown[]) => accountsGetById(...args),
     },
   },
 }))
@@ -130,6 +136,8 @@ describe('channel monitor Grok provider', () => {
       { id: 4, name: 'Claude 稳定', platform: 'anthropic', status: 'active' },
       { id: 7, name: 'OpenAI 稳定', platform: 'openai', status: 'active' },
     ])
+    accountsList.mockReset().mockResolvedValue({ items: [] })
+    accountsGetById.mockReset()
   })
 
   it('offers Grok in the responsive provider grid and prefills its official defaults', async () => {
@@ -138,7 +146,7 @@ describe('channel monitor Grok provider', () => {
 
     expect(PROVIDERS).toContain(PROVIDER_GROK)
     const providerButtons = wrapper.findAll('[data-testid^="monitor-provider-"]')
-    expect(providerButtons).toHaveLength(4)
+    expect(providerButtons).toHaveLength(8)
     expect(providerButtons[0].element.parentElement?.className).toContain('grid-cols-2')
     expect(providerButtons[0].element.parentElement?.className).toContain('sm:grid-cols-4')
 

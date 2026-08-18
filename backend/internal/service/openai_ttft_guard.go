@@ -645,7 +645,7 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 			return nil
 		}
 	}
-	accounts, err := s.listSchedulableAccounts(ctx, groupID, normalizeOpenAICompatiblePlatform(platform))
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, NormalizeOpenAICompatiblePlatform(platform))
 	if err != nil || len(accounts) == 0 {
 		return nil
 	}
@@ -666,7 +666,7 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 				continue
 			}
 		}
-		if !account.IsSchedulable() || account.Platform != normalizeOpenAICompatiblePlatform(platform) || !account.IsOpenAICompatible() ||
+		if !account.IsSchedulable() || account.Platform != NormalizeOpenAICompatiblePlatform(platform) || !account.IsOpenAICompatible() ||
 			!account.IsModelSupported(requestedModel) || !accountSupportsOpenAICapabilities(account, requiredCapability, requiredImageCapability) ||
 			!s.isOpenAIAccountTransportCompatible(account, requiredTransport) || (requireCompact && openAICompactSupportTier(account) == 0) {
 			continue

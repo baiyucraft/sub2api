@@ -89,6 +89,7 @@ func provideCleanup(
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
 	sub2APIRateSync *service.Sub2APIUpstreamRateSyncService,
+	cnProviderBalanceCheck *service.CNProviderBalanceCheckService,
 	codexVersionSync *service.OpenAICodexVersionSyncService,
 	proxyExpiry *service.ProxyExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
@@ -243,6 +244,12 @@ func provideCleanup(
 			{"Sub2APIUpstreamRateSyncService", func() error {
 				if sub2APIRateSync != nil {
 					sub2APIRateSync.Stop()
+				}
+				return nil
+			}},
+			{"CNProviderBalanceCheckService", func() error {
+				if cnProviderBalanceCheck != nil {
+					cnProviderBalanceCheck.Stop()
 				}
 				return nil
 			}},

@@ -493,6 +493,22 @@ PROFILES["240"] = {
     ],
 }
 
+# Profile 241 records the official 0.1.178 merge.  It inherits the complete
+# profile 240 contract and appends the four official migrations that were
+# renumbered into the fork's free sequence 242-245.
+PROFILES["241"] = {
+    **PROFILES["240"],
+    "name": "241",
+    "version": "0.1.178-baiyu",
+    "migrations": [
+        *PROFILES["240"]["migrations"],
+        "242_user_platform_quotas_add_cn_providers.sql",
+        "243_backfill_codex_fingerprint_seed.sql",
+        "244_channel_model_time_pricing.sql",
+        "245_channel_monitor_quota_mode.sql",
+    ],
+}
+
 
 def get_profile(name: str) -> dict:
     try:
