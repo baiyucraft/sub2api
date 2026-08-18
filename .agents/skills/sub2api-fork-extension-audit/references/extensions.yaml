@@ -22,7 +22,7 @@
     "base_profile": "239",
     "version": "0.1.177-baiyu",
     "migration_count": 58,
-    "migration_map_sha256": "49d31f3f27698d030303c9aa3e202637dee8aec9b6549e57bc53b86412ad0841",
+    "migration_map_sha256": "b4a160cc14979fedbf1099591b1e7a47e309ed12090837ba3f72c5feeb1a3b5a",
     "appended_migrations": ["240_upstream_observation_preference.sql", "241_precise_upstream_effective_rate.sql"],
     "compatibility_version": "0.1.172-baiyu",
     "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b",
