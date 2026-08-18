@@ -60,7 +60,7 @@ class SignerAssetTest(unittest.TestCase):
         }
         with (
             mock.patch("release.manifest.validate_commit", side_effect=lambda value: value),
-            mock.patch("release.manifest.subprocess.check_output", side_effect=[profile["origin"], "a" * 40]),
+            mock.patch("release.process.subprocess.check_output", side_effect=[profile["origin"], "a" * 40]),
             mock.patch("release.manifest.runner_checksum", return_value="runner"),
             mock.patch("release.manifest.release_asset_checksums", return_value=release_assets),
             mock.patch("release.manifest.migration_checksums", return_value={}),

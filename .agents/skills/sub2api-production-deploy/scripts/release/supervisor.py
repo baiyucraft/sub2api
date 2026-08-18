@@ -7,7 +7,6 @@ import json
 import os
 import re
 import shlex
-import subprocess
 import sys
 import tempfile
 import time
@@ -19,6 +18,7 @@ from .atomic import atomic_write, canonical_json
 from .gate import verify_gate
 from .manifest import create_manifest, runner_checksum, validate_commit, validate_image_id, write_manifest_once
 from .paths import ENTRYPOINT, MAINTENANCE_ROOT, RUN_ROOT, SCRIPTS_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
+from .process import popen_detached_worker
 from .profiles import get_profile
 from .ssh import SSHRunner
 from .state import RunLock, RunState, TERMINAL_STATES
@@ -181,7 +181,7 @@ def _update_runner(run_dir: Path, **changes: Any) -> dict[str, Any]:
     return value
 
 
-def start(args: argparse.Namespace) -> None:
+def start(args: argparse.Namespace, *, announce: bool = True) -> str:
     from .cli import release_id, resolve_deployment_mode
 
     commit = validate_commit(args.commit)
@@ -211,16 +211,9 @@ def start(args: argparse.Namespace) -> None:
         sys.executable, str(ENTRYPOINT), "_deploy-worker",
         "--profile", args.profile, "--commit", commit, "--release-id", identifier, "--mode", deployment_mode,
     ]
-    flags = 0
-    popen_args: dict[str, Any] = {"cwd": DEPLOY_ROOT, "stdin": subprocess.DEVNULL, "close_fds": True}
-    if os.name == "nt":
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
-        popen_args["creationflags"] = flags
-    else:
-        popen_args["start_new_session"] = True
     try:
         with _open_raw_log(run_dir / "logs" / "runner.stdout.log") as stdout, _open_raw_log(run_dir / "logs" / "runner.stderr.log") as stderr:
-            process = subprocess.Popen(command, stdout=stdout, stderr=stderr, **popen_args)
+            process = popen_detached_worker(command, cwd=DEPLOY_ROOT, stdout=stdout, stderr=stderr)
     except BaseException as error:
         _update_runner(run_dir, status="failed", exit_code=1, finished_at=int(time.time()))
         logger.emit(
@@ -246,8 +239,9 @@ def start(args: argparse.Namespace) -> None:
         assert current is not None
         if current.get("status") in {"waiting_for_lock", "running"}:
             logger.emit(stage="runner", script="release.supervisor", event="startup_handshake_verified", message="Release worker startup handshake verified")
-            print(f"release_id={identifier} runner=started")
-            return
+            if announce:
+                print(f"release_id={identifier} runner=started")
+            return identifier
         if current.get("status") in {"failed", "verified", "recovered", "blocked_reconciliation"}:
             logger.emit(
                 stage="runner", script="release.supervisor", event="startup_handshake_failed",
@@ -565,8 +559,8 @@ def _final_evidence(production: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
-def verify_result(args: argparse.Namespace) -> None:
-    run_dir = _run_dir(args.release_id)
+def verified_result_view(identifier: str) -> dict[str, Any]:
+    run_dir = _run_dir(identifier)
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
     runner = _read_json(run_dir / "runner.json", required=True) or {}
     vm = _read_json(run_dir / "state.json", required=True) or {}
@@ -575,7 +569,7 @@ def verify_result(args: argparse.Namespace) -> None:
     if _runner_alive(runner) or runner.get("status") != "verified" or runner.get("exit_code") != 0:
         raise RuntimeError("release runner is not successfully terminal")
     document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")), allow_expired=True)
-    if document["manifest"] != manifest or manifest.get("release_id") != args.release_id:
+    if document["manifest"] != manifest or manifest.get("release_id") != identifier:
         raise RuntimeError("manifest and signed Gate identity differ")
     if vm.get("stage") != "vm_validate" or vm.get("status") != "verified":
         raise RuntimeError("VM Gate state is not verified")
@@ -599,7 +593,11 @@ def verify_result(args: argparse.Namespace) -> None:
         missing.append("running_image_id")
     if missing:
         raise RuntimeError(f"production evidence is incomplete: {','.join(sorted(set(missing)))}")
-    print(canonical_json({"release_id": args.release_id, "status": "verified", "candidate_image_id": candidate, "running_image_id": running, "claim_final_state": "consumed"}).decode("ascii"))
+    return {"release_id": identifier, "status": "verified", "candidate_image_id": candidate, "running_image_id": running, "claim_final_state": "consumed"}
+
+
+def verify_result(args: argparse.Namespace) -> None:
+    print(canonical_json(verified_result_view(args.release_id)).decode("ascii"))
 
 
 def _inspect_reconciliation(identifier: str) -> dict[str, Any]:

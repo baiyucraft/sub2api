@@ -101,7 +101,7 @@ class SupervisorTest(unittest.TestCase):
             return process
 
         manifest = {"release_id": "placeholder", "profile": "198", "commit_sha": "a" * 40, "deployment_mode": "blue-green"}
-        with mock.patch.object(supervisor, "get_profile", return_value={"name": "198"}), mock.patch.object(supervisor, "create_manifest", side_effect=lambda commit, profile, identifier, mode: {**manifest, "release_id": identifier, "deployment_mode": mode}), mock.patch.object(supervisor, "runner_checksum", return_value="c" * 64), mock.patch.object(supervisor.subprocess, "Popen", side_effect=launch), mock.patch.object(supervisor, "_process_token", return_value="token"), mock.patch("builtins.print") as output:
+        with mock.patch.object(supervisor, "get_profile", return_value={"name": "198"}), mock.patch.object(supervisor, "create_manifest", side_effect=lambda commit, profile, identifier, mode: {**manifest, "release_id": identifier, "deployment_mode": mode}), mock.patch.object(supervisor, "runner_checksum", return_value="c" * 64), mock.patch.object(supervisor, "popen_detached_worker", side_effect=launch), mock.patch.object(supervisor, "_process_token", return_value="token"), mock.patch("builtins.print") as output:
             supervisor.start(argparse.Namespace(profile="198", commit="a" * 40, deployment_mode="blue-green"))
         run_dir = next(self.root.iterdir())
         runner = json.loads((run_dir / "runner.json").read_text(encoding="utf-8"))
@@ -120,7 +120,7 @@ class SupervisorTest(unittest.TestCase):
         self.assertTrue((run_dir / "logs" / "runner.stderr.log").is_file())
 
     def test_new_commands_expose_help(self) -> None:
-        for command in ("deploy-start", "status", "logs", "wait", "verify-result", "reconcile-inspect", "reconcile"):
+        for command in ("deploy-start", "deploy-follow", "follow", "status", "logs", "wait", "verify-result", "reconcile-inspect", "reconcile"):
             result = subprocess.run([sys.executable, str(DEPLOY_ROOT / "release.py"), command, "--help"], cwd=DEPLOY_ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             self.assertEqual(result.returncode, 0, command)
 

@@ -10,6 +10,7 @@ from .manifest import sha256_file, validate_image_id
 from .paths import RELEASE_PACKAGE_ROOT, RUN_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .ssh import SSHRunner
 from .state import RunLock
+from .process import run_hidden
 
 
 PRODUCTION_SPACE_CLEANER = RELEASE_PACKAGE_ROOT / "production-space-clean.sh"
@@ -114,7 +115,7 @@ def load_cleanup_identity(release_id: str, run_root: Path = RUN_ROOT) -> Cleanup
     for path in (gate_path, signature_path, result_path):
         if not path.is_file() or path.is_symlink():
             raise RuntimeError("cleanup release evidence is incomplete or unsafe")
-    subprocess.run(
+    run_hidden(
         [
             "openssl",
             "pkeyutl",

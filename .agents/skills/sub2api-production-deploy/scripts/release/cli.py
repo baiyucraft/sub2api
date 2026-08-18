@@ -6,7 +6,6 @@ import os
 import re
 import secrets
 import shutil
-import subprocess
 import sys
 import time
 from dataclasses import replace
@@ -21,6 +20,7 @@ from .manifest import create_manifest, write_manifest_once
 from .paths import RUN_ROOT, SCRIPTS_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .profiles import get_profile
 from .production_bootstrap import bootstrap_production
+from .process import run_hidden
 from .state import RunLock, RunState
 
 
@@ -134,7 +134,7 @@ def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identif
             child_env["SUB2API_RELEASE_ID"] = identifier
             child_env["SUB2API_DEPLOYMENT_MODE"] = deployment_mode
             child_env["SUB2API_EVENT_LOG"] = str(run_dir / "logs" / "events.jsonl")
-            subprocess.run(command, cwd=SCRIPTS_ROOT, check=True, env=child_env)
+            run_hidden(command, cwd=SCRIPTS_ROOT, check=True, env=child_env)
             verify_gate(gate_path, TRUSTED_VM_PUBLIC_KEY, profile_name)
         except BaseException as error:
             state.transition("vm_validate", "failed")
@@ -175,7 +175,7 @@ def release(args: argparse.Namespace, acquire_lock: bool = True) -> None:
         try:
             child_env = os.environ.copy()
             child_env["PYTHONUNBUFFERED"] = "1"
-            subprocess.run(command, cwd=SCRIPTS_ROOT, check=True, env=child_env)
+            run_hidden(command, cwd=SCRIPTS_ROOT, check=True, env=child_env)
         except BaseException as error:
             result_path = gate_dir / "production-result.json"
             result = json.loads(result_path.read_text(encoding="utf-8")) if result_path.exists() else {}
@@ -441,6 +441,18 @@ def main() -> None:
     start_parser.add_argument("--commit", required=True)
     start_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
     start_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["start"]).start(args))
+    follow_start_parser = subparsers.add_parser("deploy-follow")
+    follow_start_parser.add_argument("--profile", default="182")
+    follow_start_parser.add_argument("--commit", required=True)
+    follow_start_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
+    follow_start_parser.add_argument("--lang", choices=("zh-CN",), default="zh-CN")
+    follow_start_parser.add_argument("--heartbeat", type=int, default=60)
+    follow_start_parser.set_defaults(handler=lambda args: __import__("release.observer", fromlist=["deploy_follow"]).deploy_follow(args))
+    follow_parser = subparsers.add_parser("follow")
+    follow_parser.add_argument("release_id")
+    follow_parser.add_argument("--lang", choices=("zh-CN",), default="zh-CN")
+    follow_parser.add_argument("--heartbeat", type=int, default=60)
+    follow_parser.set_defaults(handler=lambda args: __import__("release.observer", fromlist=["follow"]).follow(args))
     wait_parser = subparsers.add_parser("wait")
     wait_parser.add_argument("release_id")
     wait_parser.add_argument("--timeout", type=int, default=0)
@@ -473,4 +485,6 @@ def main() -> None:
     worker_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES, required=True)
     worker_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["worker"]).worker(args))
     args = parser.parse_args()
-    args.handler(args)
+    result = args.handler(args)
+    if isinstance(result, int) and result:
+        raise SystemExit(result)

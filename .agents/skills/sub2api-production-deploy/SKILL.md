@@ -32,7 +32,10 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 生产 release 的完整远端 stdout/stderr 与最终容器启动日志只允许写入该 release 目录下 root-only 原始日志（目录 `0700`、文件 `0600`）；不得上传、复制到本地 `.tmp`、直接回显到控制台或最终报告。故障诊断先读取结构化阶段、退出码和固定分类，原始日志仅在生产机上做受控脱敏检索。
 - profile 级迁移状态不能代替单个迁移状态。生产 preflight 必须同时返回整体状态和每个关键迁移的 `absent`/`verified`/`unknown` 状态；混合状态按已提交迁移跳过、缺失迁移按顺序执行，任何 checksum 或语义不一致立即停止。
 - 任何备份、checksum、image ID、迁移、磁盘、健康、认证或空间断言失败，立即停止并报告。
-- 生产 deploy 的生命周期必须长于调用工具生命周期；调用端只负责启动和观察，不能拥有或终止 release runner。标准入口为 `deploy-start`、`status`、`wait`、`verify-result`，不得把裸前台 `deploy` 作为日常入口。
+- 生产 deploy 的生命周期必须长于调用工具生命周期；调用端只负责启动和观察，不能拥有或终止 release runner。标准机器入口为 `deploy-start`、`status`、`wait`、`verify-result`，不得把裸前台 `deploy` 作为日常入口。
+- 人工发布默认使用单控制台中文入口 `deploy-follow`；它只启动一次隐藏 runner，并在同一控制台持续观察阶段变化。需要重新连接时使用 `follow <release_id>`，禁止反复新开 PowerShell 执行 `status` 或重新执行 `deploy`。
+- Windows runner 和其 Python、OpenSSL、Git Bash、Go 子进程必须通过 `scripts/release/process.py` 启动；禁止在发布运行代码中直接裸调用 `subprocess.run/Popen/check_output`，避免短生命周期控制台闪现。
+- 机器协议、JSON 字段和稳定错误码继续使用英文；面向用户的进度、阶段和收口信息由 `deploy-follow/follow --lang zh-CN` 输出中文。观察器关闭、超时或 Ctrl+C 不得终止后台 runner。
 
 ## 当前链路摘要
 
@@ -121,6 +124,8 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 python .agents/skills/sub2api-production-deploy/scripts/release.py doctor --profile <profile> --commit <40位完整SHA>
 python .agents/skills/sub2api-production-deploy/scripts/release.py bootstrap-production --profile <profile>
 python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-start --profile <profile> --commit <40位完整SHA> --mode blue-green|downtime
+python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-follow --profile <profile> --commit <40位完整SHA> --mode blue-green|downtime --lang zh-CN
+python .agents/skills/sub2api-production-deploy/scripts/release.py follow <release_id> --lang zh-CN
 python .agents/skills/sub2api-production-deploy/scripts/release.py status <release_id>
 python .agents/skills/sub2api-production-deploy/scripts/release.py wait <release_id> --timeout 900
 python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result <release_id>

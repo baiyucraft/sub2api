@@ -2,6 +2,18 @@
 
 生产发布必须由独立 runner 持续执行，调用端只负责启动、观察和验真。宿主工具的超时、断开 stdout 或会话关闭都不能终止 runner。
 
+## 单控制台观察规范
+
+日常人工发布使用：
+
+```text
+deploy-follow --profile <profile> --commit <完整SHA> --mode downtime --lang zh-CN
+```
+
+该入口只创建一个隐藏 runner，并在当前控制台读取同一个 release 的结构化状态。阶段变化和长阶段心跳使用中文输出；机器 JSON、Gate 字段和稳定 failure code 保持英文。观察器关闭、超时或 Ctrl+C 后，使用 `follow <release_id>` 重新 attach，不能再次执行 `deploy` 或创建第二个 runner。
+
+Windows 下 runner、Python、OpenSSL、Git Bash 和 Go 子进程统一走 `scripts/release/process.py`。不得混用 `DETACHED_PROCESS` 和 `CREATE_NO_WINDOW`，也不得在发布路径中直接调用裸 `subprocess.run/Popen/check_output`。
+
 ```text
 完整 SHA
   -> deploy-start（预分配 release ID、manifest、runner.json）
