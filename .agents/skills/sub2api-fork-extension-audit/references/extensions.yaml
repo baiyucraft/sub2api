@@ -23,7 +23,7 @@
     "base_profile": "240",
     "version": "0.1.178-baiyu",
     "migration_count": 62,
-    "migration_map_sha256": "1b20a2ea285516a12c92dd31b9af4bc7949cd83ff714e45ee9d1fd9af68d2ea8",
+    "migration_map_sha256": "9da5fa659fe2b605cdd3cc9d05cac8cd0f8bdccf1417c7fd347e55afb93a724d",
     "appended_migrations": ["242_user_platform_quotas_add_cn_providers.sql", "243_backfill_codex_fingerprint_seed.sql", "244_channel_model_time_pricing.sql", "245_channel_monitor_quota_mode.sql"],
     "compatibility_version": "0.1.172-baiyu",
     "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b",
@@ -57,7 +57,7 @@
     "242_user_platform_quotas_add_cn_providers.sql": "a80bf4129f12d09818c495b804c81d2ed2a4ea2bbb87fdd39f59fa336c6e0886",
     "243_backfill_codex_fingerprint_seed.sql": "2e0a0f6551d026227095394a2d254368d6128ce98a9dc29a7b8de4dcbe64d467",
     "244_channel_model_time_pricing.sql": "de2b2e411c1b63c320abb76d11a7f482e8d4ae9fe465eb7949e6e1c92e1f69e0",
-    "245_channel_monitor_quota_mode.sql": "5efcd4dcd8e3cf8d64c0e66adae14836209a125e896d416781495ab8c91a8c1b"
+    "245_channel_monitor_quota_mode.sql": "5cf8efa3a63d9297c55b33861ec394bff16cb24defd33058e5bf5d18676d14b6"
   },
   "migration_renames": {"official_221": "234_group_model_pricing.sql", "official_222": "235_group_usage_daily_rollups.sql", "official_223": "236_group_usage_rollup_timezone.sql"},
   "migration_assertions": {
