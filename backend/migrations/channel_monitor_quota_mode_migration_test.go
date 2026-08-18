@@ -32,6 +32,8 @@ func TestChannelMonitorQuotaModeMigration(t *testing.T) {
 	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS quota JSONB")
 
 	// 公开设置默认关闭。
+	require.Contains(t, sql, "pg_get_serial_sequence('settings', 'id')")
+	require.Contains(t, sql, "setval(%L, %s, %L)")
 	require.Contains(t, sql, "VALUES ('channel_monitor_show_quota', 'false')")
 	require.Contains(t, sql, "ON CONFLICT (key) DO NOTHING")
 }
