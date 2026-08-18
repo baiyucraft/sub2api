@@ -97,6 +97,14 @@ migration_238_status=not_applicable
 migration_239_status=not_applicable
 migration_240_status=not_applicable
 migration_241_status=not_applicable
+ migration_242_status=not_applicable
+ migration_243_status=not_applicable
+ migration_244_status=not_applicable
+ migration_245_status=not_applicable
+migration_242_status=not_applicable
+migration_243_status=not_applicable
+migration_244_status=not_applicable
+migration_245_status=not_applicable
 while IFS=$'\t' read -r migration migration_checksum; do
   case "$migration" in
     196_ops_ingress_reject_aggregates.sql) migration_196_status=verified ;;
@@ -142,6 +150,14 @@ while IFS=$'\t' read -r migration migration_checksum; do
     239_reconcile_non_grok_video_pricing.sql) migration_239_status=verified ;;
     240_upstream_observation_preference.sql) migration_240_status=verified ;;
     241_precise_upstream_effective_rate.sql) migration_241_status=verified ;;
+    242_user_platform_quotas_add_cn_providers.sql) migration_242_status=verified ;;
+    243_backfill_codex_fingerprint_seed.sql) migration_243_status=verified ;;
+    244_channel_model_time_pricing.sql) migration_244_status=verified ;;
+    245_channel_monitor_quota_mode.sql) migration_245_status=verified ;;
+    242_user_platform_quotas_add_cn_providers.sql) migration_242_status=verified ;;
+    243_backfill_codex_fingerprint_seed.sql) migration_243_status=verified ;;
+    244_channel_model_time_pricing.sql) migration_244_status=verified ;;
+    245_channel_monitor_quota_mode.sql) migration_245_status=verified ;;
   esac
   migration_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
   if [[ -z $migration_state ]]; then
@@ -191,6 +207,14 @@ while IFS=$'\t' read -r migration migration_checksum; do
       239_reconcile_non_grok_video_pricing.sql) migration_239_status=absent ;;
       240_upstream_observation_preference.sql) migration_240_status=absent ;;
       241_precise_upstream_effective_rate.sql) migration_241_status=absent ;;
+      242_user_platform_quotas_add_cn_providers.sql) migration_242_status=absent ;;
+      243_backfill_codex_fingerprint_seed.sql) migration_243_status=absent ;;
+      244_channel_model_time_pricing.sql) migration_244_status=absent ;;
+      245_channel_monitor_quota_mode.sql) migration_245_status=absent ;;
+      242_user_platform_quotas_add_cn_providers.sql) migration_242_status=absent ;;
+      243_backfill_codex_fingerprint_seed.sql) migration_243_status=absent ;;
+      244_channel_model_time_pricing.sql) migration_244_status=absent ;;
+      245_channel_monitor_quota_mode.sql) migration_245_status=absent ;;
     esac
   else
     [[ $migration_state == "$migration|$migration_checksum" ]]
@@ -261,3 +285,11 @@ printf 'migration_238_status=%s\n' "$migration_238_status"
 printf 'migration_239_status=%s\n' "$migration_239_status"
 printf 'migration_240_status=%s\n' "$migration_240_status"
 printf 'migration_241_status=%s\n' "$migration_241_status"
+printf 'migration_242_status=%s\n' "$migration_242_status"
+printf 'migration_243_status=%s\n' "$migration_243_status"
+printf 'migration_244_status=%s\n' "$migration_244_status"
+printf 'migration_245_status=%s\n' "$migration_245_status"
+printf 'migration_242_status=%s\n' "$migration_242_status"
+printf 'migration_243_status=%s\n' "$migration_243_status"
+printf 'migration_244_status=%s\n' "$migration_244_status"
+printf 'migration_245_status=%s\n' "$migration_245_status"

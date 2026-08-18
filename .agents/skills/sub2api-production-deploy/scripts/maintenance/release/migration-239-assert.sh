@@ -5,7 +5,7 @@ phase=${1:?phase is required}
 migration_status=${MIGRATION_STATUS:-absent}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 source "${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/context.sh}"
-[[ $profile == 239 || $profile == 240 ]] || exit 1
+[[ $profile == 239 || $profile == 240 || $profile == 241 ]] || exit 1
 [[ $phase == preflight || $phase == bind || $phase == postflight ]] || exit 1
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 

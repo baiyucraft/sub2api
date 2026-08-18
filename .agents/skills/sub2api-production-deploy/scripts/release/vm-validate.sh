@@ -28,8 +28,8 @@ tag="sub2api:baiyu-$version-$commit"
 test_tag="sub2api:vm-test-$commit"
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 profile=$(jq -er '.profile' "$manifest")
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]]
 [[ $release_id == "$profile-${commit:0:12}-"* ]]
 [[ $(jq -er '.schema' "$manifest") == 1 ]]
 [[ $(jq -er '.version' "$manifest") == "$version" ]]
@@ -75,7 +75,7 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
     [[ $(jq -er '.migrations | length' "$manifest") == 51 ]]
     expected_tail='216_channel_monitor_v2.sql|217_channel_monitor_mode.sql|218_channel_monitor_v2_ignored_error_categories.sql|219_channel_monitor_v2_seed_popular_models.sql|220_channel_monitor_v2_health_thresholds.sql|221_channel_monitor_v2_fixed_rollups.sql|222_channel_monitor_v2_rollup_permissions.sql|223_channel_monitor_v2_refresh_5m.sql|224_channel_monitor_v2_full_table_permissions.sql|225_channel_monitor_v2_default_ignore_and_cache.sql|226_channel_monitor_hide_throughput.sql|227_channel_monitor_v2_reset_factory_cache_thresholds.sql|228_channel_monitor_v2_privacy_defaults.sql|229_group_video_model_prices.sql|230_group_audio_voice_pricing.sql|231_group_search_price_per_1k.sql|232_clear_non_grok_video_generation_config.sql|233_upstream_management.sql|234_group_model_pricing.sql'
     [[ $(jq -er '.migrations[-19:] | join("|")' "$manifest") == "$expected_tail" ]]
-  elif [[ $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 ]]; then
+elif [[ $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]]; then
     [[ $version == 0.1.177-baiyu ]]
     if [[ $profile == 237 ]]; then
       [[ $(jq -er '.migrations | length' "$manifest") == 53 ]]
@@ -89,15 +89,23 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
       [[ $(jq -er '.migrations | length' "$manifest") == 56 ]]
       expected_tail='235_group_usage_daily_rollups.sql|236_group_usage_rollup_timezone.sql|237_image_cost_routing.sql|238_upstream_account_lifecycle.sql|239_reconcile_non_grok_video_pricing.sql'
       [[ $(jq -er '.migrations[-5:] | join("|")' "$manifest") == "$expected_tail" ]]
-    else
-      [[ $profile == 240 ]]
+    elif [[ $profile == 240 ]]; then
       [[ $(jq -er '.migrations | length' "$manifest") == 58 ]]
       expected_tail='237_image_cost_routing.sql|238_upstream_account_lifecycle.sql|239_reconcile_non_grok_video_pricing.sql|240_upstream_observation_preference.sql|241_precise_upstream_effective_rate.sql'
       [[ $(jq -er '.migrations[-5:] | join("|")' "$manifest") == "$expected_tail" ]]
+    else
+      [[ $profile == 241 ]]
+      [[ $version == 0.1.178-baiyu ]]
+      [[ $(jq -er '.migrations | length' "$manifest") == 62 ]]
+      expected_tail='239_reconcile_non_grok_video_pricing.sql|240_upstream_observation_preference.sql|241_precise_upstream_effective_rate.sql|242_user_platform_quotas_add_cn_providers.sql|243_backfill_codex_fingerprint_seed.sql|244_channel_model_time_pricing.sql|245_channel_monitor_quota_mode.sql'
+      [[ $(jq -er '.migrations[-7:] | join("|")' "$manifest") == "$expected_tail" ]]
     fi
   fi
 fi
 release_profile=$profile
+if [[ $profile == 241 ]]; then
+  profile=240
+fi
 if [[ $profile == 240 ]]; then
   profile=239
 fi
@@ -433,6 +441,10 @@ migration_238_schema_verified=false
 migration_239_schema_verified=false
  migration_240_schema_verified=false
  migration_241_schema_verified=false
+ migration_242_schema_verified=false
+ migration_243_schema_verified=false
+ migration_244_schema_verified=false
+ migration_245_schema_verified=false
 migration_233_postflight_verified=false
 migration_234_preflight_verified=false
 migration_235_preflight_verified=false
@@ -442,6 +454,10 @@ migration_238_preflight_verified=false
 migration_239_preflight_verified=false
  migration_240_preflight_verified=false
  migration_241_preflight_verified=false
+ migration_242_preflight_verified=false
+ migration_243_preflight_verified=false
+ migration_244_preflight_verified=false
+ migration_245_preflight_verified=false
 vm_old_image_compatibility_verified=false
 migration_211_status=not_applicable
 migration_212_status=not_applicable
@@ -471,6 +487,10 @@ migration_238_status=not_applicable
 migration_239_status=not_applicable
 migration_240_status=not_applicable
 migration_241_status=not_applicable
+ migration_242_status=not_applicable
+ migration_243_status=not_applicable
+ migration_244_status=not_applicable
+ migration_245_status=not_applicable
 if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_212_status
   profile_212_migration_status() {
@@ -539,15 +559,21 @@ if [[ $profile == 237 ]]; then
   migration_235_status=$(profile_212_migration_status 235_group_usage_daily_rollups.sql)
   migration_236_status=$(profile_212_migration_status 236_group_usage_rollup_timezone.sql)
 fi
-if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 ]]; then
+if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
   migration_237_status=$(profile_212_migration_status 237_image_cost_routing.sql)
 fi
-if [[ $release_profile == 239 || $release_profile == 240 ]]; then
+if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
   migration_238_status=$(profile_212_migration_status 238_upstream_account_lifecycle.sql)
   migration_239_status=$(profile_212_migration_status 239_reconcile_non_grok_video_pricing.sql)
-  if [[ $release_profile == 240 ]]; then
+  if [[ $release_profile == 240 || $release_profile == 241 ]]; then
     migration_240_status=$(profile_212_migration_status 240_upstream_observation_preference.sql)
     migration_241_status=$(profile_212_migration_status 241_precise_upstream_effective_rate.sql)
+    if [[ $release_profile == 241 ]]; then
+      migration_242_status=$(profile_212_migration_status 242_user_platform_quotas_add_cn_providers.sql)
+      migration_243_status=$(profile_212_migration_status 243_backfill_codex_fingerprint_seed.sql)
+      migration_244_status=$(profile_212_migration_status 244_channel_model_time_pricing.sql)
+      migration_245_status=$(profile_212_migration_status 245_channel_monitor_quota_mode.sql)
+    fi
   fi
 fi
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
@@ -642,14 +668,14 @@ if [[ $profile == 237 ]]; then
   ASSERT_CONTEXT_FILE="$group_model_pricing_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_236_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-236-assert.sh" preflight >/dev/null
   migration_236_preflight_verified=true
 fi
-if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 ]]; then
+if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
   migration_237_context="$state_dir/migration-237-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_237_context"
   chmod 400 "$migration_237_context"
   ASSERT_CONTEXT_FILE="$migration_237_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_237_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-237-assert.sh" preflight >/dev/null
   migration_237_preflight_verified=true
 fi
-if [[ $release_profile == 239 || $release_profile == 240 ]]; then
+if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
   migration_238_context="$state_dir/migration-238-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_238_context"
   chmod 400 "$migration_238_context"
@@ -670,7 +696,7 @@ if [[ $release_profile == 239 || $release_profile == 240 ]]; then
   [[ -f $state_dir/recovery-point.age.sha256 && ! -L $state_dir/recovery-point.age.sha256 ]]
   ASSERT_CONTEXT_FILE="$migration_239_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_239_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-239-assert.sh" bind >/dev/null
   migration_239_preflight_verified=true
-  if [[ $release_profile == 240 ]]; then
+    if [[ $release_profile == 240 || $release_profile == 241 ]]; then
     migration_240_context="$state_dir/migration-240-context.sh"
     printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_240_context"
     chmod 400 "$migration_240_context"
@@ -681,7 +707,18 @@ if [[ $release_profile == 239 || $release_profile == 240 ]]; then
     chmod 400 "$migration_241_context"
     ASSERT_CONTEXT_FILE="$migration_241_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_241_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-241-assert.sh" preflight >/dev/null
     migration_241_preflight_verified=true
-  fi
+      if [[ $release_profile == 241 ]]; then
+        for number in 242 243 244 245; do
+          migration_context="$state_dir/migration-${number}-context.sh"
+          printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_context"
+          chmod 400 "$migration_context"
+          status_var="migration_${number}_status"
+          migration_status=${!status_var}
+          ASSERT_CONTEXT_FILE="$migration_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-${number}-assert.sh" preflight >/dev/null
+          eval "migration_${number}_preflight_verified=true"
+        done
+      fi
+    fi
 fi
 docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
 rm -f "$state_dir/migrate-candidate.log"
@@ -1094,20 +1131,29 @@ if [[ $profile == 237 ]]; then
   migration_235_schema_verified=true
   migration_236_schema_verified=true
 fi
-if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 ]]; then
+if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
   ASSERT_CONTEXT_FILE="$migration_237_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_237_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-237-assert.sh" postflight >/dev/null
   migration_237_schema_verified=true
 fi
-if [[ $release_profile == 239 || $release_profile == 240 ]]; then
+if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
   ASSERT_CONTEXT_FILE="$migration_238_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_238_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-238-assert.sh" postflight >/dev/null
   migration_238_schema_verified=true
   ASSERT_CONTEXT_FILE="$migration_239_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_239_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-239-assert.sh" postflight >/dev/null
   migration_239_schema_verified=true
-  if [[ $release_profile == 240 ]]; then
+  if [[ $release_profile == 240 || $release_profile == 241 ]]; then
     ASSERT_CONTEXT_FILE="$migration_240_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_240_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-240-assert.sh" postflight >/dev/null
     migration_240_schema_verified=true
     ASSERT_CONTEXT_FILE="$migration_241_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_241_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-241-assert.sh" postflight >/dev/null
     migration_241_schema_verified=true
+    if [[ $release_profile == 241 ]]; then
+      for number in 242 243 244 245; do
+        migration_context="$state_dir/migration-${number}-context.sh"
+        status_var="migration_${number}_status"
+        migration_status=${!status_var}
+        ASSERT_CONTEXT_FILE="$migration_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" MIGRATION_STATUS="$migration_status" RELEASE_DIR="$state_dir" bash "$migration_assertion_dir/migration-${number}-assert.sh" postflight >/dev/null
+        eval "migration_${number}_schema_verified=true"
+      done
+    fi
   fi
 fi
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
@@ -1221,6 +1267,10 @@ if ! jq -n --slurpfile manifest "$manifest" \
   --arg migration_239_status "$migration_239_status" \
   --arg migration_240_status "$migration_240_status" \
   --arg migration_241_status "$migration_241_status" \
+  --arg migration_242_status "$migration_242_status" \
+  --arg migration_243_status "$migration_243_status" \
+  --arg migration_244_status "$migration_244_status" \
+  --arg migration_245_status "$migration_245_status" \
   --argjson usage_log_upstream_model_columns_verified "$usage_log_upstream_model_columns_verified" \
   --argjson usage_log_upstream_model_mismatch_index_verified "$usage_log_upstream_model_mismatch_index_verified" \
   --argjson channel_monitor_v2_schema_verified "$channel_monitor_v2_schema_verified" \
@@ -1247,6 +1297,14 @@ if ! jq -n --slurpfile manifest "$manifest" \
   --argjson migration_240_schema_verified "$migration_240_schema_verified" \
   --argjson migration_241_preflight_verified "$migration_241_preflight_verified" \
   --argjson migration_241_schema_verified "$migration_241_schema_verified" \
+  --argjson migration_242_preflight_verified "$migration_242_preflight_verified" \
+  --argjson migration_243_preflight_verified "$migration_243_preflight_verified" \
+  --argjson migration_244_preflight_verified "$migration_244_preflight_verified" \
+  --argjson migration_245_preflight_verified "$migration_245_preflight_verified" \
+  --argjson migration_242_schema_verified "$migration_242_schema_verified" \
+  --argjson migration_243_schema_verified "$migration_243_schema_verified" \
+  --argjson migration_244_schema_verified "$migration_244_schema_verified" \
+  --argjson migration_245_schema_verified "$migration_245_schema_verified" \
   --arg vm_old_image_id "$compat_image_id" \
   --argjson vm_old_image_compatibility_verified "$vm_old_image_compatibility_verified" \
   --argjson fixture_rejected "$fixture_rejected" \
@@ -1258,6 +1316,25 @@ if ! jq -n --slurpfile manifest "$manifest" \
   fail_gate_signing gate_signing_payload "$LINENO"
 fi
 [[ -s $gate_payload_tmp ]] || fail_gate_signing gate_signing_payload "$LINENO"
+if [[ $release_profile == 241 ]]; then
+  gate_payload_augmented="$gate_payload_tmp.augmented"
+  if ! jq --arg migration_242_status "$migration_242_status" \
+    --arg migration_243_status "$migration_243_status" \
+    --arg migration_244_status "$migration_244_status" \
+    --arg migration_245_status "$migration_245_status" \
+    --argjson migration_242_preflight_verified "$migration_242_preflight_verified" \
+    --argjson migration_243_preflight_verified "$migration_243_preflight_verified" \
+    --argjson migration_244_preflight_verified "$migration_244_preflight_verified" \
+    --argjson migration_245_preflight_verified "$migration_245_preflight_verified" \
+    --argjson migration_242_schema_verified "$migration_242_schema_verified" \
+    --argjson migration_243_schema_verified "$migration_243_schema_verified" \
+    --argjson migration_244_schema_verified "$migration_244_schema_verified" \
+    --argjson migration_245_schema_verified "$migration_245_schema_verified" \
+    '.evidence += {migration_242_status:$migration_242_status,migration_243_status:$migration_243_status,migration_244_status:$migration_244_status,migration_245_status:$migration_245_status,migration_242_preflight_verified:$migration_242_preflight_verified,migration_243_preflight_verified:$migration_243_preflight_verified,migration_244_preflight_verified:$migration_244_preflight_verified,migration_245_preflight_verified:$migration_245_preflight_verified,migration_242_schema_verified:$migration_242_schema_verified,migration_243_schema_verified:$migration_243_schema_verified,migration_244_schema_verified:$migration_244_schema_verified,migration_245_schema_verified:$migration_245_schema_verified}' "$gate_payload_tmp" > "$gate_payload_augmented"; then
+    fail_gate_signing gate_signing_payload "$LINENO"
+  fi
+  mv -T -- "$gate_payload_augmented" "$gate_payload_tmp" || fail_gate_signing gate_signing_payload "$LINENO"
+fi
 chmod 400 "$gate_payload_tmp" || fail_gate_signing gate_signing_payload "$LINENO"
  if ! jq -cS . "$gate_payload_tmp" > "$gate_json_tmp"; then
    fail_gate_signing gate_signing_canonicalize "$LINENO"

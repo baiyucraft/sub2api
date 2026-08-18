@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]]
+[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]]
 release_id=${BASH_REMATCH[1]}
 [[ -d $release_dir && ! -L $release_dir ]]
 [[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]]

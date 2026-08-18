@@ -2,9 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import MonitorCardGrid from '@/components/user/monitor/MonitorCardGrid.vue'
 
-vi.mock('vue-i18n', () => ({
-  useI18n: () => ({ t: (key: string) => key }),
-}))
+vi.mock('vue-i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue-i18n')>()
+  return {
+    ...actual,
+    useI18n: () => ({ t: (key: string) => key }),
+  }
+})
 
 describe('MonitorCardGrid', () => {
   it('passes the selected range and list availability directly to each card', () => {

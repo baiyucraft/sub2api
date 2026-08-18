@@ -116,7 +116,10 @@ func (h *openAICaptureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 func setupFakeOpenAI(t *testing.T, handler *openAICaptureHandler) string {
 	t.Helper()
 	swapMonitorHTTPClient(t)
-	srv := httptest.NewServer(handler)
+	srv := httptest.NewTLSServer(handler)
+	// RunCheck performs the same HTTPS endpoint validation as production. Use
+	// the test server's transport so the self-signed certificate is trusted.
+	monitorHTTPClient = srv.Client()
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
@@ -199,7 +202,7 @@ func TestGrokMonitorConfiguration(t *testing.T) {
 	if err := validateProvider(MonitorProviderGrok); err != nil {
 		t.Fatalf("grok provider should be supported: %v", err)
 	}
-	if got := normalizeMonitorPrimaryModel(MonitorProviderGrok, ""); got != MonitorDefaultGrokModel {
+	if got := normalizeMonitorPrimaryModel(MonitorProviderGrok, MonitorCheckModeProbe, ""); got != MonitorDefaultGrokModel {
 		t.Fatalf("expected default Grok model %q, got %q", MonitorDefaultGrokModel, got)
 	}
 	if err := validateAPIMode(MonitorProviderGrok, MonitorAPIModeChatCompletions); err != nil {

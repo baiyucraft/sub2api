@@ -14,16 +14,17 @@
     "236": {"version": "0.176-baiyu", "migration_count": 51, "migration_map_sha256": "cd5991579202a830ea95db3913e896da83bd678911e80b6fd1e1adb5e21b0b83", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"},
     "237": {"version": "0.1.177-baiyu", "migration_count": 53, "migration_map_sha256": "b9e167304aa2ac092fff10b4db56495dc2c1e92826f2201cce4520fd2fd877e4", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"},
     "238": {"version": "0.1.177-baiyu", "migration_count": 54, "migration_map_sha256": "322ec9fe133e3209611a0c1cad357732512a381baed685334d00d8c8ede0cdf5", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"},
-    "239": {"version": "0.1.177-baiyu", "migration_count": 56, "migration_map_sha256": "7cacd9a3f3527bd605222e63220e49dc23cc9af8153e68f4783e2eaeb3ff84d0", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"}
+    "239": {"version": "0.1.177-baiyu", "migration_count": 56, "migration_map_sha256": "7cacd9a3f3527bd605222e63220e49dc23cc9af8153e68f4783e2eaeb3ff84d0", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"},
+    "240": {"version": "0.1.177-baiyu", "migration_count": 58, "migration_map_sha256": "b4a160cc14979fedbf1099591b1e7a47e309ed12090837ba3f72c5feeb1a3b5a", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"}
   },
   "current_profile": {
-    "id": "240",
+    "id": "241",
     "status": "pending",
-    "base_profile": "239",
-    "version": "0.1.177-baiyu",
-    "migration_count": 58,
-    "migration_map_sha256": "b4a160cc14979fedbf1099591b1e7a47e309ed12090837ba3f72c5feeb1a3b5a",
-    "appended_migrations": ["240_upstream_observation_preference.sql", "241_precise_upstream_effective_rate.sql"],
+    "base_profile": "240",
+    "version": "0.1.178-baiyu",
+    "migration_count": 62,
+    "migration_map_sha256": "1b20a2ea285516a12c92dd31b9af4bc7949cd83ff714e45ee9d1fd9af68d2ea8",
+    "appended_migrations": ["242_user_platform_quotas_add_cn_providers.sql", "243_backfill_codex_fingerprint_seed.sql", "244_channel_model_time_pricing.sql", "245_channel_monitor_quota_mode.sql"],
     "compatibility_version": "0.1.172-baiyu",
     "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b",
     "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"
@@ -52,7 +53,11 @@
     "238_upstream_account_lifecycle.sql": "23156212ee9b8b79bdc55d51e9fadcfaad5f053a1415a53b7808df23aa0980b8",
     "239_reconcile_non_grok_video_pricing.sql": "022c4031ec02f3118ad4dbced90089f2fe8ea6000b43008385751a5ab849e147",
     "240_upstream_observation_preference.sql": "7e5958d2a430b8b107f84c91beecdb5f3f3ad418f78ebe6d916d77ccd6a34175",
-    "241_precise_upstream_effective_rate.sql": "e2b7e4f17be261e3021820e11e827fa4bba3837baddb4f1e43aeb6d97261ef2e"
+    "241_precise_upstream_effective_rate.sql": "e2b7e4f17be261e3021820e11e827fa4bba3837baddb4f1e43aeb6d97261ef2e",
+    "242_user_platform_quotas_add_cn_providers.sql": "a80bf4129f12d09818c495b804c81d2ed2a4ea2bbb87fdd39f59fa336c6e0886",
+    "243_backfill_codex_fingerprint_seed.sql": "2e0a0f6551d026227095394a2d254368d6128ce98a9dc29a7b8de4dcbe64d467",
+    "244_channel_model_time_pricing.sql": "de2b2e411c1b63c320abb76d11a7f482e8d4ae9fe465eb7949e6e1c92e1f69e0",
+    "245_channel_monitor_quota_mode.sql": "5efcd4dcd8e3cf8d64c0e66adae14836209a125e896d416781495ab8c91a8c1b"
   },
   "migration_renames": {"official_221": "234_group_model_pricing.sql", "official_222": "235_group_usage_daily_rollups.sql", "official_223": "236_group_usage_rollup_timezone.sql"},
   "migration_assertions": {
@@ -95,6 +100,22 @@
       "source_rate_multiplier",
       "numeric(20,10)",
       "effective"
+    ],
+    "backend/migrations/242_user_platform_quotas_add_cn_providers.sql": [
+      "user_platform_quotas",
+      "kimi",
+      "zhipu",
+      "deepseek"
+    ],
+    "backend/migrations/243_backfill_codex_fingerprint_seed.sql": [
+      "codex_fingerprint"
+    ],
+    "backend/migrations/244_channel_model_time_pricing.sql": [
+      "time_pricing"
+    ],
+    "backend/migrations/245_channel_monitor_quota_mode.sql": [
+      "channel_monitor",
+      "quota_mode"
     ]
   },
   "high_risk_paths": [
@@ -154,7 +175,7 @@
       "id": "image-cost-routing-and-display", "title": "上游生图能力展示与图片成本优先路由", "description": "依据上游 Key 图片定价快照展示生图能力、倍率来源和 1K/2K/4K 最终成本，并仅对开启生图且显式启用路由的分组按成本分层调度。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/upstream_key_image_pricing.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/openai_images.go", "backend/internal/service/account.go", "backend/internal/service/admin_group.go", "backend/internal/repository/account_repo.go", "backend/internal/repository/api_key_repo.go", "backend/internal/repository/scheduler_cache.go", "backend/internal/repository/group_repo.go", "backend/internal/service/api_key_auth_cache.go", "backend/internal/service/api_key_auth_cache_impl.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "backend/ent/schema/group.go", "backend/migrations/237_image_cost_routing.sql", "frontend/src/views/admin/AccountsView.vue", "frontend/src/views/admin/GroupsView.vue", "frontend/src/components/account/UpstreamImagePricingSummary.vue", "frontend/src/types/index.ts", "frontend/src/i18n/locales/en/admin/accounts.ts", "frontend/src/i18n/locales/zh/admin/accounts.ts", "frontend/src/i18n/locales/en/admin/overview.ts", "frontend/src/i18n/locales/zh/admin/overview.ts", "backend/internal/service/openai_ttft_guard.go"], "symbols": ["UpstreamKeyImagePricing", "ImageCostRoutingEnabled", "buildImageCostSelectionOrder", "SelectAccountWithSchedulerForImages", "UpstreamImagePricingSummary"], "api_routes": ["/admin/accounts", "/admin/groups", "/v1/images/generations", "/v1/images/edits"], "settings_keys": [], "migration_files": ["237_image_cost_routing.sql"], "required_tests": ["backend/internal/service/upstream_key_image_pricing_test.go", "backend/internal/service/openai_account_scheduler_upstream_cost_test.go", "backend/internal/service/openai_image_cost_routing_test.go", "backend/internal/service/admin_group_image_cost_routing_test.go", "backend/migrations/profile_238_migrations_test.go", "frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts", "frontend/src/components/account/__tests__/UpstreamImagePricingSummary.spec.ts"], "recommended_tests": ["frontend/src/views/admin/__tests__/GroupsView.imageCostRouting.spec.ts", "backend/internal/service/api_key_auth_cache_test.go", "backend/internal/repository/scheduler_cache_test.go"], "invariants": ["生图能力只来自 Key 快照", "普通文本调度不受影响", "未知成本不能当作 0", "用户侧图片计费不改变", "stale/partial/unknown 不得伪装成免费", "图片成本摘要必须结构化展示能力、倍率来源和 1K/2K/4K 成本，不得退化为拼接字符串", "prefer_lowest/strict_lowest 不得绕过健康、共享并发、TTFT Guard 或 Priority 约束", "profile 233–238 历史证据不可变"]
     },
     {
-    "id": "migration-profile-contract", "title": "Migration、profile、版本与历史证据", "description": "维护 fork migration、官方重编号、历史 profile 233–239、当前 profile 240、版本命名、checksum 和 compatibility identity。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/migrations/**", ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py", ".agents/skills/sub2api-production-deploy/scripts/release/manifest.py", ".agents/skills/sub2api-production-deploy/scripts/release/production.py", ".agents/skills/sub2api-production-deploy/scripts/release/vm-validate.sh", "backend/cmd/server/VERSION"], "symbols": ["PROFILES", "migration_sha256", "compatibility_commit", "0.1.177-baiyu"], "api_routes": [], "settings_keys": [], "migration_files": ["233_upstream_management.sql", "234_group_model_pricing.sql", "235_group_usage_daily_rollups.sql", "236_group_usage_rollup_timezone.sql", "237_image_cost_routing.sql", "238_upstream_account_lifecycle.sql", "239_reconcile_non_grok_video_pricing.sql", "240_upstream_observation_preference.sql", "241_precise_upstream_effective_rate.sql"], "required_tests": ["backend/migrations/profile_233_migrations_test.go", "backend/migrations/profile_238_migrations_test.go", "backend/migrations/profile_239_migrations_test.go", "backend/migrations/observation_preference_migration_test.go", "backend/migrations/precise_upstream_effective_rate_migration_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py"], "recommended_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py"], "invariants": ["历史 profile 233–239 不回写", "当前 profile 240 为 pending/current 合同，58 项 migration，追加 240_upstream_observation_preference.sql 与 241_precise_upstream_effective_rate.sql", "官方 221/222/223 本地重编号内容不变", "fork VERSION 始终是官方 VERSION + -baiyu", "审计目录的 migration checksum 绑定 Git 原始文件字节，发布 manifest checksum 绑定 strip 后的 SQL 文本，两种证据必须分别记录且不得混用", "240_upstream_observation_preference.sql 发布 manifest checksum 必须为 1fffaccdd49d9d498d9e98bc8f43ef565b5ea20147666724111a01013a6ed8ea", "241_precise_upstream_effective_rate.sql 发布 manifest checksum 必须为 72a6e99860b893ddacb70414c9b525fc604890260dcf5ad3223e5f5e13bc74db"]
+    "id": "migration-profile-contract", "title": "Migration、profile、版本与历史证据", "description": "维护 fork migration、官方重编号、历史 profile 233–240、当前 profile 241、版本命名、checksum 和 compatibility identity。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/migrations/**", ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py", ".agents/skills/sub2api-production-deploy/scripts/release/manifest.py", ".agents/skills/sub2api-production-deploy/scripts/release/production.py", ".agents/skills/sub2api-production-deploy/scripts/release/vm-validate.sh", "backend/cmd/server/VERSION"], "symbols": ["PROFILES", "migration_sha256", "compatibility_commit", "0.1.178-baiyu"], "api_routes": [], "settings_keys": [], "migration_files": ["233_upstream_management.sql", "234_group_model_pricing.sql", "235_group_usage_daily_rollups.sql", "236_group_usage_rollup_timezone.sql", "237_image_cost_routing.sql", "238_upstream_account_lifecycle.sql", "239_reconcile_non_grok_video_pricing.sql", "240_upstream_observation_preference.sql", "241_precise_upstream_effective_rate.sql", "242_user_platform_quotas_add_cn_providers.sql", "243_backfill_codex_fingerprint_seed.sql", "244_channel_model_time_pricing.sql", "245_channel_monitor_quota_mode.sql"], "required_tests": ["backend/migrations/profile_233_migrations_test.go", "backend/migrations/profile_238_migrations_test.go", "backend/migrations/profile_239_migrations_test.go", "backend/migrations/observation_preference_migration_test.go", "backend/migrations/precise_upstream_effective_rate_migration_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py"], "recommended_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py"], "invariants": ["历史 profile 233–240 不回写", "当前 profile 241 为 pending/current 合同，62 项 migration，继承 profile 240 并追加官方重编号的 242–245", "官方 221/222/223 本地重编号内容不变", "fork VERSION 始终是官方 VERSION + -baiyu", "审计目录的 migration checksum 绑定 Git 原始文件字节，发布 manifest checksum 绑定 strip 后的 SQL 文本，两种证据必须分别记录且不得混用", "官方新增迁移 242–245 的 SQL 语义与 checksum 固定，不能回写历史 profile", "240_upstream_observation_preference.sql 发布 manifest checksum 必须为 1fffaccdd49d9d498d9e98bc8f43ef565b5ea20147666724111a01013a6ed8ea", "241_precise_upstream_effective_rate.sql 发布 manifest checksum 必须为 72a6e99860b893ddacb70414c9b525fc604890260dcf5ad3223e5f5e13bc74db"]
     },
     {
       "id": "release-operations-isolation", "title": "发布 skill 隔离、日志、清理与 8211 收口", "description": "fork 专用发布资产隔离在 production-deploy skill，完整日志、Windows Git Bash、VM/备份容量清理和 8211 单实例收口。", "ownership": "fork-operations", "risk_level": "critical", "paths": [".agents/skills/sub2api-production-deploy/**", "deploy/maintenance/181/**"], "symbols": ["skill-v1", "plan_sha256", "sub2api-dev", "8211", "backup-retention-clean.sh", "run-bash.ps1"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_backup_retention_clean.py", ".agents/skills/sub2api-production-deploy/scripts/tests/windows/test_run_bash.py"], "invariants": ["生产成功 verify-result 和 post-deploy doctor 后才关闭 8211", "清理先 dry-run 再绑定 plan_sha256 apply", "原始日志留在节点 root-only 目录"]

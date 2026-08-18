@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from './client'
-import type { Provider, MonitorStatus } from './admin/channelMonitor'
+import type { MonitorQuotaSnapshot, Provider, MonitorStatus } from './admin/channelMonitor'
 
 export type { Provider, MonitorStatus } from './admin/channelMonitor'
 
@@ -38,6 +38,11 @@ export interface UserMonitorView {
   current_public_rate?: number | null
   rate_observed_since?: string | null
   rate_trend?: MonitorRateTrendPoint[]
+  /**
+   * 主模型最近配额快照。仅当系统开启 channel_monitor_show_quota 时
+   * 服务端才会下发（关闭时服务端已剥离，前端 flag 仅作纵深防御）。
+   */
+  latest_quota?: MonitorQuotaSnapshot | null
 }
 
 export interface MonitorRateTrendPoint {

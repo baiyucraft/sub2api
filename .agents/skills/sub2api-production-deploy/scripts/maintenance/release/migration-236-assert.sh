@@ -3,7 +3,7 @@ set -Eeuo pipefail
 phase=${1:?phase is required}
 migration_status=${MIGRATION_STATUS:-absent}
 source "${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/context.sh}"
-[[ $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 ]] || exit 1
+[[ $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]] || exit 1
 [[ $phase == preflight || $phase == postflight ]] || exit 1
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 query(){ docker exec "${ASSERT_DB_CONTAINER:-sub2api-postgres}" psql -X -A -t -F '|' -v ON_ERROR_STOP=1 -U "${ASSERT_DB_USER:-sub2api}" -d "${ASSERT_DB_NAME:-sub2api}" -c "$1"; }
