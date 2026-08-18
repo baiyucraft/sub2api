@@ -487,6 +487,32 @@ func TestAdminService_UpdateGroup_WithVideoPricing(t *testing.T) {
 	require.InDelta(t, 0.19, *repo.updated.VideoPrice1080P, 0.0001)
 }
 
+func TestAdminService_UpdateGroup_NonVideoPlatformClearsVideoPricing(t *testing.T) {
+	existingGroup := &Group{
+		ID:               1,
+		Platform:         PlatformOpenAI,
+		Name:             "openai",
+		RateMultiplier:   1,
+		Status:           StatusActive,
+		SubscriptionType: SubscriptionTypeStandard,
+		VideoPrice480P:   ptrFloat64(0.05),
+		VideoModelPrices: map[string]map[string]float64{"grok-imagine-video": {"480p": 0.05}},
+	}
+	repo := &groupRepoStubForAdmin{getByID: existingGroup}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	updated, err := svc.UpdateGroup(context.Background(), existingGroup.ID, &UpdateGroupInput{
+		Name:             "edited",
+		VideoModelPrices: map[string]map[string]float64{},
+	})
+	require.NoError(t, err)
+	require.Nil(t, updated.VideoPrice480P)
+	require.Nil(t, updated.VideoPrice720P)
+	require.Nil(t, updated.VideoPrice1080P)
+	require.Nil(t, updated.VideoModelPrices)
+	require.Nil(t, repo.updated.VideoModelPrices)
+}
+
 // TestAdminService_UpdateGroup_PartialImagePricing 测试仅更新部分 ImagePrice 字段
 func TestAdminService_UpdateGroup_PartialImagePricing(t *testing.T) {
 	oldPrice2K := 0.15

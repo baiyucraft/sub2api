@@ -4532,6 +4532,7 @@ import {
   createVideoModelPricesForm,
   grokVideoPriceResolutions,
   serializeVideoModelPrices,
+  serializeVideoModelPricesForPlatform,
   videoModelPriceFamilyRows,
 } from "./groupsVideoModelPricing";
 
@@ -6417,8 +6418,16 @@ const handleUpdateGroup = async () => {
   submitting.value = true;
   try {
     // 转换 fallback_group_id: null -> 0 (后端使用 0 表示清除)
+    const {
+      video_model_prices: _editFormVideoModelPrices,
+      ...editGroupForm
+    } = editForm;
+    const videoModelPrices = serializeVideoModelPricesForPlatform(
+      editForm.platform,
+      editForm.video_model_prices,
+    );
     const payload = {
-      ...editForm,
+      ...editGroupForm,
       model_pricing: groupPricingToAPI(
         editForm.model_pricing,
         editForm.platform,
@@ -6432,9 +6441,9 @@ const handleUpdateGroup = async () => {
       monthly_limit_usd: normalizeOptionalLimit(
         editForm.monthly_limit_usd as number | string | null,
       ),
-      video_model_prices: serializeVideoModelPrices(
-        editForm.video_model_prices,
-      ),
+      ...(videoModelPrices === undefined
+        ? {}
+        : { video_model_prices: videoModelPrices }),
       fallback_group_id:
         editForm.fallback_group_id === null ? 0 : editForm.fallback_group_id,
       fallback_group_id_on_invalid_request:

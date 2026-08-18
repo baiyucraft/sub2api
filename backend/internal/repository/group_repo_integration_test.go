@@ -199,6 +199,40 @@ func (s *GroupRepoSuite) TestUpdate() {
 	s.Require().Equal("updated", got.Name)
 }
 
+func (s *GroupRepoSuite) TestNonVideoGroupVideoPricingIsStoredAsSQLNull() {
+	videoPrice := 0.05
+	group := &service.Group{
+		Name:             "non-video-pricing",
+		Platform:         service.PlatformOpenAI,
+		RateMultiplier:   1,
+		Status:           service.StatusActive,
+		SubscriptionType: service.SubscriptionTypeStandard,
+		VideoPrice480P:   &videoPrice,
+		VideoModelPrices: map[string]map[string]float64{"grok-imagine-video": {"480p": 0.05}},
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, group))
+
+	var modelPrices any
+	var price480 any
+	s.Require().NoError(scanSingleRow(s.ctx, s.tx,
+		"SELECT video_model_prices, video_price_480p FROM groups WHERE id = $1",
+		[]any{group.ID}, &modelPrices, &price480))
+	s.Require().Nil(modelPrices)
+	s.Require().Nil(price480)
+
+	group.Name = "non-video-pricing-updated"
+	group.VideoModelPrices = map[string]map[string]float64{}
+	videoPrice = 0.08
+	group.VideoPrice480P = &videoPrice
+	s.Require().NoError(s.repo.Update(s.ctx, group))
+	modelPrices, price480 = nil, nil
+	s.Require().NoError(scanSingleRow(s.ctx, s.tx,
+		"SELECT video_model_prices, video_price_480p FROM groups WHERE id = $1",
+		[]any{group.ID}, &modelPrices, &price480))
+	s.Require().Nil(modelPrices)
+	s.Require().Nil(price480)
+}
+
 func (s *GroupRepoSuite) TestGetByID_PreservesMessagesDispatchModelConfig() {
 	group := &service.Group{
 		Name:                  "openai-dispatch",

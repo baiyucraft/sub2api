@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createVideoModelPricesForm,
   serializeVideoModelPrices,
+  serializeVideoModelPricesForPlatform,
   videoModelPriceFamilyRows
 } from '../groupsVideoModelPricing'
 
@@ -43,5 +44,12 @@ describe('Grok video model pricing form', () => {
     expect(serializeVideoModelPrices(form)).toMatchObject({
       'grok-imagine-video-2': { '480p': 0.2 }
     })
+  })
+
+  it('omits video model pricing from non-video group updates', () => {
+    const form = createVideoModelPricesForm()
+
+    expect(serializeVideoModelPricesForPlatform('openai', form)).toBeUndefined()
+    expect(serializeVideoModelPricesForPlatform('grok', form)).toEqual({})
   })
 })

@@ -6,6 +6,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSupportsVideoPricingPlatform(t *testing.T) {
+	t.Parallel()
+	for _, platform := range []string{PlatformGrok, PlatformComposite} {
+		require.True(t, SupportsVideoPricingPlatform(platform))
+	}
+	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity} {
+		require.False(t, SupportsVideoPricingPlatform(platform))
+	}
+}
+
 func TestCanonicalGrokImagineVideoPriceFamily(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, VideoPriceFamilyGrokImagineVideo, CanonicalGrokImagineVideoPriceFamily("grok-imagine-video"))

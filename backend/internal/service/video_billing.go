@@ -14,6 +14,14 @@ const (
 	VideoPriceFamilyGrokImagineVideo15 = "grok-imagine-video-1.5"
 )
 
+// SupportsVideoPricingPlatform reports whether a group platform may persist
+// video pricing overrides. Composite groups are included because they may
+// route requests to the Grok video provider; all other platforms must keep
+// the video pricing columns NULL (see migration 239).
+func SupportsVideoPricingPlatform(platform string) bool {
+	return platform == PlatformGrok || platform == PlatformComposite
+}
+
 // CanonicalGrokImagineVideoPriceFamily normalizes model aliases / preview / legacy
 // IDs onto the price-family keys stored in video_model_prices.
 func CanonicalGrokImagineVideoPriceFamily(model string) string {
