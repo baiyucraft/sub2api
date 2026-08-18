@@ -541,6 +541,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		MaxReasoningEffort:              maxReasoningEffort,
 		ReasoningEffortMappings:         reasoningEffortMappings,
 	}
+	normalizeGroupVideoPricingForPlatform(group)
 	sanitizeGroupMessagesDispatchFields(group)
 	if group.Platform != PlatformOpenAI {
 		group.AllowLive = false
@@ -851,6 +852,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.VideoModelPrices != nil {
 		group.VideoModelPrices = NormalizeVideoModelPrices(input.VideoModelPrices)
 	}
+	normalizeGroupVideoPricingForPlatform(group)
 	if input.WebSearchPricePerCall != nil {
 		group.WebSearchPricePerCall = normalizePrice(input.WebSearchPricePerCall)
 	}
@@ -1043,6 +1045,20 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 
 	return group, nil
+}
+
+// normalizeGroupVideoPricingForPlatform is the application-level counterpart
+// to migration 239's database constraint. Non-video platforms must never send
+// an empty JSON object for video_model_prices: JSONB '{}' is not SQL NULL and
+// would make an otherwise unrelated group edit fail with a 500.
+func normalizeGroupVideoPricingForPlatform(group *Group) {
+	if group == nil || SupportsVideoPricingPlatform(group.Platform) {
+		return
+	}
+	group.VideoPrice480P = nil
+	group.VideoPrice720P = nil
+	group.VideoPrice1080P = nil
+	group.VideoModelPrices = nil
 }
 
 func normalizeGroupModelPricing(platform string, pricing []ChannelModelPricing) ([]ChannelModelPricing, error) {
