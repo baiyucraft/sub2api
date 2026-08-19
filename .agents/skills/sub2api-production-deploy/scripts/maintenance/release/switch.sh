@@ -695,7 +695,7 @@ if [[ $profile == 237 || $profile == 238 || $profile == 239 ]]; then
   printf 'migration_236_schema_verified=true\n'
   printf 'migration_236_postflight=pass\n'
 fi
-if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 ]]; then
+if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
   migration_237_context="$state_dir/migration-237-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_237_context"
   chmod 400 "$migration_237_context"
@@ -705,7 +705,7 @@ if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 
   printf 'migration_237_schema_verified=true\n'
   printf 'migration_237_postflight=pass\n'
 fi
-if [[ $release_profile == 239 || $release_profile == 240 ]]; then
+if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
   migration_238_context="$state_dir/migration-238-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_238_context"
   chmod 400 "$migration_238_context"
