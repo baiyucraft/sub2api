@@ -1478,6 +1478,9 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         if self.manifest.get("schema") == 2:
             pending = self.evidence.get("migration_evidence", {}).get("pending", [])
             checks = " ".join(shlex.quote(str(item["filename"]) + "|" + str(item["checksum"])) for item in pending)
+            # switch.sh binds the signed pending array itself; recompute the
+            # same canonical digest during reconciliation before trusting the
+            # committed marker.
             pending_digest = hashlib.sha256(canonical_json(pending)).hexdigest()
             marker_lines = "\n".join(
                 f"grep -Fxq {shlex.quote('migration=' + str(item['filename']) + ' checksum=' + str(item['checksum']))} \"$marker\""
@@ -1496,7 +1499,7 @@ if test -f "$marker" && test ! -L "$marker" && test "$(stat -c '%U:%G:%a:%h' "$m
     marker_verified=true
   fi
 fi
-if test "$all_verified" = true && test "$marker_verified" = true; then printf 'migration_committed=true\\n'; elif test ! -e "$marker" && test -z "$(docker ps -aq -f name=^sub2api-migrate-{self.release_id}$)"; then printf 'migration_committed=false\\n'; else printf 'migration_committed=unknown\\n'; fi'''
+  if test "$all_verified" = true && test "$marker_verified" = true; then printf 'migration_committed=true\\n'; elif test ! -e "$marker" && test -z "$(docker ps -aq -f name=^sub2api-migrate-{self.release_id}$)"; then printf 'migration_committed=false\\n'; else printf 'migration_committed=unknown\\n'; fi'''
             try:
                 value = self.run_remote("racknerd", script, {"migration_committed"})["migration_committed"]
             except BaseException:
