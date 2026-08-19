@@ -52,13 +52,13 @@ printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c '
   IFS= read -r REDISCLI_AUTH
   export REDISCLI_AUTH
   exec redis-cli --no-auth-warning --rdb /tmp/sub2api-pre-gate.rdb
-' >/dev/null
-redis_rdb_check=$(docker exec sub2api-redis redis-check-rdb /tmp/sub2api-pre-gate.rdb)
+' >/dev/null 2>&1
+redis_rdb_check=$(docker exec sub2api-redis redis-check-rdb /tmp/sub2api-pre-gate.rdb 2>&1)
 redis_rdb_keys=$(sed -n 's/^\[info\] \([0-9][0-9]*\) keys read$/\1/p' <<<"$redis_rdb_check")
 redis_rdb_expires=$(sed -n 's/^\[info\] \([0-9][0-9]*\) expires$/\1/p' <<<"$redis_rdb_check")
 redis_rdb_already_expired=$(sed -n 's/^\[info\] \([0-9][0-9]*\) already expired$/\1/p' <<<"$redis_rdb_check")
 [[ $redis_rdb_keys =~ ^[0-9]+$ && $redis_rdb_expires =~ ^[0-9]+$ && $redis_rdb_already_expired =~ ^[0-9]+$ ]]
-docker cp sub2api-redis:/tmp/sub2api-pre-gate.rdb "$work/redis/dump.rdb" >/dev/null
+docker cp sub2api-redis:/tmp/sub2api-pre-gate.rdb "$work/redis/dump.rdb" >/dev/null 2>&1
 docker exec sub2api-redis rm -f /tmp/sub2api-pre-gate.rdb
 [[ -s $work/redis/dump.rdb ]]
 
@@ -69,7 +69,7 @@ printf 'current_image_id=%s\nredis_keys=%s\nredis_expires=%s\nredis_already_expi
 (cd "$work" && find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS)
 tar -C "$work" -cf "$recovery" .
 tar -tf "$recovery" >/dev/null
-docker save "$expected_image_id" | gzip -1 > "$compatibility"
+docker save "$expected_image_id" 2>/dev/null | gzip -1 > "$compatibility"
 [[ -s $compatibility ]]
 chmod 600 "$recovery" "$compatibility"
 
