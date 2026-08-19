@@ -72,6 +72,9 @@ if [[ "$manifest_schema" == 2 ]]; then
   printf '%s\n' preflight > "$state_dir/stage"
   cd "$source_dir"
   [[ -f .sub2api-deploy-worktree ]]
+  git fetch origin +main:refs/remotes/origin/main >/dev/null 2>&1
+  [[ $(git rev-parse origin/main) == "$commit" ]]
+  git reset --hard "$commit" >/dev/null
   [[ $(git rev-parse HEAD) == "$commit" ]]
   while IFS=$'\t' read -r relative expected; do
     [[ -f "$source_dir/$relative" && ! -L "$source_dir/$relative" ]]
