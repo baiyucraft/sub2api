@@ -137,3 +137,45 @@ func RunMigrations(cfg *config.Config) error {
 	}
 	return ensureGroupRateTimezoneSnapshots(ctx, drv.DB(), timezone.Name())
 }
+
+// PlanEmbeddedMigrations builds a read-only migration plan for the embedded
+// candidate catalog and the configured database. It does not create tables,
+// acquire the migration advisory lock, or execute SQL migrations.
+func PlanEmbeddedMigrations(ctx context.Context, cfg *config.Config) (MigrationPlan, error) {
+	if cfg == nil {
+		return MigrationPlan{}, fmt.Errorf("config is required")
+	}
+	drv, err := entsql.Open(dialect.Postgres, cfg.Database.DSNWithTimezone(cfg.Timezone))
+	if err != nil {
+		return MigrationPlan{}, err
+	}
+	defer drv.Close()
+	applyDBPoolSettings(drv.DB(), cfg)
+	return PlanMigrations(ctx, drv.DB(), migrations.FS)
+}
+
+// PlanEmbeddedMigrationsFromRecords plans the embedded catalog against an
+// immutable schema_migrations snapshot without opening a database connection.
+// Release tooling uses this to prove that the VM plan is the same plan that
+// was computed from production state.
+func PlanEmbeddedMigrationsFromRecords(records []MigrationRecord) (MigrationPlan, error) {
+	return PlanMigrationsFromRecords(migrations.FS, records)
+}
+
+// ApplyEmbeddedMigrationPlan executes only after the configured database and
+// embedded catalog still match the supplied immutable plan.
+func ApplyEmbeddedMigrationPlan(ctx context.Context, cfg *config.Config, expected MigrationPlan) error {
+	if cfg == nil {
+		return fmt.Errorf("config is required")
+	}
+	drv, err := entsql.Open(dialect.Postgres, cfg.Database.DSNWithTimezone(cfg.Timezone))
+	if err != nil {
+		return err
+	}
+	defer drv.Close()
+	applyDBPoolSettings(drv.DB(), cfg)
+	if err := ApplyMigrationPlan(ctx, drv.DB(), migrations.FS, expected); err != nil {
+		return err
+	}
+	return ensureGroupRateTimezoneSnapshots(ctx, drv.DB(), timezone.Name())
+}

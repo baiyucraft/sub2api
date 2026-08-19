@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shlex
 import secrets
@@ -10,8 +11,10 @@ from pathlib import Path
 from .atomic import atomic_write, canonical_json
 from .gate import verify_gate
 from .manifest import sha256_file
+from .migration_planner import HOOK_REGISTRY, plan_migrations
+from .production_snapshot import decode_snapshot, snapshot_script, snapshot_sha256
 from .paths import MAINTENANCE_ROOT, TRUSTED_VM_PUBLIC_KEY, UNIT_ROOT
-from .profiles import get_profile
+from .profiles import get_profile, get_release_profile
 from .ssh import SSHRunner
 
 
@@ -93,10 +96,11 @@ def emit_progress(message: str) -> None:
 class ProductionRelease:
     def __init__(self, gate_dir: Path, profile_name: str) -> None:
         self.gate_dir = gate_dir
-        self.profile = get_profile(profile_name)
-        self.document = verify_gate(gate_dir, TRUSTED_KEY, profile_name)
+        self.profile = get_release_profile(profile_name)
+        self.document = verify_gate(gate_dir, TRUSTED_KEY, profile_name, accepted_schemas=frozenset({2}))
         self.manifest = self.document["manifest"]
         self.evidence = self.document["evidence"]
+        self.migration_plan: dict[str, object] | None = None
         self.deployment_mode = str(self.manifest.get("deployment_mode", ""))
         if self.deployment_mode not in {"blue-green", "downtime"}:
             raise RuntimeError("signed Gate deployment mode is invalid")
@@ -311,6 +315,9 @@ exit "$code"
         self.stage("stage_assets_verified", {"candidate_image_id": self.image_id, **trust})
 
     def preflight(self) -> None:
+        if self.manifest.get("schema") == 2:
+            self.preflight_v2()
+            return
         self.stage("production_preflight")
         env = quoted_env(
             {
@@ -447,6 +454,62 @@ exit "$code"
         self.migration_244_status = values["migration_244_status"]
         self.migration_245_status = values["migration_245_status"]
         self.stage("production_preflight_verified", values)
+
+    def preflight_v2(self) -> None:
+        self.stage("production_preflight_v2")
+        values = self.run_remote("racknerd", snapshot_script(), {"snapshot_b64"})
+        snapshot = decode_snapshot(values["snapshot_b64"])
+        signed_image = self.evidence.get("production_current_image_id")
+        if signed_image and snapshot.get("current_image_id") != signed_image:
+            raise RuntimeError("production current image differs from signed Gate")
+        if snapshot_sha256(snapshot) != self.evidence.get("production_snapshot_sha256"):
+            raise RuntimeError("production snapshot differs from signed Gate")
+        plan = plan_migrations(self.manifest["migration_catalog"], snapshot["schema_migrations"])
+        if plan["conflicts"]:
+            raise RuntimeError("production migration checksum conflict")
+        if not plan["existing_checksums_verified"]:
+            raise RuntimeError("production existing migration checksums are not verified")
+        signed = self.evidence.get("migration_evidence", {}).get("pending", [])
+        actual = [{"filename": item["filename"], "checksum": item["checksum"]} for item in plan["pending"]]
+        expected = [{"filename": item.get("filename"), "checksum": item.get("checksum")} for item in signed]
+        if actual != expected:
+            raise RuntimeError("production pending migration plan differs from signed Gate")
+        remote_env = quoted_env(
+            {
+                "RELEASE_DIR": self.release_dir,
+                "MINIMUM_FREE_BYTES": self.profile["minimum_rack_free_bytes"],
+            }
+        )
+        remote_values = self.run_remote(
+            "racknerd",
+            f"{remote_env} {self.active_assets}/preflight.sh",
+            {
+                "preflight",
+                "active_container",
+                "active_port",
+                "pre_switch_image_id",
+                "free_bytes",
+                "migration_status",
+                "migration_pending_count",
+            },
+        )
+        if remote_values.get("preflight") != "pass":
+            raise RuntimeError("production v2 preflight failed")
+        if remote_values.get("pre_switch_image_id") != snapshot.get("current_image_id"):
+            raise RuntimeError("production current image changed during preflight")
+        if remote_values.get("migration_pending_count") != str(len(actual)):
+            raise RuntimeError("production pending count differs from signed Gate")
+        if remote_values.get("migration_status") != ("verified" if not actual else "absent"):
+            raise RuntimeError("production migration status differs from signed Gate")
+        self.production_snapshot = snapshot
+        self.migration_plan = plan
+        self.migration_status = "pending" if actual else "verified"
+        self.stage("production_preflight_v2_verified", {
+            "production_current_image_id": snapshot.get("current_image_id", ""),
+            "pending_count": str(len(actual)),
+            "existing_count": str(len(plan["existing"])),
+            "catalog_sha256": plan["catalog_sha256"],
+        })
 
     def run_route_canary(
         self,
@@ -678,6 +741,9 @@ exit "$code"
         self.stage("backup_verified", {**values, **promoted})
 
     def migration_preflight(self) -> None:
+        if self.manifest.get("schema") == 2:
+            self.migration_preflight_v2()
+            return
         if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241"}:
             return
         assertion_context = f"{self.state_dir}/migration-preflight-context.sh"
@@ -863,7 +929,22 @@ exit "$code"
                 values = self.run_remote("racknerd", f"{env} {self.active_assets}/{script_name} preflight", fields)
                 self.stage(f"migration_{number}_preflight_verified", values)
 
+    def migration_preflight_v2(self) -> None:
+        pending = self.evidence.get("migration_evidence", {}).get("pending", [])
+        for item in pending:
+            hook = HOOK_REGISTRY.get(str(item["filename"]))
+            if not hook:
+                continue
+            self.stage(f"migration_hook_preflight_{item['filename'].split('.')[0]}")
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": "absent"})
+            phases = hook.get("preflight", ("preflight",))
+            for phase in phases:
+                self.run_remote("racknerd", f"{env} {self.active_assets}/{hook['script']} {phase} >/dev/null && printf 'hook_verified=true\\n'", {"hook_verified"})
+
     def bind_migration_plan(self) -> None:
+        if self.manifest.get("schema") == 2:
+            self.bind_migration_plan_v2()
+            return
         if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241"}:
             return
         self.stage("migration_195_bind_recovery_point")
@@ -892,6 +973,28 @@ exit "$code"
                 {"migration_239_plan_sha256", "migration_239_recovery_sha256"},
             )
             self.stage("migration_239_plan_bound", values)
+
+    def bind_migration_plan_v2(self) -> None:
+        pending = self.evidence.get("migration_evidence", {}).get("pending", [])
+        for item in pending:
+            hook = HOOK_REGISTRY.get(str(item["filename"]))
+            if not hook:
+                continue
+            self.stage(f"migration_hook_bind_{item['filename'].split('.')[0]}")
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": "absent", "DEPLOYMENT_MODE": self.deployment_mode})
+            for phase in hook.get("bind", ("bind",)):
+                self.run_remote("racknerd", f"{env} {self.active_assets}/{hook['script']} {phase} >/dev/null && printf 'hook_bound=true\\n'", {"hook_bound"})
+
+    def postflight_migration_hooks_v2(self) -> None:
+        pending = self.evidence.get("migration_evidence", {}).get("pending", [])
+        for item in pending:
+            hook = HOOK_REGISTRY.get(str(item["filename"]))
+            if not hook:
+                continue
+            self.stage(f"migration_hook_postflight_{item['filename'].split('.')[0]}")
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": "verified"})
+            for phase in hook.get("postflight", ("postflight",)):
+                self.run_remote("racknerd", f"{env} {self.active_assets}/{hook['script']} {phase} >/dev/null && printf 'hook_verified=true\\n'", {"hook_verified"})
 
     def switch(self) -> None:
         self.stage("migration_and_switch", timeout=1200)
@@ -1372,6 +1475,33 @@ printf 'canary_usage_recorded=true\nreal_client_ip=pass\ncanary_usage_records=%s
         self.stage("recovered", values)
 
     def remote_migration_committed(self) -> bool | None:
+        if self.manifest.get("schema") == 2:
+            pending = self.evidence.get("migration_evidence", {}).get("pending", [])
+            checks = " ".join(shlex.quote(str(item["filename"]) + "|" + str(item["checksum"])) for item in pending)
+            pending_digest = hashlib.sha256(canonical_json(pending)).hexdigest()
+            marker_lines = "\n".join(
+                f"grep -Fxq {shlex.quote('migration=' + str(item['filename']) + ' checksum=' + str(item['checksum']))} \"$marker\""
+                for item in pending
+            ) or ":"
+            script = f'''set -Eeuo pipefail
+marker={shlex.quote(self.state_dir + "/migration-committed")}
+all_verified=true
+for item in {checks}; do filename=${{item%%|*}}; checksum=${{item#*|}}; row=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$filename'"); test "$row" = "$checksum" || all_verified=false; done
+marker_verified=false
+if test -f "$marker" && test ! -L "$marker" && test "$(stat -c '%U:%G:%a:%h' "$marker")" = root:root:600:1; then
+  if grep -Fxq {shlex.quote('plan_sha256=' + pending_digest)} "$marker" && \
+     grep -Fxq {shlex.quote('catalog_sha256=' + str(self.manifest['catalog_sha256']))} "$marker" && \
+     grep -Fxq {shlex.quote('production_snapshot_sha256=' + str(self.evidence['production_snapshot_sha256']))} "$marker"; then
+    {marker_lines}
+    marker_verified=true
+  fi
+fi
+if test "$all_verified" = true && test "$marker_verified" = true; then printf 'migration_committed=true\\n'; elif test ! -e "$marker" && test -z "$(docker ps -aq -f name=^sub2api-migrate-{self.release_id}$)"; then printf 'migration_committed=false\\n'; else printf 'migration_committed=unknown\\n'; fi'''
+            try:
+                value = self.run_remote("racknerd", script, {"migration_committed"})["migration_committed"]
+            except BaseException:
+                return None
+            return {"true": True, "false": False}.get(value)
         if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241"}:
             return self.migration_started
         status_by_migration = {
@@ -1610,6 +1740,8 @@ fi
             self.backup()
             self.bind_migration_plan()
             self.switch()
+            if getattr(self, "manifest", {}).get("schema") == 2:
+                self.postflight_migration_hooks_v2()
             self.verify_and_finalize()
         except BaseException:
             if not self.claimed:

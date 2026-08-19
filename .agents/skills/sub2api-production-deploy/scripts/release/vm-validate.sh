@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# Legacy Gate v1 profile allowlist: (182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)
 
 required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv rm sed seq sha256sum sleep sort ss stat tr xargs)
 for command_name in "${required_commands[@]}"; do
@@ -10,6 +11,8 @@ git --version >/dev/null 2>&1
 
 manifest=${1:?manifest path is required}
 output_dir=${2:?output directory is required}
+production_snapshot=${3:-}
+pre_gate_descriptor=${4:-}
 source_dir=/opt/sub2api-src
 deploy_dir=/opt/sub2api-deploy
 data_dir="$deploy_dir/data-dev"
@@ -28,6 +31,255 @@ tag="sub2api:baiyu-$version-$commit"
 test_tag="sub2api:vm-test-$commit"
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 profile=$(jq -er '.profile' "$manifest")
+manifest_schema=$(jq -er '.schema' "$manifest")
+if [[ "$manifest_schema" == 2 ]]; then
+  [[ "$profile" == 242 ]]
+  [[ "$release_id" =~ ^242-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+  [[ "$version" == 0.1.178-baiyu ]]
+  [[ $(jq -er '.release_asset_layout' "$manifest") == skill-v1 ]]
+  [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
+  [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
+  [[ $(jq -er '.migration_catalog | type' "$manifest") == array ]]
+  [[ $(jq -er '.catalog_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
+  [[ $(jq -er '.checksum_policy_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
+  [[ $(jq -er '.parent_profile' "$manifest") == 241 ]]
+  [[ $(jq -er '.new_migrations | length' "$manifest") == 0 ]]
+  [[ -n "$production_snapshot" && -f "$production_snapshot" && ! -L "$production_snapshot" ]]
+  [[ -n "$pre_gate_descriptor" && -f "$pre_gate_descriptor" && ! -L "$pre_gate_descriptor" ]]
+  jq -e 'type == "object" and .schema == 1 and .restore_points_verified == true and (.production_recovery_path|type)=="string" and (.production_image_archive_path|type)=="string"' "$pre_gate_descriptor" >/dev/null
+  recovery_path=$(jq -er '.production_recovery_path' "$pre_gate_descriptor")
+  recovery_sha=$(jq -er '.production_recovery_sha256' "$pre_gate_descriptor")
+  compatibility_path=$(jq -er '.production_image_archive_path' "$pre_gate_descriptor")
+  compatibility_sha=$(jq -er '.production_image_archive_sha256' "$pre_gate_descriptor")
+  [[ "$recovery_path" =~ ^/opt/sub2api-deploy/release-input/pre-gate\.[A-Za-z0-9]+/production-recovery\.tar$ ]]
+  [[ "$compatibility_path" =~ ^/opt/sub2api-deploy/release-input/pre-gate\.[A-Za-z0-9]+/production-current-image\.tar\.gz$ ]]
+  [[ "$recovery_sha" =~ ^[0-9a-f]{64}$ && "$compatibility_sha" =~ ^[0-9a-f]{64}$ ]]
+  [[ -f "$recovery_path" && ! -L "$recovery_path" && -f "$compatibility_path" && ! -L "$compatibility_path" ]]
+  [[ $(sha256sum "$recovery_path" | awk '{print $1}') == "$recovery_sha" ]]
+  [[ $(sha256sum "$compatibility_path" | awk '{print $1}') == "$compatibility_sha" ]]
+  snapshot_digest=$(jq -cS '{current_image_id, schema_migrations}' "$production_snapshot" | tr -d '\n' | sha256sum | awk '{print $1}')
+  [[ "$snapshot_digest" == "$(jq -er '.production_snapshot_sha256' "$manifest")" ]]
+  jq -e 'type == "object" and (.current_image_id|type)=="string" and (.schema_migrations|type)=="array"' "$production_snapshot" >/dev/null
+  [[ $(jq -er '.current_image_id' "$production_snapshot") == "$(jq -er '.production_current_image_id' "$manifest")" ]]
+  [[ $(jq -er '.migration_catalog | map(.filename) == (map(.filename) | sort)' "$manifest") == true ]]
+  [[ $(jq -er '.migration_catalog | map(select((.filename|type)!="string" or (.checksum|type)!="string")) | length' "$manifest") == 0 ]]
+  state_dir="$state_root/$release_id"
+  [[ "$output_dir" == "$state_dir/output" ]]
+  [[ ! -e "$state_dir" && ! -L "$state_dir" ]]
+  install -d -m 700 "$state_root" "$state_dir" "$output_dir"
+  install -m 400 "$manifest" "$state_dir/manifest.json"
+  manifest="$state_dir/manifest.json"
+  printf '%s\n' preflight > "$state_dir/stage"
+  cd "$source_dir"
+  [[ -f .sub2api-deploy-worktree ]]
+  [[ $(git rev-parse HEAD) == "$commit" ]]
+  while IFS=$'\t' read -r relative expected; do
+    [[ -f "$source_dir/$relative" && ! -L "$source_dir/$relative" ]]
+    [[ $(sha256sum "$source_dir/$relative" | awk '{print $1}') == "$expected" ]]
+  done < <(jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
+  old_image_id=$(jq -er '.production_current_image_id' "$manifest")
+  [[ "$old_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+  loaded_old_image=$(gzip -dc "$compatibility_path" | docker load | sed -n 's/^Loaded image ID: //p' | tail -n1)
+  [[ -z "$loaded_old_image" || "$loaded_old_image" == "$old_image_id" ]]
+  [[ $(docker image inspect -f '{{.Id}}' "$old_image_id") == "$old_image_id" ]]
+  tag="sub2api:baiyu-$version-$commit"
+  on_build_failure() {
+    code=$?
+    docker tag "$old_image_id" "$tag" >/dev/null 2>&1 || true
+    docker image rm "${candidate_image_id:-}" >/dev/null 2>&1 || true
+    exit "$code"
+  }
+  trap on_build_failure ERR INT TERM
+  docker build --network=host --progress=plain \
+    --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
+    --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.6-alpine \
+    --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
+    --build-arg POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:18-alpine \
+    --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
+    --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t "$tag" . >/dev/null 2>&1
+  candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
+  candidate_image_size=$(docker image inspect -f '{{.Size}}' "$tag")
+  [[ "$candidate_image_id" =~ ^sha256:[0-9a-f]{64}$ && "$candidate_image_size" =~ ^[0-9]+$ ]]
+  probe_suffix=${release_id//[^a-zA-Z0-9]/}
+  probe_db="sub2api_v2_${probe_suffix:0:24}"
+  probe_dir="$state_dir/probe-data"
+  probe_network="sub2api-v2-net-${probe_suffix:0:12}"
+  probe_redis="sub2api-v2-redis-${probe_suffix:0:12}"
+  probe_app="sub2api-v2-app-${probe_suffix:0:12}"
+  old_probe_app="sub2api-v2-old-${probe_suffix:0:12}"
+  recovery_dir="$state_dir/production-recovery"
+  probe_redis_data="$state_dir/probe-redis-data"
+  cleanup_v2() {
+    docker rm -f "$probe_app" "$old_probe_app" "$probe_redis" >/dev/null 2>&1 || true
+    docker network disconnect "$probe_network" sub2api-postgres >/dev/null 2>&1 || true
+    docker network rm "$probe_network" >/dev/null 2>&1 || true
+    docker exec sub2api-postgres sh -lc "dropdb --if-exists -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1 || true
+    rm -rf "$probe_dir" "$recovery_dir" "$probe_redis_data"
+  }
+  trap cleanup_v2 EXIT
+  install -d -m 700 "$recovery_dir"
+  tar -C "$recovery_dir" -xf "$recovery_path"
+  (cd "$recovery_dir" && sha256sum -c SHA256SUMS >/dev/null)
+  [[ -s "$recovery_dir/database/sub2api.dump" && -s "$recovery_dir/redis/dump.rdb" ]]
+  [[ $(sed -n 's/^current_image_id=//p' "$recovery_dir/manifest") == "$old_image_id" ]]
+  database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
+  [[ "$database_owner" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
+  docker exec sub2api-postgres sh -lc "createdb -U \"\${POSTGRES_USER:-postgres}\" -O \"$database_owner\" $probe_db"
+  install -d -m 700 "$probe_dir"
+  docker exec -i sub2api-postgres /bin/sh -lc "pg_restore --exit-on-error --no-owner -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$recovery_dir/database/sub2api.dump"
+  docker network create "$probe_network" >/dev/null
+  docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres
+  cp -a "$recovery_dir/config/data/." "$probe_dir/"
+  [[ -f "$probe_dir/config.yaml" && ! -L "$probe_dir/config.yaml" ]]
+  sed -i "/^database:/,/^[^[:space:]]/ s/^[[:space:]]*dbname:[[:space:]]*.*/  dbname: $probe_db/" "$probe_dir/config.yaml"
+  sed -i '/^database:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: sub2api-postgres/' "$probe_dir/config.yaml"
+  redis_image=$(docker inspect -f '{{.Config.Image}}' sub2api-redis)
+  install -d -m 700 "$probe_redis_data"
+  install -m 600 "$recovery_dir/redis/dump.rdb" "$probe_redis_data/dump.rdb"
+  redis_uid=$(docker run --rm --entrypoint sh "$redis_image" -lc 'id -u redis 2>/dev/null || id -u' | tr -d '\r')
+  redis_gid=$(docker run --rm --entrypoint sh "$redis_image" -lc 'id -g redis 2>/dev/null || id -g' | tr -d '\r')
+  [[ "$redis_uid" =~ ^[0-9]+$ && "$redis_gid" =~ ^[0-9]+$ ]]
+  chown -R "$redis_uid:$redis_gid" "$probe_redis_data"
+  docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis -v "$probe_redis_data:/data" "$redis_image" redis-server --save '' --appendonly no >/dev/null
+  for _ in $(seq 1 30); do
+    [[ $(docker exec "$probe_redis" redis-cli PING 2>/dev/null | tr -d '\r') == PONG ]] && break
+    sleep 1
+  done
+  [[ $(docker exec "$probe_redis" redis-cli PING 2>/dev/null | tr -d '\r') == PONG ]]
+  redis_backup_keys=$(sed -n 's/^redis_keys=//p' "$recovery_dir/manifest")
+  redis_backup_expires=$(sed -n 's/^redis_expires=//p' "$recovery_dir/manifest")
+  redis_already_expired=$(sed -n 's/^redis_already_expired=//p' "$recovery_dir/manifest")
+  redis_restored_keys=$(docker exec "$probe_redis" redis-cli DBSIZE | tr -d '\r')
+  redis_keyspace=$(docker exec "$probe_redis" redis-cli INFO keyspace | tr -d '\r')
+  redis_restored_expires=$(printf '%s\n' "$redis_keyspace" | sed -n 's/^db[0-9]*:keys=[0-9]*,expires=\([0-9]*\).*/\1/p' | awk '{sum += $1} END {print sum + 0}')
+  [[ $redis_backup_keys =~ ^[0-9]+$ && $redis_backup_expires =~ ^[0-9]+$ && $redis_already_expired =~ ^[0-9]+$ ]]
+  [[ $redis_restored_keys =~ ^[0-9]+$ && $redis_restored_expires =~ ^[0-9]+$ ]]
+  [[ $redis_backup_keys -ge $redis_restored_keys && $redis_backup_expires -ge $redis_restored_expires ]]
+  [[ $((redis_backup_keys - redis_restored_keys)) -eq $((redis_backup_expires - redis_restored_expires)) ]]
+  [[ $((redis_backup_keys - redis_restored_keys)) -ge $redis_already_expired ]]
+  sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: probe-redis/' "$probe_dir/config.yaml"
+  sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*port:[[:space:]]*.*/  port: 6379/' "$probe_dir/config.yaml"
+  sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*password:[[:space:]]*.*/  password: ""/' "$probe_dir/config.yaml"
+  sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*db:[[:space:]]*.*/  db: 0/' "$probe_dir/config.yaml"
+  plan_before=$(docker run --rm -v "$production_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log" || true)
+  printf '%s' "$plan_before" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
+  [[ $(printf '%s' "$plan_before" | jq -r '.catalog_sha256') == $(jq -r '.catalog_sha256' "$manifest") ]]
+  [[ $(printf '%s' "$plan_before" | jq -r '.checksum_policy_sha256') == $(jq -r '.checksum_policy_sha256' "$manifest") ]]
+  actual_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-actual.log" || true)
+  printf '%s' "$actual_plan" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
+  [[ $(printf '%s' "$plan_before" | jq -c '.pending | map({filename,checksum})') == $(printf '%s' "$actual_plan" | jq -c '.pending | map({filename,checksum})') ]]
+  printf '%s' "$plan_before" > "$state_dir/plan-before.json"
+  migration_assertion_dir="$source_dir/.agents/skills/sub2api-production-deploy/scripts/maintenance/release"
+  hook_context="$state_dir/migration-hook-context.sh"
+  printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$hook_context"
+  chmod 400 "$hook_context"
+  printf '%s  recovery-point.age\n' "$recovery_sha" > "$state_dir/recovery-point.age.sha256"
+  chmod 400 "$state_dir/recovery-point.age.sha256"
+  hook_results_file="$state_dir/hook-results.json"
+  printf '{}\n' > "$hook_results_file"
+  chmod 600 "$hook_results_file"
+  is_pending_v2() {
+    printf '%s' "$plan_before" | jq -e --arg filename "$1" '.pending | any(.filename == $filename)' >/dev/null
+  }
+  record_hook_v2() {
+    local filename=$1 phase=$2 temporary="$hook_results_file.tmp"
+    jq --arg filename "$filename" --arg phase "$phase" '.[$filename][$phase]=true' "$hook_results_file" > "$temporary"
+    chmod 600 "$temporary"
+    mv -T -- "$temporary" "$hook_results_file"
+  }
+  run_hook_v2() {
+    local filename=$1 script=$2 phase=$3 status=$4
+    ASSERT_CONTEXT_FILE="$hook_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" \
+      ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" \
+      ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$status" RELEASE_DIR="$state_dir" \
+      bash "$migration_assertion_dir/$script" "$phase" >/dev/null
+    record_hook_v2 "$filename" "$phase"
+  }
+  for filename in \
+    195_upstream_scheduling_monitor_rates.sql \
+    232_clear_non_grok_video_generation_config.sql \
+    233_upstream_management.sql \
+    239_reconcile_non_grok_video_pricing.sql \
+    243_backfill_codex_fingerprint_seed.sql; do
+    is_pending_v2 "$filename" || continue
+    case "$filename" in
+      195_*) script=migration-195-assert.sh ;;
+      232_*) script=migration-232-assert.sh ;;
+      233_*) script=migration-233-assert.sh ;;
+      239_*) script=migration-239-assert.sh ;;
+      243_*) script=migration-243-assert.sh ;;
+    esac
+    run_hook_v2 "$filename" "$script" preflight absent
+    case "$filename" in
+      195_*|232_*|239_*) run_hook_v2 "$filename" "$script" bind absent ;;
+    esac
+  done
+  docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$state_dir/plan-before.json:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/migrate-candidate.log" 2>&1
+  plan_after=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-after.log" || true)
+  printf '%s' "$plan_after" | jq -e '((.pending|length) == 0) and (.existing_checksums_verified == true)' >/dev/null
+  printf '%s' "$plan_after" > "$state_dir/plan-after.json"
+  for filename in \
+    195_upstream_scheduling_monitor_rates.sql \
+    232_clear_non_grok_video_generation_config.sql \
+    233_upstream_management.sql \
+    239_reconcile_non_grok_video_pricing.sql \
+    243_backfill_codex_fingerprint_seed.sql; do
+    is_pending_v2 "$filename" || continue
+    case "$filename" in
+      195_*) run_hook_v2 "$filename" migration-195-assert.sh postflight_db verified ;;
+      232_*) run_hook_v2 "$filename" migration-232-assert.sh postflight verified ;;
+      233_*) run_hook_v2 "$filename" migration-233-assert.sh postflight verified ;;
+      239_*) run_hook_v2 "$filename" migration-239-assert.sh postflight verified ;;
+      243_*) run_hook_v2 "$filename" migration-243-assert.sh postflight verified ;;
+    esac
+  done
+  docker image inspect "$old_image_id" >/dev/null
+  docker run -d --name "$old_probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$old_image_id" >/dev/null
+  for _ in $(seq 1 90); do
+    [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]] && break
+    sleep 2
+  done
+  [[ $(docker inspect -f '{{.Image}}' "$old_probe_app") == "$old_image_id" ]]
+  [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]]
+  docker rm -f "$old_probe_app" >/dev/null
+  docker run -d --name "$probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -p 127.0.0.1::8080 -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$candidate_image_id" >/dev/null
+  for _ in $(seq 1 90); do
+    [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]] && break
+    sleep 2
+  done
+  [[ $(docker inspect -f '{{.Image}}' "$probe_app") == "$candidate_image_id" ]]
+  [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]]
+  probe_port=$(docker port "$probe_app" 8080/tcp | sed -n 's/^127\.0\.0\.1://p')
+  [[ "$probe_port" =~ ^[1-9][0-9]{0,4}$ ]]
+  [[ $(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_port/health") == 200 ]]
+  canary_key=$(docker exec sub2api-postgres psql -X -A -t -U "$database_owner" -d "$probe_db" -c "SELECT value FROM settings WHERE key='admin_api_key'" | tr -d '\r')
+  [[ "$canary_key" == sk-* && ${#canary_key} -ge 16 ]]
+  canary_response="$state_dir/candidate-canary.json"
+  [[ $(curl -sS --max-time 30 -o "$canary_response" -w '%{http_code}' -H "x-api-key: $canary_key" "http://127.0.0.1:$probe_port/api/v1/admin/users?page=1&page_size=1") == 200 ]]
+  jq -e '.code == 0 and (.data|type)=="object"' "$canary_response" >/dev/null
+  rm -f "$canary_response"
+  unset canary_key
+  if is_pending_v2 195_upstream_scheduling_monitor_rates.sql; then
+    run_hook_v2 195_upstream_scheduling_monitor_rates.sql migration-195-assert.sh postflight_runtime verified
+  fi
+  integration_verified=true
+  vm_restore_verified=true
+  candidate_archive="$state_dir/candidate.tar.gz"
+  docker save "$candidate_image_id" | gzip -1 > "$candidate_archive"
+  candidate_archive_sha=$(sha256sum "$candidate_archive" | awk '{print $1}')
+  candidate_size=$(stat -c '%s' "$candidate_archive")
+  [[ "$candidate_size" =~ ^[1-9][0-9]*$ ]]
+  pending_json=$(printf '%s' "$plan_before" | jq --slurpfile hooks "$hook_results_file" '[.pending[] | . as $item | ($hooks[0][.filename] // null) as $result | if $result == null then {filename,checksum} else {filename,checksum,preflight:true,postflight:true,hook_results:$result,rollback_policy:"coordinated_restore"} end]')
+  jq -n --slurpfile m "$manifest" --arg image "$candidate_image_id" --arg archive "$candidate_archive_sha" --arg old_image_id "$old_image_id" --arg snapshot_sha "$(jq -r '.production_snapshot_sha256' "$manifest")" --argjson size "$candidate_size" --argjson pending "$pending_json" --argjson plan_before "$(cat "$state_dir/plan-before.json")" \
+    '{gate_version:2,profile_id:242,manifest:$m[0],evidence:{candidate_image_id:$image,candidate_archive_sha256:$archive,candidate_size:$size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,production_current_image_id:$old_image_id,production_snapshot_sha256:$snapshot_sha,catalog_sha256:$m[0].catalog_sha256,checksum_policy_sha256:$m[0].checksum_policy_sha256,checksum_policy_version:"sub2api-migration-checksum-policy-v1",migration_evidence:{database_high_watermark:($plan_before.database_high_watermark // null),pending:$pending,existing_checksums_verified:true,isolated_upgrade_verified:true,final_schema_verified:true},release_policy:{canary_verified:true,restore_points_verified:true}}}' > "$output_dir/gate.json"
+  chmod 400 "$output_dir/gate.json"
+  install -m 400 "$candidate_archive" "$output_dir/candidate.tar.gz"
+  /usr/local/libexec/sub2api-sign-gate "$output_dir/gate.json" "$output_dir/gate.sig"
+  sha256sum "$output_dir/gate.json" "$output_dir/gate.sig" "$output_dir/candidate.tar.gz" > "$output_dir/SHA256SUMS"
+  chmod 400 "$output_dir/gate.sig" "$candidate_archive" "$output_dir/SHA256SUMS"
+  printf 'candidate_image_id=%s\ncandidate_archive_sha256=%s\n' "$candidate_image_id" "$candidate_archive_sha"
+  exit 0
+fi
 [[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]]
 [[ $release_id == "$profile-${commit:0:12}-"* ]]

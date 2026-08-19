@@ -5,8 +5,10 @@ package main
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -61,11 +63,82 @@ func main() {
 	// Parse command line flags
 	setupMode := flag.Bool("setup", false, "Run setup wizard in CLI mode")
 	migrateOnly := flag.Bool("migrate-only", false, "Apply database migrations and exit")
+	migrationPlanJSON := flag.Bool("migration-plan-json", false, "Print a read-only database migration plan as JSON and exit")
+	migrationPlanSnapshotJSON := flag.String("migration-plan-snapshot-json", "", "Print a read-only migration plan from an immutable schema_migrations snapshot and exit")
+	migrationApplyPlanJSON := flag.String("migration-apply-plan-json", "", "Apply a verified migration plan from JSON and exit")
 	showVersion := flag.Bool("version", false, "Show version information")
 	flag.Parse()
 
 	if *showVersion {
 		log.Printf("Sub2API %s (commit: %s, built: %s)\n", Version, Commit, Date)
+		return
+	}
+	if *migrationPlanJSON || *migrationPlanSnapshotJSON != "" {
+		if *migrationPlanJSON && *migrationPlanSnapshotJSON != "" {
+			log.Fatal("Only one migration plan input may be selected")
+		}
+		if *migrationPlanSnapshotJSON != "" {
+			data, err := os.ReadFile(*migrationPlanSnapshotJSON)
+			if err != nil {
+				log.Fatalf("Failed to read migration snapshot: %v", err)
+			}
+			var snapshot struct {
+				SchemaMigrations []repository.MigrationRecord `json:"schema_migrations"`
+			}
+			if err := json.Unmarshal(data, &snapshot); err != nil || snapshot.SchemaMigrations == nil {
+				log.Fatalf("Failed to decode migration snapshot")
+			}
+			plan, planErr := repository.PlanEmbeddedMigrationsFromRecords(snapshot.SchemaMigrations)
+			encoded, err := repository.MigrationPlanJSON(plan)
+			if err != nil {
+				log.Fatalf("Failed to encode migration plan: %v", err)
+			}
+			if _, err := fmt.Fprintln(os.Stdout, string(encoded)); err != nil {
+				log.Fatalf("Failed to write migration plan: %v", err)
+			}
+			if planErr != nil {
+				log.Fatalf("Migration plan rejected: %v", planErr)
+			}
+			return
+		}
+		cfg, err := config.LoadForBootstrap()
+		if err != nil {
+			log.Fatalf("Failed to load migration config: %v", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		plan, planErr := repository.PlanEmbeddedMigrations(ctx, cfg)
+		cancel()
+		data, err := repository.MigrationPlanJSON(plan)
+		if err != nil {
+			log.Fatalf("Failed to encode migration plan: %v", err)
+		}
+		if _, err := fmt.Fprintln(os.Stdout, string(data)); err != nil {
+			log.Fatalf("Failed to write migration plan: %v", err)
+		}
+		if planErr != nil {
+			log.Fatalf("Migration plan rejected: %v", planErr)
+		}
+		return
+	}
+	if *migrationApplyPlanJSON != "" {
+		data, err := os.ReadFile(*migrationApplyPlanJSON)
+		if err != nil {
+			log.Fatalf("Failed to read migration execution plan: %v", err)
+		}
+		var expected repository.MigrationPlan
+		if err := json.Unmarshal(data, &expected); err != nil {
+			log.Fatalf("Failed to decode migration execution plan: %v", err)
+		}
+		cfg, err := config.LoadForBootstrap()
+		if err != nil {
+			log.Fatalf("Failed to load migration config: %v", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := repository.ApplyEmbeddedMigrationPlan(ctx, cfg, expected); err != nil {
+			log.Fatalf("Migration plan execution failed: %v", err)
+		}
+		log.Println("Verified migration plan completed")
 		return
 	}
 	if *migrateOnly {

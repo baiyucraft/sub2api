@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# Legacy profile assertion allowlist retained for Gate v1 audit: [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]]
 
 phase=${1:?phase is required}
 migration_status=${MIGRATION_STATUS:-absent}
@@ -16,7 +17,7 @@ db_user=${ASSERT_DB_USER:-sub2api}
 db_name=${ASSERT_DB_NAME:-sub2api}
 redis_container=${ASSERT_REDIS_CONTAINER:-sub2api-redis}
 config_file=${ASSERT_CONFIG_FILE:-/opt/sub2api/data/config.yaml}
-[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]]
+[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 ]]
 [[ $phase == preflight || $phase == bind || $phase == postflight_db || $phase == postflight_runtime ]]
 [[ $migration_status == absent || $migration_status == verified ]]
 

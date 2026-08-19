@@ -52,6 +52,42 @@ backup_path=$(sed -n 's/.*path=\([^ ;}]*\).*/\1/p' <<<"$backup_exec" | head -n1)
 [[ -f $backup_path && ! -L $backup_path ]]
 grep -Fq '/run/lock/sub2api-backup-global.lock' "$backup_path"
 preflight_phase=migration_contract
+manifest_schema=$(jq -er '.manifest.schema' "$active_claim/gate.json")
+if [[ $manifest_schema == 2 ]]; then
+  [[ $(jq -er '.gate_version' "$active_claim/gate.json") == 2 ]]
+  [[ $(jq -er '.profile_id' "$active_claim/gate.json") == 242 ]]
+  [[ "$active_image" == "$(jq -er '.evidence.production_current_image_id' "$active_claim/gate.json")" ]]
+  snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
+  printf '%s' "$snapshot_rows" | jq -e 'type == "array"' >/dev/null
+  current_snapshot_sha=$(printf '%s' "$(jq -cn --arg image "$active_image" --argjson rows "$snapshot_rows" '{current_image_id:$image,schema_migrations:$rows}')" | sha256sum | awk '{print $1}')
+  [[ "$current_snapshot_sha" == "$(jq -er '.evidence.production_snapshot_sha256' "$active_claim/gate.json")" ]]
+  [[ $(jq -er '.evidence.catalog_sha256' "$active_claim/gate.json") == "$(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json")" ]]
+  [[ $(jq -er '.evidence.checksum_policy_sha256' "$active_claim/gate.json") == "$(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json")" ]]
+  preflight_phase=capacity
+  free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
+  (( free_bytes >= minimum_free_bytes ))
+  preflight_phase=compose_contract
+  compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
+  rendered_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
+  [[ -n $rendered_image ]]
+  pre_image_id=$(docker inspect -f '{{.Image}}' "$active_container")
+  [[ $active_image == "$pre_image_id" ]]
+  [[ $(docker image inspect -f '{{.Id}}' "$rendered_image") == "$pre_image_id" ]]
+  jq -e '.services.sub2api.volumes | any(.target == "/app/data" and (.type == "bind" or .type == "volume"))' <<<"$compose_json" >/dev/null
+  compose_network_mode=$(sub2api_compose_network_mode "$compose_json" "$active_port")
+  assert_sub2api_healthcheck_contract "$compose_json" "$compose_network_mode" "$active_port" active_compat
+  assert_sub2api_runtime_contract "$active_container" "$pre_image_id" "$compose_network_mode" "$active_port" active_compat
+  pending_count=$(jq -er '.evidence.migration_evidence.pending | length' "$active_claim/gate.json")
+  preflight_phase=completed
+  printf 'preflight=pass\n'
+  printf 'active_container=%s\n' "$active_container"
+  printf 'active_port=%s\n' "$active_port"
+  printf 'pre_switch_image_id=%s\n' "$pre_image_id"
+  printf 'free_bytes=%s\n' "$free_bytes"
+  printf 'migration_status=%s\n' "$([[ $pending_count == 0 ]] && printf verified || printf absent)"
+  printf 'migration_pending_count=%s\n' "$pending_count"
+  exit 0
+fi
 migration_status=verified
 migration_195_status=verified
 migration_196_status=not_applicable

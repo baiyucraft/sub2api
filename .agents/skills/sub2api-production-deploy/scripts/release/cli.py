@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import sys
 import time
@@ -16,10 +18,12 @@ from .bootstrap import bootstrap_trust, install_vm_validator
 from .atomic import atomic_write, canonical_json
 from .doctor import NODES, ReleaseDoctor
 from .gate import verify_gate
-from .manifest import create_manifest, write_manifest_once
+from .manifest import bind_production_snapshot, create_manifest, write_manifest_once
 from .paths import RUN_ROOT, SCRIPTS_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
-from .profiles import get_profile
+from .profiles import get_profile, get_release_profile
 from .production_bootstrap import bootstrap_production
+from .migration_planner import plan_migrations
+from .production_snapshot import decode_snapshot, snapshot_sha256
 from .process import run_hidden
 from .state import RunLock, RunState
 
@@ -90,12 +94,69 @@ def release_id(profile: str, commit: str) -> str:
     return f"{profile}-{commit[:12]}-{int(time.time())}-{secrets.token_hex(4)}"
 
 
-def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identifier: str | None = None, acquire_lock: bool = True) -> Path:
+def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Path, str, str]:
+    """Create a production restore point and stream it directly to the VM."""
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+        raise RuntimeError("production image ID is invalid")
+    rack_dir = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "pre-gate")
+    vm_dir = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "pre-gate")
+    script_path = SCRIPTS_ROOT / "maintenance" / "release" / "pre-gate-snapshot.sh"
+    remote_script = f"{rack_dir}/pre-gate-snapshot.sh"
+    rack_recovery = f"{rack_dir}/production-recovery.tar"
+    rack_image = f"{rack_dir}/production-current-image.tar.gz"
+    vm_recovery = f"{vm_dir}/production-recovery.tar"
+    vm_image = f"{vm_dir}/production-current-image.tar.gz"
+    descriptor_path = RUN_ROOT / f".{identifier}.pre-gate-input.json"
+    try:
+        runner.upload_file("racknerd", script_path, remote_script, 0o700)
+        values = runner.run(
+            "racknerd",
+            f"OUTPUT_DIR={shlex.quote(rack_dir)} EXPECTED_IMAGE_ID={shlex.quote(image_id)} {shlex.quote(remote_script)}",
+            {"production_image_id", "recovery_sha256", "compatibility_sha256", "restore_points_verified"},
+            timeout=3600,
+        ).values
+        if values["production_image_id"] != image_id or values["restore_points_verified"] != "true":
+            raise RuntimeError("pre-Gate production restore point identity is invalid")
+        runner.copy_file_between("racknerd", rack_recovery, "local_vm", vm_recovery)
+        runner.copy_file_between("racknerd", rack_image, "local_vm", vm_image)
+        verified = runner.run(
+            "local_vm",
+            f"set -Eeuo pipefail; test \"$(sha256sum {shlex.quote(vm_recovery)} | awk '{{print $1}}')\" = {shlex.quote(values['recovery_sha256'])}; "
+            f"test \"$(sha256sum {shlex.quote(vm_image)} | awk '{{print $1}}')\" = {shlex.quote(values['compatibility_sha256'])}; "
+            "printf 'pre_gate_inputs_verified=true\\n'",
+            {"pre_gate_inputs_verified"},
+            timeout=600,
+        ).values
+        if verified["pre_gate_inputs_verified"] != "true":
+            raise RuntimeError("pre-Gate VM inputs were not verified")
+        descriptor = {
+            "schema": 1,
+            "production_image_id": image_id,
+            "production_recovery_path": vm_recovery,
+            "production_recovery_sha256": values["recovery_sha256"],
+            "production_image_archive_path": vm_image,
+            "production_image_archive_sha256": values["compatibility_sha256"],
+            "restore_points_verified": True,
+        }
+        atomic_write(descriptor_path, canonical_json(descriptor) + b"\n", 0o400)
+        return descriptor_path, rack_dir, vm_dir
+    except BaseException:
+        runner.run("racknerd", f"rm -rf {shlex.quote(rack_dir)} && printf 'pre_gate_input_removed=true\\n'", {"pre_gate_input_removed"})
+        runner.run("local_vm", f"rm -rf {shlex.quote(vm_dir)} && printf 'pre_gate_input_removed=true\\n'", {"pre_gate_input_removed"})
+        descriptor_path.unlink(missing_ok=True)
+        raise
+
+
+def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identifier: str | None = None, acquire_lock: bool = True, production_current_image_id: str | None = None, production_snapshot: dict | None = None, pre_gate_input: Path | None = None) -> Path:
+    # Historical profiles remain constructible for audit/old-package checks;
+    # ProductionRelease rejects their Gate v1 documents for new publishing.
     profile = get_profile(profile_name)
     preallocated = identifier is not None
     identifier = identifier or release_id(profile_name, commit)
     run_dir = RUN_ROOT / identifier
     manifest_path = run_dir / "manifest.json"
+    production_snapshot_path = run_dir / "production-snapshot.json"
+    pre_gate_input_path = run_dir / "pre-gate-input.json"
     state_path = run_dir / "state.json"
     gate_path = run_dir / "gate"
     if run_dir.exists() or run_dir.is_symlink():
@@ -110,8 +171,32 @@ def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identif
         if manifest.get("release_id") != identifier or manifest.get("commit_sha") != commit or manifest.get("profile") != profile_name:
             raise RuntimeError("release manifest identity does not match worker")
     else:
-        manifest = create_manifest(commit, profile, identifier, deployment_mode)
+        manifest = create_manifest(commit, profile, identifier, deployment_mode, production_current_image_id)
         write_manifest_once(manifest_path, manifest)
+    if production_current_image_id is not None and manifest.get("schema") == 2:
+        if production_snapshot is None:
+            raise RuntimeError("Gate v2 production snapshot is missing")
+        production_snapshot = dict(production_snapshot)
+        production_snapshot["plan"] = plan_migrations(
+            manifest.get("migration_catalog", []),
+            production_snapshot.get("schema_migrations", []),
+        )
+        snapshot_digest = snapshot_sha256(production_snapshot)
+        snapshot_bytes = canonical_json(production_snapshot) + b"\n"
+        if production_snapshot_path.exists() or production_snapshot_path.is_symlink():
+            if not production_snapshot_path.is_file() or production_snapshot_path.is_symlink():
+                raise RuntimeError("Gate v2 production snapshot path is unsafe")
+            if production_snapshot_path.read_bytes() != snapshot_bytes:
+                raise RuntimeError("immutable production snapshot differs from release workspace")
+        else:
+            atomic_write(production_snapshot_path, snapshot_bytes, 0o400)
+        if pre_gate_input is None or not pre_gate_input.is_file() or pre_gate_input.is_symlink():
+            raise RuntimeError("Gate v2 pre-Gate restore input is missing")
+        if pre_gate_input_path.exists() or pre_gate_input_path.is_symlink():
+            raise RuntimeError("Gate v2 pre-Gate restore input path is unsafe")
+        shutil.copyfile(pre_gate_input, pre_gate_input_path)
+        manifest = bind_production_snapshot(manifest, production_current_image_id, snapshot_digest)
+        atomic_write(manifest_path, canonical_json(manifest) + b"\n", 0o600)
     if manifest.get("deployment_mode") != deployment_mode:
         raise RuntimeError("immutable manifest deployment mode does not match")
     logger = _event_logger(run_dir, identifier, _deployment_mode(manifest=manifest))
@@ -135,7 +220,7 @@ def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identif
             child_env["SUB2API_DEPLOYMENT_MODE"] = deployment_mode
             child_env["SUB2API_EVENT_LOG"] = str(run_dir / "logs" / "events.jsonl")
             run_hidden(command, cwd=SCRIPTS_ROOT, check=True, env=child_env)
-            verify_gate(gate_path, TRUSTED_VM_PUBLIC_KEY, profile_name)
+            verify_gate(gate_path, TRUSTED_VM_PUBLIC_KEY, profile_name, accepted_schemas=frozenset({2}))
         except BaseException as error:
             state.transition("vm_validate", "failed")
             logger.emit(
@@ -147,6 +232,7 @@ def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identif
         state.transition("vm_validate", "verified", {"gate_dir": str(gate_path)})
         logger.emit(stage="vm_validate", script="release.cli", event="stage_finished", message="VM validation verified", exit_code=0)
     finally:
+        pre_gate_input_path.unlink(missing_ok=True)
         if lock:
             lock.__exit__(None, None, None)
     return gate_path
@@ -159,7 +245,7 @@ def vm_validate(args: argparse.Namespace) -> None:
 
 def release(args: argparse.Namespace, acquire_lock: bool = True) -> None:
     gate_dir = Path(args.gate).resolve()
-    document = verify_gate(gate_dir, TRUSTED_VM_PUBLIC_KEY, args.profile)
+    document = verify_gate(gate_dir, TRUSTED_VM_PUBLIC_KEY, args.profile, accepted_schemas=frozenset({2}))
     identifier = document["manifest"]["release_id"]
     run_dir = RUN_ROOT / identifier
     logger = _event_logger(run_dir, identifier, _deployment_mode(args, document.get("manifest")))
@@ -200,7 +286,7 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
     if lock:
         lock.__enter__()
     try:
-        identifier = getattr(args, "release_id", None)
+        identifier = getattr(args, "release_id", None) or release_id(args.profile, args.commit)
         logger = _event_logger(RUN_ROOT / identifier, identifier, _deployment_mode(args)) if identifier else None
         emit_progress(f"release_profile={args.profile} release_commit={args.commit} stage=doctor status=running")
         if logger:
@@ -220,10 +306,28 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
         bootstrap_production(args.profile, runner)
         if logger:
             logger.emit(stage="bootstrap_production", script="release.cli", event="stage_finished", message="Production bootstrap verified", exit_code=0)
-        doctor.run(("racknerd",))
+        production_doctor = doctor.run(("racknerd",))
+        profile_for_deploy = get_profile(args.profile)
+        if profile_for_deploy.get("gate_schema") == 2:
+            production_snapshot = decode_snapshot(production_doctor["production_snapshot_b64"])
+            pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
+                runner,
+                identifier,
+                str(production_doctor.get("production_current_image_id", "")),
+            )
+        else:
+            production_snapshot = None
+            pre_gate_input = None
+            rack_pre_gate_dir = vm_pre_gate_dir = None
         if logger:
             logger.emit(stage="doctor", script="release.cli", event="stage_finished", message="Production doctor verified", exit_code=0)
-        gate = create_vm_gate(args.profile, args.commit, deployment_mode, identifier=identifier, acquire_lock=False)
+        try:
+            gate = create_vm_gate(args.profile, args.commit, deployment_mode, identifier=identifier, acquire_lock=False, production_current_image_id=production_doctor.get("production_current_image_id"), production_snapshot=production_snapshot, pre_gate_input=pre_gate_input)
+        finally:
+            if rack_pre_gate_dir and vm_pre_gate_dir and pre_gate_input:
+                runner.run("racknerd", f"rm -rf {shlex.quote(rack_pre_gate_dir)} && printf 'pre_gate_input_removed=true\\n'", {"pre_gate_input_removed"})
+                runner.run("local_vm", f"rm -rf {shlex.quote(vm_pre_gate_dir)} && printf 'pre_gate_input_removed=true\\n'", {"pre_gate_input_removed"})
+                pre_gate_input.unlink(missing_ok=True)
         release(argparse.Namespace(gate=str(gate), profile=args.profile, deployment_mode=deployment_mode), acquire_lock=False)
     except BaseException as error:
         if "logger" in locals() and logger:

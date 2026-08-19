@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# Legacy Gate v1 profile allowlist: (182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]]
+[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]]
 release_id=${BASH_REMATCH[1]}
 [[ -d $release_dir && ! -L $release_dir ]]
 [[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]]
@@ -22,11 +23,16 @@ version=$(jq -er '.manifest.version' "$active_claim/gate.json")
 deployment_mode=${DEPLOYMENT_MODE:-$(jq -er '.manifest.deployment_mode' "$active_claim/gate.json")}
 [[ $deployment_mode == blue-green || $deployment_mode == downtime ]]
 candidate_tag="sub2api:baiyu-$version-$commit"
-mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
+manifest_schema=$(jq -er '.manifest.schema' "$active_claim/gate.json")
+if [[ $manifest_schema == 2 ]]; then
+  mapfile -t migrations < <(jq -er '.evidence.migration_evidence.pending[]?.filename' "$active_claim/gate.json")
+else
+  mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
+fi
 [[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 [[ $candidate_archive_sha =~ ^[0-9a-f]{64}$ ]]
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
-[[ ${#migrations[@]} -gt 0 ]]
+if [[ $manifest_schema != 2 ]]; then [[ ${#migrations[@]} -gt 0 ]]; fi
 grep -Fxq "release_id=$release_id" "$release_dir/.prepared"
 grep -Fxq "candidate_image_id=$candidate_image_id" "$release_dir/.prepared"
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]

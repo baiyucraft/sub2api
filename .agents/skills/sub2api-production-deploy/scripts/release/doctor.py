@@ -8,6 +8,7 @@ import paramiko
 import yaml
 
 from .manifest import _git_output, migration_checksums, sha256_file, validate_commit
+from .migration_planner import discover_migration_catalog
 from .paths import RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .profiles import get_profile
 from .ssh import KNOWN_HOSTS, SSH_CONFIG, SSHRunner
@@ -118,12 +119,20 @@ printf 'vm_ready=true\nvm_free_bytes=%s\nvm_database_bytes=%s\nvm_release_unit_s
     def check_racknerd(self) -> dict[str, str]:
         profile = self.profile
         trust_sha = sha256_file(TRUSTED_KEY)
-        migration_sha_by_name = migration_checksums(profile, self.commit)
-        migration_checks = "\n".join(
-            f'''migration_row=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='{name}'")
+        snapshot_query = r'''snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
+printf '%s' "$snapshot_rows" | jq -e 'type == "array" and all(.[]; (type == "object" and (.filename|type)=="string" and (.checksum|type)=="string"))' >/dev/null
+snapshot_payload=$(jq -cn --arg image "$active_image" --argjson rows "$snapshot_rows" '{current_image_id:$image,schema_migrations:$rows}')
+snapshot_b64=$(printf '%s' "$snapshot_payload" | base64 -w0)
+'''
+        if profile.get("gate_schema") == 2:
+            migration_checks = ""
+        else:
+            migration_sha_by_name = migration_checksums(profile, self.commit)
+            migration_checks = "\n".join(
+                f'''migration_row=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='{name}'")
 if [[ -z $migration_row ]]; then production_migration_status=absent; else [[ $migration_row == '{name}|{migration_sha_by_name[name]}' ]]; fi'''
-            for name in profile["migrations"]
-        )
+                for name in profile["migrations"]
+            )
         script = f"""
 set -Eeuo pipefail
 for command in docker jq age flock nginx curl ssh; do command -v "$command" >/dev/null; done
@@ -158,6 +167,8 @@ redis_password=$(docker inspect sub2api-redis | jq -er '((.[0].Config.Entrypoint
 test -n "$redis_password"
 printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning PING' | grep -Fxq PONG
 docker exec sub2api-postgres pg_dump -U sub2api -d sub2api -Fc --schema-only >/dev/null
+production_current_image_id="$active_image"
+{snapshot_query}
 production_migration_status=verified
 {migration_checks}
 test -r /etc/nginx/nginx.conf && test -r /etc/letsencrypt/live/{profile['public_domain']}/fullchain.pem
@@ -169,9 +180,9 @@ set -e
 [[ $backup_ssh_code != 255 ]]
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{{print $4}}' || df -PB1 / | awk 'NR==2{{print $4}}')
 test "$free_bytes" -ge {profile['minimum_rack_free_bytes']}
-printf 'racknerd_ready=true\nracknerd_free_bytes=%s\nbackup_protocol_ready=true\nproduction_migration_status=%s\n' "$free_bytes" "$production_migration_status"
+printf 'racknerd_ready=true\nracknerd_free_bytes=%s\nbackup_protocol_ready=true\nproduction_migration_status=%s\nproduction_current_image_id=%s\nproduction_snapshot_b64=%s\n' "$free_bytes" "$production_migration_status" "$active_image" "$snapshot_b64"
 """
-        return self._ssh().run("racknerd", script, {"racknerd_ready", "racknerd_free_bytes", "backup_protocol_ready", "production_migration_status"}, timeout=300).values
+        return self._ssh().run("racknerd", script, {"racknerd_ready", "racknerd_free_bytes", "backup_protocol_ready", "production_migration_status", "production_current_image_id", "production_snapshot_b64"}, timeout=300).values
 
     def check_dmit(self) -> dict[str, str]:
         script = """
