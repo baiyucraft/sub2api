@@ -4,6 +4,8 @@ set -Eeuo pipefail
 gate=${1:?gate path is required}
 signature=${2:?signature path is required}
 private_key=/opt/sub2api-release-signer/vm-gate-ed25519.pem
+# Legacy Gate v1 profile allowlist retained for audit/recovery assets:
+# (182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)
 [[ $(id -u) == 0 ]]
 unit_lock=${SUB2API_UNIT_LOCK_PATH:-/usr/local/libexec/.sub2api-release-unit.lock}
 if [[ ${SUB2API_HELPER_TEST_MODE:-false} == true ]]; then
@@ -17,7 +19,20 @@ fi
 exec 8<>"$unit_lock"
 [[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) == root:root:600:1 ]]
 flock -s 8
-[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
+[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
+gate_release_dir=${gate%/output/gate.json}
+gate_release_id=${gate_release_dir##*/}
+gate_profile=${gate_release_id%%-*}
+[[ $(jq -er '.manifest.release_id' "$gate") == "$gate_release_id" ]]
+[[ $(jq -er '.manifest.profile' "$gate") == "$gate_profile" ]]
+gate_schema=$(jq -er '.manifest.schema' "$gate")
+if [[ $gate_profile == 242 ]]; then
+  [[ $gate_schema == 2 ]]
+  [[ $(jq -er '.gate_version' "$gate") == 2 ]]
+  [[ $(jq -er '.profile_id' "$gate") == 242 ]]
+else
+  [[ $gate_schema == 1 ]]
+fi
 expected_signature=${gate%/gate.json}/gate.sig
 [[ $signature == "$expected_signature" ]]
 [[ -f $gate && ! -L $gate && $(stat -c '%U:%G:%a' "$gate") == root:root:400 ]]

@@ -13,7 +13,7 @@ fi
 db_container=${ASSERT_DB_CONTAINER:-sub2api-postgres}
 db_user=${ASSERT_DB_USER:-sub2api}
 db_name=${ASSERT_DB_NAME:-sub2api}
-[[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]] || { printf 'migration_233_preflight=fail\nmigration_233_failure_code=context_or_state\n' >&2; exit 1; }
+[[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 ]] || { printf 'migration_233_preflight=fail\nmigration_233_failure_code=context_or_state\n' >&2; exit 1; }
 [[ $phase == preflight || $phase == postflight ]] || { printf 'migration_233_preflight=fail\nmigration_233_failure_code=context_or_state\n' >&2; exit 1; }
 [[ $migration_status == absent || $migration_status == verified ]] || { printf 'migration_233_preflight=fail\nmigration_233_failure_code=context_or_state\n' >&2; exit 1; }
 

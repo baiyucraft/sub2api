@@ -161,7 +161,12 @@ candidate_compose_json=$(docker compose "${candidate_compose_args[@]}" config --
 [[ $(sub2api_compose_network_mode "$candidate_compose_json" "$candidate_port") == "$candidate_network_mode" ]]
 assert_sub2api_healthcheck_contract "$candidate_compose_json" "$candidate_network_mode" "$candidate_port"
 jq -e '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED == "true"' <<<"$candidate_compose_json" >/dev/null
-mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
+manifest_schema=$(jq -er '.manifest.schema' "$active_claim/gate.json")
+if [[ $manifest_schema == 2 ]]; then
+  mapfile -t migrations < <(jq -er '.evidence.migration_evidence.pending[]?.filename' "$active_claim/gate.json")
+else
+  mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
+fi
 migration_container="sub2api-migrate-$release_id"
 [[ -z $(docker ps -aq -f "name=^${migration_container}$") ]]
 if [[ $deployment_mode == downtime ]]; then
@@ -172,14 +177,40 @@ if [[ $deployment_mode == downtime ]]; then
   mark_switch_stage downtime_stopped
 fi
 mark_switch_stage migration_started
-run_release_logged_command docker compose "${candidate_compose_args[@]}" run --name "$migration_container" --no-deps sub2api /app/sub2api --migrate-only
+if [[ $manifest_schema == 2 ]]; then
+  execution_plan="$state_dir/migration-plan.json"
+  execution_plan_tmp="$execution_plan.tmp.$$"
+  docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$execution_plan_tmp"
+  jq -e 'type == "object" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$execution_plan_tmp" >/dev/null
+  [[ $(jq -c '.pending | map({filename,checksum})' "$execution_plan_tmp") == $(jq -c '.evidence.migration_evidence.pending | map({filename,checksum})' "$active_claim/gate.json") ]]
+  [[ $(jq -er '.catalog_sha256' "$execution_plan_tmp") == $(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json") ]]
+  [[ $(jq -er '.checksum_policy_sha256' "$execution_plan_tmp") == $(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json") ]]
+  chmod 600 "$execution_plan_tmp"
+  mv -T -- "$execution_plan_tmp" "$execution_plan"
+  run_release_logged_command docker compose "${candidate_compose_args[@]}" run -v "$execution_plan:/input/migration-plan.json:ro" --name "$migration_container" --no-deps sub2api /app/sub2api --migration-apply-plan-json /input/migration-plan.json
+else
+  run_release_logged_command docker compose "${candidate_compose_args[@]}" run --name "$migration_container" --no-deps sub2api /app/sub2api --migrate-only
+fi
 mark_switch_stage migration_completed
 trap 'record_migration_failure "$LINENO" "$?"' ERR
 mark_migration_failure_context migration_record_verification migration_record_checksum
-while IFS=$'\t' read -r migration migration_checksum; do
-  recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
-  [[ $recorded == "$migration_checksum" ]]
-done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
+if [[ $manifest_schema == 2 ]]; then
+  while IFS=$'\t' read -r migration migration_checksum; do
+    recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
+    [[ $recorded == "$migration_checksum" ]]
+  done < <(jq -r '.evidence.migration_evidence.pending[] | [.filename,.checksum] | @tsv' "$active_claim/gate.json")
+  final_plan="$state_dir/migration-plan-final.json"
+  docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$final_plan"
+  jq -e '(.pending|length)==0 and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$final_plan" >/dev/null
+  [[ $(jq -er '.catalog_sha256' "$final_plan") == $(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json") ]]
+  [[ $(jq -er '.checksum_policy_sha256' "$final_plan") == $(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json") ]]
+  chmod 600 "$final_plan"
+else
+  while IFS=$'\t' read -r migration migration_checksum; do
+    recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
+    [[ $recorded == "$migration_checksum" ]]
+  done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
+fi
 mark_migration_failure_context schema_contract_assertion schema_assertion
   if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 ]]; then
   managed_monitor_key_name_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT character_maximum_length, (SELECT COUNT(*) FROM api_keys k JOIN channel_monitors m ON m.id=k.managed_monitor_id AND m.managed_api_key_id=k.id WHERE k.purpose='managed_monitor' AND k.deleted_at IS NULL AND k.name IS DISTINCT FROM '监控-' || BTRIM(m.name)) FROM information_schema.columns WHERE table_schema='public' AND table_name='api_keys' AND column_name='name'")
@@ -319,7 +350,21 @@ mark_migration_failure_context migration_container_identity migration_container
 [[ $(docker inspect -f '{{.Image}}' "$migration_container") == "$candidate_image_id" ]]
 mark_migration_failure_context migration_container_exit migration_container
 [[ $(docker inspect -f '{{.State.ExitCode}}' "$migration_container") == 0 ]]
-if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 ]]; then
+if [[ $manifest_schema == 2 ]]; then
+  mark_migration_failure_context migration_marker_prepare migration_marker
+  marker_tmp="$state_dir/.migration-committed.tmp.$$"
+  printf 'plan_sha256=%s\ncatalog_sha256=%s\nproduction_snapshot_sha256=%s\n' \
+    "$(jq -cS '.evidence.migration_evidence.pending' "$active_claim/gate.json" | tr -d '\n' | sha256sum | awk '{print $1}')" \
+    "$(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json")" \
+    "$(jq -er '.evidence.production_snapshot_sha256' "$active_claim/gate.json")" > "$marker_tmp"
+  while IFS=$'\t' read -r migration migration_checksum; do
+    printf 'migration=%s checksum=%s\n' "$migration" "$migration_checksum" >> "$marker_tmp"
+  done < <(jq -r '.evidence.migration_evidence.pending[] | [.filename,.checksum] | @tsv' "$active_claim/gate.json")
+  chmod 600 "$marker_tmp"
+  mark_migration_failure_context migration_marker_publish migration_marker
+  [[ ! -e $state_dir/migration-committed && ! -L $state_dir/migration-committed ]]
+  mv -T -- "$marker_tmp" "$state_dir/migration-committed"
+elif [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 ]]; then
   mark_migration_failure_context migration_marker_prepare migration_marker
   migration_checksum=$(jq -er '.manifest.migration_sha256["195_upstream_scheduling_monitor_rates.sql"]' "$active_claim/gate.json")
   migration_manifest_sha256=$(jq -cS '.manifest.migration_sha256' "$active_claim/gate.json" | sha256sum | awk '{print $1}')

@@ -23,10 +23,13 @@ from .manifest import (
 from .paths import LAYOUT_DEPLOY_V1, RELEASE_PACKAGE_ROOT
 from .profiles import get_profile
 from .process import run_hidden
+from .migration_planner import CHECKSUM_POLICY_VERSION, HOOK_REGISTRY, catalog_sha256, checksum_policy_sha256
 
 
 def gate_payload(manifest: dict[str, Any], evidence: dict[str, Any]) -> bytes:
-    value = {"manifest": manifest, "evidence": evidence}
+    value: dict[str, Any] = {"manifest": manifest, "evidence": evidence}
+    if manifest.get("schema") == 2:
+        value = {"gate_version": 2, "profile_id": int(manifest["profile"]), **value}
     return canonical_json(value) + b"\n"
 
 
@@ -34,7 +37,7 @@ def _is_sha256(value: object) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
 
-def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow_expired: bool = False, allow_historical_runner: bool = False) -> dict[str, Any]:
+def _verify_gate_signature(bundle_dir: Path, public_key: Path) -> dict[str, Any]:
     payload_path = bundle_dir / "gate.json"
     signature_path = bundle_dir / "gate.sig"
     if not payload_path.is_file() or not signature_path.is_file():
@@ -45,7 +48,14 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    document = json.loads(payload_path.read_text(encoding="utf-8"))
+    document = json.loads(payload_path.read_bytes())
+    if not isinstance(document, dict):
+        raise RuntimeError("gate document is invalid")
+    return document
+
+
+def verify_gate_v1(bundle_dir: Path, public_key: Path, expected_profile: str, allow_expired: bool = False, allow_historical_runner: bool = False, *, verified_document: dict[str, Any] | None = None) -> dict[str, Any]:
+    document = verified_document if verified_document is not None else _verify_gate_signature(bundle_dir, public_key)
     manifest = document["manifest"]
     evidence = document["evidence"]
     validate_commit(manifest["commit_sha"])
@@ -229,3 +239,194 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
     if digest.hexdigest() != evidence.get("candidate_archive_sha256"):
         raise RuntimeError("gate candidate archive checksum does not match")
     return document
+
+
+def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> None:
+    migration = evidence.get("migration_evidence")
+    if not isinstance(migration, dict):
+        raise RuntimeError("Gate v2 migration evidence is missing")
+    if set(migration) != {
+        "database_high_watermark",
+        "pending",
+        "existing_checksums_verified",
+        "isolated_upgrade_verified",
+        "final_schema_verified",
+    }:
+        raise RuntimeError("Gate v2 migration evidence contains unknown fields")
+    pending = migration.get("pending")
+    catalog = manifest.get("migration_catalog")
+    if not isinstance(pending, list) or not isinstance(catalog, list):
+        raise RuntimeError("Gate v2 pending or catalog is invalid")
+    by_name: dict[str, dict[str, Any]] = {}
+    ordered_names = []
+    for item in catalog:
+        if not isinstance(item, dict) or set(item) != {"filename", "checksum", "non_transactional"}:
+            raise RuntimeError("Gate v2 catalog item shape is invalid")
+        if not isinstance(item.get("filename"), str) or not isinstance(item.get("checksum"), str) or not isinstance(item.get("non_transactional"), bool):
+            raise RuntimeError("Gate v2 catalog item is invalid")
+        filename = item["filename"]
+        if "/" in filename or "\\" in filename or not filename.endswith(".sql") or filename in by_name:
+            raise RuntimeError("Gate v2 catalog contains an invalid or duplicate filename")
+        if not _is_sha256(item["checksum"]):
+            raise RuntimeError("Gate v2 catalog checksum is invalid")
+        by_name[filename] = item
+        ordered_names.append(filename)
+    if ordered_names != sorted(ordered_names):
+        raise RuntimeError("Gate v2 catalog is not filename ordered")
+    seen: set[str] = set()
+    last_index = -1
+    for item in pending:
+        if not isinstance(item, dict):
+            raise RuntimeError("Gate v2 pending item is invalid")
+        filename = item.get("filename")
+        checksum = item.get("checksum")
+        if not isinstance(filename, str) or filename in seen or filename not in by_name:
+            raise RuntimeError("Gate v2 pending filename is invalid or duplicated")
+        if checksum != by_name[filename]["checksum"]:
+            raise RuntimeError("Gate v2 pending checksum does not match catalog")
+        if filename in HOOK_REGISTRY:
+            if set(item) != {"filename", "checksum", "preflight", "postflight", "hook_results", "rollback_policy"}:
+                raise RuntimeError("Gate v2 hooked pending item shape is invalid")
+            if item.get("preflight") is not True or item.get("postflight") is not True:
+                raise RuntimeError("Gate v2 hooked pending item lacks completed hooks")
+            if not isinstance(item.get("hook_results"), dict):
+                raise RuntimeError("Gate v2 hooked pending item lacks hook results")
+            expected_phases = {
+                phase
+                for group in ("preflight", "bind", "postflight")
+                for phase in HOOK_REGISTRY[filename].get(group, ())
+            }
+            if set(item["hook_results"]) != expected_phases or any(value is not True for value in item["hook_results"].values()):
+                raise RuntimeError("Gate v2 hooked pending item has incomplete hook results")
+            if item.get("rollback_policy") != HOOK_REGISTRY[filename]["rollback_policy"]:
+                raise RuntimeError("Gate v2 pending rollback policy is invalid")
+        else:
+            if set(item) != {"filename", "checksum"}:
+                raise RuntimeError("ordinary migration carries special or unknown evidence")
+        index = ordered_names.index(filename)
+        if index <= last_index:
+            raise RuntimeError("Gate v2 pending is not filename ordered")
+        last_index = index
+        seen.add(filename)
+    for field in ("existing_checksums_verified", "isolated_upgrade_verified", "final_schema_verified"):
+        if migration.get(field) is not True:
+            raise RuntimeError(f"Gate v2 migration evidence lacks {field}")
+    watermark = migration.get("database_high_watermark")
+    # A high-watermark is either absent (an empty database snapshot) or one
+    # concrete migration filename.  Validate the type before membership
+    # lookup so malformed JSON (for example a list) is rejected cleanly
+    # instead of leaking a ``TypeError`` from the dictionary lookup.
+    if watermark is not None:
+        if not isinstance(watermark, str) or watermark not in by_name:
+            raise RuntimeError("Gate v2 database high watermark is invalid")
+
+
+def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, allow_expired: bool = False, *, verified_document: dict[str, Any] | None = None) -> dict[str, Any]:
+    document = verified_document if verified_document is not None else _verify_gate_signature(bundle_dir, public_key)
+    if set(document) != {"gate_version", "profile_id", "manifest", "evidence"}:
+        raise RuntimeError("Gate v2 document shape is invalid")
+    manifest = document["manifest"]
+    evidence = document["evidence"]
+    if not isinstance(manifest, dict) or not isinstance(evidence, dict) or manifest.get("schema") != 2:
+        raise RuntimeError("Gate v2 schema is missing")
+    if document.get("gate_version") != 2 or document.get("profile_id") != 242:
+        raise RuntimeError("Gate v2 identity is invalid")
+    if manifest.get("profile") != expected_profile or expected_profile != "242":
+        raise RuntimeError("Gate v2 is only accepted for current profile 242")
+    profile = get_profile(expected_profile)
+    validate_manifest_profile_contract(manifest, profile)
+    validate_commit(manifest["commit_sha"])
+    expected_evidence_fields = {
+        "candidate_image_id",
+        "candidate_archive_sha256",
+        "candidate_size",
+        "integration_verified",
+        "vm_restore_verified",
+        "vm_database_boundary",
+        "vm_redis_boundary",
+        "data_dev_boundary",
+        "production_current_image_id",
+        "production_snapshot_sha256",
+        "catalog_sha256",
+        "checksum_policy_sha256",
+        "checksum_policy_version",
+        "migration_evidence",
+        "release_policy",
+    }
+    if set(evidence) != expected_evidence_fields:
+        raise RuntimeError("Gate v2 evidence contains missing or unknown fields")
+    validate_image_id(evidence.get("candidate_image_id", ""))
+    if manifest.get("runner_sha256") != runner_checksum():
+        raise RuntimeError("Gate v2 was created by a different release runner")
+    expected_assets = release_asset_checksums(manifest["commit_sha"], manifest_release_asset_layout(manifest))
+    if manifest.get("release_asset_sha256") != expected_assets:
+        raise RuntimeError("Gate v2 release assets do not match manifest commit")
+    release_units = release_unit_relative_paths(manifest_release_asset_layout(manifest))
+    for field, unit in {
+        "vm_validator_sha256": "validator",
+        "vm_gate_signer_sha256": "gate_signer",
+        "vm_dr_signer_sha256": "dr_signer",
+    }.items():
+        if manifest.get(field) != expected_assets[release_units[unit]]:
+            raise RuntimeError(f"Gate v2 {field} does not match manifest commit")
+    for field, path in {
+        "vm_validator_sha256": RELEASE_PACKAGE_ROOT / "vm-validate.sh",
+        "vm_gate_signer_sha256": RELEASE_PACKAGE_ROOT / "sign-gate.sh",
+        "vm_dr_signer_sha256": RELEASE_PACKAGE_ROOT / "sign-dr-evidence.sh",
+    }.items():
+        if manifest.get(field) != sha256_file(path):
+            raise RuntimeError(f"Gate v2 was created by a different {path.name}")
+    if not allow_expired and int(manifest.get("expires_at", 0)) < int(time.time()):
+        raise RuntimeError("gate has expired")
+    if any(evidence.get(field) is not True for field in (
+        "integration_verified", "vm_restore_verified", "vm_database_boundary",
+        "vm_redis_boundary", "data_dev_boundary",
+    )):
+        raise RuntimeError("Gate v2 lacks VM restore or integration evidence")
+    baseline_image = evidence.get("production_current_image_id")
+    validate_image_id(baseline_image)
+    if baseline_image != manifest.get("production_current_image_id"):
+        raise RuntimeError("Gate v2 production image is not bound to manifest")
+    if evidence.get("production_snapshot_sha256") != manifest.get("production_snapshot_sha256") or not _is_sha256(evidence.get("production_snapshot_sha256")):
+        raise RuntimeError("Gate v2 production snapshot checksum is invalid")
+    if type(evidence.get("candidate_size")) is not int or evidence["candidate_size"] <= 0:
+        raise RuntimeError("Gate v2 candidate size is invalid")
+    if not _is_sha256(evidence.get("candidate_archive_sha256")):
+        raise RuntimeError("Gate v2 candidate archive checksum is invalid")
+    if catalog_sha256(manifest.get("migration_catalog", [])) != manifest.get("catalog_sha256"):
+        raise RuntimeError("Gate v2 manifest catalog checksum is invalid")
+    if evidence.get("catalog_sha256") != manifest.get("catalog_sha256"):
+        raise RuntimeError("Gate v2 catalog checksum is not bound")
+    if manifest.get("checksum_policy_sha256") != checksum_policy_sha256() or evidence.get("checksum_policy_sha256") != checksum_policy_sha256():
+        raise RuntimeError("Gate v2 checksum policy is not current")
+    if evidence.get("checksum_policy_version") != CHECKSUM_POLICY_VERSION:
+        raise RuntimeError("Gate v2 checksum policy version is invalid")
+    _validate_v2_pending(manifest, evidence)
+    release_policy = evidence.get("release_policy")
+    if not isinstance(release_policy, dict) or set(release_policy) != {"canary_verified", "restore_points_verified"}:
+        raise RuntimeError("Gate v2 release policy evidence is invalid")
+    if release_policy.get("canary_verified") is not True or release_policy.get("restore_points_verified") is not True:
+        raise RuntimeError("Gate v2 release policy is not verified")
+    archive_path = bundle_dir / "candidate.tar.gz"
+    if not archive_path.is_file():
+        raise RuntimeError("gate candidate archive is missing")
+    digest = hashlib.sha256()
+    with archive_path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if archive_path.stat().st_size != evidence["candidate_size"]:
+        raise RuntimeError("Gate v2 candidate archive size does not match")
+    if digest.hexdigest() != evidence.get("candidate_archive_sha256"):
+        raise RuntimeError("gate candidate archive checksum does not match")
+    return document
+
+
+def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow_expired: bool = False, allow_historical_runner: bool = False, accepted_schemas: frozenset[int] = frozenset({1, 2})) -> dict[str, Any]:
+    """Verify a signed Gate and dispatch only after signature verification."""
+    document = _verify_gate_signature(bundle_dir, public_key)
+    schema = document.get("manifest", {}).get("schema") if isinstance(document, dict) else None
+    if schema not in accepted_schemas:
+        raise RuntimeError("gate schema is not accepted for this operation")
+    if schema == 2:
+        return verify_gate_v2(bundle_dir, public_key, expected_profile, allow_expired=allow_expired, verified_document=document)
+    return verify_gate_v1(bundle_dir, public_key, expected_profile, allow_expired=allow_expired, allow_historical_runner=allow_historical_runner, verified_document=document)
