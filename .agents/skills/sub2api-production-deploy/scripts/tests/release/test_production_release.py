@@ -1570,6 +1570,20 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         ):
             self.assertIn(f'"{field}"', switch_allowlist)
 
+    def test_profile_241_switch_emits_inherited_237_and_238_postflight_fields(self) -> None:
+        switch = self.script("switch.sh")
+        output_section = switch[switch.index("printf 'migration_verified=true\\n'"):]
+        self.assertIn(
+            "if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then",
+            output_section,
+        )
+        self.assertIn(
+            "if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then",
+            output_section,
+        )
+        self.assertIn('"$assets_dir/migration-237-assert.sh" postflight', output_section)
+        self.assertIn('"$assets_dir/migration-238-assert.sh" postflight', output_section)
+
     def test_profile_240_switch_accepts_new_observation_and_precise_rate_fields(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         condition = 'if getattr(self, "profile", {}).get("name") in {"240", "241"}:'
