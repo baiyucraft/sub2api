@@ -313,6 +313,30 @@ backup-host-space-clean.sh dry-run
 
 宿主日志清理不能替代备份 retention 或磁盘扩容。若 journal 已在 1 GiB 左右且空间仍不足，停止并扩容或单独审核 release retention；禁止降低 5 GiB 门槛。
 
+### 备份机 release 证据清理合同
+
+`/srv/sub2api-backups/releases` 保存发布 bundle、manifest、checksum 和恢复证据，不能使用 `rm -rf` 或按目录大小直接删除。需要整理历史 release 时，只能使用版本化脚本：
+
+```text
+.agents/skills/sub2api-production-deploy/scripts/release/backup-release-retention-clean.sh dry-run
+.agents/skills/sub2api-production-deploy/scripts/release/backup-release-retention-clean.sh apply <plan_sha256> <显式批准的 release ID> ...
+```
+
+固定规则：
+
+- 默认每个 profile 保留最近 2 个 release，并保留至少 30 天；
+- 明确失败且超过 7 天的 release，在没有任何保护标记时可进入候选；
+- 失败状态无法从脱敏发布日志明确证明，或日志同时包含成功与失败阶段时，继续保留；
+- `candidates`、`promotion-input`、`verified-bundles` 等 profile 元数据目录跳过扫描，不当作 release bundle；
+- `candidate`、`verified`、`current`、`previous`、`recovery`、`baseline` 指针指向的 bundle 永不进入候选；
+- 含 `.prepared`、`.consumed`、`.recovered`、`.reconciliation`、`recovery-point.*` 或 `production-result.json` 的 bundle 永不进入候选；
+- 只接受结构完整、manifest 与 bundle checksum 一致、非 symlink、单硬链接的 bundle；
+- dry-run 输出候选 release ID、容量和 `plan_sha256`；apply 必须同时提供同一 checksum 和逐个明确批准的 release ID；
+- apply 使用独立 retention 锁和 release promotion 锁，逐个复核 mtime、大小、checksum 后只删除 bundle 内四个文件，再删除空目录；
+- 脚本不得遍历或删除 `/srv/sub2api-backups` 的其他目录，不触碰 daily、release-logs、candidate、verified、恢复包或项目外文件。
+
+如果 dry-run 没有候选，或候选不足以满足发布上传余量，应扩容备份机或进行人工审核，不得扩大自动删除范围。
+
 ## 密钥与告警
 
 - 加密私钥不得与密文包同库存放，不得进入 Git、日志、manifest 明文或最终报告。

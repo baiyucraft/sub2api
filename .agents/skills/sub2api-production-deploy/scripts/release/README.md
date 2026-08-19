@@ -34,6 +34,15 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production <release_id> --mode apply --plan-sha256 <plan_sha256>
 ```
 
+备份机历史 release bundle 清理也必须先 dry-run，再用同一 `plan_sha256` 和逐个明确批准的 release ID apply：
+
+```text
+.agents/skills/sub2api-production-deploy/scripts/release/backup-release-retention-clean.sh dry-run
+.agents/skills/sub2api-production-deploy/scripts/release/backup-release-retention-clean.sh apply <plan_sha256> <release_id> [release_id...]
+```
+
+该脚本只处理 `/srv/sub2api-backups/releases` 中满足分层保留策略、无指针引用、无恢复/协调标记且 checksum 完整的历史 bundle；明确失败且超过 7 天的 bundle 可提前进入候选，无法证明失败的继续保留。`candidates`、`promotion-input`、`verified-bundles` 等元数据目录会跳过；不触碰 daily、release-logs、candidate、verified 或恢复资产。apply 不接受未出现在同一次 dry-run 候选清单中的 release ID。
+
 该命令保留 current、pre-switch、所有容器引用和 recovery point 镜像；残留 migration 容器只报告不删除。它只删除 full-SHA tag 的零引用旧 Sub2API image，并以容量边界 `max-used-space=2gb,reserved-space=2gb` 执行一次 BuildKit LRU GC。禁止 volume/image/system prune，实际释放只看 `df` 前后差值。
 
 `deploy-follow` 是日常人工发布入口：它只创建一个隐藏 worker，并在同一控制台用中文显示阶段变化和长阶段心跳。关闭窗口或观察器超时不会中止 runner，重新连接必须使用 `follow <release_id>`。`deploy-start` 仍是机器接口，可用于脚本或只启动后台 runner。
