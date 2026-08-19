@@ -20,6 +20,7 @@ type upstreamManagementSettingsRequest struct {
 	ProbeModels          service.UpstreamProbeModels         `json:"probe_models"`
 	ProbeIntervalSeconds int                                 `json:"probe_interval_seconds"`
 	ProbeGuard           *service.UpstreamProbeGuardSettings `json:"probe_guard"`
+	ModelAliasRules      map[string]string                   `json:"model_alias_rules"`
 }
 
 func (h *UpstreamConfigHandler) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
@@ -90,12 +91,16 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 		return
 	}
 	probeGuard := service.DefaultUpstreamProbeGuardSettings()
+	modelAliasRules := req.ModelAliasRules
 	if req.ProbeGuard != nil {
 		probeGuard = *req.ProbeGuard
 	} else if current, getErr := h.service.GetManagementSettings(c.Request.Context()); getErr == nil {
 		probeGuard = current.ProbeGuard
+		if modelAliasRules == nil {
+			modelAliasRules = current.ModelAliasRules
+		}
 	}
-	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard}
+	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules}
 	if settings.ProbeIntervalSeconds == 0 {
 		settings.ProbeIntervalSeconds = service.DefaultUpstreamProbeIntervalSeconds
 	}

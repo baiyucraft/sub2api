@@ -18,6 +18,17 @@ export default {
       loadFailed: 'Failed to load upstream management settings',
       invalid: 'Check the first-token threshold, sample count, probe models, probe interval, and probe error codes.'
     },
+    modelAliases: {
+      title: 'Global model aliases',
+      description: 'Applies only to sync-managed upstream accounts. Saving does not trigger a full sync; rules take effect on the next model sync or manual refresh. Manual account mappings and user billing are unchanged.',
+      source: 'Request model (source)',
+      target: 'Upstream model (target)',
+      add: 'Add model alias',
+      remove: 'Remove model alias',
+      empty: 'No global model aliases configured.',
+      invalidEntry: 'Each model alias must have both a source and target.',
+      duplicateSource: 'Source values must be unique.'
+    },
     rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
       title: 'First-token performance protection',
