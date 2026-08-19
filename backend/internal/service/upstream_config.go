@@ -99,6 +99,7 @@ type UpstreamManagementSettings struct {
 	ProbeModels          UpstreamProbeModels        `json:"probe_models"`
 	ProbeIntervalSeconds int                        `json:"probe_interval_seconds"`
 	ProbeGuard           UpstreamProbeGuardSettings `json:"probe_guard"`
+	ModelAliasRules      map[string]string          `json:"model_alias_rules"`
 }
 
 func (c *UpstreamConfig) EffectiveAPIURL() string {
@@ -387,7 +388,7 @@ func (s *UpstreamConfigService) GetProbeModels(ctx context.Context) (UpstreamPro
 
 func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (UpstreamManagementSettings, error) {
 	if s == nil || s.settingService == nil {
-		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings()}, nil
+		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}}, nil
 	}
 	ttft, err := s.settingService.GetOpenAITTFTGuardSettings(ctx)
 	if err != nil {
@@ -406,7 +407,11 @@ func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (Upst
 	if err != nil {
 		return UpstreamManagementSettings{}, err
 	}
-	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard}, nil
+	aliases, err := s.settingService.GetUpstreamModelAliasRules(ctx)
+	if err != nil {
+		return UpstreamManagementSettings{}, err
+	}
+	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases}, nil
 }
 
 func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, settings UpstreamManagementSettings) error {
@@ -419,7 +424,11 @@ func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, setti
 	if settings.ProbeGuard.SuspendAfterFailures == 0 && settings.ProbeGuard.RecoverySuccesses == 0 && settings.ProbeGuard.CustomErrorCodes == nil {
 		settings.ProbeGuard = DefaultUpstreamProbeGuardSettings()
 	}
-	if err := s.settingService.SetOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx, &settings.TTFTGuard, settings.ProbeModels, settings.ProbeIntervalSeconds, settings.ProbeGuard); err != nil {
+	aliases, err := NormalizeUpstreamModelAliasRules(settings.ModelAliasRules)
+	if err != nil {
+		return err
+	}
+	if err := s.settingService.SetOpenAITTFTGuardProbeModelsIntervalAndGuardWithAliases(ctx, &settings.TTFTGuard, settings.ProbeModels, settings.ProbeIntervalSeconds, settings.ProbeGuard, aliases); err != nil {
 		return err
 	}
 	settings.ProbeGuard, _ = NormalizeUpstreamProbeGuardSettings(settings.ProbeGuard)

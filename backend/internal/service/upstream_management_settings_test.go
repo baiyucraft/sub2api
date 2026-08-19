@@ -75,19 +75,45 @@ func TestSetManagementSettingsPersistsAtomicallyAndPublishesTTFT(t *testing.T) {
 			Enabled: true, SuspendAfterFailures: 4, RecoverySuccesses: 2,
 			CustomErrorCodesEnabled: true, CustomErrorCodes: []int{429, 404, 404},
 		},
+		ModelAliasRules: map[string]string{" gpt-5.6-luna ": " gpt-5.6-terra "},
 	}
 
 	require.NoError(t, upstreamService.SetManagementSettings(context.Background(), settings))
 	require.Equal(t, 1, repo.setMultipleCalls)
-	require.Len(t, repo.lastMultiple, 4)
+	require.Len(t, repo.lastMultiple, 5)
 	require.JSONEq(t, `{"enabled":true,"degradation_ttft_seconds":35,"min_samples":6}`, repo.lastMultiple[SettingKeyOpenAITTFTGuardSettings])
 	require.JSONEq(t, `{"openai":"gpt-custom","anthropic":"claude-custom","gemini":"gemini-custom"}`, repo.lastMultiple[SettingKeyUpstreamProbeModels])
 	require.Equal(t, "600", repo.lastMultiple[SettingKeyUpstreamProbeIntervalSeconds])
 	require.JSONEq(t, `{"enabled":true,"suspend_after_failures":4,"recovery_successes":2,"custom_error_codes_enabled":true,"custom_error_codes":[404,429]}`, repo.lastMultiple[SettingKeyUpstreamProbeGuardSettings])
+	require.JSONEq(t, `{"gpt-5.6-luna":"gpt-5.6-terra"}`, repo.lastMultiple[SettingKeyUpstreamModelAliasRules])
 	snapshot := settingService.OpenAITTFTGuardConfigSnapshot()
 	require.True(t, snapshot.Enabled)
 	require.Equal(t, 35*time.Second, snapshot.Threshold)
 	require.Equal(t, 6, snapshot.MinSamples)
+}
+
+func TestManagementSettingsRejectsInvalidModelAliasRulesBeforeWrite(t *testing.T) {
+	repo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
+	settingService := NewSettingService(repo, nil)
+	upstreamService := NewUpstreamConfigService(nil, nil, nil)
+	upstreamService.SetHealthProbeDependencies(nil, settingService)
+	settings := UpstreamManagementSettings{
+		TTFTGuard:   OpenAITTFTGuardSettings{Enabled: false, DegradationTTFTSeconds: 20, MinSamples: 5},
+		ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: 300,
+		ModelAliasRules: map[string]string{" ": "gpt-5"},
+	}
+	require.Error(t, upstreamService.SetManagementSettings(context.Background(), settings))
+	require.Zero(t, repo.setMultipleCalls)
+}
+
+func TestGetManagementSettingsDefaultsMissingModelAliasesToEmpty(t *testing.T) {
+	repo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
+	settingService := NewSettingService(repo, nil)
+	upstreamService := NewUpstreamConfigService(nil, nil, nil)
+	upstreamService.SetHealthProbeDependencies(nil, settingService)
+	got, err := upstreamService.GetManagementSettings(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, got.ModelAliasRules)
 }
 
 func TestSetManagementSettingsValidatesEverythingBeforeWriting(t *testing.T) {

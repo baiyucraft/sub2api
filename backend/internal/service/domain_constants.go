@@ -567,6 +567,9 @@ const (
 	SettingKeyUpstreamProbeIntervalSeconds = "upstream_probe_interval_seconds"
 	// SettingKeyUpstreamProbeGuardSettings stores the global health-probe scheduling guard.
 	SettingKeyUpstreamProbeGuardSettings = "upstream_probe_guard_settings"
+	// SettingKeyUpstreamModelAliasRules stores global source -> target model aliases
+	// used when sync-managed upstream accounts refresh their model mappings.
+	SettingKeyUpstreamModelAliasRules = "upstream_model_alias_rules"
 
 	// =========================
 	// Claude Code Version Check

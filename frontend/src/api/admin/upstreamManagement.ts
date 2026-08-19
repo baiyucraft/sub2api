@@ -22,6 +22,7 @@ export interface UpstreamManagementSettings {
   probe_guard: ProbeGuardSettings
   probe_models: Record<'openai' | 'anthropic' | 'gemini', string>
   probe_interval_seconds: number
+  model_alias_rules?: Record<string, string>
 }
 
 export interface ProbeModelCandidates {

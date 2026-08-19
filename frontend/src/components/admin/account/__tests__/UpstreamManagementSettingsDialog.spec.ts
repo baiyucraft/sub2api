@@ -74,7 +74,8 @@ describe('UpstreamManagementSettingsDialog', () => {
         custom_error_codes: [404]
       },
       probe_models: { openai: 'gpt-live', anthropic: 'claude-live', gemini: 'gemini-live' },
-      probe_interval_seconds: 420
+      probe_interval_seconds: 420,
+      model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' }
     })
     getCandidates.mockResolvedValue({ candidates: {
       openai: ['gpt-live', 'gpt-fallback'],
@@ -91,7 +92,8 @@ describe('UpstreamManagementSettingsDialog', () => {
         custom_error_codes: [404]
       },
       probe_models: { openai: 'custom-model', anthropic: 'claude-live', gemini: 'gemini-live' },
-      probe_interval_seconds: 300
+      probe_interval_seconds: 300,
+      model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' }
     })
   })
 
@@ -152,8 +154,58 @@ describe('UpstreamManagementSettingsDialog', () => {
         custom_error_codes: [404]
       },
       probe_models: expect.objectContaining({ openai: 'custom-model' }),
-      probe_interval_seconds: 720
+      probe_interval_seconds: 720,
+      model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' }
     }))
+  })
+
+  it('loads legacy settings without aliases as an empty mapping list', async () => {
+    getSettings.mockResolvedValueOnce({
+      ttft_guard: { enabled: true, degradation_ttft_seconds: 30, min_samples: 7 },
+      probe_guard: { enabled: true, suspend_after_failures: 4, recovery_successes: 2, custom_error_codes_enabled: false, custom_error_codes: [] },
+      probe_models: { openai: 'gpt-live', anthropic: 'claude-live', gemini: 'gemini-live' },
+      probe_interval_seconds: 300
+    })
+    const wrapper = mountDialog(true)
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="model-alias-row"]')).toHaveLength(0)
+  })
+
+  it('validates alias rows and does not call sync APIs for incomplete rows', async () => {
+    const wrapper = mountDialog(true)
+    await flushPromises()
+    await wrapper.get('[data-test="add-model-alias"]').trigger('click')
+    const rows = wrapper.findAll('[data-test="model-alias-source"]')
+    await rows[rows.length - 1].setValue('gpt-incomplete')
+    expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
+    expect(updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('edits aliases as source-to-target rows and trims values before saving', async () => {
+    const wrapper = mountDialog(true)
+    await flushPromises()
+    const source = wrapper.get('[data-test="model-alias-source"]')
+    const target = wrapper.get('[data-test="model-alias-target"]')
+    await source.setValue('  gpt-a  ')
+    await target.setValue('  gpt-b  ')
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      model_alias_rules: { 'gpt-a': 'gpt-b' }
+    }))
+  })
+
+  it('rejects duplicate alias sources', async () => {
+    const wrapper = mountDialog(true)
+    await flushPromises()
+    await wrapper.get('[data-test="add-model-alias"]').trigger('click')
+    const sources = wrapper.findAll('[data-test="model-alias-source"]')
+    const targets = wrapper.findAll('[data-test="model-alias-target"]')
+    await sources[0].setValue('gpt-a')
+    await targets[0].setValue('gpt-b')
+    await sources[1].setValue('gpt-a')
+    await targets[1].setValue('gpt-c')
+    expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
   })
 
   it('rejects probe intervals outside one to sixty minutes', async () => {

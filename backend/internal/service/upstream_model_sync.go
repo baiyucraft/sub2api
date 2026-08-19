@@ -48,6 +48,7 @@ type UpstreamModelSyncState struct {
 	FailureKind   string
 	ErrorCode     string
 	Checksum      string
+	AutoMapping   map[string]string
 }
 
 type upstreamModelSyncPersister interface {
@@ -88,6 +89,7 @@ func (a *Account) upstreamModelSyncState() UpstreamModelSyncState {
 	state.FailureKind = upstreamSyncStringValue(value["failure_kind"])
 	state.ErrorCode = upstreamSyncStringValue(value["error_code"])
 	state.Checksum = upstreamSyncStringValue(value["checksum"])
+	state.AutoMapping = stringMappingValue(value["auto_mapping"])
 	return state
 }
 
@@ -183,14 +185,31 @@ func (s *AccountTestService) syncUpstreamAccountModelsOnce(ctx context.Context, 
 			status = UpstreamModelSyncStatusStale
 		}
 		state := upstreamModelSyncStateMap(status, source, attemptedAt, previous, previous.ModelCount, previous.Checksum, failureKind, upstreamModelSyncErrorCode(err))
+		if previous.AutoMapping != nil {
+			state["auto_mapping"] = previous.AutoMapping
+		}
 		if persistErr := persister.PersistUpstreamModelSync(ctx, account.ID, nil, state); persistErr != nil {
 			return UpstreamModelSyncResult{Attempted: true}, errors.Join(err, persistErr)
 		}
 		return UpstreamModelSyncResult{Attempted: true}, err
 	}
 
-	mapping := identityModelMapping(models)
+	aliases := map[string]string{}
+	if s.settingService != nil {
+		var aliasErr error
+		aliases, aliasErr = s.settingService.GetUpstreamModelAliasRules(ctx)
+		if aliasErr != nil {
+			return UpstreamModelSyncResult{Models: models, Attempted: true}, newUpstreamModelSyncConfigError("Invalid upstream model alias rules", aliasErr)
+		}
+	}
+	mapping, autoMapping, mergeErr := MergeUpstreamModelMappings(models, aliases, account.GetModelMapping(), previous.AutoMapping)
+	if mergeErr != nil {
+		return UpstreamModelSyncResult{Models: models, Attempted: true}, newUpstreamModelSyncConfigError("Invalid upstream model alias rules", mergeErr)
+	}
 	state := upstreamModelSyncStateMap(UpstreamModelSyncStatusAvailable, source, attemptedAt, UpstreamModelSyncState{}, len(models), upstreamModelChecksum(models), "", "")
+	if autoMapping != nil {
+		state["auto_mapping"] = autoMapping
+	}
 	if err := persister.PersistUpstreamModelSync(ctx, account.ID, mapping, state); err != nil {
 		return UpstreamModelSyncResult{Models: models, Attempted: true}, err
 	}
@@ -466,6 +485,29 @@ func stringSliceValue(value any) ([]string, bool) {
 	}
 	values = dedupeAndSortModelIDs(values)
 	return values, len(values) > 0
+}
+
+func stringMappingValue(value any) map[string]string {
+	result := make(map[string]string)
+	switch typed := value.(type) {
+	case map[string]string:
+		for key, item := range typed {
+			if strings.TrimSpace(key) != "" && strings.TrimSpace(item) != "" {
+				result[strings.TrimSpace(key)] = strings.TrimSpace(item)
+			}
+		}
+	case map[string]any:
+		for key, raw := range typed {
+			item, ok := raw.(string)
+			if ok && strings.TrimSpace(key) != "" && strings.TrimSpace(item) != "" {
+				result[strings.TrimSpace(key)] = strings.TrimSpace(item)
+			}
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func copyUpstreamModelSyncSourceMetadata(dst, src map[string]any) {

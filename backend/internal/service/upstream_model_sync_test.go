@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestUpstreamModelSyncStateUsesFreshAndEnforceWindows(t *testing.T) {
@@ -43,6 +45,42 @@ func TestIdentityModelMappingIsDeterministicAndRejectsEmpty(t *testing.T) {
 	if upstreamModelChecksum([]string{"b", "a"}) != upstreamModelChecksum([]string{"a", "b"}) {
 		t.Fatal("model checksum must be order independent")
 	}
+}
+
+func TestMergeUpstreamModelMappingsAppliesAliasesAndPreservesManualTargets(t *testing.T) {
+	models := []string{"gpt-5.6-terra", "gpt-5.6-sol", "claude"}
+	current := map[string]string{
+		"gpt-5.6-luna": "gpt-5.6-terra", // manual alias target remains available
+		"removed":      "gone",
+		"gpt-5.6-sol":  "custom-sol", // target missing: replaced by automatic identity
+	}
+	previousAuto := map[string]string{"gpt-5.6-sol": "gpt-5.6-sol", "removed": "removed"}
+	result, auto, err := MergeUpstreamModelMappings(models, map[string]string{"gpt-5.6-luna": "gpt-5.6-terra", "missing": "gone"}, current, previousAuto)
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.6-terra", result["gpt-5.6-luna"])
+	require.Equal(t, "gpt-5.6-sol", result["gpt-5.6-sol"])
+	require.NotContains(t, result, "removed")
+	require.Equal(t, "gpt-5.6-terra", auto["gpt-5.6-luna"])
+	require.NotContains(t, auto, "missing")
+}
+
+func TestMergeUpstreamModelMappingsLegacyIdentityAndManualCleanup(t *testing.T) {
+	result, auto, err := MergeUpstreamModelMappings(
+		[]string{"target"},
+		nil,
+		map[string]string{"old": "target", "missing": "missing"},
+		nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "target", result["old"], "manual source may disappear while target remains")
+	require.NotContains(t, result, "missing", "legacy identity mapping is automatic and should be removed")
+	require.Equal(t, map[string]string{"target": "target"}, auto)
+}
+
+func TestMergeUpstreamModelMappingsManualSourceCollisionWins(t *testing.T) {
+	result, _, err := MergeUpstreamModelMappings([]string{"target", "custom"}, map[string]string{"source": "target"}, map[string]string{"source": "custom"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, "custom", result["source"])
 }
 
 func TestSyncManagedMappingIsBypassedWhenStaleButManualMappingRemains(t *testing.T) {

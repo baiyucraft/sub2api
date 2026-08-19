@@ -18,6 +18,17 @@ export default {
       loadFailed: '加载上游管理设置失败',
       invalid: '请检查首 Token 阈值、样本数、探针模型、探针间隔和探针错误码。'
     },
+    modelAliases: {
+      title: '全局模型别名',
+      description: '仅对 sync_managed 上游账号生效。保存后不会立即触发全量同步，将在下一次模型同步或手动刷新模型时生效；不会覆盖账号编辑页中的手工映射，也不改变用户侧计费。',
+      source: '请求模型（source）',
+      target: '上游模型（target）',
+      add: '添加模型别名',
+      remove: '删除模型别名',
+      empty: '尚未配置全局模型别名。',
+      invalidEntry: '每条模型别名的 source 和 target 都不能为空。',
+      duplicateSource: 'source 不能重复。'
+    },
     rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
       title: '首 Token 性能保护',

@@ -129,6 +129,30 @@
           </p>
         </div>
       </section>
+
+      <section class="rounded-2xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-900/60">
+        <div class="flex items-start justify-between gap-5">
+          <div class="min-w-0">
+            <h4 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.modelAliases.title') }}</h4>
+            <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.modelAliases.description') }}</p>
+          </div>
+        </div>
+        <div class="mt-4 space-y-3" data-test="model-alias-rules">
+          <div v-for="(mapping, index) in modelAliasRows" :key="mapping.id" class="flex items-center gap-2" data-test="model-alias-row">
+            <input v-model="mapping.source" data-test="model-alias-source" type="text" class="input min-w-0 flex-1" :placeholder="t('admin.upstreamManagement.modelAliases.source')" />
+            <span class="shrink-0 text-gray-400">→</span>
+            <input v-model="mapping.target" data-test="model-alias-target" type="text" class="input min-w-0 flex-1" :placeholder="t('admin.upstreamManagement.modelAliases.target')" />
+            <button type="button" class="shrink-0 text-red-500 hover:text-red-700" data-test="remove-model-alias" :aria-label="t('admin.upstreamManagement.modelAliases.remove')" @click="modelAliasRows.splice(index, 1)">
+              <Icon name="trash" size="sm" />
+            </button>
+          </div>
+          <button type="button" class="btn btn-secondary text-sm" data-test="add-model-alias" @click="addModelAliasRow()">
+            + {{ t('admin.upstreamManagement.modelAliases.add') }}
+          </button>
+          <p v-if="modelAliasRows.length === 0" class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.modelAliases.empty') }}</p>
+        </div>
+        <p v-if="modelAliasError" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ modelAliasError }}</p>
+      </section>
     </div>
 
     <template #footer>
@@ -163,6 +187,7 @@ const appStore = useAppStore()
 
 const platforms = ['openai', 'anthropic', 'gemini'] as const
 type ProbePlatform = (typeof platforms)[number]
+type ModelAliasRow = { id: number; source: string; target: string }
 const platformLabels: Record<ProbePlatform, string> = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini' }
 const defaults: UpstreamManagementSettings = {
   ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
@@ -174,13 +199,17 @@ const defaults: UpstreamManagementSettings = {
     custom_error_codes: []
   },
   probe_models: { openai: 'gpt-4o-mini', anthropic: 'claude-3-5-haiku-latest', gemini: 'gemini-2.0-flash' },
-  probe_interval_seconds: 300
+  probe_interval_seconds: 300,
+  model_alias_rules: {}
 }
 const draft = reactive<UpstreamManagementSettings>(structuredClone(defaults))
 const probeIntervalMinutes = ref(5)
 const candidates = reactive<Record<ProbePlatform, string[]>>({ openai: [], anthropic: [], gemini: [] })
 const loading = ref(false)
 const saving = ref(false)
+const modelAliasRows = ref<ModelAliasRow[]>([])
+const modelAliasError = ref('')
+let nextModelAliasRowId = 1
 
 const candidateOptions = computed<Record<ProbePlatform, SelectOption[]>>(() => ({
   openai: candidates.openai.map(value => ({ value, label: value })),
@@ -204,8 +233,32 @@ const valid = computed(() => {
     platforms.every(platform => {
       const value = draft.probe_models[platform]?.trim() || ''
       return value.length > 0 && value.length <= 120
-    })
+    }) && parseModelAliasRules() !== null
 })
+
+function parseModelAliasRules(): Record<string, string> | null {
+  modelAliasError.value = ''
+  const normalized: Record<string, string> = {}
+  for (const row of modelAliasRows.value) {
+    const source = row.source.trim()
+    const target = row.target.trim()
+    if (!source && !target) continue
+    if (!source || !target) {
+      modelAliasError.value = t('admin.upstreamManagement.modelAliases.invalidEntry')
+      return null
+    }
+    if (normalized[source] !== undefined) {
+      modelAliasError.value = t('admin.upstreamManagement.modelAliases.duplicateSource')
+      return null
+    }
+    normalized[source] = target
+  }
+  return normalized
+}
+
+function addModelAliasRow(source = '', target = '') {
+  modelAliasRows.value.push({ id: nextModelAliasRowId++, source, target })
+}
 
 async function load() {
   loading.value = true
@@ -218,6 +271,8 @@ async function load() {
     Object.assign(draft.probe_guard, settings.probe_guard || defaults.probe_guard)
     Object.assign(draft.probe_models, settings.probe_models)
     draft.probe_interval_seconds = settings.probe_interval_seconds ?? defaults.probe_interval_seconds
+    modelAliasRows.value = Object.entries(settings.model_alias_rules || {}).map(([source, target]) => ({ id: nextModelAliasRowId++, source, target }))
+    modelAliasError.value = ''
     probeIntervalMinutes.value = Math.max(1, Math.min(60, Math.round(draft.probe_interval_seconds / 60)))
     for (const platform of platforms) candidates[platform] = options.candidates[platform] || []
   } catch (error) {
@@ -235,6 +290,8 @@ async function save() {
   }
   saving.value = true
   try {
+    const modelAliasRules = parseModelAliasRules()
+    if (!modelAliasRules) return
     const payload: UpstreamManagementSettings = {
       ttft_guard: { ...draft.ttft_guard },
       probe_guard: {
@@ -249,7 +306,8 @@ async function save() {
         anthropic: draft.probe_models.anthropic.trim(),
         gemini: draft.probe_models.gemini.trim()
       },
-      probe_interval_seconds: probeIntervalMinutes.value * 60
+      probe_interval_seconds: probeIntervalMinutes.value * 60,
+      model_alias_rules: modelAliasRules
     }
     const saved = await upstreamManagementAPI.updateSettings(payload)
     appStore.showSuccess(t('admin.upstreamManagement.saved'))

@@ -194,6 +194,16 @@ func (s *SettingService) SetOpenAITTFTGuardProbeModelsAndInterval(ctx context.Co
 // upstream-management settings. The legacy three-setting method above stays
 // available for older callers.
 func (s *SettingService) SetOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx context.Context, settings *OpenAITTFTGuardSettings, models UpstreamProbeModels, intervalSeconds int, guard UpstreamProbeGuardSettings) error {
+	return s.setOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx, settings, models, intervalSeconds, guard, nil, false)
+}
+
+// SetOpenAITTFTGuardProbeModelsIntervalAndGuardWithAliases atomically persists
+// all upstream-management settings, including the global model alias rules.
+func (s *SettingService) SetOpenAITTFTGuardProbeModelsIntervalAndGuardWithAliases(ctx context.Context, settings *OpenAITTFTGuardSettings, models UpstreamProbeModels, intervalSeconds int, guard UpstreamProbeGuardSettings, aliases map[string]string) error {
+	return s.setOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx, settings, models, intervalSeconds, guard, aliases, true)
+}
+
+func (s *SettingService) setOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx context.Context, settings *OpenAITTFTGuardSettings, models UpstreamProbeModels, intervalSeconds int, guard UpstreamProbeGuardSettings, aliases map[string]string, includeAliases bool) error {
 	if err := validateOpenAITTFTGuardSettings(settings); err != nil {
 		return err
 	}
@@ -210,6 +220,18 @@ func (s *SettingService) SetOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx conte
 	if err != nil {
 		return err
 	}
+	var aliasRaw string
+	if includeAliases {
+		normalizedAliases, normalizeErr := NormalizeUpstreamModelAliasRules(aliases)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		aliasBytes, marshalErr := json.Marshal(normalizedAliases)
+		if marshalErr != nil {
+			return fmt.Errorf("marshal upstream model alias rules: %w", marshalErr)
+		}
+		aliasRaw = string(aliasBytes)
+	}
 	if s == nil || s.settingRepo == nil {
 		return fmt.Errorf("setting repository is unavailable")
 	}
@@ -223,12 +245,16 @@ func (s *SettingService) SetOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx conte
 	}
 	s.openAITTFTGuardUpdateMu.Lock()
 	defer s.openAITTFTGuardUpdateMu.Unlock()
-	if err := s.settingRepo.SetMultiple(ctx, map[string]string{
+	values := map[string]string{
 		SettingKeyOpenAITTFTGuardSettings:      string(ttftRaw),
 		SettingKeyUpstreamProbeModels:          string(probeRaw),
 		SettingKeyUpstreamProbeIntervalSeconds: strconv.Itoa(intervalSeconds),
 		SettingKeyUpstreamProbeGuardSettings:   guardRaw,
-	}); err != nil {
+	}
+	if includeAliases {
+		values[SettingKeyUpstreamModelAliasRules] = aliasRaw
+	}
+	if err := s.settingRepo.SetMultiple(ctx, values); err != nil {
 		return fmt.Errorf("set upstream management settings: %w", err)
 	}
 	s.openAITTFTGuardRevision.Add(1)
