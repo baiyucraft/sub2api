@@ -108,7 +108,15 @@ for selftest_profile in 195 199 202 206 207 208 209 210 212 213 215 232 233 234 
   selftest_dr_dir="/opt/sub2api-deploy/dr-evidence/$selftest_release/$selftest_drill"
   selftest_releases+=("$selftest_release")
   install -d -o root -g root -m 700 "$selftest_gate_dir" "/opt/sub2api-deploy/dr-evidence/$selftest_release" "$selftest_dr_dir"
-  printf '{"selftest":true}\n' > "$selftest_gate_dir/gate.json"
+  if [[ $selftest_profile == 242 ]]; then
+    jq -cn --arg release_id "$selftest_release" --arg profile "$selftest_profile" \
+      '{gate_version:2,profile_id:242,manifest:{release_id:$release_id,profile:$profile,schema:2}}' \
+      > "$selftest_gate_dir/gate.json"
+  else
+    jq -cn --arg release_id "$selftest_release" --arg profile "$selftest_profile" \
+      '{manifest:{release_id:$release_id,profile:$profile,schema:1}}' \
+      > "$selftest_gate_dir/gate.json"
+  fi
   chmod 400 "$selftest_gate_dir/gate.json"
   "$activation_dir/sub2api-sign-gate" "$selftest_gate_dir/gate.json" "$selftest_gate_dir/gate.sig"
   openssl pkeyutl -verify -pubin -inkey "$public_key" -rawin -in "$selftest_gate_dir/gate.json" -sigfile "$selftest_gate_dir/gate.sig" >/dev/null

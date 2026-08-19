@@ -144,7 +144,8 @@ else
   install -d -o root -g root -m 700 "$dr_root"
 fi
 install -d -o root -g root -m 700 "$dr_root/$release" "$dr_dir"
-printf '{{"selftest":true}}\n' > "$gate_dir/gate.json"
+jq -cn --arg release_id "$release" --arg profile "199" \
+  '{{manifest:{{release_id:$release_id,profile:$profile,schema:1}}}}' > "$gate_dir/gate.json"
 chmod 400 "$gate_dir/gate.json"
 "$gate_signer" "$gate_dir/gate.json" "$gate_dir/gate.sig"
 openssl pkeyutl -verify -pubin -inkey /opt/sub2api-release-signer/vm-gate-ed25519.pub -rawin -in "$gate_dir/gate.json" -sigfile "$gate_dir/gate.sig" >/dev/null
