@@ -5,6 +5,7 @@
 | 上游配置与管理 | provider 同步、缺失 Key 对账、派生账号绑定、账号编辑白名单、两个一级菜单、局部运行态刷新 |
 | 上游派生账号生命周期 | 仅完整同步推进缺失计数；sync_managed 连续缺失 3 次且至少 30 分钟后与 Key 同事务软归档；manual 永不自动归档；仅 `sync_managed+key_missing` 恢复同 ID 并保留分组、定时计划和历史；定时计划过滤 deleted_at；归档/恢复清理账号缓存、Redis、共享并发和健康 Registry |
 | 上游模型能力同步 | 仅 sync_managed 自动写白名单；NewAPI 有效 `model_limits` 优先于 live `/models`；无效/空结果保留最近成功映射；30m freshness 跳过重复请求，30m–24h 继续执行旧白名单，超过 24h 放行其他能力回退；成功更新触发 scheduler outbox/快照失效；并发 4、单账号 15s；状态与错误不得泄露 URL、凭据、响应体或原始错误 |
+| 全局模型别名同步 | 设置 API 兼容缺省字段并校验对象/字符串/空白；保存只写 `upstream_model_alias_rules` 不触发同步；sync_managed 下一次同步按真实模型生成 identity/alias 并保存 `auto_mapping`；manual 账号不受影响；手工映射目标消失清理、源消失但目标存在保留；失败保留旧映射和快照；成功触发 scheduler outbox/账号快照失效 |
 | NewAPI 兼容 | 旧 `data.id + Cookie`、新 `data.user.id + access_token`、Bearer 与 `New-Api-User`、无会话失败、三种认证模式互不影响 |
 | 共享并发 | 同上游多 Key 共享 slot/lease/queue/load，不同上游隔离，优先级来源解析，降低上限不终止已有请求 |
 | LoadFactor | 普通账号硬并发使用 Concurrency，调度容量使用 LoadFactor 或回退；上游账号忽略派生账号字段；Priority/倍率同步不改 LoadFactor |
