@@ -233,6 +233,85 @@ class SSHOutputTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "outside a registered"):
             runner.upload("vm", b"data", "/tmp/predictable")
 
+    def test_copy_file_between_retries_transient_sftp_disconnect(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.temp_dirs = {("racknerd", "/tmp/source"), ("vm", "/tmp/target")}
+        runner._emit = lambda *_args, **_kwargs: None
+        attempts = {"source": 0}
+
+        class SourceFile:
+            def __init__(self, fail: bool):
+                self.fail = fail
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                pass
+
+            def read(self, _size: int) -> bytes:
+                if self.fail:
+                    raise paramiko.SSHException("connection dropped")
+                return b"payload"
+
+        class TargetFile:
+            def __init__(self, owner):
+                self.owner = owner
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                pass
+
+            def write(self, value: bytes) -> None:
+                self.owner.value = value
+
+            def flush(self) -> None:
+                pass
+
+        class SFTP:
+            def __init__(self, source: bool, fail: bool = False):
+                self.source = source
+                self.fail = fail
+                self.value = b""
+
+            def stat(self, _path: str):
+                return SimpleNamespace(st_size=7, st_mode=stat.S_IFREG | 0o600, st_nlink=1)
+
+            lstat = stat
+
+            def file(self, _path: str, mode: str):
+                if self.source:
+                    return SourceFile(self.fail)
+                return TargetFile(self)
+
+            def chmod(self, _path: str, _mode: int) -> None:
+                pass
+
+            def close(self) -> None:
+                pass
+
+        class Client:
+            def __init__(self, source: bool, fail: bool = False):
+                self.sftp = SFTP(source, fail)
+
+            def open_sftp(self):
+                return self.sftp
+
+            def close(self) -> None:
+                pass
+
+        def connect(name: str):
+            if name == "racknerd":
+                attempts["source"] += 1
+                return Client(True, attempts["source"] == 1)
+            return Client(False)
+
+        runner.connect = connect
+        self.assertEqual(runner.copy_file_between("racknerd", "/tmp/source/file", "vm", "/tmp/target/file"), 7)
+        self.assertEqual(attempts["source"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

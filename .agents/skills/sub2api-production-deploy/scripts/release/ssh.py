@@ -385,6 +385,7 @@ exit "$code"
         *,
         mode: int = 0o600,
         maximum_bytes: int = 256 * 1024 * 1024 * 1024,
+        maximum_attempts: int = 3,
     ) -> int:
         """Stream one protected temporary file between two configured hosts.
 
@@ -393,12 +394,17 @@ exit "$code"
         """
         self._require_temp_path(source_name, source_path)
         self._require_temp_path(target_name, target_path)
-        source_client = self.connect(source_name)
-        target_client = self.connect(target_name)
-        try:
-            source_sftp = source_client.open_sftp()
-            target_sftp = target_client.open_sftp()
+        if maximum_attempts < 1:
+            raise ValueError("maximum_attempts must be positive")
+        last_error: Exception | None = None
+        for attempt in range(1, maximum_attempts + 1):
+            source_client = target_client = None
+            source_sftp = target_sftp = None
             try:
+                source_client = self.connect(source_name)
+                target_client = self.connect(target_name)
+                source_sftp = source_client.open_sftp()
+                target_sftp = target_client.open_sftp()
                 attributes = source_sftp.lstat(source_path) if hasattr(source_sftp, "lstat") else source_sftp.stat(source_path)
                 size = int(attributes.st_size)
                 source_mode = getattr(attributes, "st_mode", None)
@@ -419,13 +425,25 @@ exit "$code"
                 target_attributes = target_sftp.lstat(target_path) if hasattr(target_sftp, "lstat") else target_sftp.stat(target_path)
                 if int(target_attributes.st_size) != size:
                     raise RuntimeError("remote transfer size differs at destination")
+                if attempt > 1:
+                    self._emit(source_name, event="transfer_retry_succeeded", message="Protected SFTP transfer recovered", details={"attempt": attempt, "bytes": size})
                 return size
+            except (paramiko.SSHException, EOFError, OSError, RuntimeError) as error:
+                if isinstance(error, RuntimeError) and str(error) in {"remote transfer input size is invalid", "remote transfer input is not a regular file"}:
+                    raise
+                last_error = error
+                if attempt >= maximum_attempts:
+                    raise
+                self._emit(source_name, event="transfer_retry", message="Protected SFTP transfer retrying", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
+                time.sleep(min(2 ** (attempt - 1), 4))
             finally:
-                source_sftp.close()
-                target_sftp.close()
-        finally:
-            source_client.close()
-            target_client.close()
+                for handle in (source_sftp, target_sftp, source_client, target_client):
+                    if handle is not None:
+                        try:
+                            handle.close()
+                        except Exception:
+                            pass
+        raise RuntimeError("protected SFTP transfer failed") from last_error
 
     def create_temp_dir(self, name: str, base: str, prefix: str) -> str:
         if not base.startswith("/") or "/" in prefix or not prefix.replace("-", "").isalnum():
