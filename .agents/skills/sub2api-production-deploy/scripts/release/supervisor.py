@@ -19,7 +19,7 @@ from .gate import verify_gate
 from .manifest import create_manifest, runner_checksum, validate_commit, validate_image_id, write_manifest_once
 from .paths import ENTRYPOINT, MAINTENANCE_ROOT, RUN_ROOT, SCRIPTS_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .process import popen_detached_worker
-from .profiles import get_profile
+from .profiles import get_profile, get_release_profile
 from .ssh import SSHRunner
 from .state import RunLock, RunState, TERMINAL_STATES
 

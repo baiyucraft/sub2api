@@ -59,6 +59,8 @@ def _remote_vm_worker_script(
     *,
     remote_root: str,
     remote_manifest: str,
+    remote_snapshot: str = "",
+    remote_pre_gate_descriptor: str = "",
     remote_output: str,
     validator: str,
     release_id: str,
@@ -90,6 +92,8 @@ raw_root={shlex.quote(raw_root)}
 raw_log={shlex.quote(raw_log)}
 validator={quoted["validator"]}
 manifest={quoted["remote_manifest"]}
+snapshot={shlex.quote(remote_snapshot)}
+pre_gate_descriptor={shlex.quote(remote_pre_gate_descriptor)}
 output={quoted["remote_output"]}
 release_id={quoted["release_id"]}
 install -d -o 0 -g 0 -m 700 "$worker_dir"
@@ -116,6 +120,8 @@ worker_dir={shlex.quote(worker_dir)}
 raw_log={shlex.quote(raw_log)}
 validator={shlex.quote(validator)}
 manifest={shlex.quote(remote_manifest)}
+snapshot={shlex.quote(remote_snapshot)}
+pre_gate_descriptor={shlex.quote(remote_pre_gate_descriptor)}
 output={shlex.quote(remote_output)}
 release_id={shlex.quote(release_id)}
 state_write() {{
@@ -132,7 +138,7 @@ state_write start_token "$start_token"
 state_write pid "$$"
 state_write status running
 set +e
-"$validator" "$manifest" "$output" >>"$raw_log" 2>&1
+"$validator" "$manifest" "$output" "$snapshot" "$pre_gate_descriptor" >>"$raw_log" 2>&1
 exit_code=$?
 set -e
 gate_root=${{output%/output}}
@@ -350,6 +356,8 @@ def main() -> None:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     manifest_path = Path(args.manifest)
+    production_snapshot_path = manifest_path.with_name("production-snapshot.json")
+    pre_gate_descriptor_path = manifest_path.with_name("pre-gate-input.json")
     output = Path(args.output)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     validate_manifest_profile_contract(manifest, get_profile(str(manifest.get("profile", ""))))
@@ -363,9 +371,21 @@ def main() -> None:
     )
     remote_root = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "validation")
     remote_manifest = f"{remote_root}/manifest.json"
+    remote_snapshot = f"{remote_root}/production-snapshot.json"
+    remote_pre_gate_descriptor = f"{remote_root}/pre-gate-input.json"
     remote_cleaner = f"{remote_root}/vm-space-clean.sh"
     remote_output = f"/opt/sub2api-deploy/release-gates/{manifest['release_id']}/output"
     runner.upload("local_vm", manifest_path.read_bytes(), remote_manifest, 0o400)
+    if manifest.get("schema") == 2:
+        if not production_snapshot_path.is_file() or production_snapshot_path.is_symlink():
+            raise RuntimeError("Gate v2 immutable production snapshot is missing")
+        runner.upload("local_vm", production_snapshot_path.read_bytes(), remote_snapshot, 0o400)
+        if not pre_gate_descriptor_path.is_file() or pre_gate_descriptor_path.is_symlink():
+            raise RuntimeError("Gate v2 pre-Gate restore descriptor is missing")
+        runner.upload_file("local_vm", pre_gate_descriptor_path, remote_pre_gate_descriptor, 0o400)
+    else:
+        runner.upload("local_vm", b"{}\n", remote_snapshot, 0o400)
+        runner.upload("local_vm", b"{}\n", remote_pre_gate_descriptor, 0o400)
     runner.upload_file("local_vm", SPACE_CLEANER, remote_cleaner, 0o700)
     cleanup_remote_root = True
     try:
@@ -388,6 +408,8 @@ def main() -> None:
                 + _remote_vm_worker_script(
                     remote_root=remote_root,
                     remote_manifest=remote_manifest,
+                    remote_snapshot=remote_snapshot,
+                    remote_pre_gate_descriptor=remote_pre_gate_descriptor,
                     remote_output=remote_output,
                     validator="/usr/local/libexec/sub2api-vm-validate",
                     release_id=str(manifest["release_id"]),
@@ -429,7 +451,7 @@ def main() -> None:
     finally:
         if cleanup_remote_root:
             runner.run("local_vm", f"rm -rf {remote_root} && printf 'input_removed=true\\n'", {"input_removed"})
-    verify_gate(output, TRUSTED_KEY, manifest["profile"])
+    verify_gate(output, TRUSTED_KEY, manifest["profile"], accepted_schemas=frozenset({2}))
 
 
 if __name__ == "__main__":

@@ -509,9 +509,41 @@ PROFILES["241"] = {
     ],
 }
 
+# Gate v2 starts at profile 242.  Unlike every historical profile, this entry
+# declares only its release lineage and the migrations introduced by this
+# version.  The complete catalog is discovered from the candidate commit.
+_PROFILE_242_RUNTIME_KEYS = (
+    "origin", "gate_ttl_seconds", "vm_identity", "vm_source",
+    "vm_deploy", "vm_data", "rack_source", "rack_deploy",
+    "public_domain", "rack_public_ip", "dmit_public_ip",
+    "production_health_port", "minimum_rack_free_bytes",
+    "minimum_backup_free_bytes", "minimum_free_after_bytes",
+    "canary_api_key_id",
+)
+PROFILES["242"] = {
+    **{key: PROFILES["241"][key] for key in _PROFILE_242_RUNTIME_KEYS},
+    "name": "242",
+    "version": "0.1.178-baiyu",
+    "parent": "241",
+    "new_migrations": [],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "242"
+
 
 def get_profile(name: str) -> dict:
     try:
         return dict(PROFILES[name])
     except KeyError as error:
         raise ValueError(f"unknown release profile: {name}") from error
+
+
+def get_release_profile(name: str) -> dict:
+    if name != CURRENT_RELEASE_PROFILE:
+        raise ValueError(f"profile {name} is historical and cannot create a new release")
+    return get_profile(name)

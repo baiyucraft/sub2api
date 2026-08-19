@@ -10,6 +10,11 @@ from typing import Any
 
 from .atomic import atomic_write, canonical_json
 from .process import check_output_hidden
+from .migration_planner import (
+    catalog_sha256,
+    checksum_policy_sha256,
+    discover_migration_catalog,
+)
 from .paths import (
     LAYOUT_DEPLOY_V1,
     LAYOUT_SKILL_V1,
@@ -274,7 +279,8 @@ def migration_checksums(profile: dict[str, Any], commit: str | None = None) -> d
 
 
 def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[str, Any]) -> None:
-    if manifest.get("schema") != 1:
+    schema = manifest.get("schema")
+    if schema not in {1, 2}:
         raise RuntimeError("manifest schema does not match")
     layout = manifest_release_asset_layout(manifest)
     deployment_mode = manifest.get("deployment_mode")
@@ -292,6 +298,32 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
         raise RuntimeError("manifest version does not match")
     if manifest.get("origin") != profile["origin"] or manifest.get("vm_identity") != profile["vm_identity"]:
         raise RuntimeError("manifest origin or VM identity does not match")
+    if schema == 2:
+        if profile.get("gate_schema") != 2 or profile.get("name") != "242":
+            raise RuntimeError("Gate v2 manifest requires the current release profile")
+        catalog = discover_migration_catalog(workspace_root(), commit)
+        if manifest.get("migration_catalog") != catalog:
+            raise RuntimeError("manifest migration catalog does not match commit")
+        if manifest.get("catalog_sha256") != catalog_sha256(catalog):
+            raise RuntimeError("manifest migration catalog checksum does not match")
+        if manifest.get("checksum_policy_sha256") != checksum_policy_sha256():
+            raise RuntimeError("manifest checksum policy does not match runner")
+        bound_fields = ("production_current_image_id", "production_snapshot_sha256")
+        if any(manifest.get(field) is not None for field in bound_fields) and not all(manifest.get(field) is not None for field in bound_fields):
+            raise RuntimeError("manifest production snapshot binding is incomplete")
+        if manifest.get("production_current_image_id") is not None:
+            validate_image_id(str(manifest["production_current_image_id"]))
+            if not re.fullmatch(r"[0-9a-f]{64}", str(manifest["production_snapshot_sha256"])):
+                raise RuntimeError("manifest production snapshot checksum is invalid")
+        if manifest.get("parent_profile") != profile.get("parent"):
+            raise RuntimeError("manifest parent profile does not match")
+        if manifest.get("new_migrations") != profile.get("new_migrations"):
+            raise RuntimeError("manifest new migrations do not match profile")
+        if manifest.get("release_policy") != profile.get("release_policy"):
+            raise RuntimeError("manifest release policy does not match profile")
+        if any(field in manifest for field in ("migrations", "migration_sha256", "compatibility_version", "compatibility_commit", "compatibility_image_id")):
+            raise RuntimeError("Gate v2 manifest contains a legacy migration contract")
+        return
     if manifest.get("migrations") != list(profile["migrations"]):
         raise RuntimeError("manifest ordered migrations do not match")
     if manifest.get("migration_sha256") != migration_checksums(profile, commit):
@@ -308,7 +340,7 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
         validate_image_id(str(manifest["compatibility_image_id"]))
 
 
-def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deployment_mode: str) -> dict[str, Any]:
+def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deployment_mode: str, production_current_image_id: str | None = None, production_snapshot_sha256: str | None = None) -> dict[str, Any]:
     commit = validate_commit(commit)
     if deployment_mode not in {"blue-green", "downtime"}:
         raise ValueError("deployment mode must be blue-green or downtime")
@@ -322,8 +354,9 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
     layout = LAYOUT_SKILL_V1
     asset_checksums = release_asset_checksums(commit, layout)
     release_units = release_unit_relative_paths(layout)
+    schema = int(profile.get("gate_schema", 1))
     manifest = {
-        "schema": 1,
+        "schema": schema,
         "release_asset_layout": layout,
         "deployment_mode": deployment_mode,
         "release_id": release_id,
@@ -338,15 +371,52 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
         "vm_gate_signer_sha256": asset_checksums[release_units["gate_signer"]],
         "vm_dr_signer_sha256": asset_checksums[release_units["dr_signer"]],
         "release_asset_sha256": asset_checksums,
-        "migration_sha256": migration_checksums(profile, commit),
-        "migrations": list(profile["migrations"]),
         "vm_identity": profile["vm_identity"],
     }
-    for key in ("compatibility_version", "compatibility_commit", "compatibility_image_id"):
-        if key in profile:
-            manifest[key] = profile[key]
+    if schema == 2:
+        if production_current_image_id is not None:
+            validate_image_id(production_current_image_id)
+        catalog = discover_migration_catalog(root, commit)
+        manifest.update({
+            "parent_profile": profile.get("parent"),
+            "new_migrations": list(profile.get("new_migrations", [])),
+            "release_policy": dict(profile.get("release_policy", {})),
+            "migration_catalog": catalog,
+            "catalog_sha256": catalog_sha256(catalog),
+            "checksum_policy_sha256": checksum_policy_sha256(),
+        })
+        if production_current_image_id is not None:
+            manifest["production_current_image_id"] = production_current_image_id
+        if production_snapshot_sha256 is not None:
+            if not re.fullmatch(r"[0-9a-f]{64}", production_snapshot_sha256):
+                raise ValueError("production snapshot checksum is invalid")
+            manifest["production_snapshot_sha256"] = production_snapshot_sha256
+    else:
+        manifest.update({
+            "migration_sha256": migration_checksums(profile, commit),
+            "migrations": list(profile["migrations"]),
+        })
+        for key in ("compatibility_version", "compatibility_commit", "compatibility_image_id"):
+            if key in profile:
+                manifest[key] = profile[key]
     validate_manifest_profile_contract(manifest, profile)
     return manifest
+
+
+def bind_production_snapshot(manifest: dict[str, Any], image_id: str, snapshot_sha256: str) -> dict[str, Any]:
+    """Bind the point-in-time production baseline before VM Gate starts."""
+    if manifest.get("schema") != 2 or manifest.get("profile") != "242":
+        raise RuntimeError("production snapshot binding requires Gate v2")
+    validate_image_id(image_id)
+    if not re.fullmatch(r"[0-9a-f]{64}", snapshot_sha256):
+        raise ValueError("production snapshot checksum is invalid")
+    value = dict(manifest)
+    for field, incoming in (("production_current_image_id", image_id), ("production_snapshot_sha256", snapshot_sha256)):
+        current = value.get(field)
+        if current is not None and current != incoming:
+            raise RuntimeError(f"manifest {field} already bound to a different value")
+        value[field] = incoming
+    return value
 
 
 def write_manifest_once(path: Path, manifest: dict[str, Any]) -> None:

@@ -376,6 +376,57 @@ exit "$code"
         finally:
             client.close()
 
+    def copy_file_between(
+        self,
+        source_name: str,
+        source_path: str,
+        target_name: str,
+        target_path: str,
+        *,
+        mode: int = 0o600,
+        maximum_bytes: int = 256 * 1024 * 1024 * 1024,
+    ) -> int:
+        """Stream one protected temporary file between two configured hosts.
+
+        The controller never parses or persists the payload. Both endpoints
+        must be inside temporary directories created by this runner.
+        """
+        self._require_temp_path(source_name, source_path)
+        self._require_temp_path(target_name, target_path)
+        source_client = self.connect(source_name)
+        target_client = self.connect(target_name)
+        try:
+            source_sftp = source_client.open_sftp()
+            target_sftp = target_client.open_sftp()
+            try:
+                attributes = source_sftp.lstat(source_path) if hasattr(source_sftp, "lstat") else source_sftp.stat(source_path)
+                size = int(attributes.st_size)
+                source_mode = getattr(attributes, "st_mode", None)
+                if size <= 0 or size > maximum_bytes:
+                    raise RuntimeError("remote transfer input size is invalid")
+                if source_mode is not None and not stat.S_ISREG(source_mode):
+                    raise RuntimeError("remote transfer input is not a regular file")
+                with source_sftp.file(source_path, "rb") as source, target_sftp.file(target_path, "wb") as target:
+                    remaining = size
+                    while remaining:
+                        chunk = source.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            raise RuntimeError("remote transfer input ended early")
+                        target.write(chunk)
+                        remaining -= len(chunk)
+                    target.flush()
+                target_sftp.chmod(target_path, mode)
+                target_attributes = target_sftp.lstat(target_path) if hasattr(target_sftp, "lstat") else target_sftp.stat(target_path)
+                if int(target_attributes.st_size) != size:
+                    raise RuntimeError("remote transfer size differs at destination")
+                return size
+            finally:
+                source_sftp.close()
+                target_sftp.close()
+        finally:
+            source_client.close()
+            target_client.close()
+
     def create_temp_dir(self, name: str, base: str, prefix: str) -> str:
         if not base.startswith("/") or "/" in prefix or not prefix.replace("-", "").isalnum():
             raise ValueError("invalid remote temporary directory request")

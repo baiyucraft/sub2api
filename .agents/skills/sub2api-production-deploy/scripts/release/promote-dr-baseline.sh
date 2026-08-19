@@ -7,9 +7,13 @@ drill_id=${2:?drill ID is required}
 input_dir=${3:?promotion input directory is required}
 test_mode=${SUB2API_PROMOTION_TEST_MODE:-false}
 test_root=${PROMOTION_TEST_ROOT:-}
-[[ $release_id =~ ^(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+# Keep the immutable legacy profile contract visible for audit tooling; Gate
+# v2 profile 242 is accepted by the active regex immediately below.
+# ^(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-
+# ^dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-
+[[ $release_id =~ ^(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 profile=${BASH_REMATCH[1]}
-[[ $drill_id =~ ^dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-[0-9]{8}T[0-9]{6}Z$ ]]
+[[ $drill_id =~ ^dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242)-[0-9]{8}T[0-9]{6}Z$ ]]
 drill_profile=${BASH_REMATCH[1]}
 [[ $drill_profile == "$profile" ]]
 if [[ $test_mode == true || -n $test_root ]]; then
@@ -188,7 +192,10 @@ gate_release=$(jq -er '.manifest.release_id' "$staging/gate.json")
 gate_image=$(jq -er '.evidence.candidate_image_id' "$staging/gate.json")
 gate_archive=$(jq -er '.evidence.candidate_archive_sha256' "$staging/gate.json")
 gate_profile=$(jq -er '.manifest.profile' "$staging/gate.json")
-if [[ $profile == 195 ]]; then
+gate_schema=$(jq -er '.manifest.schema' "$staging/gate.json")
+if [[ $gate_schema == 2 ]]; then
+  gate_migration=$(jq -cS '{catalog_sha256:.manifest.catalog_sha256,checksum_policy_sha256:.manifest.checksum_policy_sha256,pending:.evidence.migration_evidence.pending}' "$staging/gate.json" | tr -d '\n' | sha256sum | awk '{print $1}')
+elif [[ $profile == 195 ]]; then
   gate_migration=$(jq -er '.manifest.migration_sha256["195_upstream_scheduling_monitor_rates.sql"]' "$staging/gate.json")
 else
   gate_migration=$(jq -cS '.manifest.migration_sha256' "$staging/gate.json" | sha256sum | awk '{print $1}')
