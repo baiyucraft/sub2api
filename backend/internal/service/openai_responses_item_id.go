@@ -9,7 +9,8 @@ import (
 )
 
 // Invalid replayed IDs are removed rather than rewritten because a fabricated
-// msg/fc ID may point at a different upstream object.
+// msg/fc/ctc ID may point at a different upstream object. Removing id preserves
+// call_id and the rest of the tool-call payload used for pairing.
 func shouldStripOpenAIResponsesInputItemID(itemType, id string) bool {
 	if id == "" {
 		return false
@@ -20,8 +21,11 @@ func shouldStripOpenAIResponsesInputItemID(itemType, id string) bool {
 	if itemType == "reasoning" {
 		return !strings.HasPrefix(id, "rs")
 	}
+	if itemType == "custom_tool_call" {
+		return !strings.HasPrefix(id, "ctc_")
+	}
 	if isCodexToolCallInputType(itemType) {
-		return !strings.HasPrefix(id, "fc")
+		return !strings.HasPrefix(id, "fc_")
 	}
 	return false
 }
