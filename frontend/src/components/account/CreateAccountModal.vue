@@ -1465,6 +1465,7 @@
           <p class="input-hint">{{ t('admin.accounts.gemini.tier.aiStudioHint') }}</p>
         </div>
       </div>
+      </div>
 
       <!-- API Key-like advanced settings (direct API Key and upstream-bound accounts) -->
       <div v-if="isAPIKeyLikeAdvanced" class="space-y-4">
