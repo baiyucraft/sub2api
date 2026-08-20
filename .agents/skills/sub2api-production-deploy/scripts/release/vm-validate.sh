@@ -111,10 +111,24 @@ if [[ "$manifest_schema" == 2 ]]; then
   candidate_image_size=$(docker image inspect -f '{{.Size}}' "$tag")
   [[ "$candidate_image_id" =~ ^sha256:[0-9a-f]{64}$ && "$candidate_image_size" =~ ^[0-9]+$ ]]
   candidate_version=$(docker run --rm --entrypoint /app/sub2api "$candidate_image_id" --version 2>&1)
-  [[ "$candidate_version" == *"commit: $commit"* ]]
-  [[ "$candidate_version" == *"Sub2API $version"* ]]
+  printf '%s\n' "$candidate_version" > "$state_dir/candidate-version.log"
+  chmod 600 "$state_dir/candidate-version.log"
+  candidate_commit_match=false
+  candidate_version_match=false
+  [[ "$candidate_version" == *"commit: $commit"* ]] && candidate_commit_match=true
+  [[ "$candidate_version" == *"Sub2API $version"* ]] && candidate_version_match=true
+  printf 'candidate_commit_match=%s\n' "$candidate_commit_match" > "$state_dir/candidate-identity"
+  printf 'candidate_version_match=%s\n' "$candidate_version_match" >> "$state_dir/candidate-identity"
+  chmod 400 "$state_dir/candidate-identity"
+  [[ "$candidate_commit_match" == true && "$candidate_version_match" == true ]]
   candidate_help=$(docker run --rm --entrypoint /app/sub2api "$candidate_image_id" -h 2>&1)
-  [[ "$candidate_help" == *"-migration-plan-json"* && "$candidate_help" == *"-migration-plan-snapshot-json"* ]]
+  printf '%s\n' "$candidate_help" > "$state_dir/candidate-help.log"
+  chmod 600 "$state_dir/candidate-help.log"
+  candidate_cli_match=false
+  [[ "$candidate_help" == *"-migration-plan-json"* && "$candidate_help" == *"-migration-plan-snapshot-json"* ]] && candidate_cli_match=true
+  printf 'candidate_cli_match=%s\n' "$candidate_cli_match" > "$state_dir/candidate-cli-contract"
+  chmod 400 "$state_dir/candidate-cli-contract"
+  [[ "$candidate_cli_match" == true ]]
   probe_suffix=${release_id//[^a-zA-Z0-9]/}
   probe_db="sub2api_v2_${probe_suffix:0:24}"
   probe_dir="$state_dir/probe-data"
