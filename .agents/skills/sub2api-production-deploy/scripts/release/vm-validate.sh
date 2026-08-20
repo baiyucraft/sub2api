@@ -58,7 +58,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   [[ -f "$recovery_path" && ! -L "$recovery_path" && -f "$compatibility_path" && ! -L "$compatibility_path" ]]
   [[ $(sha256sum "$recovery_path" | awk '{print $1}') == "$recovery_sha" ]]
   [[ $(sha256sum "$compatibility_path" | awk '{print $1}') == "$compatibility_sha" ]]
-  snapshot_digest=$(jq -cS '{current_image_id, schema_migrations}' "$production_snapshot" | tr -d '\n' | sha256sum | awk '{print $1}')
+  snapshot_digest=$(jq -c '{current_image_id, schema_migrations}' "$production_snapshot" | tr -d '\n' | sha256sum | awk '{print $1}')
   [[ "$snapshot_digest" == "$(jq -er '.production_snapshot_sha256' "$manifest")" ]]
   jq -e 'type == "object" and (.current_image_id|type)=="string" and (.schema_migrations|type)=="array"' "$production_snapshot" >/dev/null
   [[ $(jq -er '.current_image_id' "$production_snapshot") == "$(jq -er '.production_current_image_id' "$manifest")" ]]
