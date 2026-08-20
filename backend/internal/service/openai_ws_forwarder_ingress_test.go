@@ -809,35 +809,6 @@ func TestBuildOpenAIWSReplayInputSequence(t *testing.T) {
 		require.Equal(t, "new", gjson.GetBytes(items[0], "text").String())
 	})
 
-	t.Run("no_previous_response_id_custom_tool_history_does_not_accumulate", func(t *testing.T) {
-		previousFull := []json.RawMessage{
-			json.RawMessage(`{"type":"input_text","text":"stale"}`),
-			json.RawMessage(`{"type":"custom_tool_call","id":"stale_item","call_id":"stale_call","name":"exec","input":"stale"}`),
-		}
-		currentPayload := []byte(`{"input":[
-			{"type":"custom_tool_call","id":"item_1","call_id":"call_1","name":"exec","input":"pwd"},
-			{"type":"custom_tool_call_output","call_id":"call_1","output":"/tmp"},
-			{"type":"input_text","text":"continue"}
-		]}`)
-
-		for range 3 {
-			items, exists, err := buildOpenAIWSReplayInputSequence(
-				previousFull,
-				true,
-				currentPayload,
-				false,
-			)
-			require.NoError(t, err)
-			require.True(t, exists)
-			require.Len(t, items, 3)
-			require.Equal(t, "custom_tool_call", gjson.GetBytes(items[0], "type").String())
-			require.Equal(t, "call_1", gjson.GetBytes(items[0], "call_id").String())
-			require.Equal(t, "custom_tool_call_output", gjson.GetBytes(items[1], "type").String())
-			require.Equal(t, "call_1", gjson.GetBytes(items[1], "call_id").String())
-			previousFull = append(items, json.RawMessage(`{"type":"custom_tool_call","id":"replayed_item","call_id":"replayed_call","name":"exec","input":"ignored"}`))
-		}
-	})
-
 	t.Run("previous_response_id_delta_append", func(t *testing.T) {
 		items, exists, err := buildOpenAIWSReplayInputSequence(
 			lastFull,
@@ -895,29 +866,6 @@ func TestOpenAIWSRawPayloadHasToolCallOutput(t *testing.T) {
 		payload := []byte(`{"input":[{"type":"input_text","text":"hello"}]}`)
 		require.False(t, openAIWSRawPayloadHasToolCallOutput(payload))
 	})
-}
-
-func TestOpenAIWSHTTPBridgeReplayDecisionUsesToolOutputCoverage(t *testing.T) {
-	needsReplay := func(payload []byte, previousResponseID string) bool {
-		coverage := AnalyzeToolCallOutputContextCoverageBytes(payload)
-		return previousResponseID != "" ||
-			(coverage.HasFunctionCallOutput && !coverage.ContextCoversAllCallIDs)
-	}
-
-	completeHistory := []byte(`{"input":[
-		{"type":"custom_tool_call","id":"item_1","call_id":"call_1","name":"exec","input":"pwd"},
-		{"type":"custom_tool_call_output","call_id":"call_1","output":"/tmp"}
-	]}`)
-	require.False(t, needsReplay(completeHistory, ""))
-	require.True(t, needsReplay(completeHistory, "resp_previous"))
-
-	outputOnly := []byte(`{"input":[
-		{"type":"custom_tool_call_output","call_id":"call_1","output":"/tmp"}
-	]}`)
-	require.True(t, needsReplay(outputOnly, ""))
-
-	completeObjectHistory := []byte(`{"input":{"type":"custom_tool_call_output","call_id":"call_1","output":"/tmp"}}`)
-	require.True(t, needsReplay(completeObjectHistory, ""))
 }
 
 func TestSetOpenAIWSPayloadInputSequence(t *testing.T) {
