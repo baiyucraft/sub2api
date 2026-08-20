@@ -97,13 +97,16 @@ if [[ "$manifest_schema" == 2 ]]; then
     exit "$code"
   }
   trap on_build_failure ERR INT TERM
+  build_log="$state_dir/build.log"
+  : > "$build_log"
+  chmod 600 "$build_log"
   docker build --network=host --progress=plain \
     --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
     --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.6-alpine \
     --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
     --build-arg POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:18-alpine \
     --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
-    --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t "$tag" . >/dev/null 2>&1
+    --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t "$tag" . >"$build_log" 2>&1
   candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
   candidate_image_size=$(docker image inspect -f '{{.Size}}' "$tag")
   [[ "$candidate_image_id" =~ ^sha256:[0-9a-f]{64}$ && "$candidate_image_size" =~ ^[0-9]+$ ]]
