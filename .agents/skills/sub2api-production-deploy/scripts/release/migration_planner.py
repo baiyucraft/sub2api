@@ -167,11 +167,14 @@ def plan_migrations(catalog: Iterable[Mapping[str, str]], existing_rows: Iterabl
 
 
 HOOK_REGISTRY: dict[str, dict[str, Any]] = {
+    "242_user_platform_quotas_add_cn_providers.sql": {"script": "migration-242-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight",)},
     "195_upstream_scheduling_monitor_rates.sql": {"script": "migration-195-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": ("bind",), "postflight": ("postflight_db", "postflight_runtime")},
     "232_clear_non_grok_video_generation_config.sql": {"script": "migration-232-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": ("bind",), "postflight": ("postflight",)},
     "233_upstream_management.sql": {"script": "migration-233-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight",)},
     "239_reconcile_non_grok_video_pricing.sql": {"script": "migration-239-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": ("bind",), "postflight": ("postflight",)},
     "243_backfill_codex_fingerprint_seed.sql": {"script": "migration-243-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight",)},
+    "244_channel_model_time_pricing.sql": {"script": "migration-244-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight",)},
+    "245_channel_monitor_quota_mode.sql": {"script": "migration-245-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight",)},
 }
 
 
