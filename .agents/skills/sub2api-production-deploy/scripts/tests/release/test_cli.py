@@ -18,6 +18,40 @@ from release import cli
 
 
 class DeployCommandTest(unittest.TestCase):
+    def test_large_pre_gate_asset_uses_local_staging_and_checksum(self) -> None:
+        payload = b"recovery-payload"
+        expected = __import__("hashlib").sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "releases"
+            root.mkdir()
+            calls = []
+
+            class Runner:
+                def download_file(self, source_name, source_path, local_path):
+                    calls.append(("download", source_name, source_path))
+                    Path(local_path).write_bytes(payload)
+
+                def upload_file(self, target_name, local_path, target_path, mode):
+                    calls.append(("upload", target_name, target_path, mode, Path(local_path).read_bytes()))
+
+            with mock.patch.object(cli, "sha256_file", side_effect=lambda path: __import__("hashlib").sha256(Path(path).read_bytes()).hexdigest()):
+                cli._copy_remote_file_via_local(
+                    Runner(),
+                    source_name="racknerd",
+                    source_path="/tmp/pre-gate/production-recovery.tar",
+                    target_name="local_vm",
+                    target_path="/tmp/pre-gate/production-recovery.tar",
+                    expected_sha256=expected,
+                    staging_root=root,
+                    label="production-recovery",
+                )
+
+            self.assertEqual(calls[0][0], "download")
+            self.assertEqual(calls[1][0], "upload")
+            self.assertEqual(calls[1][3], 0o400)
+            self.assertEqual(calls[1][4], payload)
+            self.assertFalse(root.exists())
+
     def test_progress_output_failure_is_non_fatal(self) -> None:
         with mock.patch("builtins.print", side_effect=BrokenPipeError):
             cli.emit_progress("stage=doctor")
