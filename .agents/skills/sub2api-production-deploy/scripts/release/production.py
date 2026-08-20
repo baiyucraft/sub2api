@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import shlex
 import secrets
+import tarfile
 import time
 from pathlib import Path
 
@@ -29,12 +31,57 @@ BACKUP_PROMOTION_RETRY_DELAYS = (5, 15, 30, 60, 120)
 BACKUP_PROMOTION_STAGING_RETRY_DELAYS = (5, 15, 30)
 BACKUP_RESULT_RECONCILE_RETRY_DELAYS = (2, 5, 10, 20)
 BACKUP_GENERATION_UPLOAD_RETRY_DELAYS = (5, 15)
+STAGE_BUNDLE_NAME = "stage-assets.tar"
 
 
 class BackupGenerationFailure(RuntimeError):
     def __init__(self, message: str, failure: dict[str, str]) -> None:
         super().__init__(message)
         self.failure = failure
+
+
+def write_stage_bundle(destination: Path, files: dict[str, Path]) -> str:
+    """Build one deterministic local staging archive and return its SHA-256.
+
+    The archive lives in the release's local .tmp directory.  Combining the
+    immutable candidate, Gate and maintenance assets into one SFTP payload
+    avoids opening a new proxied SSH connection for every small file.
+    """
+    checksum_lines: list[str] = []
+    temporary = destination.with_name(f".{destination.name}.{secrets.token_hex(8)}")
+    try:
+        with tarfile.open(temporary, mode="w", format=tarfile.PAX_FORMAT) as archive:
+            for relative, path in sorted(files.items()):
+                if relative.startswith("/") or ".." in Path(relative).parts or not path.is_file() or path.is_symlink():
+                    raise RuntimeError("release stage asset is unsafe")
+                mode = 0o700 if path.suffix == ".sh" else 0o400
+                info = archive.gettarinfo(str(path), arcname=relative)
+                if not info.isfile():
+                    raise RuntimeError("release stage asset is not a regular file")
+                info.uid = 0
+                info.gid = 0
+                info.uname = "root"
+                info.gname = "root"
+                info.mode = mode
+                info.mtime = 0
+                with path.open("rb") as stream:
+                    archive.addfile(info, stream)
+                checksum_lines.append(f"{sha256_file(path)}  {relative}")
+            checksum_document = ("\n".join(checksum_lines) + "\n").encode()
+            info = tarfile.TarInfo("ASSET_SHA256SUMS")
+            info.size = len(checksum_document)
+            info.uid = 0
+            info.gid = 0
+            info.uname = "root"
+            info.gname = "root"
+            info.mode = 0o400
+            info.mtime = 0
+            archive.addfile(info, io.BytesIO(checksum_document))
+        temporary.replace(destination)
+        return sha256_file(destination)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 BACKUP_FIELDS = {
@@ -287,18 +334,13 @@ exit "$code"
                 files[f"assets/{path.name}"] = path
         for name in ("mask-backup-units.sh", "restore-backup-units.sh"):
             files[f"assets/{name}"] = UNIT_ROOT / name
-        self.run_remote("racknerd", f"install -d -m 700 {shlex.quote(stage_dir + '/assets')} && printf 'asset_directory_created=true\\n'", {"asset_directory_created"})
-        checksum_lines: list[str] = []
-        for relative, path in files.items():
-            remote = f"{stage_dir}/{relative}"
-            mode = 0o700 if path.suffix == ".sh" else 0o400
-            self.runner.upload_file("racknerd", path, remote, mode)
-            checksum_lines.append(f"{sha256_file(path)}  {relative}")
-        checksum_document = ("\n".join(checksum_lines) + "\n").encode()
-        self.runner.upload("racknerd", checksum_document, f"{stage_dir}/ASSET_SHA256SUMS", 0o400)
+        local_bundle = self.gate_dir.parent / STAGE_BUNDLE_NAME
+        bundle_sha256 = write_stage_bundle(local_bundle, files)
+        remote_bundle = f"{stage_dir}/{STAGE_BUNDLE_NAME}"
+        self.runner.upload_file("racknerd", local_bundle, remote_bundle, 0o400)
         self.run_remote(
             "racknerd",
-            f"test ! -e {shlex.quote(self.release_dir)} && (cd {shlex.quote(stage_dir)} && sha256sum -c ASSET_SHA256SUMS >/dev/null) && mv -T -- {shlex.quote(stage_dir)} {shlex.quote(self.release_dir)} && printf 'release_directory_created=true\\n'",
+            f"test ! -e {shlex.quote(self.release_dir)} && test \"$(sha256sum {shlex.quote(remote_bundle)} | awk '{{print $1}}')\" = {bundle_sha256} && tar --extract --file {shlex.quote(remote_bundle)} --directory {shlex.quote(stage_dir)} --no-same-owner --no-same-permissions && rm -f -- {shlex.quote(remote_bundle)} && (cd {shlex.quote(stage_dir)} && test \"$(find . -type l -print -quit)\" = '' && sha256sum -c ASSET_SHA256SUMS >/dev/null) && chmod 700 {shlex.quote(stage_dir + '/assets')} && find {shlex.quote(stage_dir + '/assets')} -maxdepth 1 -type f -name '*.sh' -exec chmod 700 {{}} + && find {shlex.quote(stage_dir)} -maxdepth 1 -type f -exec chmod 400 {{}} + && mv -T -- {shlex.quote(stage_dir)} {shlex.quote(self.release_dir)} && printf 'release_directory_created=true\\n'",
             {"release_directory_created"},
         )
         self._remote_raw_logging_ready = True
