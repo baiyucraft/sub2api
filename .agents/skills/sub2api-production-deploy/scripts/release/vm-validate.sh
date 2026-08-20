@@ -258,7 +258,10 @@ if [[ "$manifest_schema" == 2 ]]; then
       195_*|232_*|239_*) run_hook_v2 "$filename" "$script" bind absent ;;
     esac
   done
-  docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$state_dir/plan-before.json:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/migrate-candidate.log" 2>&1
+  plan_apply="$state_dir/migration-plan-apply.json"
+  install -o 0 -g 0 -m 444 "$state_dir/plan-before.json" "$plan_apply"
+  [[ -f "$plan_apply" && ! -L "$plan_apply" && $(stat -c '%u:%g:%a:%h' "$plan_apply") == 0:0:444:1 ]]
+  docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$plan_apply:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/migrate-candidate.log" 2>&1
   plan_after=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-after.log" || true)
   printf '%s' "$plan_after" | jq -e '((.pending|length) == 0) and (.existing_checksums_verified == true)' >/dev/null
   printf '%s' "$plan_after" > "$state_dir/plan-after.json"
