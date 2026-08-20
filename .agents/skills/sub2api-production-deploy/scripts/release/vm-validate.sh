@@ -107,6 +107,9 @@ if [[ "$manifest_schema" == 2 ]]; then
   candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
   candidate_image_size=$(docker image inspect -f '{{.Size}}' "$tag")
   [[ "$candidate_image_id" =~ ^sha256:[0-9a-f]{64}$ && "$candidate_image_size" =~ ^[0-9]+$ ]]
+  [[ $(docker run --rm --entrypoint /app/sub2api "$candidate_image_id" --version 2>&1) == *"commit: $commit"* ]]
+  docker run --rm --entrypoint /app/sub2api "$candidate_image_id" -h 2>&1 | grep -q -- '-migration-plan-json'
+  docker run --rm --entrypoint /app/sub2api "$candidate_image_id" -h 2>&1 | grep -q -- '-migration-plan-snapshot-json'
   probe_suffix=${release_id//[^a-zA-Z0-9]/}
   probe_db="sub2api_v2_${probe_suffix:0:24}"
   probe_dir="$state_dir/probe-data"
@@ -177,7 +180,13 @@ if [[ "$manifest_schema" == 2 ]]; then
   printf '%s' "$plan_before" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
   [[ $(printf '%s' "$plan_before" | jq -r '.catalog_sha256') == $(jq -r '.catalog_sha256' "$manifest") ]]
   [[ $(printf '%s' "$plan_before" | jq -r '.checksum_policy_sha256') == $(jq -r '.checksum_policy_sha256' "$manifest") ]]
-  actual_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-actual.log" || true)
+  set +e
+  actual_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-actual.log")
+  actual_plan_exit=$?
+  set -e
+  printf '%s\n' "$actual_plan_exit" > "$state_dir/plan-actual.exit"
+  chmod 400 "$state_dir/plan-actual.exit"
+  [[ "$actual_plan_exit" == 0 ]]
   printf '%s' "$actual_plan" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
   [[ $(printf '%s' "$plan_before" | jq -c '.pending | map({filename,checksum})') == $(printf '%s' "$actual_plan" | jq -c '.pending | map({filename,checksum})') ]]
   printf '%s' "$plan_before" > "$state_dir/plan-before.json"
