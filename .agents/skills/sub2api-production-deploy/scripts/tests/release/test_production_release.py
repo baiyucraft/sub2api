@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import unittest
@@ -17,13 +18,27 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.paths import WORKSPACE
 
-from release.production import ProductionRelease
+from release.production import ProductionRelease, write_stage_bundle
 from release.production import emit_progress
 from release.production import gate_consumption_probe_script
 from release.production import quoted_env
 
 
 class ProductionRecoveryTest(unittest.TestCase):
+    def test_stage_bundle_is_deterministic_and_contains_checksum_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "asset.sh"
+            source.write_text("#!/usr/bin/env bash\nprintf 'ok=true\n'\n", encoding="utf-8")
+            first = root / "first.tar"
+            second = root / "second.tar"
+            first_sha = write_stage_bundle(first, {"assets/asset.sh": source})
+            second_sha = write_stage_bundle(second, {"assets/asset.sh": source})
+            self.assertEqual(first_sha, second_sha)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            with tarfile.open(first, "r") as archive:
+                self.assertEqual(archive.getnames(), ["assets/asset.sh", "ASSET_SHA256SUMS"])
+                self.assertIn(b"assets/asset.sh", archive.extractfile("ASSET_SHA256SUMS").read())
     def test_container_healthcheck_uses_ipv4_loopback_for_release_bind(self) -> None:
         dockerfile = (WORKSPACE / "Dockerfile").read_text(encoding="utf-8")
 
