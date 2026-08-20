@@ -57,9 +57,6 @@ func init() {
 // initLogger configures the default slog handler based on gin.Mode().
 // In non-release mode, Debug level logs are enabled.
 func main() {
-	logger.InitBootstrap()
-	defer logger.Sync()
-
 	// Parse command line flags
 	setupMode := flag.Bool("setup", false, "Run setup wizard in CLI mode")
 	migrateOnly := flag.Bool("migrate-only", false, "Apply database migrations and exit")
@@ -120,6 +117,13 @@ func main() {
 		}
 		return
 	}
+
+	// Machine-readable migration plan commands must keep stdout JSON-only. The
+	// bootstrap logger writes informational entries to stdout, so initialize it
+	// only after these commands have returned.
+	logger.InitBootstrap()
+	defer logger.Sync()
+
 	if *migrationApplyPlanJSON != "" {
 		data, err := os.ReadFile(*migrationApplyPlanJSON)
 		if err != nil {
