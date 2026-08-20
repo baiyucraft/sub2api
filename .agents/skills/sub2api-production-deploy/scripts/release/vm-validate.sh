@@ -171,6 +171,14 @@ if [[ "$manifest_schema" == 2 ]]; then
   docker exec sub2api-postgres sh -lc "createdb -U \"\${POSTGRES_USER:-postgres}\" -O \"$database_owner\" $probe_db"
   install -d -m 700 "$probe_dir"
   docker exec -i sub2api-postgres /bin/sh -lc "pg_restore --exit-on-error --no-owner -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$recovery_dir/database/sub2api.dump"
+  # pg_restore --no-owner makes the restoring role own restored objects.  The
+  # application role is intentionally the probe database owner, so normalize
+  # its table/sequence privileges inside this isolated database before running
+  # migration and canary checks.  This never changes production permissions.
+  docker exec -i -e DB_OWNER="$database_owner" sub2api-postgres sh -lc "psql -X -v ON_ERROR_STOP=1 -v db_owner=\"\$DB_OWNER\" -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" >/dev/null <<'SQL'
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO :"db_owner";
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO :"db_owner";
+SQL
   docker network create "$probe_network" >/dev/null
   docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres
   cp -a "$recovery_dir/config/data/." "$probe_dir/"
