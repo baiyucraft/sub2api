@@ -107,9 +107,11 @@ if [[ "$manifest_schema" == 2 ]]; then
   candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
   candidate_image_size=$(docker image inspect -f '{{.Size}}' "$tag")
   [[ "$candidate_image_id" =~ ^sha256:[0-9a-f]{64}$ && "$candidate_image_size" =~ ^[0-9]+$ ]]
-  [[ $(docker run --rm --entrypoint /app/sub2api "$candidate_image_id" --version 2>&1) == *"commit: $commit"* ]]
-  docker run --rm --entrypoint /app/sub2api "$candidate_image_id" -h 2>&1 | grep -q -- '-migration-plan-json'
-  docker run --rm --entrypoint /app/sub2api "$candidate_image_id" -h 2>&1 | grep -q -- '-migration-plan-snapshot-json'
+  candidate_version=$(docker run --rm --entrypoint /app/sub2api "$candidate_image_id" --version 2>&1)
+  [[ "$candidate_version" == *"commit: $commit"* ]]
+  [[ "$candidate_version" == *"Sub2API $version"* ]]
+  candidate_help=$(docker run --rm --entrypoint /app/sub2api "$candidate_image_id" -h 2>&1)
+  [[ "$candidate_help" == *"-migration-plan-json"* && "$candidate_help" == *"-migration-plan-snapshot-json"* ]]
   probe_suffix=${release_id//[^a-zA-Z0-9]/}
   probe_db="sub2api_v2_${probe_suffix:0:24}"
   probe_dir="$state_dir/probe-data"
