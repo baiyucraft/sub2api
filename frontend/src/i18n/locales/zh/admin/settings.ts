@@ -651,12 +651,6 @@ export default {
         integrationDoc: '支付集成文档',
         integrationDocHint: '包含接口说明、幂等语义及示例代码'
       },
-      soraClient: {
-        title: 'Sora 客户端',
-        description: '控制是否在侧边栏展示 Sora 客户端入口',
-        enabled: '启用 Sora 客户端',
-        enabledHint: '开启后，侧边栏将显示 Sora 入口，用户可访问 Sora 功能'
-      },
       customMenu: {
         title: '自定义菜单页面',
         description: '添加自定义 iframe 页面到侧边栏导航。每个页面可以设置为普通用户或管理员可见。',
