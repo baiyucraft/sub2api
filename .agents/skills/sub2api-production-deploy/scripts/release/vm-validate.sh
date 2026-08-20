@@ -168,7 +168,12 @@ if [[ "$manifest_schema" == 2 ]]; then
   sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*port:[[:space:]]*.*/  port: 6379/' "$probe_dir/config.yaml"
   sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*password:[[:space:]]*.*/  password: ""/' "$probe_dir/config.yaml"
   sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*db:[[:space:]]*.*/  db: 0/' "$probe_dir/config.yaml"
-  plan_before=$(docker run --rm -v "$production_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log" || true)
+  # The candidate entrypoint drops to uid 1000. Keep the root-only source
+  # untouched and expose a read-only copy with no write bits to the container.
+  plan_snapshot="$state_dir/production-snapshot.json"
+  install -o 0 -g 0 -m 444 "$production_snapshot" "$plan_snapshot"
+  [[ -f "$plan_snapshot" && ! -L "$plan_snapshot" && $(stat -c '%u:%g:%a:%h' "$plan_snapshot") == 0:0:444:1 ]]
+  plan_before=$(docker run --rm -v "$plan_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log" || true)
   printf '%s' "$plan_before" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
   [[ $(printf '%s' "$plan_before" | jq -r '.catalog_sha256') == $(jq -r '.catalog_sha256' "$manifest") ]]
   [[ $(printf '%s' "$plan_before" | jq -r '.checksum_policy_sha256') == $(jq -r '.checksum_policy_sha256' "$manifest") ]]
