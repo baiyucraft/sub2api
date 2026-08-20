@@ -25,7 +25,7 @@ from .production_bootstrap import bootstrap_production
 from .migration_planner import plan_migrations
 from .production_snapshot import decode_snapshot, snapshot_sha256
 from .process import run_hidden
-from .state import RunLock, RunState
+from .state import TERMINAL_STATES, RunLock, RunState
 
 
 LOGGING_ROOT = SCRIPTS_ROOT / "logging"
@@ -239,7 +239,71 @@ def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identif
 
 
 def vm_validate(args: argparse.Namespace) -> None:
-    gate = create_vm_gate(args.profile, args.commit, resolve_deployment_mode(args, interactive=False))
+    deployment_mode = resolve_deployment_mode(args, interactive=False)
+    profile = get_profile(args.profile)
+    if profile.get("gate_schema") != 2:
+        raise RuntimeError("new VM Gate generation only accepts Gate v2 profiles")
+
+    identifier = release_id(args.profile, args.commit)
+    run_dir = RUN_ROOT / identifier
+    if run_dir.exists() or run_dir.is_symlink():
+        raise RuntimeError("release directory already exists or is unsafe")
+    run_dir.mkdir(parents=True, mode=0o700)
+    write_manifest_once(run_dir / "manifest.json", create_manifest(args.commit, profile, identifier, deployment_mode))
+    state = RunState.create(run_dir / "state.json", identifier)
+    logger = _event_logger(run_dir, identifier, deployment_mode)
+    emit_progress(f"release_id={identifier} stage=vm_preflight status=running")
+    logger.emit(stage="vm_preflight", script="release.cli", event="stage_started", message="VM Gate v2 preflight started")
+
+    rack_pre_gate_dir = vm_pre_gate_dir = None
+    pre_gate_input = None
+    with RunLock(RUN_ROOT / ".release.lock"):
+        try:
+            state.transition("vm_preflight", "running")
+            doctor = ReleaseDoctor(args.profile, args.commit)
+            doctor.run(("local",))
+            runner = doctor._ssh()
+            install_vm_validator(runner)
+            doctor.run(("vm", "dmit", "backup"))
+            bootstrap_production(args.profile, runner)
+            production_doctor = doctor.run(("racknerd",))
+            production_snapshot = decode_snapshot(production_doctor["production_snapshot_b64"])
+            production_image_id = str(production_doctor.get("production_current_image_id", ""))
+            pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
+                runner,
+                identifier,
+                production_image_id,
+            )
+            logger.emit(stage="vm_preflight", script="release.cli", event="stage_finished", message="VM Gate v2 preflight verified", exit_code=0)
+            gate = create_vm_gate(
+                args.profile,
+                args.commit,
+                deployment_mode,
+                identifier=identifier,
+                acquire_lock=False,
+                production_current_image_id=production_image_id,
+                production_snapshot=production_snapshot,
+                pre_gate_input=pre_gate_input,
+            )
+        except BaseException as error:
+            latest_state = RunState.load(state.path)
+            if latest_state.value.get("status") not in TERMINAL_STATES:
+                latest_state.transition("vm_preflight", "failed")
+            logger.emit(
+                stage="vm_preflight",
+                script="release.cli",
+                event="stage_failed",
+                message="VM Gate v2 preflight failed",
+                level="error",
+                exit_code=getattr(error, "returncode", 1),
+                details={"error_type": type(error).__name__},
+            )
+            raise
+        finally:
+            if rack_pre_gate_dir and vm_pre_gate_dir and pre_gate_input:
+                runner.run("racknerd", f"rm -rf {shlex.quote(rack_pre_gate_dir)} && printf 'pre_gate_input_removed=true\\n'", {"pre_gate_input_removed"})
+                runner.run("local_vm", f"rm -rf {shlex.quote(vm_pre_gate_dir)} && printf 'pre_gate_input_removed=true\\n'", {"pre_gate_input_removed"})
+                pre_gate_input.unlink(missing_ok=True)
     print(f"gate={gate}")
 
 
