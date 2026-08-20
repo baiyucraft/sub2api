@@ -15,10 +15,10 @@ test -f "$slot" && test ! -L "$slot"
 active_container=$(sed -n 's/^container=//p' "$slot")
 test "$active_container" && [[ "$active_container" =~ ^[A-Za-z0-9_.-]{1,100}$ ]]
 image=$(docker inspect -f '{{.Image}}' "$active_container")
-rows=$(docker exec sub2api-postgres psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
-test "$image" = sha256:* && printf '%s' "$rows" | jq -e 'type == "array"' >/dev/null
+rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
+test "$image" = sha256:* && printf '%s' "$rows" | jq -e 'type == "array" and all(.[]; type == "object" and (.filename|type)=="string" and (.checksum|type)=="string")' >/dev/null
 payload=$(jq -cn --arg image "$image" --argjson rows "$rows" '{current_image_id:$image, schema_migrations:$rows}')
-encoded=$(printf '%s' "$payload" | base64 -w0)
+encoded=$(printf '%s' "$payload" | base64 | tr -d '\r\n')
 printf 'snapshot_b64=%s\n' "$encoded"
 '''
 
