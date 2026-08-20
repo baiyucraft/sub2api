@@ -94,8 +94,20 @@ def release_id(profile: str, commit: str) -> str:
     return f"{profile}-{commit[:12]}-{int(time.time())}-{secrets.token_hex(4)}"
 
 
+def _local_pre_gate_stage_enabled() -> bool:
+    return os.environ.get("SUB2API_PRE_GATE_LOCAL_STAGE", "").strip().lower() == "true"
+
+
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Path, str, str]:
-    """Create a production restore point and stream it directly to the VM."""
+    """Create a production restore point and copy it to the VM."""
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
         raise RuntimeError("production image ID is invalid")
     rack_dir = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "pre-gate")
@@ -107,7 +119,15 @@ def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Pat
     vm_recovery = f"{vm_dir}/production-recovery.tar"
     vm_image = f"{vm_dir}/production-current-image.tar.gz"
     descriptor_path = RUN_ROOT / f".{identifier}.pre-gate-input.json"
+    local_stage_dir = WORKSPACE / ".tmp" / f"pre-gate-local.{identifier}"
+    local_recovery = local_stage_dir / "production-recovery.tar"
+    local_image = local_stage_dir / "production-current-image.tar.gz"
     try:
+        if _local_pre_gate_stage_enabled():
+            if local_stage_dir.exists() or local_stage_dir.is_symlink():
+                raise RuntimeError("local pre-Gate staging directory already exists or is unsafe")
+            local_stage_dir.mkdir(parents=True, mode=0o700)
+            os.chmod(local_stage_dir, 0o700)
         runner.upload_file("racknerd", script_path, remote_script, 0o700)
         values = runner.run(
             "racknerd",
@@ -117,8 +137,20 @@ def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Pat
         ).values
         if values["production_image_id"] != image_id or values["restore_points_verified"] != "true":
             raise RuntimeError("pre-Gate production restore point identity is invalid")
-        runner.copy_file_between("racknerd", rack_recovery, "local_vm", vm_recovery)
-        runner.copy_file_between("racknerd", rack_image, "local_vm", vm_image)
+        if _local_pre_gate_stage_enabled():
+            runner.download_file("racknerd", rack_recovery, local_recovery)
+            runner.download_file("racknerd", rack_image, local_image)
+            os.chmod(local_recovery, 0o600)
+            os.chmod(local_image, 0o600)
+            if _sha256_path(local_recovery) != values["recovery_sha256"]:
+                raise RuntimeError("local production recovery checksum differs")
+            if _sha256_path(local_image) != values["compatibility_sha256"]:
+                raise RuntimeError("local production image archive checksum differs")
+            runner.upload_file("local_vm", local_recovery, vm_recovery, 0o600)
+            runner.upload_file("local_vm", local_image, vm_image, 0o600)
+        else:
+            runner.copy_file_between("racknerd", rack_recovery, "local_vm", vm_recovery)
+            runner.copy_file_between("racknerd", rack_image, "local_vm", vm_image)
         verified = runner.run(
             "local_vm",
             f"set -Eeuo pipefail; test \"$(sha256sum {shlex.quote(vm_recovery)} | awk '{{print $1}}')\" = {shlex.quote(values['recovery_sha256'])}; "
@@ -145,6 +177,11 @@ def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Pat
         runner.run("local_vm", f"rm -rf {shlex.quote(vm_dir)} && printf 'pre_gate_input_removed=true\\n'", {"pre_gate_input_removed"})
         descriptor_path.unlink(missing_ok=True)
         raise
+    finally:
+        if local_stage_dir.is_symlink():
+            local_stage_dir.unlink()
+        elif local_stage_dir.exists():
+            shutil.rmtree(local_stage_dir)
 
 
 def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identifier: str | None = None, acquire_lock: bool = True, production_current_image_id: str | None = None, production_snapshot: dict | None = None, pre_gate_input: Path | None = None) -> Path:
