@@ -9,6 +9,7 @@ import secrets
 import shlex
 import shutil
 import sys
+import tempfile
 import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -18,7 +19,7 @@ from .bootstrap import bootstrap_trust, install_vm_validator
 from .atomic import atomic_write, canonical_json
 from .doctor import NODES, ReleaseDoctor
 from .gate import verify_gate
-from .manifest import bind_production_snapshot, create_manifest, write_manifest_once
+from .manifest import bind_production_snapshot, create_manifest, sha256_file, write_manifest_once
 from .paths import RUN_ROOT, SCRIPTS_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .profiles import get_profile, get_release_profile
 from .production_bootstrap import bootstrap_production
@@ -94,8 +95,50 @@ def release_id(profile: str, commit: str) -> str:
     return f"{profile}-{commit[:12]}-{int(time.time())}-{secrets.token_hex(4)}"
 
 
+def _copy_remote_file_via_local(
+    runner,
+    *,
+    source_name: str,
+    source_path: str,
+    target_name: str,
+    target_path: str,
+    expected_sha256: str,
+    staging_root: Path,
+    label: str,
+) -> None:
+    """Copy a large remote asset through local disk with independent SFTP legs.
+
+    ``SSHRunner.copy_file_between`` streams one 1 MiB block synchronously from
+    one SFTP connection into another.  For large recovery artifacts this makes
+    the controller wait on both links for every block.  Paramiko's native
+    ``get``/``put`` paths pipeline each individual leg more efficiently.  The
+    plaintext staging file is kept under the release workspace only for the
+    duration of the two transfers and is removed on every exit path.
+    """
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise RuntimeError(f"{label} expected checksum is invalid")
+    staging_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if staging_root.is_symlink() or not staging_root.is_dir():
+        raise RuntimeError(f"{label} staging root is unsafe")
+    staging_root.chmod(0o700)
+    with tempfile.TemporaryDirectory(prefix=f".{label}-", dir=staging_root) as temporary:
+        local_path = Path(temporary) / Path(source_path).name
+        runner.download_file(source_name, source_path, local_path)
+        if not local_path.is_file() or local_path.is_symlink():
+            raise RuntimeError(f"{label} local staging file is invalid")
+        if sha256_file(local_path) != expected_sha256:
+            raise RuntimeError(f"{label} local checksum mismatch")
+        runner.upload_file(target_name, local_path, target_path, 0o400)
+    try:
+        staging_root.rmdir()
+    except OSError:
+        # A concurrent diagnostic must not make a verified transfer fail;
+        # the release cleanup path still removes the bounded staging root.
+        pass
+
+
 def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Path, str, str]:
-    """Create a production restore point and stream it directly to the VM."""
+    """Create a production restore point and transfer it to the VM."""
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
         raise RuntimeError("production image ID is invalid")
     rack_dir = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "pre-gate")
@@ -107,6 +150,7 @@ def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Pat
     vm_recovery = f"{vm_dir}/production-recovery.tar"
     vm_image = f"{vm_dir}/production-current-image.tar.gz"
     descriptor_path = RUN_ROOT / f".{identifier}.pre-gate-input.json"
+    staging_root = RUN_ROOT / f".{identifier}.pre-gate-transfer"
     try:
         runner.upload_file("racknerd", script_path, remote_script, 0o700)
         values = runner.run(
@@ -117,8 +161,26 @@ def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Pat
         ).values
         if values["production_image_id"] != image_id or values["restore_points_verified"] != "true":
             raise RuntimeError("pre-Gate production restore point identity is invalid")
-        runner.copy_file_between("racknerd", rack_recovery, "local_vm", vm_recovery)
-        runner.copy_file_between("racknerd", rack_image, "local_vm", vm_image)
+        _copy_remote_file_via_local(
+            runner,
+            source_name="racknerd",
+            source_path=rack_recovery,
+            target_name="local_vm",
+            target_path=vm_recovery,
+            expected_sha256=values["recovery_sha256"],
+            staging_root=staging_root,
+            label="production-recovery",
+        )
+        _copy_remote_file_via_local(
+            runner,
+            source_name="racknerd",
+            source_path=rack_image,
+            target_name="local_vm",
+            target_path=vm_image,
+            expected_sha256=values["compatibility_sha256"],
+            staging_root=staging_root,
+            label="production-image",
+        )
         verified = runner.run(
             "local_vm",
             f"set -Eeuo pipefail; test \"$(sha256sum {shlex.quote(vm_recovery)} | awk '{{print $1}}')\" = {shlex.quote(values['recovery_sha256'])}; "
@@ -144,6 +206,8 @@ def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Pat
         runner.run("racknerd", f"rm -rf {shlex.quote(rack_dir)} && printf 'pre_gate_input_removed=true\\n'", {"pre_gate_input_removed"})
         runner.run("local_vm", f"rm -rf {shlex.quote(vm_dir)} && printf 'pre_gate_input_removed=true\\n'", {"pre_gate_input_removed"})
         descriptor_path.unlink(missing_ok=True)
+        if staging_root.exists() and not staging_root.is_symlink():
+            shutil.rmtree(staging_root)
         raise
 
 
