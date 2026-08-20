@@ -343,7 +343,11 @@ if [[ "$manifest_schema" == 2 ]]; then
   [[ $(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_port/health") == 200 ]]
   mark_v2_stage candidate_canary
   canary_key=$(docker exec sub2api-postgres psql -X -A -t -U "$database_owner" -d "$probe_db" -c "SELECT value FROM settings WHERE key='admin_api_key'" | tr -d '\r')
-  [[ "$canary_key" == sk-* && ${#canary_key} -ge 16 ]]
+  # Profile 242 reuses the restored production settings row.  Production
+  # admin keys use the `admin-` prefix, while older VM fixtures use `sk-`.
+  # Accept only those two known formats; the following request still proves
+  # the key is usable against the candidate admin API.
+  [[ ("$canary_key" == admin-* || "$canary_key" == sk-*) && ${#canary_key} -ge 16 ]]
   canary_response="$state_dir/candidate-canary.json"
   [[ $(curl -sS --max-time 30 -o "$canary_response" -w '%{http_code}' -H "x-api-key: $canary_key" "http://127.0.0.1:$probe_port/api/v1/admin/users?page=1&page_size=1") == 200 ]]
   jq -e '.code == 0 and (.data|type)=="object"' "$canary_response" >/dev/null
