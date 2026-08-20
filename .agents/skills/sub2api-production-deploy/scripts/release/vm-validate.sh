@@ -36,7 +36,7 @@ manifest_schema=$(jq -er '.schema' "$manifest")
 if [[ "$manifest_schema" == 2 ]]; then
   [[ "$profile" == 242 ]]
   [[ "$release_id" =~ ^242-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-  [[ "$version" == 0.1.178-baiyu ]]
+  [[ "$version" == 0.1.179-baiyu ]]
   [[ $(jq -er '.release_asset_layout' "$manifest") == skill-v1 ]]
   [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
   [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
@@ -58,7 +58,10 @@ if [[ "$manifest_schema" == 2 ]]; then
   [[ -f "$recovery_path" && ! -L "$recovery_path" && -f "$compatibility_path" && ! -L "$compatibility_path" ]]
   [[ $(sha256sum "$recovery_path" | awk '{print $1}') == "$recovery_sha" ]]
   [[ $(sha256sum "$compatibility_path" | awk '{print $1}') == "$compatibility_sha" ]]
-  snapshot_digest=$(jq -c '{current_image_id, schema_migrations}' "$production_snapshot" | tr -d '\n' | sha256sum | awk '{print $1}')
+  # The production snapshot digest is a cross-language contract.  Keep the
+  # VM validator on jq's canonical sorted-key representation so it matches
+  # production_snapshot.snapshot_sha256() and remains stable after persistence.
+  snapshot_digest=$(jq -cS '{current_image_id, schema_migrations}' "$production_snapshot" | tr -d '\n' | sha256sum | awk '{print $1}')
   [[ "$snapshot_digest" == "$(jq -er '.production_snapshot_sha256' "$manifest")" ]]
   jq -e 'type == "object" and (.current_image_id|type)=="string" and (.schema_migrations|type)=="array"' "$production_snapshot" >/dev/null
   [[ $(jq -er '.current_image_id' "$production_snapshot") == "$(jq -er '.production_current_image_id' "$manifest")" ]]
