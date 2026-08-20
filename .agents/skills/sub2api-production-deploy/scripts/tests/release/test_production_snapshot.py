@@ -11,9 +11,16 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.atomic import canonical_json
 from release.production_snapshot import snapshot_sha256
+from release.production_snapshot import snapshot_script
 
 
 class ProductionSnapshotTest(unittest.TestCase):
+    def test_snapshot_script_uses_application_role_and_portable_base64(self) -> None:
+        script = snapshot_script()
+        self.assertIn("-U sub2api -d sub2api", script)
+        self.assertIn("base64 | tr -d", script)
+        self.assertNotIn("POSTGRES_USER:-postgres", script)
+        self.assertIn("all(.[]; (type == \"object\"", script)
     def test_snapshot_digest_matches_canonical_persisted_document(self) -> None:
         snapshot = {
             "current_image_id": "sha256:" + "a" * 64,
