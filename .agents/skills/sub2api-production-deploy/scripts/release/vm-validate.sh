@@ -210,7 +210,9 @@ if [[ "$manifest_schema" == 2 ]]; then
   printf '%s' "$actual_plan" > "$state_dir/plan-actual.json"
   chmod 400 "$state_dir/plan-before.json" "$state_dir/plan-actual.json"
   printf '%s' "$actual_plan" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
-  [[ $(printf '%s' "$plan_before" | jq -c '.pending | map({filename,checksum})') == $(printf '%s' "$actual_plan" | jq -c '.pending | map({filename,checksum})') ]]
+  plan_before_pending=$(printf '%s' "$plan_before" | jq -c '.pending | map({filename,checksum})')
+  actual_plan_pending=$(printf '%s' "$actual_plan" | jq -c '.pending | map({filename,checksum})')
+  [[ "$plan_before_pending" == "$actual_plan_pending" ]]
   migration_assertion_dir="$source_dir/.agents/skills/sub2api-production-deploy/scripts/maintenance/release"
   hook_context="$state_dir/migration-hook-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$hook_context"
