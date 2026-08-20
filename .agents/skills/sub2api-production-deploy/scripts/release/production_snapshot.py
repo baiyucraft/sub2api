@@ -48,5 +48,8 @@ def snapshot_sha256(snapshot: dict[str, Any]) -> str:
         "current_image_id": snapshot.get("current_image_id"),
         "schema_migrations": snapshot.get("schema_migrations", []),
     }
-    canonical = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    # The snapshot is persisted with canonical_json(), which recursively sorts
+    # object keys. Hash the same canonical representation so the VM's jq digest
+    # over the persisted document cannot drift from the pre-write digest.
+    canonical = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
