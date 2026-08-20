@@ -107,6 +107,124 @@ class DeployCommandTest(unittest.TestCase):
         self.assertEqual(doctor.return_value.run.call_args_list[2].args[0], ("racknerd",))
         install_unit.assert_called_once_with(doctor.return_value._ssh.return_value)
 
+    def test_gate_v2_vm_validate_collects_production_context_without_releasing(self) -> None:
+        args = argparse.Namespace(profile="242", commit="a" * 40, deployment_mode="downtime")
+        production_image = "sha256:" + "b" * 64
+        production_snapshot = {"schema": 1, "schema_migrations": []}
+        descriptor = mock.Mock(spec=Path)
+        descriptor.is_file.return_value = True
+        descriptor.is_symlink.return_value = False
+        gate = Path("gate")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "releases"
+            runner = mock.Mock()
+            doctor_instance = mock.Mock()
+            doctor_instance._ssh.return_value = runner
+            doctor_instance.run.side_effect = [
+                {},
+                {},
+                {"production_current_image_id": production_image, "production_snapshot_b64": "encoded"},
+            ]
+            with (
+                mock.patch.object(cli, "RUN_ROOT", root),
+                mock.patch.object(cli, "get_profile", return_value={"name": "242", "gate_schema": 2}),
+                mock.patch.object(cli, "create_manifest", return_value={"release_id": "placeholder"}),
+                mock.patch.object(cli, "release_id", return_value="242-aaaaaaaaaaaa-1-deadbeef"),
+                mock.patch.object(cli, "ReleaseDoctor", return_value=doctor_instance),
+                mock.patch.object(cli, "install_vm_validator") as install_unit,
+                mock.patch.object(cli, "bootstrap_production") as bootstrap,
+                mock.patch.object(cli, "decode_snapshot", return_value=production_snapshot),
+                mock.patch.object(cli, "prepare_pre_gate_inputs", return_value=(descriptor, "/rack/pre-gate", "/vm/pre-gate")) as prepare,
+                mock.patch.object(cli, "create_vm_gate", return_value=gate) as create_gate,
+                mock.patch.object(cli, "release") as production,
+                mock.patch("builtins.print"),
+            ):
+                cli.vm_validate(args)
+
+        self.assertEqual(doctor_instance.run.call_args_list[0].args[0], ("local",))
+        self.assertEqual(doctor_instance.run.call_args_list[1].args[0], ("vm", "dmit", "backup"))
+        self.assertEqual(doctor_instance.run.call_args_list[2].args[0], ("racknerd",))
+        install_unit.assert_called_once_with(runner)
+        bootstrap.assert_called_once_with("242", runner)
+        prepare.assert_called_once_with(runner, "242-aaaaaaaaaaaa-1-deadbeef", production_image)
+        create_gate.assert_called_once_with(
+            "242",
+            "a" * 40,
+            "downtime",
+            identifier="242-aaaaaaaaaaaa-1-deadbeef",
+            acquire_lock=False,
+            production_current_image_id=production_image,
+            production_snapshot=production_snapshot,
+            pre_gate_input=descriptor,
+        )
+        runner.run.assert_any_call(
+            "racknerd",
+            "rm -rf /rack/pre-gate && printf 'pre_gate_input_removed=true\\n'",
+            {"pre_gate_input_removed"},
+        )
+        runner.run.assert_any_call(
+            "local_vm",
+            "rm -rf /vm/pre-gate && printf 'pre_gate_input_removed=true\\n'",
+            {"pre_gate_input_removed"},
+        )
+        descriptor.unlink.assert_called_once_with(missing_ok=True)
+        production.assert_not_called()
+
+    def test_gate_v2_vm_validate_preserves_terminal_gate_failure_state(self) -> None:
+        args = argparse.Namespace(profile="242", commit="a" * 40, deployment_mode="downtime")
+        production_image = "sha256:" + "b" * 64
+        descriptor = mock.Mock(spec=Path)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "releases"
+            identifier = "242-aaaaaaaaaaaa-1-deadbeef"
+            runner = mock.Mock()
+            doctor_instance = mock.Mock()
+            doctor_instance._ssh.return_value = runner
+            doctor_instance.run.side_effect = [
+                {},
+                {},
+                {"production_current_image_id": production_image, "production_snapshot_b64": "encoded"},
+            ]
+
+            def fail_gate(*args, **kwargs):
+                failed_state = cli.RunState.load(root / identifier / "state.json")
+                failed_state.transition("vm_validate", "running")
+                failed_state.transition("vm_validate", "failed")
+                raise RuntimeError("validator failed")
+
+            with (
+                mock.patch.object(cli, "RUN_ROOT", root),
+                mock.patch.object(cli, "get_profile", return_value={"name": "242", "gate_schema": 2}),
+                mock.patch.object(cli, "create_manifest", return_value={"release_id": identifier}),
+                mock.patch.object(cli, "release_id", return_value=identifier),
+                mock.patch.object(cli, "ReleaseDoctor", return_value=doctor_instance),
+                mock.patch.object(cli, "install_vm_validator"),
+                mock.patch.object(cli, "bootstrap_production"),
+                mock.patch.object(cli, "decode_snapshot", return_value={"schema": 1, "schema_migrations": []}),
+                mock.patch.object(cli, "prepare_pre_gate_inputs", return_value=(descriptor, "/rack/pre-gate", "/vm/pre-gate")),
+                mock.patch.object(cli, "create_vm_gate", side_effect=fail_gate),
+                self.assertRaisesRegex(RuntimeError, "validator failed"),
+            ):
+                cli.vm_validate(args)
+
+            final_state = json.loads((root / identifier / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(final_state["stage"], "vm_validate")
+        self.assertEqual(final_state["status"], "failed")
+        self.assertEqual(
+            [(event["stage"], event["status"]) for event in final_state["history"][-2:]],
+            [("vm_validate", "running"), ("vm_validate", "failed")],
+        )
+
+    def test_vm_validate_rejects_historical_gate_generation(self) -> None:
+        args = argparse.Namespace(profile="241", commit="a" * 40, deployment_mode="downtime")
+        with (
+            mock.patch.object(cli, "get_profile", return_value={"name": "241", "gate_schema": 1}),
+            mock.patch.object(cli, "create_vm_gate") as create_gate,
+            self.assertRaisesRegex(RuntimeError, "only accepts Gate v2"),
+        ):
+            cli.vm_validate(args)
+        create_gate.assert_not_called()
+
     def test_verified_vm_gate_is_passed_to_release(self) -> None:
         args = argparse.Namespace(profile="182", commit="a" * 40, deployment_mode="blue-green")
         gate = Path("gate")
