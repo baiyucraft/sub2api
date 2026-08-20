@@ -90,16 +90,29 @@ if [[ "$manifest_schema" == 2 ]]; then
   [[ -z "$loaded_old_image" || "$loaded_old_image" == "$old_image_id" ]]
   [[ $(docker image inspect -f '{{.Id}}' "$old_image_id") == "$old_image_id" ]]
   tag="sub2api:baiyu-$version-$commit"
-  on_build_failure() {
+  v2_stage=preflight
+  mark_v2_stage() {
+    v2_stage=$1
+    printf '%s\n' "$v2_stage" > "$state_dir/stage.tmp"
+    chmod 600 "$state_dir/stage.tmp"
+    mv -T -- "$state_dir/stage.tmp" "$state_dir/stage"
+  }
+  on_v2_failure() {
     code=$?
+    failed_line=${BASH_LINENO[0]:-0}
+    printf 'vm_v2_%s\n' "$v2_stage" > "$state_dir/failure-category"
+    printf '%s\n' "$failed_line" > "$state_dir/failure-line"
+    printf 'status=%s stage=%s\n' "$code" "$v2_stage" > "$state_dir/failure-detail"
+    chmod 400 "$state_dir/failure-category" "$state_dir/failure-line" "$state_dir/failure-detail"
     docker tag "$old_image_id" "$tag" >/dev/null 2>&1 || true
     docker image rm "${candidate_image_id:-}" >/dev/null 2>&1 || true
     exit "$code"
   }
-  trap on_build_failure ERR INT TERM
+  trap on_v2_failure ERR INT TERM
   build_log="$state_dir/build.log"
   : > "$build_log"
   chmod 600 "$build_log"
+  mark_v2_stage candidate_build
   docker build --network=host --progress=plain \
     --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
     --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.6-alpine \
@@ -121,6 +134,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   printf 'candidate_version_match=%s\n' "$candidate_version_match" >> "$state_dir/candidate-identity"
   chmod 400 "$state_dir/candidate-identity"
   [[ "$candidate_commit_match" == true && "$candidate_version_match" == true ]]
+  mark_v2_stage candidate_cli
   candidate_help=$(docker run --rm --entrypoint /app/sub2api "$candidate_image_id" -h 2>&1)
   printf '%s\n' "$candidate_help" > "$state_dir/candidate-help.log"
   chmod 600 "$state_dir/candidate-help.log"
@@ -146,6 +160,7 @@ if [[ "$manifest_schema" == 2 ]]; then
     rm -rf "$probe_dir" "$recovery_dir" "$probe_redis_data"
   }
   trap cleanup_v2 EXIT
+  mark_v2_stage restore_probe
   install -d -m 700 "$recovery_dir"
   tar -C "$recovery_dir" -xf "$recovery_path"
   (cd "$recovery_dir" && sha256sum -c SHA256SUMS >/dev/null)
@@ -195,6 +210,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   plan_snapshot="$state_dir/production-snapshot.json"
   install -o 0 -g 0 -m 444 "$production_snapshot" "$plan_snapshot"
   [[ -f "$plan_snapshot" && ! -L "$plan_snapshot" && $(stat -c '%u:%g:%a:%h' "$plan_snapshot") == 0:0:444:1 ]]
+  mark_v2_stage migration_plan_before
   plan_before=$(docker run --rm -v "$plan_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log" || true)
   printf '%s' "$plan_before" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
   [[ $(printf '%s' "$plan_before" | jq -r '.catalog_sha256') == $(jq -r '.catalog_sha256' "$manifest") ]]
@@ -233,25 +249,41 @@ if [[ "$manifest_schema" == 2 ]]; then
   }
   run_hook_v2() {
     local filename=$1 script=$2 phase=$3 status=$4
-    ASSERT_CONTEXT_FILE="$hook_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" \
+    printf '%s\n' "$filename" > "$state_dir/migration-hook-filename"
+    printf '%s\n' "$phase" > "$state_dir/migration-hook-phase"
+    printf '%s\n' "$status" > "$state_dir/migration-hook-status"
+    chmod 400 "$state_dir/migration-hook-filename" "$state_dir/migration-hook-phase" "$state_dir/migration-hook-status"
+    if ! ASSERT_CONTEXT_FILE="$hook_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" \
       ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" \
       ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$status" RELEASE_DIR="$state_dir" \
-      bash "$migration_assertion_dir/$script" "$phase" >/dev/null
+      bash "$migration_assertion_dir/$script" "$phase" >"$state_dir/migration-hook.stdout" 2>"$state_dir/migration-hook.stderr"; then
+      printf '%s\n' migration_hook_assertion_failed > "$state_dir/failure-category"
+      printf '%s\n' "${BASH_LINENO[0]:-0}" > "$state_dir/failure-line"
+      chmod 400 "$state_dir/failure-category" "$state_dir/failure-line" "$state_dir/migration-hook.stdout" "$state_dir/migration-hook.stderr"
+      return 1
+    fi
+    rm -f "$state_dir/migration-hook.stdout" "$state_dir/migration-hook.stderr"
     record_hook_v2 "$filename" "$phase"
   }
   for filename in \
+    242_user_platform_quotas_add_cn_providers.sql \
     195_upstream_scheduling_monitor_rates.sql \
     232_clear_non_grok_video_generation_config.sql \
     233_upstream_management.sql \
     239_reconcile_non_grok_video_pricing.sql \
-    243_backfill_codex_fingerprint_seed.sql; do
+    243_backfill_codex_fingerprint_seed.sql \
+    244_channel_model_time_pricing.sql \
+    245_channel_monitor_quota_mode.sql; do
     is_pending_v2 "$filename" || continue
     case "$filename" in
       195_*) script=migration-195-assert.sh ;;
       232_*) script=migration-232-assert.sh ;;
       233_*) script=migration-233-assert.sh ;;
       239_*) script=migration-239-assert.sh ;;
+      242_*) script=migration-242-assert.sh ;;
       243_*) script=migration-243-assert.sh ;;
+      244_*) script=migration-244-assert.sh ;;
+      245_*) script=migration-245-assert.sh ;;
     esac
     run_hook_v2 "$filename" "$script" preflight absent
     case "$filename" in
@@ -261,25 +293,34 @@ if [[ "$manifest_schema" == 2 ]]; then
   plan_apply="$state_dir/migration-plan-apply.json"
   install -o 0 -g 0 -m 444 "$state_dir/plan-before.json" "$plan_apply"
   [[ -f "$plan_apply" && ! -L "$plan_apply" && $(stat -c '%u:%g:%a:%h' "$plan_apply") == 0:0:444:1 ]]
+  mark_v2_stage migration_apply
   docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$plan_apply:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/migrate-candidate.log" 2>&1
+  mark_v2_stage migration_plan_after
   plan_after=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-after.log" || true)
   printf '%s' "$plan_after" | jq -e '((.pending|length) == 0) and (.existing_checksums_verified == true)' >/dev/null
   printf '%s' "$plan_after" > "$state_dir/plan-after.json"
   for filename in \
+    242_user_platform_quotas_add_cn_providers.sql \
     195_upstream_scheduling_monitor_rates.sql \
     232_clear_non_grok_video_generation_config.sql \
     233_upstream_management.sql \
     239_reconcile_non_grok_video_pricing.sql \
-    243_backfill_codex_fingerprint_seed.sql; do
+    243_backfill_codex_fingerprint_seed.sql \
+    244_channel_model_time_pricing.sql \
+    245_channel_monitor_quota_mode.sql; do
     is_pending_v2 "$filename" || continue
     case "$filename" in
       195_*) run_hook_v2 "$filename" migration-195-assert.sh postflight_db verified ;;
       232_*) run_hook_v2 "$filename" migration-232-assert.sh postflight verified ;;
       233_*) run_hook_v2 "$filename" migration-233-assert.sh postflight verified ;;
       239_*) run_hook_v2 "$filename" migration-239-assert.sh postflight verified ;;
+      242_*) run_hook_v2 "$filename" migration-242-assert.sh postflight verified ;;
       243_*) run_hook_v2 "$filename" migration-243-assert.sh postflight verified ;;
+      244_*) run_hook_v2 "$filename" migration-244-assert.sh postflight verified ;;
+      245_*) run_hook_v2 "$filename" migration-245-assert.sh postflight verified ;;
     esac
   done
+  mark_v2_stage old_image_health
   docker image inspect "$old_image_id" >/dev/null
   docker run -d --name "$old_probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$old_image_id" >/dev/null
   for _ in $(seq 1 90); do
@@ -289,6 +330,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   [[ $(docker inspect -f '{{.Image}}' "$old_probe_app") == "$old_image_id" ]]
   [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]]
   docker rm -f "$old_probe_app" >/dev/null
+  mark_v2_stage candidate_health
   docker run -d --name "$probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -p 127.0.0.1::8080 -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$candidate_image_id" >/dev/null
   for _ in $(seq 1 90); do
     [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]] && break
@@ -299,6 +341,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   probe_port=$(docker port "$probe_app" 8080/tcp | sed -n 's/^127\.0\.0\.1://p')
   [[ "$probe_port" =~ ^[1-9][0-9]{0,4}$ ]]
   [[ $(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_port/health") == 200 ]]
+  mark_v2_stage candidate_canary
   canary_key=$(docker exec sub2api-postgres psql -X -A -t -U "$database_owner" -d "$probe_db" -c "SELECT value FROM settings WHERE key='admin_api_key'" | tr -d '\r')
   [[ "$canary_key" == sk-* && ${#canary_key} -ge 16 ]]
   canary_response="$state_dir/candidate-canary.json"
@@ -311,6 +354,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   fi
   integration_verified=true
   vm_restore_verified=true
+  mark_v2_stage candidate_archive
   candidate_archive="$state_dir/candidate.tar.gz"
   docker save "$candidate_image_id" | gzip -1 > "$candidate_archive"
   candidate_archive_sha=$(sha256sum "$candidate_archive" | awk '{print $1}')
