@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+trap 'rc=$?; printf "vm_validate_failure_line=%s status=%s\\n" "$LINENO" "$rc"; exit "$rc"' ERR
 # Legacy Gate v1 profile allowlist: (182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)
 
 required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv rm sed seq sha256sum sleep sort ss stat tr xargs)
