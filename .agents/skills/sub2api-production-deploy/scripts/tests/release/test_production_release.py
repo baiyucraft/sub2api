@@ -283,6 +283,36 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertEqual(release.runner.upload_file.call_count, 2)
         self.assertEqual(release.stage.call_args_list[-1].args[0], "backup_verified")
 
+    def test_stage_bundle_upload_retries_before_remote_claim(self) -> None:
+        release = self.release()
+        with tempfile.TemporaryDirectory() as directory:
+            release.gate_dir = Path(directory)
+            (release.gate_dir / "gate.json").write_text("{}", encoding="utf-8")
+            (release.gate_dir / "gate.sig").write_bytes(b"sig")
+            (release.gate_dir / "candidate.tar.gz").write_bytes(b"candidate")
+            release.evidence = {"candidate_archive_sha256": "digest"}
+            release.manifest = {}
+            release.runner = mock.Mock()
+            release.runner.create_temp_dir.return_value = "/opt/sub2api/releases/.stage-test"
+            release.runner.upload_file.side_effect = [RuntimeError("temporary SFTP failure"), None]
+            release.run_remote = mock.Mock(side_effect=[
+                {"trust_key_verified": "true"},
+                {"release_directory_created": "true"},
+                {
+                    "prepared": "true",
+                    "candidate_image_id": release.image_id,
+                    "candidate_archive_sha256": "digest",
+                    "trust_key_sha256": "trust",
+                },
+            ])
+
+            with mock.patch.object(time, "sleep") as sleep:
+                release.upload_assets()
+
+            self.assertEqual(sleep.call_args_list, [mock.call(5)])
+            self.assertEqual(release.runner.upload_file.call_count, 2)
+            self.assertTrue(release.claimed)
+
     def test_backup_recovers_committed_result_after_lost_remote_reply(self) -> None:
         release = self.release()
         release.profile = {"minimum_backup_free_bytes": 1}
