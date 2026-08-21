@@ -1533,7 +1533,12 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('chmod 600 "$migration_plan_stderr_tmp"', switch)
         self.assertIn('2>> "$migration_plan_stderr"', switch)
         self.assertIn("for plan_attempt in 1 2 3", switch)
+        self.assertIn('if docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api', switch)
+        self.assertIn('planner_exit=$?', switch)
+        self.assertIn('plan_valid=false', switch)
+        self.assertIn('[[ $planner_exit -eq 0 ]]', switch)
         self.assertIn('[[ $current_snapshot == "$expected_snapshot" ]]', switch)
+        self.assertIn('planner_exit=%s', switch)
         self.assertIn('actual_pending_sha256=', switch)
         self.assertIn('[[ $plan_verified == true ]]', switch)
 

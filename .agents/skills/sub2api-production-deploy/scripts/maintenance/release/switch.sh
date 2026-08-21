@@ -192,12 +192,27 @@ if [[ $manifest_schema == 2 ]]; then
   plan_verified=false
   for plan_attempt in 1 2 3; do
     execution_plan_tmp="$execution_plan.tmp.$$.${plan_attempt}"
-    docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$execution_plan_tmp" 2>> "$migration_plan_stderr"
-    jq -e 'type == "object" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$execution_plan_tmp" >/dev/null
-    actual_pending=$(jq -c '.pending | map({filename,checksum}) | sort_by(.filename, .checksum)' "$execution_plan_tmp")
-    actual_catalog=$(jq -er '.catalog_sha256' "$execution_plan_tmp")
-    actual_policy=$(jq -er '.checksum_policy_sha256' "$execution_plan_tmp")
-    if [[ $actual_pending == "$expected_pending" && $actual_catalog == "$expected_catalog" && $actual_policy == "$expected_policy" ]]; then
+    planner_exit=0
+    if docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$execution_plan_tmp" 2>> "$migration_plan_stderr"; then
+      planner_exit=0
+    else
+      planner_exit=$?
+    fi
+    plan_valid=false
+    actual_pending='[]'
+    actual_pending_count=unknown
+    actual_pending_sha256=unknown
+    actual_catalog=unknown
+    actual_policy=unknown
+    if [[ $planner_exit -eq 0 ]] && jq -e 'type == "object" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$execution_plan_tmp" >/dev/null 2>&1; then
+      plan_valid=true
+      actual_pending=$(jq -c '.pending | map({filename,checksum}) | sort_by(.filename, .checksum)' "$execution_plan_tmp")
+      actual_pending_count=$(jq -r 'length' <<<"$actual_pending")
+      actual_pending_sha256=$(printf '%s' "$actual_pending" | sha256sum | awk '{print $1}')
+      actual_catalog=$(jq -er '.catalog_sha256' "$execution_plan_tmp")
+      actual_policy=$(jq -er '.checksum_policy_sha256' "$execution_plan_tmp")
+    fi
+    if [[ $plan_valid == true && $actual_pending == "$expected_pending" && $actual_catalog == "$expected_catalog" && $actual_policy == "$expected_policy" ]]; then
       chmod 600 "$execution_plan_tmp"
       mv -T -- "$execution_plan_tmp" "$execution_plan"
       plan_verified=true
@@ -213,11 +228,13 @@ if [[ $manifest_schema == 2 ]]; then
     [[ $current_snapshot == "$expected_snapshot" ]]
 
     mismatch_tmp="$state_dir/migration-plan-mismatch.tmp.$$"
-    printf 'attempt=%s\nactual_pending_count=%s\nexpected_pending_count=%s\nactual_pending_sha256=%s\nexpected_pending_sha256=%s\ncatalog_matches=%s\npolicy_matches=%s\n' \
+    printf 'attempt=%s\nplanner_exit=%s\nplan_valid=%s\nactual_pending_count=%s\nexpected_pending_count=%s\nactual_pending_sha256=%s\nexpected_pending_sha256=%s\ncatalog_matches=%s\npolicy_matches=%s\n' \
       "$plan_attempt" \
-      "$(jq -r 'length' <<<"$actual_pending")" \
+      "$planner_exit" \
+      "$plan_valid" \
+      "$actual_pending_count" \
       "$(jq -r 'length' <<<"$expected_pending")" \
-      "$(printf '%s' "$actual_pending" | sha256sum | awk '{print $1}')" \
+      "$actual_pending_sha256" \
       "$(printf '%s' "$expected_pending" | sha256sum | awk '{print $1}')" \
       "$([[ $actual_catalog == "$expected_catalog" ]] && echo true || echo false)" \
       "$([[ $actual_policy == "$expected_policy" ]] && echo true || echo false)" > "$mismatch_tmp"
