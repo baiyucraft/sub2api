@@ -321,7 +321,7 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
             raise RuntimeError("Gate v2 database high watermark is invalid")
 
 
-def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, allow_expired: bool = False, *, verified_document: dict[str, Any] | None = None) -> dict[str, Any]:
+def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, allow_expired: bool = False, allow_historical_runner: bool = False, *, verified_document: dict[str, Any] | None = None) -> dict[str, Any]:
     document = verified_document if verified_document is not None else _verify_gate_signature(bundle_dir, public_key)
     if set(document) != {"gate_version", "profile_id", "manifest", "evidence"}:
         raise RuntimeError("Gate v2 document shape is invalid")
@@ -356,7 +356,7 @@ def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, al
     if set(evidence) != expected_evidence_fields:
         raise RuntimeError("Gate v2 evidence contains missing or unknown fields")
     validate_image_id(evidence.get("candidate_image_id", ""))
-    if manifest.get("runner_sha256") != runner_checksum():
+    if manifest.get("runner_sha256") != runner_checksum() and not (allow_historical_runner and _is_sha256(manifest.get("runner_sha256"))):
         raise RuntimeError("Gate v2 was created by a different release runner")
     expected_assets = release_asset_checksums(manifest["commit_sha"], manifest_release_asset_layout(manifest))
     if manifest.get("release_asset_sha256") != expected_assets:
@@ -428,5 +428,5 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
     if schema not in accepted_schemas:
         raise RuntimeError("gate schema is not accepted for this operation")
     if schema == 2:
-        return verify_gate_v2(bundle_dir, public_key, expected_profile, allow_expired=allow_expired, verified_document=document)
+        return verify_gate_v2(bundle_dir, public_key, expected_profile, allow_expired=allow_expired, allow_historical_runner=allow_historical_runner, verified_document=document)
     return verify_gate_v1(bundle_dir, public_key, expected_profile, allow_expired=allow_expired, allow_historical_runner=allow_historical_runner, verified_document=document)
