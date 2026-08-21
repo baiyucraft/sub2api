@@ -1790,6 +1790,10 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
             preflight.index('source /opt/sub2api/releases/.active-release/assets/context.sh'),
         )
         self.assertIn('preflight_phase=context', preflight)
+        self.assertIn(
+            "jq -cSn --arg image \"$active_image\" --argjson rows \"$snapshot_rows\"",
+            preflight,
+        )
 
     def test_resume_old_canonicalizes_legacy_healthcheck_before_start(self) -> None:
         resume = self.script("resume-old.sh")
