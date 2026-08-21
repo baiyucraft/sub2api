@@ -547,6 +547,11 @@ exit "$code"
                 "free_bytes",
                 "migration_status",
                 "migration_pending_count",
+                "candidate_pending_names",
+                "candidate_pending_checksums",
+                "candidate_catalog_sha256",
+                "candidate_checksum_policy_sha256",
+                "candidate_plan_pending_count",
             },
         )
         if remote_values.get("preflight") != "pass":
@@ -557,6 +562,18 @@ exit "$code"
             raise RuntimeError("production pending count differs from signed Gate")
         if remote_values.get("migration_status") != ("verified" if not actual else "absent"):
             raise RuntimeError("production migration status differs from signed Gate")
+        expected_names = ",".join(sorted(item["filename"] for item in actual))
+        expected_checksums = ",".join(item["checksum"] for item in sorted(actual, key=lambda item: (item["filename"], item["checksum"])))
+        if remote_values.get("candidate_pending_names") != expected_names:
+            raise RuntimeError("candidate pending migration names differ from signed Gate")
+        if remote_values.get("candidate_pending_checksums") != expected_checksums:
+            raise RuntimeError("candidate pending migration checksums differ from signed Gate")
+        if remote_values.get("candidate_catalog_sha256") != plan["catalog_sha256"]:
+            raise RuntimeError("candidate migration catalog differs from signed Gate")
+        if remote_values.get("candidate_checksum_policy_sha256") != plan["checksum_policy_sha256"]:
+            raise RuntimeError("candidate migration checksum policy differs from signed Gate")
+        if remote_values.get("candidate_plan_pending_count") != str(len(actual)):
+            raise RuntimeError("candidate pending migration count differs from signed Gate")
         self.production_snapshot = snapshot
         self.migration_plan = plan
         self.migration_status = "pending" if actual else "verified"

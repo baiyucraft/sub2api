@@ -518,7 +518,6 @@ _PROFILE_242_RUNTIME_KEYS = (
     "public_domain", "rack_public_ip", "dmit_public_ip",
     "production_health_port", "minimum_rack_free_bytes",
     "minimum_backup_free_bytes", "minimum_free_after_bytes",
-    "canary_api_key_id",
 )
 PROFILES["242"] = {
     **{key: PROFILES["241"][key] for key in _PROFILE_242_RUNTIME_KEYS},

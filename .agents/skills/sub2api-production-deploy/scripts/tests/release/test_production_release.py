@@ -1692,11 +1692,16 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
 
     def test_profile_242_is_health_only_and_does_not_use_canary_credentials(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        preflight = (DEPLOY_ROOT / "maintenance" / "release" / "preflight.sh").read_text(encoding="utf-8")
+        profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
         self.assertIn('[[ "$profile" == 242 ]]', validator)
         self.assertIn('canary_verified:"not_checked"', validator)
         self.assertNotIn("candidate-canary.json", validator)
         self.assertNotIn("key='admin_api_key'", validator)
         self.assertNotIn("/api/v1/admin/users", validator)
+        self.assertNotIn("CANARY_KEY_FILE", preflight)
+        self.assertNotIn("canary-api-key", preflight)
+        self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["242"]'):])
 
     def test_profile_242_switch_uses_gate_v2_without_legacy_state_files(self) -> None:
         switch = self.script("switch.sh")
@@ -1706,6 +1711,16 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("if [[ $manifest_schema == 2 ]]; then", switch)
         self.assertIn(".evidence.migration_evidence.pending", switch)
         self.assertIn('getattr(self, "profile", {}).get("name") in {"241", "242"}', production)
+
+    def test_profile_242_preflight_validates_candidate_plan_before_switch(self) -> None:
+        preflight = self.script("preflight.sh")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        self.assertIn("candidate_plan_tmp=$(mktemp", preflight)
+        self.assertIn("--migration-plan-json", preflight)
+        self.assertIn("candidate_pending_names", preflight)
+        self.assertIn("candidate_pending_checksums", preflight)
+        self.assertIn('"candidate_pending_names"', production)
+        self.assertIn("candidate pending migration checksums differ from signed Gate", production)
 
     def test_backup_unit_restore_captures_stderr_without_widening_allowlist(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
