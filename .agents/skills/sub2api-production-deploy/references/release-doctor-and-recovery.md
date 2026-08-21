@@ -5,7 +5,7 @@
 - [标准入口](#标准入口)
 - [迁移状态与重复 Gate](#迁移状态与重复-gate)
 - [长时间无输出诊断](#长时间无输出诊断)
-- [Canary 超时分层诊断](#canary-超时分层诊断)
+- [流式能力不在发布门禁内](#流式能力不在发布门禁内)
 - [公开后的 Reconciliation](#公开后的-reconciliation)
 - [故障预检表](#故障预检表)
 - [Signer 身份一致性门禁](#signer-身份一致性门禁)
@@ -30,9 +30,9 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result
 ```
 
 - `doctor` 只读检查本地、VM、RackNerd、DMIT 和异地节点，输出字段白名单；失败时禁止进入发布。
-- `bootstrap-production` 只创建缺失的状态目录和固定 Canary 文件，并核验信任根、Canary 与数据库、备份全局锁；不修改 systemd、不构建、不迁移、不切换应用。已有资产内容不一致时停止。
+- `bootstrap-production` 只创建缺失的状态目录，并核验信任根、现有应用健康、Nginx 和备份全局锁；不检查账号池或 Canary 凭据，不修改 systemd、不构建、不迁移、不切换应用。已有资产内容不一致时停止。
 - `deploy-start` 是日常一键入口：预分配 release ID 后启动独立 worker；worker 先检查本地、VM 与外部节点，幂等 bootstrap RackNerd 后再检查 RackNerd，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。
-- worker 在停写前先用当前生产版本执行 direct/DMIT 流式基线 Canary；它会产生带唯一 marker 的正常 usage 记录，但不验证候选容器。该检查失败时释放本次 claim 并保持旧应用运行。候选公开后仅对 `curl 28` 和 `502/503/504` 使用新 marker 最多尝试三次，确定性 4xx、协议或 SSE 错误不重试。
+- worker 在停写前只执行 direct/DMIT `/health` 基线检查，不读取 Canary 凭据、不发送模型请求，也不产生 usage marker。流式模型请求本次发布明确记录为 `not_checked`；候选公开后仍必须验证 candidate health、迁移、备份和恢复合同。
 - 信任根首次安装仍单独使用 `bootstrap-trust`，人工核验公钥指纹；普通 bootstrap 和 deploy 不得创建或替换信任根。
 
 ### Claim 前资产阶段与瞬时 SSH 故障
@@ -167,25 +167,18 @@ profile 232 使用版本 `0.1.173-baiyu`，在 profile 215 后追加 216–232�
 
 进程退出码 `0`、VM Gate `verified`、健康接口单独返回 `200`，均不能独立证明生产发布完成。诊断期间禁止再次运行 `deploy`；`.release.lock` 是否存在不代表是否持锁。
 
-## Canary 超时分层诊断
+## 流式能力不在发布门禁内
 
-`curl exit 28` 只表示 Canary 在自身时间窗内未完成，不能单独证明候选回归，也不能忽略。候选已经公开时，先执行 `emergency-close` 并确认 Nginx inactive，再依次验证：
+生产发布不发送模型请求，也不读取账号池或 Canary 凭据。流式响应、usage attribution 和真实 IP 归因在发布结果中统一记录为 `not_checked`，不因没有可用探针而阻塞 Docker 镜像升级。候选已经公开时，先执行 `emergency-close` 并确认 Nginx 恢复，再依次验证：
 
 ```text
 signed image/迁移/业务不变量
-  -> 127.0.0.1 /health 与短时鉴权
-  -> 127.0.0.1 内部流式 Canary
-  -> RackNerd direct HTTPS 流式 Canary
-  -> 异地节点经 DMIT 流式 Canary
-  -> unique marker 的 usage、API Key、endpoint、真实 IP 归因
+  -> 127.0.0.1 /health
+  -> candidate health、备份与恢复合同
 ```
 
-- 每次 Canary 使用唯一 marker/User-Agent；secret 仅从 stdin 传入。
-- 只记录 `curl_exit`、HTTP code、SSE detected、耗时、记录数和状态，不输出请求体、响应体、账号或错误原文。
-- 只有 image、迁移、配置不变量、内部 health 和短时鉴权均通过时，才允许流式 Canary 最多重试 3 次；每次使用新 marker。
-- 内部流式也失败、日志出现关键错误、迁移不变量失败或状态无法证明时，不重试公开链路，进入协调恢复。
-- direct 与 DMIT 都通过后仍须核验 usage 和真实 IP；仅 `/health=200` 或一次内部 SSE 不能完成发布。
-- 不得临时切换测试模型、账号或参数规避既定 Gate；修改验收合同必须重新审核。
+- 只执行 `/health`、候选容器 health、迁移、备份、配置不变量和恢复合同检查。
+- Docker 容器启动或 `/health=200` 不代表模型流式能力通过；该能力明确保持 `not_checked`。
 
 ## 公开后的 Reconciliation
 
@@ -199,7 +192,7 @@ signed image/迁移/业务不变量
 6. 无论继续候选还是恢复旧版，都要恢复 backup units；成功候选还要恢复自动同步。
 7. 最终必须由当前 commit 中已实现、经过测试并有明确命令/参数的 runner/reconciliation 入口原子 consume/reconcile active claim 并更新结构化状态。禁止手工改 JSON、删除 marker 或伪造 `verified`。不满足 claim-only 条件时保持 `blocked_reconciliation`，先完成现场审计，不用一次性脚本代替。
 
-人工 reconciliation 完成发布至少要求：运行 image 等于 signed candidate、迁移与业务不变量通过、生产开关符合计划、direct/DMIT health 和 streaming 通过、usage/真实 IP 归因通过、backup timer 与自动同步恢复、claim 已消费且 post-deploy doctor 通过。若真实隔离恢复未完成，整体仍报告 `partial: production healthy, disaster-recovery baseline incomplete`。
+人工 reconciliation 完成发布至少要求：运行 image 等于 signed candidate、迁移与业务不变量通过、生产开关符合计划、direct/DMIT health 通过、streaming 与 usage attribution 明确记录 `not_checked`、backup timer 与自动同步恢复、claim 已消费且 post-deploy doctor 通过。若真实隔离恢复未完成，整体仍报告 `partial: production healthy, disaster-recovery baseline incomplete`。
 
 ## 故障预检表
 
@@ -207,8 +200,7 @@ signed image/迁移/业务不变量
 | --- | --- | --- | --- |
 | SSH 代理可用但发布连接失败 | 仓库私有 `known_hosts` 缺目标记录，用户可信文件已有记录 | `vm_hostkey_trusted`、`racknerd_hostkey_trusted`、`dmit_hostkey_trusted`、`backup_hostkey_trusted` | 只导入用户已信任的精确记录；禁止 `ssh-keyscan`、TOFU 或自动接受 |
 | VM Gate 无法提交或生产拒绝 Gate | RackNerd 缺 VM Gate 公钥或三方信任根不一致 | `vm_gate_trust_ready` | 运行独立 `bootstrap-trust` 并人工核验指纹 |
-| Canary 无法执行 | RackNerd 缺固定 Canary 凭据文件或权限错误 | `canary_key_ready` | bootstrap 从生产本机生成受限文件；凭据不得回显或进入命令行 |
-| 流式 Canary 返回 `curl 28` | 上游/调度抖动、首字或完整流超时、公开链路异常 | `internal_streaming`、`direct_streaming`、`dmit_streaming`、marker usage | 先关公开入口并分层诊断；满足前提时最多重试 3 次，不直接判候选故障 |
+| 流式能力未验证 | 发布策略不发送模型请求 | `streaming=not_checked`、`usage attribution=not_checked` | 不阻塞镜像升级；依靠 health、迁移、备份和恢复合同判断发布安全 |
 | 迁移后协调恢复无法解密 | 生产只配置 recipient，`restore.sh` 却依赖本机 age identity | `local_restore_point_ready` | 迁移前生成并校验 root-only 临时恢复 tar；缺失时停止迁移，禁止把解密私钥补到生产机 |
 | 远端动作成功但本地报 undeclared/missing field | SSH allowlist 与脚本 stdout 合同不同步 | committed marker、目标状态、输出字段集合 | 先核验动作是否已提交；同步 allowlist 与测试后再继续，不重复远端写操作 |
 | 发布与每日备份竞争 | 缺全局备份锁 wrapper 或 systemd drop-in | `backup_global_lock_ready` | bootstrap 只核验并停止；通过独立运维初始化补齐后重跑 doctor |
@@ -276,14 +268,12 @@ switch failure
 ## 分节点验收
 
 ```text
-RackNerd  -> direct /health、应用日志、数据库归因
-异地节点 -> DMIT /health、DMIT 流式 Canary
-两节点   -> 各自发送唯一 marker 的流式 Canary
-RackNerd  -> 按 marker 核验 usage 记录和真实客户端 IP
+RackNerd  -> direct /health、应用日志
+异地节点 -> DMIT /health
+结果     -> streaming、usage attribution、真实 IP 归因均为 not_checked
 ```
 
 - 禁止从 RackNerd 回连 DMIT 公网入口作为 DMIT 验收证据。
-- Canary secret 通过 stdin 传入一次性进程，仅保存在内存或权限受限的临时文件，退出时清理。
 - direct 与 DMIT 任一路径未通过，都不能报告生产完全健康。
 
 ## VM 白名单清理
