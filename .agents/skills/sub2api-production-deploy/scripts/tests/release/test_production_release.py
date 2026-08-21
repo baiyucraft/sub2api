@@ -1503,6 +1503,13 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertNotIn("candidate-canary.json", validator)
         self.assertNotIn("key='admin_api_key'", validator)
         self.assertNotIn("/api/v1/admin/users", validator)
+        v2 = validator[:validator.index("\nfi\n[[ $release_id =~", validator.index('if [[ "$manifest_schema" == 2 ]]; then'))]
+        self.assertNotIn("/api/v1/", v2)
+        self.assertNotIn("/v1/", v2)
+        self.assertNotIn("Authorization: Bearer", v2)
+        self.assertNotIn("Canary request", v2)
+        self.assertNotIn("canary checks", v2)
+        self.assertNotIn("canary-api-key", v2)
         self.assertNotIn("CANARY_KEY_FILE", preflight)
         self.assertNotIn("canary-api-key", preflight)
         self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["242"]'):])

@@ -174,7 +174,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   # pg_restore --no-owner makes the restoring role own restored objects.  The
   # application role is intentionally the probe database owner, so normalize
   # its table/sequence privileges inside this isolated database before running
-  # migration and canary checks.  This never changes production permissions.
+  # Isolated migration checks.  This never changes production permissions.
   docker exec -i -e DB_OWNER="$database_owner" sub2api-postgres sh -lc "psql -X -v ON_ERROR_STOP=1 -v db_owner=\"\$DB_OWNER\" -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" >/dev/null <<'SQL'
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO :"db_owner";
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO :"db_owner";
@@ -349,9 +349,9 @@ SQL
   probe_port=$(docker port "$probe_app" 8080/tcp | sed -n 's/^127\.0\.0\.1://p')
   [[ "$probe_port" =~ ^[1-9][0-9]{0,4}$ ]]
   [[ $(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_port/health") == 200 ]]
-  # Profile 242 is health-only: do not read API keys or issue an application
-  # Canary request.  Candidate container health and the /health route are the
-  # only runtime availability checks in this Gate.
+  # Profile 242 is health-only: do not read API keys or issue application
+  # availability requests. Candidate container health and the /health route
+  # are the only runtime availability checks in this Gate.
   if is_pending_v2 195_upstream_scheduling_monitor_rates.sql; then
     run_hook_v2 195_upstream_scheduling_monitor_rates.sql migration-195-assert.sh postflight_runtime verified
   fi
