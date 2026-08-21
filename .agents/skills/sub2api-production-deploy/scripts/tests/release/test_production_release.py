@@ -1083,6 +1083,13 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         context = self.script("context.sh")
         self.assertIn('grep -Fxq "release_id=$release_id" "$active_claim/release_id"', context)
 
+    def test_switch_canonicalizes_pending_migration_order_before_gate_compare(self) -> None:
+        switch = self.script("switch.sh")
+        self.assertIn(
+            "map({filename,checksum}) | sort_by(.filename, .checksum)",
+            switch,
+        )
+
     def test_activation_marker_uses_the_runtime_process_identity(self) -> None:
         compose = self.script("compose-contract.sh")
         switch = self.script("switch.sh")
