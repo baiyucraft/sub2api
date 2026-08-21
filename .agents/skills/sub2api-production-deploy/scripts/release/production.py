@@ -1152,6 +1152,19 @@ exit "$code"
                     f"migration_{number}_preflight",
                     f"migration_{number}_postflight",
                 })
+        if getattr(self, "profile", {}).get("name") == "242":
+            # Gate v2 has a deliberately smaller switch contract.  Do not
+            # inherit any of the legacy migration/schema evidence fields above:
+            # switch.sh profile 242 emits only these core runtime fields plus
+            # the prompt-audit not-applicable triplet.
+            allowed = {
+                "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
+                "candidate_container", "candidate_port", "active_container", "active_port",
+                "background_activation",
+                "prompt_audit_disabled",
+                "prompt_audit_jobs",
+                "prompt_audit_events",
+            }
         try:
             values = self.run_remote(
                 "racknerd",
