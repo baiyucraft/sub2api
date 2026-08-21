@@ -23,7 +23,7 @@ trap 'record_switch_init_failure context_source "$LINENO"' ERR
 source /opt/sub2api/releases/.active-release/assets/context.sh
 trap - ERR
 release_profile=$profile
-if [[ $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]]; then
+if [[ $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 ]]; then
   # Profiles 238-241 all inherit profile-237 schema assertions. Keep the
   # original release_profile intact for their migration-specific handling.
   profile=237
@@ -85,45 +85,45 @@ record_migration_failure() {
 }
 mark_switch_stage initialized
 trap 'record_switch_init_failure initial_contract "$LINENO"' ERR
- if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
+ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
   [[ -f $state_dir/migration-195-plan.sha256 && ! -L $state_dir/migration-195-plan.sha256 ]]
   migration_status=$(<"$state_dir/migration-195-status")
   export MIGRATION_STATUS="$migration_status"
 fi
- if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
+ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
   [[ -f $state_dir/migration-232-status && ! -L $state_dir/migration-232-status ]]
   migration_232_status=$(<"$state_dir/migration-232-status")
   [[ $migration_232_status == absent || $migration_232_status == verified ]]
-   if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
+   if [[ $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
     [[ -f $state_dir/migration-233-status && ! -L $state_dir/migration-233-status ]]
     migration_233_status=$(<"$state_dir/migration-233-status")
     [[ $migration_233_status == absent || $migration_233_status == verified ]]
   fi
-   if [[ $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
+   if [[ $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
     [[ -f $state_dir/migration-234-status && ! -L $state_dir/migration-234-status ]]
     migration_234_status=$(<"$state_dir/migration-234-status")
     [[ $migration_234_status == absent || $migration_234_status == verified ]]
   fi
-   if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
+   if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
     [[ -f $state_dir/migration-237-status && ! -L $state_dir/migration-237-status ]]
     migration_237_status=$(<"$state_dir/migration-237-status")
     [[ $migration_237_status == absent || $migration_237_status == verified ]]
   fi
-   if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
+   if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
     [[ -f $state_dir/migration-238-status && ! -L $state_dir/migration-238-status ]]
     migration_238_status=$(<"$state_dir/migration-238-status")
     [[ $migration_238_status == absent || $migration_238_status == verified ]]
     [[ -f $state_dir/migration-239-status && ! -L $state_dir/migration-239-status ]]
     migration_239_status=$(<"$state_dir/migration-239-status")
     [[ $migration_239_status == absent || $migration_239_status == verified ]]
-     if [[ $release_profile == 240 || $release_profile == 241 ]]; then
+     if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
       [[ -f $state_dir/migration-240-status && ! -L $state_dir/migration-240-status ]]
       migration_240_status=$(<"$state_dir/migration-240-status")
       [[ $migration_240_status == absent || $migration_240_status == verified ]]
       [[ -f $state_dir/migration-241-status && ! -L $state_dir/migration-241-status ]]
       migration_241_status=$(<"$state_dir/migration-241-status")
       [[ $migration_241_status == absent || $migration_241_status == verified ]]
-      if [[ $release_profile == 241 ]]; then
+      if [[ $release_profile == 241 || $release_profile == 242 ]]; then
         for number in 242 243 244 245; do
           status_file="$state_dir/migration-${number}-status"
           [[ -f $status_file && ! -L $status_file ]]
@@ -212,15 +212,15 @@ else
   done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
 fi
 mark_migration_failure_context schema_contract_assertion schema_assertion
-  if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 ]]; then
+  if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
   managed_monitor_key_name_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT character_maximum_length, (SELECT COUNT(*) FROM api_keys k JOIN channel_monitors m ON m.id=k.managed_monitor_id AND m.managed_api_key_id=k.id WHERE k.purpose='managed_monitor' AND k.deleted_at IS NULL AND k.name IS DISTINCT FROM '监控-' || BTRIM(m.name)) FROM information_schema.columns WHERE table_schema='public' AND table_name='api_keys' AND column_name='name'")
   [[ $managed_monitor_key_name_state == '103|0' ]]
 fi
-  if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 ]]; then
+  if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
   reasoning_effort_policy_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COALESCE(MAX(CASE WHEN column_name='max_reasoning_effort' THEN data_type || ':' || is_nullable || ':' || column_default END),''), COALESCE(MAX(CASE WHEN column_name='reasoning_effort_mappings' THEN data_type || ':' || is_nullable || ':' || column_default END),'') FROM information_schema.columns WHERE table_schema='public' AND table_name='groups' AND column_name IN ('max_reasoning_effort','reasoning_effort_mappings')")
   [[ $reasoning_effort_policy_state == *'character varying:NO:'*"''::character varying"*'|'*'jsonb:NO:'*"'[]'::jsonb"* ]]
 fi
-  if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 ]]; then
+  if [[ $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
   alipay_mobile_precreate_deep_link_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*), COUNT(*) FILTER (WHERE value IN ('true','false')) FROM settings WHERE key='ALIPAY_MOBILE_PRECREATE_DEEP_LINK'")
   [[ $alipay_mobile_precreate_deep_link_state == '1|1' ]]
   group_auth_cache_image_generation_state=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT COUNT(*) FILTER (WHERE pg_get_functiondef(p.oid) LIKE '%OLD.allow_image_generation IS NOT DISTINCT FROM NEW.allow_image_generation%'), (SELECT COUNT(*) FROM pg_trigger t WHERE t.tgrelid='groups'::regclass AND t.tgname='trg_groups_auth_cache_invalidation' AND NOT t.tgisinternal AND t.tgenabled <> 'D') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='enqueue_group_auth_cache_invalidation' AND pg_get_function_identity_arguments(p.oid)=''")
@@ -308,13 +308,13 @@ if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 |
   group_media_pricing_schema_verified=true
   group_media_auth_cache_trigger_verified=true
 fi
-if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
+if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
   migration_239_context="$state_dir/migration-239-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_239_context"
   chmod 400 "$migration_239_context"
   ASSERT_CONTEXT_FILE="$migration_239_context" ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER=sub2api ASSERT_DB_NAME=sub2api MIGRATION_STATUS="$migration_239_status" RELEASE_DIR="$state_dir" "$assets_dir/migration-239-assert.sh" postflight
 fi
-if [[ $release_profile == 240 || $release_profile == 241 ]]; then
+if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
   migration_240_context="$state_dir/migration-240-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_240_context"
   chmod 400 "$migration_240_context"
@@ -329,7 +329,7 @@ if [[ $release_profile == 240 || $release_profile == 241 ]]; then
   printf 'migration_241_schema_state=verified\n'
   printf 'migration_241_schema_verified=true\n'
   printf 'migration_241_postflight=pass\n'
-  if [[ $release_profile == 241 ]]; then
+  if [[ $release_profile == 241 || $release_profile == 242 ]]; then
     for number in 242 243 244 245; do
       context="$state_dir/migration-${number}-context.sh"
       printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$context"
@@ -740,7 +740,7 @@ if [[ $profile == 237 || $profile == 238 || $profile == 239 ]]; then
   printf 'migration_236_schema_verified=true\n'
   printf 'migration_236_postflight=pass\n'
 fi
-if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
+if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
   migration_237_context="$state_dir/migration-237-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_237_context"
   chmod 400 "$migration_237_context"
@@ -750,7 +750,7 @@ if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 
   printf 'migration_237_schema_verified=true\n'
   printf 'migration_237_postflight=pass\n'
 fi
-if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
+if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
   migration_238_context="$state_dir/migration-238-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$release_profile" "$state_dir" > "$migration_238_context"
   chmod 400 "$migration_238_context"

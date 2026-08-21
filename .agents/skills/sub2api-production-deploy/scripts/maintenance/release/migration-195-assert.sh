@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-# Legacy profile assertion allowlist retained for Gate v1 audit: [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]]
+# Legacy profile assertion allowlist retained for Gate v1 audit: [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 ]]
 
 phase=${1:?phase is required}
 migration_status=${MIGRATION_STATUS:-absent}
@@ -30,7 +30,7 @@ query() {
 # Keep the historical profile-195 data-plan contract stable by hashing the
 # expected precise target on both sides of migration 241; migration-241's own
 # postflight assertion verifies that the stored rate reached that target.
-if [[ $release_profile == 240 || $release_profile == 241 ]]; then
+if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
   precise_data_plan_query="COPY (SELECT k.id::text || '|' || to_char(k.source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(ROUND(k.source_rate_multiplier * COALESCE(c.recharge_rate, 1), 10),'FM999999999999990.0000000000') FROM upstream_keys k JOIN upstream_configs c ON c.id=k.upstream_config_id WHERE k.source_rate_multiplier IS NOT NULL ORDER BY k.id) TO STDOUT"
 else
   precise_data_plan_query="COPY (SELECT id::text || '|' || to_char(source_rate_multiplier,'FM999999999999990.0000000000') || '|' || to_char(rate_multiplier,'FM999999999999990.0000') FROM upstream_keys WHERE source_rate_multiplier IS NOT NULL ORDER BY id) TO STDOUT"
@@ -152,7 +152,7 @@ SELECT
     rate_present_expression="k.rate_multiplier IS NOT NULL"
     unexpected_rate_expression="CEIL((k.rate_multiplier*c.recharge_rate)*100)/100"
   fi
-  if [[ $release_profile == 240 || $release_profile == 241 ]]; then
+  if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then
     canonical_plan_query="$precise_data_plan_query"
     unexpected_rate_expression="ROUND((k.source_rate_multiplier * COALESCE(c.recharge_rate, 1)), 10)"
   fi

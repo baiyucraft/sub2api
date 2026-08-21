@@ -349,18 +349,9 @@ SQL
   probe_port=$(docker port "$probe_app" 8080/tcp | sed -n 's/^127\.0\.0\.1://p')
   [[ "$probe_port" =~ ^[1-9][0-9]{0,4}$ ]]
   [[ $(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_port/health") == 200 ]]
-  mark_v2_stage candidate_canary
-  canary_key=$(docker exec sub2api-postgres psql -X -A -t -U "$database_owner" -d "$probe_db" -c "SELECT value FROM settings WHERE key='admin_api_key'" | tr -d '\r')
-  # Profile 242 reuses the restored production settings row.  Production
-  # admin keys use the `admin-` prefix, while older VM fixtures use `sk-`.
-  # Accept only those two known formats; the following request still proves
-  # the key is usable against the candidate admin API.
-  [[ ("$canary_key" == admin-* || "$canary_key" == sk-*) && ${#canary_key} -ge 16 ]]
-  canary_response="$state_dir/candidate-canary.json"
-  [[ $(curl -sS --max-time 30 -o "$canary_response" -w '%{http_code}' -H "x-api-key: $canary_key" "http://127.0.0.1:$probe_port/api/v1/admin/users?page=1&page_size=1") == 200 ]]
-  jq -e '.code == 0 and (.data|type)=="object"' "$canary_response" >/dev/null
-  rm -f "$canary_response"
-  unset canary_key
+  # Profile 242 is health-only: do not read API keys or issue an application
+  # Canary request.  Candidate container health and the /health route are the
+  # only runtime availability checks in this Gate.
   if is_pending_v2 195_upstream_scheduling_monitor_rates.sql; then
     run_hook_v2 195_upstream_scheduling_monitor_rates.sql migration-195-assert.sh postflight_runtime verified
   fi
@@ -374,7 +365,7 @@ SQL
   [[ "$candidate_size" =~ ^[1-9][0-9]*$ ]]
   pending_json=$(printf '%s' "$plan_before" | jq --slurpfile hooks "$hook_results_file" '[.pending[] | . as $item | ($hooks[0][.filename] // null) as $result | if $result == null then {filename,checksum} else {filename,checksum,preflight:true,postflight:true,hook_results:$result,rollback_policy:"coordinated_restore"} end]')
   jq -n --slurpfile m "$manifest" --arg image "$candidate_image_id" --arg archive "$candidate_archive_sha" --arg old_image_id "$old_image_id" --arg snapshot_sha "$(jq -r '.production_snapshot_sha256' "$manifest")" --argjson size "$candidate_size" --argjson pending "$pending_json" --argjson plan_before "$(cat "$state_dir/plan-before.json")" \
-    '{gate_version:2,profile_id:242,manifest:$m[0],evidence:{candidate_image_id:$image,candidate_archive_sha256:$archive,candidate_size:$size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,production_current_image_id:$old_image_id,production_snapshot_sha256:$snapshot_sha,catalog_sha256:$m[0].catalog_sha256,checksum_policy_sha256:$m[0].checksum_policy_sha256,checksum_policy_version:"sub2api-migration-checksum-policy-v1",migration_evidence:{database_high_watermark:($plan_before.database_high_watermark // null),pending:$pending,existing_checksums_verified:true,isolated_upgrade_verified:true,final_schema_verified:true},release_policy:{canary_verified:true,restore_points_verified:true}}}' > "$output_dir/gate.json"
+    '{gate_version:2,profile_id:242,manifest:$m[0],evidence:{candidate_image_id:$image,candidate_archive_sha256:$archive,candidate_size:$size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,production_current_image_id:$old_image_id,production_snapshot_sha256:$snapshot_sha,catalog_sha256:$m[0].catalog_sha256,checksum_policy_sha256:$m[0].checksum_policy_sha256,checksum_policy_version:"sub2api-migration-checksum-policy-v1",migration_evidence:{database_high_watermark:($plan_before.database_high_watermark // null),pending:$pending,existing_checksums_verified:true,isolated_upgrade_verified:true,final_schema_verified:true},release_policy:{canary_verified:"not_checked",restore_points_verified:true}}}' > "$output_dir/gate.json"
   chmod 400 "$output_dir/gate.json"
   install -m 400 "$candidate_archive" "$output_dir/candidate.tar.gz"
   /usr/local/libexec/sub2api-sign-gate "$output_dir/gate.json" "$output_dir/gate.sig"

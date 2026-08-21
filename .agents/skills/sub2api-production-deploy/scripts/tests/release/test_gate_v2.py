@@ -96,7 +96,7 @@ class GateV2Test(unittest.TestCase):
                 "isolated_upgrade_verified": True,
                 "final_schema_verified": True,
             },
-            "release_policy": {"canary_verified": True, "restore_points_verified": True},
+            "release_policy": {"canary_verified": "not_checked", "restore_points_verified": True},
         }
         return {"gate_version": 2, "profile_id": 242, "manifest": manifest, "evidence": evidence}
 
