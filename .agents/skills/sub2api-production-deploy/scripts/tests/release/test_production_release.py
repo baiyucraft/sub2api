@@ -1719,6 +1719,8 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("--migration-plan-json", preflight)
         self.assertIn("candidate_pending_names", preflight)
         self.assertIn("candidate_pending_checksums", preflight)
+        self.assertIn('2> "$candidate_plan_stderr"', preflight)
+        self.assertIn("candidate_plan_stderr=$(mktemp", preflight)
         self.assertIn('"candidate_pending_names"', production)
         self.assertIn("candidate pending migration checksums differ from signed Gate", production)
 
