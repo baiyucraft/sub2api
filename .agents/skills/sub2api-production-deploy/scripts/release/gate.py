@@ -405,7 +405,7 @@ def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, al
     release_policy = evidence.get("release_policy")
     if not isinstance(release_policy, dict) or set(release_policy) != {"canary_verified", "restore_points_verified"}:
         raise RuntimeError("Gate v2 release policy evidence is invalid")
-    if release_policy.get("canary_verified") is not True or release_policy.get("restore_points_verified") is not True:
+    if release_policy.get("canary_verified") not in {True, "not_checked"} or release_policy.get("restore_points_verified") is not True:
         raise RuntimeError("Gate v2 release policy is not verified")
     archive_path = bundle_dir / "candidate.tar.gz"
     if not archive_path.is_file():

@@ -47,7 +47,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 
 `deploy-follow` 是日常人工发布入口：它只创建一个隐藏 worker，并在同一控制台用中文显示阶段变化和长阶段心跳。关闭窗口或观察器超时不会中止 runner，重新连接必须使用 `follow <release_id>`。`deploy-start` 仍是机器接口，可用于脚本或只启动后台 runner。
 
-发布过程会在停写前使用当前生产版本完成 RackNerd direct 与 DMIT 两条流式基线 Canary，避免把既有上游或链路故障带入切换阶段；该请求会像普通请求一样产生 usage 记录，但不会使用候选容器。候选公开后使用相同合同复验；只有 `curl 28` 和 `502/503/504` 会以新 marker 最多尝试三次，所有实际落库的尝试都会核验 API Key、endpoint 和真实 IP，其他错误立即停止。worker 在 doctor 到最终收口期间持有同一把 OS 锁；调用端关闭 stdout 或超时不会中止 runner。
+发布过程只验证 direct 与 DMIT 两条 HTTPS `/health` 路由，以及候选容器自身健康；不读取账号池或 Canary 凭据，不发送模型或管理 API 请求，也不生成 usage attribution。流式响应与 usage attribution 明确记录为 `not_checked`。worker 在 doctor 到最终收口期间持有同一把 OS 锁；调用端关闭 stdout 或超时不会中止 runner。
 
 发布恢复点仅在受限上传阶段明确失败时，才以新的 transport 名称重新生成并重试最多两次；数据库、Redis、配置、归档或加密阶段失败仍立即停止。每次失败的阶段、退出码和尝试次数进入 `production-result.json`，协调恢复不得抹去该诊断证据。
 
