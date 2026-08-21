@@ -179,20 +179,54 @@ fi
 mark_switch_stage migration_started
 if [[ $manifest_schema == 2 ]]; then
   execution_plan="$state_dir/migration-plan.json"
-  execution_plan_tmp="$execution_plan.tmp.$$"
   migration_plan_stderr="$state_dir/migration-plan.stderr"
   migration_plan_stderr_tmp="$migration_plan_stderr.tmp.$$"
   [[ ! -e $migration_plan_stderr && ! -L $migration_plan_stderr ]]
   : > "$migration_plan_stderr_tmp"
   chmod 600 "$migration_plan_stderr_tmp"
   mv -T -- "$migration_plan_stderr_tmp" "$migration_plan_stderr"
-  docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$execution_plan_tmp" 2> "$migration_plan_stderr"
-  jq -e 'type == "object" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$execution_plan_tmp" >/dev/null
-  [[ $(jq -c '.pending | map({filename,checksum}) | sort_by(.filename, .checksum)' "$execution_plan_tmp") == $(jq -c '.evidence.migration_evidence.pending | map({filename,checksum}) | sort_by(.filename, .checksum)' "$active_claim/gate.json") ]]
-  [[ $(jq -er '.catalog_sha256' "$execution_plan_tmp") == $(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json") ]]
-  [[ $(jq -er '.checksum_policy_sha256' "$execution_plan_tmp") == $(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json") ]]
-  chmod 600 "$execution_plan_tmp"
-  mv -T -- "$execution_plan_tmp" "$execution_plan"
+  expected_pending=$(jq -c '.evidence.migration_evidence.pending | map({filename,checksum}) | sort_by(.filename, .checksum)' "$active_claim/gate.json")
+  expected_catalog=$(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json")
+  expected_policy=$(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json")
+  expected_snapshot=$(jq -er '.evidence.production_snapshot_sha256' "$active_claim/gate.json")
+  plan_verified=false
+  for plan_attempt in 1 2 3; do
+    execution_plan_tmp="$execution_plan.tmp.$$.${plan_attempt}"
+    docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$execution_plan_tmp" 2>> "$migration_plan_stderr"
+    jq -e 'type == "object" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$execution_plan_tmp" >/dev/null
+    actual_pending=$(jq -c '.pending | map({filename,checksum}) | sort_by(.filename, .checksum)' "$execution_plan_tmp")
+    actual_catalog=$(jq -er '.catalog_sha256' "$execution_plan_tmp")
+    actual_policy=$(jq -er '.checksum_policy_sha256' "$execution_plan_tmp")
+    if [[ $actual_pending == "$expected_pending" && $actual_catalog == "$expected_catalog" && $actual_policy == "$expected_policy" ]]; then
+      chmod 600 "$execution_plan_tmp"
+      mv -T -- "$execution_plan_tmp" "$execution_plan"
+      plan_verified=true
+      break
+    fi
+
+    # A retry is safe only while the production migration snapshot remains
+    # byte-for-byte bound to the signed Gate. This distinguishes a transient
+    # read/planner inconsistency from real production drift after preflight.
+    snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
+    current_image=$(docker inspect -f '{{.Image}}' "$active_container")
+    current_snapshot=$(printf '%s' "$(jq -cSn --arg image "$current_image" --argjson rows "$snapshot_rows" '{current_image_id:$image,schema_migrations:$rows}')" | sha256sum | awk '{print $1}')
+    [[ $current_snapshot == "$expected_snapshot" ]]
+
+    mismatch_tmp="$state_dir/migration-plan-mismatch.tmp.$$"
+    printf 'attempt=%s\nactual_pending_count=%s\nexpected_pending_count=%s\nactual_pending_sha256=%s\nexpected_pending_sha256=%s\ncatalog_matches=%s\npolicy_matches=%s\n' \
+      "$plan_attempt" \
+      "$(jq -r 'length' <<<"$actual_pending")" \
+      "$(jq -r 'length' <<<"$expected_pending")" \
+      "$(printf '%s' "$actual_pending" | sha256sum | awk '{print $1}')" \
+      "$(printf '%s' "$expected_pending" | sha256sum | awk '{print $1}')" \
+      "$([[ $actual_catalog == "$expected_catalog" ]] && echo true || echo false)" \
+      "$([[ $actual_policy == "$expected_policy" ]] && echo true || echo false)" > "$mismatch_tmp"
+    chmod 600 "$mismatch_tmp"
+    mv -T -- "$mismatch_tmp" "$state_dir/migration-plan-mismatch"
+    rm -f -- "$execution_plan_tmp"
+    [[ $plan_attempt -eq 3 ]] || sleep 2
+  done
+  [[ $plan_verified == true ]]
   run_release_logged_command docker compose "${candidate_compose_args[@]}" run -v "$execution_plan:/input/migration-plan.json:ro" --name "$migration_container" --no-deps sub2api /app/sub2api --migration-apply-plan-json /input/migration-plan.json
 else
   run_release_logged_command docker compose "${candidate_compose_args[@]}" run --name "$migration_container" --no-deps sub2api /app/sub2api --migrate-only

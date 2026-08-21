@@ -1531,7 +1531,11 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         switch = self.script("switch.sh")
         self.assertIn('migration_plan_stderr="$state_dir/migration-plan.stderr"', switch)
         self.assertIn('chmod 600 "$migration_plan_stderr_tmp"', switch)
-        self.assertIn('2> "$migration_plan_stderr"', switch)
+        self.assertIn('2>> "$migration_plan_stderr"', switch)
+        self.assertIn("for plan_attempt in 1 2 3", switch)
+        self.assertIn('[[ $current_snapshot == "$expected_snapshot" ]]', switch)
+        self.assertIn('actual_pending_sha256=', switch)
+        self.assertIn('[[ $plan_verified == true ]]', switch)
 
     def test_backup_unit_restore_captures_stderr_without_widening_allowlist(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
