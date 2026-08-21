@@ -301,9 +301,11 @@ set +e
 SUB2API_RELEASE_RAW_LOG={shlex.quote(log_file)} bash -lc {shlex.quote(script)} >"$stdout_tmp" 2>"$stderr_tmp"
 code=$?
 set -e
-if [[ $code -eq 0 && -s $stderr_tmp ]]; then
-  code=97
-fi
+# stderr is diagnostic output, not part of the structured machine protocol.
+# Keep it in the root-only raw log below, but never turn an otherwise
+# successful command into a synthetic failure (for example Docker/Compose may
+# emit harmless warnings while still completing successfully).  A real
+# non-zero exit code remains authoritative and is returned unchanged.
 {{
   printf '\n[%s] sequence={sequence} stage={stage} stream=stdout\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   cat "$stdout_tmp"
