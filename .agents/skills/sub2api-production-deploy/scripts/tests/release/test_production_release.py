@@ -1785,6 +1785,11 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('assert_sub2api_runtime_contract "$active_container" "$pre_image_id" "$compose_network_mode" "$active_port" active_compat', preflight)
         self.assertIn('preflight_failure_phase=%s', preflight)
         self.assertIn('production_preflight_failed', production)
+        self.assertLess(
+            preflight.index("trap record_preflight_result EXIT"),
+            preflight.index('source /opt/sub2api/releases/.active-release/assets/context.sh'),
+        )
+        self.assertIn('preflight_phase=context', preflight)
 
     def test_resume_old_canonicalizes_legacy_healthcheck_before_start(self) -> None:
         resume = self.script("resume-old.sh")

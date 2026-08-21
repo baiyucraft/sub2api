@@ -5,7 +5,6 @@ deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 minimum_free_bytes=${MINIMUM_FREE_BYTES:-10737418240}
 canary_key_file=${CANARY_KEY_FILE:-/root/.config/sub2api-release/canary-api-key}
-source /opt/sub2api/releases/.active-release/assets/context.sh
 preflight_phase=identity
 failure_line=0
 preflight_failure_file="$release_dir/preflight-failure"
@@ -25,6 +24,8 @@ record_preflight_result() {
 }
 trap 'failure_line=$LINENO' ERR
 trap record_preflight_result EXIT
+preflight_phase=context
+source /opt/sub2api/releases/.active-release/assets/context.sh
 [[ ! -e $release_dir/.consumed ]]
 [[ -f $canary_key_file && ! -L $canary_key_file && $(stat -c '%a' "$canary_key_file") == 600 ]]
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
