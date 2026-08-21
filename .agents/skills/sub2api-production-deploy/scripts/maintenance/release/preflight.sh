@@ -4,13 +4,16 @@ set -Eeuo pipefail
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 minimum_free_bytes=${MINIMUM_FREE_BYTES:-10737418240}
-canary_key_file=${CANARY_KEY_FILE:-/root/.config/sub2api-release/canary-api-key}
 preflight_phase=identity
 failure_line=0
 preflight_failure_file="$release_dir/preflight-failure"
+candidate_plan_tmp=
+candidate_override_tmp=
 record_preflight_result() {
   local code=$?
   trap - ERR EXIT
+  [[ -z $candidate_plan_tmp ]] || rm -f -- "$candidate_plan_tmp"
+  [[ -z $candidate_override_tmp ]] || rm -f -- "$candidate_override_tmp"
   if [[ $code -eq 0 ]]; then
     rm -f "$preflight_failure_file"
   else
@@ -27,7 +30,6 @@ trap record_preflight_result EXIT
 preflight_phase=context
 source /opt/sub2api/releases/.active-release/assets/context.sh
 [[ ! -e $release_dir/.consumed ]]
-[[ -f $canary_key_file && ! -L $canary_key_file && $(stat -c '%a' "$canary_key_file") == 600 ]]
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
 cd "$deploy_dir"
 preflight_phase=active_runtime
@@ -78,6 +80,30 @@ if [[ $manifest_schema == 2 ]]; then
   compose_network_mode=$(sub2api_compose_network_mode "$compose_json" "$active_port")
   assert_sub2api_healthcheck_contract "$compose_json" "$compose_network_mode" "$active_port" active_compat
   assert_sub2api_runtime_contract "$active_container" "$pre_image_id" "$compose_network_mode" "$active_port" active_compat
+  candidate_plan_tmp=$(mktemp "$release_dir/production-candidate-plan.XXXXXX")
+  candidate_override_tmp=$(mktemp "$release_dir/production-candidate-compose.XXXXXX")
+  {
+    printf 'services:\n  sub2api:\n    image: %s\n' "$candidate_image_id"
+    if [[ $compose_network_mode == host ]]; then
+      printf '    environment:\n      SERVER_HOST: 127.0.0.1\n      SERVER_PORT: "%s"\n' "$active_port"
+    else
+      printf '    environment:\n      SERVER_HOST: 0.0.0.0\n      SERVER_PORT: "8080"\n'
+    fi
+  } > "$candidate_override_tmp"
+  chmod 600 "$candidate_plan_tmp" "$candidate_override_tmp"
+  candidate_compose_args=("${release_compose_args[@]}" -f "$candidate_override_tmp")
+  docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$candidate_plan_tmp"
+  jq -e 'type == "object" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$candidate_plan_tmp" >/dev/null
+  candidate_pending_names=$(jq -r '.pending | map(.filename) | sort | join(",")' "$candidate_plan_tmp")
+  candidate_pending_checksums=$(jq -r '[.pending | sort_by(.filename, .checksum)[] | .checksum] | join(",")' "$candidate_plan_tmp")
+  candidate_catalog_sha256=$(jq -er '.catalog_sha256' "$candidate_plan_tmp")
+  candidate_checksum_policy_sha256=$(jq -er '.checksum_policy_sha256' "$candidate_plan_tmp")
+  candidate_plan_pending_count=$(jq -er '.pending | length' "$candidate_plan_tmp")
+  printf 'candidate_pending_names=%s\n' "$candidate_pending_names"
+  printf 'candidate_pending_checksums=%s\n' "$candidate_pending_checksums"
+  printf 'candidate_catalog_sha256=%s\n' "$candidate_catalog_sha256"
+  printf 'candidate_checksum_policy_sha256=%s\n' "$candidate_checksum_policy_sha256"
+  printf 'candidate_plan_pending_count=%s\n' "$candidate_plan_pending_count"
   pending_count=$(jq -er '.evidence.migration_evidence.pending | length' "$active_claim/gate.json")
   preflight_phase=completed
   printf 'preflight=pass\n'
