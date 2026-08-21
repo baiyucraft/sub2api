@@ -1514,7 +1514,28 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertNotIn("$profile == 241 || $profile == 242", switch)
         self.assertIn("if [[ $manifest_schema == 2 ]]; then", switch)
         self.assertIn(".evidence.migration_evidence.pending", switch)
-        self.assertIn('getattr(self, "profile", {}).get("name") in {"241", "242"}', production)
+        self.assertIn('getattr(self, "profile", {}).get("name") in {"241"}:', production)
+        self.assertNotIn('getattr(self, "profile", {}).get("name") in {"241", "242"}:\n            for number in (242, 243, 244, 245)', production)
+
+    def test_profile_242_switch_allowlist_matches_gate_v2_stdout_contract(self) -> None:
+        switch = self.script("switch.sh")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        switch_method = production[production.index("    def switch(self)"):production.index("    def verify_and_finalize(self)")]
+        # Gate v2 switch.sh emits this stable core plus the prompt-audit
+        # not-applicable fields.  Keep the Python allowlist exactly aligned.
+        for field in (
+            "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
+            "candidate_container", "candidate_port", "active_container", "active_port",
+            "background_activation", "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
+        ):
+            self.assertIn(f'"{field}"', switch_method)
+        for number in (242, 243, 244, 245):
+            for suffix in ("schema_state", "schema_verified", "preflight", "postflight"):
+                self.assertNotIn(f'"migration_{number}_{suffix}"', switch_method)
+        # The shell must remain on the v2 path and must not grow legacy
+        # migration-status output for profile 242.
+        self.assertIn("if [[ $manifest_schema == 2 ]]; then", switch)
+        self.assertNotIn("printf 'migration_242_", switch)
 
     def test_profile_242_preflight_validates_candidate_plan_before_switch(self) -> None:
         preflight = self.script("preflight.sh")

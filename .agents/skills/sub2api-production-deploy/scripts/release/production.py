@@ -1140,7 +1140,11 @@ exit "$code"
                 "migration_241_preflight",
                 "migration_241_postflight",
             })
-        if getattr(self, "profile", {}).get("name") in {"241", "242"}:
+        # Profile 242 uses Gate v2 and its switch script emits only the v2
+        # contract.  The legacy 242-245 migration fields belong exclusively
+        # to historical profile 241; requiring them for profile 242 turns a
+        # successful runtime switch into a false missing-field failure.
+        if getattr(self, "profile", {}).get("name") in {"241"}:
             for number in (242, 243, 244, 245):
                 allowed.update({
                     f"migration_{number}_schema_state",
