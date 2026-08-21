@@ -203,9 +203,6 @@ frontend_browser_smoke: pass | fail | not_required | not_checked
 failure_stage: value | none
 migration_committed: true | false | unknown | not_applicable
 recovery_branch: resume-old | coordinated-data-restore | blocked_reconciliation | not_applicable
-canary_attempts_direct: value | not_checked
-canary_attempts_dmit: value | not_checked
-canary_timeout_classification: none | transient | candidate_failure | link_failure | unknown
 active_claim_final_state: consumed | recovered | active | absent | not_applicable | not_checked
 ```
 
