@@ -146,7 +146,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result
 
 runner 长时间没有控制台输出时不得重复启动或凭沉默判定卡死。先按 [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md) 的“长时间无输出诊断”只读检查进程和结构化状态文件。最终成功必须同时满足签名 Gate 已验证，`production-result.json` 的 `stage` 为 `production_verified` 或 `production_verified_after_reconciliation` 且顶层 `status=verified`，并且 `verify-result` 通过。正式 `reconcile --mode recover` 当前只覆盖切换前 claim-only 恢复；其他分支必须保持 `blocked_reconciliation`。
 
-前台工具超时不等于 runner 退出。`deploy-start` 使用独立后台进程，在 `.tmp/` 原子记录 PID 启动 token、release ID、stdout/stderr 相对路径和 runner checksum；后续只跟踪该 PID 和结构化状态，禁止再次执行 `deploy`。当前生产 runner 不执行模型流式 Canary，不读取 Canary 凭据，也不生成 Canary usage attribution；它只执行 direct/DMIT `/health`、candidate health、迁移、备份、镜像和恢复合同。`blocked_reconciliation` 必须按恢复 reference 分层诊断。完整生命周期见 [release-runner-lifecycle.md](references/release-runner-lifecycle.md)。
+前台工具超时不等于 runner 退出。`deploy-start` 使用独立后台进程，在 `.tmp/` 原子记录 PID 启动 token、release ID、stdout/stderr 相对路径和 runner checksum；后续只跟踪该 PID 和结构化状态，禁止再次执行 `deploy`。生产升级不需要、也不得依赖账号池、Canary、模型调用或任何 upstream 探针：不读取 Canary 凭据，不发送模型请求，不生成 usage attribution，流式能力统一记录为 `not_checked`，即使没有可用账号也不得因此阻塞 Docker 镜像升级。direct/DMIT `/health` 与容器 health 仅用于确认 Docker 容器已启动、路由可达；它们不是模型探针，也不表示模型能力已验证。迁移、备份、镜像完整性和协调恢复合同仍然适用。`blocked_reconciliation` 必须按恢复 reference 分层诊断。完整生命周期见 [release-runner-lifecycle.md](references/release-runner-lifecycle.md)。
 
 Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资产、migration checksum、candidate archive checksum 和 image ID。生产端必须再次验签并从 Gate 派生镜像身份，禁止用环境变量覆盖。
 

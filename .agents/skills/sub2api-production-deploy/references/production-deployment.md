@@ -152,7 +152,7 @@ preflight 或 postflight 任一不通过，禁止部分迁移和继续启动；�
 
 只通过 direct 而未通过 DMIT，不能报告“生产完全健康”。
 
-当前 production runner 不执行模型流式 Canary；流式响应、usage attribution 和真实 IP 归因必须明确记录 `not_checked`。仍需执行 direct/DMIT `/health`、candidate health、迁移、备份、配置不变量和恢复合同，不能把容器启动等同于流式能力通过。
+当前 production runner 不执行、也不得把任何账号池、Canary、模型调用或 upstream 探针作为升级条件；流式响应、usage attribution 和真实 IP 归因必须明确记录 `not_checked`，没有可用账号不得阻塞 Docker 镜像升级。direct/DMIT `/health` 与 candidate container health 只确认容器已启动、公开路由可达，不是模型探针，也不能被表述为流式能力通过。迁移、备份、配置不变量和恢复合同仍然适用。
 
 ## 业务语义验收
 
@@ -166,7 +166,7 @@ preflight 或 postflight 任一不通过，禁止部分迁移和继续启动；�
 
 断言必须输出字段白名单中的布尔值、计数、状态或 checksum，不输出账号名、Key、凭据、原始行或完整响应。只有发布计划已包含写操作并获得确认时，才允许为验收主动触发同步或写入；否则报告 `not_checked`，不能暗中制造测试数据。
 
-不兼容 migration 的 schema、数据重算、绑定、倍率、scheduler 和 outbox 不变量必须在保持停写、公开流量尚未恢复时验证；失败可直接进入既定协调恢复。恢复流量后的断言只覆盖真实链路、Canary、后台任务和最新同步等运行态行为。
+不兼容 migration 的 schema、数据重算、绑定、倍率、scheduler 和 outbox 不变量必须在保持停写、公开流量尚未恢复时验证；失败可直接进入既定协调恢复。恢复流量后的断言只覆盖 direct/DMIT `/health`、后台任务和最新同步等运行态行为；模型与 upstream 能力保持 `not_checked`。
 
 恢复流量后的业务断言失败时，先立即重新停写并统计恢复流量后产生的新写入，再判断是当前发布回归、既有数据异常还是验收查询错误。此时禁止直接恢复迁移前数据库；必须明确选择前向修复，或制定包含新增写入核对、保留或补偿的数据恢复方案。无法证明来源时保持停写并报告 `blocked_reconciliation`。全部业务断言通过后再次运行同 profile、同完整 commit 的 `doctor`，要求 migration 状态、备份协议、VM/RackNerd/DMIT 和外部路径仍通过。
 
