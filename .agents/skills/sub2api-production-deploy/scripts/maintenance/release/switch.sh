@@ -213,7 +213,9 @@ if [[ $manifest_schema == 2 ]]; then
       actual_policy=$(jq -er '.checksum_policy_sha256' "$execution_plan_tmp")
     fi
     if [[ $plan_valid == true && $actual_pending == "$expected_pending" && $actual_catalog == "$expected_catalog" && $actual_policy == "$expected_policy" ]]; then
-      chmod 600 "$execution_plan_tmp"
+      # The migration runner drops privileges to the application user. Keep
+      # the verified plan root-owned and read-only, but readable by that user.
+      chmod 444 "$execution_plan_tmp"
       mv -T -- "$execution_plan_tmp" "$execution_plan"
       plan_verified=true
       break
