@@ -9,11 +9,13 @@ failure_line=0
 preflight_failure_file="$release_dir/preflight-failure"
 candidate_plan_tmp=
 candidate_override_tmp=
+candidate_plan_stderr=
 record_preflight_result() {
   local code=$?
   trap - ERR EXIT
   [[ -z $candidate_plan_tmp ]] || rm -f -- "$candidate_plan_tmp"
   [[ -z $candidate_override_tmp ]] || rm -f -- "$candidate_override_tmp"
+  [[ -z $candidate_plan_stderr ]] || rm -f -- "$candidate_plan_stderr"
   if [[ $code -eq 0 ]]; then
     rm -f "$preflight_failure_file"
   else
@@ -82,6 +84,7 @@ if [[ $manifest_schema == 2 ]]; then
   assert_sub2api_runtime_contract "$active_container" "$pre_image_id" "$compose_network_mode" "$active_port" active_compat
   candidate_plan_tmp=$(mktemp "$release_dir/production-candidate-plan.XXXXXX")
   candidate_override_tmp=$(mktemp "$release_dir/production-candidate-compose.XXXXXX")
+  candidate_plan_stderr=$(mktemp "$release_dir/production-candidate-plan-stderr.XXXXXX")
   {
     printf 'services:\n  sub2api:\n    image: %s\n' "$candidate_image_id"
     if [[ $compose_network_mode == host ]]; then
@@ -90,9 +93,9 @@ if [[ $manifest_schema == 2 ]]; then
       printf '    environment:\n      SERVER_HOST: 0.0.0.0\n      SERVER_PORT: "8080"\n'
     fi
   } > "$candidate_override_tmp"
-  chmod 600 "$candidate_plan_tmp" "$candidate_override_tmp"
+  chmod 600 "$candidate_plan_tmp" "$candidate_override_tmp" "$candidate_plan_stderr"
   candidate_compose_args=("${release_compose_args[@]}" -f "$candidate_override_tmp")
-  docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$candidate_plan_tmp"
+  docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$candidate_plan_tmp" 2> "$candidate_plan_stderr"
   jq -e 'type == "object" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$candidate_plan_tmp" >/dev/null
   candidate_pending_names=$(jq -r '.pending | map(.filename) | sort | join(",")' "$candidate_plan_tmp")
   candidate_pending_checksums=$(jq -r '[.pending | sort_by(.filename, .checksum)[] | .checksum] | join(",")' "$candidate_plan_tmp")
