@@ -152,7 +152,7 @@ preflight 或 postflight 任一不通过，禁止部分迁移和继续启动；�
 
 只通过 direct 而未通过 DMIT，不能报告“生产完全健康”。
 
-流式 Canary 的 `curl exit 28` 必须使用 [release-doctor-and-recovery.md](release-doctor-and-recovery.md) 的分层流程。只有候选 image、迁移、配置不变量、内部 health 和短时鉴权均通过时，才允许 direct/DMIT 各最多 3 次有限重试；每次使用唯一 marker。重试成功后仍要核验 usage、API Key、endpoint 和真实 IP，不能用重试成功掩盖此前未归因的写入。
+当前 production runner 不执行模型流式 Canary；流式响应、usage attribution 和真实 IP 归因必须明确记录 `not_checked`。仍需执行 direct/DMIT `/health`、candidate health、迁移、备份、配置不变量和恢复合同，不能把容器启动等同于流式能力通过。
 
 ## 业务语义验收
 

@@ -64,13 +64,13 @@ class DoctorTest(unittest.TestCase):
             doctor.run(("vm", "backup"))
         doctor.check_backup.assert_not_called()
 
-    def test_bootstrap_never_embeds_a_canary_secret(self) -> None:
+    def test_bootstrap_does_not_check_or_create_a_canary_key(self) -> None:
         runner = mock.Mock()
         runner.run.return_value.values = {"production_bootstrap": "true"}
         bootstrap_production("182", runner)
         scripts = "\n".join(call.args[1] for call in runner.run.call_args_list)
-        self.assertIn("SELECT key FROM api_keys", scripts)
-        self.assertNotRegex(scripts, r"sk-[A-Za-z0-9]{16}")
+        self.assertNotIn("SELECT key FROM api_keys", scripts)
+        self.assertNotIn("canary-api-key", scripts)
         self.assertNotIn("docker system prune", scripts)
         self.assertNotIn("install -o root -g root -m 644", scripts)
         self.assertNotIn("systemctl daemon-reload", scripts)

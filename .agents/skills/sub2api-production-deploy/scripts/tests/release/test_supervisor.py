@@ -231,6 +231,31 @@ class SupervisorTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "evidence is incomplete"):
                 supervisor.verify_result(argparse.Namespace(release_id=identifier))
 
+    def test_verify_result_accepts_health_only_release_evidence(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        self.minimum_release(identifier)
+        self.write(identifier, "runner.json", {"status": "verified", "pid": 123, "process_token": "token", "exit_code": 0})
+        self.write(identifier, "release-state.json", {"stage": "production_release", "status": "verified"})
+        image_id = "sha256:" + "b" * 64
+        evidence = {
+            "direct_health": "pass", "direct_route_health": "pass", "direct_streaming": "not_checked",
+            "dmit_route_health": "pass", "dmit_streaming": "not_checked",
+            "canary_usage_recorded": "not_checked", "real_client_ip": "not_checked", "final_health": "pass",
+            "dmit_final_health": "pass", "gate_consumed": "true", "plaintext_state_removed": "true",
+            "backup_units_restored": "true", "running_image_id": image_id,
+        }
+        self.write(identifier, "gate/production-result.json", {
+            "stage": "production_verified", "status": "verified",
+            "history": [{"stage": "production_verified", "evidence": evidence}],
+        })
+        document = {
+            "manifest": {"release_id": identifier, "profile": "198", "commit_sha": "a" * 40, "deployment_mode": "blue-green"},
+            "evidence": {"candidate_image_id": image_id},
+        }
+        with mock.patch.object(supervisor, "_runner_alive", return_value=False), mock.patch.object(supervisor, "verify_gate", return_value=document):
+            result = supervisor.verified_result_view(identifier)
+        self.assertEqual(result["status"], "verified")
+
     def test_claim_only_interruption_decision(self) -> None:
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"
         run_dir = self.minimum_release(identifier)

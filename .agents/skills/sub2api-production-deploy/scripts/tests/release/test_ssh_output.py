@@ -202,17 +202,6 @@ class SSHOutputTest(unittest.TestCase):
         result = self.runner(b"health=pass\n").run_with_input("vm", "read secret", {"health"}, b"secret\n")
         self.assertEqual(result.values, {"health": "pass"})
 
-    def test_canary_key_is_read_without_structured_output(self) -> None:
-        runner = object.__new__(SSHRunner)
-        runner.connect = lambda _name: FakeSFTPClient(b"sk-1234567890abcdef\n")
-        self.assertEqual(runner.read_canary_key(), b"sk-1234567890abcdef")
-
-    def test_canary_key_rejects_invalid_content(self) -> None:
-        runner = object.__new__(SSHRunner)
-        runner.connect = lambda _name: FakeSFTPClient(b"not-a-key")
-        with self.assertRaisesRegex(RuntimeError, "content is invalid"):
-            runner.read_canary_key()
-
     def test_rejects_non_structured_or_unknown_output(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "non-structured"):
             self.runner(b"hello\n").run("vm", "true", {"health"})

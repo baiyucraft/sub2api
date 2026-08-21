@@ -252,14 +252,13 @@ amd64 二进制必须匹配仓库内 `linux-amd64.sha256`，并与仓库 trust �
 操作端验签。
 
 生产 bootstrap 不得创建或替换信任根，也不得修改 systemd。它只创建缺失的发布状态
-目录和固定 Canary 文件，并核验信任根、Canary 与数据库、备份全局锁；已有资产内容
+目录，并核验信任根、现有应用健康、Nginx 和备份全局锁；不检查账号池或 Canary 凭据；已有资产内容
 不一致时必须停止。
 
 `vm-validate` 会在 VM 缺少 `jq` 时通过 `apt-get` 安装该单一依赖，并更新仓库内版本对应的 validator；不会升级其他系统包。
 
-发布要求 RackNerd 已存在权限为 `0600` 的
-`/root/.config/sub2api-release/canary-api-key`。该文件不由仓库保存，也不会写入
-命令行、stdout、Gate 或状态文件。
+发布不读取 Canary key，也不发送模型请求。流式响应与 usage attribution 明确记录为
+`not_checked`，不会因为账号池没有可用账号而阻塞 Docker 镜像升级。
 
 `.release.lock` 使用操作系统文件锁，文件本身会长期保留；只有实际持锁进程会阻止并发发布。`status` 是白名单投影，`wait` 超时不会 kill；runner 异常退出后先执行 `reconcile-inspect`，禁止手工删除 claim、marker 或重复 deploy。
 禁止删除 `.active-release`、`.consumed` 或 `.recovered` 来强行重试；不兼容迁移禁止 image-only rollback。

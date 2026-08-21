@@ -579,9 +579,9 @@ def verified_result_view(identifier: str) -> dict[str, Any]:
         raise RuntimeError("production result is not verified")
     evidence = _final_evidence(production)
     expected = {
-        "direct_health": "pass", "direct_route_health": "pass", "direct_streaming": "pass",
-        "dmit_route_health": "pass", "dmit_streaming": "pass",
-        "canary_usage_recorded": "true", "real_client_ip": "pass", "final_health": "pass",
+        "direct_health": "pass", "direct_route_health": "pass", "direct_streaming": "not_checked",
+        "dmit_route_health": "pass", "dmit_streaming": "not_checked",
+        "canary_usage_recorded": "not_checked", "real_client_ip": "not_checked", "final_health": "pass",
         "dmit_final_health": "pass", "gate_consumed": "true", "plaintext_state_removed": "true",
         "backup_units_restored": "true",
     }

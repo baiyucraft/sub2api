@@ -574,7 +574,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.remote_gate_consumed = mock.Mock(return_value=False)
         release.upload_assets = mock.Mock()
         release.preflight = mock.Mock()
-        release.verify_streaming_routes = mock.Mock()
+        release.verify_public_health_routes = mock.Mock()
         release.freeze = mock.Mock(side_effect=lambda: setattr(release, "frozen", True))
         release.migration_preflight = mock.Mock()
         release.backup = mock.Mock()
@@ -599,7 +599,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.remote_gate_consumed = mock.Mock(return_value=False)
         release.upload_assets = mock.Mock()
         release.preflight = mock.Mock()
-        release.verify_streaming_routes = mock.Mock()
+        release.verify_public_health_routes = mock.Mock()
         release.freeze = mock.Mock()
         release.migration_preflight = mock.Mock()
         release.backup = mock.Mock()
@@ -872,6 +872,34 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIsNone(release.remote_units_masked())
 
 
+class PublicHealthOnlyTest(unittest.TestCase):
+    def test_public_route_check_never_reads_credentials_or_sends_model_request(self) -> None:
+        release = object.__new__(ProductionRelease)
+        release.profile = {
+            "public_domain": "example.test",
+            "rack_public_ip": "192.0.2.1",
+            "dmit_public_ip": "192.0.2.2",
+        }
+        release.stage = mock.Mock()
+        release.run_remote = mock.Mock(side_effect=[
+            {"route_health": "pass", "http_code": "200", "streaming": "not_checked"},
+            {"route_health": "pass", "http_code": "200", "streaming": "not_checked"},
+        ])
+        release.run_remote_with_input = mock.Mock(side_effect=AssertionError("model request must not run"))
+
+        direct, dmit = release.verify_public_health_routes("pre_switch")
+
+        self.assertEqual(direct["streaming"], "not_checked")
+        self.assertEqual(dmit["streaming"], "not_checked")
+        release.run_remote_with_input.assert_not_called()
+        self.assertEqual(release.run_remote.call_count, 2)
+
+    def test_release_bundle_excludes_legacy_route_canary_asset(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        self.assertIn('path.name != "route-canary.sh"', production)
+
+
+@unittest.skip("model Canary probes are intentionally removed from production release")
 class RouteCanaryRetryTest(unittest.TestCase):
     def release(self, responses: list[dict[str, str]]) -> ProductionRelease:
         instance = object.__new__(ProductionRelease)
@@ -954,7 +982,7 @@ class RouteCanaryRetryTest(unittest.TestCase):
         release.stage = mock.Mock()
         direct_agents = ["sub2api-release-direct-attempt-1-direct", "sub2api-release-direct-attempt-2-direct"]
         dmit_agents = ["sub2api-release-dmit-attempt-1-dmit", "sub2api-release-dmit-attempt-2-dmit"]
-        release.verify_streaming_routes = mock.Mock(return_value=(
+        release.verify_public_health_routes = mock.Mock(return_value=(
             {
                 "route_health": "pass",
                 "streaming": "pass",
@@ -1994,12 +2022,14 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertNotIn("DMIT_IP", finalize)
         self.assertNotIn("dmit_health", verify)
 
+    @unittest.skip("model Canary probes are intentionally removed from production release")
     def test_route_canary_reads_secret_from_stdin(self) -> None:
         script = self.script("route-canary.sh")
         self.assertIn("IFS= read -r api_key", script)
         self.assertNotIn("CANARY_KEY_FILE", script)
         self.assertIn("ROUTE_IP", script)
 
+    @unittest.skip("model Canary probes are intentionally removed from production release")
     def test_route_canary_classifies_only_timeout_and_gateway_errors_as_retryable(self) -> None:
         script = self.script("route-canary.sh")
         self.assertIn("$curl_exit == 28", script)
@@ -2009,17 +2039,20 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn("canary_status=pass", script)
         self.assertIn("curl_exit=%s", script)
 
+    @unittest.skip("model Canary probes are intentionally removed from production release")
     def test_route_canary_runtime_classifies_timeout_as_retryable(self) -> None:
         values = self.run_route_canary(stream_exit=28, stream_code="200", stream_body="")
         self.assertEqual(values["canary_status"], "retryable")
         self.assertEqual(values["curl_exit"], "28")
         self.assertEqual(values["http_code"], "200")
 
+    @unittest.skip("model Canary probes are intentionally removed from production release")
     def test_route_canary_runtime_rejects_missing_sse_without_retry(self) -> None:
         values = self.run_route_canary(stream_exit=0, stream_code="200", stream_body="plain response")
         self.assertEqual(values["canary_status"], "failed")
         self.assertEqual(values["streaming"], "fail")
 
+    @unittest.skip("model Canary probes are intentionally removed from production release")
     def test_route_canary_runtime_accepts_streaming_response(self) -> None:
         values = self.run_route_canary(stream_exit=0, stream_code="200", stream_body="data: ok")
         self.assertEqual(values["canary_status"], "pass")
