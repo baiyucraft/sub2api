@@ -1542,6 +1542,12 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('actual_pending_sha256=', switch)
         self.assertIn('[[ $plan_verified == true ]]', switch)
 
+    def test_profile_242_migration_plan_is_readable_by_non_root_runner(self) -> None:
+        switch = self.script("switch.sh")
+        self.assertIn('chmod 444 "$execution_plan_tmp"', switch)
+        self.assertIn('-v "$execution_plan:/input/migration-plan.json:ro"', switch)
+        self.assertNotIn('chmod 600 "$execution_plan_tmp"', switch)
+
     def test_backup_unit_restore_captures_stderr_without_widening_allowlist(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         self.assertIn("def restore_backup_units", production)
