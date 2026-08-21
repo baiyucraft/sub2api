@@ -894,10 +894,6 @@ class PublicHealthOnlyTest(unittest.TestCase):
         release.run_remote_with_input.assert_not_called()
         self.assertEqual(release.run_remote.call_count, 2)
 
-    def test_release_bundle_excludes_legacy_route_canary_asset(self) -> None:
-        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
-        self.assertIn('path.name != "route-canary.sh"', production)
-
 
 @unittest.skip("model Canary probes are intentionally removed from production release")
 class RouteCanaryRetryTest(unittest.TestCase):

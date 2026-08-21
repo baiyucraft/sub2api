@@ -329,7 +329,7 @@ exit "$code"
             "candidate.tar.gz": self.gate_dir / "candidate.tar.gz",
         }
         for path in sorted(MAINTENANCE_ROOT.glob("*")):
-            if path.is_file() and path.name != "route-canary.sh":
+            if path.is_file():
                 files[f"assets/{path.name}"] = path
         for name in ("mask-backup-units.sh", "restore-backup-units.sh"):
             files[f"assets/{name}"] = UNIT_ROOT / name
