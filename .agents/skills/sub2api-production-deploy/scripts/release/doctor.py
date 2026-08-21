@@ -140,8 +140,6 @@ test -d /opt/sub2api/releases && test ! -L /opt/sub2api/releases
 test -d /opt/sub2api/backups/release-state && test ! -L /opt/sub2api/backups/release-state
 test -f /opt/sub2api-release-trust/vm-gate-ed25519.pub
 test "$(sha256sum /opt/sub2api-release-trust/vm-gate-ed25519.pub | awk '{{print $1}}')" = {trust_sha}
-test -f /root/.config/sub2api-release/canary-api-key && test ! -L /root/.config/sub2api-release/canary-api-key
-test "$(stat -c '%a' /root/.config/sub2api-release/canary-api-key)" = 600
 test ! -e /opt/sub2api/releases/.active-release && test ! -L /opt/sub2api/releases/.active-release
 active_slot=/opt/sub2api/active-app
 test -f "$active_slot" && test ! -L "$active_slot"

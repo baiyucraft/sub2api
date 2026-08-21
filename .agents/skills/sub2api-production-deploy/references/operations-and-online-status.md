@@ -191,7 +191,7 @@ candidate 已上传不等于 verified。
 | 备份成功但无 Healthchecks | 外部告警不完整 | 如实报告，不伪装成完整监控 |
 | 旧快照健康但本次无法连接 | `unknown/stale` | 重新建立观测，不继承旧结论 |
 | VM 磁盘不足 | `degraded/failed` | 停止构建或导入，不执行 prune 破坏性清理 |
-| 流式 Canary `curl 28`，内部健康 | `reconciliation_required` | 关闭公开入口，按内部/direct/DMIT/usage 分层诊断，满足前提时有限重试 |
+| 流式能力未验证，内部健康 | `not_checked` | 不发送模型请求；继续按 health、迁移、备份和恢复合同判断发布 |
 | 发布动作可能成功但 stdout 解析失败 | `unknown` | 从 marker 和现场状态重建事实，修复 allowlist 合同后再继续 |
 | active claim 存在且 runner 已退出 | `blocked_reconciliation` | 不重跑 deploy、不删 marker；继续同候选验收或协调恢复并原子收口 |
 

@@ -146,7 +146,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result
 
 runner 长时间没有控制台输出时不得重复启动或凭沉默判定卡死。先按 [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md) 的“长时间无输出诊断”只读检查进程和结构化状态文件。最终成功必须同时满足签名 Gate 已验证，`production-result.json` 的 `stage` 为 `production_verified` 或 `production_verified_after_reconciliation` 且顶层 `status=verified`，并且 `verify-result` 通过。正式 `reconcile --mode recover` 当前只覆盖切换前 claim-only 恢复；其他分支必须保持 `blocked_reconciliation`。
 
-前台工具超时不等于 runner 退出。`deploy-start` 使用独立后台进程，在 `.tmp/` 原子记录 PID 启动 token、release ID、stdout/stderr 相对路径和 runner checksum；后续只跟踪该 PID 和结构化状态，禁止再次执行 `deploy`。Canary `curl exit 28`、公开后失败或 `blocked_reconciliation` 必须按恢复 reference 分层诊断，不能直接认定候选故障或跳过双链路验收。完整生命周期见 [release-runner-lifecycle.md](references/release-runner-lifecycle.md)。
+前台工具超时不等于 runner 退出。`deploy-start` 使用独立后台进程，在 `.tmp/` 原子记录 PID 启动 token、release ID、stdout/stderr 相对路径和 runner checksum；后续只跟踪该 PID 和结构化状态，禁止再次执行 `deploy`。当前生产 runner 不执行模型流式 Canary，不读取 Canary 凭据，也不生成 Canary usage attribution；它只执行 direct/DMIT `/health`、candidate health、迁移、备份、镜像和恢复合同。`blocked_reconciliation` 必须按恢复 reference 分层诊断。完整生命周期见 [release-runner-lifecycle.md](references/release-runner-lifecycle.md)。
 
 Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资产、migration checksum、candidate archive checksum 和 image ID。生产端必须再次验签并从 Gate 派生镜像身份，禁止用环境变量覆盖。
 
@@ -205,7 +205,7 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 
 ## 失败即停止
 
-构建、空间、镜像 ID、传输 SHA-256、VM 连接边界、迁移恢复、备份复制、TLS、健康、认证、流式响应或真实 IP 任一断言失败，都不得继续生产切换。容器能启动不等于发布或回滚成功。
+构建、空间、镜像 ID、传输 SHA-256、VM 连接边界、迁移恢复、备份复制、TLS、健康、认证或真实 IP 任一断言失败，都不得继续生产切换。流式模型请求本次明确为 `not_checked`，不得将其写成通过。容器能启动不等于发布或回滚成功。
 
 ### 灾备发布硬门禁
 
