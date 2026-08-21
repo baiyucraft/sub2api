@@ -1651,11 +1651,11 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         switch = self.script("switch.sh")
         output_section = switch[switch.index("printf 'migration_verified=true\\n'"):]
         self.assertIn(
-            "if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then",
+            "if [[ $release_profile == 238 || $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then",
             output_section,
         )
         self.assertIn(
-            "if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 || $release_profile == 242 ]]; then",
+            "if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then",
             output_section,
         )
         self.assertIn('"$assets_dir/migration-237-assert.sh" postflight', output_section)
@@ -1698,10 +1698,13 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertNotIn("key='admin_api_key'", validator)
         self.assertNotIn("/api/v1/admin/users", validator)
 
-    def test_profile_242_switch_inherits_profile_241_lineage(self) -> None:
+    def test_profile_242_switch_uses_gate_v2_without_legacy_state_files(self) -> None:
         switch = self.script("switch.sh")
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
-        self.assertIn("$release_profile == 241 || $release_profile == 242", switch)
+        self.assertNotIn("$release_profile == 241 || $release_profile == 242", switch)
+        self.assertNotIn("$profile == 241 || $profile == 242", switch)
+        self.assertIn("if [[ $manifest_schema == 2 ]]; then", switch)
+        self.assertIn(".evidence.migration_evidence.pending", switch)
         self.assertIn('getattr(self, "profile", {}).get("name") in {"241", "242"}', production)
 
     def test_backup_unit_restore_captures_stderr_without_widening_allowlist(self) -> None:
