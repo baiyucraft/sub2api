@@ -31,6 +31,7 @@ BACKUP_PROMOTION_RETRY_DELAYS = (5, 15, 30, 60, 120)
 BACKUP_PROMOTION_STAGING_RETRY_DELAYS = (5, 15, 30)
 BACKUP_RESULT_RECONCILE_RETRY_DELAYS = (2, 5, 10, 20)
 BACKUP_GENERATION_UPLOAD_RETRY_DELAYS = (5, 15)
+STAGE_BUNDLE_UPLOAD_RETRY_DELAYS = (5, 15, 30)
 STAGE_BUNDLE_NAME = "stage-assets.tar"
 
 
@@ -337,7 +338,22 @@ exit "$code"
         local_bundle = self.gate_dir.parent / STAGE_BUNDLE_NAME
         bundle_sha256 = write_stage_bundle(local_bundle, files)
         remote_bundle = f"{stage_dir}/{STAGE_BUNDLE_NAME}"
-        self.runner.upload_file("racknerd", local_bundle, remote_bundle, 0o400)
+        upload_error: BaseException | None = None
+        for delay in (0, *STAGE_BUNDLE_UPLOAD_RETRY_DELAYS):
+            if delay:
+                time.sleep(delay)
+            try:
+                # The destination is still inside the uncommitted temporary
+                # stage directory.  Retrying the same path is safe: the
+                # following remote checksum and atomic rename are the commit
+                # boundary for the release directory.
+                self.runner.upload_file("racknerd", local_bundle, remote_bundle, 0o400)
+                upload_error = None
+                break
+            except BaseException as error:
+                upload_error = error
+        if upload_error is not None:
+            raise upload_error
         self.run_remote(
             "racknerd",
             f"test ! -e {shlex.quote(self.release_dir)} && test \"$(sha256sum {shlex.quote(remote_bundle)} | awk '{{print $1}}')\" = {bundle_sha256} && tar --extract --file {shlex.quote(remote_bundle)} --directory {shlex.quote(stage_dir)} --no-same-owner --no-same-permissions && rm -f -- {shlex.quote(remote_bundle)} && (cd {shlex.quote(stage_dir)} && test \"$(find . -type l -print -quit)\" = '' && sha256sum -c ASSET_SHA256SUMS >/dev/null) && chmod 700 {shlex.quote(stage_dir + '/assets')} && find {shlex.quote(stage_dir + '/assets')} -maxdepth 1 -type f -name '*.sh' -exec chmod 700 {{}} + && find {shlex.quote(stage_dir)} -maxdepth 1 -type f -exec chmod 400 {{}} + && mv -T -- {shlex.quote(stage_dir)} {shlex.quote(self.release_dir)} && printf 'release_directory_created=true\\n'",
