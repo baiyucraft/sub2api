@@ -182,7 +182,7 @@ if [[ $manifest_schema == 2 ]]; then
   execution_plan_tmp="$execution_plan.tmp.$$"
   docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$execution_plan_tmp"
   jq -e 'type == "object" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$execution_plan_tmp" >/dev/null
-  [[ $(jq -c '.pending | map({filename,checksum})' "$execution_plan_tmp") == $(jq -c '.evidence.migration_evidence.pending | map({filename,checksum})' "$active_claim/gate.json") ]]
+  [[ $(jq -c '.pending | map({filename,checksum}) | sort_by(.filename, .checksum)' "$execution_plan_tmp") == $(jq -c '.evidence.migration_evidence.pending | map({filename,checksum}) | sort_by(.filename, .checksum)' "$active_claim/gate.json") ]]
   [[ $(jq -er '.catalog_sha256' "$execution_plan_tmp") == $(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json") ]]
   [[ $(jq -er '.checksum_policy_sha256' "$execution_plan_tmp") == $(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json") ]]
   chmod 600 "$execution_plan_tmp"
