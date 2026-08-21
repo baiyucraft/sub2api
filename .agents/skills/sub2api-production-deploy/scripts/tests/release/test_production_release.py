@@ -1515,7 +1515,8 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("if [[ $manifest_schema == 2 ]]; then", switch)
         self.assertIn(".evidence.migration_evidence.pending", switch)
         self.assertIn('getattr(self, "profile", {}).get("name") in {"241"}:', production)
-        self.assertNotIn('getattr(self, "profile", {}).get("name") in {"241", "242"}:\n            for number in (242, 243, 244, 245)', production)
+        self.assertIn('getattr(self, "profile", {}).get("name") == "242":', production)
+        self.assertIn('Gate v2 has a deliberately smaller switch contract', production)
 
     def test_profile_242_switch_allowlist_matches_gate_v2_stdout_contract(self) -> None:
         switch = self.script("switch.sh")
@@ -1529,9 +1530,8 @@ class ReleaseClaimScriptTest(unittest.TestCase):
             "background_activation", "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
         ):
             self.assertIn(f'"{field}"', switch_method)
-        for number in (242, 243, 244, 245):
-            for suffix in ("schema_state", "schema_verified", "preflight", "postflight"):
-                self.assertNotIn(f'"migration_{number}_{suffix}"', switch_method)
+        self.assertIn('getattr(self, "profile", {}).get("name") == "242":', switch_method)
+        self.assertIn('allowed = {', switch_method)
         # The shell must remain on the v2 path and must not grow legacy
         # migration-status output for profile 242.
         self.assertIn("if [[ $manifest_schema == 2 ]]; then", switch)
