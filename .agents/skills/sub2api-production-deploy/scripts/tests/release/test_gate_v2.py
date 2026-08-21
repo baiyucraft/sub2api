@@ -109,7 +109,7 @@ class GateV2Test(unittest.TestCase):
             capture_output=True,
         )
 
-    def _verify(self) -> dict:
+    def _verify(self, *, allow_historical_runner: bool = False) -> dict:
         with (
             mock.patch("release.gate.validate_manifest_profile_contract"),
             mock.patch("release.gate.get_profile", return_value={}),
@@ -117,12 +117,23 @@ class GateV2Test(unittest.TestCase):
             mock.patch("release.gate.release_asset_checksums", return_value=self._assets()),
             mock.patch("release.gate.sha256_file", side_effect=self._asset_checksum),
         ):
-            return verify_gate(self.root, self.public_key, "242", accepted_schemas=frozenset({2}))
+            return verify_gate(
+                self.root,
+                self.public_key,
+                "242",
+                allow_historical_runner=allow_historical_runner,
+                accepted_schemas=frozenset({2}),
+            )
 
     def test_valid_empty_pending_round_trip(self) -> None:
         document = self._document()
         self._sign(document)
         self.assertEqual(self._verify(), document)
+
+    def test_historical_runner_is_allowed_only_for_recovery(self) -> None:
+        document = self._document()
+        self._sign(document)
+        self.assertEqual(self._verify(allow_historical_runner=True), document)
 
     def test_schema_tamper_is_rejected_before_dispatch(self) -> None:
         document = self._document()
