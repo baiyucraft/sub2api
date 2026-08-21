@@ -212,6 +212,14 @@ class SSHOutputTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unexpected stderr"):
             self.runner(b"health=pass\n", b"token=secret\n").run("vm", "true", {"health"})
 
+    def test_successful_remote_wrapper_does_not_promote_stderr_to_exit_97(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.release_id = "235-aaaaaaaaaaaa-1-deadbeef"
+        runner.deployment_mode = "downtime"
+        wrapped = runner._wrap_remote_raw_logging("racknerd", "printf 'health=pass\\n'; printf 'warning\\n' >&2", "0123456789abcdef")
+        self.assertNotIn("code=97", wrapped)
+        self.assertIn("stream=stderr exit=%s", wrapped)
+
     def test_temp_dir_rejects_path_outside_base(self) -> None:
         runner = self.runner(b"temp_dir=/tmp/escape\n")
         with self.assertRaisesRegex(RuntimeError, "invalid temporary"):

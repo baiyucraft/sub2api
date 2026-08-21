@@ -99,7 +99,7 @@ class ProductionRecoveryTest(unittest.TestCase):
     def test_quoted_env_quotes_shell_metacharacters(self) -> None:
         self.assertEqual(quoted_env({"VALUE": "a b;$(x)"}), "VALUE='a b;$(x)'")
 
-    def test_remote_raw_log_capture_is_root_only_and_preserves_stderr_failure(self) -> None:
+    def test_remote_raw_log_capture_is_root_only_and_keeps_stderr_out_of_protocol(self) -> None:
         release = object.__new__(ProductionRelease)
         release.release_dir = "/opt/sub2api/releases/235-aaaaaaaaaaaa-1-aaaaaaaa"
         release.result = {"stage": "backup"}
@@ -111,8 +111,9 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIn("install -d -m 700", wrapped)
         self.assertIn("root:root:700", wrapped)
         self.assertIn("root:root:600:1", wrapped)
-        self.assertIn("[[ $code -eq 0 && -s $stderr_tmp ]]", wrapped)
-        self.assertIn("code=97", wrapped)
+        self.assertIn("stderr is diagnostic output, not part of the structured machine protocol", wrapped)
+        self.assertNotIn("code=97", wrapped)
+        self.assertIn('cat "$stderr_tmp"', wrapped)
         self.assertIn("stage=backup", wrapped)
 
     def test_remote_raw_log_capture_rejects_unsafe_stage_name(self) -> None:
