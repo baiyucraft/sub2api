@@ -32,7 +32,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result
 - `doctor` 只读检查本地、VM、RackNerd、DMIT 和异地节点，输出字段白名单；失败时禁止进入发布。
 - `bootstrap-production` 只创建缺失的状态目录，并核验信任根、现有应用健康、Nginx 和备份全局锁；不检查账号池或 Canary 凭据，不修改 systemd、不构建、不迁移、不切换应用。已有资产内容不一致时停止。
 - `deploy-start` 是日常一键入口：预分配 release ID 后启动独立 worker；worker 先检查本地、VM 与外部节点，幂等 bootstrap RackNerd 后再检查 RackNerd，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。
-- worker 在停写前只执行 direct/DMIT `/health` 基线检查，不读取 Canary 凭据、不发送模型请求，也不产生 usage marker。流式模型请求本次发布明确记录为 `not_checked`；候选公开后仍必须验证 candidate health、迁移、备份和恢复合同。
+- worker 在停写前不读取账号池或 Canary 凭据，不发送模型请求，也不产生 usage marker。任何模型或 upstream 探针都不得成为 Docker 镜像升级条件；流式模型请求统一记录为 `not_checked`，没有可用账号不得阻塞升级。direct/DMIT `/health` 与 candidate health 仅确认容器启动和路由可达，并非模型探针；候选公开后仍必须验证迁移、备份和恢复合同。
 - 信任根首次安装仍单独使用 `bootstrap-trust`，人工核验公钥指纹；普通 bootstrap 和 deploy 不得创建或替换信任根。
 
 ### Claim 前资产阶段与瞬时 SSH 故障
@@ -169,7 +169,7 @@ profile 232 使用版本 `0.1.173-baiyu`，在 profile 215 后追加 216–232�
 
 ## 流式能力不在发布门禁内
 
-生产发布不发送模型请求，也不读取账号池或 Canary 凭据。流式响应、usage attribution 和真实 IP 归因在发布结果中统一记录为 `not_checked`，不因没有可用探针而阻塞 Docker 镜像升级。候选已经公开时，先执行 `emergency-close` 并确认 Nginx 恢复，再依次验证：
+生产发布不发送模型请求，也不读取账号池或 Canary 凭据。任何模型或 upstream 探针都不是发布条件；流式响应、usage attribution 和真实 IP 归因在发布结果中统一记录为 `not_checked`，不因没有可用账号而阻塞 Docker 镜像升级。候选已经公开时，先执行 `emergency-close` 并确认 Nginx 恢复，再依次验证：
 
 ```text
 signed image/迁移/业务不变量

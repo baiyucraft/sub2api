@@ -75,7 +75,7 @@ VM 唯一构建 candidate
   -> 在线保存 release state、持久 mask、协调恢复点和异地校验
   -> 唯一 migrate-only、备用端口候选启动
   -> Nginx upstream 原子切换与 graceful reload
-  -> direct/DMIT 双链路 canary、旧 SSE/WebSocket 最长排空 60 分钟
+  -> direct/DMIT 双链路 `/health`、旧 SSE/WebSocket 最长排空 60 分钟
   -> 旧 slot 停止后激活独占后台任务、恢复备份 units、消费 Gate
 ```
 

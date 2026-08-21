@@ -180,7 +180,13 @@ mark_switch_stage migration_started
 if [[ $manifest_schema == 2 ]]; then
   execution_plan="$state_dir/migration-plan.json"
   execution_plan_tmp="$execution_plan.tmp.$$"
-  docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$execution_plan_tmp"
+  migration_plan_stderr="$state_dir/migration-plan.stderr"
+  migration_plan_stderr_tmp="$migration_plan_stderr.tmp.$$"
+  [[ ! -e $migration_plan_stderr && ! -L $migration_plan_stderr ]]
+  : > "$migration_plan_stderr_tmp"
+  chmod 600 "$migration_plan_stderr_tmp"
+  mv -T -- "$migration_plan_stderr_tmp" "$migration_plan_stderr"
+  docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$execution_plan_tmp" 2> "$migration_plan_stderr"
   jq -e 'type == "object" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$execution_plan_tmp" >/dev/null
   [[ $(jq -c '.pending | map({filename,checksum}) | sort_by(.filename, .checksum)' "$execution_plan_tmp") == $(jq -c '.evidence.migration_evidence.pending | map({filename,checksum}) | sort_by(.filename, .checksum)' "$active_claim/gate.json") ]]
   [[ $(jq -er '.catalog_sha256' "$execution_plan_tmp") == $(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json") ]]
