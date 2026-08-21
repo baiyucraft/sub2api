@@ -60,7 +60,7 @@ if [[ $manifest_schema == 2 ]]; then
   [[ "$active_image" == "$(jq -er '.evidence.production_current_image_id' "$active_claim/gate.json")" ]]
   snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
   printf '%s' "$snapshot_rows" | jq -e 'type == "array"' >/dev/null
-  current_snapshot_sha=$(printf '%s' "$(jq -cn --arg image "$active_image" --argjson rows "$snapshot_rows" '{current_image_id:$image,schema_migrations:$rows}')" | sha256sum | awk '{print $1}')
+  current_snapshot_sha=$(printf '%s' "$(jq -cSn --arg image "$active_image" --argjson rows "$snapshot_rows" '{current_image_id:$image,schema_migrations:$rows}')" | sha256sum | awk '{print $1}')
   [[ "$current_snapshot_sha" == "$(jq -er '.evidence.production_snapshot_sha256' "$active_claim/gate.json")" ]]
   [[ $(jq -er '.evidence.catalog_sha256' "$active_claim/gate.json") == "$(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json")" ]]
   [[ $(jq -er '.evidence.checksum_policy_sha256' "$active_claim/gate.json") == "$(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json")" ]]

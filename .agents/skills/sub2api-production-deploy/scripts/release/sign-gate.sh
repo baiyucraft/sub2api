@@ -5,7 +5,7 @@ gate=${1:?gate path is required}
 signature=${2:?signature path is required}
 private_key=/opt/sub2api-release-signer/vm-gate-ed25519.pem
 # Legacy Gate v1 profile allowlist retained for audit/recovery assets:
-# (182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)
+# (182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242)
 [[ $(id -u) == 0 ]]
 unit_lock=${SUB2API_UNIT_LOCK_PATH:-/usr/local/libexec/.sub2api-release-unit.lock}
 if [[ ${SUB2API_HELPER_TEST_MODE:-false} == true ]]; then

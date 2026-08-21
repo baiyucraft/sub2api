@@ -283,6 +283,36 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertEqual(release.runner.upload_file.call_count, 2)
         self.assertEqual(release.stage.call_args_list[-1].args[0], "backup_verified")
 
+    def test_stage_bundle_upload_retries_before_remote_claim(self) -> None:
+        release = self.release()
+        with tempfile.TemporaryDirectory() as directory:
+            release.gate_dir = Path(directory)
+            (release.gate_dir / "gate.json").write_text("{}", encoding="utf-8")
+            (release.gate_dir / "gate.sig").write_bytes(b"sig")
+            (release.gate_dir / "candidate.tar.gz").write_bytes(b"candidate")
+            release.evidence = {"candidate_archive_sha256": "digest"}
+            release.manifest = {}
+            release.runner = mock.Mock()
+            release.runner.create_temp_dir.return_value = "/opt/sub2api/releases/.stage-test"
+            release.runner.upload_file.side_effect = [RuntimeError("temporary SFTP failure"), None]
+            release.run_remote = mock.Mock(side_effect=[
+                {"trust_key_verified": "true"},
+                {"release_directory_created": "true"},
+                {
+                    "prepared": "true",
+                    "candidate_image_id": release.image_id,
+                    "candidate_archive_sha256": "digest",
+                    "trust_key_sha256": "trust",
+                },
+            ])
+
+            with mock.patch.object(time, "sleep") as sleep:
+                release.upload_assets()
+
+            self.assertEqual(sleep.call_args_list, [mock.call(5)])
+            self.assertEqual(release.runner.upload_file.call_count, 2)
+            self.assertTrue(release.claimed)
+
     def test_backup_recovers_committed_result_after_lost_remote_reply(self) -> None:
         release = self.release()
         release.profile = {"minimum_backup_free_bytes": 1}
@@ -1053,6 +1083,13 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         context = self.script("context.sh")
         self.assertIn('grep -Fxq "release_id=$release_id" "$active_claim/release_id"', context)
 
+    def test_switch_canonicalizes_pending_migration_order_before_gate_compare(self) -> None:
+        switch = self.script("switch.sh")
+        self.assertIn(
+            "map({filename,checksum}) | sort_by(.filename, .checksum)",
+            switch,
+        )
+
     def test_activation_marker_uses_the_runtime_process_identity(self) -> None:
         compose = self.script("compose-contract.sh")
         switch = self.script("switch.sh")
@@ -1785,6 +1822,15 @@ exit \"${FAKE_STREAM_EXIT:-0}\"
         self.assertIn('assert_sub2api_runtime_contract "$active_container" "$pre_image_id" "$compose_network_mode" "$active_port" active_compat', preflight)
         self.assertIn('preflight_failure_phase=%s', preflight)
         self.assertIn('production_preflight_failed', production)
+        self.assertLess(
+            preflight.index("trap record_preflight_result EXIT"),
+            preflight.index('source /opt/sub2api/releases/.active-release/assets/context.sh'),
+        )
+        self.assertIn('preflight_phase=context', preflight)
+        self.assertIn(
+            "jq -cSn --arg image \"$active_image\" --argjson rows \"$snapshot_rows\"",
+            preflight,
+        )
 
     def test_resume_old_canonicalizes_legacy_healthcheck_before_start(self) -> None:
         resume = self.script("resume-old.sh")
