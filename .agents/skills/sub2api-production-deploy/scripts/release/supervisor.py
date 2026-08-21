@@ -740,9 +740,16 @@ printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_sta
 export RELEASE_DIR={release_dir}
 export STATE_ROOT=/opt/sub2api/backups/release-state
 export STATE_DIR={state_dir}
-/opt/sub2api/releases/.active-release/assets/restore-backup-units.sh
-/opt/sub2api/releases/.active-release/assets/cleanup-state.sh
-/opt/sub2api/releases/.active-release/assets/reconcile.sh
+stderr_file={release_dir}/reconcile.stderr
+if test -e "$stderr_file"; then
+  test -f "$stderr_file" && test ! -L "$stderr_file"
+else
+  install -m 600 /dev/null "$stderr_file"
+fi
+chmod 600 "$stderr_file"
+/opt/sub2api/releases/.active-release/assets/restore-backup-units.sh 2>>"$stderr_file"
+/opt/sub2api/releases/.active-release/assets/cleanup-state.sh 2>>"$stderr_file"
+/opt/sub2api/releases/.active-release/assets/reconcile.sh 2>>"$stderr_file"
 test -f {release_dir}/.recovered/marker
 test -f {release_dir}/.recovered/plaintext-cleaned
 test ! -e /opt/sub2api/releases/.active-release

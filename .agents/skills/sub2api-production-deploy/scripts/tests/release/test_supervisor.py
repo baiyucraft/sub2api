@@ -346,6 +346,8 @@ class SupervisorTest(unittest.TestCase):
         self.assertIn("restore-backup-units.sh", finish_command)
         self.assertIn("cleanup-state.sh", finish_command)
         self.assertIn("reconcile.sh", finish_command)
+        self.assertIn("reconcile.stderr", finish_command)
+        self.assertEqual(finish_command.count('2>>"$stderr_file"'), 3)
         production = json.loads((self.root / identifier / "gate" / "production-result.json").read_text(encoding="utf-8"))
         self.assertEqual(production["status"], "recovered")
         self.assertEqual(production["stage"], "recovered_after_coordinated_restore")
