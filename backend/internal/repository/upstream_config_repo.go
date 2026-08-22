@@ -19,6 +19,7 @@ import (
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	dbaccountgroup "github.com/Wei-Shaw/sub2api/ent/accountgroup"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
+	dbupstreamauthsession "github.com/Wei-Shaw/sub2api/ent/upstreamauthsession"
 	dbupstreamconfig "github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	dbupstreamevent "github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
@@ -67,6 +68,77 @@ const (
 
 func NewUpstreamConfigRepository(client *dbent.Client) service.UpstreamConfigRepository {
 	return &upstreamConfigRepository{client: client}
+}
+
+func (r *upstreamConfigRepository) GetAuthSession(ctx context.Context, upstreamConfigID int64) (*service.UpstreamAuthSessionRecord, error) {
+	row, err := r.client.UpstreamAuthSession.Query().Where(dbupstreamauthsession.UpstreamConfigIDEQ(upstreamConfigID)).Only(ctx)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return upstreamAuthSessionEntityToService(row), nil
+}
+
+func (r *upstreamConfigRepository) SaveAuthSession(ctx context.Context, record *service.UpstreamAuthSessionRecord) error {
+	if record == nil {
+		return fmt.Errorf("missing upstream auth session")
+	}
+	b := r.client.UpstreamAuthSession.Create().
+		SetUpstreamConfigID(record.UpstreamConfigID).
+		SetProvider(record.Provider).
+		SetAuthMode(record.AuthMode).
+		SetCredentialFingerprint(record.CredentialFingerprint).
+		SetSecretCiphertext(record.SecretCiphertext).
+		SetNillableExpiresAt(record.ExpiresAt).
+		SetNillableLastAuthenticatedAt(record.LastAuthenticatedAt).
+		SetNillableLastRefreshedAt(record.LastRefreshedAt).
+		SetNillableLastUsedAt(record.LastUsedAt).
+		SetNillableCooldownUntil(record.CooldownUntil).
+		SetConsecutiveAuthFailures(record.ConsecutiveAuthFailures).
+		SetNillableLastErrorCategory(func() *string {
+			if record.LastErrorCategory == "" {
+				return nil
+			}
+			return &record.LastErrorCategory
+		}()).
+		SetNillableLastErrorAt(record.LastErrorAt).
+		SetLoginCount(record.LoginCount).
+		SetReuseCount(record.ReuseCount).
+		SetRefreshCount(record.RefreshCount).
+		SetReloginCount(record.ReloginCount).
+		SetCooldownCount(record.CooldownCount)
+	return b.OnConflict().UpdateNewValues().Exec(ctx)
+}
+
+func (r *upstreamConfigRepository) DeleteAuthSession(ctx context.Context, upstreamConfigID int64) error {
+	_, err := r.client.UpstreamAuthSession.Delete().Where(dbupstreamauthsession.UpstreamConfigIDEQ(upstreamConfigID)).Exec(ctx)
+	return err
+}
+
+func (r *upstreamConfigRepository) ClearAuthSessionCooldown(ctx context.Context, upstreamConfigID int64) error {
+	_, err := r.client.UpstreamAuthSession.Update().Where(dbupstreamauthsession.UpstreamConfigIDEQ(upstreamConfigID)).ClearCooldownUntil().SetConsecutiveAuthFailures(0).ClearLastErrorCategory().ClearLastErrorAt().Save(ctx)
+	return err
+}
+
+func upstreamAuthSessionEntityToService(row *dbent.UpstreamAuthSession) *service.UpstreamAuthSessionRecord {
+	if row == nil {
+		return nil
+	}
+	return &service.UpstreamAuthSessionRecord{
+		ID: row.ID, UpstreamConfigID: row.UpstreamConfigID, Provider: row.Provider, AuthMode: row.AuthMode,
+		CredentialFingerprint: row.CredentialFingerprint, SecretCiphertext: row.SecretCiphertext,
+		ExpiresAt: row.ExpiresAt, LastAuthenticatedAt: row.LastAuthenticatedAt, LastRefreshedAt: row.LastRefreshedAt,
+		LastUsedAt: row.LastUsedAt, CooldownUntil: row.CooldownUntil, ConsecutiveAuthFailures: row.ConsecutiveAuthFailures,
+		LastErrorCategory: func() string {
+			if row.LastErrorCategory == nil {
+				return ""
+			}
+			return *row.LastErrorCategory
+		}(), LastErrorAt: row.LastErrorAt,
+		LoginCount: row.LoginCount, ReuseCount: row.ReuseCount, RefreshCount: row.RefreshCount, ReloginCount: row.ReloginCount, CooldownCount: row.CooldownCount,
+	}
 }
 
 func (r *upstreamConfigRepository) WithUpstreamConfigSyncLock(ctx context.Context, configID int64, fn func(context.Context) error) error {
@@ -251,6 +323,19 @@ func (r *upstreamConfigRepository) Update(ctx context.Context, config *service.U
 			return err
 		}
 
+		// Credential, endpoint, provider, or auth-mode changes invalidate the
+		// encrypted session in the same transaction as the config update. This
+		// also covers callers that use the repository directly instead of the
+		// service-layer update path.
+		previousService := upstreamConfigEntityToService(previous)
+		if service.UpstreamAuthCredentialFingerprint(previousService) != service.UpstreamAuthCredentialFingerprint(config) {
+			if _, err := client.UpstreamAuthSession.Delete().
+				Where(dbupstreamauthsession.UpstreamConfigIDEQ(config.ID)).
+				Exec(txCtx); err != nil {
+				return err
+			}
+		}
+
 		nameChanged := previous.Name != updatedConfig.Name
 		urlChanged := previous.SiteURL != updatedConfig.SiteURL || stringPointerValue(previous.APIURL) != stringPointerValue(updatedConfig.APIURL)
 		rechargeRateChanged := previous.RechargeRate != updatedConfig.RechargeRate
@@ -320,7 +405,12 @@ func stringPointerValue(value *string) string {
 }
 
 func (r *upstreamConfigRepository) Delete(ctx context.Context, id int64) error {
-	return r.client.UpstreamConfig.DeleteOneID(id).Exec(ctx)
+	return r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		if _, err := client.UpstreamAuthSession.Delete().Where(dbupstreamauthsession.UpstreamConfigIDEQ(id)).Exec(txCtx); err != nil {
+			return err
+		}
+		return client.UpstreamConfig.DeleteOneID(id).Exec(txCtx)
+	})
 }
 
 func (r *upstreamConfigRepository) CountAccounts(ctx context.Context, id int64) (int64, error) {

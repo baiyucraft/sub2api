@@ -452,12 +452,19 @@ func ProvideAccountTestService(
 
 func ProvideUpstreamConfigService(
 	repo UpstreamConfigRepository,
+	authSessionRepo UpstreamAuthSessionRepository,
+	secretEncryptor SecretEncryptor,
 	proxyRepo ProxyRepository,
 	accountRepo AccountRepository,
 	accountTestService *AccountTestService,
 	settingService *SettingService,
 ) *UpstreamConfigService {
 	service := NewUpstreamConfigService(repo, proxyRepo, accountRepo)
+	var locker upstreamAuthSessionLock
+	if candidate, ok := repo.(upstreamAuthSessionLock); ok {
+		locker = candidate
+	}
+	service.SetUpstreamAuthSessionManager(NewUpstreamAuthSessionManager(authSessionRepo, locker, secretEncryptor))
 	service.SetHealthProbeDependencies(accountTestService, settingService)
 	service.SetAccountTestService(accountTestService)
 	SetGlobalUpstreamHealthEvidenceRecorder(service)

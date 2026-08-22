@@ -221,6 +221,8 @@ describe('admin AccountsView upstream management mode', () => {
           final_cost_1k: 0.012,
           final_cost_2k: 0.024,
           final_cost_4k: 0.048,
+          pricing_source: 'mixed',
+          defaulted_tiers: ['4K'],
           observed_at: '2026-08-10T00:00:00Z'
         },
         available_actions: ['edit', 'test', 'probe_key', 'toggle_observation'],

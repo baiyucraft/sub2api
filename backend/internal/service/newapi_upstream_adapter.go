@@ -274,9 +274,19 @@ func (a newAPIUpstreamProviderAdapter) Test(ctx context.Context, cfg *UpstreamCo
 }
 
 func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *UpstreamConfig, proxyURL string, includeProfile bool) (*upstreamProviderSnapshot, error) {
-	session, err := a.login(ctx, cfg, proxyURL)
-	if err != nil {
-		return nil, err
+	var session *newAPISession
+	if handle, ok := upstreamAuthHandleFromContext(ctx); ok {
+		value, valueOK := handle.Value.(newAPIAuthValue)
+		if !valueOK || value.Session == nil {
+			return nil, fmt.Errorf("invalid newapi auth session handle")
+		}
+		session = value.Session
+	} else {
+		var err error
+		session, err = a.login(ctx, cfg, proxyURL)
+		if err != nil {
+			return nil, err
+		}
 	}
 	groups, err := a.fetchGroups(ctx, session)
 	if err != nil {

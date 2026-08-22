@@ -298,6 +298,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 			FinalCost2K:             p.FinalCost2K,
 			FinalCost4K:             p.FinalCost4K,
 			ObservedAt:              p.ObservedAt,
+			PricingSource:           p.PricingSource,
+			DefaultedTiers:          append([]string(nil), p.DefaultedTiers...),
 		}
 	}
 	if p := a.UpstreamVideoPricing; p != nil {

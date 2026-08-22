@@ -45,6 +45,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
@@ -106,6 +107,7 @@ const (
 	TypeSetting                       = "Setting"
 	TypeSubscriptionPlan              = "SubscriptionPlan"
 	TypeTLSFingerprintProfile         = "TLSFingerprintProfile"
+	TypeUpstreamAuthSession           = "UpstreamAuthSession"
 	TypeUpstreamBalanceSnapshot       = "UpstreamBalanceSnapshot"
 	TypeUpstreamConfig                = "UpstreamConfig"
 	TypeUpstreamEvent                 = "UpstreamEvent"
@@ -46297,6 +46299,1749 @@ func (m *TLSFingerprintProfileMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown TLSFingerprintProfile edge %s", name)
 }
 
+// UpstreamAuthSessionMutation represents an operation that mutates the UpstreamAuthSession nodes in the graph.
+type UpstreamAuthSessionMutation struct {
+	config
+	op                           Op
+	typ                          string
+	id                           *int64
+	created_at                   *time.Time
+	updated_at                   *time.Time
+	provider                     *string
+	auth_mode                    *string
+	credential_fingerprint       *string
+	secret_ciphertext            *string
+	expires_at                   *time.Time
+	last_authenticated_at        *time.Time
+	last_refreshed_at            *time.Time
+	last_used_at                 *time.Time
+	cooldown_until               *time.Time
+	consecutive_auth_failures    *int
+	addconsecutive_auth_failures *int
+	last_error_category          *string
+	last_error_at                *time.Time
+	login_count                  *int64
+	addlogin_count               *int64
+	reuse_count                  *int64
+	addreuse_count               *int64
+	refresh_count                *int64
+	addrefresh_count             *int64
+	relogin_count                *int64
+	addrelogin_count             *int64
+	cooldown_count               *int64
+	addcooldown_count            *int64
+	clearedFields                map[string]struct{}
+	upstream_config              *int64
+	clearedupstream_config       bool
+	done                         bool
+	oldValue                     func(context.Context) (*UpstreamAuthSession, error)
+	predicates                   []predicate.UpstreamAuthSession
+}
+
+var _ ent.Mutation = (*UpstreamAuthSessionMutation)(nil)
+
+// upstreamauthsessionOption allows management of the mutation configuration using functional options.
+type upstreamauthsessionOption func(*UpstreamAuthSessionMutation)
+
+// newUpstreamAuthSessionMutation creates new mutation for the UpstreamAuthSession entity.
+func newUpstreamAuthSessionMutation(c config, op Op, opts ...upstreamauthsessionOption) *UpstreamAuthSessionMutation {
+	m := &UpstreamAuthSessionMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeUpstreamAuthSession,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withUpstreamAuthSessionID sets the ID field of the mutation.
+func withUpstreamAuthSessionID(id int64) upstreamauthsessionOption {
+	return func(m *UpstreamAuthSessionMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *UpstreamAuthSession
+		)
+		m.oldValue = func(ctx context.Context) (*UpstreamAuthSession, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().UpstreamAuthSession.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withUpstreamAuthSession sets the old UpstreamAuthSession of the mutation.
+func withUpstreamAuthSession(node *UpstreamAuthSession) upstreamauthsessionOption {
+	return func(m *UpstreamAuthSessionMutation) {
+		m.oldValue = func(context.Context) (*UpstreamAuthSession, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m UpstreamAuthSessionMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m UpstreamAuthSessionMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *UpstreamAuthSessionMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *UpstreamAuthSessionMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().UpstreamAuthSession.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *UpstreamAuthSessionMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *UpstreamAuthSessionMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *UpstreamAuthSessionMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *UpstreamAuthSessionMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *UpstreamAuthSessionMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *UpstreamAuthSessionMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetUpstreamConfigID sets the "upstream_config_id" field.
+func (m *UpstreamAuthSessionMutation) SetUpstreamConfigID(i int64) {
+	m.upstream_config = &i
+}
+
+// UpstreamConfigID returns the value of the "upstream_config_id" field in the mutation.
+func (m *UpstreamAuthSessionMutation) UpstreamConfigID() (r int64, exists bool) {
+	v := m.upstream_config
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamConfigID returns the old "upstream_config_id" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldUpstreamConfigID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamConfigID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamConfigID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamConfigID: %w", err)
+	}
+	return oldValue.UpstreamConfigID, nil
+}
+
+// ResetUpstreamConfigID resets all changes to the "upstream_config_id" field.
+func (m *UpstreamAuthSessionMutation) ResetUpstreamConfigID() {
+	m.upstream_config = nil
+}
+
+// SetProvider sets the "provider" field.
+func (m *UpstreamAuthSessionMutation) SetProvider(s string) {
+	m.provider = &s
+}
+
+// Provider returns the value of the "provider" field in the mutation.
+func (m *UpstreamAuthSessionMutation) Provider() (r string, exists bool) {
+	v := m.provider
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProvider returns the old "provider" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldProvider(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProvider is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProvider requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProvider: %w", err)
+	}
+	return oldValue.Provider, nil
+}
+
+// ResetProvider resets all changes to the "provider" field.
+func (m *UpstreamAuthSessionMutation) ResetProvider() {
+	m.provider = nil
+}
+
+// SetAuthMode sets the "auth_mode" field.
+func (m *UpstreamAuthSessionMutation) SetAuthMode(s string) {
+	m.auth_mode = &s
+}
+
+// AuthMode returns the value of the "auth_mode" field in the mutation.
+func (m *UpstreamAuthSessionMutation) AuthMode() (r string, exists bool) {
+	v := m.auth_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAuthMode returns the old "auth_mode" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldAuthMode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAuthMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAuthMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAuthMode: %w", err)
+	}
+	return oldValue.AuthMode, nil
+}
+
+// ResetAuthMode resets all changes to the "auth_mode" field.
+func (m *UpstreamAuthSessionMutation) ResetAuthMode() {
+	m.auth_mode = nil
+}
+
+// SetCredentialFingerprint sets the "credential_fingerprint" field.
+func (m *UpstreamAuthSessionMutation) SetCredentialFingerprint(s string) {
+	m.credential_fingerprint = &s
+}
+
+// CredentialFingerprint returns the value of the "credential_fingerprint" field in the mutation.
+func (m *UpstreamAuthSessionMutation) CredentialFingerprint() (r string, exists bool) {
+	v := m.credential_fingerprint
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCredentialFingerprint returns the old "credential_fingerprint" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldCredentialFingerprint(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCredentialFingerprint is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCredentialFingerprint requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCredentialFingerprint: %w", err)
+	}
+	return oldValue.CredentialFingerprint, nil
+}
+
+// ResetCredentialFingerprint resets all changes to the "credential_fingerprint" field.
+func (m *UpstreamAuthSessionMutation) ResetCredentialFingerprint() {
+	m.credential_fingerprint = nil
+}
+
+// SetSecretCiphertext sets the "secret_ciphertext" field.
+func (m *UpstreamAuthSessionMutation) SetSecretCiphertext(s string) {
+	m.secret_ciphertext = &s
+}
+
+// SecretCiphertext returns the value of the "secret_ciphertext" field in the mutation.
+func (m *UpstreamAuthSessionMutation) SecretCiphertext() (r string, exists bool) {
+	v := m.secret_ciphertext
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSecretCiphertext returns the old "secret_ciphertext" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldSecretCiphertext(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSecretCiphertext is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSecretCiphertext requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSecretCiphertext: %w", err)
+	}
+	return oldValue.SecretCiphertext, nil
+}
+
+// ResetSecretCiphertext resets all changes to the "secret_ciphertext" field.
+func (m *UpstreamAuthSessionMutation) ResetSecretCiphertext() {
+	m.secret_ciphertext = nil
+}
+
+// SetExpiresAt sets the "expires_at" field.
+func (m *UpstreamAuthSessionMutation) SetExpiresAt(t time.Time) {
+	m.expires_at = &t
+}
+
+// ExpiresAt returns the value of the "expires_at" field in the mutation.
+func (m *UpstreamAuthSessionMutation) ExpiresAt() (r time.Time, exists bool) {
+	v := m.expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAt returns the old "expires_at" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldExpiresAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAt: %w", err)
+	}
+	return oldValue.ExpiresAt, nil
+}
+
+// ClearExpiresAt clears the value of the "expires_at" field.
+func (m *UpstreamAuthSessionMutation) ClearExpiresAt() {
+	m.expires_at = nil
+	m.clearedFields[upstreamauthsession.FieldExpiresAt] = struct{}{}
+}
+
+// ExpiresAtCleared returns if the "expires_at" field was cleared in this mutation.
+func (m *UpstreamAuthSessionMutation) ExpiresAtCleared() bool {
+	_, ok := m.clearedFields[upstreamauthsession.FieldExpiresAt]
+	return ok
+}
+
+// ResetExpiresAt resets all changes to the "expires_at" field.
+func (m *UpstreamAuthSessionMutation) ResetExpiresAt() {
+	m.expires_at = nil
+	delete(m.clearedFields, upstreamauthsession.FieldExpiresAt)
+}
+
+// SetLastAuthenticatedAt sets the "last_authenticated_at" field.
+func (m *UpstreamAuthSessionMutation) SetLastAuthenticatedAt(t time.Time) {
+	m.last_authenticated_at = &t
+}
+
+// LastAuthenticatedAt returns the value of the "last_authenticated_at" field in the mutation.
+func (m *UpstreamAuthSessionMutation) LastAuthenticatedAt() (r time.Time, exists bool) {
+	v := m.last_authenticated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastAuthenticatedAt returns the old "last_authenticated_at" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldLastAuthenticatedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastAuthenticatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastAuthenticatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastAuthenticatedAt: %w", err)
+	}
+	return oldValue.LastAuthenticatedAt, nil
+}
+
+// ClearLastAuthenticatedAt clears the value of the "last_authenticated_at" field.
+func (m *UpstreamAuthSessionMutation) ClearLastAuthenticatedAt() {
+	m.last_authenticated_at = nil
+	m.clearedFields[upstreamauthsession.FieldLastAuthenticatedAt] = struct{}{}
+}
+
+// LastAuthenticatedAtCleared returns if the "last_authenticated_at" field was cleared in this mutation.
+func (m *UpstreamAuthSessionMutation) LastAuthenticatedAtCleared() bool {
+	_, ok := m.clearedFields[upstreamauthsession.FieldLastAuthenticatedAt]
+	return ok
+}
+
+// ResetLastAuthenticatedAt resets all changes to the "last_authenticated_at" field.
+func (m *UpstreamAuthSessionMutation) ResetLastAuthenticatedAt() {
+	m.last_authenticated_at = nil
+	delete(m.clearedFields, upstreamauthsession.FieldLastAuthenticatedAt)
+}
+
+// SetLastRefreshedAt sets the "last_refreshed_at" field.
+func (m *UpstreamAuthSessionMutation) SetLastRefreshedAt(t time.Time) {
+	m.last_refreshed_at = &t
+}
+
+// LastRefreshedAt returns the value of the "last_refreshed_at" field in the mutation.
+func (m *UpstreamAuthSessionMutation) LastRefreshedAt() (r time.Time, exists bool) {
+	v := m.last_refreshed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastRefreshedAt returns the old "last_refreshed_at" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldLastRefreshedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastRefreshedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastRefreshedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastRefreshedAt: %w", err)
+	}
+	return oldValue.LastRefreshedAt, nil
+}
+
+// ClearLastRefreshedAt clears the value of the "last_refreshed_at" field.
+func (m *UpstreamAuthSessionMutation) ClearLastRefreshedAt() {
+	m.last_refreshed_at = nil
+	m.clearedFields[upstreamauthsession.FieldLastRefreshedAt] = struct{}{}
+}
+
+// LastRefreshedAtCleared returns if the "last_refreshed_at" field was cleared in this mutation.
+func (m *UpstreamAuthSessionMutation) LastRefreshedAtCleared() bool {
+	_, ok := m.clearedFields[upstreamauthsession.FieldLastRefreshedAt]
+	return ok
+}
+
+// ResetLastRefreshedAt resets all changes to the "last_refreshed_at" field.
+func (m *UpstreamAuthSessionMutation) ResetLastRefreshedAt() {
+	m.last_refreshed_at = nil
+	delete(m.clearedFields, upstreamauthsession.FieldLastRefreshedAt)
+}
+
+// SetLastUsedAt sets the "last_used_at" field.
+func (m *UpstreamAuthSessionMutation) SetLastUsedAt(t time.Time) {
+	m.last_used_at = &t
+}
+
+// LastUsedAt returns the value of the "last_used_at" field in the mutation.
+func (m *UpstreamAuthSessionMutation) LastUsedAt() (r time.Time, exists bool) {
+	v := m.last_used_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastUsedAt returns the old "last_used_at" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldLastUsedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastUsedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastUsedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastUsedAt: %w", err)
+	}
+	return oldValue.LastUsedAt, nil
+}
+
+// ClearLastUsedAt clears the value of the "last_used_at" field.
+func (m *UpstreamAuthSessionMutation) ClearLastUsedAt() {
+	m.last_used_at = nil
+	m.clearedFields[upstreamauthsession.FieldLastUsedAt] = struct{}{}
+}
+
+// LastUsedAtCleared returns if the "last_used_at" field was cleared in this mutation.
+func (m *UpstreamAuthSessionMutation) LastUsedAtCleared() bool {
+	_, ok := m.clearedFields[upstreamauthsession.FieldLastUsedAt]
+	return ok
+}
+
+// ResetLastUsedAt resets all changes to the "last_used_at" field.
+func (m *UpstreamAuthSessionMutation) ResetLastUsedAt() {
+	m.last_used_at = nil
+	delete(m.clearedFields, upstreamauthsession.FieldLastUsedAt)
+}
+
+// SetCooldownUntil sets the "cooldown_until" field.
+func (m *UpstreamAuthSessionMutation) SetCooldownUntil(t time.Time) {
+	m.cooldown_until = &t
+}
+
+// CooldownUntil returns the value of the "cooldown_until" field in the mutation.
+func (m *UpstreamAuthSessionMutation) CooldownUntil() (r time.Time, exists bool) {
+	v := m.cooldown_until
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCooldownUntil returns the old "cooldown_until" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldCooldownUntil(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCooldownUntil is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCooldownUntil requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCooldownUntil: %w", err)
+	}
+	return oldValue.CooldownUntil, nil
+}
+
+// ClearCooldownUntil clears the value of the "cooldown_until" field.
+func (m *UpstreamAuthSessionMutation) ClearCooldownUntil() {
+	m.cooldown_until = nil
+	m.clearedFields[upstreamauthsession.FieldCooldownUntil] = struct{}{}
+}
+
+// CooldownUntilCleared returns if the "cooldown_until" field was cleared in this mutation.
+func (m *UpstreamAuthSessionMutation) CooldownUntilCleared() bool {
+	_, ok := m.clearedFields[upstreamauthsession.FieldCooldownUntil]
+	return ok
+}
+
+// ResetCooldownUntil resets all changes to the "cooldown_until" field.
+func (m *UpstreamAuthSessionMutation) ResetCooldownUntil() {
+	m.cooldown_until = nil
+	delete(m.clearedFields, upstreamauthsession.FieldCooldownUntil)
+}
+
+// SetConsecutiveAuthFailures sets the "consecutive_auth_failures" field.
+func (m *UpstreamAuthSessionMutation) SetConsecutiveAuthFailures(i int) {
+	m.consecutive_auth_failures = &i
+	m.addconsecutive_auth_failures = nil
+}
+
+// ConsecutiveAuthFailures returns the value of the "consecutive_auth_failures" field in the mutation.
+func (m *UpstreamAuthSessionMutation) ConsecutiveAuthFailures() (r int, exists bool) {
+	v := m.consecutive_auth_failures
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConsecutiveAuthFailures returns the old "consecutive_auth_failures" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldConsecutiveAuthFailures(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConsecutiveAuthFailures is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConsecutiveAuthFailures requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConsecutiveAuthFailures: %w", err)
+	}
+	return oldValue.ConsecutiveAuthFailures, nil
+}
+
+// AddConsecutiveAuthFailures adds i to the "consecutive_auth_failures" field.
+func (m *UpstreamAuthSessionMutation) AddConsecutiveAuthFailures(i int) {
+	if m.addconsecutive_auth_failures != nil {
+		*m.addconsecutive_auth_failures += i
+	} else {
+		m.addconsecutive_auth_failures = &i
+	}
+}
+
+// AddedConsecutiveAuthFailures returns the value that was added to the "consecutive_auth_failures" field in this mutation.
+func (m *UpstreamAuthSessionMutation) AddedConsecutiveAuthFailures() (r int, exists bool) {
+	v := m.addconsecutive_auth_failures
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetConsecutiveAuthFailures resets all changes to the "consecutive_auth_failures" field.
+func (m *UpstreamAuthSessionMutation) ResetConsecutiveAuthFailures() {
+	m.consecutive_auth_failures = nil
+	m.addconsecutive_auth_failures = nil
+}
+
+// SetLastErrorCategory sets the "last_error_category" field.
+func (m *UpstreamAuthSessionMutation) SetLastErrorCategory(s string) {
+	m.last_error_category = &s
+}
+
+// LastErrorCategory returns the value of the "last_error_category" field in the mutation.
+func (m *UpstreamAuthSessionMutation) LastErrorCategory() (r string, exists bool) {
+	v := m.last_error_category
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastErrorCategory returns the old "last_error_category" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldLastErrorCategory(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastErrorCategory is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastErrorCategory requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastErrorCategory: %w", err)
+	}
+	return oldValue.LastErrorCategory, nil
+}
+
+// ClearLastErrorCategory clears the value of the "last_error_category" field.
+func (m *UpstreamAuthSessionMutation) ClearLastErrorCategory() {
+	m.last_error_category = nil
+	m.clearedFields[upstreamauthsession.FieldLastErrorCategory] = struct{}{}
+}
+
+// LastErrorCategoryCleared returns if the "last_error_category" field was cleared in this mutation.
+func (m *UpstreamAuthSessionMutation) LastErrorCategoryCleared() bool {
+	_, ok := m.clearedFields[upstreamauthsession.FieldLastErrorCategory]
+	return ok
+}
+
+// ResetLastErrorCategory resets all changes to the "last_error_category" field.
+func (m *UpstreamAuthSessionMutation) ResetLastErrorCategory() {
+	m.last_error_category = nil
+	delete(m.clearedFields, upstreamauthsession.FieldLastErrorCategory)
+}
+
+// SetLastErrorAt sets the "last_error_at" field.
+func (m *UpstreamAuthSessionMutation) SetLastErrorAt(t time.Time) {
+	m.last_error_at = &t
+}
+
+// LastErrorAt returns the value of the "last_error_at" field in the mutation.
+func (m *UpstreamAuthSessionMutation) LastErrorAt() (r time.Time, exists bool) {
+	v := m.last_error_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastErrorAt returns the old "last_error_at" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldLastErrorAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastErrorAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastErrorAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastErrorAt: %w", err)
+	}
+	return oldValue.LastErrorAt, nil
+}
+
+// ClearLastErrorAt clears the value of the "last_error_at" field.
+func (m *UpstreamAuthSessionMutation) ClearLastErrorAt() {
+	m.last_error_at = nil
+	m.clearedFields[upstreamauthsession.FieldLastErrorAt] = struct{}{}
+}
+
+// LastErrorAtCleared returns if the "last_error_at" field was cleared in this mutation.
+func (m *UpstreamAuthSessionMutation) LastErrorAtCleared() bool {
+	_, ok := m.clearedFields[upstreamauthsession.FieldLastErrorAt]
+	return ok
+}
+
+// ResetLastErrorAt resets all changes to the "last_error_at" field.
+func (m *UpstreamAuthSessionMutation) ResetLastErrorAt() {
+	m.last_error_at = nil
+	delete(m.clearedFields, upstreamauthsession.FieldLastErrorAt)
+}
+
+// SetLoginCount sets the "login_count" field.
+func (m *UpstreamAuthSessionMutation) SetLoginCount(i int64) {
+	m.login_count = &i
+	m.addlogin_count = nil
+}
+
+// LoginCount returns the value of the "login_count" field in the mutation.
+func (m *UpstreamAuthSessionMutation) LoginCount() (r int64, exists bool) {
+	v := m.login_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLoginCount returns the old "login_count" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldLoginCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLoginCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLoginCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLoginCount: %w", err)
+	}
+	return oldValue.LoginCount, nil
+}
+
+// AddLoginCount adds i to the "login_count" field.
+func (m *UpstreamAuthSessionMutation) AddLoginCount(i int64) {
+	if m.addlogin_count != nil {
+		*m.addlogin_count += i
+	} else {
+		m.addlogin_count = &i
+	}
+}
+
+// AddedLoginCount returns the value that was added to the "login_count" field in this mutation.
+func (m *UpstreamAuthSessionMutation) AddedLoginCount() (r int64, exists bool) {
+	v := m.addlogin_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetLoginCount resets all changes to the "login_count" field.
+func (m *UpstreamAuthSessionMutation) ResetLoginCount() {
+	m.login_count = nil
+	m.addlogin_count = nil
+}
+
+// SetReuseCount sets the "reuse_count" field.
+func (m *UpstreamAuthSessionMutation) SetReuseCount(i int64) {
+	m.reuse_count = &i
+	m.addreuse_count = nil
+}
+
+// ReuseCount returns the value of the "reuse_count" field in the mutation.
+func (m *UpstreamAuthSessionMutation) ReuseCount() (r int64, exists bool) {
+	v := m.reuse_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReuseCount returns the old "reuse_count" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldReuseCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReuseCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReuseCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReuseCount: %w", err)
+	}
+	return oldValue.ReuseCount, nil
+}
+
+// AddReuseCount adds i to the "reuse_count" field.
+func (m *UpstreamAuthSessionMutation) AddReuseCount(i int64) {
+	if m.addreuse_count != nil {
+		*m.addreuse_count += i
+	} else {
+		m.addreuse_count = &i
+	}
+}
+
+// AddedReuseCount returns the value that was added to the "reuse_count" field in this mutation.
+func (m *UpstreamAuthSessionMutation) AddedReuseCount() (r int64, exists bool) {
+	v := m.addreuse_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetReuseCount resets all changes to the "reuse_count" field.
+func (m *UpstreamAuthSessionMutation) ResetReuseCount() {
+	m.reuse_count = nil
+	m.addreuse_count = nil
+}
+
+// SetRefreshCount sets the "refresh_count" field.
+func (m *UpstreamAuthSessionMutation) SetRefreshCount(i int64) {
+	m.refresh_count = &i
+	m.addrefresh_count = nil
+}
+
+// RefreshCount returns the value of the "refresh_count" field in the mutation.
+func (m *UpstreamAuthSessionMutation) RefreshCount() (r int64, exists bool) {
+	v := m.refresh_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRefreshCount returns the old "refresh_count" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldRefreshCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRefreshCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRefreshCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRefreshCount: %w", err)
+	}
+	return oldValue.RefreshCount, nil
+}
+
+// AddRefreshCount adds i to the "refresh_count" field.
+func (m *UpstreamAuthSessionMutation) AddRefreshCount(i int64) {
+	if m.addrefresh_count != nil {
+		*m.addrefresh_count += i
+	} else {
+		m.addrefresh_count = &i
+	}
+}
+
+// AddedRefreshCount returns the value that was added to the "refresh_count" field in this mutation.
+func (m *UpstreamAuthSessionMutation) AddedRefreshCount() (r int64, exists bool) {
+	v := m.addrefresh_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRefreshCount resets all changes to the "refresh_count" field.
+func (m *UpstreamAuthSessionMutation) ResetRefreshCount() {
+	m.refresh_count = nil
+	m.addrefresh_count = nil
+}
+
+// SetReloginCount sets the "relogin_count" field.
+func (m *UpstreamAuthSessionMutation) SetReloginCount(i int64) {
+	m.relogin_count = &i
+	m.addrelogin_count = nil
+}
+
+// ReloginCount returns the value of the "relogin_count" field in the mutation.
+func (m *UpstreamAuthSessionMutation) ReloginCount() (r int64, exists bool) {
+	v := m.relogin_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReloginCount returns the old "relogin_count" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldReloginCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReloginCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReloginCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReloginCount: %w", err)
+	}
+	return oldValue.ReloginCount, nil
+}
+
+// AddReloginCount adds i to the "relogin_count" field.
+func (m *UpstreamAuthSessionMutation) AddReloginCount(i int64) {
+	if m.addrelogin_count != nil {
+		*m.addrelogin_count += i
+	} else {
+		m.addrelogin_count = &i
+	}
+}
+
+// AddedReloginCount returns the value that was added to the "relogin_count" field in this mutation.
+func (m *UpstreamAuthSessionMutation) AddedReloginCount() (r int64, exists bool) {
+	v := m.addrelogin_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetReloginCount resets all changes to the "relogin_count" field.
+func (m *UpstreamAuthSessionMutation) ResetReloginCount() {
+	m.relogin_count = nil
+	m.addrelogin_count = nil
+}
+
+// SetCooldownCount sets the "cooldown_count" field.
+func (m *UpstreamAuthSessionMutation) SetCooldownCount(i int64) {
+	m.cooldown_count = &i
+	m.addcooldown_count = nil
+}
+
+// CooldownCount returns the value of the "cooldown_count" field in the mutation.
+func (m *UpstreamAuthSessionMutation) CooldownCount() (r int64, exists bool) {
+	v := m.cooldown_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCooldownCount returns the old "cooldown_count" field's value of the UpstreamAuthSession entity.
+// If the UpstreamAuthSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamAuthSessionMutation) OldCooldownCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCooldownCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCooldownCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCooldownCount: %w", err)
+	}
+	return oldValue.CooldownCount, nil
+}
+
+// AddCooldownCount adds i to the "cooldown_count" field.
+func (m *UpstreamAuthSessionMutation) AddCooldownCount(i int64) {
+	if m.addcooldown_count != nil {
+		*m.addcooldown_count += i
+	} else {
+		m.addcooldown_count = &i
+	}
+}
+
+// AddedCooldownCount returns the value that was added to the "cooldown_count" field in this mutation.
+func (m *UpstreamAuthSessionMutation) AddedCooldownCount() (r int64, exists bool) {
+	v := m.addcooldown_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCooldownCount resets all changes to the "cooldown_count" field.
+func (m *UpstreamAuthSessionMutation) ResetCooldownCount() {
+	m.cooldown_count = nil
+	m.addcooldown_count = nil
+}
+
+// ClearUpstreamConfig clears the "upstream_config" edge to the UpstreamConfig entity.
+func (m *UpstreamAuthSessionMutation) ClearUpstreamConfig() {
+	m.clearedupstream_config = true
+	m.clearedFields[upstreamauthsession.FieldUpstreamConfigID] = struct{}{}
+}
+
+// UpstreamConfigCleared reports if the "upstream_config" edge to the UpstreamConfig entity was cleared.
+func (m *UpstreamAuthSessionMutation) UpstreamConfigCleared() bool {
+	return m.clearedupstream_config
+}
+
+// UpstreamConfigIDs returns the "upstream_config" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UpstreamConfigID instead. It exists only for internal usage by the builders.
+func (m *UpstreamAuthSessionMutation) UpstreamConfigIDs() (ids []int64) {
+	if id := m.upstream_config; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetUpstreamConfig resets all changes to the "upstream_config" edge.
+func (m *UpstreamAuthSessionMutation) ResetUpstreamConfig() {
+	m.upstream_config = nil
+	m.clearedupstream_config = false
+}
+
+// Where appends a list predicates to the UpstreamAuthSessionMutation builder.
+func (m *UpstreamAuthSessionMutation) Where(ps ...predicate.UpstreamAuthSession) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the UpstreamAuthSessionMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *UpstreamAuthSessionMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.UpstreamAuthSession, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *UpstreamAuthSessionMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *UpstreamAuthSessionMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (UpstreamAuthSession).
+func (m *UpstreamAuthSessionMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *UpstreamAuthSessionMutation) Fields() []string {
+	fields := make([]string, 0, 20)
+	if m.created_at != nil {
+		fields = append(fields, upstreamauthsession.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, upstreamauthsession.FieldUpdatedAt)
+	}
+	if m.upstream_config != nil {
+		fields = append(fields, upstreamauthsession.FieldUpstreamConfigID)
+	}
+	if m.provider != nil {
+		fields = append(fields, upstreamauthsession.FieldProvider)
+	}
+	if m.auth_mode != nil {
+		fields = append(fields, upstreamauthsession.FieldAuthMode)
+	}
+	if m.credential_fingerprint != nil {
+		fields = append(fields, upstreamauthsession.FieldCredentialFingerprint)
+	}
+	if m.secret_ciphertext != nil {
+		fields = append(fields, upstreamauthsession.FieldSecretCiphertext)
+	}
+	if m.expires_at != nil {
+		fields = append(fields, upstreamauthsession.FieldExpiresAt)
+	}
+	if m.last_authenticated_at != nil {
+		fields = append(fields, upstreamauthsession.FieldLastAuthenticatedAt)
+	}
+	if m.last_refreshed_at != nil {
+		fields = append(fields, upstreamauthsession.FieldLastRefreshedAt)
+	}
+	if m.last_used_at != nil {
+		fields = append(fields, upstreamauthsession.FieldLastUsedAt)
+	}
+	if m.cooldown_until != nil {
+		fields = append(fields, upstreamauthsession.FieldCooldownUntil)
+	}
+	if m.consecutive_auth_failures != nil {
+		fields = append(fields, upstreamauthsession.FieldConsecutiveAuthFailures)
+	}
+	if m.last_error_category != nil {
+		fields = append(fields, upstreamauthsession.FieldLastErrorCategory)
+	}
+	if m.last_error_at != nil {
+		fields = append(fields, upstreamauthsession.FieldLastErrorAt)
+	}
+	if m.login_count != nil {
+		fields = append(fields, upstreamauthsession.FieldLoginCount)
+	}
+	if m.reuse_count != nil {
+		fields = append(fields, upstreamauthsession.FieldReuseCount)
+	}
+	if m.refresh_count != nil {
+		fields = append(fields, upstreamauthsession.FieldRefreshCount)
+	}
+	if m.relogin_count != nil {
+		fields = append(fields, upstreamauthsession.FieldReloginCount)
+	}
+	if m.cooldown_count != nil {
+		fields = append(fields, upstreamauthsession.FieldCooldownCount)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *UpstreamAuthSessionMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case upstreamauthsession.FieldCreatedAt:
+		return m.CreatedAt()
+	case upstreamauthsession.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case upstreamauthsession.FieldUpstreamConfigID:
+		return m.UpstreamConfigID()
+	case upstreamauthsession.FieldProvider:
+		return m.Provider()
+	case upstreamauthsession.FieldAuthMode:
+		return m.AuthMode()
+	case upstreamauthsession.FieldCredentialFingerprint:
+		return m.CredentialFingerprint()
+	case upstreamauthsession.FieldSecretCiphertext:
+		return m.SecretCiphertext()
+	case upstreamauthsession.FieldExpiresAt:
+		return m.ExpiresAt()
+	case upstreamauthsession.FieldLastAuthenticatedAt:
+		return m.LastAuthenticatedAt()
+	case upstreamauthsession.FieldLastRefreshedAt:
+		return m.LastRefreshedAt()
+	case upstreamauthsession.FieldLastUsedAt:
+		return m.LastUsedAt()
+	case upstreamauthsession.FieldCooldownUntil:
+		return m.CooldownUntil()
+	case upstreamauthsession.FieldConsecutiveAuthFailures:
+		return m.ConsecutiveAuthFailures()
+	case upstreamauthsession.FieldLastErrorCategory:
+		return m.LastErrorCategory()
+	case upstreamauthsession.FieldLastErrorAt:
+		return m.LastErrorAt()
+	case upstreamauthsession.FieldLoginCount:
+		return m.LoginCount()
+	case upstreamauthsession.FieldReuseCount:
+		return m.ReuseCount()
+	case upstreamauthsession.FieldRefreshCount:
+		return m.RefreshCount()
+	case upstreamauthsession.FieldReloginCount:
+		return m.ReloginCount()
+	case upstreamauthsession.FieldCooldownCount:
+		return m.CooldownCount()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *UpstreamAuthSessionMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case upstreamauthsession.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case upstreamauthsession.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case upstreamauthsession.FieldUpstreamConfigID:
+		return m.OldUpstreamConfigID(ctx)
+	case upstreamauthsession.FieldProvider:
+		return m.OldProvider(ctx)
+	case upstreamauthsession.FieldAuthMode:
+		return m.OldAuthMode(ctx)
+	case upstreamauthsession.FieldCredentialFingerprint:
+		return m.OldCredentialFingerprint(ctx)
+	case upstreamauthsession.FieldSecretCiphertext:
+		return m.OldSecretCiphertext(ctx)
+	case upstreamauthsession.FieldExpiresAt:
+		return m.OldExpiresAt(ctx)
+	case upstreamauthsession.FieldLastAuthenticatedAt:
+		return m.OldLastAuthenticatedAt(ctx)
+	case upstreamauthsession.FieldLastRefreshedAt:
+		return m.OldLastRefreshedAt(ctx)
+	case upstreamauthsession.FieldLastUsedAt:
+		return m.OldLastUsedAt(ctx)
+	case upstreamauthsession.FieldCooldownUntil:
+		return m.OldCooldownUntil(ctx)
+	case upstreamauthsession.FieldConsecutiveAuthFailures:
+		return m.OldConsecutiveAuthFailures(ctx)
+	case upstreamauthsession.FieldLastErrorCategory:
+		return m.OldLastErrorCategory(ctx)
+	case upstreamauthsession.FieldLastErrorAt:
+		return m.OldLastErrorAt(ctx)
+	case upstreamauthsession.FieldLoginCount:
+		return m.OldLoginCount(ctx)
+	case upstreamauthsession.FieldReuseCount:
+		return m.OldReuseCount(ctx)
+	case upstreamauthsession.FieldRefreshCount:
+		return m.OldRefreshCount(ctx)
+	case upstreamauthsession.FieldReloginCount:
+		return m.OldReloginCount(ctx)
+	case upstreamauthsession.FieldCooldownCount:
+		return m.OldCooldownCount(ctx)
+	}
+	return nil, fmt.Errorf("unknown UpstreamAuthSession field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UpstreamAuthSessionMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case upstreamauthsession.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case upstreamauthsession.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case upstreamauthsession.FieldUpstreamConfigID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamConfigID(v)
+		return nil
+	case upstreamauthsession.FieldProvider:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProvider(v)
+		return nil
+	case upstreamauthsession.FieldAuthMode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAuthMode(v)
+		return nil
+	case upstreamauthsession.FieldCredentialFingerprint:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCredentialFingerprint(v)
+		return nil
+	case upstreamauthsession.FieldSecretCiphertext:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSecretCiphertext(v)
+		return nil
+	case upstreamauthsession.FieldExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAt(v)
+		return nil
+	case upstreamauthsession.FieldLastAuthenticatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastAuthenticatedAt(v)
+		return nil
+	case upstreamauthsession.FieldLastRefreshedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastRefreshedAt(v)
+		return nil
+	case upstreamauthsession.FieldLastUsedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastUsedAt(v)
+		return nil
+	case upstreamauthsession.FieldCooldownUntil:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCooldownUntil(v)
+		return nil
+	case upstreamauthsession.FieldConsecutiveAuthFailures:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConsecutiveAuthFailures(v)
+		return nil
+	case upstreamauthsession.FieldLastErrorCategory:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastErrorCategory(v)
+		return nil
+	case upstreamauthsession.FieldLastErrorAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastErrorAt(v)
+		return nil
+	case upstreamauthsession.FieldLoginCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLoginCount(v)
+		return nil
+	case upstreamauthsession.FieldReuseCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReuseCount(v)
+		return nil
+	case upstreamauthsession.FieldRefreshCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRefreshCount(v)
+		return nil
+	case upstreamauthsession.FieldReloginCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReloginCount(v)
+		return nil
+	case upstreamauthsession.FieldCooldownCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCooldownCount(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamAuthSession field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *UpstreamAuthSessionMutation) AddedFields() []string {
+	var fields []string
+	if m.addconsecutive_auth_failures != nil {
+		fields = append(fields, upstreamauthsession.FieldConsecutiveAuthFailures)
+	}
+	if m.addlogin_count != nil {
+		fields = append(fields, upstreamauthsession.FieldLoginCount)
+	}
+	if m.addreuse_count != nil {
+		fields = append(fields, upstreamauthsession.FieldReuseCount)
+	}
+	if m.addrefresh_count != nil {
+		fields = append(fields, upstreamauthsession.FieldRefreshCount)
+	}
+	if m.addrelogin_count != nil {
+		fields = append(fields, upstreamauthsession.FieldReloginCount)
+	}
+	if m.addcooldown_count != nil {
+		fields = append(fields, upstreamauthsession.FieldCooldownCount)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *UpstreamAuthSessionMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case upstreamauthsession.FieldConsecutiveAuthFailures:
+		return m.AddedConsecutiveAuthFailures()
+	case upstreamauthsession.FieldLoginCount:
+		return m.AddedLoginCount()
+	case upstreamauthsession.FieldReuseCount:
+		return m.AddedReuseCount()
+	case upstreamauthsession.FieldRefreshCount:
+		return m.AddedRefreshCount()
+	case upstreamauthsession.FieldReloginCount:
+		return m.AddedReloginCount()
+	case upstreamauthsession.FieldCooldownCount:
+		return m.AddedCooldownCount()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UpstreamAuthSessionMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case upstreamauthsession.FieldConsecutiveAuthFailures:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddConsecutiveAuthFailures(v)
+		return nil
+	case upstreamauthsession.FieldLoginCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddLoginCount(v)
+		return nil
+	case upstreamauthsession.FieldReuseCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddReuseCount(v)
+		return nil
+	case upstreamauthsession.FieldRefreshCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRefreshCount(v)
+		return nil
+	case upstreamauthsession.FieldReloginCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddReloginCount(v)
+		return nil
+	case upstreamauthsession.FieldCooldownCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCooldownCount(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamAuthSession numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *UpstreamAuthSessionMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(upstreamauthsession.FieldExpiresAt) {
+		fields = append(fields, upstreamauthsession.FieldExpiresAt)
+	}
+	if m.FieldCleared(upstreamauthsession.FieldLastAuthenticatedAt) {
+		fields = append(fields, upstreamauthsession.FieldLastAuthenticatedAt)
+	}
+	if m.FieldCleared(upstreamauthsession.FieldLastRefreshedAt) {
+		fields = append(fields, upstreamauthsession.FieldLastRefreshedAt)
+	}
+	if m.FieldCleared(upstreamauthsession.FieldLastUsedAt) {
+		fields = append(fields, upstreamauthsession.FieldLastUsedAt)
+	}
+	if m.FieldCleared(upstreamauthsession.FieldCooldownUntil) {
+		fields = append(fields, upstreamauthsession.FieldCooldownUntil)
+	}
+	if m.FieldCleared(upstreamauthsession.FieldLastErrorCategory) {
+		fields = append(fields, upstreamauthsession.FieldLastErrorCategory)
+	}
+	if m.FieldCleared(upstreamauthsession.FieldLastErrorAt) {
+		fields = append(fields, upstreamauthsession.FieldLastErrorAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *UpstreamAuthSessionMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *UpstreamAuthSessionMutation) ClearField(name string) error {
+	switch name {
+	case upstreamauthsession.FieldExpiresAt:
+		m.ClearExpiresAt()
+		return nil
+	case upstreamauthsession.FieldLastAuthenticatedAt:
+		m.ClearLastAuthenticatedAt()
+		return nil
+	case upstreamauthsession.FieldLastRefreshedAt:
+		m.ClearLastRefreshedAt()
+		return nil
+	case upstreamauthsession.FieldLastUsedAt:
+		m.ClearLastUsedAt()
+		return nil
+	case upstreamauthsession.FieldCooldownUntil:
+		m.ClearCooldownUntil()
+		return nil
+	case upstreamauthsession.FieldLastErrorCategory:
+		m.ClearLastErrorCategory()
+		return nil
+	case upstreamauthsession.FieldLastErrorAt:
+		m.ClearLastErrorAt()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamAuthSession nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *UpstreamAuthSessionMutation) ResetField(name string) error {
+	switch name {
+	case upstreamauthsession.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case upstreamauthsession.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case upstreamauthsession.FieldUpstreamConfigID:
+		m.ResetUpstreamConfigID()
+		return nil
+	case upstreamauthsession.FieldProvider:
+		m.ResetProvider()
+		return nil
+	case upstreamauthsession.FieldAuthMode:
+		m.ResetAuthMode()
+		return nil
+	case upstreamauthsession.FieldCredentialFingerprint:
+		m.ResetCredentialFingerprint()
+		return nil
+	case upstreamauthsession.FieldSecretCiphertext:
+		m.ResetSecretCiphertext()
+		return nil
+	case upstreamauthsession.FieldExpiresAt:
+		m.ResetExpiresAt()
+		return nil
+	case upstreamauthsession.FieldLastAuthenticatedAt:
+		m.ResetLastAuthenticatedAt()
+		return nil
+	case upstreamauthsession.FieldLastRefreshedAt:
+		m.ResetLastRefreshedAt()
+		return nil
+	case upstreamauthsession.FieldLastUsedAt:
+		m.ResetLastUsedAt()
+		return nil
+	case upstreamauthsession.FieldCooldownUntil:
+		m.ResetCooldownUntil()
+		return nil
+	case upstreamauthsession.FieldConsecutiveAuthFailures:
+		m.ResetConsecutiveAuthFailures()
+		return nil
+	case upstreamauthsession.FieldLastErrorCategory:
+		m.ResetLastErrorCategory()
+		return nil
+	case upstreamauthsession.FieldLastErrorAt:
+		m.ResetLastErrorAt()
+		return nil
+	case upstreamauthsession.FieldLoginCount:
+		m.ResetLoginCount()
+		return nil
+	case upstreamauthsession.FieldReuseCount:
+		m.ResetReuseCount()
+		return nil
+	case upstreamauthsession.FieldRefreshCount:
+		m.ResetRefreshCount()
+		return nil
+	case upstreamauthsession.FieldReloginCount:
+		m.ResetReloginCount()
+		return nil
+	case upstreamauthsession.FieldCooldownCount:
+		m.ResetCooldownCount()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamAuthSession field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *UpstreamAuthSessionMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.upstream_config != nil {
+		edges = append(edges, upstreamauthsession.EdgeUpstreamConfig)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *UpstreamAuthSessionMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case upstreamauthsession.EdgeUpstreamConfig:
+		if id := m.upstream_config; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *UpstreamAuthSessionMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *UpstreamAuthSessionMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *UpstreamAuthSessionMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedupstream_config {
+		edges = append(edges, upstreamauthsession.EdgeUpstreamConfig)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *UpstreamAuthSessionMutation) EdgeCleared(name string) bool {
+	switch name {
+	case upstreamauthsession.EdgeUpstreamConfig:
+		return m.clearedupstream_config
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *UpstreamAuthSessionMutation) ClearEdge(name string) error {
+	switch name {
+	case upstreamauthsession.EdgeUpstreamConfig:
+		m.ClearUpstreamConfig()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamAuthSession unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *UpstreamAuthSessionMutation) ResetEdge(name string) error {
+	switch name {
+	case upstreamauthsession.EdgeUpstreamConfig:
+		m.ResetUpstreamConfig()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamAuthSession edge %s", name)
+}
+
 // UpstreamBalanceSnapshotMutation represents an operation that mutates the UpstreamBalanceSnapshot nodes in the graph.
 type UpstreamBalanceSnapshotMutation struct {
 	config
@@ -48145,6 +49890,9 @@ type UpstreamConfigMutation struct {
 	usage_logs                map[int64]struct{}
 	removedusage_logs         map[int64]struct{}
 	clearedusage_logs         bool
+	auth_session              map[int64]struct{}
+	removedauth_session       map[int64]struct{}
+	clearedauth_session       bool
 	proxy                     *int64
 	clearedproxy              bool
 	done                      bool
@@ -49462,6 +51210,60 @@ func (m *UpstreamConfigMutation) ResetUsageLogs() {
 	m.removedusage_logs = nil
 }
 
+// AddAuthSessionIDs adds the "auth_session" edge to the UpstreamAuthSession entity by ids.
+func (m *UpstreamConfigMutation) AddAuthSessionIDs(ids ...int64) {
+	if m.auth_session == nil {
+		m.auth_session = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.auth_session[ids[i]] = struct{}{}
+	}
+}
+
+// ClearAuthSession clears the "auth_session" edge to the UpstreamAuthSession entity.
+func (m *UpstreamConfigMutation) ClearAuthSession() {
+	m.clearedauth_session = true
+}
+
+// AuthSessionCleared reports if the "auth_session" edge to the UpstreamAuthSession entity was cleared.
+func (m *UpstreamConfigMutation) AuthSessionCleared() bool {
+	return m.clearedauth_session
+}
+
+// RemoveAuthSessionIDs removes the "auth_session" edge to the UpstreamAuthSession entity by IDs.
+func (m *UpstreamConfigMutation) RemoveAuthSessionIDs(ids ...int64) {
+	if m.removedauth_session == nil {
+		m.removedauth_session = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.auth_session, ids[i])
+		m.removedauth_session[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedAuthSession returns the removed IDs of the "auth_session" edge to the UpstreamAuthSession entity.
+func (m *UpstreamConfigMutation) RemovedAuthSessionIDs() (ids []int64) {
+	for id := range m.removedauth_session {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// AuthSessionIDs returns the "auth_session" edge IDs in the mutation.
+func (m *UpstreamConfigMutation) AuthSessionIDs() (ids []int64) {
+	for id := range m.auth_session {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetAuthSession resets all changes to the "auth_session" edge.
+func (m *UpstreamConfigMutation) ResetAuthSession() {
+	m.auth_session = nil
+	m.clearedauth_session = false
+	m.removedauth_session = nil
+}
+
 // ClearProxy clears the "proxy" edge to the Proxy entity.
 func (m *UpstreamConfigMutation) ClearProxy() {
 	m.clearedproxy = true
@@ -49983,7 +51785,7 @@ func (m *UpstreamConfigMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *UpstreamConfigMutation) AddedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 10)
 	if m.keys != nil {
 		edges = append(edges, upstreamconfig.EdgeKeys)
 	}
@@ -50007,6 +51809,9 @@ func (m *UpstreamConfigMutation) AddedEdges() []string {
 	}
 	if m.usage_logs != nil {
 		edges = append(edges, upstreamconfig.EdgeUsageLogs)
+	}
+	if m.auth_session != nil {
+		edges = append(edges, upstreamconfig.EdgeAuthSession)
 	}
 	if m.proxy != nil {
 		edges = append(edges, upstreamconfig.EdgeProxy)
@@ -50066,6 +51871,12 @@ func (m *UpstreamConfigMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case upstreamconfig.EdgeAuthSession:
+		ids := make([]ent.Value, 0, len(m.auth_session))
+		for id := range m.auth_session {
+			ids = append(ids, id)
+		}
+		return ids
 	case upstreamconfig.EdgeProxy:
 		if id := m.proxy; id != nil {
 			return []ent.Value{*id}
@@ -50076,7 +51887,7 @@ func (m *UpstreamConfigMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *UpstreamConfigMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 10)
 	if m.removedkeys != nil {
 		edges = append(edges, upstreamconfig.EdgeKeys)
 	}
@@ -50100,6 +51911,9 @@ func (m *UpstreamConfigMutation) RemovedEdges() []string {
 	}
 	if m.removedusage_logs != nil {
 		edges = append(edges, upstreamconfig.EdgeUsageLogs)
+	}
+	if m.removedauth_session != nil {
+		edges = append(edges, upstreamconfig.EdgeAuthSession)
 	}
 	return edges
 }
@@ -50156,13 +51970,19 @@ func (m *UpstreamConfigMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case upstreamconfig.EdgeAuthSession:
+		ids := make([]ent.Value, 0, len(m.removedauth_session))
+		for id := range m.removedauth_session {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *UpstreamConfigMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 10)
 	if m.clearedkeys {
 		edges = append(edges, upstreamconfig.EdgeKeys)
 	}
@@ -50186,6 +52006,9 @@ func (m *UpstreamConfigMutation) ClearedEdges() []string {
 	}
 	if m.clearedusage_logs {
 		edges = append(edges, upstreamconfig.EdgeUsageLogs)
+	}
+	if m.clearedauth_session {
+		edges = append(edges, upstreamconfig.EdgeAuthSession)
 	}
 	if m.clearedproxy {
 		edges = append(edges, upstreamconfig.EdgeProxy)
@@ -50213,6 +52036,8 @@ func (m *UpstreamConfigMutation) EdgeCleared(name string) bool {
 		return m.clearedkey_rate_snapshots
 	case upstreamconfig.EdgeUsageLogs:
 		return m.clearedusage_logs
+	case upstreamconfig.EdgeAuthSession:
+		return m.clearedauth_session
 	case upstreamconfig.EdgeProxy:
 		return m.clearedproxy
 	}
@@ -50257,6 +52082,9 @@ func (m *UpstreamConfigMutation) ResetEdge(name string) error {
 		return nil
 	case upstreamconfig.EdgeUsageLogs:
 		m.ResetUsageLogs()
+		return nil
+	case upstreamconfig.EdgeAuthSession:
+		m.ResetAuthSession()
 		return nil
 	case upstreamconfig.EdgeProxy:
 		m.ResetProxy()

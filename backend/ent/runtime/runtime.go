@@ -38,6 +38,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
@@ -1999,6 +2000,103 @@ func init() {
 	tlsfingerprintprofileDescEnableGrease := tlsfingerprintprofileFields[2].Descriptor()
 	// tlsfingerprintprofile.DefaultEnableGrease holds the default value on creation for the enable_grease field.
 	tlsfingerprintprofile.DefaultEnableGrease = tlsfingerprintprofileDescEnableGrease.Default.(bool)
+	upstreamauthsessionMixin := schema.UpstreamAuthSession{}.Mixin()
+	upstreamauthsessionMixinFields0 := upstreamauthsessionMixin[0].Fields()
+	_ = upstreamauthsessionMixinFields0
+	upstreamauthsessionFields := schema.UpstreamAuthSession{}.Fields()
+	_ = upstreamauthsessionFields
+	// upstreamauthsessionDescCreatedAt is the schema descriptor for created_at field.
+	upstreamauthsessionDescCreatedAt := upstreamauthsessionMixinFields0[0].Descriptor()
+	// upstreamauthsession.DefaultCreatedAt holds the default value on creation for the created_at field.
+	upstreamauthsession.DefaultCreatedAt = upstreamauthsessionDescCreatedAt.Default.(func() time.Time)
+	// upstreamauthsessionDescUpdatedAt is the schema descriptor for updated_at field.
+	upstreamauthsessionDescUpdatedAt := upstreamauthsessionMixinFields0[1].Descriptor()
+	// upstreamauthsession.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	upstreamauthsession.DefaultUpdatedAt = upstreamauthsessionDescUpdatedAt.Default.(func() time.Time)
+	// upstreamauthsession.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	upstreamauthsession.UpdateDefaultUpdatedAt = upstreamauthsessionDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// upstreamauthsessionDescProvider is the schema descriptor for provider field.
+	upstreamauthsessionDescProvider := upstreamauthsessionFields[1].Descriptor()
+	// upstreamauthsession.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
+	upstreamauthsession.ProviderValidator = func() func(string) error {
+		validators := upstreamauthsessionDescProvider.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(provider string) error {
+			for _, fn := range fns {
+				if err := fn(provider); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// upstreamauthsessionDescAuthMode is the schema descriptor for auth_mode field.
+	upstreamauthsessionDescAuthMode := upstreamauthsessionFields[2].Descriptor()
+	// upstreamauthsession.AuthModeValidator is a validator for the "auth_mode" field. It is called by the builders before save.
+	upstreamauthsession.AuthModeValidator = func() func(string) error {
+		validators := upstreamauthsessionDescAuthMode.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(auth_mode string) error {
+			for _, fn := range fns {
+				if err := fn(auth_mode); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// upstreamauthsessionDescCredentialFingerprint is the schema descriptor for credential_fingerprint field.
+	upstreamauthsessionDescCredentialFingerprint := upstreamauthsessionFields[3].Descriptor()
+	// upstreamauthsession.CredentialFingerprintValidator is a validator for the "credential_fingerprint" field. It is called by the builders before save.
+	upstreamauthsession.CredentialFingerprintValidator = func() func(string) error {
+		validators := upstreamauthsessionDescCredentialFingerprint.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(credential_fingerprint string) error {
+			for _, fn := range fns {
+				if err := fn(credential_fingerprint); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// upstreamauthsessionDescConsecutiveAuthFailures is the schema descriptor for consecutive_auth_failures field.
+	upstreamauthsessionDescConsecutiveAuthFailures := upstreamauthsessionFields[10].Descriptor()
+	// upstreamauthsession.DefaultConsecutiveAuthFailures holds the default value on creation for the consecutive_auth_failures field.
+	upstreamauthsession.DefaultConsecutiveAuthFailures = upstreamauthsessionDescConsecutiveAuthFailures.Default.(int)
+	// upstreamauthsessionDescLastErrorCategory is the schema descriptor for last_error_category field.
+	upstreamauthsessionDescLastErrorCategory := upstreamauthsessionFields[11].Descriptor()
+	// upstreamauthsession.LastErrorCategoryValidator is a validator for the "last_error_category" field. It is called by the builders before save.
+	upstreamauthsession.LastErrorCategoryValidator = upstreamauthsessionDescLastErrorCategory.Validators[0].(func(string) error)
+	// upstreamauthsessionDescLoginCount is the schema descriptor for login_count field.
+	upstreamauthsessionDescLoginCount := upstreamauthsessionFields[13].Descriptor()
+	// upstreamauthsession.DefaultLoginCount holds the default value on creation for the login_count field.
+	upstreamauthsession.DefaultLoginCount = upstreamauthsessionDescLoginCount.Default.(int64)
+	// upstreamauthsessionDescReuseCount is the schema descriptor for reuse_count field.
+	upstreamauthsessionDescReuseCount := upstreamauthsessionFields[14].Descriptor()
+	// upstreamauthsession.DefaultReuseCount holds the default value on creation for the reuse_count field.
+	upstreamauthsession.DefaultReuseCount = upstreamauthsessionDescReuseCount.Default.(int64)
+	// upstreamauthsessionDescRefreshCount is the schema descriptor for refresh_count field.
+	upstreamauthsessionDescRefreshCount := upstreamauthsessionFields[15].Descriptor()
+	// upstreamauthsession.DefaultRefreshCount holds the default value on creation for the refresh_count field.
+	upstreamauthsession.DefaultRefreshCount = upstreamauthsessionDescRefreshCount.Default.(int64)
+	// upstreamauthsessionDescReloginCount is the schema descriptor for relogin_count field.
+	upstreamauthsessionDescReloginCount := upstreamauthsessionFields[16].Descriptor()
+	// upstreamauthsession.DefaultReloginCount holds the default value on creation for the relogin_count field.
+	upstreamauthsession.DefaultReloginCount = upstreamauthsessionDescReloginCount.Default.(int64)
+	// upstreamauthsessionDescCooldownCount is the schema descriptor for cooldown_count field.
+	upstreamauthsessionDescCooldownCount := upstreamauthsessionFields[17].Descriptor()
+	// upstreamauthsession.DefaultCooldownCount holds the default value on creation for the cooldown_count field.
+	upstreamauthsession.DefaultCooldownCount = upstreamauthsessionDescCooldownCount.Default.(int64)
 	upstreambalancesnapshotFields := schema.UpstreamBalanceSnapshot{}.Fields()
 	_ = upstreambalancesnapshotFields
 	// upstreambalancesnapshotDescProvider is the schema descriptor for provider field.

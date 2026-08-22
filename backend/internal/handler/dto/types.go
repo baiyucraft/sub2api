@@ -339,6 +339,8 @@ type UpstreamImagePricing struct {
 	FinalCost2K             *float64   `json:"final_cost_2k,omitempty"`
 	FinalCost4K             *float64   `json:"final_cost_4k,omitempty"`
 	ObservedAt              *time.Time `json:"observed_at,omitempty"`
+	PricingSource           string     `json:"pricing_source,omitempty"`
+	DefaultedTiers          []string   `json:"defaulted_tiers,omitempty"`
 }
 
 type UpstreamVideoPricing struct {

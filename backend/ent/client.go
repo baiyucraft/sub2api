@@ -47,6 +47,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
@@ -137,6 +138,8 @@ type Client struct {
 	SubscriptionPlan *SubscriptionPlanClient
 	// TLSFingerprintProfile is the client for interacting with the TLSFingerprintProfile builders.
 	TLSFingerprintProfile *TLSFingerprintProfileClient
+	// UpstreamAuthSession is the client for interacting with the UpstreamAuthSession builders.
+	UpstreamAuthSession *UpstreamAuthSessionClient
 	// UpstreamBalanceSnapshot is the client for interacting with the UpstreamBalanceSnapshot builders.
 	UpstreamBalanceSnapshot *UpstreamBalanceSnapshotClient
 	// UpstreamConfig is the client for interacting with the UpstreamConfig builders.
@@ -214,6 +217,7 @@ func (c *Client) init() {
 	c.Setting = NewSettingClient(c.config)
 	c.SubscriptionPlan = NewSubscriptionPlanClient(c.config)
 	c.TLSFingerprintProfile = NewTLSFingerprintProfileClient(c.config)
+	c.UpstreamAuthSession = NewUpstreamAuthSessionClient(c.config)
 	c.UpstreamBalanceSnapshot = NewUpstreamBalanceSnapshotClient(c.config)
 	c.UpstreamConfig = NewUpstreamConfigClient(c.config)
 	c.UpstreamEvent = NewUpstreamEventClient(c.config)
@@ -355,6 +359,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Setting:                       NewSettingClient(cfg),
 		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
 		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
+		UpstreamAuthSession:           NewUpstreamAuthSessionClient(cfg),
 		UpstreamBalanceSnapshot:       NewUpstreamBalanceSnapshotClient(cfg),
 		UpstreamConfig:                NewUpstreamConfigClient(cfg),
 		UpstreamEvent:                 NewUpstreamEventClient(cfg),
@@ -423,6 +428,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Setting:                       NewSettingClient(cfg),
 		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
 		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
+		UpstreamAuthSession:           NewUpstreamAuthSessionClient(cfg),
 		UpstreamBalanceSnapshot:       NewUpstreamBalanceSnapshotClient(cfg),
 		UpstreamConfig:                NewUpstreamConfigClient(cfg),
 		UpstreamEvent:                 NewUpstreamEventClient(cfg),
@@ -477,12 +483,13 @@ func (c *Client) Use(hooks ...Hook) {
 		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.PaymentAuditLog,
 		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
 		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
-		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UpstreamBalanceSnapshot,
-		c.UpstreamConfig, c.UpstreamEvent, c.UpstreamHealthObservation,
-		c.UpstreamIncident, c.UpstreamKey, c.UpstreamKeyRateSnapshot,
-		c.UpstreamSyncResult, c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog,
-		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
-		c.UserPlatformQuota, c.UserSubscription,
+		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UpstreamAuthSession,
+		c.UpstreamBalanceSnapshot, c.UpstreamConfig, c.UpstreamEvent,
+		c.UpstreamHealthObservation, c.UpstreamIncident, c.UpstreamKey,
+		c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult, c.UpstreamSyncRun,
+		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
+		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
+		c.UserSubscription,
 	} {
 		n.Use(hooks...)
 	}
@@ -500,12 +507,13 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.PaymentAuditLog,
 		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
 		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
-		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UpstreamBalanceSnapshot,
-		c.UpstreamConfig, c.UpstreamEvent, c.UpstreamHealthObservation,
-		c.UpstreamIncident, c.UpstreamKey, c.UpstreamKeyRateSnapshot,
-		c.UpstreamSyncResult, c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog,
-		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
-		c.UserPlatformQuota, c.UserSubscription,
+		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UpstreamAuthSession,
+		c.UpstreamBalanceSnapshot, c.UpstreamConfig, c.UpstreamEvent,
+		c.UpstreamHealthObservation, c.UpstreamIncident, c.UpstreamKey,
+		c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult, c.UpstreamSyncRun,
+		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
+		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
+		c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -578,6 +586,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.SubscriptionPlan.mutate(ctx, m)
 	case *TLSFingerprintProfileMutation:
 		return c.TLSFingerprintProfile.mutate(ctx, m)
+	case *UpstreamAuthSessionMutation:
+		return c.UpstreamAuthSession.mutate(ctx, m)
 	case *UpstreamBalanceSnapshotMutation:
 		return c.UpstreamBalanceSnapshot.mutate(ctx, m)
 	case *UpstreamConfigMutation:
@@ -5698,6 +5708,155 @@ func (c *TLSFingerprintProfileClient) mutate(ctx context.Context, m *TLSFingerpr
 	}
 }
 
+// UpstreamAuthSessionClient is a client for the UpstreamAuthSession schema.
+type UpstreamAuthSessionClient struct {
+	config
+}
+
+// NewUpstreamAuthSessionClient returns a client for the UpstreamAuthSession from the given config.
+func NewUpstreamAuthSessionClient(c config) *UpstreamAuthSessionClient {
+	return &UpstreamAuthSessionClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `upstreamauthsession.Hooks(f(g(h())))`.
+func (c *UpstreamAuthSessionClient) Use(hooks ...Hook) {
+	c.hooks.UpstreamAuthSession = append(c.hooks.UpstreamAuthSession, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `upstreamauthsession.Intercept(f(g(h())))`.
+func (c *UpstreamAuthSessionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.UpstreamAuthSession = append(c.inters.UpstreamAuthSession, interceptors...)
+}
+
+// Create returns a builder for creating a UpstreamAuthSession entity.
+func (c *UpstreamAuthSessionClient) Create() *UpstreamAuthSessionCreate {
+	mutation := newUpstreamAuthSessionMutation(c.config, OpCreate)
+	return &UpstreamAuthSessionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of UpstreamAuthSession entities.
+func (c *UpstreamAuthSessionClient) CreateBulk(builders ...*UpstreamAuthSessionCreate) *UpstreamAuthSessionCreateBulk {
+	return &UpstreamAuthSessionCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *UpstreamAuthSessionClient) MapCreateBulk(slice any, setFunc func(*UpstreamAuthSessionCreate, int)) *UpstreamAuthSessionCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &UpstreamAuthSessionCreateBulk{err: fmt.Errorf("calling to UpstreamAuthSessionClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*UpstreamAuthSessionCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &UpstreamAuthSessionCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for UpstreamAuthSession.
+func (c *UpstreamAuthSessionClient) Update() *UpstreamAuthSessionUpdate {
+	mutation := newUpstreamAuthSessionMutation(c.config, OpUpdate)
+	return &UpstreamAuthSessionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *UpstreamAuthSessionClient) UpdateOne(_m *UpstreamAuthSession) *UpstreamAuthSessionUpdateOne {
+	mutation := newUpstreamAuthSessionMutation(c.config, OpUpdateOne, withUpstreamAuthSession(_m))
+	return &UpstreamAuthSessionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *UpstreamAuthSessionClient) UpdateOneID(id int64) *UpstreamAuthSessionUpdateOne {
+	mutation := newUpstreamAuthSessionMutation(c.config, OpUpdateOne, withUpstreamAuthSessionID(id))
+	return &UpstreamAuthSessionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for UpstreamAuthSession.
+func (c *UpstreamAuthSessionClient) Delete() *UpstreamAuthSessionDelete {
+	mutation := newUpstreamAuthSessionMutation(c.config, OpDelete)
+	return &UpstreamAuthSessionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *UpstreamAuthSessionClient) DeleteOne(_m *UpstreamAuthSession) *UpstreamAuthSessionDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *UpstreamAuthSessionClient) DeleteOneID(id int64) *UpstreamAuthSessionDeleteOne {
+	builder := c.Delete().Where(upstreamauthsession.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &UpstreamAuthSessionDeleteOne{builder}
+}
+
+// Query returns a query builder for UpstreamAuthSession.
+func (c *UpstreamAuthSessionClient) Query() *UpstreamAuthSessionQuery {
+	return &UpstreamAuthSessionQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeUpstreamAuthSession},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a UpstreamAuthSession entity by its id.
+func (c *UpstreamAuthSessionClient) Get(ctx context.Context, id int64) (*UpstreamAuthSession, error) {
+	return c.Query().Where(upstreamauthsession.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *UpstreamAuthSessionClient) GetX(ctx context.Context, id int64) *UpstreamAuthSession {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryUpstreamConfig queries the upstream_config edge of a UpstreamAuthSession.
+func (c *UpstreamAuthSessionClient) QueryUpstreamConfig(_m *UpstreamAuthSession) *UpstreamConfigQuery {
+	query := (&UpstreamConfigClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamauthsession.Table, upstreamauthsession.FieldID, id),
+			sqlgraph.To(upstreamconfig.Table, upstreamconfig.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, upstreamauthsession.UpstreamConfigTable, upstreamauthsession.UpstreamConfigColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *UpstreamAuthSessionClient) Hooks() []Hook {
+	return c.hooks.UpstreamAuthSession
+}
+
+// Interceptors returns the client interceptors.
+func (c *UpstreamAuthSessionClient) Interceptors() []Interceptor {
+	return c.inters.UpstreamAuthSession
+}
+
+func (c *UpstreamAuthSessionClient) mutate(ctx context.Context, m *UpstreamAuthSessionMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&UpstreamAuthSessionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&UpstreamAuthSessionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&UpstreamAuthSessionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&UpstreamAuthSessionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown UpstreamAuthSession mutation op: %q", m.Op())
+	}
+}
+
 // UpstreamBalanceSnapshotClient is a client for the UpstreamBalanceSnapshot schema.
 type UpstreamBalanceSnapshotClient struct {
 	config
@@ -6092,6 +6251,22 @@ func (c *UpstreamConfigClient) QueryUsageLogs(_m *UpstreamConfig) *UsageLogQuery
 			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, id),
 			sqlgraph.To(usagelog.Table, usagelog.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.UsageLogsTable, upstreamconfig.UsageLogsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryAuthSession queries the auth_session edge of a UpstreamConfig.
+func (c *UpstreamConfigClient) QueryAuthSession(_m *UpstreamConfig) *UpstreamAuthSessionQuery {
+	query := (&UpstreamAuthSessionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, id),
+			sqlgraph.To(upstreamauthsession.Table, upstreamauthsession.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.AuthSessionTable, upstreamconfig.AuthSessionColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -8972,11 +9147,12 @@ type (
 		Group, GroupRateSnapshot, IdempotencyRecord, IdentityAdoptionDecision,
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
 		PromoCode, PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting,
-		SubscriptionPlan, TLSFingerprintProfile, UpstreamBalanceSnapshot,
-		UpstreamConfig, UpstreamEvent, UpstreamHealthObservation, UpstreamIncident,
-		UpstreamKey, UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun,
-		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
-		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Hook
+		SubscriptionPlan, TLSFingerprintProfile, UpstreamAuthSession,
+		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent,
+		UpstreamHealthObservation, UpstreamIncident, UpstreamKey,
+		UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask,
+		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
@@ -8986,11 +9162,12 @@ type (
 		Group, GroupRateSnapshot, IdempotencyRecord, IdentityAdoptionDecision,
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
 		PromoCode, PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting,
-		SubscriptionPlan, TLSFingerprintProfile, UpstreamBalanceSnapshot,
-		UpstreamConfig, UpstreamEvent, UpstreamHealthObservation, UpstreamIncident,
-		UpstreamKey, UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun,
-		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
-		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Interceptor
+		SubscriptionPlan, TLSFingerprintProfile, UpstreamAuthSession,
+		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent,
+		UpstreamHealthObservation, UpstreamIncident, UpstreamKey,
+		UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask,
+		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )
 

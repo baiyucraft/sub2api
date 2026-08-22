@@ -159,6 +159,8 @@ func TestAccountFromServiceShallow_ProjectsOnlyRedactedImagePricing(t *testing.T
 			RateIndependent:         true,
 			EffectiveRateMultiplier: &rate,
 			FinalCost2K:             &cost,
+			PricingSource:           "mixed",
+			DefaultedTiers:          []string{"1K", "4K"},
 		},
 		Credentials: map[string]any{"api_key": "sk-secret"},
 	}
@@ -168,6 +170,8 @@ func TestAccountFromServiceShallow_ProjectsOnlyRedactedImagePricing(t *testing.T
 	require.True(t, got.UpstreamImagePricing.Supported)
 	require.True(t, got.UpstreamImagePricing.RateIndependent)
 	require.Equal(t, cost, *got.UpstreamImagePricing.FinalCost2K)
+	require.Equal(t, "mixed", got.UpstreamImagePricing.PricingSource)
+	require.Equal(t, []string{"1K", "4K"}, got.UpstreamImagePricing.DefaultedTiers)
 
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)

@@ -41,6 +41,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
@@ -980,6 +981,33 @@ func (f TraverseTLSFingerprintProfile) Traverse(ctx context.Context, q ent.Query
 	return fmt.Errorf("unexpected query type %T. expect *ent.TLSFingerprintProfileQuery", q)
 }
 
+// The UpstreamAuthSessionFunc type is an adapter to allow the use of ordinary function as a Querier.
+type UpstreamAuthSessionFunc func(context.Context, *ent.UpstreamAuthSessionQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f UpstreamAuthSessionFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.UpstreamAuthSessionQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamAuthSessionQuery", q)
+}
+
+// The TraverseUpstreamAuthSession type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseUpstreamAuthSession func(context.Context, *ent.UpstreamAuthSessionQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseUpstreamAuthSession) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseUpstreamAuthSession) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.UpstreamAuthSessionQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamAuthSessionQuery", q)
+}
+
 // The UpstreamBalanceSnapshotFunc type is an adapter to allow the use of ordinary function as a Querier.
 type UpstreamBalanceSnapshotFunc func(context.Context, *ent.UpstreamBalanceSnapshotQuery) (ent.Value, error)
 
@@ -1506,6 +1534,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.SubscriptionPlanQuery, predicate.SubscriptionPlan, subscriptionplan.OrderOption]{typ: ent.TypeSubscriptionPlan, tq: q}, nil
 	case *ent.TLSFingerprintProfileQuery:
 		return &query[*ent.TLSFingerprintProfileQuery, predicate.TLSFingerprintProfile, tlsfingerprintprofile.OrderOption]{typ: ent.TypeTLSFingerprintProfile, tq: q}, nil
+	case *ent.UpstreamAuthSessionQuery:
+		return &query[*ent.UpstreamAuthSessionQuery, predicate.UpstreamAuthSession, upstreamauthsession.OrderOption]{typ: ent.TypeUpstreamAuthSession, tq: q}, nil
 	case *ent.UpstreamBalanceSnapshotQuery:
 		return &query[*ent.UpstreamBalanceSnapshotQuery, predicate.UpstreamBalanceSnapshot, upstreambalancesnapshot.OrderOption]{typ: ent.TypeUpstreamBalanceSnapshot, tq: q}, nil
 	case *ent.UpstreamConfigQuery:

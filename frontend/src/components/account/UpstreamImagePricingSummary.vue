@@ -68,6 +68,12 @@ const tiers = computed(() => [
   { key: '4K', value: props.pricing.final_cost_4k }
 ])
 
+const pricingSourceLabel = computed(() => {
+  if (props.pricing.pricing_source === 'builtin_default') return t('admin.accounts.upstreamImagePricing.sourceBuiltinDefault')
+  if (props.pricing.pricing_source === 'mixed') return t('admin.accounts.upstreamImagePricing.sourceMixed')
+  return t('admin.accounts.upstreamImagePricing.sourceUpstream')
+})
+
 const costTooltip = (tier: { key: string; value: number | null | undefined }) => t(
   props.pricing.rate_independent
     ? 'admin.accounts.upstreamImagePricing.costTooltipIndependent'
@@ -76,7 +82,8 @@ const costTooltip = (tier: { key: string; value: number | null | undefined }) =>
     tier: tier.key,
     cost: formatCost(tier.value),
     multiplier: rateMultiplierLabel.value,
-    status: statusLabel.value
+    status: statusLabel.value,
+    source: pricingSourceLabel.value
   }
 )
 
@@ -84,7 +91,8 @@ const summaryTitle = computed(() => t('admin.accounts.upstreamImagePricing.costT
   mode: props.pricing.rate_independent
     ? t('admin.accounts.upstreamImagePricing.independent')
     : t('admin.accounts.upstreamImagePricing.shared'),
-  status: statusLabel.value
+  status: statusLabel.value,
+  source: pricingSourceLabel.value
 }) + (props.pricing.observed_at
   ? ` · ${formatDateTime(props.pricing.observed_at)}`
   : ''))
