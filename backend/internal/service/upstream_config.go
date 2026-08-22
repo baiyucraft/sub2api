@@ -164,6 +164,42 @@ type UpstreamConfigRepository interface {
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
 }
 
+// UpstreamConfigDeleteOptions controls destructive operations on an upstream
+// configuration. The default path deliberately keeps the historical
+// "reject when accounts are bound" behavior.
+type UpstreamConfigDeleteOptions struct {
+	DeleteSyncManagedAccounts bool
+}
+
+// UpstreamConfigDeleteResult is returned after a successful delete. Counts are
+// zero for the compatibility (non-cascade) path.
+type UpstreamConfigDeleteResult struct {
+	DeletedAccountCount int `json:"deleted_account_count"`
+	DeletedKeyCount     int `json:"deleted_key_count"`
+}
+
+// UpstreamConfigBindingSummary is the redacted binding shape used by delete
+// guards. It intentionally contains counts only; account/key credentials are
+// never exposed to the handler.
+type UpstreamConfigBindingSummary struct {
+	BoundAccountCount       int
+	ManualAccountCount      int
+	MissingKeyAccountCount  int
+	SyncManagedAccountCount int
+}
+
+// UpstreamConfigBindingSummaryRepository is optional for compatibility with
+// lightweight repositories used by existing service tests.
+type UpstreamConfigBindingSummaryRepository interface {
+	GetBindingSummary(ctx context.Context, id int64) (UpstreamConfigBindingSummary, error)
+}
+
+// UpstreamConfigCascadeDeleteRepository is intentionally optional so existing
+// lightweight repository test doubles do not need to grow a new method.
+type UpstreamConfigCascadeDeleteRepository interface {
+	DeleteWithOptions(ctx context.Context, id int64, options UpstreamConfigDeleteOptions) (UpstreamConfigDeleteResult, error)
+}
+
 const MaxUpstreamActualRate = 999999.9999
 
 // NormalizeUpstreamActualRate is the single authority for persisted upstream cost rates.
@@ -850,14 +886,49 @@ func pruneNewAPIAuthenticationCredentials(credentials map[string]any, authMode s
 }
 
 func (s *UpstreamConfigService) Delete(ctx context.Context, id int64) error {
+	_, err := s.DeleteWithOptions(ctx, id, UpstreamConfigDeleteOptions{})
+	return err
+}
+
+func (s *UpstreamConfigService) DeleteWithOptions(ctx context.Context, id int64, options UpstreamConfigDeleteOptions) (UpstreamConfigDeleteResult, error) {
+	if options.DeleteSyncManagedAccounts {
+		cascadeRepo, ok := s.repo.(UpstreamConfigCascadeDeleteRepository)
+		if !ok {
+			return UpstreamConfigDeleteResult{}, infraerrors.InternalServer("UPSTREAM_CONFIG_CASCADE_DELETE_UNAVAILABLE", "upstream config cascade deletion is unavailable")
+		}
+		return cascadeRepo.DeleteWithOptions(ctx, id, options)
+	}
+
+	if summaryRepo, ok := s.repo.(UpstreamConfigBindingSummaryRepository); ok {
+		summary, err := summaryRepo.GetBindingSummary(ctx, id)
+		if err != nil {
+			return UpstreamConfigDeleteResult{}, err
+		}
+		if summary.BoundAccountCount > 0 {
+			return UpstreamConfigDeleteResult{}, upstreamConfigInUseError(summary)
+		}
+		return UpstreamConfigDeleteResult{}, s.repo.Delete(ctx, id)
+	}
 	count, err := s.repo.CountAccounts(ctx, id)
 	if err != nil {
-		return err
+		return UpstreamConfigDeleteResult{}, err
 	}
 	if count > 0 {
-		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_CONFIG_IN_USE", "upstream config is used by accounts")
+		return UpstreamConfigDeleteResult{}, upstreamConfigInUseError(UpstreamConfigBindingSummary{
+			BoundAccountCount:       int(count),
+			SyncManagedAccountCount: int(count),
+		})
 	}
-	return s.repo.Delete(ctx, id)
+	return UpstreamConfigDeleteResult{}, s.repo.Delete(ctx, id)
+}
+
+func upstreamConfigInUseError(summary UpstreamConfigBindingSummary) error {
+	return infraerrors.New(http.StatusBadRequest, "UPSTREAM_CONFIG_IN_USE", "upstream config is used by accounts").WithMetadata(map[string]string{
+		"bound_account_count":        strconv.Itoa(summary.BoundAccountCount),
+		"manual_account_count":       strconv.Itoa(summary.ManualAccountCount),
+		"missing_key_account_count":  strconv.Itoa(summary.MissingKeyAccountCount),
+		"sync_managed_account_count": strconv.Itoa(summary.SyncManagedAccountCount),
+	})
 }
 
 func (s *UpstreamConfigService) ListKeys(ctx context.Context, upstreamConfigID int64) ([]UpstreamKey, error) {

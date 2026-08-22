@@ -271,7 +271,8 @@ export default {
     emptyDescription: 'Create an upstream site, then bind accounts to keys from that site in account management.',
     delete: {
       title: 'Delete Upstream Config',
-      message: "Delete upstream config '{name}'? The backend will reject deletion if accounts are still linked."
+      message: "Delete upstream config '{name}'? The backend will reject deletion if accounts are still linked.",
+      cascadeMessage: "Delete upstream config '{name}'? This will soft-delete {accountCount} sync-managed account(s) and {keyCount} linked key(s). Usage history is retained, and these accounts will no longer be scheduled."
     },
     messages: {
       loadFailed: 'Failed to load upstream configs',
