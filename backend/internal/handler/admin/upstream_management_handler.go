@@ -56,7 +56,7 @@ func (h *UpstreamConfigHandler) GetUpstreamProbeModels(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"models": gin.H{"openai": models.OpenAI, "anthropic": models.Anthropic, "gemini": models.Gemini}})
+	response.Success(c, gin.H{"models": models.AsMap()})
 }
 
 func (h *UpstreamConfigHandler) PutUpstreamProbeModels(c *gin.Context) {
@@ -65,14 +65,12 @@ func (h *UpstreamConfigHandler) PutUpstreamProbeModels(c *gin.Context) {
 		response.BadRequest(c, "models is required")
 		return
 	}
-	models := service.UpstreamProbeModels{
-		OpenAI: req.Models["openai"], Anthropic: req.Models["anthropic"], Gemini: req.Models["gemini"],
-	}
+	models := service.UpstreamProbeModelsFromMap(req.Models)
 	if err := h.service.SetProbeModels(c.Request.Context(), models); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"models": gin.H{"openai": models.OpenAI, "anthropic": models.Anthropic, "gemini": models.Gemini}})
+	response.Success(c, gin.H{"models": models.AsMap()})
 }
 
 func (h *UpstreamConfigHandler) GetUpstreamManagementSettings(c *gin.Context) {
@@ -122,7 +120,8 @@ func (h *UpstreamConfigHandler) GetUpstreamProbeModelCandidates(c *gin.Context) 
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"candidates": candidates})
+	platforms := h.service.GetProbePlatformCatalog()
+	response.Success(c, gin.H{"candidates": candidates, "platforms": platforms})
 }
 
 func parseUpstreamManagementKeyID(c *gin.Context) (int64, bool) {
