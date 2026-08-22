@@ -10,6 +10,7 @@ vi.mock('@/composables/useChannelMonitorFormat', () => ({
   useChannelMonitorFormat: () => ({
     statusLabel: (value: string) => value,
     statusBadgeClass: () => '',
+    formatMonitorModel: (value: string) => value,
     formatLatency: (value: number | null) => value == null ? '-' : String(value),
     formatPercent: (value: number | null) => value == null ? '-' : `${value}%`,
   }),
