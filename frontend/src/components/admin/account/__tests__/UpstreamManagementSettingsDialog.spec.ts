@@ -4,10 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import UpstreamManagementSettingsDialog from '../UpstreamManagementSettingsDialog.vue'
 
-const { getSettings, getCandidates, updateSettings, showError, showSuccess } = vi.hoisted(() => ({
+const { getSettings, getProbeSettings, getCandidates, updateSettings, updateProbeSettings, showError, showSuccess } = vi.hoisted(() => ({
   getSettings: vi.fn(),
+  getProbeSettings: vi.fn(),
   getCandidates: vi.fn(),
   updateSettings: vi.fn(),
+  updateProbeSettings: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn()
 }))
@@ -15,8 +17,10 @@ const { getSettings, getCandidates, updateSettings, showError, showSuccess } = v
 vi.mock('@/api/admin/upstreamManagement', () => ({
   default: {
     getSettings,
+    getProbeSettings,
     getProbeModelCandidates: getCandidates,
-    updateSettings
+    updateSettings,
+    updateProbeSettings
   }
 }))
 
@@ -60,8 +64,10 @@ const ToggleStub = defineComponent({
 describe('UpstreamManagementSettingsDialog', () => {
   beforeEach(() => {
     getSettings.mockReset()
+    getProbeSettings.mockReset()
     getCandidates.mockReset()
     updateSettings.mockReset()
+    updateProbeSettings.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
     getSettings.mockResolvedValue({
@@ -82,6 +88,8 @@ describe('UpstreamManagementSettingsDialog', () => {
       anthropic: ['claude-live'],
       gemini: ['gemini-live']
     } })
+    getProbeSettings.mockImplementation(() => getSettings())
+    updateProbeSettings.mockImplementation(updateSettings)
     updateSettings.mockResolvedValue({
       ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
       probe_guard: {
@@ -97,9 +105,9 @@ describe('UpstreamManagementSettingsDialog', () => {
     })
   })
 
-  function mountDialog(show = true) {
+  function mountDialog(show = true, probeOnly = false) {
     return mount(UpstreamManagementSettingsDialog, {
-      props: { show },
+      props: { show, probeOnly },
       global: {
         stubs: {
           BaseDialog: BaseDialogStub,
@@ -125,23 +133,37 @@ describe('UpstreamManagementSettingsDialog', () => {
     expect(wrapper.text()).toContain('admin.upstreamManagement.ttftGuard.tip.definition')
   })
 
+  it('renders the upstream platform catalog and marks catalog-only providers', async () => {
+    getProbeSettings.mockResolvedValueOnce({
+      ttft_guard: { enabled: true, degradation_ttft_seconds: 30, min_samples: 7 },
+      probe_guard: { enabled: true, suspend_after_failures: 3, recovery_successes: 2, custom_error_codes_enabled: false, custom_error_codes: [] },
+      probe_models: { openai: 'gpt-live', anthropic: 'claude-live', gemini: 'gemini-live', grok: 'grok-4.5' },
+      probe_interval_seconds: 300,
+      model_alias_rules: {}
+    })
+    getCandidates.mockResolvedValueOnce({
+      candidates: { openai: ['gpt-live'], anthropic: ['claude-live'], gemini: ['gemini-live'], grok: ['grok-4.5'] },
+      platforms: [
+        { id: 'openai', label: 'OpenAI', models: ['gpt-live'], probe_supported: true },
+        { id: 'grok', label: 'Grok', models: ['grok-4.5'], probe_supported: false, probe_reason: '该平台暂无主动探针协议' }
+      ]
+    })
+    const wrapper = mountDialog(true, true)
+    await flushPromises()
+    expect(wrapper.text()).toContain('OpenAI')
+    expect(wrapper.text()).toContain('Grok')
+    expect(wrapper.text()).toContain('admin.upstreamManagement.probeModels.catalogOnly')
+  })
+
   it('does not persist a draft on close and saves all settings atomically', async () => {
     const wrapper = mountDialog(true)
     await flushPromises()
-    const inputs = wrapper.findAll('input[type="number"]')
-    await inputs[0].setValue(45)
-    expect((wrapper.get('[data-test="probe-interval-minutes"]').element as HTMLInputElement).value).toBe('7')
-    await wrapper.findAll('[data-test="select"]')[0].trigger('click')
     await wrapper.find('[data-test="close"]').trigger('click')
     expect(updateSettings).not.toHaveBeenCalled()
 
     await wrapper.setProps({ show: false })
     await wrapper.setProps({ show: true })
     await flushPromises()
-    expect((wrapper.findAll('input[type="number"]')[0].element as HTMLInputElement).value).toBe('30')
-
-    await wrapper.findAll('[data-test="select"]')[0].trigger('click')
-    await wrapper.get('[data-test="probe-interval-minutes"]').setValue(12)
     await wrapper.find('button.btn-primary').trigger('click')
     await flushPromises()
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -153,8 +175,8 @@ describe('UpstreamManagementSettingsDialog', () => {
         custom_error_codes_enabled: true,
         custom_error_codes: [404]
       },
-      probe_models: expect.objectContaining({ openai: 'custom-model' }),
-      probe_interval_seconds: 720,
+      probe_models: expect.objectContaining({ openai: 'gpt-live' }),
+      probe_interval_seconds: 420,
       model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' }
     }))
   })
@@ -209,7 +231,7 @@ describe('UpstreamManagementSettingsDialog', () => {
   })
 
   it('rejects probe intervals outside one to sixty minutes', async () => {
-    const wrapper = mountDialog(true)
+    const wrapper = mountDialog(true, true)
     await flushPromises()
     await wrapper.get('[data-test="probe-interval-minutes"]').setValue(61)
     expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()

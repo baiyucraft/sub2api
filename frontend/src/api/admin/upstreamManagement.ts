@@ -17,16 +17,25 @@ export interface ProbeGuardSettings {
 
 export interface ProbeModels { models: Record<string, string> }
 
+export interface ProbePlatformDescriptor {
+  id: string
+  label: string
+  models: string[]
+  probe_supported: boolean
+  probe_reason?: string
+}
+
 export interface UpstreamManagementSettings {
   ttft_guard: TTFTGuardSettings
   probe_guard: ProbeGuardSettings
-  probe_models: Record<'openai' | 'anthropic' | 'gemini', string>
+  probe_models: Record<string, string>
   probe_interval_seconds: number
   model_alias_rules?: Record<string, string>
 }
 
 export interface ProbeModelCandidates {
-  candidates: Record<'openai' | 'anthropic' | 'gemini', string[]>
+  candidates: Record<string, string[]>
+  platforms: ProbePlatformDescriptor[]
 }
 
 export interface UpstreamHealthSnapshot {
