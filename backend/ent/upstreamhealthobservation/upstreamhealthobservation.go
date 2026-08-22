@@ -45,6 +45,18 @@ const (
 	FieldOutputTokens = "output_tokens"
 	// FieldOutputTps holds the string denoting the output_tps field in the database.
 	FieldOutputTps = "output_tps"
+	// FieldConfidenceScore holds the string denoting the confidence_score field in the database.
+	FieldConfidenceScore = "confidence_score"
+	// FieldConfidencePromptVersion holds the string denoting the confidence_prompt_version field in the database.
+	FieldConfidencePromptVersion = "confidence_prompt_version"
+	// FieldRequestedEffort holds the string denoting the requested_effort field in the database.
+	FieldRequestedEffort = "requested_effort"
+	// FieldReasoningTokens holds the string denoting the reasoning_tokens field in the database.
+	FieldReasoningTokens = "reasoning_tokens"
+	// FieldConfidenceChecks holds the string denoting the confidence_checks field in the database.
+	FieldConfidenceChecks = "confidence_checks"
+	// FieldConfidenceStatus holds the string denoting the confidence_status field in the database.
+	FieldConfidenceStatus = "confidence_status"
 	// FieldObservedAt holds the string denoting the observed_at field in the database.
 	FieldObservedAt = "observed_at"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
@@ -72,6 +84,12 @@ var Columns = []string{
 	FieldInputTokens,
 	FieldOutputTokens,
 	FieldOutputTps,
+	FieldConfidenceScore,
+	FieldConfidencePromptVersion,
+	FieldRequestedEffort,
+	FieldReasoningTokens,
+	FieldConfidenceChecks,
+	FieldConfidenceStatus,
 	FieldObservedAt,
 	FieldCreatedAt,
 }
@@ -111,6 +129,12 @@ var (
 	ResultValidator func(string) error
 	// DefaultReason holds the default value on creation for the "reason" field.
 	DefaultReason string
+	// ConfidencePromptVersionValidator is a validator for the "confidence_prompt_version" field. It is called by the builders before save.
+	ConfidencePromptVersionValidator func(string) error
+	// RequestedEffortValidator is a validator for the "requested_effort" field. It is called by the builders before save.
+	RequestedEffortValidator func(string) error
+	// ConfidenceStatusValidator is a validator for the "confidence_status" field. It is called by the builders before save.
+	ConfidenceStatusValidator func(string) error
 	// DefaultObservedAt holds the default value on creation for the "observed_at" field.
 	DefaultObservedAt func() time.Time
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
@@ -203,6 +227,31 @@ func ByOutputTokens(opts ...sql.OrderTermOption) OrderOption {
 // ByOutputTps orders the results by the output_tps field.
 func ByOutputTps(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldOutputTps, opts...).ToFunc()
+}
+
+// ByConfidenceScore orders the results by the confidence_score field.
+func ByConfidenceScore(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldConfidenceScore, opts...).ToFunc()
+}
+
+// ByConfidencePromptVersion orders the results by the confidence_prompt_version field.
+func ByConfidencePromptVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldConfidencePromptVersion, opts...).ToFunc()
+}
+
+// ByRequestedEffort orders the results by the requested_effort field.
+func ByRequestedEffort(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRequestedEffort, opts...).ToFunc()
+}
+
+// ByReasoningTokens orders the results by the reasoning_tokens field.
+func ByReasoningTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldReasoningTokens, opts...).ToFunc()
+}
+
+// ByConfidenceStatus orders the results by the confidence_status field.
+func ByConfidenceStatus(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldConfidenceStatus, opts...).ToFunc()
 }
 
 // ByObservedAt orders the results by the observed_at field.

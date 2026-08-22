@@ -222,6 +222,82 @@ func (_c *UpstreamHealthObservationCreate) SetNillableOutputTps(v *float64) *Ups
 	return _c
 }
 
+// SetConfidenceScore sets the "confidence_score" field.
+func (_c *UpstreamHealthObservationCreate) SetConfidenceScore(v int) *UpstreamHealthObservationCreate {
+	_c.mutation.SetConfidenceScore(v)
+	return _c
+}
+
+// SetNillableConfidenceScore sets the "confidence_score" field if the given value is not nil.
+func (_c *UpstreamHealthObservationCreate) SetNillableConfidenceScore(v *int) *UpstreamHealthObservationCreate {
+	if v != nil {
+		_c.SetConfidenceScore(*v)
+	}
+	return _c
+}
+
+// SetConfidencePromptVersion sets the "confidence_prompt_version" field.
+func (_c *UpstreamHealthObservationCreate) SetConfidencePromptVersion(v string) *UpstreamHealthObservationCreate {
+	_c.mutation.SetConfidencePromptVersion(v)
+	return _c
+}
+
+// SetNillableConfidencePromptVersion sets the "confidence_prompt_version" field if the given value is not nil.
+func (_c *UpstreamHealthObservationCreate) SetNillableConfidencePromptVersion(v *string) *UpstreamHealthObservationCreate {
+	if v != nil {
+		_c.SetConfidencePromptVersion(*v)
+	}
+	return _c
+}
+
+// SetRequestedEffort sets the "requested_effort" field.
+func (_c *UpstreamHealthObservationCreate) SetRequestedEffort(v string) *UpstreamHealthObservationCreate {
+	_c.mutation.SetRequestedEffort(v)
+	return _c
+}
+
+// SetNillableRequestedEffort sets the "requested_effort" field if the given value is not nil.
+func (_c *UpstreamHealthObservationCreate) SetNillableRequestedEffort(v *string) *UpstreamHealthObservationCreate {
+	if v != nil {
+		_c.SetRequestedEffort(*v)
+	}
+	return _c
+}
+
+// SetReasoningTokens sets the "reasoning_tokens" field.
+func (_c *UpstreamHealthObservationCreate) SetReasoningTokens(v int64) *UpstreamHealthObservationCreate {
+	_c.mutation.SetReasoningTokens(v)
+	return _c
+}
+
+// SetNillableReasoningTokens sets the "reasoning_tokens" field if the given value is not nil.
+func (_c *UpstreamHealthObservationCreate) SetNillableReasoningTokens(v *int64) *UpstreamHealthObservationCreate {
+	if v != nil {
+		_c.SetReasoningTokens(*v)
+	}
+	return _c
+}
+
+// SetConfidenceChecks sets the "confidence_checks" field.
+func (_c *UpstreamHealthObservationCreate) SetConfidenceChecks(v map[string]int) *UpstreamHealthObservationCreate {
+	_c.mutation.SetConfidenceChecks(v)
+	return _c
+}
+
+// SetConfidenceStatus sets the "confidence_status" field.
+func (_c *UpstreamHealthObservationCreate) SetConfidenceStatus(v string) *UpstreamHealthObservationCreate {
+	_c.mutation.SetConfidenceStatus(v)
+	return _c
+}
+
+// SetNillableConfidenceStatus sets the "confidence_status" field if the given value is not nil.
+func (_c *UpstreamHealthObservationCreate) SetNillableConfidenceStatus(v *string) *UpstreamHealthObservationCreate {
+	if v != nil {
+		_c.SetConfidenceStatus(*v)
+	}
+	return _c
+}
+
 // SetObservedAt sets the "observed_at" field.
 func (_c *UpstreamHealthObservationCreate) SetObservedAt(v time.Time) *UpstreamHealthObservationCreate {
 	_c.mutation.SetObservedAt(v)
@@ -378,6 +454,21 @@ func (_c *UpstreamHealthObservationCreate) check() error {
 	if _, ok := _c.mutation.Reason(); !ok {
 		return &ValidationError{Name: "reason", err: errors.New(`ent: missing required field "UpstreamHealthObservation.reason"`)}
 	}
+	if v, ok := _c.mutation.ConfidencePromptVersion(); ok {
+		if err := upstreamhealthobservation.ConfidencePromptVersionValidator(v); err != nil {
+			return &ValidationError{Name: "confidence_prompt_version", err: fmt.Errorf(`ent: validator failed for field "UpstreamHealthObservation.confidence_prompt_version": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.RequestedEffort(); ok {
+		if err := upstreamhealthobservation.RequestedEffortValidator(v); err != nil {
+			return &ValidationError{Name: "requested_effort", err: fmt.Errorf(`ent: validator failed for field "UpstreamHealthObservation.requested_effort": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.ConfidenceStatus(); ok {
+		if err := upstreamhealthobservation.ConfidenceStatusValidator(v); err != nil {
+			return &ValidationError{Name: "confidence_status", err: fmt.Errorf(`ent: validator failed for field "UpstreamHealthObservation.confidence_status": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.ObservedAt(); !ok {
 		return &ValidationError{Name: "observed_at", err: errors.New(`ent: missing required field "UpstreamHealthObservation.observed_at"`)}
 	}
@@ -474,6 +565,30 @@ func (_c *UpstreamHealthObservationCreate) createSpec() (*UpstreamHealthObservat
 	if value, ok := _c.mutation.OutputTps(); ok {
 		_spec.SetField(upstreamhealthobservation.FieldOutputTps, field.TypeFloat64, value)
 		_node.OutputTps = &value
+	}
+	if value, ok := _c.mutation.ConfidenceScore(); ok {
+		_spec.SetField(upstreamhealthobservation.FieldConfidenceScore, field.TypeInt, value)
+		_node.ConfidenceScore = &value
+	}
+	if value, ok := _c.mutation.ConfidencePromptVersion(); ok {
+		_spec.SetField(upstreamhealthobservation.FieldConfidencePromptVersion, field.TypeString, value)
+		_node.ConfidencePromptVersion = &value
+	}
+	if value, ok := _c.mutation.RequestedEffort(); ok {
+		_spec.SetField(upstreamhealthobservation.FieldRequestedEffort, field.TypeString, value)
+		_node.RequestedEffort = &value
+	}
+	if value, ok := _c.mutation.ReasoningTokens(); ok {
+		_spec.SetField(upstreamhealthobservation.FieldReasoningTokens, field.TypeInt64, value)
+		_node.ReasoningTokens = &value
+	}
+	if value, ok := _c.mutation.ConfidenceChecks(); ok {
+		_spec.SetField(upstreamhealthobservation.FieldConfidenceChecks, field.TypeJSON, value)
+		_node.ConfidenceChecks = value
+	}
+	if value, ok := _c.mutation.ConfidenceStatus(); ok {
+		_spec.SetField(upstreamhealthobservation.FieldConfidenceStatus, field.TypeString, value)
+		_node.ConfidenceStatus = &value
 	}
 	if value, ok := _c.mutation.ObservedAt(); ok {
 		_spec.SetField(upstreamhealthobservation.FieldObservedAt, field.TypeTime, value)
@@ -593,6 +708,24 @@ func (u *UpstreamHealthObservationUpsertOne) UpdateNewValues() *UpstreamHealthOb
 		}
 		if _, exists := u.create.mutation.OutputTps(); exists {
 			s.SetIgnore(upstreamhealthobservation.FieldOutputTps)
+		}
+		if _, exists := u.create.mutation.ConfidenceScore(); exists {
+			s.SetIgnore(upstreamhealthobservation.FieldConfidenceScore)
+		}
+		if _, exists := u.create.mutation.ConfidencePromptVersion(); exists {
+			s.SetIgnore(upstreamhealthobservation.FieldConfidencePromptVersion)
+		}
+		if _, exists := u.create.mutation.RequestedEffort(); exists {
+			s.SetIgnore(upstreamhealthobservation.FieldRequestedEffort)
+		}
+		if _, exists := u.create.mutation.ReasoningTokens(); exists {
+			s.SetIgnore(upstreamhealthobservation.FieldReasoningTokens)
+		}
+		if _, exists := u.create.mutation.ConfidenceChecks(); exists {
+			s.SetIgnore(upstreamhealthobservation.FieldConfidenceChecks)
+		}
+		if _, exists := u.create.mutation.ConfidenceStatus(); exists {
+			s.SetIgnore(upstreamhealthobservation.FieldConfidenceStatus)
 		}
 		if _, exists := u.create.mutation.ObservedAt(); exists {
 			s.SetIgnore(upstreamhealthobservation.FieldObservedAt)
@@ -854,6 +987,24 @@ func (u *UpstreamHealthObservationUpsertBulk) UpdateNewValues() *UpstreamHealthO
 			}
 			if _, exists := b.mutation.OutputTps(); exists {
 				s.SetIgnore(upstreamhealthobservation.FieldOutputTps)
+			}
+			if _, exists := b.mutation.ConfidenceScore(); exists {
+				s.SetIgnore(upstreamhealthobservation.FieldConfidenceScore)
+			}
+			if _, exists := b.mutation.ConfidencePromptVersion(); exists {
+				s.SetIgnore(upstreamhealthobservation.FieldConfidencePromptVersion)
+			}
+			if _, exists := b.mutation.RequestedEffort(); exists {
+				s.SetIgnore(upstreamhealthobservation.FieldRequestedEffort)
+			}
+			if _, exists := b.mutation.ReasoningTokens(); exists {
+				s.SetIgnore(upstreamhealthobservation.FieldReasoningTokens)
+			}
+			if _, exists := b.mutation.ConfidenceChecks(); exists {
+				s.SetIgnore(upstreamhealthobservation.FieldConfidenceChecks)
+			}
+			if _, exists := b.mutation.ConfidenceStatus(); exists {
+				s.SetIgnore(upstreamhealthobservation.FieldConfidenceStatus)
 			}
 			if _, exists := b.mutation.ObservedAt(); exists {
 				s.SetIgnore(upstreamhealthobservation.FieldObservedAt)

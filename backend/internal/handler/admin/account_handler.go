@@ -271,6 +271,11 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	if account.UpstreamKeyID != nil {
 		health := service.GlobalUpstreamHealthRegistry().Snapshot(*account.UpstreamKeyID)
 		item.UpstreamHealth = &AccountUpstreamHealth{UpstreamHealthSnapshot: health}
+		if reader, ok := h.upstreamHealthReader.(service.UpstreamHealthConfidenceReader); ok {
+			if confidence, err := reader.GetUpstreamHealthConfidence(ctx, *account.UpstreamKeyID); err == nil {
+				item.UpstreamHealth.UpstreamHealthSnapshot = service.MergeUpstreamHealthConfidence(item.UpstreamHealth.UpstreamHealthSnapshot, confidence)
+			}
+		}
 		if h.upstreamHealthReader != nil {
 			if histories, err := h.upstreamHealthReader.ListUpstreamHealthHistories(ctx, []int64{*account.UpstreamKeyID}, service.UpstreamHealthListHistoryLimit); err == nil {
 				item.UpstreamHealth.History = histories[*account.UpstreamKeyID]
@@ -809,6 +814,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 		if acc.UpstreamKeyID != nil {
 			health := service.GlobalUpstreamHealthRegistry().Snapshot(*acc.UpstreamKeyID)
+			if reader, ok := h.upstreamHealthReader.(service.UpstreamHealthConfidenceReader); ok {
+				if confidence, err := reader.GetUpstreamHealthConfidence(c.Request.Context(), *acc.UpstreamKeyID); err == nil {
+					health = service.MergeUpstreamHealthConfidence(health, confidence)
+				}
+			}
 			item.UpstreamHealth = &AccountUpstreamHealth{UpstreamHealthSnapshot: health, History: upstreamHealthHistories[*acc.UpstreamKeyID]}
 		}
 

@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -49,6 +50,18 @@ type UpstreamHealthObservation struct {
 	OutputTokens *int64 `json:"output_tokens,omitempty"`
 	// OutputTps holds the value of the "output_tps" field.
 	OutputTps *float64 `json:"output_tps,omitempty"`
+	// ConfidenceScore holds the value of the "confidence_score" field.
+	ConfidenceScore *int `json:"confidence_score,omitempty"`
+	// ConfidencePromptVersion holds the value of the "confidence_prompt_version" field.
+	ConfidencePromptVersion *string `json:"confidence_prompt_version,omitempty"`
+	// RequestedEffort holds the value of the "requested_effort" field.
+	RequestedEffort *string `json:"requested_effort,omitempty"`
+	// ReasoningTokens holds the value of the "reasoning_tokens" field.
+	ReasoningTokens *int64 `json:"reasoning_tokens,omitempty"`
+	// ConfidenceChecks holds the value of the "confidence_checks" field.
+	ConfidenceChecks map[string]int `json:"confidence_checks,omitempty"`
+	// ConfidenceStatus holds the value of the "confidence_status" field.
+	ConfidenceStatus *string `json:"confidence_status,omitempty"`
 	// ObservedAt holds the value of the "observed_at" field.
 	ObservedAt time.Time `json:"observed_at,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
@@ -61,11 +74,13 @@ func (*UpstreamHealthObservation) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case upstreamhealthobservation.FieldConfidenceChecks:
+			values[i] = new([]byte)
 		case upstreamhealthobservation.FieldOutputTps:
 			values[i] = new(sql.NullFloat64)
-		case upstreamhealthobservation.FieldID, upstreamhealthobservation.FieldUpstreamConfigID, upstreamhealthobservation.FieldUpstreamKeyID, upstreamhealthobservation.FieldAccountID, upstreamhealthobservation.FieldHTTPStatus, upstreamhealthobservation.FieldTtftMs, upstreamhealthobservation.FieldDurationMs, upstreamhealthobservation.FieldInputTokens, upstreamhealthobservation.FieldOutputTokens:
+		case upstreamhealthobservation.FieldID, upstreamhealthobservation.FieldUpstreamConfigID, upstreamhealthobservation.FieldUpstreamKeyID, upstreamhealthobservation.FieldAccountID, upstreamhealthobservation.FieldHTTPStatus, upstreamhealthobservation.FieldTtftMs, upstreamhealthobservation.FieldDurationMs, upstreamhealthobservation.FieldInputTokens, upstreamhealthobservation.FieldOutputTokens, upstreamhealthobservation.FieldConfidenceScore, upstreamhealthobservation.FieldReasoningTokens:
 			values[i] = new(sql.NullInt64)
-		case upstreamhealthobservation.FieldPlatform, upstreamhealthobservation.FieldModel, upstreamhealthobservation.FieldProtocol, upstreamhealthobservation.FieldSource, upstreamhealthobservation.FieldState, upstreamhealthobservation.FieldResult, upstreamhealthobservation.FieldReason:
+		case upstreamhealthobservation.FieldPlatform, upstreamhealthobservation.FieldModel, upstreamhealthobservation.FieldProtocol, upstreamhealthobservation.FieldSource, upstreamhealthobservation.FieldState, upstreamhealthobservation.FieldResult, upstreamhealthobservation.FieldReason, upstreamhealthobservation.FieldConfidencePromptVersion, upstreamhealthobservation.FieldRequestedEffort, upstreamhealthobservation.FieldConfidenceStatus:
 			values[i] = new(sql.NullString)
 		case upstreamhealthobservation.FieldObservedAt, upstreamhealthobservation.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -193,6 +208,49 @@ func (_m *UpstreamHealthObservation) assignValues(columns []string, values []any
 				_m.OutputTps = new(float64)
 				*_m.OutputTps = value.Float64
 			}
+		case upstreamhealthobservation.FieldConfidenceScore:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field confidence_score", values[i])
+			} else if value.Valid {
+				_m.ConfidenceScore = new(int)
+				*_m.ConfidenceScore = int(value.Int64)
+			}
+		case upstreamhealthobservation.FieldConfidencePromptVersion:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field confidence_prompt_version", values[i])
+			} else if value.Valid {
+				_m.ConfidencePromptVersion = new(string)
+				*_m.ConfidencePromptVersion = value.String
+			}
+		case upstreamhealthobservation.FieldRequestedEffort:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field requested_effort", values[i])
+			} else if value.Valid {
+				_m.RequestedEffort = new(string)
+				*_m.RequestedEffort = value.String
+			}
+		case upstreamhealthobservation.FieldReasoningTokens:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field reasoning_tokens", values[i])
+			} else if value.Valid {
+				_m.ReasoningTokens = new(int64)
+				*_m.ReasoningTokens = value.Int64
+			}
+		case upstreamhealthobservation.FieldConfidenceChecks:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field confidence_checks", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.ConfidenceChecks); err != nil {
+					return fmt.Errorf("unmarshal field confidence_checks: %w", err)
+				}
+			}
+		case upstreamhealthobservation.FieldConfidenceStatus:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field confidence_status", values[i])
+			} else if value.Valid {
+				_m.ConfidenceStatus = new(string)
+				*_m.ConfidenceStatus = value.String
+			}
 		case upstreamhealthobservation.FieldObservedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
 				return fmt.Errorf("unexpected type %T for field observed_at", values[i])
@@ -301,6 +359,34 @@ func (_m *UpstreamHealthObservation) String() string {
 	if v := _m.OutputTps; v != nil {
 		builder.WriteString("output_tps=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.ConfidenceScore; v != nil {
+		builder.WriteString("confidence_score=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.ConfidencePromptVersion; v != nil {
+		builder.WriteString("confidence_prompt_version=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.RequestedEffort; v != nil {
+		builder.WriteString("requested_effort=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.ReasoningTokens; v != nil {
+		builder.WriteString("reasoning_tokens=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("confidence_checks=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ConfidenceChecks))
+	builder.WriteString(", ")
+	if v := _m.ConfidenceStatus; v != nil {
+		builder.WriteString("confidence_status=")
+		builder.WriteString(*v)
 	}
 	builder.WriteString(", ")
 	builder.WriteString("observed_at=")
