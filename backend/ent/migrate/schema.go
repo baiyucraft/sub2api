@@ -1944,6 +1944,12 @@ var (
 		{Name: "input_tokens", Type: field.TypeInt64, Nullable: true},
 		{Name: "output_tokens", Type: field.TypeInt64, Nullable: true},
 		{Name: "output_tps", Type: field.TypeFloat64, Nullable: true},
+		{Name: "confidence_score", Type: field.TypeInt, Nullable: true},
+		{Name: "confidence_prompt_version", Type: field.TypeString, Nullable: true, Size: 64},
+		{Name: "requested_effort", Type: field.TypeString, Nullable: true, Size: 32},
+		{Name: "reasoning_tokens", Type: field.TypeInt64, Nullable: true},
+		{Name: "confidence_checks", Type: field.TypeJSON, Nullable: true},
+		{Name: "confidence_status", Type: field.TypeString, Nullable: true, Size: 32},
 		{Name: "observed_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 	}
@@ -1956,17 +1962,17 @@ var (
 			{
 				Name:    "upstreamhealthobservation_upstream_key_id_observed_at",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamHealthObservationsColumns[2], UpstreamHealthObservationsColumns[17]},
+				Columns: []*schema.Column{UpstreamHealthObservationsColumns[2], UpstreamHealthObservationsColumns[23]},
 			},
 			{
 				Name:    "upstreamhealthobservation_upstream_config_id_observed_at",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamHealthObservationsColumns[1], UpstreamHealthObservationsColumns[17]},
+				Columns: []*schema.Column{UpstreamHealthObservationsColumns[1], UpstreamHealthObservationsColumns[23]},
 			},
 			{
 				Name:    "upstreamhealthobservation_observed_at",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamHealthObservationsColumns[17]},
+				Columns: []*schema.Column{UpstreamHealthObservationsColumns[23]},
 			},
 		},
 	}

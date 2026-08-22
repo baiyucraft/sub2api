@@ -96,11 +96,12 @@ type UpstreamConfig struct {
 }
 
 type UpstreamManagementSettings struct {
-	TTFTGuard            OpenAITTFTGuardSettings    `json:"ttft_guard"`
-	ProbeModels          UpstreamProbeModels        `json:"probe_models"`
-	ProbeIntervalSeconds int                        `json:"probe_interval_seconds"`
-	ProbeGuard           UpstreamProbeGuardSettings `json:"probe_guard"`
-	ModelAliasRules      map[string]string          `json:"model_alias_rules"`
+	TTFTGuard            OpenAITTFTGuardSettings         `json:"ttft_guard"`
+	ProbeModels          UpstreamProbeModels             `json:"probe_models"`
+	ProbeIntervalSeconds int                             `json:"probe_interval_seconds"`
+	ProbeGuard           UpstreamProbeGuardSettings      `json:"probe_guard"`
+	ModelAliasRules      map[string]string               `json:"model_alias_rules"`
+	ConfidenceProbe      UpstreamConfidenceProbeSettings `json:"confidence_probe"`
 }
 
 func (c *UpstreamConfig) EffectiveAPIURL() string {
@@ -472,7 +473,7 @@ func (s *UpstreamConfigService) GetProbePlatformCatalog() []UpstreamProbePlatfor
 
 func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (UpstreamManagementSettings, error) {
 	if s == nil || s.settingService == nil {
-		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}}, nil
+		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}, ConfidenceProbe: DefaultUpstreamConfidenceProbeSettings()}, nil
 	}
 	ttft, err := s.settingService.GetOpenAITTFTGuardSettings(ctx)
 	if err != nil {
@@ -495,7 +496,11 @@ func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (Upst
 	if err != nil {
 		return UpstreamManagementSettings{}, err
 	}
-	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases}, nil
+	confidence, confidenceErr := s.settingService.GetUpstreamConfidenceProbeSettings(ctx)
+	if confidenceErr != nil {
+		return UpstreamManagementSettings{}, confidenceErr
+	}
+	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases, ConfidenceProbe: confidence}, nil
 }
 
 func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, settings UpstreamManagementSettings) error {
@@ -513,6 +518,9 @@ func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, setti
 		return err
 	}
 	if err := s.settingService.SetOpenAITTFTGuardProbeModelsIntervalAndGuardWithAliases(ctx, &settings.TTFTGuard, settings.ProbeModels, settings.ProbeIntervalSeconds, settings.ProbeGuard, aliases); err != nil {
+		return err
+	}
+	if err := s.settingService.SetUpstreamConfidenceProbeSettings(ctx, settings.ConfidenceProbe); err != nil {
 		return err
 	}
 	settings.ProbeGuard, _ = NormalizeUpstreamProbeGuardSettings(settings.ProbeGuard)
@@ -955,6 +963,14 @@ func (s *UpstreamConfigService) ListKeys(ctx context.Context, upstreamConfigID i
 
 func (s *UpstreamConfigService) GetKeyByID(ctx context.Context, keyID int64) (*UpstreamKey, error) {
 	return s.repo.GetKeyByID(ctx, keyID)
+}
+
+func (s *UpstreamConfigService) GetUpstreamHealthConfidence(ctx context.Context, keyID int64) (UpstreamHealthConfidenceSummary, error) {
+	reader, ok := s.repo.(UpstreamHealthConfidenceReader)
+	if !ok {
+		return UpstreamHealthConfidenceSummary{}, nil
+	}
+	return reader.GetUpstreamHealthConfidence(ctx, keyID)
 }
 
 // GetKeyHealth returns the independent health snapshot for one key. The
@@ -1400,6 +1416,11 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	result, probeErr := s.accountProber.RunUpstreamHealthProbe(probeCtx, &account, model)
+	if probeErr == nil && account.Platform == PlatformOpenAI && result.ConfidenceScore != nil && *result.ConfidenceScore < confidenceThresholdForResult(result) {
+		probeErr = infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_QUALITY_DEGRADED", "upstream probe quality score is below the configured threshold")
+		result.Result = "quality_degraded"
+		result.Reason = "probe_quality_degraded"
+	}
 	now := time.Now().UTC()
 	var item UpstreamHealthSnapshot
 	if err := s.withHealthKeyLock(keyID, func() error {
@@ -1426,6 +1447,9 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 			ObservedAt: item.UpdatedAt, State: item.Status, Source: "probe", Result: item.LastProbeStatus, Reason: item.Reason,
 			HTTPStatus: result.HTTPStatus, TTFTMs: result.TTFTMs, DurationMs: result.DurationMs,
 			InputTokens: result.InputTokens, OutputTokens: result.OutputTokens, OutputTPS: result.OutputTPS,
+			ConfidenceScore: result.ConfidenceScore, ConfidencePromptVersion: result.ConfidencePromptVersion,
+			RequestedEffort: result.RequestedEffort, ReasoningTokens: result.ReasoningTokens,
+			ConfidenceChecks: result.ConfidenceChecks, ConfidenceStatus: result.ConfidenceStatus,
 		}
 		return s.saveHealthTransitionWithObservation(ctx, keyID, transition, observation)
 	}); err != nil {
@@ -1435,6 +1459,13 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		return item, infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_FAILED", "upstream key probe failed")
 	}
 	return item, nil
+}
+
+func confidenceThresholdForResult(result UpstreamHealthProbeResult) int {
+	if result.confidenceThreshold > 0 {
+		return result.confidenceThreshold
+	}
+	return 70
 }
 
 func upstreamProbeStatus(message string) string {

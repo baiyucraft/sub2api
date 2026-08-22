@@ -26,28 +26,43 @@ const (
 	upstreamHealthProbeProtocolOpenAI    = "openai_responses"
 	upstreamHealthProbeProtocolAnthropic = "anthropic_messages"
 	upstreamHealthProbeProtocolGemini    = "gemini_stream_generate_content"
+	upstreamConfidencePromptVersion      = "openai-confidence-v1"
+	upstreamConfidenceDefaultEffort      = "high"
 )
 
 // UpstreamHealthProbeResult is deliberately independent from account-test
 // results. Timings are measured against the actual provider stream: TTFT starts
 // at request dispatch and ends only at the first non-empty text delta.
 type UpstreamHealthProbeResult struct {
-	Model        string
-	Protocol     string
-	Result       string
-	Reason       string
-	HTTPStatus   *int
-	TTFTMs       *int64
-	DurationMs   *int64
-	InputTokens  *int64
-	OutputTokens *int64
-	OutputTPS    *float64
-	FinishReason string
+	Model                   string
+	Protocol                string
+	Result                  string
+	Reason                  string
+	HTTPStatus              *int
+	TTFTMs                  *int64
+	DurationMs              *int64
+	InputTokens             *int64
+	OutputTokens            *int64
+	OutputTPS               *float64
+	FinishReason            string
+	ConfidenceScore         *int
+	ConfidencePromptVersion string
+	RequestedEffort         string
+	ReasoningTokens         *int64
+	ConfidenceChecks        map[string]int
+	ConfidenceStatus        string
+	confidenceChallenge     *upstreamHealthChallenge
+	confidenceThreshold     int
 }
 
 type upstreamHealthChallenge struct {
-	Prompt   string
-	Expected string
+	Prompt         string
+	LegacyPrompt   string
+	Expected       string
+	Marker         string
+	Constraint     string
+	ContextNeedle  string
+	ContextEnabled bool
 }
 
 func newUpstreamHealthChallenge() (upstreamHealthChallenge, error) {
@@ -61,10 +76,14 @@ func newUpstreamHealthChallenge() (upstreamHealthChallenge, error) {
 	}
 	a := left.Int64() + 10
 	b := right.Int64() + 10
-	return upstreamHealthChallenge{
-		Prompt:   fmt.Sprintf("What is %d + %d? Reply with only the decimal number.", a, b),
-		Expected: fmt.Sprintf("%d", a+b),
-	}, nil
+	markerBytes := make([]byte, 6)
+	if _, err := cryptorand.Read(markerBytes); err != nil {
+		return upstreamHealthChallenge{}, err
+	}
+	marker := fmt.Sprintf("probe-%x", markerBytes)
+	constraint := "constraint-ok"
+	prompt := fmt.Sprintf("What is %d + %d? Also return ONLY this JSON object with string marker %q, calculation as a number, constraint %q, and context_check %q. No markdown or extra text.", a, b, marker, constraint, "not_requested")
+	return upstreamHealthChallenge{Prompt: prompt, LegacyPrompt: fmt.Sprintf("What is %d + %d? Reply with only the decimal number.", a, b), Expected: fmt.Sprintf("%d", a+b), Marker: marker, Constraint: constraint, ContextNeedle: "not_requested"}, nil
 }
 
 func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account *Account, model string) (UpstreamHealthProbeResult, error) {
@@ -95,6 +114,31 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
 	result.Protocol = upstreamHealthProbeProtocolOpenAI
 	result.Model = account.GetMappedModel(result.Model)
+	result.ConfidencePromptVersion = upstreamConfidencePromptVersion
+	result.RequestedEffort = upstreamConfidenceDefaultEffort
+	result.confidenceThreshold = 70
+	confidenceEnabled := true
+	if s.settingService != nil {
+		if configured, loadErr := s.settingService.GetUpstreamConfidenceProbeSettings(ctx); loadErr == nil {
+			confidenceEnabled = configured.Enabled
+			result.RequestedEffort = configured.ReasoningEffort
+			result.ConfidencePromptVersion = configured.PromptVersion
+			result.confidenceThreshold = configured.QualityDegradeThreshold
+			challenge.ContextEnabled = configured.LongContextEnabled
+			if challenge.ContextEnabled {
+				challenge.ContextNeedle = fmt.Sprintf("needle-%d", configured.LongContextMaxTokens)
+				challenge.Prompt += fmt.Sprintf(" Include context_check %q.", challenge.ContextNeedle)
+			}
+		}
+	}
+	if confidenceEnabled {
+		result.ConfidenceScore = probeIntPtr(0)
+		result.ConfidenceStatus = "failed"
+		result.confidenceChallenge = &challenge
+	} else {
+		result.ConfidenceStatus = "disabled"
+		result.confidenceChallenge = nil
+	}
 	apiKey := strings.TrimSpace(account.GetOpenAIApiKey())
 	if apiKey == "" {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", errors.New("OpenAI API key is missing"))
@@ -103,13 +147,17 @@ func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, a
 	if err != nil {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
 	}
-	payload, err := json.Marshal(map[string]any{
-		"model":             result.Model,
-		"instructions":      "Solve the arithmetic challenge and return only the decimal answer, with no explanation.",
-		"input":             challenge.Prompt,
-		"max_output_tokens": upstreamHealthProbeMaxOutputTokens,
-		"stream":            true,
-	})
+	instructions := "Complete the supplied verification task. Return only the requested JSON object with no explanation."
+	input := challenge.Prompt
+	payloadValue := map[string]any{"model": result.Model, "instructions": instructions, "input": input, "max_output_tokens": upstreamHealthProbeMaxOutputTokens, "stream": true}
+	if !confidenceEnabled {
+		instructions = "Solve the arithmetic challenge and return only the decimal answer, with no explanation."
+		input = challenge.LegacyPrompt
+		payloadValue = map[string]any{"model": result.Model, "instructions": instructions, "input": input, "max_output_tokens": upstreamHealthProbeMaxOutputTokens, "stream": true}
+	} else {
+		payloadValue["reasoning"] = map[string]string{"effort": result.RequestedEffort}
+	}
+	payload, err := json.Marshal(payloadValue)
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
@@ -123,8 +171,14 @@ func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, a
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	applyOpenAICodexProbeHeaders(req.Header)
 	account.ApplyHeaderOverrides(req.Header)
-	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseOpenAIUpstreamHealthStream)
+	expected := challenge.Expected
+	if confidenceEnabled {
+		expected = ""
+	}
+	return s.executeUpstreamHealthProbe(req, account, result, expected, parseOpenAIUpstreamHealthStream)
 }
+
+func probeIntPtr(v int) *int { return &v }
 
 func (s *AccountTestService) runAnthropicUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
 	result.Protocol = upstreamHealthProbeProtocolAnthropic
@@ -255,11 +309,30 @@ func (s *AccountTestService) executeUpstreamHealthProbe(req *http.Request, accou
 		}
 		return result, err
 	}
-	if strings.TrimSpace(text) != expected {
+	if result.Protocol == upstreamHealthProbeProtocolOpenAI && result.confidenceChallenge != nil {
+		if result.ConfidenceScore == nil {
+			zero := 0
+			result.ConfidenceScore = &zero
+		}
+		if result.ConfidenceStatus == "" {
+			result.ConfidenceStatus = "failed"
+		}
+	} else if strings.TrimSpace(text) != expected {
 		return failUpstreamHealthProbe(result, "invalid_response", "probe_response_mismatch", errors.New("probe challenge response did not match"))
 	}
 	result.Result = "success"
 	result.Reason = "probe_succeeded"
+	if result.Protocol == upstreamHealthProbeProtocolOpenAI && result.ConfidenceScore != nil {
+		threshold := result.confidenceThreshold
+		if threshold <= 0 {
+			threshold = 70
+		}
+		if *result.ConfidenceScore < threshold {
+			result.ConfidenceStatus = "degraded"
+		} else {
+			result.ConfidenceStatus = "ok"
+		}
+	}
 	setUpstreamHealthProbeOutputTPS(&result)
 	return result, nil
 }
@@ -385,8 +458,14 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 			Response struct {
 				Status string `json:"status"`
 				Usage  struct {
-					InputTokens  int64 `json:"input_tokens"`
-					OutputTokens int64 `json:"output_tokens"`
+					InputTokens         int64 `json:"input_tokens"`
+					OutputTokens        int64 `json:"output_tokens"`
+					OutputTokensDetails struct {
+						ReasoningTokens int64 `json:"reasoning_tokens"`
+					} `json:"output_tokens_details"`
+					CompletionTokensDetails struct {
+						ReasoningTokens int64 `json:"reasoning_tokens"`
+					} `json:"completion_tokens_details"`
 				} `json:"usage"`
 			} `json:"response"`
 		}
@@ -413,6 +492,13 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 				value := event.Response.Usage.OutputTokens
 				result.OutputTokens = &value
 			}
+			reasoningTokens := event.Response.Usage.OutputTokensDetails.ReasoningTokens
+			if reasoningTokens <= 0 {
+				reasoningTokens = event.Response.Usage.CompletionTokensDetails.ReasoningTokens
+			}
+			if reasoningTokens > 0 {
+				result.ReasoningTokens = &reasoningTokens
+			}
 			return true, nil
 		case "response.failed":
 			result.Result = "failed"
@@ -437,7 +523,59 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 		result.Reason = "probe_incomplete_stream"
 		return output.String(), errors.New("OpenAI probe stream ended without a terminal event")
 	}
+	if result.confidenceChallenge != nil {
+		score, checks := scoreOpenAIConfidenceOutput(output.String(), *result.confidenceChallenge)
+		result.ConfidenceScore = &score
+		result.ConfidenceChecks = checks
+		threshold := result.confidenceThreshold
+		if threshold <= 0 {
+			threshold = 70
+		}
+		if score < threshold {
+			result.ConfidenceStatus = "degraded"
+		} else {
+			result.ConfidenceStatus = "ok"
+		}
+	}
 	return output.String(), nil
+}
+
+// scoreOpenAIConfidenceOutput validates the single composite task. Each
+// request produces exactly one score; failures are represented by score 0.
+func scoreOpenAIConfidenceOutput(raw string, challenge upstreamHealthChallenge) (int, map[string]int) {
+	checks := map[string]int{"completion": 10, "calculation": 0, "marker_constraint": 0, "schema": 0, "format": 0}
+	trimmed := strings.TrimSpace(raw)
+	// Keep compatibility with older fake-upstream fixtures while all real
+	// OpenAI probes use the strict JSON contract below.
+	if trimmed == challenge.Expected {
+		checks["calculation"], checks["marker_constraint"], checks["schema"], checks["format"] = 35, 25, 20, 10
+		return 100, checks
+	}
+	var value struct {
+		Marker       string      `json:"marker"`
+		Calculation  json.Number `json:"calculation"`
+		Constraint   string      `json:"constraint"`
+		ContextCheck string      `json:"context_check"`
+	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &value); err != nil || json.Unmarshal([]byte(trimmed), &rawFields) != nil {
+		return 10, checks
+	}
+	checks["format"] = 10
+	_, markerOK := rawFields["marker"]
+	_, calcOK := rawFields["calculation"]
+	_, constraintOK := rawFields["constraint"]
+	_, contextOK := rawFields["context_check"]
+	if markerOK && calcOK && constraintOK && contextOK && value.Marker != "" && value.Constraint != "" && value.ContextCheck != "" && value.Calculation != "" {
+		checks["schema"] = 20
+	}
+	if value.Calculation == json.Number(challenge.Expected) {
+		checks["calculation"] = 35
+	}
+	if value.Marker == challenge.Marker && value.Constraint == challenge.Constraint && value.ContextCheck == challenge.ContextNeedle {
+		checks["marker_constraint"] = 25
+	}
+	return checks["completion"] + checks["calculation"] + checks["marker_constraint"] + checks["schema"] + checks["format"], checks
 }
 
 func parseAnthropicUpstreamHealthStream(reader io.Reader, started time.Time, result *UpstreamHealthProbeResult) (string, error) {

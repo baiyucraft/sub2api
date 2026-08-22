@@ -16,21 +16,29 @@ type upstreamProbeModelsRequest struct {
 }
 
 type upstreamManagementSettingsRequest struct {
-	TTFTGuard            service.OpenAITTFTGuardSettings     `json:"ttft_guard"`
-	ProbeModels          service.UpstreamProbeModels         `json:"probe_models"`
-	ProbeIntervalSeconds int                                 `json:"probe_interval_seconds"`
-	ProbeGuard           *service.UpstreamProbeGuardSettings `json:"probe_guard"`
-	ModelAliasRules      map[string]string                   `json:"model_alias_rules"`
+	TTFTGuard            service.OpenAITTFTGuardSettings          `json:"ttft_guard"`
+	ProbeModels          service.UpstreamProbeModels              `json:"probe_models"`
+	ProbeIntervalSeconds int                                      `json:"probe_interval_seconds"`
+	ProbeGuard           *service.UpstreamProbeGuardSettings      `json:"probe_guard"`
+	ModelAliasRules      map[string]string                        `json:"model_alias_rules"`
+	ConfidenceProbe      *service.UpstreamConfidenceProbeSettings `json:"confidence_probe"`
 }
 
 func (h *UpstreamConfigHandler) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
 	return h.service.ListUpstreamHealthHistories(ctx, keyIDs, limit)
 }
 
+func (h *UpstreamConfigHandler) GetUpstreamHealthConfidence(ctx context.Context, keyID int64) (service.UpstreamHealthConfidenceSummary, error) {
+	return h.service.GetUpstreamHealthConfidence(ctx, keyID)
+}
+
 func (h *UpstreamConfigHandler) upstreamHealthAdminResponse(ctx context.Context, item service.UpstreamHealthSnapshot, limit int) (gin.H, error) {
 	histories, err := h.service.ListUpstreamHealthHistories(ctx, []int64{item.KeyID}, limit)
 	if err != nil {
 		return nil, err
+	}
+	if confidence, confidenceErr := h.service.GetUpstreamHealthConfidence(ctx, item.KeyID); confidenceErr == nil {
+		item = service.MergeUpstreamHealthConfidence(item, confidence)
 	}
 	return gin.H{
 		"key_id": item.KeyID, "status": item.Status, "observation_enabled": item.ObservationEnabled,
@@ -39,7 +47,13 @@ func (h *UpstreamConfigHandler) upstreamHealthAdminResponse(ctx context.Context,
 		"consecutive_failures": item.ConsecutiveFails, "recovery_samples": item.RecoverySamples,
 		"recovery_samples_required": item.RecoverySamplesRequired, "last_failure_source": item.LastFailureSource,
 		"last_failure_class": item.LastFailureClass, "suspension_source": item.SuspensionSource, "updated_at": item.UpdatedAt,
-		"history": histories[item.KeyID],
+		"history":              histories[item.KeyID],
+		"confidence_score_24h": item.ConfidenceScore24h, "confidence_score_7d": item.ConfidenceScore7d,
+		"confidence_sample_count_24h": item.ConfidenceSampleCount24h, "confidence_sample_count_7d": item.ConfidenceSampleCount7d,
+		"confidence_last_score": item.ConfidenceLastScore, "confidence_last_probe_at": item.ConfidenceLastProbeAt,
+		"confidence_status": item.ConfidenceStatus, "confidence_requested_effort": item.ConfidenceRequestedEffort,
+		"confidence_reasoning_tokens": item.ConfidenceReasoningTokens, "confidence_breakdown": item.ConfidenceBreakdown,
+		"confidence_prompt_version": item.ConfidencePromptVersion,
 	}, nil
 }
 
@@ -98,7 +112,12 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 			modelAliasRules = current.ModelAliasRules
 		}
 	}
-	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules}
+	currentSettings, _ := h.service.GetManagementSettings(c.Request.Context())
+	confidenceProbe := currentSettings.ConfidenceProbe
+	if req.ConfidenceProbe != nil {
+		confidenceProbe = *req.ConfidenceProbe
+	}
+	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules, ConfidenceProbe: confidenceProbe}
 	if settings.ProbeIntervalSeconds == 0 {
 		settings.ProbeIntervalSeconds = service.DefaultUpstreamProbeIntervalSeconds
 	}

@@ -31,28 +31,61 @@ const (
 )
 
 type UpstreamHealthObservation struct {
-	ID               int64                `json:"id,omitempty"`
-	UpstreamConfigID int64                `json:"upstream_config_id,omitempty"`
-	UpstreamKeyID    int64                `json:"upstream_key_id,omitempty"`
-	AccountID        *int64               `json:"account_id,omitempty"`
-	Platform         string               `json:"platform,omitempty"`
-	Model            string               `json:"model,omitempty"`
-	Protocol         string               `json:"protocol,omitempty"`
-	ObservedAt       time.Time            `json:"observed_at"`
-	State            UpstreamHealthStatus `json:"state"`
-	Source           string               `json:"source"`
-	Result           string               `json:"result"`
-	Reason           string               `json:"reason,omitempty"`
-	HTTPStatus       *int                 `json:"http_status,omitempty"`
-	TTFTMs           *int64               `json:"ttft_ms,omitempty"`
-	DurationMs       *int64               `json:"duration_ms,omitempty"`
-	InputTokens      *int64               `json:"input_tokens,omitempty"`
-	OutputTokens     *int64               `json:"output_tokens,omitempty"`
-	OutputTPS        *float64             `json:"output_tps,omitempty"`
+	ID                      int64                `json:"id,omitempty"`
+	UpstreamConfigID        int64                `json:"upstream_config_id,omitempty"`
+	UpstreamKeyID           int64                `json:"upstream_key_id,omitempty"`
+	AccountID               *int64               `json:"account_id,omitempty"`
+	Platform                string               `json:"platform,omitempty"`
+	Model                   string               `json:"model,omitempty"`
+	Protocol                string               `json:"protocol,omitempty"`
+	ObservedAt              time.Time            `json:"observed_at"`
+	State                   UpstreamHealthStatus `json:"state"`
+	Source                  string               `json:"source"`
+	Result                  string               `json:"result"`
+	Reason                  string               `json:"reason,omitempty"`
+	HTTPStatus              *int                 `json:"http_status,omitempty"`
+	TTFTMs                  *int64               `json:"ttft_ms,omitempty"`
+	DurationMs              *int64               `json:"duration_ms,omitempty"`
+	InputTokens             *int64               `json:"input_tokens,omitempty"`
+	OutputTokens            *int64               `json:"output_tokens,omitempty"`
+	OutputTPS               *float64             `json:"output_tps,omitempty"`
+	ConfidenceScore         *int                 `json:"confidence_score,omitempty"`
+	ConfidencePromptVersion string               `json:"confidence_prompt_version,omitempty"`
+	RequestedEffort         string               `json:"requested_effort,omitempty"`
+	ReasoningTokens         *int64               `json:"reasoning_tokens,omitempty"`
+	ConfidenceChecks        map[string]int       `json:"confidence_checks,omitempty"`
+	ConfidenceStatus        string               `json:"confidence_status,omitempty"`
 }
 
 type UpstreamHealthHistoryReader interface {
 	ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]UpstreamHealthObservation, error)
+}
+
+type UpstreamHealthConfidenceSummary struct {
+	Score24h        *float64
+	Score7d         *float64
+	SampleCount24h  int
+	SampleCount7d   int
+	LastScore       *int
+	LastProbeAt     *time.Time
+	Status          string
+	RequestedEffort string
+	ReasoningTokens *int64
+	Breakdown       map[string]int
+	PromptVersion   string
+}
+
+type UpstreamHealthConfidenceReader interface {
+	GetUpstreamHealthConfidence(ctx context.Context, keyID int64) (UpstreamHealthConfidenceSummary, error)
+}
+
+func MergeUpstreamHealthConfidence(snapshot UpstreamHealthSnapshot, summary UpstreamHealthConfidenceSummary) UpstreamHealthSnapshot {
+	snapshot.ConfidenceScore24h, snapshot.ConfidenceScore7d = summary.Score24h, summary.Score7d
+	snapshot.ConfidenceSampleCount24h, snapshot.ConfidenceSampleCount7d = summary.SampleCount24h, summary.SampleCount7d
+	snapshot.ConfidenceLastScore, snapshot.ConfidenceLastProbeAt = summary.LastScore, summary.LastProbeAt
+	snapshot.ConfidenceStatus, snapshot.ConfidenceRequestedEffort = summary.Status, summary.RequestedEffort
+	snapshot.ConfidenceReasoningTokens, snapshot.ConfidenceBreakdown, snapshot.ConfidencePromptVersion = summary.ReasoningTokens, summary.Breakdown, summary.PromptVersion
+	return snapshot
 }
 
 type UpstreamHealthTrendPoint struct {
@@ -153,22 +186,33 @@ func validUpstreamHealthStatus(status UpstreamHealthStatus) bool {
 }
 
 type UpstreamHealthSnapshot struct {
-	KeyID                   int64                `json:"key_id"`
-	Status                  UpstreamHealthStatus `json:"status"`
-	ObservationEnabled      bool                 `json:"observation_enabled"`
-	Reason                  string               `json:"reason,omitempty"`
-	LastProbeAt             *time.Time           `json:"last_probe_at,omitempty"`
-	LastProbeStatus         string               `json:"last_probe_status,omitempty"`
-	LastProbeTTFTMs         *int64               `json:"last_probe_ttft_ms,omitempty"`
-	LastEvidenceAt          *time.Time           `json:"last_evidence_at,omitempty"`
-	LastTrafficStatus       string               `json:"last_traffic_status,omitempty"`
-	ConsecutiveFails        int                  `json:"consecutive_failures"`
-	RecoverySamples         int                  `json:"recovery_samples"`
-	RecoverySamplesRequired int                  `json:"recovery_samples_required"`
-	LastFailureSource       string               `json:"last_failure_source,omitempty"`
-	LastFailureClass        string               `json:"last_failure_class,omitempty"`
-	SuspensionSource        string               `json:"suspension_source,omitempty"`
-	UpdatedAt               time.Time            `json:"updated_at"`
+	KeyID                     int64                `json:"key_id"`
+	Status                    UpstreamHealthStatus `json:"status"`
+	ObservationEnabled        bool                 `json:"observation_enabled"`
+	Reason                    string               `json:"reason,omitempty"`
+	LastProbeAt               *time.Time           `json:"last_probe_at,omitempty"`
+	LastProbeStatus           string               `json:"last_probe_status,omitempty"`
+	LastProbeTTFTMs           *int64               `json:"last_probe_ttft_ms,omitempty"`
+	LastEvidenceAt            *time.Time           `json:"last_evidence_at,omitempty"`
+	LastTrafficStatus         string               `json:"last_traffic_status,omitempty"`
+	ConsecutiveFails          int                  `json:"consecutive_failures"`
+	RecoverySamples           int                  `json:"recovery_samples"`
+	RecoverySamplesRequired   int                  `json:"recovery_samples_required"`
+	LastFailureSource         string               `json:"last_failure_source,omitempty"`
+	LastFailureClass          string               `json:"last_failure_class,omitempty"`
+	SuspensionSource          string               `json:"suspension_source,omitempty"`
+	UpdatedAt                 time.Time            `json:"updated_at"`
+	ConfidenceScore24h        *float64             `json:"confidence_score_24h,omitempty"`
+	ConfidenceScore7d         *float64             `json:"confidence_score_7d,omitempty"`
+	ConfidenceSampleCount24h  int                  `json:"confidence_sample_count_24h"`
+	ConfidenceSampleCount7d   int                  `json:"confidence_sample_count_7d"`
+	ConfidenceLastScore       *int                 `json:"confidence_last_score,omitempty"`
+	ConfidenceLastProbeAt     *time.Time           `json:"confidence_last_probe_at,omitempty"`
+	ConfidenceStatus          string               `json:"confidence_status,omitempty"`
+	ConfidenceRequestedEffort string               `json:"confidence_requested_effort,omitempty"`
+	ConfidenceReasoningTokens *int64               `json:"confidence_reasoning_tokens,omitempty"`
+	ConfidenceBreakdown       map[string]int       `json:"confidence_breakdown,omitempty"`
+	ConfidencePromptVersion   string               `json:"confidence_prompt_version,omitempty"`
 }
 
 type UpstreamHealthRegistry struct {

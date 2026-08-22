@@ -31,6 +31,16 @@ export interface UpstreamManagementSettings {
   probe_models: Record<string, string>
   probe_interval_seconds: number
   model_alias_rules?: Record<string, string>
+  confidence_probe: UpstreamConfidenceProbeSettings
+}
+
+export interface UpstreamConfidenceProbeSettings {
+  enabled: boolean
+  reasoning_effort: 'low' | 'medium' | 'high'
+  long_context_enabled: boolean
+  long_context_max_tokens: number
+  quality_degrade_threshold: number
+  prompt_version: string
 }
 
 export interface ProbeModelCandidates {
@@ -55,6 +65,17 @@ export interface UpstreamHealthSnapshot {
   suspension_source?: string
   updated_at: string
   history?: UpstreamHealthObservation[]
+  confidence_score_24h?: number
+  confidence_score_7d?: number
+  confidence_sample_count_24h?: number
+  confidence_sample_count_7d?: number
+  confidence_last_score?: number
+  confidence_last_probe_at?: string
+  confidence_status?: string
+  confidence_requested_effort?: string
+  confidence_reasoning_tokens?: number
+  confidence_breakdown?: Record<string, number>
+  confidence_prompt_version?: string
 }
 
 export interface UpstreamKeyEvent {
