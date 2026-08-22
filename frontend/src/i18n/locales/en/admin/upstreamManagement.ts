@@ -63,6 +63,15 @@ export default {
       minutes: 'min',
       intervalRange: '1–60 minutes; default 5 minutes'
     },
+    confidenceProbe: {
+      title: 'OpenAI confidence probe',
+      description: 'Use one real Responses request to validate task completion consistency.',
+      enabled: 'Enable confidence probe',
+      effort: 'Reasoning effort',
+      threshold: 'Degrade threshold',
+      longContext: 'Include bounded long context',
+      maxTokens: 'Context tokens'
+    },
     probeGuard: {
       title: 'Probe scheduling protection',
       description: 'Control whether consecutive probe failures suspend an upstream Key from scheduling. Probes continue while suspended.',
@@ -123,7 +132,6 @@ export default {
       reasoningTokens: 'Reasoning tokens',
       promptVersion: 'Prompt version',
       confidenceDisclaimer: 'This score measures real task completion consistency, not model identity or routing probability.',
-      confidenceProbe: { title: 'OpenAI confidence probe', description: 'Use one real Responses request to validate task completion consistency.', enabled: 'Enable confidence probe', effort: 'Reasoning effort', threshold: 'Degrade threshold', longContext: 'Include bounded long context', maxTokens: 'Context tokens' },
       temporarilyExcluded: 'Probe error is linked to temporary unschedulable status; use “Restore scheduling” to recover manually',
       recoveryInProgress: 'Recovery verification is running; scheduling resumes after consecutive successes',
       past: 'Past',
