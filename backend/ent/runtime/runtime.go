@@ -2306,12 +2306,24 @@ func init() {
 	upstreamhealthobservationDescReason := upstreamhealthobservationFields[9].Descriptor()
 	// upstreamhealthobservation.DefaultReason holds the default value on creation for the reason field.
 	upstreamhealthobservation.DefaultReason = upstreamhealthobservationDescReason.Default.(string)
+	// upstreamhealthobservationDescConfidencePromptVersion is the schema descriptor for confidence_prompt_version field.
+	upstreamhealthobservationDescConfidencePromptVersion := upstreamhealthobservationFields[17].Descriptor()
+	// upstreamhealthobservation.ConfidencePromptVersionValidator is a validator for the "confidence_prompt_version" field. It is called by the builders before save.
+	upstreamhealthobservation.ConfidencePromptVersionValidator = upstreamhealthobservationDescConfidencePromptVersion.Validators[0].(func(string) error)
+	// upstreamhealthobservationDescRequestedEffort is the schema descriptor for requested_effort field.
+	upstreamhealthobservationDescRequestedEffort := upstreamhealthobservationFields[18].Descriptor()
+	// upstreamhealthobservation.RequestedEffortValidator is a validator for the "requested_effort" field. It is called by the builders before save.
+	upstreamhealthobservation.RequestedEffortValidator = upstreamhealthobservationDescRequestedEffort.Validators[0].(func(string) error)
+	// upstreamhealthobservationDescConfidenceStatus is the schema descriptor for confidence_status field.
+	upstreamhealthobservationDescConfidenceStatus := upstreamhealthobservationFields[21].Descriptor()
+	// upstreamhealthobservation.ConfidenceStatusValidator is a validator for the "confidence_status" field. It is called by the builders before save.
+	upstreamhealthobservation.ConfidenceStatusValidator = upstreamhealthobservationDescConfidenceStatus.Validators[0].(func(string) error)
 	// upstreamhealthobservationDescObservedAt is the schema descriptor for observed_at field.
-	upstreamhealthobservationDescObservedAt := upstreamhealthobservationFields[16].Descriptor()
+	upstreamhealthobservationDescObservedAt := upstreamhealthobservationFields[22].Descriptor()
 	// upstreamhealthobservation.DefaultObservedAt holds the default value on creation for the observed_at field.
 	upstreamhealthobservation.DefaultObservedAt = upstreamhealthobservationDescObservedAt.Default.(func() time.Time)
 	// upstreamhealthobservationDescCreatedAt is the schema descriptor for created_at field.
-	upstreamhealthobservationDescCreatedAt := upstreamhealthobservationFields[17].Descriptor()
+	upstreamhealthobservationDescCreatedAt := upstreamhealthobservationFields[23].Descriptor()
 	// upstreamhealthobservation.DefaultCreatedAt holds the default value on creation for the created_at field.
 	upstreamhealthobservation.DefaultCreatedAt = upstreamhealthobservationDescCreatedAt.Default.(func() time.Time)
 	upstreamincidentMixin := schema.UpstreamIncident{}.Mixin()

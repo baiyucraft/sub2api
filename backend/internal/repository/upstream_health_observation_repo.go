@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"math"
 	"sort"
 	"strings"
@@ -51,12 +52,34 @@ func persistUpstreamHealthObservation(ctx context.Context, client *dbent.Client,
 		SetNillableInputTokens(item.InputTokens).
 		SetNillableOutputTokens(item.OutputTokens).
 		SetNillableOutputTps(item.OutputTPS).
+		SetNillableConfidenceScore(item.ConfidenceScore).
+		SetNillableConfidencePromptVersion(nonEmptyStringPtr(item.ConfidencePromptVersion)).
+		SetNillableRequestedEffort(nonEmptyStringPtr(item.RequestedEffort)).
+		SetNillableReasoningTokens(item.ReasoningTokens).
+		SetConfidenceChecks(item.ConfidenceChecks).
+		SetNillableConfidenceStatus(nonEmptyStringPtr(item.ConfidenceStatus)).
 		SetObservedAt(item.ObservedAt.UTC())
 	if err := builder.Exec(ctx); err != nil {
 		return err
 	}
 	return nil
 }
+
+func nonEmptyStringPtr(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func healthValueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+func upstreamHealthIntPtr(value int) *int { return &value }
 
 const upstreamHealthObservationCleanupInterval = 24 * time.Hour
 
@@ -90,7 +113,8 @@ func (r *upstreamConfigRepository) listPersistedUpstreamHealthHistories(ctx cont
 		rows, err := driver.DB().QueryContext(ctx, `
 SELECT id, upstream_config_id, upstream_key_id, account_id, platform, model, protocol,
        source, state, result, reason, http_status, ttft_ms, duration_ms,
-       input_tokens, output_tokens, output_tps, observed_at
+       input_tokens, output_tokens, output_tps, confidence_score, confidence_prompt_version,
+       requested_effort, reasoning_tokens, confidence_checks, confidence_status, observed_at
 FROM (
     SELECT o.*, ROW_NUMBER() OVER (
         PARTITION BY upstream_key_id ORDER BY observed_at DESC, id DESC
@@ -142,11 +166,15 @@ func scanUpstreamHealthObservation(row sqlRowScanner) (service.UpstreamHealthObs
 	var accountID, ttft, duration, inputTokens, outputTokens sql.NullInt64
 	var httpStatus sql.NullInt64
 	var outputTPS sql.NullFloat64
+	var confidenceScore, reasoningTokens sql.NullInt64
+	var promptVersion, requestedEffort, confidenceStatus sql.NullString
+	var confidenceChecks []byte
 	err := row.Scan(
 		&item.ID, &item.UpstreamConfigID, &item.UpstreamKeyID, &accountID,
 		&item.Platform, &item.Model, &item.Protocol, &item.Source, &state,
 		&item.Result, &item.Reason, &httpStatus, &ttft, &duration,
-		&inputTokens, &outputTokens, &outputTPS, &item.ObservedAt,
+		&inputTokens, &outputTokens, &outputTPS, &confidenceScore, &promptVersion,
+		&requestedEffort, &reasoningTokens, &confidenceChecks, &confidenceStatus, &item.ObservedAt,
 	)
 	if err != nil {
 		return item, err
@@ -174,6 +202,24 @@ func scanUpstreamHealthObservation(row sqlRowScanner) (service.UpstreamHealthObs
 	if outputTPS.Valid {
 		item.OutputTPS = floatPtr(outputTPS.Float64)
 	}
+	if confidenceScore.Valid {
+		item.ConfidenceScore = upstreamHealthIntPtr(int(confidenceScore.Int64))
+	}
+	if promptVersion.Valid {
+		item.ConfidencePromptVersion = promptVersion.String
+	}
+	if requestedEffort.Valid {
+		item.RequestedEffort = requestedEffort.String
+	}
+	if reasoningTokens.Valid {
+		item.ReasoningTokens = upstreamHealthInt64Ptr(reasoningTokens.Int64)
+	}
+	if len(confidenceChecks) > 0 {
+		_ = json.Unmarshal(confidenceChecks, &item.ConfidenceChecks)
+	}
+	if confidenceStatus.Valid {
+		item.ConfidenceStatus = confidenceStatus.String
+	}
 	item.ObservedAt = item.ObservedAt.UTC()
 	return item, nil
 }
@@ -185,8 +231,60 @@ func upstreamHealthObservationEntityToService(row *dbent.UpstreamHealthObservati
 		Source: row.Source, State: service.UpstreamHealthStatus(row.State), Result: row.Result, Reason: row.Reason,
 		HTTPStatus: row.HTTPStatus, TTFTMs: row.TtftMs, DurationMs: row.DurationMs,
 		InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, OutputTPS: row.OutputTps,
+		ConfidenceScore: row.ConfidenceScore, ConfidencePromptVersion: healthValueOrEmpty(row.ConfidencePromptVersion), RequestedEffort: healthValueOrEmpty(row.RequestedEffort), ReasoningTokens: row.ReasoningTokens, ConfidenceChecks: row.ConfidenceChecks, ConfidenceStatus: healthValueOrEmpty(row.ConfidenceStatus),
 		ObservedAt: row.ObservedAt.UTC(),
 	}
+}
+
+func (r *upstreamConfigRepository) GetUpstreamHealthConfidence(ctx context.Context, keyID int64) (service.UpstreamHealthConfidenceSummary, error) {
+	var summary service.UpstreamHealthConfidenceSummary
+	now := time.Now().UTC()
+	rows, err := r.client.UpstreamHealthObservation.Query().Where(
+		dbupstreamhealthobservation.UpstreamKeyIDEQ(keyID),
+		dbupstreamhealthobservation.PlatformEQ(service.PlatformOpenAI),
+		dbupstreamhealthobservation.SourceEQ("probe"),
+		dbupstreamhealthobservation.ObservedAtGTE(now.Add(-7*24*time.Hour)),
+	).Order(dbent.Desc(dbupstreamhealthobservation.FieldObservedAt), dbent.Desc(dbupstreamhealthobservation.FieldID)).All(ctx)
+	if err != nil {
+		return summary, err
+	}
+	var sum24, sum7 float64
+	var n24, n7 int
+	for _, row := range rows {
+		if row.ConfidenceScore == nil {
+			continue
+		}
+		score := float64(*row.ConfidenceScore)
+		age := now.Sub(row.ObservedAt)
+		if age <= 7*24*time.Hour {
+			sum7 += score
+			n7++
+		}
+		if age <= 24*time.Hour {
+			sum24 += score
+			n24++
+		}
+		if summary.LastScore == nil {
+			summary.LastScore = row.ConfidenceScore
+			t := row.ObservedAt.UTC()
+			summary.LastProbeAt = &t
+			summary.Status = healthValueOrEmpty(row.ConfidenceStatus)
+			summary.RequestedEffort = healthValueOrEmpty(row.RequestedEffort)
+			summary.ReasoningTokens = row.ReasoningTokens
+			summary.Breakdown = row.ConfidenceChecks
+			summary.PromptVersion = healthValueOrEmpty(row.ConfidencePromptVersion)
+		}
+	}
+	if n24 > 0 {
+		v := sum24 / float64(n24)
+		summary.Score24h = &v
+	}
+	if n7 > 0 {
+		v := sum7 / float64(n7)
+		summary.Score7d = &v
+	}
+	summary.SampleCount24h, summary.SampleCount7d = n24, n7
+	return summary, nil
 }
 
 func (r *upstreamConfigRepository) GetUpstreamHealthTrend(ctx context.Context, keyID int64, rangeName string, now time.Time) (*service.UpstreamHealthTrend, error) {

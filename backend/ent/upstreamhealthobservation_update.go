@@ -89,6 +89,24 @@ func (_u *UpstreamHealthObservationUpdate) sqlSave(ctx context.Context) (_node i
 	if _u.mutation.OutputTpsCleared() {
 		_spec.ClearField(upstreamhealthobservation.FieldOutputTps, field.TypeFloat64)
 	}
+	if _u.mutation.ConfidenceScoreCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldConfidenceScore, field.TypeInt)
+	}
+	if _u.mutation.ConfidencePromptVersionCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldConfidencePromptVersion, field.TypeString)
+	}
+	if _u.mutation.RequestedEffortCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldRequestedEffort, field.TypeString)
+	}
+	if _u.mutation.ReasoningTokensCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldReasoningTokens, field.TypeInt64)
+	}
+	if _u.mutation.ConfidenceChecksCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldConfidenceChecks, field.TypeJSON)
+	}
+	if _u.mutation.ConfidenceStatusCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldConfidenceStatus, field.TypeString)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{upstreamhealthobservation.Label}
@@ -200,6 +218,24 @@ func (_u *UpstreamHealthObservationUpdateOne) sqlSave(ctx context.Context) (_nod
 	}
 	if _u.mutation.OutputTpsCleared() {
 		_spec.ClearField(upstreamhealthobservation.FieldOutputTps, field.TypeFloat64)
+	}
+	if _u.mutation.ConfidenceScoreCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldConfidenceScore, field.TypeInt)
+	}
+	if _u.mutation.ConfidencePromptVersionCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldConfidencePromptVersion, field.TypeString)
+	}
+	if _u.mutation.RequestedEffortCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldRequestedEffort, field.TypeString)
+	}
+	if _u.mutation.ReasoningTokensCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldReasoningTokens, field.TypeInt64)
+	}
+	if _u.mutation.ConfidenceChecksCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldConfidenceChecks, field.TypeJSON)
+	}
+	if _u.mutation.ConfidenceStatusCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldConfidenceStatus, field.TypeString)
 	}
 	_node = &UpstreamHealthObservation{config: _u.config}
 	_spec.Assign = _node.assignValues

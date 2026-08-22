@@ -53433,40 +53433,48 @@ func (m *UpstreamEventMutation) ResetEdge(name string) error {
 // UpstreamHealthObservationMutation represents an operation that mutates the UpstreamHealthObservation nodes in the graph.
 type UpstreamHealthObservationMutation struct {
 	config
-	op                    Op
-	typ                   string
-	id                    *int64
-	upstream_config_id    *int64
-	addupstream_config_id *int64
-	upstream_key_id       *int64
-	addupstream_key_id    *int64
-	account_id            *int64
-	addaccount_id         *int64
-	platform              *string
-	model                 *string
-	protocol              *string
-	source                *string
-	state                 *string
-	result                *string
-	reason                *string
-	http_status           *int
-	addhttp_status        *int
-	ttft_ms               *int64
-	addttft_ms            *int64
-	duration_ms           *int64
-	addduration_ms        *int64
-	input_tokens          *int64
-	addinput_tokens       *int64
-	output_tokens         *int64
-	addoutput_tokens      *int64
-	output_tps            *float64
-	addoutput_tps         *float64
-	observed_at           *time.Time
-	created_at            *time.Time
-	clearedFields         map[string]struct{}
-	done                  bool
-	oldValue              func(context.Context) (*UpstreamHealthObservation, error)
-	predicates            []predicate.UpstreamHealthObservation
+	op                        Op
+	typ                       string
+	id                        *int64
+	upstream_config_id        *int64
+	addupstream_config_id     *int64
+	upstream_key_id           *int64
+	addupstream_key_id        *int64
+	account_id                *int64
+	addaccount_id             *int64
+	platform                  *string
+	model                     *string
+	protocol                  *string
+	source                    *string
+	state                     *string
+	result                    *string
+	reason                    *string
+	http_status               *int
+	addhttp_status            *int
+	ttft_ms                   *int64
+	addttft_ms                *int64
+	duration_ms               *int64
+	addduration_ms            *int64
+	input_tokens              *int64
+	addinput_tokens           *int64
+	output_tokens             *int64
+	addoutput_tokens          *int64
+	output_tps                *float64
+	addoutput_tps             *float64
+	confidence_score          *int
+	addconfidence_score       *int
+	confidence_prompt_version *string
+	requested_effort          *string
+	reasoning_tokens          *int64
+	addreasoning_tokens       *int64
+	confidence_checks         *map[string]int
+	confidence_status         *string
+	observed_at               *time.Time
+	created_at                *time.Time
+	clearedFields             map[string]struct{}
+	done                      bool
+	oldValue                  func(context.Context) (*UpstreamHealthObservation, error)
+	predicates                []predicate.UpstreamHealthObservation
 }
 
 var _ ent.Mutation = (*UpstreamHealthObservationMutation)(nil)
@@ -54421,6 +54429,342 @@ func (m *UpstreamHealthObservationMutation) ResetOutputTps() {
 	delete(m.clearedFields, upstreamhealthobservation.FieldOutputTps)
 }
 
+// SetConfidenceScore sets the "confidence_score" field.
+func (m *UpstreamHealthObservationMutation) SetConfidenceScore(i int) {
+	m.confidence_score = &i
+	m.addconfidence_score = nil
+}
+
+// ConfidenceScore returns the value of the "confidence_score" field in the mutation.
+func (m *UpstreamHealthObservationMutation) ConfidenceScore() (r int, exists bool) {
+	v := m.confidence_score
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConfidenceScore returns the old "confidence_score" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldConfidenceScore(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConfidenceScore is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConfidenceScore requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConfidenceScore: %w", err)
+	}
+	return oldValue.ConfidenceScore, nil
+}
+
+// AddConfidenceScore adds i to the "confidence_score" field.
+func (m *UpstreamHealthObservationMutation) AddConfidenceScore(i int) {
+	if m.addconfidence_score != nil {
+		*m.addconfidence_score += i
+	} else {
+		m.addconfidence_score = &i
+	}
+}
+
+// AddedConfidenceScore returns the value that was added to the "confidence_score" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedConfidenceScore() (r int, exists bool) {
+	v := m.addconfidence_score
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearConfidenceScore clears the value of the "confidence_score" field.
+func (m *UpstreamHealthObservationMutation) ClearConfidenceScore() {
+	m.confidence_score = nil
+	m.addconfidence_score = nil
+	m.clearedFields[upstreamhealthobservation.FieldConfidenceScore] = struct{}{}
+}
+
+// ConfidenceScoreCleared returns if the "confidence_score" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) ConfidenceScoreCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldConfidenceScore]
+	return ok
+}
+
+// ResetConfidenceScore resets all changes to the "confidence_score" field.
+func (m *UpstreamHealthObservationMutation) ResetConfidenceScore() {
+	m.confidence_score = nil
+	m.addconfidence_score = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldConfidenceScore)
+}
+
+// SetConfidencePromptVersion sets the "confidence_prompt_version" field.
+func (m *UpstreamHealthObservationMutation) SetConfidencePromptVersion(s string) {
+	m.confidence_prompt_version = &s
+}
+
+// ConfidencePromptVersion returns the value of the "confidence_prompt_version" field in the mutation.
+func (m *UpstreamHealthObservationMutation) ConfidencePromptVersion() (r string, exists bool) {
+	v := m.confidence_prompt_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConfidencePromptVersion returns the old "confidence_prompt_version" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldConfidencePromptVersion(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConfidencePromptVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConfidencePromptVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConfidencePromptVersion: %w", err)
+	}
+	return oldValue.ConfidencePromptVersion, nil
+}
+
+// ClearConfidencePromptVersion clears the value of the "confidence_prompt_version" field.
+func (m *UpstreamHealthObservationMutation) ClearConfidencePromptVersion() {
+	m.confidence_prompt_version = nil
+	m.clearedFields[upstreamhealthobservation.FieldConfidencePromptVersion] = struct{}{}
+}
+
+// ConfidencePromptVersionCleared returns if the "confidence_prompt_version" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) ConfidencePromptVersionCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldConfidencePromptVersion]
+	return ok
+}
+
+// ResetConfidencePromptVersion resets all changes to the "confidence_prompt_version" field.
+func (m *UpstreamHealthObservationMutation) ResetConfidencePromptVersion() {
+	m.confidence_prompt_version = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldConfidencePromptVersion)
+}
+
+// SetRequestedEffort sets the "requested_effort" field.
+func (m *UpstreamHealthObservationMutation) SetRequestedEffort(s string) {
+	m.requested_effort = &s
+}
+
+// RequestedEffort returns the value of the "requested_effort" field in the mutation.
+func (m *UpstreamHealthObservationMutation) RequestedEffort() (r string, exists bool) {
+	v := m.requested_effort
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestedEffort returns the old "requested_effort" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldRequestedEffort(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestedEffort is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestedEffort requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestedEffort: %w", err)
+	}
+	return oldValue.RequestedEffort, nil
+}
+
+// ClearRequestedEffort clears the value of the "requested_effort" field.
+func (m *UpstreamHealthObservationMutation) ClearRequestedEffort() {
+	m.requested_effort = nil
+	m.clearedFields[upstreamhealthobservation.FieldRequestedEffort] = struct{}{}
+}
+
+// RequestedEffortCleared returns if the "requested_effort" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) RequestedEffortCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldRequestedEffort]
+	return ok
+}
+
+// ResetRequestedEffort resets all changes to the "requested_effort" field.
+func (m *UpstreamHealthObservationMutation) ResetRequestedEffort() {
+	m.requested_effort = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldRequestedEffort)
+}
+
+// SetReasoningTokens sets the "reasoning_tokens" field.
+func (m *UpstreamHealthObservationMutation) SetReasoningTokens(i int64) {
+	m.reasoning_tokens = &i
+	m.addreasoning_tokens = nil
+}
+
+// ReasoningTokens returns the value of the "reasoning_tokens" field in the mutation.
+func (m *UpstreamHealthObservationMutation) ReasoningTokens() (r int64, exists bool) {
+	v := m.reasoning_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReasoningTokens returns the old "reasoning_tokens" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldReasoningTokens(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReasoningTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReasoningTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReasoningTokens: %w", err)
+	}
+	return oldValue.ReasoningTokens, nil
+}
+
+// AddReasoningTokens adds i to the "reasoning_tokens" field.
+func (m *UpstreamHealthObservationMutation) AddReasoningTokens(i int64) {
+	if m.addreasoning_tokens != nil {
+		*m.addreasoning_tokens += i
+	} else {
+		m.addreasoning_tokens = &i
+	}
+}
+
+// AddedReasoningTokens returns the value that was added to the "reasoning_tokens" field in this mutation.
+func (m *UpstreamHealthObservationMutation) AddedReasoningTokens() (r int64, exists bool) {
+	v := m.addreasoning_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearReasoningTokens clears the value of the "reasoning_tokens" field.
+func (m *UpstreamHealthObservationMutation) ClearReasoningTokens() {
+	m.reasoning_tokens = nil
+	m.addreasoning_tokens = nil
+	m.clearedFields[upstreamhealthobservation.FieldReasoningTokens] = struct{}{}
+}
+
+// ReasoningTokensCleared returns if the "reasoning_tokens" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) ReasoningTokensCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldReasoningTokens]
+	return ok
+}
+
+// ResetReasoningTokens resets all changes to the "reasoning_tokens" field.
+func (m *UpstreamHealthObservationMutation) ResetReasoningTokens() {
+	m.reasoning_tokens = nil
+	m.addreasoning_tokens = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldReasoningTokens)
+}
+
+// SetConfidenceChecks sets the "confidence_checks" field.
+func (m *UpstreamHealthObservationMutation) SetConfidenceChecks(value map[string]int) {
+	m.confidence_checks = &value
+}
+
+// ConfidenceChecks returns the value of the "confidence_checks" field in the mutation.
+func (m *UpstreamHealthObservationMutation) ConfidenceChecks() (r map[string]int, exists bool) {
+	v := m.confidence_checks
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConfidenceChecks returns the old "confidence_checks" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldConfidenceChecks(ctx context.Context) (v map[string]int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConfidenceChecks is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConfidenceChecks requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConfidenceChecks: %w", err)
+	}
+	return oldValue.ConfidenceChecks, nil
+}
+
+// ClearConfidenceChecks clears the value of the "confidence_checks" field.
+func (m *UpstreamHealthObservationMutation) ClearConfidenceChecks() {
+	m.confidence_checks = nil
+	m.clearedFields[upstreamhealthobservation.FieldConfidenceChecks] = struct{}{}
+}
+
+// ConfidenceChecksCleared returns if the "confidence_checks" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) ConfidenceChecksCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldConfidenceChecks]
+	return ok
+}
+
+// ResetConfidenceChecks resets all changes to the "confidence_checks" field.
+func (m *UpstreamHealthObservationMutation) ResetConfidenceChecks() {
+	m.confidence_checks = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldConfidenceChecks)
+}
+
+// SetConfidenceStatus sets the "confidence_status" field.
+func (m *UpstreamHealthObservationMutation) SetConfidenceStatus(s string) {
+	m.confidence_status = &s
+}
+
+// ConfidenceStatus returns the value of the "confidence_status" field in the mutation.
+func (m *UpstreamHealthObservationMutation) ConfidenceStatus() (r string, exists bool) {
+	v := m.confidence_status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConfidenceStatus returns the old "confidence_status" field's value of the UpstreamHealthObservation entity.
+// If the UpstreamHealthObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamHealthObservationMutation) OldConfidenceStatus(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConfidenceStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConfidenceStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConfidenceStatus: %w", err)
+	}
+	return oldValue.ConfidenceStatus, nil
+}
+
+// ClearConfidenceStatus clears the value of the "confidence_status" field.
+func (m *UpstreamHealthObservationMutation) ClearConfidenceStatus() {
+	m.confidence_status = nil
+	m.clearedFields[upstreamhealthobservation.FieldConfidenceStatus] = struct{}{}
+}
+
+// ConfidenceStatusCleared returns if the "confidence_status" field was cleared in this mutation.
+func (m *UpstreamHealthObservationMutation) ConfidenceStatusCleared() bool {
+	_, ok := m.clearedFields[upstreamhealthobservation.FieldConfidenceStatus]
+	return ok
+}
+
+// ResetConfidenceStatus resets all changes to the "confidence_status" field.
+func (m *UpstreamHealthObservationMutation) ResetConfidenceStatus() {
+	m.confidence_status = nil
+	delete(m.clearedFields, upstreamhealthobservation.FieldConfidenceStatus)
+}
+
 // SetObservedAt sets the "observed_at" field.
 func (m *UpstreamHealthObservationMutation) SetObservedAt(t time.Time) {
 	m.observed_at = &t
@@ -54527,7 +54871,7 @@ func (m *UpstreamHealthObservationMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UpstreamHealthObservationMutation) Fields() []string {
-	fields := make([]string, 0, 18)
+	fields := make([]string, 0, 24)
 	if m.upstream_config_id != nil {
 		fields = append(fields, upstreamhealthobservation.FieldUpstreamConfigID)
 	}
@@ -54576,6 +54920,24 @@ func (m *UpstreamHealthObservationMutation) Fields() []string {
 	if m.output_tps != nil {
 		fields = append(fields, upstreamhealthobservation.FieldOutputTps)
 	}
+	if m.confidence_score != nil {
+		fields = append(fields, upstreamhealthobservation.FieldConfidenceScore)
+	}
+	if m.confidence_prompt_version != nil {
+		fields = append(fields, upstreamhealthobservation.FieldConfidencePromptVersion)
+	}
+	if m.requested_effort != nil {
+		fields = append(fields, upstreamhealthobservation.FieldRequestedEffort)
+	}
+	if m.reasoning_tokens != nil {
+		fields = append(fields, upstreamhealthobservation.FieldReasoningTokens)
+	}
+	if m.confidence_checks != nil {
+		fields = append(fields, upstreamhealthobservation.FieldConfidenceChecks)
+	}
+	if m.confidence_status != nil {
+		fields = append(fields, upstreamhealthobservation.FieldConfidenceStatus)
+	}
 	if m.observed_at != nil {
 		fields = append(fields, upstreamhealthobservation.FieldObservedAt)
 	}
@@ -54622,6 +54984,18 @@ func (m *UpstreamHealthObservationMutation) Field(name string) (ent.Value, bool)
 		return m.OutputTokens()
 	case upstreamhealthobservation.FieldOutputTps:
 		return m.OutputTps()
+	case upstreamhealthobservation.FieldConfidenceScore:
+		return m.ConfidenceScore()
+	case upstreamhealthobservation.FieldConfidencePromptVersion:
+		return m.ConfidencePromptVersion()
+	case upstreamhealthobservation.FieldRequestedEffort:
+		return m.RequestedEffort()
+	case upstreamhealthobservation.FieldReasoningTokens:
+		return m.ReasoningTokens()
+	case upstreamhealthobservation.FieldConfidenceChecks:
+		return m.ConfidenceChecks()
+	case upstreamhealthobservation.FieldConfidenceStatus:
+		return m.ConfidenceStatus()
 	case upstreamhealthobservation.FieldObservedAt:
 		return m.ObservedAt()
 	case upstreamhealthobservation.FieldCreatedAt:
@@ -54667,6 +55041,18 @@ func (m *UpstreamHealthObservationMutation) OldField(ctx context.Context, name s
 		return m.OldOutputTokens(ctx)
 	case upstreamhealthobservation.FieldOutputTps:
 		return m.OldOutputTps(ctx)
+	case upstreamhealthobservation.FieldConfidenceScore:
+		return m.OldConfidenceScore(ctx)
+	case upstreamhealthobservation.FieldConfidencePromptVersion:
+		return m.OldConfidencePromptVersion(ctx)
+	case upstreamhealthobservation.FieldRequestedEffort:
+		return m.OldRequestedEffort(ctx)
+	case upstreamhealthobservation.FieldReasoningTokens:
+		return m.OldReasoningTokens(ctx)
+	case upstreamhealthobservation.FieldConfidenceChecks:
+		return m.OldConfidenceChecks(ctx)
+	case upstreamhealthobservation.FieldConfidenceStatus:
+		return m.OldConfidenceStatus(ctx)
 	case upstreamhealthobservation.FieldObservedAt:
 		return m.OldObservedAt(ctx)
 	case upstreamhealthobservation.FieldCreatedAt:
@@ -54792,6 +55178,48 @@ func (m *UpstreamHealthObservationMutation) SetField(name string, value ent.Valu
 		}
 		m.SetOutputTps(v)
 		return nil
+	case upstreamhealthobservation.FieldConfidenceScore:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConfidenceScore(v)
+		return nil
+	case upstreamhealthobservation.FieldConfidencePromptVersion:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConfidencePromptVersion(v)
+		return nil
+	case upstreamhealthobservation.FieldRequestedEffort:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestedEffort(v)
+		return nil
+	case upstreamhealthobservation.FieldReasoningTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReasoningTokens(v)
+		return nil
+	case upstreamhealthobservation.FieldConfidenceChecks:
+		v, ok := value.(map[string]int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConfidenceChecks(v)
+		return nil
+	case upstreamhealthobservation.FieldConfidenceStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConfidenceStatus(v)
+		return nil
 	case upstreamhealthobservation.FieldObservedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -54841,6 +55269,12 @@ func (m *UpstreamHealthObservationMutation) AddedFields() []string {
 	if m.addoutput_tps != nil {
 		fields = append(fields, upstreamhealthobservation.FieldOutputTps)
 	}
+	if m.addconfidence_score != nil {
+		fields = append(fields, upstreamhealthobservation.FieldConfidenceScore)
+	}
+	if m.addreasoning_tokens != nil {
+		fields = append(fields, upstreamhealthobservation.FieldReasoningTokens)
+	}
 	return fields
 }
 
@@ -54867,6 +55301,10 @@ func (m *UpstreamHealthObservationMutation) AddedField(name string) (ent.Value, 
 		return m.AddedOutputTokens()
 	case upstreamhealthobservation.FieldOutputTps:
 		return m.AddedOutputTps()
+	case upstreamhealthobservation.FieldConfidenceScore:
+		return m.AddedConfidenceScore()
+	case upstreamhealthobservation.FieldReasoningTokens:
+		return m.AddedReasoningTokens()
 	}
 	return nil, false
 }
@@ -54939,6 +55377,20 @@ func (m *UpstreamHealthObservationMutation) AddField(name string, value ent.Valu
 		}
 		m.AddOutputTps(v)
 		return nil
+	case upstreamhealthobservation.FieldConfidenceScore:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddConfidenceScore(v)
+		return nil
+	case upstreamhealthobservation.FieldReasoningTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddReasoningTokens(v)
+		return nil
 	}
 	return fmt.Errorf("unknown UpstreamHealthObservation numeric field %s", name)
 }
@@ -54967,6 +55419,24 @@ func (m *UpstreamHealthObservationMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(upstreamhealthobservation.FieldOutputTps) {
 		fields = append(fields, upstreamhealthobservation.FieldOutputTps)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldConfidenceScore) {
+		fields = append(fields, upstreamhealthobservation.FieldConfidenceScore)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldConfidencePromptVersion) {
+		fields = append(fields, upstreamhealthobservation.FieldConfidencePromptVersion)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldRequestedEffort) {
+		fields = append(fields, upstreamhealthobservation.FieldRequestedEffort)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldReasoningTokens) {
+		fields = append(fields, upstreamhealthobservation.FieldReasoningTokens)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldConfidenceChecks) {
+		fields = append(fields, upstreamhealthobservation.FieldConfidenceChecks)
+	}
+	if m.FieldCleared(upstreamhealthobservation.FieldConfidenceStatus) {
+		fields = append(fields, upstreamhealthobservation.FieldConfidenceStatus)
 	}
 	return fields
 }
@@ -55002,6 +55472,24 @@ func (m *UpstreamHealthObservationMutation) ClearField(name string) error {
 		return nil
 	case upstreamhealthobservation.FieldOutputTps:
 		m.ClearOutputTps()
+		return nil
+	case upstreamhealthobservation.FieldConfidenceScore:
+		m.ClearConfidenceScore()
+		return nil
+	case upstreamhealthobservation.FieldConfidencePromptVersion:
+		m.ClearConfidencePromptVersion()
+		return nil
+	case upstreamhealthobservation.FieldRequestedEffort:
+		m.ClearRequestedEffort()
+		return nil
+	case upstreamhealthobservation.FieldReasoningTokens:
+		m.ClearReasoningTokens()
+		return nil
+	case upstreamhealthobservation.FieldConfidenceChecks:
+		m.ClearConfidenceChecks()
+		return nil
+	case upstreamhealthobservation.FieldConfidenceStatus:
+		m.ClearConfidenceStatus()
 		return nil
 	}
 	return fmt.Errorf("unknown UpstreamHealthObservation nullable field %s", name)
@@ -55058,6 +55546,24 @@ func (m *UpstreamHealthObservationMutation) ResetField(name string) error {
 		return nil
 	case upstreamhealthobservation.FieldOutputTps:
 		m.ResetOutputTps()
+		return nil
+	case upstreamhealthobservation.FieldConfidenceScore:
+		m.ResetConfidenceScore()
+		return nil
+	case upstreamhealthobservation.FieldConfidencePromptVersion:
+		m.ResetConfidencePromptVersion()
+		return nil
+	case upstreamhealthobservation.FieldRequestedEffort:
+		m.ResetRequestedEffort()
+		return nil
+	case upstreamhealthobservation.FieldReasoningTokens:
+		m.ResetReasoningTokens()
+		return nil
+	case upstreamhealthobservation.FieldConfidenceChecks:
+		m.ResetConfidenceChecks()
+		return nil
+	case upstreamhealthobservation.FieldConfidenceStatus:
+		m.ResetConfidenceStatus()
 		return nil
 	case upstreamhealthobservation.FieldObservedAt:
 		m.ResetObservedAt()

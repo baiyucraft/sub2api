@@ -210,3 +210,21 @@ func TestOpenAIUpstreamHealthProbeRequiresTerminalEvent(t *testing.T) {
 	require.Equal(t, "incomplete", result.Result)
 	require.Equal(t, "probe_incomplete_stream", result.Reason)
 }
+
+func TestScoreOpenAIConfidenceOutput(t *testing.T) {
+	challenge := upstreamHealthChallenge{Expected: "42", Marker: "m", Constraint: "constraint-ok", ContextNeedle: "not_requested"}
+	score, checks := scoreOpenAIConfidenceOutput(`{"marker":"m","calculation":42,"constraint":"constraint-ok","context_check":"not_requested"}`, challenge)
+	require.Equal(t, 100, score)
+	require.Equal(t, 35, checks["calculation"])
+	score, _ = scoreOpenAIConfidenceOutput(`{"marker":"wrong","calculation":41,"constraint":"constraint-ok","context_check":"not_requested"}`, challenge)
+	require.Equal(t, 40, score)
+}
+
+func TestParseOpenAIConfidenceReasoningTokens(t *testing.T) {
+	result := UpstreamHealthProbeResult{Protocol: upstreamHealthProbeProtocolOpenAI, confidenceChallenge: &upstreamHealthChallenge{Expected: "42", Marker: "m", Constraint: "constraint-ok", ContextNeedle: "not_requested"}}
+	_, err := parseOpenAIUpstreamHealthStream(bytes.NewBufferString("data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"marker\\\":\\\"m\\\",\\\"calculation\\\":42,\\\"constraint\\\":\\\"constraint-ok\\\",\\\"context_check\\\":\\\"not_requested\\\"}\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"output_tokens_details\":{\"reasoning_tokens\":32}}}}\n\n"), time.Now(), &result)
+	require.NoError(t, err)
+	require.NotNil(t, result.ReasoningTokens)
+	require.Equal(t, int64(32), *result.ReasoningTokens)
+	require.Equal(t, 100, *result.ConfidenceScore)
+}

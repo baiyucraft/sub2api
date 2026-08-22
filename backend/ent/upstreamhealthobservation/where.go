@@ -134,6 +134,31 @@ func OutputTps(v float64) predicate.UpstreamHealthObservation {
 	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldOutputTps, v))
 }
 
+// ConfidenceScore applies equality check predicate on the "confidence_score" field. It's identical to ConfidenceScoreEQ.
+func ConfidenceScore(v int) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldConfidenceScore, v))
+}
+
+// ConfidencePromptVersion applies equality check predicate on the "confidence_prompt_version" field. It's identical to ConfidencePromptVersionEQ.
+func ConfidencePromptVersion(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldConfidencePromptVersion, v))
+}
+
+// RequestedEffort applies equality check predicate on the "requested_effort" field. It's identical to RequestedEffortEQ.
+func RequestedEffort(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldRequestedEffort, v))
+}
+
+// ReasoningTokens applies equality check predicate on the "reasoning_tokens" field. It's identical to ReasoningTokensEQ.
+func ReasoningTokens(v int64) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldReasoningTokens, v))
+}
+
+// ConfidenceStatus applies equality check predicate on the "confidence_status" field. It's identical to ConfidenceStatusEQ.
+func ConfidenceStatus(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldConfidenceStatus, v))
+}
+
 // ObservedAt applies equality check predicate on the "observed_at" field. It's identical to ObservedAtEQ.
 func ObservedAt(v time.Time) predicate.UpstreamHealthObservation {
 	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldObservedAt, v))
@@ -1027,6 +1052,341 @@ func OutputTpsIsNil() predicate.UpstreamHealthObservation {
 // OutputTpsNotNil applies the NotNil predicate on the "output_tps" field.
 func OutputTpsNotNil() predicate.UpstreamHealthObservation {
 	return predicate.UpstreamHealthObservation(sql.FieldNotNull(FieldOutputTps))
+}
+
+// ConfidenceScoreEQ applies the EQ predicate on the "confidence_score" field.
+func ConfidenceScoreEQ(v int) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldConfidenceScore, v))
+}
+
+// ConfidenceScoreNEQ applies the NEQ predicate on the "confidence_score" field.
+func ConfidenceScoreNEQ(v int) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNEQ(FieldConfidenceScore, v))
+}
+
+// ConfidenceScoreIn applies the In predicate on the "confidence_score" field.
+func ConfidenceScoreIn(vs ...int) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIn(FieldConfidenceScore, vs...))
+}
+
+// ConfidenceScoreNotIn applies the NotIn predicate on the "confidence_score" field.
+func ConfidenceScoreNotIn(vs ...int) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotIn(FieldConfidenceScore, vs...))
+}
+
+// ConfidenceScoreGT applies the GT predicate on the "confidence_score" field.
+func ConfidenceScoreGT(v int) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldGT(FieldConfidenceScore, v))
+}
+
+// ConfidenceScoreGTE applies the GTE predicate on the "confidence_score" field.
+func ConfidenceScoreGTE(v int) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldGTE(FieldConfidenceScore, v))
+}
+
+// ConfidenceScoreLT applies the LT predicate on the "confidence_score" field.
+func ConfidenceScoreLT(v int) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldLT(FieldConfidenceScore, v))
+}
+
+// ConfidenceScoreLTE applies the LTE predicate on the "confidence_score" field.
+func ConfidenceScoreLTE(v int) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldLTE(FieldConfidenceScore, v))
+}
+
+// ConfidenceScoreIsNil applies the IsNil predicate on the "confidence_score" field.
+func ConfidenceScoreIsNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIsNull(FieldConfidenceScore))
+}
+
+// ConfidenceScoreNotNil applies the NotNil predicate on the "confidence_score" field.
+func ConfidenceScoreNotNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotNull(FieldConfidenceScore))
+}
+
+// ConfidencePromptVersionEQ applies the EQ predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionEQ(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldConfidencePromptVersion, v))
+}
+
+// ConfidencePromptVersionNEQ applies the NEQ predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionNEQ(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNEQ(FieldConfidencePromptVersion, v))
+}
+
+// ConfidencePromptVersionIn applies the In predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionIn(vs ...string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIn(FieldConfidencePromptVersion, vs...))
+}
+
+// ConfidencePromptVersionNotIn applies the NotIn predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionNotIn(vs ...string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotIn(FieldConfidencePromptVersion, vs...))
+}
+
+// ConfidencePromptVersionGT applies the GT predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionGT(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldGT(FieldConfidencePromptVersion, v))
+}
+
+// ConfidencePromptVersionGTE applies the GTE predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionGTE(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldGTE(FieldConfidencePromptVersion, v))
+}
+
+// ConfidencePromptVersionLT applies the LT predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionLT(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldLT(FieldConfidencePromptVersion, v))
+}
+
+// ConfidencePromptVersionLTE applies the LTE predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionLTE(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldLTE(FieldConfidencePromptVersion, v))
+}
+
+// ConfidencePromptVersionContains applies the Contains predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionContains(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldContains(FieldConfidencePromptVersion, v))
+}
+
+// ConfidencePromptVersionHasPrefix applies the HasPrefix predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionHasPrefix(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldHasPrefix(FieldConfidencePromptVersion, v))
+}
+
+// ConfidencePromptVersionHasSuffix applies the HasSuffix predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionHasSuffix(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldHasSuffix(FieldConfidencePromptVersion, v))
+}
+
+// ConfidencePromptVersionIsNil applies the IsNil predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionIsNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIsNull(FieldConfidencePromptVersion))
+}
+
+// ConfidencePromptVersionNotNil applies the NotNil predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionNotNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotNull(FieldConfidencePromptVersion))
+}
+
+// ConfidencePromptVersionEqualFold applies the EqualFold predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionEqualFold(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEqualFold(FieldConfidencePromptVersion, v))
+}
+
+// ConfidencePromptVersionContainsFold applies the ContainsFold predicate on the "confidence_prompt_version" field.
+func ConfidencePromptVersionContainsFold(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldContainsFold(FieldConfidencePromptVersion, v))
+}
+
+// RequestedEffortEQ applies the EQ predicate on the "requested_effort" field.
+func RequestedEffortEQ(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldRequestedEffort, v))
+}
+
+// RequestedEffortNEQ applies the NEQ predicate on the "requested_effort" field.
+func RequestedEffortNEQ(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNEQ(FieldRequestedEffort, v))
+}
+
+// RequestedEffortIn applies the In predicate on the "requested_effort" field.
+func RequestedEffortIn(vs ...string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIn(FieldRequestedEffort, vs...))
+}
+
+// RequestedEffortNotIn applies the NotIn predicate on the "requested_effort" field.
+func RequestedEffortNotIn(vs ...string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotIn(FieldRequestedEffort, vs...))
+}
+
+// RequestedEffortGT applies the GT predicate on the "requested_effort" field.
+func RequestedEffortGT(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldGT(FieldRequestedEffort, v))
+}
+
+// RequestedEffortGTE applies the GTE predicate on the "requested_effort" field.
+func RequestedEffortGTE(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldGTE(FieldRequestedEffort, v))
+}
+
+// RequestedEffortLT applies the LT predicate on the "requested_effort" field.
+func RequestedEffortLT(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldLT(FieldRequestedEffort, v))
+}
+
+// RequestedEffortLTE applies the LTE predicate on the "requested_effort" field.
+func RequestedEffortLTE(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldLTE(FieldRequestedEffort, v))
+}
+
+// RequestedEffortContains applies the Contains predicate on the "requested_effort" field.
+func RequestedEffortContains(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldContains(FieldRequestedEffort, v))
+}
+
+// RequestedEffortHasPrefix applies the HasPrefix predicate on the "requested_effort" field.
+func RequestedEffortHasPrefix(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldHasPrefix(FieldRequestedEffort, v))
+}
+
+// RequestedEffortHasSuffix applies the HasSuffix predicate on the "requested_effort" field.
+func RequestedEffortHasSuffix(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldHasSuffix(FieldRequestedEffort, v))
+}
+
+// RequestedEffortIsNil applies the IsNil predicate on the "requested_effort" field.
+func RequestedEffortIsNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIsNull(FieldRequestedEffort))
+}
+
+// RequestedEffortNotNil applies the NotNil predicate on the "requested_effort" field.
+func RequestedEffortNotNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotNull(FieldRequestedEffort))
+}
+
+// RequestedEffortEqualFold applies the EqualFold predicate on the "requested_effort" field.
+func RequestedEffortEqualFold(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEqualFold(FieldRequestedEffort, v))
+}
+
+// RequestedEffortContainsFold applies the ContainsFold predicate on the "requested_effort" field.
+func RequestedEffortContainsFold(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldContainsFold(FieldRequestedEffort, v))
+}
+
+// ReasoningTokensEQ applies the EQ predicate on the "reasoning_tokens" field.
+func ReasoningTokensEQ(v int64) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldReasoningTokens, v))
+}
+
+// ReasoningTokensNEQ applies the NEQ predicate on the "reasoning_tokens" field.
+func ReasoningTokensNEQ(v int64) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNEQ(FieldReasoningTokens, v))
+}
+
+// ReasoningTokensIn applies the In predicate on the "reasoning_tokens" field.
+func ReasoningTokensIn(vs ...int64) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIn(FieldReasoningTokens, vs...))
+}
+
+// ReasoningTokensNotIn applies the NotIn predicate on the "reasoning_tokens" field.
+func ReasoningTokensNotIn(vs ...int64) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotIn(FieldReasoningTokens, vs...))
+}
+
+// ReasoningTokensGT applies the GT predicate on the "reasoning_tokens" field.
+func ReasoningTokensGT(v int64) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldGT(FieldReasoningTokens, v))
+}
+
+// ReasoningTokensGTE applies the GTE predicate on the "reasoning_tokens" field.
+func ReasoningTokensGTE(v int64) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldGTE(FieldReasoningTokens, v))
+}
+
+// ReasoningTokensLT applies the LT predicate on the "reasoning_tokens" field.
+func ReasoningTokensLT(v int64) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldLT(FieldReasoningTokens, v))
+}
+
+// ReasoningTokensLTE applies the LTE predicate on the "reasoning_tokens" field.
+func ReasoningTokensLTE(v int64) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldLTE(FieldReasoningTokens, v))
+}
+
+// ReasoningTokensIsNil applies the IsNil predicate on the "reasoning_tokens" field.
+func ReasoningTokensIsNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIsNull(FieldReasoningTokens))
+}
+
+// ReasoningTokensNotNil applies the NotNil predicate on the "reasoning_tokens" field.
+func ReasoningTokensNotNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotNull(FieldReasoningTokens))
+}
+
+// ConfidenceChecksIsNil applies the IsNil predicate on the "confidence_checks" field.
+func ConfidenceChecksIsNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIsNull(FieldConfidenceChecks))
+}
+
+// ConfidenceChecksNotNil applies the NotNil predicate on the "confidence_checks" field.
+func ConfidenceChecksNotNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotNull(FieldConfidenceChecks))
+}
+
+// ConfidenceStatusEQ applies the EQ predicate on the "confidence_status" field.
+func ConfidenceStatusEQ(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldConfidenceStatus, v))
+}
+
+// ConfidenceStatusNEQ applies the NEQ predicate on the "confidence_status" field.
+func ConfidenceStatusNEQ(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNEQ(FieldConfidenceStatus, v))
+}
+
+// ConfidenceStatusIn applies the In predicate on the "confidence_status" field.
+func ConfidenceStatusIn(vs ...string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIn(FieldConfidenceStatus, vs...))
+}
+
+// ConfidenceStatusNotIn applies the NotIn predicate on the "confidence_status" field.
+func ConfidenceStatusNotIn(vs ...string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotIn(FieldConfidenceStatus, vs...))
+}
+
+// ConfidenceStatusGT applies the GT predicate on the "confidence_status" field.
+func ConfidenceStatusGT(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldGT(FieldConfidenceStatus, v))
+}
+
+// ConfidenceStatusGTE applies the GTE predicate on the "confidence_status" field.
+func ConfidenceStatusGTE(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldGTE(FieldConfidenceStatus, v))
+}
+
+// ConfidenceStatusLT applies the LT predicate on the "confidence_status" field.
+func ConfidenceStatusLT(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldLT(FieldConfidenceStatus, v))
+}
+
+// ConfidenceStatusLTE applies the LTE predicate on the "confidence_status" field.
+func ConfidenceStatusLTE(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldLTE(FieldConfidenceStatus, v))
+}
+
+// ConfidenceStatusContains applies the Contains predicate on the "confidence_status" field.
+func ConfidenceStatusContains(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldContains(FieldConfidenceStatus, v))
+}
+
+// ConfidenceStatusHasPrefix applies the HasPrefix predicate on the "confidence_status" field.
+func ConfidenceStatusHasPrefix(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldHasPrefix(FieldConfidenceStatus, v))
+}
+
+// ConfidenceStatusHasSuffix applies the HasSuffix predicate on the "confidence_status" field.
+func ConfidenceStatusHasSuffix(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldHasSuffix(FieldConfidenceStatus, v))
+}
+
+// ConfidenceStatusIsNil applies the IsNil predicate on the "confidence_status" field.
+func ConfidenceStatusIsNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIsNull(FieldConfidenceStatus))
+}
+
+// ConfidenceStatusNotNil applies the NotNil predicate on the "confidence_status" field.
+func ConfidenceStatusNotNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotNull(FieldConfidenceStatus))
+}
+
+// ConfidenceStatusEqualFold applies the EqualFold predicate on the "confidence_status" field.
+func ConfidenceStatusEqualFold(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldEqualFold(FieldConfidenceStatus, v))
+}
+
+// ConfidenceStatusContainsFold applies the ContainsFold predicate on the "confidence_status" field.
+func ConfidenceStatusContainsFold(v string) predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldContainsFold(FieldConfidenceStatus, v))
 }
 
 // ObservedAtEQ applies the EQ predicate on the "observed_at" field.

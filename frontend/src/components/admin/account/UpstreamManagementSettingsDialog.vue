@@ -93,6 +93,21 @@
         </label>
         <div class="mt-6 border-t border-gray-200 pt-5 dark:border-dark-700">
           <div class="flex items-start justify-between gap-5">
+            <div>
+              <h5 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.confidenceProbe.title') }}</h5>
+              <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.confidenceProbe.description') }}</p>
+            </div>
+            <Toggle v-model="draft.confidence_probe.enabled" :aria-label="t('admin.upstreamManagement.confidenceProbe.enabled')" />
+          </div>
+          <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <label class="space-y-1.5"><span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.effort') }}</span><Select v-model="draft.confidence_probe.reasoning_effort" :options="[{ value: 'low', label: 'low' }, { value: 'medium', label: 'medium' }, { value: 'high', label: 'high' }]" /></label>
+            <label class="space-y-1.5"><span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.threshold') }}</span><input v-model.number="draft.confidence_probe.quality_degrade_threshold" type="number" min="0" max="100" class="input" /></label>
+            <label class="flex items-center gap-2 pt-7 text-sm text-gray-700 dark:text-gray-200"><input v-model="draft.confidence_probe.long_context_enabled" type="checkbox" />{{ t('admin.upstreamManagement.confidenceProbe.longContext') }}</label>
+            <label v-if="draft.confidence_probe.long_context_enabled" class="space-y-1.5"><span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.maxTokens') }}</span><input v-model.number="draft.confidence_probe.long_context_max_tokens" type="number" min="256" max="16384" class="input" /></label>
+          </div>
+        </div>
+        <div class="mt-6 border-t border-gray-200 pt-5 dark:border-dark-700">
+          <div class="flex items-start justify-between gap-5">
             <div class="min-w-0">
               <h5 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.probeGuard.title') }}</h5>
               <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.probeGuard.description') }}</p>
@@ -210,7 +225,8 @@ const defaults: UpstreamManagementSettings = {
   },
   probe_models: { openai: 'gpt-4o-mini', anthropic: 'claude-3-5-haiku-latest', gemini: 'gemini-2.0-flash' },
   probe_interval_seconds: 300,
-  model_alias_rules: {}
+  model_alias_rules: {},
+  confidence_probe: { enabled: true, reasoning_effort: 'high', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 70, prompt_version: 'openai-confidence-v1' }
 }
 const draft = reactive<UpstreamManagementSettings>(structuredClone(defaults))
 const probeIntervalMinutes = ref(5)
@@ -232,12 +248,14 @@ const valid = computed(() => {
   const suspendAfterFailures = Number(draft.probe_guard.suspend_after_failures)
   const recoverySuccesses = Number(draft.probe_guard.recovery_successes)
   const customCodes = draft.probe_guard.custom_error_codes || []
+  const confidence = draft.confidence_probe
   return Number.isFinite(threshold) && threshold >= 5 && threshold <= 300 &&
     Number.isInteger(samples) && samples >= 2 && samples <= 20 &&
     Number.isInteger(intervalMinutes) && intervalMinutes >= 1 && intervalMinutes <= 60 &&
     Number.isInteger(suspendAfterFailures) && suspendAfterFailures >= 1 && suspendAfterFailures <= 20 &&
     Number.isInteger(recoverySuccesses) && recoverySuccesses >= 1 && recoverySuccesses <= 20 &&
     customCodes.every(code => Number.isInteger(code) && code >= 100 && code <= 599) &&
+    confidence && Number.isInteger(Number(confidence.quality_degrade_threshold)) && Number(confidence.quality_degrade_threshold) >= 0 && Number(confidence.quality_degrade_threshold) <= 100 &&
     platforms.value.filter(platform => platform.probe_supported).every(platform => {
       const value = draft.probe_models[platform.id]?.trim() || ''
       return value.length > 0 && value.length <= 120
@@ -279,6 +297,7 @@ async function load() {
     Object.assign(draft.probe_guard, settings.probe_guard || defaults.probe_guard)
     draft.probe_models = { ...defaults.probe_models, ...(settings.probe_models || {}) }
     draft.probe_interval_seconds = settings.probe_interval_seconds ?? defaults.probe_interval_seconds
+    draft.confidence_probe = { ...defaults.confidence_probe, ...(settings.confidence_probe || {}) }
     modelAliasRows.value = Object.entries(settings.model_alias_rules || {}).map(([source, target]) => ({ id: nextModelAliasRowId++, source, target }))
     modelAliasError.value = ''
     probeIntervalMinutes.value = Math.max(1, Math.min(60, Math.round(draft.probe_interval_seconds / 60)))
@@ -316,6 +335,7 @@ async function save() {
       probe_models: Object.fromEntries(Object.entries(draft.probe_models).map(([platform, model]) => [platform, model.trim()])),
       probe_interval_seconds: probeIntervalMinutes.value * 60,
       model_alias_rules: modelAliasRules
+      , confidence_probe: { ...draft.confidence_probe }
     }
     const saved = probeOnly.value
       ? await upstreamManagementAPI.updateProbeSettings(payload)

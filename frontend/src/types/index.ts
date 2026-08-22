@@ -1265,6 +1265,17 @@ export interface Account {
     suspension_source?: string
     updated_at: string
     history?: UpstreamHealthObservation[]
+    confidence_score_24h?: number
+    confidence_score_7d?: number
+    confidence_sample_count_24h?: number
+    confidence_sample_count_7d?: number
+    confidence_last_score?: number
+    confidence_last_probe_at?: string
+    confidence_status?: string
+    confidence_requested_effort?: string
+    confidence_reasoning_tokens?: number
+    confidence_breakdown?: Record<string, number>
+    confidence_prompt_version?: string
   }
 
   // Session window fields (5-hour window)
