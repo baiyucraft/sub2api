@@ -45,6 +45,14 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIn("http://127.0.0.1:${SERVER_PORT:-8080}/health", dockerfile)
         self.assertNotIn("http://localhost:${SERVER_PORT:-8080}/health", dockerfile)
 
+    def test_frontend_bootstrap_pins_pnpm_and_corepack_registry(self) -> None:
+        dockerfile = (WORKSPACE / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("ARG COREPACK_NPM_REGISTRY=https://registry.npmmirror.com", dockerfile)
+        self.assertIn("ENV COREPACK_NPM_REGISTRY=${COREPACK_NPM_REGISTRY}", dockerfile)
+        self.assertIn("corepack prepare pnpm@9.15.9 --activate", dockerfile)
+        self.assertNotIn("corepack prepare pnpm@9 --activate", dockerfile)
+
     def test_migration_232_postflight_hashes_backup_for_new_migration(self) -> None:
         assertion = (DEPLOY_ROOT / "maintenance" / "release" / "migration-232-assert.sh").read_text(encoding="utf-8")
 
