@@ -2053,6 +2053,7 @@ var (
 		{Name: "remote_key_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "upstream_group_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "upstream_group_name", Type: field.TypeString, Size: 100, Default: ""},
+		{Name: "base_url", Type: field.TypeString, Nullable: true, Size: 512},
 		{Name: "platform", Type: field.TypeString, Nullable: true, Size: 50},
 		{Name: "platform_source", Type: field.TypeString, Size: 16, Default: "legacy"},
 		{Name: "detected_platform", Type: field.TypeString, Nullable: true, Size: 50},
@@ -2076,7 +2077,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "upstream_keys_upstream_configs_keys",
-				Columns:    []*schema.Column{UpstreamKeysColumns[23]},
+				Columns:    []*schema.Column{UpstreamKeysColumns[24]},
 				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -2085,12 +2086,12 @@ var (
 			{
 				Name:    "upstreamkey_upstream_config_id",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamKeysColumns[23]},
+				Columns: []*schema.Column{UpstreamKeysColumns[24]},
 			},
 			{
 				Name:    "upstreamkey_upstream_config_id_key_hash",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamKeysColumns[23], UpstreamKeysColumns[6]},
+				Columns: []*schema.Column{UpstreamKeysColumns[24], UpstreamKeysColumns[6]},
 			},
 		},
 	}

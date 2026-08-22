@@ -39,6 +39,8 @@ type UpstreamKey struct {
 	UpstreamGroupID *int64 `json:"upstream_group_id,omitempty"`
 	// UpstreamGroupName holds the value of the "upstream_group_name" field.
 	UpstreamGroupName string `json:"upstream_group_name,omitempty"`
+	// BaseURL holds the value of the "base_url" field.
+	BaseURL *string `json:"base_url,omitempty"`
 	// Platform holds the value of the "platform" field.
 	Platform *string `json:"platform,omitempty"`
 	// PlatformSource holds the value of the "platform_source" field.
@@ -159,7 +161,7 @@ func (*UpstreamKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case upstreamkey.FieldID, upstreamkey.FieldUpstreamConfigID, upstreamkey.FieldRemoteKeyID, upstreamkey.FieldUpstreamGroupID, upstreamkey.FieldMissingCount:
 			values[i] = new(sql.NullInt64)
-		case upstreamkey.FieldName, upstreamkey.FieldKey, upstreamkey.FieldKeyHash, upstreamkey.FieldUpstreamGroupName, upstreamkey.FieldPlatform, upstreamkey.FieldPlatformSource, upstreamkey.FieldDetectedPlatform, upstreamkey.FieldPlatformDetectionStatus, upstreamkey.FieldStatus:
+		case upstreamkey.FieldName, upstreamkey.FieldKey, upstreamkey.FieldKeyHash, upstreamkey.FieldUpstreamGroupName, upstreamkey.FieldBaseURL, upstreamkey.FieldPlatform, upstreamkey.FieldPlatformSource, upstreamkey.FieldDetectedPlatform, upstreamkey.FieldPlatformDetectionStatus, upstreamkey.FieldStatus:
 			values[i] = new(sql.NullString)
 		case upstreamkey.FieldCreatedAt, upstreamkey.FieldUpdatedAt, upstreamkey.FieldDeletedAt, upstreamkey.FieldPlatformDetectedAt, upstreamkey.FieldLastSeenAt, upstreamkey.FieldMissingSince:
 			values[i] = new(sql.NullTime)
@@ -246,6 +248,13 @@ func (_m *UpstreamKey) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field upstream_group_name", values[i])
 			} else if value.Valid {
 				_m.UpstreamGroupName = value.String
+			}
+		case upstreamkey.FieldBaseURL:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field base_url", values[i])
+			} else if value.Valid {
+				_m.BaseURL = new(string)
+				*_m.BaseURL = value.String
 			}
 		case upstreamkey.FieldPlatform:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -434,6 +443,11 @@ func (_m *UpstreamKey) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("upstream_group_name=")
 	builder.WriteString(_m.UpstreamGroupName)
+	builder.WriteString(", ")
+	if v := _m.BaseURL; v != nil {
+		builder.WriteString("base_url=")
+		builder.WriteString(*v)
+	}
 	builder.WriteString(", ")
 	if v := _m.Platform; v != nil {
 		builder.WriteString("platform=")

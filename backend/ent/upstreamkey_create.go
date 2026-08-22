@@ -144,6 +144,20 @@ func (_c *UpstreamKeyCreate) SetNillableUpstreamGroupName(v *string) *UpstreamKe
 	return _c
 }
 
+// SetBaseURL sets the "base_url" field.
+func (_c *UpstreamKeyCreate) SetBaseURL(v string) *UpstreamKeyCreate {
+	_c.mutation.SetBaseURL(v)
+	return _c
+}
+
+// SetNillableBaseURL sets the "base_url" field if the given value is not nil.
+func (_c *UpstreamKeyCreate) SetNillableBaseURL(v *string) *UpstreamKeyCreate {
+	if v != nil {
+		_c.SetBaseURL(*v)
+	}
+	return _c
+}
+
 // SetPlatform sets the "platform" field.
 func (_c *UpstreamKeyCreate) SetPlatform(v string) *UpstreamKeyCreate {
 	_c.mutation.SetPlatform(v)
@@ -531,6 +545,11 @@ func (_c *UpstreamKeyCreate) check() error {
 			return &ValidationError{Name: "upstream_group_name", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.upstream_group_name": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.BaseURL(); ok {
+		if err := upstreamkey.BaseURLValidator(v); err != nil {
+			return &ValidationError{Name: "base_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.base_url": %w`, err)}
+		}
+	}
 	if v, ok := _c.mutation.Platform(); ok {
 		if err := upstreamkey.PlatformValidator(v); err != nil {
 			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform": %w`, err)}
@@ -639,6 +658,10 @@ func (_c *UpstreamKeyCreate) createSpec() (*UpstreamKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.UpstreamGroupName(); ok {
 		_spec.SetField(upstreamkey.FieldUpstreamGroupName, field.TypeString, value)
 		_node.UpstreamGroupName = value
+	}
+	if value, ok := _c.mutation.BaseURL(); ok {
+		_spec.SetField(upstreamkey.FieldBaseURL, field.TypeString, value)
+		_node.BaseURL = &value
 	}
 	if value, ok := _c.mutation.Platform(); ok {
 		_spec.SetField(upstreamkey.FieldPlatform, field.TypeString, value)
@@ -976,6 +999,24 @@ func (u *UpstreamKeyUpsert) SetUpstreamGroupName(v string) *UpstreamKeyUpsert {
 // UpdateUpstreamGroupName sets the "upstream_group_name" field to the value that was provided on create.
 func (u *UpstreamKeyUpsert) UpdateUpstreamGroupName() *UpstreamKeyUpsert {
 	u.SetExcluded(upstreamkey.FieldUpstreamGroupName)
+	return u
+}
+
+// SetBaseURL sets the "base_url" field.
+func (u *UpstreamKeyUpsert) SetBaseURL(v string) *UpstreamKeyUpsert {
+	u.Set(upstreamkey.FieldBaseURL, v)
+	return u
+}
+
+// UpdateBaseURL sets the "base_url" field to the value that was provided on create.
+func (u *UpstreamKeyUpsert) UpdateBaseURL() *UpstreamKeyUpsert {
+	u.SetExcluded(upstreamkey.FieldBaseURL)
+	return u
+}
+
+// ClearBaseURL clears the value of the "base_url" field.
+func (u *UpstreamKeyUpsert) ClearBaseURL() *UpstreamKeyUpsert {
+	u.SetNull(upstreamkey.FieldBaseURL)
 	return u
 }
 
@@ -1398,6 +1439,27 @@ func (u *UpstreamKeyUpsertOne) SetUpstreamGroupName(v string) *UpstreamKeyUpsert
 func (u *UpstreamKeyUpsertOne) UpdateUpstreamGroupName() *UpstreamKeyUpsertOne {
 	return u.Update(func(s *UpstreamKeyUpsert) {
 		s.UpdateUpstreamGroupName()
+	})
+}
+
+// SetBaseURL sets the "base_url" field.
+func (u *UpstreamKeyUpsertOne) SetBaseURL(v string) *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetBaseURL(v)
+	})
+}
+
+// UpdateBaseURL sets the "base_url" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertOne) UpdateBaseURL() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateBaseURL()
+	})
+}
+
+// ClearBaseURL clears the value of the "base_url" field.
+func (u *UpstreamKeyUpsertOne) ClearBaseURL() *UpstreamKeyUpsertOne {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearBaseURL()
 	})
 }
 
@@ -2022,6 +2084,27 @@ func (u *UpstreamKeyUpsertBulk) SetUpstreamGroupName(v string) *UpstreamKeyUpser
 func (u *UpstreamKeyUpsertBulk) UpdateUpstreamGroupName() *UpstreamKeyUpsertBulk {
 	return u.Update(func(s *UpstreamKeyUpsert) {
 		s.UpdateUpstreamGroupName()
+	})
+}
+
+// SetBaseURL sets the "base_url" field.
+func (u *UpstreamKeyUpsertBulk) SetBaseURL(v string) *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.SetBaseURL(v)
+	})
+}
+
+// UpdateBaseURL sets the "base_url" field to the value that was provided on create.
+func (u *UpstreamKeyUpsertBulk) UpdateBaseURL() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.UpdateBaseURL()
+	})
+}
+
+// ClearBaseURL clears the value of the "base_url" field.
+func (u *UpstreamKeyUpsertBulk) ClearBaseURL() *UpstreamKeyUpsertBulk {
+	return u.Update(func(s *UpstreamKeyUpsert) {
+		s.ClearBaseURL()
 	})
 }
 

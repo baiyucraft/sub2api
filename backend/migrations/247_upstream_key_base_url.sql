@@ -1,0 +1,2 @@
+ALTER TABLE upstream_keys
+    ADD COLUMN IF NOT EXISTS base_url VARCHAR(512) NULL;

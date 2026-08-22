@@ -475,6 +475,7 @@ func registerUpstreamConfigRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		upstreams.GET("/:id/keys/rate-trend-keys", h.Admin.UpstreamConfig.KeyRateTrendKeys)
 		upstreams.GET("/:id/keys/:keyID/rate-trend", h.Admin.UpstreamConfig.KeyRateTrend)
 		upstreams.PUT("/:id/keys/:keyID/platform", h.Admin.UpstreamConfig.UpdateKeyPlatform)
+		upstreams.PUT("/:id/keys/:keyID/base-url", h.Admin.UpstreamConfig.UpdateKeyBaseURL)
 		upstreams.DELETE("/:id/keys/:keyID", h.Admin.UpstreamConfig.DeleteKey)
 	}
 }

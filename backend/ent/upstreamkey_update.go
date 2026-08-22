@@ -184,6 +184,26 @@ func (_u *UpstreamKeyUpdate) SetNillableUpstreamGroupName(v *string) *UpstreamKe
 	return _u
 }
 
+// SetBaseURL sets the "base_url" field.
+func (_u *UpstreamKeyUpdate) SetBaseURL(v string) *UpstreamKeyUpdate {
+	_u.mutation.SetBaseURL(v)
+	return _u
+}
+
+// SetNillableBaseURL sets the "base_url" field if the given value is not nil.
+func (_u *UpstreamKeyUpdate) SetNillableBaseURL(v *string) *UpstreamKeyUpdate {
+	if v != nil {
+		_u.SetBaseURL(*v)
+	}
+	return _u
+}
+
+// ClearBaseURL clears the value of the "base_url" field.
+func (_u *UpstreamKeyUpdate) ClearBaseURL() *UpstreamKeyUpdate {
+	_u.mutation.ClearBaseURL()
+	return _u
+}
+
 // SetPlatform sets the "platform" field.
 func (_u *UpstreamKeyUpdate) SetPlatform(v string) *UpstreamKeyUpdate {
 	_u.mutation.SetPlatform(v)
@@ -682,6 +702,11 @@ func (_u *UpstreamKeyUpdate) check() error {
 			return &ValidationError{Name: "upstream_group_name", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.upstream_group_name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.BaseURL(); ok {
+		if err := upstreamkey.BaseURLValidator(v); err != nil {
+			return &ValidationError{Name: "base_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.base_url": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Platform(); ok {
 		if err := upstreamkey.PlatformValidator(v); err != nil {
 			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform": %w`, err)}
@@ -763,6 +788,12 @@ func (_u *UpstreamKeyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 	}
 	if value, ok := _u.mutation.UpstreamGroupName(); ok {
 		_spec.SetField(upstreamkey.FieldUpstreamGroupName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.BaseURL(); ok {
+		_spec.SetField(upstreamkey.FieldBaseURL, field.TypeString, value)
+	}
+	if _u.mutation.BaseURLCleared() {
+		_spec.ClearField(upstreamkey.FieldBaseURL, field.TypeString)
 	}
 	if value, ok := _u.mutation.Platform(); ok {
 		_spec.SetField(upstreamkey.FieldPlatform, field.TypeString, value)
@@ -1254,6 +1285,26 @@ func (_u *UpstreamKeyUpdateOne) SetNillableUpstreamGroupName(v *string) *Upstrea
 	if v != nil {
 		_u.SetUpstreamGroupName(*v)
 	}
+	return _u
+}
+
+// SetBaseURL sets the "base_url" field.
+func (_u *UpstreamKeyUpdateOne) SetBaseURL(v string) *UpstreamKeyUpdateOne {
+	_u.mutation.SetBaseURL(v)
+	return _u
+}
+
+// SetNillableBaseURL sets the "base_url" field if the given value is not nil.
+func (_u *UpstreamKeyUpdateOne) SetNillableBaseURL(v *string) *UpstreamKeyUpdateOne {
+	if v != nil {
+		_u.SetBaseURL(*v)
+	}
+	return _u
+}
+
+// ClearBaseURL clears the value of the "base_url" field.
+func (_u *UpstreamKeyUpdateOne) ClearBaseURL() *UpstreamKeyUpdateOne {
+	_u.mutation.ClearBaseURL()
 	return _u
 }
 
@@ -1768,6 +1819,11 @@ func (_u *UpstreamKeyUpdateOne) check() error {
 			return &ValidationError{Name: "upstream_group_name", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.upstream_group_name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.BaseURL(); ok {
+		if err := upstreamkey.BaseURLValidator(v); err != nil {
+			return &ValidationError{Name: "base_url", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.base_url": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Platform(); ok {
 		if err := upstreamkey.PlatformValidator(v); err != nil {
 			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UpstreamKey.platform": %w`, err)}
@@ -1866,6 +1922,12 @@ func (_u *UpstreamKeyUpdateOne) sqlSave(ctx context.Context) (_node *UpstreamKey
 	}
 	if value, ok := _u.mutation.UpstreamGroupName(); ok {
 		_spec.SetField(upstreamkey.FieldUpstreamGroupName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.BaseURL(); ok {
+		_spec.SetField(upstreamkey.FieldBaseURL, field.TypeString, value)
+	}
+	if _u.mutation.BaseURLCleared() {
+		_spec.ClearField(upstreamkey.FieldBaseURL, field.TypeString)
 	}
 	if value, ok := _u.mutation.Platform(); ok {
 		_spec.SetField(upstreamkey.FieldPlatform, field.TypeString, value)

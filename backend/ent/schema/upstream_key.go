@@ -40,6 +40,7 @@ func (UpstreamKey) Fields() []ent.Field {
 		field.Int64("remote_key_id").Optional().Nillable(),
 		field.Int64("upstream_group_id").Optional().Nillable(),
 		field.String("upstream_group_name").MaxLen(100).Default(""),
+		field.String("base_url").MaxLen(512).Optional().Nillable(),
 		field.String("platform").MaxLen(50).Optional().Nillable(),
 		field.String("platform_source").MaxLen(16).Default("legacy"),
 		field.String("detected_platform").MaxLen(50).Optional().Nillable(),
