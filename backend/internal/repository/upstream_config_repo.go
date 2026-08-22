@@ -24,6 +24,7 @@ import (
 	dbupstreamevent "github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -40,6 +41,7 @@ const (
 
 type upstreamConfigRepository struct {
 	client                         *dbent.Client
+	schedulerCache                 service.SchedulerCache
 	healthObservationCleanupAtUnix atomic.Int64
 }
 
@@ -66,8 +68,18 @@ const (
 	upstreamNameBackfillEmptyName            = "upstream_name_empty"
 )
 
-func NewUpstreamConfigRepository(client *dbent.Client) service.UpstreamConfigRepository {
-	return &upstreamConfigRepository{client: client}
+func NewUpstreamConfigRepository(client *dbent.Client, caches ...service.SchedulerCache) service.UpstreamConfigRepository {
+	var schedulerCache service.SchedulerCache
+	if len(caches) > 0 {
+		schedulerCache = caches[0]
+	}
+	return &upstreamConfigRepository{client: client, schedulerCache: schedulerCache}
+}
+
+// SetSchedulerCache is kept out of UpstreamConfigRepository so lightweight
+// repositories and migration utilities do not need a scheduler dependency.
+func (r *upstreamConfigRepository) SetSchedulerCache(cache service.SchedulerCache) {
+	r.schedulerCache = cache
 }
 
 func (r *upstreamConfigRepository) GetAuthSession(ctx context.Context, upstreamConfigID int64) (*service.UpstreamAuthSessionRecord, error) {
@@ -410,6 +422,222 @@ func (r *upstreamConfigRepository) Delete(ctx context.Context, id int64) error {
 			return err
 		}
 		return client.UpstreamConfig.DeleteOneID(id).Exec(txCtx)
+	})
+}
+
+// GetBindingSummary returns the current, redacted account binding counts used
+// by the non-cascade delete guard. It includes accounts attached through a
+// key even when their denormalized upstream_config_id is stale, so the error
+// metadata describes the same protected surface as cascade validation.
+func (r *upstreamConfigRepository) GetBindingSummary(ctx context.Context, id int64) (service.UpstreamConfigBindingSummary, error) {
+	if _, err := r.client.UpstreamConfig.Query().Where(dbupstreamconfig.IDEQ(id)).Only(ctx); err != nil {
+		if dbent.IsNotFound(err) {
+			return service.UpstreamConfigBindingSummary{}, service.ErrUpstreamConfigNotFound
+		}
+		return service.UpstreamConfigBindingSummary{}, err
+	}
+	keys, err := r.client.UpstreamKey.Query().
+		Where(dbupstreamkey.UpstreamConfigIDEQ(id)).
+		All(mixins.SkipSoftDelete(ctx))
+	if err != nil {
+		return service.UpstreamConfigBindingSummary{}, err
+	}
+	keyIDs := make([]int64, 0, len(keys))
+	for _, key := range keys {
+		keyIDs = append(keyIDs, key.ID)
+	}
+	accountPredicate := dbaccount.UpstreamConfigIDEQ(id)
+	if len(keyIDs) > 0 {
+		accountPredicate = dbaccount.Or(accountPredicate, dbaccount.UpstreamKeyIDIn(keyIDs...))
+	}
+	accounts, err := r.client.Account.Query().
+		Where(accountPredicate).
+		Select(dbaccount.FieldID, dbaccount.FieldUpstreamConfigID, dbaccount.FieldUpstreamKeyID, dbaccount.FieldUpstreamLifecycleOwner).
+		All(ctx)
+	if err != nil {
+		return service.UpstreamConfigBindingSummary{}, err
+	}
+	byID := make(map[int64]*dbent.Account, len(accounts))
+	for _, account := range accounts {
+		byID[account.ID] = account
+	}
+	return summarizeUpstreamConfigBindings(id, keys, byID), nil
+}
+
+func summarizeUpstreamConfigBindings(configID int64, keys []*dbent.UpstreamKey, accounts map[int64]*dbent.Account) service.UpstreamConfigBindingSummary {
+	keyByID := make(map[int64]*dbent.UpstreamKey, len(keys))
+	for _, key := range keys {
+		keyByID[key.ID] = key
+	}
+	summary := service.UpstreamConfigBindingSummary{BoundAccountCount: len(accounts)}
+	for _, account := range accounts {
+		if account.UpstreamLifecycleOwner == service.AccountUpstreamLifecycleOwnerSyncManaged {
+			summary.SyncManagedAccountCount++
+		} else {
+			summary.ManualAccountCount++
+		}
+		if account.UpstreamConfigID == nil || *account.UpstreamConfigID != configID || account.UpstreamKeyID == nil {
+			summary.MissingKeyAccountCount++
+			continue
+		}
+		key := keyByID[*account.UpstreamKeyID]
+		if key == nil || key.DeletedAt != nil || key.UpstreamConfigID != configID {
+			summary.MissingKeyAccountCount++
+		}
+	}
+	return summary
+}
+
+// DeleteWithOptions performs the explicitly confirmed cascade. The lock order
+// is intentionally config -> keys -> accounts, matching the upstream sync
+// critical section and preventing lock inversions with reconciliation.
+func (r *upstreamConfigRepository) DeleteWithOptions(ctx context.Context, id int64, options service.UpstreamConfigDeleteOptions) (result service.UpstreamConfigDeleteResult, err error) {
+	if !options.DeleteSyncManagedAccounts {
+		return result, r.Delete(ctx, id)
+	}
+
+	accountIDs := make([]int64, 0)
+	keyIDs := make([]int64, 0)
+	committed, err := r.withCommittedTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		config, err := client.UpstreamConfig.Query().
+			Where(dbupstreamconfig.IDEQ(id)).
+			ForUpdate().
+			Only(txCtx)
+		if err != nil {
+			if dbent.IsNotFound(err) {
+				return service.ErrUpstreamConfigNotFound
+			}
+			return err
+		}
+
+		allKeys, err := client.UpstreamKey.Query().
+			Where(dbupstreamkey.UpstreamConfigIDEQ(config.ID)).
+			Order(dbent.Asc(dbupstreamkey.FieldID)).
+			ForUpdate().
+			All(mixins.SkipSoftDelete(txCtx))
+		if err != nil {
+			return err
+		}
+		keys := make([]*dbent.UpstreamKey, 0, len(allKeys))
+		allKeyIDs := make([]int64, 0, len(allKeys))
+		keyIDs = make([]int64, 0, len(allKeys))
+		for _, key := range allKeys {
+			allKeyIDs = append(allKeyIDs, key.ID)
+			if key.DeletedAt == nil {
+				keys = append(keys, key)
+				keyIDs = append(keyIDs, key.ID)
+			}
+		}
+
+		accountPredicate := dbaccount.UpstreamConfigIDEQ(config.ID)
+		if len(allKeyIDs) > 0 {
+			accountPredicate = dbaccount.Or(accountPredicate, dbaccount.UpstreamKeyIDIn(allKeyIDs...))
+		}
+		accounts, err := client.Account.Query().
+			Where(accountPredicate).
+			Order(dbent.Asc(dbaccount.FieldID)).
+			ForUpdate().
+			All(txCtx)
+		if err != nil {
+			return err
+		}
+
+		accountByID := make(map[int64]*dbent.Account, len(accounts))
+		for _, account := range accounts {
+			accountByID[account.ID] = account
+		}
+		summary := summarizeUpstreamConfigBindings(config.ID, allKeys, accountByID)
+		if summary.ManualAccountCount > 0 || summary.MissingKeyAccountCount > 0 {
+			return upstreamConfigCascadeRejectedError(summary)
+		}
+
+		accountIDs = make([]int64, 0, len(accounts))
+		for _, account := range accounts {
+			accountIDs = append(accountIDs, account.ID)
+		}
+		groupIDs, err := loadAccountGroupIDsForLifecycle(txCtx, client, accountIDs)
+		if err != nil {
+			return err
+		}
+
+		occurredAt := time.Now().UTC()
+		if err := client.UpstreamEvent.Create().
+			SetUpstreamConfigID(config.ID).
+			SetEventKey(fmt.Sprintf("config_cascade_deleted:%d", config.ID)).
+			SetEventType("config_cascade_deleted").
+			SetSeverity("info").
+			SetSource("admin").
+			SetMessage("Upstream config and sync-managed derived resources were soft-deleted").
+			SetPayload(map[string]any{
+				"config_id":     config.ID,
+				"account_count": summary.BoundAccountCount,
+				"key_count":     len(keys),
+			}).
+			SetOccurredAt(occurredAt).
+			Exec(txCtx); err != nil {
+			return err
+		}
+
+		if _, err := client.UpstreamAuthSession.Delete().
+			Where(dbupstreamauthsession.UpstreamConfigIDEQ(config.ID)).
+			Exec(txCtx); err != nil {
+			return err
+		}
+		for _, account := range accounts {
+			if err := client.Account.DeleteOneID(account.ID).Exec(txCtx); err != nil {
+				return err
+			}
+		}
+		for _, key := range keys {
+			if err := client.UpstreamKey.DeleteOneID(key.ID).Exec(txCtx); err != nil {
+				return err
+			}
+		}
+		if err := enqueueUpstreamAccountChanges(txCtx, client, accountIDs, groupIDs); err != nil {
+			return err
+		}
+		if err := client.UpstreamConfig.DeleteOneID(config.ID).Exec(txCtx); err != nil {
+			return err
+		}
+
+		result = service.UpstreamConfigDeleteResult{
+			DeletedAccountCount: summary.BoundAccountCount,
+			DeletedKeyCount:     len(keys),
+		}
+		return nil
+	})
+	if err != nil {
+		return service.UpstreamConfigDeleteResult{}, err
+	}
+	// A caller-owned transaction has not committed yet. Its outbox row will
+	// drive eventual cache convergence; never clear runtime state before the
+	// outer transaction can still roll back.
+	if !committed {
+		return result, nil
+	}
+
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	for _, accountID := range accountIDs {
+		if r.schedulerCache == nil {
+			break
+		}
+		if cleanupErr := r.schedulerCache.DeleteAccount(cleanupCtx, accountID); cleanupErr != nil {
+			logger.LegacyPrintf("repository.upstream_config", "[Scheduler] delete account snapshot failed: id=%d err=%v", accountID, cleanupErr)
+		}
+	}
+	for _, keyID := range keyIDs {
+		service.GlobalUpstreamHealthRegistry().Forget(keyID)
+	}
+	return result, nil
+}
+
+func upstreamConfigCascadeRejectedError(summary service.UpstreamConfigBindingSummary) error {
+	return infraerrors.New(http.StatusBadRequest, "UPSTREAM_CONFIG_CASCADE_REJECTED", "upstream config cascade deletion requires only sync-managed accounts with valid keys").WithMetadata(map[string]string{
+		"bound_account_count":        strconv.Itoa(summary.BoundAccountCount),
+		"manual_account_count":       strconv.Itoa(summary.ManualAccountCount),
+		"missing_key_account_count":  strconv.Itoa(summary.MissingKeyAccountCount),
+		"sync_managed_account_count": strconv.Itoa(summary.SyncManagedAccountCount),
 	})
 }
 
@@ -1753,6 +1981,31 @@ func (r *upstreamConfigRepository) withTx(ctx context.Context, fn func(context.C
 		return err
 	}
 	return tx.Commit()
+}
+
+// withCommittedTx reports whether this function owned and committed the
+// transaction. The distinction is required for post-commit cache invalidation
+// in destructive operations that may also be used from a larger transaction.
+func (r *upstreamConfigRepository) withCommittedTx(ctx context.Context, fn func(context.Context, *dbent.Client) error) (bool, error) {
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return false, fn(ctx, tx.Client())
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		if errors.Is(err, dbent.ErrTxStarted) {
+			return false, fn(ctx, r.client)
+		}
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := fn(txCtx, tx.Client()); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func renameLockedAccountsForUpstreamConfig(ctx context.Context, client *dbent.Client, configID int64, configName string, keys []*dbent.UpstreamKey, accounts []*dbent.Account) ([]int64, error) {

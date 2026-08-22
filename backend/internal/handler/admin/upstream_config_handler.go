@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"encoding/json"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -54,6 +56,10 @@ type updateUpstreamKeyPlatformRequest struct {
 	Platform             string    `json:"platform" binding:"required"`
 	ExpectedUpdatedAt    time.Time `json:"expected_updated_at" binding:"required"`
 	DisableBoundAccounts bool      `json:"disable_bound_accounts"`
+}
+
+type upstreamConfigDeleteRequest struct {
+	DeleteSyncManagedAccounts bool `json:"delete_sync_managed_accounts"`
 }
 
 func (h *UpstreamConfigHandler) List(c *gin.Context) {
@@ -137,11 +143,42 @@ func (h *UpstreamConfigHandler) Delete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.service.Delete(c.Request.Context(), id); err != nil {
+	request := upstreamConfigDeleteRequest{}
+	if c.Request.Body != nil {
+		var decoded *upstreamConfigDeleteRequest
+		decoder := json.NewDecoder(c.Request.Body)
+		if err := decoder.Decode(&decoded); err != nil {
+			if err != io.EOF {
+				response.BadRequest(c, "Invalid request: "+err.Error())
+				return
+			}
+		} else if decoded == nil {
+			response.BadRequest(c, "Invalid request: expected a JSON object")
+			return
+		} else {
+			request = *decoded
+		}
+		if err := decoder.Decode(&struct{}{}); err != io.EOF {
+			if err == nil {
+				response.BadRequest(c, "Invalid request: only one JSON object is allowed")
+			} else {
+				response.BadRequest(c, "Invalid request: "+err.Error())
+			}
+			return
+		}
+	}
+	result, err := h.service.DeleteWithOptions(c.Request.Context(), id, service.UpstreamConfigDeleteOptions{
+		DeleteSyncManagedAccounts: request.DeleteSyncManagedAccounts,
+	})
+	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"message": "upstream config deleted"})
+	response.Success(c, gin.H{
+		"message":               "upstream config deleted",
+		"deleted_account_count": result.DeletedAccountCount,
+		"deleted_key_count":     result.DeletedKeyCount,
+	})
 }
 
 func (h *UpstreamConfigHandler) GetAuthSession(c *gin.Context) {

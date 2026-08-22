@@ -188,6 +188,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	adminGroupRepository := repository.NewAdminGroupRepository(client, db)
 	adminAccountRepository := repository.NewAdminAccountRepository(client, db, schedulerCache)
 	upstreamConfigRepository := repository.NewUpstreamConfigRepository(client)
+	if cacheAware, ok := upstreamConfigRepository.(interface{ SetSchedulerCache(service.SchedulerCache) }); ok {
+		cacheAware.SetSchedulerCache(schedulerCache)
+	}
 	proxyExitInfoProber := repository.NewProxyExitInfoProber(configConfig)
 	proxyLatencyCache := repository.NewProxyLatencyCache(redisClient)
 	upstreamAuthSessionRepository := repository.NewUpstreamAuthSessionRepository(client)

@@ -94,6 +94,16 @@ export interface UpstreamConfig {
   keys?: UpstreamKey[]
 }
 
+export interface UpstreamConfigDeletePayload {
+  delete_sync_managed_accounts?: boolean
+}
+
+export interface UpstreamConfigDeleteResult {
+  message: string
+  deleted_account_count: number
+  deleted_key_count: number
+}
+
 export interface UpstreamConfigPayload {
   name: string
   provider: UpstreamProvider
@@ -318,8 +328,8 @@ export async function updateScheduling(id: number, schedulingEnabled: boolean): 
   return data
 }
 
-export async function remove(id: number): Promise<{ message: string }> {
-  const { data } = await apiClient.delete<{ message: string }>(`/admin/upstream-configs/${id}`)
+export async function remove(id: number, payload?: UpstreamConfigDeletePayload): Promise<UpstreamConfigDeleteResult> {
+  const { data } = await apiClient.delete<UpstreamConfigDeleteResult>(`/admin/upstream-configs/${id}`, payload ? { data: payload } : undefined)
   return data
 }
 

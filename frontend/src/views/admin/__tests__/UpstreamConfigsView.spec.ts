@@ -1191,6 +1191,45 @@ describe('UpstreamConfigsView', () => {
     expect(removeMock).toHaveBeenCalledWith(10)
   })
 
+  it('requires explicit cascade confirmation when loaded keys have bindings', async () => {
+    mockList([upstreamConfig({
+      keys: [
+        { id: 21, bound_account_count: 2 },
+        { id: 22, bound_account_count: 1 }
+      ]
+    })])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
+    await wrapper.get('[data-test="menu-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="confirm-dialog"]').text()).toContain('"accountCount":3')
+    expect(wrapper.get('[data-test="confirm-dialog"]').text()).toContain('"keyCount":2')
+    await wrapper.get('[data-test="confirm-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(removeMock).toHaveBeenCalledWith(10, { delete_sync_managed_accounts: true })
+  })
+
+  it('refreshes after a cascade conflict without showing success or retrying', async () => {
+    mockList([upstreamConfig({ keys: [{ id: 21, bound_account_count: 1 }] })])
+    removeMock.mockRejectedValueOnce({ response: { data: { message: 'cascade rejected' } } })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
+    await wrapper.get('[data-test="menu-delete"]').trigger('click')
+    await wrapper.get('[data-test="confirm-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(removeMock).toHaveBeenCalledTimes(1)
+    expect(showSuccessMock).not.toHaveBeenCalledWith('admin.upstreamConfigs.messages.deleted')
+    expect(showErrorMock).toHaveBeenCalledWith('cascade rejected')
+    expect(listMock).toHaveBeenCalledTimes(2)
+  })
+
   it('syncs all upstream configs from toolbar', async () => {
     const wrapper = mountView()
     await flushPromises()
