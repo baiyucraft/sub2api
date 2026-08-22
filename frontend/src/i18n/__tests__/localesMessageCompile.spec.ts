@@ -3,6 +3,8 @@ import { baseCompile } from '@intlify/message-compiler'
 
 import en from '../locales/en'
 import zh from '../locales/zh'
+import enUpstreamManagement from '../locales/en/admin/upstreamManagement'
+import zhUpstreamManagement from '../locales/zh/admin/upstreamManagement'
 
 // vue-i18n 在运行时才编译消息：文案里未转义的花括号（如内嵌 JSON 示例
 // "{\"user-agent\": ...}"）会在渲染时抛 "Invalid token in placeholder"，
@@ -37,5 +39,15 @@ describe('locale messages compile', () => {
     const errors: string[] = []
     collectCompileErrors(messages, locale, errors)
     expect(errors).toEqual([])
+  })
+
+  it.each([
+    ['zh', zhUpstreamManagement],
+    ['en', enUpstreamManagement]
+  ] as const)('%s exposes confidence probe messages at the settings path', (locale, messages) => {
+    const upstreamManagement = messages.upstreamManagement
+    expect(upstreamManagement.confidenceProbe.title, locale).not.toMatch(/^admin\.upstreamManagement\./)
+    expect(upstreamManagement.confidenceProbe.description, locale).not.toMatch(/^admin\.upstreamManagement\./)
+    expect(upstreamManagement.health.confidenceProbe).toBeUndefined()
   })
 })
