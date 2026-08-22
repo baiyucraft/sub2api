@@ -52,6 +52,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIn("ENV COREPACK_NPM_REGISTRY=${COREPACK_NPM_REGISTRY}", dockerfile)
         self.assertIn("corepack prepare pnpm@9.15.9 --activate", dockerfile)
         self.assertNotIn("corepack prepare pnpm@9 --activate", dockerfile)
+        self.assertEqual(dockerfile.count("    -p 2 \\\n"), 2)
 
     def test_migration_232_postflight_hashes_backup_for_new_migration(self) -> None:
         assertion = (DEPLOY_ROOT / "maintenance" / "release" / "migration-232-assert.sh").read_text(encoding="utf-8")
