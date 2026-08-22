@@ -40,7 +40,10 @@ func TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidInputItemIDs(t *tes
 			{"type":"message","id":"msg_valid","role":"user","content":[{"type":"input_text","text":"continue"}]},
 			{"type":"function_call","id":"fc_valid","call_id":"call_456","name":"apply_patch","arguments":"{}"},
 			{"type":"function_call_output","id":"item_output","call_id":"call_123","output":"done"},
-			{"type":"web_search_call","id":"item_unconstrained"}
+			{"type":"web_search_call","id":"item_unconstrained"},
+			{"type":"custom_tool_call","id":"ctc_valid","call_id":"call_custom","name":"exec","input":"pwd"},
+			{"type":"custom_tool_call","id":"fc_invalid_custom","call_id":"call_invalid_custom","name":"exec","input":"ls"},
+			{"type":"custom_tool_call_output","id":"output_custom","call_id":"call_custom","output":"done"}
 		]
 	}`)
 
@@ -61,6 +64,52 @@ func TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidInputItemIDs(t *tes
 	require.Equal(t, "item_output", gjson.GetBytes(forwarded, "input.4.id").String())
 	require.Equal(t, "call_123", gjson.GetBytes(forwarded, "input.4.call_id").String())
 	require.Equal(t, "item_unconstrained", gjson.GetBytes(forwarded, "input.5.id").String())
+	require.Equal(t, "ctc_valid", gjson.GetBytes(forwarded, "input.6.id").String())
+	require.Equal(t, "call_custom", gjson.GetBytes(forwarded, "input.6.call_id").String())
+	require.False(t, gjson.GetBytes(forwarded, "input.7.id").Exists())
+	require.Equal(t, "call_invalid_custom", gjson.GetBytes(forwarded, "input.7.call_id").String())
+	require.Equal(t, "output_custom", gjson.GetBytes(forwarded, "input.8.id").String())
+	require.Equal(t, "call_custom", gjson.GetBytes(forwarded, "input.8.call_id").String())
+}
+
+func TestOpenAIGatewayService_APIKeyNonPassthrough_StripsInvalidCustomToolCallID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"resp_test","model":"gpt-5.6-sol","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
+		)),
+	}}
+	svc := newOpenAIImageGenerationControlTestService(upstream)
+	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
+	account := newOpenAIImageGenerationControlTestAccount()
+
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"stream":false,
+		"input":[
+			{"type":"custom_tool_call","id":"fc_incompatible","call_id":"call_90851","name":"exec","input":"dir"},
+			{"type":"custom_tool_call","id":"ctc_compatible","call_id":"call_90850","name":"apply_patch","input":"*** Begin Patch"},
+			{"type":"custom_tool_call_output","id":"item_output","call_id":"call_90850","output":"ok"}
+		]
+	}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+
+	forwarded := upstream.lastBody
+	require.False(t, gjson.GetBytes(forwarded, "input.0.id").Exists())
+	require.Equal(t, "call_90851", gjson.GetBytes(forwarded, "input.0.call_id").String())
+	require.Equal(t, "exec", gjson.GetBytes(forwarded, "input.0.name").String())
+	require.Equal(t, "dir", gjson.GetBytes(forwarded, "input.0.input").String())
+	require.Equal(t, "ctc_compatible", gjson.GetBytes(forwarded, "input.1.id").String())
+	require.Equal(t, "call_90850", gjson.GetBytes(forwarded, "input.1.call_id").String())
+	require.Equal(t, "item_output", gjson.GetBytes(forwarded, "input.2.id").String())
+	require.Equal(t, "call_90850", gjson.GetBytes(forwarded, "input.2.call_id").String())
 }
 
 // TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidReasoningItemIDs
@@ -119,6 +168,7 @@ func TestShouldStripOpenAIResponsesInputItemID_Reasoning(t *testing.T) {
 		{"message msg id", "message", "msg_abc", false},
 		{"message item id", "message", "item_x", true},
 		{"function_call fc id", "function_call", "fc_abc", false},
+		{"function_call fc without separator", "function_call", "fcabc", true},
 		{"function_call item id", "function_call", "item_x", true},
 		{"unconstrained type", "web_search_call", "ws_001", false},
 	}
@@ -127,6 +177,60 @@ func TestShouldStripOpenAIResponsesInputItemID_Reasoning(t *testing.T) {
 			require.Equal(t, tc.want, shouldStripOpenAIResponsesInputItemID(tc.itemType, tc.id))
 		})
 	}
+}
+
+func TestShouldStripOpenAIResponsesInputItemID_CustomToolCallUsesCTCNamespace(t *testing.T) {
+	cases := []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{name: "valid ctc id", id: "ctc_abc123", want: false},
+		{name: "ctc without separator", id: "ctcabc123", want: true},
+		{name: "fc id from replay", id: "fc_abc123", want: true},
+		{name: "generic item id", id: "item_abc123", want: true},
+		{name: "empty id", id: "", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, shouldStripOpenAIResponsesInputItemID("custom_tool_call", tc.id))
+		})
+	}
+
+	require.False(t, shouldStripOpenAIResponsesInputItemID("custom_tool_call_output", "fc_abc123"),
+		"custom_tool_call_output id is not the custom_tool_call input id contract")
+	require.False(t, shouldStripOpenAIResponsesInputItemID("computer_call", "fc_abc123"),
+		"computer_call is not part of the custom_tool_call ctc_ workaround")
+}
+
+func TestSanitizeOpenAIResponsesInputItemIDs_CustomToolCallAtMultipleIndexes(t *testing.T) {
+	items := make([]string, 214)
+	for i := range items {
+		items[i] = fmt.Sprintf(`{"type":"web_search_call","id":"ws_%d"}`, i)
+	}
+	items[0] = `{"type":"message","id":"msg_valid","role":"user"}`
+	items[5] = `{"type":"custom_tool_call","id":"fc_bad_5","call_id":"call_5","name":"exec","input":"pwd"}`
+	items[10] = `{"type":"custom_tool_call","id":"item_bad_10","call_id":"call_10","name":"exec","input":"pwd"}`
+	items[11] = `{"type":"custom_tool_call","id":"ctc_valid_11","call_id":"call_11","name":"exec","input":"pwd"}`
+	items[171] = `{"type":"custom_tool_call","id":"fc_bad_171","call_id":"call_171","name":"exec","input":"pwd"}`
+	items[212] = `{"type":"custom_tool_call_output","id":"item_output","call_id":"call_11","output":"done"}`
+	items[213] = `{"type":"custom_tool_call","id":"item_bad_213","call_id":"call_213","name":"exec","input":"pwd"}`
+	body := []byte(`{"model":"gpt-5.6-sol","input":[` + strings.Join(items, ",") + `]}`)
+	original := append([]byte(nil), body...)
+
+	sanitized, changed, err := sanitizeOpenAIResponsesInputItemIDs(body)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, original, body, "sanitizer must not mutate the caller-owned request bytes")
+	for _, index := range []int{5, 10, 171, 213} {
+		require.False(t, gjson.GetBytes(sanitized, fmt.Sprintf("input.%d.id", index)).Exists(),
+			"invalid custom_tool_call id at input[%d] must be stripped", index)
+	}
+	require.Equal(t, "ctc_valid_11", gjson.GetBytes(sanitized, "input.11.id").String())
+	require.Equal(t, "item_output", gjson.GetBytes(sanitized, "input.212.id").String())
+	require.Equal(t, "call_11", gjson.GetBytes(sanitized, "input.212.call_id").String())
+	require.Equal(t, "ws_211", gjson.GetBytes(sanitized, "input.211.id").String(),
+		"unknown item types and input ordering must remain unchanged")
 }
 
 func TestSanitizeOpenAIResponsesInputItemIDs_AllocationGrowthIsLinear(t *testing.T) {

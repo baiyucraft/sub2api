@@ -8,20 +8,36 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+// openAIResponsesInputItemIDPrefix centralizes the temporary Responses replay
+// compatibility contract. Keep this small and isolated so an upstream fix can
+// replace/remove the workaround without changing unrelated Codex transforms.
+func openAIResponsesInputItemIDPrefix(itemType string) (string, bool) {
+	switch itemType {
+	case "message":
+		return "msg", true
+	case "reasoning":
+		return "rs", true
+	case "custom_tool_call":
+		// Temporary compatibility layer for the upstream Responses contract:
+		// custom_tool_call item ids use the ctc_ namespace. Keep this branch
+		// isolated so a future upstream fix can replace it in one commit.
+		return "ctc_", true
+	default:
+		if isCodexToolCallInputType(itemType) {
+			return "fc_", true
+		}
+		return "", false
+	}
+}
+
 // Invalid replayed IDs are removed rather than rewritten because a fabricated
-// msg/fc ID may point at a different upstream object.
+// msg/fc/ctc ID may point at a different upstream object.
 func shouldStripOpenAIResponsesInputItemID(itemType, id string) bool {
 	if id == "" {
 		return false
 	}
-	if itemType == "message" {
-		return !strings.HasPrefix(id, "msg")
-	}
-	if itemType == "reasoning" {
-		return !strings.HasPrefix(id, "rs")
-	}
-	if isCodexToolCallInputType(itemType) {
-		return !strings.HasPrefix(id, "fc")
+	if prefix, ok := openAIResponsesInputItemIDPrefix(itemType); ok {
+		return !strings.HasPrefix(id, prefix)
 	}
 	return false
 }
