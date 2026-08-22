@@ -63,6 +63,15 @@ export default {
       minutes: '分钟',
       intervalRange: '1–60 分钟，默认 5 分钟'
     },
+    confidenceProbe: {
+      title: 'OpenAI 可信度探针',
+      description: '使用一次真实 Responses 请求验证任务完成一致性。',
+      enabled: '启用可信度探针',
+      effort: '推理档位',
+      threshold: '质量异常阈值',
+      longContext: '加入有界长上下文',
+      maxTokens: '上下文 Token'
+    },
     probeGuard: {
       title: '探针调度保护',
       description: '控制探针连续失败时是否将上游 Key 标记为异常并联动临时不可调度；异常后探针仍会继续执行。',
@@ -123,7 +132,6 @@ export default {
       reasoningTokens: '实际推理 Token',
       promptVersion: '提示词版本',
       confidenceDisclaimer: '分数表示真实任务完成一致性，不是模型身份或路由概率。',
-      confidenceProbe: { title: 'OpenAI 可信度探针', description: '使用一次真实 Responses 请求验证任务完成一致性。', enabled: '启用可信度探针', effort: '推理档位', threshold: '质量异常阈值', longContext: '加入有界长上下文', maxTokens: '上下文 Token' },
       temporarilyExcluded: '探针异常已联动临时不可调度，可使用“恢复调度”手动恢复',
       recoveryInProgress: '正在恢复验证，连续成功后会自动恢复调度',
       past: '过去',
