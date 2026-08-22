@@ -156,6 +156,14 @@ export default {
       unassignedGroup: 'Unassigned',
       unassignedPlatform: 'Unassigned',
       inheritBaseUrl: 'Inherit upstream URL',
+      baseUrlDialog: {
+        title: 'Set Key Base URL',
+        label: 'Base URL',
+        placeholder: 'https://api.example.com/v1',
+        hint: 'This URL is used only by accounts derived from this key. Use “Clear” to restore the upstream URL.',
+        clearTitle: 'Clear Key Base URL?',
+        clearMessage: 'This key will use the upstream configuration URL again after it is cleared.'
+      },
       notDetected: 'Not detected',
       conflict: 'Detected evidence conflicts with the current assignment',
       empty: 'No upstream keys',
