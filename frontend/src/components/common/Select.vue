@@ -505,10 +505,15 @@ const scrollToFocused = () => {
 }
 
 const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement
-  // Check if click is inside THIS specific instance's dropdown or trigger
-  const isInDropdown = !!target.closest(`.${instanceId}`)
-  const isInTrigger = containerRef.value?.contains(target)
+  const target = event.target
+  if (!(target instanceof Element)) return
+
+  // The dropdown is teleported to body, so the trigger container alone is not
+  // sufficient to determine whether the event belongs to this Select.
+  const isInDropdown = Boolean(
+    dropdownRef.value?.contains(target) || target.closest(`.${instanceId}`)
+  )
+  const isInTrigger = Boolean(containerRef.value?.contains(target))
 
   if (!isInDropdown && !isInTrigger && isOpen.value) {
     isOpen.value = false
@@ -516,11 +521,13 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
+  // Listen during capture so modal/panel handlers using @click.stop cannot
+  // prevent a Select from observing an outside click inside that panel.
+  document.addEventListener('click', handleClickOutside, true)
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('click', handleClickOutside, true)
   window.removeEventListener('scroll', updateTriggerRect, { capture: true })
   window.removeEventListener('resize', calculateDropdownPosition)
   if (remoteSearchTimer) {

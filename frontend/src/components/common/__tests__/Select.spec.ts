@@ -217,3 +217,51 @@ describe('Select remote search', () => {
     expect(labels).toEqual(['Alpha account'])
   })
 })
+
+describe('Select outside click handling', () => {
+  it('closes when a click is stopped by an ancestor inside the same panel', async () => {
+    const wrapper = mount(Select, {
+      props: {
+        modelValue: null,
+        options: [{ value: 'alpha', label: 'Alpha' }],
+      },
+    })
+    unmountWrapper = () => wrapper.unmount()
+
+    await wrapper.get('button').trigger('click')
+    await nextTick()
+    expect(document.body.querySelector('.select-dropdown-portal')).not.toBeNull()
+
+    // Simulate BaseDialog's @click.stop on its content panel. Capture-phase
+    // handling must still see the event before the ancestor stops bubbling.
+    const panelArea = document.createElement('div')
+    panelArea.addEventListener('click', event => event.stopPropagation())
+    document.body.appendChild(panelArea)
+    panelArea.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+
+    expect(wrapper.get('button').attributes('aria-expanded')).toBe('false')
+    panelArea.remove()
+  })
+
+  it('does not close when the click occurs inside the teleported dropdown', async () => {
+    const wrapper = mount(Select, {
+      props: {
+        modelValue: null,
+        multiple: true,
+        options: [{ value: 'alpha', label: 'Alpha' }],
+      },
+    })
+    unmountWrapper = () => wrapper.unmount()
+
+    await wrapper.get('button').trigger('click')
+    await nextTick()
+    const dropdown = document.body.querySelector<HTMLElement>('.select-dropdown-portal')
+    expect(dropdown).not.toBeNull()
+
+    dropdown!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+
+    expect(document.body.querySelector('.select-dropdown-portal')).not.toBeNull()
+  })
+})
