@@ -30,6 +30,8 @@ func defaultModelIDsForRegisteredPlatform(platform string) []string {
 	switch platform {
 	case PlatformOpenAI:
 		return openai.DefaultModelIDs()
+	case PlatformAnthropic:
+		return claudeDefaultModelIDs()
 	case PlatformGemini:
 		ids := make([]string, 0, len(geminicli.DefaultModels))
 		for _, model := range geminicli.DefaultModels {
@@ -47,8 +49,14 @@ func defaultModelIDsForRegisteredPlatform(platform string) []string {
 		return xai.DefaultModelIDs()
 	case PlatformComposite:
 		return compositeDefaultModelsListCandidateIDs()
+	case PlatformKimi:
+		return cloneStrings(kimiOfficialModelIDs)
+	case PlatformZhipu:
+		return cloneStrings(zhipuOfficialModelIDs)
+	case PlatformDeepseek:
+		return cloneStrings(deepseekOfficialModelIDs)
 	default:
-		return claudeDefaultModelIDs()
+		return nil
 	}
 }
 
