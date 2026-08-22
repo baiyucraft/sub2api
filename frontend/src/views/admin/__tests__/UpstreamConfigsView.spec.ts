@@ -1606,7 +1606,7 @@ describe('UpstreamConfigsView', () => {
       table.get('[data-test="columns"]').text().startsWith('key,group,detected_platform')
     )
     expect(platformTable?.get('[data-test="columns"]').text()).toBe(
-      'key,group,detected_platform,platform,source,bound_account_count,status'
+      'key,group,detected_platform,platform,source,bound_account_count,status,base_url'
     )
     expect(wrapper.text()).toContain('••••1234')
     expect(wrapper.text()).toContain('admin.upstreamConfigs.keyPlatforms.unassignedGroup')

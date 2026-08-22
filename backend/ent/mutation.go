@@ -56844,6 +56844,7 @@ type UpstreamKeyMutation struct {
 	upstream_group_id         *int64
 	addupstream_group_id      *int64
 	upstream_group_name       *string
+	base_url                  *string
 	platform                  *string
 	platform_source           *string
 	detected_platform         *string
@@ -57420,6 +57421,55 @@ func (m *UpstreamKeyMutation) OldUpstreamGroupName(ctx context.Context) (v strin
 // ResetUpstreamGroupName resets all changes to the "upstream_group_name" field.
 func (m *UpstreamKeyMutation) ResetUpstreamGroupName() {
 	m.upstream_group_name = nil
+}
+
+// SetBaseURL sets the "base_url" field.
+func (m *UpstreamKeyMutation) SetBaseURL(s string) {
+	m.base_url = &s
+}
+
+// BaseURL returns the value of the "base_url" field in the mutation.
+func (m *UpstreamKeyMutation) BaseURL() (r string, exists bool) {
+	v := m.base_url
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBaseURL returns the old "base_url" field's value of the UpstreamKey entity.
+// If the UpstreamKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyMutation) OldBaseURL(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBaseURL is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBaseURL requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBaseURL: %w", err)
+	}
+	return oldValue.BaseURL, nil
+}
+
+// ClearBaseURL clears the value of the "base_url" field.
+func (m *UpstreamKeyMutation) ClearBaseURL() {
+	m.base_url = nil
+	m.clearedFields[upstreamkey.FieldBaseURL] = struct{}{}
+}
+
+// BaseURLCleared returns if the "base_url" field was cleared in this mutation.
+func (m *UpstreamKeyMutation) BaseURLCleared() bool {
+	_, ok := m.clearedFields[upstreamkey.FieldBaseURL]
+	return ok
+}
+
+// ResetBaseURL resets all changes to the "base_url" field.
+func (m *UpstreamKeyMutation) ResetBaseURL() {
+	m.base_url = nil
+	delete(m.clearedFields, upstreamkey.FieldBaseURL)
 }
 
 // SetPlatform sets the "platform" field.
@@ -58387,7 +58437,7 @@ func (m *UpstreamKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UpstreamKeyMutation) Fields() []string {
-	fields := make([]string, 0, 23)
+	fields := make([]string, 0, 24)
 	if m.created_at != nil {
 		fields = append(fields, upstreamkey.FieldCreatedAt)
 	}
@@ -58417,6 +58467,9 @@ func (m *UpstreamKeyMutation) Fields() []string {
 	}
 	if m.upstream_group_name != nil {
 		fields = append(fields, upstreamkey.FieldUpstreamGroupName)
+	}
+	if m.base_url != nil {
+		fields = append(fields, upstreamkey.FieldBaseURL)
 	}
 	if m.platform != nil {
 		fields = append(fields, upstreamkey.FieldPlatform)
@@ -58485,6 +58538,8 @@ func (m *UpstreamKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.UpstreamGroupID()
 	case upstreamkey.FieldUpstreamGroupName:
 		return m.UpstreamGroupName()
+	case upstreamkey.FieldBaseURL:
+		return m.BaseURL()
 	case upstreamkey.FieldPlatform:
 		return m.Platform()
 	case upstreamkey.FieldPlatformSource:
@@ -58540,6 +58595,8 @@ func (m *UpstreamKeyMutation) OldField(ctx context.Context, name string) (ent.Va
 		return m.OldUpstreamGroupID(ctx)
 	case upstreamkey.FieldUpstreamGroupName:
 		return m.OldUpstreamGroupName(ctx)
+	case upstreamkey.FieldBaseURL:
+		return m.OldBaseURL(ctx)
 	case upstreamkey.FieldPlatform:
 		return m.OldPlatform(ctx)
 	case upstreamkey.FieldPlatformSource:
@@ -58644,6 +58701,13 @@ func (m *UpstreamKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetUpstreamGroupName(v)
+		return nil
+	case upstreamkey.FieldBaseURL:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBaseURL(v)
 		return nil
 	case upstreamkey.FieldPlatform:
 		v, ok := value.(string)
@@ -58838,6 +58902,9 @@ func (m *UpstreamKeyMutation) ClearedFields() []string {
 	if m.FieldCleared(upstreamkey.FieldUpstreamGroupID) {
 		fields = append(fields, upstreamkey.FieldUpstreamGroupID)
 	}
+	if m.FieldCleared(upstreamkey.FieldBaseURL) {
+		fields = append(fields, upstreamkey.FieldBaseURL)
+	}
 	if m.FieldCleared(upstreamkey.FieldPlatform) {
 		fields = append(fields, upstreamkey.FieldPlatform)
 	}
@@ -58881,6 +58948,9 @@ func (m *UpstreamKeyMutation) ClearField(name string) error {
 		return nil
 	case upstreamkey.FieldUpstreamGroupID:
 		m.ClearUpstreamGroupID()
+		return nil
+	case upstreamkey.FieldBaseURL:
+		m.ClearBaseURL()
 		return nil
 	case upstreamkey.FieldPlatform:
 		m.ClearPlatform()
@@ -58940,6 +59010,9 @@ func (m *UpstreamKeyMutation) ResetField(name string) error {
 		return nil
 	case upstreamkey.FieldUpstreamGroupName:
 		m.ResetUpstreamGroupName()
+		return nil
+	case upstreamkey.FieldBaseURL:
+		m.ResetBaseURL()
 		return nil
 	case upstreamkey.FieldPlatform:
 		m.ResetPlatform()
