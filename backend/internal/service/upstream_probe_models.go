@@ -18,9 +18,74 @@ const (
 )
 
 type UpstreamProbeModels struct {
-	OpenAI    string `json:"openai"`
-	Anthropic string `json:"anthropic"`
-	Gemini    string `json:"gemini"`
+	OpenAI     string            `json:"openai"`
+	Anthropic  string            `json:"anthropic"`
+	Gemini     string            `json:"gemini"`
+	Additional map[string]string `json:"-"`
+}
+
+// UpstreamProbePlatform describes a provider that can appear in the probe
+// settings catalog. ProbeSupported is deliberately separate from model
+// availability: some providers expose a model directory but have no safe
+// active health-probe protocol.
+type UpstreamProbePlatform struct {
+	ID             string   `json:"id"`
+	Label          string   `json:"label"`
+	Models         []string `json:"models"`
+	ProbeSupported bool     `json:"probe_supported"`
+	ProbeReason    string   `json:"probe_reason,omitempty"`
+}
+
+func (m UpstreamProbeModels) AsMap() map[string]string {
+	result := make(map[string]string, len(m.Additional)+3)
+	if value := strings.TrimSpace(m.OpenAI); value != "" {
+		result[PlatformOpenAI] = value
+	}
+	if value := strings.TrimSpace(m.Anthropic); value != "" {
+		result[PlatformAnthropic] = value
+	}
+	if value := strings.TrimSpace(m.Gemini); value != "" {
+		result[PlatformGemini] = value
+	}
+	for platform, value := range m.Additional {
+		if platform = strings.ToLower(strings.TrimSpace(platform)); platform != "" && strings.TrimSpace(value) != "" {
+			result[platform] = strings.TrimSpace(value)
+		}
+	}
+	return result
+}
+
+func UpstreamProbeModelsFromMap(values map[string]string) UpstreamProbeModels {
+	models := UpstreamProbeModels{Additional: make(map[string]string)}
+	for platform, value := range values {
+		platform = strings.ToLower(strings.TrimSpace(platform))
+		value = strings.TrimSpace(value)
+		if platform == "" || value == "" {
+			continue
+		}
+		switch platform {
+		case PlatformOpenAI:
+			models.OpenAI = value
+		case PlatformAnthropic:
+			models.Anthropic = value
+		case PlatformGemini:
+			models.Gemini = value
+		default:
+			models.Additional[platform] = value
+		}
+	}
+	return models
+}
+
+func (m UpstreamProbeModels) MarshalJSON() ([]byte, error) { return json.Marshal(m.AsMap()) }
+
+func (m *UpstreamProbeModels) UnmarshalJSON(data []byte) error {
+	var values map[string]string
+	if err := json.Unmarshal(data, &values); err != nil {
+		return err
+	}
+	*m = UpstreamProbeModelsFromMap(values)
+	return nil
 }
 
 func DefaultUpstreamProbeModels() UpstreamProbeModels {
@@ -32,21 +97,14 @@ func DefaultUpstreamProbeModels() UpstreamProbeModels {
 }
 
 func (m UpstreamProbeModels) ModelFor(platform string) string {
-	switch strings.ToLower(strings.TrimSpace(platform)) {
-	case PlatformOpenAI:
-		return m.OpenAI
-	case PlatformAnthropic:
-		return m.Anthropic
-	case PlatformGemini:
-		return m.Gemini
-	default:
-		return ""
-	}
+	return m.AsMap()[strings.ToLower(strings.TrimSpace(platform))]
 }
 
 func validateUpstreamProbeModels(models UpstreamProbeModels) error {
 	for platform, model := range map[string]string{
-		PlatformOpenAI: models.OpenAI, PlatformAnthropic: models.Anthropic, PlatformGemini: models.Gemini,
+		PlatformOpenAI:    models.OpenAI,
+		PlatformAnthropic: models.Anthropic,
+		PlatformGemini:    models.Gemini,
 	} {
 		model = strings.TrimSpace(model)
 		if model == "" {
@@ -56,7 +114,44 @@ func validateUpstreamProbeModels(models UpstreamProbeModels) error {
 			return infraerrors.BadRequest("UPSTREAM_PROBE_MODEL_TOO_LONG", fmt.Sprintf("probe model for %s is too long", platform))
 		}
 	}
+	for platform, model := range models.Additional {
+		platform = strings.TrimSpace(platform)
+		model = strings.TrimSpace(model)
+		if platform == "" || model == "" {
+			continue
+		}
+		if len(model) > 120 {
+			return infraerrors.BadRequest("UPSTREAM_PROBE_MODEL_TOO_LONG", fmt.Sprintf("probe model for %s is too long", platform))
+		}
+	}
 	return nil
+}
+
+func DefaultUpstreamProbePlatformCatalog() []UpstreamProbePlatform {
+	entries := []UpstreamProbePlatform{
+		{ID: PlatformOpenAI, Label: "OpenAI", ProbeSupported: true},
+		{ID: PlatformAnthropic, Label: "Anthropic", ProbeSupported: true},
+		{ID: PlatformGemini, Label: "Gemini", ProbeSupported: true},
+		{ID: PlatformAntigravity, Label: "Antigravity", ProbeReason: "该平台暂无主动探针协议"},
+		{ID: PlatformGrok, Label: "Grok", ProbeReason: "该平台暂无主动探针协议"},
+		{ID: PlatformKimi, Label: "Kimi", ProbeReason: "该平台暂无主动探针协议"},
+		{ID: PlatformZhipu, Label: "Zhipu GLM", ProbeReason: "该平台暂无主动探针协议"},
+		{ID: PlatformDeepseek, Label: "DeepSeek", ProbeReason: "该平台暂无主动探针协议"},
+	}
+	for index := range entries {
+		entries[index].Models = defaultModelsListCandidateIDs(entries[index].ID)
+	}
+	return entries
+}
+
+func UpstreamProbePlatformSupported(platform string) bool {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	for _, entry := range DefaultUpstreamProbePlatformCatalog() {
+		if entry.ID == platform {
+			return entry.ProbeSupported
+		}
+	}
+	return false
 }
 
 func (s *SettingService) GetUpstreamProbeModels(ctx context.Context) (UpstreamProbeModels, error) {

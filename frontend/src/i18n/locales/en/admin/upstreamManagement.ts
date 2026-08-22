@@ -57,6 +57,7 @@ export default {
       search: 'Search models',
       placeholder: 'Select or enter a model',
       useCustom: 'Use custom model: ',
+      catalogOnly: 'Catalog only',
       interval: 'Automatic probe interval',
       intervalTip: 'Each observed Key runs a lightweight streaming probe at this cadence. Shorter intervals increase upstream requests and small token costs.',
       minutes: 'min',

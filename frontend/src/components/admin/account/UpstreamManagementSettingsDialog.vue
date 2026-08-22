@@ -49,17 +49,23 @@
           <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.probeModels.description') }}</p>
         </div>
         <div class="mt-5 grid gap-4 lg:grid-cols-3">
-          <label v-for="platform in platforms" :key="platform" class="space-y-1.5">
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ platformLabels[platform] }}</span>
+          <label v-for="platform in platforms" :key="platform.id" class="space-y-1.5">
+            <span class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+              {{ platform.label }}
+              <span v-if="!platform.probe_supported" class="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-normal text-gray-500 dark:border-dark-600 dark:text-gray-400">
+                {{ t('admin.upstreamManagement.probeModels.catalogOnly') }}
+              </span>
+            </span>
             <Select
-              v-model="draft.probe_models[platform]"
-              :options="candidateOptions[platform]"
+              v-model="draft.probe_models[platform.id]"
+              :options="candidateOptions[platform.id] || []"
               searchable
               creatable
               :creatable-prefix="t('admin.upstreamManagement.probeModels.useCustom')"
               :search-placeholder="t('admin.upstreamManagement.probeModels.search')"
               :placeholder="t('admin.upstreamManagement.probeModels.placeholder')"
             />
+            <span v-if="!platform.probe_supported" class="block text-xs text-gray-400 dark:text-dark-500">{{ platform.probe_reason }}</span>
           </label>
         </div>
         <label class="mt-5 block max-w-xs space-y-1.5">
@@ -170,7 +176,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import upstreamManagementAPI, { type UpstreamManagementSettings } from '@/api/admin/upstreamManagement'
+import upstreamManagementAPI, { type ProbePlatformDescriptor, type UpstreamManagementSettings } from '@/api/admin/upstreamManagement'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -186,10 +192,13 @@ const { t } = useI18n()
 const probeOnly = computed(() => props.probeOnly === true)
 const appStore = useAppStore()
 
-const platforms = ['openai', 'anthropic', 'gemini'] as const
-type ProbePlatform = (typeof platforms)[number]
 type ModelAliasRow = { id: number; source: string; target: string }
-const platformLabels: Record<ProbePlatform, string> = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini' }
+const platforms = ref<ProbePlatformDescriptor[]>([])
+const legacyPlatforms: ProbePlatformDescriptor[] = [
+  { id: 'openai', label: 'OpenAI', models: [], probe_supported: true },
+  { id: 'anthropic', label: 'Anthropic', models: [], probe_supported: true },
+  { id: 'gemini', label: 'Gemini', models: [], probe_supported: true }
+]
 const defaults: UpstreamManagementSettings = {
   ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
   probe_guard: {
@@ -205,18 +214,16 @@ const defaults: UpstreamManagementSettings = {
 }
 const draft = reactive<UpstreamManagementSettings>(structuredClone(defaults))
 const probeIntervalMinutes = ref(5)
-const candidates = reactive<Record<ProbePlatform, string[]>>({ openai: [], anthropic: [], gemini: [] })
+const candidates = reactive<Record<string, string[]>>({})
 const loading = ref(false)
 const saving = ref(false)
 const modelAliasRows = ref<ModelAliasRow[]>([])
 const modelAliasError = ref('')
 let nextModelAliasRowId = 1
 
-const candidateOptions = computed<Record<ProbePlatform, SelectOption[]>>(() => ({
-  openai: candidates.openai.map(value => ({ value, label: value })),
-  anthropic: candidates.anthropic.map(value => ({ value, label: value })),
-  gemini: candidates.gemini.map(value => ({ value, label: value }))
-}))
+const candidateOptions = computed<Record<string, SelectOption[]>>(() => Object.fromEntries(
+  Object.entries(candidates).map(([platform, values]) => [platform, values.map(value => ({ value, label: value }))])
+))
 
 const valid = computed(() => {
   const threshold = Number(draft.ttft_guard.degradation_ttft_seconds)
@@ -231,8 +238,8 @@ const valid = computed(() => {
     Number.isInteger(suspendAfterFailures) && suspendAfterFailures >= 1 && suspendAfterFailures <= 20 &&
     Number.isInteger(recoverySuccesses) && recoverySuccesses >= 1 && recoverySuccesses <= 20 &&
     customCodes.every(code => Number.isInteger(code) && code >= 100 && code <= 599) &&
-    platforms.every(platform => {
-      const value = draft.probe_models[platform]?.trim() || ''
+    platforms.value.filter(platform => platform.probe_supported).every(platform => {
+      const value = draft.probe_models[platform.id]?.trim() || ''
       return value.length > 0 && value.length <= 120
     }) && parseModelAliasRules() !== null
 })
@@ -270,12 +277,16 @@ async function load() {
     ])
     Object.assign(draft.ttft_guard, settings.ttft_guard)
     Object.assign(draft.probe_guard, settings.probe_guard || defaults.probe_guard)
-    Object.assign(draft.probe_models, settings.probe_models)
+    draft.probe_models = { ...defaults.probe_models, ...(settings.probe_models || {}) }
     draft.probe_interval_seconds = settings.probe_interval_seconds ?? defaults.probe_interval_seconds
     modelAliasRows.value = Object.entries(settings.model_alias_rules || {}).map(([source, target]) => ({ id: nextModelAliasRowId++, source, target }))
     modelAliasError.value = ''
     probeIntervalMinutes.value = Math.max(1, Math.min(60, Math.round(draft.probe_interval_seconds / 60)))
-    for (const platform of platforms) candidates[platform] = options.candidates[platform] || []
+    platforms.value = options.platforms?.length ? options.platforms : legacyPlatforms
+    for (const platform of platforms.value) {
+      candidates[platform.id] = options.candidates[platform.id] || platform.models || []
+      if (draft.probe_models[platform.id] === undefined) draft.probe_models[platform.id] = candidates[platform.id][0] || ''
+    }
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.settings.loadFailed')))
     emit('close')
@@ -302,11 +313,7 @@ async function save() {
         custom_error_codes_enabled: Boolean(draft.probe_guard.custom_error_codes_enabled),
         custom_error_codes: Array.from(new Set(draft.probe_guard.custom_error_codes || [])).sort((a, b) => a - b)
       },
-      probe_models: {
-        openai: draft.probe_models.openai.trim(),
-        anthropic: draft.probe_models.anthropic.trim(),
-        gemini: draft.probe_models.gemini.trim()
-      },
+      probe_models: Object.fromEntries(Object.entries(draft.probe_models).map(([platform, model]) => [platform, model.trim()])),
       probe_interval_seconds: probeIntervalMinutes.value * 60,
       model_alias_rules: modelAliasRules
     }

@@ -386,6 +386,10 @@ func (s *UpstreamConfigService) GetProbeModels(ctx context.Context) (UpstreamPro
 	return s.settingService.GetUpstreamProbeModels(ctx)
 }
 
+func (s *UpstreamConfigService) GetProbePlatformCatalog() []UpstreamProbePlatform {
+	return DefaultUpstreamProbePlatformCatalog()
+}
+
 func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (UpstreamManagementSettings, error) {
 	if s == nil || s.settingService == nil {
 		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}}, nil
@@ -449,18 +453,18 @@ func (s *UpstreamConfigService) GetProbeModelCandidates(ctx context.Context) (ma
 	if err != nil {
 		return nil, err
 	}
-	candidates := map[string]map[string]struct{}{
-		PlatformOpenAI:    {models.OpenAI: {}},
-		PlatformAnthropic: {models.Anthropic: {}},
-		PlatformGemini:    {models.Gemini: {}},
+	candidates := make(map[string]map[string]struct{})
+	for _, platform := range DefaultUpstreamProbePlatformCatalog() {
+		candidates[platform.ID] = make(map[string]struct{}, len(platform.Models)+1)
+		for _, value := range platform.Models {
+			if value = strings.TrimSpace(value); value != "" {
+				candidates[platform.ID][value] = struct{}{}
+			}
+		}
 	}
-	for platform, values := range map[string][]string{
-		PlatformOpenAI:    defaultModelsListCandidateIDs(PlatformOpenAI),
-		PlatformAnthropic: defaultModelsListCandidateIDs(PlatformAnthropic),
-		PlatformGemini:    defaultModelsListCandidateIDs(PlatformGemini),
-	} {
-		for _, value := range values {
-			candidates[platform][value] = struct{}{}
+	for platform, value := range models.AsMap() {
+		if bucket, ok := candidates[platform]; ok && strings.TrimSpace(value) != "" {
+			bucket[strings.TrimSpace(value)] = struct{}{}
 		}
 	}
 	if scoped, ok := s.accountRepo.(ScopedAccountLister); ok {
@@ -1263,7 +1267,7 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		}
 	}
 	model := models.ModelFor(account.Platform)
-	if model == "" {
+	if model == "" || !UpstreamProbePlatformSupported(account.Platform) {
 		return UpstreamHealthSnapshot{}, infraerrors.BadRequest("UPSTREAM_KEY_PROBE_PLATFORM_UNSUPPORTED", "upstream key platform does not support active probing")
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
