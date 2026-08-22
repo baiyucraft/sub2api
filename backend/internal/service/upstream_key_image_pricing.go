@@ -9,7 +9,11 @@ import (
 
 const (
 	Sub2APIImagePricingSnapshotExtraKey   = "sub2api_image_pricing_snapshot"
+	Sub2APIVideoPricingSnapshotExtraKey   = "sub2api_video_pricing_snapshot"
+	Sub2APILongContextSnapshotExtraKey    = "sub2api_long_context_snapshot"
 	sub2APIImagePricingSnapshotVersion    = 1
+	sub2APIVideoPricingSnapshotVersion    = 1
+	sub2APILongContextSnapshotVersion     = 1
 	LCodexImageCapabilitySnapshotExtraKey = "lcodex_image_pricing_snapshot"
 	lcodexImageCapabilitySnapshotVersion  = 1
 
@@ -32,6 +36,31 @@ type UpstreamKeyImagePricing struct {
 	ObservedAt              *time.Time
 }
 
+// UpstreamKeyVideoPricing is the redacted video capability and pricing
+// snapshot exposed to the upstream-management account list.
+type UpstreamKeyVideoPricing struct {
+	Supported               bool
+	Status                  string
+	Stale                   bool
+	RateIndependent         bool
+	EffectiveRateMultiplier *float64
+	FinalCost480p           *float64
+	FinalCost720p           *float64
+	FinalCost1080p          *float64
+	ObservedAt              *time.Time
+}
+
+// UpstreamLongContextState records whether long-context billing was
+// explicitly enabled by the bound upstream key. Status "unknown" preserves
+// compatibility with keys created before this snapshot existed.
+type UpstreamLongContextState struct {
+	Enabled    bool
+	Status     string
+	Stale      bool
+	Source     string
+	ObservedAt *time.Time
+}
+
 type sub2APIImagePricingSnapshot struct {
 	Version              int        `json:"version"`
 	Status               string     `json:"status"`
@@ -43,6 +72,27 @@ type sub2APIImagePricingSnapshot struct {
 	ImagePrice4K         *float64   `json:"image_price_4k"`
 	ObservedAt           *time.Time `json:"observed_at"`
 	Stale                bool       `json:"stale"`
+}
+
+type sub2APIVideoPricingSnapshot struct {
+	Version              int        `json:"version"`
+	Status               string     `json:"status"`
+	AllowVideoGeneration bool       `json:"allow_video_generation"`
+	VideoRateIndependent bool       `json:"video_rate_independent"`
+	VideoRateMultiplier  *float64   `json:"video_rate_multiplier"`
+	VideoPrice480p       *float64   `json:"video_price_480p"`
+	VideoPrice720p       *float64   `json:"video_price_720p"`
+	VideoPrice1080p      *float64   `json:"video_price_1080p"`
+	ObservedAt           *time.Time `json:"observed_at"`
+	Stale                bool       `json:"stale"`
+}
+
+type sub2APILongContextSnapshot struct {
+	Version    int        `json:"version"`
+	Status     string     `json:"status"`
+	Enabled    bool       `json:"enabled"`
+	ObservedAt *time.Time `json:"observed_at"`
+	Stale      bool       `json:"stale"`
 }
 
 type lcodexImageCapabilitySnapshot struct {
@@ -107,6 +157,30 @@ func sub2APIImagePricingSnapshotMap(snapshot sub2APIImagePricingSnapshot) map[st
 	return out
 }
 
+func sub2APIVideoPricingSnapshotMap(snapshot sub2APIVideoPricingSnapshot) map[string]any {
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+	return out
+}
+
+func sub2APILongContextSnapshotMap(snapshot sub2APILongContextSnapshot) map[string]any {
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+	return out
+}
+
 func parseSub2APIImagePricingSnapshot(extra map[string]any) (sub2APIImagePricingSnapshot, bool) {
 	if extra == nil {
 		return sub2APIImagePricingSnapshot{}, false
@@ -130,6 +204,52 @@ func parseSub2APIImagePricingSnapshot(extra map[string]any) (sub2APIImagePricing
 		UpstreamKeyImagePricingStatusUnavailable:
 	default:
 		return sub2APIImagePricingSnapshot{}, false
+	}
+	return snapshot, true
+}
+
+func parseSub2APIVideoPricingSnapshot(extra map[string]any) (sub2APIVideoPricingSnapshot, bool) {
+	if extra == nil {
+		return sub2APIVideoPricingSnapshot{}, false
+	}
+	raw, ok := extra[Sub2APIVideoPricingSnapshotExtraKey]
+	if !ok || raw == nil {
+		return sub2APIVideoPricingSnapshot{}, false
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return sub2APIVideoPricingSnapshot{}, false
+	}
+	var snapshot sub2APIVideoPricingSnapshot
+	if json.Unmarshal(encoded, &snapshot) != nil || snapshot.Version != sub2APIVideoPricingSnapshotVersion {
+		return sub2APIVideoPricingSnapshot{}, false
+	}
+	switch snapshot.Status {
+	case UpstreamKeyImagePricingStatusAvailable, UpstreamKeyImagePricingStatusPartial, UpstreamKeyImagePricingStatusDisabled, UpstreamKeyImagePricingStatusUnavailable:
+	default:
+		return sub2APIVideoPricingSnapshot{}, false
+	}
+	return snapshot, true
+}
+
+func parseSub2APILongContextSnapshot(extra map[string]any) (sub2APILongContextSnapshot, bool) {
+	if extra == nil {
+		return sub2APILongContextSnapshot{}, false
+	}
+	raw, ok := extra[Sub2APILongContextSnapshotExtraKey]
+	if !ok || raw == nil {
+		return sub2APILongContextSnapshot{}, false
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return sub2APILongContextSnapshot{}, false
+	}
+	var snapshot sub2APILongContextSnapshot
+	if json.Unmarshal(encoded, &snapshot) != nil || snapshot.Version != sub2APILongContextSnapshotVersion {
+		return sub2APILongContextSnapshot{}, false
+	}
+	if snapshot.Status != "known" && snapshot.Status != "unknown" {
+		return sub2APILongContextSnapshot{}, false
 	}
 	return snapshot, true
 }
@@ -203,10 +323,71 @@ func deriveUpstreamKeyImagePricing(key *UpstreamKey, config *UpstreamConfig) *Up
 	return out
 }
 
+func deriveUpstreamKeyVideoPricing(key *UpstreamKey, config *UpstreamConfig) *UpstreamKeyVideoPricing {
+	if key == nil || config == nil {
+		return nil
+	}
+	snapshot, ok := parseSub2APIVideoPricingSnapshot(key.Extra)
+	if !ok {
+		return &UpstreamKeyVideoPricing{Status: UpstreamKeyImagePricingStatusUnavailable}
+	}
+	out := &UpstreamKeyVideoPricing{Supported: snapshot.AllowVideoGeneration, Status: snapshot.Status, Stale: snapshot.Stale, RateIndependent: snapshot.VideoRateIndependent, ObservedAt: snapshot.ObservedAt}
+	if config.LastError != nil && strings.TrimSpace(*config.LastError) != "" {
+		out.Stale = true
+	}
+	if !snapshot.AllowVideoGeneration || snapshot.Status == UpstreamKeyImagePricingStatusDisabled || snapshot.Status == UpstreamKeyImagePricingStatusUnavailable {
+		return out
+	}
+	effectiveRate := key.SourceRateMultiplier
+	if snapshot.VideoRateIndependent {
+		effectiveRate = snapshot.VideoRateMultiplier
+	}
+	if effectiveRate == nil {
+		out.Status = UpstreamKeyImagePricingStatusPartial
+		return out
+	}
+	normalizedRate, err := NormalizeUpstreamActualRate(*effectiveRate, config.RechargeRate)
+	if err != nil {
+		out.Status = UpstreamKeyImagePricingStatusPartial
+		return out
+	}
+	out.EffectiveRateMultiplier = &normalizedRate
+	out.FinalCost480p = multiplyImagePrice(snapshot.VideoPrice480p, normalizedRate)
+	out.FinalCost720p = multiplyImagePrice(snapshot.VideoPrice720p, normalizedRate)
+	out.FinalCost1080p = multiplyImagePrice(snapshot.VideoPrice1080p, normalizedRate)
+	if out.FinalCost480p == nil && out.FinalCost720p == nil && out.FinalCost1080p == nil {
+		out.Status = UpstreamKeyImagePricingStatusPartial
+	}
+	return out
+}
+
+func deriveUpstreamLongContextState(key *UpstreamKey, config *UpstreamConfig) *UpstreamLongContextState {
+	if key == nil || config == nil {
+		return nil
+	}
+	snapshot, ok := parseSub2APILongContextSnapshot(key.Extra)
+	if !ok {
+		return &UpstreamLongContextState{Status: "unknown", Source: "legacy"}
+	}
+	out := &UpstreamLongContextState{Enabled: snapshot.Enabled, Status: snapshot.Status, Stale: snapshot.Stale, Source: "upstream_key", ObservedAt: snapshot.ObservedAt}
+	if config.LastError != nil && strings.TrimSpace(*config.LastError) != "" {
+		out.Stale = true
+	}
+	return out
+}
+
 // DeriveUpstreamKeyImagePricingForAccount exposes the redacted pricing snapshot
 // calculation to repository hydration without exposing raw key material.
 func DeriveUpstreamKeyImagePricingForAccount(key *UpstreamKey, config *UpstreamConfig) *UpstreamKeyImagePricing {
 	return deriveUpstreamKeyImagePricing(key, config)
+}
+
+func DeriveUpstreamKeyVideoPricingForAccount(key *UpstreamKey, config *UpstreamConfig) *UpstreamKeyVideoPricing {
+	return deriveUpstreamKeyVideoPricing(key, config)
+}
+
+func DeriveUpstreamLongContextForAccount(key *UpstreamKey, config *UpstreamConfig) *UpstreamLongContextState {
+	return deriveUpstreamLongContextState(key, config)
 }
 
 func multiplyImagePrice(price *float64, rate float64) *float64 {

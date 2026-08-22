@@ -1134,6 +1134,26 @@ export interface UpstreamImagePricing {
   observed_at?: string | null
 }
 
+export interface UpstreamVideoPricing {
+  supported: boolean
+  status: string
+  stale: boolean
+  rate_independent: boolean
+  effective_rate_multiplier?: number | null
+  final_cost_480p?: number | null
+  final_cost_720p?: number | null
+  final_cost_1080p?: number | null
+  observed_at?: string | null
+}
+
+export interface UpstreamLongContext {
+  enabled: boolean
+  status: string
+  stale: boolean
+  source: string
+  observed_at?: string | null
+}
+
 export interface UpstreamModelSync {
   mode: 'manual' | 'sync_managed' | string
   status: 'available' | 'stale' | 'error' | 'unsupported'
@@ -1182,6 +1202,8 @@ export interface Account {
   upstream_key_name?: string | null
   upstream_key_masked?: string | null
   upstream_image_pricing?: UpstreamImagePricing
+  upstream_video_pricing?: UpstreamVideoPricing
+  upstream_long_context?: UpstreamLongContext
   upstream_model_sync?: UpstreamModelSync
   available_actions?: string[]
   upstream_scheduling_enabled?: boolean | null

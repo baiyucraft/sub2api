@@ -280,6 +280,21 @@ export default {
         statusUnavailable: '不可用',
         notObserved: '暂无'
       },
+      upstreamVideoPricing: {
+        badge: '视频',
+        costTitle: '视频成本（{mode}倍率，{status}）',
+        costTooltipShared: '{tier} 成本 {cost}；共享倍率，使用账号倍率 {multiplier}×；状态：{status}',
+        costTooltipIndependent: '{tier} 成本 {cost}；独立视频倍率 {multiplier}×；状态：{status}',
+        badgeTitle: '视频状态：{status}；更新时间：{observedAt}',
+        statusAvailable: '可用',
+        statusPartial: '部分',
+        statusStale: '过期',
+        statusUnavailable: '不可用'
+      },
+      upstreamLongContext: {
+        badge: '长上下文',
+        tooltip: '长上下文计费已启用；来源：{source}；同步时间：{observedAt}'
+      },
       allPrivacyModes: '全部Privacy状态',
       privacyUnset: '未设置',
       privacyTrainingOff: '已关闭训练数据共享',
