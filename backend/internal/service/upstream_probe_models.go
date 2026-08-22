@@ -128,20 +128,15 @@ func validateUpstreamProbeModels(models UpstreamProbeModels) error {
 }
 
 func DefaultUpstreamProbePlatformCatalog() []UpstreamProbePlatform {
-	entries := []UpstreamProbePlatform{
-		{ID: PlatformOpenAI, Label: "OpenAI", ProbeSupported: true},
-		{ID: PlatformAnthropic, Label: "Anthropic", ProbeSupported: true},
-		{ID: PlatformGemini, Label: "Gemini", ProbeSupported: true},
-		{ID: PlatformAntigravity, Label: "Antigravity", ProbeReason: "该平台暂无主动探针协议"},
-		{ID: PlatformGrok, Label: "Grok", ProbeReason: "该平台暂无主动探针协议"},
-		{ID: PlatformKimi, Label: "Kimi", ProbeReason: "该平台暂无主动探针协议"},
-		{ID: PlatformZhipu, Label: "Zhipu GLM", ProbeReason: "该平台暂无主动探针协议"},
-		{ID: PlatformDeepseek, Label: "DeepSeek", ProbeReason: "该平台暂无主动探针协议"},
+	entries := RegisteredPlatformCatalog()
+	result := make([]UpstreamProbePlatform, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, UpstreamProbePlatform{
+			ID: entry.ID, Label: entry.Label, Models: cloneStrings(entry.DefaultModels),
+			ProbeSupported: entry.ProbeSupported, ProbeReason: entry.ProbeReason,
+		})
 	}
-	for index := range entries {
-		entries[index].Models = defaultModelsListCandidateIDs(entries[index].ID)
-	}
-	return entries
+	return result
 }
 
 func UpstreamProbePlatformSupported(platform string) bool {
