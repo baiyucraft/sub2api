@@ -3715,6 +3715,9 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 					}
 				}
 				out.Credentials["api_key"] = key.Key
+				if key.BaseURL != nil && strings.TrimSpace(*key.BaseURL) != "" {
+					out.Credentials["base_url"] = strings.TrimSpace(*key.BaseURL)
+				}
 				if out.Extra == nil {
 					out.Extra = map[string]any{}
 				}

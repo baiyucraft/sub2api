@@ -127,6 +127,7 @@ export default {
         source: 'Source',
         bindings: 'Bindings',
         status: 'Status'
+        ,baseUrl: 'Base URL'
       },
       platforms: {
         openai: 'OpenAI',
@@ -154,6 +155,7 @@ export default {
       unnamedGroup: 'Unnamed group',
       unassignedGroup: 'Unassigned',
       unassignedPlatform: 'Unassigned',
+      inheritBaseUrl: 'Inherit upstream URL',
       notDetected: 'Not detected',
       conflict: 'Detected evidence conflicts with the current assignment',
       empty: 'No upstream keys',

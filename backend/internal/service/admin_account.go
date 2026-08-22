@@ -672,6 +672,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if input.Notes != nil {
 		account.Notes = normalizeAccountNotes(input.Notes)
+		if account.Extra != nil {
+			delete(account.Extra, AccountUpstreamKeyDescriptionSyncedExtraKey)
+			delete(account.Extra, AccountUpstreamKeyDescriptionExtraKey)
+		}
 	}
 	if account.IsCredentialShadow() && input.Credentials != nil {
 		account.Credentials = sanitizeSparkShadowCredentials(input.Credentials)

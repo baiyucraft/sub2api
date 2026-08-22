@@ -11,6 +11,8 @@ export default {
     cancel: '取消',
     delete: '删除',
     edit: '编辑',
+    set: '设置',
+    clear: '清除',
     create: '创建',
     update: '更新',
     confirm: '确认',

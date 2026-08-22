@@ -902,6 +902,7 @@ func createUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 		SetKey(key.Key).
 		SetKeyHash(key.KeyHash).
 		SetUpstreamGroupName(key.UpstreamGroupName).
+		SetNillableBaseURL(key.BaseURL).
 		SetNillablePlatform(key.Platform).
 		SetPlatformSource(key.PlatformSource).
 		SetNillableDetectedPlatform(key.DetectedPlatform).
@@ -946,6 +947,7 @@ func updateUpstreamKey(ctx context.Context, client *dbent.Client, key *service.U
 		SetKey(key.Key).
 		SetKeyHash(key.KeyHash).
 		SetUpstreamGroupName(key.UpstreamGroupName).
+		SetNillableBaseURL(key.BaseURL).
 		SetNillablePlatform(key.Platform).
 		SetPlatformSource(key.PlatformSource).
 		SetPlatformDetectionStatus(key.PlatformDetectionStatus).
@@ -1098,6 +1100,57 @@ func sanitizeAccountSummaryName(name string) string {
 	return string([]rune(name)[:32])
 }
 
+func (r *upstreamConfigRepository) UpdateKeyBaseURL(ctx context.Context, configID, keyID int64, baseURL *string, expectedUpdatedAt time.Time) (*service.UpstreamKey, error) {
+	var result *service.UpstreamKey
+	var accountIDs []int64
+	err := r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		if _, err := client.UpstreamConfig.Query().Where(dbupstreamconfig.IDEQ(configID)).ForUpdate().Only(txCtx); err != nil {
+			if dbent.IsNotFound(err) {
+				return service.ErrUpstreamConfigNotFound
+			}
+			return err
+		}
+		key, err := client.UpstreamKey.Query().Where(dbupstreamkey.IDEQ(keyID), dbupstreamkey.UpstreamConfigIDEQ(configID)).ForUpdate().Only(txCtx)
+		if err != nil {
+			if dbent.IsNotFound(err) {
+				return service.ErrUpstreamKeyNotFound
+			}
+			return err
+		}
+		if !key.UpdatedAt.Equal(expectedUpdatedAt) {
+			return infraerrors.Conflict("UPSTREAM_KEY_BASE_URL_STALE", "upstream key changed; reload before updating its base url").WithMetadata(map[string]string{"current_updated_at": key.UpdatedAt.UTC().Format(time.RFC3339Nano)})
+		}
+		accounts, err := client.Account.Query().Where(dbaccount.UpstreamKeyIDEQ(keyID)).Order(dbent.Asc(dbaccount.FieldID)).ForUpdate().All(txCtx)
+		if err != nil {
+			return err
+		}
+		updated, err := client.UpstreamKey.UpdateOneID(keyID).SetNillableBaseURL(baseURL).Save(txCtx)
+		if err != nil {
+			return err
+		}
+		ids := make([]int64, 0, len(accounts))
+		for _, a := range accounts {
+			ids = append(ids, a.ID)
+		}
+		accountIDs = ids
+		if err := enqueueUpstreamAccountChanges(txCtx, client, ids); err != nil {
+			return err
+		}
+		result = upstreamKeyEntityToService(updated)
+		return nil
+	})
+	if err == nil && r.schedulerCache != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		for _, id := range accountIDs {
+			if cleanupErr := r.schedulerCache.DeleteAccount(cleanupCtx, id); cleanupErr != nil {
+				logger.LegacyPrintf("repository.upstream_config", "[Scheduler] key base url snapshot cleanup failed: id=%d err=%v", id, cleanupErr)
+			}
+		}
+	}
+	return result, err
+}
+
 func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, configID, runID int64, keys []service.UpstreamKey, extraUpdates map[string]any, checkedAt time.Time, complete bool) ([]service.UpstreamKey, service.UpstreamKeyReconcileResult, int, error) {
 	var (
 		localKeys            []service.UpstreamKey
@@ -1198,6 +1251,7 @@ func (r *upstreamConfigRepository) ApplySyncSnapshot(ctx context.Context, config
 			}
 			wasMissing := existing.DeletedAt != nil || existing.MissingCount > 0 || existing.Status == service.UpstreamKeyStatusStale
 			keys[i].ID = existing.ID
+			keys[i].BaseURL = existing.BaseURL
 			platformChangedAccountIDs, err := mergeSyncedUpstreamKeyPlatform(txCtx, client, configID, runID, &keys[i], existing, accountsByKeyID[existing.ID], checkedAt)
 			if err != nil {
 				return err
@@ -2042,6 +2096,34 @@ func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbe
 		extra = map[string]any{}
 	}
 	beforeExtra, _ := json.Marshal(extra)
+	if account.UpstreamLifecycleOwner == service.AccountUpstreamLifecycleOwnerSyncManaged {
+		if description, ok := upstreamKeyDescriptionFromExtra(key.Extra); ok {
+			builder.SetNillableNotes(&description)
+			extra[service.AccountUpstreamKeyDescriptionExtraKey] = description
+			extra[service.AccountUpstreamKeyDescriptionSyncedExtraKey] = true
+			changed = true
+		} else if synced, ok := extra[service.AccountUpstreamKeyDescriptionSyncedExtraKey].(bool); ok && synced {
+			builder.ClearNotes()
+			delete(extra, service.AccountUpstreamKeyDescriptionExtraKey)
+			delete(extra, service.AccountUpstreamKeyDescriptionSyncedExtraKey)
+			changed = true
+		}
+	}
+	if key.BaseURL != nil && strings.TrimSpace(*key.BaseURL) != "" {
+		if account.Credentials == nil {
+			account.Credentials = map[string]any{}
+		}
+		account.Credentials["base_url"] = strings.TrimSpace(*key.BaseURL)
+		builder.SetCredentials(normalizeJSONMap(account.Credentials))
+		changed = true
+	} else if account.Credentials == nil || strings.TrimSpace(fmt.Sprint(account.Credentials["base_url"])) == "" {
+		if account.Credentials == nil {
+			account.Credentials = map[string]any{}
+		}
+		account.Credentials["base_url"] = configEffectiveAPIURL(config)
+		builder.SetCredentials(normalizeJSONMap(account.Credentials))
+		changed = true
+	}
 	copyUpstreamModelSyncMetadata(extra, key.Extra)
 	afterExtra, _ := json.Marshal(extra)
 	if string(beforeExtra) != string(afterExtra) {
@@ -2076,6 +2158,28 @@ func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbe
 		return false, err
 	}
 	return true, nil
+}
+
+func upstreamKeyDescriptionFromExtra(extra map[string]any) (string, bool) {
+	for _, key := range []string{service.AccountUpstreamKeyDescriptionExtraKey, "description", "desc", "remark"} {
+		if value, ok := extra[key].(string); ok {
+			value = strings.TrimSpace(value)
+			if value != "" && len([]rune(value)) <= 512 {
+				return value, true
+			}
+		}
+	}
+	return "", false
+}
+
+func configEffectiveAPIURL(config *dbent.UpstreamConfig) string {
+	if config == nil {
+		return ""
+	}
+	if config.APIURL != nil && strings.TrimSpace(*config.APIURL) != "" {
+		return strings.TrimSpace(*config.APIURL)
+	}
+	return strings.TrimSpace(config.SiteURL)
 }
 
 func copyUpstreamModelSyncMetadata(dst, src map[string]any) {
@@ -2368,6 +2472,8 @@ func upstreamKeyEntityToService(row *dbent.UpstreamKey) *service.UpstreamKey {
 	if row == nil {
 		return nil
 	}
+	extra := copyJSONMap(row.Extra)
+	description, _ := upstreamKeyDescriptionFromExtra(extra)
 	return &service.UpstreamKey{
 		ID:                      row.ID,
 		UpstreamConfigID:        row.UpstreamConfigID,
@@ -2377,6 +2483,8 @@ func upstreamKeyEntityToService(row *dbent.UpstreamKey) *service.UpstreamKey {
 		RemoteKeyID:             row.RemoteKeyID,
 		UpstreamGroupID:         row.UpstreamGroupID,
 		UpstreamGroupName:       row.UpstreamGroupName,
+		BaseURL:                 row.BaseURL,
+		Description:             description,
 		Platform:                row.Platform,
 		PlatformSource:          row.PlatformSource,
 		DetectedPlatform:        row.DetectedPlatform,
@@ -2391,7 +2499,7 @@ func upstreamKeyEntityToService(row *dbent.UpstreamKey) *service.UpstreamKey {
 		MissingSince:            row.MissingSince,
 		ObservationEnabled:      row.ObservationEnabled,
 		ObservationEnabledKnown: true,
-		Extra:                   copyJSONMap(row.Extra),
+		Extra:                   extra,
 		CreatedAt:               row.CreatedAt,
 		UpdatedAt:               row.UpdatedAt,
 	}

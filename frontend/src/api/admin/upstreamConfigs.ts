@@ -46,6 +46,8 @@ export interface UpstreamKey {
   remote_key_id?: number | null
   upstream_group_id?: number | null
   upstream_group_name?: string
+  base_url?: string | null
+  description?: string
   platform: UpstreamKeyPlatform | null
   detected_platform?: UpstreamKeyPlatform | null
   platform_source?: string | null
@@ -96,6 +98,12 @@ export interface UpstreamConfig {
 
 export interface UpstreamConfigDeletePayload {
   delete_sync_managed_accounts?: boolean
+}
+
+export interface UpdateUpstreamKeyBaseURLPayload {
+  base_url?: string | null
+  clear_base_url?: boolean
+  expected_updated_at: string
 }
 
 export interface UpstreamConfigDeleteResult {
@@ -452,6 +460,11 @@ export async function updateKeyPlatform(
   return data
 }
 
+export async function updateKeyBaseURL(id: number, keyId: number, payload: UpdateUpstreamKeyBaseURLPayload): Promise<UpstreamKey> {
+  const { data } = await apiClient.put<UpstreamKey>(`/admin/upstream-configs/${id}/keys/${keyId}/base-url`, payload)
+  return data
+}
+
 export default {
   list,
   getById,
@@ -474,5 +487,6 @@ export default {
   listBalanceHistory,
   listKeys,
   removeKey,
-  updateKeyPlatform
+  updateKeyPlatform,
+  updateKeyBaseURL
 }

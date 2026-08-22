@@ -169,11 +169,14 @@ type sub2APIKeyListData struct {
 }
 
 type sub2APIUpstreamKey struct {
-	ID      int64  `json:"id"`
-	Key     string `json:"key"`
-	Name    string `json:"name"`
-	GroupID *int64 `json:"group_id"`
-	Group   *struct {
+	ID          int64  `json:"id"`
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Desc        string `json:"desc"`
+	Remark      string `json:"remark"`
+	GroupID     *int64 `json:"group_id"`
+	Group       *struct {
 		ID             int64    `json:"id"`
 		Name           string   `json:"name"`
 		Platform       string   `json:"platform"`
@@ -640,6 +643,16 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 			}
 		}
 		extra := map[string]any{}
+		description := strings.TrimSpace(upstreamKey.Description)
+		if description == "" {
+			description = strings.TrimSpace(upstreamKey.Desc)
+		}
+		if description == "" {
+			description = strings.TrimSpace(upstreamKey.Remark)
+		}
+		if len([]rune(description)) <= 512 && description != "" {
+			extra[AccountUpstreamKeyDescriptionExtraKey] = description
+		}
 		if groupInfo != nil && groupInfo.HasImagePricing {
 			imagePricing := groupInfo.ImagePricing
 			observedAt := now.UTC()

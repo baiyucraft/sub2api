@@ -74,12 +74,15 @@ type lcodexKeyGroupRow struct {
 }
 
 type lcodexKeyRow struct {
-	ID      int64              `json:"id"`
-	Key     string             `json:"key"`
-	Name    string             `json:"name"`
-	GroupID *int64             `json:"group_id"`
-	Group   *lcodexKeyGroupRow `json:"group"`
-	Status  string             `json:"status"`
+	ID          int64              `json:"id"`
+	Key         string             `json:"key"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Desc        string             `json:"desc"`
+	Remark      string             `json:"remark"`
+	GroupID     *int64             `json:"group_id"`
+	Group       *lcodexKeyGroupRow `json:"group"`
+	Status      string             `json:"status"`
 }
 
 type lcodexKeyPage struct {
@@ -468,6 +471,16 @@ func lcodexUpstreamKey(configID int64, row lcodexKeyRow, groups map[int64]lcodex
 	groupName, platform := "", ""
 	var sourceRate *float64
 	extra := map[string]any{}
+	description := strings.TrimSpace(row.Description)
+	if description == "" {
+		description = strings.TrimSpace(row.Desc)
+	}
+	if description == "" {
+		description = strings.TrimSpace(row.Remark)
+	}
+	if description != "" && len([]rune(description)) <= 512 {
+		extra[AccountUpstreamKeyDescriptionExtraKey] = description
+	}
 	warnings := []string{}
 	if groupID != nil {
 		if rate, ok := dedicatedRates[*groupID]; ok {

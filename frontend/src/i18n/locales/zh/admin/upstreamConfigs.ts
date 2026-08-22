@@ -127,6 +127,7 @@ export default {
         source: '来源',
         bindings: '绑定数',
         status: '状态'
+        ,baseUrl: 'Base URL'
       },
       platforms: {
         openai: 'OpenAI',
@@ -154,6 +155,7 @@ export default {
       unnamedGroup: '未命名分组',
       unassignedGroup: '未分配',
       unassignedPlatform: '未分配',
+      inheritBaseUrl: '继承上游配置地址',
       notDetected: '未检测',
       conflict: '检测证据与当前分配冲突',
       empty: '暂无上游 Key',

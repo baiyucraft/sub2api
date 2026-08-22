@@ -58,6 +58,12 @@ type updateUpstreamKeyPlatformRequest struct {
 	DisableBoundAccounts bool      `json:"disable_bound_accounts"`
 }
 
+type updateUpstreamKeyBaseURLRequest struct {
+	BaseURL           *string   `json:"base_url"`
+	ClearBaseURL      bool      `json:"clear_base_url"`
+	ExpectedUpdatedAt time.Time `json:"expected_updated_at" binding:"required"`
+}
+
 type upstreamConfigDeleteRequest struct {
 	DeleteSyncManagedAccounts bool `json:"delete_sync_managed_accounts"`
 }
@@ -464,6 +470,28 @@ func (h *UpstreamConfigHandler) UpdateKeyPlatform(c *gin.Context) {
 	response.Success(c, sanitizeUpstreamKey(key))
 }
 
+func (h *UpstreamConfigHandler) UpdateKeyBaseURL(c *gin.Context) {
+	configID, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	keyID, ok := parseUpstreamIDParam(c, "keyID")
+	if !ok {
+		return
+	}
+	var req updateUpstreamKeyBaseURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	key, err := h.service.UpdateKeyBaseURL(c.Request.Context(), configID, keyID, service.UpdateUpstreamKeyBaseURLRequest{BaseURL: req.BaseURL, ClearBaseURL: req.ClearBaseURL, ExpectedUpdatedAt: req.ExpectedUpdatedAt})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, sanitizeUpstreamKey(key))
+}
+
 func sanitizeUpstreamSyncResults(results []service.UpstreamConfigSyncResult) []gin.H {
 	out := make([]gin.H, 0, len(results))
 	for i := range results {
@@ -599,6 +627,8 @@ func sanitizeUpstreamKey(key *service.UpstreamKey) gin.H {
 		"remote_key_id":             key.RemoteKeyID,
 		"upstream_group_id":         key.UpstreamGroupID,
 		"upstream_group_name":       key.UpstreamGroupName,
+		"base_url":                  key.BaseURL,
+		"description":               key.Description,
 		"platform":                  key.Platform,
 		"platform_source":           key.PlatformSource,
 		"detected_platform":         key.DetectedPlatform,

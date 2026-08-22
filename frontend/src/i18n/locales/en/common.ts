@@ -11,6 +11,8 @@ export default {
     cancel: 'Cancel',
     delete: 'Delete',
     edit: 'Edit',
+    set: 'Set',
+    clear: 'Clear',
     create: 'Create',
     update: 'Update',
     confirm: 'Confirm',

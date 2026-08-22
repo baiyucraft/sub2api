@@ -1022,6 +1022,14 @@
             </span>
           </template>
 
+          <template #cell-base_url="{ row }">
+            <div class="min-w-[180px] text-xs">
+              <div class="truncate text-gray-700 dark:text-gray-300" :title="row.base_url || ''">{{ row.base_url || t('admin.upstreamConfigs.keyPlatforms.inheritBaseUrl') }}</div>
+              <button type="button" class="mt-1 text-primary-600 hover:underline" @click="editKeyBaseURL(row)">{{ row.base_url ? t('common.edit') : t('common.set') }}</button>
+              <button v-if="row.base_url" type="button" class="ml-2 text-red-600 hover:underline" @click="clearKeyBaseURL(row)">{{ t('common.clear') }}</button>
+            </div>
+          </template>
+
           <template #empty>
             <div class="flex flex-col items-center py-10 text-center">
               <Icon name="key" size="xl" class="mb-3 text-gray-400 dark:text-dark-500" />
@@ -1694,7 +1702,8 @@ const keyPlatformColumns = computed<Column[]>(() => [
   { key: 'platform', label: t('admin.upstreamConfigs.keyPlatforms.columns.current') },
   { key: 'source', label: t('admin.upstreamConfigs.keyPlatforms.columns.source') },
   { key: 'bound_account_count', label: t('admin.upstreamConfigs.keyPlatforms.columns.bindings') },
-  { key: 'status', label: t('admin.upstreamConfigs.keyPlatforms.columns.status') }
+  { key: 'status', label: t('admin.upstreamConfigs.keyPlatforms.columns.status') },
+  { key: 'base_url', label: t('admin.upstreamConfigs.keyPlatforms.columns.baseUrl') }
 ])
 
 const imagePricingColumns = computed<Column[]>(() => [
@@ -2636,6 +2645,34 @@ async function saveKeyPlatform(key: UpstreamKey, platform: UpstreamKeyPlatform, 
     appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.keyPlatforms.updateFailed')))
   } finally {
     setKeyPlatformUpdating(key.id, false)
+  }
+}
+
+async function editKeyBaseURL(key: UpstreamKey) {
+  const config = keyPlatformsConfig.value
+  if (!config) return
+  const value = window.prompt('Base URL', key.base_url || '')
+  if (value === null) return
+  try {
+    const updated = await upstreamAPI.updateKeyBaseURL(config.id, key.id, { base_url: value.trim(), expected_updated_at: key.updated_at })
+    Object.assign(key, updated)
+    appStore.showSuccess(t('admin.upstreamConfigs.keyPlatforms.updated'))
+  } catch (error: any) {
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.keyPlatforms.updateFailed')))
+    await loadKeyPlatforms()
+  }
+}
+
+async function clearKeyBaseURL(key: UpstreamKey) {
+  const config = keyPlatformsConfig.value
+  if (!config || !window.confirm('Clear this key Base URL?')) return
+  try {
+    const updated = await upstreamAPI.updateKeyBaseURL(config.id, key.id, { clear_base_url: true, expected_updated_at: key.updated_at })
+    Object.assign(key, updated)
+    appStore.showSuccess(t('admin.upstreamConfigs.keyPlatforms.updated'))
+  } catch (error: any) {
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.keyPlatforms.updateFailed')))
+    await loadKeyPlatforms()
   }
 }
 

@@ -122,6 +122,8 @@ type UpstreamKey struct {
 	RemoteKeyID             *int64
 	UpstreamGroupID         *int64
 	UpstreamGroupName       string
+	BaseURL                 *string
+	Description             string
 	Platform                *string
 	PlatformSource          string
 	DetectedPlatform        *string
@@ -159,6 +161,7 @@ type UpstreamConfigRepository interface {
 	UpdateKey(ctx context.Context, key *UpstreamKey) error
 	DeleteKey(ctx context.Context, id int64) error
 	UpdateKeyPlatform(ctx context.Context, upstreamConfigID, keyID int64, platform string, expectedUpdatedAt time.Time, disableBoundAccounts bool) (*UpstreamKey, error)
+	UpdateKeyBaseURL(ctx context.Context, upstreamConfigID, keyID int64, baseURL *string, expectedUpdatedAt time.Time) (*UpstreamKey, error)
 	RecordCheckResult(ctx context.Context, id int64, success bool, safeErr string) error
 	SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string, expiresAt *time.Time) error
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
@@ -232,6 +235,12 @@ type UpdateUpstreamKeyPlatformRequest struct {
 	Platform             string
 	ExpectedUpdatedAt    time.Time
 	DisableBoundAccounts bool
+}
+
+type UpdateUpstreamKeyBaseURLRequest struct {
+	BaseURL           *string
+	ClearBaseURL      bool
+	ExpectedUpdatedAt time.Time
 }
 
 type UpstreamConfigService struct {
@@ -1493,6 +1502,24 @@ func (s *UpstreamConfigService) UpdateKeyPlatform(ctx context.Context, upstreamC
 	return key, nil
 }
 
+func (s *UpstreamConfigService) UpdateKeyBaseURL(ctx context.Context, upstreamConfigID, keyID int64, req UpdateUpstreamKeyBaseURLRequest) (*UpstreamKey, error) {
+	if req.ExpectedUpdatedAt.IsZero() {
+		return nil, infraerrors.BadRequest("UPSTREAM_KEY_EXPECTED_UPDATED_AT_REQUIRED", "expected_updated_at is required")
+	}
+	var value *string
+	if !req.ClearBaseURL {
+		if req.BaseURL == nil || strings.TrimSpace(*req.BaseURL) == "" {
+			return nil, infraerrors.BadRequest("UPSTREAM_KEY_BASE_URL_REQUIRED", "base_url is required")
+		}
+		normalized, err := normalizeUpstreamConfigURL(*req.BaseURL)
+		if err != nil {
+			return nil, infraerrors.BadRequest("UPSTREAM_KEY_BASE_URL_INVALID", "base_url must be a valid http or https URL")
+		}
+		value = &normalized
+	}
+	return s.repo.UpdateKeyBaseURL(ctx, upstreamConfigID, keyID, value, req.ExpectedUpdatedAt.UTC())
+}
+
 func (s *UpstreamConfigService) Test(ctx context.Context, id int64) error {
 	cfg, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -1943,9 +1970,19 @@ func (s *UpstreamConfigService) reconcileUpstreamAccounts(ctx context.Context, c
 		configID, keyID, rate := cfg.ID, key.ID, *key.RateMultiplier
 		accountExtra := map[string]any{AccountUpstreamProviderKey: cfg.Provider, AccountSub2APIRateSyncAdapterKey: cfg.AuthMode}
 		copyUpstreamModelSyncSourceMetadata(accountExtra, key.Extra)
+		if description, ok := upstreamKeyDescription(key.Extra); ok {
+			accountExtra[AccountUpstreamKeyDescriptionExtraKey] = description
+			accountExtra[AccountUpstreamKeyDescriptionSyncedExtraKey] = true
+		}
+		credentials := map[string]any{"pool_mode": true}
+		if key.BaseURL != nil && strings.TrimSpace(*key.BaseURL) != "" {
+			credentials["base_url"] = strings.TrimSpace(*key.BaseURL)
+		} else {
+			credentials["base_url"] = cfg.EffectiveAPIURL()
+		}
 		account := &Account{
 			Name: name, Platform: platform, Type: AccountTypeAPIKey,
-			Credentials:      map[string]any{"pool_mode": true},
+			Credentials:      credentials,
 			Extra:            accountExtra,
 			UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
 			UpstreamLifecycleOwner: AccountUpstreamLifecycleOwnerSyncManaged,
@@ -2016,6 +2053,21 @@ func (s *UpstreamConfigService) mergeSub2APIImagePricingSnapshots(ctx context.Co
 		}
 		key.Extra = mergedExtra
 	}
+}
+
+func upstreamKeyDescription(extra map[string]any) (string, bool) {
+	if extra == nil {
+		return "", false
+	}
+	for _, key := range []string{AccountUpstreamKeyDescriptionExtraKey, "description", "desc", "remark"} {
+		if value, ok := extra[key].(string); ok {
+			value = strings.TrimSpace(value)
+			if value != "" && len([]rune(value)) <= 512 {
+				return value, true
+			}
+		}
+	}
+	return "", false
 }
 
 func applySub2APIBillingRates(ctx context.Context, cfg *UpstreamConfig, proxyURL string, snapshot *upstreamProviderSnapshot) {
@@ -2409,6 +2461,17 @@ func normalizeAndValidateUpstreamKey(key *UpstreamKey) error {
 		return infraerrors.BadRequest("UPSTREAM_KEY_REQUIRED", "upstream key is required")
 	}
 	key.Name = strings.TrimSpace(key.Name)
+	if key.BaseURL != nil {
+		if strings.TrimSpace(*key.BaseURL) == "" {
+			key.BaseURL = nil
+		} else {
+			normalized, err := normalizeUpstreamConfigURL(*key.BaseURL)
+			if err != nil {
+				return infraerrors.BadRequest("UPSTREAM_KEY_BASE_URL_INVALID", "base_url is invalid")
+			}
+			key.BaseURL = &normalized
+		}
+	}
 	key.Key = strings.TrimSpace(key.Key)
 	if key.Platform != nil {
 		platform := strings.ToLower(strings.TrimSpace(*key.Platform))

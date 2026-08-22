@@ -46,9 +46,11 @@ const (
 	AccountCredentialLCodexLoginIdentifier = "lcodex_login_identifier"
 	AccountCredentialLCodexLoginPassword   = "lcodex_login_password"
 
-	AccountUpstreamLifecycleOwnerManual      = "manual"
-	AccountUpstreamLifecycleOwnerSyncManaged = "sync_managed"
-	AccountUpstreamArchiveReasonKeyMissing   = "key_missing"
+	AccountUpstreamLifecycleOwnerManual         = "manual"
+	AccountUpstreamLifecycleOwnerSyncManaged    = "sync_managed"
+	AccountUpstreamArchiveReasonKeyMissing      = "key_missing"
+	AccountUpstreamKeyDescriptionExtraKey       = "upstream_key_description"
+	AccountUpstreamKeyDescriptionSyncedExtraKey = "upstream_key_description_synced"
 )
 
 type Account struct {

@@ -49,6 +49,7 @@ const upstreamUsageTrendSQL = `
 		WHERE ul.created_at >= p.start_time
 		  AND ul.created_at < p.end_time
 		  AND COALESCE(ul.upstream_config_id, a.upstream_config_id) IS NOT NULL
+		  AND (ul.account_id IS NULL OR ul.account_id <> 1)
 		  AND (
 			p.upstream_config_id IS NULL
 			OR COALESCE(ul.upstream_config_id, a.upstream_config_id) = p.upstream_config_id

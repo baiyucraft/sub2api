@@ -35,6 +35,8 @@ const (
 	FieldUpstreamGroupID = "upstream_group_id"
 	// FieldUpstreamGroupName holds the string denoting the upstream_group_name field in the database.
 	FieldUpstreamGroupName = "upstream_group_name"
+	// FieldBaseURL holds the string denoting the base_url field in the database.
+	FieldBaseURL = "base_url"
 	// FieldPlatform holds the string denoting the platform field in the database.
 	FieldPlatform = "platform"
 	// FieldPlatformSource holds the string denoting the platform_source field in the database.
@@ -132,6 +134,7 @@ var Columns = []string{
 	FieldRemoteKeyID,
 	FieldUpstreamGroupID,
 	FieldUpstreamGroupName,
+	FieldBaseURL,
 	FieldPlatform,
 	FieldPlatformSource,
 	FieldDetectedPlatform,
@@ -181,6 +184,8 @@ var (
 	DefaultUpstreamGroupName string
 	// UpstreamGroupNameValidator is a validator for the "upstream_group_name" field. It is called by the builders before save.
 	UpstreamGroupNameValidator func(string) error
+	// BaseURLValidator is a validator for the "base_url" field. It is called by the builders before save.
+	BaseURLValidator func(string) error
 	// PlatformValidator is a validator for the "platform" field. It is called by the builders before save.
 	PlatformValidator func(string) error
 	// DefaultPlatformSource holds the default value on creation for the "platform_source" field.
@@ -261,6 +266,11 @@ func ByUpstreamGroupID(opts ...sql.OrderTermOption) OrderOption {
 // ByUpstreamGroupName orders the results by the upstream_group_name field.
 func ByUpstreamGroupName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpstreamGroupName, opts...).ToFunc()
+}
+
+// ByBaseURL orders the results by the base_url field.
+func ByBaseURL(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBaseURL, opts...).ToFunc()
 }
 
 // ByPlatform orders the results by the platform field.

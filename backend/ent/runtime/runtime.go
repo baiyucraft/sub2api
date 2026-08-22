@@ -2408,42 +2408,46 @@ func init() {
 	upstreamkey.DefaultUpstreamGroupName = upstreamkeyDescUpstreamGroupName.Default.(string)
 	// upstreamkey.UpstreamGroupNameValidator is a validator for the "upstream_group_name" field. It is called by the builders before save.
 	upstreamkey.UpstreamGroupNameValidator = upstreamkeyDescUpstreamGroupName.Validators[0].(func(string) error)
+	// upstreamkeyDescBaseURL is the schema descriptor for base_url field.
+	upstreamkeyDescBaseURL := upstreamkeyFields[7].Descriptor()
+	// upstreamkey.BaseURLValidator is a validator for the "base_url" field. It is called by the builders before save.
+	upstreamkey.BaseURLValidator = upstreamkeyDescBaseURL.Validators[0].(func(string) error)
 	// upstreamkeyDescPlatform is the schema descriptor for platform field.
-	upstreamkeyDescPlatform := upstreamkeyFields[7].Descriptor()
+	upstreamkeyDescPlatform := upstreamkeyFields[8].Descriptor()
 	// upstreamkey.PlatformValidator is a validator for the "platform" field. It is called by the builders before save.
 	upstreamkey.PlatformValidator = upstreamkeyDescPlatform.Validators[0].(func(string) error)
 	// upstreamkeyDescPlatformSource is the schema descriptor for platform_source field.
-	upstreamkeyDescPlatformSource := upstreamkeyFields[8].Descriptor()
+	upstreamkeyDescPlatformSource := upstreamkeyFields[9].Descriptor()
 	// upstreamkey.DefaultPlatformSource holds the default value on creation for the platform_source field.
 	upstreamkey.DefaultPlatformSource = upstreamkeyDescPlatformSource.Default.(string)
 	// upstreamkey.PlatformSourceValidator is a validator for the "platform_source" field. It is called by the builders before save.
 	upstreamkey.PlatformSourceValidator = upstreamkeyDescPlatformSource.Validators[0].(func(string) error)
 	// upstreamkeyDescDetectedPlatform is the schema descriptor for detected_platform field.
-	upstreamkeyDescDetectedPlatform := upstreamkeyFields[9].Descriptor()
+	upstreamkeyDescDetectedPlatform := upstreamkeyFields[10].Descriptor()
 	// upstreamkey.DetectedPlatformValidator is a validator for the "detected_platform" field. It is called by the builders before save.
 	upstreamkey.DetectedPlatformValidator = upstreamkeyDescDetectedPlatform.Validators[0].(func(string) error)
 	// upstreamkeyDescPlatformDetectionStatus is the schema descriptor for platform_detection_status field.
-	upstreamkeyDescPlatformDetectionStatus := upstreamkeyFields[10].Descriptor()
+	upstreamkeyDescPlatformDetectionStatus := upstreamkeyFields[11].Descriptor()
 	// upstreamkey.DefaultPlatformDetectionStatus holds the default value on creation for the platform_detection_status field.
 	upstreamkey.DefaultPlatformDetectionStatus = upstreamkeyDescPlatformDetectionStatus.Default.(string)
 	// upstreamkey.PlatformDetectionStatusValidator is a validator for the "platform_detection_status" field. It is called by the builders before save.
 	upstreamkey.PlatformDetectionStatusValidator = upstreamkeyDescPlatformDetectionStatus.Validators[0].(func(string) error)
 	// upstreamkeyDescStatus is the schema descriptor for status field.
-	upstreamkeyDescStatus := upstreamkeyFields[14].Descriptor()
+	upstreamkeyDescStatus := upstreamkeyFields[15].Descriptor()
 	// upstreamkey.DefaultStatus holds the default value on creation for the status field.
 	upstreamkey.DefaultStatus = upstreamkeyDescStatus.Default.(string)
 	// upstreamkey.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	upstreamkey.StatusValidator = upstreamkeyDescStatus.Validators[0].(func(string) error)
 	// upstreamkeyDescMissingCount is the schema descriptor for missing_count field.
-	upstreamkeyDescMissingCount := upstreamkeyFields[16].Descriptor()
+	upstreamkeyDescMissingCount := upstreamkeyFields[17].Descriptor()
 	// upstreamkey.DefaultMissingCount holds the default value on creation for the missing_count field.
 	upstreamkey.DefaultMissingCount = upstreamkeyDescMissingCount.Default.(int)
 	// upstreamkeyDescObservationEnabled is the schema descriptor for observation_enabled field.
-	upstreamkeyDescObservationEnabled := upstreamkeyFields[18].Descriptor()
+	upstreamkeyDescObservationEnabled := upstreamkeyFields[19].Descriptor()
 	// upstreamkey.DefaultObservationEnabled holds the default value on creation for the observation_enabled field.
 	upstreamkey.DefaultObservationEnabled = upstreamkeyDescObservationEnabled.Default.(bool)
 	// upstreamkeyDescExtra is the schema descriptor for extra field.
-	upstreamkeyDescExtra := upstreamkeyFields[19].Descriptor()
+	upstreamkeyDescExtra := upstreamkeyFields[20].Descriptor()
 	// upstreamkey.DefaultExtra holds the default value on creation for the extra field.
 	upstreamkey.DefaultExtra = upstreamkeyDescExtra.Default.(func() map[string]interface{})
 	upstreamkeyratesnapshotFields := schema.UpstreamKeyRateSnapshot{}.Fields()

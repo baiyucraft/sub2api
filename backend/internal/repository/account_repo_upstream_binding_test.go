@@ -307,7 +307,7 @@ func expectUpstreamKeyLockWithDetection(mock sqlmock.Sqlmock, id, configID int64
 		if platform != nil {
 			platformValue = *platform
 		}
-		rows.AddRow(id, now, now, nil, configID, "key", "test-secret", "test-hash", nil, nil, "", platformValue, source, nil, detectionStatus, nil, 1.0, 1.0, status, nil, 0, nil, true, []byte("{}"))
+		rows.AddRow(id, now, now, nil, configID, "key", "test-secret", "test-hash", nil, nil, "", nil, platformValue, source, nil, detectionStatus, nil, 1.0, 1.0, status, nil, 0, nil, true, []byte("{}"))
 	}
 	mock.ExpectQuery(`SELECT .* FROM "upstream_keys".*"deleted_at" IS NULL.*FOR UPDATE`).WillReturnRows(rows)
 }

@@ -105,6 +105,11 @@ func UpstreamGroupName(v string) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEQ(FieldUpstreamGroupName, v))
 }
 
+// BaseURL applies equality check predicate on the "base_url" field. It's identical to BaseURLEQ.
+func BaseURL(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldBaseURL, v))
+}
+
 // Platform applies equality check predicate on the "platform" field. It's identical to PlatformEQ.
 func Platform(v string) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldEQ(FieldPlatform, v))
@@ -673,6 +678,81 @@ func UpstreamGroupNameEqualFold(v string) predicate.UpstreamKey {
 // UpstreamGroupNameContainsFold applies the ContainsFold predicate on the "upstream_group_name" field.
 func UpstreamGroupNameContainsFold(v string) predicate.UpstreamKey {
 	return predicate.UpstreamKey(sql.FieldContainsFold(FieldUpstreamGroupName, v))
+}
+
+// BaseURLEQ applies the EQ predicate on the "base_url" field.
+func BaseURLEQ(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEQ(FieldBaseURL, v))
+}
+
+// BaseURLNEQ applies the NEQ predicate on the "base_url" field.
+func BaseURLNEQ(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNEQ(FieldBaseURL, v))
+}
+
+// BaseURLIn applies the In predicate on the "base_url" field.
+func BaseURLIn(vs ...string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIn(FieldBaseURL, vs...))
+}
+
+// BaseURLNotIn applies the NotIn predicate on the "base_url" field.
+func BaseURLNotIn(vs ...string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotIn(FieldBaseURL, vs...))
+}
+
+// BaseURLGT applies the GT predicate on the "base_url" field.
+func BaseURLGT(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGT(FieldBaseURL, v))
+}
+
+// BaseURLGTE applies the GTE predicate on the "base_url" field.
+func BaseURLGTE(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldGTE(FieldBaseURL, v))
+}
+
+// BaseURLLT applies the LT predicate on the "base_url" field.
+func BaseURLLT(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLT(FieldBaseURL, v))
+}
+
+// BaseURLLTE applies the LTE predicate on the "base_url" field.
+func BaseURLLTE(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldLTE(FieldBaseURL, v))
+}
+
+// BaseURLContains applies the Contains predicate on the "base_url" field.
+func BaseURLContains(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldContains(FieldBaseURL, v))
+}
+
+// BaseURLHasPrefix applies the HasPrefix predicate on the "base_url" field.
+func BaseURLHasPrefix(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldHasPrefix(FieldBaseURL, v))
+}
+
+// BaseURLHasSuffix applies the HasSuffix predicate on the "base_url" field.
+func BaseURLHasSuffix(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldHasSuffix(FieldBaseURL, v))
+}
+
+// BaseURLIsNil applies the IsNil predicate on the "base_url" field.
+func BaseURLIsNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldIsNull(FieldBaseURL))
+}
+
+// BaseURLNotNil applies the NotNil predicate on the "base_url" field.
+func BaseURLNotNil() predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldNotNull(FieldBaseURL))
+}
+
+// BaseURLEqualFold applies the EqualFold predicate on the "base_url" field.
+func BaseURLEqualFold(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldEqualFold(FieldBaseURL, v))
+}
+
+// BaseURLContainsFold applies the ContainsFold predicate on the "base_url" field.
+func BaseURLContainsFold(v string) predicate.UpstreamKey {
+	return predicate.UpstreamKey(sql.FieldContainsFold(FieldBaseURL, v))
 }
 
 // PlatformEQ applies the EQ predicate on the "platform" field.

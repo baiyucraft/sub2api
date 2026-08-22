@@ -179,6 +179,9 @@ type newAPIKeyRow struct {
 	Key                string          `json:"key"`
 	Status             int             `json:"status"`
 	Name               string          `json:"name"`
+	Description        string          `json:"description"`
+	Desc               string          `json:"desc"`
+	Remark             string          `json:"remark"`
 	Group              string          `json:"group"`
 	UsedQuota          float64         `json:"used_quota"`
 	RemainQuota        float64         `json:"remain_quota"`
@@ -351,6 +354,16 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 			"newapi_remain_quota":         row.RemainQuota,
 			"newapi_unlimited_quota":      row.UnlimitedQuota,
 			"newapi_model_limits_enabled": row.ModelLimitsEnabled,
+		}
+		description := strings.TrimSpace(row.Description)
+		if description == "" {
+			description = strings.TrimSpace(row.Desc)
+		}
+		if description == "" {
+			description = strings.TrimSpace(row.Remark)
+		}
+		if len([]rune(description)) <= 512 && description != "" {
+			extra[AccountUpstreamKeyDescriptionExtraKey] = description
 		}
 		if row.ModelLimitsEnabled {
 			models, modelLimitsErr := parseNewAPIModelLimits(row.ModelLimits)
