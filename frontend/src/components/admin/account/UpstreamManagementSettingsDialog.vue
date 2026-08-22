@@ -1,12 +1,12 @@
 <template>
-  <BaseDialog :show="show" :title="t('admin.upstreamManagement.settings.title')" width="wide" @close="closeDialog">
+  <BaseDialog :show="show" :title="probeOnly ? t('admin.upstreamManagement.probeSettings.title') : t('admin.upstreamManagement.settings.title')" width="wide" @close="closeDialog">
     <div v-if="loading" class="flex min-h-64 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
       <Icon name="refresh" size="md" class="mr-2 animate-spin" />
       {{ t('common.loading') }}
     </div>
 
     <div v-else class="space-y-6">
-      <section class="rounded-2xl border border-gray-200 bg-gray-50/70 p-5 dark:border-dark-700 dark:bg-dark-800/60">
+      <section v-if="!probeOnly" class="rounded-2xl border border-gray-200 bg-gray-50/70 p-5 dark:border-dark-700 dark:bg-dark-800/60">
         <div class="flex items-start justify-between gap-5">
           <div class="min-w-0">
             <div class="flex items-center gap-1.5">
@@ -43,7 +43,7 @@
         </div>
       </section>
 
-      <section class="rounded-2xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-900/60">
+      <section v-if="probeOnly" class="rounded-2xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-900/60">
         <div>
           <h4 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.probeModels.title') }}</h4>
           <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.probeModels.description') }}</p>
@@ -130,7 +130,7 @@
         </div>
       </section>
 
-      <section class="rounded-2xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-900/60">
+      <section v-if="!probeOnly" class="rounded-2xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-900/60">
         <div class="flex items-start justify-between gap-5">
           <div class="min-w-0">
             <h4 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.modelAliases.title') }}</h4>
@@ -180,9 +180,10 @@ import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import CustomErrorCodeSelector from '@/components/account/CustomErrorCodeSelector.vue'
 
-const props = defineProps<{ show: boolean }>()
+const props = defineProps<{ show: boolean; probeOnly?: boolean }>()
 const emit = defineEmits<{ (event: 'close'): void; (event: 'saved', value: UpstreamManagementSettings): void }>()
 const { t } = useI18n()
+const probeOnly = computed(() => props.probeOnly === true)
 const appStore = useAppStore()
 
 const platforms = ['openai', 'anthropic', 'gemini'] as const
@@ -264,7 +265,7 @@ async function load() {
   loading.value = true
   try {
     const [settings, options] = await Promise.all([
-      upstreamManagementAPI.getSettings(),
+      (probeOnly.value ? upstreamManagementAPI.getProbeSettings() : upstreamManagementAPI.getSettings()),
       upstreamManagementAPI.getProbeModelCandidates()
     ])
     Object.assign(draft.ttft_guard, settings.ttft_guard)
@@ -309,7 +310,9 @@ async function save() {
       probe_interval_seconds: probeIntervalMinutes.value * 60,
       model_alias_rules: modelAliasRules
     }
-    const saved = await upstreamManagementAPI.updateSettings(payload)
+    const saved = probeOnly.value
+      ? await upstreamManagementAPI.updateProbeSettings(payload)
+      : await upstreamManagementAPI.updateSettings(payload)
     appStore.showSuccess(t('admin.upstreamManagement.saved'))
     emit('saved', saved)
     emit('close')

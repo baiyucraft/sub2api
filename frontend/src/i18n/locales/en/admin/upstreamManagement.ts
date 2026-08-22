@@ -18,6 +18,10 @@ export default {
       loadFailed: 'Failed to load upstream management settings',
       invalid: 'Check the first-token threshold, sample count, probe models, probe interval, and probe error codes.'
     },
+    probeSettings: {
+      title: 'Probe settings',
+      open: 'Probe settings'
+    },
     modelAliases: {
       title: 'Global model aliases',
       description: 'Applies only to sync-managed upstream accounts. Saving does not trigger a full sync; rules take effect on the next model sync or manual refresh. Manual account mappings and user billing are unchanged.',

@@ -30,6 +30,17 @@
               >
                 <Icon name="cog" size="md" />
               </button>
+              <button
+                v-if="props.scope === 'upstream'"
+                type="button"
+                class="btn btn-secondary px-2.5"
+                data-test="upstream-probe-settings"
+                :title="t('admin.upstreamManagement.probeSettings.open')"
+                :aria-label="t('admin.upstreamManagement.probeSettings.open')"
+                @click="showUpstreamProbeSettings = true"
+              >
+                <Icon name="beaker" size="md" />
+              </button>
             </template>
             <template #after>
               <!-- Auto Refresh Dropdown -->
@@ -268,7 +279,7 @@
               </HelpTooltip>
               <span v-else class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
               <div
-                v-if="accountDisplayEmail(row) || (scope === 'upstream' && row.upstream_image_pricing?.supported)"
+                v-if="accountDisplayEmail(row) || (scope === 'upstream' && hasUpstreamImageCapability(row)) || (scope === 'upstream' && hasUpstreamVideoCapability(row)) || (scope === 'upstream' && hasUpstreamLongContext(row))"
                 class="flex min-w-0 flex-wrap items-center gap-1"
               >
                 <span
@@ -279,10 +290,20 @@
                   {{ accountDisplayEmail(row) }}
                 </span>
                 <span
-                  v-if="scope === 'upstream' && row.upstream_image_pricing?.supported"
+                  v-if="scope === 'upstream' && hasUpstreamImageCapability(row)"
                   :class="upstreamImagePricingBadgeClass(row)"
                   :title="upstreamImagePricingTooltip(row)"
                 >{{ t('admin.accounts.upstreamImagePricing.badge') }}</span>
+                <span
+                  v-if="scope === 'upstream' && hasUpstreamLongContext(row)"
+                  class="mt-0.5 inline-flex w-fit items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+                  :title="upstreamLongContextTooltip(row)"
+                >{{ t('admin.accounts.upstreamLongContext.badge') }}</span>
+                <span
+                  v-if="scope === 'upstream' && hasUpstreamVideoCapability(row)"
+                  class="mt-0.5 inline-flex w-fit items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+                  :title="upstreamVideoPricingTooltip(row)"
+                >{{ t('admin.accounts.upstreamVideoPricing.badge') }}</span>
               </div>
             </div>
           </template>
@@ -433,8 +454,12 @@
                 ><Icon name="sync" size="xs" /></span>
               </span>
               <UpstreamImagePricingSummary
-                v-if="scope === 'upstream' && row.upstream_image_pricing?.supported"
+                v-if="scope === 'upstream' && hasUsableImagePricing(row)"
                 :pricing="row.upstream_image_pricing"
+              />
+              <UpstreamVideoPricingSummary
+                v-if="scope === 'upstream' && hasUsableVideoPricing(row)"
+                :pricing="row.upstream_video_pricing"
               />
             </div>
           </template>
@@ -634,6 +659,11 @@
       :show="showUpstreamManagementSettings"
       @close="showUpstreamManagementSettings = false"
     />
+    <UpstreamManagementSettingsDialog
+      :show="showUpstreamProbeSettings"
+      :probe-only="true"
+      @close="showUpstreamProbeSettings = false"
+    />
   </AppLayout>
 </template>
 
@@ -671,6 +701,7 @@ import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
 import UpstreamImagePricingSummary from '@/components/account/UpstreamImagePricingSummary.vue'
+import UpstreamVideoPricingSummary from '@/components/account/UpstreamVideoPricingSummary.vue'
 import UpstreamModelMappingCell from '@/components/account/UpstreamModelMappingCell.vue'
 import AutoRefreshCountdownLabel from '@/components/account/AutoRefreshCountdownLabel.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
@@ -733,6 +764,49 @@ const upstreamImagePricingTooltip = (account: Account) => {
   })
 }
 
+const hasUpstreamImageCapability = (account: Account) => {
+  const pricing = account.upstream_image_pricing
+  return Boolean(pricing?.supported && !pricing.stale && (pricing.status === 'available' || pricing.status === 'partial'))
+}
+
+const hasUsableImagePricing = (account: Account) => {
+  const pricing = account.upstream_image_pricing
+  return Boolean(hasUpstreamImageCapability(account) && pricing?.effective_rate_multiplier !== null && pricing?.effective_rate_multiplier !== undefined)
+}
+
+const hasUpstreamVideoCapability = (account: Account) => {
+  const pricing = account.upstream_video_pricing
+  return Boolean(pricing?.supported && !pricing.stale && (pricing.status === 'available' || pricing.status === 'partial'))
+}
+
+const hasUsableVideoPricing = (account: Account) => {
+  const pricing = account.upstream_video_pricing
+  return Boolean(hasUpstreamVideoCapability(account) && pricing?.effective_rate_multiplier !== null && pricing?.effective_rate_multiplier !== undefined && [pricing.final_cost_480p, pricing.final_cost_720p, pricing.final_cost_1080p].some(value => value !== null && value !== undefined && Number.isFinite(value)))
+}
+
+const hasUpstreamLongContext = (account: Account) => {
+  const state = account.upstream_long_context
+  return Boolean(state?.status === 'known' && state.enabled && !state.stale)
+}
+
+const upstreamVideoPricingTooltip = (account: Account) => {
+  const pricing = account.upstream_video_pricing
+  if (!pricing) return ''
+  return t('admin.accounts.upstreamVideoPricing.badgeTitle', {
+    status: pricing.stale ? t('admin.accounts.upstreamVideoPricing.statusStale') : pricing.status,
+    observedAt: pricing.observed_at ? formatDateTime(pricing.observed_at) : t('admin.accounts.upstreamImagePricing.notObserved')
+  })
+}
+
+const upstreamLongContextTooltip = (account: Account) => {
+  const state = account.upstream_long_context
+  if (!state) return ''
+  return t('admin.accounts.upstreamLongContext.tooltip', {
+    source: state.source,
+    observedAt: state.observed_at ? formatDateTime(state.observed_at) : t('admin.accounts.upstreamImagePricing.notObserved')
+  })
+}
+
 const props = withDefaults(defineProps<{
   scope?: 'all' | 'ordinary' | 'upstream'
 }>(), {
@@ -744,6 +818,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 
 const showUpstreamManagementSettings = ref(false)
+const showUpstreamProbeSettings = ref(false)
 const probingKeyIDs = reactive(new Set<number>())
 const togglingObservationKeyIDs = reactive(new Set<number>())
 const showUpstreamKeyEvents = ref(false)

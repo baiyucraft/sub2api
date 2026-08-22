@@ -3710,6 +3710,8 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 				if out.UpstreamConfigID != nil {
 					if cfg, ok := upstreamConfigs[*out.UpstreamConfigID]; ok && cfg != nil {
 						out.UpstreamImagePricing = service.DeriveUpstreamKeyImagePricingForAccount(key, cfg)
+						out.UpstreamVideoPricing = service.DeriveUpstreamKeyVideoPricingForAccount(key, cfg)
+						out.UpstreamLongContext = service.DeriveUpstreamLongContextForAccount(key, cfg)
 					}
 				}
 				out.Credentials["api_key"] = key.Key
