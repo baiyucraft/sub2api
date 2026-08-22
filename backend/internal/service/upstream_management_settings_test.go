@@ -177,6 +177,9 @@ func TestGetProbeModelCandidatesCombinesDynamicConfiguredRecentAndFallback(t *te
 				"model_whitelist": []any{"gpt-whitelist", "gpt-public"},
 			}},
 			{Platform: PlatformAnthropic, Credentials: map[string]any{"model_mapping": map[string]any{"claude-public": "claude-upstream"}}},
+			{Platform: PlatformKimi, Credentials: map[string]any{"model_mapping": map[string]any{"kimi-public": "kimi-upstream"}}},
+			{Platform: PlatformZhipu, Credentials: map[string]any{"model_whitelist": []any{"glm-custom"}}},
+			{Platform: PlatformDeepseek, Credentials: map[string]any{"model_whitelist": []any{"deepseek-custom"}}},
 		},
 		recent: map[string][]string{
 			PlatformOpenAI: {"gpt-recent", "gpt-public"},
@@ -195,6 +198,9 @@ func TestGetProbeModelCandidatesCombinesDynamicConfiguredRecentAndFallback(t *te
 	require.Contains(t, candidates[PlatformAnthropic], "claude-upstream")
 	require.Contains(t, candidates[PlatformGemini], "gemini-configured")
 	require.Contains(t, candidates[PlatformGemini], "gemini-recent")
+	require.Contains(t, candidates[PlatformKimi], "kimi-upstream")
+	require.Contains(t, candidates[PlatformZhipu], "glm-custom")
+	require.Contains(t, candidates[PlatformDeepseek], "deepseek-custom")
 	require.Contains(t, candidates[PlatformOpenAI], "gpt-5.4-mini")
 	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini} {
 		require.True(t, sort.StringsAreSorted(candidates[platform]))

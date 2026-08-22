@@ -54,6 +54,16 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('grok-imagine-video-1.5-preview')
   })
 
+  it('国产平台使用各自模型目录且未知平台不回退 Claude', () => {
+    expect(getModelsByPlatform('kimi')).toContain('kimi-k2')
+    expect(getModelsByPlatform('zhipu')).toContain('glm-4.6')
+    expect(getModelsByPlatform('deepseek')).toContain('deepseek-reasoner')
+    expect(getModelsByPlatform('kimi')).not.toContain('claude-sonnet-4-6')
+    expect(getModelsByPlatform('zhipu')).not.toContain('claude-sonnet-4-6')
+    expect(getModelsByPlatform('deepseek')).not.toContain('claude-sonnet-4-6')
+    expect(getModelsByPlatform('unknown-provider')).toEqual([])
+  })
+
   it('combined 模式支持 Grok 4.5 官方别名映射', () => {
     const mapping = buildModelMappingObject(
       'combined',

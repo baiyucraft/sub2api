@@ -6,7 +6,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/stretchr/testify/require"
 )
 
@@ -201,14 +200,11 @@ func TestAdminService_CompositeModelsListCandidatesIncludeConcreteAccountMapping
 	require.Contains(t, candidates, "gemini-2.5-flash")
 }
 
-// 独立 CN 分组的模型列表候选沿用 default 分支的 Claude 默认列表；
-// composite 支持不得改变独立分组的候选语义。
-func TestAdminService_CNProviderModelsListCandidatesKeepClaudeDefaults(t *testing.T) {
-	want := make([]string, 0, len(claude.DefaultModels))
-	for _, model := range claude.DefaultModels {
-		want = append(want, model.ID)
-	}
-	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek} {
-		require.Equal(t, want, defaultModelsListCandidateIDs(platform), "platform=%s", platform)
-	}
+func TestAdminService_CNProviderModelsListCandidatesUseOwnCatalog(t *testing.T) {
+	require.Contains(t, defaultModelsListCandidateIDs(PlatformKimi), "kimi-k2.5")
+	require.Contains(t, defaultModelsListCandidateIDs(PlatformZhipu), "glm-4.6")
+	require.Contains(t, defaultModelsListCandidateIDs(PlatformDeepseek), "deepseek-v4-pro")
+	require.NotContains(t, defaultModelsListCandidateIDs(PlatformKimi), "claude-sonnet-4-6")
+	require.NotContains(t, defaultModelsListCandidateIDs(PlatformZhipu), "claude-sonnet-4-6")
+	require.NotContains(t, defaultModelsListCandidateIDs(PlatformDeepseek), "claude-sonnet-4-6")
 }
