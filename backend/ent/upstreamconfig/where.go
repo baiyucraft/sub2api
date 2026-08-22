@@ -1154,6 +1154,29 @@ func HasUsageLogsWith(preds ...predicate.UsageLog) predicate.UpstreamConfig {
 	})
 }
 
+// HasAuthSession applies the HasEdge predicate on the "auth_session" edge.
+func HasAuthSession() predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, AuthSessionTable, AuthSessionColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAuthSessionWith applies the HasEdge predicate on the "auth_session" edge with a given conditions (other predicates).
+func HasAuthSessionWith(preds ...predicate.UpstreamAuthSession) predicate.UpstreamConfig {
+	return predicate.UpstreamConfig(func(s *sql.Selector) {
+		step := newAuthSessionStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasProxy applies the HasEdge predicate on the "proxy" edge.
 func HasProxy() predicate.UpstreamConfig {
 	return predicate.UpstreamConfig(func(s *sql.Selector) {

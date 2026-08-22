@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
@@ -427,6 +428,21 @@ func (_u *UpstreamConfigUpdate) AddUsageLogs(v ...*UsageLog) *UpstreamConfigUpda
 	return _u.AddUsageLogIDs(ids...)
 }
 
+// AddAuthSessionIDs adds the "auth_session" edge to the UpstreamAuthSession entity by IDs.
+func (_u *UpstreamConfigUpdate) AddAuthSessionIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.AddAuthSessionIDs(ids...)
+	return _u
+}
+
+// AddAuthSession adds the "auth_session" edges to the UpstreamAuthSession entity.
+func (_u *UpstreamConfigUpdate) AddAuthSession(v ...*UpstreamAuthSession) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAuthSessionIDs(ids...)
+}
+
 // SetProxy sets the "proxy" edge to the Proxy entity.
 func (_u *UpstreamConfigUpdate) SetProxy(v *Proxy) *UpstreamConfigUpdate {
 	return _u.SetProxyID(v.ID)
@@ -603,6 +619,27 @@ func (_u *UpstreamConfigUpdate) RemoveUsageLogs(v ...*UsageLog) *UpstreamConfigU
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveUsageLogIDs(ids...)
+}
+
+// ClearAuthSession clears all "auth_session" edges to the UpstreamAuthSession entity.
+func (_u *UpstreamConfigUpdate) ClearAuthSession() *UpstreamConfigUpdate {
+	_u.mutation.ClearAuthSession()
+	return _u
+}
+
+// RemoveAuthSessionIDs removes the "auth_session" edge to UpstreamAuthSession entities by IDs.
+func (_u *UpstreamConfigUpdate) RemoveAuthSessionIDs(ids ...int64) *UpstreamConfigUpdate {
+	_u.mutation.RemoveAuthSessionIDs(ids...)
+	return _u
+}
+
+// RemoveAuthSession removes "auth_session" edges to UpstreamAuthSession entities.
+func (_u *UpstreamConfigUpdate) RemoveAuthSession(v ...*UpstreamAuthSession) *UpstreamConfigUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAuthSessionIDs(ids...)
 }
 
 // ClearProxy clears the "proxy" edge to the Proxy entity.
@@ -1132,6 +1169,51 @@ func (_u *UpstreamConfigUpdate) sqlSave(ctx context.Context) (_node int, err err
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.AuthSessionCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.AuthSessionTable,
+			Columns: []string{upstreamconfig.AuthSessionColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamauthsession.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAuthSessionIDs(); len(nodes) > 0 && !_u.mutation.AuthSessionCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.AuthSessionTable,
+			Columns: []string{upstreamconfig.AuthSessionColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamauthsession.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AuthSessionIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.AuthSessionTable,
+			Columns: []string{upstreamconfig.AuthSessionColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamauthsession.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _u.mutation.ProxyCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -1571,6 +1653,21 @@ func (_u *UpstreamConfigUpdateOne) AddUsageLogs(v ...*UsageLog) *UpstreamConfigU
 	return _u.AddUsageLogIDs(ids...)
 }
 
+// AddAuthSessionIDs adds the "auth_session" edge to the UpstreamAuthSession entity by IDs.
+func (_u *UpstreamConfigUpdateOne) AddAuthSessionIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.AddAuthSessionIDs(ids...)
+	return _u
+}
+
+// AddAuthSession adds the "auth_session" edges to the UpstreamAuthSession entity.
+func (_u *UpstreamConfigUpdateOne) AddAuthSession(v ...*UpstreamAuthSession) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAuthSessionIDs(ids...)
+}
+
 // SetProxy sets the "proxy" edge to the Proxy entity.
 func (_u *UpstreamConfigUpdateOne) SetProxy(v *Proxy) *UpstreamConfigUpdateOne {
 	return _u.SetProxyID(v.ID)
@@ -1747,6 +1844,27 @@ func (_u *UpstreamConfigUpdateOne) RemoveUsageLogs(v ...*UsageLog) *UpstreamConf
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveUsageLogIDs(ids...)
+}
+
+// ClearAuthSession clears all "auth_session" edges to the UpstreamAuthSession entity.
+func (_u *UpstreamConfigUpdateOne) ClearAuthSession() *UpstreamConfigUpdateOne {
+	_u.mutation.ClearAuthSession()
+	return _u
+}
+
+// RemoveAuthSessionIDs removes the "auth_session" edge to UpstreamAuthSession entities by IDs.
+func (_u *UpstreamConfigUpdateOne) RemoveAuthSessionIDs(ids ...int64) *UpstreamConfigUpdateOne {
+	_u.mutation.RemoveAuthSessionIDs(ids...)
+	return _u
+}
+
+// RemoveAuthSession removes "auth_session" edges to UpstreamAuthSession entities.
+func (_u *UpstreamConfigUpdateOne) RemoveAuthSession(v ...*UpstreamAuthSession) *UpstreamConfigUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAuthSessionIDs(ids...)
 }
 
 // ClearProxy clears the "proxy" edge to the Proxy entity.
@@ -2299,6 +2417,51 @@ func (_u *UpstreamConfigUpdateOne) sqlSave(ctx context.Context) (_node *Upstream
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AuthSessionCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.AuthSessionTable,
+			Columns: []string{upstreamconfig.AuthSessionColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamauthsession.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAuthSessionIDs(); len(nodes) > 0 && !_u.mutation.AuthSessionCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.AuthSessionTable,
+			Columns: []string{upstreamconfig.AuthSessionColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamauthsession.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AuthSessionIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.AuthSessionTable,
+			Columns: []string{upstreamconfig.AuthSessionColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamauthsession.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

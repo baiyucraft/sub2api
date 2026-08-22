@@ -1899,7 +1899,7 @@ func (s *BillingService) getDefaultImagePrice(model string, imageSize string) fl
 
 	// 如果没有找到价格，使用硬编码默认值（$0.134，来自 gemini-3-pro-image-preview）
 	if basePrice <= 0 {
-		basePrice = defaultImageGenerationPrice
+		return defaultImagePriceForModel(model, imageSize)
 	}
 
 	// 2K 尺寸 1.5 倍，4K 尺寸翻倍
@@ -1911,6 +1911,33 @@ func (s *BillingService) getDefaultImagePrice(model string, imageSize string) fl
 	}
 
 	return basePrice
+}
+
+func defaultImagePriceForModel(model string, imageSize string) float64 {
+	if price, ok := getDefaultGrokImagineImagePrice(model, imageSize); ok {
+		return price
+	}
+	return defaultImagePriceForPlatform("", imageSize)
+}
+
+func defaultImagePricesForPlatform(platform string) [3]*float64 {
+	values := [3]float64{defaultImageGenerationPrice, defaultImageGenerationPrice * 1.5, defaultImageGenerationPrice * 2}
+	if strings.EqualFold(strings.TrimSpace(platform), PlatformGrok) {
+		values = [3]float64{defaultGrokImagineImagePrice1K, defaultGrokImagineImagePrice2K, defaultGrokImagineImagePrice2K}
+	}
+	return [3]*float64{&values[0], &values[1], &values[2]}
+}
+
+func defaultImagePriceForPlatform(platform string, imageSize string) float64 {
+	prices := defaultImagePricesForPlatform(platform)
+	switch NormalizeImageBillingTierOrDefault(imageSize) {
+	case ImageBillingSize1K:
+		return *prices[0]
+	case ImageBillingSize4K:
+		return *prices[2]
+	default:
+		return *prices[1]
+	}
 }
 
 func (s *BillingService) getDefaultVideoPrice(model string, resolution string) float64 {

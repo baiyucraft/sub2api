@@ -144,6 +144,55 @@ func (h *UpstreamConfigHandler) Delete(c *gin.Context) {
 	response.Success(c, gin.H{"message": "upstream config deleted"})
 }
 
+func (h *UpstreamConfigHandler) GetAuthSession(c *gin.Context) {
+	id, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	status, err := h.service.GetAuthSessionStatus(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, status)
+}
+
+func (h *UpstreamConfigHandler) ClearAuthSession(c *gin.Context) {
+	id, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.service.ClearAuthSession(c.Request.Context(), id); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
+func (h *UpstreamConfigHandler) ClearAuthSessionCooldown(c *gin.Context) {
+	id, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.service.ClearAuthSessionCooldown(c.Request.Context(), id); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
+func (h *UpstreamConfigHandler) ForceAuthSessionReauth(c *gin.Context) {
+	id, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.service.ForceAuthSessionReauth(c.Request.Context(), id); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
 func (h *UpstreamConfigHandler) Test(c *gin.Context) {
 	id, ok := parseUpstreamIDParam(c, "id")
 	if !ok {
@@ -458,6 +507,7 @@ func sanitizeUpstreamConfig(config *service.UpstreamConfig) gin.H {
 		"api_url":               config.APIURL,
 		"auth_mode":             config.AuthMode,
 		"credentials_status":    upstreamCredentialsStatus(config.Credentials),
+		"auth_session":          config.AuthSession,
 		"extra":                 redactedUpstreamExtra(config.Extra),
 		"scheduler_concurrency": resolvedConcurrency,
 		"proxy_id":              config.ProxyID,

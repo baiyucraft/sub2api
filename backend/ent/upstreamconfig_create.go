@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
@@ -361,6 +362,21 @@ func (_c *UpstreamConfigCreate) AddUsageLogs(v ...*UsageLog) *UpstreamConfigCrea
 		ids[i] = v[i].ID
 	}
 	return _c.AddUsageLogIDs(ids...)
+}
+
+// AddAuthSessionIDs adds the "auth_session" edge to the UpstreamAuthSession entity by IDs.
+func (_c *UpstreamConfigCreate) AddAuthSessionIDs(ids ...int64) *UpstreamConfigCreate {
+	_c.mutation.AddAuthSessionIDs(ids...)
+	return _c
+}
+
+// AddAuthSession adds the "auth_session" edges to the UpstreamAuthSession entity.
+func (_c *UpstreamConfigCreate) AddAuthSession(v ...*UpstreamAuthSession) *UpstreamConfigCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddAuthSessionIDs(ids...)
 }
 
 // SetProxy sets the "proxy" edge to the Proxy entity.
@@ -733,6 +749,22 @@ func (_c *UpstreamConfigCreate) createSpec() (*UpstreamConfig, *sqlgraph.CreateS
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.AuthSessionIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   upstreamconfig.AuthSessionTable,
+			Columns: []string{upstreamconfig.AuthSessionColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(upstreamauthsession.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

@@ -91,7 +91,8 @@ type UpstreamConfig struct {
 	CreatedAt                         time.Time
 	UpdatedAt                         time.Time
 
-	Keys []*UpstreamKey
+	Keys        []*UpstreamKey
+	AuthSession *UpstreamAuthSessionStatus
 }
 
 type UpstreamManagementSettings struct {
@@ -211,6 +212,7 @@ type UpstreamConfigService struct {
 	healthLocks                sync.Map
 	healthPersistedAt          sync.Map
 	healthProbeSF              singleflight.Group
+	authSessionManager         UpstreamAuthSessionManager
 }
 
 type UpstreamConfigSyncResult struct {
@@ -361,6 +363,39 @@ func NewUpstreamConfigService(repo UpstreamConfigRepository, proxyRepo ProxyRepo
 		}
 	}
 	return svc
+}
+
+func (s *UpstreamConfigService) SetUpstreamAuthSessionManager(manager UpstreamAuthSessionManager) {
+	s.authSessionManager = manager
+}
+
+func (s *UpstreamConfigService) GetAuthSessionStatus(ctx context.Context, id int64) (*UpstreamAuthSessionStatus, error) {
+	cfg, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if s.authSessionManager == nil {
+		return &UpstreamAuthSessionStatus{Provider: cfg.Provider, AuthMode: cfg.AuthMode}, nil
+	}
+	return s.authSessionManager.Status(ctx, id, cfg)
+}
+func (s *UpstreamConfigService) ClearAuthSession(ctx context.Context, id int64) error {
+	if s.authSessionManager == nil {
+		return nil
+	}
+	return s.authSessionManager.Clear(ctx, id)
+}
+func (s *UpstreamConfigService) ClearAuthSessionCooldown(ctx context.Context, id int64) error {
+	if s.authSessionManager == nil {
+		return nil
+	}
+	return s.authSessionManager.ClearCooldown(ctx, id)
+}
+func (s *UpstreamConfigService) ForceAuthSessionReauth(ctx context.Context, id int64) error {
+	if s.authSessionManager == nil {
+		return nil
+	}
+	return s.authSessionManager.ForceReauth(ctx, id)
 }
 
 func (s *UpstreamConfigService) SetHealthProbeDependencies(prober interface {
@@ -585,6 +620,9 @@ func (s *UpstreamConfigService) List(ctx context.Context, params pagination.Pagi
 	}
 	for i := range configs {
 		hydrateUpstreamConfigImagePricing(&configs[i])
+		if s.authSessionManager != nil {
+			configs[i].AuthSession, _ = s.GetAuthSessionStatus(ctx, configs[i].ID)
+		}
 	}
 	return configs, total, nil
 }
@@ -595,6 +633,9 @@ func (s *UpstreamConfigService) GetByID(ctx context.Context, id int64) (*Upstrea
 		return nil, err
 	}
 	hydrateUpstreamConfigImagePricing(config)
+	if s.authSessionManager != nil {
+		config.AuthSession, _ = s.GetAuthSessionStatus(ctx, config.ID)
+	}
 	return config, nil
 }
 
@@ -628,6 +669,7 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 	if current == nil {
 		return nil, ErrUpstreamConfigNotFound
 	}
+	previousAuthFingerprint := UpstreamAuthCredentialFingerprint(current)
 	current.Name = upstreamFirstNonEmpty(patch.Name, current.Name)
 	current.Provider = normalizeUpstreamProvider(upstreamFirstNonEmpty(patch.Provider, current.Provider))
 	current.SiteURL = upstreamFirstNonEmpty(patch.SiteURL, current.SiteURL)
@@ -687,6 +729,11 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 	}
 	if err := s.repo.Update(ctx, current); err != nil {
 		return nil, err
+	}
+	if s.authSessionManager != nil && previousAuthFingerprint != UpstreamAuthCredentialFingerprint(current) {
+		if err := s.authSessionManager.Clear(ctx, id); err != nil {
+			return nil, err
+		}
 	}
 	return s.GetByID(ctx, id)
 }
@@ -1395,16 +1442,35 @@ func (s *UpstreamConfigService) Test(ctx context.Context, id int64) error {
 		_ = s.repo.RecordCheckResult(ctx, id, false, adapter.SanitizeError(err, cfg.Credentials))
 		return err
 	}
-	if cfg.Provider == UpstreamProviderSub2API {
-		var snapshot *upstreamProviderSnapshot
-		snapshot, err = adapter.SyncSnapshot(ctx, cfg, proxyURL, false)
-		if snapshot != nil && snapshot.RefreshedTokens != nil {
-			if saveErr := s.repo.SaveRefreshedTokens(ctx, cfg.ID, snapshot.RefreshedTokens.AccessToken, snapshot.RefreshedTokens.RefreshToken, snapshot.RefreshedTokens.ExpiresAt); saveErr != nil {
-				err = saveErr
+	var snapshot *upstreamProviderSnapshot
+	if s.authSessionManager != nil {
+		strategy := upstreamAuthStrategyFor(cfg, s)
+		if strategy != nil {
+			var authHandle *UpstreamAuthHandle
+			authHandle, err = s.authSessionManager.Run(ctx, cfg, proxyURL, strategy, func(operationCtx context.Context, handle *UpstreamAuthHandle) error {
+				authHandle = handle
+				snapshot, err = adapter.SyncSnapshot(withUpstreamAuthHandle(operationCtx, handle), cfg, proxyURL, false)
+				return err
+			})
+			if authHandle != nil && cfg.Provider == UpstreamProviderSub2API && authHandle.Refreshed {
+				if value, ok := authHandle.Value.(sub2APIAuthValue); ok {
+					if saveErr := s.repo.SaveRefreshedTokens(ctx, cfg.ID, value.AccessToken, value.RefreshToken, authHandle.ExpiresAt); saveErr != nil {
+						err = saveErr
+					}
+				}
 			}
+		} else {
+			err = adapter.Test(ctx, cfg, proxyURL)
 		}
+	} else if cfg.Provider == UpstreamProviderSub2API {
+		snapshot, err = adapter.SyncSnapshot(ctx, cfg, proxyURL, false)
 	} else {
 		err = adapter.Test(ctx, cfg, proxyURL)
+	}
+	if snapshot != nil && snapshot.RefreshedTokens != nil {
+		if saveErr := s.repo.SaveRefreshedTokens(ctx, cfg.ID, snapshot.RefreshedTokens.AccessToken, snapshot.RefreshedTokens.RefreshToken, snapshot.RefreshedTokens.ExpiresAt); saveErr != nil {
+			err = saveErr
+		}
 	}
 	if err != nil {
 		safeErr := adapter.SanitizeError(err, cfg.Credentials)
@@ -1533,7 +1599,7 @@ func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *Ups
 			var result UpstreamConfigSyncResult
 			var syncErr error
 			lockErr := locker.WithUpstreamConfigSyncLock(ctx, cfg.ID, func(lockCtx context.Context) error {
-				keys, result, syncErr = s.syncProviderConfigLocked(lockCtx, cfg, runID, settings, forceModelSync)
+				keys, result, syncErr = s.syncProviderConfigLocked(withUpstreamConfigSyncLockHeld(lockCtx), cfg, runID, settings, forceModelSync)
 				return nil
 			})
 			if lockErr != nil {
@@ -1589,7 +1655,29 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 		result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(err, "proxy")
 		return nil, result, err
 	}
-	snapshot, err := adapter.SyncSnapshot(ctx, cfg, proxyURL, true)
+	var snapshot *upstreamProviderSnapshot
+	var authHandle *UpstreamAuthHandle
+	if s.authSessionManager != nil {
+		strategy := upstreamAuthStrategyFor(cfg, s)
+		if strategy != nil {
+			authHandle, err = s.authSessionManager.Run(ctx, cfg, proxyURL, strategy, func(operationCtx context.Context, handle *UpstreamAuthHandle) error {
+				snapshot, err = adapter.SyncSnapshot(withUpstreamAuthHandle(operationCtx, handle), cfg, proxyURL, true)
+				return err
+			})
+		} else {
+			snapshot, err = adapter.SyncSnapshot(ctx, cfg, proxyURL, true)
+		}
+	} else {
+		snapshot, err = adapter.SyncSnapshot(ctx, cfg, proxyURL, true)
+	}
+	if authHandle != nil && cfg.Provider == UpstreamProviderSub2API {
+		if value, ok := authHandle.Value.(sub2APIAuthValue); ok && authHandle.Refreshed {
+			if saveErr := s.repo.SaveRefreshedTokens(ctx, cfg.ID, value.AccessToken, value.RefreshToken, authHandle.ExpiresAt); saveErr != nil {
+				result.Error = adapter.SanitizeError(saveErr, cfg.Credentials)
+				return nil, result, saveErr
+			}
+		}
+	}
 	if snapshot != nil && snapshot.RefreshedTokens != nil {
 		if saveErr := s.repo.SaveRefreshedTokens(ctx, cfg.ID, snapshot.RefreshedTokens.AccessToken, snapshot.RefreshedTokens.RefreshToken, snapshot.RefreshedTokens.ExpiresAt); saveErr != nil {
 			result.Error = adapter.SanitizeError(saveErr, cfg.Credentials)
