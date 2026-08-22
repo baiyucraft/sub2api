@@ -1122,6 +1122,48 @@
     </BaseDialog>
 
     <BaseDialog
+      :show="keyBaseUrlDialogOpen"
+      :title="t('admin.upstreamConfigs.keyPlatforms.baseUrlDialog.title')"
+      width="normal"
+      :close-on-escape="!keyBaseUrlSaving"
+      :show-close-button="!keyBaseUrlSaving"
+      @close="closeKeyBaseURLDialog"
+    >
+      <form data-test="key-base-url-form" class="space-y-4" @submit.prevent="saveKeyBaseURL">
+        <div>
+          <label class="input-label" for="key-base-url-input">
+            {{ t('admin.upstreamConfigs.keyPlatforms.baseUrlDialog.label') }}
+          </label>
+          <input
+            id="key-base-url-input"
+            v-model.trim="keyBaseUrlValue"
+            class="input mt-1 font-mono text-sm"
+            data-test="key-base-url-input"
+            type="url"
+            required
+            autocomplete="url"
+            :placeholder="t('admin.upstreamConfigs.keyPlatforms.baseUrlDialog.placeholder')"
+          />
+          <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-dark-400">
+            {{ t('admin.upstreamConfigs.keyPlatforms.baseUrlDialog.hint') }}
+          </p>
+        </div>
+      </form>
+
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-secondary" :disabled="keyBaseUrlSaving" @click="closeKeyBaseURLDialog()">
+            {{ t('common.cancel') }}
+          </button>
+          <button type="submit" form="key-base-url-form" class="btn btn-primary" :disabled="keyBaseUrlSaving">
+            <Icon v-if="keyBaseUrlSaving" name="refresh" size="sm" class="mr-2 animate-spin" />
+            {{ keyBaseUrlSaving ? t('admin.upstreamConfigs.actions.saving') : t('common.save') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
+    <BaseDialog
       :show="operationsDrawerMode !== null"
       :title="operationsDrawerTitle"
       :width="operationsDialogWidth"
@@ -1474,6 +1516,16 @@
       @confirm="confirmKeyPlatformConflict"
       @cancel="cancelKeyPlatformConflict"
     />
+    <ConfirmDialog
+      :show="pendingKeyBaseUrlClear !== null"
+      :title="t('admin.upstreamConfigs.keyPlatforms.baseUrlDialog.clearTitle')"
+      :message="t('admin.upstreamConfigs.keyPlatforms.baseUrlDialog.clearMessage')"
+      :confirm-text="t('common.clear')"
+      :cancel-text="t('common.cancel')"
+      :danger="true"
+      @confirm="confirmClearKeyBaseURL"
+      @cancel="cancelClearKeyBaseURL"
+    />
   </AppLayout>
 </template>
 
@@ -1574,6 +1626,11 @@ const keyPlatformsLoading = ref(false)
 const keyManagementTab = ref<KeyManagementTab>('platforms')
 const keyManagementSearch = ref('')
 const imagePricingFilter = ref<ImagePricingFilter>('supported')
+const keyBaseUrlDialogOpen = ref(false)
+const keyBaseUrlEditingKey = ref<UpstreamKey | null>(null)
+const keyBaseUrlValue = ref('')
+const keyBaseUrlSaving = ref(false)
+const pendingKeyBaseUrlClear = ref<UpstreamKey | null>(null)
 const updatingKeyPlatformIds = ref<Set<number>>(new Set())
 const keyPlatformSelections = reactive<Record<number, UpstreamKeyPlatform | null>>({})
 const pendingKeyPlatformConflict = ref<{
@@ -2479,7 +2536,9 @@ async function loadKeyPlatforms() {
 }
 
 function closeKeyPlatformsDialog() {
-  if (keyPlatformSaving.value) return
+  if (keyPlatformSaving.value || keyBaseUrlSaving.value) return
+  closeKeyBaseURLDialog()
+  pendingKeyBaseUrlClear.value = null
   keyPlatformsRequestGeneration += 1
   keyPlatformsLoading.value = false
   keyPlatformsDialogOpen.value = false
@@ -2489,6 +2548,74 @@ function closeKeyPlatformsDialog() {
   imagePricingFilter.value = 'supported'
   pendingKeyPlatformConflict.value = null
   resetKeyPlatformSelections([])
+}
+
+function editKeyBaseURL(key: UpstreamKey) {
+  if (!keyPlatformsConfig.value) return
+  keyBaseUrlEditingKey.value = key
+  keyBaseUrlValue.value = key.base_url || ''
+  keyBaseUrlDialogOpen.value = true
+}
+
+function closeKeyBaseURLDialog(force = false) {
+  if (keyBaseUrlSaving.value && !force) return
+  keyBaseUrlDialogOpen.value = false
+  keyBaseUrlEditingKey.value = null
+  keyBaseUrlValue.value = ''
+}
+
+async function saveKeyBaseURL() {
+  const config = keyPlatformsConfig.value
+  const key = keyBaseUrlEditingKey.value
+  const baseURL = keyBaseUrlValue.value.trim()
+  if (!config || !key || !baseURL || keyBaseUrlSaving.value) return
+
+  keyBaseUrlSaving.value = true
+  try {
+    const updated = await upstreamAPI.updateKeyBaseURL(config.id, key.id, {
+      base_url: baseURL,
+      expected_updated_at: key.updated_at
+    })
+    Object.assign(key, updated)
+    closeKeyBaseURLDialog(true)
+    appStore.showSuccess(t('admin.upstreamConfigs.keyPlatforms.updated'))
+  } catch (error: any) {
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.keyPlatforms.updateFailed')))
+    await loadKeyPlatforms()
+  } finally {
+    keyBaseUrlSaving.value = false
+  }
+}
+
+function clearKeyBaseURL(key: UpstreamKey) {
+  if (!keyPlatformsConfig.value) return
+  pendingKeyBaseUrlClear.value = key
+}
+
+function cancelClearKeyBaseURL() {
+  pendingKeyBaseUrlClear.value = null
+}
+
+async function confirmClearKeyBaseURL() {
+  const config = keyPlatformsConfig.value
+  const key = pendingKeyBaseUrlClear.value
+  pendingKeyBaseUrlClear.value = null
+  if (!config || !key || keyBaseUrlSaving.value) return
+
+  keyBaseUrlSaving.value = true
+  try {
+    const updated = await upstreamAPI.updateKeyBaseURL(config.id, key.id, {
+      clear_base_url: true,
+      expected_updated_at: key.updated_at
+    })
+    Object.assign(key, updated)
+    appStore.showSuccess(t('admin.upstreamConfigs.keyPlatforms.updated'))
+  } catch (error: any) {
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.keyPlatforms.updateFailed')))
+    await loadKeyPlatforms()
+  } finally {
+    keyBaseUrlSaving.value = false
+  }
 }
 
 function keyManagementTabClass(tab: KeyManagementTab): string {
@@ -2645,34 +2772,6 @@ async function saveKeyPlatform(key: UpstreamKey, platform: UpstreamKeyPlatform, 
     appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.keyPlatforms.updateFailed')))
   } finally {
     setKeyPlatformUpdating(key.id, false)
-  }
-}
-
-async function editKeyBaseURL(key: UpstreamKey) {
-  const config = keyPlatformsConfig.value
-  if (!config) return
-  const value = window.prompt('Base URL', key.base_url || '')
-  if (value === null) return
-  try {
-    const updated = await upstreamAPI.updateKeyBaseURL(config.id, key.id, { base_url: value.trim(), expected_updated_at: key.updated_at })
-    Object.assign(key, updated)
-    appStore.showSuccess(t('admin.upstreamConfigs.keyPlatforms.updated'))
-  } catch (error: any) {
-    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.keyPlatforms.updateFailed')))
-    await loadKeyPlatforms()
-  }
-}
-
-async function clearKeyBaseURL(key: UpstreamKey) {
-  const config = keyPlatformsConfig.value
-  if (!config || !window.confirm('Clear this key Base URL?')) return
-  try {
-    const updated = await upstreamAPI.updateKeyBaseURL(config.id, key.id, { clear_base_url: true, expected_updated_at: key.updated_at })
-    Object.assign(key, updated)
-    appStore.showSuccess(t('admin.upstreamConfigs.keyPlatforms.updated'))
-  } catch (error: any) {
-    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.keyPlatforms.updateFailed')))
-    await loadKeyPlatforms()
   }
 }
 

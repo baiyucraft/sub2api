@@ -10,7 +10,7 @@ const {
   listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock,
   getSettingsMock, updateSettingsMock, listSyncRunsMock, getSyncRunMock, listEventsMock,
   listIncidentsMock, listBalanceHistoryMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock,
-  listKeyRateTrendKeysMock, getKeyRateTrendMock, listKeysMock, updateKeyPlatformMock, updateSchedulingMock, groupsMock
+  listKeyRateTrendKeysMock, getKeyRateTrendMock, listKeysMock, updateKeyPlatformMock, updateKeyBaseURLMock, updateSchedulingMock, groupsMock
 } = vi.hoisted(() => ({
   listMock: vi.fn(),
   createMock: vi.fn(),
@@ -31,6 +31,7 @@ const {
   getKeyRateTrendMock: vi.fn(),
   listKeysMock: vi.fn(),
   updateKeyPlatformMock: vi.fn(),
+  updateKeyBaseURLMock: vi.fn(),
   updateSchedulingMock: vi.fn(),
   groupsMock: vi.fn(),
   proxiesMock: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock('@/api/admin/upstreamConfigs', () => ({
     getKeyRateTrend: getKeyRateTrendMock,
     listKeys: listKeysMock,
     updateKeyPlatform: updateKeyPlatformMock,
+    updateKeyBaseURL: updateKeyBaseURLMock,
     updateScheduling: updateSchedulingMock
   }
 }))
@@ -139,6 +141,7 @@ const DataTableStub = defineComponent({
         <slot v-if="columns.find((column) => column.key === 'final_cost')" name="cell-final_cost" :row="row" />
         <slot v-if="columns.find((column) => column.key === 'pricing_status')" name="cell-pricing_status" :row="row" />
         <slot v-if="columns.find((column) => column.key === 'status')" name="cell-status" :row="row" />
+        <slot v-if="columns.find((column) => column.key === 'base_url')" name="cell-base_url" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div>
       <slot v-if="!data.length" name="empty" />
@@ -326,6 +329,7 @@ describe('UpstreamConfigsView', () => {
     getKeyRateTrendMock.mockReset()
     listKeysMock.mockReset()
     updateKeyPlatformMock.mockReset()
+    updateKeyBaseURLMock.mockReset()
     updateSchedulingMock.mockReset()
     groupsMock.mockReset()
     proxiesMock.mockReset()
@@ -390,6 +394,11 @@ describe('UpstreamConfigsView', () => {
     })
     listKeysMock.mockResolvedValue([])
     updateKeyPlatformMock.mockResolvedValue({ id: 21, platform: 'anthropic' })
+    updateKeyBaseURLMock.mockImplementation(async (_configId, keyId, payload) => ({
+      id: keyId,
+      base_url: payload.clear_base_url ? null : payload.base_url,
+      updated_at: '2026-07-14T01:02:04Z'
+    }))
     updateSchedulingMock.mockImplementation(async (id, enabled) => upstreamConfig({ id, scheduling_enabled: enabled }))
   })
 
@@ -1615,6 +1624,72 @@ describe('UpstreamConfigsView', () => {
     )).toBe(true)
     expect(wrapper.find('[data-test="selected-platform-check"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('admin.upstreamConfigs.keyPlatforms.status.conflict')
+  })
+
+  it('opens an in-app Base URL dialog and saves the key URL', async () => {
+    listKeysMock.mockResolvedValueOnce([{
+      id: 21,
+      upstream_config_id: 10,
+      name: 'Primary key',
+      base_url: null,
+      platform: 'openai',
+      bound_account_count: 0,
+      status: 'active',
+      created_at: '',
+      updated_at: '2026-07-14T01:02:03Z'
+    }])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="row-key-management"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="key-management-platform-tab"]').trigger('click')
+    const setButton = wrapper.findAll('button').find((button) => button.text() === 'common.set')
+    expect(setButton).toBeTruthy()
+    await setButton!.trigger('click')
+
+    expect(wrapper.get('[data-test="key-base-url-input"]').exists()).toBe(true)
+    await wrapper.get('[data-test="key-base-url-input"]').setValue('https://image.example.com/v1')
+    await wrapper.get('[data-test="key-base-url-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(updateKeyBaseURLMock).toHaveBeenCalledWith(10, 21, {
+      base_url: 'https://image.example.com/v1',
+      expected_updated_at: '2026-07-14T01:02:03Z'
+    })
+    expect(wrapper.find('[data-test="key-base-url-input"]').exists()).toBe(false)
+    expect(showSuccessMock).toHaveBeenCalledWith('admin.upstreamConfigs.keyPlatforms.updated')
+  })
+
+  it('confirms Base URL clearing in-app without using window.confirm', async () => {
+    listKeysMock.mockResolvedValueOnce([{
+      id: 21,
+      upstream_config_id: 10,
+      name: 'Primary key',
+      base_url: 'https://image.example.com/v1',
+      platform: 'openai',
+      bound_account_count: 0,
+      status: 'active',
+      created_at: '',
+      updated_at: '2026-07-14T01:02:03Z'
+    }])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="row-key-management"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="key-management-platform-tab"]').trigger('click')
+    const clearButton = wrapper.findAll('button').find((button) => button.text() === 'common.clear')
+    expect(clearButton).toBeTruthy()
+    await clearButton!.trigger('click')
+    expect(wrapper.get('[data-test="confirm-dialog"]').exists()).toBe(true)
+    await wrapper.get('[data-test="confirm-dialog"] [data-test="confirm-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(updateKeyBaseURLMock).toHaveBeenCalledWith(10, 21, {
+      clear_base_url: true,
+      expected_updated_at: '2026-07-14T01:02:03Z'
+    })
   })
 
   it('updates a key platform without disabling bindings on the normal path', async () => {

@@ -156,6 +156,14 @@ export default {
       unassignedGroup: '未分配',
       unassignedPlatform: '未分配',
       inheritBaseUrl: '继承上游配置地址',
+      baseUrlDialog: {
+        title: '设置 Key Base URL',
+        label: 'Base URL',
+        placeholder: 'https://api.example.com/v1',
+        hint: '该地址仅用于此 Key 派生账号的请求；留空请使用“清除”。',
+        clearTitle: '清除 Key Base URL？',
+        clearMessage: '清除后，该 Key 将恢复使用上游配置的地址。'
+      },
       notDetected: '未检测',
       conflict: '检测证据与当前分配冲突',
       empty: '暂无上游 Key',
