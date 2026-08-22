@@ -271,7 +271,8 @@ export default {
     emptyDescription: '新增一个上游站点后，账号管理可以直接绑定该站点下的 Key。',
     delete: {
       title: '删除上游配置',
-      message: "确定要删除上游配置 '{name}' 吗？有关联账号时后端会拒绝删除。"
+      message: "确定要删除上游配置 '{name}' 吗？有关联账号时后端会拒绝删除。",
+      cascadeMessage: "确定要删除上游配置 '{name}' 吗？这将同时软删除 {accountCount} 个同步派生账号和 {keyCount} 个关联 Key。历史用量会保留，删除后这些账号不再参与调度。"
     },
     messages: {
       loadFailed: '加载上游配置失败',

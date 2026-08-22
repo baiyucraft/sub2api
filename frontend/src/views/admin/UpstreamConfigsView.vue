@@ -1446,7 +1446,7 @@
     <ConfirmDialog
       :show="deleteDialogOpen"
       :title="t('admin.upstreamConfigs.delete.title')"
-      :message="t('admin.upstreamConfigs.delete.message', { name: deletingConfig?.name || '' })"
+      :message="deleteDialogMessage"
       :confirm-text="t('common.delete')"
       :cancel-text="t('common.cancel')"
       :danger="true"
@@ -1540,6 +1540,18 @@ const dialogOpen = ref(false)
 const editing = ref<UpstreamConfig | null>(null)
 const deletingConfig = ref<UpstreamConfig | null>(null)
 const deleteDialogOpen = ref(false)
+const deleteDialogMessage = computed(() => {
+  const config = deletingConfig.value
+  const accountCount = config ? boundAccountCountForConfig(config) : 0
+  if (accountCount > 0) {
+    return t('admin.upstreamConfigs.delete.cascadeMessage', {
+      name: config?.name || '',
+      accountCount,
+      keyCount: config?.keys?.length || 0
+    })
+  }
+  return t('admin.upstreamConfigs.delete.message', { name: config?.name || '' })
+})
 const tokenAssistantOpen = ref(false)
 const busyAction = ref<{ id: number; action: RowAction } | null>(null)
 const actionMenu = reactive<{ show: boolean; anchorEl: HTMLElement | null; config: UpstreamConfig | null }>({
@@ -3041,9 +3053,14 @@ function cancelDelete() {
 async function confirmDelete() {
   if (!deletingConfig.value) return
   const item = deletingConfig.value
+  const boundAccountCount = boundAccountCountForConfig(item)
   deleteDialogOpen.value = false
   try {
-    await upstreamAPI.remove(item.id)
+    if (boundAccountCount > 0) {
+      await upstreamAPI.remove(item.id, { delete_sync_managed_accounts: true })
+    } else {
+      await upstreamAPI.remove(item.id)
+    }
     operationConfigsLoaded.value = false
     appStore.showSuccess(t('admin.upstreamConfigs.messages.deleted'))
     if (configs.value.length <= 1 && pagination.page > 1) {
@@ -3052,9 +3069,15 @@ async function confirmDelete() {
     await loadConfigs()
   } catch (error: any) {
     appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.deleteFailed')))
+    operationConfigsLoaded.value = false
+    await loadConfigs()
   } finally {
     deletingConfig.value = null
   }
+}
+
+function boundAccountCountForConfig(item: UpstreamConfig): number {
+  return (item.keys || []).reduce((total, key) => total + normalizedBoundAccountCount(key.bound_account_count), 0)
 }
 
 function isActionBusy(id: number, action: RowAction) {
