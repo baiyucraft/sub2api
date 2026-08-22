@@ -78,6 +78,8 @@ type Tx struct {
 	SubscriptionPlan *SubscriptionPlanClient
 	// TLSFingerprintProfile is the client for interacting with the TLSFingerprintProfile builders.
 	TLSFingerprintProfile *TLSFingerprintProfileClient
+	// UpstreamAuthSession is the client for interacting with the UpstreamAuthSession builders.
+	UpstreamAuthSession *UpstreamAuthSessionClient
 	// UpstreamBalanceSnapshot is the client for interacting with the UpstreamBalanceSnapshot builders.
 	UpstreamBalanceSnapshot *UpstreamBalanceSnapshotClient
 	// UpstreamConfig is the client for interacting with the UpstreamConfig builders.
@@ -275,6 +277,7 @@ func (tx *Tx) init() {
 	tx.Setting = NewSettingClient(tx.config)
 	tx.SubscriptionPlan = NewSubscriptionPlanClient(tx.config)
 	tx.TLSFingerprintProfile = NewTLSFingerprintProfileClient(tx.config)
+	tx.UpstreamAuthSession = NewUpstreamAuthSessionClient(tx.config)
 	tx.UpstreamBalanceSnapshot = NewUpstreamBalanceSnapshotClient(tx.config)
 	tx.UpstreamConfig = NewUpstreamConfigClient(tx.config)
 	tx.UpstreamEvent = NewUpstreamEventClient(tx.config)

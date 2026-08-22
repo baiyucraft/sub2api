@@ -155,9 +155,18 @@ func (a lcodexUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	// LCodex exposes authentication and account-management APIs on the site
 	// origin. api_base_url is the model data-plane endpoint used by imported
 	// accounts and must never receive control-plane credentials or requests.
-	session, err := a.login(ctx, client, siteURL, cfg.Credentials)
-	if err != nil {
-		return nil, err
+	var session *lcodexSession
+	if handle, ok := upstreamAuthHandleFromContext(ctx); ok {
+		value, valueOK := handle.Value.(lcodexAuthValue)
+		if !valueOK || value.Session == nil {
+			return nil, fmt.Errorf("invalid lcodex auth session handle")
+		}
+		session = value.Session
+	} else {
+		session, err = a.login(ctx, client, siteURL, cfg.Credentials)
+		if err != nil {
+			return nil, err
+		}
 	}
 	groups, groupWarnings, err := a.fetchGroups(ctx, session)
 	if err != nil {

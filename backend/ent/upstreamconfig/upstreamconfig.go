@@ -67,6 +67,8 @@ const (
 	EdgeKeyRateSnapshots = "key_rate_snapshots"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
+	// EdgeAuthSession holds the string denoting the auth_session edge name in mutations.
+	EdgeAuthSession = "auth_session"
 	// EdgeProxy holds the string denoting the proxy edge name in mutations.
 	EdgeProxy = "proxy"
 	// Table holds the table name of the upstreamconfig in the database.
@@ -127,6 +129,13 @@ const (
 	UsageLogsInverseTable = "usage_logs"
 	// UsageLogsColumn is the table column denoting the usage_logs relation/edge.
 	UsageLogsColumn = "upstream_config_id"
+	// AuthSessionTable is the table that holds the auth_session relation/edge.
+	AuthSessionTable = "upstream_auth_sessions"
+	// AuthSessionInverseTable is the table name for the UpstreamAuthSession entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamauthsession" package.
+	AuthSessionInverseTable = "upstream_auth_sessions"
+	// AuthSessionColumn is the table column denoting the auth_session relation/edge.
+	AuthSessionColumn = "upstream_config_id"
 	// ProxyTable is the table that holds the proxy relation/edge.
 	ProxyTable = "upstream_configs"
 	// ProxyInverseTable is the table name for the Proxy entity.
@@ -409,6 +418,20 @@ func ByUsageLogs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByAuthSessionCount orders the results by auth_session count.
+func ByAuthSessionCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newAuthSessionStep(), opts...)
+	}
+}
+
+// ByAuthSession orders the results by auth_session terms.
+func ByAuthSession(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newAuthSessionStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByProxyField orders the results by proxy field.
 func ByProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -469,6 +492,13 @@ func newUsageLogsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UsageLogsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, UsageLogsTable, UsageLogsColumn),
+	)
+}
+func newAuthSessionStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(AuthSessionInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, AuthSessionTable, AuthSessionColumn),
 	)
 }
 func newProxyStep() *sqlgraph.Step {

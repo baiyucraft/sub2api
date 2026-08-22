@@ -1132,6 +1132,8 @@ export interface UpstreamImagePricing {
   final_cost_2k?: number | null
   final_cost_4k?: number | null
   observed_at?: string | null
+  pricing_source?: 'upstream' | 'builtin_default' | 'mixed' | string
+  defaulted_tiers?: string[]
 }
 
 export interface UpstreamVideoPricing {

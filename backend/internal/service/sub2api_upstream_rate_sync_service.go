@@ -579,7 +579,20 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 	}
 	target.billingRootURL = billingRootURL
 	svc := &Sub2APIUpstreamRateSyncService{}
-	session, refreshed, err := svc.fetchUserLoginSession(ctx, target)
+	var session *sub2APIUserLoginSession
+	var refreshed *sub2APIRefreshData
+	if handle, ok := upstreamAuthHandleFromContext(ctx); ok {
+		value, valueOK := handle.Value.(sub2APIAuthValue)
+		if !valueOK || value.Session == nil {
+			return nil, fmt.Errorf("invalid sub2api auth session handle")
+		}
+		session = value.Session
+		if handle.Refreshed {
+			refreshed = &sub2APIRefreshData{AccessToken: value.AccessToken, RefreshToken: value.RefreshToken, ExpiresAt: handle.ExpiresAt}
+		}
+	} else {
+		session, refreshed, err = svc.fetchUserLoginSession(ctx, target)
+	}
 	snapshot := &sub2APIUpstreamSnapshot{RefreshedTokens: refreshed}
 	if err != nil {
 		return snapshot, err
@@ -833,9 +846,19 @@ func (t sub2APISyncTarget) groupKey() string {
 }
 
 func (s *Sub2APIUpstreamRateSyncService) loginSub2APIUser(ctx context.Context, client *http.Client, target sub2APISyncTarget) (string, error) {
-	endpoint, err := buildSub2APIURL(target.rootURL, sub2APILoginPath)
+	data, err := s.loginSub2APIUserTokens(ctx, client, target)
 	if err != nil {
 		return "", err
+	}
+	return data.AccessToken, nil
+}
+
+// loginSub2APIUserTokens preserves the refresh token (including rotated
+// tokens returned by the login endpoint) for the shared auth-session layer.
+func (s *Sub2APIUpstreamRateSyncService) loginSub2APIUserTokens(ctx context.Context, client *http.Client, target sub2APISyncTarget) (*sub2APIRefreshData, error) {
+	endpoint, err := buildSub2APIURL(target.rootURL, sub2APILoginPath)
+	if err != nil {
+		return nil, err
 	}
 	var payload sub2APIEnvelope[sub2APILoginData]
 	body := map[string]any{
@@ -847,22 +870,30 @@ func (s *Sub2APIUpstreamRateSyncService) loginSub2APIUser(ctx context.Context, c
 	}
 	status, err := s.doJSON(ctx, client, http.MethodPost, endpoint, "", body, &payload)
 	if err != nil {
-		return "", fmt.Errorf("login request failed: %w", err)
+		return nil, fmt.Errorf("login request failed: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		return "", fmt.Errorf("login returned status %d", status)
+		return nil, fmt.Errorf("login returned status %d", status)
 	}
 	if payload.Code != 0 {
-		return "", fmt.Errorf("login failed: code %d%s", payload.Code, safeEnvelopeReason(payload.Reason))
+		return nil, fmt.Errorf("login failed: code %d%s", payload.Code, safeEnvelopeReason(payload.Reason))
 	}
 	if payload.Data.requires2FA() {
-		return "", fmt.Errorf("sub2api login requires 2fa")
+		return nil, fmt.Errorf("sub2api login requires 2fa")
 	}
 	accessToken := payload.Data.accessToken()
 	if accessToken == "" {
-		return "", fmt.Errorf("sub2api login returned no access token")
+		return nil, fmt.Errorf("sub2api login returned no access token")
 	}
-	return accessToken, nil
+	data := &sub2APIRefreshData{
+		AccessToken:       accessToken,
+		RefreshToken:      strings.TrimSpace(payload.Data.RefreshToken),
+		RefreshTokenCamel: strings.TrimSpace(payload.Data.RefreshTokenCamel),
+		ExpiresIn:         payload.Data.ExpiresIn,
+		ExpiresInCamel:    payload.Data.ExpiresInCamel,
+	}
+	data.normalize(strings.TrimSpace(target.refreshToken))
+	return data, nil
 }
 
 func (s *Sub2APIUpstreamRateSyncService) refreshSub2APIToken(ctx context.Context, client *http.Client, target sub2APISyncTarget) (*sub2APIRefreshData, error) {
@@ -1115,13 +1146,12 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIAvailableGroups(ctx context
 			continue
 		}
 		var defaultRate *float64
-		platform := ""
+		platform := strings.TrimSpace(sub2APIStringField(record, "platform"))
 		if name != "" {
 			if rate, ok := sub2APINonNegativeNumberField(record, "rate_multiplier", "rateMultiplier", "multiplier", "rate"); ok {
 				rateCopy := rate
 				defaultRate = &rateCopy
 			}
-			platform = strings.TrimSpace(sub2APIStringField(record, "platform"))
 		}
 		out[groupID] = sub2APIGroupRateInfo{
 			ID:                 groupID,
@@ -1187,6 +1217,10 @@ func parseSub2APIAvailableGroupVideoPricing(record map[string]any) (sub2APIVideo
 }
 
 func parseSub2APIAvailableGroupImagePricing(record map[string]any) (sub2APIImagePricingSnapshot, bool) {
+	return parseSub2APIAvailableGroupImagePricingForPlatform(record, sub2APIStringField(record, "platform"))
+}
+
+func parseSub2APIAvailableGroupImagePricingForPlatform(record map[string]any, platform string) (sub2APIImagePricingSnapshot, bool) {
 	allow, allowPresent, allowValid := sub2APIBoolField(record, "allow_image_generation", "allowImageGeneration")
 	if !allowPresent {
 		return sub2APIImagePricingSnapshot{}, false
@@ -1223,10 +1257,34 @@ func parseSub2APIAvailableGroupImagePricing(record map[string]any) (sub2APIImage
 	}
 	if !valid {
 		snapshot.Status = UpstreamKeyImagePricingStatusUnavailable
-	} else if snapshot.ImagePrice1K == nil || snapshot.ImagePrice2K == nil || snapshot.ImagePrice4K == nil {
-		snapshot.Status = UpstreamKeyImagePricingStatusPartial
 	} else {
-		snapshot.Status = UpstreamKeyImagePricingStatusAvailable
+		defaults := defaultImagePricesForPlatform(platform)
+		for _, tier := range []struct {
+			name     string
+			value    **float64
+			fallback *float64
+		}{
+			{"1K", &snapshot.ImagePrice1K, defaults[0]},
+			{"2K", &snapshot.ImagePrice2K, defaults[1]},
+			{"4K", &snapshot.ImagePrice4K, defaults[2]},
+		} {
+			if *tier.value == nil {
+				fallback := *tier.fallback
+				*tier.value = &fallback
+				snapshot.DefaultedTiers = append(snapshot.DefaultedTiers, tier.name)
+			}
+		}
+		switch {
+		case len(snapshot.DefaultedTiers) == 0:
+			snapshot.PricingSource = "upstream"
+			snapshot.Status = UpstreamKeyImagePricingStatusAvailable
+		case len(snapshot.DefaultedTiers) == 3:
+			snapshot.PricingSource = "builtin_default"
+			snapshot.Status = UpstreamKeyImagePricingStatusPartial
+		default:
+			snapshot.PricingSource = "mixed"
+			snapshot.Status = UpstreamKeyImagePricingStatusPartial
+		}
 	}
 	return snapshot, true
 }

@@ -79,11 +79,13 @@ type UpstreamConfigEdges struct {
 	KeyRateSnapshots []*UpstreamKeyRateSnapshot `json:"key_rate_snapshots,omitempty"`
 	// UsageLogs holds the value of the usage_logs edge.
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
+	// AuthSession holds the value of the auth_session edge.
+	AuthSession []*UpstreamAuthSession `json:"auth_session,omitempty"`
 	// Proxy holds the value of the proxy edge.
 	Proxy *Proxy `json:"proxy,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [9]bool
+	loadedTypes [10]bool
 }
 
 // KeysOrErr returns the Keys value or an error if the edge
@@ -158,12 +160,21 @@ func (e UpstreamConfigEdges) UsageLogsOrErr() ([]*UsageLog, error) {
 	return nil, &NotLoadedError{edge: "usage_logs"}
 }
 
+// AuthSessionOrErr returns the AuthSession value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamConfigEdges) AuthSessionOrErr() ([]*UpstreamAuthSession, error) {
+	if e.loadedTypes[8] {
+		return e.AuthSession, nil
+	}
+	return nil, &NotLoadedError{edge: "auth_session"}
+}
+
 // ProxyOrErr returns the Proxy value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e UpstreamConfigEdges) ProxyOrErr() (*Proxy, error) {
 	if e.Proxy != nil {
 		return e.Proxy, nil
-	} else if e.loadedTypes[8] {
+	} else if e.loadedTypes[9] {
 		return nil, &NotFoundError{label: proxy.Label}
 	}
 	return nil, &NotLoadedError{edge: "proxy"}
@@ -377,6 +388,11 @@ func (_m *UpstreamConfig) QueryKeyRateSnapshots() *UpstreamKeyRateSnapshotQuery 
 // QueryUsageLogs queries the "usage_logs" edge of the UpstreamConfig entity.
 func (_m *UpstreamConfig) QueryUsageLogs() *UsageLogQuery {
 	return NewUpstreamConfigClient(_m.config).QueryUsageLogs(_m)
+}
+
+// QueryAuthSession queries the "auth_session" edge of the UpstreamConfig entity.
+func (_m *UpstreamConfig) QueryAuthSession() *UpstreamAuthSessionQuery {
+	return NewUpstreamConfigClient(_m.config).QueryAuthSession(_m)
 }
 
 // QueryProxy queries the "proxy" edge of the UpstreamConfig entity.

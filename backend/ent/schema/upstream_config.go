@@ -77,6 +77,8 @@ func (UpstreamConfig) Edges() []ent.Edge {
 		edge.To("key_rate_snapshots", UpstreamKeyRateSnapshot.Type).
 			Annotations(entsql.OnDelete(entsql.Cascade)),
 		edge.To("usage_logs", UsageLog.Type),
+		edge.To("auth_session", UpstreamAuthSession.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
 		edge.To("proxy", Proxy.Type).
 			Field("proxy_id").
 			Unique(),

@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/upstreambalancesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
@@ -41,6 +42,7 @@ type UpstreamConfigQuery struct {
 	withBalanceSnapshots *UpstreamBalanceSnapshotQuery
 	withKeyRateSnapshots *UpstreamKeyRateSnapshotQuery
 	withUsageLogs        *UsageLogQuery
+	withAuthSession      *UpstreamAuthSessionQuery
 	withProxy            *ProxyQuery
 	modifiers            []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
@@ -248,6 +250,28 @@ func (_q *UpstreamConfigQuery) QueryUsageLogs() *UsageLogQuery {
 			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, selector),
 			sqlgraph.To(usagelog.Table, usagelog.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.UsageLogsTable, upstreamconfig.UsageLogsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryAuthSession chains the current query on the "auth_session" edge.
+func (_q *UpstreamConfigQuery) QueryAuthSession() *UpstreamAuthSessionQuery {
+	query := (&UpstreamAuthSessionClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(upstreamconfig.Table, upstreamconfig.FieldID, selector),
+			sqlgraph.To(upstreamauthsession.Table, upstreamauthsession.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, upstreamconfig.AuthSessionTable, upstreamconfig.AuthSessionColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -477,6 +501,7 @@ func (_q *UpstreamConfigQuery) Clone() *UpstreamConfigQuery {
 		withBalanceSnapshots: _q.withBalanceSnapshots.Clone(),
 		withKeyRateSnapshots: _q.withKeyRateSnapshots.Clone(),
 		withUsageLogs:        _q.withUsageLogs.Clone(),
+		withAuthSession:      _q.withAuthSession.Clone(),
 		withProxy:            _q.withProxy.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
@@ -572,6 +597,17 @@ func (_q *UpstreamConfigQuery) WithUsageLogs(opts ...func(*UsageLogQuery)) *Upst
 	return _q
 }
 
+// WithAuthSession tells the query-builder to eager-load the nodes that are connected to
+// the "auth_session" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UpstreamConfigQuery) WithAuthSession(opts ...func(*UpstreamAuthSessionQuery)) *UpstreamConfigQuery {
+	query := (&UpstreamAuthSessionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withAuthSession = query
+	return _q
+}
+
 // WithProxy tells the query-builder to eager-load the nodes that are connected to
 // the "proxy" edge. The optional arguments are used to configure the query builder of the edge.
 func (_q *UpstreamConfigQuery) WithProxy(opts ...func(*ProxyQuery)) *UpstreamConfigQuery {
@@ -661,7 +697,7 @@ func (_q *UpstreamConfigQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 	var (
 		nodes       = []*UpstreamConfig{}
 		_spec       = _q.querySpec()
-		loadedTypes = [9]bool{
+		loadedTypes = [10]bool{
 			_q.withKeys != nil,
 			_q.withAccounts != nil,
 			_q.withSyncResults != nil,
@@ -670,6 +706,7 @@ func (_q *UpstreamConfigQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 			_q.withBalanceSnapshots != nil,
 			_q.withKeyRateSnapshots != nil,
 			_q.withUsageLogs != nil,
+			_q.withAuthSession != nil,
 			_q.withProxy != nil,
 		}
 	)
@@ -751,6 +788,13 @@ func (_q *UpstreamConfigQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 		if err := _q.loadUsageLogs(ctx, query, nodes,
 			func(n *UpstreamConfig) { n.Edges.UsageLogs = []*UsageLog{} },
 			func(n *UpstreamConfig, e *UsageLog) { n.Edges.UsageLogs = append(n.Edges.UsageLogs, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withAuthSession; query != nil {
+		if err := _q.loadAuthSession(ctx, query, nodes,
+			func(n *UpstreamConfig) { n.Edges.AuthSession = []*UpstreamAuthSession{} },
+			func(n *UpstreamConfig, e *UpstreamAuthSession) { n.Edges.AuthSession = append(n.Edges.AuthSession, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -1004,6 +1048,36 @@ func (_q *UpstreamConfigQuery) loadUsageLogs(ctx context.Context, query *UsageLo
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "upstream_config_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UpstreamConfigQuery) loadAuthSession(ctx context.Context, query *UpstreamAuthSessionQuery, nodes []*UpstreamConfig, init func(*UpstreamConfig), assign func(*UpstreamConfig, *UpstreamAuthSession)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*UpstreamConfig)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(upstreamauthsession.FieldUpstreamConfigID)
+	}
+	query.Where(predicate.UpstreamAuthSession(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(upstreamconfig.AuthSessionColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UpstreamConfigID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "upstream_config_id" returned %v for node %v`, fk, n.ID)
 		}
 		assign(node, n)
 	}

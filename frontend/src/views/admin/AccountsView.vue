@@ -758,6 +758,11 @@ const upstreamImagePricingTooltip = (account: Account) => {
   return t('admin.accounts.upstreamImagePricing.badgeTitle', {
     status: upstreamImagePricingStatus(account),
     complete,
+    source: pricing.pricing_source === 'builtin_default'
+      ? t('admin.accounts.upstreamImagePricing.sourceBuiltinDefault')
+      : pricing.pricing_source === 'mixed'
+        ? t('admin.accounts.upstreamImagePricing.sourceMixed')
+        : t('admin.accounts.upstreamImagePricing.sourceUpstream'),
     observedAt: pricing.observed_at
       ? formatDateTime(pricing.observed_at)
       : t('admin.accounts.upstreamImagePricing.notObserved')

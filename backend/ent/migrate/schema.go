@@ -1701,6 +1701,51 @@ var (
 		Columns:    TLSFingerprintProfilesColumns,
 		PrimaryKey: []*schema.Column{TLSFingerprintProfilesColumns[0]},
 	}
+	// UpstreamAuthSessionsColumns holds the columns for the "upstream_auth_sessions" table.
+	UpstreamAuthSessionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "provider", Type: field.TypeString, Size: 32},
+		{Name: "auth_mode", Type: field.TypeString, Size: 32},
+		{Name: "credential_fingerprint", Type: field.TypeString, Size: 64},
+		{Name: "secret_ciphertext", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "last_authenticated_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "last_refreshed_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "last_used_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "cooldown_until", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "consecutive_auth_failures", Type: field.TypeInt, Default: 0},
+		{Name: "last_error_category", Type: field.TypeString, Nullable: true, Size: 64},
+		{Name: "last_error_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "login_count", Type: field.TypeInt64, Default: 0},
+		{Name: "reuse_count", Type: field.TypeInt64, Default: 0},
+		{Name: "refresh_count", Type: field.TypeInt64, Default: 0},
+		{Name: "relogin_count", Type: field.TypeInt64, Default: 0},
+		{Name: "cooldown_count", Type: field.TypeInt64, Default: 0},
+		{Name: "upstream_config_id", Type: field.TypeInt64},
+	}
+	// UpstreamAuthSessionsTable holds the schema information for the "upstream_auth_sessions" table.
+	UpstreamAuthSessionsTable = &schema.Table{
+		Name:       "upstream_auth_sessions",
+		Columns:    UpstreamAuthSessionsColumns,
+		PrimaryKey: []*schema.Column{UpstreamAuthSessionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "upstream_auth_sessions_upstream_configs_auth_session",
+				Columns:    []*schema.Column{UpstreamAuthSessionsColumns[20]},
+				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "upstreamauthsession_upstream_config_id",
+				Unique:  true,
+				Columns: []*schema.Column{UpstreamAuthSessionsColumns[20]},
+			},
+		},
+	}
 	// UpstreamBalanceSnapshotsColumns holds the columns for the "upstream_balance_snapshots" table.
 	UpstreamBalanceSnapshotsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2764,6 +2809,7 @@ var (
 		SettingsTable,
 		SubscriptionPlansTable,
 		TLSFingerprintProfilesTable,
+		UpstreamAuthSessionsTable,
 		UpstreamBalanceSnapshotsTable,
 		UpstreamConfigsTable,
 		UpstreamEventsTable,
@@ -2908,6 +2954,10 @@ func init() {
 	}
 	TLSFingerprintProfilesTable.Annotation = &entsql.Annotation{
 		Table: "tls_fingerprint_profiles",
+	}
+	UpstreamAuthSessionsTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
+	UpstreamAuthSessionsTable.Annotation = &entsql.Annotation{
+		Table: "upstream_auth_sessions",
 	}
 	UpstreamBalanceSnapshotsTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
 	UpstreamBalanceSnapshotsTable.ForeignKeys[1].RefTable = UpstreamSyncRunsTable

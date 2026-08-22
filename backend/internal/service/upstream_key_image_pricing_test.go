@@ -36,6 +36,42 @@ func TestParseSub2APIAvailableGroupImagePricing(t *testing.T) {
 	require.Equal(t, UpstreamKeyImagePricingStatusDisabled, disabled.Status)
 }
 
+func TestParseSub2APIAvailableGroupImagePricingFillsBuiltinDefaults(t *testing.T) {
+	snapshot, ok := parseSub2APIAvailableGroupImagePricingForPlatform(map[string]any{
+		"allow_image_generation": true,
+		"platform":               "openai",
+	}, "openai")
+	require.True(t, ok)
+	require.Equal(t, UpstreamKeyImagePricingStatusPartial, snapshot.Status)
+	require.Equal(t, "builtin_default", snapshot.PricingSource)
+	require.Equal(t, []string{"1K", "2K", "4K"}, snapshot.DefaultedTiers)
+	require.InDelta(t, 0.134, *snapshot.ImagePrice1K, 1e-12)
+	require.InDelta(t, 0.201, *snapshot.ImagePrice2K, 1e-12)
+	require.InDelta(t, 0.268, *snapshot.ImagePrice4K, 1e-12)
+
+	mixed, ok := parseSub2APIAvailableGroupImagePricingForPlatform(map[string]any{
+		"allow_image_generation": true,
+		"image_price_1k":         0.09,
+	}, "grok")
+	require.True(t, ok)
+	require.Equal(t, UpstreamKeyImagePricingStatusPartial, mixed.Status)
+	require.Equal(t, "mixed", mixed.PricingSource)
+	require.Equal(t, []string{"2K", "4K"}, mixed.DefaultedTiers)
+	require.InDelta(t, 0.09, *mixed.ImagePrice1K, 1e-12)
+	require.InDelta(t, 0.02, *mixed.ImagePrice2K, 1e-12)
+	require.InDelta(t, 0.02, *mixed.ImagePrice4K, 1e-12)
+}
+
+func TestParseSub2APIAvailableGroupImagePricingRejectsInvalidPrice(t *testing.T) {
+	snapshot, ok := parseSub2APIAvailableGroupImagePricingForPlatform(map[string]any{
+		"allow_image_generation": true,
+		"image_price_1k":         "not-a-number",
+	}, "openai")
+	require.True(t, ok)
+	require.Equal(t, UpstreamKeyImagePricingStatusUnavailable, snapshot.Status)
+	require.Nil(t, snapshot.ImagePrice1K)
+}
+
 func TestDeriveUpstreamKeyImagePricingUsesSourceOrIndependentRate(t *testing.T) {
 	now := time.Date(2026, 7, 21, 1, 2, 3, 0, time.UTC)
 	price1, price2, price4 := 0.1, 0.2, 0.4
@@ -77,6 +113,41 @@ func TestDeriveUpstreamKeyImagePricingUsesSourceOrIndependentRate(t *testing.T) 
 	require.NotNil(t, pricing.EffectiveRateMultiplier)
 	require.InDelta(t, 0.5, *pricing.EffectiveRateMultiplier, 1e-12)
 	require.InDelta(t, 0.05, *pricing.FinalCost1K, 1e-12)
+}
+
+func TestDeriveUpstreamKeyImagePricingKeepsBuiltinDefaultsUsable(t *testing.T) {
+	now := time.Now().UTC()
+	snapshot, ok := parseSub2APIAvailableGroupImagePricingForPlatform(map[string]any{
+		"allow_image_generation": true,
+		"platform":               "openai",
+	}, "openai")
+	require.True(t, ok)
+	snapshot.ObservedAt = &now
+	rate := 0.5
+	key := &UpstreamKey{SourceRateMultiplier: &rate, Extra: map[string]any{
+		Sub2APIImagePricingSnapshotExtraKey: sub2APIImagePricingSnapshotMap(snapshot),
+	}}
+	pricing := deriveUpstreamKeyImagePricing(key, &UpstreamConfig{Provider: UpstreamProviderSub2API, RechargeRate: 1})
+	require.True(t, pricing.Supported)
+	require.Equal(t, UpstreamKeyImagePricingStatusPartial, pricing.Status)
+	require.Equal(t, "builtin_default", pricing.PricingSource)
+	require.Equal(t, []string{"1K", "2K", "4K"}, pricing.DefaultedTiers)
+	require.InDelta(t, 0.067, *pricing.FinalCost1K, 1e-12)
+}
+
+func TestDeriveUpstreamKeyImagePricingHydratesLegacyPartialSnapshot(t *testing.T) {
+	rate := 1.0
+	platform := "grok"
+	key := &UpstreamKey{Platform: &platform, SourceRateMultiplier: &rate, Extra: map[string]any{
+		Sub2APIImagePricingSnapshotExtraKey: sub2APIImagePricingSnapshotMap(sub2APIImagePricingSnapshot{
+			Version: sub2APIImagePricingSnapshotVersion, Status: UpstreamKeyImagePricingStatusPartial,
+			AllowImageGeneration: true,
+		})}}
+	pricing := deriveUpstreamKeyImagePricing(key, &UpstreamConfig{Provider: UpstreamProviderSub2API, RechargeRate: 1})
+	require.Equal(t, "builtin_default", pricing.PricingSource)
+	require.InDelta(t, 0.02, *pricing.FinalCost1K, 1e-12)
+	require.InDelta(t, 0.02, *pricing.FinalCost2K, 1e-12)
+	require.InDelta(t, 0.02, *pricing.FinalCost4K, 1e-12)
 }
 
 func TestDeriveUpstreamKeyImagePricingPreservesPreciseEffectiveRate(t *testing.T) {

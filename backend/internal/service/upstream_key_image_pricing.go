@@ -34,6 +34,8 @@ type UpstreamKeyImagePricing struct {
 	FinalCost2K             *float64
 	FinalCost4K             *float64
 	ObservedAt              *time.Time
+	PricingSource           string
+	DefaultedTiers          []string
 }
 
 // UpstreamKeyVideoPricing is the redacted video capability and pricing
@@ -72,6 +74,8 @@ type sub2APIImagePricingSnapshot struct {
 	ImagePrice4K         *float64   `json:"image_price_4k"`
 	ObservedAt           *time.Time `json:"observed_at"`
 	Stale                bool       `json:"stale"`
+	PricingSource        string     `json:"pricing_source,omitempty"`
+	DefaultedTiers       []string   `json:"defaulted_tiers,omitempty"`
 }
 
 type sub2APIVideoPricingSnapshot struct {
@@ -289,12 +293,45 @@ func deriveUpstreamKeyImagePricing(key *UpstreamKey, config *UpstreamConfig) *Up
 		Currency:        "USD",
 		RateIndependent: snapshot.ImageRateIndependent,
 		ObservedAt:      snapshot.ObservedAt,
+		PricingSource:   snapshot.PricingSource,
+		DefaultedTiers:  append([]string(nil), snapshot.DefaultedTiers...),
 	}
 	if config.LastError != nil && strings.TrimSpace(*config.LastError) != "" {
 		out.Stale = true
 	}
 	if !snapshot.AllowImageGeneration || snapshot.Status == UpstreamKeyImagePricingStatusDisabled || snapshot.Status == UpstreamKeyImagePricingStatusUnavailable {
 		return out
+	}
+	if snapshot.Status == UpstreamKeyImagePricingStatusPartial && snapshot.PricingSource == "" {
+		platform := ""
+		if key.Platform != nil {
+			platform = *key.Platform
+		}
+		defaults := defaultImagePricesForPlatform(platform)
+		for _, tier := range []struct {
+			name     string
+			value    **float64
+			fallback *float64
+		}{
+			{"1K", &snapshot.ImagePrice1K, defaults[0]},
+			{"2K", &snapshot.ImagePrice2K, defaults[1]},
+			{"4K", &snapshot.ImagePrice4K, defaults[2]},
+		} {
+			if *tier.value == nil {
+				fallback := *tier.fallback
+				*tier.value = &fallback
+				snapshot.DefaultedTiers = append(snapshot.DefaultedTiers, tier.name)
+			}
+		}
+		if len(snapshot.DefaultedTiers) > 0 {
+			if len(snapshot.DefaultedTiers) == 3 {
+				snapshot.PricingSource = "builtin_default"
+			} else {
+				snapshot.PricingSource = "mixed"
+			}
+			out.PricingSource = snapshot.PricingSource
+			out.DefaultedTiers = append([]string(nil), snapshot.DefaultedTiers...)
+		}
 	}
 
 	effectiveRate := key.SourceRateMultiplier
@@ -316,6 +353,8 @@ func deriveUpstreamKeyImagePricing(key *UpstreamKey, config *UpstreamConfig) *Up
 	out.FinalCost2K = multiplyImagePrice(snapshot.ImagePrice2K, normalizedRate)
 	out.FinalCost4K = multiplyImagePrice(snapshot.ImagePrice4K, normalizedRate)
 	if out.FinalCost1K == nil || out.FinalCost2K == nil || out.FinalCost4K == nil {
+		out.Status = UpstreamKeyImagePricingStatusPartial
+	} else if snapshot.PricingSource != "" && snapshot.PricingSource != "upstream" {
 		out.Status = UpstreamKeyImagePricingStatusPartial
 	} else {
 		out.Status = UpstreamKeyImagePricingStatusAvailable
