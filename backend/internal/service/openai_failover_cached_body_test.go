@@ -69,7 +69,7 @@ func TestOpenAIGatewayService_Forward_FailoverReparsesCachedBodyForNextAccount(t
 			if requestModel == "" {
 				requestModel = "alias-model"
 			}
-			body := []byte(`{"model":"` + requestModel + `","stream":false,"instructions":"cache-test","input":"hello"}`)
+			body := []byte(`{"model":"` + requestModel + `","stream":false,"instructions":"cache-test","input":[{"type":"custom_tool_call","id":"fc_invalid_replay","call_id":"call_1","name":"exec","input":"pwd"}]}`)
 
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
@@ -99,6 +99,7 @@ func TestOpenAIGatewayService_Forward_FailoverReparsesCachedBodyForNextAccount(t
 			require.True(t, errors.As(err, &failoverErr))
 			require.Len(t, upstream.bodies, 1)
 			require.Equal(t, tt.wantFirst, gjson.GetBytes(upstream.bodies[0], "model").String())
+			require.False(t, gjson.GetBytes(upstream.bodies[0], "input.0.id").Exists())
 
 			c.Set("openai_parsed_request_body", map[string]any{"model": tt.wantFirst, "stream": true})
 			result, err := svc.Forward(context.Background(), c, secondAccount, body)
@@ -106,6 +107,8 @@ func TestOpenAIGatewayService_Forward_FailoverReparsesCachedBodyForNextAccount(t
 			require.NotNil(t, result)
 			require.Len(t, upstream.bodies, 2)
 			require.Equal(t, tt.wantSecond, gjson.GetBytes(upstream.bodies[1], "model").String())
+			require.False(t, gjson.GetBytes(upstream.bodies[1], "input.0.id").Exists(),
+				"failover retry must reuse the same type-aware sanitized request contract")
 		})
 	}
 }

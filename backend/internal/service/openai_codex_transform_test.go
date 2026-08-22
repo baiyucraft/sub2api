@@ -44,6 +44,38 @@ func TestApplyCodexOAuthTransform_ToolContinuationPreservesInput(t *testing.T) {
 	require.Equal(t, "fc_1", second["call_id"])
 }
 
+func TestApplyCodexOAuthTransform_CustomToolCallContinuationUsesCTCItemContract(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.6-sol",
+		"input": []any{
+			map[string]any{
+				"type":    "custom_tool_call",
+				"id":      "fc_invalid_replay",
+				"call_id": "call_1",
+				"name":    "exec",
+				"input":   "pwd",
+			},
+			map[string]any{"type": "custom_tool_call_output", "id": "output_1", "call_id": "call_1", "output": "done"},
+		},
+		"tool_choice": "auto",
+	}
+
+	applyCodexOAuthTransform(reqBody, false, false)
+
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 2)
+	call, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	_, hasID := call["id"]
+	require.False(t, hasID)
+	require.Equal(t, "fc_1", call["call_id"])
+	output, ok := input[1].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "output_1", output["id"])
+	require.Equal(t, "fc_1", output["call_id"])
+}
+
 func TestApplyCodexOAuthTransform_MessagesBridgePromptCacheKeyIsHeaderOnly(t *testing.T) {
 	reqBody := map[string]any{
 		"model":            "gpt-5.5",
