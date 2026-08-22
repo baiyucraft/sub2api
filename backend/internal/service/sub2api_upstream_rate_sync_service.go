@@ -197,6 +197,10 @@ type sub2APIGroupRateInfo struct {
 	HasDedicatedMultiplier bool
 	ImagePricing           sub2APIImagePricingSnapshot
 	HasImagePricing        bool
+	VideoPricing           sub2APIVideoPricingSnapshot
+	HasVideoPricing        bool
+	LongContextEnabled     bool
+	LongContextKnown       bool
 }
 
 type sub2APIProfile struct {
@@ -629,6 +633,19 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 			imagePricing.ObservedAt = &observedAt
 			imagePricing.Stale = false
 			extra[Sub2APIImagePricingSnapshotExtraKey] = sub2APIImagePricingSnapshotMap(imagePricing)
+		}
+		if groupInfo != nil && groupInfo.HasVideoPricing {
+			videoPricing := groupInfo.VideoPricing
+			observedAt := now.UTC()
+			videoPricing.ObservedAt = &observedAt
+			videoPricing.Stale = false
+			extra[Sub2APIVideoPricingSnapshotExtraKey] = sub2APIVideoPricingSnapshotMap(videoPricing)
+		}
+		if groupInfo != nil && groupInfo.LongContextKnown {
+			observedAt := now.UTC()
+			extra[Sub2APILongContextSnapshotExtraKey] = sub2APILongContextSnapshotMap(sub2APILongContextSnapshot{
+				Version: sub2APILongContextSnapshotVersion, Status: "known", Enabled: groupInfo.LongContextEnabled, ObservedAt: &observedAt,
+			})
 		}
 		platformValue := strings.ToLower(strings.TrimSpace(platform))
 		out = append(out, UpstreamKey{
@@ -1092,7 +1109,9 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIAvailableGroups(ctx context
 		}
 		name := strings.TrimSpace(sub2APIStringField(record, "name"))
 		imagePricing, hasImagePricing := parseSub2APIAvailableGroupImagePricing(record)
-		if name == "" && !hasImagePricing {
+		videoPricing, hasVideoPricing := parseSub2APIAvailableGroupVideoPricing(record)
+		longContextEnabled, longContextKnown, _ := sub2APIBoolField(record, "long_context_pricing_enabled", "longContextPricingEnabled")
+		if name == "" && !hasImagePricing && !hasVideoPricing && !longContextKnown {
 			continue
 		}
 		var defaultRate *float64
@@ -1105,15 +1124,66 @@ func (s *Sub2APIUpstreamRateSyncService) fetchSub2APIAvailableGroups(ctx context
 			platform = strings.TrimSpace(sub2APIStringField(record, "platform"))
 		}
 		out[groupID] = sub2APIGroupRateInfo{
-			ID:                groupID,
-			Name:              name,
-			Platform:          platform,
-			DefaultMultiplier: defaultRate,
-			ImagePricing:      imagePricing,
-			HasImagePricing:   hasImagePricing,
+			ID:                 groupID,
+			Name:               name,
+			Platform:           platform,
+			DefaultMultiplier:  defaultRate,
+			ImagePricing:       imagePricing,
+			HasImagePricing:    hasImagePricing,
+			VideoPricing:       videoPricing,
+			HasVideoPricing:    hasVideoPricing,
+			LongContextEnabled: longContextEnabled,
+			LongContextKnown:   longContextKnown,
 		}
 	}
 	return out, nil
+}
+
+func parseSub2APIAvailableGroupVideoPricing(record map[string]any) (sub2APIVideoPricingSnapshot, bool) {
+	allow, allowPresent, allowValid := sub2APIBoolField(record, "allow_video_generation", "allowVideoGeneration", "video_supported", "videoSupported")
+	_, p480Present, _ := sub2APINullableNonNegativeNumberField(record, "video_price_480p", "videoPrice480p")
+	_, p720Present, _ := sub2APINullableNonNegativeNumberField(record, "video_price_720p", "videoPrice720p")
+	_, p1080Present, _ := sub2APINullableNonNegativeNumberField(record, "video_price_1080p", "videoPrice1080p")
+	_, modelPricesPresent := record["video_model_prices"]
+	if !modelPricesPresent {
+		_, modelPricesPresent = record["videoModelPrices"]
+	}
+	if !allowPresent && !p480Present && !p720Present && !p1080Present && !modelPricesPresent {
+		return sub2APIVideoPricingSnapshot{}, false
+	}
+	snapshot := sub2APIVideoPricingSnapshot{Version: sub2APIVideoPricingSnapshotVersion, AllowVideoGeneration: allow, Status: UpstreamKeyImagePricingStatusUnavailable}
+	if !allowPresent {
+		allowValid = true
+		snapshot.AllowVideoGeneration = true
+	}
+	if !allowValid {
+		return snapshot, true
+	}
+	if !snapshot.AllowVideoGeneration {
+		snapshot.Status = UpstreamKeyImagePricingStatusDisabled
+		return snapshot, true
+	}
+	independent, independentPresent, independentValid := sub2APIBoolField(record, "video_rate_independent", "videoRateIndependent")
+	if independentPresent && independentValid {
+		snapshot.VideoRateIndependent = independent
+	}
+	valid := !independentPresent || independentValid
+	if independent {
+		value, present, fieldValid := sub2APINullableNonNegativeNumberField(record, "video_rate_multiplier", "videoRateMultiplier")
+		snapshot.VideoRateMultiplier = value
+		valid = valid && present && fieldValid && value != nil
+	}
+	snapshot.VideoPrice480p, _, _ = sub2APINullableNonNegativeNumberField(record, "video_price_480p", "videoPrice480p")
+	snapshot.VideoPrice720p, _, _ = sub2APINullableNonNegativeNumberField(record, "video_price_720p", "videoPrice720p")
+	snapshot.VideoPrice1080p, _, _ = sub2APINullableNonNegativeNumberField(record, "video_price_1080p", "videoPrice1080p")
+	if !valid {
+		snapshot.Status = UpstreamKeyImagePricingStatusUnavailable
+	} else if snapshot.VideoPrice480p == nil && snapshot.VideoPrice720p == nil && snapshot.VideoPrice1080p == nil {
+		snapshot.Status = UpstreamKeyImagePricingStatusPartial
+	} else {
+		snapshot.Status = UpstreamKeyImagePricingStatusAvailable
+	}
+	return snapshot, true
 }
 
 func parseSub2APIAvailableGroupImagePricing(record map[string]any) (sub2APIImagePricingSnapshot, bool) {

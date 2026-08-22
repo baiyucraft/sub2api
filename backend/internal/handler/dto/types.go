@@ -219,6 +219,8 @@ type Account struct {
 	UpstreamKeyName           *string                        `json:"upstream_key_name,omitempty"`
 	UpstreamKeyMasked         *string                        `json:"upstream_key_masked,omitempty"`
 	UpstreamImagePricing      *UpstreamImagePricing          `json:"upstream_image_pricing,omitempty"`
+	UpstreamVideoPricing      *UpstreamVideoPricing          `json:"upstream_video_pricing,omitempty"`
+	UpstreamLongContext       *UpstreamLongContext           `json:"upstream_long_context,omitempty"`
 	UpstreamModelSync         *UpstreamModelSync             `json:"upstream_model_sync,omitempty"`
 	UpstreamSchedulingEnabled *bool                          `json:"upstream_scheduling_enabled,omitempty"`
 	Concurrency               int                            `json:"concurrency"`
@@ -337,6 +339,26 @@ type UpstreamImagePricing struct {
 	FinalCost2K             *float64   `json:"final_cost_2k,omitempty"`
 	FinalCost4K             *float64   `json:"final_cost_4k,omitempty"`
 	ObservedAt              *time.Time `json:"observed_at,omitempty"`
+}
+
+type UpstreamVideoPricing struct {
+	Supported               bool       `json:"supported"`
+	Status                  string     `json:"status"`
+	Stale                   bool       `json:"stale"`
+	RateIndependent         bool       `json:"rate_independent"`
+	EffectiveRateMultiplier *float64   `json:"effective_rate_multiplier,omitempty"`
+	FinalCost480p           *float64   `json:"final_cost_480p,omitempty"`
+	FinalCost720p           *float64   `json:"final_cost_720p,omitempty"`
+	FinalCost1080p          *float64   `json:"final_cost_1080p,omitempty"`
+	ObservedAt              *time.Time `json:"observed_at,omitempty"`
+}
+
+type UpstreamLongContext struct {
+	Enabled    bool       `json:"enabled"`
+	Status     string     `json:"status"`
+	Stale      bool       `json:"stale"`
+	Source     string     `json:"source"`
+	ObservedAt *time.Time `json:"observed_at,omitempty"`
 }
 
 // UpstreamModelSync is a redacted, admin-only projection of the managed

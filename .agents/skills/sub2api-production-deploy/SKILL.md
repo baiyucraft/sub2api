@@ -152,6 +152,27 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 
 ## 本次发布经验的硬化规则
 
+### 每次修复后的关联面审计
+
+每次修复发布链、Gate、validator、signer、migration、Compose 或健康检查后，不能只验证触发失败的那一行。提交前必须按同类风险做一次关联面审计，并把结果纳入同一变更：
+
+- 以精确符号和调用路径搜索同类逻辑，覆盖 VM Gate、production preflight/switch、reconciliation、doctor、cleanup、测试和 references；特别检查旧 profile 分支是否会被新 profile 误复用。
+- 核对“输入、状态、证据、恢复、最终验真”五个面：完整 commit/origin、candidate image、migration 状态与 checksum、backup/restore point、active claim/committed marker、运行 image、`verify-result` 和 post-deploy `doctor` 必须使用同一 release 身份。
+- 任何代码或发布资产修复都必须重新生成完整 40 位 commit、Gate、candidate archive/image 和唯一 release ID；禁止用旧 Gate、旧 candidate、旧 checksum 或历史成功日志证明新代码。
+- 若失败发生在远端命令、SSH、测试断言或输出解析之后，先按结构化状态做 reconciliation，再决定是否继续；不得以“可能没有提交”或“工具超时”作为重跑依据。
+- profile 242 的升级合同是 health-only：只验证容器 health、应用 `/health` 和路由可达性；不得读取账号池、Canary/API key、Bearer 凭据，不发送模型/upstream 请求，不生成 usage attribution。`probe_*` 只有在明确表示隔离 DB/Redis/容器健康时才可使用。
+- 关联面审计完成后，至少运行对应 release 测试、完整 release suite、`git diff --check`、shell 语法检查，并重新执行适用的 `doctor`、`verify-result` 和 post-deploy doctor。
+
+### 一次性修复门禁
+
+禁止“改一点、跑一次、再根据下一个报错继续补丁”的试错式发布。发现一个问题后，必须在启动新的 Gate/runner 前完成一次性修复：
+
+- 先建立问题的关联面清单：代码符号和调用路径、旧 profile 兼容分支、脚本/Compose/配置、测试、references、运行时证据和恢复路径；清单未完成不得启动 runner。
+- 对同类符号、字段、状态机阶段和错误处理做全量搜索，把同一根因的修复一次性合并；不能只改当前报错行，也不能把后续失败当作新的独立问题掩盖遗漏。
+- 修改后先完成静态关联面审计、定向回归和完整 release suite，再生成新的完整 SHA、Gate、candidate archive/image 和 release；测试或 Gate 失败时回到同一关联面清单补齐后重新生成整套身份。
+- 一个候选只允许对应一个完整修复批次。禁止在旧 candidate、旧 Gate、旧 release 或已启动 runner 上追加修复、重复部署或逐步试错；旧证据只能用于定位、审计或恢复。
+- 只有一次性修复批次的代码、测试、Gate、Candidate、`verify-result` 和 post-deploy doctor 全部一致通过，才允许进入生产。
+
 - VM Gate 重放时，数据库已经存在的 migration 必须走幂等语义断言，状态记为 `verified`；只有数据库没有该 migration 记录且 checksum 预检通过时才记为 `absent`。禁止为了让 Gate 通过而删除 migration 记录、重建数据库或修改 marker。
 - 生产 profile 可能处于混合状态，例如旧 migration 已记录而新 migration 缺失。先独立读取整体 migration 状态和关键 migration 状态，按有序 manifest 逐项处理；不能用“profile 不完整”推断所有 migration 都需要重跑。
 - 生产恢复使用正式 recovery/reconciliation 入口。即使远端动作可能已经提交、但调用端只收到非零退出码或测试断言失败，也必须先读取 committed marker、数据库迁移记录、运行 image、active claim 和 backup unit，再决定继续候选或协调恢复。

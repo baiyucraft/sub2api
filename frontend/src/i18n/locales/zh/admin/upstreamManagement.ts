@@ -18,6 +18,10 @@ export default {
       loadFailed: '加载上游管理设置失败',
       invalid: '请检查首 Token 阈值、样本数、探针模型、探针间隔和探针错误码。'
     },
+    probeSettings: {
+      title: '探针配置',
+      open: '探针配置'
+    },
     modelAliases: {
       title: '全局模型别名',
       description: '仅对 sync_managed 上游账号生效。保存后不会立即触发全量同步，将在下一次模型同步或手动刷新模型时生效；不会覆盖账号编辑页中的手工映射，也不改变用户侧计费。',

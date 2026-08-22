@@ -967,6 +967,12 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 		if err != nil {
 			return err
 		}
+		if account.IsUpstreamBound() {
+			delete(updates, openAILongContextBillingEnabledKey)
+			if len(updates) == 0 {
+				return nil
+			}
+		}
 		if err := ValidateOpenAILongContextBillingExtra(account.Platform, updates); err != nil {
 			return err
 		}

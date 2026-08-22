@@ -143,6 +143,8 @@ func registerUpstreamManagementRoutes(admin *gin.RouterGroup, h *handler.Handler
 	group.GET("/probe-models", h.Admin.UpstreamConfig.GetUpstreamProbeModels)
 	group.PUT("/probe-models", h.Admin.UpstreamConfig.PutUpstreamProbeModels)
 	group.GET("/probe-model-candidates", h.Admin.UpstreamConfig.GetUpstreamProbeModelCandidates)
+	group.GET("/probe-settings", h.Admin.UpstreamConfig.GetUpstreamManagementSettings)
+	group.PUT("/probe-settings", h.Admin.UpstreamConfig.PutUpstreamManagementSettings)
 	group.PUT("/keys/:id/observation", h.Admin.UpstreamConfig.SetKeyObservationAdmin)
 	group.POST("/keys/:id/probe", h.Admin.UpstreamConfig.ProbeKeyAdmin)
 	group.GET("/keys/:id/events", h.Admin.UpstreamConfig.ListKeyEventsAdmin)

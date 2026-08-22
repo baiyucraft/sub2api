@@ -496,6 +496,10 @@ func openAILongContextBillingGate(account *Account) *bool {
 	if account == nil || !account.IsOpenAI() {
 		return nil
 	}
+	if account.UpstreamLongContext != nil && account.UpstreamLongContext.Status == "known" && !account.UpstreamLongContext.Stale {
+		enabled := account.UpstreamLongContext.Enabled
+		return &enabled
+	}
 	enabled := account.IsOpenAILongContextBillingEnabled()
 	return &enabled
 }

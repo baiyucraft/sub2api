@@ -145,6 +145,16 @@ export async function updateSettings(payload: UpstreamManagementSettings): Promi
   return data
 }
 
+export async function getProbeSettings(): Promise<UpstreamManagementSettings> {
+  const { data } = await apiClient.get<UpstreamManagementSettings>('/admin/upstream-management/probe-settings')
+  return data
+}
+
+export async function updateProbeSettings(payload: UpstreamManagementSettings): Promise<UpstreamManagementSettings> {
+  const { data } = await apiClient.put<UpstreamManagementSettings>('/admin/upstream-management/probe-settings', payload)
+  return data
+}
+
 export async function getProbeModelCandidates(): Promise<ProbeModelCandidates> {
   const { data } = await apiClient.get<ProbeModelCandidates>('/admin/upstream-management/probe-model-candidates')
   return data
@@ -174,6 +184,6 @@ export async function getKeyHealthTrend(id: number, range: UpstreamHealthTrendRa
 
 export default {
   listAccounts, listAccountsWithEtag, getTTFTGuard, updateTTFTGuard, getProbeModels, updateProbeModels,
-  getSettings, updateSettings, getProbeModelCandidates,
+  getSettings, updateSettings, getProbeSettings, updateProbeSettings, getProbeModelCandidates,
   setKeyObservation, probeKey, getKeyEvents, getKeyHealthTrend
 }

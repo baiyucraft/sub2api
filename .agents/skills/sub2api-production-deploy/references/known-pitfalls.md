@@ -311,3 +311,28 @@
 - direct `release.py` 偶发 `WinError 10013` 目前只记录为待复现问题；不能把 `python -c import release.cli` 成功当作长期修复，脚本入口和模块入口都必须保留 Windows smoke。
 - one-shot 备份 service 处于 `inactive` 不等于失败，doctor 必须结合 timer 是否启用、最近执行结果以及当前是否运行进行判定。
 - 状态：规则已沉淀；涉及生产的条目仍以每次新 release 的结构化证据为准。
+
+## Profile 242 health-only 合同与探针误用
+
+- 现象：生产 Docker 升级被“账号池不可用”、Canary 凭据缺失或 upstream/model 探针失败阻塞；或者 Gate 通过了 `/health` 却被误报为模型能力已验证。
+- 根因：历史 profile 的发布链曾把 API key、Canary、模型请求和能力探针混在候选健康或生产切换流程中；`probe_*` 命名又容易把隔离容器检查误解为 upstream 探针。
+- 证据：profile 242 Gate v2 只允许容器 health、应用 `/health` 200、迁移/备份/恢复/镜像与数据库/Redis 隔离合同；Gate 的 `release_policy.canary_verified` 固定为 `not_checked`，生产 `streaming`、`usage_attribution` 和真实客户端 IP 按合同记录为 `not_checked`。现有回归测试禁止 `/api/v1/`、`/v1/`、`Authorization: Bearer`、Canary request、Canary key 和 profile 242 的 `canary_api_key_id`。
+- 修复：升级路径不读取账号池或 Canary/API key，不发送模型/upstream 请求，不生成 usage attribution；direct/DMIT `/health` 只证明容器启动和路由可达。隔离数据库、Redis、候选容器和旧镜像检查可以继续使用 `probe_*` 变量，但必须保持本地隔离语义并在 Gate 结束清理。
+- 预防测试：每次修改 Gate、production、doctor、profiles 或 release references 后，搜索上述凭据、路径和请求符号，并运行 profile 242 定向测试与完整 release suite；没有可用账号时仍不得阻塞 Docker 镜像升级。
+- 状态：已修复并由 profile 242 VM Gate、停机生产 release、`verify-result` 和 post-deploy `doctor` 验证。
+
+## 修复后只重跑局部阶段导致证据漂移
+
+- 现象：修复了 validator、migration planner、Gate 或生产脚本后，继续复用旧 Gate/candidate/release；局部测试通过，但签名资产、snapshot checksum、运行镜像或远端 validator 仍对应旧版本。
+- 根因：把一次失败当作单点代码问题，忽略发布链的 commit、origin、release asset、validator/signer、Gate、candidate archive、production snapshot、claim 和恢复证据是同一个不可变身份合同。
+- 修复：每次修复先完成同类关联面审计，再生成新的完整 40 位 commit；使用同一 SHA 更新 validator/signer 单元，重新跑完整 Gate，生成新的 candidate archive/image 和唯一 release ID。旧 release 只保留为审计/恢复证据，不重签、不覆盖、不复用。
+- 预防测试：检查完整 SHA 贯穿 manifest/Gate/runner/production-result；验证 candidate image 与线上运行 image 一致；失败、超时、SSH reset 或输出解析错误都先做结构化 reconciliation，禁止并发或重复 `deploy`。
+- 状态：已固化为 skill 规则，并由 profile 242 release 的 `status`、`verify-result`、完整测试和 `doctor` 复核。
+
+## 逐点试错修复造成重复 runner
+
+- 现象：第一次修复只覆盖当前报错，随后每个新失败再追加一小段补丁并重复启动 runner；最终出现多个候选、旧 Gate 与新代码混用，问题定位和恢复边界都变得不可靠。
+- 根因：没有在启动 Gate 前完成同类符号、旧 profile 分支、测试、配置和恢复路径的全量关联面审计，把同一根因拆成多轮局部试错。
+- 修复：发现问题后先冻结当前候选，建立关联面清单并一次性合并同根因修复；完成静态审计、定向测试和完整 release suite 后，重新生成完整 SHA、Gate、candidate archive/image 和唯一 release。旧 release 不追加修复，只保留作审计或恢复证据。
+- 预防测试：skill 契约必须要求“启动 runner 前完成关联面清单”和“一次性修复批次”；失败、超时、SSH reset 或解析错误只能触发 reconciliation，不能触发第二个 `deploy`。
+- 状态：已固化为强制门禁。

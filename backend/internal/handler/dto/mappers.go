@@ -300,6 +300,17 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 			ObservedAt:              p.ObservedAt,
 		}
 	}
+	if p := a.UpstreamVideoPricing; p != nil {
+		out.UpstreamVideoPricing = &UpstreamVideoPricing{
+			Supported: p.Supported, Status: p.Status, Stale: p.Stale,
+			RateIndependent: p.RateIndependent, EffectiveRateMultiplier: p.EffectiveRateMultiplier,
+			FinalCost480p: p.FinalCost480p, FinalCost720p: p.FinalCost720p, FinalCost1080p: p.FinalCost1080p,
+			ObservedAt: p.ObservedAt,
+		}
+	}
+	if p := a.UpstreamLongContext; p != nil {
+		out.UpstreamLongContext = &UpstreamLongContext{Enabled: p.Enabled, Status: p.Status, Stale: p.Stale, Source: p.Source, ObservedAt: p.ObservedAt}
+	}
 
 	// 提取 5h 窗口费用控制和会话数量控制配置（仅 Anthropic OAuth/SetupToken 账号有效）
 	if a.IsAnthropicOAuthOrSetupToken() {

@@ -384,6 +384,21 @@ export default {
         statusUnavailable: 'Unavailable',
         notObserved: 'Not observed'
       },
+      upstreamVideoPricing: {
+        badge: 'Video',
+        costTitle: 'Video cost ({mode} multiplier, {status})',
+        costTooltipShared: '{tier} cost {cost}; shared multiplier using account rate {multiplier}x; status: {status}',
+        costTooltipIndependent: '{tier} cost {cost}; independent video multiplier {multiplier}x; status: {status}',
+        badgeTitle: 'Video status: {status}; observed: {observedAt}',
+        statusAvailable: 'Available',
+        statusPartial: 'Partial',
+        statusStale: 'Stale',
+        statusUnavailable: 'Unavailable'
+      },
+      upstreamLongContext: {
+        badge: 'Long context',
+        tooltip: 'Long-context billing enabled; source: {source}; observed: {observedAt}'
+      },
       allPrivacyModes: 'All Privacy States',
       privacyUnset: 'Unset',
       privacyTrainingOff: 'Training data sharing disabled',
