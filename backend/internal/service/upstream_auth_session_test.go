@@ -60,11 +60,12 @@ func (authSessionEncryptorFake) Decrypt(value string) (string, error) {
 }
 
 type authSessionStrategyFake struct {
-	logins         int
-	restores       int
-	refreshes      int
-	refreshErr     error
-	restoreExpired bool
+	logins           int
+	restores         int
+	refreshes        int
+	refreshErr       error
+	restoreExpired   bool
+	restoreRefreshed bool
 }
 
 func (s *authSessionStrategyFake) Fingerprint(*UpstreamConfig) string { return "fp" }
@@ -78,6 +79,7 @@ func (s *authSessionStrategyFake) Restore(context.Context, *UpstreamConfig, stri
 		expired := time.Now().UTC().Add(-time.Hour)
 		h.ExpiresAt = &expired
 	}
+	h.Refreshed = s.restoreRefreshed
 	return h, nil
 }
 func (s *authSessionStrategyFake) Login(context.Context, *UpstreamConfig, string) (*UpstreamAuthHandle, error) {
@@ -169,6 +171,20 @@ func TestUpstreamAuthSessionManagerExpiredRestoreFallsBackToLogin(t *testing.T) 
 	_, err = manager.Run(context.Background(), cfg, "", strategy, func(context.Context, *UpstreamAuthHandle) error { return nil })
 	require.NoError(t, err)
 	require.Equal(t, 2, strategy.logins)
+}
+
+func TestUpstreamAuthSessionManagerPersistsTokensRefreshedDuringRestore(t *testing.T) {
+	repo := &authSessionRepoFake{}
+	manager := NewUpstreamAuthSessionManager(repo, nil, authSessionEncryptorFake{})
+	strategy := &authSessionStrategyFake{}
+	cfg := &UpstreamConfig{ID: 5, Provider: "fake", AuthMode: "user_login", SiteURL: "https://example.test"}
+	_, err := manager.Run(context.Background(), cfg, "", strategy, func(context.Context, *UpstreamAuthHandle) error { return nil })
+	require.NoError(t, err)
+	strategy.restoreRefreshed = true
+	_, err = manager.Run(context.Background(), cfg, "", strategy, func(context.Context, *UpstreamAuthHandle) error { return nil })
+	require.NoError(t, err)
+	require.Equal(t, int64(1), repo.record.RefreshCount)
+	require.NotEmpty(t, repo.record.LastRefreshedAt)
 }
 
 func TestNewAPIHandleSerializesCookieTransport(t *testing.T) {
