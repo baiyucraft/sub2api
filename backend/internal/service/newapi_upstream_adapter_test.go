@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -109,6 +110,48 @@ func TestNewAPIUpstreamProviderAdapter_LoginRequiresCookieOrToken(t *testing.T) 
 
 	_, err := (newAPIUpstreamProviderAdapter{}).login(context.Background(), newAPIUserLoginTestConfig(server.URL), "")
 	require.EqualError(t, err, "newapi login returned no session cookie")
+}
+
+func TestNewAPIUpstreamProviderAdapter_LoginConflictIncludesSafeMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"success":false,"message":"session limit reached; password=secret"}`))
+	}))
+	defer server.Close()
+
+	_, err := (newAPIUpstreamProviderAdapter{}).login(context.Background(), newAPIUserLoginTestConfig(server.URL), "")
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "newapi login returned status 409")
+	require.Contains(t, err.Error(), "session limit reached")
+	require.NotContains(t, err.Error(), "password=secret")
+	require.Contains(t, err.Error(), "password=***")
+}
+
+func TestNewAPIUpstreamProviderAdapter_LoginConflictDoesNotExposeUntrustedBody(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "html", body: `<html>private upstream detail</html>`},
+		{name: "malformed json", body: `{"success":false,"message":"private upstream detail"`},
+		{name: "oversized json", body: `{"success":false,"message":"` + strings.Repeat("x", newAPIErrorBodyMaxBytes) + `"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer server.Close()
+
+			_, err := (newAPIUpstreamProviderAdapter{}).login(context.Background(), newAPIUserLoginTestConfig(server.URL), "")
+
+			require.EqualError(t, err, "newapi login returned status 409")
+			require.NotContains(t, err.Error(), "private upstream detail")
+		})
+	}
 }
 
 func TestNewAPIBearerAuthorizationDoesNotDuplicatePrefix(t *testing.T) {

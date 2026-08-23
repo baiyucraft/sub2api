@@ -34,6 +34,7 @@ const (
 	newAPIKeysPageSize       = 100
 	newAPIMaxKeyListPages    = 1000
 	newAPIMaxRevealWorkers   = 5
+	newAPIErrorBodyMaxBytes  = 64 << 10
 
 	newAPIWarningInvalidRemoteKeyID = "newapi_token_list_invalid_remote_key_id"
 	newAPIWarningTotalChanged       = "newapi_token_list_total_changed"
@@ -540,7 +541,7 @@ func (a newAPIUpstreamProviderAdapter) login(ctx context.Context, cfg *UpstreamC
 		return nil, fmt.Errorf("newapi login request failed: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("newapi login returned status %d", status)
+		return nil, fmt.Errorf("newapi login returned status %d%s", status, safeNewAPIMessage(payload.Message))
 	}
 	if !payload.Success {
 		return nil, fmt.Errorf("newapi login failed%s", safeNewAPIMessage(payload.Message))
@@ -1476,6 +1477,14 @@ func (newAPIUpstreamProviderAdapter) doJSON(ctx context.Context, client *http.Cl
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if out != nil {
+			raw, readErr := io.ReadAll(io.LimitReader(resp.Body, newAPIErrorBodyMaxBytes+1))
+			if readErr == nil && len(raw) <= newAPIErrorBodyMaxBytes {
+				// Error envelopes are best-effort diagnostics only. HTTP status remains
+				// authoritative, and malformed/oversized bodies are never surfaced.
+				_ = json.Unmarshal(raw, out)
+			}
+		}
 		return resp.StatusCode, nil
 	}
 	if out == nil {
