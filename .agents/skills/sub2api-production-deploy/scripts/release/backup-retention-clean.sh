@@ -12,7 +12,7 @@ minimum_keep_daily=${MINIMUM_KEEP_DAILY:-2}
 [[ $mode == dry-run || $mode == apply ]]
 [[ $backup_root == /srv/sub2api-backups ]]
 [[ $retention_days =~ ^[0-9]+$ && $retention_days -ge 1 ]]
-[[ $minimum_keep_daily =~ ^[0-9]+$ && $minimum_keep_daily -ge 2 ]]
+[[ $minimum_keep_daily =~ ^[0-9]+$ && $minimum_keep_daily -ge 1 ]]
 [[ $minimum_free_bytes =~ ^[0-9]+$ ]]
 [[ -d $backup_root && ! -L $backup_root ]]
 [[ $(realpath -e -- "$backup_root") == "$backup_root" ]]
