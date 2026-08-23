@@ -600,21 +600,43 @@ exit "$code"
             ip = shlex.quote(route_ip)
             return (
                 "set -Eeuo pipefail; "
-                f"code=$(curl -sS --max-time 15 --resolve {domain}:443:{ip} -o /dev/null -w '%{{http_code}}' https://{domain}/health); "
-                "[[ $code == 200 ]]; "
-                "printf 'route_health=pass\\nhttp_code=%s\\nstreaming=not_checked\\n' \"$code\""
+                "route_health=fail; http_code=000; curl_exit=0; attempts=0; "
+                "for attempt in $(seq 1 30); do "
+                "attempts=$attempt; set +e; "
+                f"code=$(curl -sS --connect-timeout 3 --max-time 5 --resolve {domain}:443:{ip} "
+                f"-o /dev/null -w '%{{http_code}}' https://{domain}/health 2>/dev/null); "
+                "curl_exit=$?; set -e; "
+                "[[ $code =~ ^[0-9]{3}$ ]] || code=000; http_code=$code; "
+                "if [[ $curl_exit == 0 && $http_code == 200 ]]; then route_health=pass; break; fi; "
+                "[[ $attempt == 30 ]] || sleep 1; "
+                "done; "
+                "printf 'route_health=%s\\nhttp_code=%s\\ncurl_exit=%s\\nattempts=%s\\nstreaming=not_checked\\n' "
+                "\"$route_health\" \"$http_code\" \"$curl_exit\" \"$attempts\""
             )
 
         direct = self.run_remote(
             "racknerd",
             health_script(self.profile["rack_public_ip"]),
-            {"route_health", "http_code", "streaming"},
+            {"route_health", "http_code", "curl_exit", "attempts", "streaming"},
         )
         dmit = self.run_remote(
             "backup",
             health_script(self.profile["dmit_public_ip"]),
-            {"route_health", "http_code", "streaming"},
+            {"route_health", "http_code", "curl_exit", "attempts", "streaming"},
         )
+        route_evidence = {
+            "direct_route_health": direct["route_health"],
+            "direct_http_code": direct["http_code"],
+            "direct_curl_exit": direct["curl_exit"],
+            "direct_attempts": direct["attempts"],
+            "dmit_route_health": dmit["route_health"],
+            "dmit_http_code": dmit["http_code"],
+            "dmit_curl_exit": dmit["curl_exit"],
+            "dmit_attempts": dmit["attempts"],
+        }
+        if direct["route_health"] != "pass" or dmit["route_health"] != "pass":
+            self.stage(f"{phase}_public_health_failed", route_evidence)
+            raise RuntimeError(f"{phase} public health route verification failed")
         direct.update({"user_agent": "", "attempt_user_agents": ""})
         dmit.update({"user_agent": "", "attempt_user_agents": ""})
         self.stage(
@@ -624,6 +646,7 @@ exit "$code"
                 "dmit_attempt": "not_checked",
                 "direct_streaming": "not_checked",
                 "dmit_streaming": "not_checked",
+                **route_evidence,
             },
         )
         return direct, dmit
