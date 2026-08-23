@@ -121,7 +121,10 @@ func (r *upstreamConfigRepository) SaveAuthSession(ctx context.Context, record *
 		SetRefreshCount(record.RefreshCount).
 		SetReloginCount(record.ReloginCount).
 		SetCooldownCount(record.CooldownCount)
-	return b.OnConflict().UpdateNewValues().Exec(ctx)
+	// The session is uniquely keyed by upstream_config_id.  Ent cannot infer
+	// the conflict target from the schema at runtime, so make it explicit;
+	// otherwise PostgreSQL rejects the generated ON CONFLICT DO UPDATE clause.
+	return b.OnConflictColumns(dbupstreamauthsession.FieldUpstreamConfigID).UpdateNewValues().Exec(ctx)
 }
 
 func (r *upstreamConfigRepository) DeleteAuthSession(ctx context.Context, upstreamConfigID int64) error {

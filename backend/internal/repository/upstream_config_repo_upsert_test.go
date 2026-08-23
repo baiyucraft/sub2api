@@ -51,6 +51,48 @@ func TestUpsertKeyBackfillsRemoteIDOnExistingHash(t *testing.T) {
 	require.Equal(t, remoteID, *updated.RemoteKeyID)
 }
 
+func TestSaveAuthSessionUpsertsByUpstreamConfigID(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:upstream_auth_session_upsert?mode=memory&cache=shared&_pragma=foreign_keys(1)")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	drv := entsql.OpenDB(dialect.SQLite, db)
+	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
+	t.Cleanup(func() { _ = client.Close() })
+
+	ctx := context.Background()
+	config, err := client.UpstreamConfig.Create().
+		SetName("auth-session-test").SetProvider(service.UpstreamProviderNewAPI).
+		SetSiteURL("https://example.com").SetAuthMode(service.UpstreamAuthModeUserLogin).
+		Save(ctx)
+	require.NoError(t, err)
+
+	repo := &upstreamConfigRepository{client: client}
+	first := &service.UpstreamAuthSessionRecord{
+		UpstreamConfigID: config.ID, Provider: service.UpstreamProviderNewAPI,
+		AuthMode: service.UpstreamAuthModeUserLogin, CredentialFingerprint: "fingerprint-1",
+		SecretCiphertext: "ciphertext-1", LoginCount: 1,
+	}
+	require.NoError(t, repo.SaveAuthSession(ctx, first))
+
+	second := *first
+	second.CredentialFingerprint = "fingerprint-2"
+	second.SecretCiphertext = "ciphertext-2"
+	second.LoginCount = 2
+	second.ReuseCount = 3
+	require.NoError(t, repo.SaveAuthSession(ctx, &second))
+
+	session, err := client.UpstreamAuthSession.Query().Only(ctx)
+	require.NoError(t, err)
+	require.Equal(t, config.ID, session.UpstreamConfigID)
+	require.Equal(t, "fingerprint-2", session.CredentialFingerprint)
+	require.Equal(t, "ciphertext-2", session.SecretCiphertext)
+	require.EqualValues(t, 2, session.LoginCount)
+	require.EqualValues(t, 3, session.ReuseCount)
+	count, err := client.UpstreamAuthSession.Query().Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+}
+
 func TestUpstreamKeyMissingEligible(t *testing.T) {
 	since := time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
 	require.False(t, upstreamKeyMissingEligible(2, &since, since.Add(time.Hour)))
