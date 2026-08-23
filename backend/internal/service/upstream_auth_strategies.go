@@ -274,6 +274,15 @@ func (s sub2APIAuthStrategy) Seed(ctx context.Context, cfg *UpstreamConfig, prox
 		return nil, errors.New("sub2api access token unavailable")
 	}
 	session, err := s.service.fetchSessionWithToken(ctx, client, target.rootURL, target.accessToken)
+	if errors.Is(err, errSub2APIAccessTokenMayBeStale) && target.refreshToken != "" && refreshedTokens == nil {
+		refreshed, refreshErr := s.service.refreshSub2APIToken(ctx, client, target)
+		if refreshErr != nil {
+			return nil, fmt.Errorf("refresh sub2api token failed: %w", refreshErr)
+		}
+		refreshedTokens = refreshed
+		target.accessToken, target.refreshToken, target.tokenExpiresAt = refreshed.AccessToken, refreshed.RefreshToken, refreshed.ExpiresAt
+		session, err = s.service.fetchSessionWithToken(ctx, client, target.rootURL, target.accessToken)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -297,12 +306,15 @@ func (s sub2APIAuthStrategy) Restore(ctx context.Context, cfg *UpstreamConfig, p
 	if err != nil {
 		return nil, err
 	}
-	// The persisted auth-session secret is authoritative during restore. For
-	// user-login configs the current upstream config intentionally stores only
-	// the email/password, so the refresh token is not present in target until
-	// we copy it from the encrypted session secret.
-	target.accessToken = strings.TrimSpace(token)
-	target.refreshToken = strings.TrimSpace(refresh)
+	// Prefer non-empty persisted tokens, but do not let an older partial session
+	// erase a usable token that is still present in the current configuration.
+	if persisted := strings.TrimSpace(token); persisted != "" {
+		target.accessToken = persisted
+	}
+	if persisted := strings.TrimSpace(refresh); persisted != "" {
+		target.refreshToken = persisted
+	}
+	token, refresh = target.accessToken, target.refreshToken
 	client, err := sub2APIHTTPClient(target.proxyURL)
 	if err != nil {
 		return nil, err
