@@ -135,10 +135,15 @@ func newAPIAuthSession(_ context.Context, cfg *UpstreamConfig, proxy string, use
 	if err != nil {
 		return nil, err
 	}
-	client, err := sub2APIHTTPClient(normalizedProxyURL)
+	sharedClient, err := sub2APIHTTPClient(normalizedProxyURL)
 	if err != nil {
 		return nil, err
 	}
+	// httpclient.GetClient returns a process-wide pooled client. NewAPI sessions
+	// attach provider-specific cookies and bearer tokens, so mutate a shallow
+	// copy instead of contaminating the shared client used by Sub2API/LCodex.
+	clientCopy := *sharedClient
+	client := &clientCopy
 	base := client.Transport
 	if base == nil {
 		base = http.DefaultTransport

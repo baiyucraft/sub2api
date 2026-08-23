@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -200,4 +201,58 @@ func TestNewAPIHandleSerializesCookieTransport(t *testing.T) {
 	value, ok := handle.Value.(newAPIAuthValue)
 	require.True(t, ok)
 	require.Equal(t, "session=opaque-cookie", value.Cookie)
+}
+
+func TestNewAPIAuthSessionDoesNotMutateSharedHTTPClient(t *testing.T) {
+	proxyURL := "http://127.0.0.1:49123"
+	shared, err := sub2APIHTTPClient(proxyURL)
+	require.NoError(t, err)
+	originalTransport := shared.Transport
+	originalJar := shared.Jar
+
+	cfg := &UpstreamConfig{SiteURL: "https://newapi.example.test"}
+	session, err := newAPIAuthSession(context.Background(), cfg, proxyURL, 42, "session=opaque-cookie", "opaque-access-token")
+	require.NoError(t, err)
+	require.NotNil(t, session)
+	require.NotSame(t, shared, session.client)
+	require.Same(t, originalTransport, shared.Transport)
+	require.Equal(t, originalJar, shared.Jar)
+	require.NotNil(t, session.client.Jar)
+	transport, ok := session.client.Transport.(newAPIAuthTransport)
+	require.True(t, ok)
+	require.Equal(t, "session=opaque-cookie", transport.cookie)
+	require.Equal(t, "Bearer opaque-access-token", transport.accessToken)
+}
+
+func TestNewAPIAuthSessionDoesNotOverrideSharedClientRequestHeaders(t *testing.T) {
+	observed := make(chan http.Header, 1)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		observed <- r.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(proxy.Close)
+
+	shared, err := sub2APIHTTPClient(proxy.URL)
+	require.NoError(t, err)
+	_, err = newAPIAuthSession(
+		context.Background(),
+		&UpstreamConfig{SiteURL: "https://newapi.example.test"},
+		proxy.URL,
+		42,
+		"session=newapi-cookie",
+		"newapi-access-token",
+	)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, "http://sub2api.example.test/api/v1/keys", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer sub2api-access-token")
+	resp, err := shared.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+	headers := <-observed
+	require.Equal(t, "Bearer sub2api-access-token", headers.Get("Authorization"))
+	require.Empty(t, headers.Get("Cookie"))
 }
