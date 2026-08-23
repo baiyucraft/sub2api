@@ -101,7 +101,11 @@ assert_services() {
   [[ $(docker inspect -f '{{.State.Status}}' sub2api-redis) == running ]]
   [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
   [[ $(systemctl is-active nginx) == active ]]
-  [[ $(systemctl is-active sub2api-backup.service 2>/dev/null || true) == inactive ]]
+  # A one-shot backup unit may retain a terminal "failed" state after it exits.
+  # Cleanup only needs to prove that no backup job is currently running; the
+  # timer must still be active and enabled below.  This matches the doctor and
+  # production preflight contract without masking an active backup process.
+  [[ $(systemctl is-active sub2api-backup.service 2>/dev/null || true) != active ]]
   [[ $(systemctl is-active sub2api-backup.timer) == active ]]
   [[ $(systemctl is-enabled sub2api-backup.timer) == enabled ]]
   [[ $(docker image inspect -f '{{.Id}}' "$pre_switch_image") == "$pre_switch_image" ]]

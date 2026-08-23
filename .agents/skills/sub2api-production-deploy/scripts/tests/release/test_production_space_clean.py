@@ -285,6 +285,8 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         self.assertIn("/run/lock/sub2api-production-release.lock", prepare)
         self.assertIn("/run/lock/sub2api-backup-global.lock", script)
         self.assertIn("sub2api-backup.service", script)
+        self.assertIn("systemctl is-active sub2api-backup.service 2>/dev/null || true) != active", script)
+        self.assertNotIn("systemctl is-active sub2api-backup.service 2>/dev/null || true) == inactive", script)
         self.assertIn("/opt/sub2api/active-app", script)
         self.assertIn('active_container=$(sed -n \'s/^container=//p\'', script)
         self.assertIn('"http://127.0.0.1:$active_port/health"', script)
