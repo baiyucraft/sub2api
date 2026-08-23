@@ -893,8 +893,8 @@ class PublicHealthOnlyTest(unittest.TestCase):
         }
         release.stage = mock.Mock()
         release.run_remote = mock.Mock(side_effect=[
-            {"route_health": "pass", "http_code": "200", "streaming": "not_checked"},
-            {"route_health": "pass", "http_code": "200", "streaming": "not_checked"},
+            {"route_health": "pass", "http_code": "200", "curl_exit": "0", "attempts": "1", "streaming": "not_checked"},
+            {"route_health": "pass", "http_code": "200", "curl_exit": "0", "attempts": "11", "streaming": "not_checked"},
         ])
         release.run_remote_with_input = mock.Mock(side_effect=AssertionError("model request must not run"))
 
@@ -904,6 +904,41 @@ class PublicHealthOnlyTest(unittest.TestCase):
         self.assertEqual(dmit["streaming"], "not_checked")
         release.run_remote_with_input.assert_not_called()
         self.assertEqual(release.run_remote.call_count, 2)
+        direct_script = release.run_remote.call_args_list[0].args[1]
+        dmit_script = release.run_remote.call_args_list[1].args[1]
+        for script in (direct_script, dmit_script):
+            self.assertIn("for attempt in $(seq 1 30)", script)
+            self.assertIn("--connect-timeout 3 --max-time 5", script)
+            self.assertIn("curl_exit=$?", script)
+            self.assertIn("[[ $attempt == 30 ]] || sleep 1", script)
+        verified = release.stage.call_args_list[-1]
+        self.assertEqual(verified.args[0], "pre_switch_public_health_verified")
+        self.assertEqual(verified.args[1]["direct_attempts"], "1")
+        self.assertEqual(verified.args[1]["dmit_attempts"], "11")
+
+    def test_public_route_failure_is_recorded_after_bounded_retries(self) -> None:
+        release = object.__new__(ProductionRelease)
+        release.profile = {
+            "public_domain": "example.test",
+            "rack_public_ip": "192.0.2.1",
+            "dmit_public_ip": "192.0.2.2",
+        }
+        release.stage = mock.Mock()
+        release.run_remote = mock.Mock(side_effect=[
+            {"route_health": "pass", "http_code": "200", "curl_exit": "0", "attempts": "1", "streaming": "not_checked"},
+            {"route_health": "fail", "http_code": "000", "curl_exit": "35", "attempts": "30", "streaming": "not_checked"},
+        ])
+
+        with self.assertRaisesRegex(RuntimeError, "post_switch public health route verification failed"):
+            release.verify_public_health_routes("post_switch")
+
+        failed = release.stage.call_args_list[-1]
+        self.assertEqual(failed.args[0], "post_switch_public_health_failed")
+        self.assertEqual(failed.args[1]["direct_route_health"], "pass")
+        self.assertEqual(failed.args[1]["dmit_route_health"], "fail")
+        self.assertEqual(failed.args[1]["dmit_http_code"], "000")
+        self.assertEqual(failed.args[1]["dmit_curl_exit"], "35")
+        self.assertEqual(failed.args[1]["dmit_attempts"], "30")
 
 
 class ReleaseClaimScriptTest(unittest.TestCase):
