@@ -236,7 +236,7 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 		handle, err = strategy.Seed(ctx, cfg, proxyURL)
 		if err == nil && handle != nil && !expiredHandle(handle, now) {
 			if opErr := operation(ctx, handle); opErr == nil {
-				return m.persistSuccess(ctx, cfg, strategy, handle, false, false)
+				return m.persistSuccess(ctx, cfg, strategy, handle, handle.Refreshed, false)
 			} else {
 				category := strategy.ClassifyAuthError(opErr)
 				if category == UpstreamAuthErrorConflict {

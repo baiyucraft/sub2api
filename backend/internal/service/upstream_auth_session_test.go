@@ -67,10 +67,14 @@ type authSessionStrategyFake struct {
 	refreshErr       error
 	restoreExpired   bool
 	restoreRefreshed bool
+	seedRefreshed    bool
 }
 
 func (s *authSessionStrategyFake) Fingerprint(*UpstreamConfig) string { return "fp" }
 func (s *authSessionStrategyFake) Seed(context.Context, *UpstreamConfig, string) (*UpstreamAuthHandle, error) {
+	if s.seedRefreshed {
+		return &UpstreamAuthHandle{Value: "seeded", Refreshed: true}, nil
+	}
 	return nil, nil
 }
 func (s *authSessionStrategyFake) Restore(context.Context, *UpstreamConfig, string, *UpstreamAuthSessionSecret) (*UpstreamAuthHandle, error) {
@@ -186,6 +190,20 @@ func TestUpstreamAuthSessionManagerPersistsTokensRefreshedDuringRestore(t *testi
 	require.NoError(t, err)
 	require.Equal(t, int64(1), repo.record.RefreshCount)
 	require.NotEmpty(t, repo.record.LastRefreshedAt)
+}
+
+func TestUpstreamAuthSessionManagerPersistsTokensRefreshedDuringSeed(t *testing.T) {
+	repo := &authSessionRepoFake{}
+	manager := NewUpstreamAuthSessionManager(repo, nil, authSessionEncryptorFake{})
+	strategy := &authSessionStrategyFake{seedRefreshed: true}
+	cfg := &UpstreamConfig{ID: 6, Provider: "fake", AuthMode: "manual_jwt", SiteURL: "https://example.test"}
+
+	_, err := manager.Run(context.Background(), cfg, "", strategy, func(context.Context, *UpstreamAuthHandle) error { return nil })
+
+	require.NoError(t, err)
+	require.Equal(t, int64(1), repo.record.RefreshCount)
+	require.NotEmpty(t, repo.record.LastRefreshedAt)
+	require.Equal(t, int64(0), repo.record.LoginCount)
 }
 
 func TestNewAPIHandleSerializesCookieTransport(t *testing.T) {
