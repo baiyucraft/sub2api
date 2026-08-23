@@ -292,6 +292,12 @@ func (s sub2APIAuthStrategy) Restore(ctx context.Context, cfg *UpstreamConfig, p
 	if err != nil {
 		return nil, err
 	}
+	// The persisted auth-session secret is authoritative during restore. For
+	// user-login configs the current upstream config intentionally stores only
+	// the email/password, so the refresh token is not present in target until
+	// we copy it from the encrypted session secret.
+	target.accessToken = strings.TrimSpace(token)
+	target.refreshToken = strings.TrimSpace(refresh)
 	client, err := sub2APIHTTPClient(target.proxyURL)
 	if err != nil {
 		return nil, err

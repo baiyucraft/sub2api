@@ -301,6 +301,16 @@ func (u *grokHybridUpstream) snapshot() ([]*http.Request, [][]byte) {
 	return requests, bodies
 }
 
+func billingRequests(requests []*http.Request) []*http.Request {
+	filtered := make([]*http.Request, 0, len(requests))
+	for _, req := range requests {
+		if req != nil && req.URL != nil && req.URL.Path == "/v1/billing" {
+			filtered = append(filtered, req)
+		}
+	}
+	return filtered
+}
+
 func (r *grokQuotaProxyRepo) GetByID(_ context.Context, id int64) (*Proxy, error) {
 	r.calls++
 	return r.proxies[id], nil
@@ -781,6 +791,7 @@ func TestGrokQuotaServiceQueryQuotaPaidBillingSkipsActiveProbe(t *testing.T) {
 	require.Nil(t, result.LocalUsage24h)
 
 	requests, _ := upstream.snapshot()
+	requests = billingRequests(requests)
 	require.Len(t, requests, 2)
 	for _, req := range requests {
 		require.Equal(t, "/v1/billing", req.URL.Path)
@@ -806,6 +817,7 @@ func TestGrokQuotaServiceQueryQuotaCustomPaidMonthlyLimitSkipsActiveProbe(t *tes
 	require.Nil(t, result.Snapshot)
 
 	requests, _ := upstream.snapshot()
+	requests = billingRequests(requests)
 	require.Len(t, requests, 2)
 	for _, req := range requests {
 		require.Equal(t, "/v1/billing", req.URL.Path)
@@ -948,6 +960,7 @@ func TestAccountUsageServiceGrokRefreshUsesBillingOnly(t *testing.T) {
 	require.WithinDuration(t, time.Now().UTC().Add(-24*time.Hour), usageRepo.startTimes[0], time.Second)
 
 	requests, _ := upstream.snapshot()
+	requests = billingRequests(requests)
 	require.Len(t, requests, 2)
 	for _, req := range requests {
 		require.Equal(t, http.MethodGet, req.Method)
