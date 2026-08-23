@@ -297,10 +297,21 @@ func (s sub2APIAuthStrategy) Restore(ctx context.Context, cfg *UpstreamConfig, p
 		return nil, err
 	}
 	session, err := s.service.fetchSessionWithToken(ctx, client, target.rootURL, token)
+	refreshed := false
+	if errors.Is(err, errSub2APIAccessTokenMayBeStale) && strings.TrimSpace(refresh) != "" {
+		refreshedTokens, refreshErr := s.service.refreshSub2APIToken(ctx, client, target)
+		if refreshErr != nil {
+			return nil, fmt.Errorf("refresh sub2api token failed: %w", refreshErr)
+		}
+		token, refresh = refreshedTokens.AccessToken, refreshedTokens.RefreshToken
+		target.tokenExpiresAt = refreshedTokens.ExpiresAt
+		session, err = s.service.fetchSessionWithToken(ctx, client, target.rootURL, token)
+		refreshed = true
+	}
 	if err != nil {
 		return nil, err
 	}
-	handle := &UpstreamAuthHandle{Value: sub2APIAuthValue{Session: session, AccessToken: token, RefreshToken: refresh}, ExpiresAt: target.tokenExpiresAt}
+	handle := &UpstreamAuthHandle{Value: sub2APIAuthValue{Session: session, AccessToken: token, RefreshToken: refresh}, ExpiresAt: target.tokenExpiresAt, Refreshed: refreshed}
 	handle.Authenticated = true
 	return handle, nil
 }

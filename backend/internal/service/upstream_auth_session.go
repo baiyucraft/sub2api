@@ -202,6 +202,9 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 				}
 				slog.Info("auth_session_reused", "upstream_config_id", cfg.ID, "provider", cfg.Provider)
 				if opErr := operation(ctx, handle); opErr == nil {
+					if handle.Refreshed {
+						return m.persistSuccess(ctx, cfg, strategy, handle, true, false)
+					}
 					return handle, nil
 				} else {
 					category := strategy.ClassifyAuthError(opErr)
