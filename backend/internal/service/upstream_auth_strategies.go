@@ -352,6 +352,11 @@ func (s sub2APIAuthStrategy) Refresh(ctx context.Context, cfg *UpstreamConfig, p
 	if value.RefreshToken == "" {
 		return nil, errors.New("sub2api refresh token unavailable")
 	}
+	// For restored user-login sessions the current upstream config stores only
+	// email/password; the usable refresh token lives in the encrypted session
+	// handle. Pass that token into the refresh request target explicitly.
+	target.accessToken = strings.TrimSpace(value.AccessToken)
+	target.refreshToken = strings.TrimSpace(value.RefreshToken)
 	client, err := sub2APIHTTPClient(target.proxyURL)
 	if err != nil {
 		return nil, err
