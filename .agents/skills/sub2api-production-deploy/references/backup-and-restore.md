@@ -265,7 +265,7 @@ daily、release recovery point、candidate、verified 和 previous verified 的�
 
 固定策略：
 
-- 只检查 `/srv/sub2api-backups/daily`；默认保留最新 2 组完整 daily 包及其 `.sha256` 文件。
+- 只检查 `/srv/sub2api-backups/daily`；默认清理文件名时间早于 15 天的 daily 包，同时至少保留最新 2 组完整 daily 包及其 `.sha256` 文件。策略可通过 `RETENTION_DAYS` 调整，但不得低于 1 天；`MINIMUM_KEEP_DAILY` 不得低于 2 组。
 - 不删除 `baseline`、`releases`、`candidate`、`verified`、`recovery`、`release-logs` 或任何 profile 恢复包。
 - 只接受 root 所有、非 symlink、单硬链接且 checksum 匹配的成对 daily 文件。
 - dry-run 生成候选文件、大小、mtime、checksum 和 `plan_sha256`；apply 必须携带同一 checksum，候选漂移即停止。
@@ -282,11 +282,11 @@ backup-retention-clean.sh dry-run
   -> doctor --node backup
 ```
 
-如果 daily 只剩 2 组仍无法达到 5 GiB，必须扩容备份机或进入人工 retention 审核，不得扩大删除范围。
+如果没有超过 retention 窗口的候选，或执行后仍无法达到 5 GiB，必须扩容备份机或进入人工 retention 审核，不得扩大自动删除范围。
 
 ### 备份机宿主日志清理合同
 
-当 daily 已只剩默认保留的最新 2 组，但备份机根文件系统仍不足以承接下一个上传时，先检查与备份证据无关的宿主机日志占用。只有 `/var/log/journal` 明确异常增长时，允许使用：
+当 daily 已没有超过 15 天的自动清理候选且至少保留最新 2 组，但备份机根文件系统仍不足以承接下一个上传时，先检查与备份证据无关的宿主机日志占用。只有 `/var/log/journal` 明确异常增长时，允许使用：
 
 ```text
 .agents/skills/sub2api-production-deploy/scripts/release/backup-host-space-clean.sh
