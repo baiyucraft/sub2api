@@ -1,10 +1,11 @@
 <template>
   <div class="flex min-w-[150px] max-w-[250px] flex-col items-start gap-1.5">
-    <HelpTooltip
-      v-if="health"
-      width-class="w-72 max-w-[calc(100vw-2rem)]"
-      trigger-class="!ml-0 max-w-full"
-    >
+    <div class="flex max-w-full flex-nowrap items-center gap-1.5" data-test="health-confidence-row">
+      <HelpTooltip
+        v-if="health"
+        width-class="w-72 max-w-[calc(100vw-2rem)]"
+        trigger-class="!ml-0 max-w-full"
+      >
       <template #trigger>
         <span class="inline-flex items-center gap-1.5">
           <span
@@ -49,11 +50,11 @@
       <div v-else-if="health.status === 'recovering'" class="mt-1 font-medium text-cyan-200">
         {{ t('admin.upstreamManagement.health.recoveryInProgress') }}
       </div>
-    </HelpTooltip>
+      </HelpTooltip>
 
-    <HelpTooltip v-if="showConfidence" width-class="w-80 max-w-[calc(100vw-2rem)]" trigger-class="!ml-0">
+      <HelpTooltip v-if="showConfidence" width-class="w-80 max-w-[calc(100vw-2rem)]" trigger-class="!ml-0">
       <template #trigger>
-        <span class="inline-flex min-h-6 items-center rounded-md bg-violet-100 px-2 py-1 text-xs font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+        <span data-test="confidence-badge" class="inline-flex min-h-6 items-center rounded-md bg-violet-100 px-2 py-1 text-xs font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
           {{ t('admin.upstreamManagement.health.confidenceLabel') }} {{ formatScore(health?.confidence_score_24h) }} / {{ formatScore(health?.confidence_score_7d) }}
         </span>
       </template>
@@ -62,13 +63,16 @@
       <div>{{ t('admin.upstreamManagement.health.confidence7d') }}: {{ formatScore(health?.confidence_score_7d) }} ({{ health?.confidence_sample_count_7d || 0 }})</div>
       <div>{{ t('admin.upstreamManagement.health.confidenceLast') }}: {{ formatScore(health?.confidence_last_score) }}</div>
       <div>{{ t('admin.upstreamManagement.health.requestedEffort') }}: {{ health?.confidence_requested_effort || '-' }}</div>
+      <div>{{ t('admin.upstreamManagement.health.validSamples') }}: {{ health?.confidence_sample_count_7d ?? 0 }}</div>
+      <div>{{ t('admin.upstreamManagement.health.juiceStatus') }}: {{ health?.confidence_status || '-' }}</div>
       <div>{{ t('admin.upstreamManagement.health.reasoningTokens') }}: {{ health?.confidence_reasoning_tokens ?? '-' }}</div>
       <div>{{ t('admin.upstreamManagement.health.promptVersion') }}: {{ health?.confidence_prompt_version || '-' }}</div>
       <div class="mt-1 text-gray-300">{{ t('admin.upstreamManagement.health.confidenceDisclaimer') }}</div>
-    </HelpTooltip>
+      </HelpTooltip>
+    </div>
 
     <span
-      v-else
+      v-if="!health"
       data-upstream-health-state="unobserved"
       class="inline-flex min-h-6 items-center gap-1.5 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500 dark:bg-dark-700 dark:text-gray-400"
     >
@@ -138,6 +142,10 @@ const healthReasonLabel = computed(() => {
   return te(key) ? t(key) : reason
 })
 
-const showConfidence = computed(() => props.account.upstream_health?.confidence_sample_count_24h !== undefined || props.account.upstream_health?.confidence_sample_count_7d !== undefined)
+const showConfidence = computed(() =>
+  props.account.platform?.toLowerCase() === 'openai' &&
+  ((props.account.upstream_health?.confidence_sample_count_24h || 0) > 0 ||
+    (props.account.upstream_health?.confidence_sample_count_7d || 0) > 0)
+)
 function formatScore(score: number | undefined) { return score === undefined || score === null ? '--' : Math.round(score).toString() }
 </script>

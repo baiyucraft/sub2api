@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -19,7 +20,7 @@ type UpstreamConfidenceProbeSettings struct {
 }
 
 func DefaultUpstreamConfidenceProbeSettings() UpstreamConfidenceProbeSettings {
-	return UpstreamConfidenceProbeSettings{Enabled: true, ReasoningEffort: upstreamConfidenceDefaultEffort, LongContextMaxTokens: 2048, QualityDegradeThreshold: 70, PromptVersion: upstreamConfidencePromptVersion}
+	return UpstreamConfidenceProbeSettings{Enabled: false, ReasoningEffort: upstreamConfidenceDefaultEffort, LongContextMaxTokens: 2048, QualityDegradeThreshold: 70, PromptVersion: upstreamConfidencePromptVersion}
 }
 
 func normalizeUpstreamConfidenceProbeSettings(value UpstreamConfidenceProbeSettings) (UpstreamConfidenceProbeSettings, error) {
@@ -27,10 +28,9 @@ func normalizeUpstreamConfidenceProbeSettings(value UpstreamConfidenceProbeSetti
 	if strings.TrimSpace(value.ReasoningEffort) == "" {
 		value.ReasoningEffort = defaults.ReasoningEffort
 	}
-	value.ReasoningEffort = strings.ToLower(strings.TrimSpace(value.ReasoningEffort))
-	if value.ReasoningEffort != "low" && value.ReasoningEffort != "medium" && value.ReasoningEffort != "high" {
-		return value, fmt.Errorf("reasoning_effort must be low, medium, or high")
-	}
+	value.ReasoningEffort = upstreamConfidenceDefaultEffort
+	value.LongContextEnabled = false
+	value.LongContextMaxTokens = defaults.LongContextMaxTokens
 	if value.LongContextMaxTokens <= 0 {
 		value.LongContextMaxTokens = defaults.LongContextMaxTokens
 	}
@@ -46,26 +46,46 @@ func normalizeUpstreamConfidenceProbeSettings(value UpstreamConfidenceProbeSetti
 	if strings.TrimSpace(value.PromptVersion) == "" {
 		value.PromptVersion = defaults.PromptVersion
 	}
-	if value.PromptVersion != upstreamConfidencePromptVersion {
-		return value, fmt.Errorf("unsupported confidence prompt version")
-	}
+	value.PromptVersion = upstreamConfidencePromptVersion
 	return value, nil
 }
 
 func (s *SettingService) GetUpstreamConfidenceProbeSettings(ctx context.Context) (UpstreamConfidenceProbeSettings, error) {
+	settings, _, err := s.GetUpstreamConfidenceProbeSettingsState(ctx)
+	if err != nil {
+		return DefaultUpstreamConfidenceProbeSettings(), nil
+	}
+	return settings, nil
+}
+
+// GetUpstreamConfidenceProbeSettingsState distinguishes an explicitly stored
+// confidence configuration from the safe disabled default. Read, parse, and
+// validation failures are returned to callers that need to make scheduling
+// decisions; those callers must treat them as disabled.
+func (s *SettingService) GetUpstreamConfidenceProbeSettingsState(ctx context.Context) (UpstreamConfidenceProbeSettings, bool, error) {
 	defaults := DefaultUpstreamConfidenceProbeSettings()
 	if s == nil || s.settingRepo == nil {
-		return defaults, nil
+		return defaults, false, nil
 	}
 	raw, err := s.settingRepo.GetValue(ctx, SettingKeyUpstreamConfidenceProbe)
-	if err != nil || strings.TrimSpace(raw) == "" {
-		return defaults, nil
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return defaults, false, nil
+		}
+		return defaults, false, err
+	}
+	if strings.TrimSpace(raw) == "" {
+		return defaults, false, nil
 	}
 	var value UpstreamConfidenceProbeSettings
 	if err := json.Unmarshal([]byte(raw), &value); err != nil {
-		return defaults, nil
+		return defaults, false, err
 	}
-	return normalizeUpstreamConfidenceProbeSettings(value)
+	value, err = normalizeUpstreamConfidenceProbeSettings(value)
+	if err != nil {
+		return defaults, false, err
+	}
+	return value, true, nil
 }
 
 func (s *SettingService) SetUpstreamConfidenceProbeSettings(ctx context.Context, value UpstreamConfidenceProbeSettings) error {

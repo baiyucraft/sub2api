@@ -149,4 +149,50 @@ describe('UpstreamHealthCell', () => {
     expect(wrapper.get('[data-upstream-health-state="unobserved"]').text()).toContain('admin.upstreamManagement.health.noData')
     expect(wrapper.text()).not.toContain('admin.upstreamManagement.health.healthy')
   })
+
+  it('renders OpenAI health and Juice confidence badges in the same row', () => {
+    const wrapper = mount(UpstreamHealthCell, {
+      props: { account: account({ upstream_health: {
+        key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
+        updated_at: '2026-08-24T01:01:00Z', confidence_score_24h: 75, confidence_score_7d: 80,
+        confidence_sample_count_24h: 4, confidence_sample_count_7d: 10,
+        confidence_status: 'current_success', confidence_requested_effort: 'high',
+        confidence_breakdown: { valid_completed: 1, current_success: 1 },
+        confidence_prompt_version: 'openai-juice-high-v1'
+      } }) },
+      global: { stubs }
+    })
+
+    const row = wrapper.get('[data-test="health-confidence-row"]')
+    expect(row.find('[data-upstream-health-state="healthy"]').exists()).toBe(true)
+    expect(row.find('[data-test="confidence-badge"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('high')
+    expect(wrapper.text()).toContain('current_success')
+  })
+
+  it('does not render confidence placeholders for non-OpenAI accounts', () => {
+    const wrapper = mount(UpstreamHealthCell, {
+      props: { account: account({ platform: 'anthropic', upstream_health: {
+        key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
+        updated_at: '2026-08-24T01:01:00Z', confidence_sample_count_24h: 2,
+        confidence_sample_count_7d: 2, confidence_score_24h: 100, confidence_score_7d: 100
+      } }) },
+      global: { stubs }
+    })
+    expect(wrapper.find('[data-test="confidence-badge"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('admin.upstreamManagement.health.confidenceLabel')
+  })
+
+  it('does not render confidence when OpenAI has no valid completed samples', () => {
+    const wrapper = mount(UpstreamHealthCell, {
+      props: { account: account({ upstream_health: {
+        key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
+        updated_at: '2026-08-24T01:01:00Z', confidence_sample_count_24h: 0,
+        confidence_sample_count_7d: 0, confidence_status: 'data_insufficient'
+      } }) },
+      global: { stubs }
+    })
+    expect(wrapper.find('[data-test="confidence-badge"]').exists()).toBe(false)
+    expect(wrapper.find('[data-upstream-health-state="unobserved"]').exists()).toBe(false)
+  })
 })

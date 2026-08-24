@@ -1,0 +1,14 @@
+id: upstream-confidence-juice
+stage: implementation
+deliveryShape: single-change
+artifacts:
+  proposal:
+    status: present
+  design:
+    status: present
+  systemTests:
+    status: present
+  tasks:
+    status: present
+  metadata:
+    status: present

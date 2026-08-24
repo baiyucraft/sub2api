@@ -36,7 +36,7 @@ export interface UpstreamManagementSettings {
 
 export interface UpstreamConfidenceProbeSettings {
   enabled: boolean
-  reasoning_effort: 'low' | 'medium' | 'high'
+  reasoning_effort: 'high'
   long_context_enabled: boolean
   long_context_max_tokens: number
   quality_degrade_threshold: number
