@@ -781,7 +781,14 @@ const hasUsableImagePricing = (account: Account) => {
 
 const hasUpstreamVideoCapability = (account: Account) => {
   const pricing = account.upstream_video_pricing
-  return Boolean(pricing?.supported && !pricing.stale && (pricing.status === 'available' || pricing.status === 'partial'))
+  return Boolean(
+    pricing?.supported &&
+      !pricing.stale &&
+      (pricing.status === 'available' || pricing.status === 'partial') &&
+      pricing.effective_rate_multiplier !== null &&
+      pricing.effective_rate_multiplier !== undefined &&
+      Number.isFinite(pricing.effective_rate_multiplier)
+  )
 }
 
 const hasUsableVideoPricing = (account: Account) => {

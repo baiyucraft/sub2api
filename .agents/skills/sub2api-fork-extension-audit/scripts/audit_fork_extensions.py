@@ -16,6 +16,18 @@ from typing import Any
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 SEVERITY_ORDER = {"pass": 0, "warning": 1, "blocker": 2, "catalog_update_required": 3}
 
+# Governance and knowledge assets are intentionally outside the fork business
+# extension catalog. They may differ from upstream, but must not trigger a
+# catalog_update_required finding; their long-term contract lives in .wiki and
+# their workflow artifacts live in .spec.
+GOVERNANCE_PATH_PATTERNS = (".wiki/**", ".spec/**", ".agents/skills/wiki-*", ".agents/skills/wiki-*/*")
+
+
+def is_governance_path(path: str) -> bool:
+    """Match governance paths even when Git quotes non-ASCII filenames."""
+    normalized = path.strip('"').replace("\\", "/")
+    return normalized.startswith((".wiki/", ".spec/", ".agents/skills/wiki-"))
+
 
 class Audit:
     def __init__(self, root: Path, mode: str, upstream_ref: str, merge_commit: str | None, catalog: Path):
@@ -311,7 +323,13 @@ class Audit:
         support = self.catalog.get("registered_support_paths", [])
         extensions = [pattern for ext in self.catalog.get("extensions", []) for pattern in ext.get("paths", [])]
         all_patterns = support + extensions
-        unknown = [path for path in self.diff_paths if not any(fnmatch.fnmatch(path, pattern) for pattern in all_patterns)]
+        unknown = [
+            path
+            for path in self.diff_paths
+            if not is_governance_path(path)
+            and not any(fnmatch.fnmatch(path, pattern) for pattern in GOVERNANCE_PATH_PATTERNS)
+            and not any(fnmatch.fnmatch(path, pattern) for pattern in all_patterns)
+        ]
         migrations = self.all_profile_migrations() | set(self.catalog.get("migration_contracts", {}))
         new_migrations = [path for path in self.diff_paths if self.diff_status.get(path, "")[0] != "D" and path.startswith("backend/migrations/") and path.endswith(".sql") and Path(path).name not in migrations]
         if unknown:
