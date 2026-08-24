@@ -115,7 +115,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   mark_v2_stage candidate_build
   docker build --network=host --progress=plain \
     --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
-    --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.6-alpine \
+    --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.0-alpine \
     --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
     --build-arg POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:18-alpine \
     --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
@@ -578,7 +578,7 @@ export DOCKER_BUILDKIT=1
 mark_stage candidate_build
 docker build --network=host --progress=plain \
   --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
-  --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.6-alpine \
+  --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.0-alpine \
   --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
   --build-arg POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:18-alpine \
   --build-arg COMMIT="$commit" --build-arg VERSION="$version" \

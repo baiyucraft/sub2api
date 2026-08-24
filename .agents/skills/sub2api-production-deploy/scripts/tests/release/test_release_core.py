@@ -327,6 +327,11 @@ class ReleaseCoreTest(unittest.TestCase):
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn("drverify/[^/]+", validator)
 
+    def test_vm_validator_build_uses_go_version_required_by_backend(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        self.assertEqual(validator.count("GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.0-alpine"), 2)
+        self.assertNotIn("GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.6-alpine", validator)
+
     def test_profile_192_extends_profile_191_with_group_duplicate_migration(self) -> None:
         profile_191 = get_profile("191")
         profile_192 = get_profile("192")
