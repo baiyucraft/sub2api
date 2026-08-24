@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -307,6 +308,25 @@ func TestUpstreamHealthProbeRunnerHonorsBudgetAndConcurrency(t *testing.T) {
 	require.LessOrEqual(t, fake.maxActive.Load(), int32(2))
 }
 
+type healthDueRunnerFake struct {
+	*healthRunnerFake
+	dueCalls atomic.Int32
+}
+
+func (f *healthDueRunnerFake) ProbeDueKey(ctx context.Context, keyID int64) (UpstreamHealthSnapshot, error) {
+	f.dueCalls.Add(1)
+	return f.healthRunnerFake.ProbeKey(ctx, keyID)
+}
+
+func TestUpstreamHealthProbeRunnerUsesDueProbePathWhenAvailable(t *testing.T) {
+	fake := &healthDueRunnerFake{healthRunnerFake: &healthRunnerFake{ids: []int64{11, 12}, delay: time.Millisecond}}
+	runner := NewUpstreamHealthProbeRunner(fake, time.Minute, 2, 1)
+
+	require.NoError(t, runner.RunOnce(context.Background()))
+	require.Equal(t, int32(2), fake.dueCalls.Load())
+	require.Equal(t, int32(2), fake.probeCalls.Load())
+}
+
 func TestUpstreamHealthProbeRunnerSingleflightsSameKey(t *testing.T) {
 	fake := &healthRunnerFake{started: make(chan struct{}, 1), release: make(chan struct{})}
 	runner := NewUpstreamHealthProbeRunner(fake, time.Minute, 2, 2)
@@ -486,6 +506,73 @@ func TestUpstreamConfigServiceListDueHealthProbeKeysReloadsConfiguredInterval(t 
 	ids, err = svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
 	require.NoError(t, err)
 	require.Equal(t, []int64{keyID}, ids, "the next scan observes the updated interval without restarting the runner")
+}
+
+func TestUpstreamConfigServiceListDueHealthProbeKeysUsesConfidenceIndependentMode(t *testing.T) {
+	now := time.Date(2026, 8, 24, 9, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-time.Duration(DefaultUpstreamProbeIntervalSeconds) * time.Second)
+	active := StatusActive
+	openai := PlatformOpenAI
+	gemini := "gemini"
+	const openAIEnabledID int64 = 92101
+	const nonOpenAIID int64 = 92104
+	repo := &healthEventCaptureRepo{keys: []UpstreamKey{
+		{ID: openAIEnabledID, Status: active, Platform: &openai},
+		{ID: nonOpenAIID, Status: active, Platform: &gemini},
+	}}
+	for _, keyID := range []int64{openAIEnabledID, nonOpenAIID} {
+		item := defaultUpstreamHealthSnapshot(keyID)
+		item.LastEvidenceAt = upstreamHealthTimePtr(now.Add(-10 * time.Second))
+		item.LastProbeAt = upstreamHealthTimePtr(cutoff.Add(-time.Second))
+		GlobalUpstreamHealthRegistry().Hydrate(item)
+	}
+	settingsRepo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
+	raw, err := json.Marshal(UpstreamConfidenceProbeSettings{Enabled: true})
+	require.NoError(t, err)
+	settingsRepo.values[SettingKeyUpstreamConfidenceProbe] = string(raw)
+	svc := NewUpstreamConfigService(repo, nil, nil)
+	svc.SetHealthProbeDependencies(nil, NewSettingService(settingsRepo, nil))
+
+	ids, err := svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
+	require.NoError(t, err)
+	require.Equal(t, []int64{openAIEnabledID}, ids)
+
+	settingsRepo.values[SettingKeyUpstreamConfidenceProbe] = "{\"enabled\":false}"
+	ids, err = svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
+	require.NoError(t, err)
+	require.Empty(t, ids, "disabled or missing confidence settings use traffic freshness suppression")
+	settingsRepo.values[SettingKeyUpstreamConfidenceProbe] = "{"
+	ids, err = svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
+	require.NoError(t, err)
+	require.Empty(t, ids, "invalid confidence settings are treated as disabled")
+	delete(settingsRepo.values, SettingKeyUpstreamConfidenceProbe)
+	ids, err = svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
+	require.NoError(t, err)
+	require.Empty(t, ids, "missing confidence settings are treated as disabled")
+}
+
+func TestUpstreamConfigServiceProbeDueKeyRechecksTrafficFreshness(t *testing.T) {
+	const keyID int64 = 92105
+	now := time.Now().UTC()
+	active := StatusActive
+	platform := PlatformOpenAI
+	previous := defaultUpstreamHealthSnapshot(keyID)
+	previous.LastEvidenceAt = upstreamHealthTimePtr(now.Add(-time.Second))
+	previous.LastProbeAt = upstreamHealthTimePtr(now.Add(-2 * time.Minute))
+	GlobalUpstreamHealthRegistry().Hydrate(previous)
+	repo := &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active, Platform: &platform}}
+	prober := &successfulUpstreamHealthProber{}
+	service := NewUpstreamConfigService(repo, nil, &healthProbeAccountRepo{account: Account{ID: 84, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, UpstreamKeyID: int64Ptr(keyID)}})
+	service.SetHealthProbeDependencies(prober, nil)
+
+	item, err := service.ProbeDueKey(context.Background(), keyID)
+	require.NoError(t, err)
+	require.Equal(t, previous, item)
+	require.Empty(t, repo.histories[keyID], "fresh real traffic must suppress the background probe")
+
+	_, err = service.ProbeKey(context.Background(), keyID)
+	require.NoError(t, err, "manual probes remain forceful")
+	require.Len(t, repo.histories[keyID], 1)
 }
 
 func TestUpstreamConfigServiceListsBoundedHealthHistoriesInOneBatch(t *testing.T) {

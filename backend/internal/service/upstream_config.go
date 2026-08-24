@@ -1340,7 +1340,7 @@ func (s *UpstreamConfigService) ProbeKey(ctx context.Context, keyID int64) (Upst
 		return UpstreamHealthSnapshot{}, ErrUpstreamKeyNotFound
 	}
 	result := s.healthProbeSF.DoChan(strconv.FormatInt(keyID, 10), func() (any, error) {
-		return s.probeKeyOnce(ctx, keyID)
+		return s.probeKeyOnce(ctx, keyID, false)
 	})
 	select {
 	case output := <-result:
@@ -1357,12 +1357,37 @@ func (s *UpstreamConfigService) ProbeKey(ctx context.Context, keyID int64) (Upst
 	}
 }
 
-func (s *UpstreamConfigService) probeKeyOnce(ctx context.Context, keyID int64) (UpstreamHealthSnapshot, error) {
+// ProbeDueKey is the background-runner path. It performs a final freshness
+// check immediately before dispatch; unlike ProbeKey, this path may be a
+// harmless no-op when real traffic arrived after due-list construction.
+func (s *UpstreamConfigService) ProbeDueKey(ctx context.Context, keyID int64) (UpstreamHealthSnapshot, error) {
+	if keyID <= 0 {
+		return UpstreamHealthSnapshot{}, ErrUpstreamKeyNotFound
+	}
+	result := s.healthProbeSF.DoChan("due:"+strconv.FormatInt(keyID, 10), func() (any, error) {
+		return s.probeKeyOnce(ctx, keyID, true)
+	})
+	select {
+	case output := <-result:
+		if output.Err != nil {
+			return UpstreamHealthSnapshot{}, output.Err
+		}
+		item, ok := output.Val.(UpstreamHealthSnapshot)
+		if !ok {
+			return UpstreamHealthSnapshot{}, infraerrors.ServiceUnavailable("UPSTREAM_KEY_PROBE_INVALID_RESULT", "upstream key probe returned an invalid result")
+		}
+		return item, nil
+	case <-ctx.Done():
+		return UpstreamHealthSnapshot{}, ctx.Err()
+	}
+}
+
+func (s *UpstreamConfigService) probeKeyOnce(ctx context.Context, keyID int64, background bool) (UpstreamHealthSnapshot, error) {
 	if locker, ok := s.repo.(upstreamHealthProbeLockRepository); ok {
 		var item UpstreamHealthSnapshot
 		acquired, err := locker.WithUpstreamHealthProbeLock(ctx, keyID, func(lockCtx context.Context) error {
 			var probeErr error
-			item, probeErr = s.probeKeyUnlocked(lockCtx, keyID)
+			item, probeErr = s.probeKeyUnlocked(lockCtx, keyID, background)
 			return probeErr
 		})
 		if err != nil {
@@ -1373,10 +1398,10 @@ func (s *UpstreamConfigService) probeKeyOnce(ctx context.Context, keyID int64) (
 		}
 		return item, nil
 	}
-	return s.probeKeyUnlocked(ctx, keyID)
+	return s.probeKeyUnlocked(ctx, keyID, background)
 }
 
-func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int64) (UpstreamHealthSnapshot, error) {
+func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int64, background bool) (UpstreamHealthSnapshot, error) {
 	key, err := s.repo.GetKeyByID(ctx, keyID)
 	if err != nil {
 		return UpstreamHealthSnapshot{}, err
@@ -1413,11 +1438,42 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 	if model == "" || !UpstreamProbePlatformSupported(account.Platform) {
 		return UpstreamHealthSnapshot{}, infraerrors.BadRequest("UPSTREAM_KEY_PROBE_PLATFORM_UNSUPPORTED", "upstream key platform does not support active probing")
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	result, probeErr := s.accountProber.RunUpstreamHealthProbe(probeCtx, &account, model)
-	if probeErr == nil && account.Platform == PlatformOpenAI && result.ConfidenceScore != nil && *result.ConfidenceScore < confidenceThresholdForResult(result) {
-		probeErr = infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_QUALITY_DEGRADED", "upstream probe quality score is below the configured threshold")
+	var result UpstreamHealthProbeResult
+	var probeErr error
+	if background {
+		var current UpstreamHealthSnapshot
+		var skip bool
+		err := s.withHealthKeyLock(keyID, func() error {
+			current = GlobalUpstreamHealthRegistry().Snapshot(keyID)
+			cutoff := time.Now().UTC().Add(-s.effectiveHealthProbeInterval(ctx))
+			confidenceIndependent := s.openAIConfidenceProbeIndependent(ctx)
+			if current.LastProbeAt != nil && current.LastProbeAt.After(cutoff) {
+				skip = true
+			}
+			if !upstreamKeyUsesIndependentConfidenceProbe(key.Platform, confidenceIndependent) && current.LastEvidenceAt != nil && current.LastEvidenceAt.After(cutoff) {
+				skip = true
+			}
+			if skip {
+				return nil
+			}
+			probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			result, probeErr = s.accountProber.RunUpstreamHealthProbe(probeCtx, &account, model)
+			return nil
+		})
+		if err != nil {
+			return UpstreamHealthSnapshot{}, err
+		}
+		if skip {
+			return current, nil
+		}
+	} else {
+		probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		result, probeErr = s.accountProber.RunUpstreamHealthProbe(probeCtx, &account, model)
+	}
+	if probeErr == nil && account.Platform == PlatformOpenAI && result.ConfidenceScore != nil && result.ConfidenceStatus != "current_success" {
+		probeErr = infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_QUALITY_DEGRADED", "upstream Juice confidence classification is not current_success")
 		result.Result = "quality_degraded"
 		result.Reason = "probe_quality_degraded"
 	}
@@ -1459,13 +1515,6 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		return item, infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_FAILED", "upstream key probe failed")
 	}
 	return item, nil
-}
-
-func confidenceThresholdForResult(result UpstreamHealthProbeResult) int {
-	if result.confidenceThreshold > 0 {
-		return result.confidenceThreshold
-	}
-	return 70
 }
 
 func upstreamProbeStatus(message string) string {
