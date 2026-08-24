@@ -260,7 +260,7 @@ func TestFilterCodexInput_CustomToolCallPreservesCTCReferences(t *testing.T) {
 	call, ok := filtered[0].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "ctc_call_1", call["id"])
-	require.Equal(t, "fc_1", call["call_id"])
+	require.Equal(t, "ctc_1", call["call_id"])
 	require.Equal(t, "exec", call["name"])
 	require.Equal(t, "pwd", call["input"])
 }
@@ -280,7 +280,7 @@ func TestFilterCodexInput_CustomToolCallStripsFCReference(t *testing.T) {
 	require.True(t, ok)
 	_, hasID := call["id"]
 	require.False(t, hasID, "invalid custom_tool_call id must be removed")
-	require.Equal(t, "fc_replayed", call["call_id"], "custom tool call_id must remain paired after normalization")
+	require.Equal(t, "ctc_replayed", call["call_id"], "custom tool call_id must remain paired after normalization")
 }
 
 func TestFilterCodexInput_CustomToolCallKeepsPayloadWhenIDIsInvalid(t *testing.T) {
