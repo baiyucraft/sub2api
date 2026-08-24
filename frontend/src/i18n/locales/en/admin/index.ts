@@ -8,6 +8,7 @@ import upstreamConfigs from './upstreamConfigs'
 import upstreamManagement from './upstreamManagement'
 import audit from './audit'
 import promptAudit from './promptAudit'
+import plugins from './plugins'
 
 export default {
   ...overview,
@@ -20,4 +21,5 @@ export default {
   ...upstreamManagement,
   ...audit,
   ...promptAudit,
+  ...plugins,
 }
