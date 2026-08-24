@@ -76,6 +76,14 @@ func NewUpstreamConfigRepository(client *dbent.Client, caches ...service.Schedul
 	return &upstreamConfigRepository{client: client, schedulerCache: schedulerCache}
 }
 
+// ProvideUpstreamConfigRepository is the explicit Wire provider. The variadic
+// constructor remains available to lightweight tools and tests, while the
+// production graph receives the scheduler cache required for scheduler-state
+// invalidation.
+func ProvideUpstreamConfigRepository(client *dbent.Client, schedulerCache service.SchedulerCache) service.UpstreamConfigRepository {
+	return NewUpstreamConfigRepository(client, schedulerCache)
+}
+
 // SetSchedulerCache is kept out of UpstreamConfigRepository so lightweight
 // repositories and migration utilities do not need a scheduler dependency.
 func (r *upstreamConfigRepository) SetSchedulerCache(cache service.SchedulerCache) {

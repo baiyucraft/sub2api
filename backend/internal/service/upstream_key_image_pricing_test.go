@@ -227,3 +227,83 @@ func TestMergeSub2APIImagePricingSnapshotsFirstUnavailableIsNotStale(t *testing.
 }
 
 func float64PtrForImagePricing(value float64) *float64 { return &value }
+
+func videoPricingFloatPtr(value float64) *float64 {
+	return &value
+}
+
+func testVideoPricingKey(snapshot map[string]any, sourceRate *float64) *UpstreamKey {
+	return &UpstreamKey{
+		SourceRateMultiplier: sourceRate,
+		Extra: map[string]any{
+			Sub2APIVideoPricingSnapshotExtraKey: snapshot,
+		},
+	}
+}
+
+func TestDeriveUpstreamKeyVideoPricingRequiresIndependentMultiplier(t *testing.T) {
+	key := testVideoPricingKey(map[string]any{
+		"version":                float64(sub2APIVideoPricingSnapshotVersion),
+		"status":                 UpstreamKeyImagePricingStatusAvailable,
+		"allow_video_generation": true,
+		"video_rate_independent": true,
+		"video_price_720p":       2.0,
+	}, videoPricingFloatPtr(1.5))
+
+	pricing := DeriveUpstreamKeyVideoPricingForAccount(key, &UpstreamConfig{RechargeRate: 1})
+
+	require.False(t, pricing.Supported)
+	require.Equal(t, UpstreamKeyImagePricingStatusPartial, pricing.Status)
+	require.Nil(t, pricing.EffectiveRateMultiplier)
+}
+
+func TestDeriveUpstreamKeyVideoPricingUsesSharedSourceMultiplier(t *testing.T) {
+	key := testVideoPricingKey(map[string]any{
+		"version":                float64(sub2APIVideoPricingSnapshotVersion),
+		"status":                 UpstreamKeyImagePricingStatusAvailable,
+		"allow_video_generation": true,
+		"video_rate_independent": false,
+		"video_price_720p":       2.0,
+	}, videoPricingFloatPtr(1.5))
+
+	pricing := DeriveUpstreamKeyVideoPricingForAccount(key, &UpstreamConfig{RechargeRate: 1})
+
+	require.True(t, pricing.Supported)
+	require.Equal(t, UpstreamKeyImagePricingStatusAvailable, pricing.Status)
+	require.InDelta(t, 1.5, *pricing.EffectiveRateMultiplier, 1e-12)
+	require.InDelta(t, 3.0, *pricing.FinalCost720p, 1e-12)
+}
+
+func TestDeriveUpstreamKeyVideoPricingUsesIndependentMultiplier(t *testing.T) {
+	key := testVideoPricingKey(map[string]any{
+		"version":                float64(sub2APIVideoPricingSnapshotVersion),
+		"status":                 UpstreamKeyImagePricingStatusAvailable,
+		"allow_video_generation": true,
+		"video_rate_independent": true,
+		"video_rate_multiplier":  0.75,
+		"video_price_720p":       2.0,
+	}, videoPricingFloatPtr(1.5))
+
+	pricing := DeriveUpstreamKeyVideoPricingForAccount(key, &UpstreamConfig{RechargeRate: 1})
+
+	require.True(t, pricing.Supported)
+	require.Equal(t, UpstreamKeyImagePricingStatusAvailable, pricing.Status)
+	require.InDelta(t, 0.75, *pricing.EffectiveRateMultiplier, 1e-12)
+	require.InDelta(t, 1.5, *pricing.FinalCost720p, 1e-12)
+}
+
+func TestDeriveUpstreamKeyVideoPricingRejectsMissingSharedMultiplier(t *testing.T) {
+	key := testVideoPricingKey(map[string]any{
+		"version":                float64(sub2APIVideoPricingSnapshotVersion),
+		"status":                 UpstreamKeyImagePricingStatusAvailable,
+		"allow_video_generation": true,
+		"video_rate_independent": false,
+		"video_price_720p":       2.0,
+	}, nil)
+
+	pricing := DeriveUpstreamKeyVideoPricingForAccount(key, &UpstreamConfig{RechargeRate: 1})
+
+	require.False(t, pricing.Supported)
+	require.Equal(t, UpstreamKeyImagePricingStatusPartial, pricing.Status)
+	require.Nil(t, pricing.EffectiveRateMultiplier)
+}

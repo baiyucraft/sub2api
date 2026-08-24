@@ -382,11 +382,16 @@ func deriveUpstreamKeyVideoPricing(key *UpstreamKey, config *UpstreamConfig) *Up
 		effectiveRate = snapshot.VideoRateMultiplier
 	}
 	if effectiveRate == nil {
+		// A capability flag without a usable multiplier cannot be admitted as
+		// billable video support. Keep the partial status as diagnostic evidence,
+		// but do not expose it as supported.
+		out.Supported = false
 		out.Status = UpstreamKeyImagePricingStatusPartial
 		return out
 	}
 	normalizedRate, err := NormalizeUpstreamActualRate(*effectiveRate, config.RechargeRate)
 	if err != nil {
+		out.Supported = false
 		out.Status = UpstreamKeyImagePricingStatusPartial
 		return out
 	}

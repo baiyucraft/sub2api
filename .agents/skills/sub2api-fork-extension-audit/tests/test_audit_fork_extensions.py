@@ -196,6 +196,20 @@ def test_unregistered_path_requires_catalog_update(tmp_path: Path) -> None:
     assert any(item["code"] == "unregistered_fork_paths" for item in report["findings"])
 
 
+def test_governance_paths_are_intentionally_excluded_from_catalog(tmp_path: Path) -> None:
+    repo, upstream, catalog = make_fixture(tmp_path)
+    write(repo / ".wiki/03-模块指南/fork.md", "long-lived fork knowledge\n")
+    write(repo / ".spec/changes/example/proposal.md", "process artifact\n")
+    write(repo / ".agents/skills/wiki-propose/SKILL.md", "workflow asset\n")
+    commit_all(repo, "add governance assets")
+
+    proc, report = audit(repo, "pre-merge", upstream, catalog)
+
+    assert proc.returncode == 0
+    assert report["status"] == "pass"
+    assert not any(item["code"] == "unregistered_fork_paths" for item in report["findings"])
+
+
 def make_merge(repo: Path, upstream_base: str) -> tuple[str, str]:
     git(repo, "branch", "official", upstream_base)
     git(repo, "checkout", "official")

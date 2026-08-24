@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -235,7 +234,7 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 		now = time.Now().UTC()
 	}
 	cutoff := now.Add(-s.effectiveHealthProbeInterval(ctx))
-	confidenceIndependent := s.openAIConfidenceProbeIndependent(ctx)
+	confidenceIndependent := s.confidenceProbeIndependent(ctx)
 	ids := make([]int64, 0, len(keys))
 	for _, key := range keys {
 		if key.ID <= 0 || !upstreamKeyIsActive(&key) {
@@ -254,7 +253,7 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 		if item.LastProbeAt != nil && item.LastProbeAt.After(cutoff) {
 			continue
 		}
-		if !upstreamKeyUsesIndependentConfidenceProbe(key.Platform, confidenceIndependent) && item.LastEvidenceAt != nil && item.LastEvidenceAt.After(cutoff) {
+		if !confidenceIndependent && item.LastEvidenceAt != nil && item.LastEvidenceAt.After(cutoff) {
 			continue
 		}
 		ids = append(ids, key.ID)
@@ -266,16 +265,12 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 	return ids, nil
 }
 
-func (s *UpstreamConfigService) openAIConfidenceProbeIndependent(ctx context.Context) bool {
+func (s *UpstreamConfigService) confidenceProbeIndependent(ctx context.Context) bool {
 	if s == nil || s.settingService == nil {
 		return false
 	}
 	settings, configured, err := s.settingService.GetUpstreamConfidenceProbeSettingsState(ctx)
 	return err == nil && configured && settings.Enabled
-}
-
-func upstreamKeyUsesIndependentConfidenceProbe(platform *string, enabled bool) bool {
-	return enabled && platform != nil && strings.EqualFold(strings.TrimSpace(*platform), PlatformOpenAI)
 }
 
 func (s *UpstreamConfigService) effectiveHealthProbeInterval(ctx context.Context) time.Duration {

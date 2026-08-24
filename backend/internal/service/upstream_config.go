@@ -252,6 +252,9 @@ type UpstreamConfigService struct {
 	accountProber      interface {
 		RunUpstreamHealthProbe(ctx context.Context, account *Account, model string) (UpstreamHealthProbeResult, error)
 	}
+	openAIScheduleReporter interface {
+		ReportOpenAIAccountScheduleResult(accountID int64, model string, success bool, firstTokenMs *int)
+	}
 	settingService             *SettingService
 	healthProbeIntervalSeconds atomic.Int64
 	syncLocks                  sync.Map
@@ -452,6 +455,16 @@ func (s *UpstreamConfigService) SetHealthProbeDependencies(prober interface {
 	}
 	s.accountProber = prober
 	s.settingService = settingService
+}
+
+// SetOpenAIScheduleReporter wires the OpenAI scheduler feedback sink used by
+// upstream health probes. The dependency is optional for lightweight callers.
+func (s *UpstreamConfigService) SetOpenAIScheduleReporter(reporter interface {
+	ReportOpenAIAccountScheduleResult(accountID int64, model string, success bool, firstTokenMs *int)
+}) {
+	if s != nil {
+		s.openAIScheduleReporter = reporter
+	}
 }
 
 func (s *UpstreamConfigService) SetAccountTestService(accountTestService *AccountTestService) {
@@ -1438,6 +1451,10 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 	if model == "" || !UpstreamProbePlatformSupported(account.Platform) {
 		return UpstreamHealthSnapshot{}, infraerrors.BadRequest("UPSTREAM_KEY_PROBE_PLATFORM_UNSUPPORTED", "upstream key platform does not support active probing")
 	}
+	// Scheduler feedback is reserved for the independent confidence mode: an
+	// explicitly stored, enabled confidence configuration. Missing, disabled,
+	// or invalid settings must not feed probe samples into the scheduler.
+	confidenceIndependent := s.confidenceProbeIndependent(ctx)
 	var result UpstreamHealthProbeResult
 	var probeErr error
 	if background {
@@ -1446,11 +1463,10 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		err := s.withHealthKeyLock(keyID, func() error {
 			current = GlobalUpstreamHealthRegistry().Snapshot(keyID)
 			cutoff := time.Now().UTC().Add(-s.effectiveHealthProbeInterval(ctx))
-			confidenceIndependent := s.openAIConfidenceProbeIndependent(ctx)
 			if current.LastProbeAt != nil && current.LastProbeAt.After(cutoff) {
 				skip = true
 			}
-			if !upstreamKeyUsesIndependentConfidenceProbe(key.Platform, confidenceIndependent) && current.LastEvidenceAt != nil && current.LastEvidenceAt.After(cutoff) {
+			if !confidenceIndependent && current.LastEvidenceAt != nil && current.LastEvidenceAt.After(cutoff) {
 				skip = true
 			}
 			if skip {
@@ -1471,6 +1487,15 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		result, probeErr = s.accountProber.RunUpstreamHealthProbe(probeCtx, &account, model)
+	}
+	probeRequestSucceeded := probeErr == nil
+	if confidenceIndependent && s.openAIScheduleReporter != nil {
+		var firstTokenMs *int
+		if result.TTFTMs != nil && *result.TTFTMs > 0 {
+			value := int(*result.TTFTMs)
+			firstTokenMs = &value
+		}
+		s.openAIScheduleReporter.ReportOpenAIAccountScheduleResult(account.ID, result.Model, probeRequestSucceeded, firstTokenMs)
 	}
 	if probeErr == nil && account.Platform == PlatformOpenAI && result.ConfidenceScore != nil && result.ConfidenceStatus != "current_success" {
 		probeErr = infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_QUALITY_DEGRADED", "upstream Juice confidence classification is not current_success")

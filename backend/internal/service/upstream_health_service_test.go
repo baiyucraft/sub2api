@@ -235,6 +235,46 @@ type blockingUpstreamHealthProber struct {
 
 type successfulUpstreamHealthProber struct{}
 
+type probeScheduleReport struct {
+	accountID    int64
+	model        string
+	success      bool
+	firstTokenMs *int
+}
+
+type probeScheduleReporter struct {
+	reports []probeScheduleReport
+}
+
+func (r *probeScheduleReporter) ReportOpenAIAccountScheduleResult(accountID int64, model string, success bool, firstTokenMs *int) {
+	var copied *int
+	if firstTokenMs != nil {
+		value := *firstTokenMs
+		copied = &value
+	}
+	r.reports = append(r.reports, probeScheduleReport{accountID: accountID, model: model, success: success, firstTokenMs: copied})
+}
+
+type mixedJuiceUpstreamHealthProber struct{}
+
+func (*mixedJuiceUpstreamHealthProber) RunUpstreamHealthProbe(_ context.Context, _ *Account, model string) (UpstreamHealthProbeResult, error) {
+	ttft := int64(35)
+	duration := int64(60)
+	score := 0
+	return UpstreamHealthProbeResult{
+		Model: model, Protocol: upstreamHealthProbeProtocolOpenAI,
+		Result: "success", Reason: "probe_confidence_mixed", TTFTMs: &ttft, DurationMs: &duration,
+		ConfidenceScore: &score, ConfidenceStatus: "mixed",
+	}, nil
+}
+
+type failedAfterFirstTokenUpstreamHealthProber struct{}
+
+func (*failedAfterFirstTokenUpstreamHealthProber) RunUpstreamHealthProbe(_ context.Context, _ *Account, model string) (UpstreamHealthProbeResult, error) {
+	ttft := int64(45)
+	return UpstreamHealthProbeResult{Model: model, Protocol: upstreamHealthProbeProtocolOpenAI, TTFTMs: &ttft}, errors.New("stream interrupted after first token")
+}
+
 func (*successfulUpstreamHealthProber) RunUpstreamHealthProbe(_ context.Context, _ *Account, model string) (UpstreamHealthProbeResult, error) {
 	ttft := int64(25)
 	duration := int64(40)
@@ -242,6 +282,110 @@ func (*successfulUpstreamHealthProber) RunUpstreamHealthProbe(_ context.Context,
 		Model: model, Protocol: upstreamHealthProbeProtocolOpenAI,
 		Result: "success", Reason: "probe_succeeded", TTFTMs: &ttft, DurationMs: &duration,
 	}, nil
+}
+
+func TestUpstreamConfigServiceProbeReportsOpenAIScheduleResultBeforeConfidenceDegradation(t *testing.T) {
+	const keyID int64 = 92030
+	active := StatusActive
+	platform := PlatformOpenAI
+	repo := &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active, Platform: &platform}}
+	accountRepo := &healthProbeAccountRepo{account: Account{ID: 84, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, UpstreamKeyID: int64Ptr(keyID)}}
+	reporter := &probeScheduleReporter{}
+	settingsRepo := &upstreamManagementSettingRepoStub{values: map[string]string{
+		SettingKeyUpstreamConfidenceProbe: "{\"enabled\":true}",
+	}}
+	settingService := NewSettingService(settingsRepo, nil)
+
+	svc := NewUpstreamConfigService(repo, nil, accountRepo)
+	svc.SetHealthProbeDependencies(&mixedJuiceUpstreamHealthProber{}, settingService)
+	svc.SetOpenAIScheduleReporter(reporter)
+
+	_, err := svc.ProbeKey(context.Background(), keyID)
+	require.Error(t, err)
+	require.Equal(t, "UPSTREAM_KEY_PROBE_FAILED", infraerrors.Reason(err))
+	require.Len(t, reporter.reports, 1)
+	require.Equal(t, int64(84), reporter.reports[0].accountID)
+	require.Equal(t, true, reporter.reports[0].success, "network/stream completion succeeded before Juice quality degradation")
+	require.NotNil(t, reporter.reports[0].firstTokenMs)
+	require.Equal(t, 35, *reporter.reports[0].firstTokenMs)
+}
+
+func TestUpstreamConfigServiceProbeReportsFailureAndTTFTAfterStreamError(t *testing.T) {
+	const keyID int64 = 92031
+	active := StatusActive
+	platform := PlatformOpenAI
+	repo := &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active, Platform: &platform}}
+	accountRepo := &healthProbeAccountRepo{account: Account{ID: 85, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, UpstreamKeyID: int64Ptr(keyID)}}
+	reporter := &probeScheduleReporter{}
+	settingsRepo := &upstreamManagementSettingRepoStub{values: map[string]string{
+		SettingKeyUpstreamConfidenceProbe: "{\"enabled\":true}",
+	}}
+	settingService := NewSettingService(settingsRepo, nil)
+
+	svc := NewUpstreamConfigService(repo, nil, accountRepo)
+	svc.SetHealthProbeDependencies(&failedAfterFirstTokenUpstreamHealthProber{}, settingService)
+	svc.SetOpenAIScheduleReporter(reporter)
+
+	_, err := svc.ProbeKey(context.Background(), keyID)
+	require.Error(t, err)
+	require.Len(t, reporter.reports, 1)
+	require.False(t, reporter.reports[0].success)
+	require.NotNil(t, reporter.reports[0].firstTokenMs)
+	require.Equal(t, 45, *reporter.reports[0].firstTokenMs)
+}
+
+func TestUpstreamConfigServiceProbeReportsNonOpenAIWhenConfidenceEnabled(t *testing.T) {
+	const keyID int64 = 92032
+	active := StatusActive
+	platform := PlatformAnthropic
+	repo := &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active, Platform: &platform}}
+	accountRepo := &healthProbeAccountRepo{account: Account{ID: 86, Type: AccountTypeAPIKey, Platform: PlatformAnthropic, UpstreamKeyID: int64Ptr(keyID)}}
+	reporter := &probeScheduleReporter{}
+	settingsRepo := &upstreamManagementSettingRepoStub{values: map[string]string{
+		SettingKeyUpstreamConfidenceProbe: "{\"enabled\":true}",
+	}}
+
+	svc := NewUpstreamConfigService(repo, nil, accountRepo)
+	svc.SetHealthProbeDependencies(&successfulUpstreamHealthProber{}, NewSettingService(settingsRepo, nil))
+	svc.SetOpenAIScheduleReporter(reporter)
+
+	_, err := svc.ProbeKey(context.Background(), keyID)
+	require.NoError(t, err)
+	require.Len(t, reporter.reports, 1)
+	require.Equal(t, int64(86), reporter.reports[0].accountID)
+	require.True(t, reporter.reports[0].success)
+}
+
+func TestUpstreamConfigServiceProbeDoesNotReportOpenAIWithoutEnabledConfidence(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+	}{
+		{name: "missing"},
+		{name: "disabled", raw: "{\"enabled\":false}"},
+		{name: "invalid", raw: "{"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const keyID int64 = 92033
+			active := StatusActive
+			platform := PlatformOpenAI
+			repo := &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active, Platform: &platform}}
+			accountRepo := &healthProbeAccountRepo{account: Account{ID: 87, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, UpstreamKeyID: int64Ptr(keyID)}}
+			reporter := &probeScheduleReporter{}
+			settingsRepo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
+			if tc.raw != "" {
+				settingsRepo.values[SettingKeyUpstreamConfidenceProbe] = tc.raw
+			}
+
+			svc := NewUpstreamConfigService(repo, nil, accountRepo)
+			svc.SetHealthProbeDependencies(&successfulUpstreamHealthProber{}, NewSettingService(settingsRepo, nil))
+			svc.SetOpenAIScheduleReporter(reporter)
+
+			_, err := svc.ProbeKey(context.Background(), keyID)
+			require.NoError(t, err)
+			require.Empty(t, reporter.reports)
+		})
+	}
 }
 
 func (p *blockingUpstreamHealthProber) RunUpstreamHealthProbe(ctx context.Context, _ *Account, model string) (UpstreamHealthProbeResult, error) {
@@ -535,7 +679,7 @@ func TestUpstreamConfigServiceListDueHealthProbeKeysUsesConfidenceIndependentMod
 
 	ids, err := svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
 	require.NoError(t, err)
-	require.Equal(t, []int64{openAIEnabledID}, ids)
+	require.Equal(t, []int64{openAIEnabledID, nonOpenAIID}, ids)
 
 	settingsRepo.values[SettingKeyUpstreamConfidenceProbe] = "{\"enabled\":false}"
 	ids, err = svc.ListDueHealthProbeKeyIDs(context.Background(), now, 20)
