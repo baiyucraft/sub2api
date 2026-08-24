@@ -54,8 +54,12 @@ func (s *upstreamHealthProbeHTTPStub) Do(req *http.Request, _ string, _ int64, _
 		case strings.Contains(req.URL.Path, ":streamGenerateContent"):
 			stream = fmt.Sprintf("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":%q}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":1}}\n\n", answer)
 		case strings.HasSuffix(req.URL.Path, "/chat/completions"):
-			stream = fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", answer) +
-				"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":1}}\n\n"
+			if !gjson.GetBytes(s.body, "stream").Bool() {
+				stream = fmt.Sprintf("{\"choices\":[{\"message\":{\"content\":%q},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":1}}", answer)
+			} else {
+				stream = fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", answer) +
+					"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":1}}\n\n"
+			}
 		default:
 			return nil, fmt.Errorf("unexpected probe path: %s", req.URL.Path)
 		}
@@ -196,6 +200,19 @@ func TestRunUpstreamHealthProbeUsesProviderStreamingProfiles(t *testing.T) {
 				require.Equal(t, "Bearer deepseek-secret", req.Header.Get("Authorization"))
 				require.Equal(t, "deepseek-chat", gjson.GetBytes(body, "model").String())
 				require.True(t, gjson.GetBytes(body, "stream").Bool())
+			},
+		},
+		{
+			name: "grok chat completions json",
+			account: &Account{ID: 7, Platform: PlatformGrok, Type: AccountTypeAPIKey, Concurrency: 2, Credentials: map[string]any{
+				"api_key": "grok-secret", "base_url": "https://grok.example/v1", "model_mapping": map[string]any{"grok-probe": "grok-4.5"},
+			}},
+			model: "grok-probe", protocol: upstreamHealthProbeProtocolGrokChat,
+			assert: func(t *testing.T, req *http.Request, body []byte) {
+				require.Equal(t, "https://grok.example/v1/chat/completions", req.URL.String())
+				require.Equal(t, "Bearer grok-secret", req.Header.Get("Authorization"))
+				require.Equal(t, "grok-4.5", gjson.GetBytes(body, "model").String())
+				require.False(t, gjson.GetBytes(body, "stream").Bool())
 			},
 		},
 	}

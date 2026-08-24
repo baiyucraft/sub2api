@@ -152,7 +152,8 @@ describe('UpstreamManagementSettingsDialog', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('OpenAI')
     expect(wrapper.text()).toContain('Grok')
-    expect(wrapper.text()).toContain('admin.upstreamManagement.probeModels.catalogOnly')
+    expect(wrapper.text()).not.toContain('仅模型目录')
+    expect(wrapper.text()).not.toContain('Catalog only')
   })
 
   it('does not persist a draft on close and saves all settings atomically', async () => {

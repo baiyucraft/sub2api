@@ -57,7 +57,6 @@ export default {
       search: '搜索模型',
       placeholder: '选择或输入模型',
       useCustom: '使用自定义模型：',
-      catalogOnly: '仅模型目录',
       interval: '自动探针间隔',
       intervalTip: '每个启用观测的 Key 按此频率执行轻量流式探针；缩短间隔会增加上游请求量和少量 Token 消耗。',
       minutes: '分钟',

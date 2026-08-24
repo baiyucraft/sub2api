@@ -52,9 +52,6 @@
           <label v-for="platform in platforms" :key="platform.id" class="space-y-1.5">
             <span class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200">
               {{ platform.label }}
-              <span v-if="!platform.probe_supported" class="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-normal text-gray-500 dark:border-dark-600 dark:text-gray-400">
-                {{ t('admin.upstreamManagement.probeModels.catalogOnly') }}
-              </span>
             </span>
             <Select
               v-model="draft.probe_models[platform.id]"
