@@ -11,9 +11,7 @@ import (
 )
 
 // PlatformDescriptor is the single service-level catalog for concrete
-// upstream platforms. Probe capability is intentionally independent from the
-// model directory: catalog-only platforms remain visible but fail closed for
-// active probing.
+// upstream platforms.
 type PlatformDescriptor struct {
 	ID             string
 	Label          string
@@ -72,8 +70,8 @@ var registeredPlatformCatalog = []PlatformDescriptor{
 	{ID: PlatformOpenAI, Label: "OpenAI", ProbeSupported: true},
 	{ID: PlatformAnthropic, Label: "Anthropic", ProbeSupported: true},
 	{ID: PlatformGemini, Label: "Gemini", ProbeSupported: true},
-	{ID: PlatformAntigravity, Label: "Antigravity", ProbeReason: "该平台暂无主动探针协议"},
-	{ID: PlatformGrok, Label: "Grok", ProbeReason: "该平台暂无主动探针协议"},
+	{ID: PlatformAntigravity, Label: "Antigravity", ProbeSupported: true},
+	{ID: PlatformGrok, Label: "Grok", ProbeSupported: true},
 	// These providers expose the OpenAI Chat Completions contract. They use a
 	// dedicated chat probe rather than the Responses probe used by OpenAI.
 	{ID: PlatformKimi, Label: "Kimi", ProbeSupported: true},

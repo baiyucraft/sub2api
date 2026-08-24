@@ -94,9 +94,11 @@ func DefaultUpstreamProbeModels() UpstreamProbeModels {
 		Anthropic: "claude-3-5-haiku-latest",
 		Gemini:    "gemini-2.0-flash",
 		Additional: map[string]string{
-			PlatformKimi:     "moonshot-v1-8k",
-			PlatformZhipu:    "glm-4-flash",
-			PlatformDeepseek: "deepseek-chat",
+			PlatformKimi:        "moonshot-v1-8k",
+			PlatformZhipu:       "glm-4-flash",
+			PlatformDeepseek:    "deepseek-chat",
+			PlatformGrok:        "grok-4.5",
+			PlatformAntigravity: "gemini-3-pro-preview",
 		},
 	}
 }
