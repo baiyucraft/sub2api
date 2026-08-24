@@ -63,12 +63,12 @@ func TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidInputItemIDs(t *tes
 	require.Equal(t, "fc_valid", gjson.GetBytes(forwarded, "input.3.id").String())
 	require.Equal(t, "item_output", gjson.GetBytes(forwarded, "input.4.id").String())
 	require.Equal(t, "call_123", gjson.GetBytes(forwarded, "input.4.call_id").String())
-	require.Equal(t, "item_unconstrained", gjson.GetBytes(forwarded, "input.5.id").String())
+	require.False(t, gjson.GetBytes(forwarded, "input.5.id").Exists())
 	require.Equal(t, "ctc_valid", gjson.GetBytes(forwarded, "input.6.id").String())
 	require.Equal(t, "call_custom", gjson.GetBytes(forwarded, "input.6.call_id").String())
 	require.False(t, gjson.GetBytes(forwarded, "input.7.id").Exists())
 	require.Equal(t, "call_invalid_custom", gjson.GetBytes(forwarded, "input.7.call_id").String())
-	require.Equal(t, "output_custom", gjson.GetBytes(forwarded, "input.8.id").String())
+	require.False(t, gjson.GetBytes(forwarded, "input.8.id").Exists())
 	require.Equal(t, "call_custom", gjson.GetBytes(forwarded, "input.8.call_id").String())
 }
 
@@ -108,7 +108,7 @@ func TestOpenAIGatewayService_APIKeyNonPassthrough_StripsInvalidCustomToolCallID
 	require.Equal(t, "dir", gjson.GetBytes(forwarded, "input.0.input").String())
 	require.Equal(t, "ctc_compatible", gjson.GetBytes(forwarded, "input.1.id").String())
 	require.Equal(t, "call_90850", gjson.GetBytes(forwarded, "input.1.call_id").String())
-	require.Equal(t, "item_output", gjson.GetBytes(forwarded, "input.2.id").String())
+	require.False(t, gjson.GetBytes(forwarded, "input.2.id").Exists())
 	require.Equal(t, "call_90850", gjson.GetBytes(forwarded, "input.2.call_id").String())
 }
 
@@ -234,7 +234,7 @@ func TestSanitizeOpenAIResponsesInputItemIDs_CustomToolCallAtMultipleIndexes(t *
 			"invalid custom_tool_call id at input[%d] must be stripped", index)
 	}
 	require.Equal(t, "ctc_valid_11", gjson.GetBytes(sanitized, "input.11.id").String())
-	require.Equal(t, "item_output", gjson.GetBytes(sanitized, "input.212.id").String())
+	require.False(t, gjson.GetBytes(sanitized, "input.212.id").Exists())
 	require.Equal(t, "call_11", gjson.GetBytes(sanitized, "input.212.call_id").String())
 	require.Equal(t, "ws_211", gjson.GetBytes(sanitized, "input.211.id").String(),
 		"unknown item types and input ordering must remain unchanged")
