@@ -67,13 +67,20 @@ type authSessionStrategyFake struct {
 	refreshErr       error
 	restoreExpired   bool
 	restoreRefreshed bool
+	seedExpired      bool
 	seedRefreshed    bool
+	disableLogin     bool
 }
 
 func (s *authSessionStrategyFake) Fingerprint(*UpstreamConfig) string { return "fp" }
 func (s *authSessionStrategyFake) Seed(context.Context, *UpstreamConfig, string) (*UpstreamAuthHandle, error) {
-	if s.seedRefreshed {
-		return &UpstreamAuthHandle{Value: "seeded", Refreshed: true}, nil
+	if s.seedRefreshed || s.seedExpired {
+		handle := &UpstreamAuthHandle{Value: "seeded", Refreshed: s.seedRefreshed}
+		if s.seedExpired {
+			expired := time.Now().UTC().Add(-time.Hour)
+			handle.ExpiresAt = &expired
+		}
+		return handle, nil
 	}
 	return nil, nil
 }
@@ -102,12 +109,15 @@ func (*authSessionStrategyFake) Serialize(*UpstreamAuthHandle) (*UpstreamAuthSes
 	return &UpstreamAuthSessionSecret{Provider: "fake", Data: map[string]any{"ok": true}}, nil
 }
 func (*authSessionStrategyFake) ClassifyAuthError(err error) UpstreamAuthErrorCategory {
+	if err == nil {
+		return UpstreamAuthErrorUnknown
+	}
 	if strings.Contains(err.Error(), "409") {
 		return UpstreamAuthErrorConflict
 	}
 	return UpstreamAuthErrorUnauthorized
 }
-func (*authSessionStrategyFake) CanLogin(*UpstreamConfig) bool { return true }
+func (s *authSessionStrategyFake) CanLogin(*UpstreamConfig) bool { return !s.disableLogin }
 
 func TestUpstreamAuthSessionManagerReusesPersistedSession(t *testing.T) {
 	repo := &authSessionRepoFake{}
@@ -204,6 +214,78 @@ func TestUpstreamAuthSessionManagerPersistsTokensRefreshedDuringSeed(t *testing.
 	require.Equal(t, int64(1), repo.record.RefreshCount)
 	require.NotEmpty(t, repo.record.LastRefreshedAt)
 	require.Equal(t, int64(0), repo.record.LoginCount)
+}
+
+func TestUpstreamAuthSessionManagerRefreshesExpiredSeedOnce(t *testing.T) {
+	repo := &authSessionRepoFake{}
+	manager := NewUpstreamAuthSessionManager(repo, nil, authSessionEncryptorFake{})
+	strategy := &authSessionStrategyFake{seedExpired: true, disableLogin: true}
+	cfg := &UpstreamConfig{ID: 7, Provider: "fake", AuthMode: "manual_jwt", SiteURL: "https://example.test"}
+	var operatedValues []any
+
+	_, err := manager.Run(context.Background(), cfg, "", strategy, func(_ context.Context, handle *UpstreamAuthHandle) error {
+		operatedValues = append(operatedValues, handle.Value)
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, strategy.refreshes)
+	require.Equal(t, 0, strategy.logins)
+	require.Equal(t, []any{"refreshed"}, operatedValues)
+	require.Equal(t, int64(1), repo.record.RefreshCount)
+}
+
+func TestUpstreamAuthSessionManagerPreservesExpiredSeedRefreshFailure(t *testing.T) {
+	repo := &authSessionRepoFake{}
+	manager := NewUpstreamAuthSessionManager(repo, nil, authSessionEncryptorFake{})
+	strategy := &authSessionStrategyFake{
+		seedExpired:  true,
+		disableLogin: true,
+		refreshErr:   errors.New("refresh returned status 401"),
+	}
+	cfg := &UpstreamConfig{ID: 8, Provider: "fake", AuthMode: "manual_jwt", SiteURL: "https://example.test"}
+
+	_, err := manager.Run(context.Background(), cfg, "", strategy, func(context.Context, *UpstreamAuthHandle) error {
+		return nil
+	})
+
+	require.EqualError(t, err, "refresh returned status 401")
+	require.Equal(t, 1, strategy.refreshes)
+	require.Equal(t, 0, strategy.logins)
+	require.Equal(t, string(UpstreamAuthErrorUnauthorized), repo.record.LastErrorCategory)
+}
+
+func TestUpstreamAuthSessionManagerDoesNotRecoverTwiceAfterSeedRefresh(t *testing.T) {
+	repo := &authSessionRepoFake{}
+	manager := NewUpstreamAuthSessionManager(repo, nil, authSessionEncryptorFake{})
+	strategy := &authSessionStrategyFake{seedRefreshed: true}
+	cfg := &UpstreamConfig{ID: 9, Provider: "fake", AuthMode: "user_login", SiteURL: "https://example.test"}
+
+	_, err := manager.Run(context.Background(), cfg, "", strategy, func(context.Context, *UpstreamAuthHandle) error {
+		return errors.New("401 unauthorized")
+	})
+
+	require.EqualError(t, err, "401 unauthorized")
+	require.Equal(t, 0, strategy.refreshes)
+	require.Equal(t, 0, strategy.logins)
+}
+
+func TestUpstreamAuthSessionManagerLoginFallbackAfterRefreshFailure(t *testing.T) {
+	repo := &authSessionRepoFake{}
+	manager := NewUpstreamAuthSessionManager(repo, nil, authSessionEncryptorFake{})
+	strategy := &authSessionStrategyFake{seedExpired: true, refreshErr: errors.New("refresh returned status 401")}
+	cfg := &UpstreamConfig{ID: 10, Provider: "fake", AuthMode: "user_login", SiteURL: "https://example.test"}
+	var operatedValues []any
+
+	_, err := manager.Run(context.Background(), cfg, "", strategy, func(_ context.Context, handle *UpstreamAuthHandle) error {
+		operatedValues = append(operatedValues, handle.Value)
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, strategy.refreshes)
+	require.Equal(t, 1, strategy.logins)
+	require.Equal(t, []any{"logged"}, operatedValues)
 }
 
 func TestNewAPIHandleSerializesCookieTransport(t *testing.T) {

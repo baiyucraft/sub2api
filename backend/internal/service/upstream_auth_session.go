@@ -36,6 +36,11 @@ const (
 
 var ErrUpstreamAuthCooldown = errors.New("upstream authentication is in cooldown")
 
+var (
+	errUpstreamAuthHandleExpired = errors.New("upstream authentication handle expired")
+	errUpstreamAuthHandleMissing = errors.New("upstream authentication did not produce a usable session")
+)
+
 // UpstreamAuthSessionRecord is the non-secret persistence projection used by
 // the service layer. SecretCiphertext is never returned by admin handlers.
 type UpstreamAuthSessionRecord struct {
@@ -234,8 +239,13 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 	}
 	if handle == nil {
 		handle, err = strategy.Seed(ctx, cfg, proxyURL)
-		if err == nil && handle != nil && !expiredHandle(handle, now) {
-			if opErr := operation(ctx, handle); opErr == nil {
+		if err == nil && handle != nil {
+			if expiredHandle(handle, now) {
+				// A provider may still accept an access token whose configured expiry
+				// has already passed. Treat that handle as an explicit recoverable
+				// auth failure so the coordinator performs exactly one refresh.
+				err = errUpstreamAuthHandleExpired
+			} else if opErr := operation(ctx, handle); opErr == nil {
 				return m.persistSuccess(ctx, cfg, strategy, handle, handle.Refreshed, false)
 			} else {
 				category := strategy.ClassifyAuthError(opErr)
@@ -254,8 +264,9 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 	}
 	// A compatibility seed may already have refreshed a configured token. It
 	// must not immediately refresh a second time when the first API call fails.
-	refreshAttempted, refreshSucceeded := handle != nil && handle.Refreshed, false
-	if handle != nil && err != nil && isRecoverableAuthError(strategy.ClassifyAuthError(err)) {
+	refreshAttempted := handle != nil && handle.Refreshed
+	refreshSucceeded := refreshAttempted
+	if handle != nil && !refreshAttempted && err != nil && isRecoverableAuthError(strategy.ClassifyAuthError(err)) {
 		refreshAttempted = true
 		if refreshed, refreshErr := strategy.Refresh(ctx, cfg, proxyURL, handle); refreshErr == nil && refreshed != nil {
 			refreshSucceeded = true
@@ -271,8 +282,16 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 				return nil, opErr
 			}
 			err = opErr
-		} else if refreshErr != nil && strategy.ClassifyAuthError(refreshErr) == UpstreamAuthErrorConflict {
-			return nil, m.recordFailure(ctx, cfg, fingerprint, record, UpstreamAuthErrorConflict, refreshErr)
+		} else if refreshErr != nil {
+			category := strategy.ClassifyAuthError(refreshErr)
+			if category == UpstreamAuthErrorConflict {
+				return nil, m.recordFailure(ctx, cfg, fingerprint, record, category, refreshErr)
+			}
+			// Preserve the actual refresh failure. Manual-token strategies cannot
+			// fall back to Login, while user-login strategies still may below.
+			err = refreshErr
+		} else {
+			err = errUpstreamAuthHandleMissing
 		}
 	}
 	// A successful refresh followed by another auth failure is already the
@@ -290,6 +309,9 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 				err = opErr
 			}
 		}
+	}
+	if err == nil {
+		err = errUpstreamAuthHandleMissing
 	}
 	return nil, m.recordFailure(ctx, cfg, fingerprint, record, strategy.ClassifyAuthError(err), err)
 }
