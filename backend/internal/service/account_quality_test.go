@@ -76,6 +76,13 @@ func TestApplyAccountQualityScore(t *testing.T) {
 				AverageFirstTokenMs: qualityFloat64Ptr(7700), AverageDurationMs: qualityFloat64Ptr(20000)},
 			wantScore: qualityIntPtr(73), wantGrade: "A-", wantBasis: accountQualityBasisTTFTDuration,
 		},
+		{
+			name: "cache rate participates with configured weights",
+			window: AccountQualityWindow{SampleCount: 10, FirstTokenSampleCount: 10,
+				AverageFirstTokenMs: qualityFloat64Ptr(800), AverageDurationMs: qualityFloat64Ptr(5000),
+				CacheRate: qualityFloat64Ptr(50)},
+			wantScore: qualityIntPtr(83), wantGrade: "A+", wantBasis: "ttft_duration_cache",
+		},
 	}
 
 	for _, tt := range tests {
@@ -137,7 +144,12 @@ func TestQualityStatsServicesAreReadOnlyBoundedAndNormalizeIDs(t *testing.T) {
 		require.Equal(t, now.UTC().Add(-time.Hour), repo.realtimeStart)
 		require.Equal(t, now.UTC(), repo.end)
 		require.WithinDuration(t, before.Add(accountQualityQueryTimeout), repo.deadline, time.Second)
-		require.Equal(t, 3, stats[7].ScoreVersion)
+		require.Equal(t, AccountQualityScoreVersion, stats[7].ScoreVersion)
+
+		cacheRate := accountQualityCacheRate(25, 100)
+		require.NotNil(t, cacheRate)
+		require.InDelta(t, 25, *cacheRate, 0.001)
+		require.Nil(t, accountQualityCacheRate(0, 0))
 		require.Equal(t, int64(10), stats[7].Recent1h.SampleCount)
 		require.Equal(t, int64(10), stats[7].Recent24h.SampleCount)
 		require.Equal(t, accountQualityActivityActive, stats[7].Activity.State)
