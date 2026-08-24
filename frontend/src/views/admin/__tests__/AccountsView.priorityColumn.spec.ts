@@ -118,8 +118,7 @@ describe('admin AccountsView priority column preferences', () => {
     expect(listAccounts).toHaveBeenLastCalledWith(
       1,
       20,
-      expect.objectContaining({ sort_by: 'priority', sort_order: 'desc' }),
-      expect.objectContaining({ signal: expect.any(AbortSignal) })
+      expect.objectContaining({ sort_by: 'priority', sort_order: 'desc' })
     )
   })
 
@@ -133,7 +132,8 @@ describe('admin AccountsView priority column preferences', () => {
     expect(wrapper.find('[data-column="priority"]').exists()).toBe(false)
     expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual([
       'priority',
-      'today_stats'
+      'today_stats',
+      'quality_stats'
     ])
   })
 
