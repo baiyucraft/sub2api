@@ -164,13 +164,20 @@ func TestShouldStripOpenAIResponsesInputItemID_Reasoning(t *testing.T) {
 	}{
 		{"reasoning item_* id", "reasoning", "item_bad_reasoning", true},
 		{"reasoning rs id", "reasoning", "rs_abc123", false},
-		{"reasoning empty id", "reasoning", "", false},
+		{"reasoning empty id", "reasoning", "", true},
 		{"message msg id", "message", "msg_abc", false},
 		{"message item id", "message", "item_x", true},
 		{"function_call fc id", "function_call", "fc_abc", false},
 		{"function_call fc without separator", "function_call", "fcabc", true},
 		{"function_call item id", "function_call", "item_x", true},
-		{"unconstrained type", "web_search_call", "ws_001", false},
+		{"custom tool ctc id", "custom_tool_call", "ctc_abc", false},
+		{"custom tool fc id", "custom_tool_call", "fc_abc", true},
+		{"tool search tsc id", "tool_search_call", "tsc_abc", false},
+		{"tool search fc id", "tool_search_call", "fc_abc", true},
+		{"web search ws id", "web_search_call", "ws_001", false},
+		{"web search item id", "web_search_call", "item_001", true},
+		{"custom output fc id", "custom_tool_call_output", "fc_001", false},
+		{"custom output ctco id", "custom_tool_call_output", "ctco_001", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -189,7 +196,7 @@ func TestShouldStripOpenAIResponsesInputItemID_CustomToolCallUsesCTCNamespace(t 
 		{name: "ctc without separator", id: "ctcabc123", want: true},
 		{name: "fc id from replay", id: "fc_abc123", want: true},
 		{name: "generic item id", id: "item_abc123", want: true},
-		{name: "empty id", id: "", want: false},
+		{name: "empty id", id: "", want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

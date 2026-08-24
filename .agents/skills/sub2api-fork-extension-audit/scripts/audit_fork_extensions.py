@@ -283,6 +283,30 @@ class Audit:
         if not profile:
             self.add("blocker", "current_profile_missing", "当前 profile 不存在", profile=name)
             return
+
+        # Gate v2 profile 242 deliberately does not carry the legacy ordered
+        # migration/compatibility contract. Its release manifest binds the
+        # migration catalog and production compatibility at release time.
+        if profile.get("gate_schema") == 2:
+            actual_contract = {
+                "id": profile.get("name"),
+                "version": profile.get("version"),
+                "parent": profile.get("parent"),
+                "gate_schema": profile.get("gate_schema"),
+                "new_migrations": profile.get("new_migrations"),
+                "release_policy": profile.get("release_policy"),
+            }
+            mismatches = {
+                key: {"expected": value, "actual": actual_contract.get(key)}
+                for key, value in expected.items()
+                if key != "status" and actual_contract.get(key) != value
+            }
+            if mismatches:
+                self.add("blocker", "current_profile_drift", "当前 Gate v2 profile 合同漂移", profile=name, mismatches=mismatches)
+            else:
+                self.add("pass", "current_profile_contract", "当前 Gate v2 profile 合同已核验", profile=name)
+            return
+
         migrations = profile.get("migrations", [])
         migration_map: dict[str, str] = {}
         missing = []

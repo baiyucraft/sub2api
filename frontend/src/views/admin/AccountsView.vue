@@ -936,7 +936,7 @@ const accountToolsDropdownStyle = computed(() => ({
   width: `${accountToolsDropdownPosition.width}px`
 }))
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'quality_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'quality_stats', 'proxy', 'notes', 'scheduler_score', 'rate_multiplier']
 const PREVIOUS_QUALITY_COLUMNS_VERSION = 'quality-stats-hidden-by-default-v2'
 
 type AccountScope = 'all' | 'ordinary' | 'upstream'
