@@ -51,7 +51,8 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('grok-4.5')
     expect(models).toContain('grok-4.5-latest')
     expect(models).toContain('grok-build-latest')
-    expect(models).toContain('grok-imagine-video-1.5-preview')
+    expect(models).toContain('grok-imagine-image-2.0')
+    expect(models).toContain('grok-imagine-video-1.5')
   })
 
   it('国产平台使用各自模型目录且未知平台不回退 Claude', () => {

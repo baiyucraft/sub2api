@@ -180,6 +180,7 @@ export default {
     accounts: 'Accounts',
     upstreamConfigs: 'Upstream Configs',
     upstreamManagement: 'Upstream Management',
+    plugins: 'Plugins',
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
