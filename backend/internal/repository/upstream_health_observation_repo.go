@@ -56,9 +56,11 @@ func persistUpstreamHealthObservation(ctx context.Context, client *dbent.Client,
 		SetNillableConfidencePromptVersion(nonEmptyStringPtr(item.ConfidencePromptVersion)).
 		SetNillableRequestedEffort(nonEmptyStringPtr(item.RequestedEffort)).
 		SetNillableReasoningTokens(item.ReasoningTokens).
-		SetConfidenceChecks(item.ConfidenceChecks).
 		SetNillableConfidenceStatus(nonEmptyStringPtr(item.ConfidenceStatus)).
 		SetObservedAt(item.ObservedAt.UTC())
+	if len(item.ConfidenceChecks) > 0 {
+		builder.SetConfidenceChecks(item.ConfidenceChecks)
+	}
 	if err := builder.Exec(ctx); err != nil {
 		return err
 	}
@@ -243,26 +245,37 @@ func (r *upstreamConfigRepository) GetUpstreamHealthConfidence(ctx context.Conte
 		dbupstreamhealthobservation.UpstreamKeyIDEQ(keyID),
 		dbupstreamhealthobservation.PlatformEQ(service.PlatformOpenAI),
 		dbupstreamhealthobservation.SourceEQ("probe"),
+		dbupstreamhealthobservation.ConfidencePromptVersionEQ(service.UpstreamConfidencePromptVersion),
+		dbupstreamhealthobservation.RequestedEffortEQ(service.UpstreamConfidenceDefaultEffort),
 		dbupstreamhealthobservation.ObservedAtGTE(now.Add(-7*24*time.Hour)),
 	).Order(dbent.Desc(dbupstreamhealthobservation.FieldObservedAt), dbent.Desc(dbupstreamhealthobservation.FieldID)).All(ctx)
 	if err != nil {
 		return summary, err
 	}
-	var sum24, sum7 float64
-	var n24, n7 int
+	return aggregateUpstreamHealthConfidence(now, rows), nil
+}
+
+func aggregateUpstreamHealthConfidence(now time.Time, rows []*dbent.UpstreamHealthObservation) service.UpstreamHealthConfidenceSummary {
+	summary := service.UpstreamHealthConfidenceSummary{
+		Status: "data_insufficient", RequestedEffort: service.UpstreamConfidenceDefaultEffort,
+		PromptVersion: service.UpstreamConfidencePromptVersion,
+	}
+	var success24, success7, mixed7, n24, n7 int
 	for _, row := range rows {
-		if row.ConfidenceScore == nil {
+		valid := row.ConfidenceChecks["valid_completed"]
+		if valid <= 0 {
 			continue
 		}
-		score := float64(*row.ConfidenceScore)
+		success := row.ConfidenceChecks["current_success"]
 		age := now.Sub(row.ObservedAt)
 		if age <= 7*24*time.Hour {
-			sum7 += score
-			n7++
+			success7 += success
+			n7 += valid
+			mixed7 += row.ConfidenceChecks["mixed"]
 		}
 		if age <= 24*time.Hour {
-			sum24 += score
-			n24++
+			success24 += success
+			n24 += valid
 		}
 		if summary.LastScore == nil {
 			summary.LastScore = row.ConfidenceScore
@@ -276,15 +289,25 @@ func (r *upstreamConfigRepository) GetUpstreamHealthConfidence(ctx context.Conte
 		}
 	}
 	if n24 > 0 {
-		v := sum24 / float64(n24)
+		v := float64(success24) / float64(n24) * 100
 		summary.Score24h = &v
 	}
 	if n7 > 0 {
-		v := sum7 / float64(n7)
+		v := float64(success7) / float64(n7) * 100
 		summary.Score7d = &v
 	}
 	summary.SampleCount24h, summary.SampleCount7d = n24, n7
-	return summary, nil
+	switch {
+	case n7 == 0:
+		summary.Status = "data_insufficient"
+	case mixed7 > 0:
+		summary.Status = "mixed"
+	case success7 > 0:
+		summary.Status = "current_success"
+	default:
+		summary.Status = "unsuccessful"
+	}
+	return summary
 }
 
 func (r *upstreamConfigRepository) GetUpstreamHealthTrend(ctx context.Context, keyID int64, rangeName string, now time.Time) (*service.UpstreamHealthTrend, error) {

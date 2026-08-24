@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,14 @@ const (
 type UpstreamHealthProbeProvider interface {
 	ListDueHealthProbeKeyIDs(ctx context.Context, now time.Time, limit int) ([]int64, error)
 	ProbeKey(ctx context.Context, keyID int64) (UpstreamHealthSnapshot, error)
+}
+
+// UpstreamHealthDueProbeProvider is optionally implemented by providers that
+// can perform a final freshness check immediately before dispatching a
+// background probe. Manual ProbeKey calls remain forceful and bypass this
+// background-only guard.
+type UpstreamHealthDueProbeProvider interface {
+	ProbeDueKey(ctx context.Context, keyID int64) (UpstreamHealthSnapshot, error)
 }
 
 // UpstreamHealthProbeRunner runs bounded, best-effort probes. A runner is
@@ -130,7 +139,13 @@ func (r *UpstreamHealthProbeRunner) RunOnce(ctx context.Context) error {
 					if !ok {
 						return
 					}
-					if _, probeErr := r.ProbeKey(ctx, id); probeErr != nil {
+					var probeErr error
+					if dueProvider, ok := r.provider.(UpstreamHealthDueProbeProvider); ok {
+						_, probeErr = r.ProbeDueKey(ctx, id, dueProvider)
+					} else {
+						_, probeErr = r.ProbeKey(ctx, id)
+					}
+					if probeErr != nil {
 						errMu.Lock()
 						if firstErr == nil {
 							firstErr = probeErr
@@ -155,6 +170,28 @@ sendJobs:
 		return ctx.Err()
 	}
 	return firstErr
+}
+
+func (r *UpstreamHealthProbeRunner) ProbeDueKey(ctx context.Context, keyID int64, provider UpstreamHealthDueProbeProvider) (UpstreamHealthSnapshot, error) {
+	if provider == nil {
+		return UpstreamHealthSnapshot{}, fmt.Errorf("invalid upstream health due probe provider")
+	}
+	result := r.probeGroup.DoChan("due:"+strconv.FormatInt(keyID, 10), func() (any, error) {
+		return provider.ProbeDueKey(ctx, keyID)
+	})
+	select {
+	case output := <-result:
+		if output.Err != nil {
+			return UpstreamHealthSnapshot{}, output.Err
+		}
+		item, ok := output.Val.(UpstreamHealthSnapshot)
+		if !ok {
+			return UpstreamHealthSnapshot{}, fmt.Errorf("invalid upstream health due probe result")
+		}
+		return item, nil
+	case <-ctx.Done():
+		return UpstreamHealthSnapshot{}, ctx.Err()
+	}
 }
 
 // ProbeKey delegates through the provider. The service provider already
@@ -198,6 +235,7 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 		now = time.Now().UTC()
 	}
 	cutoff := now.Add(-s.effectiveHealthProbeInterval(ctx))
+	confidenceIndependent := s.openAIConfidenceProbeIndependent(ctx)
 	ids := make([]int64, 0, len(keys))
 	for _, key := range keys {
 		if key.ID <= 0 || !upstreamKeyIsActive(&key) {
@@ -216,6 +254,9 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 		if item.LastProbeAt != nil && item.LastProbeAt.After(cutoff) {
 			continue
 		}
+		if !upstreamKeyUsesIndependentConfidenceProbe(key.Platform, confidenceIndependent) && item.LastEvidenceAt != nil && item.LastEvidenceAt.After(cutoff) {
+			continue
+		}
 		ids = append(ids, key.ID)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
@@ -223,6 +264,18 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 		ids = ids[:limit]
 	}
 	return ids, nil
+}
+
+func (s *UpstreamConfigService) openAIConfidenceProbeIndependent(ctx context.Context) bool {
+	if s == nil || s.settingService == nil {
+		return false
+	}
+	settings, configured, err := s.settingService.GetUpstreamConfidenceProbeSettingsState(ctx)
+	return err == nil && configured && settings.Enabled
+}
+
+func upstreamKeyUsesIndependentConfidenceProbe(platform *string, enabled bool) bool {
+	return enabled && platform != nil && strings.EqualFold(strings.TrimSpace(*platform), PlatformOpenAI)
 }
 
 func (s *UpstreamConfigService) effectiveHealthProbeInterval(ctx context.Context) time.Duration {

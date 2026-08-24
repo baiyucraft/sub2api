@@ -13,6 +13,7 @@ import (
 
 type upstreamManagementSettingRepoStub struct {
 	values           map[string]string
+	getValueErr      error
 	setMultipleCalls int
 	lastMultiple     map[string]string
 }
@@ -22,6 +23,9 @@ func (r *upstreamManagementSettingRepoStub) Get(context.Context, string) (*Setti
 }
 
 func (r *upstreamManagementSettingRepoStub) GetValue(_ context.Context, key string) (string, error) {
+	if r.getValueErr != nil {
+		return "", r.getValueErr
+	}
 	value, ok := r.values[key]
 	if !ok {
 		return "", ErrSettingNotFound
