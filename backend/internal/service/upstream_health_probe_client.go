@@ -23,12 +23,14 @@ const (
 	upstreamHealthProbeMaxOutputTokens = 50
 	upstreamHealthProbeBodyLimit       = 8 << 10
 
-	upstreamHealthProbeProtocolOpenAI     = "openai_responses"
-	upstreamHealthProbeProtocolOpenAIChat = "openai_chat_completions"
-	upstreamHealthProbeProtocolAnthropic  = "anthropic_messages"
-	upstreamHealthProbeProtocolGemini     = "gemini_stream_generate_content"
-	upstreamConfidencePromptVersion       = "openai-confidence-v1"
-	upstreamConfidenceDefaultEffort       = "high"
+	upstreamHealthProbeProtocolOpenAI      = "openai_responses"
+	upstreamHealthProbeProtocolOpenAIChat  = "openai_chat_completions"
+	upstreamHealthProbeProtocolAnthropic   = "anthropic_messages"
+	upstreamHealthProbeProtocolGemini      = "gemini_stream_generate_content"
+	upstreamHealthProbeProtocolGrokChat    = "grok_chat_completions"
+	upstreamHealthProbeProtocolAntigravity = "antigravity_v1internal"
+	upstreamConfidencePromptVersion        = "openai-confidence-v1"
+	upstreamConfidenceDefaultEffort        = "high"
 )
 
 // UpstreamHealthProbeResult is deliberately independent from account-test
@@ -89,8 +91,12 @@ func newUpstreamHealthChallenge() (upstreamHealthChallenge, error) {
 
 func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account *Account, model string) (UpstreamHealthProbeResult, error) {
 	result := UpstreamHealthProbeResult{Model: strings.TrimSpace(model)}
-	if account == nil || account.Type != AccountTypeAPIKey {
-		return failUpstreamHealthProbe(result, "unsupported_account", "probe_account_unsupported", errors.New("upstream health probes require an API key account"))
+	if account == nil {
+		return failUpstreamHealthProbe(result, "unsupported_account", "probe_account_unsupported", errors.New("upstream health probe account is required"))
+	}
+	platform := strings.ToLower(strings.TrimSpace(account.Platform))
+	if account.Type != AccountTypeAPIKey && platform != PlatformGrok && platform != PlatformAntigravity {
+		return failUpstreamHealthProbe(result, "unsupported_account", "probe_account_unsupported", errors.New("active probes require an API key account for this platform"))
 	}
 	if s == nil || s.httpUpstream == nil {
 		return failUpstreamHealthProbe(result, "unavailable", "probe_transport_unavailable", errors.New("upstream HTTP client is unavailable"))
@@ -100,7 +106,7 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 		return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", err)
 	}
 
-	switch strings.ToLower(strings.TrimSpace(account.Platform)) {
+	switch platform {
 	case PlatformOpenAI:
 		return s.runOpenAIUpstreamHealthProbe(ctx, account, result, challenge)
 	case PlatformAnthropic:
@@ -118,9 +124,75 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 			return failUpstreamHealthProbe(result, "unsupported_protocol", "probe_protocol_unsupported", errors.New("configured responses protocol is not supported by the generic CN provider probe"))
 		}
 		return s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
+	case PlatformGrok:
+		return s.runGrokChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
+	case PlatformAntigravity:
+		return s.runAntigravityUpstreamHealthProbe(ctx, account, result, challenge)
 	default:
 		return failUpstreamHealthProbe(result, "unsupported_platform", "probe_platform_unsupported", errors.New("platform does not support active probing"))
 	}
+}
+
+func (s *AccountTestService) runGrokChatCompletionsUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
+	result.Protocol = upstreamHealthProbeProtocolGrokChat
+	result.Model = account.GetMappedModel(result.Model)
+	authToken, err := s.grokTestAccessToken(ctx, account)
+	if err != nil {
+		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", err)
+	}
+	apiURL, err := buildGrokChatCompletionsURL(account, s.cfg, s.settingService)
+	if err != nil {
+		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"model":      result.Model,
+		"messages":   []map[string]string{{"role": "user", "content": challenge.LegacyPrompt}},
+		"max_tokens": upstreamHealthProbeMaxOutputTokens,
+		"stream":     false,
+	})
+	if err != nil {
+		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
+	if err != nil {
+		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
+	}
+	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
+	s.applyGrokTestRequestHeaders(req, account, authToken, "application/json")
+	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseGrokChatCompletionsUpstreamHealthResponse)
+}
+
+func (s *AccountTestService) runAntigravityUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
+	if account.Type == AccountTypeOAuth {
+		result.Protocol = upstreamHealthProbeProtocolAntigravity
+		if s.antigravityGatewayService == nil {
+			return failUpstreamHealthProbe(result, "configuration_error", "probe_transport_unavailable", errors.New("antigravity gateway service not configured"))
+		}
+		started := time.Now()
+		requestedModel := result.Model
+		connection, err := s.antigravityGatewayService.TestConnectionWithPrompt(ctx, account, requestedModel, challenge.LegacyPrompt)
+		setUpstreamHealthProbeDuration(&result, started)
+		if err != nil {
+			return failUpstreamHealthProbe(result, "upstream_error", "probe_upstream_error", err)
+		}
+		setUpstreamHealthProbeTTFT(&result, started)
+		if connection == nil || strings.TrimSpace(connection.Text) != challenge.Expected {
+			return failUpstreamHealthProbe(result, "invalid_response", "probe_response_mismatch", errors.New("Antigravity probe challenge response did not match"))
+		}
+		result.Model = connection.MappedModel
+		result.HTTPStatus = probeIntPtr(http.StatusOK)
+		result.Result = "success"
+		result.Reason = "probe_succeeded"
+		return result, nil
+	}
+	if strings.HasPrefix(strings.ToLower(result.Model), "gemini-") {
+		probed, err := s.runGeminiUpstreamHealthProbe(ctx, account, result, challenge)
+		probed.Protocol = upstreamHealthProbeProtocolAntigravity
+		return probed, err
+	}
+	probed, err := s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
+	probed.Protocol = upstreamHealthProbeProtocolAntigravity
+	return probed, err
 }
 
 func (s *AccountTestService) runOpenAIChatCompletionsUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
@@ -677,6 +749,50 @@ func parseOpenAIChatCompletionsUpstreamHealthStream(reader io.Reader, started ti
 		return output.String(), errors.New("OpenAI Chat Completions probe stream ended before finish_reason")
 	}
 	return output.String(), nil
+}
+
+func parseGrokChatCompletionsUpstreamHealthResponse(reader io.Reader, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
+	body, err := io.ReadAll(io.LimitReader(reader, upstreamHealthProbeBodyLimit))
+	if err != nil {
+		return "", fmt.Errorf("read Grok Chat Completions probe response: %w", err)
+	}
+	var response struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("decode Grok Chat Completions probe response: %w", err)
+	}
+	if len(response.Choices) == 0 {
+		return "", errors.New("Grok probe response contained no choices")
+	}
+	choice := response.Choices[0]
+	text := strings.TrimSpace(choice.Message.Content)
+	if text == "" {
+		return "", errors.New("Grok probe response contained no text")
+	}
+	setUpstreamHealthProbeTTFT(result, started)
+	result.FinishReason = strings.TrimSpace(choice.FinishReason)
+	if result.FinishReason == "" {
+		return text, errors.New("Grok probe response missing finish_reason")
+	}
+	if response.Usage.PromptTokens > 0 {
+		value := response.Usage.PromptTokens
+		result.InputTokens = &value
+	}
+	if response.Usage.CompletionTokens > 0 {
+		value := response.Usage.CompletionTokens
+		result.OutputTokens = &value
+	}
+	return text, nil
 }
 
 func parseAnthropicUpstreamHealthStream(reader io.Reader, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
