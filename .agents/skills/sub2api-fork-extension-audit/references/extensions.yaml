@@ -126,6 +126,10 @@
   "high_risk_paths": [
     "backend/internal/service/openai_gateway_*.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/service/gateway_scheduling.go", "backend/internal/service/concurrency_service.go", "backend/internal/repository/concurrency_cache.go", "backend/internal/repository/account_repo.go", "backend/internal/handler/admin/account_handler.go", "backend/internal/server/routes/admin.go", "backend/cmd/server/wire.go", "backend/cmd/server/wire_gen.go", "backend/ent/schema/*.go", "backend/migrations/*.sql", "frontend/src/views/admin/AccountsView.vue", "frontend/src/components/account/AccountStatusIndicator.vue", "frontend/src/components/account/UpstreamHealthCell.vue", "frontend/src/i18n/locales/zh/admin/*.ts", "frontend/src/i18n/locales/en/admin/*.ts"
   ],
+  "whole_file_resolution_justifications": {
+    "backend/internal/service/openai_gateway_apikey_item_id_test.go": "保留 fork 的 ctc/fc 命名空间回归夹具；官方同一实现已在 openai_responses_item_id.go 合并，后续补充测试覆盖 tool_search、空 ID 和 WebSocket 兼容行为。",
+    "frontend/src/views/admin/AccountsView.vue": "保留 fork 的 upstream scope、健康/质量/缓存率列和运行态隔离；官方仅有 priority 默认显示修复，已在 merge 后补丁中按区块吸收。"
+  },
   "registered_support_paths": [".agents/skills/sub2api-production-deploy/**", ".agents/skills/sub2api-fork-extension-audit/**", "backend/**", "frontend/**", "deploy/**", "Dockerfile", "DEV_GUIDE.md", "README*.md", "docs/**", "openspec/**", ".gitignore", ".gitattributes", ".dockerignore"],
   "extensions": [
     {

@@ -378,7 +378,18 @@ class Audit:
             if result is not None and first != second and result in (first, second):
                 suspected.append(path)
         if suspected:
-            self.add("warning", "whole_file_resolution_suspected", "高风险冲突结果与单一父提交完全相同，需要人工语义复核", paths=suspected)
+            justifications = self.catalog.get("whole_file_resolution_justifications", {})
+            unresolved = [path for path in suspected if path not in justifications]
+            if unresolved:
+                self.add("warning", "whole_file_resolution_suspected", "高风险冲突结果与单一父提交完全相同，需要人工语义复核", paths=unresolved)
+            else:
+                self.add(
+                    "pass",
+                    "whole_file_resolution_reviewed",
+                    "疑似整文件冲突结果已有逐文件语义复核记录",
+                    paths=suspected,
+                    justifications={path: justifications[path] for path in suspected},
+                )
         else:
             self.add("pass", "high_risk_resolution", "未发现疑似整文件 ours/theirs 结果")
 
