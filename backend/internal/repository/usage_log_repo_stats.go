@@ -33,9 +33,11 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 		WITH successful AS MATERIALIZED (
 			SELECT
 				ul.%[1]s,
-				ul.created_at,
-				ul.duration_ms,
-				ul.first_token_ms
+					ul.created_at,
+					ul.duration_ms,
+					ul.first_token_ms,
+					ul.input_tokens,
+					ul.cache_read_tokens
 			FROM usage_logs ul
 			WHERE ul.%[1]s = ANY($1)
 				AND ul.created_at >= $2
@@ -47,12 +49,16 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 				%[1]s,
 				COUNT(*) FILTER (WHERE created_at >= $3) AS realtime_count,
 				COUNT(first_token_ms) FILTER (WHERE created_at >= $3) AS realtime_first_count,
-				AVG(first_token_ms) FILTER (WHERE created_at >= $3) AS realtime_first_avg,
-				AVG(duration_ms) FILTER (WHERE created_at >= $3) AS realtime_duration_avg,
-				COUNT(*) AS recent_count,
-				COUNT(first_token_ms) AS recent_first_count,
-				AVG(first_token_ms) AS recent_first_avg,
-				AVG(duration_ms) AS recent_duration_avg
+					AVG(first_token_ms) FILTER (WHERE created_at >= $3) AS realtime_first_avg,
+					AVG(duration_ms) FILTER (WHERE created_at >= $3) AS realtime_duration_avg,
+					COALESCE(SUM(cache_read_tokens) FILTER (WHERE created_at >= $3), 0) AS realtime_cache_read_tokens,
+					COALESCE(SUM(input_tokens + cache_read_tokens) FILTER (WHERE created_at >= $3), 0) AS realtime_cache_input_tokens,
+					COUNT(*) AS recent_count,
+					COUNT(first_token_ms) AS recent_first_count,
+					AVG(first_token_ms) AS recent_first_avg,
+					AVG(duration_ms) AS recent_duration_avg,
+					COALESCE(SUM(cache_read_tokens), 0) AS recent_cache_read_tokens,
+					COALESCE(SUM(input_tokens + cache_read_tokens), 0) AS recent_cache_input_tokens
 			FROM successful
 			WHERE duration_ms IS NOT NULL
 			GROUP BY %[1]s
@@ -82,12 +88,16 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 			COALESCE(a.%[1]s, e.%[1]s),
 			COALESCE(q.realtime_count, 0),
 			COALESCE(q.realtime_first_count, 0),
-			q.realtime_first_avg,
-			q.realtime_duration_avg,
-			COALESCE(q.recent_count, 0),
-			COALESCE(q.recent_first_count, 0),
-			q.recent_first_avg,
-			q.recent_duration_avg,
+				q.realtime_first_avg,
+				q.realtime_duration_avg,
+				COALESCE(q.realtime_cache_read_tokens, 0),
+				COALESCE(q.realtime_cache_input_tokens, 0),
+				COALESCE(q.recent_count, 0),
+				COALESCE(q.recent_first_count, 0),
+				q.recent_first_avg,
+				q.recent_duration_avg,
+				COALESCE(q.recent_cache_read_tokens, 0),
+				COALESCE(q.recent_cache_input_tokens, 0),
 			COALESCE(a.successful_requests_1h, 0),
 			COALESCE(e.failed_requests_1h, 0),
 			COALESCE(a.successful_requests_24h, 0),
@@ -108,6 +118,8 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 		var entityID int64
 		var realtimeCount, realtimeFirstCount, recentCount, recentFirstCount int64
 		var successfulRequests1h, failedRequests1h, successfulRequests24h, failedRequests24h int64
+		var realtimeCacheReadTokens, realtimeCacheInputTokens int64
+		var recentCacheReadTokens, recentCacheInputTokens int64
 		var realtimeFirstAvg, realtimeDurationAvg sql.NullFloat64
 		var recentFirstAvg, recentDurationAvg sql.NullFloat64
 		var lastSuccessAt, lastErrorAt sql.NullTime
@@ -117,10 +129,14 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 			&realtimeFirstCount,
 			&realtimeFirstAvg,
 			&realtimeDurationAvg,
+			&realtimeCacheReadTokens,
+			&realtimeCacheInputTokens,
 			&recentCount,
 			&recentFirstCount,
 			&recentFirstAvg,
 			&recentDurationAvg,
+			&recentCacheReadTokens,
+			&recentCacheInputTokens,
 			&successfulRequests1h,
 			&failedRequests1h,
 			&successfulRequests24h,
@@ -136,6 +152,8 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 				FirstTokenSampleCount:  realtimeFirstCount,
 				AverageFirstTokenMs:    nullableFloat64(realtimeFirstAvg),
 				AverageDurationMs:      nullableFloat64(realtimeDurationAvg),
+				CacheRateNumerator:     realtimeCacheReadTokens,
+				CacheRateDenominator:   realtimeCacheInputTokens,
 				SuccessfulRequestCount: successfulRequests1h,
 				FailedRequestCount:     failedRequests1h,
 			},
@@ -144,6 +162,8 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 				FirstTokenSampleCount:  recentFirstCount,
 				AverageFirstTokenMs:    nullableFloat64(recentFirstAvg),
 				AverageDurationMs:      nullableFloat64(recentDurationAvg),
+				CacheRateNumerator:     recentCacheReadTokens,
+				CacheRateDenominator:   recentCacheInputTokens,
 				SuccessfulRequestCount: successfulRequests24h,
 				FailedRequestCount:     failedRequests24h,
 			},

@@ -158,9 +158,11 @@ export default {
         insufficientSamples: '有效样本 {count} 条，少于 3 条，暂不评分',
         scoreTitle: '{grade} 级 / {score} 分，有效样本 {count} 条，首字样本 {firstCount} 条',
         latencyTitle: '平均首 Token {firstToken}，平均总耗时 {duration}',
+        cacheRateTitle: '缓存率 {rate}（缓存读 {numerator} / 输入总量 {denominator}）',
         durationOnly: '首字样本不足，仅按总耗时评分，最高 69 分',
         ttftOnly: '仅按首字评分',
-        hint: '三行依次为：1H 活动状态 / 成功失败数 / 最近成功，1H 与 24H 等级分数 / 平均首 Token 与总耗时 / 样本数。跨模型历史观测仅供展示，不参与优先级或调度；TTFT Guard 仍按账号 + 模型独立运行。',
+        cacheWeighted: '缓存率参与评分（首字 50% / 总耗时 15% / 缓存率 35%）',
+        hint: '三行依次为：1H 活动状态 / 成功失败数 / 最近成功，1H 与 24H 等级分数 / 平均首 Token、总耗时与缓存率 / 样本数。缓存率为缓存读 Token ÷ 输入总量，并参与质量评分。跨模型历史观测仅供展示，不参与优先级或调度；TTFT Guard 仍按账号 + 模型独立运行。',
         realtimeHint: '最近 1 小时的跨模型成功、失败与延迟观测，仅供展示。无流量不代表故障；实时 TTFT Guard 仍按账号 + 模型独立判断。',
         activity: {
           active: '活跃',
