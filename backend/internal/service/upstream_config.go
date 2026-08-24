@@ -252,9 +252,7 @@ type UpstreamConfigService struct {
 	accountProber      interface {
 		RunUpstreamHealthProbe(ctx context.Context, account *Account, model string) (UpstreamHealthProbeResult, error)
 	}
-	openAIScheduleReporter interface {
-		ReportOpenAIAccountScheduleResult(accountID int64, model string, success bool, firstTokenMs *int)
-	}
+	openAIScheduleReporter     any
 	settingService             *SettingService
 	healthProbeIntervalSeconds atomic.Int64
 	syncLocks                  sync.Map
@@ -459,11 +457,25 @@ func (s *UpstreamConfigService) SetHealthProbeDependencies(prober interface {
 
 // SetOpenAIScheduleReporter wires the OpenAI scheduler feedback sink used by
 // upstream health probes. The dependency is optional for lightweight callers.
-func (s *UpstreamConfigService) SetOpenAIScheduleReporter(reporter interface {
-	ReportOpenAIAccountScheduleResult(accountID int64, model string, success bool, firstTokenMs *int)
-}) {
+func (s *UpstreamConfigService) SetOpenAIScheduleReporter(reporter any) {
 	if s != nil {
 		s.openAIScheduleReporter = reporter
+	}
+}
+
+func (s *UpstreamConfigService) reportOpenAIScheduleResult(account *Account, model string, success bool, firstTokenMs *int) {
+	if s == nil || s.openAIScheduleReporter == nil || account == nil {
+		return
+	}
+	switch reporter := s.openAIScheduleReporter.(type) {
+	case interface {
+		ReportOpenAIAccountScheduleResult(any, string, bool, *int, ...error) bool
+	}:
+		reporter.ReportOpenAIAccountScheduleResult(account, model, success, firstTokenMs)
+	case interface {
+		ReportOpenAIAccountScheduleResult(int64, string, bool, *int)
+	}:
+		reporter.ReportOpenAIAccountScheduleResult(account.ID, model, success, firstTokenMs)
 	}
 }
 
@@ -1495,7 +1507,7 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 			value := int(*result.TTFTMs)
 			firstTokenMs = &value
 		}
-		s.openAIScheduleReporter.ReportOpenAIAccountScheduleResult(account.ID, result.Model, probeRequestSucceeded, firstTokenMs)
+		s.reportOpenAIScheduleResult(&account, result.Model, probeRequestSucceeded, firstTokenMs)
 	}
 	if probeErr == nil && account.Platform == PlatformOpenAI && result.ConfidenceScore != nil && result.ConfidenceStatus != "current_success" {
 		probeErr = infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_QUALITY_DEGRADED", "upstream Juice confidence classification is not current_success")

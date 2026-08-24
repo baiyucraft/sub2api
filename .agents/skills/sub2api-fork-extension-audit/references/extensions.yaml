@@ -18,10 +18,10 @@
     "240": {"version": "0.1.177-baiyu", "migration_count": 58, "migration_map_sha256": "b4a160cc14979fedbf1099591b1e7a47e309ed12090837ba3f72c5feeb1a3b5a", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"}
   },
   "current_profile": {
-    "id": "241",
+    "id": "242",
     "status": "pending",
-    "base_profile": "240",
-    "version": "0.1.178-baiyu",
+    "base_profile": "241",
+    "version": "0.1.181-baiyu",
     "migration_count": 62,
     "migration_map_sha256": "9da5fa659fe2b605cdd3cc9d05cac8cd0f8bdccf1417c7fd347e55afb93a724d",
     "appended_migrations": ["242_user_platform_quotas_add_cn_providers.sql", "243_backfill_codex_fingerprint_seed.sql", "244_channel_model_time_pricing.sql", "245_channel_monitor_quota_mode.sql"],
