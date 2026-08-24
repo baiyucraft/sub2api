@@ -1409,9 +1409,12 @@ export interface AccountQualityWindow {
   success_rate: number | null
   average_first_token_ms: number | null
   average_duration_ms: number | null
+  cache_rate: number | null
+  cache_rate_numerator: number
+  cache_rate_denominator: number
   quality_score: number | null
   quality_grade?: string
-  score_basis?: 'ttft_duration' | 'ttft_only' | 'duration_only'
+  score_basis?: 'ttft_duration' | 'ttft_only' | 'duration_only' | 'ttft_duration_cache' | 'ttft_cache' | 'duration_cache'
 }
 
 export type AccountQualityActivityState =

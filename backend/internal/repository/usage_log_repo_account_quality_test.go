@@ -24,12 +24,16 @@ func TestUsageLogRepositoryGetAccountQualityStatsBatch(t *testing.T) {
 	rows := qualityStatsRows("account_id").AddRow(
 		int64(11),
 		int64(118), int64(108), 760.0, 4100.0,
+		int64(240), int64(600),
 		int64(172), int64(160), 930.25, 5100.0,
+		int64(360), int64(900),
 		int64(18), int64(2), int64(118), int64(4), lastSuccess, lastError,
 	).AddRow(
 		int64(22),
 		int64(4), int64(0), nil, 7000.0,
+		int64(0), int64(0),
 		int64(4), int64(0), nil, 7000.0,
+		int64(0), int64(0),
 		int64(0), int64(0), int64(4), int64(1), end.Add(-2*time.Hour), nil,
 	)
 
@@ -45,6 +49,8 @@ func TestUsageLogRepositoryGetAccountQualityStatsBatch(t *testing.T) {
 	require.Equal(t, int64(118), stats[11].Recent1h.SampleCount)
 	require.Equal(t, int64(108), stats[11].Recent1h.FirstTokenSampleCount)
 	require.InDelta(t, 760.0, *stats[11].Recent1h.AverageFirstTokenMs, 0.001)
+	require.Equal(t, int64(240), stats[11].Recent1h.CacheRateNumerator)
+	require.Equal(t, int64(600), stats[11].Recent1h.CacheRateDenominator)
 	require.Equal(t, int64(172), stats[11].Recent24h.SampleCount)
 	require.Equal(t, int64(18), stats[11].SuccessfulRequests1h)
 	require.Equal(t, int64(2), stats[11].FailedRequests1h)
@@ -66,7 +72,9 @@ func TestUsageLogRepositoryGetGroupQualityStatsBatch(t *testing.T) {
 	rows := qualityStatsRows("group_id").AddRow(
 		int64(7),
 		int64(5), int64(5), 540.0, 5900.0,
+		int64(50), int64(100),
 		int64(84), int64(70), 920.0, 7300.0,
+		int64(500), int64(1000),
 		int64(5), int64(0), int64(84), int64(6), end.Add(-time.Minute), nil,
 	)
 
@@ -103,7 +111,9 @@ func qualityStatsRows(scope string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		scope,
 		"realtime_count", "realtime_first_count", "realtime_first_avg", "realtime_duration_avg",
+		"realtime_cache_read_tokens", "realtime_cache_input_tokens",
 		"recent_count", "recent_first_count", "recent_first_avg", "recent_duration_avg",
+		"recent_cache_read_tokens", "recent_cache_input_tokens",
 		"successful_requests_1h", "failed_requests_1h", "successful_requests_24h", "failed_requests_24h",
 		"last_success_at", "last_error_at",
 	})

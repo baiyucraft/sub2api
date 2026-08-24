@@ -11,12 +11,15 @@ import (
 const (
 	AccountQualityRealtimeWindowHours  = 1
 	AccountQualityWindowHours          = 24
-	AccountQualityScoreVersion         = 3
+	AccountQualityScoreVersion         = 4
 	accountQualityQueryTimeout         = 10 * time.Second
 	accountQualityMinSamples           = 3
 	accountQualityMinTTFTSamples       = 3
-	accountQualityTTFTWeight           = 0.85
+	accountQualityTTFTWeight           = 0.50
 	accountQualityDurationWeight       = 0.15
+	accountQualityCacheWeight          = 0.35
+	accountQualityLegacyTTFTWeight     = 0.85
+	accountQualityLegacyDurationWeight = 0.15
 	accountQualityDurationOnlyMax      = 69
 	accountQualityFailingMinErrors     = 3
 	accountQualityDegradedMinAttempts  = 5
@@ -72,6 +75,9 @@ type AccountQualityWindow struct {
 	SuccessRate            *float64 `json:"success_rate"`
 	AverageFirstTokenMs    *float64 `json:"average_first_token_ms"`
 	AverageDurationMs      *float64 `json:"average_duration_ms"`
+	CacheRate              *float64 `json:"cache_rate"`
+	CacheRateNumerator     int64    `json:"cache_rate_numerator"`
+	CacheRateDenominator   int64    `json:"cache_rate_denominator"`
 	QualityScore           *int     `json:"quality_score"`
 	QualityGrade           string   `json:"quality_grade,omitempty"`
 	ScoreBasis             string   `json:"score_basis,omitempty"`
@@ -134,6 +140,8 @@ func buildAccountQualityStats(ids []int64, samples map[int64]AccountQualitySampl
 		sample := samples[id]
 		sample.Recent1h.SuccessRate = accountQualitySuccessRate(sample.Recent1h.SuccessfulRequestCount, sample.Recent1h.FailedRequestCount)
 		sample.Recent24h.SuccessRate = accountQualitySuccessRate(sample.Recent24h.SuccessfulRequestCount, sample.Recent24h.FailedRequestCount)
+		sample.Recent1h.CacheRate = accountQualityCacheRate(sample.Recent1h.CacheRateNumerator, sample.Recent1h.CacheRateDenominator)
+		sample.Recent24h.CacheRate = accountQualityCacheRate(sample.Recent24h.CacheRateNumerator, sample.Recent24h.CacheRateDenominator)
 		result[id] = AccountQualityStats{
 			Recent1h:  applyAccountQualityScore(sample.Recent1h),
 			Recent24h: applyAccountQualityScore(sample.Recent24h),
@@ -156,6 +164,20 @@ func accountQualitySuccessRate(successful, failed int64) *float64 {
 		return nil
 	}
 	value := float64(successful) * 100 / float64(total)
+	return &value
+}
+
+func accountQualityCacheRate(numerator, denominator int64) *float64 {
+	if denominator <= 0 || numerator < 0 {
+		return nil
+	}
+	value := float64(numerator) * 100 / float64(denominator)
+	if value < 0 {
+		value = 0
+	}
+	if value > 100 {
+		value = 100
+	}
 	return &value
 }
 
@@ -243,11 +265,25 @@ func applyAccountQualityScore(window AccountQualityWindow) AccountQualityWindow 
 		hasTTFT = false
 	}
 	durationScore, hasDuration := qualityCurveScore(window.AverageDurationMs, accountQualityDurationCurve)
+	cacheScore := 0.0
+	hasCache := window.CacheRate != nil
+	if hasCache {
+		cacheScore = *window.CacheRate
+	}
 
 	var score float64
 	var basis string
-	if hasTTFT && hasDuration {
-		score = ttftScore*accountQualityTTFTWeight + durationScore*accountQualityDurationWeight
+	if hasTTFT && hasDuration && hasCache {
+		score = ttftScore*accountQualityTTFTWeight + durationScore*accountQualityDurationWeight + cacheScore*accountQualityCacheWeight
+		basis = "ttft_duration_cache"
+	} else if hasTTFT && hasCache {
+		score = (ttftScore*accountQualityTTFTWeight + cacheScore*accountQualityCacheWeight) / (accountQualityTTFTWeight + accountQualityCacheWeight)
+		basis = "ttft_cache"
+	} else if hasDuration && hasCache {
+		score = (durationScore*accountQualityDurationWeight + cacheScore*accountQualityCacheWeight) / (accountQualityDurationWeight + accountQualityCacheWeight)
+		basis = "duration_cache"
+	} else if hasTTFT && hasDuration {
+		score = ttftScore*accountQualityLegacyTTFTWeight + durationScore*accountQualityLegacyDurationWeight
 		basis = accountQualityBasisTTFTDuration
 	} else if hasTTFT {
 		score = ttftScore

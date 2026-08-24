@@ -1,5 +1,5 @@
 <template>
-  <div class="w-[14.5rem] min-w-[14.5rem] max-w-[14.5rem] tabular-nums">
+  <div class="w-[17rem] min-w-[17rem] max-w-[17rem] tabular-nums">
     <div v-if="loading && !stats" class="grid gap-1" aria-busy="true">
       <div class="h-5 w-full animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
       <div class="h-5 w-full animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
@@ -122,6 +122,17 @@ const successRateLabel = (window: AccountQualityWindow): string => {
   return `${Math.round(window.success_rate)}%`
 }
 
+const cacheRateLabel = (window: AccountQualityWindow): string => {
+  if (window.cache_rate == null || !Number.isFinite(window.cache_rate)) return '-'
+  return `${Math.round(window.cache_rate)}%`
+}
+
+const cacheRateTitle = (window: AccountQualityWindow): string => t('admin.accounts.quality.cacheRateTitle', {
+  rate: cacheRateLabel(window),
+  numerator: window.cache_rate_numerator,
+  denominator: window.cache_rate_denominator
+})
+
 const scoreTitle = (window: AccountQualityWindow): string => {
   if (window.quality_score == null) {
     return t('admin.accounts.quality.insufficientSamples', { count: window.sample_count })
@@ -138,6 +149,9 @@ const scoreTitle = (window: AccountQualityWindow): string => {
   if (window.score_basis === 'ttft_only') {
     return `${base} · ${t('admin.accounts.quality.ttftOnly')}`
   }
+  if (window.score_basis === 'ttft_duration_cache' || window.score_basis === 'ttft_cache' || window.score_basis === 'duration_cache') {
+    return `${base} · ${t('admin.accounts.quality.cacheWeighted')}`
+  }
   return base
 }
 
@@ -146,7 +160,7 @@ const windowTitle = (label: string, window: AccountQualityWindow): string => {
     firstToken: formatLatency(window.average_first_token_ms),
     duration: formatLatency(window.average_duration_ms)
   })
-  return `${label} · ${scoreTitle(window)} · ${latency}`
+  return `${label} · ${scoreTitle(window)} · ${latency} · ${cacheRateTitle(window)}`
 }
 
 const QualityRow = defineComponent({
@@ -157,7 +171,7 @@ const QualityRow = defineComponent({
   },
   setup(rowProps) {
     return () => h('div', {
-      class: `grid min-h-5 grid-cols-[1.5rem_3.25rem_2.5rem_minmax(0,1fr)_2.25rem] items-center gap-x-1 whitespace-nowrap ${rowProps.muted ? 'opacity-60' : ''}`,
+      class: `grid min-h-5 grid-cols-[1.5rem_3.25rem_2.5rem_minmax(0,1fr)_2.75rem_2.25rem] items-center gap-x-1 whitespace-nowrap ${rowProps.muted ? 'opacity-60' : ''}`,
       title: windowTitle(rowProps.label, rowProps.window),
       'data-quality-window': rowProps.label
     }, [
@@ -174,6 +188,11 @@ const QualityRow = defineComponent({
       h('span', {
         class: 'min-w-0 truncate text-center font-mono font-medium text-gray-700 dark:text-gray-200'
       }, `${formatLatency(rowProps.window.average_first_token_ms)} / ${formatLatency(rowProps.window.average_duration_ms)}`),
+      h('span', {
+        class: 'text-center font-mono font-semibold text-cyan-600 dark:text-cyan-400',
+        title: cacheRateTitle(rowProps.window),
+        'data-quality-cache-rate': rowProps.window.cache_rate == null ? undefined : String(rowProps.window.cache_rate)
+      }, cacheRateLabel(rowProps.window)),
       h('span', {
         class: 'text-right font-mono text-gray-500 dark:text-gray-400'
       }, `n${rowProps.window.sample_count}`)

@@ -15,7 +15,9 @@ vi.mock('vue-i18n', () => ({
         'admin.accounts.quality.activity.lastSuccessMinutes': '{count}m',
         'admin.accounts.quality.activity.over24h': '>24h',
         'admin.accounts.quality.scoreTitle': '{grade} {score}，样本 {count}，首字样本 {firstCount}',
-        'admin.accounts.quality.latencyTitle': '首字 {firstToken}，总耗时 {duration}'
+        'admin.accounts.quality.latencyTitle': '首字 {firstToken}，总耗时 {duration}',
+        'admin.accounts.quality.cacheRateTitle': '缓存率 {rate}（缓存读 {numerator} / 输入总量 {denominator}）',
+        'admin.accounts.quality.cacheWeighted': '缓存率参与评分（首字 50% / 总耗时 15% / 缓存率 35%）'
       }[key] ?? key)
       return Object.entries(params).reduce(
         (result, [name, replacement]) => result.replace(`{${name}}`, String(replacement)),
@@ -31,6 +33,9 @@ const qualityStats = {
     first_token_sample_count: 10,
     average_first_token_ms: 7700,
     average_duration_ms: 20000,
+    cache_rate: 64,
+    cache_rate_numerator: 640,
+    cache_rate_denominator: 1000,
     quality_score: 73,
     quality_grade: 'A-',
     score_basis: 'ttft_duration' as const
@@ -40,6 +45,9 @@ const qualityStats = {
     first_token_sample_count: 0,
     average_first_token_ms: null,
     average_duration_ms: 2800,
+    cache_rate: null,
+    cache_rate_numerator: 0,
+    cache_rate_denominator: 0,
     quality_score: 69,
     quality_grade: 'B+',
     score_basis: 'duration_only' as const
@@ -51,14 +59,14 @@ const qualityStats = {
     last_success_at: new Date(Date.now() - 5 * 60_000).toISOString(),
     last_error_at: null
   },
-  score_version: 3 as const
+  score_version: 4 as const
 }
 
 describe('AccountQualityCell', () => {
   it('shows both full windows in a stable compact three-row grid', () => {
     const wrapper = mount(AccountQualityCell, { props: { stats: qualityStats } })
 
-    expect(wrapper.classes()).toContain('w-[14.5rem]')
+    expect(wrapper.classes()).toContain('w-[17rem]')
     expect(wrapper.findAll('[data-quality-window]')).toHaveLength(2)
     expect(wrapper.text()).toContain('活跃')
     expect(wrapper.text()).toContain('24/1')
@@ -68,6 +76,9 @@ describe('AccountQualityCell', () => {
     expect(wrapper.text()).toContain('A- 73')
     expect(wrapper.text()).toContain('B+ 69')
     expect(wrapper.text()).toContain('7.7s / 20s')
+    expect(wrapper.text()).toContain('64%')
+    expect(wrapper.find('[data-quality-cache-rate]').attributes('title')).toContain('缓存读 640 / 输入总量 1000')
+    expect(wrapper.text()).toContain('24H')
     expect(wrapper.text()).toContain('n10')
     expect(wrapper.text()).toContain('n142')
     expect(wrapper.text()).not.toContain('首字')
