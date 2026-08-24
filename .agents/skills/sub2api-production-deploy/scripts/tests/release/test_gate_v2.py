@@ -60,7 +60,7 @@ class GateV2Test(unittest.TestCase):
             "schema": 2,
             "profile": "242",
             "release_id": "242-aaaaaaaaaaaa-1-aaaaaaaa",
-            "version": "0.1.179-baiyu",
+            "version": "0.1.181-baiyu",
             "commit_sha": "a" * 40,
             "expires_at": int(time.time()) + 3600,
             "release_asset_layout": LAYOUT_SKILL_V1,
