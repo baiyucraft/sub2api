@@ -20,14 +20,14 @@
   "current_profile": {
     "id": "242",
     "status": "pending",
-    "base_profile": "241",
     "version": "0.1.181-baiyu",
-    "migration_count": 62,
-    "migration_map_sha256": "9da5fa659fe2b605cdd3cc9d05cac8cd0f8bdccf1417c7fd347e55afb93a724d",
-    "appended_migrations": ["242_user_platform_quotas_add_cn_providers.sql", "243_backfill_codex_fingerprint_seed.sql", "244_channel_model_time_pricing.sql", "245_channel_monitor_quota_mode.sql"],
-    "compatibility_version": "0.1.172-baiyu",
-    "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b",
-    "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"
+    "parent": "241",
+    "gate_schema": 2,
+    "new_migrations": [],
+    "release_policy": {
+      "compatibility_image": "production_current",
+      "migration_source": "database_state"
+    }
   },
   "migration_contracts": {
     "159_upstream_configs.sql": "9df20ba0512a2f8b10fcea84d3483c04075edef2d8457be8751f6c124f9e3466",
