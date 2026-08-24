@@ -18,10 +18,14 @@ func TestRegisteredPlatformCatalogFeedsProbeCatalog(t *testing.T) {
 	}
 }
 
-func TestCatalogOnlyPlatformsRemainConcreteButFailProbeSupport(t *testing.T) {
-	for _, platform := range []string{PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek} {
+func TestCatalogOnlyPlatformsRemainConcreteButOnlySafeProtocolsSupportProbe(t *testing.T) {
+	for _, platform := range []string{PlatformAntigravity, PlatformGrok} {
 		require.True(t, IsConcreteRequestPlatform(platform))
 		require.False(t, UpstreamProbePlatformSupported(platform))
+	}
+	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek} {
+		require.True(t, IsConcreteRequestPlatform(platform))
+		require.True(t, UpstreamProbePlatformSupported(platform))
 	}
 }
 

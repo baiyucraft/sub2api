@@ -53,6 +53,9 @@ func (s *upstreamHealthProbeHTTPStub) Do(req *http.Request, _ string, _ int64, _
 				"data: {\"type\":\"message_stop\"}\n\n"
 		case strings.Contains(req.URL.Path, ":streamGenerateContent"):
 			stream = fmt.Sprintf("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":%q}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":1}}\n\n", answer)
+		case strings.HasSuffix(req.URL.Path, "/chat/completions"):
+			stream = fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", answer) +
+				"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":1}}\n\n"
 		default:
 			return nil, fmt.Errorf("unexpected probe path: %s", req.URL.Path)
 		}
@@ -83,6 +86,9 @@ var upstreamHealthChallengePattern = regexp.MustCompile(`What is ([0-9]+) \+ ([0
 
 func upstreamHealthProbeAnswer(body []byte) (string, error) {
 	prompt := gjson.GetBytes(body, "input").String()
+	if prompt == "" {
+		prompt = gjson.GetBytes(body, "messages.0.content").String()
+	}
 	if prompt == "" {
 		prompt = gjson.GetBytes(body, "messages.0.content.0.text").String()
 	}
@@ -152,6 +158,46 @@ func TestRunUpstreamHealthProbeUsesProviderStreamingProfiles(t *testing.T) {
 				require.Empty(t, gjson.GetBytes(body, "systemInstruction").Raw)
 			},
 		},
+		{
+			name: "kimi chat completions",
+			account: &Account{ID: 4, Platform: PlatformKimi, Type: AccountTypeAPIKey, Concurrency: 2, Credentials: map[string]any{
+				"api_key": "kimi-secret", "base_url": "https://kimi.example/v1", "model_mapping": map[string]any{"kimi-probe": "moonshot-v1-8k"},
+			}},
+			model: "kimi-probe", protocol: upstreamHealthProbeProtocolOpenAIChat,
+			assert: func(t *testing.T, req *http.Request, body []byte) {
+				require.Equal(t, "https://kimi.example/v1/chat/completions", req.URL.String())
+				require.Equal(t, "Bearer kimi-secret", req.Header.Get("Authorization"))
+				require.Equal(t, "moonshot-v1-8k", gjson.GetBytes(body, "model").String())
+				require.True(t, gjson.GetBytes(body, "stream").Bool())
+				require.Equal(t, "user", gjson.GetBytes(body, "messages.0.role").String())
+			},
+		},
+		{
+			name: "zhipu chat completions",
+			account: &Account{ID: 5, Platform: PlatformZhipu, Type: AccountTypeAPIKey, Concurrency: 2, Credentials: map[string]any{
+				"api_key": "zhipu-secret", "base_url": "https://zhipu.example/api/paas/v4",
+			}},
+			model: "glm-probe", protocol: upstreamHealthProbeProtocolOpenAIChat,
+			assert: func(t *testing.T, req *http.Request, body []byte) {
+				require.Equal(t, "https://zhipu.example/api/paas/v4/chat/completions", req.URL.String())
+				require.Equal(t, "Bearer zhipu-secret", req.Header.Get("Authorization"))
+				require.Equal(t, "glm-probe", gjson.GetBytes(body, "model").String())
+				require.True(t, gjson.GetBytes(body, "stream").Bool())
+			},
+		},
+		{
+			name: "deepseek chat completions",
+			account: &Account{ID: 6, Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Concurrency: 2, Credentials: map[string]any{
+				"api_key": "deepseek-secret", "base_url": "https://deepseek.example/v1",
+			}},
+			model: "deepseek-chat", protocol: upstreamHealthProbeProtocolOpenAIChat,
+			assert: func(t *testing.T, req *http.Request, body []byte) {
+				require.Equal(t, "https://deepseek.example/v1/chat/completions", req.URL.String())
+				require.Equal(t, "Bearer deepseek-secret", req.Header.Get("Authorization"))
+				require.Equal(t, "deepseek-chat", gjson.GetBytes(body, "model").String())
+				require.True(t, gjson.GetBytes(body, "stream").Bool())
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -204,6 +250,17 @@ func TestOpenAIUpstreamHealthProbeRequiresTerminalEvent(t *testing.T) {
 	result := UpstreamHealthProbeResult{}
 	text, err := parseOpenAIUpstreamHealthStream(bytes.NewBufferString(
 		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"42\"}\n\n",
+	), time.Now(), &result)
+	require.Error(t, err)
+	require.Equal(t, "42", text)
+	require.Equal(t, "incomplete", result.Result)
+	require.Equal(t, "probe_incomplete_stream", result.Reason)
+}
+
+func TestOpenAIChatCompletionsUpstreamHealthProbeRequiresFinishReason(t *testing.T) {
+	result := UpstreamHealthProbeResult{Protocol: upstreamHealthProbeProtocolOpenAIChat}
+	text, err := parseOpenAIChatCompletionsUpstreamHealthStream(bytes.NewBufferString(
+		"data: {\"choices\":[{\"delta\":{\"content\":\"42\"}}]}\n\n",
 	), time.Now(), &result)
 	require.Error(t, err)
 	require.Equal(t, "42", text)

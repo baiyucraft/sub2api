@@ -23,11 +23,12 @@ const (
 	upstreamHealthProbeMaxOutputTokens = 50
 	upstreamHealthProbeBodyLimit       = 8 << 10
 
-	upstreamHealthProbeProtocolOpenAI    = "openai_responses"
-	upstreamHealthProbeProtocolAnthropic = "anthropic_messages"
-	upstreamHealthProbeProtocolGemini    = "gemini_stream_generate_content"
-	upstreamConfidencePromptVersion      = "openai-confidence-v1"
-	upstreamConfidenceDefaultEffort      = "high"
+	upstreamHealthProbeProtocolOpenAI     = "openai_responses"
+	upstreamHealthProbeProtocolOpenAIChat = "openai_chat_completions"
+	upstreamHealthProbeProtocolAnthropic  = "anthropic_messages"
+	upstreamHealthProbeProtocolGemini     = "gemini_stream_generate_content"
+	upstreamConfidencePromptVersion       = "openai-confidence-v1"
+	upstreamConfidenceDefaultEffort       = "high"
 )
 
 // UpstreamHealthProbeResult is deliberately independent from account-test
@@ -106,9 +107,52 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 		return s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
 	case PlatformGemini:
 		return s.runGeminiUpstreamHealthProbe(ctx, account, result, challenge)
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek:
+		// These providers are OpenAI-compatible but their default contract is
+		// Chat Completions, not OpenAI Responses. Keep the probe protocol
+		// explicit so platform-specific base URLs and credentials are preserved.
+		if account.GetAPIProtocol() == APIProtocolAnthropic {
+			return s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
+		}
+		if account.GetAPIProtocol() == APIProtocolResponses {
+			return failUpstreamHealthProbe(result, "unsupported_protocol", "probe_protocol_unsupported", errors.New("configured responses protocol is not supported by the generic CN provider probe"))
+		}
+		return s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
 	default:
 		return failUpstreamHealthProbe(result, "unsupported_platform", "probe_platform_unsupported", errors.New("platform does not support active probing"))
 	}
+}
+
+func (s *AccountTestService) runOpenAIChatCompletionsUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
+	result.Protocol = upstreamHealthProbeProtocolOpenAIChat
+	result.Model = account.GetMappedModel(result.Model)
+	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
+	if authToken == "" {
+		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", errors.New("OpenAI-compatible API key is missing"))
+	}
+	baseURL, err := s.validateUpstreamBaseURL(account.GetOpenAIFormatBaseURL())
+	if err != nil {
+		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"model":      result.Model,
+		"messages":   []map[string]string{{"role": "user", "content": challenge.Prompt}},
+		"max_tokens": upstreamHealthProbeMaxOutputTokens,
+		"stream":     true,
+	})
+	if err != nil {
+		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, buildOpenAIChatCompletionsURL(baseURL), bytes.NewReader(payload))
+	if err != nil {
+		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
+	}
+	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	account.ApplyHeaderOverrides(req.Header)
+	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseOpenAIChatCompletionsUpstreamHealthStream)
 }
 
 func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
@@ -576,6 +620,63 @@ func scoreOpenAIConfidenceOutput(raw string, challenge upstreamHealthChallenge) 
 		checks["marker_constraint"] = 25
 	}
 	return checks["completion"] + checks["calculation"] + checks["marker_constraint"] + checks["schema"] + checks["format"], checks
+}
+
+func parseOpenAIChatCompletionsUpstreamHealthStream(reader io.Reader, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
+	var output strings.Builder
+	completed := false
+	err := scanUpstreamHealthSSE(reader, func(data []byte) (bool, error) {
+		var event struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+			Usage struct {
+				PromptTokens     int64 `json:"prompt_tokens"`
+				CompletionTokens int64 `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal(data, &event); err != nil {
+			return false, fmt.Errorf("decode OpenAI Chat Completions probe event: %w", err)
+		}
+		for _, choice := range event.Choices {
+			content := choice.Delta.Content
+			if content == "" {
+				content = choice.Message.Content
+			}
+			if strings.TrimSpace(content) != "" {
+				setUpstreamHealthProbeTTFT(result, started)
+				output.WriteString(content)
+			}
+			if strings.TrimSpace(choice.FinishReason) != "" {
+				completed = true
+				result.FinishReason = strings.TrimSpace(choice.FinishReason)
+			}
+		}
+		if event.Usage.PromptTokens > 0 {
+			value := event.Usage.PromptTokens
+			result.InputTokens = &value
+		}
+		if event.Usage.CompletionTokens > 0 {
+			value := event.Usage.CompletionTokens
+			result.OutputTokens = &value
+		}
+		return completed, nil
+	})
+	if err != nil {
+		return output.String(), err
+	}
+	if !completed {
+		result.Result = "incomplete"
+		result.Reason = "probe_incomplete_stream"
+		return output.String(), errors.New("OpenAI Chat Completions probe stream ended before finish_reason")
+	}
+	return output.String(), nil
 }
 
 func parseAnthropicUpstreamHealthStream(reader io.Reader, started time.Time, result *UpstreamHealthProbeResult) (string, error) {

@@ -74,9 +74,11 @@ var registeredPlatformCatalog = []PlatformDescriptor{
 	{ID: PlatformGemini, Label: "Gemini", ProbeSupported: true},
 	{ID: PlatformAntigravity, Label: "Antigravity", ProbeReason: "该平台暂无主动探针协议"},
 	{ID: PlatformGrok, Label: "Grok", ProbeReason: "该平台暂无主动探针协议"},
-	{ID: PlatformKimi, Label: "Kimi", ProbeReason: "该平台暂无主动探针协议"},
-	{ID: PlatformZhipu, Label: "Zhipu GLM", ProbeReason: "该平台暂无主动探针协议"},
-	{ID: PlatformDeepseek, Label: "DeepSeek", ProbeReason: "该平台暂无主动探针协议"},
+	// These providers expose the OpenAI Chat Completions contract. They use a
+	// dedicated chat probe rather than the Responses probe used by OpenAI.
+	{ID: PlatformKimi, Label: "Kimi", ProbeSupported: true},
+	{ID: PlatformZhipu, Label: "Zhipu GLM", ProbeSupported: true},
+	{ID: PlatformDeepseek, Label: "DeepSeek", ProbeSupported: true},
 }
 
 func RegisteredPlatformCatalog() []PlatformDescriptor {
