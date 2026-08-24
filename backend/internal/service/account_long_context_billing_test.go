@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -116,6 +117,27 @@ func (r *longContextBillingRepoStub) BulkUpdate(_ context.Context, _ []int64, _ 
 	return 1, nil
 }
 
+func longContextUpstreamConfigRepo(platform string) *upstreamConfigServiceRepo {
+	rate := 1.0
+	return &upstreamConfigServiceRepo{
+		configs: []UpstreamConfig{{
+			ID:       10,
+			Name:     "test-upstream",
+			Provider: UpstreamProviderNewAPI,
+			AuthMode: "api_key",
+			Status:   StatusActive,
+		}},
+		keys: []UpstreamKey{{
+			ID:               20,
+			UpstreamConfigID: 10,
+			Name:             "test-key",
+			Platform:         &platform,
+			RateMultiplier:   &rate,
+			Status:           StatusActive,
+		}},
+	}
+}
+
 func TestAdminServiceCreateAccountDefaultsOpenAILongContextBillingDisabled(t *testing.T) {
 	repo := &longContextBillingRepoStub{}
 	svc := &adminServiceImpl{accountRepo: repo}
@@ -206,6 +228,71 @@ func TestAdminServiceUpdateAccountAllowsExplicitOptInOutsideCodexImport(t *testi
 
 	require.NoError(t, err)
 	require.Equal(t, true, account.Extra[openAILongContextBillingEnabledKey])
+}
+
+func TestAdminServiceUpdateUpstreamOpenAILongContextBilling(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			configID, keyID := int64(10), int64(20)
+			repo := &longContextBillingRepoStub{account: &Account{
+				ID:               1,
+				Platform:         PlatformOpenAI,
+				Type:             AccountTypeAPIKey,
+				UpstreamConfigID: &configID,
+				UpstreamKeyID:    &keyID,
+				Extra:            map[string]any{openAILongContextBillingEnabledKey: !enabled},
+			}}
+			svc := &adminServiceImpl{accountRepo: repo, upstreamConfigRepo: longContextUpstreamConfigRepo(PlatformOpenAI)}
+
+			account, err := svc.UpdateAccount(context.Background(), 1, &UpdateAccountInput{
+				Extra: map[string]any{openAILongContextBillingEnabledKey: enabled},
+			})
+
+			require.NoError(t, err)
+			require.Equal(t, enabled, account.Extra[openAILongContextBillingEnabledKey])
+		})
+	}
+}
+
+func TestAdminServiceUpdateUpstreamOpenAILongContextBillingRejectsMalformedValue(t *testing.T) {
+	configID, keyID := int64(10), int64(20)
+	repo := &longContextBillingRepoStub{account: &Account{
+		ID:               1,
+		Platform:         PlatformOpenAI,
+		Type:             AccountTypeAPIKey,
+		UpstreamConfigID: &configID,
+		UpstreamKeyID:    &keyID,
+	}}
+	svc := &adminServiceImpl{accountRepo: repo, upstreamConfigRepo: longContextUpstreamConfigRepo(PlatformOpenAI)}
+
+	account, err := svc.UpdateAccount(context.Background(), 1, &UpdateAccountInput{
+		Extra: map[string]any{openAILongContextBillingEnabledKey: "true"},
+	})
+
+	require.Nil(t, account)
+	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
+	var appErr *infraerrors.ApplicationError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, "OPENAI_LONG_CONTEXT_BILLING_INVALID", appErr.Reason)
+}
+
+func TestAdminServiceUpdateUpstreamNonOpenAILongContextBillingSkipsOpenAIValidation(t *testing.T) {
+	configID, keyID := int64(10), int64(20)
+	repo := &longContextBillingRepoStub{account: &Account{
+		ID:               1,
+		Platform:         PlatformAnthropic,
+		Type:             AccountTypeAPIKey,
+		UpstreamConfigID: &configID,
+		UpstreamKeyID:    &keyID,
+	}}
+	svc := &adminServiceImpl{accountRepo: repo, upstreamConfigRepo: longContextUpstreamConfigRepo(PlatformAnthropic)}
+
+	account, err := svc.UpdateAccount(context.Background(), 1, &UpdateAccountInput{
+		Extra: map[string]any{openAILongContextBillingEnabledKey: "provider-owned"},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "provider-owned", account.Extra[openAILongContextBillingEnabledKey])
 }
 
 func TestAdminServiceUpdateAccountRejectsMalformedOpenAILongContextBillingValue(t *testing.T) {
