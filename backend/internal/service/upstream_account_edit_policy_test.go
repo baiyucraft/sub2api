@@ -17,8 +17,9 @@ func TestValidateUpstreamAccountEditableUpdate(t *testing.T) {
 				"pool_mode_retry_status_codes": []any{float64(401), float64(429), float64(503)},
 			},
 			Extra: map[string]any{
-				"openai_passthrough": true,
-				"quota_limit":        float64(100),
+				"openai_passthrough":                  true,
+				"openai_long_context_billing_enabled": true,
+				"quota_limit":                         float64(100),
 			},
 		})
 		require.NoError(t, err)
@@ -27,6 +28,7 @@ func TestValidateUpstreamAccountEditableUpdate(t *testing.T) {
 	for name, input := range map[string]*UpdateAccountInput{
 		"credential secret": {Credentials: map[string]any{"api_key": "secret"}},
 		"runtime extra":     {Extra: map[string]any{UpstreamBillingProbeExtraKey: map[string]any{}}},
+		"unlisted extra":    {Extra: map[string]any{"provider_runtime_marker": true}},
 		"pool mode type":    {Credentials: map[string]any{"pool_mode": "true"}},
 		"retry count range": {Credentials: map[string]any{"pool_mode_retry_count": float64(11)}},
 		"status code range": {Credentials: map[string]any{"pool_mode_retry_status_codes": []any{float64(99)}}},
