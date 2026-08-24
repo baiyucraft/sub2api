@@ -93,6 +93,11 @@ func DefaultUpstreamProbeModels() UpstreamProbeModels {
 		OpenAI:    "gpt-4o-mini",
 		Anthropic: "claude-3-5-haiku-latest",
 		Gemini:    "gemini-2.0-flash",
+		Additional: map[string]string{
+			PlatformKimi:     "moonshot-v1-8k",
+			PlatformZhipu:    "glm-4-flash",
+			PlatformDeepseek: "deepseek-chat",
+		},
 	}
 }
 
