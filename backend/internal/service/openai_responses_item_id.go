@@ -11,22 +11,22 @@ import (
 func openAIResponsesInputItemIDPrefix(itemType string) (string, bool) {
 	switch strings.TrimSpace(itemType) {
 	case "message":
-		return "msg", true
+		return "msg_", true
 	case "reasoning":
-		return "rs", true
+		return "rs_", true
 	case "web_search_call":
-		return "ws", true
+		return "ws_", true
 	case "custom_tool_call":
-		return openAIResponsesToolCallIDPrefix(itemType), true
+		return openAIResponsesToolCallIDPrefix(itemType) + "_", true
 	case "tool_search_call":
-		return openAIResponsesToolCallIDPrefix(itemType), true
+		return openAIResponsesToolCallIDPrefix(itemType) + "_", true
 	case "custom_tool_call_output":
 		// Although custom calls use ctc IDs, OpenAI validates replayed custom
 		// call output item IDs against the generic fc namespace.
-		return "fc", true
+		return "fc_", true
 	default:
 		if isCodexToolCallInputType(itemType) {
-			return openAIResponsesToolCallIDPrefix(itemType), true
+			return openAIResponsesToolCallIDPrefix(itemType) + "_", true
 		}
 		return "", false
 	}

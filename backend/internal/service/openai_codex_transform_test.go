@@ -69,11 +69,12 @@ func TestApplyCodexOAuthTransform_CustomToolCallContinuationUsesCTCItemContract(
 	require.True(t, ok)
 	_, hasID := call["id"]
 	require.False(t, hasID)
-	require.Equal(t, "fc_1", call["call_id"])
+	require.Equal(t, "ctc_1", call["call_id"])
 	output, ok := input[1].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, "output_1", output["id"])
-	require.Equal(t, "fc_1", output["call_id"])
+	_, hasOutputID := output["id"]
+	require.False(t, hasOutputID, "custom tool output IDs outside the fc_ namespace must be removed")
+	require.Equal(t, "ctc_1", output["call_id"])
 }
 
 func TestApplyCodexOAuthTransform_MessagesBridgePromptCacheKeyIsHeaderOnly(t *testing.T) {
