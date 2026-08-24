@@ -1,0 +1,8 @@
+id: bootstrap-wiki
+stage: verification
+deliveryShape: single-change
+artifacts:
+  proposal:
+    status: missing
+  metadata:
+    status: present
