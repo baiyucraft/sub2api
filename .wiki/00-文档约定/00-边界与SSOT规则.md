@@ -23,3 +23,6 @@ owner: spec-wiki-lite
 - 不把 change artifact 原文复制进 Wiki。
 - 未确认假设和一次性验证结果不写成长期事实。
 - 新增或移动页面后同步更新所在目录及上级 `INDEX.md`。
+- 任何相对 `upstream/main` 的 fork 专属业务、数据、发布或运维差异，都必须在实现完成后沉淀到 `.wiki`；机器可读登记同步写入 `sub2api-fork-extension-audit/references/extensions.yaml`。
+- `.spec/**`、`.wiki/**` 和 `.agents/skills/wiki-*` 是治理/知识资产，不登记为 fork 业务扩展路径；它们的长期规则只通过 Wiki 页面和 workflow 维护。
+- 使用 `sub2api-fork-extension-audit` 或 `sub2api-production-deploy` 发现新的稳定合同时，先更新对应模块 Wiki，再进入 review/archive；过程证据仍留在 `.spec`、`.tmp` 或受控 release 目录。
