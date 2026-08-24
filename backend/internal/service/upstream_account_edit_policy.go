@@ -42,6 +42,7 @@ var upstreamAccountEditableExtraKeys = map[string]struct{}{
 	"openai_apikey_responses_websockets_v2_enabled": {},
 	"openai_apikey_responses_websockets_v2_mode":    {},
 	"openai_compact_mode":                           {},
+	"openai_long_context_billing_enabled":           {},
 	"openai_passthrough":                            {},
 	"openai_responses_mode":                         {},
 	"quota_daily_limit":                             {},
