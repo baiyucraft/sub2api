@@ -36,7 +36,7 @@ manifest_schema=$(jq -er '.schema' "$manifest")
 if [[ "$manifest_schema" == 2 ]]; then
   [[ "$profile" == 242 ]]
   [[ "$release_id" =~ ^242-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-  [[ "$version" == 0.1.182-baiyu ]]
+  [[ "$version" == 0.1.183-baiyu ]]
   [[ $(jq -er '.release_asset_layout' "$manifest") == skill-v1 ]]
   [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
   [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
