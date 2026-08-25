@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatRegistrationEmailSuffixWhitelistForMessage,
+  isRegistrationGmailAddressAllowed,
   isRegistrationEmailSuffixAllowed,
   isRegistrationEmailSuffixDomainValid,
   normalizeRegistrationEmailSuffixDomain,
@@ -102,6 +103,18 @@ describe('registrationEmailPolicy utils', () => {
     expect(isRegistrationEmailSuffixAllowed('user@school.b.cn', whitelist)).toBe(true)
     expect(isRegistrationEmailSuffixAllowed('user@b.cn', whitelist)).toBe(true)
     expect(isRegistrationEmailSuffixAllowed('user@c.cn', whitelist)).toBe(false)
+  })
+
+  it('isRegistrationGmailAddressAllowed enables strict Gmail mode only for explicit Gmail family entries', () => {
+    expect(isRegistrationGmailAddressAllowed('a.b+tag@gmail.com', [])).toBe(true)
+    expect(isRegistrationGmailAddressAllowed('a.b+tag@gmail.com', ['@qq.com'])).toBe(true)
+    expect(isRegistrationGmailAddressAllowed('abc123@gmail.com', ['@gmail.com', '@qq.com'])).toBe(true)
+    expect(isRegistrationGmailAddressAllowed('ABC123@gmail.com', ['@gmail.com'])).toBe(true)
+    expect(isRegistrationGmailAddressAllowed('a.b@gmail.com', ['@gmail.com'])).toBe(false)
+    expect(isRegistrationGmailAddressAllowed('abc+tag@gmail.com', ['@gmail.com'])).toBe(false)
+    expect(isRegistrationGmailAddressAllowed('abc_name@gmail.com', ['@gmail.com'])).toBe(false)
+    expect(isRegistrationGmailAddressAllowed('abc-name@googlemail.com', ['@googlemail.com'])).toBe(false)
+    expect(isRegistrationGmailAddressAllowed('first.last+tag@qq.com', ['@gmail.com', '@qq.com'])).toBe(true)
   })
 
   it('formatRegistrationEmailSuffixWhitelistForMessage lists up to five entries', () => {
