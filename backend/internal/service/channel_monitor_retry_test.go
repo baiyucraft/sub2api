@@ -194,3 +194,65 @@ func TestRunCheck_DecryptFailureIsUnknownAndPersisted(t *testing.T) {
 	require.Len(t, repo.rows, 1)
 	require.Equal(t, MonitorStatusUnknown, repo.rows[0].Status)
 }
+
+func TestRunCheck_CancelledScheduledProbeSkipsPersistence(t *testing.T) {
+	repo := &unknownMonitorRepo{monitor: &ChannelMonitor{
+		ID:               43,
+		Name:             "cancelled-probe",
+		Provider:         MonitorProviderOpenAI,
+		Endpoint:         "https://api.example.com",
+		APIKey:           "encrypted",
+		PrimaryModel:     "gpt-test",
+		MaxProbeAttempts: 3,
+	}}
+	svc := NewChannelMonitorService(repo, failingMonitorDecryptor{})
+	svc.SetRuntimeReader(channelMonitorRuntimeStub{rt: ChannelMonitorRuntime{
+		Enabled: true,
+		Mode:    ChannelMonitorModeV1,
+	}})
+	taskCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ctx := withChannelMonitorRunnerTaskContext(context.Background(), taskCtx)
+
+	results, err := svc.RunCheck(ctx, 43)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, MonitorStatusUnknown, results[0].Status)
+	require.Empty(t, repo.rows, "cancelled scheduled probes must not create history")
+}
+
+func TestRunCheck_ManualProbeStillPersistsAfterNormalRequestFailure(t *testing.T) {
+	repo := &unknownMonitorRepo{monitor: &ChannelMonitor{
+		ID:               44,
+		Name:             "manual-probe",
+		Provider:         MonitorProviderOpenAI,
+		Endpoint:         "https://api.example.com",
+		APIKey:           "encrypted",
+		PrimaryModel:     "gpt-test",
+		MaxProbeAttempts: 3,
+	}}
+	svc := NewChannelMonitorService(repo, failingMonitorDecryptor{})
+	svc.SetRuntimeReader(channelMonitorRuntimeStub{rt: ChannelMonitorRuntime{
+		Enabled: true,
+		Mode:    ChannelMonitorModeV1,
+	}})
+
+	results, err := svc.RunCheck(context.Background(), 44)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, MonitorStatusUnknown, results[0].Status)
+	require.Len(t, repo.rows, 1, "manual probes retain existing persistence behavior")
+}
+
+func TestPersistCheckResults_RequestTimeoutStillPersistsWhenTaskIsNotCancelled(t *testing.T) {
+	repo := &unknownMonitorRepo{}
+	svc := NewChannelMonitorService(repo, failingMonitorDecryptor{})
+	taskCtx := context.Background()
+	requestCtx, cancel := context.WithCancel(withChannelMonitorRunnerTaskContext(context.Background(), taskCtx))
+	cancel()
+
+	svc.persistCheckResultsIfAllowed(requestCtx, &ChannelMonitor{ID: 45, Name: "timeout-probe"}, []*CheckResult{
+		{Model: "gpt-test", Status: MonitorStatusError, Message: "request timeout"},
+	})
+	require.Len(t, repo.rows, 1, "request timeout must remain observable when scheduler task is alive")
+}

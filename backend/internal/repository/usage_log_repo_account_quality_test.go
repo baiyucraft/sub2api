@@ -24,9 +24,9 @@ func TestUsageLogRepositoryGetAccountQualityStatsBatch(t *testing.T) {
 	rows := qualityStatsRows("account_id").AddRow(
 		int64(11),
 		int64(118), int64(108), 760.0, 4100.0,
-		int64(240), int64(600),
+		int64(240), int64(800),
 		int64(172), int64(160), 930.25, 5100.0,
-		int64(360), int64(900),
+		int64(360), int64(1200),
 		int64(18), int64(2), int64(118), int64(4), lastSuccess, lastError,
 	).AddRow(
 		int64(22),
@@ -37,7 +37,7 @@ func TestUsageLogRepositoryGetAccountQualityStatsBatch(t *testing.T) {
 		int64(0), int64(0), int64(4), int64(1), end.Add(-2*time.Hour), nil,
 	)
 
-	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*actual_cost > 0.*ul\.stream = TRUE.*quality AS.*COUNT\(\*\) FILTER \(WHERE created_at >= \$3\).*WHERE duration_ms IS NOT NULL.*ops_error_logs.*oe\.stream = TRUE.*oe\.is_count_tokens = FALSE`).
+	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*ul\.cache_creation_tokens.*actual_cost > 0.*ul\.stream = TRUE.*quality AS.*COUNT\(\*\) FILTER \(WHERE created_at >= \$3\).*SUM\(input_tokens \+ cache_creation_tokens \+ cache_read_tokens\) FILTER \(WHERE created_at >= \$3\).*SUM\(input_tokens \+ cache_creation_tokens \+ cache_read_tokens\).*WHERE duration_ms IS NOT NULL.*ops_error_logs.*oe\.stream = TRUE.*oe\.is_count_tokens = FALSE`).
 		WithArgs(pq.Array(accountIDs), start, realtimeStart, end).
 		WillReturnRows(rows)
 
@@ -50,7 +50,9 @@ func TestUsageLogRepositoryGetAccountQualityStatsBatch(t *testing.T) {
 	require.Equal(t, int64(108), stats[11].Recent1h.FirstTokenSampleCount)
 	require.InDelta(t, 760.0, *stats[11].Recent1h.AverageFirstTokenMs, 0.001)
 	require.Equal(t, int64(240), stats[11].Recent1h.CacheRateNumerator)
-	require.Equal(t, int64(600), stats[11].Recent1h.CacheRateDenominator)
+	require.Equal(t, int64(800), stats[11].Recent1h.CacheRateDenominator)
+	require.Equal(t, int64(360), stats[11].Recent24h.CacheRateNumerator)
+	require.Equal(t, int64(1200), stats[11].Recent24h.CacheRateDenominator)
 	require.Equal(t, int64(172), stats[11].Recent24h.SampleCount)
 	require.Equal(t, int64(18), stats[11].SuccessfulRequests1h)
 	require.Equal(t, int64(2), stats[11].FailedRequests1h)
@@ -72,13 +74,13 @@ func TestUsageLogRepositoryGetGroupQualityStatsBatch(t *testing.T) {
 	rows := qualityStatsRows("group_id").AddRow(
 		int64(7),
 		int64(5), int64(5), 540.0, 5900.0,
-		int64(50), int64(100),
+		int64(50), int64(160),
 		int64(84), int64(70), 920.0, 7300.0,
-		int64(500), int64(1000),
+		int64(500), int64(1400),
 		int64(5), int64(0), int64(84), int64(6), end.Add(-time.Minute), nil,
 	)
 
-	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*ul\.group_id.*quality AS.*GROUP BY group_id.*ops_error_logs`).
+	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*ul\.group_id.*ul\.cache_creation_tokens.*quality AS.*SUM\(input_tokens \+ cache_creation_tokens \+ cache_read_tokens\).*GROUP BY group_id.*ops_error_logs`).
 		WithArgs(pq.Array(groupIDs), start, realtimeStart, end).
 		WillReturnRows(rows)
 
@@ -90,6 +92,10 @@ func TestUsageLogRepositoryGetGroupQualityStatsBatch(t *testing.T) {
 	require.Equal(t, int64(84), stats[7].Recent24h.SampleCount)
 	require.Equal(t, int64(70), stats[7].Recent24h.FirstTokenSampleCount)
 	require.InDelta(t, 7300, *stats[7].Recent24h.AverageDurationMs, 0.001)
+	require.Equal(t, int64(50), stats[7].Recent1h.CacheRateNumerator)
+	require.Equal(t, int64(160), stats[7].Recent1h.CacheRateDenominator)
+	require.Equal(t, int64(500), stats[7].Recent24h.CacheRateNumerator)
+	require.Equal(t, int64(1400), stats[7].Recent24h.CacheRateDenominator)
 }
 
 func TestUsageLogRepositoryGetQualityStatsBatchEmpty(t *testing.T) {

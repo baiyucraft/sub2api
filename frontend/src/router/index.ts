@@ -314,6 +314,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/recharge-store',
+    name: 'RechargeStore',
+    component: () => import('@/views/user/RechargeStoreView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Recharge Store',
+      titleKey: 'nav.rechargeStore',
+      descriptionKey: 'rechargeStore.description'
+    }
+  },
+  {
     path: '/orders',
     name: 'OrderList',
     component: () => import('@/views/user/UserOrdersView.vue'),

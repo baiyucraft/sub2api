@@ -97,7 +97,7 @@
             <Toggle v-model="draft.confidence_probe.enabled" :aria-label="t('admin.upstreamManagement.confidenceProbe.enabled')" />
           </div>
           <div class="mt-4 grid max-w-xs gap-4">
-            <label class="space-y-1.5"><span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.effort') }}</span><span class="flex min-h-10 items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200">high</span></label>
+            <label class="space-y-1.5"><span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.effort') }}</span><span class="flex min-h-10 items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.randomEffort') }}</span></label>
           </div>
         </div>
         <div class="mt-6 border-t border-gray-200 pt-5 dark:border-dark-700">
@@ -220,7 +220,7 @@ const defaults: UpstreamManagementSettings = {
   probe_models: { openai: 'gpt-4o-mini', anthropic: 'claude-3-5-haiku-latest', gemini: 'gemini-2.0-flash' },
   probe_interval_seconds: 300,
   model_alias_rules: {},
-  confidence_probe: { enabled: false, reasoning_effort: 'high', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 70, prompt_version: 'openai-juice-high-v1' }
+  confidence_probe: { enabled: false, reasoning_effort: 'high', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 70, prompt_version: 'openai-juice-multiprobe-v2' }
 }
 const draft = reactive<UpstreamManagementSettings>(structuredClone(defaults))
 const probeIntervalMinutes = ref(5)
@@ -293,7 +293,7 @@ async function load() {
     draft.probe_interval_seconds = settings.probe_interval_seconds ?? defaults.probe_interval_seconds
     draft.confidence_probe = { ...defaults.confidence_probe, ...(settings.confidence_probe || {}) }
     draft.confidence_probe.reasoning_effort = 'high'
-    draft.confidence_probe.prompt_version = 'openai-juice-high-v1'
+    draft.confidence_probe.prompt_version = 'openai-juice-multiprobe-v2'
     modelAliasRows.value = Object.entries(settings.model_alias_rules || {}).map(([source, target]) => ({ id: nextModelAliasRowId++, source, target }))
     modelAliasError.value = ''
     probeIntervalMinutes.value = Math.max(1, Math.min(60, Math.round(draft.probe_interval_seconds / 60)))
@@ -331,7 +331,7 @@ async function save() {
       probe_models: Object.fromEntries(Object.entries(draft.probe_models).map(([platform, model]) => [platform, model.trim()])),
       probe_interval_seconds: probeIntervalMinutes.value * 60,
       model_alias_rules: modelAliasRules
-      , confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'high', prompt_version: 'openai-juice-high-v1' }
+      , confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'high', prompt_version: 'openai-juice-multiprobe-v2' }
     }
     const saved = probeOnly.value
       ? await upstreamManagementAPI.updateProbeSettings(payload)

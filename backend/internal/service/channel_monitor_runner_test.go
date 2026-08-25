@@ -18,6 +18,7 @@ type stubMonitorSvc struct {
 	runErr     error
 	listErr    error
 	runHoldFor time.Duration // RunCheck 内额外阻塞的时长，用来测试 Stop 等待行为
+	runCtx     chan context.Context
 }
 
 func (s *stubMonitorSvc) ListEnabledMonitors(_ context.Context) ([]*ChannelMonitor, error) {
@@ -32,6 +33,12 @@ func (s *stubMonitorSvc) RunCheck(ctx context.Context, id int64) ([]*CheckResult
 	if s.runCalled != nil {
 		select {
 		case s.runCalled <- id:
+		default:
+		}
+	}
+	if s.runCtx != nil {
+		select {
+		case s.runCtx <- ctx:
 		default:
 		}
 	}
@@ -140,6 +147,49 @@ func TestUnschedule_RemovesTask(t *testing.T) {
 	}
 
 	stoppedWithin(t, r, 3*time.Second)
+}
+
+func TestUnschedule_CancelsInFlightRunCheckContext(t *testing.T) {
+	svc := &stubMonitorSvc{runCalled: make(chan int64, 1), runCtx: make(chan context.Context, 1)}
+	r := newRunnerForTest(svc)
+	r.Start()
+	r.Schedule(&ChannelMonitor{ID: 31, Enabled: true, IntervalSeconds: 60})
+
+	select {
+	case <-svc.runCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first fire never happened")
+	}
+	var runCtx context.Context
+	select {
+	case runCtx = <-svc.runCtx:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunCheck context was not captured")
+	}
+	r.Unschedule(31)
+	select {
+	case <-runCtx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("unschedule did not cancel the in-flight RunCheck context")
+	}
+
+	stoppedWithin(t, r, 3*time.Second)
+}
+
+func TestFire_CancelledTaskDoesNotSubmitWorker(t *testing.T) {
+	svc := &stubMonitorSvc{runCalled: make(chan int64, 1)}
+	r := newRunnerForTest(svc)
+	r.Start()
+	taskCtx, cancel := context.WithCancel(context.Background())
+	task := &scheduledMonitor{id: 32, name: "cancelled", interval: time.Minute, cancel: cancel}
+	cancel()
+	r.fire(taskCtx, task)
+	select {
+	case id := <-svc.runCalled:
+		t.Fatalf("cancelled task submitted RunCheck for id=%d", id)
+	case <-time.After(100 * time.Millisecond):
+	}
+	r.Stop()
 }
 
 // TestSchedule_DisabledRedirectsToUnschedule 验证 Enabled=false 等同于 Unschedule。
@@ -298,8 +348,9 @@ func TestStop_DrainsAllGoroutines(t *testing.T) {
 	stoppedWithin(t, r, 3*time.Second)
 }
 
-// TestStop_WaitsForInFlightCheck 验证 Stop 会等待正在执行的 RunCheck 退出（pool.StopAndWait）。
-func TestStop_WaitsForInFlightCheck(t *testing.T) {
+// TestStop_CancelsInFlightCheck 验证 Stop 会取消正在执行的 RunCheck，
+// 让其尽快退出而不是把停机时间拖到探测超时。
+func TestStop_CancelsInFlightCheck(t *testing.T) {
 	svc := &stubMonitorSvc{
 		runCalled:  make(chan int64, 1),
 		runHoldFor: 200 * time.Millisecond,
@@ -317,9 +368,9 @@ func TestStop_WaitsForInFlightCheck(t *testing.T) {
 	start := time.Now()
 	stoppedWithin(t, r, 3*time.Second)
 	elapsed := time.Since(start)
-	// Stop 必须等待 in-flight check 跑完（runHoldFor=200ms），耗时下界约 100ms。
-	if elapsed < 100*time.Millisecond {
-		t.Fatalf("Stop returned too fast (%v); did not wait for in-flight check", elapsed)
+	// Stop 取消 task context 后，stub 应立即从 runHoldFor 等待中退出。
+	if elapsed >= 200*time.Millisecond {
+		t.Fatalf("Stop did not cancel in-flight check promptly (%v)", elapsed)
 	}
 }
 

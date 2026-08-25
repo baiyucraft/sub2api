@@ -110,3 +110,52 @@ func TestUsageLogSyncRequestTypeAndLegacyFieldsNilReceiver(t *testing.T) {
 	var log *UsageLog
 	log.SyncRequestTypeAndLegacyFields()
 }
+
+func TestCalculateOutputTPS(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(3000)
+	firstToken := int64(1000)
+	got := CalculateOutputTPS(400, &duration, &firstToken)
+	require.NotNil(t, got)
+	require.InDelta(t, 200.0, *got, 1e-12)
+
+	for _, tc := range []struct {
+		name         string
+		outputTokens int64
+		durationMs   *int64
+		firstTokenMs *int64
+	}{
+		{name: "zero output", outputTokens: 0, durationMs: &duration, firstTokenMs: &firstToken},
+		{name: "missing duration", outputTokens: 10, durationMs: nil, firstTokenMs: &firstToken},
+		{name: "missing first token", outputTokens: 10, durationMs: &duration, firstTokenMs: nil},
+		{name: "same timing", outputTokens: 10, durationMs: &firstToken, firstTokenMs: &firstToken},
+		{name: "first token after duration", outputTokens: 10, durationMs: &firstToken, firstTokenMs: &duration},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Nil(t, CalculateOutputTPS(tc.outputTokens, tc.durationMs, tc.firstTokenMs))
+		})
+	}
+}
+
+func TestUsageLogOutputTPSExcludesMedia(t *testing.T) {
+	t.Parallel()
+	duration := 3000
+	firstToken := 1000
+
+	textLog := &UsageLog{OutputTokens: 400, DurationMs: &duration, FirstTokenMs: &firstToken}
+	require.NotNil(t, textLog.OutputTPS())
+
+	imageLog := &UsageLog{OutputTokens: 400, ImageCount: 1, DurationMs: &duration, FirstTokenMs: &firstToken}
+	require.Nil(t, imageLog.OutputTPS())
+	videoLog := &UsageLog{OutputTokens: 400, VideoCount: 1, DurationMs: &duration, FirstTokenMs: &firstToken}
+	require.Nil(t, videoLog.OutputTPS())
+
+	imageBillingMode := string(BillingModeImage)
+	imageModeLog := &UsageLog{OutputTokens: 400, BillingMode: &imageBillingMode, DurationMs: &duration, FirstTokenMs: &firstToken}
+	require.Nil(t, imageModeLog.OutputTPS())
+	videoMediaType := "video/mp4"
+	videoMediaLog := &UsageLog{OutputTokens: 400, MediaType: &videoMediaType, DurationMs: &duration, FirstTokenMs: &firstToken}
+	require.Nil(t, videoMediaLog.OutputTPS())
+}

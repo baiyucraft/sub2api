@@ -71,6 +71,18 @@ export default {
       'The administrator enabled the entry but has not configured a recharge/subscription URL. Please contact admin.'
   },
 
+  rechargeStore: {
+    title: 'Recharge Store',
+    description: 'Purchase recharge products from the Baiyu GPT store',
+    embedHint: 'If the store cannot display or complete payment here, continue in a new window.',
+    mobileHint: 'On mobile, opening the store in a new window is recommended for smoother browsing and payment.',
+    openInNewTab: 'Open store in new window',
+    iframeTitle: 'Baiyu GPT Recharge Store',
+    loading: 'Loading the store…',
+    loadSlow: 'The store is taking longer to load. You can continue in a new window.',
+    loadFailed: 'The store could not be embedded. You can continue in a new window.'
+  },
+
   // Custom Page (iframe embed)
   customPage: {
     title: 'Custom Page',

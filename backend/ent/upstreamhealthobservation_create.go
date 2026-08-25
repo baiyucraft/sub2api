@@ -298,6 +298,12 @@ func (_c *UpstreamHealthObservationCreate) SetNillableConfidenceStatus(v *string
 	return _c
 }
 
+// SetConfidenceEvidence sets the "confidence_evidence" field.
+func (_c *UpstreamHealthObservationCreate) SetConfidenceEvidence(v map[string]interface{}) *UpstreamHealthObservationCreate {
+	_c.mutation.SetConfidenceEvidence(v)
+	return _c
+}
+
 // SetObservedAt sets the "observed_at" field.
 func (_c *UpstreamHealthObservationCreate) SetObservedAt(v time.Time) *UpstreamHealthObservationCreate {
 	_c.mutation.SetObservedAt(v)
@@ -590,6 +596,10 @@ func (_c *UpstreamHealthObservationCreate) createSpec() (*UpstreamHealthObservat
 		_spec.SetField(upstreamhealthobservation.FieldConfidenceStatus, field.TypeString, value)
 		_node.ConfidenceStatus = &value
 	}
+	if value, ok := _c.mutation.ConfidenceEvidence(); ok {
+		_spec.SetField(upstreamhealthobservation.FieldConfidenceEvidence, field.TypeJSON, value)
+		_node.ConfidenceEvidence = value
+	}
 	if value, ok := _c.mutation.ObservedAt(); ok {
 		_spec.SetField(upstreamhealthobservation.FieldObservedAt, field.TypeTime, value)
 		_node.ObservedAt = value
@@ -726,6 +736,9 @@ func (u *UpstreamHealthObservationUpsertOne) UpdateNewValues() *UpstreamHealthOb
 		}
 		if _, exists := u.create.mutation.ConfidenceStatus(); exists {
 			s.SetIgnore(upstreamhealthobservation.FieldConfidenceStatus)
+		}
+		if _, exists := u.create.mutation.ConfidenceEvidence(); exists {
+			s.SetIgnore(upstreamhealthobservation.FieldConfidenceEvidence)
 		}
 		if _, exists := u.create.mutation.ObservedAt(); exists {
 			s.SetIgnore(upstreamhealthobservation.FieldObservedAt)
@@ -1005,6 +1018,9 @@ func (u *UpstreamHealthObservationUpsertBulk) UpdateNewValues() *UpstreamHealthO
 			}
 			if _, exists := b.mutation.ConfidenceStatus(); exists {
 				s.SetIgnore(upstreamhealthobservation.FieldConfidenceStatus)
+			}
+			if _, exists := b.mutation.ConfidenceEvidence(); exists {
+				s.SetIgnore(upstreamhealthobservation.FieldConfidenceEvidence)
 			}
 			if _, exists := b.mutation.ObservedAt(); exists {
 				s.SetIgnore(upstreamhealthobservation.FieldObservedAt)

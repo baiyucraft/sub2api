@@ -2319,11 +2319,11 @@ func init() {
 	// upstreamhealthobservation.ConfidenceStatusValidator is a validator for the "confidence_status" field. It is called by the builders before save.
 	upstreamhealthobservation.ConfidenceStatusValidator = upstreamhealthobservationDescConfidenceStatus.Validators[0].(func(string) error)
 	// upstreamhealthobservationDescObservedAt is the schema descriptor for observed_at field.
-	upstreamhealthobservationDescObservedAt := upstreamhealthobservationFields[22].Descriptor()
+	upstreamhealthobservationDescObservedAt := upstreamhealthobservationFields[23].Descriptor()
 	// upstreamhealthobservation.DefaultObservedAt holds the default value on creation for the observed_at field.
 	upstreamhealthobservation.DefaultObservedAt = upstreamhealthobservationDescObservedAt.Default.(func() time.Time)
 	// upstreamhealthobservationDescCreatedAt is the schema descriptor for created_at field.
-	upstreamhealthobservationDescCreatedAt := upstreamhealthobservationFields[23].Descriptor()
+	upstreamhealthobservationDescCreatedAt := upstreamhealthobservationFields[24].Descriptor()
 	// upstreamhealthobservation.DefaultCreatedAt holds the default value on creation for the created_at field.
 	upstreamhealthobservation.DefaultCreatedAt = upstreamhealthobservationDescCreatedAt.Default.(func() time.Time)
 	upstreamincidentMixin := schema.UpstreamIncident{}.Mixin()
