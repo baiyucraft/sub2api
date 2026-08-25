@@ -522,7 +522,7 @@ _PROFILE_242_RUNTIME_KEYS = (
 PROFILES["242"] = {
     **{key: PROFILES["241"][key] for key in _PROFILE_242_RUNTIME_KEYS},
     "name": "242",
-    "version": "0.1.182-baiyu",
+    "version": "0.1.183-baiyu",
     "parent": "241",
     "new_migrations": [],
     "gate_schema": 2,
