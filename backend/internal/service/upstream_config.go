@@ -2631,12 +2631,7 @@ func normalizeAndValidateUpstreamKey(key *UpstreamKey) error {
 }
 
 func isAssignableUpstreamKeyPlatform(platform string) bool {
-	switch strings.ToLower(strings.TrimSpace(platform)) {
-	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformGrok:
-		return true
-	default:
-		return false
-	}
+	return IsConcreteRequestPlatform(platform)
 }
 
 func normalizeUpstreamProvider(provider string) string {
@@ -2725,10 +2720,11 @@ func (sub2APIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Ups
 		return nil, err
 	}
 	out := &upstreamProviderSnapshot{
-		Keys:            snapshot.Keys,
-		KeysComplete:    snapshot.KeysComplete,
-		RefreshedTokens: snapshot.RefreshedTokens,
-		Warnings:        append([]string(nil), snapshot.Warnings...),
+		Keys:               snapshot.Keys,
+		KeysComplete:       snapshot.KeysComplete,
+		UnresolvedKeyCount: snapshot.UnresolvedKeyCount,
+		RefreshedTokens:    snapshot.RefreshedTokens,
+		Warnings:           append([]string(nil), snapshot.Warnings...),
 	}
 	if err == nil && includeProfile {
 		var warning string

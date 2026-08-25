@@ -960,6 +960,12 @@
               :platform="normalizeKeyPlatform(row.detected_platform)"
               :label="keyPlatformLabel(row.detected_platform)"
             />
+            <span
+              v-else-if="unsupportedDetectedPlatform(row)"
+              class="text-xs font-medium text-amber-700 dark:text-amber-300"
+            >
+              {{ t('admin.upstreamConfigs.keyPlatforms.unsupportedPlatform', { platform: unsupportedDetectedPlatform(row) }) }}
+            </span>
             <span v-else class="text-sm text-gray-500 dark:text-dark-400">
               {{ t('admin.upstreamConfigs.keyPlatforms.notDetected') }}
             </span>
@@ -1802,7 +1808,7 @@ const filteredImagePricingKeys = computed(() => {
 })
 
 const keyPlatformOptions = computed<SelectOption[]>(() =>
-  (['openai', 'anthropic', 'gemini', 'grok'] as UpstreamKeyPlatform[]).map((platform) => ({
+  (['openai', 'anthropic', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek'] as UpstreamKeyPlatform[]).map((platform) => ({
     value: platform,
     label: keyPlatformLabel(platform)
   }))
@@ -2662,9 +2668,20 @@ function resetKeyPlatformSelections(keys: UpstreamKey[]) {
 
 function normalizeKeyPlatform(value: unknown): UpstreamKeyPlatform | null {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
-  return ['openai', 'anthropic', 'gemini', 'grok'].includes(normalized)
+  return ['openai', 'anthropic', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek'].includes(normalized)
     ? normalized as UpstreamKeyPlatform
     : null
+}
+
+function unsupportedDetectedPlatform(key: UpstreamKey): string | null {
+  const direct = typeof key.detected_platform === 'string' ? key.detected_platform.trim() : ''
+  if (direct && !normalizeKeyPlatform(direct)) return direct
+  const evidence = key.extra?.upstream_platform_evidence
+  if (evidence && typeof evidence === 'object' && typeof (evidence as Record<string, unknown>).detected_platform === 'string') {
+    const value = String((evidence as Record<string, unknown>).detected_platform).trim()
+    return value || null
+  }
+  return null
 }
 
 function keyPlatformSelection(key: UpstreamKey): UpstreamKeyPlatform | null {
