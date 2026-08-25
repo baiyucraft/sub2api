@@ -198,6 +198,7 @@ import { buildAuthErrorMessage } from '@/utils/authError'
 import { extractApiErrorCode } from '@/utils/apiError'
 import {
   formatRegistrationEmailSuffixWhitelistForMessage,
+  isRegistrationGmailAddressAllowed,
   isRegistrationEmailSuffixAllowed,
   normalizeRegistrationEmailSuffixWhitelist
 } from '@/utils/registrationEmailPolicy'
@@ -533,6 +534,11 @@ async function sendCode(): Promise<void> {
   let captchaProofUsed = false
 
   try {
+    if (!isRegistrationGmailAddressAllowed(email.value, registrationEmailSuffixWhitelist.value)) {
+      errorMessage.value = t('auth.gmailAliasNotAllowed')
+      appStore.showError(errorMessage.value)
+      return
+    }
     if (!shouldBypassRegistrationEmailPolicy() && !isRegistrationEmailSuffixAllowed(email.value, registrationEmailSuffixWhitelist.value)) {
       errorMessage.value = buildEmailSuffixNotAllowedMessage()
       appStore.showError(errorMessage.value)
@@ -660,6 +666,12 @@ async function handleVerify(): Promise<void> {
     return
   }
 
+  if (!isRegistrationGmailAddressAllowed(email.value, registrationEmailSuffixWhitelist.value)) {
+    errorMessage.value = t('auth.gmailAliasNotAllowed')
+    appStore.showError(errorMessage.value)
+    return
+  }
+
   if (!shouldBypassRegistrationEmailPolicy() && !isRegistrationEmailSuffixAllowed(email.value, registrationEmailSuffixWhitelist.value)) {
     errorMessage.value = buildEmailSuffixNotAllowedMessage()
     appStore.showError(errorMessage.value)
@@ -783,6 +795,9 @@ function buildEmailSuffixNotAllowedMessage(): string {
 }
 
 function buildRegistrationErrorMessage(error: unknown, fallback: string): string {
+  if (extractApiErrorCode(error) === 'GMAIL_ALIAS_NOT_ALLOWED') {
+    return t('auth.gmailAliasNotAllowed')
+  }
   if (extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT') {
     return t('auth.emailDomainRegistrationLimit')
   }

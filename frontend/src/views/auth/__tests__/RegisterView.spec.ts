@@ -203,4 +203,64 @@ describe('RegisterView invitation layout', () => {
     )
     expect(showErrorMock).not.toHaveBeenCalled()
   })
+
+  it('rejects Gmail dot and plus aliases locally when Gmail is allowlisted', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      turnstile_enabled: false,
+      registration_email_suffix_whitelist: ['@gmail.com', '@qq.com']
+    })
+
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('a.b+tag@gmail.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith('auth.gmailAliasNotAllowed')
+    expect(wrapper.get('#email').classes()).toContain('input-error')
+  })
+
+  it('accepts an ordinary alphanumeric Gmail address', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      turnstile_enabled: false,
+      registration_email_suffix_whitelist: ['@gmail.com', '@qq.com']
+    })
+
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('ABC123@gmail.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'ABC123@gmail.com' })
+    )
+    expect(showErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('localizes the backend Gmail alias rejection', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      turnstile_enabled: false,
+      registration_email_suffix_whitelist: []
+    })
+    registerMock.mockRejectedValueOnce({
+      reason: 'GMAIL_ALIAS_NOT_ALLOWED',
+      message: 'raw backend message'
+    })
+
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('plain@gmail.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(showErrorMock).toHaveBeenCalledWith('auth.gmailAliasNotAllowed')
+  })
 })

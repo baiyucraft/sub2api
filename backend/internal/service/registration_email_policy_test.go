@@ -65,6 +65,93 @@ func TestIsRegistrationEmailSuffixLimited(t *testing.T) {
 	require.True(t, IsRegistrationEmailSuffixLimited("user@custom.example", []string{"@example.com"}))
 }
 
+func TestStrictGmailRegistrationPolicy(t *testing.T) {
+	t.Run("activation follows explicit gmail family whitelist", func(t *testing.T) {
+		require.False(t, IsStrictGmailRegistrationEnabled(nil))
+		require.False(t, IsStrictGmailRegistrationEnabled([]string{"@qq.com"}))
+		require.True(t, IsStrictGmailRegistrationEnabled([]string{"@gmail.com", "@qq.com"}))
+		require.True(t, IsStrictGmailRegistrationEnabled([]string{"@googlemail.com"}))
+	})
+
+	for _, email := range []string{"abc123@gmail.com", "ABC123@gmail.com", "abc123@googlemail.com", "first.last+tag@qq.com"} {
+		t.Run("accept_"+email, func(t *testing.T) {
+			require.True(t, IsSimpleGmailRegistrationAddress(email))
+		})
+	}
+	for _, email := range []string{"a.b.c@gmail.com", "abc+hello@gmail.com", "abc_name@gmail.com", "abc-name@gmail.com", "a.b@googlemail.com"} {
+		t.Run("reject_"+email, func(t *testing.T) {
+			require.False(t, IsSimpleGmailRegistrationAddress(email))
+		})
+	}
+}
+
+func TestRegistrationRejectsGmailAliasesOnlyWhenStrictPolicyEnabled(t *testing.T) {
+	cases := []struct {
+		name      string
+		whitelist string
+		email     string
+		wantErr   bool
+	}{
+		{name: "empty whitelist keeps existing behavior", whitelist: `[]`, email: "a.b+tag@gmail.com"},
+		{name: "qq only keeps existing behavior", whitelist: `["@qq.com"]`, email: "a.b+tag@gmail.com"},
+		{name: "plain gmail", whitelist: `["@gmail.com","@qq.com"]`, email: "abc123@gmail.com"},
+		{name: "gmail dots", whitelist: `["@gmail.com","@qq.com"]`, email: "a.b.c@gmail.com", wantErr: true},
+		{name: "gmail plus", whitelist: `["@gmail.com","@qq.com"]`, email: "abc+hello@gmail.com", wantErr: true},
+		{name: "googlemail strict family", whitelist: `["@googlemail.com","@qq.com"]`, email: "a.b@googlemail.com", wantErr: true},
+		{name: "qq punctuation unaffected", whitelist: `["@gmail.com","@qq.com"]`, email: "first.last+tag@qq.com"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &userRepoStub{}
+			svc := newAuthService(repo, map[string]string{
+				SettingKeyRegistrationEnabled:                 "true",
+				SettingKeyRegistrationEmailSuffixWhitelist:    tc.whitelist,
+				SettingKeyRegistrationEmailDomainQuotaEnabled: "true",
+			}, nil, nil)
+
+			_, _, err := svc.Register(context.Background(), tc.email, "password")
+			if tc.wantErr {
+				require.ErrorIs(t, err, ErrGmailAliasNotAllowed)
+				require.Empty(t, repo.created)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, repo.created, 1)
+		})
+	}
+}
+
+func TestRegistrationGmailPolicyCoversVerificationAndOAuthCreation(t *testing.T) {
+	settings := map[string]string{
+		SettingKeyRegistrationEnabled:              "true",
+		SettingKeyRegistrationEmailSuffixWhitelist: `["@gmail.com","@qq.com"]`,
+	}
+	svc := newAuthService(&userRepoStub{}, settings, nil, nil)
+
+	_, err := svc.SendVerifyCodeAsync(context.Background(), "a.b@gmail.com")
+	require.ErrorIs(t, err, ErrGmailAliasNotAllowed)
+
+	_, _, err = svc.LoginOrRegisterOAuth(context.Background(), "a.b@gmail.com", "alias")
+	require.ErrorIs(t, err, ErrGmailAliasNotAllowed)
+
+	_, err = svc.createEmailOAuthUser(context.Background(), "a.b@gmail.com", "alias", "google", "", "")
+	require.ErrorIs(t, err, ErrGmailAliasNotAllowed)
+}
+
+func TestStrictGmailPolicyDoesNotBlockExistingOAuthLogin(t *testing.T) {
+	existing := &User{ID: 42, Email: "a.b@gmail.com", Role: RoleUser, Status: StatusActive}
+	repo := &userRepoStub{usersByEmail: map[string]*User{existing.Email: existing}}
+	svc := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:              "true",
+		SettingKeyRegistrationEmailSuffixWhitelist: `["@gmail.com","@qq.com"]`,
+	}, nil, nil)
+
+	_, user, err := svc.LoginOrRegisterOAuth(context.Background(), existing.Email, "existing")
+	require.NoError(t, err)
+	require.Equal(t, existing.ID, user.ID)
+}
+
 func TestRegistrationEmailDomainUsesRegistrableDomain(t *testing.T) {
 	require.Equal(t, "abc.com", RegistrationEmailDomain("user@abc.com"))
 	require.Equal(t, "abc.com", RegistrationEmailDomain("user@abcd.abc.com"))

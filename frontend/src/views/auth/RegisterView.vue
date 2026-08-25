@@ -356,6 +356,7 @@ import { buildAuthErrorMessage } from '@/utils/authError'
 import { extractApiErrorCode, extractI18nErrorMessage } from '@/utils/apiError'
 import {
   formatRegistrationEmailSuffixWhitelistForMessage,
+  isRegistrationGmailAddressAllowed,
   isRegistrationEmailSuffixAllowed,
   normalizeRegistrationEmailSuffixWhitelist
 } from '@/utils/registrationEmailPolicy'
@@ -903,6 +904,11 @@ function validateForm(): boolean {
     errors.email = t('auth.invalidEmail')
     isValid = false
   } else if (
+    !isRegistrationGmailAddressAllowed(formData.email, registrationEmailSuffixWhitelist.value)
+  ) {
+    errors.email = t('auth.gmailAliasNotAllowed')
+    isValid = false
+  } else if (
     !emailDomainQuotaEnabled.value &&
     !isRegistrationEmailSuffixAllowed(formData.email, registrationEmailSuffixWhitelist.value)
   ) {
@@ -1055,6 +1061,9 @@ async function handleRegister(): Promise<void> {
 }
 
 function buildRegistrationErrorMessage(error: unknown, fallback: string): string {
+  if (extractApiErrorCode(error) === 'GMAIL_ALIAS_NOT_ALLOWED') {
+    return t('auth.gmailAliasNotAllowed')
+  }
   if (extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT') {
     return t('auth.emailDomainRegistrationLimit')
   }

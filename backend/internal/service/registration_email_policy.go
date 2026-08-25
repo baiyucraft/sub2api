@@ -13,6 +13,8 @@ var registrationEmailDomainPattern = regexp.MustCompile(
 	`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`,
 )
 
+var strictGmailLocalPartPattern = regexp.MustCompile(`^[a-z0-9]+$`)
+
 // RegistrationEmailSuffix extracts normalized suffix in "@domain" form.
 func RegistrationEmailSuffix(email string) string {
 	_, domain, ok := splitEmailForPolicy(email)
@@ -72,6 +74,29 @@ func IsRegistrationEmailSuffixAllowed(email string, whitelist []string) bool {
 // IsRegistrationEmailSuffixLimited 判断非空白名单是否对该邮箱域名启用单账户额度。
 func IsRegistrationEmailSuffixLimited(email string, whitelist []string) bool {
 	return len(whitelist) > 0 && !IsRegistrationEmailSuffixAllowed(email, whitelist)
+}
+
+// IsStrictGmailRegistrationEnabled reports whether the configured whitelist
+// explicitly opts into the ordinary-Gmail registration policy.
+func IsStrictGmailRegistrationEnabled(whitelist []string) bool {
+	for _, allowed := range whitelist {
+		switch strings.ToLower(strings.TrimSpace(allowed)) {
+		case "@gmail.com", "@googlemail.com":
+			return true
+		}
+	}
+	return false
+}
+
+// IsSimpleGmailRegistrationAddress accepts only the alphanumeric local part
+// used by the ordinary-Gmail registration policy. It intentionally rejects
+// dot variants, plus tags, and other local-part punctuation.
+func IsSimpleGmailRegistrationAddress(email string) bool {
+	local, domain, ok := splitEmailForPolicy(email)
+	if !ok || !isGmailFamilyDomain(domain) {
+		return true
+	}
+	return strictGmailLocalPartPattern.MatchString(local)
 }
 
 // NormalizeRegistrationEmailSuffixWhitelist normalizes and validates suffix whitelist items.

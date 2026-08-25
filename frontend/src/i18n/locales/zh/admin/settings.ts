@@ -137,7 +137,7 @@ export default {
         emailVerificationHint: '新用户注册时需要验证邮箱',
         emailSuffixWhitelist: '邮箱域名白名单',
         emailSuffixWhitelistHint:
-          "仅允许使用指定域名的邮箱注册账号；留空则不限制（例如 {'@'}qq.com, {'@'}gmail.com, *.edu.cn）",
+          "仅允许使用指定域名的邮箱注册账号；留空则不限制。加入 {'@'}gmail.com 或 {'@'}googlemail.com 后，Gmail 注册仅接受字母数字普通地址，不接受点号变体或 + 标签别名。",
         emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
         emailSuffixWhitelistInputHint: '留空则不限制。使用 *.edu.cn 可匹配 edu.cn 及其子域名。',
         emailDomainQuota: '非白名单域名限量注册',

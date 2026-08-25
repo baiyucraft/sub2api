@@ -137,7 +137,7 @@ export default {
         emailVerificationHint: 'Require email verification for new registrations',
         emailSuffixWhitelist: 'Email Domain Whitelist',
         emailSuffixWhitelistHint:
-          "Only email addresses from the specified domains can register; leave empty for no restriction (for example, {'@'}qq.com, {'@'}gmail.com, *.edu.cn)",
+          "Only email addresses from the specified domains can register; leave empty for no restriction. Adding {'@'}gmail.com or {'@'}googlemail.com restricts Gmail registration to ordinary alphanumeric addresses without dot variants or +tag aliases.",
         emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
         emailSuffixWhitelistInputHint: 'Leave empty for no restriction. Use *.edu.cn to match edu.cn and its subdomains.',
         emailDomainQuota: 'Non-allowlist Domain Quota',

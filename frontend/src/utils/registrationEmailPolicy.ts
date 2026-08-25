@@ -6,6 +6,8 @@ const EMAIL_SUFFIX_WILDCARD_PREFIX = '*.'
 const EMAIL_SUFFIX_MESSAGE_VISIBLE_LIMIT = 5
 const EMAIL_SUFFIX_DOMAIN_PATTERN =
   /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/
+const SIMPLE_GMAIL_LOCAL_PART_PATTERN = /^[a-z0-9]+$/
+const GMAIL_FAMILY_DOMAINS = new Set(['gmail.com', 'googlemail.com'])
 
 // normalizeRegistrationEmailSuffixDomain converts raw input into a canonical domain token.
 // Exact domains are returned without "@"; wildcard domains keep the "*." prefix.
@@ -103,6 +105,27 @@ export function isRegistrationEmailSuffixAllowed(
     }
     return false
   })
+}
+
+export function isRegistrationGmailAddressAllowed(
+  email: string,
+  whitelist: string[] | null | undefined
+): boolean {
+  const normalizedWhitelist = normalizeRegistrationEmailSuffixWhitelist(whitelist)
+  const strictModeEnabled = normalizedWhitelist.some(
+    (allowed) => allowed === '@gmail.com' || allowed === '@googlemail.com'
+  )
+  if (!strictModeEnabled) return true
+
+  const raw = String(email || '').trim().toLowerCase()
+  const atIndex = raw.indexOf('@')
+  if (atIndex <= 0 || atIndex !== raw.lastIndexOf('@')) return true
+
+  const local = raw.slice(0, atIndex)
+  const domain = raw.slice(atIndex + 1).replace(/\.+$/, '')
+  if (!GMAIL_FAMILY_DOMAINS.has(domain)) return true
+
+  return SIMPLE_GMAIL_LOCAL_PART_PATTERN.test(local)
 }
 
 export function formatRegistrationEmailSuffixWhitelistForMessage(

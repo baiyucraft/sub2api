@@ -458,6 +458,45 @@ describe('EmailVerifyView', () => {
     expect(showErrorMock).toHaveBeenCalledWith('auth.emailSuffixNotAllowedWithAllowed')
   })
 
+  it('blocks Gmail aliases before sending a code or completing registration', async () => {
+    getPublicSettingsMock.mockResolvedValue({
+      turnstile_enabled: false,
+      turnstile_site_key: '',
+      site_name: 'Sub2API',
+      registration_email_suffix_whitelist: ['@gmail.com', '@qq.com'],
+    })
+    sessionStorage.setItem(
+      'register_data',
+      JSON.stringify({
+        email: 'a.b+tag@gmail.com',
+        password: 'secret-123',
+      })
+    )
+
+    const wrapper = mount(EmailVerifyView, {
+      global: {
+        stubs: {
+          AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: true,
+          TurnstileWidget: true,
+          transition: false,
+        },
+      },
+    })
+
+    await flushPromises()
+    expect(sendVerifyCodeMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith('auth.gmailAliasNotAllowed')
+
+    showErrorMock.mockClear()
+    await wrapper.get('#code').setValue('123456')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith('auth.gmailAliasNotAllowed')
+  })
+
   it('uses the pending oauth verify-code endpoint when auth store only carries the pending provider', async () => {
     authStoreState.pendingAuthSession = {
       token: '',

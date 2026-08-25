@@ -252,6 +252,8 @@ export default {
     emailSuffixNotAllowed: 'This email domain is not allowed for registration.',
     emailSuffixNotAllowedWithAllowed:
       'This email domain is not allowed. Allowed domains: {suffixes}',
+    gmailAliasNotAllowed:
+      'Gmail registration only accepts ordinary addresses made of letters and numbers; dot variants and +tag aliases are not supported.',
     emailSuffixAllowedMore: 'and {count} more',
     loginSuccess: 'Login successful! Welcome back.',
     accountCreatedSuccess: 'Account created successfully! Welcome to {siteName}.',
