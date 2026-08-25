@@ -68,8 +68,8 @@ const messages: Record<string, string> = {
 	'usage.modelMismatch': 'Different model',
 	'usage.latencyFirstToken': 'First',
 	'usage.latencyDuration': 'Total',
-	'usage.latencyTps': 'TPS',
-	'usage.tokensPerSecondUnit': 'tok/s',
+  'usage.latencyTps': 'Output rate',
+  'usage.tokensPerSecondUnit': 't/s',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -106,7 +106,7 @@ describe('admin UsageTable output TPS', () => {
     output_tps: 12.3456,
   }
 
-  it('renders generation TPS to two decimals when explicitly enabled', () => {
+  it('renders output rate to one decimal when explicitly enabled', () => {
     const wrapper = mount(UsageTable, {
       props: {
         data: [row],
@@ -117,8 +117,8 @@ describe('admin UsageTable output TPS', () => {
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
 
-    expect(wrapper.text()).toContain('TPS')
-    expect(wrapper.text()).toContain('12.35 tok/s')
+    expect(wrapper.text()).toContain('Output rate')
+    expect(wrapper.text()).toContain('12.3 t/s')
   })
 
   it('keeps the shared table unchanged unless TPS is explicitly enabled', () => {
@@ -131,8 +131,8 @@ describe('admin UsageTable output TPS', () => {
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
 
-    expect(wrapper.text()).not.toContain('TPS')
-    expect(wrapper.text()).not.toContain('tok/s')
+    expect(wrapper.text()).not.toContain('Output rate')
+    expect(wrapper.text()).not.toContain('t/s')
   })
 
   it('shows a dash instead of a fabricated zero when TPS is unavailable', () => {
@@ -146,9 +146,9 @@ describe('admin UsageTable output TPS', () => {
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
 
-    expect(wrapper.text()).toContain('TPS')
+    expect(wrapper.text()).toContain('Output rate')
     expect(wrapper.text()).toContain('-')
-    expect(wrapper.text()).not.toContain('tok/s')
+    expect(wrapper.text()).not.toContain('t/s')
   })
 })
 
