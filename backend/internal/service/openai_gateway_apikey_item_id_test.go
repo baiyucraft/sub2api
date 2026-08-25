@@ -265,3 +265,37 @@ func TestSanitizeOpenAIResponsesInputItemIDs_AllocationGrowthIsLinear(t *testing
 	require.Less(t, largeAllocated, smallAllocated*30,
 		"10x more input items must not cause quadratic whole-body allocation growth")
 }
+func TestNormalizeOpenAIResponsesWebSocketCompatibilityBodyPreservesOpaqueReferences(t *testing.T) {
+	body := []byte(`{"type":"response.create","input":[
+		{"type":"custom_tool_call","id":"ctc_call","call_id":"call_custom","name":"apply_patch","input":"patch"},
+		{"type":"custom_tool_call_output","id":"ctco_bad","call_id":"call_custom","output":"done"},
+		{"type":"item_reference","id":"ctco_bad"},
+		{"type":"future_item","id":"item_future","payload":"keep"}
+	]}`)
+
+	for _, accountType := range []string{AccountTypeAPIKey, AccountTypeOAuth} {
+		t.Run(accountType, func(t *testing.T) {
+			normalized, changed, err := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, &Account{
+				Platform: PlatformOpenAI,
+				Type:     accountType,
+			}, false)
+
+			require.NoError(t, err)
+			require.True(t, changed)
+			require.Len(t, gjson.GetBytes(normalized, "input").Array(), 4)
+			require.Equal(t, "ctc_call", gjson.GetBytes(normalized, "input.0.id").String())
+			require.Equal(t, "call_custom", gjson.GetBytes(normalized, "input.1.call_id").String())
+			require.False(t, gjson.GetBytes(normalized, "input.1.id").Exists())
+			require.Equal(t, "ctco_bad", gjson.GetBytes(normalized, "input.2.id").String())
+			require.Equal(t, "item_future", gjson.GetBytes(normalized, "input.3.id").String())
+
+			second, changedAgain, err := normalizeOpenAIResponsesWebSocketCompatibilityBody(normalized, &Account{
+				Platform: PlatformOpenAI,
+				Type:     accountType,
+			}, false)
+			require.NoError(t, err)
+			require.False(t, changedAgain)
+			require.JSONEq(t, string(normalized), string(second))
+		})
+	}
+}
