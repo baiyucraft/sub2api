@@ -4,7 +4,15 @@ import type { PaginatedResponse } from '@/types'
 export type UpstreamProvider = 'sub2api' | 'newapi' | 'lcodex' | 'other'
 export type UpstreamAuthMode = 'user_login' | 'manual_jwt' | 'cookie' | 'access_token'
 export type UpstreamTrendRange = '24h' | '7d' | '30d'
-export type UpstreamKeyPlatform = 'openai' | 'anthropic' | 'gemini' | 'grok'
+export type UpstreamKeyPlatform =
+  | 'openai'
+  | 'anthropic'
+  | 'gemini'
+  | 'antigravity'
+  | 'grok'
+  | 'kimi'
+  | 'zhipu'
+  | 'deepseek'
 
 export interface UpstreamCredentialsStatus {
   has_login_email?: boolean
@@ -49,7 +57,7 @@ export interface UpstreamKey {
   base_url?: string | null
   description?: string
   platform: UpstreamKeyPlatform | null
-  detected_platform?: UpstreamKeyPlatform | null
+  detected_platform?: string | null
   platform_source?: string | null
   platform_detection_status?: string | null
   platform_detected_at?: string | null

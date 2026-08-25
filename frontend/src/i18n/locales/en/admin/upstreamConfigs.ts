@@ -133,7 +133,11 @@ export default {
         openai: 'OpenAI',
         anthropic: 'Anthropic',
         gemini: 'Gemini',
-        grok: 'Grok'
+        antigravity: 'Antigravity',
+        grok: 'Grok',
+        kimi: 'Kimi',
+        zhipu: 'Zhipu GLM',
+        deepseek: 'DeepSeek'
       },
       sources: {
         manual: 'Manual',
@@ -165,6 +169,7 @@ export default {
         clearMessage: 'This key will use the upstream configuration URL again after it is cleared.'
       },
       notDetected: 'Not detected',
+      unsupportedPlatform: 'Unsupported: {platform}',
       conflict: 'Detected evidence conflicts with the current assignment',
       empty: 'No upstream keys',
       loadFailed: 'Failed to load key platforms',

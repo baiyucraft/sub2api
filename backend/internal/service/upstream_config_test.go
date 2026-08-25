@@ -2022,6 +2022,14 @@ func TestNormalizeAndValidateUpstreamConfig_URLs(t *testing.T) {
 	}
 }
 
+func TestIsAssignableUpstreamKeyPlatformUsesRegisteredConcretePlatforms(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek} {
+		require.True(t, isAssignableUpstreamKeyPlatform(platform), platform)
+	}
+	require.False(t, isAssignableUpstreamKeyPlatform(PlatformComposite))
+	require.False(t, isAssignableUpstreamKeyPlatform("future-platform"))
+}
+
 func TestUpstreamConfigService_Sub2APILoginOmitsComplianceDeclarationByDefault(t *testing.T) {
 	var loginBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
