@@ -215,12 +215,13 @@ type sub2APIProfile struct {
 }
 
 type sub2APIUpstreamSnapshot struct {
-	Keys            []UpstreamKey
-	KeysComplete    bool
-	Profile         *sub2APIProfile
-	ProfileErr      error
-	RefreshedTokens *sub2APIRefreshData
-	Warnings        []string
+	Keys               []UpstreamKey
+	KeysComplete       bool
+	UnresolvedKeyCount int
+	Profile            *sub2APIProfile
+	ProfileErr         error
+	RefreshedTokens    *sub2APIRefreshData
+	Warnings           []string
 }
 
 type sub2APISyncTarget struct {
@@ -674,6 +675,29 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 			})
 		}
 		platformValue := strings.ToLower(strings.TrimSpace(platform))
+		var platformPtr *string
+		var detectedPlatformPtr *string
+		detectionStatus := UpstreamKeyPlatformDetectionDetected
+		platformEvidence := map[string]any{}
+		if platformValue != "" {
+			detectedPlatform := platformValue
+			if !isAssignableUpstreamKeyPlatform(platformValue) {
+				// A newer Sub2API may expose a platform this fork does not
+				// understand yet. Keep the key visible and unresolved instead
+				// of aborting the whole snapshot before any keys are persisted.
+				platformValue = ""
+				detectionStatus = UpstreamKeyPlatformDetectionUnresolved
+				platformEvidence["detected_platform"] = detectedPlatform
+				snapshot.Warnings = append(snapshot.Warnings, fmt.Sprintf("key %d: unsupported upstream platform %q left unassigned", upstreamKey.ID, detectedPlatform))
+				snapshot.UnresolvedKeyCount++
+			} else {
+				platformPtr = &platformValue
+				detectedPlatformPtr = &detectedPlatform
+			}
+		}
+		if len(platformEvidence) > 0 {
+			extra["upstream_platform_evidence"] = platformEvidence
+		}
 		out = append(out, UpstreamKey{
 			UpstreamConfigID:        cfg.ID,
 			Name:                    name,
@@ -682,10 +706,10 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 			RemoteKeyID:             &upstreamKey.ID,
 			UpstreamGroupID:         groupID,
 			UpstreamGroupName:       groupName,
-			Platform:                &platformValue,
+			Platform:                platformPtr,
 			PlatformSource:          UpstreamKeyPlatformSourceAuto,
-			DetectedPlatform:        &platformValue,
-			PlatformDetectionStatus: UpstreamKeyPlatformDetectionDetected,
+			DetectedPlatform:        detectedPlatformPtr,
+			PlatformDetectionStatus: detectionStatus,
 			PlatformDetectedAt:      &now,
 			SourceRateMultiplier:    sourceRate,
 			Status:                  StatusActive,

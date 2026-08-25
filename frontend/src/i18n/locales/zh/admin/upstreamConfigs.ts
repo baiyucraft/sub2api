@@ -133,7 +133,11 @@ export default {
         openai: 'OpenAI',
         anthropic: 'Anthropic',
         gemini: 'Gemini',
-        grok: 'Grok'
+        antigravity: 'Antigravity',
+        grok: 'Grok',
+        kimi: 'Kimi',
+        zhipu: '智谱 GLM',
+        deepseek: 'DeepSeek'
       },
       sources: {
         manual: '手动指定',
@@ -165,6 +169,7 @@ export default {
         clearMessage: '清除后，该 Key 将恢复使用上游配置的地址。'
       },
       notDetected: '未检测',
+      unsupportedPlatform: '未支持：{platform}',
       conflict: '检测证据与当前分配冲突',
       empty: '暂无上游 Key',
       loadFailed: '加载 Key 平台失败',

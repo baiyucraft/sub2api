@@ -64,6 +64,7 @@
     "248_upstream_confidence_probe.sql": "56ba0c7a35d1d28c6c432c3db68430158d7b7e519ece476d8ec182368fdc8764",
     "249_upstream_confidence_juice_reset.sql": "eda542137a7938dddef646a834f62bed6d506faf6c19f7c76eae485225c12de4",
     "250_upstream_confidence_multiprobe_v2.sql": "5ecca45b8c9dfc17abedcf90220e60cc7f2d2885cab279ecd7ad0d74477ece27"
+    ,"251_upstream_key_platform_catalog.sql": "77e71c7771b097b2cfbb47aeda6e97da10a24721d99c87fb8f908d589286a280"
   },
   "migration_renames": {"official_221": "234_group_model_pricing.sql", "official_222": "235_group_usage_daily_rollups.sql", "official_223": "236_group_usage_rollup_timezone.sql"},
   "migration_assertions": {
@@ -135,8 +136,8 @@
   "extensions": [
     {
       "id": "upstream-config-management", "title": "上游配置、Key 与两个一级入口", "description": "独立管理 upstream configs/keys、派生账号、provider 同步、账号编辑白名单及局部运行态刷新。", "ownership": "fork", "risk_level": "high",
-      "paths": ["backend/internal/service/upstream_*.go", "backend/internal/service/admin_upstream_account.go", "backend/internal/repository/upstream_*.go", "backend/internal/handler/admin/upstream_*.go", "backend/internal/server/routes/admin.go", "frontend/src/views/admin/UpstreamConfigsView.vue", "frontend/src/views/admin/AccountsView.vue", "frontend/src/components/layout/AppSidebar.vue", "frontend/src/router/index.ts"],
-      "symbols": ["IsUpstreamBound", "ListUpstreamManagement", "UpstreamConfigID", "upstream-management"], "api_routes": ["/upstream-management", "/upstream-configs"], "settings_keys": [], "migration_files": ["159_upstream_configs.sql", "233_upstream_management.sql"], "required_tests": ["backend/internal/handler/admin/account_handler_list_test.go", "frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts"], "invariants": ["派生身份和凭据字段只读", "一个有效 Key 最多绑定一个未删除派生账号", "两个入口保持独立"]
+      "paths": ["backend/internal/service/upstream_*.go", "backend/internal/service/admin_upstream_account.go", "backend/internal/service/sub2api_upstream_rate_sync_service.go", "backend/internal/repository/upstream_*.go", "backend/internal/handler/admin/upstream_*.go", "backend/internal/server/routes/admin.go", "frontend/src/api/admin/upstreamConfigs.ts", "frontend/src/views/admin/UpstreamConfigsView.vue", "frontend/src/views/admin/AccountsView.vue", "frontend/src/components/layout/AppSidebar.vue", "frontend/src/router/index.ts", "backend/migrations/251_upstream_key_platform_catalog.sql"],
+      "symbols": ["IsUpstreamBound", "ListUpstreamManagement", "UpstreamConfigID", "isAssignableUpstreamKeyPlatform", "syncSub2APIUpstreamSnapshot", "upstream-management"], "api_routes": ["/upstream-management", "/upstream-configs"], "settings_keys": [], "migration_files": ["159_upstream_configs.sql", "233_upstream_management.sql", "251_upstream_key_platform_catalog.sql"], "required_tests": ["backend/internal/handler/admin/account_handler_list_test.go", "backend/internal/service/sub2api_upstream_rate_sync_service_test.go", "backend/migrations/upstream_key_platform_catalog_migration_test.go", "frontend/src/api/__tests__/admin.upstreamConfigs.keyPlatforms.spec.ts", "frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts"], "invariants": ["派生身份和凭据字段只读", "一个有效 Key 最多绑定一个未删除派生账号", "两个入口保持独立", "Key 平台白名单复用 concrete platform catalog，排除 composite", "未知上游平台保留在结构化 extra 证据并置为未分配，不因单个 Key 阻断整次 Sub2API 同步"]
     },
     {
       "id": "upstream-account-lifecycle", "title": "上游派生账号同步生命周期", "description": "区分 manual 与 sync_managed 派生账号，对完整同步中持续缺失的 Key 和同步托管账号执行可恢复的同事务软归档，并清理关联运行态。", "ownership": "fork", "risk_level": "critical",

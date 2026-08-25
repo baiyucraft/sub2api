@@ -714,6 +714,36 @@ func TestSyncSub2APIUpstreamKeysPreservesNamesAndGroupMetadata(t *testing.T) {
 	require.Equal(t, int64(37), *keys[2].UpstreamGroupID)
 }
 
+func TestSyncSub2APIUpstreamSnapshotLeavesUnknownPlatformUnassigned(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/keys":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":701,"key":"sk-unknown-platform","name":"梦幻","group":{"id":7,"name":"视频","platform":"future-platform"}}],"page":1,"page_size":100,"pages":1}}`))
+		case "/api/v1/groups/available", "/api/v1/groups/rates":
+			_, _ = w.Write([]byte(`{"code":0,"data":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := &UpstreamConfig{
+		ID: 1, Name: "梦幻", Provider: UpstreamProviderSub2API, SiteURL: server.URL,
+		AuthMode:    UpstreamAuthModeManualJWT,
+		Credentials: map[string]any{AccountCredentialSub2APIAccessToken: "jwt-upstream"},
+	}
+	snapshot, err := syncSub2APIUpstreamSnapshot(context.Background(), cfg, "", false)
+	require.NoError(t, err)
+	require.Len(t, snapshot.Keys, 1)
+	require.Nil(t, snapshot.Keys[0].Platform)
+	require.Nil(t, snapshot.Keys[0].DetectedPlatform)
+	require.Equal(t, "future-platform", snapshot.Keys[0].Extra["upstream_platform_evidence"].(map[string]any)["detected_platform"])
+	require.Equal(t, UpstreamKeyPlatformDetectionUnresolved, snapshot.Keys[0].PlatformDetectionStatus)
+	require.Equal(t, 1, snapshot.UnresolvedKeyCount)
+	require.Contains(t, strings.Join(snapshot.Warnings, " "), "unsupported upstream platform")
+}
+
 func TestSyncSub2APIUpstreamKeysBillingProbeOverridesGroupRateAndIgnoresPeak(t *testing.T) {
 	management := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
