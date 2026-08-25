@@ -2,6 +2,23 @@
 
 本文只记录已在本 fork 发布链中复现或确认过的问题。每条记录都包含现象、根因、证据、修复、预防测试和状态；不写入凭据、完整环境、DSN 或原始远端日志。
 
+## 近期发布复盘：先锁定身份，再判断状态
+
+以下规则来自近期 `main` 合并、profile-242、VM 8211 和发布链复盘；它们是操作顺序约束，不是可选建议。
+
+- **完整 SHA 只能现场生成**：发布前使用 `git rev-parse --verify HEAD^{commit}`，把同一个 40 位小写 SHA 传给 doctor、VM Gate、candidate、归档和最终验真。不要手工拼接、拆分参数、使用短 SHA、`latest`、`main` 或旧 Gate 记录。SHA 参数被拆开时，`release.py` 可能把后半段当成未知参数，不能据此判断发布逻辑本身失败。
+- **静默不等于失败**：`deploy-start`、VM validator 或 SSH 观察器长时间没有输出时，先读取 `runner.json`、`state.json`、结构化事件、进程和 committed marker。只要 runner 仍在运行，就只能 `follow`/`status`/`wait`；禁止重新启动第二个 runner。调用端超时也不代表远端 runner 已退出。
+- **VM Gate 与生产发布必须分开报告**：VM 的 `verified` 只证明当前 full-SHA candidate 在隔离的 `sub2api-dev`、本地 PostgreSQL/Redis 和 `data-dev` 上通过；没有生产 `verify-result`、生产切换和 post-deploy doctor，就只能报告“VM 通过、生产未变更”。没有真实业务流量时，streaming、usage attribution、模型能力统一记为 `not_checked`，不发送真实模型请求。
+- **上游合并后重新生成版本身份**：官方 `VERSION` 变化时，fork 必须变为“官方版本 + `-baiyu`”，例如 `0.1.183-baiyu`；不能继续沿用旧 profile 版本，也不能重复追加后缀。版本、profile、migration catalog、candidate 和 Gate 必须作为同一 release 身份重新生成，不能复用旧 candidate 或旧 checksum。
+- **Docker 125 先查镜像，不要追下游 JSON 错误**：VM 上运行容器引用的 image 不在本地 image store 时，后续 `docker run` 会以 125 失败，planner 输出为空，之后的 `jq`/JSON 解析错误只是次生症状。启动 Gate 前先逐一 `docker image inspect` 所需 current/compatibility image ID；若正在运行的 `sub2api-dev` 缺镜像，只能从匹配的历史 Gate 归档核对签名和 `candidate.tar.gz` SHA-256 后 `docker load`，再确认容器引用的 image ID 和 health，不得重启或盲目重跑。
+- **迁移证据以数据库为准**：`schema_migrations(filename, checksum, applied_at)` 是当前迁移事实源。checksum 相同才可跳过，冲突立即停止；`absent`、`verified`、`unknown` 必须分开，部分 schema 不能伪装成已验证。历史 profile/Gate 证据只用于审计和恢复，不能驱动新 release 的 pending 分支；候选 catalog 缺少数据库中已存在的迁移时，先解决 catalog policy，不得压掉 `unknown`。
+- **未跟踪的 Wiki/Spec/Skill 资产不是失败理由，也不能偷偷带入发布**：doctor 要求 clean worktree 时，先区分用户资产与本次代码。`.wiki/`、`.spec/`、`.agents/skills/wiki-*` 等未跟踪路径若不属于本次 release，可临时移到 worktree 外并原样恢复；禁止删除、加入提交或用忽略规则掩盖。恢复后重新核对 `git status`。
+- **8211 只保留一个持久实例**：VM 展示固定使用 `sub2api-dev` 和 `8211`；不创建或保留 `sub2api-preview-*`、`18211`、`18220`、临时代理或第二套页面服务。candidate 切换必须先核对 image ID、`/health`、页面/API，再清理临时容器；release 目录清理只能使用有边界的版本化 cleaner，保留 active、candidate、旧镜像和回滚证据，禁止宽泛删除。
+- **失败先 reconciliation，再决定是否重试**：SSH 超时、远端命令非零、迁移失败、健康检查失败或输出解析异常，都先核对 committed marker、migration 记录、active claim、容器/image、PG/Redis、Nginx 和备份状态。不能因为“可能没提交”就再次 deploy，也不能删除 `.active-release`、`.consumed`、`.recovered` 后重跑。
+- **健康不是模型能力证明**：容器 health、应用 `/health`、Nginx/DMIT 路由和登录/API smoke 只能证明服务链路启动；不要把它们写成模型可用、账号可用或 upstream 探针通过。
+
+预防测试至少覆盖：SHA 单值传递、静默 runner 重连、VM/生产状态分离、缺失 image 的 fail-closed、migration 状态三分法、未跟踪资产恢复、8211 单实例收口和重复 runner 拒绝。
+
 ## Windows Shell 与 Linux 能力边界
 
 - 现象：在 Windows 直接运行 `.sh` 时出现路径、引号或命令不可用错误。

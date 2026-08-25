@@ -20,7 +20,7 @@
   "current_profile": {
     "id": "242",
     "status": "pending",
-    "version": "0.1.182-baiyu",
+    "version": "0.1.183-baiyu",
     "parent": "241",
     "gate_schema": 2,
     "new_migrations": [],
