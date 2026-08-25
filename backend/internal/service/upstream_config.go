@@ -1543,6 +1543,7 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 			ConfidenceScore: result.ConfidenceScore, ConfidencePromptVersion: result.ConfidencePromptVersion,
 			RequestedEffort: result.RequestedEffort, ReasoningTokens: result.ReasoningTokens,
 			ConfidenceChecks: result.ConfidenceChecks, ConfidenceStatus: result.ConfidenceStatus,
+			ConfidenceEvidence: result.ConfidenceEvidence,
 		}
 		return s.saveHealthTransitionWithObservation(ctx, keyID, transition, observation)
 	}); err != nil {

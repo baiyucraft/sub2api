@@ -66,6 +66,10 @@ const messages: Record<string, string> = {
 	'usage.upstreamResponseModel': 'Upstream response',
 	'usage.modelVariant': 'Possible version variant',
 	'usage.modelMismatch': 'Different model',
+	'usage.latencyFirstToken': 'First',
+	'usage.latencyDuration': 'Total',
+	'usage.latencyTps': 'TPS',
+	'usage.tokensPerSecondUnit': 'tok/s',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -87,11 +91,66 @@ const DataTableStub = {
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-cost" :row="row" />
+        <slot name="cell-latency" :row="row" />
         <slot name="cell-request_id" :row="row" />
       </div>
     </div>
   `,
 }
+
+describe('admin UsageTable output TPS', () => {
+  const row = {
+    request_id: 'req-admin-tps',
+    first_token_ms: 750,
+    duration_ms: 4750,
+    output_tps: 12.3456,
+  }
+
+  it('renders generation TPS to two decimals when explicitly enabled', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row],
+        loading: false,
+        columns: [{ key: 'latency', label: 'Latency' }],
+        showOutputTps: true,
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    expect(wrapper.text()).toContain('TPS')
+    expect(wrapper.text()).toContain('12.35 tok/s')
+  })
+
+  it('keeps the shared table unchanged unless TPS is explicitly enabled', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row],
+        loading: false,
+        columns: [{ key: 'latency', label: 'Latency' }],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    expect(wrapper.text()).not.toContain('TPS')
+    expect(wrapper.text()).not.toContain('tok/s')
+  })
+
+  it('shows a dash instead of a fabricated zero when TPS is unavailable', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{ ...row, output_tps: null }],
+        loading: false,
+        columns: [{ key: 'latency', label: 'Latency' }],
+        showOutputTps: true,
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    expect(wrapper.text()).toContain('TPS')
+    expect(wrapper.text()).toContain('-')
+    expect(wrapper.text()).not.toContain('tok/s')
+  })
+})
 
 const baseImageRow = {
   request_id: 'req-admin-image',

@@ -647,6 +647,9 @@ type AdminUsageLog struct {
 	AccountRateMultiplier *float64 `json:"account_rate_multiplier"`
 	// AccountStatsCost 自定义定价规则计算的账号统计费用（nil 表示使用默认公式）
 	AccountStatsCost *float64 `json:"account_stats_cost,omitempty"`
+	// OutputTPS is the text generation rate after the first token. It is
+	// derived from usage timings and is only exposed by the admin usage API.
+	OutputTPS *float64 `json:"output_tps,omitempty"`
 
 	// IPAddress 用户请求 IP
 	IPAddress *string `json:"ip_address,omitempty"`

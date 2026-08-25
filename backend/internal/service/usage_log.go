@@ -215,6 +215,56 @@ type UsageLog struct {
 	Subscription *UserSubscription
 }
 
+// CalculateOutputTPS returns the text generation rate after the first token.
+// It deliberately returns nil when the timing or output-token evidence is not
+// sufficient to calculate a meaningful rate.
+func CalculateOutputTPS(outputTokens int64, durationMs, firstTokenMs *int64) *float64 {
+	if outputTokens <= 0 || durationMs == nil || firstTokenMs == nil || *durationMs <= *firstTokenMs {
+		return nil
+	}
+	generationMs := *durationMs - *firstTokenMs
+	if generationMs <= 0 {
+		return nil
+	}
+	value := float64(outputTokens) * 1000 / float64(generationMs)
+	return &value
+}
+
+// OutputTPS returns the text generation rate for a usage row. Image and video
+// usage rows intentionally do not expose a text TPS value.
+func (l *UsageLog) OutputTPS() *float64 {
+	if l == nil || l.ImageCount > 0 || l.VideoCount > 0 || usageLogIsGeneratedMedia(l) {
+		return nil
+	}
+	var durationMs, firstTokenMs *int64
+	if l.DurationMs != nil {
+		v := int64(*l.DurationMs)
+		durationMs = &v
+	}
+	if l.FirstTokenMs != nil {
+		v := int64(*l.FirstTokenMs)
+		firstTokenMs = &v
+	}
+	return CalculateOutputTPS(int64(l.OutputTokens), durationMs, firstTokenMs)
+}
+
+func usageLogIsGeneratedMedia(l *UsageLog) bool {
+	if l == nil {
+		return false
+	}
+	if l.BillingMode != nil {
+		switch strings.ToLower(strings.TrimSpace(*l.BillingMode)) {
+		case string(BillingModeImage), string(BillingModeVideo):
+			return true
+		}
+	}
+	if l.MediaType != nil {
+		mediaType := strings.ToLower(strings.TrimSpace(*l.MediaType))
+		return mediaType == "image" || mediaType == "video" || strings.HasPrefix(mediaType, "image/") || strings.HasPrefix(mediaType, "video/")
+	}
+	return false
+}
+
 // ApplyUpstreamUsageSnapshot records the request-time upstream binding and
 // cost denomination. Partial bindings are deliberately treated as unbound so
 // usage rows never claim a precise upstream attribution they cannot prove.

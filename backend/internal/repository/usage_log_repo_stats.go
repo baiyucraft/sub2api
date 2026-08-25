@@ -37,6 +37,7 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 					ul.duration_ms,
 					ul.first_token_ms,
 					ul.input_tokens,
+					ul.cache_creation_tokens,
 					ul.cache_read_tokens
 			FROM usage_logs ul
 			WHERE ul.%[1]s = ANY($1)
@@ -52,13 +53,13 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 					AVG(first_token_ms) FILTER (WHERE created_at >= $3) AS realtime_first_avg,
 					AVG(duration_ms) FILTER (WHERE created_at >= $3) AS realtime_duration_avg,
 					COALESCE(SUM(cache_read_tokens) FILTER (WHERE created_at >= $3), 0) AS realtime_cache_read_tokens,
-					COALESCE(SUM(input_tokens + cache_read_tokens) FILTER (WHERE created_at >= $3), 0) AS realtime_cache_input_tokens,
+					COALESCE(SUM(input_tokens + cache_creation_tokens + cache_read_tokens) FILTER (WHERE created_at >= $3), 0) AS realtime_cache_input_tokens,
 					COUNT(*) AS recent_count,
 					COUNT(first_token_ms) AS recent_first_count,
 					AVG(first_token_ms) AS recent_first_avg,
 					AVG(duration_ms) AS recent_duration_avg,
 					COALESCE(SUM(cache_read_tokens), 0) AS recent_cache_read_tokens,
-					COALESCE(SUM(input_tokens + cache_read_tokens), 0) AS recent_cache_input_tokens
+					COALESCE(SUM(input_tokens + cache_creation_tokens + cache_read_tokens), 0) AS recent_cache_input_tokens
 			FROM successful
 			WHERE duration_ms IS NOT NULL
 			GROUP BY %[1]s

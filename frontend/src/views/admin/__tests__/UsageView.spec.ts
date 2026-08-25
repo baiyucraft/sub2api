@@ -37,6 +37,7 @@ const messages: Record<string, string> = {
 	'usage.sentUpstreamModel': 'Sent upstream model',
 	'usage.upstreamResponseModel': 'Upstream response model',
 	'usage.upstreamModelMismatch': 'Upstream model mismatch',
+	'usage.outputTps': 'Generation TPS',
 	'common.yes': 'Yes',
 	'common.no': 'No',
 }
@@ -134,7 +135,7 @@ const UsageFiltersStub = defineComponent({
   template: '<div><span data-test="user-filter-label">{{ userKeyword }}</span><slot name="after-reset" /></div>',
 })
 const UsageTableStub = {
-  props: ['columns'],
+  props: ['columns', 'showOutputTps'],
   emits: ['userClick'],
   template: '<div data-test="usage-table"><button class="user-click" @click="$emit(\'userClick\', 2)">user</button></div>',
 }
@@ -440,6 +441,7 @@ describe('admin UsageView request ID column visibility', () => {
     await wrapper.vm.$nextTick()
 
     const usageTable = wrapper.findComponent(UsageTableStub)
+    expect(usageTable.props('showOutputTps')).toBe(true)
     expect(usageTable.props('columns')).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ key: 'request_id' })]),
     )
@@ -646,6 +648,7 @@ describe('admin UsageView model audit export', () => {
 				output_tokens: 1,
 				cache_read_tokens: 0,
 				cache_creation_tokens: 0,
+				output_tps: 25.5,
 				duration_ms: 10,
 			}],
 			total: 1,
@@ -684,6 +687,9 @@ describe('admin UsageView model audit export', () => {
 		])
 		const row = sheetAddAoa.mock.calls[0][1][0]
 		expect(row.slice(4, 8)).toEqual(['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes'])
+		const tpsColumnIndex = headers.indexOf('Generation TPS')
+		expect(tpsColumnIndex).toBeGreaterThan(-1)
+		expect(row[tpsColumnIndex]).toBe('25.50')
 		expect(saveAs).toHaveBeenCalledTimes(1)
 	})
 })

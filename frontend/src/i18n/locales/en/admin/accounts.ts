@@ -264,11 +264,11 @@ export default {
         insufficientSamples: '{count} valid sample(s); at least 3 are required for a score',
         scoreTitle: 'Grade {grade} / score {score}, {count} valid sample(s), {firstCount} TTFT sample(s)',
         latencyTitle: 'Average TTFT {firstToken}, average total duration {duration}',
-        cacheRateTitle: 'Cache rate {rate} (cache read {numerator} / input total {denominator})',
+        cacheRateTitle: 'Cache rate {rate} (cache read {numerator} / total prompt tokens {denominator})',
         durationOnly: 'Insufficient TTFT evidence; duration-only score capped at 69',
         ttftOnly: 'Scored from TTFT only',
         cacheWeighted: 'Cache-weighted score (TTFT 50% / duration 15% / cache 35%)',
-        hint: 'Rows show: 1H activity / success-failure counts / latest success, then 1H and 24H grade-score / average TTFT, total duration, and cache rate / sample count. Cache rate is cache-read tokens divided by total input tokens and participates in quality scoring. Cross-model history is display-only and never affects priority or routing; TTFT Guard runs independently per account and model.',
+        hint: 'Rows show: 1H activity / success-failure counts / latest success, then 1H and 24H grade-score / average TTFT, total duration, and cache rate / sample count. Cache rate is cache-read tokens divided by total prompt tokens (input + cache creation + cache read) and participates in quality scoring. Cross-model history is display-only and never affects priority or routing; TTFT Guard runs independently per account and model.',
         realtimeHint: 'Cross-model successes, failures, and latency from the last hour, display-only. No traffic does not mean failure; the real-time TTFT Guard still evaluates each account and model independently.',
         activity: {
           active: 'Active',

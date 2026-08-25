@@ -67,4 +67,21 @@ func TestAggregateUpstreamHealthConfidenceMarksInsufficientWithoutValidSamples(t
 	require.Equal(t, "data_insufficient", summary.Status)
 }
 
+func TestAggregateUpstreamHealthConfidenceSeparatesHardAnomaliesFromJuiceScore(t *testing.T) {
+	now := time.Now().UTC()
+	score100 := 100
+	summary := aggregateUpstreamHealthConfidence(now, []*dbent.UpstreamHealthObservation{
+		{ConfidenceChecks: map[string]int{}, ConfidenceEvidence: map[string]any{"kind": "coverage", "classification": "explicit_hidden_override", "hard_anomaly": true}, ConfidenceStatus: stringPtr("explicit_hidden_override"), ObservedAt: now.Add(-time.Hour)},
+		{ConfidenceChecks: map[string]int{}, ConfidenceEvidence: map[string]any{"kind": "output_integrity", "classification": "output_rewrite_40_prefix", "hard_anomaly": true}, ConfidenceStatus: stringPtr("output_rewrite_40_prefix"), ObservedAt: now.Add(-2 * time.Hour)},
+		{ConfidenceScore: &score100, ConfidenceChecks: map[string]int{"attempted": 1, "valid_completed": 1, "current_success": 1}, ConfidenceEvidence: map[string]any{"kind": "juice", "classification": "current_success"}, ConfidenceStatus: stringPtr("current_success"), ObservedAt: now.Add(-3 * time.Hour)},
+	})
+	require.Equal(t, 3, summary.Attempted24h)
+	require.Equal(t, 1, summary.ValidCompleted24h)
+	require.Equal(t, 1, summary.CurrentSuccess24h)
+	require.InDelta(t, 100, *summary.Score24h, 0.001)
+	require.Equal(t, 1, summary.CoverageHardAnomaly24h)
+	require.Equal(t, 1, summary.OutputRewrite24h)
+	require.Equal(t, "coverage", summary.LastEvidence["kind"])
+}
+
 func stringPtr(value string) *string { return &value }

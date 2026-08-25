@@ -16,7 +16,7 @@ vi.mock('vue-i18n', () => ({
         'admin.accounts.quality.activity.over24h': '>24h',
         'admin.accounts.quality.scoreTitle': '{grade} {score}，样本 {count}，首字样本 {firstCount}',
         'admin.accounts.quality.latencyTitle': '首字 {firstToken}，总耗时 {duration}',
-        'admin.accounts.quality.cacheRateTitle': '缓存率 {rate}（缓存读 {numerator} / 输入总量 {denominator}）',
+        'admin.accounts.quality.cacheRateTitle': '缓存率 {rate}（缓存读 {numerator} / 提示词总量 {denominator}）',
         'admin.accounts.quality.cacheWeighted': '缓存率参与评分（首字 50% / 总耗时 15% / 缓存率 35%）'
       }[key] ?? key)
       return Object.entries(params).reduce(
@@ -59,7 +59,7 @@ const qualityStats = {
     last_success_at: new Date(Date.now() - 5 * 60_000).toISOString(),
     last_error_at: null
   },
-  score_version: 4 as const
+  score_version: 5 as const
 }
 
 describe('AccountQualityCell', () => {
@@ -77,7 +77,7 @@ describe('AccountQualityCell', () => {
     expect(wrapper.text()).toContain('B+ 69')
     expect(wrapper.text()).toContain('7.7s / 20s')
     expect(wrapper.text()).toContain('64%')
-    expect(wrapper.find('[data-quality-cache-rate]').attributes('title')).toContain('缓存读 640 / 输入总量 1000')
+    expect(wrapper.find('[data-quality-cache-rate]').attributes('title')).toContain('缓存读 640 / 提示词总量 1000')
     expect(wrapper.text()).toContain('24H')
     expect(wrapper.text()).toContain('n10')
     expect(wrapper.text()).toContain('n142')

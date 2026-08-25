@@ -53,7 +53,15 @@ func (h *UpstreamConfigHandler) upstreamHealthAdminResponse(ctx context.Context,
 		"confidence_last_score": item.ConfidenceLastScore, "confidence_last_probe_at": item.ConfidenceLastProbeAt,
 		"confidence_status": item.ConfidenceStatus, "confidence_requested_effort": item.ConfidenceRequestedEffort,
 		"confidence_reasoning_tokens": item.ConfidenceReasoningTokens, "confidence_breakdown": item.ConfidenceBreakdown,
-		"confidence_prompt_version": item.ConfidencePromptVersion,
+		"confidence_prompt_version": item.ConfidencePromptVersion, "confidence_evidence": item.ConfidenceEvidence,
+		"confidence_attempted_24h": item.ConfidenceAttempted24h, "confidence_attempted_7d": item.ConfidenceAttempted7d,
+		"confidence_valid_completed_24h": item.ConfidenceValidCompleted24h, "confidence_valid_completed_7d": item.ConfidenceValidCompleted7d,
+		"confidence_current_success_24h": item.ConfidenceCurrentSuccess24h, "confidence_current_success_7d": item.ConfidenceCurrentSuccess7d,
+		"confidence_mixed_24h": item.ConfidenceMixed24h, "confidence_mixed_7d": item.ConfidenceMixed7d,
+		"confidence_unsuccessful_24h": item.ConfidenceUnsuccessful24h, "confidence_unsuccessful_7d": item.ConfidenceUnsuccessful7d,
+		"confidence_network_error_24h": item.ConfidenceNetworkError24h, "confidence_network_error_7d": item.ConfidenceNetworkError7d,
+		"confidence_coverage_hard_anomaly_24h": item.ConfidenceCoverageHardAnomaly24h, "confidence_coverage_hard_anomaly_7d": item.ConfidenceCoverageHardAnomaly7d,
+		"confidence_output_rewrite_24h": item.ConfidenceOutputRewrite24h, "confidence_output_rewrite_7d": item.ConfidenceOutputRewrite7d,
 	}, nil
 }
 

@@ -76,6 +76,23 @@ export interface UpstreamHealthSnapshot {
   confidence_reasoning_tokens?: number
   confidence_breakdown?: Record<string, number>
   confidence_prompt_version?: string
+  confidence_evidence?: Record<string, unknown>
+  confidence_attempted_24h?: number
+  confidence_attempted_7d?: number
+  confidence_valid_completed_24h?: number
+  confidence_valid_completed_7d?: number
+  confidence_current_success_24h?: number
+  confidence_current_success_7d?: number
+  confidence_mixed_24h?: number
+  confidence_mixed_7d?: number
+  confidence_unsuccessful_24h?: number
+  confidence_unsuccessful_7d?: number
+  confidence_network_error_24h?: number
+  confidence_network_error_7d?: number
+  confidence_coverage_hard_anomaly_24h?: number
+  confidence_coverage_hard_anomaly_7d?: number
+  confidence_output_rewrite_24h?: number
+  confidence_output_rewrite_7d?: number
 }
 
 export interface UpstreamKeyEvent {

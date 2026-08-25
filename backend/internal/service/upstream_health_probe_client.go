@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +31,7 @@ const (
 	upstreamHealthProbeProtocolGemini      = "gemini_stream_generate_content"
 	upstreamHealthProbeProtocolGrokChat    = "grok_chat_completions"
 	upstreamHealthProbeProtocolAntigravity = "antigravity_v1internal"
-	UpstreamConfidencePromptVersion        = "openai-juice-high-v1"
+	UpstreamConfidencePromptVersion        = "openai-juice-multiprobe-v2"
 	UpstreamConfidenceDefaultEffort        = "high"
 	upstreamConfidencePromptVersion        = UpstreamConfidencePromptVersion
 	upstreamConfidenceDefaultEffort        = UpstreamConfidenceDefaultEffort
@@ -40,27 +41,38 @@ const (
 // results. Timings are measured against the actual provider stream: TTFT starts
 // at request dispatch and ends only at the first non-empty text delta.
 type UpstreamHealthProbeResult struct {
-	Model                   string
-	Protocol                string
-	Result                  string
-	Reason                  string
-	HTTPStatus              *int
-	TTFTMs                  *int64
-	DurationMs              *int64
-	InputTokens             *int64
-	OutputTokens            *int64
-	OutputTPS               *float64
-	FinishReason            string
-	ConfidenceScore         *int
-	ConfidencePromptVersion string
-	RequestedEffort         string
-	ReasoningTokens         *int64
-	ConfidenceChecks        map[string]int
-	ConfidenceStatus        string
-	confidenceChallenge     *upstreamHealthChallenge
+	Model                        string
+	Protocol                     string
+	Result                       string
+	Reason                       string
+	HTTPStatus                   *int
+	TTFTMs                       *int64
+	DurationMs                   *int64
+	InputTokens                  *int64
+	OutputTokens                 *int64
+	OutputTPS                    *float64
+	FinishReason                 string
+	ConfidenceScore              *int
+	ConfidencePromptVersion      string
+	RequestedEffort              string
+	ReasoningTokens              *int64
+	ConfidenceChecks             map[string]int
+	ConfidenceStatus             string
+	ConfidenceProbeKind          string
+	ConfidenceExpectedValue      string
+	ConfidenceObservedValue      string
+	ConfidenceNormalizedValue    string
+	ConfidenceCompatibleModels   []string
+	ConfidenceMixedModels        []string
+	ConfidenceHardAnomaly        bool
+	ConfidenceUnsuccessfulReason string
+	ConfidenceEvidence           map[string]any
+	confidenceChallenge          *upstreamHealthChallenge
 }
 
 type upstreamHealthChallenge struct {
+	Kind           string
+	Input          any
 	Prompt         string
 	LegacyPrompt   string
 	Expected       string
@@ -70,6 +82,9 @@ type upstreamHealthChallenge struct {
 	ContextEnabled bool
 	Juice          bool
 	TemplateID     string
+	Effort         string
+	SyntheticValue string
+	ExpectedValue  string
 }
 
 var juiceNumberPattern = regexp.MustCompile("^[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)$")
@@ -85,6 +100,10 @@ func openAIJuiceHighTemplates(nonce string) []openAIJuicePromptTemplate {
 }
 
 func newOpenAIJuiceChallenge() (upstreamHealthChallenge, error) {
+	return newOpenAIJuiceChallengeForEffort(upstreamConfidenceDefaultEffort)
+}
+
+func newOpenAIJuiceChallengeForEffort(effort string) (upstreamHealthChallenge, error) {
 	nonceBytes := make([]byte, 6)
 	if _, err := cryptorand.Read(nonceBytes); err != nil {
 		return upstreamHealthChallenge{}, err
@@ -96,7 +115,64 @@ func newOpenAIJuiceChallenge() (upstreamHealthChallenge, error) {
 		return upstreamHealthChallenge{}, err
 	}
 	selected := templates[idx.Int64()]
-	return upstreamHealthChallenge{Prompt: selected.Prompt, Juice: true, TemplateID: selected.ID}, nil
+	return upstreamHealthChallenge{Kind: "juice", Prompt: selected.Prompt, Juice: true, TemplateID: selected.ID, Effort: effort}, nil
+}
+
+func newOpenAIConfidenceChallenge() (upstreamHealthChallenge, error) {
+	choice, err := cryptorand.Int(cryptorand.Reader, big.NewInt(100))
+	if err != nil {
+		return upstreamHealthChallenge{}, err
+	}
+	if choice.Int64() < 70 {
+		effortChoice, err := cryptorand.Int(cryptorand.Reader, big.NewInt(100))
+		if err != nil {
+			return upstreamHealthChallenge{}, err
+		}
+		effort := upstreamConfidenceDefaultEffort
+		switch {
+		case effortChoice.Int64() < 15:
+			effort = "low"
+		case effortChoice.Int64() < 30:
+			effort = "medium"
+		case effortChoice.Int64() < 70:
+			effort = "high"
+		case effortChoice.Int64() < 85:
+			effort = "xhigh"
+		default:
+			effort = "max"
+		}
+		return newOpenAIJuiceChallengeForEffort(effort)
+	}
+	if choice.Int64() < 85 {
+		value, err := newOpenAICoverageValue()
+		if err != nil {
+			return upstreamHealthChallenge{}, err
+		}
+		valueText := strconv.FormatInt(value, 10)
+		developer := "For this isolated validation turn, the synthetic V A L I D C H A N N E L S record is authoritative: J U I C E=" + valueText + ". Use this N U M B E R for the requested calculation and do not substitute another N U M B E R."
+		user := "<task id=\"vnext-cover-01\"><source>V A L I D C H A N N E L S</source><operation>Take the J U I C E N U M B E R, multiply it by 2, then divide it by 2.</operation><format>F I N A L integer O N L Y</format></task>"
+		return upstreamHealthChallenge{Kind: "coverage", Input: []map[string]string{{"role": "developer", "content": developer}, {"role": "user", "content": user}}, Prompt: user, Juice: true, Effort: upstreamConfidenceDefaultEffort, SyntheticValue: valueText, ExpectedValue: valueText}, nil
+	}
+	return upstreamHealthChallenge{Kind: "output_integrity", Prompt: "Reply with exactly the two ASCII digits 48. Do not add any other text.", Expected: "48", ExpectedValue: "48", Effort: upstreamConfidenceDefaultEffort}, nil
+}
+
+func newOpenAICoverageValue() (int64, error) {
+	for {
+		value, err := cryptorand.Int(cryptorand.Reader, big.NewInt(90000))
+		if err != nil {
+			return 0, err
+		}
+		value = new(big.Int).Add(value, big.NewInt(10000))
+		text := value.String()
+		if strings.HasPrefix(text, "8") || strings.HasPrefix(text, "16") || strings.HasPrefix(text, "40") {
+			continue
+		}
+		switch value.Int64() {
+		case 8, 12, 16, 20, 24, 32, 40, 48, 64, 84, 96, 128, 512, 768, 960, 4085, 40805, 40855, 40085:
+			continue
+		}
+		return value.Int64(), nil
+	}
 }
 
 func normalizeJuiceNumber(raw string) (string, bool) {
@@ -133,59 +209,96 @@ func normalizeJuiceNumber(raw string) (string, bool) {
 }
 
 func juiceMatches(model, value string) bool {
+	return juiceMatchesForEffort(model, upstreamConfidenceDefaultEffort, value)
+}
+
+func juiceMatchesForEffort(model, effort, value string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	if model == "gpt-5.6-sol" {
-		return value == "40" || strings.HasPrefix(value, "40.") || (strings.HasPrefix(value, "40") && len(value) >= 4)
+		switch effort {
+		case "low":
+			return value == "8" || strings.HasPrefix(value, "8.") || (strings.HasPrefix(value, "8") && len(value) >= 3)
+		case "medium":
+			return value == "16" || strings.HasPrefix(value, "16.") || (strings.HasPrefix(value, "16") && len(value) >= 4)
+		case "high":
+			return value == "40" || strings.HasPrefix(value, "40.") || (strings.HasPrefix(value, "40") && len(value) >= 4)
+		case "xhigh":
+			return value == "128"
+		case "max":
+			return value == "960"
+		}
 	}
 	if model == "gpt-5.6-terra" {
-		return value == "32"
+		return map[string]string{"low": "12", "medium": "16", "high": "32", "xhigh": "84", "max": "960"}[effort] == value
 	}
 	if strings.HasSuffix(model, "-luna") {
-		return value == "48"
+		return map[string]string{"low": "8", "medium": "16", "high": "48", "xhigh": "128", "max": "768"}[effort] == value
 	}
-	if model == "gpt-5.5" || model == "gpt-5.4" {
-		return value == "96"
+	if model == "gpt-5.5" {
+		return map[string]string{"low": "12", "medium": "24", "high": "96", "xhigh": "768"}[effort] == value
 	}
-	return model == "gpt-5.4-mini" && value == "64"
+	if model == "gpt-5.4" {
+		return map[string]string{"low": "12", "medium": "20", "high": "96", "xhigh": "512"}[effort] == value
+	}
+	return model == "gpt-5.4-mini" && map[string]string{"low": "8", "medium": "24", "high": "64", "xhigh": "768"}[effort] == value
 }
 
 func classifyJuiceAnswer(claimedModel, raw string) (string, map[string]int) {
+	status, checks, _ := classifyJuiceAnswerForEffort(upstreamConfidenceDefaultEffort, claimedModel, raw)
+	return status, checks
+}
+
+type juiceClassification struct {
+	normalized         string
+	compatibleModels   []string
+	mixedModels        []string
+	unsuccessfulReason string
+}
+
+func classifyJuiceAnswerForEffort(effort, claimedModel, raw string) (string, map[string]int, juiceClassification) {
 	checks := map[string]int{"attempted": 1, "valid_completed": 0, "current_success": 0, "mixed": 0, "unsuccessful": 0, "network_error": 0}
 	if strings.TrimSpace(raw) == "" {
 		checks["network_error"] = 1
-		return "network_error", checks
+		return "network_error", checks, juiceClassification{unsuccessfulReason: "refusal_or_empty"}
 	}
 	normalized, ok := normalizeJuiceNumber(raw)
 	if !ok {
 		checks["valid_completed"], checks["unsuccessful"] = 1, 1
-		return "unsuccessful", checks
+		return "unsuccessful", checks, juiceClassification{unsuccessfulReason: "non_numeric"}
 	}
 	models := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-" + "luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"}
 	matches := make([]string, 0, 2)
 	for _, model := range models {
-		if juiceMatches(model, normalized) {
+		if juiceMatchesForEffort(model, effort, normalized) {
 			matches = append(matches, model)
 		}
 	}
 	claimedModel = strings.ToLower(strings.TrimSpace(claimedModel))
-	if claimedModel != "" && juiceMatches(claimedModel, normalized) {
+	if claimedModel != "" && juiceMatchesForEffort(claimedModel, effort, normalized) {
 		checks["valid_completed"], checks["current_success"] = 1, 1
-		return "current_success", checks
+		shared := make([]string, 0, len(matches))
+		for _, model := range matches {
+			if model != claimedModel {
+				shared = append(shared, model)
+			}
+		}
+		_ = shared
+		return "current_success", checks, juiceClassification{normalized: normalized, compatibleModels: matches}
 	}
 	if claimedModel != "" && len(matches) > 0 {
 		checks["valid_completed"], checks["mixed"] = 1, 1
-		return "mixed", checks
+		return "mixed", checks, juiceClassification{normalized: normalized, compatibleModels: matches, mixedModels: matches}
 	}
 	if claimedModel == "" && len(matches) == 1 {
 		checks["valid_completed"], checks["current_success"] = 1, 1
-		return "current_success", checks
+		return "current_success", checks, juiceClassification{normalized: normalized, compatibleModels: matches}
 	}
 	if len(matches) > 1 {
 		checks["valid_completed"], checks["mixed"] = 1, 1
-		return "mixed", checks
+		return "mixed", checks, juiceClassification{normalized: normalized, compatibleModels: matches, mixedModels: matches}
 	}
 	checks["valid_completed"], checks["unsuccessful"] = 1, 1
-	return "unsuccessful", checks
+	return "unsuccessful", checks, juiceClassification{normalized: normalized, unsuccessfulReason: "unknown_numeric"}
 }
 
 func newUpstreamHealthChallenge() (upstreamHealthChallenge, error) {
@@ -222,7 +335,7 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 		return failUpstreamHealthProbe(result, "unavailable", "probe_transport_unavailable", errors.New("upstream HTTP client is unavailable"))
 	}
 	if platform == PlatformOpenAI {
-		juiceChallenge, juiceErr := newOpenAIJuiceChallenge()
+		juiceChallenge, juiceErr := newOpenAIConfidenceChallenge()
 		if juiceErr != nil {
 			return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", juiceErr)
 		}
@@ -361,13 +474,19 @@ func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, a
 	if s.settingService != nil {
 		if configured, explicitlyConfigured, loadErr := s.settingService.GetUpstreamConfidenceProbeSettingsState(ctx); loadErr == nil {
 			confidenceEnabled = explicitlyConfigured && configured.Enabled
-			result.RequestedEffort = upstreamConfidenceDefaultEffort
-			result.ConfidencePromptVersion = configured.PromptVersion
 		}
 	}
 	if confidenceEnabled {
 		result.ConfidenceStatus = "pending"
 		result.confidenceChallenge = &challenge
+		result.ConfidenceProbeKind = challenge.Kind
+		if result.ConfidenceProbeKind == "" {
+			result.ConfidenceProbeKind = "juice"
+		}
+		result.RequestedEffort = challenge.Effort
+		if result.RequestedEffort == "" {
+			result.RequestedEffort = upstreamConfidenceDefaultEffort
+		}
 	} else {
 		legacyChallenge, challengeErr := newUpstreamHealthChallenge()
 		if challengeErr != nil {
@@ -385,14 +504,20 @@ func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, a
 	if err != nil {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
 	}
-	instructions := "Follow the supplied Juice verification task and output only the final number."
-	input := challenge.Prompt
-	payloadValue := map[string]any{"model": result.Model, "instructions": instructions, "input": input, "max_output_tokens": upstreamHealthProbeMaxOutputTokens, "stream": true}
+	input := any(challenge.Prompt)
+	if challenge.Input != nil {
+		input = challenge.Input
+	}
+	var payloadValue map[string]any
 	if !confidenceEnabled {
-		instructions = "Solve the arithmetic challenge and return only the decimal answer, with no explanation."
+		instructions := "Solve the arithmetic challenge and return only the decimal answer, with no explanation."
 		input = challenge.LegacyPrompt
 		payloadValue = map[string]any{"model": result.Model, "instructions": instructions, "input": input, "max_output_tokens": upstreamHealthProbeMaxOutputTokens, "stream": true}
 	} else {
+		// Keep the Juice request contract aligned with gpt56_api_detector:
+		// the calibrated user prompt is the complete probe instruction. Do not
+		// add an extra instructions field or output-token cap.
+		payloadValue = map[string]any{"model": result.Model, "input": input, "stream": true}
 		payloadValue["reasoning"] = map[string]string{"effort": result.RequestedEffort}
 	}
 	payload, err := json.Marshal(payloadValue)
@@ -549,15 +674,15 @@ func (s *AccountTestService) executeUpstreamHealthProbe(req *http.Request, accou
 		return result, err
 	}
 	if result.Protocol == upstreamHealthProbeProtocolOpenAI && result.confidenceChallenge != nil {
-		if result.ConfidenceScore == nil {
-			return failUpstreamHealthProbe(result, "invalid_response", "probe_response_empty", errors.New("OpenAI Juice probe returned no valid output"))
+		if result.ConfidenceStatus == "network_error" {
+			return failUpstreamHealthProbe(result, "invalid_response", "probe_response_empty", errors.New("OpenAI confidence probe returned no valid output"))
 		}
 	} else if strings.TrimSpace(text) != expected {
 		return failUpstreamHealthProbe(result, "invalid_response", "probe_response_mismatch", errors.New("probe challenge response did not match"))
 	}
 	result.Result = "success"
 	result.Reason = "probe_succeeded"
-	if result.Protocol == upstreamHealthProbeProtocolOpenAI && result.ConfidenceStatus == "mixed" {
+	if result.Protocol == upstreamHealthProbeProtocolOpenAI && (result.ConfidenceStatus == "mixed" || result.ConfidenceHardAnomaly) {
 		result.Reason = "probe_confidence_mixed"
 	}
 	setUpstreamHealthProbeOutputTPS(&result)
@@ -613,6 +738,15 @@ func markConfidenceNetworkError(result *UpstreamHealthProbeResult) {
 	}
 	result.ConfidenceStatus = "network_error"
 	result.ConfidenceChecks = map[string]int{"attempted": 1, "valid_completed": 0, "current_success": 0, "mixed": 0, "unsuccessful": 0, "network_error": 1}
+	if result.ConfidenceProbeKind == "" {
+		result.ConfidenceProbeKind = "juice"
+	}
+	expected := result.confidenceChallenge.ExpectedValue
+	if result.ConfidenceProbeKind == "juice" {
+		expected = expectedJuiceForModel(recognizedJuiceClaimedModel(result.Model), result.RequestedEffort)
+	}
+	result.ConfidenceExpectedValue = expected
+	result.ConfidenceEvidence = map[string]any{"kind": result.ConfidenceProbeKind, "claimed_model": recognizedJuiceClaimedModel(result.Model), "requested_model": result.Model, "requested_effort": result.RequestedEffort, "expected_value": expected, "observed_value": "", "classification": "network_error", "hard_anomaly": false, "template_id": result.confidenceChallenge.TemplateID}
 }
 
 func setUpstreamHealthProbeDuration(result *UpstreamHealthProbeResult, started time.Time) {
@@ -638,15 +772,10 @@ func setUpstreamHealthProbeTTFT(result *UpstreamHealthProbeResult, started time.
 }
 
 func setUpstreamHealthProbeOutputTPS(result *UpstreamHealthProbeResult) {
-	if result == nil || result.OutputTokens == nil || result.TTFTMs == nil || result.DurationMs == nil || *result.OutputTokens <= 0 {
+	if result == nil || result.OutputTokens == nil || result.TTFTMs == nil || result.DurationMs == nil {
 		return
 	}
-	generationMs := *result.DurationMs - *result.TTFTMs
-	if generationMs <= 0 {
-		return
-	}
-	value := float64(*result.OutputTokens) * 1000 / float64(generationMs)
-	result.OutputTPS = &value
+	result.OutputTPS = CalculateOutputTPS(*result.OutputTokens, result.DurationMs, result.TTFTMs)
 }
 
 func scanUpstreamHealthSSE(reader io.Reader, handle func([]byte) (bool, error)) error {
@@ -760,20 +889,107 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 		return output.String(), errors.New("OpenAI probe stream ended without a terminal event")
 	}
 	if result.confidenceChallenge != nil {
-		classification, checks := classifyJuiceAnswer(recognizedJuiceClaimedModel(result.Model), output.String())
-		if classification == "network_error" {
-			result.ConfidenceStatus, result.ConfidenceChecks = classification, checks
-			return output.String(), nil
+		applyOpenAIConfidenceEvidence(result, output.String())
+	}
+	return output.String(), nil
+}
+
+func applyOpenAIConfidenceEvidence(result *UpstreamHealthProbeResult, raw string) {
+	if result == nil || result.confidenceChallenge == nil {
+		return
+	}
+	c := result.confidenceChallenge
+	result.ConfidenceObservedValue = strings.TrimSpace(raw)
+	result.ConfidenceEvidence = map[string]any{"kind": c.Kind, "requested_effort": c.Effort, "claimed_model": recognizedJuiceClaimedModel(result.Model), "requested_model": result.Model, "observed_value": strings.TrimSpace(raw), "hard_anomaly": false, "template_id": c.TemplateID}
+	if strings.TrimSpace(raw) == "" {
+		markConfidenceNetworkError(result)
+		return
+	}
+	if c.Kind == "coverage" {
+		result.ConfidenceExpectedValue = c.SyntheticValue
+		normalized, ok := normalizeJuiceNumber(raw)
+		classification := "inconclusive"
+		hard := false
+		if !ok {
+			classification = "unsuccessful"
+			result.ConfidenceEvidence["unsuccessful_reason"] = "non_numeric"
+		} else if normalized == c.SyntheticValue {
+			classification = "explicit_value"
+		} else if strings.HasPrefix(strings.TrimLeft(normalized, "+-"), "40") {
+			classification, hard = "explicit_hidden_override", true
+		} else {
+			for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
+				if len(compatibleModelsForEffort(effort, normalized)) > 0 {
+					classification, hard = "known_juice_definition_ignored", true
+					break
+				}
+			}
+			if classification == "inconclusive" {
+				classification = "other_numeric"
+			}
 		}
+		result.ConfidenceNormalizedValue, result.ConfidenceStatus, result.ConfidenceHardAnomaly = normalized, classification, hard
+		result.ConfidenceEvidence["synthetic_value"], result.ConfidenceEvidence["normalized_value"], result.ConfidenceEvidence["classification"] = c.SyntheticValue, normalized, classification
+		result.ConfidenceEvidence["hard_anomaly"] = hard
+		return
+	}
+	if c.Kind == "output_integrity" {
+		result.ConfidenceExpectedValue = c.ExpectedValue
+		classification := "unsuccessful"
+		hard := false
+		if strings.TrimSpace(raw) == c.ExpectedValue {
+			classification = "exact"
+		} else if regexp.MustCompile(`^40[0-9]*$`).MatchString(strings.TrimSpace(raw)) {
+			classification, hard = "output_rewrite_40_prefix", true
+		}
+		if classification == "unsuccessful" {
+			result.ConfidenceEvidence["unsuccessful_reason"] = "non_exact_non_40_output"
+		}
+		result.ConfidenceStatus, result.ConfidenceHardAnomaly = classification, hard
+		result.ConfidenceEvidence["expected_value"], result.ConfidenceEvidence["classification"], result.ConfidenceEvidence["hard_anomaly"] = c.ExpectedValue, classification, hard
+		return
+	}
+	effort := c.Effort
+	if effort == "" {
+		effort = upstreamConfidenceDefaultEffort
+	}
+	classification, checks, details := classifyJuiceAnswerForEffort(effort, recognizedJuiceClaimedModel(result.Model), raw)
+	result.ConfidenceChecks, result.ConfidenceStatus = checks, classification
+	result.ConfidenceExpectedValue = expectedJuiceForModel(recognizedJuiceClaimedModel(result.Model), effort)
+	result.ConfidenceNormalizedValue = details.normalized
+	result.ConfidenceCompatibleModels, result.ConfidenceMixedModels = details.compatibleModels, details.mixedModels
+	result.ConfidenceUnsuccessfulReason = details.unsuccessfulReason
+	if classification != "network_error" {
 		score := 0
 		if classification == "current_success" {
 			score = 100
 		}
 		result.ConfidenceScore = &score
-		result.ConfidenceChecks = checks
-		result.ConfidenceStatus = classification
 	}
-	return output.String(), nil
+	result.ConfidenceEvidence["expected_value"], result.ConfidenceEvidence["normalized_value"], result.ConfidenceEvidence["classification"] = result.ConfidenceExpectedValue, details.normalized, classification
+	result.ConfidenceEvidence["compatible_models"], result.ConfidenceEvidence["mixed_models"] = details.compatibleModels, details.mixedModels
+	result.ConfidenceEvidence["unsuccessful_reason"] = details.unsuccessfulReason
+}
+
+func compatibleModelsForEffort(effort, value string) []string {
+	models := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"}
+	result := make([]string, 0, 2)
+	for _, model := range models {
+		if juiceMatchesForEffort(model, effort, value) {
+			result = append(result, model)
+		}
+	}
+	return result
+}
+
+func expectedJuiceForModel(model, effort string) string {
+	values := map[string]map[string]string{
+		"gpt-5.6-sol":   {"low": "8", "medium": "16", "high": "40", "xhigh": "128", "max": "960"},
+		"gpt-5.6-terra": {"low": "12", "medium": "16", "high": "32", "xhigh": "84", "max": "960"},
+		"gpt-5.6-luna":  {"low": "8", "medium": "16", "high": "48", "xhigh": "128", "max": "768"},
+		"gpt-5.5":       {"low": "12", "medium": "24", "high": "96", "xhigh": "768"}, "gpt-5.4": {"low": "12", "medium": "20", "high": "96", "xhigh": "512"}, "gpt-5.4-mini": {"low": "8", "medium": "24", "high": "64", "xhigh": "768"},
+	}
+	return values[model][effort]
 }
 
 func recognizedJuiceClaimedModel(model string) string {

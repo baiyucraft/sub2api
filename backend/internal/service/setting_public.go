@@ -768,8 +768,10 @@ func safeRawJSONArray(raw string) json.RawMessage {
 	return json.RawMessage("[]")
 }
 
-// GetFrameSrcOrigins returns deduplicated http(s) origins from home_content URL,
-// purchase_subscription_url, and all custom_menu_items URLs. Used by the router layer for CSP frame-src injection.
+const rechargeStoreFrameOrigin = "https://catfk.com"
+
+// GetFrameSrcOrigins returns deduplicated http(s) origins from built-in and
+// configured iframe URLs. Used by the router layer for CSP frame-src injection.
 func (s *SettingService) GetFrameSrcOrigins(ctx context.Context) ([]string, error) {
 	settings, err := s.GetPublicSettings(ctx)
 	if err != nil {
@@ -800,6 +802,12 @@ func (s *SettingService) GetFrameSrcOrigins(ctx context.Context) ([]string, erro
 	for _, item := range parseCustomMenuItemURLs(settings.CustomMenuItems) {
 		addOrigin(item)
 	}
+
+	// The fixed recharge store is a built-in user page, so its origin must remain
+	// available even when no dynamic iframe settings are configured. addOrigin
+	// keeps this entry deduplicated if an administrator also configures the same
+	// origin through home content, subscriptions, or a custom menu item.
+	addOrigin(rechargeStoreFrameOrigin)
 
 	return origins, nil
 }

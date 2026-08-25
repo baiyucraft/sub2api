@@ -704,6 +704,7 @@ import UpstreamImagePricingSummary from '@/components/account/UpstreamImagePrici
 import UpstreamVideoPricingSummary from '@/components/account/UpstreamVideoPricingSummary.vue'
 import UpstreamModelMappingCell from '@/components/account/UpstreamModelMappingCell.vue'
 import AutoRefreshCountdownLabel from '@/components/account/AutoRefreshCountdownLabel.vue'
+import { hasUsableUpstreamVideoCapability } from '@/utils/upstreamVideoCapability'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { fetchAllAccountIds } from '@/utils/accountSelection'
@@ -780,20 +781,11 @@ const hasUsableImagePricing = (account: Account) => {
 }
 
 const hasUpstreamVideoCapability = (account: Account) => {
-  const pricing = account.upstream_video_pricing
-  return Boolean(
-    pricing?.supported &&
-      !pricing.stale &&
-      (pricing.status === 'available' || pricing.status === 'partial') &&
-      pricing.effective_rate_multiplier !== null &&
-      pricing.effective_rate_multiplier !== undefined &&
-      Number.isFinite(pricing.effective_rate_multiplier)
-  )
+  return hasUsableUpstreamVideoCapability(account)
 }
 
 const hasUsableVideoPricing = (account: Account) => {
-  const pricing = account.upstream_video_pricing
-  return Boolean(hasUpstreamVideoCapability(account) && pricing?.effective_rate_multiplier !== null && pricing?.effective_rate_multiplier !== undefined && [pricing.final_cost_480p, pricing.final_cost_720p, pricing.final_cost_1080p].some(value => value !== null && value !== undefined && Number.isFinite(value)))
+  return hasUsableUpstreamVideoCapability(account)
 }
 
 const hasUpstreamLongContext = (account: Account) => {

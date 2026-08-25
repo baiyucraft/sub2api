@@ -57,6 +57,8 @@ const (
 	FieldConfidenceChecks = "confidence_checks"
 	// FieldConfidenceStatus holds the string denoting the confidence_status field in the database.
 	FieldConfidenceStatus = "confidence_status"
+	// FieldConfidenceEvidence holds the string denoting the confidence_evidence field in the database.
+	FieldConfidenceEvidence = "confidence_evidence"
 	// FieldObservedAt holds the string denoting the observed_at field in the database.
 	FieldObservedAt = "observed_at"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
@@ -90,6 +92,7 @@ var Columns = []string{
 	FieldReasoningTokens,
 	FieldConfidenceChecks,
 	FieldConfidenceStatus,
+	FieldConfidenceEvidence,
 	FieldObservedAt,
 	FieldCreatedAt,
 }

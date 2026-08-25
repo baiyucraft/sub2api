@@ -158,7 +158,10 @@ describe('UpstreamHealthCell', () => {
         confidence_sample_count_24h: 4, confidence_sample_count_7d: 10,
         confidence_status: 'current_success', confidence_requested_effort: 'high',
         confidence_breakdown: { valid_completed: 1, current_success: 1 },
-        confidence_prompt_version: 'openai-juice-high-v1'
+        confidence_prompt_version: 'openai-juice-multiprobe-v2',
+        confidence_valid_completed_24h: 4, confidence_valid_completed_7d: 10,
+        confidence_current_success_24h: 3, confidence_current_success_7d: 8,
+        confidence_evidence: { kind: 'juice', claimed_model: 'gpt-5.6-sol', requested_effort: 'high', expected_value: '40', observed_value: '40', classification: 'current_success' }
       } }) },
       global: { stubs }
     })
@@ -181,6 +184,29 @@ describe('UpstreamHealthCell', () => {
     })
     expect(wrapper.find('[data-test="confidence-badge"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('admin.upstreamManagement.health.confidenceLabel')
+  })
+
+  it('renders mixed evidence and degrades the badge for a 24h hard anomaly', () => {
+    const wrapper = mount(UpstreamHealthCell, {
+      props: { account: account({ upstream_health: {
+        key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
+        updated_at: '2026-08-24T01:01:00Z', confidence_score_24h: 50, confidence_score_7d: 50,
+        confidence_sample_count_24h: 2, confidence_sample_count_7d: 2,
+        confidence_valid_completed_24h: 2, confidence_valid_completed_7d: 2,
+        confidence_current_success_24h: 1, confidence_current_success_7d: 1,
+        confidence_mixed_24h: 1, confidence_mixed_7d: 1,
+        confidence_output_rewrite_24h: 1, confidence_output_rewrite_7d: 1,
+        confidence_prompt_version: 'openai-juice-multiprobe-v2',
+        confidence_evidence: { kind: 'juice', claimed_model: 'gpt-5.6-sol', requested_effort: 'high', expected_value: '40', observed_value: '48', classification: 'mixed', mixed_models: ['gpt-5.6-luna'] }
+      } }) },
+      global: { stubs }
+    })
+
+    expect(wrapper.get('[data-test="confidence-badge"]').classes()).toContain('bg-red-100')
+    expect(wrapper.text()).toContain('40')
+    expect(wrapper.text()).toContain('48')
+    expect(wrapper.text()).toContain('gpt-5.6-luna')
+    expect(wrapper.text()).toContain('admin.upstreamManagement.health.confidenceStatuses.mixed')
   })
 
   it('does not render confidence when OpenAI has no valid completed samples', () => {

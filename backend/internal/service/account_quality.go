@@ -11,7 +11,7 @@ import (
 const (
 	AccountQualityRealtimeWindowHours  = 1
 	AccountQualityWindowHours          = 24
-	AccountQualityScoreVersion         = 4
+	AccountQualityScoreVersion         = 5
 	accountQualityQueryTimeout         = 10 * time.Second
 	accountQualityMinSamples           = 3
 	accountQualityMinTTFTSamples       = 3

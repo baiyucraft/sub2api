@@ -1389,6 +1389,16 @@ func ConfidenceStatusContainsFold(v string) predicate.UpstreamHealthObservation 
 	return predicate.UpstreamHealthObservation(sql.FieldContainsFold(FieldConfidenceStatus, v))
 }
 
+// ConfidenceEvidenceIsNil applies the IsNil predicate on the "confidence_evidence" field.
+func ConfidenceEvidenceIsNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldIsNull(FieldConfidenceEvidence))
+}
+
+// ConfidenceEvidenceNotNil applies the NotNil predicate on the "confidence_evidence" field.
+func ConfidenceEvidenceNotNil() predicate.UpstreamHealthObservation {
+	return predicate.UpstreamHealthObservation(sql.FieldNotNull(FieldConfidenceEvidence))
+}
+
 // ObservedAtEQ applies the EQ predicate on the "observed_at" field.
 func ObservedAtEQ(v time.Time) predicate.UpstreamHealthObservation {
 	return predicate.UpstreamHealthObservation(sql.FieldEQ(FieldObservedAt, v))
