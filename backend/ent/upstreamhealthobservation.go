@@ -62,6 +62,8 @@ type UpstreamHealthObservation struct {
 	ConfidenceChecks map[string]int `json:"confidence_checks,omitempty"`
 	// ConfidenceStatus holds the value of the "confidence_status" field.
 	ConfidenceStatus *string `json:"confidence_status,omitempty"`
+	// ConfidenceEvidence holds the value of the "confidence_evidence" field.
+	ConfidenceEvidence map[string]interface{} `json:"confidence_evidence,omitempty"`
 	// ObservedAt holds the value of the "observed_at" field.
 	ObservedAt time.Time `json:"observed_at,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
@@ -74,7 +76,7 @@ func (*UpstreamHealthObservation) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case upstreamhealthobservation.FieldConfidenceChecks:
+		case upstreamhealthobservation.FieldConfidenceChecks, upstreamhealthobservation.FieldConfidenceEvidence:
 			values[i] = new([]byte)
 		case upstreamhealthobservation.FieldOutputTps:
 			values[i] = new(sql.NullFloat64)
@@ -251,6 +253,14 @@ func (_m *UpstreamHealthObservation) assignValues(columns []string, values []any
 				_m.ConfidenceStatus = new(string)
 				*_m.ConfidenceStatus = value.String
 			}
+		case upstreamhealthobservation.FieldConfidenceEvidence:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field confidence_evidence", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.ConfidenceEvidence); err != nil {
+					return fmt.Errorf("unmarshal field confidence_evidence: %w", err)
+				}
+			}
 		case upstreamhealthobservation.FieldObservedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
 				return fmt.Errorf("unexpected type %T for field observed_at", values[i])
@@ -388,6 +398,9 @@ func (_m *UpstreamHealthObservation) String() string {
 		builder.WriteString("confidence_status=")
 		builder.WriteString(*v)
 	}
+	builder.WriteString(", ")
+	builder.WriteString("confidence_evidence=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ConfidenceEvidence))
 	builder.WriteString(", ")
 	builder.WriteString("observed_at=")
 	builder.WriteString(_m.ObservedAt.Format(time.ANSIC))

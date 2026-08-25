@@ -107,6 +107,9 @@ func (_u *UpstreamHealthObservationUpdate) sqlSave(ctx context.Context) (_node i
 	if _u.mutation.ConfidenceStatusCleared() {
 		_spec.ClearField(upstreamhealthobservation.FieldConfidenceStatus, field.TypeString)
 	}
+	if _u.mutation.ConfidenceEvidenceCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldConfidenceEvidence, field.TypeJSON)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{upstreamhealthobservation.Label}
@@ -236,6 +239,9 @@ func (_u *UpstreamHealthObservationUpdateOne) sqlSave(ctx context.Context) (_nod
 	}
 	if _u.mutation.ConfidenceStatusCleared() {
 		_spec.ClearField(upstreamhealthobservation.FieldConfidenceStatus, field.TypeString)
+	}
+	if _u.mutation.ConfidenceEvidenceCleared() {
+		_spec.ClearField(upstreamhealthobservation.FieldConfidenceEvidence, field.TypeJSON)
 	}
 	_node = &UpstreamHealthObservation{config: _u.config}
 	_spec.Assign = _node.assignValues

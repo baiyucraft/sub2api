@@ -719,6 +719,8 @@ func (s *ChannelMonitorService) ListHistory(ctx context.Context, id int64, model
 // 写历史记录并更新 last_checked_at。返回每个模型的检测结果。
 // 仅当 channel_monitor_enabled=true 且 channel_monitor_mode=v1 时真正探测；
 // mode=v2 时返回 ErrChannelMonitorActiveProbesRetired，不产生上游流量。
+// 后台 runner 取消的任务仍可返回取消/配置结果，但不会写入历史或推进 last_checked_at；
+// 手动调用不带 runner task context，保持原有落库语义。
 //
 // 按 check_mode 分派：probe（默认，现状探活）/ quota（仅查关联账号配额，
 // 零 LLM 成本）/ quota_probe（探活 + 配额快照挂主模型行）。
@@ -740,14 +742,14 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 			if validator, ok := s.repo.(ManagedMonitorRuntimeRepository); ok {
 				if err := validator.ValidateManagedRuntime(ctx, m); err != nil {
 					results := unknownMonitorResults(m, "托管监控分组或 Key 配置已失效")
-					s.persistCheckResults(ctx, m, results)
+					s.persistCheckResultsIfAllowed(ctx, m, results)
 					return results, nil
 				}
 			}
 		}
 		if configMessage := monitorRuntimeConfigurationError(m); configMessage != "" {
 			results := unknownMonitorResults(m, configMessage)
-			s.persistCheckResults(ctx, m, results)
+			s.persistCheckResultsIfAllowed(ctx, m, results)
 			return results, nil
 		}
 	}
@@ -762,7 +764,7 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	default:
 		results = s.runChecksConcurrent(ctx, m)
 	}
-	s.persistCheckResults(ctx, m, results)
+	s.persistCheckResultsIfAllowed(ctx, m, results)
 	return results, nil
 }
 
@@ -870,6 +872,18 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 		slog.Error("channel_monitor: mark checked failed",
 			"monitor_id", m.ID, "error", err)
 	}
+}
+
+// persistCheckResultsIfAllowed suppresses only results from a scheduled task
+// whose parent task was cancelled (Stop, Unschedule, or Schedule replacement).
+// A normal probe timeout still uses the child request context and therefore is
+// persisted as an error. Manual RunCheck calls have no task marker and retain
+// their existing persistence behavior.
+func (s *ChannelMonitorService) persistCheckResultsIfAllowed(ctx context.Context, m *ChannelMonitor, results []*CheckResult) {
+	if channelMonitorRunnerTaskCancelled(ctx) {
+		return
+	}
+	s.persistCheckResults(ctx, m, results)
 }
 
 // runChecksConcurrent 对 primary + extra 模型并发执行检测。

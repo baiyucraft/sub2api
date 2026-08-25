@@ -1950,6 +1950,7 @@ var (
 		{Name: "reasoning_tokens", Type: field.TypeInt64, Nullable: true},
 		{Name: "confidence_checks", Type: field.TypeJSON, Nullable: true},
 		{Name: "confidence_status", Type: field.TypeString, Nullable: true, Size: 32},
+		{Name: "confidence_evidence", Type: field.TypeJSON, Nullable: true},
 		{Name: "observed_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 	}
@@ -1962,17 +1963,17 @@ var (
 			{
 				Name:    "upstreamhealthobservation_upstream_key_id_observed_at",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamHealthObservationsColumns[2], UpstreamHealthObservationsColumns[23]},
+				Columns: []*schema.Column{UpstreamHealthObservationsColumns[2], UpstreamHealthObservationsColumns[24]},
 			},
 			{
 				Name:    "upstreamhealthobservation_upstream_config_id_observed_at",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamHealthObservationsColumns[1], UpstreamHealthObservationsColumns[23]},
+				Columns: []*schema.Column{UpstreamHealthObservationsColumns[1], UpstreamHealthObservationsColumns[24]},
 			},
 			{
 				Name:    "upstreamhealthobservation_observed_at",
 				Unique:  false,
-				Columns: []*schema.Column{UpstreamHealthObservationsColumns[23]},
+				Columns: []*schema.Column{UpstreamHealthObservationsColumns[24]},
 			},
 		},
 	}

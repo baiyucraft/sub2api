@@ -230,6 +230,11 @@
               <span v-else class="text-gray-400 dark:text-gray-500">-</span>
               <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
               <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
+              <template v-if="showOutputTps">
+                <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyTps') }}</span>
+                <span v-if="row.output_tps != null && row.output_tps > 0" class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatOutputTps(row.output_tps) }} {{ t('usage.tokensPerSecondUnit') }}</span>
+                <span v-else class="text-gray-400 dark:text-gray-500">-</span>
+              </template>
             </div>
           </div>
         </template>
@@ -560,6 +565,8 @@ interface Props {
   defaultSortOrder?: 'asc' | 'desc'
   showAccountBilling?: boolean
   showUpstreamEndpoint?: boolean
+  /** 管理员明细显示生成速度；普通用户页保持原有两行延迟展示。 */
+  showOutputTps?: boolean
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
 }
@@ -571,6 +578,7 @@ const props = withDefaults(defineProps<Props>(), {
   defaultSortOrder: 'asc',
   showAccountBilling: true,
   showUpstreamEndpoint: true,
+  showOutputTps: false,
   flat: false
 })
 const emit = defineEmits<{
@@ -583,6 +591,7 @@ const appStore = useAppStore()
 const copiedRequestId = ref<string | null>(null)
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
+const showOutputTps = props.showOutputTps
 const ipGeoBatchLoading = ref(false)
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
@@ -688,6 +697,8 @@ const formatDuration = (ms: number | null | undefined): string => {
   if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`
   return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
 }
+
+const formatOutputTps = (tps: number): string => tps.toFixed(2)
 
 // Cost tooltip functions
 const showTooltip = (event: MouseEvent, row: AdminUsageLog) => {

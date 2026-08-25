@@ -81,3 +81,15 @@ describe('AppSidebar upstream navigation', () => {
     expect(componentSource).toContain(upstreamManagementItem)
   })
 })
+
+describe('AppSidebar recharge store navigation', () => {
+  const purchaseItem = "{ path: '/purchase', label: t('nav.buySubscription'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment }"
+  const storeItem = "{ path: '/recharge-store', label: t('nav.rechargeStore'), icon: RechargeStoreIcon }"
+  const ordersItem = "{ path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment }"
+
+  it('keeps the fixed store between purchase and orders without the native payment flag', () => {
+    expect(componentSource).toContain(`${purchaseItem},\n    ${storeItem},\n    ${ordersItem},`)
+    expect(storeItem).not.toContain('featureFlag')
+    expect(storeItem).not.toContain('hideInSimpleMode')
+  })
+})

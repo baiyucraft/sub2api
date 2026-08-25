@@ -67,6 +67,32 @@ func TestSettingService_GetPublicSettings_ExposesRegistrationEmailSuffixWhitelis
 	require.Equal(t, []string{"@example.com", "@foo.bar", "*.edu.cn"}, settings.RegistrationEmailSuffixWhitelist)
 }
 
+func TestSettingService_GetFrameSrcOriginsIncludesRechargeStoreAndDeduplicates(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingKeyHomeContent:                 "https://catfk.com/home",
+			SettingKeyPurchaseSubscriptionEnabled: "true",
+			SettingKeyPurchaseSubscriptionURL:     "https://checkout.example.com/subscribe",
+			SettingKeyCustomMenuItems:             `[{"url":"https://catfk.com/shop/baiyuapi"},{"url":"https://docs.example.com/embed"}]`,
+		},
+	}
+
+	origins, err := NewSettingService(repo, &config.Config{}).GetFrameSrcOrigins(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"https://catfk.com",
+		"https://checkout.example.com",
+		"https://docs.example.com",
+	}, origins)
+}
+
+func TestSettingService_GetFrameSrcOriginsIncludesRechargeStoreWhenUnset(t *testing.T) {
+	origins, err := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{}).
+		GetFrameSrcOrigins(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://catfk.com"}, origins)
+}
+
 func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{

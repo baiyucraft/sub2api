@@ -69,6 +69,18 @@ export default {
     notConfiguredDesc: '管理员已开启入口，但尚未配置充值/订阅链接，请联系管理员。'
   },
 
+  rechargeStore: {
+    title: '充值商城',
+    description: '在白鱼GPT商城购买充值商品',
+    embedHint: '如果商城无法在当前页面正常显示或完成支付，请在新窗口中继续。',
+    mobileHint: '手机端建议在新窗口打开商城，商品选择和支付更顺畅。',
+    openInNewTab: '新窗口打开商城',
+    iframeTitle: '白鱼GPT充值商城',
+    loading: '正在加载商城…',
+    loadSlow: '商城加载较慢，可在新窗口打开继续。',
+    loadFailed: '商城暂时无法嵌入，可在新窗口打开继续。'
+  },
+
   // Custom Page (iframe embed)
   customPage: {
     title: '自定义页面',

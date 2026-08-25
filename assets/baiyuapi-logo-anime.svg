@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">BAIYUAPI 白鱼动漫风 Logo</title>
+  <desc id="desc">A luminous white fish with flowing data-stream fins, representing BAIYUAPI.</desc>
+  <defs>
+    <linearGradient id="bg" x1="54" y1="28" x2="460" y2="488" gradientUnits="userSpaceOnUse"><stop stop-color="#142D5C"/><stop offset=".5" stop-color="#101A46"/><stop offset="1" stop-color="#080D27"/></linearGradient>
+    <radialGradient id="glowBg" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(164 126) rotate(51) scale(352 374)"><stop stop-color="#5EEBFF" stop-opacity=".3"/><stop offset="1" stop-color="#5EEBFF" stop-opacity="0"/></radialGradient>
+    <linearGradient id="fish" x1="135" y1="148" x2="385" y2="370" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset=".38" stop-color="#DDFBFF"/><stop offset=".74" stop-color="#A8D8FF"/><stop offset="1" stop-color="#8F9CFF"/></linearGradient>
+    <linearGradient id="fin" x1="176" y1="180" x2="390" y2="380" gradientUnits="userSpaceOnUse"><stop stop-color="#BFFFF6"/><stop offset=".52" stop-color="#5FDFFF"/><stop offset="1" stop-color="#A27BFF"/></linearGradient>
+    <linearGradient id="word" x1="120" y1="412" x2="394" y2="456" gradientUnits="userSpaceOnUse"><stop stop-color="#F8FFFF"/><stop offset=".5" stop-color="#74E8FF"/><stop offset="1" stop-color="#C19BFF"/></linearGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="14"/></filter>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect x="18" y="18" width="476" height="476" rx="132" fill="url(#bg)"/>
+  <rect x="18" y="18" width="476" height="476" rx="132" fill="url(#glowBg)"/>
+  <rect x="19.75" y="19.75" width="472.5" height="472.5" rx="130.25" fill="none" stroke="#A8C8FF" stroke-opacity=".25" stroke-width="3.5"/>
+  <g fill="#8DEEFF" opacity=".65"><circle cx="91" cy="132" r="3"/><circle cx="420" cy="112" r="3"/><circle cx="431" cy="334" r="3"/><circle cx="82" cy="360" r="3"/></g>
+  <path d="M84 132h44M420 112h-35M431 334h-42M82 360h42" stroke="#76E7FF" stroke-opacity=".28" stroke-width="2" stroke-linecap="round"/>
+  <path d="M154 300c-47 17-68 43-63 76 7 45 58 67 111 36 40-23 69-57 95-89" fill="none" stroke="#4EDCFF" stroke-opacity=".3" stroke-width="28" stroke-linecap="round" filter="url(#softGlow)"/>
+  <path d="M154 300c-47 17-68 43-63 76 7 45 58 67 111 36 40-23 69-57 95-89" fill="none" stroke="url(#fin)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M113 362c28 17 57 18 86 5M131 396c25 5 48 0 71-15" fill="none" stroke="#D9FFFF" stroke-opacity=".75" stroke-width="3" stroke-linecap="round"/>
+  <path d="M142 251c9-76 74-126 161-126 58 0 109 25 143 76-34 51-85 76-143 76-87 0-152-50-161-126Z" fill="url(#fish)" stroke="#E3FFFF" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M165 250c12-57 62-93 130-93 42 0 76 12 107 40-29-14-60-20-98-20-59 0-104 26-139 73Z" fill="#FFFFFF" fill-opacity=".42"/>
+  <path d="M259 145c-20-52-3-87 44-108-2 35 10 59 39 78-22 2-50 12-83 30Z" fill="url(#fin)" stroke="#BDFBFF" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M292 307c28 31 33 63 18 101-29-18-49-44-57-78 14-4 27-11 39-23Z" fill="url(#fin)" stroke="#BDFBFF" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M283 65c16 17 25 34 26 53M272 330c13 18 20 36 21 54" fill="none" stroke="#F3FFFF" stroke-opacity=".7" stroke-width="3" stroke-linecap="round"/>
+  <g fill="none" stroke="#78DDF4" stroke-width="3" opacity=".85"><path d="M212 214c11-12 23-12 34 0M243 214c11-12 23-12 34 0M274 214c11-12 23-12 34 0"/><path d="M220 242c11-12 23-12 34 0M251 242c11-12 23-12 34 0M282 242c11-12 23-12 34 0"/><path d="M234 270c11-12 23-12 34 0M265 270c11-12 23-12 34 0"/></g>
+  <g stroke="#73ECFF" stroke-width="3" stroke-linecap="round"><path d="M187 219h-34M187 250h-45M326 220h39M326 251h54"/></g>
+  <g filter="url(#glow)"><circle cx="153" cy="219" r="6" fill="#7DFFF0"/><circle cx="142" cy="250" r="6" fill="#8B9CFF"/><circle cx="365" cy="220" r="6" fill="#7DFFF0"/><circle cx="380" cy="251" r="6" fill="#D38AFF"/></g>
+  <path d="M177 224c17-17 39-20 61-4-18 15-38 20-61 4ZM350 224c-17-17-39-20-61-4 18 15 38 20 61 4Z" fill="#17255B" stroke="#7BF2FF" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M197 221c9-6 18-6 27 0-8 8-17 8-27 0ZM330 221c-9-6-18-6-27 0 8 8 17 8 27 0Z" fill="#FFFFFF" filter="url(#glow)"/>
+  <circle cx="217" cy="222" r="3" fill="#FFFFFF"/><circle cx="309" cy="222" r="3" fill="#FFFFFF"/>
+  <path d="M258 239l8-6 8 6-8 7-8-7Z" fill="#FF8BEA" stroke="#FFFFFF" stroke-width="2"/><path d="M266 246v15M241 261h50" stroke="#67E8FF" stroke-width="3" stroke-linecap="round"/>
+  <text x="256" y="438" text-anchor="middle" fill="url(#word)" font-family="Arial, Helvetica, sans-serif" font-size="38" font-weight="800" letter-spacing="7">BAIYUAPI</text>
+  <path d="M140 454h232" stroke="url(#fin)" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="128" cy="454" r="4" fill="#7BFFF2" filter="url(#glow)"/><circle cx="384" cy="454" r="4" fill="#C38BFF" filter="url(#glow)"/>
+</svg>
