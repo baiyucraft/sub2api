@@ -83,4 +83,14 @@ describe('MonitorPrimaryModelCell placeholder model display', () => {
     expect(wrapper.text()).toContain('monitorCommon.ttft 420 ms')
     expect(wrapper.text()).toContain('monitorCommon.totalLatency 1800 ms')
   })
+
+  it('renders non-positive TTFT as empty while keeping total latency', () => {
+    const wrapper = mountCell(makeRow({
+      primary_model: 'gpt-5.6-sol',
+      extra_models: ['gpt-5.6-mini'],
+      extra_models_status: [{ model: 'gpt-5.6-mini', status: 'error', ttft_ms: 0, latency_ms: 1800 }],
+    }))
+    expect(wrapper.text()).toContain('monitorCommon.ttft monitorCommon.latencyEmpty')
+    expect(wrapper.text()).toContain('monitorCommon.totalLatency 1800 ms')
+  })
 })

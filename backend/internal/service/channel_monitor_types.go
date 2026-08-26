@@ -165,6 +165,14 @@ type CheckResult struct {
 	Quota *domain.MonitorQuotaSnapshot
 }
 
+// NormalizeChannelMonitorTTFT 将历史或外部返回中的非正 TTFT 视为未知。
+func NormalizeChannelMonitorTTFT(value *int) *int {
+	if value == nil || *value <= 0 {
+		return nil
+	}
+	return value
+}
+
 // UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7d 可用率 + 附加模型最近状态）。
 type UserMonitorView struct {
 	ID                   int64
