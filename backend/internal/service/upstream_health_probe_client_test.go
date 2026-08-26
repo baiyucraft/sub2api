@@ -224,7 +224,7 @@ func TestRunUpstreamHealthProbeUsesProviderStreamingProfiles(t *testing.T) {
 			},
 		},
 		{
-			name: "grok chat completions json",
+			name: "grok chat completions streaming",
 			account: &Account{ID: 7, Platform: PlatformGrok, Type: AccountTypeAPIKey, Concurrency: 2, Credentials: map[string]any{
 				"api_key": "grok-secret", "base_url": "https://grok.example/v1", "model_mapping": map[string]any{"grok-probe": "grok-4.5"},
 			}},
@@ -233,7 +233,7 @@ func TestRunUpstreamHealthProbeUsesProviderStreamingProfiles(t *testing.T) {
 				require.Equal(t, "https://grok.example/v1/chat/completions", req.URL.String())
 				require.Equal(t, "Bearer grok-secret", req.Header.Get("Authorization"))
 				require.Equal(t, "grok-4.5", gjson.GetBytes(body, "model").String())
-				require.False(t, gjson.GetBytes(body, "stream").Bool())
+				require.True(t, gjson.GetBytes(body, "stream").Bool())
 			},
 		},
 	}

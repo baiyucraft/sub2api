@@ -348,6 +348,7 @@ func buildStatusSummary(
 		if l, ok := latestByModel[primary]; ok {
 			summary.PrimaryStatus = l.Status
 			summary.PrimaryLatencyMs = l.LatencyMs
+			summary.PrimaryTTFTMs = l.TTFTMs
 			// 配额快照只挂主模型行（quota 模式唯一行 / quota_probe 的主行）。
 			summary.LatestQuota = l.Quota
 		}
@@ -360,6 +361,7 @@ func buildStatusSummary(
 		if l, ok := latestByModel[model]; ok {
 			entry.Status = l.Status
 			entry.LatencyMs = l.LatencyMs
+			entry.TTFTMs = l.TTFTMs
 		}
 		summary.ExtraModels = append(summary.ExtraModels, entry)
 	}
@@ -382,6 +384,7 @@ func buildUserViewFromSummary(
 		PrimaryModel:     m.PrimaryModel,
 		PrimaryStatus:    summary.PrimaryStatus,
 		PrimaryLatencyMs: summary.PrimaryLatencyMs,
+		PrimaryTTFTMs:    summary.PrimaryTTFTMs,
 		Availability7d:   summary.Availability7d,
 		ExtraModels:      summary.ExtraModels,
 		Timeline:         buildTimelinePoints(timelineEntries),
@@ -401,6 +404,7 @@ func buildTimelinePoints(entries []*ChannelMonitorHistoryEntry) []UserMonitorTim
 			Status:        e.Status,
 			LatencyMs:     e.LatencyMs,
 			PingLatencyMs: e.PingLatencyMs,
+			TTFTMs:        e.TTFTMs,
 			CheckedAt:     e.CheckedAt,
 		})
 	}

@@ -147,9 +147,12 @@ type ChannelMonitorUpdateParams struct {
 
 // CheckResult 单个模型一次检测的结果。
 type CheckResult struct {
-	Model         string
-	Status        string // operational / degraded / failed / error / unknown
-	LatencyMs     *int
+	Model     string
+	Status    string // operational / degraded / failed / error / unknown
+	LatencyMs *int
+	// TTFTMs is the elapsed time until the first non-empty text delta.
+	// It is nil when the probe produced no text delta or predates streaming.
+	TTFTMs        *int
 	PingLatencyMs *int
 	Message       string
 	CheckedAt     time.Time
@@ -169,6 +172,7 @@ type UserMonitorView struct {
 	PrimaryModel         string
 	PrimaryStatus        string
 	PrimaryLatencyMs     *int
+	PrimaryTTFTMs        *int
 	PrimaryPingLatencyMs *int    // 主模型最近一次 ping 延迟
 	Availability         float64 // 当前选择窗口，0-100
 	Availability7d       float64 // 兼容字段，0-100
@@ -187,6 +191,7 @@ type UserMonitorView struct {
 type UserMonitorTimelinePoint struct {
 	Status        string    `json:"status"`
 	LatencyMs     *int      `json:"latency_ms"`
+	TTFTMs        *int      `json:"ttft_ms"`
 	PingLatencyMs *int      `json:"ping_latency_ms"`
 	CheckedAt     time.Time `json:"checked_at"`
 }
@@ -196,6 +201,7 @@ type ExtraModelStatus struct {
 	Model     string
 	Status    string
 	LatencyMs *int
+	TTFTMs    *int
 }
 
 // UserMonitorDetail 用户只读视图：监控详情（含全部模型 7d/15d/30d 可用率与平均延迟）。
@@ -229,6 +235,7 @@ type ChannelMonitorHistoryRow struct {
 	Model         string
 	Status        string
 	LatencyMs     *int
+	TTFTMs        *int
 	PingLatencyMs *int
 	Message       string
 	CheckedAt     time.Time
@@ -241,6 +248,7 @@ type ChannelMonitorHistoryEntry struct {
 	Model         string
 	Status        string
 	LatencyMs     *int
+	TTFTMs        *int
 	PingLatencyMs *int
 	Message       string
 	CheckedAt     time.Time
@@ -252,6 +260,7 @@ type ChannelMonitorLatest struct {
 	Model         string
 	Status        string
 	LatencyMs     *int
+	TTFTMs        *int
 	PingLatencyMs *int
 	CheckedAt     time.Time
 	Quota         *domain.MonitorQuotaSnapshot
@@ -273,6 +282,7 @@ type ChannelMonitorAvailability struct {
 type MonitorStatusSummary struct {
 	PrimaryStatus    string // 空字符串表示无历史
 	PrimaryLatencyMs *int
+	PrimaryTTFTMs    *int
 	Availability7d   float64 // 0-100，无历史时为 0
 	ExtraModels      []ExtraModelStatus
 	LatestQuota      *domain.MonitorQuotaSnapshot // 主模型最近配额快照（配额模式）

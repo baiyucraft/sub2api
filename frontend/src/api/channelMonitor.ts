@@ -12,11 +12,13 @@ export interface UserMonitorExtraModel {
   model: string
   status: MonitorStatus
   latency_ms: number | null
+  ttft_ms?: number | null
 }
 
 export interface MonitorTimelinePoint {
   status: MonitorStatus
   latency_ms: number | null
+  ttft_ms?: number | null
   ping_latency_ms: number | null
   checked_at: string
 }
@@ -29,6 +31,7 @@ export interface UserMonitorView {
   primary_model: string
   primary_status: MonitorStatus
   primary_latency_ms: number | null
+  primary_ttft_ms?: number | null
   primary_ping_latency_ms: number | null
   availability: number
   availability_7d: number
@@ -59,6 +62,7 @@ export interface UserMonitorModelDetail {
   model: string
   latest_status: MonitorStatus
   latest_latency_ms: number | null
+  latest_ttft_ms?: number | null
   availability_24h: number
   availability_7d: number
   availability_15d: number

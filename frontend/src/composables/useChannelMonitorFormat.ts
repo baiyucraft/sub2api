@@ -188,6 +188,11 @@ export function useChannelMonitorFormat() {
     return String(Math.round(ms))
   }
 
+  function formatLatencyWithUnit(ms: number | null | undefined): string {
+    const value = formatLatency(ms)
+    return value === t('monitorCommon.latencyEmpty') ? value : `${value} ms`
+  }
+
   function formatPercent(v: number | null | undefined): string {
     if (v == null || Number.isNaN(v)) return '-'
     return `${v.toFixed(2)}%`
@@ -222,6 +227,7 @@ export function useChannelMonitorFormat() {
     checkModeBadgeClass,
     providerPickerClass,
     formatLatency,
+    formatLatencyWithUnit,
     formatPercent,
     formatAvailability,
     formatRelativeTime,

@@ -373,7 +373,7 @@ func (s *AccountTestService) runGrokChatCompletionsUpstreamHealthProbe(ctx conte
 		"model":      result.Model,
 		"messages":   []map[string]string{{"role": "user", "content": challenge.LegacyPrompt}},
 		"max_tokens": upstreamHealthProbeMaxOutputTokens,
-		"stream":     false,
+		"stream":     true,
 	})
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
@@ -383,8 +383,8 @@ func (s *AccountTestService) runGrokChatCompletionsUpstreamHealthProbe(ctx conte
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
 	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
-	s.applyGrokTestRequestHeaders(req, account, authToken, "application/json")
-	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseGrokChatCompletionsUpstreamHealthResponse)
+	s.applyGrokTestRequestHeaders(req, account, authToken, "text/event-stream")
+	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseOpenAIChatCompletionsUpstreamHealthStream)
 }
 
 func (s *AccountTestService) runAntigravityUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
@@ -395,8 +395,12 @@ func (s *AccountTestService) runAntigravityUpstreamHealthProbe(ctx context.Conte
 		}
 		started := time.Now()
 		requestedModel := result.Model
-		connection, err := s.antigravityGatewayService.TestConnectionWithPrompt(ctx, account, requestedModel, challenge.LegacyPrompt)
+		connection, err := s.antigravityGatewayService.TestConnectionWithPromptStreaming(ctx, account, requestedModel, challenge.LegacyPrompt)
 		setUpstreamHealthProbeDuration(&result, started)
+		if connection != nil {
+			result.TTFTMs = connection.TTFTMs
+			result.FinishReason = connection.FinishReason
+		}
 		if err != nil {
 			return failUpstreamHealthProbe(result, "upstream_error", "probe_upstream_error", err)
 		}

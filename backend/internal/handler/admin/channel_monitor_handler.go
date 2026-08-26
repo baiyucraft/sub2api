@@ -118,6 +118,7 @@ type channelMonitorResponse struct {
 	UpdatedAt           string                               `json:"updated_at"`
 	PrimaryStatus       string                               `json:"primary_status"`
 	PrimaryLatencyMs    *int                                 `json:"primary_latency_ms"`
+	PrimaryTTFTMs       *int                                 `json:"primary_ttft_ms"`
 	Availability7d      float64                              `json:"availability_7d"`
 	ExtraModelsStatus   []dto.ChannelMonitorExtraModelStatus `json:"extra_models_status"`
 	// 请求自定义快照：前端编辑 / 展示「高级设置」用
@@ -137,6 +138,7 @@ type channelMonitorCheckResultResponse struct {
 	Model         string                       `json:"model"`
 	Status        string                       `json:"status"`
 	LatencyMs     *int                         `json:"latency_ms"`
+	TTFTMs        *int                         `json:"ttft_ms"`
 	PingLatencyMs *int                         `json:"ping_latency_ms"`
 	Message       string                       `json:"message"`
 	CheckedAt     string                       `json:"checked_at"`
@@ -148,6 +150,7 @@ type channelMonitorHistoryItemResponse struct {
 	Model         string                       `json:"model"`
 	Status        string                       `json:"status"`
 	LatencyMs     *int                         `json:"latency_ms"`
+	TTFTMs        *int                         `json:"ttft_ms"`
 	PingLatencyMs *int                         `json:"ping_latency_ms"`
 	Message       string                       `json:"message"`
 	CheckedAt     string                       `json:"checked_at"`
@@ -217,6 +220,7 @@ func checkResultToResponse(r *service.CheckResult) channelMonitorCheckResultResp
 		Model:         r.Model,
 		Status:        r.Status,
 		LatencyMs:     r.LatencyMs,
+		TTFTMs:        r.TTFTMs,
 		PingLatencyMs: r.PingLatencyMs,
 		Message:       r.Message,
 		CheckedAt:     r.CheckedAt.UTC().Format(time.RFC3339),
@@ -230,6 +234,7 @@ func historyEntryToResponse(e *service.ChannelMonitorHistoryEntry) channelMonito
 		Model:         e.Model,
 		Status:        e.Status,
 		LatencyMs:     e.LatencyMs,
+		TTFTMs:        e.TTFTMs,
 		PingLatencyMs: e.PingLatencyMs,
 		Message:       e.Message,
 		CheckedAt:     e.CheckedAt.UTC().Format(time.RFC3339),
@@ -311,6 +316,7 @@ func buildListItemResponse(m *service.ChannelMonitor, summary service.MonitorSta
 	resp := channelMonitorToResponse(m)
 	resp.PrimaryStatus = summary.PrimaryStatus
 	resp.PrimaryLatencyMs = summary.PrimaryLatencyMs
+	resp.PrimaryTTFTMs = summary.PrimaryTTFTMs
 	resp.Availability7d = summary.Availability7d
 	resp.LatestQuota = summary.LatestQuota
 	resp.ExtraModelsStatus = make([]dto.ChannelMonitorExtraModelStatus, 0, len(summary.ExtraModels))
@@ -319,6 +325,7 @@ func buildListItemResponse(m *service.ChannelMonitor, summary service.MonitorSta
 			Model:     e.Model,
 			Status:    e.Status,
 			LatencyMs: e.LatencyMs,
+			TTFTMs:    e.TTFTMs,
 		})
 	}
 	return resp

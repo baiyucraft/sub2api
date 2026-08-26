@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -41,6 +42,13 @@ func (h *captureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.status == 0 {
 		h.status = 200
 	}
+	if stream, ok := parsed["stream"].(bool); ok && stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(h.status)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", monitorJSON(map[string]any{"type": "content_block_delta", "delta": map[string]any{"type": "text_delta", "text": h.respondText}}))
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", monitorJSON(map[string]any{"type": "message_stop"}))
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(h.status)
 	// 构造 Anthropic 格式的响应：content[0].text = h.respondText
@@ -50,6 +58,8 @@ func (h *captureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
+
+func monitorJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 func setupFakeAnthropic(t *testing.T, handler *captureHandler) string {
 	t.Helper()
@@ -79,14 +89,28 @@ func (h *openAICaptureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	if h.status == 0 {
 		h.status = http.StatusOK
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(h.status)
 	if h.rawResponse != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(h.status)
 		_, _ = w.Write([]byte(h.rawResponse))
 		return
 	}
-
 	answer := answerFromOpenAIRequest(parsed)
+	stream, _ := parsed["stream"].(bool)
+	if stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(h.status)
+		if h.lastPath == providerOpenAIResponsesPath {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", monitorJSON(map[string]any{"type": "response.output_text.delta", "delta": answer}))
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", monitorJSON(map[string]any{"type": "response.completed", "response": map[string]any{"status": "completed"}}))
+		} else {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", monitorJSON(map[string]any{"choices": []map[string]any{{"delta": map[string]any{"content": answer}}}}))
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", monitorJSON(map[string]any{"choices": []map[string]any{{"finish_reason": "stop"}}}))
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(h.status)
 	if h.lastPath == providerOpenAIResponsesPath {
 		output := []map[string]any{}
 		if h.responsesLeadingReasoning {
@@ -190,8 +214,8 @@ func TestRunCheckForModel_OpenAI_DefaultChatRequest(t *testing.T) {
 	if _, ok := h.lastBody["instructions"]; ok {
 		t.Error("chat body must not contain top-level instructions")
 	}
-	if h.lastBody["stream"] != false {
-		t.Errorf("chat body should set stream=false, got %v", h.lastBody["stream"])
+	if h.lastBody["stream"] != true {
+		t.Errorf("chat body should set stream=true, got %v", h.lastBody["stream"])
 	}
 	if h.lastHeaders.Get("Authorization") != "Bearer sk-openai" {
 		t.Errorf("expected bearer auth header, got %q", h.lastHeaders.Get("Authorization"))
@@ -237,8 +261,8 @@ func TestRunCheckForModel_Grok_DefaultChatRequest(t *testing.T) {
 	if _, ok := h.lastBody["messages"]; !ok {
 		t.Error("Grok body should contain messages")
 	}
-	if h.lastBody["stream"] != false {
-		t.Errorf("Grok body should set stream=false, got %v", h.lastBody["stream"])
+	if h.lastBody["stream"] != true {
+		t.Errorf("Grok body should set stream=true, got %v", h.lastBody["stream"])
 	}
 	if h.lastHeaders.Get("Authorization") != "Bearer xai-key" {
 		t.Errorf("expected Grok bearer auth header, got %q", h.lastHeaders.Get("Authorization"))
@@ -259,6 +283,33 @@ func TestRunCheckForModel_Grok_UpstreamFailure(t *testing.T) {
 	}
 	if res.LatencyMs == nil {
 		t.Fatal("Grok failure should still record latency")
+	}
+}
+
+func TestRunCheckForModel_StreamInterruptionPreservesTTFT(t *testing.T) {
+	swapMonitorHTTPClient(t)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("test server does not support flushing")
+		}
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"2\"}}]}\n\n")
+		flusher.Flush()
+		// Return without a finish event to model an HTTP 200 stream interruption.
+	}))
+	defer srv.Close()
+	monitorHTTPClient = srv.Client()
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, srv.URL, "sk-openai", "gpt-test", nil)
+	if res.Status != MonitorStatusError {
+		t.Fatalf("interrupted stream should be error, got %s (%s)", res.Status, res.Message)
+	}
+	if res.TTFTMs == nil {
+		t.Fatal("interrupted stream should preserve TTFT after first text delta")
+	}
+	if res.LatencyMs == nil {
+		t.Fatal("interrupted stream should preserve total latency")
 	}
 }
 
@@ -310,8 +361,8 @@ func TestRunCheckForModel_OpenAIResponses_DefaultRequest(t *testing.T) {
 	if _, ok := h.lastBody["messages"]; ok {
 		t.Error("responses body must not contain chat messages")
 	}
-	if h.lastBody["stream"] != false {
-		t.Errorf("responses body should set stream=false, got %v", h.lastBody["stream"])
+	if h.lastBody["stream"] != true {
+		t.Errorf("responses body should set stream=true, got %v", h.lastBody["stream"])
 	}
 	if h.lastHeaders.Get("Authorization") != "Bearer sk-openai" {
 		t.Errorf("expected bearer auth header, got %q", h.lastHeaders.Get("Authorization"))

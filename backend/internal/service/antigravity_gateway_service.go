@@ -339,6 +339,110 @@ type TestConnectionResult struct {
 	MappedModel string // 实际使用的模型
 }
 
+// TestConnectionStreamResult is returned only by the active health-probe
+// path. It exposes incremental timing without changing ordinary account-test
+// semantics.
+type TestConnectionStreamResult struct {
+	Text         string
+	MappedModel  string
+	TTFTMs       *int64
+	FinishReason string
+}
+
+func (s *AntigravityGatewayService) TestConnectionWithPromptStreaming(ctx context.Context, account *Account, modelID, prompt string) (*TestConnectionStreamResult, error) {
+	started := time.Now()
+	if s.tokenProvider == nil {
+		return nil, errors.New("antigravity token provider not configured")
+	}
+	accessToken, err := s.tokenProvider.GetAccessToken(ctx, account)
+	if err != nil {
+		return nil, fmt.Errorf("获取 access_token 失败: %w", err)
+	}
+	projectID, err := resolveAntigravityProjectID(account)
+	if err != nil {
+		return nil, err
+	}
+	mappedModel := s.getMappedModel(account, modelID)
+	if mappedModel == "" {
+		return nil, fmt.Errorf("model %s not in whitelist", modelID)
+	}
+	var requestBody []byte
+	if strings.HasPrefix(modelID, "gemini-") {
+		requestBody, err = s.buildGeminiProbeRequest(projectID, mappedModel, prompt)
+	} else {
+		requestBody, err = s.buildClaudeProbeRequestStreaming(projectID, mappedModel, prompt)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("构建请求失败: %w", err)
+	}
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	p := antigravityRetryLoopParams{ctx: ctx, prefix: fmt.Sprintf("[antigravity-Probe] account=%d(%s)", account.ID, account.Name), account: account, proxyURL: proxyURL, accessToken: accessToken, action: "streamGenerateContent", body: requestBody, c: nil, httpUpstream: s.httpUpstream, settingService: s.settingService, accountRepo: s.accountRepo, requestedModel: modelID, handleError: testConnectionHandleError}
+	result, err := s.antigravityRetryLoop(p)
+	if err != nil {
+		return nil, err
+	}
+	if result == nil || result.resp == nil {
+		return nil, errors.New("upstream returned empty response")
+	}
+	defer func() { _ = result.resp.Body.Close() }()
+	if result.resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(result.resp.Body, s.upstreamErrorBodyReadLimit()))
+		return nil, fmt.Errorf("API 返回 %d: %s", result.resp.StatusCode, string(body))
+	}
+	var output strings.Builder
+	var ttft *int64
+	finish := ""
+	completed := false
+	err = scanUpstreamHealthSSE(result.resp.Body, func(data []byte) (bool, error) {
+		var envelope struct {
+			Response struct {
+				Candidates []struct {
+					Content struct {
+						Parts []struct {
+							Text    string `json:"text"`
+							Thought bool   `json:"thought"`
+						} `json:"parts"`
+					} `json:"content"`
+					FinishReason string `json:"finishReason"`
+				} `json:"candidates"`
+			} `json:"response"`
+		}
+		if json.Unmarshal(data, &envelope) != nil || len(envelope.Response.Candidates) == 0 {
+			return false, nil
+		}
+		for _, candidate := range envelope.Response.Candidates {
+			for _, part := range candidate.Content.Parts {
+				if part.Thought || strings.TrimSpace(part.Text) == "" {
+					continue
+				}
+				if ttft == nil {
+					v := time.Since(started).Milliseconds()
+					ttft = &v
+				}
+				output.WriteString(part.Text)
+			}
+			if strings.TrimSpace(candidate.FinishReason) != "" {
+				finish = candidate.FinishReason
+				completed = true
+			}
+		}
+		return completed, nil
+	})
+	if err != nil {
+		return &TestConnectionStreamResult{Text: output.String(), MappedModel: mappedModel, TTFTMs: ttft, FinishReason: finish}, err
+	}
+	if !completed {
+		return &TestConnectionStreamResult{Text: output.String(), MappedModel: mappedModel, TTFTMs: ttft, FinishReason: finish}, errors.New("antigravity probe stream ended before completion")
+	}
+	if strings.TrimSpace(output.String()) == "" {
+		return &TestConnectionStreamResult{MappedModel: mappedModel, FinishReason: finish}, errors.New("antigravity probe stream contained no text")
+	}
+	return &TestConnectionStreamResult{Text: output.String(), MappedModel: mappedModel, TTFTMs: ttft, FinishReason: finish}, nil
+}
+
 // TestConnection 测试 Antigravity 账号连接。
 // 复用 antigravityRetryLoop 的完整重试 / credits overages / 智能重试逻辑，
 // 与真实调度行为一致。差异：不做账号切换（测试指定账号）、不记录 ops 错误。
@@ -485,6 +589,14 @@ func (s *AntigravityGatewayService) buildClaudeTestRequest(projectID, mappedMode
 }
 
 func (s *AntigravityGatewayService) buildClaudeProbeRequest(projectID, mappedModel, prompt string) ([]byte, error) {
+	return s.buildClaudeProbeRequestWithStream(projectID, mappedModel, prompt, false)
+}
+
+func (s *AntigravityGatewayService) buildClaudeProbeRequestStreaming(projectID, mappedModel, prompt string) ([]byte, error) {
+	return s.buildClaudeProbeRequestWithStream(projectID, mappedModel, prompt, true)
+}
+
+func (s *AntigravityGatewayService) buildClaudeProbeRequestWithStream(projectID, mappedModel, prompt string, stream bool) ([]byte, error) {
 	claudeReq := &antigravity.ClaudeRequest{
 		Model: mappedModel,
 		Messages: []antigravity.ClaudeMessage{
@@ -494,7 +606,7 @@ func (s *AntigravityGatewayService) buildClaudeProbeRequest(projectID, mappedMod
 			},
 		},
 		MaxTokens: 1,
-		Stream:    false,
+		Stream:    stream,
 	}
 	return antigravity.TransformClaudeToGemini(claudeReq, projectID, mappedModel)
 }
