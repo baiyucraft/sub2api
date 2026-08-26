@@ -440,6 +440,19 @@ type ChannelMonitorRuntime struct {
 	// snapshots; otherwise the user handler strips them server-side.
 	// Parsed fail-closed (only literal "true" enables). Admin always sees them.
 	ShowQuota bool
+	// Degraded policy for successful V1 probes. These are internal admin/runtime
+	// settings and are not exposed through public settings payloads.
+	DegradedThresholdSeconds int
+	DegradedRetryTolerance   int
+	DegradedSwitchTolerance  int
+}
+
+func (r ChannelMonitorRuntime) degradedPolicy() channelMonitorDegradedPolicy {
+	return channelMonitorDegradedPolicyFromValues(
+		r.DegradedThresholdSeconds,
+		r.DegradedRetryTolerance,
+		r.DegradedSwitchTolerance,
+	)
 }
 
 // ActiveProbesAllowed reports whether V1 active provider probes may run.
@@ -457,10 +470,13 @@ func (r ChannelMonitorRuntime) PassiveAggregationAllowed() bool {
 func (s *SettingService) GetChannelMonitorRuntime(ctx context.Context) ChannelMonitorRuntime {
 	if s == nil || s.settingRepo == nil {
 		return ChannelMonitorRuntime{
-			Enabled:                true,
-			Mode:                   defaultChannelMonitorMode,
-			DefaultIntervalSeconds: channelMonitorIntervalFallback,
-			HideThroughput:         true,
+			Enabled:                  true,
+			Mode:                     defaultChannelMonitorMode,
+			DefaultIntervalSeconds:   channelMonitorIntervalFallback,
+			HideThroughput:           true,
+			DegradedThresholdSeconds: monitorDegradedThresholdDefaultSeconds,
+			DegradedRetryTolerance:   monitorDegradedRetryToleranceDefault,
+			DegradedSwitchTolerance:  monitorDegradedSwitchToleranceDefault,
 		}
 	}
 	vals, err := s.settingRepo.GetMultiple(ctx, []string{
@@ -469,21 +485,30 @@ func (s *SettingService) GetChannelMonitorRuntime(ctx context.Context) ChannelMo
 		SettingKeyChannelMonitorDefaultIntervalSeconds,
 		SettingKeyChannelMonitorHideThroughput,
 		SettingKeyChannelMonitorShowQuota,
+		SettingKeyChannelMonitorDegradedThresholdSeconds,
+		SettingKeyChannelMonitorDegradedRetryTolerance,
+		SettingKeyChannelMonitorDegradedSwitchTolerance,
 	})
 	if err != nil {
 		return ChannelMonitorRuntime{
-			Enabled:                true,
-			Mode:                   defaultChannelMonitorMode,
-			DefaultIntervalSeconds: channelMonitorIntervalFallback,
-			HideThroughput:         true,
+			Enabled:                  true,
+			Mode:                     defaultChannelMonitorMode,
+			DefaultIntervalSeconds:   channelMonitorIntervalFallback,
+			HideThroughput:           true,
+			DegradedThresholdSeconds: monitorDegradedThresholdDefaultSeconds,
+			DegradedRetryTolerance:   monitorDegradedRetryToleranceDefault,
+			DegradedSwitchTolerance:  monitorDegradedSwitchToleranceDefault,
 		}
 	}
 	return ChannelMonitorRuntime{
-		Enabled:                !isFalseSettingValue(vals[SettingKeyChannelMonitorEnabled]),
-		Mode:                   normalizeChannelMonitorMode(vals[SettingKeyChannelMonitorMode]),
-		DefaultIntervalSeconds: parseChannelMonitorInterval(vals[SettingKeyChannelMonitorDefaultIntervalSeconds]),
-		HideThroughput:         !isFalseSettingValue(vals[SettingKeyChannelMonitorHideThroughput]),
-		ShowQuota:              vals[SettingKeyChannelMonitorShowQuota] == "true",
+		Enabled:                  !isFalseSettingValue(vals[SettingKeyChannelMonitorEnabled]),
+		Mode:                     normalizeChannelMonitorMode(vals[SettingKeyChannelMonitorMode]),
+		DefaultIntervalSeconds:   parseChannelMonitorInterval(vals[SettingKeyChannelMonitorDefaultIntervalSeconds]),
+		HideThroughput:           !isFalseSettingValue(vals[SettingKeyChannelMonitorHideThroughput]),
+		ShowQuota:                vals[SettingKeyChannelMonitorShowQuota] == "true",
+		DegradedThresholdSeconds: parseChannelMonitorDegradedThreshold(vals[SettingKeyChannelMonitorDegradedThresholdSeconds]),
+		DegradedRetryTolerance:   parseChannelMonitorDegradedRetryTolerance(vals[SettingKeyChannelMonitorDegradedRetryTolerance]),
+		DegradedSwitchTolerance:  parseChannelMonitorDegradedSwitchTolerance(vals[SettingKeyChannelMonitorDegradedSwitchTolerance]),
 	}
 }
 

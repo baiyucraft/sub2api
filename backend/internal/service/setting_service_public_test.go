@@ -165,6 +165,38 @@ func TestSettingService_ChannelMonitorShowQuotaFailsClosed(t *testing.T) {
 	}
 }
 
+func TestSettingService_ChannelMonitorDegradedPolicyDefaultsAndValidation(t *testing.T) {
+	missing := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{}).
+		GetChannelMonitorRuntime(context.Background())
+	require.Equal(t, 6, missing.DegradedThresholdSeconds)
+	require.Equal(t, 2, missing.DegradedRetryTolerance)
+	require.Equal(t, 3, missing.DegradedSwitchTolerance)
+
+	configured := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyChannelMonitorDegradedThresholdSeconds: "30",
+		SettingKeyChannelMonitorDegradedRetryTolerance:   "0",
+		SettingKeyChannelMonitorDegradedSwitchTolerance:  "5",
+	}}, &config.Config{}).GetChannelMonitorRuntime(context.Background())
+	require.Equal(t, 30, configured.DegradedThresholdSeconds)
+	require.Equal(t, 0, configured.DegradedRetryTolerance)
+	require.Equal(t, 5, configured.DegradedSwitchTolerance)
+
+	invalid := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyChannelMonitorDegradedThresholdSeconds: "301",
+		SettingKeyChannelMonitorDegradedRetryTolerance:   "bad",
+		SettingKeyChannelMonitorDegradedSwitchTolerance:  "-1",
+	}}, &config.Config{}).GetChannelMonitorRuntime(context.Background())
+	require.Equal(t, 6, invalid.DegradedThresholdSeconds)
+	require.Equal(t, 2, invalid.DegradedRetryTolerance)
+	require.Equal(t, 3, invalid.DegradedSwitchTolerance)
+
+	readFailure := NewSettingService(&settingPublicRepoStub{err: context.Canceled}, &config.Config{}).
+		GetChannelMonitorRuntime(context.Background())
+	require.Equal(t, 6, readFailure.DegradedThresholdSeconds)
+	require.Equal(t, 2, readFailure.DegradedRetryTolerance)
+	require.Equal(t, 3, readFailure.DegradedSwitchTolerance)
+}
+
 func TestSettingService_GetPublicSettings_ExposesForceEmailOnThirdPartySignup(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{

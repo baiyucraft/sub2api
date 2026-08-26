@@ -274,6 +274,7 @@ export default {
     resendCode: '重新发送验证码',
     sendCodeDesc: '我们将发送验证码到',
     codeSentSuccess: '验证码已发送！请查收您的邮箱。',
+    codeSentSpamHint: '如果没有收到邮件，请检查垃圾邮件文件夹。',
     verifying: '验证中...',
     verifyAndCreate: '验证并创建账户',
     resendCountdown: '{countdown}秒后可重新发送',

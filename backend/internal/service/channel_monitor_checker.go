@@ -59,7 +59,7 @@ type CheckOptions struct {
 // 不返回 error：所有失败都包装进 CheckResult.Status=error/failed。
 //
 // opts 承载模板 / 监控快照带来的自定义配置。nil 等同于 "off + 无 extra headers"。
-func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model string, opts *CheckOptions) *CheckResult {
+func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model string, opts *CheckOptions, policies ...channelMonitorDegradedPolicy) *CheckResult {
 	res := &CheckResult{
 		Model:     model,
 		Status:    MonitorStatusError,
@@ -103,7 +103,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 			res.Message = truncateMessage("replace-mode: upstream returned 2xx with empty text")
 			return res
 		}
-		return finalizeOperationalOrDegraded(res, latency, latencyMs)
+		return finalizeOperationalOrDegraded(res, latency, latencyMs, policies...)
 	}
 
 	if !validateChallenge(respText, challenge.Expected) {
@@ -112,7 +112,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 		return res
 	}
 
-	return finalizeOperationalOrDegraded(res, latency, latencyMs)
+	return finalizeOperationalOrDegraded(res, latency, latencyMs, policies...)
 }
 
 // runCheckForModelWithRetry 在完整网关请求失败后重新发起独立探测。
@@ -124,20 +124,29 @@ func runCheckForModelWithRetry(
 	opts *CheckOptions,
 	maxAttempts int,
 	retryDelay time.Duration,
+	policies ...channelMonitorDegradedPolicy,
 ) *CheckResult {
+	policy := defaultChannelMonitorDegradedPolicy()
+	if len(policies) > 0 {
+		policy = normalizeChannelMonitorDegradedPolicy(policies[0])
+	}
 	maxAttempts = normalizeMaxProbeAttempts(maxAttempts)
 	if maxAttempts < monitorMinProbeAttempts || maxAttempts > monitorMaxProbeAttempts {
 		maxAttempts = monitorDefaultMaxProbeAttempts
 	}
 	var last *CheckResult
+	roundStart := time.Now()
+	totalSwitches := 0
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		last = runCheckForModel(ctx, provider, endpoint, apiKey, model, opts)
+		last = runCheckForModel(ctx, provider, endpoint, apiKey, model, opts, policy)
+		totalSwitches += last.AccountSwitchCount
+		last.AccountSwitchCount = totalSwitches
+		last.RetryCount = attempt - 1
 		if last.Status == MonitorStatusOperational || last.Status == MonitorStatusDegraded {
-			if attempt > 1 {
-				last.Status = MonitorStatusDegraded
-				last.Message = probeRetrySuccessMessage(attempt, last.Message)
-			}
-			return last
+			elapsed := time.Since(roundStart)
+			latencyMs := int(elapsed / time.Millisecond)
+			last.LatencyMs = &latencyMs
+			return finalizeOperationalOrDegraded(last, elapsed, latencyMs, policy)
 		}
 		if attempt == maxAttempts {
 			break
@@ -175,18 +184,28 @@ func probeRetrySuccessMessage(attempt int, detail string) string {
 
 // finalizeOperationalOrDegraded 负责走到最后一步的 operational/degraded 判定。
 // 拆出来是为了让 runCheckForModel 不超过 30 行。
-func finalizeOperationalOrDegraded(res *CheckResult, latency time.Duration, latencyMs int) *CheckResult {
-	if res.AccountSwitchCount > 0 {
-		res.Status = MonitorStatusDegraded
-		res.Message = truncateMessage(fmt.Sprintf("已换号 %d 次后成功", res.AccountSwitchCount))
-		return res
+func finalizeOperationalOrDegraded(res *CheckResult, latency time.Duration, latencyMs int, policies ...channelMonitorDegradedPolicy) *CheckResult {
+	policy := defaultChannelMonitorDegradedPolicy()
+	if len(policies) > 0 {
+		policy = normalizeChannelMonitorDegradedPolicy(policies[0])
 	}
-	if latency >= monitorDegradedThreshold {
+	reasons := make([]string, 0, 3)
+	if latency >= policy.Threshold {
+		reasons = append(reasons, fmt.Sprintf("慢响应 %dms", latencyMs))
+	}
+	if res.RetryCount > policy.RetryTolerance {
+		reasons = append(reasons, fmt.Sprintf("重试 %d 次超出免降级次数 %d", res.RetryCount, policy.RetryTolerance))
+	}
+	if res.AccountSwitchCount > policy.SwitchTolerance {
+		reasons = append(reasons, fmt.Sprintf("换号 %d 次超出免降级次数 %d", res.AccountSwitchCount, policy.SwitchTolerance))
+	}
+	if len(reasons) > 0 {
 		res.Status = MonitorStatusDegraded
-		res.Message = truncateMessage(fmt.Sprintf("slow response: %dms", latencyMs))
+		res.Message = truncateMessage(strings.Join(reasons, "；"))
 		return res
 	}
 	res.Status = MonitorStatusOperational
+	res.Message = ""
 	return res
 }
 

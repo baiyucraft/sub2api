@@ -589,7 +589,7 @@ export default {
         jitterSeconds: 'Random Jitter (± seconds)',
         jitterSecondsHint: 'Each check fires at interval ± a random offset within this value; 0 means fixed interval. Interval minus jitter must be ≥ 15s',
         maxProbeAttempts: 'Maximum probe attempts',
-        maxProbeAttemptsHint: 'Range: 1-5, including the first request. A later successful attempt is shown as degraded.',
+        maxProbeAttemptsHint: 'Range: 1-5, including the first request. This only caps actual requests in one probe; it is separate from global retry tolerance.',
         enabled: 'Enable monitor',
         kindRequired: 'Please select a provider'
       },

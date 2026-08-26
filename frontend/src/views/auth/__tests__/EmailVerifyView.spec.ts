@@ -326,7 +326,7 @@ describe('EmailVerifyView', () => {
       })
     )
 
-    mount(EmailVerifyView, {
+    const wrapper = mount(EmailVerifyView, {
       global: {
         stubs: {
           AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
@@ -342,6 +342,7 @@ describe('EmailVerifyView', () => {
     expect(sendVerifyCodeMock).toHaveBeenCalledWith(
       expect.objectContaining({ email: 'first@custom.example' })
     )
+    expect(wrapper.text()).toContain('auth.codeSentSpamHint')
     expect(showErrorMock).not.toHaveBeenCalled()
   })
 

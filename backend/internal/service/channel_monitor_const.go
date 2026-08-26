@@ -1,20 +1,101 @@
 package service
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
-// ChannelMonitor 全局常量。
-// 这些是 MVP 阶段的硬编码值，按需可以提到 config 中。
+// channelMonitorDegradedPolicy controls the final status of a successful V1
+// probe. Zero values are normalized to the safe defaults so existing callers
+// and tests that construct ChannelMonitorRuntime literals remain compatible.
+type channelMonitorDegradedPolicy struct {
+	Threshold       time.Duration
+	RetryTolerance  int
+	SwitchTolerance int
+}
+
+func defaultChannelMonitorDegradedPolicy() channelMonitorDegradedPolicy {
+	return channelMonitorDegradedPolicy{
+		Threshold:       monitorDegradedThreshold,
+		RetryTolerance:  monitorDegradedRetryToleranceDefault,
+		SwitchTolerance: monitorDegradedSwitchToleranceDefault,
+	}
+}
+
+func normalizeChannelMonitorDegradedPolicy(policy channelMonitorDegradedPolicy) channelMonitorDegradedPolicy {
+	defaults := defaultChannelMonitorDegradedPolicy()
+	if policy.Threshold < time.Duration(monitorDegradedThresholdMinSeconds)*time.Second ||
+		policy.Threshold > time.Duration(monitorDegradedThresholdMaxSeconds)*time.Second {
+		policy.Threshold = defaults.Threshold
+	}
+	if policy.RetryTolerance < monitorDegradedRetryToleranceMin || policy.RetryTolerance > monitorDegradedRetryToleranceMax {
+		policy.RetryTolerance = defaults.RetryTolerance
+	}
+	if policy.SwitchTolerance < monitorDegradedSwitchToleranceMin || policy.SwitchTolerance > monitorDegradedSwitchToleranceMax {
+		policy.SwitchTolerance = defaults.SwitchTolerance
+	}
+	return policy
+}
+
+func parseChannelMonitorDegradedThreshold(raw string) int {
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || v < monitorDegradedThresholdMinSeconds || v > monitorDegradedThresholdMaxSeconds {
+		return monitorDegradedThresholdDefaultSeconds
+	}
+	return v
+}
+
+func parseChannelMonitorDegradedRetryTolerance(raw string) int {
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || v < monitorDegradedRetryToleranceMin || v > monitorDegradedRetryToleranceMax {
+		return monitorDegradedRetryToleranceDefault
+	}
+	return v
+}
+
+func parseChannelMonitorDegradedSwitchTolerance(raw string) int {
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || v < monitorDegradedSwitchToleranceMin || v > monitorDegradedSwitchToleranceMax {
+		return monitorDegradedSwitchToleranceDefault
+	}
+	return v
+}
+
+func channelMonitorDegradedPolicyFromValues(thresholdSeconds, retryTolerance, switchTolerance int) channelMonitorDegradedPolicy {
+	// Runtime literals created by legacy tests/callers omit all three fields.
+	// Since a valid threshold can never be zero, use it as the presence marker;
+	// configured zero tolerances remain valid when a threshold is present.
+	if thresholdSeconds == 0 {
+		return defaultChannelMonitorDegradedPolicy()
+	}
+	return normalizeChannelMonitorDegradedPolicy(channelMonitorDegradedPolicy{
+		Threshold:       time.Duration(thresholdSeconds) * time.Second,
+		RetryTolerance:  retryTolerance,
+		SwitchTolerance: switchTolerance,
+	})
+}
+
+// ChannelMonitor 全局常量。运行时策略通过 settings 覆盖安全默认值；
+// 这里保留请求预算、边界和兼容默认值，避免配置缺失时行为漂移。
 const (
 	// monitorRequestTimeout 单次模型请求总超时（含 Body 读取）。
 	monitorRequestTimeout = 45 * time.Second
 	// monitorPingTimeout HEAD 请求 endpoint origin 的超时。
 	monitorPingTimeout = 8 * time.Second
-	// monitorDegradedThreshold 主请求成功但耗时超过该阈值视为 degraded。
-	monitorDegradedThreshold = 6 * time.Second
+	// monitorDegradedThreshold 是降级阈值的安全默认值。实际 V1 探测从运行时配置读取。
+	monitorDegradedThreshold               = 6 * time.Second
+	monitorDegradedThresholdDefaultSeconds = 6
+	monitorDegradedThresholdMinSeconds     = 1
+	monitorDegradedThresholdMaxSeconds     = 300
+	monitorDegradedRetryToleranceDefault   = 2
+	monitorDegradedRetryToleranceMin       = 0
+	monitorDegradedRetryToleranceMax       = 4
+	monitorDegradedSwitchToleranceDefault  = 3
+	monitorDegradedSwitchToleranceMin      = 0
+	monitorDegradedSwitchToleranceMax      = 5
 	// monitorHistoryRetentionDays 明细历史保留天数。
 	// 60s 默认间隔 * 30 天 ≈ 43200 行/monitor/model，一般部署总量 <= 2M 行，
 	// PG 无压力；所以直接保留完整明细一个月，可用率查询可以全走原始行不依赖聚合。

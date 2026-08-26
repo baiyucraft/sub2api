@@ -759,10 +759,10 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	case MonitorCheckModeQuota:
 		results = s.runQuotaOnlyCheck(ctx, m)
 	case MonitorCheckModeQuotaProbe:
-		results = s.runChecksConcurrent(ctx, m)
+		results = s.runChecksConcurrent(ctx, m, rt.degradedPolicy())
 		attachQuotaSnapshot(results, s.fetchQuotaSnapshot(ctx, m))
 	default:
-		results = s.runChecksConcurrent(ctx, m)
+		results = s.runChecksConcurrent(ctx, m, rt.degradedPolicy())
 	}
 	s.persistCheckResultsIfAllowed(ctx, m, results)
 	return results, nil
@@ -889,7 +889,7 @@ func (s *ChannelMonitorService) persistCheckResultsIfAllowed(ctx context.Context
 
 // runChecksConcurrent 对 primary + extra 模型并发执行检测。
 // errgroup 仅用于等待，不传播错误（每个 model 失败都已打包进 CheckResult）。
-func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *ChannelMonitor) []*CheckResult {
+func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *ChannelMonitor, policies ...channelMonitorDegradedPolicy) []*CheckResult {
 	models := append([]string{m.PrimaryModel}, m.ExtraModels...)
 	results := make([]*CheckResult, len(models))
 
@@ -918,6 +918,7 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 				opts,
 				normalizeMaxProbeAttempts(m.MaxProbeAttempts),
 				monitorProbeRetryDelay,
+				policies...,
 			)
 			r.PingLatencyMs = pingMs
 			mu.Lock()

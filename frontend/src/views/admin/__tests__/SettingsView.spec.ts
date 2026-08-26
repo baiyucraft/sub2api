@@ -609,6 +609,16 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
+async function openFeaturesTab(wrapper: ReturnType<typeof mountView>) {
+  const featuresTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.features"));
+
+  expect(featuresTabButton).toBeDefined();
+  await featuresTabButton?.trigger("click");
+  await flushPromises();
+}
+
 describe("admin SettingsView email domain quota copy", () => {
   it("documents the email domain quota and empty-whitelist behavior in both locales", () => {
     expect(zhCommon.auth.emailDomainRegistrationLimit).toContain("主流邮箱");
@@ -723,6 +733,82 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("loads and saves the V1 channel monitor degradation policy", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      channel_monitor_enabled: true,
+      channel_monitor_mode: "v1",
+      channel_monitor_degraded_threshold_seconds: 9,
+      channel_monitor_degraded_retry_tolerance: 1,
+      channel_monitor_degraded_switch_tolerance: 4,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    expect((wrapper.get('[data-testid="channel-monitor-degraded-threshold"]').element as HTMLInputElement).value).toBe("9");
+    expect((wrapper.get('[data-testid="channel-monitor-degraded-retry-tolerance"]').element as HTMLInputElement).value).toBe("1");
+    expect((wrapper.get('[data-testid="channel-monitor-degraded-switch-tolerance"]').element as HTMLInputElement).value).toBe("4");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      channel_monitor_degraded_threshold_seconds: 9,
+      channel_monitor_degraded_retry_tolerance: 1,
+      channel_monitor_degraded_switch_tolerance: 4,
+    }));
+  });
+
+  it("uses safe defaults when the V1 degradation policy is absent", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      channel_monitor_enabled: true,
+      channel_monitor_mode: "v1",
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    expect((wrapper.get('[data-testid="channel-monitor-degraded-threshold"]').element as HTMLInputElement).value).toBe("6");
+    expect((wrapper.get('[data-testid="channel-monitor-degraded-retry-tolerance"]').element as HTMLInputElement).value).toBe("2");
+    expect((wrapper.get('[data-testid="channel-monitor-degraded-switch-tolerance"]').element as HTMLInputElement).value).toBe("3");
+  });
+
+  it("only shows the degradation policy in V1 mode", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      channel_monitor_enabled: true,
+      channel_monitor_mode: "v2",
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    expect(wrapper.find('[data-testid="channel-monitor-degraded-threshold"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="channel-monitor-degraded-retry-tolerance"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="channel-monitor-degraded-switch-tolerance"]').exists()).toBe(false);
+  });
+
+  it("rejects an out-of-range V1 degradation policy before saving", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      channel_monitor_enabled: true,
+      channel_monitor_mode: "v1",
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    await wrapper.get('[data-testid="channel-monitor-degraded-threshold"]').setValue("301");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalledWith(
+      "admin.settings.features.channelMonitor.degradedPolicyRangeError",
+    );
   });
 
   it("submits the compact home page toggle", async () => {

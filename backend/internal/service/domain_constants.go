@@ -485,6 +485,12 @@ const (
 	// keep the full snapshots regardless of this flag.
 	SettingKeyChannelMonitorShowQuota = "channel_monitor_show_quota"
 
+	// V1 successful-probe degradation policy. Values are read at runtime;
+	// missing or invalid values fall back to 6/2/3.
+	SettingKeyChannelMonitorDegradedThresholdSeconds = "channel_monitor_degraded_threshold_seconds"
+	SettingKeyChannelMonitorDegradedRetryTolerance   = "channel_monitor_degraded_retry_tolerance"
+	SettingKeyChannelMonitorDegradedSwitchTolerance  = "channel_monitor_degraded_switch_tolerance"
+
 	// SettingKeyGrokDefaultTextModel is the fallback Grok text model for empty
 	// request models and built-in Grok aliases (e.g. "grok" → this id). Default grok-4.5.
 	SettingKeyGrokDefaultTextModel = "grok_default_text_model"

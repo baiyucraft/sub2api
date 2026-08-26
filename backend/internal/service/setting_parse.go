@@ -186,11 +186,14 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpsMetricsIntervalSeconds:    "60",
 
 		// Channel monitor defaults (enabled, 60s)
-		SettingKeyChannelMonitorEnabled:                "true",
-		SettingKeyChannelMonitorMode:                   ChannelMonitorModeV1,
-		SettingKeyChannelMonitorDefaultIntervalSeconds: "60",
-		SettingKeyChannelMonitorHideThroughput:         "true",
-		SettingKeyChannelMonitorShowQuota:              "false",
+		SettingKeyChannelMonitorEnabled:                  "true",
+		SettingKeyChannelMonitorMode:                     ChannelMonitorModeV1,
+		SettingKeyChannelMonitorDefaultIntervalSeconds:   "60",
+		SettingKeyChannelMonitorHideThroughput:           "true",
+		SettingKeyChannelMonitorShowQuota:                "false",
+		SettingKeyChannelMonitorDegradedThresholdSeconds: "6",
+		SettingKeyChannelMonitorDegradedRetryTolerance:   "2",
+		SettingKeyChannelMonitorDegradedSwitchTolerance:  "3",
 
 		// Grok: safe defaults — no cross-vendor model rewrite unless operators enable it.
 		SettingKeyGrokDefaultTextModel:           "grok-4.6",
@@ -803,6 +806,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	// 配额展示默认关闭且 fail-closed：仅字面 "true" 视为开启
 	// （与 setting_public.go 公开读取路径保持一致）。
 	result.ChannelMonitorShowQuota = settings[SettingKeyChannelMonitorShowQuota] == "true"
+	result.ChannelMonitorDegradedThresholdSeconds = parseChannelMonitorDegradedThreshold(settings[SettingKeyChannelMonitorDegradedThresholdSeconds])
+	result.ChannelMonitorDegradedRetryTolerance = parseChannelMonitorDegradedRetryTolerance(settings[SettingKeyChannelMonitorDegradedRetryTolerance])
+	result.ChannelMonitorDegradedSwitchTolerance = parseChannelMonitorDegradedSwitchTolerance(settings[SettingKeyChannelMonitorDegradedSwitchTolerance])
 
 	// Grok default mapping policy
 	result.GrokDefaultTextModel = strings.TrimSpace(settings[SettingKeyGrokDefaultTextModel])

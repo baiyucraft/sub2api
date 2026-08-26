@@ -328,11 +328,14 @@ type UpdateSettingsRequest struct {
 	PaymentAlipayMobilePrecreateDeepLink *bool `json:"payment_alipay_mobile_precreate_deep_link"`
 
 	// Channel Monitor feature switch
-	ChannelMonitorEnabled                *bool   `json:"channel_monitor_enabled"`
-	ChannelMonitorMode                   *string `json:"channel_monitor_mode"`
-	ChannelMonitorDefaultIntervalSeconds *int    `json:"channel_monitor_default_interval_seconds"`
-	ChannelMonitorHideThroughput         *bool   `json:"channel_monitor_hide_throughput"`
-	ChannelMonitorShowQuota              *bool   `json:"channel_monitor_show_quota"`
+	ChannelMonitorEnabled                  *bool   `json:"channel_monitor_enabled"`
+	ChannelMonitorMode                     *string `json:"channel_monitor_mode"`
+	ChannelMonitorDefaultIntervalSeconds   *int    `json:"channel_monitor_default_interval_seconds"`
+	ChannelMonitorHideThroughput           *bool   `json:"channel_monitor_hide_throughput"`
+	ChannelMonitorShowQuota                *bool   `json:"channel_monitor_show_quota"`
+	ChannelMonitorDegradedThresholdSeconds *int    `json:"channel_monitor_degraded_threshold_seconds"`
+	ChannelMonitorDegradedRetryTolerance   *int    `json:"channel_monitor_degraded_retry_tolerance"`
+	ChannelMonitorDegradedSwitchTolerance  *int    `json:"channel_monitor_degraded_switch_tolerance"`
 
 	// Grok model mapping policy
 	GrokDefaultTextModel           *string `json:"grok_default_text_model"`
@@ -1899,6 +1902,24 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ChannelMonitorShowQuota
 		}(),
+		ChannelMonitorDegradedThresholdSeconds: func() int {
+			if req.ChannelMonitorDegradedThresholdSeconds != nil {
+				return *req.ChannelMonitorDegradedThresholdSeconds
+			}
+			return previousSettings.ChannelMonitorDegradedThresholdSeconds
+		}(),
+		ChannelMonitorDegradedRetryTolerance: func() int {
+			if req.ChannelMonitorDegradedRetryTolerance != nil {
+				return *req.ChannelMonitorDegradedRetryTolerance
+			}
+			return previousSettings.ChannelMonitorDegradedRetryTolerance
+		}(),
+		ChannelMonitorDegradedSwitchTolerance: func() int {
+			if req.ChannelMonitorDegradedSwitchTolerance != nil {
+				return *req.ChannelMonitorDegradedSwitchTolerance
+			}
+			return previousSettings.ChannelMonitorDegradedSwitchTolerance
+		}(),
 		GrokDefaultTextModel: func() string {
 			if req.GrokDefaultTextModel != nil {
 				return *req.GrokDefaultTextModel
@@ -2354,11 +2375,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PaymentAlipayForceQRCode:                               updatedPaymentCfg.AlipayForceQRCode,
 		PaymentAlipayMobilePrecreateDeepLink:                   updatedPaymentCfg.AlipayMobilePrecreateDeepLink,
 
-		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
-		ChannelMonitorMode:                   updatedSettings.ChannelMonitorMode,
-		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
-		ChannelMonitorHideThroughput:         updatedSettings.ChannelMonitorHideThroughput,
-		ChannelMonitorShowQuota:              updatedSettings.ChannelMonitorShowQuota,
+		ChannelMonitorEnabled:                  updatedSettings.ChannelMonitorEnabled,
+		ChannelMonitorMode:                     updatedSettings.ChannelMonitorMode,
+		ChannelMonitorDefaultIntervalSeconds:   updatedSettings.ChannelMonitorDefaultIntervalSeconds,
+		ChannelMonitorHideThroughput:           updatedSettings.ChannelMonitorHideThroughput,
+		ChannelMonitorShowQuota:                updatedSettings.ChannelMonitorShowQuota,
+		ChannelMonitorDegradedThresholdSeconds: updatedSettings.ChannelMonitorDegradedThresholdSeconds,
+		ChannelMonitorDegradedRetryTolerance:   updatedSettings.ChannelMonitorDegradedRetryTolerance,
+		ChannelMonitorDegradedSwitchTolerance:  updatedSettings.ChannelMonitorDegradedSwitchTolerance,
 
 		GrokDefaultTextModel:           updatedSettings.GrokDefaultTextModel,
 		GrokCrossClientModelMapEnabled: updatedSettings.GrokCrossClientModelMapEnabled,

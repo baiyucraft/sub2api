@@ -7228,6 +7228,24 @@
                 </p>
               </div>
 
+              <div v-if="form.channel_monitor_mode === 'v1'" class="grid gap-4 md:grid-cols-3">
+                <div>
+                  <label class="input-label">{{ t('admin.settings.features.channelMonitor.degradedThreshold') }}</label>
+                  <input v-model.number="form.channel_monitor_degraded_threshold_seconds" data-testid="channel-monitor-degraded-threshold" type="number" min="1" max="300" class="input" />
+                  <p class="mt-1 text-xs text-gray-400">{{ t('admin.settings.features.channelMonitor.degradedThresholdHint') }}</p>
+                </div>
+                <div>
+                  <label class="input-label">{{ t('admin.settings.features.channelMonitor.degradedRetryTolerance') }}</label>
+                  <input v-model.number="form.channel_monitor_degraded_retry_tolerance" data-testid="channel-monitor-degraded-retry-tolerance" type="number" min="0" max="4" class="input" />
+                  <p class="mt-1 text-xs text-gray-400">{{ t('admin.settings.features.channelMonitor.degradedRetryToleranceHint') }}</p>
+                </div>
+                <div>
+                  <label class="input-label">{{ t('admin.settings.features.channelMonitor.degradedSwitchTolerance') }}</label>
+                  <input v-model.number="form.channel_monitor_degraded_switch_tolerance" data-testid="channel-monitor-degraded-switch-tolerance" type="number" min="0" max="5" class="input" />
+                  <p class="mt-1 text-xs text-gray-400">{{ t('admin.settings.features.channelMonitor.degradedSwitchToleranceHint') }}</p>
+                </div>
+              </div>
+
               <div v-if="form.channel_monitor_mode === 'v2'" class="flex items-start justify-between gap-4">
                 <div class="min-w-0">
                   <p class="text-sm font-medium text-gray-900 dark:text-white">
@@ -9938,6 +9956,9 @@ const form = reactive<SettingsForm>({
   channel_monitor_default_interval_seconds: 60,
   channel_monitor_hide_throughput: true,
   channel_monitor_show_quota: false,
+  channel_monitor_degraded_threshold_seconds: 6,
+  channel_monitor_degraded_retry_tolerance: 2,
+  channel_monitor_degraded_switch_tolerance: 3,
   // Available Channels feature switch
   available_channels_enabled: false,
   // Model Plaza feature switches + description
@@ -10944,6 +10965,16 @@ async function loadSettings() {
     form.channel_monitor_show_quota = Boolean(
       settings.channel_monitor_show_quota
     );
+    form.channel_monitor_degraded_threshold_seconds =
+      Number(settings.channel_monitor_degraded_threshold_seconds) || 6;
+    form.channel_monitor_degraded_retry_tolerance =
+      Number.isInteger(settings.channel_monitor_degraded_retry_tolerance)
+        ? settings.channel_monitor_degraded_retry_tolerance
+        : 2;
+    form.channel_monitor_degraded_switch_tolerance =
+      Number.isInteger(settings.channel_monitor_degraded_switch_tolerance)
+        ? settings.channel_monitor_degraded_switch_tolerance
+        : 3;
     form.login_agreement_updated_at =
       settings.login_agreement_updated_at || "2026-03-31";
     form.login_agreement_documents =
@@ -11147,6 +11178,27 @@ function findDuplicateDefaultSubscription(
 async function saveSettings() {
   saving.value = true;
   try {
+    const degradedThreshold = Math.floor(Number(form.channel_monitor_degraded_threshold_seconds));
+    const degradedRetryTolerance = Math.floor(Number(form.channel_monitor_degraded_retry_tolerance));
+    const degradedSwitchTolerance = Math.floor(Number(form.channel_monitor_degraded_switch_tolerance));
+    if (
+      !Number.isInteger(degradedThreshold) ||
+      degradedThreshold < 1 ||
+      degradedThreshold > 300 ||
+      !Number.isInteger(degradedRetryTolerance) ||
+      degradedRetryTolerance < 0 ||
+      degradedRetryTolerance > 4 ||
+      !Number.isInteger(degradedSwitchTolerance) ||
+      degradedSwitchTolerance < 0 ||
+      degradedSwitchTolerance > 5
+    ) {
+      appStore.showError(t('admin.settings.features.channelMonitor.degradedPolicyRangeError'));
+      return;
+    }
+    form.channel_monitor_degraded_threshold_seconds = degradedThreshold;
+    form.channel_monitor_degraded_retry_tolerance = degradedRetryTolerance;
+    form.channel_monitor_degraded_switch_tolerance = degradedSwitchTolerance;
+
     const normalizedTableDefaultPageSize = Math.floor(
       Number(form.table_default_page_size),
     );
@@ -11596,6 +11648,16 @@ async function saveSettings() {
         Number(form.channel_monitor_default_interval_seconds) || 60,
       channel_monitor_hide_throughput: Boolean(form.channel_monitor_hide_throughput),
       channel_monitor_show_quota: Boolean(form.channel_monitor_show_quota),
+      channel_monitor_degraded_threshold_seconds:
+        Number(form.channel_monitor_degraded_threshold_seconds) || 6,
+      channel_monitor_degraded_retry_tolerance:
+        Number.isInteger(Number(form.channel_monitor_degraded_retry_tolerance))
+          ? Number(form.channel_monitor_degraded_retry_tolerance)
+          : 2,
+      channel_monitor_degraded_switch_tolerance:
+        Number.isInteger(Number(form.channel_monitor_degraded_switch_tolerance))
+          ? Number(form.channel_monitor_degraded_switch_tolerance)
+          : 3,
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
       // Model Plaza feature switches + description
