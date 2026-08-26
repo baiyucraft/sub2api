@@ -49,7 +49,7 @@
                   </span>
                 </td>
                 <td class="py-0.5 text-gray-100">
-                  <div>{{ t('monitorCommon.ttft') }} {{ formatLatencyWithUnit(m.ttft_ms) }}</div>
+                  <div>{{ t('monitorCommon.ttft') }} {{ formatTTFTWithUnit(m.ttft_ms) }}</div>
                   <div>{{ t('monitorCommon.totalLatency') }} {{ formatLatencyWithUnit(m.latency_ms) }}</div>
                 </td>
               </tr>
@@ -76,5 +76,5 @@ defineProps<{
 }>()
 
 const { t } = useI18n()
-const { statusLabel, statusBadgeClass, formatLatencyWithUnit, formatMonitorModel } = useChannelMonitorFormat()
+const { statusLabel, statusBadgeClass, formatLatencyWithUnit, formatTTFTWithUnit, formatMonitorModel } = useChannelMonitorFormat()
 </script>

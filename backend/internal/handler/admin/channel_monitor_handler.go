@@ -220,7 +220,7 @@ func checkResultToResponse(r *service.CheckResult) channelMonitorCheckResultResp
 		Model:         r.Model,
 		Status:        r.Status,
 		LatencyMs:     r.LatencyMs,
-		TTFTMs:        r.TTFTMs,
+		TTFTMs:        service.NormalizeChannelMonitorTTFT(r.TTFTMs),
 		PingLatencyMs: r.PingLatencyMs,
 		Message:       r.Message,
 		CheckedAt:     r.CheckedAt.UTC().Format(time.RFC3339),
@@ -234,7 +234,7 @@ func historyEntryToResponse(e *service.ChannelMonitorHistoryEntry) channelMonito
 		Model:         e.Model,
 		Status:        e.Status,
 		LatencyMs:     e.LatencyMs,
-		TTFTMs:        e.TTFTMs,
+		TTFTMs:        service.NormalizeChannelMonitorTTFT(e.TTFTMs),
 		PingLatencyMs: e.PingLatencyMs,
 		Message:       e.Message,
 		CheckedAt:     e.CheckedAt.UTC().Format(time.RFC3339),
@@ -316,7 +316,7 @@ func buildListItemResponse(m *service.ChannelMonitor, summary service.MonitorSta
 	resp := channelMonitorToResponse(m)
 	resp.PrimaryStatus = summary.PrimaryStatus
 	resp.PrimaryLatencyMs = summary.PrimaryLatencyMs
-	resp.PrimaryTTFTMs = summary.PrimaryTTFTMs
+	resp.PrimaryTTFTMs = service.NormalizeChannelMonitorTTFT(summary.PrimaryTTFTMs)
 	resp.Availability7d = summary.Availability7d
 	resp.LatestQuota = summary.LatestQuota
 	resp.ExtraModelsStatus = make([]dto.ChannelMonitorExtraModelStatus, 0, len(summary.ExtraModels))
@@ -325,7 +325,7 @@ func buildListItemResponse(m *service.ChannelMonitor, summary service.MonitorSta
 			Model:     e.Model,
 			Status:    e.Status,
 			LatencyMs: e.LatencyMs,
-			TTFTMs:    e.TTFTMs,
+			TTFTMs:    service.NormalizeChannelMonitorTTFT(e.TTFTMs),
 		})
 	}
 	return resp

@@ -51,7 +51,7 @@ const props = withDefaults(defineProps<{
 })
 
 const { t } = useI18n()
-const { statusLabel, formatLatency, formatRelativeTime } = useChannelMonitorFormat()
+const { statusLabel, formatLatency, formatTTFT, formatRelativeTime } = useChannelMonitorFormat()
 
 interface Bar {
   colorClass: string
@@ -103,7 +103,7 @@ const displayBars = computed<Bar[]>(() => {
     const colorClass = STATUS_COLOR[status] ?? STATUS_COLOR.empty
     const heightPct = STATUS_HEIGHT[status] ?? STATUS_HEIGHT.empty
     const latency = formatLatency(point.latency_ms)
-    const ttft = formatLatency(point.ttft_ms)
+    const ttft = formatTTFT(point.ttft_ms)
     const relative = formatRelativeTime(point.checked_at)
     const label = statusLabel(point.status)
     bars.push({
