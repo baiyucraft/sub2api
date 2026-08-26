@@ -119,6 +119,7 @@ describe('admin UsageTable output TPS', () => {
 
     expect(wrapper.text()).toContain('Output rate')
     expect(wrapper.text()).toContain('12.3 t/s')
+    expect(wrapper.find('.text-violet-600').classes()).not.toContain('font-semibold')
   })
 
   it('keeps the shared table unchanged unless TPS is explicitly enabled', () => {

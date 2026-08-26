@@ -226,13 +226,13 @@
             ></span>
             <div class="grid grid-cols-[max-content_max-content] items-baseline gap-x-2.5 gap-y-0 text-[11px] leading-4">
               <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyFirstToken') }}</span>
-              <span v-if="row.first_token_ms != null" class="font-semibold tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(row.first_token_ms)]">{{ formatDuration(row.first_token_ms) }}</span>
+              <span v-if="row.first_token_ms != null" class="tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(row.first_token_ms)]">{{ formatDuration(row.first_token_ms) }}</span>
               <span v-else class="text-gray-400 dark:text-gray-500">-</span>
               <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
-              <span class="font-semibold tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
+              <span class="tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
               <template v-if="showOutputTps">
                 <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyTps') }}</span>
-                <span v-if="row.output_tps != null && row.output_tps > 0" class="font-semibold tabular-nums text-violet-600 dark:text-violet-400">{{ formatOutputTps(row.output_tps) }} {{ t('usage.tokensPerSecondUnit') }}</span>
+                <span v-if="row.output_tps != null && row.output_tps > 0" class="tabular-nums text-violet-600 dark:text-violet-400">{{ formatOutputTps(row.output_tps) }} {{ t('usage.tokensPerSecondUnit') }}</span>
                 <span v-else class="text-gray-400 dark:text-gray-500">-</span>
               </template>
             </div>

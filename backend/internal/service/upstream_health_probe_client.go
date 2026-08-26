@@ -124,24 +124,11 @@ func newOpenAIConfidenceChallenge() (upstreamHealthChallenge, error) {
 		return upstreamHealthChallenge{}, err
 	}
 	if choice.Int64() < 70 {
-		effortChoice, err := cryptorand.Int(cryptorand.Reader, big.NewInt(100))
-		if err != nil {
-			return upstreamHealthChallenge{}, err
-		}
-		effort := upstreamConfidenceDefaultEffort
-		switch {
-		case effortChoice.Int64() < 15:
-			effort = "low"
-		case effortChoice.Int64() < 30:
-			effort = "medium"
-		case effortChoice.Int64() < 70:
-			effort = "high"
-		case effortChoice.Int64() < 85:
-			effort = "xhigh"
-		default:
-			effort = "max"
-		}
-		return newOpenAIJuiceChallengeForEffort(effort)
+		// High is the only GPT-5.6 effort with distinct Sol/Terra/Luna
+		// signatures. Keep the multiprobe type selection random, but use a
+		// fixed high effort for every Juice probe so observations are directly
+		// comparable and cannot mix overlapping signatures from other efforts.
+		return newOpenAIJuiceChallengeForEffort(upstreamConfidenceDefaultEffort)
 	}
 	if choice.Int64() < 85 {
 		value, err := newOpenAICoverageValue()

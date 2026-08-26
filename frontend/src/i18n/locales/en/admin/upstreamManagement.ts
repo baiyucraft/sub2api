@@ -67,7 +67,7 @@ export default {
       description: 'Use one real Responses request to validate task completion consistency.',
       enabled: 'Enable confidence probe',
       effort: 'Reasoning effort',
-      randomEffort: 'Random effort (high 40%, others 15% each)',
+      fixedEffort: 'Fixed effort: high',
       threshold: 'Degrade threshold',
       longContext: 'Include bounded long context',
       maxTokens: 'Context tokens'

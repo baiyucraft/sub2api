@@ -97,7 +97,7 @@
             <Toggle v-model="draft.confidence_probe.enabled" :aria-label="t('admin.upstreamManagement.confidenceProbe.enabled')" />
           </div>
           <div class="mt-4 grid max-w-xs gap-4">
-            <label class="space-y-1.5"><span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.effort') }}</span><span class="flex min-h-10 items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.randomEffort') }}</span></label>
+            <label class="space-y-1.5"><span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.effort') }}</span><span class="flex min-h-10 items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.fixedEffort') }}</span></label>
           </div>
         </div>
         <div class="mt-6 border-t border-gray-200 pt-5 dark:border-dark-700">
