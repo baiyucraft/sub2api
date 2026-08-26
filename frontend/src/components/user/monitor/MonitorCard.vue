@@ -47,7 +47,7 @@
     <MonitorMetricPair
       primary-icon="bolt"
       :primary-label="t('monitorCommon.ttft')"
-      :primary-value="formatLatency(item.primary_ttft_ms)"
+      :primary-value="formatTTFT(item.primary_ttft_ms)"
       primary-unit="ms"
       secondary-icon="clock"
       :secondary-label="t('monitorCommon.totalLatency')"
@@ -128,6 +128,7 @@ const {
   providerLabel,
   providerBadgeClass,
   formatLatency,
+  formatTTFT,
   formatMonitorModel,
 } = useChannelMonitorFormat()
 

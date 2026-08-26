@@ -350,7 +350,7 @@ func (r *channelMonitorRepository) ListLatestPerModel(ctx context.Context, monit
 			return nil, fmt.Errorf("scan latest row: %w", err)
 		}
 		assignNullInt(&l.LatencyMs, latency)
-		assignNullInt(&l.TTFTMs, ttft)
+		assignNullablePositiveInt(&l.TTFTMs, ttft)
 		assignNullInt(&l.PingLatencyMs, ping)
 		out = append(out, l)
 	}
@@ -367,8 +367,16 @@ func assignNullInt(dst **int, n sql.NullInt64) {
 	*dst = &v
 }
 
+func assignNullablePositiveInt(dst **int, n sql.NullInt64) {
+	if !n.Valid || n.Int64 <= 0 {
+		return
+	}
+	v := int(n.Int64)
+	*dst = &v
+}
+
 func int64PtrToIntValue(n *int64) *int {
-	if n == nil {
+	if n == nil || *n <= 0 {
 		return nil
 	}
 	v := int(*n)
@@ -481,7 +489,7 @@ func (r *channelMonitorRepository) ListLatestForMonitorIDs(ctx context.Context, 
 			return nil, fmt.Errorf("scan latest batch row: %w", err)
 		}
 		assignNullInt(&l.LatencyMs, latency)
-		assignNullInt(&l.TTFTMs, ttft)
+		assignNullablePositiveInt(&l.TTFTMs, ttft)
 		assignNullInt(&l.PingLatencyMs, ping)
 		l.Quota = scanMonitorQuota(quota)
 		out[monitorID] = append(out[monitorID], l)
@@ -529,7 +537,7 @@ func (r *channelMonitorRepository) ListRecentHistoryForMonitors(
 		    JOIN targets t
 		      ON t.monitor_id = h.monitor_id AND t.model = h.model
 		)
-		SELECT monitor_id, status, latency_ms, ping_latency_ms, checked_at
+		SELECT monitor_id, status, latency_ms, ttft_ms, ping_latency_ms, checked_at
 		FROM ranked
 		WHERE rn <= $3
 		ORDER BY monitor_id, checked_at DESC
@@ -548,7 +556,7 @@ func (r *channelMonitorRepository) ListRecentHistoryForMonitors(
 			return nil, fmt.Errorf("scan recent history row: %w", err)
 		}
 		assignNullInt(&entry.LatencyMs, latency)
-		assignNullInt(&entry.TTFTMs, ttft)
+		assignNullablePositiveInt(&entry.TTFTMs, ttft)
 		assignNullInt(&entry.PingLatencyMs, ping)
 		out[monitorID] = append(out[monitorID], entry)
 	}

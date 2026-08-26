@@ -188,8 +188,18 @@ export function useChannelMonitorFormat() {
     return String(Math.round(ms))
   }
 
+  function formatTTFT(ms: number | null | undefined): string {
+    if (ms == null || ms <= 0) return t('monitorCommon.latencyEmpty')
+    return String(Math.round(ms))
+  }
+
   function formatLatencyWithUnit(ms: number | null | undefined): string {
     const value = formatLatency(ms)
+    return value === t('monitorCommon.latencyEmpty') ? value : `${value} ms`
+  }
+
+  function formatTTFTWithUnit(ms: number | null | undefined): string {
+    const value = formatTTFT(ms)
     return value === t('monitorCommon.latencyEmpty') ? value : `${value} ms`
   }
 
@@ -227,7 +237,9 @@ export function useChannelMonitorFormat() {
     checkModeBadgeClass,
     providerPickerClass,
     formatLatency,
+    formatTTFT,
     formatLatencyWithUnit,
+    formatTTFTWithUnit,
     formatPercent,
     formatAvailability,
     formatRelativeTime,

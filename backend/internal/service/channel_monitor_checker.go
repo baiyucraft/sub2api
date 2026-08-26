@@ -703,6 +703,7 @@ func postRawMonitorStream(ctx context.Context, fullURL string, payload []byte, h
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	requestStartedAt := time.Now()
 	resp, err := monitorHTTPClient.Do(req)
 	if err != nil {
 		return result, 0, 0, fmt.Errorf("do request: %w", err)
@@ -731,7 +732,6 @@ func postRawMonitorStream(ctx context.Context, fullURL string, payload []byte, h
 		result.Completed = true
 		return result, resp.StatusCode, switchCount, nil
 	}
-	started := time.Now()
 	var output strings.Builder
 	dataLines := make([]string, 0, 1)
 	dispatch := func() error {
@@ -749,13 +749,13 @@ func postRawMonitorStream(ctx context.Context, fullURL string, payload []byte, h
 		var eventErr error
 		switch {
 		case provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses:
-			done, eventErr = parseMonitorResponsesEvent([]byte(data), &output, &result, started)
+			done, eventErr = parseMonitorResponsesEvent([]byte(data), &output, &result, requestStartedAt)
 		case provider == MonitorProviderAnthropic:
-			done, eventErr = parseMonitorAnthropicEvent([]byte(data), &output, &result, started)
+			done, eventErr = parseMonitorAnthropicEvent([]byte(data), &output, &result, requestStartedAt)
 		case provider == MonitorProviderGemini:
-			done, eventErr = parseMonitorGeminiEvent([]byte(data), &output, &result, started)
+			done, eventErr = parseMonitorGeminiEvent([]byte(data), &output, &result, requestStartedAt)
 		default:
-			done, eventErr = parseMonitorChatEvent([]byte(data), &output, &result, started)
+			done, eventErr = parseMonitorChatEvent([]byte(data), &output, &result, requestStartedAt)
 		}
 		if eventErr != nil {
 			return eventErr
@@ -802,6 +802,9 @@ func setMonitorTTFT(result *monitorStreamResult, started time.Time) {
 		return
 	}
 	value := time.Since(started).Milliseconds()
+	if value < 1 {
+		value = 1
+	}
 	result.TTFTMs = &value
 }
 

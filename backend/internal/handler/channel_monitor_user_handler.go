@@ -128,7 +128,7 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 			Model:     e.Model,
 			Status:    e.Status,
 			LatencyMs: e.LatencyMs,
-			TTFTMs:    e.TTFTMs,
+			TTFTMs:    service.NormalizeChannelMonitorTTFT(e.TTFTMs),
 		})
 	}
 	timeline := make([]channelMonitorUserTimelinePoint, 0, len(v.Timeline))
@@ -136,7 +136,7 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 		timeline = append(timeline, channelMonitorUserTimelinePoint{
 			Status:        p.Status,
 			LatencyMs:     p.LatencyMs,
-			TTFTMs:        p.TTFTMs,
+			TTFTMs:        service.NormalizeChannelMonitorTTFT(p.TTFTMs),
 			PingLatencyMs: p.PingLatencyMs,
 			CheckedAt:     p.CheckedAt.UTC().Format(time.RFC3339),
 		})
@@ -150,7 +150,7 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 		PrimaryModel:         v.PrimaryModel,
 		PrimaryStatus:        v.PrimaryStatus,
 		PrimaryLatencyMs:     v.PrimaryLatencyMs,
-		PrimaryTTFTMs:        v.PrimaryTTFTMs,
+		PrimaryTTFTMs:        service.NormalizeChannelMonitorTTFT(v.PrimaryTTFTMs),
 		PrimaryPingLatencyMs: v.PrimaryPingLatencyMs,
 		Availability7d:       v.Availability7d,
 		Availability:         v.Availability,

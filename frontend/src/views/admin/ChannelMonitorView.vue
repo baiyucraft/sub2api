@@ -94,7 +94,7 @@
 
           <template #cell-latency="{ row }">
             <div class="flex flex-col gap-0.5 text-xs tabular-nums text-gray-900 dark:text-gray-100">
-              <span><span class="text-gray-400 dark:text-gray-500">{{ t('monitorCommon.ttft') }}</span> {{ formatLatencyWithUnit(row.primary_ttft_ms) }}</span>
+              <span><span class="text-gray-400 dark:text-gray-500">{{ t('monitorCommon.ttft') }}</span> {{ formatTTFTWithUnit(row.primary_ttft_ms) }}</span>
               <span><span class="text-gray-400 dark:text-gray-500">{{ t('monitorCommon.totalLatency') }}</span> {{ formatLatencyWithUnit(row.primary_latency_ms) }}</span>
             </div>
           </template>
@@ -214,6 +214,7 @@ const {
   checkModeLabel,
   checkModeBadgeClass,
   formatLatencyWithUnit,
+  formatTTFTWithUnit,
   formatAvailability,
 } = useChannelMonitorFormat()
 

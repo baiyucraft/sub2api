@@ -313,6 +313,45 @@ func TestRunCheckForModel_StreamInterruptionPreservesTTFT(t *testing.T) {
 	}
 }
 
+func TestRunCheckForModel_TTFTIncludesResponseHeaderWait(t *testing.T) {
+	swapMonitorHTTPClient(t)
+	const headerWait = 45 * time.Millisecond
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(headerWait)
+		defer func() { _ = r.Body.Close() }()
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		answer := answerFromOpenAIRequest(body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", monitorJSON(map[string]any{"choices": []map[string]any{{"delta": map[string]any{"content": answer}}}}))
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\n")
+	}))
+	defer srv.Close()
+	monitorHTTPClient = srv.Client()
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, srv.URL, "sk-openai", "gpt-test", nil)
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("delayed stream should be operational, got %s (%s)", res.Status, res.Message)
+	}
+	if res.TTFTMs == nil {
+		t.Fatal("delayed stream should record TTFT")
+	}
+	if *res.TTFTMs < int(headerWait/time.Millisecond)-10 {
+		t.Fatalf("TTFT=%dms does not include response-header wait of %s", *res.TTFTMs, headerWait)
+	}
+	if *res.TTFTMs <= 0 {
+		t.Fatalf("TTFT=%dms must be positive", *res.TTFTMs)
+	}
+}
+
+func TestSetMonitorTTFTClampsSubMillisecondToOne(t *testing.T) {
+	result := &monitorStreamResult{}
+	setMonitorTTFT(result, time.Now().Add(-time.Microsecond))
+	if result.TTFTMs == nil || *result.TTFTMs < 1 {
+		t.Fatalf("TTFT=%v, want positive minimum of 1ms", result.TTFTMs)
+	}
+}
+
 func TestRunCheckForModel_Grok_RedactsXAIKeyFromUpstreamBody(t *testing.T) {
 	h := &openAICaptureHandler{
 		status:      http.StatusUnauthorized,

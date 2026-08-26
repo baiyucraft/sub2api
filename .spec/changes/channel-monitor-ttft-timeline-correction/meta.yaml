@@ -1,0 +1,15 @@
+id: channel-monitor-ttft-timeline-correction
+stage: review
+deliveryShape: single-change
+implementation-mode: tdd
+artifacts:
+  proposal:
+    status: present
+  design:
+    status: present
+  systemTests:
+    status: present
+  tasks:
+    status: present
+  metadata:
+    status: present
