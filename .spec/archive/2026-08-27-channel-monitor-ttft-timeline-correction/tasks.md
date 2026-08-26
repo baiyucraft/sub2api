@@ -87,30 +87,30 @@ tdd
 - [x] 6.2 更新 fork extension catalog 的 description/invariants/required tests，不登记 `.wiki/.spec`
 - [x] 6.3 运行 focused Go/Vitest、全量 Go、unit-tag Go、Vitest、typecheck、lint、build、release pytest、`git diff --check`
 - [x] 6.4 运行 SpecWiki strict validate，按 full scope 执行 wiki-review 并生成 pass 报告
-- [ ] 6.5 单次调用 archive CLI，核验 dated archive 和长期 Wiki 状态
+- [x] 6.5 单次调用 archive CLI，核验 dated archive 和长期 Wiki 状态（本次收口执行）
 
 ### CheckList
 
 - [x] 长期合同已更新
 - [x] 所有本地 required evidence 通过
 - [x] review-result/verification-result 均为 full/pass（VM Gate 为后续发布门禁，真实 provider 保持 not_checked）
-- [ ] change 已由 CLI 单次归档
+- [x] change 已由 CLI 单次归档（CLI 调用后核验）
 
 ## 7. 提交、fork audit 与 VM Gate
 
-- [ ] 7.1 创建 focused commit，确认工作区干净并取得完整 40 位 SHA
-- [ ] 7.2 以当前 `upstream/main` 完整 SHA 运行 fork extension audit，处理 blocker 后再确认干净提交
-- [ ] 7.3 推送 `origin/main`，确认远端 SHA 一致
-- [ ] 7.4 按 profile 242 构建唯一 candidate，通过 VM `sub2api-dev:8211` Gate
-- [ ] 7.5 用隔离 SSE fixture/测试数据验证 TTFT、时间线颜色和总耗时阈值；真实 provider 标记 `not_checked`
-- [ ] 7.6 核验生产未修改、VM 仅保留唯一开发容器和既有数据/回滚证据
+- [x] 7.1 创建 focused commit，确认工作区干净并取得完整 40 位 SHA（`9fe5d3db8bd6ee40e08cb1790b26c23c37032416`）
+- [x] 7.2 以当前 `upstream/main` 完整 SHA 运行 fork extension audit，处理 blocker 后再确认干净提交（`7634e3c23b5b9afc588c37b170820f63f1d41bbb`，snapshot 通过）
+- [x] 7.3 推送 `origin/main`，确认远端 SHA 一致（`9fe5d3db8bd6ee40e08cb1790b26c23c37032416`）
+- [x] 7.4 按 profile 242 构建唯一 candidate，通过 VM `sub2api-dev:8211` Gate（release `242-9fe5d3db8bd6-1787783417-226d164a`）
+- [x] 7.5 用隔离 SSE fixture/测试数据验证 TTFT、时间线颜色和总耗时阈值；真实 provider 标记 `not_checked`（Gate `vm_validate/verified`）
+- [x] 7.6 核验生产未修改、VM 仅保留唯一开发容器和既有数据/回滚证据
 
 ### CheckList
 
-- [ ] commit/origin/audit target 均为完整 SHA
-- [ ] fork audit 无 blocker
-- [ ] VM Gate terminal evidence 通过
-- [ ] 生产未部署、未修改
+- [x] commit/origin/audit target 均为完整 SHA
+- [x] fork audit 无 blocker
+- [x] VM Gate terminal evidence 通过
+- [x] 生产未部署、未修改
 
 ## 用例到任务映射
 
