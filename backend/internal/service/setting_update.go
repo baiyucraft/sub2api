@@ -418,6 +418,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyChannelMonitorHideThroughput] = strconv.FormatBool(settings.ChannelMonitorHideThroughput)
 	updates[SettingKeyChannelMonitorShowQuota] = strconv.FormatBool(settings.ChannelMonitorShowQuota)
+	updates[SettingKeyChannelMonitorDegradedThresholdSeconds] = strconv.Itoa(parseChannelMonitorDegradedThreshold(strconv.Itoa(settings.ChannelMonitorDegradedThresholdSeconds)))
+	updates[SettingKeyChannelMonitorDegradedRetryTolerance] = strconv.Itoa(parseChannelMonitorDegradedRetryTolerance(strconv.Itoa(settings.ChannelMonitorDegradedRetryTolerance)))
+	updates[SettingKeyChannelMonitorDegradedSwitchTolerance] = strconv.Itoa(parseChannelMonitorDegradedSwitchTolerance(strconv.Itoa(settings.ChannelMonitorDegradedSwitchTolerance)))
 
 	// Grok model mapping policy
 	if v := strings.TrimSpace(settings.GrokDefaultTextModel); v != "" {

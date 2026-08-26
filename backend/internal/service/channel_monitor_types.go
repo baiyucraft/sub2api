@@ -159,6 +159,8 @@ type CheckResult struct {
 	// AccountSwitchCount is internal monitor metadata and is never returned
 	// by the public monitor APIs.
 	AccountSwitchCount int `json:"-"`
+	// RetryCount is the number of extra requests in this probe round.
+	RetryCount int `json:"-"`
 	// Quota 配额模式附带快照（quota 模式唯一数据；quota_probe 挂在主模型行）。
 	Quota *domain.MonitorQuotaSnapshot
 }

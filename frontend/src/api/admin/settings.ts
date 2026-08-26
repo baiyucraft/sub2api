@@ -719,6 +719,9 @@ export interface SystemSettings {
   channel_monitor_default_interval_seconds: number;
   channel_monitor_hide_throughput?: boolean;
   channel_monitor_show_quota?: boolean;
+  channel_monitor_degraded_threshold_seconds: number;
+  channel_monitor_degraded_retry_tolerance: number;
+  channel_monitor_degraded_switch_tolerance: number;
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
@@ -1019,6 +1022,9 @@ export interface UpdateSettingsRequest {
   channel_monitor_default_interval_seconds?: number;
   channel_monitor_hide_throughput?: boolean;
   channel_monitor_show_quota?: boolean;
+  channel_monitor_degraded_threshold_seconds?: number;
+  channel_monitor_degraded_retry_tolerance?: number;
+  channel_monitor_degraded_switch_tolerance?: number;
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;

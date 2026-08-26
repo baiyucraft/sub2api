@@ -589,7 +589,7 @@ export default {
         jitterSeconds: '随机抖动 (± 秒)',
         jitterSecondsHint: '每次检测在间隔基础上正负随机偏移该秒数，0 表示固定间隔；需满足 间隔 - 抖动 ≥ 15 秒',
         maxProbeAttempts: '最大探测次数',
-        maxProbeAttemptsHint: '范围：1 - 5，包含首次请求；后续探测成功会显示为橙色降级状态。',
+        maxProbeAttemptsHint: '范围：1 - 5，包含首次请求；仅限制本次探测实际请求总数，不是全局免降级重试次数。',
         enabled: '启用监控',
         kindRequired: '请选择供应商'
       },

@@ -276,6 +276,7 @@ export default {
     resendCode: 'Resend verification code',
     sendCodeDesc: "We'll send a verification code to",
     codeSentSuccess: 'Verification code sent! Please check your inbox.',
+    codeSentSpamHint: "If you don't receive the email, please check your spam folder.",
     verifying: 'Verifying...',
     verifyAndCreate: 'Verify & Create Account',
     resendCountdown: 'Resend code in {countdown}s',
