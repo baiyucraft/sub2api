@@ -67,7 +67,7 @@ export default {
       description: '使用一次真实 Responses 请求验证任务完成一致性。',
       enabled: '启用可信度探针',
       effort: '推理档位',
-      randomEffort: '随机档位（high 40%，其余各 15%）',
+      fixedEffort: '固定档位：high',
       threshold: '质量异常阈值',
       longContext: '加入有界长上下文',
       maxTokens: '上下文 Token'

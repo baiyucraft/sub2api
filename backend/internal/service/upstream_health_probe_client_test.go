@@ -144,7 +144,7 @@ func TestRunUpstreamHealthProbeUsesProviderStreamingProfiles(t *testing.T) {
 				require.True(t, gjson.GetBytes(body, "stream").Bool())
 				require.False(t, gjson.GetBytes(body, "max_output_tokens").Exists())
 				require.False(t, gjson.GetBytes(body, "instructions").Exists())
-				require.Contains(t, []string{"low", "medium", "high", "xhigh", "max"}, gjson.GetBytes(body, "reasoning.effort").String())
+				require.Equal(t, "high", gjson.GetBytes(body, "reasoning.effort").String())
 				input := gjson.GetBytes(body, "input").String()
 				if input == "" {
 					input = gjson.GetBytes(body, "input.1.content").String()
@@ -396,6 +396,17 @@ func TestOpenAIMultiprobeEvidenceClassification(t *testing.T) {
 		require.Equal(t, "output_rewrite_40_prefix", result.ConfidenceStatus)
 		require.True(t, result.ConfidenceHardAnomaly)
 	})
+}
+
+func TestNewOpenAIConfidenceChallengeUsesFixedHighEffortForJuice(t *testing.T) {
+	for i := 0; i < 200; i++ {
+		challenge, err := newOpenAIConfidenceChallenge()
+		require.NoError(t, err)
+		if challenge.Kind == "juice" {
+			require.Equal(t, "high", challenge.Effort)
+			require.Equal(t, "", challenge.ExpectedValue)
+		}
+	}
 }
 
 func TestOpenAIJuiceFingerprintsAcrossEfforts(t *testing.T) {
