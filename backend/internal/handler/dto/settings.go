@@ -301,11 +301,14 @@ type SystemSettings struct {
 	AccountQuotaNotifyEmails        []NotifyEmailEntry `json:"account_quota_notify_emails"`
 
 	// Channel Monitor feature switch
-	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
-	ChannelMonitorMode                   string `json:"channel_monitor_mode"`
-	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
-	ChannelMonitorHideThroughput         bool   `json:"channel_monitor_hide_throughput"`
-	ChannelMonitorShowQuota              bool   `json:"channel_monitor_show_quota"`
+	ChannelMonitorEnabled                  bool   `json:"channel_monitor_enabled"`
+	ChannelMonitorMode                     string `json:"channel_monitor_mode"`
+	ChannelMonitorDefaultIntervalSeconds   int    `json:"channel_monitor_default_interval_seconds"`
+	ChannelMonitorHideThroughput           bool   `json:"channel_monitor_hide_throughput"`
+	ChannelMonitorShowQuota                bool   `json:"channel_monitor_show_quota"`
+	ChannelMonitorDegradedThresholdSeconds int    `json:"channel_monitor_degraded_threshold_seconds"`
+	ChannelMonitorDegradedRetryTolerance   int    `json:"channel_monitor_degraded_retry_tolerance"`
+	ChannelMonitorDegradedSwitchTolerance  int    `json:"channel_monitor_degraded_switch_tolerance"`
 
 	// Grok model mapping policy (admin settings; empty account mapping falls back to these).
 	GrokDefaultTextModel           string `json:"grok_default_text_model"`

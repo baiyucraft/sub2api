@@ -66,12 +66,12 @@ func (h *retryProbeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	_ = r.Body.Close()
+	if h.switches > 0 {
+		w.Header().Set("X-Sub2API-Monitor-Switches", fmt.Sprintf("%d", h.switches))
+	}
 	if call <= h.failures {
 		http.Error(w, "temporary gateway failure", http.StatusBadGateway)
 		return
-	}
-	if h.switches > 0 {
-		w.Header().Set("X-Sub2API-Monitor-Switches", fmt.Sprintf("%d", h.switches))
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"choices": []map[string]any{{
@@ -80,7 +80,7 @@ func (h *retryProbeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func TestRunCheckForModel_GatewaySwitchHeaderMakesSuccessDegraded(t *testing.T) {
+func TestRunCheckForModel_GatewaySwitchWithinDefaultToleranceIsOperational(t *testing.T) {
 	h := &retryProbeHandler{switches: 1}
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -89,9 +89,26 @@ func TestRunCheckForModel_GatewaySwitchHeaderMakesSuccessDegraded(t *testing.T) 
 	res := runCheckForModelWithRetry(
 		context.Background(), MonitorProviderOpenAI, srv.URL, "sk-test", "gpt-test", nil, 1, 0,
 	)
+	require.Equal(t, MonitorStatusOperational, res.Status)
+	require.Equal(t, 1, res.AccountSwitchCount)
+}
+
+func TestFinalizeOperationalOrDegraded_ToleranceBoundaries(t *testing.T) {
+	policy := channelMonitorDegradedPolicy{Threshold: 60 * time.Second, RetryTolerance: 2, SwitchTolerance: 3}
+	res := finalizeOperationalOrDegraded(&CheckResult{RetryCount: 2, AccountSwitchCount: 3}, time.Second, 1000, policy)
+	require.Equal(t, MonitorStatusOperational, res.Status)
+
+	res = finalizeOperationalOrDegraded(&CheckResult{RetryCount: 3}, time.Second, 1000, policy)
+	require.Equal(t, MonitorStatusDegraded, res.Status)
+	require.Contains(t, res.Message, "重试")
+
+	res = finalizeOperationalOrDegraded(&CheckResult{AccountSwitchCount: 4}, time.Second, 1000, policy)
 	require.Equal(t, MonitorStatusDegraded, res.Status)
 	require.Contains(t, res.Message, "换号")
-	require.Equal(t, 1, res.AccountSwitchCount)
+
+	res = finalizeOperationalOrDegraded(&CheckResult{}, 60*time.Second, 60000, policy)
+	require.Equal(t, MonitorStatusDegraded, res.Status)
+	require.Contains(t, res.Message, "慢响应")
 }
 
 func TestRunCheckForModelWithRetry_RetrySuccessIsDegradedAndUsesNewRequestIDs(t *testing.T) {
@@ -102,9 +119,10 @@ func TestRunCheckForModelWithRetry_RetrySuccessIsDegradedAndUsesNewRequestIDs(t 
 
 	res := runCheckForModelWithRetry(
 		context.Background(), MonitorProviderOpenAI, srv.URL, "sk-test", "gpt-test", nil, 3, time.Millisecond,
+		channelMonitorDegradedPolicy{Threshold: 60 * time.Second, RetryTolerance: 0, SwitchTolerance: 3},
 	)
 	require.Equal(t, MonitorStatusDegraded, res.Status)
-	require.Contains(t, res.Message, "第 2 次探测成功")
+	require.Contains(t, res.Message, "重试")
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -112,6 +130,35 @@ func TestRunCheckForModelWithRetry_RetrySuccessIsDegradedAndUsesNewRequestIDs(t 
 	require.Len(t, h.requestIDs, 2)
 	require.NotEmpty(t, h.requestIDs[0])
 	require.NotEqual(t, h.requestIDs[0], h.requestIDs[1])
+}
+
+func TestRunCheckForModelWithRetry_RetryWithinToleranceStaysOperational(t *testing.T) {
+	h := &retryProbeHandler{failures: 1}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	swapMonitorHTTPClient(t)
+
+	res := runCheckForModelWithRetry(
+		context.Background(), MonitorProviderOpenAI, srv.URL, "sk-test", "gpt-test", nil, 3, time.Millisecond,
+		channelMonitorDegradedPolicy{Threshold: 60 * time.Second, RetryTolerance: 2, SwitchTolerance: 3},
+	)
+	require.Equal(t, MonitorStatusOperational, res.Status)
+	require.Equal(t, 1, res.RetryCount)
+}
+
+func TestRunCheckForModelWithRetry_AccumulatesSwitchesAcrossAttempts(t *testing.T) {
+	h := &retryProbeHandler{failures: 1, switches: 2}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	swapMonitorHTTPClient(t)
+
+	res := runCheckForModelWithRetry(
+		context.Background(), MonitorProviderOpenAI, srv.URL, "sk-test", "gpt-test", nil, 3, time.Millisecond,
+		channelMonitorDegradedPolicy{Threshold: 60 * time.Second, RetryTolerance: 2, SwitchTolerance: 3},
+	)
+	require.Equal(t, MonitorStatusDegraded, res.Status)
+	require.Equal(t, 4, res.AccountSwitchCount)
+	require.Contains(t, res.Message, "换号")
 }
 
 func TestRunCheckForModelWithRetry_AttemptBounds(t *testing.T) {
@@ -168,6 +215,18 @@ func TestNormalizeMaxProbeAttempts(t *testing.T) {
 	require.NoError(t, validateMaxProbeAttempts(5))
 	require.Error(t, validateMaxProbeAttempts(0))
 	require.Error(t, validateMaxProbeAttempts(6))
+}
+
+func TestChannelMonitorDegradedPolicyParsingFallsBackSafely(t *testing.T) {
+	require.Equal(t, 6, parseChannelMonitorDegradedThreshold(""))
+	require.Equal(t, 6, parseChannelMonitorDegradedThreshold("0"))
+	require.Equal(t, 300, parseChannelMonitorDegradedThreshold("300"))
+	require.Equal(t, 2, parseChannelMonitorDegradedRetryTolerance("bad"))
+	require.Equal(t, 0, parseChannelMonitorDegradedRetryTolerance("0"))
+	require.Equal(t, 4, parseChannelMonitorDegradedRetryTolerance("4"))
+	require.Equal(t, 3, parseChannelMonitorDegradedSwitchTolerance("bad"))
+	require.Equal(t, 0, parseChannelMonitorDegradedSwitchTolerance("0"))
+	require.Equal(t, 5, parseChannelMonitorDegradedSwitchTolerance("5"))
 }
 
 func TestRunCheck_DecryptFailureIsUnknownAndPersisted(t *testing.T) {
