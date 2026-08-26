@@ -51,7 +51,10 @@ function mountCell(row: ChannelMonitor) {
   return mount(MonitorPrimaryModelCell, {
     props: { row },
     global: {
-      stubs: { MonitorQuotaView: true, HelpTooltip: false },
+      stubs: {
+        MonitorQuotaView: true,
+        HelpTooltip: { template: '<div><slot name="trigger" /><slot /></div>' },
+      },
     },
   })
 }
@@ -69,5 +72,15 @@ describe('MonitorPrimaryModelCell placeholder model display', () => {
     }))
     expect(wrapper.text()).toContain('claude-sonnet-4-5')
     expect(wrapper.text()).not.toContain('monitorCommon.checkMode.quota')
+  })
+
+  it('renders TTFT separately from total latency for extra models', () => {
+    const wrapper = mountCell(makeRow({
+      primary_model: 'gpt-5.6-sol',
+      extra_models: ['gpt-5.6-mini'],
+      extra_models_status: [{ model: 'gpt-5.6-mini', status: 'operational', ttft_ms: 420, latency_ms: 1800 }],
+    }))
+    expect(wrapper.text()).toContain('monitorCommon.ttft 420 ms')
+    expect(wrapper.text()).toContain('monitorCommon.totalLatency 1800 ms')
   })
 })

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -69,8 +70,12 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	mode := bodyOverrideMode(opts)
 
 	start := time.Now()
-	respText, rawBody, statusCode, switchCount, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
+	respText, rawBody, statusCode, switchCount, ttftMs, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
 	res.AccountSwitchCount = switchCount
+	if ttftMs != nil {
+		value := int(*ttftMs)
+		res.TTFTMs = &value
+	}
 	latency := time.Since(start)
 	latencyMs := int(latency / time.Millisecond)
 	res.LatencyMs = &latencyMs
@@ -230,6 +235,17 @@ type providerAdapter struct {
 	extractText  func([]byte) string
 }
 
+// monitorStreamResult is the bounded result of an active SSE probe.  The raw
+// stream is retained only for diagnostics; text is accumulated incrementally
+// so TTFT is measured at the first non-empty text delta rather than after EOF.
+type monitorStreamResult struct {
+	Text         string
+	RawBody      []byte
+	TTFTMs       *int64
+	Completed    bool
+	FinishReason string
+}
+
 // providerAdapters 全部已支持的 provider。键值即 MonitorProvider* 字符串。
 //
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
@@ -248,6 +264,7 @@ var providerAdapters = map[string]providerAdapter{
 				"model":      model,
 				"messages":   []map[string]string{{"role": "user", "content": prompt}},
 				"max_tokens": monitorChallengeMaxTokens,
+				"stream":     true,
 			})
 		},
 		buildHeaders: func(apiKey string) map[string]string {
@@ -259,7 +276,7 @@ var providerAdapters = map[string]providerAdapter{
 		extractText: extractAnthropicMonitorText,
 	},
 	MonitorProviderGemini: {
-		// Gemini 把 model 名写在 URL path 上：/v1beta/models/{model}:generateContent
+		// Gemini SSE endpoint uses streamGenerateContent with alt=sse.
 		buildPath: func(model string) string { return fmt.Sprintf(providerGeminiPathTemplate, model) },
 		buildBody: func(_, prompt string) ([]byte, error) {
 			return json.Marshal(map[string]any{
@@ -300,7 +317,7 @@ func newOpenAICompatibleChatAdapter(path string) providerAdapter {
 				"model":      model,
 				"messages":   []map[string]string{{"role": "user", "content": prompt}},
 				"max_tokens": monitorChallengeMaxTokens,
-				"stream":     false,
+				"stream":     true,
 			})
 		},
 		buildHeaders: func(apiKey string) map[string]string {
@@ -319,7 +336,7 @@ var providerOpenAIResponsesAdapter = providerAdapter{
 			"instructions":      "You are a channel health-check endpoint. Answer the arithmetic challenge exactly and briefly.",
 			"input":             prompt,
 			"max_output_tokens": monitorChallengeMaxTokens,
-			"stream":            false,
+			"stream":            true,
 		})
 	},
 	buildHeaders: func(apiKey string) map[string]string {
@@ -345,30 +362,59 @@ func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool
 //   - rawBody: 完整响应体的字符串形式（已被 monitorResponseMaxBytes 截断），用于错误路径保留上游真实回包
 //   - status: HTTP 状态码
 //   - err: 网络 / 序列化错误
-func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt string, opts *CheckOptions) (extractedText, rawBody string, status, switchCount int, err error) {
+func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt string, opts *CheckOptions) (extractedText, rawBody string, status, switchCount int, ttftMs *int64, err error) {
 	requestedAPIMode := checkAPIMode(opts)
 	if err := validateAPIMode(provider, requestedAPIMode); err != nil {
-		return "", "", 0, 0, err
+		return "", "", 0, 0, nil, err
 	}
 	adapter, apiMode, ok := providerAdapterFor(provider, requestedAPIMode)
 	if !ok {
-		return "", "", 0, 0, fmt.Errorf("unsupported provider %q", provider)
+		return "", "", 0, 0, nil, fmt.Errorf("unsupported provider %q", provider)
 	}
 	body, err := buildRequestBody(adapter, provider, apiMode, model, prompt, opts)
 	if err != nil {
-		return "", "", 0, 0, err
+		return "", "", 0, 0, nil, err
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
 	headers["X-Client-Request-ID"] = uuid.NewString()
 	full := joinURL(endpoint, adapter.buildPath(model))
-	respBytes, status, switchCount, err := postRawJSON(ctx, full, body, headers)
+	streaming := modeUsesMonitorStreaming(body, opts)
+	var respBytes []byte
+	if streaming {
+		var streamed monitorStreamResult
+		streamed, status, switchCount, err = postRawMonitorStream(ctx, full, body, headers, provider, apiMode)
+		if err != nil {
+			return "", string(streamed.RawBody), status, switchCount, streamed.TTFTMs, err
+		}
+		if streamed.Text == "" && len(streamed.RawBody) > 0 {
+			if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
+				streamed.Text = extractOpenAIResponsesText(streamed.RawBody)
+			} else {
+				streamed.Text = extractMonitorResponseText(adapter, streamed.RawBody)
+			}
+		}
+		return streamed.Text, string(streamed.RawBody), status, switchCount, streamed.TTFTMs, nil
+	} else {
+		respBytes, status, switchCount, err = postRawJSON(ctx, full, body, headers)
+	}
 	if err != nil {
-		return "", "", status, 0, err
+		return "", "", status, 0, nil, err
 	}
 	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
-		return extractOpenAIResponsesText(respBytes), string(respBytes), status, switchCount, nil
+		return extractOpenAIResponsesText(respBytes), string(respBytes), status, switchCount, nil, nil
 	}
-	return extractMonitorResponseText(adapter, respBytes), string(respBytes), status, switchCount, nil
+	return extractMonitorResponseText(adapter, respBytes), string(respBytes), status, switchCount, nil, nil
+}
+
+func modeUsesMonitorStreaming(body []byte, opts *CheckOptions) bool {
+	if bodyOverrideMode(opts) != MonitorBodyOverrideModeReplace {
+		return true
+	}
+	// Replace mode remains compatible with explicitly non-streaming bodies.
+	if gjson.GetBytes(body, "stream").Exists() {
+		return gjson.GetBytes(body, "stream").Bool()
+	}
+	return false
 }
 
 func extractMonitorResponseText(adapter providerAdapter, respBytes []byte) string {
@@ -622,6 +668,237 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 		}
 	}
 	return respBody, resp.StatusCode, switchCount, nil
+}
+
+// postRawMonitorStream sends an active monitor probe as SSE and parses events
+// while they arrive.  It deliberately keeps the request/response contract
+// local to channel monitoring; ordinary gateway traffic does not use it.
+func postRawMonitorStream(ctx context.Context, fullURL string, payload []byte, headers map[string]string, provider, apiMode string) (monitorStreamResult, int, int, error) {
+	result := monitorStreamResult{}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
+	if err != nil {
+		return result, 0, 0, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := monitorHTTPClient.Do(req)
+	if err != nil {
+		return result, 0, 0, fmt.Errorf("do request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	switchCount := 0
+	if raw := strings.TrimSpace(resp.Header.Get("X-Sub2API-Monitor-Switches")); raw != "" {
+		if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed > 0 {
+			switchCount = parsed
+		}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, monitorResponseMaxBytes))
+		if readErr != nil {
+			return result, resp.StatusCode, switchCount, fmt.Errorf("read body: %w", readErr)
+		}
+		result.RawBody = body
+		return result, resp.StatusCode, switchCount, nil
+	}
+	if !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, monitorResponseMaxBytes))
+		if readErr != nil {
+			return result, resp.StatusCode, switchCount, fmt.Errorf("read body: %w", readErr)
+		}
+		result.RawBody = body
+		result.Completed = true
+		return result, resp.StatusCode, switchCount, nil
+	}
+	started := time.Now()
+	var output strings.Builder
+	dataLines := make([]string, 0, 1)
+	dispatch := func() error {
+		if len(dataLines) == 0 {
+			return nil
+		}
+		data := strings.Join(dataLines, "\n")
+		dataLines = dataLines[:0]
+		result.RawBody = append(result.RawBody, []byte("data: "+data+"\n\n")...)
+		if data == "[DONE]" {
+			result.Completed = true
+			return nil
+		}
+		var done bool
+		var eventErr error
+		switch {
+		case provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses:
+			done, eventErr = parseMonitorResponsesEvent([]byte(data), &output, &result, started)
+		case provider == MonitorProviderAnthropic:
+			done, eventErr = parseMonitorAnthropicEvent([]byte(data), &output, &result, started)
+		case provider == MonitorProviderGemini:
+			done, eventErr = parseMonitorGeminiEvent([]byte(data), &output, &result, started)
+		default:
+			done, eventErr = parseMonitorChatEvent([]byte(data), &output, &result, started)
+		}
+		if eventErr != nil {
+			return eventErr
+		}
+		if done {
+			result.Completed = true
+		}
+		return nil
+	}
+	scanner := bufio.NewScanner(io.LimitReader(resp.Body, monitorResponseMaxBytes))
+	scanner.Buffer(make([]byte, 4096), 1<<20)
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if line == "" {
+			if err := dispatch(); err != nil {
+				return result, resp.StatusCode, switchCount, err
+			}
+			if result.Completed {
+				break
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return result, resp.StatusCode, switchCount, fmt.Errorf("read stream: %w", err)
+	}
+	if !result.Completed {
+		if err := dispatch(); err != nil {
+			return result, resp.StatusCode, switchCount, err
+		}
+	}
+	result.Text = output.String()
+	if !result.Completed {
+		return result, resp.StatusCode, switchCount, errors.New("monitor stream ended before completion")
+	}
+	return result, resp.StatusCode, switchCount, nil
+}
+
+func setMonitorTTFT(result *monitorStreamResult, started time.Time) {
+	if result == nil || result.TTFTMs != nil {
+		return
+	}
+	value := time.Since(started).Milliseconds()
+	result.TTFTMs = &value
+}
+
+func parseMonitorChatEvent(data []byte, output *strings.Builder, result *monitorStreamResult, started time.Time) (bool, error) {
+	var event struct {
+		Choices []struct {
+			Delta struct {
+				Content string `json:"content"`
+			} `json:"delta"`
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return false, fmt.Errorf("decode monitor chat event: %w", err)
+	}
+	completed := false
+	for _, choice := range event.Choices {
+		text := choice.Delta.Content
+		if text == "" {
+			text = choice.Message.Content
+		}
+		if strings.TrimSpace(text) != "" {
+			setMonitorTTFT(result, started)
+			output.WriteString(text)
+		}
+		if strings.TrimSpace(choice.FinishReason) != "" {
+			result.FinishReason = strings.TrimSpace(choice.FinishReason)
+			completed = true
+		}
+	}
+	return completed, nil
+}
+
+func parseMonitorResponsesEvent(data []byte, output *strings.Builder, result *monitorStreamResult, started time.Time) (bool, error) {
+	var event struct {
+		Type     string `json:"type"`
+		Delta    string `json:"delta"`
+		Response struct {
+			Status string `json:"status"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return false, fmt.Errorf("decode monitor responses event: %w", err)
+	}
+	if event.Type == "response.output_text.delta" {
+		if strings.TrimSpace(event.Delta) != "" {
+			setMonitorTTFT(result, started)
+			output.WriteString(event.Delta)
+		}
+	}
+	if event.Type == "response.completed" || event.Type == "response.done" {
+		result.FinishReason = event.Response.Status
+		return true, nil
+	}
+	if event.Type == "response.failed" || event.Type == "response.incomplete" {
+		return false, fmt.Errorf("monitor responses stream reported %s", event.Type)
+	}
+	return false, nil
+}
+
+func parseMonitorAnthropicEvent(data []byte, output *strings.Builder, result *monitorStreamResult, started time.Time) (bool, error) {
+	var event struct {
+		Type  string `json:"type"`
+		Delta struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"delta"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return false, fmt.Errorf("decode monitor Anthropic event: %w", err)
+	}
+	if event.Type == "content_block_delta" && event.Delta.Type == "text_delta" && strings.TrimSpace(event.Delta.Text) != "" {
+		setMonitorTTFT(result, started)
+		output.WriteString(event.Delta.Text)
+	}
+	if event.Type == "message_stop" {
+		result.FinishReason = "stop"
+		return true, nil
+	}
+	if event.Type == "error" {
+		return false, errors.New("monitor Anthropic stream reported error")
+	}
+	return false, nil
+}
+
+func parseMonitorGeminiEvent(data []byte, output *strings.Builder, result *monitorStreamResult, started time.Time) (bool, error) {
+	var event struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+			FinishReason string `json:"finishReason"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return false, fmt.Errorf("decode monitor Gemini event: %w", err)
+	}
+	completed := false
+	for _, candidate := range event.Candidates {
+		for _, part := range candidate.Content.Parts {
+			if strings.TrimSpace(part.Text) != "" {
+				setMonitorTTFT(result, started)
+				output.WriteString(part.Text)
+			}
+		}
+		if strings.TrimSpace(candidate.FinishReason) != "" {
+			result.FinishReason = candidate.FinishReason
+			completed = true
+		}
+	}
+	return completed, nil
 }
 
 // joinURL 把 base origin 与 path 拼成完整 URL。

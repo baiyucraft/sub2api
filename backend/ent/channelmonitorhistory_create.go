@@ -70,6 +70,20 @@ func (_c *ChannelMonitorHistoryCreate) SetNillablePingLatencyMs(v *int) *Channel
 	return _c
 }
 
+// SetTtftMs sets the "ttft_ms" field.
+func (_c *ChannelMonitorHistoryCreate) SetTtftMs(v int64) *ChannelMonitorHistoryCreate {
+	_c.mutation.SetTtftMs(v)
+	return _c
+}
+
+// SetNillableTtftMs sets the "ttft_ms" field if the given value is not nil.
+func (_c *ChannelMonitorHistoryCreate) SetNillableTtftMs(v *int64) *ChannelMonitorHistoryCreate {
+	if v != nil {
+		_c.SetTtftMs(*v)
+	}
+	return _c
+}
+
 // SetMessage sets the "message" field.
 func (_c *ChannelMonitorHistoryCreate) SetMessage(v string) *ChannelMonitorHistoryCreate {
 	_c.mutation.SetMessage(v)
@@ -228,6 +242,10 @@ func (_c *ChannelMonitorHistoryCreate) createSpec() (*ChannelMonitorHistory, *sq
 	if value, ok := _c.mutation.PingLatencyMs(); ok {
 		_spec.SetField(channelmonitorhistory.FieldPingLatencyMs, field.TypeInt, value)
 		_node.PingLatencyMs = &value
+	}
+	if value, ok := _c.mutation.TtftMs(); ok {
+		_spec.SetField(channelmonitorhistory.FieldTtftMs, field.TypeInt64, value)
+		_node.TtftMs = &value
 	}
 	if value, ok := _c.mutation.Message(); ok {
 		_spec.SetField(channelmonitorhistory.FieldMessage, field.TypeString, value)
@@ -391,6 +409,30 @@ func (u *ChannelMonitorHistoryUpsert) AddPingLatencyMs(v int) *ChannelMonitorHis
 // ClearPingLatencyMs clears the value of the "ping_latency_ms" field.
 func (u *ChannelMonitorHistoryUpsert) ClearPingLatencyMs() *ChannelMonitorHistoryUpsert {
 	u.SetNull(channelmonitorhistory.FieldPingLatencyMs)
+	return u
+}
+
+// SetTtftMs sets the "ttft_ms" field.
+func (u *ChannelMonitorHistoryUpsert) SetTtftMs(v int64) *ChannelMonitorHistoryUpsert {
+	u.Set(channelmonitorhistory.FieldTtftMs, v)
+	return u
+}
+
+// UpdateTtftMs sets the "ttft_ms" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsert) UpdateTtftMs() *ChannelMonitorHistoryUpsert {
+	u.SetExcluded(channelmonitorhistory.FieldTtftMs)
+	return u
+}
+
+// AddTtftMs adds v to the "ttft_ms" field.
+func (u *ChannelMonitorHistoryUpsert) AddTtftMs(v int64) *ChannelMonitorHistoryUpsert {
+	u.Add(channelmonitorhistory.FieldTtftMs, v)
+	return u
+}
+
+// ClearTtftMs clears the value of the "ttft_ms" field.
+func (u *ChannelMonitorHistoryUpsert) ClearTtftMs() *ChannelMonitorHistoryUpsert {
+	u.SetNull(channelmonitorhistory.FieldTtftMs)
 	return u
 }
 
@@ -577,6 +619,34 @@ func (u *ChannelMonitorHistoryUpsertOne) UpdatePingLatencyMs() *ChannelMonitorHi
 func (u *ChannelMonitorHistoryUpsertOne) ClearPingLatencyMs() *ChannelMonitorHistoryUpsertOne {
 	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
 		s.ClearPingLatencyMs()
+	})
+}
+
+// SetTtftMs sets the "ttft_ms" field.
+func (u *ChannelMonitorHistoryUpsertOne) SetTtftMs(v int64) *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetTtftMs(v)
+	})
+}
+
+// AddTtftMs adds v to the "ttft_ms" field.
+func (u *ChannelMonitorHistoryUpsertOne) AddTtftMs(v int64) *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.AddTtftMs(v)
+	})
+}
+
+// UpdateTtftMs sets the "ttft_ms" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertOne) UpdateTtftMs() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateTtftMs()
+	})
+}
+
+// ClearTtftMs clears the value of the "ttft_ms" field.
+func (u *ChannelMonitorHistoryUpsertOne) ClearTtftMs() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.ClearTtftMs()
 	})
 }
 
@@ -935,6 +1005,34 @@ func (u *ChannelMonitorHistoryUpsertBulk) UpdatePingLatencyMs() *ChannelMonitorH
 func (u *ChannelMonitorHistoryUpsertBulk) ClearPingLatencyMs() *ChannelMonitorHistoryUpsertBulk {
 	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
 		s.ClearPingLatencyMs()
+	})
+}
+
+// SetTtftMs sets the "ttft_ms" field.
+func (u *ChannelMonitorHistoryUpsertBulk) SetTtftMs(v int64) *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetTtftMs(v)
+	})
+}
+
+// AddTtftMs adds v to the "ttft_ms" field.
+func (u *ChannelMonitorHistoryUpsertBulk) AddTtftMs(v int64) *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.AddTtftMs(v)
+	})
+}
+
+// UpdateTtftMs sets the "ttft_ms" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertBulk) UpdateTtftMs() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateTtftMs()
+	})
+}
+
+// ClearTtftMs clears the value of the "ttft_ms" field.
+func (u *ChannelMonitorHistoryUpsertBulk) ClearTtftMs() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.ClearTtftMs()
 	})
 }
 

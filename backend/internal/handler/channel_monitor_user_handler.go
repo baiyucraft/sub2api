@@ -68,6 +68,7 @@ type channelMonitorUserListItem struct {
 	PrimaryModel         string                               `json:"primary_model"`
 	PrimaryStatus        string                               `json:"primary_status"`
 	PrimaryLatencyMs     *int                                 `json:"primary_latency_ms"`
+	PrimaryTTFTMs        *int                                 `json:"primary_ttft_ms"`
 	PrimaryPingLatencyMs *int                                 `json:"primary_ping_latency_ms"`
 	Availability7d       float64                              `json:"availability_7d"`
 	Availability         float64                              `json:"availability"`
@@ -87,6 +88,7 @@ type channelMonitorUserListItem struct {
 type channelMonitorUserTimelinePoint struct {
 	Status        string `json:"status"`
 	LatencyMs     *int   `json:"latency_ms"`
+	TTFTMs        *int   `json:"ttft_ms"`
 	PingLatencyMs *int   `json:"ping_latency_ms"`
 	CheckedAt     string `json:"checked_at"`
 }
@@ -126,6 +128,7 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 			Model:     e.Model,
 			Status:    e.Status,
 			LatencyMs: e.LatencyMs,
+			TTFTMs:    e.TTFTMs,
 		})
 	}
 	timeline := make([]channelMonitorUserTimelinePoint, 0, len(v.Timeline))
@@ -133,6 +136,7 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 		timeline = append(timeline, channelMonitorUserTimelinePoint{
 			Status:        p.Status,
 			LatencyMs:     p.LatencyMs,
+			TTFTMs:        p.TTFTMs,
 			PingLatencyMs: p.PingLatencyMs,
 			CheckedAt:     p.CheckedAt.UTC().Format(time.RFC3339),
 		})
@@ -146,6 +150,7 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 		PrimaryModel:         v.PrimaryModel,
 		PrimaryStatus:        v.PrimaryStatus,
 		PrimaryLatencyMs:     v.PrimaryLatencyMs,
+		PrimaryTTFTMs:        v.PrimaryTTFTMs,
 		PrimaryPingLatencyMs: v.PrimaryPingLatencyMs,
 		Availability7d:       v.Availability7d,
 		Availability:         v.Availability,

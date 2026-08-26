@@ -126,6 +126,33 @@ func (_u *ChannelMonitorHistoryUpdate) ClearPingLatencyMs() *ChannelMonitorHisto
 	return _u
 }
 
+// SetTtftMs sets the "ttft_ms" field.
+func (_u *ChannelMonitorHistoryUpdate) SetTtftMs(v int64) *ChannelMonitorHistoryUpdate {
+	_u.mutation.ResetTtftMs()
+	_u.mutation.SetTtftMs(v)
+	return _u
+}
+
+// SetNillableTtftMs sets the "ttft_ms" field if the given value is not nil.
+func (_u *ChannelMonitorHistoryUpdate) SetNillableTtftMs(v *int64) *ChannelMonitorHistoryUpdate {
+	if v != nil {
+		_u.SetTtftMs(*v)
+	}
+	return _u
+}
+
+// AddTtftMs adds value to the "ttft_ms" field.
+func (_u *ChannelMonitorHistoryUpdate) AddTtftMs(v int64) *ChannelMonitorHistoryUpdate {
+	_u.mutation.AddTtftMs(v)
+	return _u
+}
+
+// ClearTtftMs clears the value of the "ttft_ms" field.
+func (_u *ChannelMonitorHistoryUpdate) ClearTtftMs() *ChannelMonitorHistoryUpdate {
+	_u.mutation.ClearTtftMs()
+	return _u
+}
+
 // SetMessage sets the "message" field.
 func (_u *ChannelMonitorHistoryUpdate) SetMessage(v string) *ChannelMonitorHistoryUpdate {
 	_u.mutation.SetMessage(v)
@@ -273,6 +300,15 @@ func (_u *ChannelMonitorHistoryUpdate) sqlSave(ctx context.Context) (_node int, 
 	}
 	if _u.mutation.PingLatencyMsCleared() {
 		_spec.ClearField(channelmonitorhistory.FieldPingLatencyMs, field.TypeInt)
+	}
+	if value, ok := _u.mutation.TtftMs(); ok {
+		_spec.SetField(channelmonitorhistory.FieldTtftMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTtftMs(); ok {
+		_spec.AddField(channelmonitorhistory.FieldTtftMs, field.TypeInt64, value)
+	}
+	if _u.mutation.TtftMsCleared() {
+		_spec.ClearField(channelmonitorhistory.FieldTtftMs, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.Message(); ok {
 		_spec.SetField(channelmonitorhistory.FieldMessage, field.TypeString, value)
@@ -431,6 +467,33 @@ func (_u *ChannelMonitorHistoryUpdateOne) AddPingLatencyMs(v int) *ChannelMonito
 // ClearPingLatencyMs clears the value of the "ping_latency_ms" field.
 func (_u *ChannelMonitorHistoryUpdateOne) ClearPingLatencyMs() *ChannelMonitorHistoryUpdateOne {
 	_u.mutation.ClearPingLatencyMs()
+	return _u
+}
+
+// SetTtftMs sets the "ttft_ms" field.
+func (_u *ChannelMonitorHistoryUpdateOne) SetTtftMs(v int64) *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.ResetTtftMs()
+	_u.mutation.SetTtftMs(v)
+	return _u
+}
+
+// SetNillableTtftMs sets the "ttft_ms" field if the given value is not nil.
+func (_u *ChannelMonitorHistoryUpdateOne) SetNillableTtftMs(v *int64) *ChannelMonitorHistoryUpdateOne {
+	if v != nil {
+		_u.SetTtftMs(*v)
+	}
+	return _u
+}
+
+// AddTtftMs adds value to the "ttft_ms" field.
+func (_u *ChannelMonitorHistoryUpdateOne) AddTtftMs(v int64) *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.AddTtftMs(v)
+	return _u
+}
+
+// ClearTtftMs clears the value of the "ttft_ms" field.
+func (_u *ChannelMonitorHistoryUpdateOne) ClearTtftMs() *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.ClearTtftMs()
 	return _u
 }
 
@@ -611,6 +674,15 @@ func (_u *ChannelMonitorHistoryUpdateOne) sqlSave(ctx context.Context) (_node *C
 	}
 	if _u.mutation.PingLatencyMsCleared() {
 		_spec.ClearField(channelmonitorhistory.FieldPingLatencyMs, field.TypeInt)
+	}
+	if value, ok := _u.mutation.TtftMs(); ok {
+		_spec.SetField(channelmonitorhistory.FieldTtftMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTtftMs(); ok {
+		_spec.AddField(channelmonitorhistory.FieldTtftMs, field.TypeInt64, value)
+	}
+	if _u.mutation.TtftMsCleared() {
+		_spec.ClearField(channelmonitorhistory.FieldTtftMs, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.Message(); ok {
 		_spec.SetField(channelmonitorhistory.FieldMessage, field.TypeString, value)

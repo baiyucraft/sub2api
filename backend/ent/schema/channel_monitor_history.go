@@ -41,6 +41,11 @@ func (ChannelMonitorHistory) Fields() []ent.Field {
 		field.Int("ping_latency_ms").
 			Optional().
 			Nillable(),
+		// ttft_ms is the elapsed time until the first non-empty text delta.
+		// It is nullable because historical observations predate streaming probes.
+		field.Int64("ttft_ms").
+			Optional().
+			Nillable(),
 		field.String("message").
 			Optional().
 			Default("").

@@ -30,6 +30,8 @@ type ChannelMonitorHistory struct {
 	LatencyMs *int `json:"latency_ms,omitempty"`
 	// PingLatencyMs holds the value of the "ping_latency_ms" field.
 	PingLatencyMs *int `json:"ping_latency_ms,omitempty"`
+	// TtftMs holds the value of the "ttft_ms" field.
+	TtftMs *int64 `json:"ttft_ms,omitempty"`
 	// Message holds the value of the "message" field.
 	Message string `json:"message,omitempty"`
 	// Quota holds the value of the "quota" field.
@@ -69,7 +71,7 @@ func (*ChannelMonitorHistory) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case channelmonitorhistory.FieldQuota:
 			values[i] = new([]byte)
-		case channelmonitorhistory.FieldID, channelmonitorhistory.FieldMonitorID, channelmonitorhistory.FieldLatencyMs, channelmonitorhistory.FieldPingLatencyMs:
+		case channelmonitorhistory.FieldID, channelmonitorhistory.FieldMonitorID, channelmonitorhistory.FieldLatencyMs, channelmonitorhistory.FieldPingLatencyMs, channelmonitorhistory.FieldTtftMs:
 			values[i] = new(sql.NullInt64)
 		case channelmonitorhistory.FieldModel, channelmonitorhistory.FieldStatus, channelmonitorhistory.FieldMessage:
 			values[i] = new(sql.NullString)
@@ -127,6 +129,13 @@ func (_m *ChannelMonitorHistory) assignValues(columns []string, values []any) er
 			} else if value.Valid {
 				_m.PingLatencyMs = new(int)
 				*_m.PingLatencyMs = int(value.Int64)
+			}
+		case channelmonitorhistory.FieldTtftMs:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field ttft_ms", values[i])
+			} else if value.Valid {
+				_m.TtftMs = new(int64)
+				*_m.TtftMs = value.Int64
 			}
 		case channelmonitorhistory.FieldMessage:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -205,6 +214,11 @@ func (_m *ChannelMonitorHistory) String() string {
 	builder.WriteString(", ")
 	if v := _m.PingLatencyMs; v != nil {
 		builder.WriteString("ping_latency_ms=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.TtftMs; v != nil {
+		builder.WriteString("ttft_ms=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")

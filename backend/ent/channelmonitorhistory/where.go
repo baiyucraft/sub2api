@@ -75,6 +75,11 @@ func PingLatencyMs(v int) predicate.ChannelMonitorHistory {
 	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldPingLatencyMs, v))
 }
 
+// TtftMs applies equality check predicate on the "ttft_ms" field. It's identical to TtftMsEQ.
+func TtftMs(v int64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldTtftMs, v))
+}
+
 // Message applies equality check predicate on the "message" field. It's identical to MessageEQ.
 func Message(v string) predicate.ChannelMonitorHistory {
 	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldMessage, v))
@@ -288,6 +293,56 @@ func PingLatencyMsIsNil() predicate.ChannelMonitorHistory {
 // PingLatencyMsNotNil applies the NotNil predicate on the "ping_latency_ms" field.
 func PingLatencyMsNotNil() predicate.ChannelMonitorHistory {
 	return predicate.ChannelMonitorHistory(sql.FieldNotNull(FieldPingLatencyMs))
+}
+
+// TtftMsEQ applies the EQ predicate on the "ttft_ms" field.
+func TtftMsEQ(v int64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldTtftMs, v))
+}
+
+// TtftMsNEQ applies the NEQ predicate on the "ttft_ms" field.
+func TtftMsNEQ(v int64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNEQ(FieldTtftMs, v))
+}
+
+// TtftMsIn applies the In predicate on the "ttft_ms" field.
+func TtftMsIn(vs ...int64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldIn(FieldTtftMs, vs...))
+}
+
+// TtftMsNotIn applies the NotIn predicate on the "ttft_ms" field.
+func TtftMsNotIn(vs ...int64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNotIn(FieldTtftMs, vs...))
+}
+
+// TtftMsGT applies the GT predicate on the "ttft_ms" field.
+func TtftMsGT(v int64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldGT(FieldTtftMs, v))
+}
+
+// TtftMsGTE applies the GTE predicate on the "ttft_ms" field.
+func TtftMsGTE(v int64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldGTE(FieldTtftMs, v))
+}
+
+// TtftMsLT applies the LT predicate on the "ttft_ms" field.
+func TtftMsLT(v int64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldLT(FieldTtftMs, v))
+}
+
+// TtftMsLTE applies the LTE predicate on the "ttft_ms" field.
+func TtftMsLTE(v int64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldLTE(FieldTtftMs, v))
+}
+
+// TtftMsIsNil applies the IsNil predicate on the "ttft_ms" field.
+func TtftMsIsNil() predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldIsNull(FieldTtftMs))
+}
+
+// TtftMsNotNil applies the NotNil predicate on the "ttft_ms" field.
+func TtftMsNotNil() predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNotNull(FieldTtftMs))
 }
 
 // MessageEQ applies the EQ predicate on the "message" field.
