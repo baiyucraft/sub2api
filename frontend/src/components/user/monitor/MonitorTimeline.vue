@@ -103,12 +103,13 @@ const displayBars = computed<Bar[]>(() => {
     const colorClass = STATUS_COLOR[status] ?? STATUS_COLOR.empty
     const heightPct = STATUS_HEIGHT[status] ?? STATUS_HEIGHT.empty
     const latency = formatLatency(point.latency_ms)
+    const ttft = formatLatency(point.ttft_ms)
     const relative = formatRelativeTime(point.checked_at)
     const label = statusLabel(point.status)
     bars.push({
       colorClass,
       heightPct,
-      title: `${relative} · ${label} · ${latency}ms`,
+      title: `${relative} · ${label} · ${t('monitorCommon.ttft')} ${ttft === t('monitorCommon.latencyEmpty') ? ttft : `${ttft}ms`} · ${t('monitorCommon.totalLatency')} ${latency === t('monitorCommon.latencyEmpty') ? latency : `${latency}ms`}`,
     })
   }
 

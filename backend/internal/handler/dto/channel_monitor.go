@@ -7,4 +7,5 @@ type ChannelMonitorExtraModelStatus struct {
 	Model     string `json:"model"`
 	Status    string `json:"status"`
 	LatencyMs *int   `json:"latency_ms"`
+	TTFTMs    *int   `json:"ttft_ms"`
 }

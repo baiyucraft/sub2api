@@ -25,6 +25,8 @@ const (
 	FieldLatencyMs = "latency_ms"
 	// FieldPingLatencyMs holds the string denoting the ping_latency_ms field in the database.
 	FieldPingLatencyMs = "ping_latency_ms"
+	// FieldTtftMs holds the string denoting the ttft_ms field in the database.
+	FieldTtftMs = "ttft_ms"
 	// FieldMessage holds the string denoting the message field in the database.
 	FieldMessage = "message"
 	// FieldQuota holds the string denoting the quota field in the database.
@@ -52,6 +54,7 @@ var Columns = []string{
 	FieldStatus,
 	FieldLatencyMs,
 	FieldPingLatencyMs,
+	FieldTtftMs,
 	FieldMessage,
 	FieldQuota,
 	FieldCheckedAt,
@@ -135,6 +138,11 @@ func ByLatencyMs(opts ...sql.OrderTermOption) OrderOption {
 // ByPingLatencyMs orders the results by the ping_latency_ms field.
 func ByPingLatencyMs(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldPingLatencyMs, opts...).ToFunc()
+}
+
+// ByTtftMs orders the results by the ttft_ms field.
+func ByTtftMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTtftMs, opts...).ToFunc()
 }
 
 // ByMessage orders the results by the message field.

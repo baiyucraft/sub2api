@@ -470,6 +470,8 @@ export default {
     extraModelsHeader: 'Extra Models',
     extraModelsEmpty: 'No extra models',
     latencyEmpty: '-',
+    ttft: 'TTFT',
+    totalLatency: 'Total',
     availabilityPrefix: 'Availability',
     dialogLatency: 'Dialog Latency',
     endpointPing: 'Endpoint PING',

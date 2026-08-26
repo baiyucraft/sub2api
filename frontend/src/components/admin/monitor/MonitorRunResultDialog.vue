@@ -23,7 +23,10 @@
           >
             {{ statusLabel(r.status) }}
           </span>
-          <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatLatency(r.latency_ms) }} ms</span>
+          <span class="flex flex-col items-end text-xs tabular-nums text-gray-500 dark:text-gray-400">
+            <span>{{ t('monitorCommon.ttft') }} {{ formatLatencyWithUnit(r.ttft_ms) }}</span>
+            <span>{{ t('monitorCommon.totalLatency') }} {{ formatLatencyWithUnit(r.latency_ms) }}</span>
+          </span>
         </div>
       </div>
     </div>
@@ -54,5 +57,5 @@ defineEmits<{
 }>()
 
 const { t } = useI18n()
-const { statusLabel, statusBadgeClass, formatLatency, formatMonitorModel } = useChannelMonitorFormat()
+const { statusLabel, statusBadgeClass, formatLatencyWithUnit, formatMonitorModel } = useChannelMonitorFormat()
 </script>

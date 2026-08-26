@@ -475,6 +475,8 @@ export default {
     extraModelsHeader: '附加模型',
     extraModelsEmpty: '无附加模型',
     latencyEmpty: '-',
+    ttft: '首字',
+    totalLatency: '总耗时',
     availabilityPrefix: '可用性',
     dialogLatency: '对话延迟',
     endpointPing: '端点 PING',

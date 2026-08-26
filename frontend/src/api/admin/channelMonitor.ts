@@ -92,6 +92,8 @@ export interface ChannelMonitor {
   primary_status: MonitorStatus | ''
   /** Latest latency of the primary model in ms (null when no history yet) */
   primary_latency_ms: number | null
+  /** Time to first non-empty streamed text delta in ms. */
+  primary_ttft_ms?: number | null
   /** Primary model 7-day availability percentage (0-100) */
   availability_7d: number
   /** Latest status per extra model (used for hover tooltip) */
@@ -113,6 +115,7 @@ export interface ExtraModelStatus {
   model: string
   status: MonitorStatus | ''
   latency_ms: number | null
+  ttft_ms?: number | null
 }
 
 export interface ListParams {
@@ -171,6 +174,7 @@ export interface CheckResult {
   model: string
   status: MonitorStatus
   latency_ms: number | null
+  ttft_ms?: number | null
   ping_latency_ms: number | null
   message: string
   checked_at: string
@@ -187,6 +191,7 @@ export interface HistoryItem {
   model: string
   status: MonitorStatus
   latency_ms: number | null
+  ttft_ms?: number | null
   ping_latency_ms: number | null
   message: string
   checked_at: string

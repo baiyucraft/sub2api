@@ -1,0 +1,15 @@
+id: channel-monitor-streaming
+stage: verification
+deliveryShape: single-change
+implementation-mode: direct
+artifacts:
+  proposal:
+    status: present
+  design:
+    status: present
+  systemTests:
+    status: present
+  tasks:
+    status: present
+  metadata:
+    status: present
