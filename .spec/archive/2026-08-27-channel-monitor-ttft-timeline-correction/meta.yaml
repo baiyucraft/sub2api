@@ -1,5 +1,5 @@
 id: channel-monitor-ttft-timeline-correction
-stage: review
+stage: verification
 deliveryShape: single-change
 implementation-mode: tdd
 artifacts:
