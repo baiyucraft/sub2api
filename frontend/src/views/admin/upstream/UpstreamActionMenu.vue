@@ -10,15 +10,6 @@
           <Icon name="chart" size="sm" class="text-indigo-500" />
           {{ t('admin.upstreamConfigs.actions.rateTrend') }}
         </button>
-        <button
-          v-if="supportsDashboard"
-          role="menuitem"
-          class="menu-item"
-          @click="emitAndClose('dashboard', close)"
-        >
-          <Icon name="externalLink" size="sm" class="text-sky-500" />
-          {{ t('admin.upstreamConfigs.actions.openDashboard') }}
-        </button>
         <div data-menu-divider></div>
         <button role="menuitem" class="text-red-600 dark:text-red-400" @click="emitAndClose('delete', close)">
           <Icon name="trash" size="sm" />
@@ -30,7 +21,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ActionMenu from '@/components/common/ActionMenu.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -49,20 +39,14 @@ const emit = defineEmits<{
   close: []
   test: [config: UpstreamConfig]
   rateTrend: [config: UpstreamConfig]
-  dashboard: [config: UpstreamConfig]
   delete: [config: UpstreamConfig]
 }>()
 
 const { t } = useI18n()
-const supportsDashboard = computed(() =>
-  ['sub2api', 'newapi', 'lcodex'].includes(props.config?.provider || '')
-)
-
-function emitAndClose(event: 'test' | 'rateTrend' | 'dashboard' | 'delete', close: () => void) {
+function emitAndClose(event: 'test' | 'rateTrend' | 'delete', close: () => void) {
   if (!props.config) return
   if (event === 'test') emit('test', props.config)
   else if (event === 'rateTrend') emit('rateTrend', props.config)
-  else if (event === 'dashboard') emit('dashboard', props.config)
   else emit('delete', props.config)
   close()
 }

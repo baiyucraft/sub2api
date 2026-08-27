@@ -150,7 +150,18 @@
 
           <template #cell-name="{ row }">
             <div class="min-w-0">
-              <div class="font-medium text-gray-900 dark:text-gray-100">{{ row.name }}</div>
+              <button
+                v-if="canOpenUpstreamDashboard(row)"
+                type="button"
+                class="block max-w-full truncate text-left font-medium text-sky-700 underline-offset-2 transition-colors hover:text-sky-900 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 dark:text-sky-300 dark:hover:text-sky-200 dark:focus-visible:ring-offset-dark-900"
+                :title="t('admin.upstreamConfigs.actions.openDashboard')"
+                :aria-label="`${row.name} · ${t('admin.upstreamConfigs.actions.openDashboard')}`"
+                data-test="upstream-dashboard-link"
+                @click="openUpstreamDashboard(row)"
+              >
+                {{ row.name }}
+              </button>
+              <div v-else class="font-medium text-gray-900 dark:text-gray-100">{{ row.name }}</div>
               <div class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">#{{ row.id }}</div>
             </div>
           </template>
@@ -844,7 +855,6 @@
       @close="closeActionMenu"
       @test="handleTest"
       @rate-trend="openRateTrend"
-      @dashboard="openUpstreamDashboard"
       @delete="askDelete"
     />
 
@@ -2186,6 +2196,10 @@ function openUpstreamDashboard(item: UpstreamConfig) {
     return
   }
   window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function canOpenUpstreamDashboard(item: UpstreamConfig): boolean {
+  return ['sub2api', 'newapi', 'lcodex'].includes(item.provider) && Boolean(buildUpstreamDashboardURL(item))
 }
 
 function buildUpstreamDashboardURL(item: UpstreamConfig): string | null {
