@@ -137,6 +137,7 @@
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.userStatus') }}</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.rateMultiplier') }}</th>
                     <th v-if="showFinalRate" class="px-3 py-2 text-left text-xs font-medium text-primary-600 dark:text-primary-400">{{ t('admin.groups.finalRate') }}</th>
+                    <th v-if="showProfitControlMaxRate" class="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-primary-600 dark:text-primary-400">{{ t('admin.groups.profitControl.maxAccountRate') }}</th>
                     <th class="w-10 px-2 py-2"></th>
                   </tr>
                 </thead>
@@ -176,6 +177,9 @@
                     </td>
                     <td v-if="showFinalRate" class="whitespace-nowrap px-3 py-2 font-medium text-primary-600 dark:text-primary-400">
                       {{ computeFinalRate(entry.rate_multiplier) }}
+                    </td>
+                    <td v-if="showProfitControlMaxRate" class="whitespace-nowrap px-3 py-2 font-medium text-primary-600 dark:text-primary-400">
+                      {{ computeProfitControlMaxRate(entry.rate_multiplier) }}
                     </td>
                     <td class="px-2 py-2">
                       <button
@@ -239,7 +243,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -249,6 +253,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
+import { calculateProfitControlMaxAccountRate, formatProfitControlMaxAccountRate } from '@/views/admin/groupsProfitControl'
 
 interface LocalEntry extends GroupRateMultiplierEntry {}
 
@@ -277,6 +282,8 @@ const newRate = ref<number | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const batchFactor = ref<number | null>(null)
+const previewNow = ref(Date.now())
+let previewClock: ReturnType<typeof setInterval> | null = null
 
 let searchTimeout: ReturnType<typeof setTimeout>
 
@@ -294,11 +301,21 @@ const showFinalRate = computed(() => {
   return batchFactor.value != null && batchFactor.value > 0 && batchFactor.value !== 1
 })
 
+const showProfitControlMaxRate = computed(() => {
+  if (!props.group) return false
+  return calculateProfitControlMaxAccountRate(props.group, props.group.rate_multiplier, previewNow.value, appStore.cachedPublicSettings?.server_timezone) !== null
+})
+
 // 计算最终倍率预览
 const computeFinalRate = (rate: number | null | undefined) => {
   const base = rate ?? props.group?.rate_multiplier ?? 1
   if (!batchFactor.value) return base
   return parseFloat((base * batchFactor.value).toFixed(6))
+}
+
+const computeProfitControlMaxRate = (rate: number | null | undefined) => {
+  if (!props.group) return '-'
+  return formatProfitControlMaxAccountRate(calculateProfitControlMaxAccountRate(props.group, rate ?? props.group.rate_multiplier, previewNow.value, appStore.cachedPublicSettings?.server_timezone))
 }
 
 // 检测是否有未保存的修改
@@ -490,6 +507,20 @@ const handleClickOutside = () => {
 if (typeof document !== 'undefined') {
   document.addEventListener('click', handleClickOutside)
 }
+
+if (typeof window !== 'undefined') {
+  previewClock = setInterval(() => { previewNow.value = Date.now() }, 60_000)
+}
+
+onUnmounted(() => {
+  if (previewClock) {
+    clearInterval(previewClock)
+    previewClock = null
+  }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('click', handleClickOutside)
+  }
+})
 </script>
 
 <style scoped>
