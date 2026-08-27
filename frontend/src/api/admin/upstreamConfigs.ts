@@ -3,7 +3,7 @@ import type { PaginatedResponse } from '@/types'
 
 export type UpstreamProvider = 'sub2api' | 'newapi' | 'lcodex' | 'other'
 export type UpstreamAuthMode = 'user_login' | 'manual_jwt' | 'cookie' | 'access_token'
-export type UpstreamTrendRange = '24h' | '7d' | '30d'
+export type UpstreamTrendRange = '1h' | '24h' | '7d' | '15d' | '30d'
 export type UpstreamKeyPlatform =
   | 'openai'
   | 'anthropic'
@@ -263,6 +263,55 @@ export interface UpstreamUsageTrend {
   points: UpstreamUsageTrendPoint[]
 }
 
+export type UpstreamDashboardWindow = '1h' | '24h' | '7d' | '15d' | '30d'
+export interface UpstreamDashboardProbeSummary {
+  samples: number
+  healthy_samples: number
+  latest_state?: string
+  latest_reason?: string
+  latest_observed_at?: string | null
+  average_ttft_ms?: number | null
+  average_duration_ms?: number | null
+  confidence_samples: number
+  confidence_status?: string | null
+}
+export interface UpstreamDashboardCard {
+  id: number
+  name: string
+  provider: string
+  site_url: string
+  enabled: boolean
+  config_status: string
+  overall_status: 'disabled' | 'critical' | 'degraded' | 'operational' | 'data_insufficient'
+  requests: number
+  completed_requests: number
+  failed_requests: number
+  success_rate?: number | null
+  error_429: number
+  error_5xx: number
+  timeouts: number
+  auth_config_errors: number
+  p50_ttft_ms?: number | null
+  p95_ttft_ms?: number | null
+  p50_latency_ms?: number | null
+  p95_latency_ms?: number | null
+  account_count: number
+  schedulable_account_count: number
+  temp_unschedulable_count: number
+  revenue?: number | null
+  upstream_cost?: number | null
+  estimated_gross_profit?: number | null
+  estimated_gross_profit_rate?: number | null
+  probe: UpstreamDashboardProbeSummary
+  data_quality: 'sufficient' | 'insufficient'
+}
+export interface UpstreamDashboardResponse {
+  window: UpstreamDashboardWindow
+  start_at: string
+  end_at: string
+  items: UpstreamDashboardCard[]
+}
+
 export interface UpstreamKeyRateTrendPoint {
   bucket: string
   rate_multiplier: number
@@ -412,6 +461,16 @@ export async function getUsageTrend(configId: number, range: UpstreamTrendRange,
   return data
 }
 
+export async function getDashboard(params?: { window?: UpstreamDashboardWindow; provider?: string; status?: string; search?: string }): Promise<UpstreamDashboardResponse> {
+  const { data } = await apiClient.get<UpstreamDashboardResponse>('/admin/upstream-dashboard', { params })
+  return data
+}
+
+export async function getDashboardDetail(id: number, window: UpstreamDashboardWindow = '24h'): Promise<UpstreamDashboardCard> {
+  const { data } = await apiClient.get<UpstreamDashboardCard>(`/admin/upstream-dashboard/${id}`, { params: { window } })
+  return data
+}
+
 export async function getKeyRateTrend(configId: number, keyId: number, range: UpstreamTrendRange): Promise<UpstreamKeyRateTrend> {
   const { data } = await apiClient.get<UpstreamKeyRateTrend>(`/admin/upstream-configs/${configId}/keys/${keyId}/rate-trend`, {
     params: { range }
@@ -490,6 +549,8 @@ export default {
   listEvents,
   listIncidents,
   getUsageTrend,
+  getDashboard,
+  getDashboardDetail,
   getKeyRateTrend,
   listKeyRateTrendKeys,
   listBalanceHistory,

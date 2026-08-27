@@ -456,6 +456,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 }
 
 func registerUpstreamConfigRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	admin.GET("/upstream-dashboard", h.Admin.UpstreamConfig.Dashboard)
+	admin.GET("/upstream-dashboard/:id", h.Admin.UpstreamConfig.DashboardDetail)
 	admin.GET("/upstream-settings", h.Admin.UpstreamConfig.GetSettings)
 	admin.PUT("/upstream-settings", h.Admin.UpstreamConfig.UpdateSettings)
 	admin.GET("/upstream-sync-runs", h.Admin.UpstreamConfig.ListSyncRuns)

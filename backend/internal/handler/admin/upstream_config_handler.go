@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -66,6 +67,35 @@ type updateUpstreamKeyBaseURLRequest struct {
 
 type upstreamConfigDeleteRequest struct {
 	DeleteSyncManagedAccounts bool `json:"delete_sync_managed_accounts"`
+}
+
+func (h *UpstreamConfigHandler) Dashboard(c *gin.Context) {
+	window := service.UpstreamDashboardWindow(c.DefaultQuery("window", string(service.UpstreamDashboardWindow24h)))
+	result, err := h.service.GetUpstreamDashboard(c.Request.Context(), service.UpstreamDashboardFilter{Window: window, Provider: c.Query("provider"), Status: c.Query("status"), Search: c.Query("search"), Now: time.Now().UTC()})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *UpstreamConfigHandler) DashboardDetail(c *gin.Context) {
+	id, ok := parseUpstreamIDParam(c, "id")
+	if !ok {
+		return
+	}
+	result, err := h.service.GetUpstreamDashboard(c.Request.Context(), service.UpstreamDashboardFilter{Window: service.UpstreamDashboardWindow(c.DefaultQuery("window", "24h")), Now: time.Now().UTC()})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	for _, item := range result.Items {
+		if item.ID == id {
+			response.Success(c, item)
+			return
+		}
+	}
+	response.Error(c, http.StatusNotFound, "upstream config not found")
 }
 
 func (h *UpstreamConfigHandler) List(c *gin.Context) {

@@ -6,6 +6,7 @@ import ops from './ops'
 import settings from './settings'
 import upstreamConfigs from './upstreamConfigs'
 import upstreamManagement from './upstreamManagement'
+import upstreamDashboard from './upstreamDashboard'
 import audit from './audit'
 import promptAudit from './promptAudit'
 import plugins from './plugins'
@@ -19,6 +20,7 @@ export default {
   ...settings,
   ...upstreamConfigs,
   ...upstreamManagement,
+  ...upstreamDashboard,
   ...audit,
   ...promptAudit,
   ...plugins,

@@ -55,30 +55,19 @@ describe('AppSidebar header styles', () => {
 })
 
 describe('AppSidebar upstream navigation', () => {
-  const upstreamConfigItem = "{ path: '/admin/upstream-configs', label: t('nav.upstreamConfigs'), icon: UpstreamConfigIcon }"
-  const upstreamManagementItem = "{ path: '/admin/upstream-management', label: t('nav.upstreamManagement'), icon: UpstreamManagementIcon }"
-
-  it('renders upstream configuration and management as adjacent top-level entries', () => {
-    expect(componentSource).toContain(`${upstreamConfigItem},\n    ${upstreamManagementItem},`)
-    expect(componentSource).not.toMatch(/path: '\/admin\/upstream-configs',[\s\S]{0,180}expandOnly: true/)
-    expect(componentSource).not.toMatch(/path: '\/admin\/upstream-configs',[\s\S]{0,240}children:/)
+  it('renders one expandable upstream group with dashboard, channels and accounts', () => {
+    expect(componentSource).toContain("path: '/admin/upstream'")
+    expect(componentSource).toContain("path: '/admin/upstream/dashboard'")
+    expect(componentSource).toContain("path: '/admin/upstream/channels'")
+    expect(componentSource).toContain("path: '/admin/upstream/accounts'")
+    expect(componentSource).toContain('expandOnly: true')
+    expect(componentSource).not.toContain("path: '/admin/upstream-configs'")
+    expect(componentSource).not.toContain("path: '/admin/upstream-management'")
   })
 
-  it('uses two dedicated and visually distinct icons', () => {
-    const configIcon = componentSource.match(/const UpstreamConfigIcon = \{[\s\S]*?\n\}/)?.[0]
-    const managementIcon = componentSource.match(/const UpstreamManagementIcon = \{[\s\S]*?\n\}/)?.[0]
-
-    expect(configIcon).toBeTruthy()
-    expect(managementIcon).toBeTruthy()
-    expect(configIcon).not.toBe(managementIcon)
-    expect(configIcon).toContain("M4.5 4.5h15")
-    expect(managementIcon).toContain("M12 9.75a2.25 2.25")
-  })
-
-  it('keeps both entries on the normal route-active path', () => {
+  it('keeps child entries on the route-active path', () => {
     expect(componentSource).toContain("'sidebar-link-active': isActive(item.path)")
-    expect(componentSource).toContain(upstreamConfigItem)
-    expect(componentSource).toContain(upstreamManagementItem)
+    expect(componentSource).toContain("'sidebar-link-active': route.path === child.path")
   })
 })
 
