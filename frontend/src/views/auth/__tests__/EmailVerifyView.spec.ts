@@ -342,7 +342,15 @@ describe('EmailVerifyView', () => {
     expect(sendVerifyCodeMock).toHaveBeenCalledWith(
       expect.objectContaining({ email: 'first@custom.example' })
     )
-    expect(wrapper.text()).toContain('auth.codeSentSpamHint')
+    const sentNotice = wrapper.get('[data-testid="verification-code-sent"]')
+    const spamWarning = wrapper.get('[data-testid="verification-spam-warning"]')
+
+    expect(sentNotice.text()).toContain('auth.codeSentSuccess')
+    expect(sentNotice.text()).not.toContain('auth.codeSentSpamHint')
+    expect(sentNotice.classes()).toContain('bg-green-50')
+    expect(spamWarning.text()).toContain('auth.codeSentSpamHint')
+    expect(spamWarning.classes()).toContain('bg-orange-50')
+    expect(spamWarning.find('icon-stub').attributes('name')).toBe('exclamationCircle')
     expect(showErrorMock).not.toHaveBeenCalled()
   })
 
