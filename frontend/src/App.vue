@@ -19,7 +19,7 @@ const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
 const accountRouteInstanceKey = computed(() => (
-  route.name === 'AdminAccounts' || route.name === 'AdminUpstreamManagement'
+  route.name === 'AdminAccounts' || route.name === 'AdminUpstreamAccounts'
     ? String(route.name)
     : undefined
 ))
