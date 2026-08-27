@@ -223,12 +223,11 @@ const ProxySelectorStub = defineComponent({
 
 const UpstreamActionMenuStub = defineComponent({
   props: ['show', 'anchorEl', 'config', 'width'],
-  emits: ['close', 'test', 'rateTrend', 'dashboard', 'delete'],
+  emits: ['close', 'test', 'rateTrend', 'delete'],
   template: `
     <div v-if="show" data-test="upstream-action-menu" :data-width="width">
       <button data-test="menu-test" @click="$emit('test', config); $emit('close')">test</button>
       <button data-test="menu-rate-trend" @click="$emit('rateTrend', config); $emit('close')">rate trend</button>
-      <button data-test="menu-dashboard" @click="$emit('dashboard', config); $emit('close')">dashboard</button>
       <button data-test="menu-delete" @click="$emit('delete', config); $emit('close')">delete</button>
     </div>
   `
@@ -643,7 +642,7 @@ describe('UpstreamConfigsView', () => {
     expect(enUpstreamConfigs.upstreamConfigs.concurrency.initialFailure).toBe('-- (Sync failed)')
   })
 
-  it('renders upstream balance from extra and opens sub2api dashboard URL', async () => {
+  it('renders upstream balance from extra and opens sub2api dashboard URL from the name', async () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     mockList([upstreamConfig({
       site_url: 'https://upstream.example.com/base?x=1#frag',
@@ -660,8 +659,7 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.text()).toContain('12.3456')
     expect(wrapper.text()).toContain('admin.upstreamConfigs.balance.totalRecharged:{"amount":"¥169.17"}')
 
-    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
-    await wrapper.get('[data-test="menu-dashboard"]').trigger('click')
+    await wrapper.get('[data-test="upstream-dashboard-link"]').trigger('click')
 
     expect(openSpy).toHaveBeenCalledWith('https://upstream.example.com/dashboard', '_blank', 'noopener,noreferrer')
     openSpy.mockRestore()
@@ -699,11 +697,23 @@ describe('UpstreamConfigsView', () => {
     expect(enUpstreamConfigs.upstreamConfigs.credentialStatus.identifier).toBe('Email {status}')
     expect(wrapper.text()).toContain('¥36.00')
 
-    await wrapper.get('[data-test="more-upstream-actions"]').trigger('click')
-    await wrapper.get('[data-test="menu-dashboard"]').trigger('click')
+    await wrapper.get('[data-test="upstream-dashboard-link"]').trigger('click')
 
     expect(openSpy).toHaveBeenCalledWith('https://lcodex.cc/#/dashboard', '_blank', 'noopener,noreferrer')
     openSpy.mockRestore()
+  })
+
+  it('keeps unsupported providers and invalid URLs non-clickable', async () => {
+    mockList([
+      upstreamConfig({ id: 11, name: 'Other', provider: 'other' }),
+      upstreamConfig({ id: 12, name: 'Broken', provider: 'sub2api', site_url: 'not-a-url' })
+    ])
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-test="upstream-dashboard-link"]')).toHaveLength(0)
+    expect(wrapper.text()).toContain('Other')
+    expect(wrapper.text()).toContain('Broken')
   })
 
   it('shows the original LCodex USD balance when no CNY rate is configured', async () => {

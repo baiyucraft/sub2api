@@ -42,21 +42,21 @@ describe('UpstreamActionMenu', () => {
     expect(wrapper.get('[data-test="action-menu"]').attributes('data-has-anchor')).toBe('true')
   })
 
-  it('emits test, rateTrend, dashboard, and delete with the config and closes each action', async () => {
+  it('emits test, rateTrend, and delete with the config and closes each action', async () => {
     const item = config()
     const wrapper = mount(UpstreamActionMenu, {
       props: { show: true, anchorEl: document.body, config: item as any },
       global: { stubs: { ActionMenu: ActionMenuStub, Icon: true } }
     })
 
-    for (const [index, event] of ['test', 'rateTrend', 'dashboard', 'delete'].entries()) {
+    for (const [index, event] of ['test', 'rateTrend', 'delete'].entries()) {
       await wrapper.findAll('[role="menuitem"]')[index].trigger('click')
       expect(wrapper.emitted(event)?.[0]).toEqual([item])
     }
-    expect(wrapper.emitted('close')).toHaveLength(4)
+    expect(wrapper.emitted('close')).toHaveLength(3)
   })
 
-  it('hides the dashboard action for unsupported providers', () => {
+  it('keeps the menu limited to non-dashboard actions for unsupported providers', () => {
     const wrapper = mount(UpstreamActionMenu, {
       props: { show: true, anchorEl: document.body, config: config('other') as any },
       global: { stubs: { ActionMenu: ActionMenuStub, Icon: true } }
@@ -65,14 +65,5 @@ describe('UpstreamActionMenu', () => {
     expect(wrapper.findAll('[role="menuitem"]')).toHaveLength(3)
     expect(wrapper.text()).toContain('admin.upstreamConfigs.actions.rateTrend')
     expect(wrapper.text()).not.toContain('admin.upstreamConfigs.actions.openDashboard')
-  })
-
-  it('shows the dashboard action for LCodex', () => {
-    const wrapper = mount(UpstreamActionMenu, {
-      props: { show: true, anchorEl: document.body, config: config('lcodex') as any },
-      global: { stubs: { ActionMenu: ActionMenuStub, Icon: true } }
-    })
-
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.actions.openDashboard')
   })
 })
