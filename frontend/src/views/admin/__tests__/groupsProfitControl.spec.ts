@@ -4,6 +4,8 @@ import {
   profitDecimalToPercent,
   profitPercentToDecimal,
   validateProfitControlFormState,
+  calculateProfitControlMaxAccountRate,
+  formatProfitControlMaxAccountRate,
   type ProfitControlFormState,
 } from "../groupsProfitControl";
 
@@ -177,5 +179,40 @@ describe("validateProfitControlFormState", () => {
         formState({ profit_min_margin_percent: 99.99 }),
       ),
     ).toBeNull();
+  });
+});
+
+describe("calculateProfitControlMaxAccountRate", () => {
+  const fields = {
+    platform: "openai",
+    profit_control_enabled: true,
+    profit_min_margin: 0.05,
+    profit_safety_buffer: 0.0389,
+    peak_rate_enabled: false,
+  };
+
+  it("uses the supplied downstream rate and truncates to four decimals", () => {
+    expect(calculateProfitControlMaxAccountRate(fields, 0.1, new Date("2026-08-27T00:00:00Z"))).toBe(0.0911);
+    expect(formatProfitControlMaxAccountRate(0.0911)).toBe("0.0911");
+  });
+
+  it("applies the current peak multiplier only during the configured subscription window", () => {
+    const peakFields = {
+      ...fields,
+      subscription_type: "subscription",
+      peak_rate_enabled: true,
+      peak_start: "14:00",
+      peak_end: "18:00",
+      peak_rate_multiplier: 2,
+    };
+    expect(calculateProfitControlMaxAccountRate(peakFields, 0.1, new Date("2026-08-27T07:00:00Z"), "Asia/Shanghai")).toBe(0.1822);
+    expect(calculateProfitControlMaxAccountRate(peakFields, 0.1, new Date("2026-08-27T03:00:00Z"), "Asia/Shanghai")).toBe(0.0911);
+  });
+
+  it("returns null when profit control is disabled or inputs are invalid", () => {
+    expect(calculateProfitControlMaxAccountRate({ ...fields, profit_control_enabled: false }, 0.1)).toBeNull();
+    expect(calculateProfitControlMaxAccountRate(fields, -1)).toBeNull();
+    expect(calculateProfitControlMaxAccountRate({ ...fields, profit_min_margin_percent: "bad" }, 0.1)).toBeNull();
+    expect(calculateProfitControlMaxAccountRate({ ...fields, profit_min_margin: 0.8, profit_safety_buffer: 0.2 }, 0.1)).toBeNull();
   });
 });

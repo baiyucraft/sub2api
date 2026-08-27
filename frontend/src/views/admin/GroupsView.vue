@@ -255,10 +255,12 @@
             </div>
           </template>
 
-          <template #cell-rate_multiplier="{ value }">
-            <span class="text-sm text-gray-700 dark:text-gray-300"
-              >{{ value }}x</span
-            >
+          <template #cell-rate_multiplier="{ row }">
+            <span class="text-sm text-gray-700 dark:text-gray-300">
+              {{ row.rate_multiplier }}<template v-if="formatGroupMaxAccountRate(row)">（<span
+                class="text-xs text-primary-600 dark:text-primary-400"
+              >{{ formatGroupMaxAccountRate(row) }}</span>）</template><template v-else>x</template>
+            </span>
           </template>
 
           <template #cell-is_exclusive="{ value }">
@@ -2984,13 +2986,19 @@
 
         <!-- 分组利润控制（五个平台 token 请求） -->
         <div v-if="isProfitControlPlatform(editForm.platform)" class="border-t pt-4">
-          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <label class="flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input
               v-model="editForm.profit_control_enabled"
               type="checkbox"
               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             <span>{{ t("admin.groups.profitControl.enable") }}</span>
+            <span
+              v-if="editForm.profit_control_enabled"
+              class="text-xs font-normal text-primary-600 dark:text-primary-400"
+            >
+              {{ t("admin.groups.profitControl.maxAccountRate") }}: {{ editMaxAccountRate }}
+            </span>
           </label>
           <p class="mb-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
             {{
@@ -4536,6 +4544,8 @@ import {
   isProfitControlPlatform,
   profitPercentToDecimal,
   profitDecimalToPercent,
+  calculateProfitControlMaxAccountRate,
+  formatProfitControlMaxAccountRate,
   validateProfitControlFormState,
   type ProfitControlFormState,
 } from "./groupsProfitControl";
@@ -4999,6 +5009,8 @@ type GroupUsageSummary = {
 
 const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
 const usageLoading = ref(false);
+const previewNow = ref(Date.now());
+let previewClock: ReturnType<typeof setInterval> | null = null;
 const qualityStatsByGroupId = ref<Record<string, AccountQualityStats>>({});
 const qualityStatsLoading = ref(false);
 const qualityStatsError = ref<string | null>(null);
@@ -5067,6 +5079,44 @@ const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
+
+const profitPreviewFields = (source: any) => ({
+  platform: source?.platform,
+  subscription_type: source?.subscription_type,
+  profit_control_enabled: source?.profit_control_enabled,
+  profit_min_margin: source?.profit_min_margin,
+  profit_safety_buffer: source?.profit_safety_buffer,
+  profit_min_margin_percent: source?.profit_min_margin_percent,
+  profit_safety_buffer_percent: source?.profit_safety_buffer_percent,
+  peak_rate_enabled: source?.peak_rate_enabled,
+  peak_start: source?.peak_start,
+  peak_end: source?.peak_end,
+  peak_rate_multiplier: source?.peak_rate_multiplier,
+});
+
+const maxAccountRateFor = (source: any, downstreamRate: number | string | null | undefined): string | null => {
+  const value = calculateProfitControlMaxAccountRate(
+    profitPreviewFields(source),
+    downstreamRate,
+    previewNow.value,
+    appStore.cachedPublicSettings?.server_timezone,
+  );
+  return value === null ? null : formatProfitControlMaxAccountRate(value);
+};
+
+const formatGroupMaxAccountRate = (group: AdminGroup): string | null =>
+  maxAccountRateFor(group, group.rate_multiplier);
+
+const editMaxAccountRate = computed(() =>
+  formatProfitControlMaxAccountRate(
+    calculateProfitControlMaxAccountRate(
+      profitPreviewFields(editForm),
+      editForm.rate_multiplier,
+      previewNow.value,
+      appStore.cachedPublicSettings?.server_timezone,
+    ),
+  ),
+);
 const sortableGroups = ref<AdminGroup[]>([]);
 type ConcreteGroupPlatform = Exclude<GroupPlatform, "composite">;
 type CompositeRouteFormState = {
@@ -7031,9 +7081,16 @@ onMounted(() => {
   void loadLiveCapability();
   loadModelsListCandidates("create", 0, createForm.platform);
   document.addEventListener("click", handleClickOutside);
+  previewClock = setInterval(() => {
+    previewNow.value = Date.now();
+  }, 60_000);
 });
 
 onUnmounted(() => {
+  if (previewClock) {
+    clearInterval(previewClock);
+    previewClock = null;
+  }
   cancelGroupQualityRequest();
   document.removeEventListener("click", handleClickOutside);
   accountSearchRunner.clearAll();
