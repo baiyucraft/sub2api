@@ -103,6 +103,8 @@ func (r *duplicateGroupRepoStub) CreateFromSource(_ context.Context, group *Grou
 	bindings := append([]AccountGroup(nil), r.sourceBindings[sourceGroupID]...)
 	for i := range bindings {
 		bindings[i].GroupID = group.ID
+		// scheduler_preferred is group-local policy and is intentionally not copied when duplicating a group.
+		bindings[i].SchedulerPreferred = false
 	}
 	group.AccountCount = int64(len(bindings))
 	group.ActiveAccountCount = int64(len(bindings))
@@ -193,7 +195,7 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 	}
 	repo := newDuplicateGroupRepoStub(source)
 	repo.sourceBindings[source.ID] = []AccountGroup{
-		{AccountID: 13, GroupID: source.ID, Priority: 37},
+		{AccountID: 13, GroupID: source.ID, Priority: 37, SchedulerPreferred: true},
 		{AccountID: 17, GroupID: source.ID, Priority: 8},
 	}
 	svc := &adminServiceImpl{groupRepo: repo, groupDuplicateRepo: repo}

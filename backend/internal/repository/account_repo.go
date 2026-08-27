@@ -2185,15 +2185,26 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		txClient = r.client
 	}
 
-	if _, err := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(accountID)).Exec(ctx); err != nil {
-		return err
-	}
-
 	if len(groupIDs) == 0 {
+		if _, err := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(accountID)).Exec(ctx); err != nil {
+			return err
+		}
 		if tx != nil {
-			return tx.Commit()
+			if err := tx.Commit(); err != nil {
+				return err
+			}
+		}
+		// Even when the account is unbound from every group, the scheduler
+		// snapshot must be refreshed so it drops the removed relationships (and
+		// any group-local preferred flags) immediately.
+		payload := buildSchedulerGroupPayload(existingGroupIDs)
+		if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountGroupsChanged, &accountID, nil, payload); err != nil {
+			logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue clear groups failed: account=%d err=%v", accountID, err)
 		}
 		return nil
+	}
+	if _, err := txClient.ExecContext(ctx, `DELETE FROM account_groups WHERE account_id = $1 AND NOT (group_id = ANY($2::bigint[]))`, accountID, pq.Array(groupIDs)); err != nil {
+		return err
 	}
 
 	builders := make([]*dbent.AccountGroupCreate, 0, len(groupIDs))
@@ -2205,8 +2216,14 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		)
 	}
 
-	if _, err := txClient.AccountGroup.CreateBulk(builders...).Save(ctx); err != nil {
-		return err
+	for _, builder := range builders {
+		if err := builder.OnConflictColumns(dbaccountgroup.FieldAccountID, dbaccountgroup.FieldGroupID).
+			Update(func(upsert *dbent.AccountGroupUpsert) {
+				upsert.UpdatePriority()
+			}).
+			Exec(ctx); err != nil {
+			return err
+		}
 	}
 
 	if tx != nil {
@@ -3880,11 +3897,12 @@ func (r *accountRepository) loadAccountGroups(ctx context.Context, accountIDs []
 		for _, ag := range entries {
 			groupSvc := groupMap[ag.GroupID]
 			agSvc := service.AccountGroup{
-				AccountID: ag.AccountID,
-				GroupID:   ag.GroupID,
-				Priority:  ag.Priority,
-				CreatedAt: ag.CreatedAt,
-				Group:     groupSvc,
+				AccountID:          ag.AccountID,
+				GroupID:            ag.GroupID,
+				Priority:           ag.Priority,
+				SchedulerPreferred: ag.SchedulerPreferred,
+				CreatedAt:          ag.CreatedAt,
+				Group:              groupSvc,
 			}
 			accountGroupsByAccount[ag.AccountID] = append(accountGroupsByAccount[ag.AccountID], agSvc)
 			groupIDsByAccount[ag.AccountID] = append(groupIDsByAccount[ag.AccountID], ag.GroupID)

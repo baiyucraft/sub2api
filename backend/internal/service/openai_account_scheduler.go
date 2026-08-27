@@ -98,21 +98,24 @@ type OpenAIAccountScheduleRequest struct {
 }
 
 type OpenAIAccountScheduleDecision struct {
-	Layer               string
-	StickyPreviousHit   bool
-	StickySessionHit    bool
-	CandidateCount      int
-	TopK                int
-	LatencyMs           int64
-	LoadSkew            float64
-	SelectedAccountID   int64
-	SelectedAccountType string
-	ImageCostRouteMode  string
-	ImageCostSizeTier   string
-	ImageCostKnown      bool
-	ImageCostStatus     string
-	ImageCostRank       int
-	ImageCostValue      float64
+	Layer                   string
+	StickyPreviousHit       bool
+	StickySessionHit        bool
+	PreferredPoolHit        bool
+	PreferredCandidateCount int
+	PreferredFallbackReason string
+	CandidateCount          int
+	TopK                    int
+	LatencyMs               int64
+	LoadSkew                float64
+	SelectedAccountID       int64
+	SelectedAccountType     string
+	ImageCostRouteMode      string
+	ImageCostSizeTier       string
+	ImageCostKnown          bool
+	ImageCostStatus         string
+	ImageCostRank           int
+	ImageCostValue          float64
 }
 
 type OpenAIAccountSchedulerMetricsSnapshot struct {
@@ -152,20 +155,24 @@ type openAIAccountLoadPlan struct {
 	staleSnapshotCompactRetry []openAIAccountCandidateScore
 	selectionOrder            []openAIAccountCandidateScore
 	candidateCount            int
+	preferredCandidateCount   int
+	preferredFallbackReason   string
 	topK                      int
 	loadSkew                  float64
 	includeOverflowFallback   bool
 }
 
 type openAIAccountLoadSelectionAttempt struct {
-	result              *AccountSelectionResult
-	selectionOrder      []openAIAccountCandidateScore
-	candidateCount      int
-	topK                int
-	loadSkew            float64
-	compactBlocked      bool
-	noCompactCandidates bool
-	err                 error
+	result                  *AccountSelectionResult
+	selectionOrder          []openAIAccountCandidateScore
+	candidateCount          int
+	preferredCandidateCount int
+	preferredFallbackReason string
+	topK                    int
+	loadSkew                float64
+	compactBlocked          bool
+	noCompactCandidates     bool
+	err                     error
 }
 
 func (m *openAIAccountSchedulerMetrics) recordSelect(decision OpenAIAccountScheduleDecision) {
@@ -489,17 +496,23 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, req)
+	selection, candidateCount, topK, loadSkew, preferredCandidateCount, preferredFallbackReason, err := s.selectByLoadBalance(ctx, req)
 	decision.Layer = openAIAccountScheduleLayerLoadBalance
 	decision.CandidateCount = candidateCount
 	decision.TopK = topK
 	decision.LoadSkew = loadSkew
+	decision.PreferredCandidateCount = preferredCandidateCount
+	decision.PreferredFallbackReason = preferredFallbackReason
 	if err != nil {
 		return nil, decision, err
 	}
 	if selection != nil && selection.Account != nil {
 		decision.SelectedAccountID = selection.Account.ID
 		decision.SelectedAccountType = selection.Account.Type
+		decision.PreferredPoolHit = isAccountPreferredForGroup(selection.Account, req.GroupID)
+		if decision.PreferredPoolHit {
+			decision.PreferredFallbackReason = ""
+		}
 		if req.StickyWeighted {
 			if req.StickyPreviousAccountID > 0 && selection.Account.ID == req.StickyPreviousAccountID {
 				decision.StickyPreviousHit = true
@@ -678,6 +691,7 @@ type openAIAccountCandidateScore struct {
 	account         *Account
 	loadInfo        *AccountLoadInfo
 	loadKnown       bool
+	preferred       bool
 	score           float64
 	priority        int
 	errorRate       float64
@@ -902,6 +916,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			account:   account,
 			loadInfo:  loadInfo,
 			loadKnown: loadKnown,
+			preferred: isAccountPreferredForGroup(account, req.GroupID),
 			errorRate: errorRate,
 			ttft:      ttft,
 			hasTTFT:   hasTTFT,
@@ -1051,8 +1066,10 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			weights.ErrorRate*errorFactor +
 			weights.TTFT*ttftFactor +
 			weights.Reset*resetFactor +
-			weights.QuotaHeadroom*quotaHeadroomFactor +
-			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor)
+			weights.QuotaHeadroom*quotaHeadroomFactor
+		if !item.preferred {
+			item.score += weights.UpstreamCost * (upstreamCostFactor - openAIUpstreamCostNeutralFactor)
+		}
 		if req.StickyWeighted {
 			if req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID {
 				item.score += weights.Previous
@@ -1080,15 +1097,59 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	req OpenAIAccountScheduleRequest,
 	plan openAIAccountLoadPlan,
 ) []openAIAccountCandidateScore {
+	for i := range plan.candidates {
+		plan.candidates[i].preferred = isAccountPreferredForGroup(plan.candidates[i].account, req.GroupID)
+	}
+	for i := range plan.allCandidates {
+		plan.allCandidates[i].preferred = isAccountPreferredForGroup(plan.allCandidates[i].account, req.GroupID)
+	}
 	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
 		}
 		groupTopK := plan.topK
+		if len(pool) > 0 && pool[0].preferred {
+			groupTopK = len(pool)
+		}
 		if groupTopK > len(pool) {
 			groupTopK = len(pool)
 		}
 		ranked := selectTopKOpenAICandidates(pool, groupTopK)
+		if pool[0].preferred {
+			// Preferred pools are rate-neutral: keep priority, load, queue and
+			// stable ID as the tie-breakers, never upstream rate/cost.
+			sort.SliceStable(ranked, func(i, j int) bool {
+				left, right := ranked[i], ranked[j]
+				if left.score != right.score {
+					return left.score > right.score
+				}
+				if left.priority != right.priority {
+					return left.priority < right.priority
+				}
+				if left.loadInfo.LoadRate != right.loadInfo.LoadRate {
+					return left.loadInfo.LoadRate < right.loadInfo.LoadRate
+				}
+				if left.loadInfo.WaitingCount != right.loadInfo.WaitingCount {
+					return left.loadInfo.WaitingCount < right.loadInfo.WaitingCount
+				}
+				return left.account.ID < right.account.ID
+			})
+			if req.StickyWeighted {
+				for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
+					if stickyID <= 0 {
+						continue
+					}
+					for i, candidate := range ranked {
+						if candidate.account != nil && candidate.account.ID == stickyID {
+							primary := append([]openAIAccountCandidateScore{candidate}, ranked[:i]...)
+							primary = append(primary, ranked[i+1:]...)
+							return primary
+						}
+					}
+				}
+			}
+			return ranked
+		}
 		var primary []openAIAccountCandidateScore
 		if req.StickyWeighted {
 			for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
@@ -1140,6 +1201,9 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			if lp != rp {
 				return lp < rp
 			}
+			if left.preferred || right.preferred {
+				return compareAccountSchedulingPriorityOnly(left.account, right.account) < 0
+			}
 			return compareAccountSchedulingTier(left.account, right.account) < 0
 		})
 		selectionOrder := make([]openAIAccountCandidateScore, 0, len(orderedPool))
@@ -1147,7 +1211,8 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			end := start + 1
 			for end < len(orderedPool) &&
 				openAIAccountSchedulingPriority(orderedPool[end].account) == openAIAccountSchedulingPriority(orderedPool[start].account) &&
-				compareAccountSchedulingTier(orderedPool[start].account, orderedPool[end].account) == 0 {
+				((orderedPool[start].preferred && orderedPool[end].preferred && compareAccountSchedulingPriorityOnly(orderedPool[start].account, orderedPool[end].account) == 0) ||
+					(!orderedPool[start].preferred && !orderedPool[end].preferred && compareAccountSchedulingTier(orderedPool[start].account, orderedPool[end].account) == 0)) {
 				end++
 			}
 			selectionOrder = append(selectionOrder, buildSelectionOrder(orderedPool[start:end])...)
@@ -1157,19 +1222,33 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	}
 
 	if req.RequireCompact {
-		supported := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
-		unknown := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
+		supportedPreferred := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
+		supportedOrdinary := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
+		unknownPreferred := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
+		unknownOrdinary := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
 		for _, candidate := range plan.candidates {
 			switch openAICompactSupportTier(candidate.account) {
 			case 2:
-				supported = append(supported, candidate)
+				if candidate.preferred {
+					supportedPreferred = append(supportedPreferred, candidate)
+				} else {
+					supportedOrdinary = append(supportedOrdinary, candidate)
+				}
 			case 1:
-				unknown = append(unknown, candidate)
+				if candidate.preferred {
+					unknownPreferred = append(unknownPreferred, candidate)
+				} else {
+					unknownOrdinary = append(unknownOrdinary, candidate)
+				}
 			}
 		}
 		selectionOrder := make([]openAIAccountCandidateScore, 0, len(plan.allCandidates))
-		selectionOrder = append(selectionOrder, buildPriorityAwareSelectionOrder(supported)...)
-		selectionOrder = append(selectionOrder, buildPriorityAwareSelectionOrder(unknown)...)
+		// Compact capability remains the outer compatibility tier, while the
+		// preferred pool remains ahead of ordinary accounts within each tier.
+		selectionOrder = append(selectionOrder, buildPriorityAwareSelectionOrder(supportedPreferred)...)
+		selectionOrder = append(selectionOrder, buildPriorityAwareSelectionOrder(supportedOrdinary)...)
+		selectionOrder = append(selectionOrder, buildPriorityAwareSelectionOrder(unknownPreferred)...)
+		selectionOrder = append(selectionOrder, buildPriorityAwareSelectionOrder(unknownOrdinary)...)
 		if len(plan.staleSnapshotCompactRetry) > 0 && s.service.schedulerSnapshot != nil {
 			selectionOrder = append(selectionOrder, sortOpenAICompactRetryCandidates(plan.staleSnapshotCompactRetry)...)
 		}
@@ -1177,9 +1256,25 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	}
 
 	if req.RequiredImageCapability != "" && req.ImageCostRoutingMode != "" && req.ImageCostRoutingMode != "off" {
-		return buildImageCostSelectionOrder(req, plan.candidates, buildPriorityAwareSelectionOrder)
+		preferred, ordinary := partitionPreferredCandidateScores(plan.candidates, req.GroupID)
+		return append(buildImageCostSelectionOrder(req, preferred, buildPriorityAwareSelectionOrder), buildImageCostSelectionOrder(req, ordinary, buildPriorityAwareSelectionOrder)...)
 	}
-	return buildPriorityAwareSelectionOrder(plan.candidates)
+	preferred, ordinary := partitionPreferredCandidateScores(plan.candidates, req.GroupID)
+	return append(buildPriorityAwareSelectionOrder(preferred), buildPriorityAwareSelectionOrder(ordinary)...)
+}
+
+func partitionPreferredCandidateScores(candidates []openAIAccountCandidateScore, groupID *int64) ([]openAIAccountCandidateScore, []openAIAccountCandidateScore) {
+	preferred := make([]openAIAccountCandidateScore, 0, len(candidates))
+	ordinary := make([]openAIAccountCandidateScore, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate.preferred = candidate.preferred || isAccountPreferredForGroup(candidate.account, groupID)
+		if candidate.preferred {
+			preferred = append(preferred, candidate)
+		} else {
+			ordinary = append(ordinary, candidate)
+		}
+	}
+	return preferred, ordinary
 }
 
 func buildImageCostSelectionOrder(req OpenAIAccountScheduleRequest, pool []openAIAccountCandidateScore, fallback func([]openAIAccountCandidateScore) []openAIAccountCandidateScore) []openAIAccountCandidateScore {
@@ -1481,6 +1576,16 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		if err != nil || account == nil {
 			continue
 		}
+		if account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() ||
+			!account.IsSchedulable() || s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
+			continue
+		}
+		if req.GroupID != nil && s.service.schedulerSnapshot != nil {
+			if group, groupErr := s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID); groupErr == nil &&
+				group != nil && group.RequirePrivacySet && !account.IsPrivacySet() {
+				continue
+			}
+		}
 		if !s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 			continue
 		}
@@ -1595,26 +1700,27 @@ func (s openAISelectionFilterStats) summary(extra string) string {
 func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
-) (*AccountSelectionResult, int, int, float64, error) {
+) (*AccountSelectionResult, int, int, float64, int, string, error) {
 	budget := newOpenAISelectionProbeBudget()
+	emptyPreferredFallback := "not_configured"
 	accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform)
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, 0, 0, 0, emptyPreferredFallback, err
 	}
 	if len(accounts) == 0 {
-		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, openAISelectionFilterStats{}.summary(""))
+		return nil, 0, 0, 0, 0, emptyPreferredFallback, noAvailableOpenAISelectionError(req.RequestedModel, false, openAISelectionFilterStats{}.summary(""))
 	}
 	// Local free-tier soft gate on the Grok scheduling path only (not admin probe).
 	accounts = s.filterGrokFreeQuotaAccounts(ctx, accounts)
 	if len(accounts) == 0 {
-		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, openAISelectionFilterStats{}.summary("grok_free_quota_soft_gate"))
+		return nil, 0, 0, 0, 0, emptyPreferredFallback, noAvailableOpenAISelectionError(req.RequestedModel, false, openAISelectionFilterStats{}.summary("grok_free_quota_soft_gate"))
 	}
 	// Team+model rate-limit cool: siblings of a 429'd team skip the hot model.
 	if req.Platform == PlatformGrok {
 		now := time.Now()
 		filtered := filterGrokTeamModelRateLimitedAccounts(accounts, req.RequestedModel, now)
 		if len(filtered) == 0 && len(accounts) > 0 {
-			return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, openAISelectionFilterStats{}.summary("grok_team_model_rate_limit"))
+			return nil, 0, 0, 0, 0, emptyPreferredFallback, noAvailableOpenAISelectionError(req.RequestedModel, false, openAISelectionFilterStats{}.summary("grok_team_model_rate_limit"))
 		}
 		if filtered != nil {
 			accounts = filtered
@@ -1622,7 +1728,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		// Per-account model free-usage soft-block (other models stay eligible).
 		modelFiltered := filterGrokModelQuotaBlockedAccounts(accounts, req.RequestedModel, now)
 		if len(modelFiltered) == 0 && len(accounts) > 0 {
-			return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, openAISelectionFilterStats{}.summary("grok_model_quota_block"))
+			return nil, 0, 0, 0, 0, emptyPreferredFallback, noAvailableOpenAISelectionError(req.RequestedModel, false, openAISelectionFilterStats{}.summary("grok_model_quota_block"))
 		}
 		accounts = modelFiltered
 	}
@@ -1675,7 +1781,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		loadReq = append(loadReq, AccountSchedulingLoadDescriptor(account))
 	}
 	if len(filtered) == 0 {
-		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, filterStats.summary(""))
+		return nil, 0, 0, 0, 0, emptyPreferredFallback, noAvailableOpenAISelectionError(req.RequestedModel, false, filterStats.summary(""))
 	}
 
 	loadMap := map[int64]*AccountLoadInfo{}
@@ -1685,31 +1791,72 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}
 	}
 
+	preferredAccounts, ordinaryAccounts := partitionPreferredAccountPointersForGroup(filtered, req.GroupID)
+	preferredCandidateCount := len(preferredAccounts)
+	preferredFallbackReason := emptyPreferredFallback
+	// Weighted stickiness is a legitimate session constraint and must be
+	// honored before the group-local preferred pool. Keep image-cost routing
+	// out of this early path: image pricing is the outer compatibility tier and
+	// applies stickiness inside the selected price layer.
+	if preferredCandidateCount > 0 && req.StickyWeighted &&
+		!(req.RequiredImageCapability != "" && req.ImageCostRoutingMode != "" && req.ImageCostRoutingMode != "off") {
+		if sticky, stickyErr := s.tryFallbackToWeightedSticky(ctx, req); stickyErr != nil {
+			return nil, len(filtered), s.service.openAIWSLBTopKForRequest(ctx), 0, preferredCandidateCount, "sticky_error", stickyErr
+		} else if sticky != nil {
+			return sticky, len(filtered), s.service.openAIWSLBTopKForRequest(ctx), 0, preferredCandidateCount, "", nil
+		}
+	}
+	var preferredAttempt openAIAccountLoadSelectionAttempt
+	if preferredCandidateCount > 0 {
+		preferredFallbackReason = "preferred_unavailable"
+		preferredAttempt = s.trySelectByLoadBalancePool(ctx, req, preferredAccounts, loadMap, budget)
+		if preferredAttempt.err != nil && (!preferredAttempt.noCompactCandidates || len(ordinaryAccounts) == 0) {
+			return nil, preferredAttempt.candidateCount, preferredAttempt.topK, preferredAttempt.loadSkew, preferredCandidateCount, "preferred_error", preferredAttempt.err
+		}
+		if preferredAttempt.result != nil {
+			return preferredAttempt.result, preferredAttempt.candidateCount, preferredAttempt.topK, preferredAttempt.loadSkew, preferredCandidateCount, "", nil
+		}
+	}
+
+	finish := func(attempt openAIAccountLoadSelectionAttempt, fallbackReason string) (*AccountSelectionResult, int, int, float64, int, string, error) {
+		result, candidateCount, topK, loadSkew, err := s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget, filterStats)
+		if err != nil {
+			return nil, candidateCount, topK, loadSkew, preferredCandidateCount, fallbackReason, err
+		}
+		if result != nil && result.Account != nil && isAccountPreferredForGroup(result.Account, req.GroupID) {
+			return result, candidateCount, topK, loadSkew, preferredCandidateCount, "", nil
+		}
+		return result, candidateCount, topK, loadSkew, preferredCandidateCount, fallbackReason, nil
+	}
+
 	if req.SubscriptionPriority {
-		subscriptionAccounts, regularAccounts := partitionOpenAIChatGPTSubscriptionAccounts(filtered)
+		subscriptionAccounts, regularAccounts := partitionOpenAIChatGPTSubscriptionAccounts(ordinaryAccounts)
 		if len(subscriptionAccounts) > 0 {
 			attempt := s.trySelectByLoadBalancePool(ctx, req, subscriptionAccounts, loadMap, budget)
 			if attempt.err != nil && (!attempt.noCompactCandidates || len(regularAccounts) <= 0) {
-				return nil, attempt.candidateCount, attempt.topK, attempt.loadSkew, attempt.err
+				return nil, attempt.candidateCount, attempt.topK, attempt.loadSkew, preferredCandidateCount, preferredFallbackReason, attempt.err
 			}
 			if attempt.result != nil {
-				return attempt.result, attempt.candidateCount, attempt.topK, attempt.loadSkew, nil
+				return attempt.result, attempt.candidateCount, attempt.topK, attempt.loadSkew, preferredCandidateCount, preferredFallbackReason, nil
 			}
 			if len(regularAccounts) > 0 {
 				regularAttempt := s.trySelectByLoadBalancePool(ctx, req, regularAccounts, loadMap, budget)
 				if regularAttempt.err != nil && !regularAttempt.noCompactCandidates {
-					return nil, regularAttempt.candidateCount, regularAttempt.topK, regularAttempt.loadSkew, regularAttempt.err
+					return nil, regularAttempt.candidateCount, regularAttempt.topK, regularAttempt.loadSkew, preferredCandidateCount, preferredFallbackReason, regularAttempt.err
 				}
 				if regularAttempt.result != nil {
-					return regularAttempt.result, regularAttempt.candidateCount, regularAttempt.topK, regularAttempt.loadSkew, nil
+					return regularAttempt.result, regularAttempt.candidateCount, regularAttempt.topK, regularAttempt.loadSkew, preferredCandidateCount, preferredFallbackReason, nil
 				}
 				var result *AccountSelectionResult
 				candidateCount, topK, loadSkew := regularAttempt.candidateCount, regularAttempt.topK, regularAttempt.loadSkew
 				fallbackErr := regularAttempt.err
 				if regularAttempt.err == nil {
-					result, candidateCount, topK, loadSkew, fallbackErr = s.finishLoadBalanceSelectionFallback(ctx, req, regularAttempt, budget, filterStats)
+					result, candidateCount, topK, loadSkew, fallbackErr = s.finishLoadBalanceSelectionFallback(ctx, req, combineOpenAISelectionAttempts(preferredAttempt, regularAttempt), budget, filterStats)
 					if fallbackErr == nil && result != nil {
-						return result, candidateCount, topK, loadSkew, nil
+						if isAccountPreferredForGroup(result.Account, req.GroupID) {
+							return result, candidateCount, topK, loadSkew, preferredCandidateCount, "", nil
+						}
+						return result, candidateCount, topK, loadSkew, preferredCandidateCount, preferredFallbackReason, nil
 					}
 				}
 				// 常规池既无法获取也无法排队（含仅剩不支持 compact 的候选）时，
@@ -1717,22 +1864,45 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 				// 而被丢弃，否则开启订阅优先反而让本可排队成功的请求硬失败。
 				subResult, subCandidateCount, subTopK, subLoadSkew, subErr := s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget, filterStats)
 				if subErr == nil && subResult != nil {
-					return subResult, subCandidateCount, subTopK, subLoadSkew, nil
+					return subResult, subCandidateCount, subTopK, subLoadSkew, preferredCandidateCount, preferredFallbackReason, nil
 				}
-				return result, candidateCount, topK, loadSkew, fallbackErr
+				return result, candidateCount, topK, loadSkew, preferredCandidateCount, preferredFallbackReason, fallbackErr
 			}
-			return s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget, filterStats)
+			return finish(combineOpenAISelectionAttempts(preferredAttempt, attempt), preferredFallbackReason)
 		}
 	}
 
-	attempt := s.trySelectByLoadBalancePool(ctx, req, filtered, loadMap, budget)
+	attempt := s.trySelectByLoadBalancePool(ctx, req, ordinaryAccounts, loadMap, budget)
 	if attempt.err != nil {
-		return nil, attempt.candidateCount, attempt.topK, attempt.loadSkew, attempt.err
+		return nil, attempt.candidateCount, attempt.topK, attempt.loadSkew, preferredCandidateCount, preferredFallbackReason, attempt.err
 	}
 	if attempt.result != nil {
-		return attempt.result, attempt.candidateCount, attempt.topK, attempt.loadSkew, nil
+		return attempt.result, attempt.candidateCount, attempt.topK, attempt.loadSkew, preferredCandidateCount, preferredFallbackReason, nil
 	}
-	return s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget, filterStats)
+	return finish(combineOpenAISelectionAttempts(preferredAttempt, attempt), preferredFallbackReason)
+}
+
+func combineOpenAISelectionAttempts(first, second openAIAccountLoadSelectionAttempt) openAIAccountLoadSelectionAttempt {
+	if len(first.selectionOrder) == 0 {
+		return second
+	}
+	if len(second.selectionOrder) == 0 {
+		return first
+	}
+	combined := second
+	combined.selectionOrder = make([]openAIAccountCandidateScore, 0, len(first.selectionOrder)+len(second.selectionOrder))
+	combined.selectionOrder = append(combined.selectionOrder, first.selectionOrder...)
+	combined.selectionOrder = append(combined.selectionOrder, second.selectionOrder...)
+	combined.candidateCount = first.candidateCount + second.candidateCount
+	if first.topK > combined.topK {
+		combined.topK = first.topK
+	}
+	if first.loadSkew > combined.loadSkew {
+		combined.loadSkew = first.loadSkew
+	}
+	combined.compactBlocked = first.compactBlocked || second.compactBlocked
+	combined.noCompactCandidates = first.noCompactCandidates && second.noCompactCandidates
+	return combined
 }
 
 func partitionOpenAIChatGPTSubscriptionAccounts(accounts []*Account) ([]*Account, []*Account) {

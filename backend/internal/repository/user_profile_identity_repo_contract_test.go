@@ -574,6 +574,6 @@ func (t *sqlNullTime) Scan(value any) error {
 	}
 }
 
-func stringPtr(v string) *string {
+func userProfileIdentityStringPtr(v string) *string {
 	return &v
 }
