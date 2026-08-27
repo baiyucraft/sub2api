@@ -538,29 +538,23 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/admin/upstream-configs',
-    name: 'AdminUpstreamConfigs',
-    component: () => import('@/views/admin/UpstreamConfigsView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: true,
-      title: 'Upstream Configs',
-      titleKey: 'admin.upstreamConfigs.title',
-      descriptionKey: 'admin.upstreamConfigs.description'
-    }
+    path: '/admin/upstream/dashboard',
+    name: 'AdminUpstreamDashboard',
+    component: () => import('@/views/admin/UpstreamDashboardView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Upstream Dashboard', titleKey: 'admin.upstreamDashboard.title', descriptionKey: 'admin.upstreamDashboard.description' }
   },
   {
-    path: '/admin/upstream-management',
-    name: 'AdminUpstreamManagement',
+    path: '/admin/upstream/channels',
+    name: 'AdminUpstreamChannels',
+    component: () => import('@/views/admin/UpstreamConfigsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Upstream Channels', titleKey: 'admin.upstreamChannels.title', descriptionKey: 'admin.upstreamChannels.description' }
+  },
+  {
+    path: '/admin/upstream/accounts',
+    name: 'AdminUpstreamAccounts',
     component: () => import('@/views/admin/AccountsView.vue'),
     props: { scope: 'upstream' },
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: true,
-      title: 'Upstream Management',
-      titleKey: 'admin.upstreamManagement.title',
-      descriptionKey: 'admin.upstreamManagement.description'
-    }
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Upstream Accounts', titleKey: 'admin.upstreamAccounts.title', descriptionKey: 'admin.upstreamAccounts.description' }
   },
   {
     path: '/admin/plugins',

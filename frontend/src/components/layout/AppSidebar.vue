@@ -503,20 +503,6 @@ const UpstreamConfigIcon = {
     )
 }
 
-const UpstreamManagementIcon = {
-  render: () =>
-    h(
-      'svg',
-      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
-      [
-        h('path', {
-          'stroke-linecap': 'round',
-          'stroke-linejoin': 'round',
-          d: 'M12 9.75a2.25 2.25 0 110 4.5 2.25 2.25 0 010-4.5zM5.25 3.75a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM18.75 3.75a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM5.25 17.25a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM18.75 17.25a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM10.41 10.41L6.31 6.31M13.59 10.41l4.1-4.1M10.41 13.59l-4.1 4.1M13.59 13.59l4.1 4.1'
-        })
-      ]
-    )
-}
 const PluginIcon = {
   render: () => h(Icon, { name: 'cube' })
 }
@@ -820,8 +806,18 @@ const adminNavItems = computed((): NavItem[] => {
     },
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
-    { path: '/admin/upstream-configs', label: t('nav.upstreamConfigs'), icon: UpstreamConfigIcon },
-    { path: '/admin/upstream-management', label: t('nav.upstreamManagement'), icon: UpstreamManagementIcon },
+    {
+      path: '/admin/upstream',
+      label: t('nav.upstreamConfig'),
+      icon: UpstreamConfigIcon,
+      hideInSimpleMode: true,
+      expandOnly: true,
+      children: [
+        { path: '/admin/upstream/dashboard', label: t('nav.upstreamDashboard'), icon: ChartIcon },
+        { path: '/admin/upstream/channels', label: t('nav.upstreamChannels'), icon: ChannelIcon },
+        { path: '/admin/upstream/accounts', label: t('nav.upstreamAccounts'), icon: GlobeIcon },
+      ],
+    },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
