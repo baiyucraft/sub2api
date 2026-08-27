@@ -312,6 +312,16 @@
                   >{{ t("admin.groups.accountsUnit") }}</span
                 >
               </div>
+              <div v-if="row.preferred_account_count">
+                <span class="text-gray-500 dark:text-gray-400">{{
+                  t("admin.groups.preferredAccounts.label")
+                }}</span>
+                <span
+                  class="ml-1 inline-flex items-center rounded bg-primary-100 px-1.5 py-0.5 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+                >
+                  {{ row.preferred_account_count }}
+                </span>
+              </div>
             </div>
           </template>
 
@@ -2359,6 +2369,82 @@
           </select>
           <p class="input-hint">
             {{ t("admin.groups.copyAccounts.hintEdit") }}
+          </p>
+        </div>
+        <div class="rounded-xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900/60 dark:bg-primary-950/20">
+          <div class="mb-1 flex items-center gap-2">
+            <label class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+              {{ t("admin.groups.preferredAccounts.title") }}
+            </label>
+            <span class="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+              {{ preferredAccountIDs.length }}
+            </span>
+          </div>
+          <p class="mb-3 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
+            {{ t("admin.groups.preferredAccounts.hint") }}
+          </p>
+          <input
+            v-model="preferredAccountSearch"
+            type="search"
+            class="input mb-3"
+            :placeholder="t('admin.groups.preferredAccounts.search')"
+            :disabled="preferredAccountsLoading"
+          />
+          <div
+            v-if="preferredAccountsLoading"
+            class="rounded-lg border border-dashed border-gray-300 p-3 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400"
+          >
+            {{ t("common.loading") }}
+          </div>
+          <div
+            v-else-if="preferredAccounts.length === 0"
+            class="rounded-lg border border-dashed border-gray-300 p-3 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400"
+          >
+            {{ t("admin.groups.preferredAccounts.empty") }}
+          </div>
+          <div v-else class="max-h-64 space-y-1 overflow-y-auto pr-1">
+            <label
+              v-for="account in filteredPreferredAccounts"
+              :key="account.id"
+              class="flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2 transition-colors hover:border-primary-200 hover:bg-white dark:hover:border-primary-800 dark:hover:bg-dark-800"
+            >
+              <input
+                v-model="preferredAccountIDs"
+                type="checkbox"
+                :value="account.id"
+                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="truncate text-sm font-medium text-gray-800 dark:text-gray-100">
+                    {{ account.name || `#${account.id}` }}
+                  </span>
+                  <span class="font-mono text-[10px] text-gray-400">#{{ account.id }}</span>
+                </div>
+                <div class="flex flex-wrap items-center gap-x-2 text-[11px] text-gray-500 dark:text-gray-400">
+                  <span>{{ account.platform }}</span>
+                  <span>{{ account.rate_multiplier ?? 0 }}x</span>
+                  <span>{{ t(`admin.accounts.status.${account.status}`) }}</span>
+                  <span>
+                    {{
+                      account.upstream_config_name ||
+                      account.upstream_key_name ||
+                      account.upstream_site_url ||
+                      t("admin.groups.preferredAccounts.sourceNone")
+                    }}
+                  </span>
+                </div>
+              </div>
+            </label>
+            <div
+              v-if="filteredPreferredAccounts.length === 0"
+              class="rounded-lg border border-dashed border-gray-300 p-3 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400"
+            >
+              {{ t("admin.groups.preferredAccounts.noMatch") }}
+            </div>
+          </div>
+          <p class="mt-3 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.preferredAccounts.disclaimer") }}
           </p>
         </div>
         <div>
@@ -4475,6 +4561,7 @@ import { useAppStore } from "@/stores/app";
 import { useOnboardingStore } from "@/stores/onboarding";
 import { adminAPI } from "@/api/admin";
 import type {
+  Account,
   AccountQualityStats,
   AdminGroup,
   CompositeModelRoute,
@@ -5079,6 +5166,27 @@ const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
+const preferredAccounts = ref<Account[]>([]);
+const preferredAccountIDs = ref<number[]>([]);
+const preferredAccountSearch = ref("");
+const preferredAccountsLoading = ref(false);
+
+const filteredPreferredAccounts = computed(() => {
+  const query = preferredAccountSearch.value.trim().toLowerCase();
+  if (!query) return preferredAccounts.value;
+  return preferredAccounts.value.filter((account) =>
+    [
+      account.name,
+      account.platform,
+      account.type,
+      account.upstream_config_name,
+      account.upstream_key_name,
+      String(account.id),
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query)),
+  );
+});
 
 const profitPreviewFields = (source: any) => ({
   platform: source?.platform,
@@ -6326,6 +6434,10 @@ const handleCreateGroup = async () => {
 };
 
 const handleEdit = async (group: AdminGroup) => {
+  preferredAccountsLoading.value = true;
+  preferredAccountSearch.value = "";
+  preferredAccounts.value = [];
+  preferredAccountIDs.value = [];
   editingGroup.value = group;
   editForm.name = group.name;
   editForm.description = group.description || "";
@@ -6414,6 +6526,27 @@ const handleEdit = async (group: AdminGroup) => {
     group.reasoning_effort_mappings,
     group.platform,
   );
+  try {
+    preferredAccounts.value = await adminAPI.groups.getPreferredAccounts(group.id);
+    preferredAccountIDs.value = preferredAccounts.value
+      .filter((account) =>
+        account.account_groups?.some(
+          (boundGroup) =>
+            boundGroup.group_id === group.id &&
+            boundGroup.scheduler_preferred === true,
+        ),
+      )
+      .map((account) => account.id);
+  } catch (error: any) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.groups.preferredAccounts.loadFailed"),
+      ),
+    );
+  } finally {
+    preferredAccountsLoading.value = false;
+  }
   resetModelsListState(editModelsListState, group.models_list_config);
   // 加载模型路由规则（异步加载账号名称）
   editModelRoutingRules.value = await convertApiFormatToRoutingRules(
@@ -6462,6 +6595,10 @@ const closeEditModal = () => {
   resetMessagesDispatchFormState(editForm);
   editForm.allow_live = false;
   resetModelsListState(editModelsListState);
+  preferredAccounts.value = [];
+  preferredAccountIDs.value = [];
+  preferredAccountSearch.value = "";
+  preferredAccountsLoading.value = false;
 };
 
 const handleUpdateGroup = async () => {
@@ -6601,6 +6738,10 @@ const handleUpdateGroup = async () => {
       editForm.peak_rate_multiplier,
     );
     await adminAPI.groups.update(editingGroup.value.id, payload);
+    await adminAPI.groups.updatePreferredAccounts(
+      editingGroup.value.id,
+      [...new Set(preferredAccountIDs.value)],
+    );
     appStore.showSuccess(t("admin.groups.groupUpdated"));
     closeEditModal();
     loadGroups();

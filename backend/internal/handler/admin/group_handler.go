@@ -468,6 +468,46 @@ func (h *GroupHandler) GetByID(c *gin.Context) {
 	response.Success(c, dto.GroupFromServiceAdmin(group))
 }
 
+type preferredAccountsRequest struct {
+	AccountIDs []int64 `json:"account_ids"`
+}
+
+func (h *GroupHandler) GetPreferredAccounts(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	accounts, err := h.adminService.GetPreferredAccounts(c.Request.Context(), groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	out := make([]dto.Account, 0, len(accounts))
+	for i := range accounts {
+		out = append(out, *dto.AccountFromService(&accounts[i]))
+	}
+	response.Success(c, out)
+}
+
+func (h *GroupHandler) SetPreferredAccounts(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	var req preferredAccountsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := h.adminService.SetPreferredAccountIDs(c.Request.Context(), groupID, req.AccountIDs); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "Preferred accounts updated successfully"})
+}
+
 // GetModelsListCandidates handles getting candidate model IDs for custom /v1/models list.
 // GET /api/v1/admin/groups/:id/models-list-candidates
 func (h *GroupHandler) GetModelsListCandidates(c *gin.Context) {

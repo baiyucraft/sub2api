@@ -1055,19 +1055,35 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 	if preferLowUpstreamRate {
 		rateOrder = newOpenAILegacyUpstreamRateOrder(eligible, time.Now(), s.openAIOAuthSchedulingRateMultiplier(ctx))
 	}
-	sort.SliceStable(eligible, func(i, j int) bool {
-		a, b := eligible[i], eligible[j]
-		if requireCompact && compactTiers[a.ID] != compactTiers[b.ID] {
-			return compactTiers[a.ID] > compactTiers[b.ID]
-		}
-		if tier := compareAccountSchedulingTier(a, b); tier != 0 {
-			return tier < 0
-		}
-		if rateCmp := rateOrder.compare(a, b); rateCmp != 0 {
-			return rateCmp < 0
-		}
-		return s.isBetterAccountWithinTier(a, b)
-	})
+
+	// Preferred is an outer pool. The model/capability filters above have
+	// already narrowed the candidate set, so this only changes ordering:
+	// preferred accounts are considered first and ignore upstream rate/cost.
+	preferred, ordinary := partitionPreferredAccountPointersForGroup(eligible, groupID)
+	sortLegacyOpenAICandidatePool := func(pool []*Account, preferredPool bool) {
+		sort.SliceStable(pool, func(i, j int) bool {
+			a, b := pool[i], pool[j]
+			if requireCompact && compactTiers[a.ID] != compactTiers[b.ID] {
+				return compactTiers[a.ID] > compactTiers[b.ID]
+			}
+			if preferredPool {
+				if tier := compareAccountSchedulingPriorityOnly(a, b); tier != 0 {
+					return tier < 0
+				}
+			} else {
+				if tier := compareAccountSchedulingTier(a, b); tier != 0 {
+					return tier < 0
+				}
+				if rateCmp := rateOrder.compare(a, b); rateCmp != 0 {
+					return rateCmp < 0
+				}
+			}
+			return s.isBetterAccountWithinTier(a, b)
+		})
+	}
+	sortLegacyOpenAICandidatePool(preferred, true)
+	sortLegacyOpenAICandidatePool(ordinary, false)
+	eligible = append(preferred, ordinary...)
 	return eligible[0], compactBlocked, filterStats
 }
 
@@ -1307,53 +1323,64 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			return nil, false, nil
 		}
 
-		sort.SliceStable(available, func(i, j int) bool {
-			a, b := available[i], available[j]
-			if tier := compareAccountSchedulingTier(a.account, b.account); tier != 0 {
-				return tier < 0
+		selectionOrder := make([]accountWithLoad, 0, len(available))
+		preferredAvailable, ordinaryAvailable := partitionPreferredAccountWithLoadForGroup(available, groupID)
+		appendPool := func(pool []accountWithLoad, preferred bool) {
+			if len(pool) == 0 {
+				return
 			}
-			if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
-				return a.loadInfo.LoadRate < b.loadInfo.LoadRate
-			}
-			switch {
-			case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
-				return true
-			case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
-				return false
-			case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
-				return false
-			default:
-				return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
-			}
-		})
-		shuffleWithinSortGroups(available)
-		if rateOrder.enabled {
-			sort.SliceStable(available, func(i, j int) bool {
-				if tier := compareAccountSchedulingTier(available[i].account, available[j].account); tier != 0 {
+			ordered := append([]accountWithLoad(nil), pool...)
+			sort.SliceStable(ordered, func(i, j int) bool {
+				a, b := ordered[i], ordered[j]
+				if preferred {
+					if tier := compareAccountSchedulingPriorityOnly(a.account, b.account); tier != 0 {
+						return tier < 0
+					}
+				} else if tier := compareAccountSchedulingTier(a.account, b.account); tier != 0 {
 					return tier < 0
 				}
-				return rateOrder.compare(available[i].account, available[j].account) < 0
+				if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
+					return a.loadInfo.LoadRate < b.loadInfo.LoadRate
+				}
+				switch {
+				case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
+					return true
+				case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
+					return false
+				case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
+					return false
+				default:
+					return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
+				}
 			})
-		}
-
-		selectionOrder := make([]accountWithLoad, 0, len(available))
-		if requireCompact {
-			appendTier := func(out []accountWithLoad, tier int) []accountWithLoad {
-				for _, item := range available {
-					if openAICompactSupportTier(item.account) == tier {
-						out = append(out, item)
+			shuffleWithinSortGroups(ordered)
+			if !preferred && rateOrder.enabled {
+				sort.SliceStable(ordered, func(i, j int) bool {
+					if tier := compareAccountSchedulingTier(ordered[i].account, ordered[j].account); tier != 0 {
+						return tier < 0
+					}
+					return rateOrder.compare(ordered[i].account, ordered[j].account) < 0
+				})
+			}
+			if requireCompact {
+				appendTier := func(tier int) {
+					for _, item := range ordered {
+						if openAICompactSupportTier(item.account) == tier {
+							selectionOrder = append(selectionOrder, item)
+						}
 					}
 				}
-				return out
+				appendTier(2)
+				appendTier(1)
+				// tier 0 候选作为兜底追加：DB recheck 时若发现 cache tier 0 实际
+				// 已升级为 1/2（探测刚跑完，cache 尚未刷新），仍可正常命中。
+				appendTier(0)
+				return
 			}
-			selectionOrder = appendTier(selectionOrder, 2)
-			selectionOrder = appendTier(selectionOrder, 1)
-			// tier 0 候选作为兜底追加：DB recheck 时若发现 cache tier 0 实际
-			// 已升级为 1/2（探测刚跑完，cache 尚未刷新），仍可正常命中。
-			selectionOrder = appendTier(selectionOrder, 0)
-		} else {
-			selectionOrder = append(selectionOrder, available...)
+			selectionOrder = append(selectionOrder, ordered...)
 		}
+		appendPool(preferredAvailable, true)
+		appendPool(ordinaryAvailable, false)
 
 		fullTargets := make(map[string]struct{}, len(selectionOrder))
 		for _, item := range selectionOrder {
@@ -1392,41 +1419,49 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
 	if err != nil {
-		ordered := append([]*Account(nil), candidates...)
-		sortAccountsByPriorityAndLastUsed(ordered, false)
-		if rateOrder.enabled {
-			sort.SliceStable(ordered, func(i, j int) bool {
-				if tier := compareAccountSchedulingTier(ordered[i], ordered[j]); tier != 0 {
-					return tier < 0
+		preferred, ordinary := partitionPreferredAccountPointersForGroup(candidates, groupID)
+		orderedPools := [][]*Account{preferred, ordinary}
+		for poolIndex, pool := range orderedPools {
+			ordered := append([]*Account(nil), pool...)
+			if poolIndex == 0 {
+				sortPreferredAccountPointersByPriorityAndLastUsed(ordered, false)
+			} else {
+				sortAccountsByPriorityAndLastUsed(ordered, false)
+				if rateOrder.enabled {
+					sort.SliceStable(ordered, func(i, j int) bool {
+						if tier := compareAccountSchedulingTier(ordered[i], ordered[j]); tier != 0 {
+							return tier < 0
+						}
+						return rateOrder.compare(ordered[i], ordered[j]) < 0
+					})
 				}
-				return rateOrder.compare(ordered[i], ordered[j]) < 0
-			})
-		}
-		if requireCompact {
-			ordered = prioritizeOpenAICompactAccounts(ordered)
-		}
-		for _, acc := range ordered {
-			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
-			if fresh == nil {
-				continue
 			}
-			fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, groupID, platform, requestedModel, requireCompact, requiredCapability)
-			if fresh == nil {
-				continue
+			if requireCompact {
+				ordered = prioritizeOpenAICompactAccounts(ordered)
 			}
-			if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, fresh, requestedModel, requireCompact) {
-				continue
-			}
-			result, err := s.tryAcquireAccountSlot(ctx, fresh)
-			if err == nil && result != nil && result.Acquired {
-				selection, selectErr := s.newAcquiredSelectionResult(ctx, fresh, result.ReleaseFunc)
-				if selectErr != nil {
-					return nil, selectErr
+			for _, acc := range ordered {
+				fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
+				if fresh == nil {
+					continue
 				}
-				if sessionHash != "" && !stickySpillover && !gatewayProfitControlGateActive(ctx) && !openAITTFTGuardExcludedAccount(ctx, stickyAccountID) {
-					_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, fresh.ID, openaiStickySessionTTL)
+				fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, groupID, platform, requestedModel, requireCompact, requiredCapability)
+				if fresh == nil {
+					continue
 				}
-				return selection, nil
+				if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, fresh, requestedModel, requireCompact) {
+					continue
+				}
+				result, err := s.tryAcquireAccountSlot(ctx, fresh)
+				if err == nil && result != nil && result.Acquired {
+					selection, selectErr := s.newAcquiredSelectionResult(ctx, fresh, result.ReleaseFunc)
+					if selectErr != nil {
+						return nil, selectErr
+					}
+					if sessionHash != "" && !stickySpillover && !gatewayProfitControlGateActive(ctx) && !openAITTFTGuardExcludedAccount(ctx, stickyAccountID) {
+						_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, fresh.ID, openaiStickySessionTTL)
+					}
+					return selection, nil
+				}
 			}
 		}
 	} else {
@@ -1446,36 +1481,44 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	}
 
 	// ============ Layer 3: Fallback wait ============
-	sortAccountsByPriorityAndLastUsed(candidates, false)
-	if rateOrder.enabled {
-		sort.SliceStable(candidates, func(i, j int) bool {
-			if tier := compareAccountSchedulingTier(candidates[i], candidates[j]); tier != 0 {
-				return tier < 0
+	preferred, ordinary := partitionPreferredAccountPointersForGroup(candidates, groupID)
+	for poolIndex, pool := range [][]*Account{preferred, ordinary} {
+		ordered := append([]*Account(nil), pool...)
+		if poolIndex == 0 {
+			sortPreferredAccountPointersByPriorityAndLastUsed(ordered, false)
+		} else {
+			sortAccountsByPriorityAndLastUsed(ordered, false)
+			if rateOrder.enabled {
+				sort.SliceStable(ordered, func(i, j int) bool {
+					if tier := compareAccountSchedulingTier(ordered[i], ordered[j]); tier != 0 {
+						return tier < 0
+					}
+					return rateOrder.compare(ordered[i], ordered[j]) < 0
+				})
 			}
-			return rateOrder.compare(candidates[i], candidates[j]) < 0
-		})
-	}
-	if requireCompact {
-		candidates = prioritizeOpenAICompactAccounts(candidates)
-	}
-	for _, acc := range candidates {
-		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
-		if fresh == nil {
-			continue
 		}
-		fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, groupID, platform, requestedModel, requireCompact, requiredCapability)
-		if fresh == nil {
-			continue
+		if requireCompact {
+			ordered = prioritizeOpenAICompactAccounts(ordered)
 		}
-		if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, fresh, requestedModel, requireCompact) {
-			continue
+		for _, acc := range ordered {
+			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
+			if fresh == nil {
+				continue
+			}
+			fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, groupID, platform, requestedModel, requireCompact, requiredCapability)
+			if fresh == nil {
+				continue
+			}
+			if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, fresh, requestedModel, requireCompact) {
+				continue
+			}
+			return s.newSelectionResult(ctx, fresh, false, nil, &AccountWaitPlan{
+				AccountID:      fresh.ID,
+				MaxConcurrency: fresh.Concurrency,
+				Timeout:        cfg.FallbackWaitTimeout,
+				MaxWaiting:     cfg.FallbackMaxWaiting,
+			})
 		}
-		return s.newSelectionResult(ctx, fresh, false, nil, &AccountWaitPlan{
-			AccountID:      fresh.ID,
-			MaxConcurrency: fresh.Concurrency,
-			Timeout:        cfg.FallbackWaitTimeout,
-			MaxWaiting:     cfg.FallbackMaxWaiting,
-		})
 	}
 
 	if requireCompact && baseCandidateCount > 0 {

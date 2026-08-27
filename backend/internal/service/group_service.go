@@ -37,6 +37,11 @@ type GroupRepository interface {
 	UpdateSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error
 }
 
+type PreferredAccountRepository interface {
+	ListPreferredAccountIDs(ctx context.Context, groupID int64) ([]int64, error)
+	SetPreferredAccountIDs(ctx context.Context, groupID int64, accountIDs []int64) error
+}
+
 type GroupDuplicateRepository interface {
 	// FindByDuplicateOperationID performs the read-only recovery lookup used
 	// after an ambiguous idempotency-store failure.
