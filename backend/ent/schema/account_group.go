@@ -32,6 +32,8 @@ func (AccountGroup) Fields() []ent.Field {
 		field.Int64("group_id"),
 		field.Int("priority").
 			Default(50),
+		field.Bool("scheduler_preferred").
+			Default(false),
 		field.Time("created_at").
 			Immutable().
 			Default(time.Now).

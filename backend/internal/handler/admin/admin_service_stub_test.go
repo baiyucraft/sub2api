@@ -287,6 +287,14 @@ func (s *stubAdminService) GetGroup(ctx context.Context, id int64) (*service.Gro
 	return &group, nil
 }
 
+func (s *stubAdminService) GetPreferredAccounts(ctx context.Context, groupID int64) ([]service.Account, error) {
+	return nil, nil
+}
+
+func (s *stubAdminService) SetPreferredAccountIDs(ctx context.Context, groupID int64, accountIDs []int64) error {
+	return nil
+}
+
 func (s *stubAdminService) GetGroupModelsListCandidates(ctx context.Context, id int64, platform string) ([]string, error) {
 	if platform == service.PlatformOpenAI {
 		return []string{"gpt-5.5", "gpt-5.4"}, nil

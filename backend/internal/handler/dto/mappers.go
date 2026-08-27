@@ -160,6 +160,7 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		AccountCount:                g.AccountCount,
 		ActiveAccountCount:          g.ActiveAccountCount,
 		RateLimitedAccountCount:     g.RateLimitedAccountCount,
+		PreferredAccountCount:       g.PreferredAccountCount,
 		SortOrder:                   g.SortOrder,
 	}
 	if len(g.AccountGroups) > 0 {
@@ -576,12 +577,13 @@ func AccountGroupFromService(ag *service.AccountGroup) *AccountGroup {
 		return nil
 	}
 	return &AccountGroup{
-		AccountID: ag.AccountID,
-		GroupID:   ag.GroupID,
-		Priority:  ag.Priority,
-		CreatedAt: ag.CreatedAt,
-		Account:   AccountFromServiceShallow(ag.Account),
-		Group:     GroupFromServiceShallow(ag.Group),
+		AccountID:          ag.AccountID,
+		GroupID:            ag.GroupID,
+		Priority:           ag.Priority,
+		SchedulerPreferred: ag.SchedulerPreferred,
+		CreatedAt:          ag.CreatedAt,
+		Account:            AccountFromServiceShallow(ag.Account),
+		Group:              GroupFromServiceShallow(ag.Group),
 	}
 }
 

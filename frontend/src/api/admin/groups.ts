@@ -14,7 +14,8 @@ import type {
   CompositeRouteDecision,
   CreateGroupRequest,
   UpdateGroupRequest,
-  PaginatedResponse
+  PaginatedResponse,
+  PreferredAccount
 } from '@/types'
 
 export interface LiveCapability {
@@ -220,6 +221,19 @@ export async function update(id: number, updates: UpdateGroupRequest): Promise<A
   const { data } = await apiClient.put<AdminGroup>(`/admin/groups/${id}`, updates)
   return data
 }
+
+export async function getPreferredAccounts(id: number): Promise<PreferredAccount[]> {
+  const { data } = await apiClient.get<PreferredAccount[]>(`/admin/groups/${id}/preferred-accounts`)
+  return data
+}
+
+export async function updatePreferredAccounts(id: number, accountIds: number[]): Promise<void> {
+  await apiClient.put(`/admin/groups/${id}/preferred-accounts`, {
+    account_ids: accountIds
+  })
+}
+
+export const setPreferredAccountIDs = updatePreferredAccounts
 
 /**
  * Delete group
@@ -514,6 +528,8 @@ export const groupsAPI = {
   create,
   duplicate,
   update,
+  getPreferredAccounts,
+  updatePreferredAccounts,
   delete: deleteGroup,
   toggleStatus,
   getStats,

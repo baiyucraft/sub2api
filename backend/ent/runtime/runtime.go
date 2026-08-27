@@ -283,8 +283,12 @@ func init() {
 	accountgroupDescPriority := accountgroupFields[2].Descriptor()
 	// accountgroup.DefaultPriority holds the default value on creation for the priority field.
 	accountgroup.DefaultPriority = accountgroupDescPriority.Default.(int)
+	// accountgroupDescSchedulerPreferred is the schema descriptor for scheduler_preferred field.
+	accountgroupDescSchedulerPreferred := accountgroupFields[3].Descriptor()
+	// accountgroup.DefaultSchedulerPreferred holds the default value on creation for the scheduler_preferred field.
+	accountgroup.DefaultSchedulerPreferred = accountgroupDescSchedulerPreferred.Default.(bool)
 	// accountgroupDescCreatedAt is the schema descriptor for created_at field.
-	accountgroupDescCreatedAt := accountgroupFields[3].Descriptor()
+	accountgroupDescCreatedAt := accountgroupFields[4].Descriptor()
 	// accountgroup.DefaultCreatedAt holds the default value on creation for the created_at field.
 	accountgroup.DefaultCreatedAt = accountgroupDescCreatedAt.Default.(func() time.Time)
 	announcementFields := schema.Announcement{}.Fields()

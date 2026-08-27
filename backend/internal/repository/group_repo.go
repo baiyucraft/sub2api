@@ -11,6 +11,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -22,6 +23,10 @@ import (
 type sqlExecutor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+type sqlTransactor interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
 
 type groupRepository struct {
@@ -241,6 +246,7 @@ func (r *groupRepository) GetByID(ctx context.Context, id int64) (*service.Group
 		out.AccountCount = c.Total
 		out.ActiveAccountCount = c.Active
 		out.RateLimitedAccountCount = c.RateLimited
+		out.PreferredAccountCount = c.Preferred
 	}
 	return out, nil
 }
@@ -505,6 +511,7 @@ func (r *groupRepository) ListWithFilters(ctx context.Context, params pagination
 			outGroups[i].AccountCount = c.Total
 			outGroups[i].ActiveAccountCount = c.Active
 			outGroups[i].RateLimitedAccountCount = c.RateLimited
+			outGroups[i].PreferredAccountCount = c.Preferred
 		}
 	}
 
@@ -590,6 +597,7 @@ func (r *groupRepository) listWithAccountCountSort(ctx context.Context, q *dbent
 		g.AccountCount = c.Total
 		g.ActiveAccountCount = c.Active
 		g.RateLimitedAccountCount = c.RateLimited
+		g.PreferredAccountCount = c.Preferred
 		if idx, ok := pageIdx[g.ID]; ok {
 			outGroups[idx] = *g
 		}
@@ -676,6 +684,7 @@ func (r *groupRepository) ListActive(ctx context.Context) ([]service.Group, erro
 			outGroups[i].AccountCount = c.Total
 			outGroups[i].ActiveAccountCount = c.Active
 			outGroups[i].RateLimitedAccountCount = c.RateLimited
+			outGroups[i].PreferredAccountCount = c.Preferred
 		}
 	}
 
@@ -749,6 +758,7 @@ func (r *groupRepository) ListActiveByPlatform(ctx context.Context, platform str
 			outGroups[i].AccountCount = c.Total
 			outGroups[i].ActiveAccountCount = c.Active
 			outGroups[i].RateLimitedAccountCount = c.RateLimited
+			outGroups[i].PreferredAccountCount = c.Preferred
 		}
 	}
 
@@ -818,6 +828,126 @@ func (r *groupRepository) GetAccountCount(ctx context.Context, groupID int64) (t
 		WHERE ag.group_id = $1`, groupAccountAvailableSQL, groupAccountTemporarilyLimitedSQL),
 		[]any{groupID}, &total, &active, &rateLimited)
 	return
+}
+
+func (r *groupRepository) ListPreferredAccountIDs(ctx context.Context, groupID int64) ([]int64, error) {
+	return listPreferredAccountIDsWithExecutor(ctx, r.sql, groupID)
+}
+
+func (r *groupRepository) SetPreferredAccountIDs(ctx context.Context, groupID int64, accountIDs []int64) error {
+	uniqueAccountIDs, err := normalizePreferredAccountIDs(accountIDs)
+	if err != nil {
+		return err
+	}
+	if txSource, ok := r.sql.(sqlTransactor); ok {
+		tx, err := txSource.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		if err := r.setPreferredAccountIDsWithExecutor(ctx, tx, groupID, uniqueAccountIDs); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+	return r.setPreferredAccountIDsWithExecutor(ctx, r.sql, groupID, uniqueAccountIDs)
+}
+
+func normalizePreferredAccountIDs(accountIDs []int64) ([]int64, error) {
+	seen := make(map[int64]struct{}, len(accountIDs))
+	unique := make([]int64, 0, len(accountIDs))
+	for _, id := range accountIDs {
+		if id <= 0 {
+			return nil, infraerrors.BadRequest("INVALID_ACCOUNT_ID", "account_ids must contain positive IDs")
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique, nil
+}
+
+func (r *groupRepository) setPreferredAccountIDsWithExecutor(ctx context.Context, exec sqlExecutor, groupID int64, accountIDs []int64) error {
+	if exec == nil {
+		return errors.New("sql executor is not configured")
+	}
+	previousIDs, err := listPreferredAccountIDsWithExecutor(ctx, exec, groupID)
+	if err != nil {
+		return err
+	}
+	if err := validatePreferredAccountBindings(ctx, exec, groupID, accountIDs); err != nil {
+		return err
+	}
+	if _, err := exec.ExecContext(ctx, `UPDATE account_groups SET scheduler_preferred = FALSE WHERE group_id = $1`, groupID); err != nil {
+		return err
+	}
+	if len(accountIDs) > 0 {
+		if _, err := exec.ExecContext(ctx, `UPDATE account_groups SET scheduler_preferred = TRUE WHERE group_id = $1 AND account_id = ANY($2::bigint[])`, groupID, pq.Array(accountIDs)); err != nil {
+			return err
+		}
+	}
+	if err := enqueueSchedulerOutbox(ctx, exec, service.SchedulerOutboxEventGroupChanged, nil, &groupID, nil); err != nil {
+		return err
+	}
+	affectedAccountIDs := mergeGroupIDs(previousIDs, accountIDs)
+	if len(affectedAccountIDs) > 0 {
+		payload := map[string]any{
+			"account_ids": affectedAccountIDs,
+			"group_ids":   []int64{groupID},
+			"reason":      "preferred_accounts_changed",
+		}
+		if err := enqueueSchedulerOutbox(ctx, exec, service.SchedulerOutboxEventAccountBulkChanged, nil, nil, payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func listPreferredAccountIDsWithExecutor(ctx context.Context, exec sqlExecutor, groupID int64) ([]int64, error) {
+	rows, err := exec.QueryContext(ctx, `SELECT account_id FROM account_groups WHERE group_id = $1 AND scheduler_preferred = TRUE ORDER BY account_id`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func validatePreferredAccountBindings(ctx context.Context, exec sqlExecutor, groupID int64, accountIDs []int64) error {
+	if len(accountIDs) == 0 {
+		return nil
+	}
+	rows, err := exec.QueryContext(ctx, `SELECT account_id FROM account_groups WHERE group_id = $1 AND account_id = ANY($2::bigint[])`, groupID, pq.Array(accountIDs))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	found := make(map[int64]struct{}, len(accountIDs))
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		found[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range accountIDs {
+		if _, ok := found[id]; !ok {
+			return infraerrors.BadRequest("ACCOUNT_NOT_IN_GROUP", "all account_ids must be bound to the current group")
+		}
+	}
+	return nil
 }
 
 func (r *groupRepository) DeleteAccountGroupsByGroupID(ctx context.Context, groupID int64) (int64, error) {
@@ -942,6 +1072,7 @@ type groupAccountCounts struct {
 	Total       int64
 	Active      int64
 	RateLimited int64
+	Preferred   int64
 }
 
 const (
@@ -989,7 +1120,8 @@ func (r *groupRepository) loadAccountCounts(ctx context.Context, groupIDs []int6
 		fmt.Sprintf(`SELECT ag.group_id,
 			COUNT(*) FILTER (WHERE a.deleted_at IS NULL) AS total,
 			COUNT(*) FILTER (WHERE %s) AS active,
-			COUNT(*) FILTER (WHERE %s) AS rate_limited
+			COUNT(*) FILTER (WHERE %s) AS rate_limited,
+			COUNT(*) FILTER (WHERE ag.scheduler_preferred = TRUE) AS preferred
 		FROM account_groups ag
 		JOIN accounts a ON a.id = ag.account_id
 		WHERE ag.group_id = ANY($1)
@@ -1009,7 +1141,7 @@ func (r *groupRepository) loadAccountCounts(ctx context.Context, groupIDs []int6
 	for rows.Next() {
 		var groupID int64
 		var c groupAccountCounts
-		if err = rows.Scan(&groupID, &c.Total, &c.Active, &c.RateLimited); err != nil {
+		if err = rows.Scan(&groupID, &c.Total, &c.Active, &c.RateLimited, &c.Preferred); err != nil {
 			return nil, err
 		}
 		counts[groupID] = c

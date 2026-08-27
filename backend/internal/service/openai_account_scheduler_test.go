@@ -1280,6 +1280,9 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedSessionIn
 			Concurrency: 1,
 			Priority:    0,
 			GroupIDs:    []int64{groupID},
+			AccountGroups: []AccountGroup{{
+				GroupID: groupID, SchedulerPreferred: true,
+			}},
 		},
 	}
 	cfg := &config.Config{}

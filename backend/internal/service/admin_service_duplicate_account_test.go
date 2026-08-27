@@ -130,7 +130,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 			"crs_synced_at":                   "2026-07-15T00:00:00Z",
 		},
 		GroupIDs:                []int64{7, 3},
-		AccountGroups:           []AccountGroup{{GroupID: 7, Priority: 50}, {GroupID: 3, Priority: 7}},
+		AccountGroups:           []AccountGroup{{GroupID: 7, Priority: 50, SchedulerPreferred: true}, {GroupID: 3, Priority: 7}},
 		RateLimitedAt:           &rateLimitedAt,
 		RateLimitResetAt:        &rateLimitResetAt,
 		OverloadUntil:           &overloadUntil,

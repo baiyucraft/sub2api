@@ -78,6 +78,20 @@ func (_u *AccountGroupUpdate) AddPriority(v int) *AccountGroupUpdate {
 	return _u
 }
 
+// SetSchedulerPreferred sets the "scheduler_preferred" field.
+func (_u *AccountGroupUpdate) SetSchedulerPreferred(v bool) *AccountGroupUpdate {
+	_u.mutation.SetSchedulerPreferred(v)
+	return _u
+}
+
+// SetNillableSchedulerPreferred sets the "scheduler_preferred" field if the given value is not nil.
+func (_u *AccountGroupUpdate) SetNillableSchedulerPreferred(v *bool) *AccountGroupUpdate {
+	if v != nil {
+		_u.SetSchedulerPreferred(*v)
+	}
+	return _u
+}
+
 // SetAccount sets the "account" edge to the Account entity.
 func (_u *AccountGroupUpdate) SetAccount(v *Account) *AccountGroupUpdate {
 	return _u.SetAccountID(v.ID)
@@ -160,6 +174,9 @@ func (_u *AccountGroupUpdate) sqlSave(ctx context.Context) (_node int, err error
 	}
 	if value, ok := _u.mutation.AddedPriority(); ok {
 		_spec.AddField(accountgroup.FieldPriority, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.SchedulerPreferred(); ok {
+		_spec.SetField(accountgroup.FieldSchedulerPreferred, field.TypeBool, value)
 	}
 	if _u.mutation.AccountCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -288,6 +305,20 @@ func (_u *AccountGroupUpdateOne) AddPriority(v int) *AccountGroupUpdateOne {
 	return _u
 }
 
+// SetSchedulerPreferred sets the "scheduler_preferred" field.
+func (_u *AccountGroupUpdateOne) SetSchedulerPreferred(v bool) *AccountGroupUpdateOne {
+	_u.mutation.SetSchedulerPreferred(v)
+	return _u
+}
+
+// SetNillableSchedulerPreferred sets the "scheduler_preferred" field if the given value is not nil.
+func (_u *AccountGroupUpdateOne) SetNillableSchedulerPreferred(v *bool) *AccountGroupUpdateOne {
+	if v != nil {
+		_u.SetSchedulerPreferred(*v)
+	}
+	return _u
+}
+
 // SetAccount sets the "account" edge to the Account entity.
 func (_u *AccountGroupUpdateOne) SetAccount(v *Account) *AccountGroupUpdateOne {
 	return _u.SetAccountID(v.ID)
@@ -402,6 +433,9 @@ func (_u *AccountGroupUpdateOne) sqlSave(ctx context.Context) (_node *AccountGro
 	}
 	if value, ok := _u.mutation.AddedPriority(); ok {
 		_spec.AddField(accountgroup.FieldPriority, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.SchedulerPreferred(); ok {
+		_spec.SetField(accountgroup.FieldSchedulerPreferred, field.TypeBool, value)
 	}
 	if _u.mutation.AccountCleared() {
 		edge := &sqlgraph.EdgeSpec{

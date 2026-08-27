@@ -6089,19 +6089,20 @@ func (m *AccountMutation) ResetEdge(name string) error {
 // AccountGroupMutation represents an operation that mutates the AccountGroup nodes in the graph.
 type AccountGroupMutation struct {
 	config
-	op             Op
-	typ            string
-	priority       *int
-	addpriority    *int
-	created_at     *time.Time
-	clearedFields  map[string]struct{}
-	account        *int64
-	clearedaccount bool
-	group          *int64
-	clearedgroup   bool
-	done           bool
-	oldValue       func(context.Context) (*AccountGroup, error)
-	predicates     []predicate.AccountGroup
+	op                  Op
+	typ                 string
+	priority            *int
+	addpriority         *int
+	scheduler_preferred *bool
+	created_at          *time.Time
+	clearedFields       map[string]struct{}
+	account             *int64
+	clearedaccount      bool
+	group               *int64
+	clearedgroup        bool
+	done                bool
+	oldValue            func(context.Context) (*AccountGroup, error)
+	predicates          []predicate.AccountGroup
 }
 
 var _ ent.Mutation = (*AccountGroupMutation)(nil)
@@ -6219,6 +6220,25 @@ func (m *AccountGroupMutation) ResetPriority() {
 	m.addpriority = nil
 }
 
+// SetSchedulerPreferred sets the "scheduler_preferred" field.
+func (m *AccountGroupMutation) SetSchedulerPreferred(b bool) {
+	m.scheduler_preferred = &b
+}
+
+// SchedulerPreferred returns the value of the "scheduler_preferred" field in the mutation.
+func (m *AccountGroupMutation) SchedulerPreferred() (r bool, exists bool) {
+	v := m.scheduler_preferred
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSchedulerPreferred resets all changes to the "scheduler_preferred" field.
+func (m *AccountGroupMutation) ResetSchedulerPreferred() {
+	m.scheduler_preferred = nil
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *AccountGroupMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -6326,7 +6346,7 @@ func (m *AccountGroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountGroupMutation) Fields() []string {
-	fields := make([]string, 0, 4)
+	fields := make([]string, 0, 5)
 	if m.account != nil {
 		fields = append(fields, accountgroup.FieldAccountID)
 	}
@@ -6335,6 +6355,9 @@ func (m *AccountGroupMutation) Fields() []string {
 	}
 	if m.priority != nil {
 		fields = append(fields, accountgroup.FieldPriority)
+	}
+	if m.scheduler_preferred != nil {
+		fields = append(fields, accountgroup.FieldSchedulerPreferred)
 	}
 	if m.created_at != nil {
 		fields = append(fields, accountgroup.FieldCreatedAt)
@@ -6353,6 +6376,8 @@ func (m *AccountGroupMutation) Field(name string) (ent.Value, bool) {
 		return m.GroupID()
 	case accountgroup.FieldPriority:
 		return m.Priority()
+	case accountgroup.FieldSchedulerPreferred:
+		return m.SchedulerPreferred()
 	case accountgroup.FieldCreatedAt:
 		return m.CreatedAt()
 	}
@@ -6391,6 +6416,13 @@ func (m *AccountGroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetPriority(v)
+		return nil
+	case accountgroup.FieldSchedulerPreferred:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSchedulerPreferred(v)
 		return nil
 	case accountgroup.FieldCreatedAt:
 		v, ok := value.(time.Time)
@@ -6471,6 +6503,9 @@ func (m *AccountGroupMutation) ResetField(name string) error {
 		return nil
 	case accountgroup.FieldPriority:
 		m.ResetPriority()
+		return nil
+	case accountgroup.FieldSchedulerPreferred:
+		m.ResetSchedulerPreferred()
 		return nil
 	case accountgroup.FieldCreatedAt:
 		m.ResetCreatedAt()

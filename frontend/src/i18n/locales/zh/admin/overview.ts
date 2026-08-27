@@ -843,6 +843,17 @@ export default {
       accountsRateLimited: '限流:',
       accountsTotal: '总量:',
       accountsUnit: '个账号',
+      preferredAccounts: {
+        label: '优先:',
+        title: '优先账号池',
+        search: '搜索已绑定账号…',
+        hint: '仅在当前分组内生效；选中的账号整体先于普通账号池尝试。',
+        disclaimer: '优先账号不绕过利润控制、健康、模型能力或并发限制；无立即可用优先账号时自动回退普通账号。',
+        empty: '当前分组暂无已绑定账号',
+        noMatch: '没有匹配的已绑定账号',
+        sourceNone: '未配置上游来源',
+        loadFailed: '优先账号池加载失败'
+      },
       form: {
         name: '名称',
         description: '描述',

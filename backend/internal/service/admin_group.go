@@ -43,6 +43,65 @@ func (s *adminServiceImpl) GetGroup(ctx context.Context, id int64) (*Group, erro
 	return s.groupRepo.GetByID(ctx, id)
 }
 
+func (s *adminServiceImpl) GetPreferredAccounts(ctx context.Context, groupID int64) ([]Account, error) {
+	if groupID <= 0 {
+		return nil, infraerrors.BadRequest("INVALID_GROUP_ID", "group_id must be positive")
+	}
+	if _, err := s.groupRepo.GetByIDLite(ctx, groupID); err != nil {
+		return nil, err
+	}
+	accounts, err := s.accountRepo.ListByGroup(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	preferredRepo, ok := s.groupRepo.(PreferredAccountRepository)
+	if !ok {
+		return nil, errors.New("preferred account repository is not configured")
+	}
+	preferred, err := preferredRepo.ListPreferredAccountIDs(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	preferredSet := make(map[int64]struct{}, len(preferred))
+	for _, id := range preferred {
+		preferredSet[id] = struct{}{}
+	}
+	for i := range accounts {
+		for j := range accounts[i].AccountGroups {
+			if accounts[i].AccountGroups[j].GroupID == groupID {
+				accounts[i].AccountGroups[j].SchedulerPreferred = false
+				_, accounts[i].AccountGroups[j].SchedulerPreferred = preferredSet[accounts[i].ID]
+			}
+		}
+	}
+	return accounts, nil
+}
+
+func (s *adminServiceImpl) SetPreferredAccountIDs(ctx context.Context, groupID int64, accountIDs []int64) error {
+	if groupID <= 0 {
+		return infraerrors.BadRequest("INVALID_GROUP_ID", "group_id must be positive")
+	}
+	if _, err := s.groupRepo.GetByIDLite(ctx, groupID); err != nil {
+		return err
+	}
+	preferredRepo, ok := s.groupRepo.(PreferredAccountRepository)
+	if !ok {
+		return errors.New("preferred account repository is not configured")
+	}
+	seen := make(map[int64]struct{}, len(accountIDs))
+	unique := make([]int64, 0, len(accountIDs))
+	for _, id := range accountIDs {
+		if id <= 0 {
+			return infraerrors.BadRequest("INVALID_ACCOUNT_ID", "account_ids must contain positive IDs")
+		}
+		if _, exists := seen[id]; !exists {
+			seen[id] = struct{}{}
+			unique = append(unique, id)
+		}
+	}
+	return preferredRepo.SetPreferredAccountIDs(ctx, groupID, unique)
+}
+
 func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id int64, platform string) ([]string, error) {
 	platform = strings.TrimSpace(platform)
 	if id > 0 {

@@ -633,6 +633,7 @@ export interface AdminGroup extends Group {
   account_count?: number
   active_account_count?: number
   rate_limited_account_count?: number
+  preferred_account_count?: number
 
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   default_mapped_model?: string
@@ -642,6 +643,8 @@ export interface AdminGroup extends Group {
   // 分组排序
   sort_order: number
 }
+
+export type PreferredAccount = Account
 
 export interface ModelsListConfig {
   enabled: boolean
@@ -1250,6 +1253,12 @@ export interface Account {
   proxy?: Proxy
   group_ids?: number[] // Groups this account belongs to
   groups?: Group[] // Preloaded group objects
+  account_groups?: Array<{
+    account_id: number
+    group_id: number
+    priority: number
+    scheduler_preferred: boolean
+  }>
 
   // Rate limit & scheduling fields
   schedulable: boolean

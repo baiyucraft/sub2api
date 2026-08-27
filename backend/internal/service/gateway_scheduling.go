@@ -441,62 +441,78 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 			}
 
 			if len(routingAvailable) > 0 {
-				// 排序：优先级 > 负载率 > 最后使用时间
-				sort.SliceStable(routingAvailable, func(i, j int) bool {
-					a, b := routingAvailable[i], routingAvailable[j]
-					if tier := compareAccountSchedulingTier(a.account, b.account); tier != 0 {
-						return tier < 0
+				sortRoutedPool := func(pool []accountWithLoad, preferredPool bool) {
+					if preferredPool {
+						sortPreferredAccountsWithLoadByLoadAwareness(pool, preferOAuth)
+						return
 					}
-					if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
-						return a.loadInfo.LoadRate < b.loadInfo.LoadRate
-					}
-					switch {
-					case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
-						return true
-					case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
-						return false
-					case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
-						return false
-					default:
-						return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
-					}
-				})
-				shuffleWithinSortGroups(routingAvailable)
-
-				// 4. 尝试获取槽位
-				for _, item := range routingAvailable {
-					result, err := s.tryAcquireAccountSlot(ctx, item.account)
-					if err == nil && result.Acquired {
-						// 会话数量限制检查
-						if !s.checkAndRegisterSession(ctx, item.account, sessionHash) {
-							result.ReleaseFunc() // 释放槽位，继续尝试下一个账号
-							continue
+					// 排序：优先级 > 倍率层级 > 负载率 > 最后使用时间
+					sort.SliceStable(pool, func(i, j int) bool {
+						a, b := pool[i], pool[j]
+						if tier := compareAccountSchedulingTier(a.account, b.account); tier != 0 {
+							return tier < 0
 						}
-						if sessionHash != "" && s.cache != nil {
-							_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, item.account.ID)
+						if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
+							return a.loadInfo.LoadRate < b.loadInfo.LoadRate
 						}
-						if s.debugModelRoutingEnabled() {
-							logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed select: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), item.account.ID)
+						switch {
+						case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
+							return true
+						case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
+							return false
+						case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
+							return false
+						default:
+							return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
 						}
-						return s.newSelectionResult(ctx, item.account, true, result.ReleaseFunc, nil)
+					})
+					shuffleWithinSortGroups(pool)
+				}
+				routedPreferred, routedOrdinary := partitionPreferredAccountWithLoadForGroup(routingAvailable, groupID)
+				for _, pool := range []struct {
+					accounts  []accountWithLoad
+					preferred bool
+				}{
+					{accounts: routedPreferred, preferred: true},
+					{accounts: routedOrdinary},
+				} {
+					sortRoutedPool(pool.accounts, pool.preferred)
+					// 4. 尝试获取槽位；preferred 满载时立即尝试普通池，不额外等待。
+					for _, item := range pool.accounts {
+						result, err := s.tryAcquireAccountSlot(ctx, item.account)
+						if err == nil && result.Acquired {
+							// 会话数量限制检查
+							if !s.checkAndRegisterSession(ctx, item.account, sessionHash) {
+								result.ReleaseFunc() // 释放槽位，继续尝试下一个账号
+								continue
+							}
+							if sessionHash != "" && s.cache != nil {
+								_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, item.account.ID)
+							}
+							if s.debugModelRoutingEnabled() {
+								logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed select: group_id=%v model=%s session=%s account=%d preferred_pool_hit=%v preferred_candidates=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), item.account.ID, pool.preferred, len(routedPreferred))
+							}
+							return s.newSelectionResult(ctx, item.account, true, result.ReleaseFunc, nil)
+						}
 					}
 				}
 
-				// 5. 所有路由账号槽位满，尝试返回等待计划（选择负载最低的）
-				// 遍历找到第一个满足会话限制的账号
-				for _, item := range routingAvailable {
-					if !s.checkAndRegisterSession(ctx, item.account, sessionHash) {
-						continue // 会话限制已满，尝试下一个
+				// 5. 两池都没有立即容量时，才尝试返回等待计划。
+				for _, pool := range [][]accountWithLoad{routedPreferred, routedOrdinary} {
+					for _, item := range pool {
+						if !s.checkAndRegisterSession(ctx, item.account, sessionHash) {
+							continue // 会话限制已满，尝试下一个
+						}
+						if s.debugModelRoutingEnabled() {
+							logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed wait: group_id=%v model=%s session=%s account=%d preferred_candidates=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), item.account.ID, len(routedPreferred))
+						}
+						return s.newSelectionResult(ctx, item.account, false, nil, &AccountWaitPlan{
+							AccountID:      item.account.ID,
+							MaxConcurrency: item.account.Concurrency,
+							Timeout:        cfg.StickySessionWaitTimeout,
+							MaxWaiting:     cfg.StickySessionMaxWaiting,
+						})
 					}
-					if s.debugModelRoutingEnabled() {
-						logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed wait: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), item.account.ID)
-					}
-					return s.newSelectionResult(ctx, item.account, false, nil, &AccountWaitPlan{
-						AccountID:      item.account.ID,
-						MaxConcurrency: item.account.Concurrency,
-						Timeout:        cfg.StickySessionWaitTimeout,
-						MaxWaiting:     cfg.StickySessionMaxWaiting,
-					})
 				}
 				// 所有路由账号会话限制都已满，继续到 Layer 2 回退
 			}
@@ -702,86 +718,125 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 			}
 		}
 
-		// 分层过滤选择：计费优先级 → 原始上游倍率 →（可选）最早重置 → 负载率 → LRU
-		for len(available) > 0 {
-			// 1. 取优先级最小的集合
-			candidates := filterByMinPriority(available)
-			// 2. 同优先级内按未取整上游倍率细分。
-			candidates = filterByMinUpstreamSourceRate(candidates)
-			// 3. （可选）use-it-or-lose-it：优先选用会话窗口最早重置的账号
-			if cfg.PreferSoonestReset {
-				candidates = filterBySoonestReset(candidates)
-			}
-			// 4. 取负载率最低的集合
-			candidates = filterByMinLoadRate(candidates)
-			// 5. LRU 选择最久未用的账号
-			selected := selectByLRU(candidates, preferOAuth)
-			if selected == nil {
-				break
-			}
+		// Preferred accounts are an outer pool. Only after every immediately
+		// usable preferred account has been tried do we enter the ordinary pool;
+		// the ordinary pool's ordering remains unchanged.
+		preferredAvailable, ordinaryAvailable := partitionPreferredAccountWithLoadForGroup(available, groupID)
+		for _, pool := range []struct {
+			accounts  []accountWithLoad
+			preferred bool
+		}{
+			{accounts: preferredAvailable, preferred: true},
+			{accounts: ordinaryAvailable},
+		} {
+			available = pool.accounts
+			for len(available) > 0 {
+				// 1. 取优先级最小的集合
+				candidates := filterByMinPriority(available)
+				// 2. 普通池同优先级内按未取整上游倍率细分；优先池忽略倍率。
+				if !pool.preferred {
+					candidates = filterByMinUpstreamSourceRate(candidates)
+				}
+				// 3. （可选）use-it-or-lose-it：优先选用会话窗口最早重置的账号
+				if cfg.PreferSoonestReset {
+					candidates = filterBySoonestReset(candidates)
+				}
+				// 4. 取负载率最低的集合
+				candidates = filterByMinLoadRate(candidates)
+				// 5. LRU 选择最久未用的账号
+				selected := selectByLRU(candidates, preferOAuth)
+				if selected == nil {
+					break
+				}
 
-			result, err := s.tryAcquireAccountSlot(ctx, selected.account)
-			if err == nil && result.Acquired {
-				// 会话数量限制检查
-				if !s.checkAndRegisterSession(ctx, selected.account, sessionHash) {
-					result.ReleaseFunc() // 释放槽位，继续尝试下一个账号
-				} else {
-					if sessionHash != "" && s.cache != nil {
-						_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.account.ID)
+				result, err := s.tryAcquireAccountSlot(ctx, selected.account)
+				if err == nil && result.Acquired {
+					// 会话数量限制检查
+					if !s.checkAndRegisterSession(ctx, selected.account, sessionHash) {
+						result.ReleaseFunc() // 释放槽位，继续尝试下一个账号
+					} else {
+						if sessionHash != "" && s.cache != nil {
+							_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.account.ID)
+						}
+						return s.newSelectionResult(ctx, selected.account, true, result.ReleaseFunc, nil)
 					}
-					return s.newSelectionResult(ctx, selected.account, true, result.ReleaseFunc, nil)
 				}
-			}
 
-			// 移除已尝试的账号，重新进行分层过滤
-			selectedID := selected.account.ID
-			newAvailable := make([]accountWithLoad, 0, len(available)-1)
-			for _, acc := range available {
-				if acc.account.ID != selectedID {
-					newAvailable = append(newAvailable, acc)
+				// 移除已尝试的账号，重新进行分层过滤
+				selectedID := selected.account.ID
+				newAvailable := make([]accountWithLoad, 0, len(available)-1)
+				for _, acc := range available {
+					if acc.account.ID != selectedID {
+						newAvailable = append(newAvailable, acc)
+					}
 				}
+				available = newAvailable
 			}
-			available = newAvailable
 		}
 	}
 
 	// ============ Layer 3: 兜底排队 ============
-	s.sortCandidatesForFallback(candidates, preferOAuth, cfg.FallbackSelectionMode)
-	for _, acc := range candidates {
-		// 会话数量限制检查（等待计划也需要占用会话配额）
-		if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
-			continue // 会话限制已满，尝试下一个账号
+	preferredCandidates, ordinaryCandidates := partitionPreferredAccountPointersForGroup(candidates, groupID)
+	for _, pool := range []struct {
+		accounts  []*Account
+		preferred bool
+	}{
+		{accounts: preferredCandidates, preferred: true},
+		{accounts: ordinaryCandidates},
+	} {
+		if pool.preferred {
+			sortPreferredAccountPointersByPriorityAndLastUsed(pool.accounts, preferOAuth)
+		} else {
+			s.sortCandidatesForFallback(pool.accounts, preferOAuth, cfg.FallbackSelectionMode)
 		}
-		return s.newSelectionResult(ctx, acc, false, nil, &AccountWaitPlan{
-			AccountID:      acc.ID,
-			MaxConcurrency: acc.Concurrency,
-			Timeout:        cfg.FallbackWaitTimeout,
-			MaxWaiting:     cfg.FallbackMaxWaiting,
-		})
+		for _, acc := range pool.accounts {
+			// 会话数量限制检查（等待计划也需要占用会话配额）
+			if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
+				continue // 会话限制已满，尝试下一个账号
+			}
+			return s.newSelectionResult(ctx, acc, false, nil, &AccountWaitPlan{
+				AccountID:      acc.ID,
+				MaxConcurrency: acc.Concurrency,
+				Timeout:        cfg.FallbackWaitTimeout,
+				MaxWaiting:     cfg.FallbackMaxWaiting,
+			})
+		}
 	}
 	return nil, ErrNoAvailableAccounts
 }
 
 func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {
-	ordered := append([]*Account(nil), candidates...)
-	sortAccountsByPriorityAndLastUsed(ordered, preferOAuth)
-
-	for _, acc := range ordered {
-		result, err := s.tryAcquireAccountSlot(ctx, acc)
-		if err == nil && result.Acquired {
-			// 会话数量限制检查
-			if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
-				result.ReleaseFunc() // 释放槽位，继续尝试下一个账号
-				continue
+	preferred, ordinary := partitionPreferredAccountPointersForGroup(candidates, groupID)
+	for _, pool := range []struct {
+		accounts  []*Account
+		preferred bool
+	}{
+		{accounts: preferred, preferred: true},
+		{accounts: ordinary},
+	} {
+		ordered := append([]*Account(nil), pool.accounts...)
+		if pool.preferred {
+			sortPreferredAccountPointersByPriorityAndLastUsed(ordered, preferOAuth)
+		} else {
+			sortAccountsByPriorityAndLastUsed(ordered, preferOAuth)
+		}
+		for _, acc := range ordered {
+			result, err := s.tryAcquireAccountSlot(ctx, acc)
+			if err == nil && result.Acquired {
+				// 会话数量限制检查
+				if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
+					result.ReleaseFunc() // 释放槽位，继续尝试下一个账号
+					continue
+				}
+				if sessionHash != "" && s.cache != nil {
+					_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, acc.ID)
+				}
+				selection, err := s.newSelectionResult(ctx, acc, true, result.ReleaseFunc, nil)
+				if err != nil {
+					return nil, false, err
+				}
+				return selection, true, nil
 			}
-			if sessionHash != "" && s.cache != nil {
-				_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, acc.ID)
-			}
-			selection, err := s.newSelectionResult(ctx, acc, true, result.ReleaseFunc, nil)
-			if err != nil {
-				return nil, false, err
-			}
-			return selection, true, nil
 		}
 	}
 
@@ -1952,7 +2007,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 				selected = acc
 				continue
 			}
-			if tier := compareAccountSchedulingTier(acc, selected); tier < 0 {
+			if tier := comparePreferredAwareAccountSchedulingTier(acc, selected, groupID); tier < 0 {
 				selected = acc
 			} else if tier == 0 {
 				switch {
@@ -2069,7 +2124,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 			selected = acc
 			continue
 		}
-		if tier := compareAccountSchedulingTier(acc, selected); tier < 0 {
+		if tier := comparePreferredAwareAccountSchedulingTier(acc, selected, groupID); tier < 0 {
 			selected = acc
 		} else if tier == 0 {
 			switch {
@@ -2218,7 +2273,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 				selected = acc
 				continue
 			}
-			if tier := compareAccountSchedulingTier(acc, selected); tier < 0 {
+			if tier := comparePreferredAwareAccountSchedulingTier(acc, selected, groupID); tier < 0 {
 				selected = acc
 			} else if tier == 0 {
 				switch {
@@ -2336,7 +2391,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 			selected = acc
 			continue
 		}
-		if tier := compareAccountSchedulingTier(acc, selected); tier < 0 {
+		if tier := comparePreferredAwareAccountSchedulingTier(acc, selected, groupID); tier < 0 {
 			selected = acc
 		} else if tier == 0 {
 			switch {

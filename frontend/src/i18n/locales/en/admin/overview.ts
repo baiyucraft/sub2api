@@ -850,6 +850,17 @@ export default {
       accountsRateLimited: 'Limited:',
       accountsTotal: 'Total:',
       accountsUnit: '',
+      preferredAccounts: {
+        label: 'Preferred:',
+        title: 'Preferred account pool',
+        search: 'Search bound accounts…',
+        hint: 'Applies only to this group; selected accounts are tried before the ordinary pool.',
+        disclaimer: 'Preferred accounts still obey profit, health, model capability, and concurrency limits; unavailable preferred accounts fall back to the ordinary pool.',
+        empty: 'No accounts are bound to this group',
+        noMatch: 'No bound accounts match this search',
+        sourceNone: 'No upstream source configured',
+        loadFailed: 'Failed to load the preferred account pool'
+      },
       rateAndAccounts: '{rate}x rate · {count} accounts',
       accountsCount: '{count} accounts',
       rateLabel: 'rate',

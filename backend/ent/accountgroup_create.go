@@ -50,6 +50,20 @@ func (_c *AccountGroupCreate) SetNillablePriority(v *int) *AccountGroupCreate {
 	return _c
 }
 
+// SetSchedulerPreferred sets the "scheduler_preferred" field.
+func (_c *AccountGroupCreate) SetSchedulerPreferred(v bool) *AccountGroupCreate {
+	_c.mutation.SetSchedulerPreferred(v)
+	return _c
+}
+
+// SetNillableSchedulerPreferred sets the "scheduler_preferred" field if the given value is not nil.
+func (_c *AccountGroupCreate) SetNillableSchedulerPreferred(v *bool) *AccountGroupCreate {
+	if v != nil {
+		_c.SetSchedulerPreferred(*v)
+	}
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *AccountGroupCreate) SetCreatedAt(v time.Time) *AccountGroupCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -113,6 +127,10 @@ func (_c *AccountGroupCreate) defaults() {
 		v := accountgroup.DefaultPriority
 		_c.mutation.SetPriority(v)
 	}
+	if _, ok := _c.mutation.SchedulerPreferred(); !ok {
+		v := accountgroup.DefaultSchedulerPreferred
+		_c.mutation.SetSchedulerPreferred(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := accountgroup.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -129,6 +147,9 @@ func (_c *AccountGroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.Priority(); !ok {
 		return &ValidationError{Name: "priority", err: errors.New(`ent: missing required field "AccountGroup.priority"`)}
+	}
+	if _, ok := _c.mutation.SchedulerPreferred(); !ok {
+		return &ValidationError{Name: "scheduler_preferred", err: errors.New(`ent: missing required field "AccountGroup.scheduler_preferred"`)}
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "AccountGroup.created_at"`)}
@@ -165,6 +186,10 @@ func (_c *AccountGroupCreate) createSpec() (*AccountGroup, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.Priority(); ok {
 		_spec.SetField(accountgroup.FieldPriority, field.TypeInt, value)
 		_node.Priority = value
+	}
+	if value, ok := _c.mutation.SchedulerPreferred(); ok {
+		_spec.SetField(accountgroup.FieldSchedulerPreferred, field.TypeBool, value)
+		_node.SchedulerPreferred = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(accountgroup.FieldCreatedAt, field.TypeTime, value)
@@ -298,6 +323,18 @@ func (u *AccountGroupUpsert) AddPriority(v int) *AccountGroupUpsert {
 	return u
 }
 
+// SetSchedulerPreferred sets the "scheduler_preferred" field.
+func (u *AccountGroupUpsert) SetSchedulerPreferred(v bool) *AccountGroupUpsert {
+	u.Set(accountgroup.FieldSchedulerPreferred, v)
+	return u
+}
+
+// UpdateSchedulerPreferred sets the "scheduler_preferred" field to the value that was provided on create.
+func (u *AccountGroupUpsert) UpdateSchedulerPreferred() *AccountGroupUpsert {
+	u.SetExcluded(accountgroup.FieldSchedulerPreferred)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -389,6 +426,20 @@ func (u *AccountGroupUpsertOne) AddPriority(v int) *AccountGroupUpsertOne {
 func (u *AccountGroupUpsertOne) UpdatePriority() *AccountGroupUpsertOne {
 	return u.Update(func(s *AccountGroupUpsert) {
 		s.UpdatePriority()
+	})
+}
+
+// SetSchedulerPreferred sets the "scheduler_preferred" field.
+func (u *AccountGroupUpsertOne) SetSchedulerPreferred(v bool) *AccountGroupUpsertOne {
+	return u.Update(func(s *AccountGroupUpsert) {
+		s.SetSchedulerPreferred(v)
+	})
+}
+
+// UpdateSchedulerPreferred sets the "scheduler_preferred" field to the value that was provided on create.
+func (u *AccountGroupUpsertOne) UpdateSchedulerPreferred() *AccountGroupUpsertOne {
+	return u.Update(func(s *AccountGroupUpsert) {
+		s.UpdateSchedulerPreferred()
 	})
 }
 
@@ -626,6 +677,20 @@ func (u *AccountGroupUpsertBulk) AddPriority(v int) *AccountGroupUpsertBulk {
 func (u *AccountGroupUpsertBulk) UpdatePriority() *AccountGroupUpsertBulk {
 	return u.Update(func(s *AccountGroupUpsert) {
 		s.UpdatePriority()
+	})
+}
+
+// SetSchedulerPreferred sets the "scheduler_preferred" field.
+func (u *AccountGroupUpsertBulk) SetSchedulerPreferred(v bool) *AccountGroupUpsertBulk {
+	return u.Update(func(s *AccountGroupUpsert) {
+		s.SetSchedulerPreferred(v)
+	})
+}
+
+// UpdateSchedulerPreferred sets the "scheduler_preferred" field to the value that was provided on create.
+func (u *AccountGroupUpsertBulk) UpdateSchedulerPreferred() *AccountGroupUpsertBulk {
+	return u.Update(func(s *AccountGroupUpsert) {
+		s.UpdateSchedulerPreferred()
 	})
 }
 
