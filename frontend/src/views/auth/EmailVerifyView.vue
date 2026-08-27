@@ -54,6 +54,7 @@
         <!-- Code Status -->
         <div
           v-if="codeSent"
+          data-testid="verification-code-sent"
           class="rounded-xl border border-green-200 bg-green-50 p-4 dark:border-green-800/50 dark:bg-green-900/20"
         >
           <div class="flex items-start gap-3">
@@ -64,10 +65,21 @@
               <p>
                 {{ t('auth.codeSentSuccess') }}
               </p>
-              <p class="mt-1 text-green-700/80 dark:text-green-400/80">
-                {{ t('auth.codeSentSpamHint') }}
-              </p>
             </div>
+          </div>
+        </div>
+        <div
+          v-if="codeSent"
+          data-testid="verification-spam-warning"
+          class="rounded-xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-800/50 dark:bg-orange-900/20"
+        >
+          <div class="flex items-start gap-3">
+            <div class="flex-shrink-0">
+              <Icon name="exclamationCircle" size="md" class="text-orange-500 dark:text-orange-400" />
+            </div>
+            <p class="text-sm text-orange-700 dark:text-orange-300">
+              {{ t('auth.codeSentSpamHint') }}
+            </p>
           </div>
         </div>
 
