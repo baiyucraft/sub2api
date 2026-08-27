@@ -353,3 +353,16 @@
 - 修复：发现问题后先冻结当前候选，建立关联面清单并一次性合并同根因修复；完成静态审计、定向测试和完整 release suite 后，重新生成完整 SHA、Gate、candidate archive/image 和唯一 release。旧 release 不追加修复，只保留作审计或恢复证据。
 - 预防测试：skill 契约必须要求“启动 runner 前完成关联面清单”和“一次性修复批次”；失败、超时、SSH reset 或解析错误只能触发 reconciliation，不能触发第二个 `deploy`。
 - 状态：已固化为强制门禁。
+
+## Profile 242 最近发布：观察、验真与清理边界
+
+- **现象**：`deploy-start` 前台暂时无输出、未立即返回 release ID，或早期 `status` 显示 `claim_final_state=unknown`、`candidate_image_id=null`、生产尚未开始；随后有人误判失败并准备再次启动 runner。
+- **根因**：发布 runner 独立于调用端运行，状态文件按阶段逐步落盘；前台工具超时、观察器断开和早期字段为空都不是终态。
+- **修复**：只跟踪同一 release 的 `runner.json`、`state.json`、结构化事件、进程和 committed marker；使用 `status`/`wait`/`follow` 重连，禁止第二个 runner、第二个 claim 或第二个 candidate。
+- **预防测试**：覆盖启动握手、长时间无输出、观察器超时、SSH 断开后重连、早期字段为空和最终退出；验证观察器关闭不会终止 worker。
+
+- **生产成功判定必须成套**：不能只看 VM Gate、容器 `/health=200`、`production-result` 或 `verify-result` 任一单项。至少同时核对签名 Gate、`production-result.json` 为 `production_verified`（或 `production_verified_after_reconciliation`）且顶层 `status=verified`、`verify-result=verified`、运行 image 等于 candidate image，以及 post-deploy doctor 通过。
+- **报告分层**：VM Gate、生产切换/`verify-result`、post-deploy doctor 和业务能力验证必须分开报告；`/health` 只证明容器启动与路由可达，不代表模型、账号或流式能力已验证。profile 242 为 health-only，账号池、Canary、Bearer/API key、真实 upstream/model 请求和 usage attribution 均保持 `not_checked`。
+- **空间清理边界**：空间不足时先 dry-run，再使用同一计划 checksum apply；只运行版本化 cleaner，最多一次，并保留 candidate、旧运行 image、Gate、恢复点和失败 release 证据。禁止 `docker system prune`、删卷、删 PostgreSQL/Redis、`data-dev` 或备份；BuildKit GC 必须同时具备明确的 `max-used-space` 与 `reserved-space`。
+- **输出与身份安全**：doctor/status/follow 只输出白名单字段和脱敏摘要，不回显完整 snapshot、环境变量、原始日志、请求头或凭据。PowerShell 发布参数不要依赖易被解释的 `HEAD^{commit}` 文本，必须由现场 `git rev-parse` 生成并贯穿全流程的完整 40 位小写 SHA。
+- **状态**：已由 release `242-a15fefb7a6a5-1787786100-53f9251e` 的 VM Gate、`verify-result` 和 post-deploy doctor 复核；真实模型/Provider 流式能力仍按合同记为 `not_checked`。
