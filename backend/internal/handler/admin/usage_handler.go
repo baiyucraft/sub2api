@@ -72,7 +72,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 	}
 
 	// Parse filters
-	var userID, apiKeyID, accountID, groupID int64
+	var userID, apiKeyID, accountID, groupID, upstreamConfigID int64
 	if userIDStr := c.Query("user_id"); userIDStr != "" {
 		id, err := strconv.ParseInt(userIDStr, 10, 64)
 		if err != nil {
@@ -107,6 +107,14 @@ func (h *UsageHandler) List(c *gin.Context) {
 			return
 		}
 		groupID = id
+	}
+	if upstreamConfigIDStr := c.Query("upstream_config_id"); upstreamConfigIDStr != "" {
+		id, err := strconv.ParseInt(upstreamConfigIDStr, 10, 64)
+		if err != nil || id <= 0 {
+			response.BadRequest(c, "Invalid upstream_config_id")
+			return
+		}
+		upstreamConfigID = id
 	}
 
 	model := c.Query("model")
@@ -187,6 +195,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 		APIKeyID:              apiKeyID,
 		AccountID:             accountID,
 		GroupID:               groupID,
+		UpstreamConfigID:      upstreamConfigID,
 		RequestID:             requestID,
 		Model:                 model,
 		ModelFilterSource:     usagestats.ModelSourceRequested,

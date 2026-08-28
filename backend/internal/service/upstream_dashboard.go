@@ -16,6 +16,7 @@ const (
 )
 
 type UpstreamDashboardFilter struct {
+	ConfigID int64
 	Window   UpstreamDashboardWindow
 	Provider string
 	Status   string
@@ -62,6 +63,33 @@ type UpstreamDashboardCard struct {
 	Trend                    []UpstreamDashboardTrendPoint `json:"trend,omitempty"`
 }
 
+// UpstreamDashboardDetail contains the card snapshot plus drill-down data.
+// It is intentionally separate from the list DTO so the list query remains
+// bounded while the drawer can request richer data on demand.
+type UpstreamDashboardDetail struct {
+	UpstreamDashboardCard
+	Traffic           UpstreamDashboardTraffic `json:"traffic"`
+	Errors            []UpstreamDashboardError `json:"recent_errors"`
+	ProfitUnavailable bool                     `json:"profit_unavailable"`
+	ProfitReason      string                   `json:"profit_reason,omitempty"`
+}
+
+type UpstreamDashboardTraffic struct {
+	Models []UpstreamDashboardModelStat `json:"models,omitempty"`
+}
+
+type UpstreamDashboardModelStat struct {
+	Model    string `json:"model"`
+	Requests int64  `json:"requests"`
+}
+
+type UpstreamDashboardError struct {
+	OccurredAt string `json:"occurred_at"`
+	Model      string `json:"model"`
+	Category   string `json:"category"`
+	StatusCode int    `json:"status_code"`
+}
+
 type UpstreamDashboardProbeSummary struct {
 	Samples           int64      `json:"samples"`
 	HealthySamples    int64      `json:"healthy_samples"`
@@ -86,6 +114,10 @@ type UpstreamDashboardRepository interface {
 	GetUpstreamDashboard(ctx context.Context, filter UpstreamDashboardFilter) (*UpstreamDashboardResponse, error)
 }
 
+type UpstreamDashboardDetailRepository interface {
+	GetUpstreamDashboardDetail(ctx context.Context, id int64, filter UpstreamDashboardFilter) (*UpstreamDashboardDetail, error)
+}
+
 func (s *UpstreamConfigService) GetUpstreamDashboard(ctx context.Context, filter UpstreamDashboardFilter) (*UpstreamDashboardResponse, error) {
 	if repo, ok := s.repo.(UpstreamDashboardRepository); ok {
 		result, err := repo.GetUpstreamDashboard(ctx, filter)
@@ -105,4 +137,20 @@ func (s *UpstreamConfigService) GetUpstreamDashboard(ctx context.Context, filter
 		return result, nil
 	}
 	return &UpstreamDashboardResponse{Window: string(filter.Window), Items: []UpstreamDashboardCard{}}, nil
+}
+
+func (s *UpstreamConfigService) GetUpstreamDashboardDetail(ctx context.Context, id int64, filter UpstreamDashboardFilter) (*UpstreamDashboardDetail, error) {
+	if repo, ok := s.repo.(UpstreamDashboardDetailRepository); ok {
+		return repo.GetUpstreamDashboardDetail(ctx, id, filter)
+	}
+	result, err := s.GetUpstreamDashboard(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range result.Items {
+		if item.ID == id {
+			return &UpstreamDashboardDetail{UpstreamDashboardCard: item}, nil
+		}
+	}
+	return nil, ErrUpstreamConfigNotFound
 }

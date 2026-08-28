@@ -2308,6 +2308,7 @@ export interface UsageQueryParams {
   user_id?: number
   account_id?: number
   group_id?: number
+  upstream_config_id?: number
   model?: string
   request_type?: UsageRequestType
   stream?: boolean
