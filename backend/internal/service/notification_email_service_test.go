@@ -146,6 +146,7 @@ func TestNotificationEmailAdditionalEventsAreListedAndPreviewable(t *testing.T) 
 		{NotificationEmailEventCyberPolicyNotice, "upstream_message"},
 		{NotificationEmailEventOpsAlert, "rule_name"},
 		{NotificationEmailEventOpsScheduledReport, "report_html"},
+		{NotificationEmailEventUpstreamBalanceLow, "upstream_name"},
 	}
 
 	for _, check := range checks {

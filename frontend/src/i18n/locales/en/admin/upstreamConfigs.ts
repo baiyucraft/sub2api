@@ -23,6 +23,8 @@ export default {
       totalQuota: 'Recharge {amount}',
       totalUsed: 'Total used {amount}',
       lowBalance: 'Low balance',
+      lowBalanceHint: 'Balance is below the alert threshold. Open the upstream dashboard to recharge.',
+      unavailable: 'Balance unavailable',
       email: 'Upstream email: {email}',
       syncedAt: 'Quota synced: {time}',
       error: 'Quota error: {error}'

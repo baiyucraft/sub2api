@@ -568,7 +568,14 @@ func evaluateUpstreamBalanceIncident(ctx context.Context, client *dbent.Client, 
 		if incident == nil {
 			return client.UpstreamIncident.Create().SetUpstreamConfigID(configID).SetIncidentKey(incidentKey).SetIncidentType("balance_low").SetSeverity("warning").SetStatus("open").SetTitle("Upstream balance is low").SetDescription("Upstream balance fell below the configured CNY threshold").SetMetricValue(balance).SetThresholdValue(threshold).SetDetails(map[string]any{"currency": "CNY"}).SetFirstSeenAt(at).SetLastSeenAt(at).Exec(ctx)
 		}
-		return client.UpstreamIncident.UpdateOne(incident).SetStatus("open").SetMetricValue(balance).SetThresholdValue(threshold).SetLastSeenAt(at).AddOccurrenceCount(1).ClearResolvedAt().Exec(ctx)
+		update := client.UpstreamIncident.UpdateOne(incident).SetStatus("open").SetMetricValue(balance).SetThresholdValue(threshold).SetLastSeenAt(at).AddOccurrenceCount(1).ClearResolvedAt()
+		// A resolved incident represents a completed notification cycle. Reset
+		// its opening timestamp when it reopens so delivery deduplication can
+		// send one alert for the new cycle.
+		if incident.Status != "open" {
+			update.SetFirstSeenAt(at)
+		}
+		return update.Exec(ctx)
 	}
 	if incident != nil && incident.Status == "open" {
 		return client.UpstreamIncident.UpdateOne(incident).SetStatus("resolved").SetMetricValue(balance).SetLastSeenAt(at).SetResolvedAt(at).Exec(ctx)

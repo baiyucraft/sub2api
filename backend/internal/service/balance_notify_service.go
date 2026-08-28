@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,78 @@ func NewBalanceNotifyService(emailService *EmailService, settingRepo SettingRepo
 
 func (s *BalanceNotifyService) SetNotificationEmailService(notificationEmailService *NotificationEmailService) {
 	s.notificationEmailService = notificationEmailService
+}
+
+// NotifyUpstreamBalanceLow sends one administrator alert for an open upstream
+// channel balance incident. NotificationEmailService deduplicates by the
+// incident opening time, so repeated syncs do not create a notification storm.
+func (s *BalanceNotifyService) NotifyUpstreamBalanceLow(ctx context.Context, config *UpstreamConfig, balance, threshold float64, observedAt, incidentOpenedAt time.Time) {
+	if s == nil || config == nil || s.notificationEmailService == nil || s.settingRepo == nil {
+		return
+	}
+	if !s.isAccountQuotaNotifyEnabled(ctx) {
+		return
+	}
+	recipients := s.getAccountQuotaNotifyEmails(ctx)
+	if len(recipients) == 0 {
+		return
+	}
+	rechargeURL := upstreamDashboardURL(config)
+	reminderKey := incidentOpenedAt.UTC().Format(time.RFC3339Nano)
+	if incidentOpenedAt.IsZero() {
+		reminderKey = observedAt.UTC().Format(time.RFC3339Nano)
+	}
+	for _, recipient := range recipients {
+		if err := s.notificationEmailService.Send(ctx, NotificationEmailSendInput{
+			Event:          NotificationEmailEventUpstreamBalanceLow,
+			RecipientEmail: recipient,
+			RecipientName:  emailRecipientName(recipient),
+			SourceType:     "upstream_balance",
+			SourceID:       strconv.FormatInt(config.ID, 10),
+			ReminderKey:    reminderKey,
+			Variables: map[string]string{
+				"upstream_name":   config.Name,
+				"provider":        config.Provider,
+				"current_balance": fmt.Sprintf("%.2f", balance),
+				"threshold":       fmt.Sprintf("%.2f", threshold),
+				"observed_at":     observedAt.UTC().Format(time.RFC3339),
+				"recharge_url":    rechargeURL,
+			},
+		}); err != nil {
+			slog.Warn("upstream balance notification failed", "config_id", config.ID, "to", recipient, "error", err)
+		}
+	}
+}
+
+// upstreamDashboardURL mirrors the admin navigation rules. Only providers
+// whose dashboard path is known receive a link; an arbitrary site URL is not
+// presented as a potentially misleading recharge destination.
+func upstreamDashboardURL(config *UpstreamConfig) string {
+	if config == nil {
+		return ""
+	}
+	siteURL := strings.TrimSpace(config.SiteURL)
+	if siteURL == "" {
+		return ""
+	}
+	provider := strings.ToLower(strings.TrimSpace(config.Provider))
+	if provider != UpstreamProviderSub2API && provider != UpstreamProviderNewAPI && provider != UpstreamProviderLCodex {
+		return ""
+	}
+	parsed, err := url.Parse(siteURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return ""
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	if provider == UpstreamProviderLCodex {
+		parsed.Path = "/"
+		parsed.Fragment = "/dashboard"
+		return parsed.String()
+	}
+	parsed.Path = "/dashboard"
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 // resolveBalanceThreshold returns the effective balance threshold.

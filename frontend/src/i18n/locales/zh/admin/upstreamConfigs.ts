@@ -23,6 +23,8 @@ export default {
       totalQuota: '充值 {amount}',
       totalUsed: '累计使用 {amount}',
       lowBalance: '低余额',
+      lowBalanceHint: '余额低于告警阈值，点击打开上游后台充值',
+      unavailable: '余额数据不可用',
       email: '上游邮箱：{email}',
       syncedAt: '额度同步：{time}',
       error: '额度错误：{error}'
