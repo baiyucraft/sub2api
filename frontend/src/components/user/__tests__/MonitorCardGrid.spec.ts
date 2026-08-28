@@ -17,20 +17,23 @@ describe('MonitorCardGrid', () => {
         range: '15d',
         countdownSeconds: 30,
         loading: false,
-        items: [{
-          id: 4,
-          name: 'cc-max',
+        groups: [{
           provider: 'openai',
-          group_name: 'cc-max',
-          primary_model: 'gpt-4o',
-          primary_status: 'operational',
-          primary_latency_ms: 120,
-          primary_ping_latency_ms: 30,
-          availability: 98.5,
-          availability_7d: 97,
-          extra_models: [],
-          timeline: [],
-          show_group_rate: false,
+          items: [{
+            id: 4,
+            name: 'cc-max',
+            provider: 'openai',
+            group_name: 'cc-max',
+            primary_model: 'gpt-4o',
+            primary_status: 'operational',
+            primary_latency_ms: 120,
+            primary_ping_latency_ms: 30,
+            availability: 98.5,
+            availability_7d: 97,
+            extra_models: [],
+            timeline: [],
+            show_group_rate: false,
+          }],
         }],
       },
       global: {
@@ -48,5 +51,31 @@ describe('MonitorCardGrid', () => {
     const card = wrapper.getComponent({ name: 'MonitorCard' })
     expect(card.props('range')).toBe('15d')
     expect(card.props('availabilityValue')).toBe(98.5)
+    expect(wrapper.find('h2').text()).toBe('monitorCommon.providers.openai')
+  })
+
+  it('renders each supplied platform as its own section', () => {
+    const wrapper = mount(MonitorCardGrid, {
+      props: {
+        range: '24h',
+        countdownSeconds: 30,
+        loading: false,
+        groups: [
+          { provider: 'openai', items: [] },
+          { provider: 'anthropic', items: [] },
+        ],
+      },
+      global: {
+        stubs: {
+          EmptyState: true,
+          MonitorCard: true,
+        },
+      },
+    })
+
+    const headings = wrapper.findAll('h2')
+    expect(headings).toHaveLength(2)
+    expect(headings[0].attributes('id')).toBe('monitor-platform-openai')
+    expect(headings[1].attributes('id')).toBe('monitor-platform-anthropic')
   })
 })
