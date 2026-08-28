@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -99,15 +100,45 @@ WITH usage AS (
          AVG(NULLIF(duration_ms,0)) FILTER (WHERE duration_ms > 0) avg_duration,
          COUNT(*) FILTER (WHERE confidence_prompt_version='openai-juice-multiprobe-v2') confidence_samples,
          (array_agg(confidence_status ORDER BY observed_at DESC) FILTER (WHERE confidence_prompt_version='openai-juice-multiprobe-v2'))[1] confidence_status
-    FROM upstream_health_observations WHERE observed_at >= $1 AND observed_at < $2 GROUP BY upstream_config_id
+	    FROM upstream_health_observations WHERE observed_at >= $1 AND observed_at < $2 GROUP BY upstream_config_id
+), balance_latest AS (
+  SELECT DISTINCT ON (upstream_config_id)
+         upstream_config_id config_id, balance_cny, observed_at,
+         CASE WHEN balance_cny IS NULL THEN 'currency_unavailable'
+              WHEN observed_at < $2 - INTERVAL '24 hours' THEN 'stale_snapshot'
+              ELSE '' END unavailable_reason
+    FROM upstream_balance_snapshots
+   WHERE observed_at <= $2
+   ORDER BY upstream_config_id, observed_at DESC, id DESC
+), incidents AS (
+  SELECT upstream_config_id config_id,
+         COUNT(*) FILTER (WHERE status NOT IN ('resolved','closed')) open_count
+    FROM upstream_incidents
+   GROUP BY upstream_config_id
+), rate_changes AS (
+  SELECT DISTINCT ON (upstream_config_id)
+         upstream_config_id config_id, occurred_at,
+         CASE WHEN jsonb_typeof(COALESCE(payload->'old_rate', payload->'old_effective_rate')) = 'number'
+              THEN (COALESCE(payload->>'old_rate', payload->>'old_effective_rate'))::double precision END old_rate,
+         CASE WHEN jsonb_typeof(COALESCE(payload->'new_rate', payload->'new_effective_rate')) = 'number'
+              THEN (COALESCE(payload->>'new_rate', payload->>'new_effective_rate'))::double precision END new_rate
+    FROM upstream_events
+   WHERE event_type IN ('recharge_rate_changed','key_rate_changed','key_effective_rate_changed','key_actual_rate_changed')
+     AND occurred_at <= $2
+     ORDER BY upstream_config_id, occurred_at DESC, id DESC
+), balance_settings AS (
+  SELECT COALESCE((SELECT CASE WHEN trim(value) ~ '^[+-]?[0-9]+([.][0-9]+)?$' THEN trim(value)::double precision ELSE 0 END FROM settings WHERE key = 'upstream_balance_low_threshold_cny' LIMIT 1), 0) threshold_cny
 )
-		SELECT c.id,c.name,c.provider,c.site_url,COALESCE(c.scheduling_enabled,true),c.status,
+			SELECT c.id,c.name,c.provider,c.site_url,COALESCE(c.scheduling_enabled,true),c.status,
        COALESCE(u.requests,0),COALESCE(ae.failed,0),COALESCE(ae.err429,0),COALESCE(ae.err5xx,0),COALESCE(ae.timeouts,0),COALESCE(ae.auth_errors,0),
        u.revenue,u.upstream_cost,u.p50_ttft,u.p95_ttft,u.p50_latency,u.p95_latency,
-       COALESCE(ac.account_count,0),COALESCE(ac.schedulable_count,0),COALESCE(ac.temp_unschedulable_count,0),
-       COALESCE(p.samples,0),COALESCE(p.healthy_samples,0),%s
-  FROM upstream_configs c
-  LEFT JOIN usage u ON u.config_id=c.id LEFT JOIN account_errors ae ON ae.config_id=c.id LEFT JOIN account_counts ac ON ac.config_id=c.id LEFT JOIN probes p ON p.config_id=c.id
+	       COALESCE(ac.account_count,0),COALESCE(ac.schedulable_count,0),COALESCE(ac.temp_unschedulable_count,0),
+	       bl.balance_cny,bl.observed_at,COALESCE(bl.unavailable_reason,'no_snapshot'),bs.threshold_cny,
+	       COALESCE(inc.open_count,0),rc.occurred_at,rc.old_rate,rc.new_rate,
+	       COALESCE(p.samples,0),COALESCE(p.healthy_samples,0),%s
+	  FROM upstream_configs c CROSS JOIN balance_settings bs
+	  LEFT JOIN usage u ON u.config_id=c.id LEFT JOIN account_errors ae ON ae.config_id=c.id LEFT JOIN account_counts ac ON ac.config_id=c.id LEFT JOIN probes p ON p.config_id=c.id
+	  LEFT JOIN balance_latest bl ON bl.config_id=c.id LEFT JOIN incidents inc ON inc.config_id=c.id LEFT JOIN rate_changes rc ON rc.config_id=c.id
  WHERE %s ORDER BY c.name,c.id`, dashboardProbeNullableSelect, strings.Join(where, " AND "))
 
 	rows, err := r.client.QueryContext(ctx, query, args...)
@@ -125,10 +156,51 @@ WITH usage AS (
 		var samples, healthy, confidence int64
 		var latestAt sql.NullTime
 		var avgTTFT, avgDuration sql.NullFloat64
-		if err := rows.Scan(&c.ID, &c.Name, &c.Provider, &c.SiteURL, &enabled, &configStatus, &c.Requests, &c.FailedRequests, &c.Error429, &c.Error5xx, &c.Timeouts, &c.AuthConfigErrors, &revenue, &cost, &p50ttft, &p95ttft, &p50lat, &p95lat, &c.AccountCount, &c.SchedulableAccountCount, &c.TempUnschedulableCount, &samples, &healthy, &c.Probe.LatestState, &c.Probe.LatestReason, &latestAt, &avgTTFT, &avgDuration, &confidence, &c.Probe.ConfidenceStatus); err != nil {
+		var balance sql.NullFloat64
+		var balanceAt sql.NullTime
+		var balanceReason string
+		var balanceThreshold sql.NullFloat64
+		var openIncidents int64
+		var rateChangeAt sql.NullTime
+		var oldRate, newRate sql.NullFloat64
+		if err := rows.Scan(&c.ID, &c.Name, &c.Provider, &c.SiteURL, &enabled, &configStatus, &c.Requests, &c.FailedRequests, &c.Error429, &c.Error5xx, &c.Timeouts, &c.AuthConfigErrors, &revenue, &cost, &p50ttft, &p95ttft, &p50lat, &p95lat, &c.AccountCount, &c.SchedulableAccountCount, &c.TempUnschedulableCount, &balance, &balanceAt, &balanceReason, &balanceThreshold, &openIncidents, &rateChangeAt, &oldRate, &newRate, &samples, &healthy, &c.Probe.LatestState, &c.Probe.LatestReason, &latestAt, &avgTTFT, &avgDuration, &confidence, &c.Probe.ConfidenceStatus); err != nil {
 			return nil, err
 		}
 		c.Enabled, c.ConfigStatus = enabled, configStatus
+		c.OpenIncidentCount = openIncidents
+		c.BalanceUnavailableReason = balanceReason
+		if balanceThreshold.Valid && balanceThreshold.Float64 > 0 {
+			v := balanceThreshold.Float64
+			c.BalanceThresholdCNY = &v
+		}
+		if balance.Valid {
+			v := balance.Float64
+			c.BalanceCNY = &v
+			c.BalanceAvailable = balanceReason == ""
+			if c.BalanceThresholdCNY == nil && c.BalanceAvailable {
+				c.BalanceAvailable = false
+				c.BalanceUnavailableReason = "threshold_not_configured"
+			}
+			c.BalanceLow = c.BalanceAvailable && c.BalanceThresholdCNY != nil && *c.BalanceCNY < *c.BalanceThresholdCNY
+		} else if c.BalanceUnavailableReason == "" {
+			c.BalanceUnavailableReason = "no_snapshot"
+		}
+		if balanceAt.Valid {
+			t := balanceAt.Time
+			c.BalanceObservedAt = &t
+		}
+		if rateChangeAt.Valid {
+			t := rateChangeAt.Time
+			c.LastRateChangeAt = &t
+		}
+		if oldRate.Valid {
+			v := oldRate.Float64
+			c.LastRateChangeOldMultiplier = &v
+		}
+		if newRate.Valid {
+			v := newRate.Float64
+			c.LastRateChangeNewMultiplier = &v
+		}
 		c.CompletedRequests = c.Requests
 		if total := c.Requests + c.FailedRequests; total > 0 {
 			rate := float64(c.Requests) / float64(total)
@@ -215,9 +287,11 @@ func (r *upstreamConfigRepository) GetUpstreamDashboardDetail(ctx context.Contex
 	defer trendRows.Close()
 	for trendRows.Next() {
 		var point service.UpstreamDashboardTrendPoint
-		if err := trendRows.Scan(&point.Bucket, &point.Requests, &point.Errors, &point.Revenue, &point.UpstreamCost); err != nil {
+		var bucket time.Time
+		if err := trendRows.Scan(&bucket, &point.Requests, &point.Errors, &point.Revenue, &point.UpstreamCost); err != nil {
 			return nil, err
 		}
+		point.Bucket = bucket.UTC()
 		detail.Trend = append(detail.Trend, point)
 	}
 	if err := trendRows.Err(); err != nil {
@@ -266,6 +340,78 @@ func (r *upstreamConfigRepository) GetUpstreamDashboardDetail(ctx context.Contex
 		detail.Errors = append(detail.Errors, e)
 	}
 	if err := errorRows.Err(); err != nil {
+		return nil, err
+	}
+
+	incidentRows, err := r.client.QueryContext(ctx, `SELECT id, upstream_config_id, incident_type, severity, status, title, metric_value, threshold_value, details, first_seen_at, last_seen_at, resolved_at, occurrence_count
+	  FROM upstream_incidents
+	 WHERE upstream_config_id=$1 AND status NOT IN ('resolved','closed')
+	 ORDER BY last_seen_at DESC, id DESC LIMIT 20`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer incidentRows.Close()
+	for incidentRows.Next() {
+		var incident service.UpstreamDashboardIncident
+		var metric, threshold sql.NullFloat64
+		var detailsRaw []byte
+		var resolvedAt sql.NullTime
+		if err := incidentRows.Scan(&incident.ID, &incident.ConfigID, &incident.Type, &incident.Severity, &incident.Status, &incident.Title, &metric, &threshold, &detailsRaw, &incident.OpenedAt, &incident.LastObservedAt, &resolvedAt, &incident.OccurrenceCount); err != nil {
+			return nil, err
+		}
+		if metric.Valid {
+			value := metric.Float64
+			incident.MetricValue = &value
+		}
+		if threshold.Valid {
+			value := threshold.Float64
+			incident.ThresholdValue = &value
+		}
+		if len(detailsRaw) > 0 {
+			_ = json.Unmarshal(detailsRaw, &incident.Metadata)
+		}
+		if resolvedAt.Valid {
+			value := resolvedAt.Time
+			incident.ResolvedAt = &value
+		}
+		detail.RecentIncidents = append(detail.RecentIncidents, incident)
+	}
+	if err := incidentRows.Err(); err != nil {
+		return nil, err
+	}
+
+	rateRows, err := r.client.QueryContext(ctx, `SELECT event_type,
+	    CASE WHEN jsonb_typeof(COALESCE(payload->'old_rate', payload->'old_effective_rate')) = 'number'
+	         THEN (COALESCE(payload->>'old_rate', payload->>'old_effective_rate'))::double precision END,
+	    CASE WHEN jsonb_typeof(COALESCE(payload->'new_rate', payload->'new_effective_rate')) = 'number'
+	         THEN (COALESCE(payload->>'new_rate', payload->>'new_effective_rate'))::double precision END,
+	    occurred_at
+	  FROM upstream_events
+	 WHERE upstream_config_id=$1
+	   AND event_type IN ('recharge_rate_changed','key_rate_changed','key_effective_rate_changed','key_actual_rate_changed')
+	   AND occurred_at <= $2
+	 ORDER BY occurred_at DESC, id DESC LIMIT 20`, id, result.EndAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rateRows.Close()
+	for rateRows.Next() {
+		var change service.UpstreamDashboardRateChange
+		var oldRate, newRate sql.NullFloat64
+		if err := rateRows.Scan(&change.Type, &oldRate, &newRate, &change.OccurredAt); err != nil {
+			return nil, err
+		}
+		if oldRate.Valid {
+			value := oldRate.Float64
+			change.OldRate = &value
+		}
+		if newRate.Valid {
+			value := newRate.Float64
+			change.NewRate = &value
+		}
+		detail.RecentRateChanges = append(detail.RecentRateChanges, change)
+	}
+	if err := rateRows.Err(); err != nil {
 		return nil, err
 	}
 	if detail.Revenue == nil || detail.UpstreamCost == nil {

@@ -212,6 +212,12 @@ interface NavItem {
    */
   expandOnly?: boolean
   /**
+   * When true, the group remains open whenever the sidebar itself is open.
+   * This is useful for primary navigation sections whose child pages are
+   * intended to stay directly visible.
+   */
+  alwaysExpanded?: boolean
+  /**
    * 可选的功能开关 getter。返回 false 时菜单项被隐藏；返回 undefined/true 时显示。
    * 宽容策略（undefined → 显示）避免 public settings 未加载完成时菜单闪烁消失。
    * Getter 里访问的 reactive 来源（store / composable）会被 computed 自动追踪，
@@ -502,6 +508,12 @@ const UpstreamConfigIcon = {
       ]
     )
 }
+
+// Keep the upstream section visually distinct from the general dashboard,
+// channel-management, and account-management entries.
+const UpstreamDashboardIcon = { render: () => h(Icon, { name: 'chartBar' }) }
+const UpstreamChannelsIcon = { render: () => h(Icon, { name: 'database' }) }
+const UpstreamAccountsIcon = { render: () => h(Icon, { name: 'userCircle' }) }
 
 const PluginIcon = {
   render: () => h(Icon, { name: 'cube' })
@@ -812,10 +824,11 @@ const adminNavItems = computed((): NavItem[] => {
       icon: UpstreamConfigIcon,
       hideInSimpleMode: true,
       expandOnly: true,
+      alwaysExpanded: true,
       children: [
-        { path: '/admin/upstream/dashboard', label: t('nav.upstreamDashboard'), icon: ChartIcon },
-        { path: '/admin/upstream/channels', label: t('nav.upstreamChannels'), icon: ChannelIcon },
-        { path: '/admin/upstream/accounts', label: t('nav.upstreamAccounts'), icon: GlobeIcon },
+        { path: '/admin/upstream/dashboard', label: t('nav.upstreamDashboard'), icon: UpstreamDashboardIcon },
+        { path: '/admin/upstream/channels', label: t('nav.upstreamChannels'), icon: UpstreamChannelsIcon },
+        { path: '/admin/upstream/accounts', label: t('nav.upstreamAccounts'), icon: UpstreamAccountsIcon },
       ],
     },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
@@ -928,7 +941,7 @@ function isGroupActive(item: NavItem): boolean {
 }
 
 function isGroupExpanded(item: NavItem): boolean {
-  return expandedGroups.value.has(item.path) || isGroupActive(item)
+  return item.alwaysExpanded === true || expandedGroups.value.has(item.path) || isGroupActive(item)
 }
 
 function toggleGroup(item: NavItem) {
@@ -948,6 +961,7 @@ function toggleGroup(item: NavItem) {
  */
 function handleGroupClick(item: NavItem) {
   if (sidebarCollapsed.value) return
+  if (item.alwaysExpanded) return
   if (item.expandOnly) {
     toggleGroup(item)
     return

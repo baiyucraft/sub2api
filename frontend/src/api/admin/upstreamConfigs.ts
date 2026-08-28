@@ -93,6 +93,11 @@ export interface UpstreamConfig {
   clear_proxy?: boolean
   recharge_rate: number
   balance_to_cny_rate?: number | null
+  balance_cny?: number | null
+  balance_available?: boolean
+  balance_low?: boolean
+  balance_threshold_cny?: number | null
+  balance_unavailable_reason?: string | null
   clear_balance_to_cny_rate?: boolean
   scheduling_enabled: boolean
   status: string
@@ -302,6 +307,17 @@ export interface UpstreamDashboardCard {
   upstream_cost?: number | null
   estimated_gross_profit?: number | null
   estimated_gross_profit_rate?: number | null
+  balance_cny?: number | null
+  /** Whether the latest channel balance is below the configured threshold. */
+  balance_low?: boolean
+  balance_threshold_cny?: number | null
+  balance_observed_at?: string | null
+  balance_available: boolean
+  balance_unavailable_reason?: string | null
+  open_incident_count: number
+  last_rate_change_at?: string | null
+  last_rate_change_old_multiplier?: number | null
+  last_rate_change_new_multiplier?: number | null
   probe: UpstreamDashboardProbeSummary
   data_quality: 'sufficient' | 'insufficient'
   trend?: UpstreamDashboardTrendPoint[]
@@ -313,9 +329,26 @@ export interface UpstreamDashboardTrendPoint {
   revenue: number
   upstream_cost: number
 }
+export interface UpstreamDashboardIncident {
+  id: number
+  config_id: number
+  type: string
+  severity: string
+  status: string
+  title: string
+  metric_value?: number | null
+  threshold_value?: number | null
+  metadata?: Record<string, unknown>
+  opened_at: string
+  last_observed_at: string
+  resolved_at?: string | null
+  occurrence_count: number
+}
 export interface UpstreamDashboardDetail extends UpstreamDashboardCard {
   traffic: { models: Array<{ model: string; requests: number }> }
   recent_errors: Array<{ occurred_at: string; model: string; category: string; status_code: number }>
+  recent_incidents?: UpstreamDashboardIncident[]
+  recent_rate_changes?: UpstreamKeyRateChange[]
   profit_unavailable?: boolean
   profit_reason?: string
 }
@@ -324,6 +357,14 @@ export interface UpstreamDashboardResponse {
   start_at: string
   end_at: string
   items: UpstreamDashboardCard[]
+  summary?: {
+    total_configurations: number
+    traffic_configurations: number
+    attention_configurations: number
+    schedulable_accounts: number
+    open_incidents: number
+    balance_low_configurations?: number
+  }
 }
 
 export interface UpstreamKeyRateTrendPoint {

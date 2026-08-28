@@ -8,6 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUpstreamDashboardURLUsesProviderSpecificPath(t *testing.T) {
+	require.Equal(t, "https://upstream.example/dashboard", upstreamDashboardURL(&UpstreamConfig{Provider: UpstreamProviderSub2API, SiteURL: "https://upstream.example/"}))
+	require.Equal(t, "https://upstream.example/dashboard", upstreamDashboardURL(&UpstreamConfig{Provider: UpstreamProviderNewAPI, SiteURL: "https://upstream.example/base"}))
+	require.Equal(t, "https://upstream.example/#/dashboard", upstreamDashboardURL(&UpstreamConfig{Provider: UpstreamProviderLCodex, SiteURL: "https://upstream.example/"}))
+	require.Empty(t, upstreamDashboardURL(&UpstreamConfig{Provider: "unsupported", SiteURL: "https://upstream.example"}))
+	require.Empty(t, upstreamDashboardURL(&UpstreamConfig{Provider: UpstreamProviderSub2API, SiteURL: ""}))
+	require.Empty(t, upstreamDashboardURL(&UpstreamConfig{Provider: UpstreamProviderSub2API, SiteURL: "javascript:alert(1)"}))
+}
+
 // ---------- resolveBalanceThreshold ----------
 
 func TestResolveBalanceThreshold_Fixed(t *testing.T) {

@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -101,7 +102,7 @@ func (h *UpstreamConfigHandler) List(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Paginated(c, sanitizeUpstreamConfigs(configs), total.Total, page, pageSize)
+	response.Paginated(c, sanitizeUpstreamConfigsWithThreshold(configs, h.upstreamBalanceThreshold(c)), total.Total, page, pageSize)
 }
 
 func (h *UpstreamConfigHandler) GetByID(c *gin.Context) {
@@ -114,7 +115,7 @@ func (h *UpstreamConfigHandler) GetByID(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, sanitizeUpstreamConfig(config))
+	response.Success(c, sanitizeUpstreamConfigWithThreshold(config, h.upstreamBalanceThreshold(c)))
 }
 
 func (h *UpstreamConfigHandler) Create(c *gin.Context) {
@@ -575,16 +576,43 @@ func upstreamConfigFromRequest(req upstreamConfigRequest) *service.UpstreamConfi
 }
 
 func sanitizeUpstreamConfigs(configs []service.UpstreamConfig) []gin.H {
+	return sanitizeUpstreamConfigsWithThreshold(configs, 0)
+}
+
+func sanitizeUpstreamConfigsWithThreshold(configs []service.UpstreamConfig, threshold float64) []gin.H {
 	out := make([]gin.H, 0, len(configs))
 	for i := range configs {
-		out = append(out, sanitizeUpstreamConfig(&configs[i]))
+		out = append(out, sanitizeUpstreamConfigWithThreshold(&configs[i], threshold))
 	}
 	return out
 }
 
 func sanitizeUpstreamConfig(config *service.UpstreamConfig) gin.H {
+	return sanitizeUpstreamConfigWithThreshold(config, 0)
+}
+
+func sanitizeUpstreamConfigWithThreshold(config *service.UpstreamConfig, threshold float64) gin.H {
 	if config == nil {
 		return nil
+	}
+	if threshold > 0 {
+		if balance, ok := finiteExtraFloat(config.Extra, "balance_cny"); ok {
+			config.BalanceCNY = &balance
+			config.BalanceThresholdCNY = &threshold
+			config.BalanceAvailable = true
+			if observedAt, ok := upstreamBalanceObservedAt(config.Extra); ok && time.Since(observedAt) > 24*time.Hour {
+				config.BalanceAvailable = false
+				config.BalanceUnavailableReason = "stale_snapshot"
+			}
+			config.BalanceLow = config.BalanceAvailable && balance < threshold
+		} else {
+			config.BalanceAvailable = false
+			config.BalanceUnavailableReason = "no_snapshot"
+		}
+	} else {
+		config.BalanceAvailable = false
+		config.BalanceLow = false
+		config.BalanceUnavailableReason = "threshold_not_configured"
 	}
 	resolvedConcurrency := service.ResolveUpstreamSchedulerConcurrency(config.Extra)
 	return gin.H{
@@ -604,14 +632,78 @@ func sanitizeUpstreamConfig(config *service.UpstreamConfig) gin.H {
 		"scheduling_enabled": func() bool {
 			return config.SchedulingEnabled == nil || *config.SchedulingEnabled
 		}(),
-		"status":          config.Status,
-		"last_error":      redactedUpstreamLastError(config.LastError),
-		"last_checked_at": config.LastCheckedAt,
-		"last_success_at": config.LastSuccessAt,
-		"created_at":      config.CreatedAt,
-		"updated_at":      config.UpdatedAt,
-		"keys":            sanitizeUpstreamKeyPtrs(config.Keys),
+		"status":                     config.Status,
+		"last_error":                 redactedUpstreamLastError(config.LastError),
+		"last_checked_at":            config.LastCheckedAt,
+		"last_success_at":            config.LastSuccessAt,
+		"created_at":                 config.CreatedAt,
+		"updated_at":                 config.UpdatedAt,
+		"balance_cny":                config.BalanceCNY,
+		"balance_available":          config.BalanceAvailable,
+		"balance_low":                config.BalanceLow,
+		"balance_threshold_cny":      config.BalanceThresholdCNY,
+		"balance_unavailable_reason": config.BalanceUnavailableReason,
+		"keys":                       sanitizeUpstreamKeyPtrs(config.Keys),
 	}
+}
+
+func upstreamBalanceObservedAt(extra map[string]any) (time.Time, bool) {
+	if extra == nil {
+		return time.Time{}, false
+	}
+	if snapshot, ok := extra["upstream_provider_snapshot"].(map[string]any); ok {
+		if value, ok := snapshot["synced_at"].(string); ok {
+			at, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+			if err == nil {
+				return at, true
+			}
+		}
+	}
+	if value, ok := extra["sub2api_balance_synced_at"].(string); ok {
+		at, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+		if err == nil {
+			return at, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func (h *UpstreamConfigHandler) upstreamBalanceThreshold(c *gin.Context) float64 {
+	settings, err := h.service.GetUpstreamSettings(c.Request.Context())
+	if err != nil || settings == nil || settings.BalanceLowThresholdCNY <= 0 {
+		return 0
+	}
+	return settings.BalanceLowThresholdCNY
+}
+
+func finiteExtraFloat(extra map[string]any, key string) (float64, bool) {
+	value, ok := extra[key]
+	if !ok {
+		return 0, false
+	}
+	var parsed float64
+	switch typed := value.(type) {
+	case float64:
+		parsed = typed
+	case json.Number:
+		var err error
+		parsed, err = typed.Float64()
+		if err != nil {
+			return 0, false
+		}
+	case string:
+		var err error
+		parsed, err = strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	if math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return 0, false
+	}
+	return parsed, true
 }
 
 func redactedUpstreamLastError(value *string) *string {

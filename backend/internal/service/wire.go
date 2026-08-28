@@ -483,8 +483,10 @@ func ProvideUpstreamConfigService(
 	accountRepo AccountRepository,
 	accountTestService *AccountTestService,
 	settingService *SettingService,
+	balanceNotifyService *BalanceNotifyService,
 ) *UpstreamConfigService {
 	service := NewUpstreamConfigService(repo, proxyRepo, accountRepo)
+	service.SetUpstreamBalanceNotifier(balanceNotifyService)
 	var locker upstreamAuthSessionLock
 	if candidate, ok := repo.(upstreamAuthSessionLock); ok {
 		locker = candidate

@@ -7,12 +7,14 @@ import enUpstreamConfigs from '@/i18n/locales/en/admin/upstreamConfigs'
 import zhUpstreamConfigs from '@/i18n/locales/zh/admin/upstreamConfigs'
 
 const {
-  listMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock,
+  listMock, getByIdMock, createMock, updateMock, removeMock, testMock, syncKeysMock, syncAllKeysMock,
   getSettingsMock, updateSettingsMock, listSyncRunsMock, getSyncRunMock, listEventsMock,
   listIncidentsMock, listBalanceHistoryMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock,
-  listKeyRateTrendKeysMock, getKeyRateTrendMock, listKeysMock, updateKeyPlatformMock, updateKeyBaseURLMock, updateSchedulingMock, groupsMock
+  listKeyRateTrendKeysMock, getKeyRateTrendMock, listKeysMock, updateKeyPlatformMock, updateKeyBaseURLMock, updateSchedulingMock, groupsMock,
+  routeState
 } = vi.hoisted(() => ({
   listMock: vi.fn(),
+  getByIdMock: vi.fn(),
   createMock: vi.fn(),
   updateMock: vi.fn(),
   removeMock: vi.fn(),
@@ -34,6 +36,7 @@ const {
   updateKeyBaseURLMock: vi.fn(),
   updateSchedulingMock: vi.fn(),
   groupsMock: vi.fn(),
+  routeState: { query: {} as Record<string, string> },
   proxiesMock: vi.fn(),
   showErrorMock: vi.fn(),
   showSuccessMock: vi.fn()
@@ -42,6 +45,7 @@ const {
 vi.mock('@/api/admin/upstreamConfigs', () => ({
   default: {
     list: listMock,
+    getById: getByIdMock,
     create: createMock,
     update: updateMock,
     remove: removeMock,
@@ -63,6 +67,10 @@ vi.mock('@/api/admin/upstreamConfigs', () => ({
     updateKeyBaseURL: updateKeyBaseURLMock,
     updateScheduling: updateSchedulingMock
   }
+}))
+
+vi.mock('vue-router', () => ({
+  useRoute: () => routeState
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -310,6 +318,7 @@ describe('UpstreamConfigsView', () => {
     localStorage.clear()
     vi.useRealTimers()
     listMock.mockReset()
+    getByIdMock.mockReset()
     createMock.mockReset()
     updateMock.mockReset()
     removeMock.mockReset()
@@ -335,6 +344,8 @@ describe('UpstreamConfigsView', () => {
     showErrorMock.mockReset()
     showSuccessMock.mockReset()
     mockList()
+    getByIdMock.mockResolvedValue(upstreamConfig())
+    routeState.query = {}
     proxiesMock.mockResolvedValue([
       {
         id: 7,
@@ -425,6 +436,19 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.text()).toContain('Sub2API Main')
     expect(wrapper.text()).toContain('https://upstream.example.com')
     expect(wrapper.get('[data-test="pagination-component"]').exists()).toBe(true)
+  })
+
+  it('loads a single upstream config when the route carries an upstream_config_id filter', async () => {
+    const filtered = upstreamConfig({ id: 42, name: 'Filtered upstream' })
+    routeState.query = { upstream_config_id: '42' }
+    getByIdMock.mockResolvedValue(filtered)
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(getByIdMock).toHaveBeenCalledWith(42)
+    expect(listMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Filtered upstream')
   })
 
   it('updates the upstream scheduling master switch without changing account switches', async () => {
