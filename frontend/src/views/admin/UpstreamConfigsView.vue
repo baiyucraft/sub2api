@@ -205,8 +205,18 @@
               <div v-if="upstreamTotalAmountCNY(row) !== null" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
                 {{ t(row.provider === 'newapi' ? 'admin.upstreamConfigs.balance.totalQuota' : 'admin.upstreamConfigs.balance.totalRecharged', { amount: formatCNY(upstreamTotalAmountCNY(row)) }) }}
               </div>
-              <div v-if="isLowBalance(row)" class="mt-0.5 text-xs font-medium text-red-600 dark:text-red-400">
+              <button
+                v-if="isLowBalance(row)"
+                type="button"
+                class="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-red-600 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 dark:text-red-400"
+                :title="t('admin.upstreamConfigs.balance.lowBalanceHint')"
+                @click.stop="openUpstreamDashboard(row)"
+              >
+                <Icon name="exclamationTriangle" size="xs" />
                 {{ t('admin.upstreamConfigs.balance.lowBalance') }}
+              </button>
+              <div v-else-if="isBalanceUnavailable(row)" class="mt-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                {{ t('admin.upstreamConfigs.balance.unavailable') }}
               </div>
               <div
                 v-if="upstreamBalanceError(row)"
@@ -3694,9 +3704,15 @@ function formatUpstreamBalance(item: UpstreamConfig): string {
 }
 
 function isLowBalance(item: UpstreamConfig): boolean {
+  if (typeof item.balance_low === 'boolean') return item.balance_low
   const balance = upstreamBalanceCNY(item)
   const threshold = upstreamSettings.value.balance_low_threshold_cny
-  return balance !== null && threshold > 0 && balance < threshold
+  return balance !== null && Number.isFinite(balance) && threshold > 0 && balance < threshold
+}
+
+function isBalanceUnavailable(item: UpstreamConfig): boolean {
+  if (typeof item.balance_available === 'boolean') return item.balance_available === false
+  return upstreamBalanceCNY(item) === null && Boolean(upstreamBalanceError(item))
 }
 
 function rateMultiplierRange(item: UpstreamConfig): RateRange {

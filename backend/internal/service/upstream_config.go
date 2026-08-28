@@ -90,6 +90,13 @@ type UpstreamConfig struct {
 	LastSuccessAt                     *time.Time
 	CreatedAt                         time.Time
 	UpdatedAt                         time.Time
+	// Balance fields are derived from the latest persisted channel snapshot.
+	// They remain nullable when the provider did not return a usable balance.
+	BalanceCNY               *float64 `json:"balance_cny,omitempty"`
+	BalanceAvailable         bool     `json:"balance_available"`
+	BalanceLow               bool     `json:"balance_low"`
+	BalanceThresholdCNY      *float64 `json:"balance_threshold_cny,omitempty"`
+	BalanceUnavailableReason string   `json:"balance_unavailable_reason,omitempty"`
 
 	Keys        []*UpstreamKey
 	AuthSession *UpstreamAuthSessionStatus
@@ -260,6 +267,14 @@ type UpstreamConfigService struct {
 	healthPersistedAt          sync.Map
 	healthProbeSF              singleflight.Group
 	authSessionManager         UpstreamAuthSessionManager
+	upstreamBalanceNotifier    UpstreamBalanceNotifier
+}
+
+// UpstreamBalanceNotifier sends an administrator alert for a newly opened
+// low-balance incident. The incident opening time is used as the delivery
+// deduplication key so repeated syncs in one incident cycle do not resend.
+type UpstreamBalanceNotifier interface {
+	NotifyUpstreamBalanceLow(ctx context.Context, config *UpstreamConfig, balance, threshold float64, observedAt, incidentOpenedAt time.Time)
 }
 
 type UpstreamConfigSyncResult struct {
@@ -453,6 +468,14 @@ func (s *UpstreamConfigService) SetHealthProbeDependencies(prober interface {
 	}
 	s.accountProber = prober
 	s.settingService = settingService
+}
+
+// SetUpstreamBalanceNotifier wires the optional administrator notification
+// sink. Keeping it optional preserves lightweight service/repository tests.
+func (s *UpstreamConfigService) SetUpstreamBalanceNotifier(notifier UpstreamBalanceNotifier) {
+	if s != nil {
+		s.upstreamBalanceNotifier = notifier
+	}
 }
 
 // SetOpenAIScheduleReporter wires the OpenAI scheduler feedback sink used by
@@ -1714,6 +1737,9 @@ func (s *UpstreamConfigService) SyncKeys(ctx context.Context, id int64) ([]Upstr
 	}
 	startedAt := time.Now().UTC()
 	keys, result, syncErr := s.syncProviderConfig(ctx, cfg, runID, settings, true)
+	if syncErr == nil {
+		s.notifyUpstreamBalanceLow(ctx, cfg.ID)
+	}
 	if auditErr := s.persistSyncResult(ctx, startedAt, result); auditErr != nil {
 		result.Success = false
 		result.Status = UpstreamSyncStatusFailed
@@ -1771,6 +1797,9 @@ func (s *UpstreamConfigService) syncActiveUpstreamConfigs(ctx context.Context, p
 			result = UpstreamConfigSyncResult{RunID: runID, ConfigID: cfg.ID, Name: cfg.Name, Provider: cfg.Provider, Status: UpstreamSyncStatusFailed}
 		} else {
 			_, result, err = s.syncProviderConfig(ctx, &cfg, runID, settings, trigger != UpstreamSyncTriggerScheduled)
+			if err == nil {
+				s.notifyUpstreamBalanceLow(ctx, cfg.ID)
+			}
 		}
 		if err != nil {
 			result.Success = false
@@ -1804,6 +1833,41 @@ func scheduledSyncResults(results []UpstreamConfigSyncResult, err error) []Upstr
 		return results
 	}
 	return append(results, UpstreamConfigSyncResult{Status: UpstreamSyncStatusFailed, Error: logredact.RedactText(err.Error(), "password", "api_key", "jwt", "authorization", "refresh_token", "access_token")})
+}
+
+// notifyUpstreamBalanceLow projects an open balance_low incident into the
+// administrator notification service after a successful sync transaction.
+// Incident opening time is used for delivery deduplication across syncs.
+func (s *UpstreamConfigService) notifyUpstreamBalanceLow(ctx context.Context, configID int64) {
+	if s == nil || s.upstreamBalanceNotifier == nil || configID <= 0 {
+		return
+	}
+	cfg, err := s.repo.GetByID(ctx, configID)
+	if err != nil || cfg == nil {
+		return
+	}
+	settings, err := s.readUpstreamSettings(ctx)
+	if err != nil || settings == nil || settings.BalanceLowThresholdCNY <= 0 {
+		return
+	}
+	balance, ok := finiteAnyFloat(cfg.Extra["balance_cny"])
+	if !ok || balance >= settings.BalanceLowThresholdCNY {
+		return
+	}
+	ops, ok := s.repo.(UpstreamOperationsRepository)
+	if !ok {
+		return
+	}
+	incidents, _, err := ops.ListUpstreamIncidents(ctx, configID, "open", 20, 0)
+	if err != nil {
+		return
+	}
+	for _, incident := range incidents {
+		if incident.Type == "balance_low" && incident.Status == "open" {
+			s.upstreamBalanceNotifier.NotifyUpstreamBalanceLow(ctx, cfg, balance, settings.BalanceLowThresholdCNY, time.Now().UTC(), incident.OpenedAt)
+			return
+		}
+	}
 }
 
 func (s *UpstreamConfigService) syncProviderConfig(ctx context.Context, cfg *UpstreamConfig, runID int64, settings *UpstreamSettings, forceModelSync bool) ([]UpstreamKey, UpstreamConfigSyncResult, error) {
