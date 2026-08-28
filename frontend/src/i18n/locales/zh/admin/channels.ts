@@ -582,6 +582,7 @@ export default {
         localGroupEmpty: '当前平台暂无可用分组',
         localGroupLoadFailed: '加载本站分组失败，请重新打开窗口后重试',
         localGroupHint: '仅显示与监控平台一致的启用分组；使用记录会归入管理员账户。',
+        localGroupNameHint: '托管本站 Key 的渠道名称自动使用所选分组名称，不能单独修改。',
         localGroupRequired: '请选择与监控平台一致的本站分组',
         showGroupRate: '向普通用户展示分组倍率',
         intervalSeconds: '检测间隔 (秒)',

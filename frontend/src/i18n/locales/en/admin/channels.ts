@@ -582,6 +582,7 @@ export default {
         localGroupEmpty: 'No active groups are available for this platform',
         localGroupLoadFailed: 'Failed to load local groups. Reopen this dialog to retry.',
         localGroupHint: 'Only active groups matching the monitor platform are shown; usage is attributed to the administrator account.',
+        localGroupNameHint: 'Managed-local monitor names follow the selected group and cannot be edited separately.',
         localGroupRequired: 'Select a local group matching the monitor platform',
         showGroupRate: 'Show group rate to users',
         intervalSeconds: 'Interval (seconds)',
