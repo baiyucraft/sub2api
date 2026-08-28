@@ -1,7 +1,7 @@
 <template>
   <div>
     <div
-      v-if="loading && items.length === 0"
+      v-if="loading && groups.length === 0"
       class="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
     >
       <div
@@ -26,24 +26,43 @@
     </div>
 
     <EmptyState
-      v-else-if="items.length === 0"
+      v-else-if="groups.length === 0"
       :title="t('channelStatus.empty.title')"
       :description="t('channelStatus.empty.description')"
     />
 
-    <div
-      v-else
-      class="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-    >
-      <MonitorCard
-        v-for="item in items"
-        :key="item.id"
-        :item="item"
-        :range="range"
-        :availability-value="item.availability ?? null"
-        :countdown-seconds="countdownSeconds"
-        @click="emit('cardClick', item)"
-      />
+    <div v-else class="space-y-8">
+      <section
+        v-for="group in groups"
+        :key="group.provider"
+        class="space-y-3"
+        :aria-labelledby="`monitor-platform-${group.provider}`"
+      >
+        <div class="flex items-center gap-3 px-1">
+          <span class="h-5 w-1 rounded-full bg-primary-500 dark:bg-primary-400" aria-hidden="true"></span>
+          <h2
+            :id="`monitor-platform-${group.provider}`"
+            class="text-sm font-semibold tracking-wide text-gray-800 dark:text-gray-100"
+          >
+            {{ platformLabel(group.provider) }}
+          </h2>
+          <span class="text-xs text-gray-400 dark:text-gray-500">
+            {{ t('channelStatus.platformGroupCount', { n: group.items.length }) }}
+          </span>
+        </div>
+
+        <div class="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <MonitorCard
+            v-for="item in group.items"
+            :key="item.id"
+            :item="item"
+            :range="range"
+            :availability-value="item.availability ?? null"
+            :countdown-seconds="countdownSeconds"
+            @click="emit('cardClick', item)"
+          />
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -51,11 +70,13 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { MonitorRange, UserMonitorView } from '@/api/channelMonitor'
+import { PROVIDERS } from '@/constants/channelMonitor'
+import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MonitorCard from './MonitorCard.vue'
 
 defineProps<{
-  items: UserMonitorView[]
+  groups: Array<{ provider: string; items: UserMonitorView[] }>
   range: MonitorRange
   countdownSeconds: number
   loading: boolean
@@ -66,5 +87,12 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { providerLabel } = useChannelMonitorFormat()
+
+function platformLabel(provider: string): string {
+  if (provider === '__other__') return t('channelStatus.otherPlatform')
+  if (PROVIDERS.includes(provider as (typeof PROVIDERS)[number])) return providerLabel(provider)
+  return provider || t('channelStatus.otherPlatform')
+}
 
 </script>
