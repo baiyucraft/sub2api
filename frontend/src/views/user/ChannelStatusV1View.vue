@@ -11,7 +11,7 @@
     />
 
     <MonitorCardGrid
-      :items="items"
+      :groups="groupedItems"
       :range="currentRange"
       :countdown-seconds="countdown"
       :loading="loading"
@@ -44,6 +44,7 @@ import MonitorCardGrid from '@/components/user/monitor/MonitorCardGrid.vue'
 import MonitorDetailDialog from '@/components/user/MonitorDetailDialog.vue'
 import { DEFAULT_INTERVAL_SECONDS, STATUS_OPERATIONAL } from '@/constants/channelMonitor'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { groupMonitorItems } from '@/utils/channelMonitorGrouping'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -79,6 +80,8 @@ const overallStatus = computed<OverallStatus>(() => {
 const detailTitle = computed(() => {
   return detailTarget.value?.name || t('channelStatus.detailTitle')
 })
+
+const groupedItems = computed(() => groupMonitorItems(items.value))
 
 // ── Loaders ──
 async function reload(silent = false) {
