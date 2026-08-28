@@ -24,3 +24,21 @@ func TestManagedMonitorKeyNameFitsAPIKeyNameLimit(t *testing.T) {
 	require.Equal(t, 103, utf8.RuneCountInString(name))
 	require.Equal(t, "监控-"+strings.Repeat("渠", 100), name)
 }
+
+func TestApplyManagedMonitorGroupNameUsesAuthoritativeGroupName(t *testing.T) {
+	monitor := &service.ChannelMonitor{
+		Name:      "管理员提交的名称",
+		GroupName: "旧分组",
+	}
+
+	applyManagedMonitorGroupName(monitor, "真实分组")
+
+	require.Equal(t, "真实分组", monitor.Name)
+	require.Equal(t, "真实分组", monitor.GroupName)
+}
+
+func TestApplyManagedMonitorGroupNameHandlesNilMonitor(t *testing.T) {
+	require.NotPanics(t, func() {
+		applyManagedMonitorGroupName(nil, "真实分组")
+	})
+}
