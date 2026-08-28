@@ -25,6 +25,10 @@ func dashboardWindow(window service.UpstreamDashboardWindow) (time.Duration, str
 	}
 }
 
+// dashboardProbeNullableSelect keeps left-joined probe fields scan-safe when a
+// config has no observations in the requested window (or no confidence v2 row).
+const dashboardProbeNullableSelect = "COALESCE(p.latest_state,''),COALESCE(p.latest_reason,''),p.latest_observed_at,p.avg_ttft,p.avg_duration,COALESCE(p.confidence_samples,0),COALESCE(p.confidence_status,'')"
+
 func (r *upstreamConfigRepository) GetUpstreamDashboard(ctx context.Context, filter service.UpstreamDashboardFilter) (*service.UpstreamDashboardResponse, error) {
 	now := filter.Now
 	if now.IsZero() {
@@ -41,6 +45,10 @@ func (r *upstreamConfigRepository) GetUpstreamDashboard(ctx context.Context, fil
 	if q := strings.TrimSpace(filter.Search); q != "" {
 		args = append(args, "%"+q+"%")
 		where = append(where, fmt.Sprintf("(c.name ILIKE $%d OR c.site_url ILIKE $%d)", len(args), len(args)))
+	}
+	if filter.ConfigID > 0 {
+		args = append(args, filter.ConfigID)
+		where = append(where, fmt.Sprintf("c.id = $%d", len(args)))
 	}
 	query := fmt.Sprintf(`
 WITH usage AS (
@@ -59,10 +67,10 @@ WITH usage AS (
 ), usage_requests AS (
   SELECT DISTINCT ul.request_id FROM usage_logs ul WHERE ul.created_at >= $1 AND ul.created_at < $2 AND ul.request_id IS NOT NULL
 ), error_rows AS (
-  SELECT DISTINCT ON (COALESCE(e.request_id, e.id::text)) e.*
+	SELECT DISTINCT ON (COALESCE(NULLIF(e.request_id, ''), e.id::text)) e.*
     FROM ops_error_logs e
    WHERE e.created_at >= $1 AND e.created_at < $2
-   ORDER BY COALESCE(e.request_id, e.id::text), e.created_at DESC, e.id DESC
+	 ORDER BY COALESCE(NULLIF(e.request_id, ''), e.id::text), e.created_at DESC, e.id DESC
 ), errors AS (
   SELECT COALESCE(e.account_id,0) account_id,
          COUNT(*) failed,
@@ -93,14 +101,14 @@ WITH usage AS (
          (array_agg(confidence_status ORDER BY observed_at DESC) FILTER (WHERE confidence_prompt_version='openai-juice-multiprobe-v2'))[1] confidence_status
     FROM upstream_health_observations WHERE observed_at >= $1 AND observed_at < $2 GROUP BY upstream_config_id
 )
-SELECT c.id,c.name,c.provider,c.site_url,COALESCE(c.scheduling_enabled,true),c.status,
+		SELECT c.id,c.name,c.provider,c.site_url,COALESCE(c.scheduling_enabled,true),c.status,
        COALESCE(u.requests,0),COALESCE(ae.failed,0),COALESCE(ae.err429,0),COALESCE(ae.err5xx,0),COALESCE(ae.timeouts,0),COALESCE(ae.auth_errors,0),
        u.revenue,u.upstream_cost,u.p50_ttft,u.p95_ttft,u.p50_latency,u.p95_latency,
        COALESCE(ac.account_count,0),COALESCE(ac.schedulable_count,0),COALESCE(ac.temp_unschedulable_count,0),
-       COALESCE(p.samples,0),COALESCE(p.healthy_samples,0),p.latest_state,p.latest_reason,p.latest_observed_at,p.avg_ttft,p.avg_duration,COALESCE(p.confidence_samples,0),p.confidence_status
+       COALESCE(p.samples,0),COALESCE(p.healthy_samples,0),%s
   FROM upstream_configs c
   LEFT JOIN usage u ON u.config_id=c.id LEFT JOIN account_errors ae ON ae.config_id=c.id LEFT JOIN account_counts ac ON ac.config_id=c.id LEFT JOIN probes p ON p.config_id=c.id
- WHERE %s ORDER BY c.name,c.id`, strings.Join(where, " AND "))
+ WHERE %s ORDER BY c.name,c.id`, dashboardProbeNullableSelect, strings.Join(where, " AND "))
 
 	rows, err := r.client.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -180,4 +188,89 @@ SELECT c.id,c.name,c.provider,c.site_url,COALESCE(c.scheduling_enabled,true),c.s
 		result.Items = append(result.Items, c)
 	}
 	return result, rows.Err()
+}
+
+func (r *upstreamConfigRepository) GetUpstreamDashboardDetail(ctx context.Context, id int64, filter service.UpstreamDashboardFilter) (*service.UpstreamDashboardDetail, error) {
+	filter.ConfigID = id
+	result, err := r.GetUpstreamDashboard(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Items) == 0 {
+		return nil, service.ErrUpstreamConfigNotFound
+	}
+	detail := &service.UpstreamDashboardDetail{UpstreamDashboardCard: result.Items[0]}
+
+	// Keep drill-down queries bounded and independent from the list aggregate.
+	trendQuery := `SELECT date_trunc('hour', ul.created_at), COUNT(DISTINCT ul.request_id),
+        0::bigint, COALESCE(SUM(ul.actual_cost),0),
+        COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * ul.upstream_cost_to_cny_rate),0)
+      FROM usage_logs ul
+      WHERE ul.upstream_config_id=$1 AND ul.created_at >= $2 AND ul.created_at < $3
+      GROUP BY 1 ORDER BY 1`
+	trendRows, err := r.client.QueryContext(ctx, trendQuery, id, result.StartAt, result.EndAt)
+	if err != nil {
+		return nil, err
+	}
+	defer trendRows.Close()
+	for trendRows.Next() {
+		var point service.UpstreamDashboardTrendPoint
+		if err := trendRows.Scan(&point.Bucket, &point.Requests, &point.Errors, &point.Revenue, &point.UpstreamCost); err != nil {
+			return nil, err
+		}
+		detail.Trend = append(detail.Trend, point)
+	}
+	if err := trendRows.Err(); err != nil {
+		return nil, err
+	}
+
+	modelRows, err := r.client.QueryContext(ctx, `SELECT COALESCE(NULLIF(TRIM(requested_model),''), NULLIF(TRIM(model),''), '-') model, COUNT(DISTINCT request_id)
+      FROM usage_logs WHERE upstream_config_id=$1 AND created_at >= $2 AND created_at < $3
+      GROUP BY 1 ORDER BY 2 DESC LIMIT 20`, id, result.StartAt, result.EndAt)
+	if err != nil {
+		return nil, err
+	}
+	defer modelRows.Close()
+	for modelRows.Next() {
+		var stat service.UpstreamDashboardModelStat
+		if err := modelRows.Scan(&stat.Model, &stat.Requests); err != nil {
+			return nil, err
+		}
+		detail.Traffic.Models = append(detail.Traffic.Models, stat)
+	}
+	if err := modelRows.Err(); err != nil {
+		return nil, err
+	}
+
+	errorRows, err := r.client.QueryContext(ctx, `SELECT created_at, COALESCE(NULLIF(TRIM(model),''),'-'),
+      CASE WHEN COALESCE(upstream_status_code,status_code) = 429 THEN 'rate_limit'
+           WHEN COALESCE(upstream_status_code,status_code) >= 500 THEN 'server'
+           WHEN error_type ILIKE '%timeout%' OR network_error_type ILIKE '%timeout%' THEN 'timeout'
+           WHEN error_type ILIKE '%auth%' OR error_type ILIKE '%config%' OR COALESCE(upstream_status_code,status_code) IN (401,403) THEN 'auth_config'
+           ELSE 'other' END,
+      COALESCE(upstream_status_code,status_code,0)
+      FROM ops_error_logs WHERE account_id IN (SELECT id FROM accounts WHERE upstream_config_id=$1)
+        AND created_at >= $2 AND created_at < $3
+      ORDER BY created_at DESC, id DESC LIMIT 20`, id, result.StartAt, result.EndAt)
+	if err != nil {
+		return nil, err
+	}
+	defer errorRows.Close()
+	for errorRows.Next() {
+		var e service.UpstreamDashboardError
+		var at time.Time
+		if err := errorRows.Scan(&at, &e.Model, &e.Category, &e.StatusCode); err != nil {
+			return nil, err
+		}
+		e.OccurredAt = at.UTC().Format(time.RFC3339)
+		detail.Errors = append(detail.Errors, e)
+	}
+	if err := errorRows.Err(); err != nil {
+		return nil, err
+	}
+	if detail.Revenue == nil || detail.UpstreamCost == nil {
+		detail.ProfitUnavailable = true
+		detail.ProfitReason = "cost_or_currency_data_missing"
+	}
+	return detail, nil
 }

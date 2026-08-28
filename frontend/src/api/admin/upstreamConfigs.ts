@@ -304,6 +304,20 @@ export interface UpstreamDashboardCard {
   estimated_gross_profit_rate?: number | null
   probe: UpstreamDashboardProbeSummary
   data_quality: 'sufficient' | 'insufficient'
+  trend?: UpstreamDashboardTrendPoint[]
+}
+export interface UpstreamDashboardTrendPoint {
+  bucket: string
+  requests: number
+  errors: number
+  revenue: number
+  upstream_cost: number
+}
+export interface UpstreamDashboardDetail extends UpstreamDashboardCard {
+  traffic: { models: Array<{ model: string; requests: number }> }
+  recent_errors: Array<{ occurred_at: string; model: string; category: string; status_code: number }>
+  profit_unavailable?: boolean
+  profit_reason?: string
 }
 export interface UpstreamDashboardResponse {
   window: UpstreamDashboardWindow
@@ -466,8 +480,8 @@ export async function getDashboard(params?: { window?: UpstreamDashboardWindow; 
   return data
 }
 
-export async function getDashboardDetail(id: number, window: UpstreamDashboardWindow = '24h'): Promise<UpstreamDashboardCard> {
-  const { data } = await apiClient.get<UpstreamDashboardCard>(`/admin/upstream-dashboard/${id}`, { params: { window } })
+export async function getDashboardDetail(id: number, window: UpstreamDashboardWindow = '24h'): Promise<UpstreamDashboardDetail> {
+	const { data } = await apiClient.get<UpstreamDashboardDetail>(`/admin/upstream-dashboard/${id}`, { params: { window } })
   return data
 }
 

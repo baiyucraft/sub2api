@@ -319,6 +319,7 @@ const applyRouteQueryFilters = () => {
   const queryStartDate = getSingleQueryValue(route.query.start_date)
   const queryEndDate = getSingleQueryValue(route.query.end_date)
   const queryUserId = getNumericQueryValue(route.query.user_id)
+	const queryUpstreamConfigID = getNumericQueryValue(route.query.upstream_config_id)
 
   if (queryStartDate) {
     startDate.value = queryStartDate
@@ -330,6 +331,7 @@ const applyRouteQueryFilters = () => {
   filters.value = {
     ...filters.value,
     user_id: queryUserId,
+	upstream_config_id: queryUpstreamConfigID,
     start_date: startDate.value,
     end_date: endDate.value
   }

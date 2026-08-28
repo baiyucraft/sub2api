@@ -671,6 +671,7 @@
 import { computed, defineAsyncComponent, onMounted, onUnmounted, reactive, ref, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
@@ -818,6 +819,7 @@ const props = withDefaults(defineProps<{
 })
 
 const { t } = useI18n()
+const route = useRoute()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
@@ -1597,7 +1599,6 @@ const upstreamVisibleFilters = (filters: Record<string, unknown>) => {
   const visibleFilters = { ...filters }
   delete visibleFilters.type
   delete visibleFilters.privacy_mode
-  delete visibleFilters.upstream_config_id
   delete visibleFilters.upstream_key_id
   return visibleFilters
 }
@@ -1627,6 +1628,9 @@ const {
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order,
+    ...(props.scope === 'upstream' && typeof route.query.upstream_config_id === 'string' && /^\d+$/.test(route.query.upstream_config_id)
+      ? { upstream_config_id: Number(route.query.upstream_config_id) }
+      : {}),
     ...(props.scope !== 'upstream' ? { type: '', privacy_mode: '' } : {}),
     ...(props.scope !== 'all' ? { scope: props.scope } : {})
   }

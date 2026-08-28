@@ -3,7 +3,6 @@ package admin
 import (
 	"encoding/json"
 	"io"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -84,18 +83,12 @@ func (h *UpstreamConfigHandler) DashboardDetail(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := h.service.GetUpstreamDashboard(c.Request.Context(), service.UpstreamDashboardFilter{Window: service.UpstreamDashboardWindow(c.DefaultQuery("window", "24h")), Now: time.Now().UTC()})
+	result, err := h.service.GetUpstreamDashboardDetail(c.Request.Context(), id, service.UpstreamDashboardFilter{Window: service.UpstreamDashboardWindow(c.DefaultQuery("window", "24h")), Now: time.Now().UTC()})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	for _, item := range result.Items {
-		if item.ID == id {
-			response.Success(c, item)
-			return
-		}
-	}
-	response.Error(c, http.StatusNotFound, "upstream config not found")
+	response.Success(c, result)
 }
 
 func (h *UpstreamConfigHandler) List(c *gin.Context) {
