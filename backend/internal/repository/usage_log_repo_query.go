@@ -116,6 +116,10 @@ func (r *usageLogRepository) ListWithFilters(ctx context.Context, params paginat
 		conditions = append(conditions, fmt.Sprintf("group_id = $%d", len(args)+1))
 		args = append(args, filters.GroupID)
 	}
+	if filters.UpstreamConfigID > 0 {
+		conditions = append(conditions, fmt.Sprintf("upstream_config_id = $%d", len(args)+1))
+		args = append(args, filters.UpstreamConfigID)
+	}
 	if requestID := strings.TrimSpace(filters.RequestID); requestID != "" {
 		conditions = append(conditions, fmt.Sprintf("request_id = $%d", len(args)+1))
 		args = append(args, requestID)

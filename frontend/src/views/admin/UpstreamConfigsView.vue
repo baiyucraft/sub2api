@@ -1548,6 +1548,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -1604,6 +1605,7 @@ const HIDDEN_COLUMNS_CURRENT_VERSION = '1'
 const DEFAULT_HIDDEN_COLUMNS = ['rates']
 
 const { t } = useI18n()
+const route = useRoute()
 const appStore = useAppStore()
 
 const configs = ref<UpstreamConfig[]>([])
@@ -2024,6 +2026,15 @@ function handleClickOutside(event: MouseEvent) {
 async function loadConfigs() {
   loading.value = true
   try {
+    const queryID = typeof route.query.upstream_config_id === 'string' && /^\d+$/.test(route.query.upstream_config_id)
+      ? Number(route.query.upstream_config_id)
+      : undefined
+    if (queryID) {
+      const config = await upstreamAPI.getById(queryID)
+      configs.value = [config]
+      pagination.total = 1
+      return
+    }
     const res = await upstreamAPI.list(pagination.page, pagination.page_size, {
       provider: provider.value,
       search: search.value.trim()

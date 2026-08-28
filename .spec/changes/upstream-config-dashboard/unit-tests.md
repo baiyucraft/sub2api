@@ -4,3 +4,5 @@
 - provider/status/search/window 参数安全过滤。
 - 禁用、异常、降级、正常和数据不足状态优先级正确。
 - 前端卡片、时间窗口、空值和路由导航渲染正确。
+- repository 左连接 NULL、空 request_id 去重和详情趋势/错误查询使用安全扫描。
+- 前端详情请求竞态、状态本地化、Space/Escape 键盘交互和异常值显示正确。
