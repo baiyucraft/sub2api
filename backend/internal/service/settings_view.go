@@ -30,14 +30,24 @@ type SystemSettings struct {
 	LoginAgreementUpdatedAt             string
 	LoginAgreementDocuments             []LoginAgreementDocument
 
-	SMTPHost               string
-	SMTPPort               int
-	SMTPUsername           string
-	SMTPPassword           string
-	SMTPPasswordConfigured bool
-	SMTPFrom               string
-	SMTPFromName           string
-	SMTPUseTLS             bool
+	SMTPHost                    string
+	SMTPPort                    int
+	SMTPUsername                string
+	SMTPPassword                string
+	SMTPPasswordConfigured      bool
+	SMTPFrom                    string
+	SMTPFromName                string
+	SMTPUseTLS                  bool
+	SMTPRecipientRoutingEnabled bool
+	SMTPRecipientRoutingDomains []string
+	SMTPQQHost                  string
+	SMTPQQPort                  int
+	SMTPQQUsername              string
+	SMTPQQPassword              string
+	SMTPQQPasswordConfigured    bool
+	SMTPQQFrom                  string
+	SMTPQQFromName              string
+	SMTPQQUseTLS                bool
 
 	TurnstileEnabled                       bool
 	TurnstileSiteKey                       string

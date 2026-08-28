@@ -101,6 +101,33 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.SMTPUseTLS != after.SMTPUseTLS {
 		changed = append(changed, "smtp_use_tls")
 	}
+	if before.SMTPRecipientRoutingEnabled != after.SMTPRecipientRoutingEnabled {
+		changed = append(changed, "smtp_recipient_routing_enabled")
+	}
+	if !equalStringSlice(before.SMTPRecipientRoutingDomains, after.SMTPRecipientRoutingDomains) {
+		changed = append(changed, "smtp_recipient_routing_domains")
+	}
+	if before.SMTPQQHost != after.SMTPQQHost {
+		changed = append(changed, "smtp_qq_host")
+	}
+	if before.SMTPQQPort != after.SMTPQQPort {
+		changed = append(changed, "smtp_qq_port")
+	}
+	if before.SMTPQQUsername != after.SMTPQQUsername {
+		changed = append(changed, "smtp_qq_username")
+	}
+	if req.SMTPQQPassword != "" {
+		changed = append(changed, "smtp_qq_password")
+	}
+	if before.SMTPQQFrom != after.SMTPQQFrom {
+		changed = append(changed, "smtp_qq_from_email")
+	}
+	if before.SMTPQQFromName != after.SMTPQQFromName {
+		changed = append(changed, "smtp_qq_from_name")
+	}
+	if before.SMTPQQUseTLS != after.SMTPQQUseTLS {
+		changed = append(changed, "smtp_qq_use_tls")
+	}
 	if before.TurnstileEnabled != after.TurnstileEnabled {
 		changed = append(changed, "turnstile_enabled")
 	}

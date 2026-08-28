@@ -42,13 +42,22 @@ type UpdateSettingsRequest struct {
 	LoginAgreementDocuments             []dto.LoginAgreementDocument `json:"login_agreement_documents"`
 
 	// 邮件服务设置
-	SMTPHost     string `json:"smtp_host"`
-	SMTPPort     int    `json:"smtp_port"`
-	SMTPUsername string `json:"smtp_username"`
-	SMTPPassword string `json:"smtp_password"`
-	SMTPFrom     string `json:"smtp_from_email"`
-	SMTPFromName string `json:"smtp_from_name"`
-	SMTPUseTLS   bool   `json:"smtp_use_tls"`
+	SMTPHost                    string   `json:"smtp_host"`
+	SMTPPort                    int      `json:"smtp_port"`
+	SMTPUsername                string   `json:"smtp_username"`
+	SMTPPassword                string   `json:"smtp_password"`
+	SMTPFrom                    string   `json:"smtp_from_email"`
+	SMTPFromName                string   `json:"smtp_from_name"`
+	SMTPUseTLS                  bool     `json:"smtp_use_tls"`
+	SMTPRecipientRoutingEnabled bool     `json:"smtp_recipient_routing_enabled"`
+	SMTPRecipientRoutingDomains []string `json:"smtp_recipient_routing_domains"`
+	SMTPQQHost                  string   `json:"smtp_qq_host"`
+	SMTPQQPort                  int      `json:"smtp_qq_port"`
+	SMTPQQUsername              string   `json:"smtp_qq_username"`
+	SMTPQQPassword              string   `json:"smtp_qq_password"`
+	SMTPQQFrom                  string   `json:"smtp_qq_from_email"`
+	SMTPQQFromName              string   `json:"smtp_qq_from_name"`
+	SMTPQQUseTLS                bool     `json:"smtp_qq_use_tls"`
 
 	// Cloudflare Turnstile 设置
 	TurnstileEnabled   bool   `json:"turnstile_enabled"`
@@ -425,7 +434,8 @@ func (h *SettingHandler) ensureActorTotpForStepUp(c *gin.Context) bool {
 // the setting key they persist to. Every other field of UpdateSettingsRequest
 // is named after its setting key.
 var settingKeyJSONAliases = map[string]string{
-	"smtp_from_email": service.SettingKeySMTPFrom,
+	"smtp_from_email":    service.SettingKeySMTPFrom,
+	"smtp_qq_from_email": service.SettingKeySMTPQQFrom,
 }
 
 // settingKeyByJSONName maps the value-typed top-level JSON fields of
@@ -613,12 +623,44 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	req.SMTPPassword = strings.TrimSpace(req.SMTPPassword)
 	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
 	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
+	req.SMTPQQHost = strings.TrimSpace(req.SMTPQQHost)
+	req.SMTPQQUsername = strings.TrimSpace(req.SMTPQQUsername)
+	req.SMTPQQPassword = strings.TrimSpace(req.SMTPQQPassword)
+	req.SMTPQQFrom = strings.TrimSpace(req.SMTPQQFrom)
+	req.SMTPQQFromName = strings.TrimSpace(req.SMTPQQFromName)
 	req.TencentCaptchaAppID = strings.TrimSpace(req.TencentCaptchaAppID)
 	req.TencentCaptchaAppSecretKey = strings.TrimSpace(req.TencentCaptchaAppSecretKey)
 	req.TencentCaptchaCloudSecretID = strings.TrimSpace(req.TencentCaptchaCloudSecretID)
 	req.TencentCaptchaCloudSecretKey = strings.TrimSpace(req.TencentCaptchaCloudSecretKey)
 	if req.SMTPPort <= 0 {
 		req.SMTPPort = 587
+	}
+	if _, sent := sentFields["smtp_recipient_routing_enabled"]; !sent {
+		req.SMTPRecipientRoutingEnabled = previousSettings.SMTPRecipientRoutingEnabled
+	}
+	if _, sent := sentFields["smtp_recipient_routing_domains"]; !sent {
+		req.SMTPRecipientRoutingDomains = previousSettings.SMTPRecipientRoutingDomains
+	}
+	if _, sent := sentFields["smtp_qq_host"]; !sent {
+		req.SMTPQQHost = previousSettings.SMTPQQHost
+	}
+	if _, sent := sentFields["smtp_qq_port"]; !sent {
+		req.SMTPQQPort = previousSettings.SMTPQQPort
+	}
+	if _, sent := sentFields["smtp_qq_username"]; !sent {
+		req.SMTPQQUsername = previousSettings.SMTPQQUsername
+	}
+	if _, sent := sentFields["smtp_qq_from_email"]; !sent {
+		req.SMTPQQFrom = previousSettings.SMTPQQFrom
+	}
+	if _, sent := sentFields["smtp_qq_from_name"]; !sent {
+		req.SMTPQQFromName = previousSettings.SMTPQQFromName
+	}
+	if _, sent := sentFields["smtp_qq_use_tls"]; !sent {
+		req.SMTPQQUseTLS = previousSettings.SMTPQQUseTLS
+	}
+	if req.SMTPQQPort <= 0 {
+		req.SMTPQQPort = 465
 	}
 	req.DefaultSubscriptions = normalizeDefaultSubscriptions(req.DefaultSubscriptions)
 	req.AuthSourceDefaultEmailSubscriptions = normalizeOptionalDefaultSubscriptions(req.AuthSourceDefaultEmailSubscriptions)
@@ -1525,6 +1567,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFrom:                            req.SMTPFrom,
 		SMTPFromName:                        req.SMTPFromName,
 		SMTPUseTLS:                          req.SMTPUseTLS,
+		SMTPRecipientRoutingEnabled:         req.SMTPRecipientRoutingEnabled,
+		SMTPRecipientRoutingDomains:         req.SMTPRecipientRoutingDomains,
+		SMTPQQHost:                          req.SMTPQQHost,
+		SMTPQQPort:                          req.SMTPQQPort,
+		SMTPQQUsername:                      req.SMTPQQUsername,
+		SMTPQQPassword:                      req.SMTPQQPassword,
+		SMTPQQFrom:                          req.SMTPQQFrom,
+		SMTPQQFromName:                      req.SMTPQQFromName,
+		SMTPQQUseTLS:                        req.SMTPQQUseTLS,
 		TurnstileEnabled:                    req.TurnstileEnabled,
 		TurnstileSiteKey:                    req.TurnstileSiteKey,
 		TurnstileSecretKey:                  req.TurnstileSecretKey,
@@ -2170,6 +2221,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFrom:                                               updatedSettings.SMTPFrom,
 		SMTPFromName:                                           updatedSettings.SMTPFromName,
 		SMTPUseTLS:                                             updatedSettings.SMTPUseTLS,
+		SMTPRecipientRoutingEnabled:                            updatedSettings.SMTPRecipientRoutingEnabled,
+		SMTPRecipientRoutingDomains:                            updatedSettings.SMTPRecipientRoutingDomains,
+		SMTPQQHost:                                             updatedSettings.SMTPQQHost,
+		SMTPQQPort:                                             updatedSettings.SMTPQQPort,
+		SMTPQQUsername:                                         updatedSettings.SMTPQQUsername,
+		SMTPQQPasswordConfigured:                               updatedSettings.SMTPQQPasswordConfigured,
+		SMTPQQFrom:                                             updatedSettings.SMTPQQFrom,
+		SMTPQQFromName:                                         updatedSettings.SMTPQQFromName,
+		SMTPQQUseTLS:                                           updatedSettings.SMTPQQUseTLS,
 		TurnstileEnabled:                                       updatedSettings.TurnstileEnabled,
 		TurnstileSiteKey:                                       updatedSettings.TurnstileSiteKey,
 		TurnstileSecretKeyConfigured:                           updatedSettings.TurnstileSecretKeyConfigured,

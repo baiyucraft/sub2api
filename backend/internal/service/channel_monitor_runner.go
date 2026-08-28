@@ -58,6 +58,8 @@ type ChannelMonitorRunner struct {
 	wg      sync.WaitGroup
 	started bool
 	stopped bool
+	// quiescing stops new submissions before the final cleanup drain begins.
+	quiescing bool
 
 	// inFlight 跟踪正在执行的 monitor.ID。fire 调度前会检查避免重复提交，
 	// 防止单次检测耗时 > interval 时同一 monitor 被并发执行。
@@ -67,11 +69,12 @@ type ChannelMonitorRunner struct {
 
 // scheduledMonitor 单个监控的运行时上下文。
 type scheduledMonitor struct {
-	id       int64
-	name     string
-	interval time.Duration
-	jitter   time.Duration // 每轮 ± [0, jitter] 的均匀随机偏移；0 = 固定间隔
-	cancel   context.CancelFunc
+	id           int64
+	name         string
+	interval     time.Duration
+	jitter       time.Duration // 每轮 ± [0, jitter] 的均匀随机偏移；0 = 固定间隔
+	initialDelay time.Duration // 启动加载的存量监控首轮探测缓冲
+	cancel       context.CancelFunc
 }
 
 // nextDelay 计算下一次触发的等待时长：interval ± [0, jitter] 的均匀随机偏移。
@@ -142,7 +145,7 @@ func (r *ChannelMonitorRunner) StartChecked() error {
 		return err
 	}
 	for _, m := range enabled {
-		r.Schedule(m)
+		r.schedule(m, monitorStartupProbeDelay)
 	}
 	slog.Info("channel_monitor: runner started", "scheduled_tasks", len(enabled))
 	return nil
@@ -153,6 +156,12 @@ func (r *ChannelMonitorRunner) StartChecked() error {
 //   - 已存在的任务会先被取消再重建（适用于 IntervalSeconds 变更场景）
 //   - 新任务立即触发首次检测，之后按 IntervalSeconds 周期触发
 func (r *ChannelMonitorRunner) Schedule(m *ChannelMonitor) {
+	r.schedule(m, 0)
+}
+
+// schedule 注册任务。initialDelay 仅用于启动时加载的存量监控；CRUD 调用传 0，
+// 保持新建、编辑和启用后的立即探测语义。
+func (r *ChannelMonitorRunner) schedule(m *ChannelMonitor, initialDelay time.Duration) {
 	if r == nil || m == nil {
 		return
 	}
@@ -174,7 +183,7 @@ func (r *ChannelMonitorRunner) Schedule(m *ChannelMonitor) {
 	}
 
 	r.mu.Lock()
-	if r.stopped {
+	if r.stopped || r.quiescing {
 		r.mu.Unlock()
 		return
 	}
@@ -193,17 +202,36 @@ func (r *ChannelMonitorRunner) Schedule(m *ChannelMonitor) {
 	}
 	ctx, cancel := context.WithCancel(r.parentCtx)
 	task := &scheduledMonitor{
-		id:       m.ID,
-		name:     m.Name,
-		interval: interval,
-		jitter:   jitter,
-		cancel:   cancel,
+		id:           m.ID,
+		name:         m.Name,
+		interval:     interval,
+		jitter:       jitter,
+		initialDelay: initialDelay,
+		cancel:       cancel,
 	}
 	r.tasks[m.ID] = task
 	r.wg.Add(1)
 	r.mu.Unlock()
 
 	go r.runScheduled(ctx, task)
+}
+
+// Quiesce cancels scheduled probes and prevents new submissions without waiting
+// for workers. Stop remains responsible for the final goroutine/worker drain.
+// It is safe to call multiple times and is intended for the pre-shutdown hook.
+func (r *ChannelMonitorRunner) Quiesce() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	if r.stopped || r.quiescing {
+		r.mu.Unlock()
+		return
+	}
+	r.quiescing = true
+	r.parentCancel()
+	r.tasks = nil
+	r.mu.Unlock()
 }
 
 // Unschedule 取消指定监控的定时任务（若存在）。
@@ -234,6 +262,7 @@ func (r *ChannelMonitorRunner) Stop() {
 		return
 	}
 	r.stopped = true
+	r.quiescing = true
 	r.parentCancel()
 	r.tasks = nil
 	r.mu.Unlock()
@@ -248,6 +277,15 @@ func (r *ChannelMonitorRunner) Stop() {
 func (r *ChannelMonitorRunner) runScheduled(ctx context.Context, task *scheduledMonitor) {
 	defer r.wg.Done()
 
+	if task.initialDelay > 0 {
+		timer := time.NewTimer(task.initialDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
 	r.fire(ctx, task)
 
 	timer := time.NewTimer(task.nextDelay())

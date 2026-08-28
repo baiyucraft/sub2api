@@ -18,3 +18,12 @@ func TestDashboardProbeNullableSelectIsScanSafeForMissingObservations(t *testing
 	require.Contains(t, projection, "p.avg_ttft")
 	require.Contains(t, projection, "p.avg_duration")
 }
+
+func TestDashboardUpstreamCostIncludesAccountRateMultiplier(t *testing.T) {
+	// account_stats_cost is the base model cost. The request-time account rate
+	// must be applied before the CNY conversion, matching the usage trend query.
+	expression := strings.Join(strings.Fields(dashboardUpstreamCostExpression), " ")
+	require.Contains(t, expression, "COALESCE(ul.account_stats_cost, ul.total_cost)")
+	require.Contains(t, expression, "COALESCE(ul.account_rate_multiplier, 1)")
+	require.Contains(t, expression, "ul.upstream_cost_to_cny_rate")
+}

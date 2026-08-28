@@ -49,13 +49,22 @@ type SystemSettings struct {
 	LoginAgreementUpdatedAt             string                   `json:"login_agreement_updated_at"`
 	LoginAgreementDocuments             []LoginAgreementDocument `json:"login_agreement_documents"`
 
-	SMTPHost               string `json:"smtp_host"`
-	SMTPPort               int    `json:"smtp_port"`
-	SMTPUsername           string `json:"smtp_username"`
-	SMTPPasswordConfigured bool   `json:"smtp_password_configured"`
-	SMTPFrom               string `json:"smtp_from_email"`
-	SMTPFromName           string `json:"smtp_from_name"`
-	SMTPUseTLS             bool   `json:"smtp_use_tls"`
+	SMTPHost                    string   `json:"smtp_host"`
+	SMTPPort                    int      `json:"smtp_port"`
+	SMTPUsername                string   `json:"smtp_username"`
+	SMTPPasswordConfigured      bool     `json:"smtp_password_configured"`
+	SMTPFrom                    string   `json:"smtp_from_email"`
+	SMTPFromName                string   `json:"smtp_from_name"`
+	SMTPUseTLS                  bool     `json:"smtp_use_tls"`
+	SMTPRecipientRoutingEnabled bool     `json:"smtp_recipient_routing_enabled"`
+	SMTPRecipientRoutingDomains []string `json:"smtp_recipient_routing_domains"`
+	SMTPQQHost                  string   `json:"smtp_qq_host"`
+	SMTPQQPort                  int      `json:"smtp_qq_port"`
+	SMTPQQUsername              string   `json:"smtp_qq_username"`
+	SMTPQQPasswordConfigured    bool     `json:"smtp_qq_password_configured"`
+	SMTPQQFrom                  string   `json:"smtp_qq_from_email"`
+	SMTPQQFromName              string   `json:"smtp_qq_from_name"`
+	SMTPQQUseTLS                bool     `json:"smtp_qq_use_tls"`
 
 	TurnstileEnabled                       bool     `json:"turnstile_enabled"`
 	TurnstileSiteKey                       string   `json:"turnstile_site_key"`
