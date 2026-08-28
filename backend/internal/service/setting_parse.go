@@ -18,6 +18,16 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
+func parseSMTPRecipientDomainsJSON(raw string) []string {
+	var domains []string
+	if strings.TrimSpace(raw) != "" {
+		if err := json.Unmarshal([]byte(raw), &domains); err != nil {
+			domains = strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' })
+		}
+	}
+	return normalizeSMTPRecipientDomains(domains)
+}
+
 // InitializeDefaultSettings 初始化默认设置
 func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	// 检查是否已有设置
@@ -169,6 +179,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyForceEmailOnThirdPartySignup:              "false",
 		SettingKeySMTPPort:                                  "587",
 		SettingKeySMTPUseTLS:                                "false",
+		SettingKeySMTPRecipientRoutingEnabled:               "false",
+		SettingKeySMTPRecipientRoutingDomains:               "[]",
+		SettingKeySMTPQQPort:                                "465",
+		SettingKeySMTPQQUseTLS:                              "true",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
@@ -336,6 +350,14 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		SMTPFromName:                           settings[SettingKeySMTPFromName],
 		SMTPUseTLS:                             settings[SettingKeySMTPUseTLS] == "true",
 		SMTPPasswordConfigured:                 settings[SettingKeySMTPPassword] != "",
+		SMTPRecipientRoutingEnabled:            settings[SettingKeySMTPRecipientRoutingEnabled] == "true",
+		SMTPRecipientRoutingDomains:            parseSMTPRecipientDomainsJSON(settings[SettingKeySMTPRecipientRoutingDomains]),
+		SMTPQQHost:                             settings[SettingKeySMTPQQHost],
+		SMTPQQUsername:                         settings[SettingKeySMTPQQUsername],
+		SMTPQQPasswordConfigured:               settings[SettingKeySMTPQQPassword] != "",
+		SMTPQQFrom:                             settings[SettingKeySMTPQQFrom],
+		SMTPQQFromName:                         settings[SettingKeySMTPQQFromName],
+		SMTPQQUseTLS:                           settings[SettingKeySMTPQQUseTLS] != "false",
 		TurnstileEnabled:                       settings[SettingKeyTurnstileEnabled] == "true",
 		TurnstileSiteKey:                       settings[SettingKeyTurnstileSiteKey],
 		TurnstileSecretKeyConfigured:           settings[SettingKeyTurnstileSecretKey] != "",
@@ -379,6 +401,11 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	} else {
 		result.SMTPPort = 587
 	}
+	if port, err := strconv.Atoi(settings[SettingKeySMTPQQPort]); err == nil && port > 0 {
+		result.SMTPQQPort = port
+	} else {
+		result.SMTPQQPort = 465
+	}
 
 	if concurrency, err := strconv.Atoi(settings[SettingKeyDefaultConcurrency]); err == nil {
 		result.DefaultConcurrency = concurrency
@@ -421,6 +448,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// 敏感信息直接返回，方便测试连接时使用
 	result.SMTPPassword = settings[SettingKeySMTPPassword]
+	result.SMTPQQPassword = settings[SettingKeySMTPQQPassword]
 	result.TurnstileSecretKey = settings[SettingKeyTurnstileSecretKey]
 	result.TencentCaptchaAppSecretKey = settings[SettingKeyTencentCaptchaAppSecretKey]
 	result.TencentCaptchaCloudSecretID = settings[SettingKeyTencentCaptchaCloudSecretID]

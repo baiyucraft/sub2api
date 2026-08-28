@@ -494,6 +494,15 @@ export interface SystemSettings {
   smtp_from_email: string;
   smtp_from_name: string;
   smtp_use_tls: boolean;
+  smtp_recipient_routing_enabled: boolean;
+  smtp_recipient_routing_domains: string[];
+  smtp_qq_host: string;
+  smtp_qq_port: number;
+  smtp_qq_username: string;
+  smtp_qq_password_configured: boolean;
+  smtp_qq_from_email: string;
+  smtp_qq_from_name: string;
+  smtp_qq_use_tls: boolean;
   // Cloudflare Turnstile settings
   turnstile_enabled: boolean;
   turnstile_site_key: string;
@@ -835,6 +844,15 @@ export interface UpdateSettingsRequest {
   smtp_from_email?: string;
   smtp_from_name?: string;
   smtp_use_tls?: boolean;
+  smtp_recipient_routing_enabled?: boolean;
+  smtp_recipient_routing_domains?: string[];
+  smtp_qq_host?: string;
+  smtp_qq_port?: number;
+  smtp_qq_username?: string;
+  smtp_qq_password?: string;
+  smtp_qq_from_email?: string;
+  smtp_qq_from_name?: string;
+  smtp_qq_use_tls?: boolean;
   turnstile_enabled?: boolean;
   turnstile_site_key?: string;
   turnstile_secret_key?: string;
@@ -1072,6 +1090,7 @@ export async function updateSettings(
  * Test SMTP connection request
  */
 export interface TestSmtpRequest {
+  smtp_profile?: "primary" | "qq";
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
@@ -1098,6 +1117,7 @@ export async function testSmtpConnection(
  * Send test email request
  */
 export interface SendTestEmailRequest {
+  smtp_profile?: "primary" | "qq" | "auto";
   email: string;
   smtp_host: string;
   smtp_port: number;

@@ -111,6 +111,8 @@ const (
 	monitorWorkerConcurrency = 5
 	// monitorStartupLoadTimeout Start 时一次性加载所有 enabled monitor 的总超时。
 	monitorStartupLoadTimeout = 10 * time.Second
+	// monitorStartupProbeDelay 避免服务监听前对存量监控发起首轮探测。
+	monitorStartupProbeDelay = 5 * time.Second
 	// monitorMinIntervalSeconds / monitorMaxIntervalSeconds 用户配置的检测间隔上下限。
 	monitorMinIntervalSeconds = 15
 	monitorMaxIntervalSeconds = 3600

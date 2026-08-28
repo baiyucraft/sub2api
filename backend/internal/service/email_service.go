@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
@@ -13,6 +14,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"net/url"
 	"strconv"
@@ -95,11 +97,129 @@ type SMTPConfig struct {
 	UseTLS   bool
 }
 
+type SMTPRoutingConfig struct {
+	Enabled bool
+	Domains []string
+	QQ      *SMTPConfig
+}
+
+type smtpFailurePhase string
+
+const (
+	smtpPhaseConnect smtpFailurePhase = "connect"
+	smtpPhaseTLS     smtpFailurePhase = "tls"
+	smtpPhaseAuth    smtpFailurePhase = "auth"
+	smtpPhaseMail    smtpFailurePhase = "mail"
+	smtpPhaseRcpt    smtpFailurePhase = "rcpt"
+	smtpPhaseData    smtpFailurePhase = "data"
+)
+
+type smtpSendError struct {
+	phase smtpFailurePhase
+	err   error
+}
+
+func (e *smtpSendError) Error() string { return e.err.Error() }
+func (e *smtpSendError) Unwrap() error { return e.err }
+
 // EmailService 邮件服务
 type EmailService struct {
 	settingRepo              SettingRepository
 	cache                    EmailCache
 	notificationEmailService *NotificationEmailService
+	// sendEmailWithConfigFn is a test seam; production uses SendEmailWithConfig.
+	sendEmailWithConfigFn func(*SMTPConfig, string, string, string) error
+}
+
+func normalizeSMTPRecipientDomains(domains []string) []string {
+	seen := make(map[string]struct{}, len(domains))
+	result := make([]string, 0, len(domains))
+	for _, raw := range domains {
+		domain := strings.ToLower(strings.TrimSpace(raw))
+		if domain == "" || strings.ContainsAny(domain, " \t\r\n/@") {
+			continue
+		}
+		if strings.HasPrefix(domain, "*.") {
+			if len(domain) <= 2 || strings.Contains(domain[2:], "*") {
+				continue
+			}
+			if !validSMTPDomain(domain[2:]) {
+				continue
+			}
+		} else if strings.Contains(domain, "*") {
+			continue
+		} else if !validSMTPDomain(domain) {
+			continue
+		}
+		if strings.Trim(domain, ".") != domain || !strings.Contains(domain, ".") {
+			continue
+		}
+		if _, ok := seen[domain]; !ok {
+			seen[domain] = struct{}{}
+			result = append(result, domain)
+		}
+	}
+	return result
+}
+
+func validSMTPDomain(domain string) bool {
+	if len(domain) > 253 || !strings.Contains(domain, ".") {
+		return false
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if !(r == '-' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func smtpRecipientDomainMatches(recipient string, domains []string) bool {
+	address, err := mail.ParseAddress(strings.TrimSpace(recipient))
+	if err != nil || address == nil {
+		return false
+	}
+	at := strings.LastIndex(address.Address, "@")
+	if at <= 0 || at == len(address.Address)-1 {
+		return false
+	}
+	domain := strings.ToLower(strings.TrimSpace(address.Address[at+1:]))
+	for _, rule := range domains {
+		rule = strings.ToLower(strings.TrimSpace(rule))
+		if strings.HasPrefix(rule, "*.") {
+			base := strings.TrimPrefix(rule, "*.")
+			if strings.HasSuffix(domain, "."+base) && domain != base {
+				return true
+			}
+		} else if domain == rule {
+			return true
+		}
+	}
+	return false
+}
+
+func smtpConfigComplete(config *SMTPConfig) bool {
+	return config != nil && strings.TrimSpace(config.Host) != "" && config.Port > 0 &&
+		strings.TrimSpace(config.Username) != "" && strings.TrimSpace(config.Password) != "" &&
+		strings.TrimSpace(config.From) != ""
+}
+
+func smtpRecipientDomainHash(recipient string) string {
+	address, err := mail.ParseAddress(strings.TrimSpace(recipient))
+	if err != nil || address == nil {
+		return "invalid"
+	}
+	at := strings.LastIndex(address.Address, "@")
+	if at < 0 || at == len(address.Address)-1 {
+		return "invalid"
+	}
+	sum := sha256.Sum256([]byte(strings.ToLower(address.Address[at+1:])))
+	return hex.EncodeToString(sum[:6])
 }
 
 // NewEmailService 创建邮件服务实例
@@ -174,11 +294,71 @@ func (s *EmailService) GetSMTPConfig(ctx context.Context) (*SMTPConfig, error) {
 	}, nil
 }
 
+// GetSMTPRoutingConfig loads the optional recipient-domain profile. Invalid or
+// incomplete QQ settings deliberately produce a disabled profile.
+func (s *EmailService) GetSMTPRoutingConfig(ctx context.Context) (*SMTPRoutingConfig, error) {
+	keys := []string{
+		SettingKeySMTPRecipientRoutingEnabled, SettingKeySMTPRecipientRoutingDomains,
+		SettingKeySMTPQQHost, SettingKeySMTPQQPort, SettingKeySMTPQQUsername,
+		SettingKeySMTPQQPassword, SettingKeySMTPQQFrom, SettingKeySMTPQQFromName,
+		SettingKeySMTPQQUseTLS,
+	}
+	settings, err := s.settingRepo.GetMultiple(ctx, keys)
+	if err != nil {
+		return nil, fmt.Errorf("get smtp routing settings: %w", err)
+	}
+	port := 465
+	if parsed, parseErr := strconv.Atoi(strings.TrimSpace(settings[SettingKeySMTPQQPort])); parseErr == nil && parsed > 0 {
+		port = parsed
+	}
+	config := &SMTPConfig{
+		Host: strings.TrimSpace(settings[SettingKeySMTPQQHost]), Port: port,
+		Username: strings.TrimSpace(settings[SettingKeySMTPQQUsername]),
+		Password: strings.TrimSpace(settings[SettingKeySMTPQQPassword]),
+		From:     strings.TrimSpace(settings[SettingKeySMTPQQFrom]),
+		FromName: strings.TrimSpace(settings[SettingKeySMTPQQFromName]),
+		UseTLS:   settings[SettingKeySMTPQQUseTLS] != "false",
+	}
+	return &SMTPRoutingConfig{
+		Enabled: settings[SettingKeySMTPRecipientRoutingEnabled] == "true",
+		Domains: parseSMTPRecipientDomainsJSON(settings[SettingKeySMTPRecipientRoutingDomains]),
+		QQ:      config,
+	}, nil
+}
+
 // SendEmail 发送邮件（使用数据库中保存的配置）
 func (s *EmailService) SendEmail(ctx context.Context, to, subject, body string) error {
-	config, err := s.GetSMTPConfig(ctx)
+	primary, err := s.GetSMTPConfig(ctx)
 	if err != nil {
 		return err
+	}
+	selected := primary
+	routing, routingErr := s.GetSMTPRoutingConfig(ctx)
+	if routingErr == nil && routing.Enabled && smtpRecipientDomainMatches(to, routing.Domains) && smtpConfigComplete(routing.QQ) {
+		selected = routing.QQ
+		slog.Debug("email recipient domain routed", "profile", "qq", "recipient_domain_hash", smtpRecipientDomainHash(to))
+		if err := s.sendWithConfig(selected, to, subject, body); err == nil {
+			return nil
+		} else if failure, ok := err.(*smtpSendError); ok && failure.phase == smtpPhaseData {
+			slog.Warn("qq smtp delivery outcome uncertain; primary fallback suppressed", "profile", "qq", "phase", failure.phase, "recipient_domain_hash", smtpRecipientDomainHash(to))
+			return err
+		} else {
+			slog.Warn("qq smtp failed; falling back to primary smtp", "profile", "qq", "recipient_domain_hash", smtpRecipientDomainHash(to))
+			primaryErr := s.sendWithConfig(primary, to, subject, body)
+			if primaryErr == nil {
+				return nil
+			}
+			// Do not expose SMTP host, server responses, recipient or profile
+			// credentials through the public error surface.
+			return errors.New("smtp delivery failed for routed and primary profiles")
+		}
+	}
+	return s.sendWithConfig(selected, to, subject, body)
+}
+
+func (s *EmailService) sendWithConfig(config *SMTPConfig, to, subject, body string) error {
+	if s.sendEmailWithConfigFn != nil {
+		return s.sendEmailWithConfigFn(config, to, subject, body)
 	}
 	return s.SendEmailWithConfig(config, to, subject, body)
 }
@@ -195,29 +375,29 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 
 	client, err := s.connectSMTP(config)
 	if err != nil {
-		return err
+		return &smtpSendError{phase: smtpPhaseConnect, err: err}
 	}
 	defer func() { _ = client.Close() }()
 
 	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
 	if err = client.Auth(auth); err != nil {
-		return fmt.Errorf("smtp auth: %w", err)
+		return &smtpSendError{phase: smtpPhaseAuth, err: fmt.Errorf("smtp auth: %w", err)}
 	}
 	if err = client.Mail(message.envelopeFrom); err != nil {
-		return fmt.Errorf("smtp mail: %w", err)
+		return &smtpSendError{phase: smtpPhaseMail, err: fmt.Errorf("smtp mail: %w", err)}
 	}
 	if err = client.Rcpt(message.envelopeTo); err != nil {
-		return fmt.Errorf("smtp rcpt: %w", err)
+		return &smtpSendError{phase: smtpPhaseRcpt, err: fmt.Errorf("smtp rcpt: %w", err)}
 	}
 	w, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("smtp data: %w", err)
+		return &smtpSendError{phase: smtpPhaseData, err: fmt.Errorf("smtp data: %w", err)}
 	}
 	if _, err = w.Write(message.data); err != nil {
-		return fmt.Errorf("write msg: %w", err)
+		return &smtpSendError{phase: smtpPhaseData, err: fmt.Errorf("write msg: %w", err)}
 	}
 	if err = w.Close(); err != nil {
-		return fmt.Errorf("close writer: %w", err)
+		return &smtpSendError{phase: smtpPhaseData, err: fmt.Errorf("close writer: %w", err)}
 	}
 	// Email is sent successfully after w.Close(), ignore Quit errors
 	// Some SMTP servers return non-standard responses on QUIT

@@ -30,6 +30,12 @@ func dashboardWindow(window service.UpstreamDashboardWindow) (time.Duration, str
 // config has no observations in the requested window (or no confidence v2 row).
 const dashboardProbeNullableSelect = "COALESCE(p.latest_state,''),COALESCE(p.latest_reason,''),p.latest_observed_at,p.avg_ttft,p.avg_duration,COALESCE(p.confidence_samples,0),COALESCE(p.confidence_status,'')"
 
+// dashboardUpstreamCostExpression keeps the dashboard cost basis aligned with
+// the usage/trend aggregates: account_stats_cost is the base model cost and
+// account_rate_multiplier is the request-time upstream account multiplier.
+// Historical rows without a multiplier retain the documented 1.0 fallback.
+const dashboardUpstreamCostExpression = "COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1) * ul.upstream_cost_to_cny_rate"
+
 func (r *upstreamConfigRepository) GetUpstreamDashboard(ctx context.Context, filter service.UpstreamDashboardFilter) (*service.UpstreamDashboardResponse, error) {
 	now := filter.Now
 	if now.IsZero() {
@@ -57,7 +63,7 @@ WITH usage AS (
          COUNT(DISTINCT ul.request_id) requests,
          COALESCE(SUM(ul.actual_cost),0) revenue,
          CASE WHEN COUNT(*) FILTER (WHERE ul.upstream_cost_to_cny_rate IS NULL OR ul.upstream_cost_to_cny_rate <= 0) > 0 THEN NULL
-              ELSE SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * ul.upstream_cost_to_cny_rate) END upstream_cost,
+              ELSE SUM(%s) END upstream_cost,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY NULLIF(ul.first_token_ms,0)) FILTER (WHERE ul.first_token_ms > 0) p50_ttft,
          percentile_cont(0.95) WITHIN GROUP (ORDER BY NULLIF(ul.first_token_ms,0)) FILTER (WHERE ul.first_token_ms > 0) p95_ttft,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY NULLIF(ul.duration_ms,0)) FILTER (WHERE ul.duration_ms > 0) p50_latency,
@@ -139,7 +145,7 @@ WITH usage AS (
 	  FROM upstream_configs c CROSS JOIN balance_settings bs
 	  LEFT JOIN usage u ON u.config_id=c.id LEFT JOIN account_errors ae ON ae.config_id=c.id LEFT JOIN account_counts ac ON ac.config_id=c.id LEFT JOIN probes p ON p.config_id=c.id
 	  LEFT JOIN balance_latest bl ON bl.config_id=c.id LEFT JOIN incidents inc ON inc.config_id=c.id LEFT JOIN rate_changes rc ON rc.config_id=c.id
- WHERE %s ORDER BY c.name,c.id`, dashboardProbeNullableSelect, strings.Join(where, " AND "))
+ WHERE %s ORDER BY c.name,c.id`, dashboardUpstreamCostExpression, dashboardProbeNullableSelect, strings.Join(where, " AND "))
 
 	rows, err := r.client.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -276,7 +282,7 @@ func (r *upstreamConfigRepository) GetUpstreamDashboardDetail(ctx context.Contex
 	// Keep drill-down queries bounded and independent from the list aggregate.
 	trendQuery := `SELECT date_trunc('hour', ul.created_at), COUNT(DISTINCT ul.request_id),
         0::bigint, COALESCE(SUM(ul.actual_cost),0),
-        COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * ul.upstream_cost_to_cny_rate),0)
+        COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1) * ul.upstream_cost_to_cny_rate),0)
       FROM usage_logs ul
       WHERE ul.upstream_config_id=$1 AND ul.created_at >= $2 AND ul.created_at < $3
       GROUP BY 1 ORDER BY 1`

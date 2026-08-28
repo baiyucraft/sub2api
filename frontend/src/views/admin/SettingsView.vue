@@ -1535,7 +1535,7 @@
                         )
                       "
                     />
-                  </div>
+                </div>
                 </div>
               </div>
 
@@ -8440,12 +8440,17 @@
                   {{ t("admin.settings.smtp.description") }}
                 </p>
               </div>
-              <button
-                type="button"
-                @click="testSmtpConnection"
-                :disabled="testingSmtp || loadFailed"
-                class="btn btn-secondary btn-sm"
-              >
+              <div class="flex items-center gap-2">
+                <select v-model="testSmtpProfile" class="input h-9 w-32 py-1 text-sm" :aria-label="t('admin.settings.smtp.testProfile')">
+                  <option value="primary">{{ t("admin.settings.testEmail.profilePrimary") }}</option>
+                  <option v-if="form.smtp_recipient_routing_enabled" value="qq">{{ t("admin.settings.testEmail.profileQQ") }}</option>
+                </select>
+                <button
+                  type="button"
+                  @click="testSmtpConnection"
+                  :disabled="testingSmtp || loadFailed"
+                  class="btn btn-secondary btn-sm"
+                >
                 <svg
                   v-if="testingSmtp"
                   class="h-4 w-4 animate-spin"
@@ -8471,7 +8476,8 @@
                     ? t("admin.settings.smtp.testing")
                     : t("admin.settings.smtp.testConnection")
                 }}
-              </button>
+                </button>
+              </div>
             </div>
             <div class="space-y-6 p-6">
               <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -8587,6 +8593,41 @@
                 </div>
                 <Toggle v-model="form.smtp_use_tls" />
               </div>
+
+              <div class="border-t border-gray-100 pt-5 dark:border-dark-700">
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{ t("admin.settings.smtp.recipientRouting") }}</label>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t("admin.settings.smtp.recipientRoutingHint") }}</p>
+                  </div>
+                  <Toggle v-model="form.smtp_recipient_routing_enabled" />
+                </div>
+                <div v-if="form.smtp_recipient_routing_enabled" class="mt-5 space-y-5">
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.smtp.routingDomains") }}</label>
+                    <textarea
+                      :value="form.smtp_recipient_routing_domains.join('\n')"
+                      class="input min-h-20"
+                      :placeholder="t('admin.settings.smtp.routingDomainsPlaceholder')"
+                      @input="form.smtp_recipient_routing_domains = ($event.target as HTMLTextAreaElement).value.split(/[\\n,]+/).map((v) => v.trim()).filter(Boolean)"
+                    ></textarea>
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.smtp.routingDomainsHint") }}</p>
+                  </div>
+                  <div class="rounded-lg border border-blue-100 bg-blue-50/70 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+                    <div class="mb-3 text-sm font-semibold text-blue-900 dark:text-blue-100">{{ t("admin.settings.smtp.qqProfile") }}</div>
+                    <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+                      <div><label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.smtp.host") }}</label><input v-model="form.smtp_qq_host" class="input" placeholder="smtp.qq.com" /></div>
+                      <div><label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.smtp.port") }}</label><input v-model.number="form.smtp_qq_port" type="number" min="1" max="65535" class="input" /></div>
+                      <div><label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.smtp.username") }}</label><input v-model="form.smtp_qq_username" class="input" placeholder="your@qq.com" /></div>
+                      <div><label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.smtp.password") }}</label><input v-model="form.smtp_qq_password" type="password" autocomplete="new-password" class="input" :placeholder="form.smtp_qq_password_configured ? t('admin.settings.smtp.passwordConfiguredPlaceholder') : t('admin.settings.smtp.passwordPlaceholder')" /></div>
+                      <div><label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.smtp.fromEmail") }}</label><input v-model="form.smtp_qq_from_email" type="email" class="input" placeholder="your@qq.com" /></div>
+                      <div><label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.smtp.fromName") }}</label><input v-model="form.smtp_qq_from_name" class="input" placeholder="QQ" /></div>
+                    </div>
+                    <div class="mt-4 flex items-center justify-between"><span class="text-sm text-gray-700 dark:text-gray-300">{{ t("admin.settings.smtp.useTls") }}</span><Toggle v-model="form.smtp_qq_use_tls" /></div>
+                    <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.smtp.qqPasswordHint") }}</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -8618,6 +8659,17 @@
                       t('admin.settings.testEmail.recipientEmailPlaceholder')
                     "
                   />
+                  <p v-if="testEmailProfile === 'auto' && testEmailAddress" class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.testEmail.routePreview", { profile: smtpRecipientRoutingPreview }) }}
+                  </p>
+                </div>
+                <div class="w-44">
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.testEmail.profile") }}</label>
+                  <select v-model="testEmailProfile" class="input">
+                    <option value="auto">{{ t("admin.settings.testEmail.profileAuto") }}</option>
+                    <option value="primary">{{ t("admin.settings.testEmail.profilePrimary") }}</option>
+                    <option v-if="form.smtp_recipient_routing_enabled" value="qq">{{ t("admin.settings.testEmail.profileQQ") }}</option>
+                  </select>
                 </div>
                 <button
                   type="button"
@@ -9086,6 +9138,21 @@ const testingSmtp = ref(false);
 const sendingTestEmail = ref(false);
 const smtpPasswordManuallyEdited = ref(false);
 const testEmailAddress = ref("");
+const testSmtpProfile = ref<"primary" | "qq">("primary");
+const testEmailProfile = ref<"auto" | "primary" | "qq">("auto");
+const smtpRecipientRoutingPreview = computed(() => {
+  if (!form.smtp_recipient_routing_enabled) return t("admin.settings.testEmail.profilePrimary");
+  const match = testEmailAddress.value.trim().toLowerCase().match(/@([^>\s]+)$/)?.[1];
+  if (!match) return t("admin.settings.testEmail.profilePrimary");
+  const matches = form.smtp_recipient_routing_domains.some((rule) => {
+    const normalized = rule.trim().toLowerCase();
+    return normalized.startsWith("*.")
+      ? match.endsWith(`.${normalized.slice(2)}`)
+      : match === normalized;
+  });
+  const qqReady = Boolean(form.smtp_qq_host && form.smtp_qq_username && form.smtp_qq_from_email && (form.smtp_qq_password || form.smtp_qq_password_configured));
+  return matches && qqReady ? t("admin.settings.testEmail.profileQQ") : t("admin.settings.testEmail.profilePrimary");
+});
 const registrationEmailSuffixWhitelistTags = ref<string[]>([]);
 const registrationEmailSuffixWhitelistDraft = ref("");
 const forwardedClientIpHeaderDraft = ref("");
@@ -9644,6 +9711,7 @@ type SettingsForm = Omit<
   channel_monitor_hide_throughput: boolean;
   channel_monitor_show_quota: boolean;
   smtp_password: string;
+  smtp_qq_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
   tencent_captcha_cloud_secret_id: string;
@@ -9778,6 +9846,16 @@ const form = reactive<SettingsForm>({
   smtp_from_email: "",
   smtp_from_name: "",
   smtp_use_tls: true,
+  smtp_recipient_routing_enabled: false,
+  smtp_recipient_routing_domains: [],
+  smtp_qq_host: "smtp.qq.com",
+  smtp_qq_port: 465,
+  smtp_qq_username: "",
+  smtp_qq_password: "",
+  smtp_qq_password_configured: false,
+  smtp_qq_from_email: "",
+  smtp_qq_from_name: "",
+  smtp_qq_use_tls: true,
   // Cloudflare Turnstile
   turnstile_enabled: false,
   turnstile_site_key: "",
@@ -11010,6 +11088,7 @@ async function loadSettings() {
     );
     registrationEmailSuffixWhitelistDraft.value = "";
     form.smtp_password = "";
+    form.smtp_qq_password = "";
     smtpPasswordManuallyEdited.value = false;
     form.turnstile_secret_key = "";
     form.tencent_captcha_app_secret_key = "";
@@ -11405,6 +11484,15 @@ async function saveSettings() {
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_use_tls,
+      smtp_recipient_routing_enabled: form.smtp_recipient_routing_enabled,
+      smtp_recipient_routing_domains: form.smtp_recipient_routing_domains,
+      smtp_qq_host: form.smtp_qq_host,
+      smtp_qq_port: form.smtp_qq_port,
+      smtp_qq_username: form.smtp_qq_username,
+      smtp_qq_password: form.smtp_qq_password || undefined,
+      smtp_qq_from_email: form.smtp_qq_from_email,
+      smtp_qq_from_name: form.smtp_qq_from_name,
+      smtp_qq_use_tls: form.smtp_qq_use_tls,
       turnstile_enabled: form.turnstile_enabled,
       turnstile_site_key: form.turnstile_site_key,
       turnstile_secret_key: form.turnstile_secret_key || undefined,
@@ -11737,6 +11825,7 @@ async function saveSettings() {
     );
     registrationEmailSuffixWhitelistDraft.value = "";
     form.smtp_password = "";
+    form.smtp_qq_password = "";
     smtpPasswordManuallyEdited.value = false;
     form.turnstile_secret_key = "";
     form.aliyun_captcha_access_key_secret = "";
@@ -11825,12 +11914,14 @@ async function testSmtpConnection() {
     const smtpPasswordForTest = smtpPasswordManuallyEdited.value
       ? form.smtp_password
       : "";
+    const qq = testSmtpProfile.value === "qq";
     const result = await adminAPI.settings.testSmtpConnection({
-      smtp_host: form.smtp_host,
-      smtp_port: form.smtp_port,
-      smtp_username: form.smtp_username,
-      smtp_password: smtpPasswordForTest,
-      smtp_use_tls: form.smtp_use_tls,
+      smtp_profile: testSmtpProfile.value,
+      smtp_host: qq ? form.smtp_qq_host : form.smtp_host,
+      smtp_port: qq ? form.smtp_qq_port : form.smtp_port,
+      smtp_username: qq ? form.smtp_qq_username : form.smtp_username,
+      smtp_password: qq ? form.smtp_qq_password : smtpPasswordForTest,
+      smtp_use_tls: qq ? form.smtp_qq_use_tls : form.smtp_use_tls,
     });
     // API returns { message: "..." } on success, errors are thrown as exceptions
     appStore.showSuccess(
@@ -11856,15 +11947,17 @@ async function sendTestEmail() {
     const smtpPasswordForSend = smtpPasswordManuallyEdited.value
       ? form.smtp_password
       : "";
+    const qq = testEmailProfile.value === "qq";
     const result = await adminAPI.settings.sendTestEmail({
+      smtp_profile: testEmailProfile.value,
       email: testEmailAddress.value,
-      smtp_host: form.smtp_host,
-      smtp_port: form.smtp_port,
-      smtp_username: form.smtp_username,
-      smtp_password: smtpPasswordForSend,
-      smtp_from_email: form.smtp_from_email,
-      smtp_from_name: form.smtp_from_name,
-      smtp_use_tls: form.smtp_use_tls,
+      smtp_host: qq ? form.smtp_qq_host : form.smtp_host,
+      smtp_port: qq ? form.smtp_qq_port : form.smtp_port,
+      smtp_username: qq ? form.smtp_qq_username : form.smtp_username,
+      smtp_password: qq ? form.smtp_qq_password : smtpPasswordForSend,
+      smtp_from_email: qq ? form.smtp_qq_from_email : form.smtp_from_email,
+      smtp_from_name: qq ? form.smtp_qq_from_name : form.smtp_from_name,
+      smtp_use_tls: qq ? form.smtp_qq_use_tls : form.smtp_use_tls,
     });
     // API returns { message: "..." } on success, errors are thrown as exceptions
     appStore.showSuccess(result.message || t("admin.settings.testEmailSent"));
