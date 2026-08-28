@@ -59,7 +59,8 @@ func (r *channelMonitorRepository) CreateManaged(ctx context.Context, monitor *s
 	if g.Status != service.StatusActive {
 		return rollback(service.ErrChannelMonitorManagedGroupInactive)
 	}
-	monitor.GroupName = g.Name
+	// 托管本站 Key 的渠道名称以真实绑定分组为唯一来源，忽略管理员提交的独立名称。
+	applyManagedMonitorGroupName(monitor, g.Name)
 	monitor.CredentialMode = service.ChannelMonitorCredentialManagedLocal
 	builder := tx.ChannelMonitor.Create().
 		SetName(monitor.Name).
@@ -153,7 +154,8 @@ func (r *channelMonitorRepository) UpdateManaged(ctx context.Context, monitor *s
 	if g.Status != service.StatusActive {
 		return rollback(service.ErrChannelMonitorManagedGroupInactive)
 	}
-	monitor.GroupName = g.Name
+	// 托管监控换组或编辑时，名称始终跟随当前有效分组。
+	applyManagedMonitorGroupName(monitor, g.Name)
 	updater := tx.ChannelMonitor.UpdateOneID(monitor.ID).
 		SetName(monitor.Name).SetProvider(channelmonitor.Provider(monitor.Provider)).
 		SetAPIMode(defaultAPIModeRepo(monitor.APIMode)).SetEndpoint(monitor.Endpoint).
@@ -235,6 +237,17 @@ func (r *channelMonitorRepository) DeleteManaged(ctx context.Context, monitorID 
 
 func managedMonitorKeyName(monitor *service.ChannelMonitor) string {
 	return "监控-" + strings.TrimSpace(monitor.Name)
+}
+
+// applyManagedMonitorGroupName makes the persisted monitor name and group
+// label follow the authoritative group name. Keeping this as one helper
+// ensures create and update paths cannot accidentally diverge.
+func applyManagedMonitorGroupName(monitor *service.ChannelMonitor, groupName string) {
+	if monitor == nil {
+		return
+	}
+	monitor.Name = groupName
+	monitor.GroupName = groupName
 }
 
 func apiKeyStatusForMonitor(enabled bool) string {

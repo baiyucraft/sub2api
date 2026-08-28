@@ -100,4 +100,15 @@ describe('MonitorCard quota snapshot visibility', () => {
     expect(wrapper.text()).toContain('claude-sonnet-4-5')
     expect(wrapper.text()).not.toContain('monitorCommon.checkMode.quota')
   })
+
+  it('does not repeat the group label when it matches the managed monitor name', () => {
+    const wrapper = mountCard(makeItem({ name: 'gpt-plus', group_name: 'gpt-plus' }))
+    expect(wrapper.find('[data-testid="monitor-group-label"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('gpt-plus')
+  })
+
+  it('keeps a distinct group label for legacy or manual monitors', () => {
+    const wrapper = mountCard(makeItem({ name: '监控渠道', group_name: 'gpt-plus' }))
+    expect(wrapper.get('[data-testid="monitor-group-label"]').text()).toBe('gpt-plus')
+  })
 })

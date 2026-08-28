@@ -16,8 +16,17 @@
       </div>
 
       <div>
-        <label class="input-label">{{ t('admin.channelMonitor.form.name') }} <span class="text-red-500">*</span></label>
-        <input v-model="form.name" type="text" required class="input" :placeholder="t('admin.channelMonitor.form.namePlaceholder')" />
+        <label class="input-label">{{ t('admin.channelMonitor.form.name') }} <span v-if="form.credential_mode !== 'managed_local'" class="text-red-500">*</span></label>
+        <input
+          v-model="form.name"
+          type="text"
+          :required="form.credential_mode !== 'managed_local'"
+          class="input"
+          :readonly="form.credential_mode === 'managed_local'"
+          :class="form.credential_mode === 'managed_local' ? 'bg-gray-50 dark:bg-dark-800/60' : ''"
+          :placeholder="t('admin.channelMonitor.form.namePlaceholder')"
+        />
+        <p v-if="form.credential_mode === 'managed_local'" class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.localGroupNameHint') }}</p>
       </div>
 
       <!-- 检测模式：probe（探活）/ quota（仅配额）/ quota_probe（探活+配额） -->
@@ -432,6 +441,20 @@ const managedGroupSelectValue = computed<number | null>({
   },
 })
 
+// 托管本站 Key 的渠道名称由实际绑定分组决定，避免表单名称与分组名称漂移。
+watch(
+  [() => form.credential_mode, () => form.group_id, managedGroups],
+  () => {
+    if (form.credential_mode !== 'managed_local') return
+    const group = managedGroups.value.find((item) => item.id === form.group_id)
+    if (group) {
+      form.group_name = group.name
+      form.name = group.name
+    }
+  },
+  { deep: true },
+)
+
 let suppressFormWatchers = false
 
 // 可用模板列表（进入 dialog 时一次性拉取 cache；按 provider / api mode 过滤）。
@@ -755,6 +778,7 @@ function selectProvider(provider: Provider) {
   if (form.credential_mode === 'managed_local') {
     form.group_id = null
     form.group_name = ''
+    form.name = ''
   }
   // 关联账号与平台绑定：切换 provider 时显式清空（这是唯一主动清空的入口）。
   form.account_id = null
@@ -788,11 +812,13 @@ function selectCredentialMode(mode: MonitorForm['credential_mode']) {
   form.credential_mode = mode
   if (mode === 'managed_local') {
     form.show_group_rate = true
+    form.name = ''
     void loadManagedGroups()
     return
   }
   form.group_id = null
   form.group_name = ''
+  form.name = ''
 }
 
 // Clear api_key whenever provider changes to avoid cross-provider key mismatch.
@@ -846,7 +872,7 @@ function resetForm() {
 
 function loadFromMonitor(m: ChannelMonitor) {
   suppressFormWatchers = true
-  form.name = m.name
+  form.name = m.credential_mode === 'managed_local' ? (m.group_name || m.name) : m.name
   form.provider = m.provider
   form.api_mode = normalizeAPIMode(m.api_mode)
   form.check_mode = m.check_mode || CHECK_MODE_PROBE
@@ -922,7 +948,7 @@ function buildPayload(): CreateParams {
     ? managedGroups.value.find((group) => group.id === form.group_id)
     : null
   return {
-    name: form.name.trim(),
+    name: selectedManagedGroup?.name ?? form.name.trim(),
     provider: form.provider,
     api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
     check_mode: form.check_mode,
@@ -948,10 +974,6 @@ function buildPayload(): CreateParams {
 
 async function handleSubmit() {
   if (submitting.value) return
-  if (!form.name.trim()) {
-    appStore.showError(t('admin.channelMonitor.nameRequired'))
-    return
-  }
   if (usesQuotaMode.value && form.account_id == null) {
     appStore.showError(t('admin.channelMonitor.linkedAccountRequired'))
     return
@@ -966,6 +988,9 @@ async function handleSubmit() {
       appStore.showError(t('admin.channelMonitor.form.localGroupRequired'))
       return
     }
+  } else if (!form.name.trim()) {
+    appStore.showError(t('admin.channelMonitor.nameRequired'))
+    return
   }
 
   submitting.value = true

@@ -217,7 +217,9 @@ describe('channel monitor Grok provider', () => {
     await flushPromises()
 
     await wrapper.get('[data-testid="monitor-credential-managed-local"]').trigger('click')
-    await wrapper.get('input[placeholder="admin.channelMonitor.form.namePlaceholder"]').setValue('managed')
+    const managedName = wrapper.get('input[placeholder="admin.channelMonitor.form.namePlaceholder"]')
+    expect(managedName.attributes('readonly')).toBeDefined()
+    await managedName.setValue('管理员尝试修改')
     await wrapper.get('[data-testid="monitor-primary-model"]').setValue('claude-sonnet-4-5')
     await wrapper.get('[data-testid="monitor-group-select"]').setValue('4')
     await wrapper.get('form').trigger('submit')
@@ -225,6 +227,7 @@ describe('channel monitor Grok provider', () => {
 
     expect(createMonitor).toHaveBeenLastCalledWith(expect.objectContaining({
       credential_mode: 'managed_local',
+      name: 'Claude 稳定',
       group_id: 4,
       group_name: 'Claude 稳定',
       show_group_rate: true,
@@ -284,6 +287,8 @@ describe('channel monitor Grok provider', () => {
 
     const groupSelect = wrapper.get('[data-testid="monitor-group-select"]')
     expect((groupSelect.element as HTMLSelectElement).value).toBe('4')
+    expect((wrapper.get('input[placeholder="admin.channelMonitor.form.namePlaceholder"]').element as HTMLInputElement).value).toBe('Claude 稳定')
+    expect(wrapper.get('input[placeholder="admin.channelMonitor.form.namePlaceholder"]').attributes('readonly')).toBeDefined()
     expect(wrapper.find('input[placeholder="admin.channelMonitor.form.groupNamePlaceholder"]').exists()).toBe(false)
   })
 

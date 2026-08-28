@@ -28,7 +28,8 @@
             {{ formatMonitorModel(item.primary_model) }}
           </span>
           <span
-            v-if="item.group_name"
+            v-if="item.group_name && item.group_name !== item.name"
+            data-testid="monitor-group-label"
             class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300 flex-shrink-0"
           >
             {{ item.group_name }}

@@ -704,6 +704,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 
 	// 渠道缓存里存了 groupID → platform 的映射，改了平台要让它失效（见函数末尾）
 	previousPlatform := group.Platform
+	previousName := group.Name
 
 	if input.Name != "" {
 		group.Name = input.Name
@@ -991,6 +992,15 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 
 	if err := s.groupRepo.Update(ctx, group); err != nil {
 		return nil, err
+	}
+	if group.Name != previousName {
+		if syncer, ok := s.groupRepo.(interface {
+			SyncManagedChannelMonitorNames(context.Context, int64, string) error
+		}); ok {
+			if err := syncer.SyncManagedChannelMonitorNames(ctx, id, group.Name); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	if s.authCacheInvalidator != nil {

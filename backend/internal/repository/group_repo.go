@@ -441,6 +441,35 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	return nil
 }
 
+// SyncManagedChannelMonitorNames keeps managed-local monitor and generated key
+// names aligned with the authoritative group name after a group rename.
+// It is intentionally an optional repository capability so existing service
+// test doubles and other GroupRepository implementations remain compatible.
+func (r *groupRepository) SyncManagedChannelMonitorNames(ctx context.Context, groupID int64, name string) error {
+	name = strings.TrimSpace(name)
+	if groupID <= 0 || name == "" || r.sql == nil {
+		return nil
+	}
+	_, err := r.sql.ExecContext(ctx, `
+WITH updated_monitors AS (
+    UPDATE channel_monitors
+       SET name = $1, group_name = $1, updated_at = NOW()
+     WHERE credential_mode = 'managed_local' AND group_id = $2
+     RETURNING id
+)
+UPDATE api_keys AS k
+   SET name = '监控-' || $1, updated_at = NOW()
+  FROM updated_monitors AS m
+WHERE k.managed_monitor_id = m.id
+   AND k.purpose = 'managed_monitor'
+   AND k.deleted_at IS NULL
+   AND k.group_id = $2`, name, groupID)
+	if err != nil {
+		return fmt.Errorf("sync managed channel monitor names: %w", err)
+	}
+	return nil
+}
+
 func (r *groupRepository) Delete(ctx context.Context, id int64) error {
 	_, err := r.client.Group.Delete().Where(group.IDEQ(id)).Exec(ctx)
 	if err != nil {
