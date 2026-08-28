@@ -96,7 +96,11 @@ async function reload(silent = false) {
   } catch (err: unknown) {
     const e = err as { name?: string; code?: string }
     if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
-    appStore.showError(extractApiErrorMessage(err, t('channelStatus.loadError')))
+    // 自动刷新失败属于页面数据暂不可用，不应把最近一次真实渠道状态
+    // 误报成错误；保留 items 并静默等待下一轮刷新。手动刷新仍提示用户。
+    if (!silent) {
+      appStore.showError(extractApiErrorMessage(err, t('channelStatus.loadError')))
+    }
   } finally {
     if (abortController === ctrl) {
       if (!silent) loading.value = false

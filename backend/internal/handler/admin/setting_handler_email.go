@@ -13,6 +13,7 @@ import (
 
 // TestSMTPRequest 测试SMTP连接请求
 type TestSMTPRequest struct {
+	Profile      string `json:"smtp_profile"`
 	SMTPHost     string `json:"smtp_host"`
 	SMTPPort     int    `json:"smtp_port"`
 	SMTPUsername string `json:"smtp_username"`
@@ -33,7 +34,11 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
 
 	var savedConfig *service.SMTPConfig
-	if cfg, err := h.emailService.GetSMTPConfig(c.Request.Context()); err == nil && cfg != nil {
+	if strings.EqualFold(strings.TrimSpace(req.Profile), "qq") {
+		if routing, err := h.emailService.GetSMTPRoutingConfig(c.Request.Context()); err == nil && routing != nil {
+			savedConfig = routing.QQ
+		}
+	} else if cfg, err := h.emailService.GetSMTPConfig(c.Request.Context()); err == nil && cfg != nil {
 		savedConfig = cfg
 	}
 
@@ -78,6 +83,7 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 
 // SendTestEmailRequest 发送测试邮件请求
 type SendTestEmailRequest struct {
+	Profile      string `json:"smtp_profile"`
 	Email        string `json:"email" binding:"required,email"`
 	SMTPHost     string `json:"smtp_host"`
 	SMTPPort     int    `json:"smtp_port"`
@@ -103,7 +109,11 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
 
 	var savedConfig *service.SMTPConfig
-	if cfg, err := h.emailService.GetSMTPConfig(c.Request.Context()); err == nil && cfg != nil {
+	if strings.EqualFold(strings.TrimSpace(req.Profile), "qq") {
+		if routing, err := h.emailService.GetSMTPRoutingConfig(c.Request.Context()); err == nil && routing != nil {
+			savedConfig = routing.QQ
+		}
+	} else if cfg, err := h.emailService.GetSMTPConfig(c.Request.Context()); err == nil && cfg != nil {
 		savedConfig = cfg
 	}
 
@@ -179,8 +189,14 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 </html>
 `
 
-	if err := h.emailService.SendEmailWithConfig(config, req.Email, subject, body); err != nil {
-		response.BadRequest(c, "Failed to send test email: "+err.Error())
+	var sendErr error
+	if strings.EqualFold(strings.TrimSpace(req.Profile), "auto") {
+		sendErr = h.emailService.SendEmail(c.Request.Context(), req.Email, subject, body)
+	} else {
+		sendErr = h.emailService.SendEmailWithConfig(config, req.Email, subject, body)
+	}
+	if sendErr != nil {
+		response.BadRequest(c, "Failed to send test email: "+sendErr.Error())
 		return
 	}
 

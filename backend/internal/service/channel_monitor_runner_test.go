@@ -374,6 +374,66 @@ func TestStop_CancelsInFlightCheck(t *testing.T) {
 	}
 }
 
+// TestQuiesce_CancelsInFlightAndBlocksNewProbes 验证停机前静默阶段不等待 worker，
+// 但会取消在途任务并拒绝新的调度提交。
+func TestQuiesce_CancelsInFlightAndBlocksNewProbes(t *testing.T) {
+	svc := &stubMonitorSvc{
+		runCalled:  make(chan int64, 2),
+		runCtx:     make(chan context.Context, 1),
+		runHoldFor: 5 * time.Second,
+	}
+	r := newRunnerForTest(svc)
+	r.Start()
+	r.Schedule(&ChannelMonitor{ID: 41, Enabled: true, IntervalSeconds: 60})
+
+	select {
+	case <-svc.runCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first fire never happened")
+	}
+	var runCtx context.Context
+	select {
+	case runCtx = <-svc.runCtx:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunCheck context was not captured")
+	}
+
+	before := svc.runCount.Load()
+	start := time.Now()
+	r.Quiesce()
+	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+		t.Fatalf("Quiesce must be non-blocking, took %v", elapsed)
+	}
+	select {
+	case <-runCtx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Quiesce did not cancel in-flight RunCheck")
+	}
+
+	r.Schedule(&ChannelMonitor{ID: 42, Enabled: true, IntervalSeconds: 60})
+	time.Sleep(100 * time.Millisecond)
+	if got := svc.runCount.Load(); got != before {
+		t.Fatalf("quiesced runner submitted a new probe: before=%d after=%d", before, got)
+	}
+	r.Stop()
+}
+
+// TestStart_DefersInitialProbe 验证启动加载的存量监控不会在 HTTP 服务尚未稳定时立即探测。
+func TestStart_DefersInitialProbe(t *testing.T) {
+	svc := &stubMonitorSvc{
+		enabled:   []*ChannelMonitor{{ID: 43, Enabled: true, IntervalSeconds: 60}},
+		runCalled: make(chan int64, 1),
+	}
+	r := newRunnerForTest(svc)
+	r.Start()
+	select {
+	case id := <-svc.runCalled:
+		t.Fatalf("startup probe fired too early for id=%d", id)
+	case <-time.After(100 * time.Millisecond):
+	}
+	r.Stop()
+}
+
 // TestInFlight_PoolFullReleasesSlot 直接驱动 fire 路径，模拟 pool.TrySubmit 失败时 inFlight 必须释放。
 // 用一个小型 stub pool 替换 r.pool 不便（pond.Pool 是接口但 mock 麻烦），
 // 改为：占满 inFlight 后直接 fire，验证不会在 inFlight 空槽时永久卡住。

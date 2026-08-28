@@ -203,6 +203,21 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeySMTPFrom] = settings.SMTPFrom
 	updates[SettingKeySMTPFromName] = settings.SMTPFromName
 	updates[SettingKeySMTPUseTLS] = strconv.FormatBool(settings.SMTPUseTLS)
+	updates[SettingKeySMTPRecipientRoutingEnabled] = strconv.FormatBool(settings.SMTPRecipientRoutingEnabled)
+	domainsJSON, err := json.Marshal(normalizeSMTPRecipientDomains(settings.SMTPRecipientRoutingDomains))
+	if err != nil {
+		return nil, fmt.Errorf("marshal smtp recipient routing domains: %w", err)
+	}
+	updates[SettingKeySMTPRecipientRoutingDomains] = string(domainsJSON)
+	updates[SettingKeySMTPQQHost] = settings.SMTPQQHost
+	updates[SettingKeySMTPQQPort] = strconv.Itoa(settings.SMTPQQPort)
+	updates[SettingKeySMTPQQUsername] = settings.SMTPQQUsername
+	if settings.SMTPQQPassword != "" {
+		updates[SettingKeySMTPQQPassword] = settings.SMTPQQPassword
+	}
+	updates[SettingKeySMTPQQFrom] = settings.SMTPQQFrom
+	updates[SettingKeySMTPQQFromName] = settings.SMTPQQFromName
+	updates[SettingKeySMTPQQUseTLS] = strconv.FormatBool(settings.SMTPQQUseTLS)
 
 	// Cloudflare Turnstile 设置（只有非空才更新密钥）
 	updates[SettingKeyTurnstileEnabled] = strconv.FormatBool(settings.TurnstileEnabled)
