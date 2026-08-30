@@ -5,6 +5,7 @@ export default {
     searchPlaceholder: '搜索名称、站点或 API 地址',
     sensitiveHint: '这些凭据会保存为高敏上游凭据，仅用于同步 Key、倍率、额度和刷新 JWT；接口不会回显明文密码、JWT、Refresh Token、Cookie 或 API Key。',
     columns: {
+      id: 'ID',
       name: '名称',
       provider: '类型',
       address: '地址',

@@ -74,16 +74,16 @@ type upstreamConfigExtraUpdate struct {
 	updates map[string]any
 }
 
-func (r *upstreamConfigServiceRepo) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error) {
+func (r *upstreamConfigServiceRepo) List(ctx context.Context, params pagination.PaginationParams, filter UpstreamConfigListFilter) ([]UpstreamConfig, *pagination.PaginationResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	out := make([]UpstreamConfig, 0, len(r.configs))
 	for _, cfg := range r.configs {
-		if provider != "" && cfg.Provider != provider {
+		if filter.Provider != "" && cfg.Provider != filter.Provider {
 			continue
 		}
-		if status != "" && cfg.Status != status {
+		if filter.Status != "" && cfg.Status != filter.Status {
 			continue
 		}
 		out = append(out, cloneUpstreamConfig(cfg))
