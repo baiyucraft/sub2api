@@ -465,6 +465,7 @@ func (s *UserService) UnbindUserAuthProviderWithResult(ctx context.Context, user
 
 // UpdateProfile 更新用户资料
 func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req UpdateProfileRequest) (*User, error) {
+	shouldInvalidateAuthCache := req.Email != nil || req.BalanceNotifyEnabled != nil || req.BalanceNotifyThreshold != nil
 	if txRunner, ok := s.userRepo.(userProfileIdentityTxRunner); ok {
 		var (
 			updated        *User
@@ -477,7 +478,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req Updat
 		}); err != nil {
 			return nil, err
 		}
-		if s.authCacheInvalidator != nil && updated != nil && updated.Concurrency != oldConcurrency {
+		if s.authCacheInvalidator != nil && updated != nil && (updated.Concurrency != oldConcurrency || shouldInvalidateAuthCache) {
 			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
 		}
 		return updated, nil
@@ -487,7 +488,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req Updat
 	if err != nil {
 		return nil, err
 	}
-	if s.authCacheInvalidator != nil && updated.Concurrency != oldConcurrency {
+	if s.authCacheInvalidator != nil && (updated.Concurrency != oldConcurrency || shouldInvalidateAuthCache) {
 		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
 	}
 	return updated, nil
@@ -1353,7 +1354,7 @@ func (s *UserService) addOrVerifyNotifyEmail(ctx context.Context, userID int64, 
 		if strings.EqualFold(e.Email, email) {
 			if !e.Verified {
 				user.BalanceNotifyExtraEmails[i].Verified = true
-				return s.userRepo.Update(ctx, user, UserUpdateFields{BalanceNotifyExtraEmails: true})
+				return s.updateBalanceNotifyExtraEmails(ctx, user)
 			}
 			return nil // Already verified
 		}
@@ -1366,7 +1367,7 @@ func (s *UserService) addOrVerifyNotifyEmail(ctx context.Context, userID int64, 
 		Disabled: false,
 		Verified: true,
 	})
-	return s.userRepo.Update(ctx, user, UserUpdateFields{BalanceNotifyExtraEmails: true})
+	return s.updateBalanceNotifyExtraEmails(ctx, user)
 }
 
 // RemoveNotifyEmail removes an email from user's extra notification emails.
@@ -1389,7 +1390,7 @@ func (s *UserService) RemoveNotifyEmail(ctx context.Context, userID int64, email
 		return infraerrors.BadRequest("EMAIL_NOT_FOUND", "notification email not found")
 	}
 	user.BalanceNotifyExtraEmails = filtered
-	return s.userRepo.Update(ctx, user, UserUpdateFields{BalanceNotifyExtraEmails: true})
+	return s.updateBalanceNotifyExtraEmails(ctx, user)
 }
 
 // ToggleNotifyEmail toggles the disabled state of a notification email entry.
@@ -1411,7 +1412,17 @@ func (s *UserService) ToggleNotifyEmail(ctx context.Context, userID int64, email
 		return infraerrors.BadRequest("EMAIL_NOT_FOUND", "notification email not found")
 	}
 
-	return s.userRepo.Update(ctx, user, UserUpdateFields{BalanceNotifyExtraEmails: true})
+	return s.updateBalanceNotifyExtraEmails(ctx, user)
+}
+
+func (s *UserService) updateBalanceNotifyExtraEmails(ctx context.Context, user *User) error {
+	if err := s.userRepo.Update(ctx, user, UserUpdateFields{BalanceNotifyExtraEmails: true}); err != nil {
+		return err
+	}
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
+	}
+	return nil
 }
 
 // notifyVerifyEmailTemplate is the HTML template for notify email verification.

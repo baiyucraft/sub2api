@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
 
@@ -97,7 +97,10 @@ const AccountTableFiltersStub = {
   template: '<button data-test="change-filter" @click="$emit(\'change\')">change filter</button>'
 }
 
-const mountView = () => mount(AccountsView, {
+const mountedWrappers: VueWrapper[] = []
+
+const mountView = () => {
+  const wrapper = mount(AccountsView, {
   global: {
     stubs: {
       AppLayout: { template: '<div><slot /></div>' },
@@ -132,7 +135,10 @@ const mountView = () => mount(AccountsView, {
       Icon: true
     }
   }
-})
+  })
+  mountedWrappers.push(wrapper)
+  return wrapper
+}
 
 describe('admin AccountsView select all filtered results', () => {
   beforeEach(() => {
@@ -154,6 +160,11 @@ describe('admin AccountsView select all filtered results', () => {
     getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+  })
+
+  afterEach(async () => {
+    mountedWrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+    await flushPromises()
   })
 
   it('selects all matching IDs in one commit and clears the selection when filters change', async () => {

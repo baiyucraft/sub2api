@@ -69,6 +69,7 @@ func (s *AuthService) BindEmailIdentity(
 		if err := s.updateBoundEmailIdentityTx(ctx, currentUser, normalizedEmail, hashedPassword, firstRealEmailBind); err != nil {
 			return nil, err
 		}
+		s.invalidateBoundEmailAuthCache(ctx, userID)
 		s.revokeEmailIdentitySessions(ctx, userID)
 		return currentUser, nil
 	}
@@ -88,8 +89,15 @@ func (s *AuthService) BindEmailIdentity(
 		}
 	}
 
+	s.invalidateBoundEmailAuthCache(ctx, userID)
 	s.revokeEmailIdentitySessions(ctx, userID)
 	return currentUser, nil
+}
+
+func (s *AuthService) invalidateBoundEmailAuthCache(ctx context.Context, userID int64) {
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
+	}
 }
 
 // SendEmailIdentityBindCode sends a verification code for authenticated email binding flows.

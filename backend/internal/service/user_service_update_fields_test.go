@@ -60,6 +60,60 @@ func TestUpdateProfile_AvatarOnlySkipsUserRowWrite(t *testing.T) {
 	require.Equal(t, []UserUpdateFields{{}}, repo.updateFields, "no user column should be declared")
 }
 
+func TestUpdateProfile_BalanceNotificationChangesInvalidateAuthCache(t *testing.T) {
+	email := "registered@example.com"
+	tests := []struct {
+		name string
+		req  UpdateProfileRequest
+	}{
+		{name: "toggle", req: UpdateProfileRequest{BalanceNotifyEnabled: boolPtr(false)}},
+		{name: "threshold", req: UpdateProfileRequest{BalanceNotifyThreshold: float64Ptr(8.5)}},
+		{name: "registration email", req: UpdateProfileRequest{Email: &email}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &mockUserRepo{getByIDUser: &User{ID: 7, Email: email, BalanceNotifyEnabled: true}}
+			invalidator := &mockAuthCacheInvalidator{}
+			svc := NewUserService(repo, nil, invalidator, nil)
+
+			_, err := svc.UpdateProfile(context.Background(), 7, tt.req)
+			require.NoError(t, err)
+			require.Equal(t, []int64{7}, invalidator.invalidatedUserIDs)
+		})
+	}
+}
+
+func TestBalanceNotifyExtraEmailChangesInvalidateAuthCache(t *testing.T) {
+	t.Run("add", func(t *testing.T) {
+		repo := &mockUserRepo{getByIDUser: &User{ID: 7}}
+		invalidator := &mockAuthCacheInvalidator{}
+		svc := NewUserService(repo, nil, invalidator, nil)
+
+		require.NoError(t, svc.addOrVerifyNotifyEmail(context.Background(), 7, "extra@example.com"))
+		require.Equal(t, []int64{7}, invalidator.invalidatedUserIDs)
+		require.Equal(t, []UserUpdateFields{{BalanceNotifyExtraEmails: true}}, repo.updateFields)
+	})
+
+	t.Run("remove", func(t *testing.T) {
+		repo := &mockUserRepo{getByIDUser: &User{ID: 7, BalanceNotifyExtraEmails: []NotifyEmailEntry{{Email: "extra@example.com", Verified: true}}}}
+		invalidator := &mockAuthCacheInvalidator{}
+		svc := NewUserService(repo, nil, invalidator, nil)
+
+		require.NoError(t, svc.RemoveNotifyEmail(context.Background(), 7, "extra@example.com"))
+		require.Equal(t, []int64{7}, invalidator.invalidatedUserIDs)
+	})
+
+	t.Run("toggle", func(t *testing.T) {
+		repo := &mockUserRepo{getByIDUser: &User{ID: 7, BalanceNotifyExtraEmails: []NotifyEmailEntry{{Email: "extra@example.com", Verified: true}}}}
+		invalidator := &mockAuthCacheInvalidator{}
+		svc := NewUserService(repo, nil, invalidator, nil)
+
+		require.NoError(t, svc.ToggleNotifyEmail(context.Background(), 7, "extra@example.com", true))
+		require.Equal(t, []int64{7}, invalidator.invalidatedUserIDs)
+	})
+}
+
 func TestChangePassword_OnlyDeclaresPasswordHash(t *testing.T) {
 	user := &User{ID: 7, Balance: 0.30}
 	require.NoError(t, user.SetPassword("old-password"))

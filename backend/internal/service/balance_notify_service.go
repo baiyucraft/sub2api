@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"net/mail"
 	"net/url"
 	"strconv"
 	"strings"
@@ -395,10 +396,53 @@ func filterVerifiedEmails(entries []NotifyEmailEntry) []string {
 	return recipients
 }
 
-// collectBalanceNotifyRecipients returns verified, non-disabled email recipients.
-// Only emails with verified=true and disabled=false are included.
+// collectBalanceNotifyRecipients returns the effective balance alert recipients.
+// Verified and enabled extra emails replace the registration email. When no
+// usable extra email exists, the user's registration email is used instead.
 func (s *BalanceNotifyService) collectBalanceNotifyRecipients(user *User) []string {
-	return filterVerifiedEmails(user.BalanceNotifyExtraEmails)
+	if user == nil {
+		return nil
+	}
+	if recipients := collectUsableBalanceNotifyExtraEmails(user.BalanceNotifyExtraEmails); len(recipients) > 0 {
+		return recipients
+	}
+	if email, ok := normalizeBalanceNotifyRecipient(user.Email); ok {
+		return []string{email}
+	}
+	return nil
+}
+
+func collectUsableBalanceNotifyExtraEmails(entries []NotifyEmailEntry) []string {
+	recipients := make([]string, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.Disabled || !entry.Verified {
+			continue
+		}
+		email, ok := normalizeBalanceNotifyRecipient(entry.Email)
+		if !ok {
+			continue
+		}
+		key := strings.ToLower(email)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		recipients = append(recipients, email)
+	}
+	return recipients
+}
+
+func normalizeBalanceNotifyRecipient(raw string) (string, bool) {
+	email := strings.TrimSpace(raw)
+	if email == "" || isReservedEmail(email) {
+		return "", false
+	}
+	address, err := mail.ParseAddress(email)
+	if err != nil || !strings.EqualFold(strings.TrimSpace(address.Address), email) {
+		return "", false
+	}
+	return email, true
 }
 
 // sendEmails sends an email to all recipients with shared timeout and error logging.

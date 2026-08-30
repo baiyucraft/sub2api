@@ -1573,7 +1573,20 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		return UpstreamHealthSnapshot{}, err
 	}
 	if item.LastProbeStatus != "success" {
-		return item, infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_FAILED", "upstream key probe failed")
+		metadata := map[string]string{
+			"probe_reason": strings.TrimSpace(result.Reason),
+			"protocol":     strings.TrimSpace(result.Protocol),
+			"model":        strings.TrimSpace(result.Model),
+		}
+		if result.HTTPStatus != nil {
+			metadata["http_status"] = strconv.Itoa(*result.HTTPStatus)
+		}
+		for key, value := range metadata {
+			if strings.TrimSpace(value) == "" {
+				delete(metadata, key)
+			}
+		}
+		return item, infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_FAILED", "upstream key probe failed").WithMetadata(metadata)
 	}
 	return item, nil
 }

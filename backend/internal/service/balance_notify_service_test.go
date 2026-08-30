@@ -235,6 +235,55 @@ func TestCollectBalanceNotifyRecipients_Empty(t *testing.T) {
 	require.Empty(t, s.collectBalanceNotifyRecipients(u))
 }
 
+func TestCollectBalanceNotifyRecipients_UsesRegistrationEmailByDefault(t *testing.T) {
+	s := &BalanceNotifyService{}
+	u := &User{Email: "  registered@example.com  "}
+	require.Equal(t, []string{"registered@example.com"}, s.collectBalanceNotifyRecipients(u))
+}
+
+func TestCollectBalanceNotifyRecipients_ExtraEmailsReplaceRegistrationEmail(t *testing.T) {
+	s := &BalanceNotifyService{}
+	u := &User{
+		Email: "registered@example.com",
+		BalanceNotifyExtraEmails: []NotifyEmailEntry{
+			{Email: "extra@example.com", Verified: true},
+		},
+	}
+	require.Equal(t, []string{"extra@example.com"}, s.collectBalanceNotifyRecipients(u))
+}
+
+func TestCollectBalanceNotifyRecipients_FallsBackWhenExtrasAreUnavailable(t *testing.T) {
+	s := &BalanceNotifyService{}
+	u := &User{
+		Email: "registered@example.com",
+		BalanceNotifyExtraEmails: []NotifyEmailEntry{
+			{Email: "disabled@example.com", Verified: true, Disabled: true},
+			{Email: "unverified@example.com", Verified: false},
+			{Email: "  ", Verified: true},
+		},
+	}
+	require.Equal(t, []string{"registered@example.com"}, s.collectBalanceNotifyRecipients(u))
+}
+
+func TestCollectBalanceNotifyRecipients_FallsBackWhenVerifiedExtraIsMalformed(t *testing.T) {
+	s := &BalanceNotifyService{}
+	u := &User{
+		Email: "registered@example.com",
+		BalanceNotifyExtraEmails: []NotifyEmailEntry{
+			{Email: "not-an-email", Verified: true},
+			{Email: "legacy-user" + OIDCConnectSyntheticEmailDomain, Verified: true},
+		},
+	}
+	require.Equal(t, []string{"registered@example.com"}, s.collectBalanceNotifyRecipients(u))
+}
+
+func TestCollectBalanceNotifyRecipients_InvalidRegistrationEmailIsSkipped(t *testing.T) {
+	s := &BalanceNotifyService{}
+	require.Empty(t, s.collectBalanceNotifyRecipients(&User{Email: "not-an-email"}))
+	require.Empty(t, s.collectBalanceNotifyRecipients(&User{Email: "legacy-user" + OIDCConnectSyntheticEmailDomain}))
+	require.Empty(t, s.collectBalanceNotifyRecipients(nil))
+}
+
 func TestCollectBalanceNotifyRecipients_FiltersDisabledAndUnverified(t *testing.T) {
 	s := &BalanceNotifyService{}
 	u := &User{

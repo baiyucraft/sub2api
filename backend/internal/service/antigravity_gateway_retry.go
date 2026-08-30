@@ -41,6 +41,33 @@ type antigravityRetryLoopParams struct {
 	sessionHash     string // 用于模型级限流时清除粘性会话
 }
 
+// Probe attempts must never put an upstream response body into logs. The same
+// retry loop is shared with normal traffic, so keep redaction scoped to the
+// explicit probe prefix and preserve existing diagnostics for user requests.
+func antigravityProbeLogBody(p antigravityRetryLoopParams, body []byte, limit int) string {
+	if strings.Contains(p.prefix, "[antigravity-Probe]") {
+		return "[redacted]"
+	}
+	return truncateForLog(body, limit)
+}
+
+func antigravityProbeLogError(p antigravityRetryLoopParams, err error) string {
+	if strings.Contains(p.prefix, "[antigravity-Probe]") {
+		return "[redacted]"
+	}
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func antigravityProbeLogURL(p antigravityRetryLoopParams, raw string) string {
+	if strings.Contains(p.prefix, "[antigravity-Probe]") {
+		return "[redacted]"
+	}
+	return raw
+}
+
 // antigravityRetryLoopResult 重试循环的结果
 type antigravityRetryLoopResult struct {
 	resp *http.Response
@@ -108,7 +135,7 @@ type smartRetryResult struct {
 func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParams, resp *http.Response, respBody []byte, baseURL string, urlIdx int, availableURLs []string) *smartRetryResult {
 	// "Resource has been exhausted" 是 URL 级别限流，切换 URL（仅 429）
 	if resp.StatusCode == http.StatusTooManyRequests && isURLLevelRateLimit(respBody) && urlIdx < len(availableURLs)-1 {
-		logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (429): %s -> %s", p.prefix, baseURL, availableURLs[urlIdx+1])
+		logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (429): %s -> %s", p.prefix, antigravityProbeLogURL(p, baseURL), antigravityProbeLogURL(p, availableURLs[urlIdx+1]))
 		return &smartRetryResult{action: smartRetryActionContinueURL}
 	}
 
@@ -149,7 +176,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			rateLimitDuration = antigravityDefaultRateLimitDuration
 		}
 		logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d oauth_long_delay model=%s account=%d upstream_retry_delay=%v body=%s (model rate limit, switch account)",
-			p.prefix, resp.StatusCode, modelName, p.account.ID, rateLimitDuration, truncateForLog(respBody, 200))
+			p.prefix, resp.StatusCode, modelName, p.account.ID, rateLimitDuration, antigravityProbeLogBody(p, respBody, 200))
 
 		resetAt := time.Now().Add(rateLimitDuration)
 		if !s.setAntigravityModelRateLimits(p.ctx, p.accountRepo, p.account, modelName, p.prefix, resp.StatusCode, resetAt, false) {
@@ -216,7 +243,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			// 智能重试：创建新请求
 			retryReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, p.body)
 			if err != nil {
-				logger.LegacyPrintf("service.antigravity_gateway", "%s status=smart_retry_request_build_failed error=%v", p.prefix, err)
+				logger.LegacyPrintf("service.antigravity_gateway", "%s status=smart_retry_request_build_failed error=%s", p.prefix, antigravityProbeLogError(p, err))
 				p.handleError(p.ctx, p.prefix, p.account, resp.StatusCode, resp.Header, respBody, p.requestedModel, p.groupID, p.sessionHash, p.isStickySession)
 				return &smartRetryResult{
 					action: smartRetryActionBreakWithResp,
@@ -242,7 +269,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 
 			// 网络错误时，继续重试
 			if retryErr != nil || retryResp == nil {
-				log.Printf("%s status=smart_retry_network_error attempt=%d/%d error=%v", p.prefix, attempt, maxAttempts, retryErr)
+				log.Printf("%s status=smart_retry_network_error attempt=%d/%d error=%s", p.prefix, attempt, maxAttempts, antigravityProbeLogError(p, retryErr))
 				continue
 			}
 
@@ -285,7 +312,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 				modelCapacityExhaustedMu.Unlock()
 			}
 			log.Printf("%s status=%d smart_retry_exhausted_model_capacity attempts=%d model=%s account=%d body=%s (model capacity exhausted, not switching account)",
-				p.prefix, resp.StatusCode, maxAttempts, modelName, p.account.ID, truncateForLog(retryBody, 200))
+				p.prefix, resp.StatusCode, maxAttempts, modelName, p.account.ID, antigravityProbeLogBody(p, retryBody, 200))
 			return &smartRetryResult{
 				action: smartRetryActionBreakWithResp,
 				resp: &http.Response{
@@ -300,7 +327,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		// 直接返回 503 让 Handler 层的单账号退避循环做最终处理。
 		if resp.StatusCode == http.StatusServiceUnavailable && isSingleAccountRetry(p.ctx) {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d smart_retry_exhausted_single_account attempts=%d model=%s account=%d body=%s (return 503 directly)",
-				p.prefix, resp.StatusCode, antigravitySmartRetryMaxAttempts, modelName, p.account.ID, truncateForLog(retryBody, 200))
+				p.prefix, resp.StatusCode, antigravitySmartRetryMaxAttempts, modelName, p.account.ID, antigravityProbeLogBody(p, retryBody, 200))
 			return &smartRetryResult{
 				action: smartRetryActionBreakWithResp,
 				resp: &http.Response{
@@ -312,7 +339,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		}
 
 		log.Printf("%s status=%d smart_retry_exhausted attempts=%d model=%s account=%d upstream_retry_delay=%v body=%s (switch account)",
-			p.prefix, resp.StatusCode, maxAttempts, modelName, p.account.ID, rateLimitDuration, truncateForLog(retryBody, 200))
+			p.prefix, resp.StatusCode, maxAttempts, modelName, p.account.ID, rateLimitDuration, antigravityProbeLogBody(p, retryBody, 200))
 
 		resetAt := time.Now().Add(rateLimitDuration)
 		s.setAntigravityModelRateLimits(p.ctx, p.accountRepo, p.account, modelName, p.prefix, resp.StatusCode, resetAt, true)
@@ -399,7 +426,7 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 		// 创建新请求
 		retryReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, p.body)
 		if err != nil {
-			logger.LegacyPrintf("service.antigravity_gateway", "%s single_account_503_retry: request_build_failed error=%v", p.prefix, err)
+			logger.LegacyPrintf("service.antigravity_gateway", "%s single_account_503_retry: request_build_failed error=%s", p.prefix, antigravityProbeLogError(p, err))
 			break
 		}
 
@@ -416,8 +443,8 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 
 		// 网络错误时继续重试
 		if retryErr != nil || retryResp == nil {
-			logger.LegacyPrintf("service.antigravity_gateway", "%s single_account_503_retry: network_error attempt=%d/%d error=%v",
-				p.prefix, attempt, antigravitySingleAccountSmartRetryMaxAttempts, retryErr)
+			logger.LegacyPrintf("service.antigravity_gateway", "%s single_account_503_retry: network_error attempt=%d/%d error=%s",
+				p.prefix, attempt, antigravitySingleAccountSmartRetryMaxAttempts, antigravityProbeLogError(p, retryErr))
 			continue
 		}
 
@@ -451,7 +478,7 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 		retryBody = respBody
 	}
 	logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d single_account_503_retry_exhausted attempts=%d total_waited=%v model=%s account=%d body=%s (return 503 directly)",
-		p.prefix, resp.StatusCode, antigravitySingleAccountSmartRetryMaxAttempts, totalWaited, modelName, p.account.ID, truncateForLog(retryBody, 200))
+		p.prefix, resp.StatusCode, antigravitySingleAccountSmartRetryMaxAttempts, totalWaited, modelName, p.account.ID, antigravityProbeLogBody(p, retryBody, 200))
 
 	return &smartRetryResult{
 		action: smartRetryActionBreakWithResp,
@@ -557,18 +584,18 @@ urlFallbackLoop:
 					Message:            safeErr,
 				})
 				if shouldAntigravityFallbackToNextURL(err, 0) && urlIdx < len(availableURLs)-1 {
-					logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (connection error): %s -> %s", p.prefix, baseURL, availableURLs[urlIdx+1])
+					logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (connection error): %s -> %s", p.prefix, antigravityProbeLogURL(p, baseURL), antigravityProbeLogURL(p, availableURLs[urlIdx+1]))
 					continue urlFallbackLoop
 				}
 				if attempt < antigravityMaxRetries {
-					logger.LegacyPrintf("service.antigravity_gateway", "%s status=request_failed retry=%d/%d error=%v", p.prefix, attempt, antigravityMaxRetries, err)
+					logger.LegacyPrintf("service.antigravity_gateway", "%s status=request_failed retry=%d/%d error=%s", p.prefix, attempt, antigravityMaxRetries, antigravityProbeLogError(p, err))
 					if !sleepAntigravityBackoffWithContext(p.ctx, attempt) {
 						logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_backoff", p.prefix)
 						return nil, p.ctx.Err()
 					}
 					continue
 				}
-				logger.LegacyPrintf("service.antigravity_gateway", "%s status=request_failed retries_exhausted error=%v", p.prefix, err)
+				logger.LegacyPrintf("service.antigravity_gateway", "%s status=request_failed retries_exhausted error=%s", p.prefix, antigravityProbeLogError(p, err))
 				setOpsUpstreamError(p.c, 0, safeErr, "")
 				return nil, fmt.Errorf("upstream request failed after retries: %w", err)
 			}
@@ -635,7 +662,7 @@ urlFallbackLoop:
 							Message:            upstreamMsg,
 							Detail:             getUpstreamDetail(respBody),
 						})
-						logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d retry=%d/%d body=%s", p.prefix, resp.StatusCode, attempt, antigravityMaxRetries, truncateForLog(respBody, 200))
+						logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d retry=%d/%d body=%s", p.prefix, resp.StatusCode, attempt, antigravityMaxRetries, antigravityProbeLogBody(p, respBody, 200))
 						if !sleepAntigravityBackoffWithContext(p.ctx, attempt) {
 							logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_backoff", p.prefix)
 							return nil, p.ctx.Err()
@@ -645,7 +672,7 @@ urlFallbackLoop:
 
 					// 重试用尽，标记账户限流
 					p.handleError(p.ctx, p.prefix, p.account, resp.StatusCode, resp.Header, respBody, p.requestedModel, p.groupID, p.sessionHash, p.isStickySession)
-					logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d rate_limited base_url=%s body=%s", p.prefix, resp.StatusCode, baseURL, truncateForLog(respBody, 200))
+					logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d rate_limited base_url=%s body=%s", p.prefix, resp.StatusCode, antigravityProbeLogURL(p, baseURL), antigravityProbeLogBody(p, respBody, 200))
 					resp = &http.Response{
 						StatusCode: resp.StatusCode,
 						Header:     resp.Header.Clone(),
@@ -670,7 +697,7 @@ urlFallbackLoop:
 							Message:            upstreamMsg,
 							Detail:             getUpstreamDetail(respBody),
 						})
-						logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d retry=%d/%d body=%s", p.prefix, resp.StatusCode, attempt, antigravityMaxRetries, truncateForLog(respBody, 500))
+						logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d retry=%d/%d body=%s", p.prefix, resp.StatusCode, attempt, antigravityMaxRetries, antigravityProbeLogBody(p, respBody, 500))
 						if !sleepAntigravityBackoffWithContext(p.ctx, attempt) {
 							logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_backoff", p.prefix)
 							return nil, p.ctx.Err()

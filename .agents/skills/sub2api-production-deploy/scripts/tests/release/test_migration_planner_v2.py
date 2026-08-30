@@ -9,7 +9,7 @@ DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.gate import _validate_v2_pending
-from release.migration_planner import checksum_policy_sha256, catalog_sha256, discover_migration_catalog, plan_migrations
+from release.migration_planner import HOOK_REGISTRY, checksum_policy_sha256, catalog_sha256, discover_migration_catalog, pending_hooks, plan_migrations
 
 
 class MigrationPlannerV2Test(unittest.TestCase):
@@ -49,6 +49,24 @@ class MigrationPlannerV2Test(unittest.TestCase):
         evidence = {"migration_evidence": {"database_high_watermark": None, "pending": [{"filename": "001_first.sql", "checksum": "a" * 64, "preflight": True, "postflight": False}], "existing_checksums_verified": True, "isolated_upgrade_verified": True, "final_schema_verified": True}}
         with self.assertRaisesRegex(RuntimeError, "ordinary migration"):
             _validate_v2_pending({"migration_catalog": catalog}, evidence)
+
+    def test_balance_notification_migration_has_semantic_release_hook(self) -> None:
+        filename = "254_enable_balance_notifications_for_existing_users.sql"
+        hook = HOOK_REGISTRY[filename]
+        self.assertEqual(hook["script"], "migration-254-assert.sh")
+        self.assertEqual(hook["rollback_policy"], "coordinated_restore")
+        self.assertEqual([item["filename"] for item in pending_hooks([{"filename": filename}])], [filename])
+
+        script = (DEPLOY_ROOT / "maintenance" / "release" / hook["script"]).read_text(encoding="utf-8")
+        self.assertIn("balance_notify_enabled=FALSE", script)
+        self.assertIn("soft_deleted_digest", script)
+        self.assertIn("auth_cache_invalidation_outbox", script)
+        self.assertIn("OLD.balance_notify_extra_emails IS NOT DISTINCT FROM NEW.balance_notify_extra_emails", script)
+
+        vm_validate = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        self.assertIn(filename, vm_validate)
+        self.assertIn("254_*) script=migration-254-assert.sh", vm_validate)
+        self.assertIn('254_*) run_hook_v2 "$filename" migration-254-assert.sh postflight verified', vm_validate)
 
 
 if __name__ == "__main__":

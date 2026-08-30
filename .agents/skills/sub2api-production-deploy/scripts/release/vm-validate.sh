@@ -281,7 +281,8 @@ SQL
     239_reconcile_non_grok_video_pricing.sql \
     243_backfill_codex_fingerprint_seed.sql \
     244_channel_model_time_pricing.sql \
-    245_channel_monitor_quota_mode.sql; do
+    245_channel_monitor_quota_mode.sql \
+    254_enable_balance_notifications_for_existing_users.sql; do
     is_pending_v2 "$filename" || continue
     case "$filename" in
       195_*) script=migration-195-assert.sh ;;
@@ -292,6 +293,7 @@ SQL
       243_*) script=migration-243-assert.sh ;;
       244_*) script=migration-244-assert.sh ;;
       245_*) script=migration-245-assert.sh ;;
+      254_*) script=migration-254-assert.sh ;;
     esac
     run_hook_v2 "$filename" "$script" preflight absent
     case "$filename" in
@@ -315,7 +317,8 @@ SQL
     239_reconcile_non_grok_video_pricing.sql \
     243_backfill_codex_fingerprint_seed.sql \
     244_channel_model_time_pricing.sql \
-    245_channel_monitor_quota_mode.sql; do
+    245_channel_monitor_quota_mode.sql \
+    254_enable_balance_notifications_for_existing_users.sql; do
     is_pending_v2 "$filename" || continue
     case "$filename" in
       195_*) run_hook_v2 "$filename" migration-195-assert.sh postflight_db verified ;;
@@ -326,6 +329,7 @@ SQL
       243_*) run_hook_v2 "$filename" migration-243-assert.sh postflight verified ;;
       244_*) run_hook_v2 "$filename" migration-244-assert.sh postflight verified ;;
       245_*) run_hook_v2 "$filename" migration-245-assert.sh postflight verified ;;
+      254_*) run_hook_v2 "$filename" migration-254-assert.sh postflight verified ;;
     esac
   done
   mark_v2_stage old_image_health

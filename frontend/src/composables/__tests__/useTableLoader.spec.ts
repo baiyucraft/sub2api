@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useTableLoader } from '@/composables/useTableLoader'
 
+const { unmountCallbacks } = vi.hoisted(() => ({
+  unmountCallbacks: [] as Array<() => void>,
+}))
+
 // Mock @vueuse/core 的 useDebounceFn
 vi.mock('@vueuse/core', () => ({
   useDebounceFn: (fn: Function, ms: number) => {
@@ -19,7 +23,9 @@ vi.mock('vue', async () => {
   const actual = await vi.importActual('vue')
   return {
     ...actual,
-    onUnmounted: vi.fn(),
+    onUnmounted: vi.fn((callback: () => void) => {
+      unmountCallbacks.push(callback)
+    }),
   }
 })
 
@@ -31,6 +37,7 @@ describe('useTableLoader', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
+    unmountCallbacks.length = 0
   })
 
   afterEach(() => {
@@ -227,6 +234,41 @@ describe('useTableLoader', () => {
 
       // 第二次请求的结果生效
       expect(fetchFn).toHaveBeenCalledTimes(2)
+    })
+
+    it('忽略不响应 abort 的旧请求结果', async () => {
+      let resolveFirst: ((value: any) => void) | undefined
+      let callCount = 0
+      const fetchFn = vi.fn(() => {
+        callCount += 1
+        if (callCount === 1) {
+          return new Promise<any>((resolve) => {
+            resolveFirst = resolve
+          })
+        }
+        return Promise.resolve({ items: [{ id: 2 }], total: 1, pages: 1 })
+      })
+
+      const { items, load } = useTableLoader({ fetchFn })
+      const firstLoad = load()
+      const secondLoad = load()
+
+      await secondLoad
+      resolveFirst?.(undefined)
+      await expect(firstLoad).resolves.toBeUndefined()
+
+      expect(items.value).toEqual([{ id: 2 }])
+    })
+
+    it('组件卸载后不再启动延迟请求', async () => {
+      const fetchFn = createMockFetchFn()
+      const { load } = useTableLoader({ fetchFn })
+
+      expect(unmountCallbacks).toHaveLength(1)
+      unmountCallbacks[0]()
+
+      await expect(load()).resolves.toBeUndefined()
+      expect(fetchFn).not.toHaveBeenCalled()
     })
   })
 

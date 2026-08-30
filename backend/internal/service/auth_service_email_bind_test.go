@@ -44,6 +44,18 @@ type flakyEmailBindDefaultSubAssignerStub struct {
 	calls []*service.AssignSubscriptionInput
 }
 
+type emailBindAuthCacheInvalidatorStub struct {
+	userIDs []int64
+}
+
+func (s *emailBindAuthCacheInvalidatorStub) InvalidateAuthCacheByKey(context.Context, string) {}
+
+func (s *emailBindAuthCacheInvalidatorStub) InvalidateAuthCacheByUserID(_ context.Context, userID int64) {
+	s.userIDs = append(s.userIDs, userID)
+}
+
+func (s *emailBindAuthCacheInvalidatorStub) InvalidateAuthCacheByGroupID(context.Context, int64) {}
+
 func (s *flakyEmailBindDefaultSubAssignerStub) AssignOrExtendSubscription(
 	_ context.Context,
 	input *service.AssignSubscriptionInput,
@@ -173,6 +185,33 @@ func TestAuthServiceBindEmailIdentity_UpdatesEmailAndAppliesFirstBindDefaults(t 
 	require.Equal(t, int64(11), assigner.calls[0].GroupID)
 	require.Equal(t, 30, assigner.calls[0].ValidityDays)
 	require.Equal(t, 1, countProviderGrantRecords(t, client, user.ID, "email", "first_bind"))
+}
+
+func TestAuthServiceBindEmailIdentity_InvalidatesAuthCacheAfterRegistrationEmailChange(t *testing.T) {
+	cache := &emailBindCacheStub{
+		data: &service.VerificationCodeData{
+			Code:      "123456",
+			CreatedAt: time.Now().UTC(),
+			ExpiresAt: time.Now().UTC().Add(10 * time.Minute),
+		},
+	}
+	svc, _, client := newAuthServiceForEmailBind(t, nil, cache, nil)
+	invalidator := &emailBindAuthCacheInvalidatorStub{}
+	svc.SetAuthCacheInvalidator(invalidator)
+
+	ctx := context.Background()
+	user, err := client.User.Create().
+		SetEmail("legacy-user" + service.OIDCConnectSyntheticEmailDomain).
+		SetUsername("legacy-user").
+		SetPasswordHash("old-hash").
+		SetRole(service.RoleUser).
+		SetStatus(service.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = svc.BindEmailIdentity(ctx, user.ID, "new@example.com", "123456", "new-password")
+	require.NoError(t, err)
+	require.Equal(t, []int64{user.ID}, invalidator.userIDs)
 }
 
 func TestAuthServiceBindEmailIdentity_RejectsExistingEmailOnAnotherUser(t *testing.T) {
