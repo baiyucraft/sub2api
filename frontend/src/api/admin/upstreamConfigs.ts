@@ -415,10 +415,30 @@ export interface UpdateUpstreamKeyPlatformPayload {
   disable_bound_accounts?: boolean
 }
 
+export type UpstreamConfigSortBy =
+  | 'id'
+  | 'name'
+  | 'provider'
+  | 'balance_cny'
+  | 'upstream_concurrency'
+  | 'scheduling_enabled'
+  | 'auth_mode'
+  | 'last_success_at'
+
+export type UpstreamConfigSortOrder = 'asc' | 'desc'
+
+export interface UpstreamConfigListFilters {
+  provider?: string
+  status?: string
+  search?: string
+  sort_by?: UpstreamConfigSortBy
+  sort_order?: UpstreamConfigSortOrder
+}
+
 export async function list(
   page = 1,
   pageSize = 20,
-  filters?: { provider?: string; status?: string; search?: string }
+  filters?: UpstreamConfigListFilters
 ): Promise<PaginatedResponse<UpstreamConfig>> {
   const { data } = await apiClient.get<PaginatedResponse<UpstreamConfig>>('/admin/upstream-configs', {
     params: { page, page_size: pageSize, ...filters }

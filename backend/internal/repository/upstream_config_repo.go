@@ -208,15 +208,15 @@ func (r *upstreamConfigRepository) WithUpstreamHealthProbeLock(ctx context.Conte
 	return true, fn(ctx)
 }
 
-func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]service.UpstreamConfig, *pagination.PaginationResult, error) {
+func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.PaginationParams, filter service.UpstreamConfigListFilter) ([]service.UpstreamConfig, *pagination.PaginationResult, error) {
 	q := r.client.UpstreamConfig.Query()
-	if provider = strings.TrimSpace(provider); provider != "" {
+	if provider := strings.TrimSpace(filter.Provider); provider != "" {
 		q = q.Where(dbupstreamconfig.ProviderEQ(provider))
 	}
-	if status = strings.TrimSpace(status); status != "" {
+	if status := strings.TrimSpace(filter.Status); status != "" {
 		q = q.Where(dbupstreamconfig.StatusEQ(status))
 	}
-	if search = strings.TrimSpace(search); search != "" {
+	if search := strings.TrimSpace(filter.Search); search != "" {
 		q = q.Where(dbupstreamconfig.Or(
 			dbupstreamconfig.NameContainsFold(search),
 			dbupstreamconfig.SiteURLContainsFold(search),
@@ -233,7 +233,7 @@ func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.P
 		}).
 		Offset(params.Offset()).
 		Limit(params.Limit()).
-		Order(dbent.Desc(dbupstreamconfig.FieldUpdatedAt)).
+		Order(upstreamConfigListOrder(params, filter.BalanceSortAvailable)...).
 		All(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -247,6 +247,98 @@ func (r *upstreamConfigRepository) List(ctx context.Context, params pagination.P
 		out = append(out, *item)
 	}
 	return out, paginationResultFromTotal(int64(total), params), nil
+}
+
+func upstreamConfigListOrder(params pagination.PaginationParams, balanceSortAvailable bool) []dbupstreamconfig.OrderOption {
+	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
+	sortOrder := params.NormalizedSortOrder(pagination.SortOrderAsc)
+	direction := "ASC"
+	if sortOrder == pagination.SortOrderDesc {
+		direction = "DESC"
+	}
+
+	switch sortBy {
+	case "name", "provider", "auth_mode":
+		field := map[string]string{
+			"name":      dbupstreamconfig.FieldName,
+			"provider":  dbupstreamconfig.FieldProvider,
+			"auth_mode": dbupstreamconfig.FieldAuthMode,
+		}[sortBy]
+		return []dbupstreamconfig.OrderOption{func(s *entsql.Selector) {
+			s.OrderExpr(entsql.Expr("LOWER(" + s.C(field) + ") " + direction))
+			s.OrderBy(entsql.Asc(s.C(dbupstreamconfig.FieldID)))
+		}}
+	case "balance_cny":
+		if !balanceSortAvailable {
+			return []dbupstreamconfig.OrderOption{dbent.Asc(dbupstreamconfig.FieldID)}
+		}
+		return []dbupstreamconfig.OrderOption{func(s *entsql.Selector) {
+			expression := upstreamConfigBalanceSortExpression(s.C(dbupstreamconfig.FieldID))
+			s.OrderExpr(entsql.Expr(expression + " " + direction + " NULLS LAST"))
+			s.OrderBy(entsql.Asc(s.C(dbupstreamconfig.FieldID)))
+		}}
+	case "upstream_concurrency":
+		return []dbupstreamconfig.OrderOption{func(s *entsql.Selector) {
+			expression := upstreamConfigConcurrencySortExpression(s.C(dbupstreamconfig.FieldExtra))
+			s.OrderExpr(entsql.Expr(expression + " " + direction))
+			s.OrderBy(entsql.Asc(s.C(dbupstreamconfig.FieldID)))
+		}}
+	case "scheduling_enabled":
+		if sortOrder == pagination.SortOrderDesc {
+			return []dbupstreamconfig.OrderOption{dbent.Desc(dbupstreamconfig.FieldSchedulingEnabled), dbent.Asc(dbupstreamconfig.FieldID)}
+		}
+		return []dbupstreamconfig.OrderOption{dbent.Asc(dbupstreamconfig.FieldSchedulingEnabled), dbent.Asc(dbupstreamconfig.FieldID)}
+	case "last_success_at":
+		if sortOrder == pagination.SortOrderDesc {
+			return []dbupstreamconfig.OrderOption{
+				entsql.OrderByField(dbupstreamconfig.FieldLastSuccessAt, entsql.OrderDesc(), entsql.OrderNullsLast()).ToFunc(),
+				dbent.Asc(dbupstreamconfig.FieldID),
+			}
+		}
+		return []dbupstreamconfig.OrderOption{
+			entsql.OrderByField(dbupstreamconfig.FieldLastSuccessAt, entsql.OrderAsc(), entsql.OrderNullsLast()).ToFunc(),
+			dbent.Asc(dbupstreamconfig.FieldID),
+		}
+	case "", "id":
+		if sortBy == "id" && sortOrder == pagination.SortOrderDesc {
+			return []dbupstreamconfig.OrderOption{dbent.Desc(dbupstreamconfig.FieldID)}
+		}
+		return []dbupstreamconfig.OrderOption{dbent.Asc(dbupstreamconfig.FieldID)}
+	default:
+		return []dbupstreamconfig.OrderOption{dbent.Asc(dbupstreamconfig.FieldID)}
+	}
+}
+
+func upstreamConfigBalanceSortExpression(configIDColumn string) string {
+	return `(SELECT CASE
+		WHEN snapshot.observed_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours' THEN snapshot.balance_cny
+		ELSE NULL
+	END
+	FROM upstream_balance_snapshots AS snapshot
+	WHERE snapshot.upstream_config_id = ` + configIDColumn + `
+	ORDER BY snapshot.observed_at DESC, snapshot.id DESC
+	LIMIT 1)`
+}
+
+func upstreamConfigConcurrencySortExpression(extraColumn string) string {
+	override := extraColumn + " ->> 'scheduler_concurrency_override'"
+	status := extraColumn + " #>> '{upstream_concurrency_snapshot,status}'"
+	semantics := extraColumn + " #>> '{upstream_concurrency_snapshot,semantics}'"
+	limit := extraColumn + " #>> '{upstream_concurrency_snapshot,limit}'"
+	rawValue := extraColumn + " #>> '{upstream_concurrency_snapshot,raw_value}'"
+	parsedInteger := func(value string) string {
+		return "(CASE WHEN " + value + " ~ '^[0-9]+([.]0+)?$' THEN (" + value + ")::numeric END)"
+	}
+	overrideValue := parsedInteger(override)
+	limitValue := parsedInteger(limit)
+	rawNumericValue := parsedInteger(rawValue)
+	return `(CASE
+		WHEN ` + overrideValue + ` BETWEEN 1 AND 1000000 THEN ` + overrideValue + `
+		WHEN ` + status + ` = 'current' AND ` + semantics + ` = 'limited' AND ` + limitValue + ` BETWEEN 1 AND 1000000 THEN ` + limitValue + `
+		WHEN ` + status + ` = 'current' AND ` + semantics + ` = 'provider_defined' AND ` + rawNumericValue + ` BETWEEN 1 AND 1000000 THEN ` + rawNumericValue + `
+		WHEN ` + status + ` = 'current' AND ` + semantics + ` = 'unlimited' AND ` + rawValue + ` ~ '^0+([.]0+)?$' THEN 1000001
+		ELSE 100
+	END)`
 }
 
 func (r *upstreamConfigRepository) GetByID(ctx context.Context, id int64) (*service.UpstreamConfig, error) {

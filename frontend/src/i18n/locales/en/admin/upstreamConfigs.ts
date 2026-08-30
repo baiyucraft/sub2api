@@ -5,6 +5,7 @@ export default {
     searchPlaceholder: 'Search name, site, or API URL',
     sensitiveHint: 'These credentials are stored as highly sensitive upstream secrets and are only used to sync keys, rates, quota, and refresh JWTs. Passwords, JWTs, refresh tokens, cookies, and API keys are never returned in plaintext.',
     columns: {
+      id: 'ID',
       name: 'Name',
       provider: 'Type',
       address: 'Address',

@@ -141,11 +141,20 @@
           :loading="loading"
           row-key="id"
           :estimate-row-height="72"
+          server-side-sort
+          :default-sort-key="sortColumn"
+          :default-sort-order="sortOrder"
+          :sort-storage-key="SORT_STORAGE_KEY"
+          @sort="handleSort"
         >
           <template #header-upstream_concurrency>
             <span :title="t('admin.upstreamConfigs.concurrency.headerTitle')">
               {{ t('admin.upstreamConfigs.columns.upstreamConcurrency') }}
             </span>
+          </template>
+
+          <template #cell-id="{ row }">
+            <span class="font-mono text-xs text-gray-500 dark:text-dark-400">{{ row.id }}</span>
           </template>
 
           <template #cell-name="{ row }">
@@ -162,7 +171,6 @@
                 {{ row.name }}
               </button>
               <div v-else class="font-medium text-gray-900 dark:text-gray-100">{{ row.name }}</div>
-              <div class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">#{{ row.id }}</div>
             </div>
           </template>
 
@@ -1579,6 +1587,8 @@ import { adminAPI } from '@/api/admin'
 import upstreamAPI, {
   type UpstreamAuthMode,
   type UpstreamConfig,
+  type UpstreamConfigSortBy,
+  type UpstreamConfigSortOrder,
   type UpstreamBalanceSnapshot,
   type UpstreamEvent,
   type UpstreamIncident,
@@ -1607,12 +1617,37 @@ type OperationsDrawerMode = 'syncRuns' | 'events' | 'trend' | 'rateTrend' | 'set
 type RateRange = { min: number; max: number } | null
 type KeyManagementTab = 'imagePricing' | 'platforms'
 type ImagePricingFilter = 'supported' | 'all' | 'issues'
+type UpstreamConfigSortColumn =
+  | 'id'
+  | 'name'
+  | 'provider'
+  | 'balance'
+  | 'upstream_concurrency'
+  | 'scheduling'
+  | 'auth_mode'
+  | 'last_success_at'
 
-const ALWAYS_VISIBLE_COLUMNS = new Set(['name', 'actions'])
+const ALWAYS_VISIBLE_COLUMNS = new Set(['id', 'name', 'actions'])
 const HIDDEN_COLUMNS_KEY = 'upstream-config-hidden-columns'
 const HIDDEN_COLUMNS_VERSION_KEY = 'upstream-config-hidden-columns-version'
 const HIDDEN_COLUMNS_CURRENT_VERSION = '1'
 const DEFAULT_HIDDEN_COLUMNS = ['rates']
+const SORT_STORAGE_KEY = 'upstream-config-sort'
+const DEFAULT_SORT_COLUMN: UpstreamConfigSortColumn = 'id'
+const DEFAULT_SORT_ORDER: UpstreamConfigSortOrder = 'asc'
+const SORTABLE_COLUMN_TO_API: Record<UpstreamConfigSortColumn, UpstreamConfigSortBy> = {
+  id: 'id',
+  name: 'name',
+  provider: 'provider',
+  balance: 'balance_cny',
+  upstream_concurrency: 'upstream_concurrency',
+  scheduling: 'scheduling_enabled',
+  auth_mode: 'auth_mode',
+  last_success_at: 'last_success_at'
+}
+const SORTABLE_COLUMN_KEYS = new Set<UpstreamConfigSortColumn>(
+  Object.keys(SORTABLE_COLUMN_TO_API) as UpstreamConfigSortColumn[]
+)
 
 const { t } = useI18n()
 const route = useRoute()
@@ -1742,6 +1777,38 @@ const pagination = reactive({
   total: 0
 })
 
+function normalizeSortColumn(value: unknown): UpstreamConfigSortColumn {
+  return typeof value === 'string' && SORTABLE_COLUMN_KEYS.has(value as UpstreamConfigSortColumn)
+    ? value as UpstreamConfigSortColumn
+    : DEFAULT_SORT_COLUMN
+}
+
+function normalizeSortOrder(value: unknown): UpstreamConfigSortOrder {
+  return value === 'desc' ? 'desc' : DEFAULT_SORT_ORDER
+}
+
+function readPersistedSortState(): { key: UpstreamConfigSortColumn; order: UpstreamConfigSortOrder } {
+  if (typeof window === 'undefined') return { key: DEFAULT_SORT_COLUMN, order: DEFAULT_SORT_ORDER }
+  try {
+    const raw = localStorage.getItem(SORT_STORAGE_KEY)
+    if (!raw) return { key: DEFAULT_SORT_COLUMN, order: DEFAULT_SORT_ORDER }
+    const parsed = JSON.parse(raw) as { key?: unknown; order?: unknown }
+    if (typeof parsed.key !== 'string' || !SORTABLE_COLUMN_KEYS.has(parsed.key as UpstreamConfigSortColumn)) {
+      return { key: DEFAULT_SORT_COLUMN, order: DEFAULT_SORT_ORDER }
+    }
+    return {
+      key: parsed.key as UpstreamConfigSortColumn,
+      order: normalizeSortOrder(parsed.order)
+    }
+  } catch {
+    return { key: DEFAULT_SORT_COLUMN, order: DEFAULT_SORT_ORDER }
+  }
+}
+
+const initialSortState = readPersistedSortState()
+const sortColumn = ref<UpstreamConfigSortColumn>(initialSortState.key)
+const sortOrder = ref<UpstreamConfigSortOrder>(initialSortState.order)
+
 const form = reactive({
   name: '',
   provider: 'sub2api' as UpstreamProvider,
@@ -1765,18 +1832,20 @@ const form = reactive({
 })
 
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
+let configsRequestGeneration = 0
 
 const allColumns = computed<Column[]>(() => [
-  { key: 'name', label: t('admin.upstreamConfigs.columns.name') },
-  { key: 'provider', label: t('admin.upstreamConfigs.columns.provider') },
+  { key: 'id', label: t('admin.upstreamConfigs.columns.id'), sortable: true, class: 'w-20 whitespace-nowrap' },
+  { key: 'name', label: t('admin.upstreamConfigs.columns.name'), sortable: true },
+  { key: 'provider', label: t('admin.upstreamConfigs.columns.provider'), sortable: true },
   { key: 'urls', label: t('admin.upstreamConfigs.columns.address') },
-  { key: 'balance', label: t('admin.upstreamConfigs.columns.balance') },
-  { key: 'upstream_concurrency', label: t('admin.upstreamConfigs.columns.upstreamConcurrency') },
+  { key: 'balance', label: t('admin.upstreamConfigs.columns.balance'), sortable: true },
+  { key: 'upstream_concurrency', label: t('admin.upstreamConfigs.columns.upstreamConcurrency'), sortable: true },
   { key: 'rates', label: t('admin.upstreamConfigs.columns.rates') },
-  { key: 'scheduling', label: t('admin.upstreamConfigs.columns.scheduling') },
-  { key: 'auth_mode', label: t('admin.upstreamConfigs.columns.authMode') },
+  { key: 'scheduling', label: t('admin.upstreamConfigs.columns.scheduling'), sortable: true },
+  { key: 'auth_mode', label: t('admin.upstreamConfigs.columns.authMode'), sortable: true },
   { key: 'credentials', label: t('admin.upstreamConfigs.columns.credentials') },
-  { key: 'last_success_at', label: t('admin.upstreamConfigs.columns.lastSync') },
+  { key: 'last_success_at', label: t('admin.upstreamConfigs.columns.lastSync'), sortable: true },
   { key: 'actions', label: t('admin.upstreamConfigs.columns.actions'), class: 'min-w-[300px]' }
 ])
 
@@ -1864,6 +1933,30 @@ const saveColumnsToStorage = () => {
   }
 }
 
+const saveSortToStorage = () => {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify({
+      key: sortColumn.value,
+      order: sortOrder.value
+    }))
+  } catch (error) {
+    console.error('Failed to save upstream config sort settings:', error)
+  }
+}
+
+const resetSortToDefault = (reload: boolean) => {
+  sortColumn.value = DEFAULT_SORT_COLUMN
+  sortOrder.value = DEFAULT_SORT_ORDER
+  saveSortToStorage()
+  if (reload) reloadFromFirstPage()
+}
+
+const ensureVisibleSortColumn = (reload: boolean) => {
+  if (!hiddenColumns.has(sortColumn.value)) return
+  resetSortToDefault(reload)
+}
+
 const loadSavedColumns = () => {
   hiddenColumns.clear()
   const validKeys = getValidHiddenColumnKeys()
@@ -1917,6 +2010,7 @@ const toggleColumn = (key: string) => {
     hiddenColumns.add(key)
   }
   saveColumnsToStorage()
+  ensureVisibleSortColumn(true)
 }
 
 const columns = computed<Column[]>(() =>
@@ -1927,6 +2021,7 @@ const columns = computed<Column[]>(() =>
 
 if (typeof window !== 'undefined') {
   loadSavedColumns()
+  ensureVisibleSortColumn(false)
 }
 
 const providerFilterOptions = computed<SelectOption[]>(() => [
@@ -2034,6 +2129,7 @@ function handleClickOutside(event: MouseEvent) {
 }
 
 async function loadConfigs() {
+  const generation = ++configsRequestGeneration
   loading.value = true
   try {
     const queryID = typeof route.query.upstream_config_id === 'string' && /^\d+$/.test(route.query.upstream_config_id)
@@ -2041,22 +2137,28 @@ async function loadConfigs() {
       : undefined
     if (queryID) {
       const config = await upstreamAPI.getById(queryID)
+      if (generation !== configsRequestGeneration) return
       configs.value = [config]
       pagination.total = 1
       return
     }
     const res = await upstreamAPI.list(pagination.page, pagination.page_size, {
       provider: provider.value,
-      search: search.value.trim()
+      search: search.value.trim(),
+      sort_by: SORTABLE_COLUMN_TO_API[sortColumn.value],
+      sort_order: sortOrder.value
     })
+    if (generation !== configsRequestGeneration) return
     configs.value = res.items || []
     pagination.total = res.total || 0
     pagination.page = res.page || pagination.page
     pagination.page_size = res.page_size || pagination.page_size
   } catch (error: any) {
-    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadFailed')))
+    if (generation === configsRequestGeneration) {
+      appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadFailed')))
+    }
   } finally {
-    loading.value = false
+    if (generation === configsRequestGeneration) loading.value = false
   }
 }
 
@@ -2100,6 +2202,19 @@ function debouncedReload() {
 function reloadFromFirstPage() {
   pagination.page = 1
   loadConfigs()
+}
+
+function handleSort(key: string, order: UpstreamConfigSortOrder) {
+  if (!SORTABLE_COLUMN_KEYS.has(key as UpstreamConfigSortColumn)) {
+    resetSortToDefault(true)
+    return
+  }
+  const normalizedKey = normalizeSortColumn(key)
+  const normalizedOrder = normalizeSortOrder(order)
+  sortColumn.value = normalizedKey
+  sortOrder.value = normalizedOrder
+  saveSortToStorage()
+  reloadFromFirstPage()
 }
 
 function handlePageChange(page: number) {

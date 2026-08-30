@@ -121,15 +121,28 @@ const TablePageLayoutStub = defineComponent({
 })
 
 const DataTableStub = defineComponent({
-  props: ['columns', 'data', 'rowKey'],
+  props: [
+    'columns', 'data', 'rowKey', 'serverSideSort', 'defaultSortKey',
+    'defaultSortOrder', 'sortStorageKey'
+  ],
+  emits: ['sort'],
   template: `
-    <div data-test="data-table" :data-row-key="rowKey">
+    <div
+      data-test="data-table"
+      :data-row-key="rowKey"
+      :data-server-side-sort="String(serverSideSort)"
+      :data-default-sort-key="defaultSortKey"
+      :data-default-sort-order="defaultSortOrder"
+      :data-sort-storage-key="sortStorageKey"
+    >
       <div data-test="columns">{{ columns.map((column) => column.key).join(',') }}</div>
+      <div data-test="sortable-columns">{{ columns.filter((column) => column.sortable).map((column) => column.key).join(',') }}</div>
       <div data-test="actions-column-class">{{ columns.find((column) => column.key === 'actions')?.class }}</div>
       <div data-test="upstream-concurrency-header">
         <slot name="header-upstream_concurrency" :column="columns.find((column) => column.key === 'upstream_concurrency')" />
       </div>
       <div v-for="row in data" :key="row.id" data-test="row">
+        <slot v-if="columns.find((column) => column.key === 'id')" name="cell-id" :row="row" :value="row.id">{{ row.id }}</slot>
         <slot name="cell-name" :row="row" :value="row.name" />
         <slot v-if="columns.find((column) => column.key === 'provider')" name="cell-provider" :row="row" :value="row.provider" />
         <slot v-if="columns.find((column) => column.key === 'urls')" name="cell-urls" :row="row" :value="row.site_url" />
@@ -275,14 +288,18 @@ function upstreamConfig(overrides = {}) {
   }
 }
 
-function mockList(items = [upstreamConfig()], total = items.length) {
-  listMock.mockResolvedValue({
+function paginated(items = [upstreamConfig()], total = items.length) {
+  return {
     items,
     total,
     page: 1,
     page_size: 20,
     pages: 1
-  })
+  }
+}
+
+function mockList(items = [upstreamConfig()], total = items.length) {
+  listMock.mockResolvedValue(paginated(items, total))
 }
 
 function deferred<T>() {
@@ -428,8 +445,17 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="more-upstream-actions"]').element.parentElement?.className).toContain('min-w-[300px]')
     expect(wrapper.get('[data-test="actions-column-class"]').text()).toBe('min-w-[300px]')
     expect(wrapper.get('[data-test="columns"]').text()).toBe(
-      'name,provider,urls,balance,upstream_concurrency,scheduling,auth_mode,credentials,last_success_at,actions'
+      'id,name,provider,urls,balance,upstream_concurrency,scheduling,auth_mode,credentials,last_success_at,actions'
     )
+    expect(wrapper.get('[data-test="sortable-columns"]').text()).toBe(
+      'id,name,provider,balance,upstream_concurrency,scheduling,auth_mode,last_success_at'
+    )
+    expect(wrapper.get('[data-test="data-table"]').attributes()).toMatchObject({
+      'data-server-side-sort': '',
+      'data-default-sort-key': 'id',
+      'data-default-sort-order': 'asc',
+      'data-sort-storage-key': 'upstream-config-sort'
+    })
     expect(wrapper.get('[data-test="upstream-concurrency-header"] span').attributes('title')).toBe(
       'admin.upstreamConfigs.concurrency.headerTitle'
     )
@@ -449,6 +475,94 @@ describe('UpstreamConfigsView', () => {
     expect(getByIdMock).toHaveBeenCalledWith(42)
     expect(listMock).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Filtered upstream')
+  })
+
+  it('requests the default server-side ID ordering', async () => {
+    mountView()
+    await flushPromises()
+
+    expect(listMock).toHaveBeenNthCalledWith(1, 1, 20, {
+      provider: '',
+      search: '',
+      sort_by: 'id',
+      sort_order: 'asc'
+    })
+  })
+
+  it('maps sortable column keys to API sort keys and persists the selection', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.findComponent(DataTableStub).vm.$emit('sort', 'balance', 'desc')
+    await flushPromises()
+
+    expect(listMock).toHaveBeenLastCalledWith(1, 20, {
+      provider: '',
+      search: '',
+      sort_by: 'balance_cny',
+      sort_order: 'desc'
+    })
+    expect(localStorage.getItem('upstream-config-sort')).toBe(JSON.stringify({ key: 'balance', order: 'desc' }))
+  })
+
+  it('restores a valid persisted sort and rejects an invalid persisted column', async () => {
+    localStorage.setItem('upstream-config-sort', JSON.stringify({ key: 'provider', order: 'desc' }))
+    const restored = mountView()
+    await flushPromises()
+
+    expect(listMock).toHaveBeenLastCalledWith(1, 20, {
+      provider: '', search: '', sort_by: 'provider', sort_order: 'desc'
+    })
+    expect(restored.get('[data-test="data-table"]').attributes('data-default-sort-key')).toBe('provider')
+    restored.unmount()
+
+    listMock.mockClear()
+    localStorage.setItem('upstream-config-sort', JSON.stringify({ key: 'credentials', order: 'desc' }))
+    const fallback = mountView()
+    await flushPromises()
+
+    expect(listMock).toHaveBeenLastCalledWith(1, 20, {
+      provider: '', search: '', sort_by: 'id', sort_order: 'asc'
+    })
+    expect(fallback.get('[data-test="data-table"]').attributes('data-default-sort-key')).toBe('id')
+  })
+
+  it('resets to ID ascending when the active sortable column is hidden', async () => {
+    localStorage.setItem('upstream-config-sort', JSON.stringify({ key: 'balance', order: 'desc' }))
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button[title="admin.upstreamConfigs.columnSettings"]').trigger('click')
+    const balanceToggle = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.upstreamConfigs.columns.balance')
+    )
+    expect(balanceToggle).toBeTruthy()
+    await balanceToggle!.trigger('click')
+    await flushPromises()
+
+    expect(listMock).toHaveBeenLastCalledWith(1, 20, {
+      provider: '', search: '', sort_by: 'id', sort_order: 'asc'
+    })
+    expect(localStorage.getItem('upstream-config-sort')).toBe(JSON.stringify({ key: 'id', order: 'asc' }))
+  })
+
+  it('does not let an older list response overwrite a newer sort result', async () => {
+    const first = deferred<ReturnType<typeof paginated>>()
+    const second = deferred<ReturnType<typeof paginated>>()
+    listMock.mockReset()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+
+    const wrapper = mountView()
+    wrapper.findComponent(DataTableStub).vm.$emit('sort', 'name', 'desc')
+
+    second.resolve(paginated([upstreamConfig({ id: 2, name: 'Newest result' })]))
+    await flushPromises()
+    first.resolve(paginated([upstreamConfig({ id: 1, name: 'Stale result' })]))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Newest result')
+    expect(wrapper.text()).not.toContain('Stale result')
   })
 
   it('updates the upstream scheduling master switch without changing account switches', async () => {
@@ -477,6 +591,7 @@ describe('UpstreamConfigsView', () => {
   })
 
   it('uses localized balance and concurrency column labels', () => {
+    expect(zhUpstreamConfigs.upstreamConfigs.columns.id).toBe('ID')
     expect(zhUpstreamConfigs.upstreamConfigs.columns.balance).toBe('余额')
     expect(zhUpstreamConfigs.upstreamConfigs.columns.upstreamConcurrency).toBe('并发')
     expect(enUpstreamConfigs.upstreamConfigs.columns.balance).toBe('Balance')
@@ -529,7 +644,7 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-test="columns"]').text()).toBe(
-      'name,urls,balance,upstream_concurrency,rates,scheduling,auth_mode,last_success_at,actions'
+      'id,name,urls,balance,upstream_concurrency,rates,scheduling,auth_mode,last_success_at,actions'
     )
     expect(localStorage.getItem('upstream-config-hidden-columns')).toBe(
       JSON.stringify(['provider', 'credentials'])
@@ -987,12 +1102,16 @@ describe('UpstreamConfigsView', () => {
     await wrapper.get('[data-test="page-2"]').trigger('click')
     await flushPromises()
 
-    expect(listMock).toHaveBeenLastCalledWith(2, 20, { provider: '', search: '' })
+    expect(listMock).toHaveBeenLastCalledWith(2, 20, {
+      provider: '', search: '', sort_by: 'id', sort_order: 'asc'
+    })
 
     await wrapper.get('[data-test="page-size-50"]').trigger('click')
     await flushPromises()
 
-    expect(listMock).toHaveBeenLastCalledWith(1, 50, { provider: '', search: '' })
+    expect(listMock).toHaveBeenLastCalledWith(1, 50, {
+      provider: '', search: '', sort_by: 'id', sort_order: 'asc'
+    })
   })
 
   it('debounces search and resets to the first page', async () => {
@@ -1006,7 +1125,9 @@ describe('UpstreamConfigsView', () => {
     vi.advanceTimersByTime(300)
     await flushPromises()
 
-    expect(listMock).toHaveBeenLastCalledWith(1, 20, { provider: '', search: 'kedaya' })
+    expect(listMock).toHaveBeenLastCalledWith(1, 20, {
+      provider: '', search: 'kedaya', sort_by: 'id', sort_order: 'asc'
+    })
   })
 
   it('opens create dialog and submits through BaseDialog footer', async () => {
