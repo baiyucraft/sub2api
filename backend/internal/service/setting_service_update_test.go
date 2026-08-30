@@ -519,6 +519,18 @@ func TestSettingService_ParseSettingsDefaultsOpenAIOAuthSchedulingRateMultiplier
 	require.Equal(t, 0.05, svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0.05"}).OpenAIOAuthSchedulingRateMultiplier)
 }
 
+func TestSettingService_ParseSettingsDefaultsUpstreamBalanceNotificationToEnabled(t *testing.T) {
+	svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
+
+	require.True(t, svc.parseSettings(map[string]string{}).UpstreamBalanceNotifyEnabled)
+	require.False(t, svc.parseSettings(map[string]string{
+		SettingKeyUpstreamBalanceNotifyEnabled: "false",
+	}).UpstreamBalanceNotifyEnabled)
+	require.True(t, svc.parseSettings(map[string]string{
+		SettingKeyUpstreamBalanceNotifyEnabled: "true",
+	}).UpstreamBalanceNotifyEnabled)
+}
+
 func TestSettingService_GetAllSettings_OpenAIAdvancedSchedulerEffectiveValuesUseConfig(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Gateway.OpenAIWS.LBTopK = 13

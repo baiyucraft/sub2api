@@ -591,6 +591,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.AccountQuotaNotifyEnabled != after.AccountQuotaNotifyEnabled {
 		changed = append(changed, "account_quota_notify_enabled")
 	}
+	if before.UpstreamBalanceNotifyEnabled != after.UpstreamBalanceNotifyEnabled {
+		changed = append(changed, "upstream_balance_notify_enabled")
+	}
 	if !equalNotifyEmailEntries(before.AccountQuotaNotifyEmails, after.AccountQuotaNotifyEmails) {
 		changed = append(changed, "account_quota_notify_emails")
 	}

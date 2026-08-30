@@ -538,6 +538,7 @@ const baseSettingsResponse = {
   balance_low_notify_recharge_url: "",
   subscription_expiry_notify_enabled: true,
   account_quota_notify_enabled: false,
+  upstream_balance_notify_enabled: true,
   account_quota_notify_emails: [],
   // 平台限额嵌套字段（新后端契约）
   default_platform_quotas: {
@@ -824,6 +825,21 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({ compact_home_enabled: true }),
+    );
+  });
+
+  it("submits the default-enabled upstream balance alert independently", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account_quota_notify_enabled: false,
+        upstream_balance_notify_enabled: true,
+      }),
     );
   });
 
