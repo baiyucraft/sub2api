@@ -18,19 +18,25 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/tidwall/gjson"
 )
 
 const (
 	upstreamHealthProbeMaxOutputTokens = 50
-	upstreamHealthProbeBodyLimit       = 8 << 10
+	// Thinking-capable Gemini models may spend part of the output budget on
+	// internal thoughts. Keep enough budget for the complete structured answer.
+	upstreamHealthProbeGeminiMaxOutputTokens = 256
+	upstreamHealthProbeBodyLimit             = 8 << 10
 
 	upstreamHealthProbeProtocolOpenAI      = "openai_responses"
 	upstreamHealthProbeProtocolOpenAIChat  = "openai_chat_completions"
 	upstreamHealthProbeProtocolAnthropic   = "anthropic_messages"
 	upstreamHealthProbeProtocolGemini      = "gemini_stream_generate_content"
-	upstreamHealthProbeProtocolGrokChat    = "grok_chat_completions"
+	upstreamHealthProbeProtocolGrok        = "grok_responses"
 	upstreamHealthProbeProtocolAntigravity = "antigravity_v1internal"
+	upstreamHealthProbeProtocolAdaptive    = "adaptive_multi_protocol"
 	UpstreamConfidencePromptVersion        = "openai-juice-multiprobe-v2"
 	UpstreamConfidenceDefaultEffort        = "high"
 	upstreamConfidencePromptVersion        = UpstreamConfidencePromptVersion
@@ -315,13 +321,26 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 		return failUpstreamHealthProbe(result, "unsupported_account", "probe_account_unsupported", errors.New("upstream health probe account is required"))
 	}
 	platform := strings.ToLower(strings.TrimSpace(account.Platform))
-	if account.Type != AccountTypeAPIKey && platform != PlatformGrok && platform != PlatformAntigravity {
+	// Most upstream probes use a static API key. Gemini is also valid with the
+	// OAuth and Vertex service-account credentials used by the V1 channel test;
+	// keep those paths in the same health lifecycle instead of rejecting them
+	// before request construction.
+	geminiTokenAccount := platform == PlatformGemini &&
+		(account.Type == AccountTypeOAuth || account.Type == AccountTypeServiceAccount)
+	if account.Type != AccountTypeAPIKey && !geminiTokenAccount && platform != PlatformGrok && platform != PlatformAntigravity {
 		return failUpstreamHealthProbe(result, "unsupported_account", "probe_account_unsupported", errors.New("active probes require an API key account for this platform"))
 	}
 	if s == nil || s.httpUpstream == nil {
 		return failUpstreamHealthProbe(result, "unavailable", "probe_transport_unavailable", errors.New("upstream HTTP client is unavailable"))
 	}
 	if platform == PlatformOpenAI {
+		if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+			challenge, challengeErr := newUpstreamHealthChallenge()
+			if challengeErr != nil {
+				return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", challengeErr)
+			}
+			return s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
+		}
 		juiceChallenge, juiceErr := newOpenAIConfidenceChallenge()
 		if juiceErr != nil {
 			return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", juiceErr)
@@ -342,15 +361,21 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 		// These providers are OpenAI-compatible but their default contract is
 		// Chat Completions, not OpenAI Responses. Keep the probe protocol
 		// explicit so platform-specific base URLs and credentials are preserved.
+		if account.GetAPIProtocol() == APIProtocolAdaptive {
+			return s.runCNAdaptiveUpstreamHealthProbe(ctx, account, result, challenge)
+		}
 		if account.GetAPIProtocol() == APIProtocolAnthropic {
 			return s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
 		}
 		if account.GetAPIProtocol() == APIProtocolResponses {
-			return failUpstreamHealthProbe(result, "unsupported_protocol", "probe_protocol_unsupported", errors.New("configured responses protocol is not supported by the generic CN provider probe"))
+			if account.Platform == PlatformDeepseek {
+				return s.runDeepseekResponsesUpstreamHealthProbe(ctx, account, result, challenge)
+			}
+			return failUpstreamHealthProbe(result, "unsupported_protocol", "probe_protocol_unsupported", errors.New("configured responses protocol is not supported by this provider"))
 		}
 		return s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
 	case PlatformGrok:
-		return s.runGrokChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
+		return s.runGrokUpstreamHealthProbe(ctx, account, result, challenge)
 	case PlatformAntigravity:
 		return s.runAntigravityUpstreamHealthProbe(ctx, account, result, challenge)
 	default:
@@ -358,22 +383,97 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 	}
 }
 
-func (s *AccountTestService) runGrokChatCompletionsUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
-	result.Protocol = upstreamHealthProbeProtocolGrokChat
-	result.Model = account.GetMappedModel(result.Model)
+// runCNAdaptiveUpstreamHealthProbe verifies every protocol the adaptive
+// forwarding path can select for the account. Kimi and Zhipu expose native
+// Chat Completions and Anthropic Messages endpoints; DeepSeek additionally
+// exposes its native Responses endpoint. A failure keeps the concrete failing
+// protocol in the result, while a complete pass is recorded as one adaptive
+// health sample with conservative (worst TTFT, total duration/token) metrics.
+func (s *AccountTestService) runCNAdaptiveUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
+	probes := []func() (UpstreamHealthProbeResult, error){
+		func() (UpstreamHealthProbeResult, error) {
+			return s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
+		},
+		func() (UpstreamHealthProbeResult, error) {
+			return s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
+		},
+	}
+	if account.Platform == PlatformDeepseek {
+		probes = append(probes, func() (UpstreamHealthProbeResult, error) {
+			return s.runDeepseekResponsesUpstreamHealthProbe(ctx, account, result, challenge)
+		})
+	}
+
+	aggregate := result
+	aggregate.Protocol = upstreamHealthProbeProtocolAdaptive
+	aggregate.Result = "success"
+	aggregate.Reason = "probe_succeeded"
+	aggregate.FinishReason = "completed"
+	aggregate.HTTPStatus = probeIntPtr(http.StatusOK)
+	for _, probe := range probes {
+		current, err := probe()
+		if err != nil {
+			return current, err
+		}
+		mergeAdaptiveUpstreamHealthProbeResult(&aggregate, current)
+	}
+	setUpstreamHealthProbeOutputTPS(&aggregate)
+	return aggregate, nil
+}
+
+func mergeAdaptiveUpstreamHealthProbeResult(aggregate *UpstreamHealthProbeResult, current UpstreamHealthProbeResult) {
+	if aggregate == nil {
+		return
+	}
+	if strings.TrimSpace(current.Model) != "" {
+		aggregate.Model = current.Model
+	}
+	if current.TTFTMs != nil && (aggregate.TTFTMs == nil || *current.TTFTMs > *aggregate.TTFTMs) {
+		value := *current.TTFTMs
+		aggregate.TTFTMs = &value
+	}
+	if current.DurationMs != nil {
+		if aggregate.DurationMs == nil {
+			value := int64(0)
+			aggregate.DurationMs = &value
+		}
+		*aggregate.DurationMs += *current.DurationMs
+	}
+	if current.InputTokens != nil {
+		if aggregate.InputTokens == nil {
+			value := int64(0)
+			aggregate.InputTokens = &value
+		}
+		*aggregate.InputTokens += *current.InputTokens
+	}
+	if current.OutputTokens != nil {
+		if aggregate.OutputTokens == nil {
+			value := int64(0)
+			aggregate.OutputTokens = &value
+		}
+		*aggregate.OutputTokens += *current.OutputTokens
+	}
+}
+
+func (s *AccountTestService) runGrokUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
+	result.Protocol = upstreamHealthProbeProtocolGrok
+	requestedModel := strings.TrimSpace(result.Model)
+	result.Model = account.GetMappedModel(requestedModel)
+	if strings.TrimSpace(result.Model) == "" || !account.IsModelSupported(requestedModel) || isTextProbeUnsupportedModel(result.Model) {
+		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", fmt.Errorf("Grok account does not support text probe model %q", requestedModel))
+	}
 	authToken, err := s.grokTestAccessToken(ctx, account)
 	if err != nil {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", err)
 	}
-	apiURL, err := buildGrokChatCompletionsURL(account, s.cfg, s.settingService)
+	apiURL, err := buildGrokResponsesURL(account, s.cfg, s.settingService)
 	if err != nil {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
 	}
 	payload, err := json.Marshal(map[string]any{
-		"model":      result.Model,
-		"messages":   []map[string]string{{"role": "user", "content": challenge.LegacyPrompt}},
-		"max_tokens": upstreamHealthProbeMaxOutputTokens,
-		"stream":     true,
+		"model":  result.Model,
+		"input":  challenge.LegacyPrompt,
+		"stream": true,
 	})
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
@@ -383,18 +483,40 @@ func (s *AccountTestService) runGrokChatCompletionsUpstreamHealthProbe(ctx conte
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
 	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
-	s.applyGrokTestRequestHeaders(req, account, authToken, "text/event-stream")
-	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseOpenAIChatCompletionsUpstreamHealthStream)
+	s.applyGrokTestRequestHeaders(req, account, authToken, "application/json, text/event-stream")
+	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseOpenAIUpstreamHealthStream)
+}
+
+func classifyGeminiProbeBuildError(account *Account, err error) (string, string) {
+	if err == nil {
+		return "configuration_error", "probe_request_invalid"
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(message, "base url") || strings.Contains(message, "url security") ||
+		strings.Contains(message, "invalid url") {
+		return "configuration_error", "probe_base_url_invalid"
+	}
+	if strings.Contains(message, "api key") || strings.Contains(message, "access token") ||
+		strings.Contains(message, "service account") || strings.Contains(message, "token provider") ||
+		(account != nil && account.Type == AccountTypeOAuth && strings.Contains(message, "credential")) {
+		return "configuration_error", "probe_credentials_missing"
+	}
+	return "configuration_error", "probe_request_invalid"
 }
 
 func (s *AccountTestService) runAntigravityUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
+	requestedModel := strings.TrimSpace(result.Model)
+	mappedModel := account.GetMappedModel(requestedModel)
+	if strings.TrimSpace(mappedModel) == "" || !account.IsModelSupported(requestedModel) || isTextProbeUnsupportedModel(mappedModel) {
+		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", fmt.Errorf("Antigravity account does not support text probe model %q", requestedModel))
+	}
 	if account.Type == AccountTypeOAuth {
+		result.Model = requestedModel
 		result.Protocol = upstreamHealthProbeProtocolAntigravity
 		if s.antigravityGatewayService == nil {
 			return failUpstreamHealthProbe(result, "configuration_error", "probe_transport_unavailable", errors.New("antigravity gateway service not configured"))
 		}
 		started := time.Now()
-		requestedModel := result.Model
 		connection, err := s.antigravityGatewayService.TestConnectionWithPromptStreaming(ctx, account, requestedModel, challenge.LegacyPrompt)
 		setUpstreamHealthProbeDuration(&result, started)
 		if connection != nil {
@@ -402,10 +524,36 @@ func (s *AccountTestService) runAntigravityUpstreamHealthProbe(ctx context.Conte
 			result.FinishReason = connection.FinishReason
 		}
 		if err != nil {
+			var switchErr *AntigravityAccountSwitchError
+			if errors.As(err, &switchErr) {
+				return failUpstreamHealthProbe(result, "429", "capacity_limited", err)
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				return failUpstreamHealthProbe(result, "cancelled", "probe_cancelled", err)
+			}
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return failUpstreamHealthProbe(result, "timeout", "probe_timeout", err)
+			}
+			var probeErr *AntigravityProbeError
+			if errors.As(err, &probeErr) {
+				status := "upstream_error"
+				if probeErr.StatusCode > 0 {
+					status = strconv.Itoa(probeErr.StatusCode)
+				}
+				reason := strings.TrimSpace(probeErr.Reason)
+				if probeErr.StatusCode > 0 {
+					reason = classifyUpstreamHealthProbeHTTPReason(probeErr.StatusCode)
+					result.HTTPStatus = probeIntPtr(probeErr.StatusCode)
+				}
+				if reason == "" {
+					reason = "probe_upstream_error"
+				}
+				return failUpstreamHealthProbe(result, status, reason, err)
+			}
 			return failUpstreamHealthProbe(result, "upstream_error", "probe_upstream_error", err)
 		}
 		setUpstreamHealthProbeTTFT(&result, started)
-		if connection == nil || strings.TrimSpace(connection.Text) != challenge.Expected {
+		if connection == nil || !validateUpstreamArithmeticChallenge(connection.Text, challenge.Expected) {
 			return failUpstreamHealthProbe(result, "invalid_response", "probe_response_mismatch", errors.New("Antigravity probe challenge response did not match"))
 		}
 		result.Model = connection.MappedModel
@@ -414,19 +562,27 @@ func (s *AccountTestService) runAntigravityUpstreamHealthProbe(ctx context.Conte
 		result.Reason = "probe_succeeded"
 		return result, nil
 	}
-	if strings.HasPrefix(strings.ToLower(result.Model), "gemini-") {
-		probed, err := s.runGeminiUpstreamHealthProbe(ctx, account, result, challenge)
+	// Nested API-key probes must receive the original requested alias so the
+	// provider-specific runner can apply the account mapping exactly once.
+	probeResult := result
+	probeResult.Model = requestedModel
+	if strings.HasPrefix(strings.ToLower(mappedModel), "gemini-") {
+		probed, err := s.runGeminiUpstreamHealthProbe(ctx, account, probeResult, challenge)
 		probed.Protocol = upstreamHealthProbeProtocolAntigravity
 		return probed, err
 	}
-	probed, err := s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
+	probed, err := s.runAnthropicUpstreamHealthProbe(ctx, account, probeResult, challenge)
 	probed.Protocol = upstreamHealthProbeProtocolAntigravity
 	return probed, err
 }
 
 func (s *AccountTestService) runOpenAIChatCompletionsUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
 	result.Protocol = upstreamHealthProbeProtocolOpenAIChat
-	result.Model = account.GetMappedModel(result.Model)
+	requestedModel := strings.TrimSpace(result.Model)
+	result.Model = account.GetMappedModel(requestedModel)
+	if strings.TrimSpace(result.Model) == "" || !account.IsModelSupported(requestedModel) || isTextProbeUnsupportedModel(result.Model) {
+		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", fmt.Errorf("OpenAI Chat account does not support text probe model %q", requestedModel))
+	}
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if authToken == "" {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", errors.New("OpenAI-compatible API key is missing"))
@@ -435,9 +591,13 @@ func (s *AccountTestService) runOpenAIChatCompletionsUpstreamHealthProbe(ctx con
 	if err != nil {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
 	}
+	probePrompt := challenge.LegacyPrompt
+	if strings.TrimSpace(probePrompt) == "" {
+		probePrompt = challenge.Prompt
+	}
 	payload, err := json.Marshal(map[string]any{
 		"model":      result.Model,
-		"messages":   []map[string]string{{"role": "user", "content": challenge.Prompt}},
+		"messages":   []map[string]string{{"role": "user", "content": probePrompt}},
 		"max_tokens": upstreamHealthProbeMaxOutputTokens,
 		"stream":     true,
 	})
@@ -456,9 +616,59 @@ func (s *AccountTestService) runOpenAIChatCompletionsUpstreamHealthProbe(ctx con
 	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseOpenAIChatCompletionsUpstreamHealthStream)
 }
 
+// runDeepseekResponsesUpstreamHealthProbe follows the native DeepSeek
+// /responses contract used by adaptive/fixed forwarding. DeepSeek does not
+// expose the OpenAI Juice confidence surface, so this path uses the regular
+// arithmetic challenge and keeps the probe result comparable to Chat probes.
+func (s *AccountTestService) runDeepseekResponsesUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
+	result.Protocol = upstreamHealthProbeProtocolOpenAI
+	requestedModel := strings.TrimSpace(result.Model)
+	result.Model = account.GetMappedModel(requestedModel)
+	if strings.TrimSpace(result.Model) == "" || !account.IsModelSupported(requestedModel) || isTextProbeUnsupportedModel(result.Model) {
+		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", fmt.Errorf("DeepSeek account does not support probe model %q", requestedModel))
+	}
+	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
+	if authToken == "" {
+		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", errors.New("DeepSeek API key is missing"))
+	}
+	baseURL := account.GetOpenAIBaseURL()
+	if account.IsAdaptiveAPIProtocol() {
+		baseURL = account.GetCNProtocolBaseURL(APIProtocolResponses)
+	}
+	baseURL, err := s.validateUpstreamBaseURL(baseURL)
+	if err != nil {
+		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"model":  result.Model,
+		"input":  challenge.LegacyPrompt,
+		"stream": true,
+		"store":  false,
+	})
+	if err != nil {
+		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
+	}
+	apiURL := buildOpenAIResponsesURLForPlatform(PlatformDeepseek, baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
+	if err != nil {
+		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
+	}
+	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	applyOpenAICodexProbeHeaders(req.Header)
+	account.ApplyHeaderOverrides(req.Header)
+	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseOpenAIUpstreamHealthStream)
+}
+
 func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
 	result.Protocol = upstreamHealthProbeProtocolOpenAI
-	result.Model = account.GetMappedModel(result.Model)
+	requestedModel := strings.TrimSpace(result.Model)
+	result.Model = account.GetMappedModel(requestedModel)
+	if strings.TrimSpace(result.Model) == "" || !account.IsModelSupported(requestedModel) || isTextProbeUnsupportedModel(result.Model) {
+		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", fmt.Errorf("OpenAI Responses account does not support text probe model %q", requestedModel))
+	}
 	result.ConfidencePromptVersion = upstreamConfidencePromptVersion
 	result.RequestedEffort = upstreamConfidenceDefaultEffort
 	confidenceEnabled := false
@@ -536,12 +746,20 @@ func probeIntPtr(v int) *int { return &v }
 
 func (s *AccountTestService) runAnthropicUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
 	result.Protocol = upstreamHealthProbeProtocolAnthropic
-	result.Model = account.GetMappedModel(result.Model)
+	requestedModel := strings.TrimSpace(result.Model)
+	result.Model = account.GetMappedModel(requestedModel)
+	if strings.TrimSpace(result.Model) == "" || !account.IsModelSupported(requestedModel) || isTextProbeUnsupportedModel(result.Model) {
+		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", fmt.Errorf("Anthropic account does not support text probe model %q", requestedModel))
+	}
 	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 	if apiKey == "" {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", errors.New("Anthropic API key is missing"))
 	}
-	baseURL, err := s.validateUpstreamBaseURL(account.GetBaseURL())
+	baseURL := account.GetBaseURL()
+	if account.IsCNProvider() {
+		baseURL = account.GetAnthropicProtocolBaseURL()
+	}
+	baseURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
 	}
@@ -549,11 +767,15 @@ func (s *AccountTestService) runAnthropicUpstreamHealthProbe(ctx context.Context
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
+	probePrompt := challenge.LegacyPrompt
+	if strings.TrimSpace(probePrompt) == "" {
+		probePrompt = challenge.Prompt
+	}
 	payload, err := json.Marshal(map[string]any{
 		"model": result.Model,
 		"messages": []map[string]any{{
 			"role":    "user",
-			"content": []map[string]any{{"type": "text", "text": challenge.Prompt, "cache_control": map[string]string{"type": "ephemeral"}}},
+			"content": []map[string]any{{"type": "text", "text": probePrompt, "cache_control": map[string]string{"type": "ephemeral"}}},
 		}},
 		"system":      []map[string]any{{"type": "text", "text": claudeCodeSystemPrompt, "cache_control": map[string]string{"type": "ephemeral"}}},
 		"metadata":    map[string]string{"user_id": sessionID},
@@ -564,7 +786,14 @@ func (s *AccountTestService) runAnthropicUpstreamHealthProbe(ctx context.Context
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/v1/messages?beta=true", bytes.NewReader(payload))
+	apiURL := strings.TrimRight(baseURL, "/") + "/v1/messages?beta=true"
+	if account.IsCNProvider() {
+		if hint := cnAnthropicBaseURLMisconfigHint(baseURL); hint != "" {
+			return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", errors.New(hint))
+		}
+		apiURL = strings.TrimRight(baseURL, "/") + "/v1/messages"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
@@ -582,40 +811,139 @@ func (s *AccountTestService) runAnthropicUpstreamHealthProbe(ctx context.Context
 
 func (s *AccountTestService) runGeminiUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
 	result.Protocol = upstreamHealthProbeProtocolGemini
-	result.Model = account.GetMappedModel(result.Model)
-	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
-	if apiKey == "" {
-		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", errors.New("Gemini API key is missing"))
-	}
-	baseURL, err := s.validateUpstreamBaseURL(account.GetGeminiBaseURL(geminicli.AIStudioBaseURL))
-	if err != nil {
-		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
-	}
-	fullURL, err := buildGeminiAIStudioModelActionURL(baseURL, result.Model, "streamGenerateContent", true)
-	if err != nil {
-		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
+	requestedModel := strings.TrimSpace(result.Model)
+	result.Model = account.GetMappedModel(requestedModel)
+	if strings.TrimSpace(result.Model) == "" || !account.IsModelSupported(requestedModel) || isTextProbeUnsupportedModel(result.Model) {
+		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", fmt.Errorf("Gemini account does not support text probe model %q", requestedModel))
 	}
 	payload, err := json.Marshal(map[string]any{
 		"contents":         []map[string]any{{"role": "user", "parts": []map[string]any{{"text": challenge.Prompt}}}},
-		"generationConfig": map[string]any{"maxOutputTokens": upstreamHealthProbeMaxOutputTokens},
+		"generationConfig": map[string]any{"maxOutputTokens": upstreamHealthProbeGeminiMaxOutputTokens},
 	})
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
+	var req *http.Request
+	switch account.Type {
+	case AccountTypeAPIKey:
+		apiKey := strings.TrimSpace(account.GetCredential("api_key"))
+		if apiKey == "" {
+			return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", errors.New("Gemini API key is missing"))
+		}
+		baseURL, baseErr := s.validateUpstreamBaseURL(account.GetGeminiBaseURL(geminicli.AIStudioBaseURL))
+		if baseErr != nil {
+			return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", baseErr)
+		}
+		fullURL, urlErr := buildGeminiAIStudioModelActionURL(baseURL, result.Model, "streamGenerateContent", true)
+		if urlErr != nil {
+			return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", urlErr)
+		}
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
+		if err == nil {
+			req.Header.Set("x-goog-api-key", apiKey)
+		}
+	case AccountTypeOAuth:
+		req, err = s.buildGeminiOAuthRequest(ctx, account, result.Model, payload)
+	case AccountTypeServiceAccount:
+		req, err = s.buildGeminiServiceAccountRequest(ctx, account, result.Model, payload)
+	default:
+		return failUpstreamHealthProbe(result, "unsupported_account", "probe_account_unsupported", errors.New("Gemini probe credential type is unsupported"))
+	}
 	if err != nil {
-		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
+		status, reason := classifyGeminiProbeBuildError(account, err)
+		return failUpstreamHealthProbe(result, status, reason, err)
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-goog-api-key", apiKey)
 	account.ApplyHeaderOverrides(req.Header)
-	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseGeminiUpstreamHealthStream)
+	return s.executeUpstreamHealthProbeWithValidator(req, account, result, func(text string) bool {
+		return validateGeminiUpstreamHealthChallenge(text, challenge)
+	}, parseGeminiUpstreamHealthStream)
+}
+
+// isTextProbeUnsupportedModel prevents a text challenge from being sent to a
+// provider's image-only endpoint. Keep this alongside the provider-specific
+// image classifiers so aliases continue to follow the same forwarding rules.
+func isTextProbeUnsupportedModel(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	if slash := strings.LastIndex(normalized, "/"); slash >= 0 {
+		normalized = normalized[slash+1:]
+	}
+	return isImageGenerationModel(normalized) ||
+		isOpenAIImageGenerationModel(model) ||
+		isGrokImageGenerationModel(model) ||
+		strings.HasPrefix(normalized, "grok-imagine-video") ||
+		strings.HasPrefix(normalized, "cogview-") ||
+		strings.HasPrefix(normalized, "cogvideo-") ||
+		strings.HasPrefix(normalized, "cogvideox-")
 }
 
 type upstreamHealthStreamParser func(io.Reader, time.Time, *UpstreamHealthProbeResult) (string, error)
 
+// prepareUpstreamHealthResponse peeks at the first meaningful line without
+// buffering an entire streaming response. SSE responses are returned with the
+// consumed prefix replayed, preserving first-token timing; JSON responses are
+// bounded to the probe body limit for complete decoding.
+func prepareUpstreamHealthResponse(reader io.Reader) (io.Reader, bool, []byte, error) {
+	br := bufio.NewReaderSize(reader, 4096)
+	var prefix bytes.Buffer
+	for {
+		line, err := br.ReadString('\n')
+		prefix.WriteString(line)
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			if strings.HasPrefix(trimmed, "data:") || strings.HasPrefix(trimmed, "event:") ||
+				strings.HasPrefix(trimmed, "id:") || strings.HasPrefix(trimmed, "retry:") || strings.HasPrefix(trimmed, ":") {
+				return io.MultiReader(bytes.NewReader(prefix.Bytes()), br), true, nil, nil
+			}
+			remaining := upstreamHealthProbeBodyLimit - prefix.Len()
+			if remaining < 0 {
+				remaining = 0
+			}
+			body := append([]byte(nil), prefix.Bytes()...)
+			rest, readErr := io.ReadAll(io.LimitReader(br, int64(remaining)))
+			body = append(body, rest...)
+			if readErr != nil {
+				return nil, false, nil, readErr
+			}
+			return nil, false, body, nil
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				if len(bytes.TrimSpace(prefix.Bytes())) == 0 {
+					return nil, false, nil, nil
+				}
+				return nil, false, prefix.Bytes(), nil
+			}
+			return nil, false, nil, err
+		}
+	}
+}
+
 func (s *AccountTestService) executeUpstreamHealthProbe(req *http.Request, account *Account, result UpstreamHealthProbeResult, expected string, parse upstreamHealthStreamParser) (UpstreamHealthProbeResult, error) {
+	return s.executeUpstreamHealthProbeWithValidator(req, account, result, func(text string) bool {
+		return validateUpstreamArithmeticChallenge(text, expected)
+	}, parse)
+}
+
+// validateUpstreamArithmeticChallenge follows the channel-monitor V1 contract:
+// providers may add a short explanation around the arithmetic answer, but the
+// expected integer must still be present as a standalone numeric token. Gemini
+// uses validateGeminiUpstreamHealthChallenge instead because its probe has an
+// additional structured-response contract.
+func validateUpstreamArithmeticChallenge(responseText, expected string) bool {
+	responseText = strings.TrimSpace(responseText)
+	expected = strings.TrimSpace(expected)
+	if responseText == "" || expected == "" {
+		return false
+	}
+	if responseText == expected {
+		return true
+	}
+	return validateChallenge(responseText, expected)
+}
+
+func (s *AccountTestService) executeUpstreamHealthProbeWithValidator(req *http.Request, account *Account, result UpstreamHealthProbeResult, validate func(string) bool, parse upstreamHealthStreamParser) (UpstreamHealthProbeResult, error) {
 	started := time.Now()
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -646,7 +974,7 @@ func (s *AccountTestService) executeUpstreamHealthProbe(req *http.Request, accou
 	if status < http.StatusOK || status >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, upstreamHealthProbeBodyLimit))
 		setUpstreamHealthProbeDuration(&result, started)
-		reason := classifyUpstreamHealthProbeHTTPReason(status)
+		reason := classifyUpstreamHealthProbeHTTPResponse(result.Protocol, status, body)
 		if status == http.StatusForbidden && looksLikeGatewayIntercepted(body, resp.Header.Get("Content-Type")) {
 			reason = "gateway_intercepted"
 		}
@@ -668,8 +996,12 @@ func (s *AccountTestService) executeUpstreamHealthProbe(req *http.Request, accou
 		if result.ConfidenceStatus == "network_error" {
 			return failUpstreamHealthProbe(result, "invalid_response", "probe_response_empty", errors.New("OpenAI confidence probe returned no valid output"))
 		}
-	} else if strings.TrimSpace(text) != expected {
-		return failUpstreamHealthProbe(result, "invalid_response", "probe_response_mismatch", errors.New("probe challenge response did not match"))
+	} else if validate == nil || !validate(text) {
+		reason := strings.TrimSpace(result.Reason)
+		if reason == "" {
+			reason = "probe_response_mismatch"
+		}
+		return failUpstreamHealthProbe(result, "invalid_response", reason, errors.New("probe challenge response did not match"))
 	}
 	result.Result = "success"
 	result.Reason = "probe_succeeded"
@@ -708,6 +1040,58 @@ func classifyUpstreamHealthProbeHTTPReason(status int) string {
 	default:
 		return "upstream_http_error"
 	}
+}
+
+// classifyUpstreamHealthProbeHTTPResponse extracts only a coarse reason from
+// the bounded response body. The body is never retained in the result or logs.
+// Provider model-not-found responses indicate a capability/configuration
+// issue, rather than an account outage that should advance the temporary guard.
+func classifyUpstreamHealthProbeHTTPResponse(_ string, status int, body []byte) string {
+	if status == http.StatusNotFound && upstreamHealthProbeModelNotFound(body) {
+		return "probe_model_unsupported"
+	}
+	return classifyUpstreamHealthProbeHTTPReason(status)
+}
+
+// upstreamHealthProbeModelNotFound recognizes the bounded, provider-neutral
+// model lookup failures returned by Gemini and OpenAI-compatible providers.
+// Endpoint-level 404 responses deliberately remain upstream_http_error so an
+// administrator can still opt into guarding that status code.
+func upstreamHealthProbeModelNotFound(body []byte) bool {
+	message := firstNonEmptyProbeString(
+		gjson.GetBytes(body, "error.message").String(),
+		gjson.GetBytes(body, "message").String(),
+		gjson.GetBytes(body, "msg").String(),
+	)
+	message = strings.ToLower(strings.TrimSpace(message))
+	code := strings.ToLower(strings.TrimSpace(firstNonEmptyProbeString(
+		gjson.GetBytes(body, "error.code").String(),
+		gjson.GetBytes(body, "error.type").String(),
+		gjson.GetBytes(body, "code").String(),
+	)))
+	providerStatus := strings.ToLower(strings.TrimSpace(firstNonEmptyProbeString(
+		gjson.GetBytes(body, "error.status").String(),
+		gjson.GetBytes(body, "status").String(),
+	)))
+	if strings.Contains(code, "model_not_found") || strings.Contains(code, "invalid_model") ||
+		strings.Contains(providerStatus, "model_not_found") {
+		return true
+	}
+	if !strings.Contains(message, "model") {
+		return false
+	}
+	return strings.Contains(message, "not found") || strings.Contains(message, "not exist") ||
+		strings.Contains(message, "does not exist") || strings.Contains(message, "not supported") ||
+		strings.Contains(message, "unknown model")
+}
+
+func firstNonEmptyProbeString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func failUpstreamHealthProbe(result UpstreamHealthProbeResult, status, reason string, err error) (UpstreamHealthProbeResult, error) {
@@ -769,7 +1153,7 @@ func setUpstreamHealthProbeOutputTPS(result *UpstreamHealthProbeResult) {
 	result.OutputTPS = CalculateOutputTPS(*result.OutputTokens, result.DurationMs, result.TTFTMs)
 }
 
-func scanUpstreamHealthSSE(reader io.Reader, handle func([]byte) (bool, error)) error {
+func scanUpstreamHealthSSE(reader io.Reader, handle func([]byte) (bool, error)) (bool, error) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	dataLines := make([]string, 0, 1)
@@ -780,7 +1164,7 @@ func scanUpstreamHealthSSE(reader io.Reader, handle func([]byte) (bool, error)) 
 		data := []byte(strings.Join(dataLines, "\n"))
 		dataLines = dataLines[:0]
 		if string(data) == "[DONE]" {
-			return false, nil
+			return true, nil
 		}
 		return handle(data)
 	}
@@ -789,7 +1173,7 @@ func scanUpstreamHealthSSE(reader io.Reader, handle func([]byte) (bool, error)) 
 		if line == "" {
 			done, err := dispatch()
 			if err != nil || done {
-				return err
+				return done, err
 			}
 			continue
 		}
@@ -798,19 +1182,28 @@ func scanUpstreamHealthSSE(reader io.Reader, handle func([]byte) (bool, error)) 
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return err
+		return false, err
 	}
-	_, err := dispatch()
-	return err
+	return dispatch()
 }
 
 func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
+	streamReader, isSSE, body, prepErr := prepareUpstreamHealthResponse(reader)
+	if prepErr != nil {
+		result.Result, result.Reason = "stream_error", "probe_stream_error"
+		return "", prepErr
+	}
+	if !isSSE {
+		return parseOpenAIUpstreamHealthJSON(body, started, result)
+	}
 	var output strings.Builder
 	completed := false
-	err := scanUpstreamHealthSSE(reader, func(data []byte) (bool, error) {
+	terminalSeen, err := scanUpstreamHealthSSE(streamReader, func(data []byte) (bool, error) {
 		var event struct {
-			Type     string `json:"type"`
-			Delta    string `json:"delta"`
+			Type     string          `json:"type"`
+			Delta    string          `json:"delta"`
+			Text     string          `json:"text"`
+			Error    json.RawMessage `json:"error"`
 			Response struct {
 				Status string `json:"status"`
 				Usage  struct {
@@ -826,6 +1219,8 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 			} `json:"response"`
 		}
 		if err := json.Unmarshal(data, &event); err != nil {
+			result.Result = "invalid_response"
+			result.Reason = "probe_protocol_mismatch"
 			return false, fmt.Errorf("decode OpenAI probe event: %w", err)
 		}
 		switch event.Type {
@@ -834,7 +1229,20 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 				setUpstreamHealthProbeTTFT(result, started)
 				output.WriteString(event.Delta)
 			}
+		case "response.output_text.done":
+			// Some relays omit delta events and expose only the final text event.
+			// Do not append it after deltas because `text` is usually cumulative.
+			if output.Len() == 0 && strings.TrimSpace(event.Text) != "" {
+				setUpstreamHealthProbeTTFT(result, started)
+				output.WriteString(event.Text)
+			}
 		case "response.completed", "response.done":
+			if output.Len() == 0 {
+				if terminalText := extractOpenAIHealthTerminalText(data); strings.TrimSpace(terminalText) != "" {
+					setUpstreamHealthProbeTTFT(result, started)
+					output.WriteString(terminalText)
+				}
+			}
 			completed = true
 			result.FinishReason = strings.TrimSpace(event.Response.Status)
 			if result.FinishReason == "" {
@@ -860,6 +1268,10 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 			result.Result = "failed"
 			result.Reason = "probe_response_failed"
 			return false, errors.New("OpenAI probe stream reported response.failed")
+		case "error", "response.error":
+			result.Result = "failed"
+			result.Reason = "probe_response_failed"
+			return false, errors.New("OpenAI probe stream reported an error")
 		case "response.incomplete":
 			result.Result = "incomplete"
 			result.Reason = "probe_response_incomplete"
@@ -874,6 +1286,7 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 		}
 		return output.String(), err
 	}
+	completed = completed || (terminalSeen && output.Len() > 0)
 	if !completed {
 		result.Result = "incomplete"
 		result.Reason = "probe_incomplete_stream"
@@ -883,6 +1296,115 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 		applyOpenAIConfidenceEvidence(result, output.String())
 	}
 	return output.String(), nil
+}
+
+func extractOpenAIHealthTerminalText(data []byte) string {
+	response := gjson.GetBytes(data, "response")
+	if !response.Exists() || !response.IsObject() {
+		return ""
+	}
+	return extractOpenAIResponsesText([]byte(response.Raw))
+}
+
+func parseOpenAIUpstreamHealthJSON(body []byte, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
+	var response struct {
+		OutputText string `json:"output_text"`
+		Output     []struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
+		Usage struct {
+			InputTokens  int64 `json:"input_tokens"`
+			OutputTokens int64 `json:"output_tokens"`
+		} `json:"usage"`
+		Status  string          `json:"status"`
+		Choices json.RawMessage `json:"choices"`
+		Error   json.RawMessage `json:"error"`
+		Type    string          `json:"type"`
+		Wrapped json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		result.Result, result.Reason = "invalid_response", "probe_protocol_mismatch"
+		return "", fmt.Errorf("decode OpenAI probe JSON response: %w", err)
+	}
+	if len(response.Choices) > 0 && string(response.Choices) != "null" {
+		result.Result, result.Reason = "invalid_response", "probe_protocol_mismatch"
+		return "", errors.New("OpenAI Responses probe received Chat Completions response")
+	}
+	if (len(response.Error) > 0 && string(response.Error) != "null") || strings.HasSuffix(strings.ToLower(strings.TrimSpace(response.Type)), "error") {
+		result.Result, result.Reason = "failed", "probe_response_failed"
+		return "", errors.New("OpenAI Responses probe JSON response reported an error")
+	}
+	// Some OpenAI-compatible relays wrap the native response under a
+	// `response` object. Decode that shape only when the top-level object has no
+	// usable output, so a native response remains authoritative.
+	if strings.TrimSpace(response.OutputText) == "" && len(response.Output) == 0 && len(response.Wrapped) > 0 && string(response.Wrapped) != "null" {
+		var wrapped struct {
+			OutputText string `json:"output_text"`
+			Output     []struct {
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"output"`
+			Status string `json:"status"`
+			Usage  struct {
+				InputTokens  int64 `json:"input_tokens"`
+				OutputTokens int64 `json:"output_tokens"`
+			} `json:"usage"`
+			Error json.RawMessage `json:"error"`
+		}
+		if err := json.Unmarshal(response.Wrapped, &wrapped); err != nil {
+			result.Result, result.Reason = "invalid_response", "probe_protocol_mismatch"
+			return "", fmt.Errorf("decode wrapped OpenAI probe JSON response: %w", err)
+		}
+		if len(wrapped.Error) > 0 && string(wrapped.Error) != "null" {
+			result.Result, result.Reason = "failed", "probe_response_failed"
+			return "", errors.New("wrapped OpenAI Responses probe reported an error")
+		}
+		response.OutputText = wrapped.OutputText
+		response.Output = wrapped.Output
+		if response.Status == "" {
+			response.Status = wrapped.Status
+		}
+		if response.Usage.InputTokens == 0 {
+			response.Usage.InputTokens = wrapped.Usage.InputTokens
+		}
+		if response.Usage.OutputTokens == 0 {
+			response.Usage.OutputTokens = wrapped.Usage.OutputTokens
+		}
+	}
+	text := strings.TrimSpace(response.OutputText)
+	if text == "" {
+		for _, item := range response.Output {
+			for _, content := range item.Content {
+				if strings.TrimSpace(content.Text) != "" {
+					text += content.Text
+				}
+			}
+		}
+	}
+	if text == "" {
+		result.Result, result.Reason = "invalid_response", "probe_response_mismatch"
+		return "", errors.New("OpenAI probe JSON response contained no output text")
+	}
+	setUpstreamHealthProbeTTFT(result, started)
+	result.FinishReason = strings.TrimSpace(response.Status)
+	if result.FinishReason == "" {
+		result.FinishReason = "completed"
+	}
+	if response.Usage.InputTokens > 0 {
+		value := response.Usage.InputTokens
+		result.InputTokens = &value
+	}
+	if response.Usage.OutputTokens > 0 {
+		value := response.Usage.OutputTokens
+		result.OutputTokens = &value
+	}
+	if result.confidenceChallenge != nil {
+		applyOpenAIConfidenceEvidence(result, text)
+	}
+	return text, nil
 }
 
 func applyOpenAIConfidenceEvidence(result *UpstreamHealthProbeResult, raw string) {
@@ -994,9 +1516,17 @@ func recognizedJuiceClaimedModel(model string) string {
 }
 
 func parseOpenAIChatCompletionsUpstreamHealthStream(reader io.Reader, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
+	streamReader, isSSE, body, prepErr := prepareUpstreamHealthResponse(reader)
+	if prepErr != nil {
+		result.Result, result.Reason = "stream_error", "probe_stream_error"
+		return "", prepErr
+	}
+	if !isSSE {
+		return parseOpenAIChatCompletionsUpstreamHealthJSON(body, started, result)
+	}
 	var output strings.Builder
 	completed := false
-	err := scanUpstreamHealthSSE(reader, func(data []byte) (bool, error) {
+	terminalSeen, err := scanUpstreamHealthSSE(streamReader, func(data []byte) (bool, error) {
 		var event struct {
 			Choices []struct {
 				Delta struct {
@@ -1013,7 +1543,20 @@ func parseOpenAIChatCompletionsUpstreamHealthStream(reader io.Reader, started ti
 			} `json:"usage"`
 		}
 		if err := json.Unmarshal(data, &event); err != nil {
+			result.Result = "invalid_response"
+			result.Reason = "probe_protocol_mismatch"
 			return false, fmt.Errorf("decode OpenAI Chat Completions probe event: %w", err)
+		}
+		if len(event.Choices) == 0 {
+			// Keep provider errors or unrelated SSE events out of the challenge
+			// output. A 2xx response without choices is a protocol mismatch, not
+			// a transport failure.
+			if gjson.GetBytes(data, "error").Exists() {
+				result.Result = "invalid_response"
+				result.Reason = "probe_response_failed"
+				return false, errors.New("OpenAI Chat Completions probe stream reported an error")
+			}
+			return false, nil
 		}
 		for _, choice := range event.Choices {
 			content := choice.Delta.Content
@@ -1042,6 +1585,7 @@ func parseOpenAIChatCompletionsUpstreamHealthStream(reader io.Reader, started ti
 	if err != nil {
 		return output.String(), err
 	}
+	completed = completed || (terminalSeen && output.Len() > 0)
 	if !completed {
 		result.Result = "incomplete"
 		result.Reason = "probe_incomplete_stream"
@@ -1050,16 +1594,14 @@ func parseOpenAIChatCompletionsUpstreamHealthStream(reader io.Reader, started ti
 	return output.String(), nil
 }
 
-func parseGrokChatCompletionsUpstreamHealthResponse(reader io.Reader, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
-	body, err := io.ReadAll(io.LimitReader(reader, upstreamHealthProbeBodyLimit))
-	if err != nil {
-		return "", fmt.Errorf("read Grok Chat Completions probe response: %w", err)
-	}
+func parseOpenAIChatCompletionsUpstreamHealthJSON(body []byte, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
 	var response struct {
+		Error   json.RawMessage `json:"error"`
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			Text         string `json:"text"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
@@ -1068,20 +1610,30 @@ func parseGrokChatCompletionsUpstreamHealthResponse(reader io.Reader, started ti
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		return "", fmt.Errorf("decode Grok Chat Completions probe response: %w", err)
+		result.Result, result.Reason = "invalid_response", "probe_protocol_mismatch"
+		return "", fmt.Errorf("decode OpenAI Chat Completions JSON response: %w", err)
+	}
+	if len(response.Error) > 0 && string(response.Error) != "null" {
+		result.Result, result.Reason = "failed", "probe_response_failed"
+		return "", errors.New("OpenAI Chat Completions JSON response reported an error")
 	}
 	if len(response.Choices) == 0 {
-		return "", errors.New("Grok probe response contained no choices")
+		result.Result, result.Reason = "invalid_response", "probe_response_mismatch"
+		return "", errors.New("OpenAI Chat Completions JSON response contained no choices")
 	}
 	choice := response.Choices[0]
 	text := strings.TrimSpace(choice.Message.Content)
 	if text == "" {
-		return "", errors.New("Grok probe response contained no text")
+		text = strings.TrimSpace(choice.Text)
+	}
+	if text == "" {
+		result.Result, result.Reason = "invalid_response", "probe_response_mismatch"
+		return "", errors.New("OpenAI Chat Completions JSON response contained no text")
 	}
 	setUpstreamHealthProbeTTFT(result, started)
 	result.FinishReason = strings.TrimSpace(choice.FinishReason)
 	if result.FinishReason == "" {
-		return text, errors.New("Grok probe response missing finish_reason")
+		result.FinishReason = "completed"
 	}
 	if response.Usage.PromptTokens > 0 {
 		value := response.Usage.PromptTokens
@@ -1095,9 +1647,17 @@ func parseGrokChatCompletionsUpstreamHealthResponse(reader io.Reader, started ti
 }
 
 func parseAnthropicUpstreamHealthStream(reader io.Reader, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
+	streamReader, isSSE, body, prepErr := prepareUpstreamHealthResponse(reader)
+	if prepErr != nil {
+		result.Result, result.Reason = "stream_error", "probe_stream_error"
+		return "", prepErr
+	}
+	if !isSSE {
+		return parseAnthropicUpstreamHealthJSON(body, started, result)
+	}
 	var output strings.Builder
 	completed := false
-	err := scanUpstreamHealthSSE(reader, func(data []byte) (bool, error) {
+	terminalSeen, err := scanUpstreamHealthSSE(streamReader, func(data []byte) (bool, error) {
 		var event struct {
 			Type  string `json:"type"`
 			Delta struct {
@@ -1115,6 +1675,8 @@ func parseAnthropicUpstreamHealthStream(reader io.Reader, started time.Time, res
 			} `json:"usage"`
 		}
 		if err := json.Unmarshal(data, &event); err != nil {
+			result.Result = "invalid_response"
+			result.Reason = "probe_protocol_mismatch"
 			return false, fmt.Errorf("decode Anthropic probe event: %w", err)
 		}
 		switch event.Type {
@@ -1153,6 +1715,7 @@ func parseAnthropicUpstreamHealthStream(reader io.Reader, started time.Time, res
 		}
 		return output.String(), err
 	}
+	completed = completed || (terminalSeen && output.Len() > 0)
 	if !completed {
 		result.Result = "incomplete"
 		result.Reason = "probe_incomplete_stream"
@@ -1161,31 +1724,118 @@ func parseAnthropicUpstreamHealthStream(reader io.Reader, started time.Time, res
 	return output.String(), nil
 }
 
+func parseAnthropicUpstreamHealthJSON(body []byte, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
+	var response struct {
+		Error   json.RawMessage `json:"error"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		StopReason string `json:"stop_reason"`
+		Usage      struct {
+			InputTokens  int64 `json:"input_tokens"`
+			OutputTokens int64 `json:"output_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		result.Result, result.Reason = "invalid_response", "probe_protocol_mismatch"
+		return "", fmt.Errorf("decode Anthropic probe JSON response: %w", err)
+	}
+	if len(response.Error) > 0 && string(response.Error) != "null" {
+		result.Result, result.Reason = "failed", "probe_response_failed"
+		return "", errors.New("Anthropic probe JSON response reported an error")
+	}
+	var output strings.Builder
+	for _, part := range response.Content {
+		if part.Type == "text" || part.Type == "" {
+			output.WriteString(part.Text)
+		}
+	}
+	text := strings.TrimSpace(output.String())
+	if text == "" {
+		result.Result, result.Reason = "invalid_response", "probe_response_mismatch"
+		return "", errors.New("Anthropic probe JSON response contained no text")
+	}
+	setUpstreamHealthProbeTTFT(result, started)
+	result.FinishReason = strings.TrimSpace(response.StopReason)
+	if result.FinishReason == "" {
+		result.FinishReason = "completed"
+	}
+	if response.Usage.InputTokens > 0 {
+		value := response.Usage.InputTokens
+		result.InputTokens = &value
+	}
+	if response.Usage.OutputTokens > 0 {
+		value := response.Usage.OutputTokens
+		result.OutputTokens = &value
+	}
+	return text, nil
+}
+
 func parseGeminiUpstreamHealthStream(reader io.Reader, started time.Time, result *UpstreamHealthProbeResult) (string, error) {
 	var output strings.Builder
-	err := scanUpstreamHealthSSE(reader, func(data []byte) (bool, error) {
-		var chunk struct {
-			Candidates []struct {
-				Content struct {
-					Parts []struct {
-						Text string `json:"text"`
-					} `json:"parts"`
-				} `json:"content"`
-				FinishReason string `json:"finishReason"`
-			} `json:"candidates"`
-			UsageMetadata struct {
-				PromptTokenCount     int64 `json:"promptTokenCount"`
-				CandidatesTokenCount int64 `json:"candidatesTokenCount"`
-			} `json:"usageMetadata"`
-		}
+	parsedPayload := false
+	candidateSeen := false
+	finishSeen := false
+	streamReader, isSSE, body, prepErr := prepareUpstreamHealthResponse(reader)
+	if prepErr != nil {
+		result.Result = "stream_error"
+		result.Reason = "probe_stream_error"
+		return output.String(), fmt.Errorf("read Gemini probe response: %w", prepErr)
+	}
+	if !isSSE && len(bytes.TrimSpace(body)) == 0 {
+		result.Result = "incomplete"
+		result.Reason = "probe_incomplete_stream"
+		return output.String(), errors.New("Gemini probe response is empty")
+	}
+
+	appendChunk := func(data []byte) (bool, error) {
+		parsedPayload = true
+		var chunk geminiHealthProbeChunk
 		if err := json.Unmarshal(data, &chunk); err != nil {
+			result.Result = "invalid_response"
+			result.Reason = "probe_response_mismatch"
 			return false, fmt.Errorf("decode Gemini probe event: %w", err)
 		}
+		// Relays may add a response envelope alongside top-level fields. Always
+		// inspect it so an embedded error or OpenAI-shaped payload cannot be
+		// hidden by an otherwise valid-looking outer object.
+		if len(chunk.Response) > 0 && string(chunk.Response) != "null" {
+			var wrapped geminiHealthProbeChunk
+			if err := json.Unmarshal(chunk.Response, &wrapped); err != nil {
+				result.Result = "invalid_response"
+				result.Reason = "probe_response_mismatch"
+				return false, fmt.Errorf("decode wrapped Gemini probe event: %w", err)
+			}
+			chunk = mergeGeminiHealthProbeChunks(chunk, wrapped)
+		}
+		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
+			result.Result = "failed"
+			result.Reason = "probe_response_failed"
+			return false, errors.New("Gemini probe response reported an error")
+		}
+		if len(chunk.Choices) > 0 {
+			result.Result = "invalid_response"
+			result.Reason = "probe_protocol_mismatch"
+			return false, errors.New("Gemini probe response uses OpenAI-compatible format")
+		}
+		if len(chunk.Candidates) == 0 {
+			return false, nil
+		}
+		candidateSeen = true
 		for _, candidate := range chunk.Candidates {
 			if strings.TrimSpace(candidate.FinishReason) != "" {
 				result.FinishReason = strings.TrimSpace(candidate.FinishReason)
+				finishSeen = true
 			}
 			for _, part := range candidate.Content.Parts {
+				// Thinking-capable Gemini models may emit internal thought parts
+				// before the user-visible answer. They are not part of the
+				// challenge output and must not make a valid answer fail exact
+				// validation.
+				if part.Thought {
+					continue
+				}
 				if strings.TrimSpace(part.Text) == "" {
 					continue
 				}
@@ -1202,7 +1852,36 @@ func parseGeminiUpstreamHealthStream(reader io.Reader, started time.Time, result
 			result.OutputTokens = &value
 		}
 		return false, nil
-	})
+	}
+	var err error
+	if isSSE {
+		var terminalSeen bool
+		terminalSeen, err = scanUpstreamHealthSSE(streamReader, appendChunk)
+		finishSeen = finishSeen || (terminalSeen && output.Len() > 0)
+	} else {
+		trimmed := bytes.TrimSpace(body)
+		if len(trimmed) > 0 && trimmed[0] == '[' {
+			var chunks []json.RawMessage
+			if decodeErr := json.Unmarshal(trimmed, &chunks); decodeErr != nil {
+				result.Result = "invalid_response"
+				result.Reason = "probe_response_mismatch"
+				err = fmt.Errorf("decode Gemini probe response array: %w", decodeErr)
+			} else if len(chunks) == 0 {
+				result.Result = "invalid_response"
+				result.Reason = "probe_response_mismatch"
+				err = errors.New("Gemini probe response array is empty")
+			} else {
+				for _, chunk := range chunks {
+					if _, chunkErr := appendChunk(chunk); chunkErr != nil {
+						err = chunkErr
+						break
+					}
+				}
+			}
+		} else {
+			_, err = appendChunk(trimmed)
+		}
+	}
 	if err != nil {
 		if result.Result == "" {
 			result.Result = "stream_error"
@@ -1211,9 +1890,113 @@ func parseGeminiUpstreamHealthStream(reader io.Reader, started time.Time, result
 		return output.String(), err
 	}
 	if result.TTFTMs == nil {
+		if parsedPayload && !candidateSeen {
+			result.Result = "invalid_response"
+			result.Reason = "probe_response_mismatch"
+			return output.String(), errors.New("Gemini probe response contained no candidates")
+		}
 		result.Result = "incomplete"
 		result.Reason = "probe_incomplete_stream"
 		return output.String(), errors.New("Gemini probe stream ended without text")
 	}
+	// A streaming response must expose a terminal finishReason so a truncated
+	// stream is not reported as healthy. Non-SSE Gemini JSON is already a
+	// complete response body; some compatible relays omit finishReason there.
+	if isSSE && !finishSeen {
+		result.Result = "incomplete"
+		result.Reason = "probe_incomplete_stream"
+		return output.String(), errors.New("Gemini probe response ended without finishReason")
+	}
+	if result.FinishReason == "" {
+		result.FinishReason = "completed"
+	}
 	return output.String(), nil
+}
+
+type geminiHealthProbeChunk struct {
+	Candidates []struct {
+		Content struct {
+			Parts []struct {
+				Text    string `json:"text"`
+				Thought bool   `json:"thought"`
+			} `json:"parts"`
+		} `json:"content"`
+		FinishReason string `json:"finishReason"`
+	} `json:"candidates"`
+	Response      json.RawMessage `json:"response"`
+	Choices       json.RawMessage `json:"choices"`
+	Error         json.RawMessage `json:"error"`
+	UsageMetadata struct {
+		PromptTokenCount     int64 `json:"promptTokenCount"`
+		CandidatesTokenCount int64 `json:"candidatesTokenCount"`
+	} `json:"usageMetadata"`
+}
+
+func mergeGeminiHealthProbeChunks(outer, inner geminiHealthProbeChunk) geminiHealthProbeChunk {
+	if len(inner.Candidates) > 0 {
+		outer.Candidates = inner.Candidates
+	}
+	if outer.UsageMetadata.PromptTokenCount == 0 {
+		outer.UsageMetadata.PromptTokenCount = inner.UsageMetadata.PromptTokenCount
+	}
+	if outer.UsageMetadata.CandidatesTokenCount == 0 {
+		outer.UsageMetadata.CandidatesTokenCount = inner.UsageMetadata.CandidatesTokenCount
+	}
+	if len(outer.Choices) == 0 {
+		outer.Choices = inner.Choices
+	}
+	if len(outer.Error) == 0 {
+		outer.Error = inner.Error
+	}
+	return outer
+}
+
+func validateGeminiUpstreamHealthChallenge(raw string, challenge upstreamHealthChallenge) bool {
+	raw = stripGeminiJSONCodeFence(raw)
+	if strings.TrimSpace(raw) == strings.TrimSpace(challenge.Expected) {
+		return true
+	}
+	var payload struct {
+		Marker       string          `json:"marker"`
+		Calculation  json.RawMessage `json:"calculation"`
+		Constraint   string          `json:"constraint"`
+		ContextCheck string          `json:"context_check"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return false
+	}
+	calculation := strings.TrimSpace(string(payload.Calculation))
+	calculation = strings.Trim(calculation, `"`)
+	normalized, ok := normalizeJuiceNumber(calculation)
+	if !ok {
+		return false
+	}
+	return payload.Marker == challenge.Marker && normalized == challenge.Expected &&
+		payload.Constraint == challenge.Constraint && payload.ContextCheck == challenge.ContextNeedle
+}
+
+func stripGeminiJSONCodeFence(raw string) string {
+	value := strings.TrimSpace(raw)
+	if !strings.HasPrefix(value, "```") || !strings.HasSuffix(value, "```") {
+		return value
+	}
+	// Models occasionally emit a compact one-line fenced object. Accept only
+	// the optional json language tag; arbitrary fence labels remain invalid so
+	// a prose answer cannot be mistaken for a structured challenge response.
+	if newline := strings.IndexByte(value, '\n'); newline < 0 {
+		inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "```"), "```"))
+		if strings.HasPrefix(strings.ToLower(inner), "json ") {
+			inner = strings.TrimSpace(inner[5:])
+		}
+		return inner
+	}
+	lines := strings.Split(value, "\n")
+	if len(lines) < 3 {
+		return value
+	}
+	language := strings.TrimSpace(strings.ToLower(strings.TrimPrefix(lines[0], "```")))
+	if language != "" && language != "json" {
+		return value
+	}
+	return strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
 }

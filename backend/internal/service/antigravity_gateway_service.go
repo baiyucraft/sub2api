@@ -349,31 +349,62 @@ type TestConnectionStreamResult struct {
 	FinishReason string
 }
 
+// AntigravityProbeError preserves only the classification metadata needed by
+// the active-probe caller. In particular, it deliberately does not retain an
+// upstream response body, which may contain provider-internal details or
+// echoed request data.
+type AntigravityProbeError struct {
+	StatusCode int
+	Reason     string
+	Err        error
+}
+
+func (e *AntigravityProbeError) Error() string {
+	if e == nil {
+		return "antigravity probe failed"
+	}
+	reason := strings.TrimSpace(e.Reason)
+	if reason == "" {
+		reason = "failed"
+	}
+	if e.StatusCode > 0 {
+		return fmt.Sprintf("antigravity probe %s (HTTP %d)", reason, e.StatusCode)
+	}
+	return fmt.Sprintf("antigravity probe %s", reason)
+}
+
+func (e *AntigravityProbeError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 func (s *AntigravityGatewayService) TestConnectionWithPromptStreaming(ctx context.Context, account *Account, modelID, prompt string) (*TestConnectionStreamResult, error) {
 	started := time.Now()
 	if s.tokenProvider == nil {
-		return nil, errors.New("antigravity token provider not configured")
+		return nil, &AntigravityProbeError{Reason: "probe_credentials_missing", Err: errors.New("antigravity token provider unavailable")}
 	}
 	accessToken, err := s.tokenProvider.GetAccessToken(ctx, account)
 	if err != nil {
-		return nil, fmt.Errorf("获取 access_token 失败: %w", err)
+		return nil, &AntigravityProbeError{Reason: "probe_credentials_missing", Err: errors.New("antigravity access token unavailable")}
 	}
 	projectID, err := resolveAntigravityProjectID(account)
 	if err != nil {
-		return nil, err
+		return nil, &AntigravityProbeError{Reason: "probe_credentials_missing", Err: errors.New("antigravity project configuration unavailable")}
 	}
 	mappedModel := s.getMappedModel(account, modelID)
 	if mappedModel == "" {
-		return nil, fmt.Errorf("model %s not in whitelist", modelID)
+		return nil, &AntigravityProbeError{Reason: "probe_model_unsupported", Err: errors.New("antigravity probe model is not supported")}
 	}
 	var requestBody []byte
-	if strings.HasPrefix(modelID, "gemini-") {
+	if isAntigravityGeminiProbeModel(mappedModel) {
 		requestBody, err = s.buildGeminiProbeRequest(projectID, mappedModel, prompt)
 	} else {
 		requestBody, err = s.buildClaudeProbeRequestStreaming(projectID, mappedModel, prompt)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("构建请求失败: %w", err)
+		return nil, &AntigravityProbeError{Reason: "probe_request_invalid", Err: errors.New("unable to build antigravity probe request")}
 	}
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -382,21 +413,26 @@ func (s *AntigravityGatewayService) TestConnectionWithPromptStreaming(ctx contex
 	p := antigravityRetryLoopParams{ctx: ctx, prefix: fmt.Sprintf("[antigravity-Probe] account=%d(%s)", account.ID, account.Name), account: account, proxyURL: proxyURL, accessToken: accessToken, action: "streamGenerateContent", body: requestBody, c: nil, httpUpstream: s.httpUpstream, settingService: s.settingService, accountRepo: s.accountRepo, requestedModel: modelID, handleError: testConnectionHandleError}
 	result, err := s.antigravityRetryLoop(p)
 	if err != nil {
-		return nil, err
+		var switchErr *AntigravityAccountSwitchError
+		if errors.As(err, &switchErr) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		return nil, &AntigravityProbeError{Reason: "probe_transport_error", Err: errors.New("antigravity probe request failed")}
 	}
 	if result == nil || result.resp == nil {
-		return nil, errors.New("upstream returned empty response")
+		return nil, &AntigravityProbeError{Reason: "probe_transport_error", Err: errors.New("antigravity returned no response")}
 	}
 	defer func() { _ = result.resp.Body.Close() }()
 	if result.resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(io.LimitReader(result.resp.Body, s.upstreamErrorBodyReadLimit()))
-		return nil, fmt.Errorf("API 返回 %d: %s", result.resp.StatusCode, string(body))
+		status := result.resp.StatusCode
+		_, _ = io.Copy(io.Discard, io.LimitReader(result.resp.Body, s.upstreamErrorBodyReadLimit()))
+		return nil, &AntigravityProbeError{StatusCode: status, Reason: "upstream_http_error", Err: fmt.Errorf("API returned HTTP %d", status)}
 	}
 	var output strings.Builder
 	var ttft *int64
 	finish := ""
 	completed := false
-	err = scanUpstreamHealthSSE(result.resp.Body, func(data []byte) (bool, error) {
+	terminalSeen, scanErr := scanUpstreamHealthSSE(result.resp.Body, func(data []byte) (bool, error) {
 		var envelope struct {
 			Response struct {
 				Candidates []struct {
@@ -408,12 +444,38 @@ func (s *AntigravityGatewayService) TestConnectionWithPromptStreaming(ctx contex
 					} `json:"content"`
 					FinishReason string `json:"finishReason"`
 				} `json:"candidates"`
+				Error json.RawMessage `json:"error"`
 			} `json:"response"`
+			Candidates []struct {
+				Content struct {
+					Parts []struct {
+						Text    string `json:"text"`
+						Thought bool   `json:"thought"`
+					} `json:"parts"`
+				} `json:"content"`
+				FinishReason string `json:"finishReason"`
+			} `json:"candidates"`
+			Error   json.RawMessage `json:"error"`
+			Choices json.RawMessage `json:"choices"`
 		}
-		if json.Unmarshal(data, &envelope) != nil || len(envelope.Response.Candidates) == 0 {
+		if decodeErr := json.Unmarshal(data, &envelope); decodeErr != nil {
+			return false, &AntigravityProbeError{Reason: "probe_protocol_mismatch", Err: errors.New("invalid antigravity probe event")}
+		}
+		if (len(envelope.Error) > 0 && string(envelope.Error) != "null") ||
+			(len(envelope.Response.Error) > 0 && string(envelope.Response.Error) != "null") {
+			return false, &AntigravityProbeError{Reason: "probe_response_failed", Err: errors.New("antigravity probe stream reported an error")}
+		}
+		candidates := envelope.Response.Candidates
+		if len(candidates) == 0 {
+			candidates = envelope.Candidates
+		}
+		if len(candidates) == 0 {
+			if len(envelope.Choices) > 0 && string(envelope.Choices) != "null" {
+				return false, &AntigravityProbeError{Reason: "probe_protocol_mismatch", Err: errors.New("antigravity probe returned OpenAI-compatible data")}
+			}
 			return false, nil
 		}
-		for _, candidate := range envelope.Response.Candidates {
+		for _, candidate := range candidates {
 			for _, part := range candidate.Content.Parts {
 				if part.Thought || strings.TrimSpace(part.Text) == "" {
 					continue
@@ -431,16 +493,27 @@ func (s *AntigravityGatewayService) TestConnectionWithPromptStreaming(ctx contex
 		}
 		return completed, nil
 	})
+	err = scanErr
 	if err != nil {
-		return &TestConnectionStreamResult{Text: output.String(), MappedModel: mappedModel, TTFTMs: ttft, FinishReason: finish}, err
+		streamResult := &TestConnectionStreamResult{Text: output.String(), MappedModel: mappedModel, TTFTMs: ttft, FinishReason: finish}
+		var probeErr *AntigravityProbeError
+		if errors.As(err, &probeErr) {
+			return streamResult, err
+		}
+		return streamResult, &AntigravityProbeError{Reason: "probe_stream_error", Err: errors.New("antigravity probe stream could not be read")}
 	}
+	completed = completed || (terminalSeen && output.Len() > 0)
 	if !completed {
-		return &TestConnectionStreamResult{Text: output.String(), MappedModel: mappedModel, TTFTMs: ttft, FinishReason: finish}, errors.New("antigravity probe stream ended before completion")
+		return &TestConnectionStreamResult{Text: output.String(), MappedModel: mappedModel, TTFTMs: ttft, FinishReason: finish}, &AntigravityProbeError{Reason: "probe_incomplete_stream", Err: errors.New("antigravity probe stream ended before completion")}
 	}
 	if strings.TrimSpace(output.String()) == "" {
-		return &TestConnectionStreamResult{MappedModel: mappedModel, FinishReason: finish}, errors.New("antigravity probe stream contained no text")
+		return &TestConnectionStreamResult{MappedModel: mappedModel, FinishReason: finish}, &AntigravityProbeError{Reason: "probe_response_mismatch", Err: errors.New("antigravity probe stream contained no text")}
 	}
 	return &TestConnectionStreamResult{Text: output.String(), MappedModel: mappedModel, TTFTMs: ttft, FinishReason: finish}, nil
+}
+
+func isAntigravityGeminiProbeModel(mappedModel string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(mappedModel)), "gemini-")
 }
 
 // TestConnection 测试 Antigravity 账号连接。
@@ -543,12 +616,12 @@ func (s *AntigravityGatewayService) TestConnectionWithPrompt(ctx context.Context
 // 仅记录日志，不做 ops 错误追踪或粘性会话清除。
 func testConnectionHandleError(
 	_ context.Context, prefix string, account *Account,
-	statusCode int, _ http.Header, body []byte,
+	statusCode int, _ http.Header, _ []byte,
 	requestedModel string, _ int64, _ string, _ bool,
 ) *handleModelRateLimitResult {
 	logger.LegacyPrintf("service.antigravity_gateway",
-		"%s test_handle_error status=%d model=%s account=%d body=%s",
-		prefix, statusCode, requestedModel, account.ID, truncateForLog(body, 200))
+		"%s test_handle_error status=%d model=%s account=%d",
+		prefix, statusCode, requestedModel, account.ID)
 	return nil
 }
 

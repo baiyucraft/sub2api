@@ -223,6 +223,14 @@ type healthProbeAccountRepo struct {
 	account Account
 }
 
+func (r *healthProbeAccountRepo) GetByID(_ context.Context, id int64) (*Account, error) {
+	if r.account.ID != id {
+		return nil, ErrAccountNotFound
+	}
+	account := r.account
+	return &account, nil
+}
+
 func (r *healthProbeAccountRepo) ListByUpstreamKeyID(context.Context, int64) ([]Account, error) {
 	return []Account{r.account}, nil
 }
@@ -270,6 +278,19 @@ func (*mixedJuiceUpstreamHealthProber) RunUpstreamHealthProbe(_ context.Context,
 
 type failedAfterFirstTokenUpstreamHealthProber struct{}
 
+type classifiedUpstreamHealthProber struct{}
+
+func (*classifiedUpstreamHealthProber) RunUpstreamHealthProbe(_ context.Context, _ *Account, model string) (UpstreamHealthProbeResult, error) {
+	status := 404
+	return UpstreamHealthProbeResult{
+		Model:      model,
+		Protocol:   upstreamHealthProbeProtocolGemini,
+		Result:     "404",
+		Reason:     "probe_model_unsupported",
+		HTTPStatus: &status,
+	}, errors.New("probe model is unavailable")
+}
+
 func (*failedAfterFirstTokenUpstreamHealthProber) RunUpstreamHealthProbe(_ context.Context, _ *Account, model string) (UpstreamHealthProbeResult, error) {
 	ttft := int64(45)
 	return UpstreamHealthProbeResult{Model: model, Protocol: upstreamHealthProbeProtocolOpenAI, TTFTMs: &ttft}, errors.New("stream interrupted after first token")
@@ -308,6 +329,28 @@ func TestUpstreamConfigServiceProbeReportsOpenAIScheduleResultBeforeConfidenceDe
 	require.Equal(t, true, reporter.reports[0].success, "network/stream completion succeeded before Juice quality degradation")
 	require.NotNil(t, reporter.reports[0].firstTokenMs)
 	require.Equal(t, 35, *reporter.reports[0].firstTokenMs)
+}
+
+func TestUpstreamConfigServiceProbeFailureReturnsSanitizedClassificationMetadata(t *testing.T) {
+	const keyID int64 = 92034
+	active := StatusActive
+	platform := PlatformGemini
+	repo := &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active, Platform: &platform}}
+	accountRepo := &healthProbeAccountRepo{account: Account{ID: 88, Type: AccountTypeAPIKey, Platform: PlatformGemini, UpstreamKeyID: int64Ptr(keyID)}}
+
+	svc := NewUpstreamConfigService(repo, nil, accountRepo)
+	svc.SetHealthProbeDependencies(&classifiedUpstreamHealthProber{}, nil)
+
+	_, err := svc.ProbeKey(context.Background(), keyID)
+	require.Error(t, err)
+	appErr := infraerrors.FromError(err)
+	require.Equal(t, "UPSTREAM_KEY_PROBE_FAILED", appErr.Reason)
+	require.Equal(t, map[string]string{
+		"probe_reason": "probe_model_unsupported",
+		"http_status":  "404",
+		"protocol":     upstreamHealthProbeProtocolGemini,
+		"model":        DefaultUpstreamProbeModels().ModelFor(PlatformGemini),
+	}, appErr.Metadata)
 }
 
 func TestUpstreamConfigServiceProbeReportsFailureAndTTFTAfterStreamError(t *testing.T) {

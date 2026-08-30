@@ -713,7 +713,7 @@ import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/ac
 import { buildTTFTGuardDegradationKey, buildUpstreamHealthKey, mergeRuntimeFields } from '@/utils/accountRuntimeState'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
-import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage, extractApiErrorMetadata, extractI18nErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
@@ -2042,6 +2042,32 @@ const replaceUpstreamHealth = (accountID: number, health: Account['upstream_heal
   if (account) account.upstream_health = health
 }
 
+const formatUpstreamProbeError = (error: unknown) => {
+  const message = extractI18nErrorMessage(
+    error,
+    t,
+    'admin.upstreamManagement.actions.errors',
+    t('admin.upstreamManagement.actions.probeFailed')
+  )
+  const metadata = extractApiErrorMetadata(error)
+  if (!metadata) return message
+  const reason = typeof metadata.probe_reason === 'string' ? metadata.probe_reason.trim() : ''
+  if (!reason) return message
+  const reasonKey = `admin.upstreamManagement.health.reasons.${reason}`
+  const translatedReason = t(reasonKey)
+  const detail = translatedReason === reasonKey ? t('admin.upstreamManagement.health.probeFailedReason') : translatedReason
+  const model = typeof metadata.model === 'string' ? metadata.model.trim() : ''
+  const httpStatus = typeof metadata.http_status === 'string' ? metadata.http_status.trim() : ''
+  const suffix = [
+    detail,
+    model ? t('admin.upstreamManagement.actions.probeModel', { model }) : '',
+    httpStatus ? t('admin.upstreamManagement.actions.probeHttpStatus', { status: httpStatus }) : ''
+  ].filter(Boolean).join(t('admin.upstreamManagement.actions.probeDetailSeparator'))
+  return suffix
+    ? t('admin.upstreamManagement.actions.probeFailedWithDetail', { message, detail: suffix })
+    : message
+}
+
 const handleProbeUpstreamKey = async (account: Account) => {
   const keyID = account.upstream_key_id
   if (!keyID) return
@@ -2051,12 +2077,7 @@ const handleProbeUpstreamKey = async (account: Account) => {
     appStore.showSuccess(t('admin.upstreamManagement.actions.probeRecorded'))
   } catch (error) {
     console.error('Failed to probe upstream key:', error)
-    appStore.showError(extractI18nErrorMessage(
-      error,
-      t,
-      'admin.upstreamManagement.actions.errors',
-      t('admin.upstreamManagement.actions.probeFailed')
-    ))
+    appStore.showError(formatUpstreamProbeError(error))
   }
   finally { probingKeyIDs.delete(keyID) }
 }
