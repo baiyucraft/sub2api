@@ -350,7 +350,13 @@ exit "$code"
         try:
             sftp = client.open_sftp()
             try:
-                sftp.get(remote_path, str(local_path))
+                # Disable Paramiko's unbounded read-ahead for large release
+                # archives.  The default prefetch queue can grow for the
+                # duration of a long transfer and causes some proxy/SSH
+                # servers to drop the SFTP channel before EOF.  Reads remain
+                # streamed to the bounded local staging file and the caller
+                # verifies the full checksum before accepting the asset.
+                sftp.get(remote_path, str(local_path), prefetch=False)
             finally:
                 sftp.close()
         finally:
