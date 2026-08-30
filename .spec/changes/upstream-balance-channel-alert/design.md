@@ -11,7 +11,8 @@
 - 渠道和看板 DTO 新增可空字段：`balance_low`、`balance_threshold_cny`、`balance_unavailable_reason`、`balance_updated_at`；看板聚合新增 `balance_low_upstream_count`。
 - `balance_low` 仅在余额判定有效且低于正阈值时为 true；无效输入为 false/NULL（按现有 DTO 约定），并必须带不可用原因。
 - 余额事件 key 继续为 `balance_low`，事件状态转移保持 open/resolve 语义，事件唯一范围为上游配置。
-- 通知复用管理员额度告警设置：未启用、无收件人、邮箱未验证或发送失败不阻塞快照/事件落库。
+- 通知使用独立的 `upstream_balance_notify_enabled` 开关，设置缺失时默认开启，不受 `account_quota_notify_enabled` 影响。
+- 已验证且未停用的管理员通知邮箱优先；没有有效额外邮箱时回退所有启用中管理员的合法注册邮箱。无有效管理员邮箱或发送失败不阻塞快照/事件落库。
 - 后台链接使用现有 `buildUpstreamDashboardURL`/`openUpstreamDashboard` 规则；仅输出脱敏 URL，不携带凭据。
 
 ## Ownership 与数据/文件流
@@ -61,7 +62,7 @@ provider billing probe
 - 来源：既有 upstream operations balance snapshot/incident 实现
   - 目标落点：复用余额和事件 SSOT
   - 采用方式：direct migration
-- 来源：管理员额度通知设置与 provider dashboard URL helper
+- 来源：管理员通知邮箱、管理员注册邮箱与 provider dashboard URL helper
   - 目标落点：通知与充值入口
   - 采用方式：direct migration
 

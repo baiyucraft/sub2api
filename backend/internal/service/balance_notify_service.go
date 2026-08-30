@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
 const (
@@ -39,20 +42,28 @@ type AccountQuotaReader interface {
 	GetByID(ctx context.Context, id int64) (*Account, error)
 }
 
+// AdminNotificationRecipientReader provides the active administrator emails
+// used as the automatic fallback for upstream balance alerts.
+type AdminNotificationRecipientReader interface {
+	ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters UserListFilters) ([]User, *pagination.PaginationResult, error)
+}
+
 // BalanceNotifyService handles balance and quota threshold notifications.
 type BalanceNotifyService struct {
 	emailService             *EmailService
 	settingRepo              SettingRepository
 	accountRepo              AccountQuotaReader
+	adminRecipientRepo       AdminNotificationRecipientReader
 	notificationEmailService *NotificationEmailService
 }
 
 // NewBalanceNotifyService creates a new BalanceNotifyService.
-func NewBalanceNotifyService(emailService *EmailService, settingRepo SettingRepository, accountRepo AccountQuotaReader) *BalanceNotifyService {
+func NewBalanceNotifyService(emailService *EmailService, settingRepo SettingRepository, accountRepo AccountQuotaReader, adminRecipientRepo AdminNotificationRecipientReader) *BalanceNotifyService {
 	return &BalanceNotifyService{
-		emailService: emailService,
-		settingRepo:  settingRepo,
-		accountRepo:  accountRepo,
+		emailService:       emailService,
+		settingRepo:        settingRepo,
+		accountRepo:        accountRepo,
+		adminRecipientRepo: adminRecipientRepo,
 	}
 }
 
@@ -67,10 +78,10 @@ func (s *BalanceNotifyService) NotifyUpstreamBalanceLow(ctx context.Context, con
 	if s == nil || config == nil || s.notificationEmailService == nil || s.settingRepo == nil {
 		return
 	}
-	if !s.isAccountQuotaNotifyEnabled(ctx) {
+	if !s.isUpstreamBalanceNotifyEnabled(ctx) {
 		return
 	}
-	recipients := s.getAccountQuotaNotifyEmails(ctx)
+	recipients := s.getUpstreamBalanceNotifyRecipients(ctx)
 	if len(recipients) == 0 {
 		return
 	}
@@ -96,7 +107,7 @@ func (s *BalanceNotifyService) NotifyUpstreamBalanceLow(ctx context.Context, con
 				"recharge_url":    rechargeURL,
 			},
 		}); err != nil {
-			slog.Warn("upstream balance notification failed", "config_id", config.ID, "to", recipient, "error", err)
+			slog.Warn("upstream balance notification failed", "config_id", config.ID, "recipient_hash", notificationEmailHash(recipient), "error", err)
 		}
 	}
 }
@@ -349,6 +360,20 @@ func (s *BalanceNotifyService) isAccountQuotaNotifyEnabled(ctx context.Context) 
 	return val == "true"
 }
 
+// isUpstreamBalanceNotifyEnabled checks the dedicated upstream balance alert
+// toggle. Missing settings default to enabled so existing installations start
+// receiving alerts after upgrading without requiring a manual settings save.
+func (s *BalanceNotifyService) isUpstreamBalanceNotifyEnabled(ctx context.Context) bool {
+	val, err := s.settingRepo.GetValue(ctx, SettingKeyUpstreamBalanceNotifyEnabled)
+	if errors.Is(err, ErrSettingNotFound) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	return !isFalseSettingValue(val)
+}
+
 // getAccountQuotaNotifyEmails reads admin notification emails from settings,
 // filtering out disabled and unverified entries.
 func (s *BalanceNotifyService) getAccountQuotaNotifyEmails(ctx context.Context) []string {
@@ -363,6 +388,52 @@ func (s *BalanceNotifyService) getAccountQuotaNotifyEmails(ctx context.Context) 
 	}
 
 	return filterVerifiedEmails(entries)
+}
+
+// getUpstreamBalanceNotifyRecipients uses explicitly configured administrator
+// notification emails when available. Otherwise it falls back to the
+// registration emails of all active administrators so the default-enabled
+// alert works without extra setup.
+func (s *BalanceNotifyService) getUpstreamBalanceNotifyRecipients(ctx context.Context) []string {
+	if recipients := s.getAccountQuotaNotifyEmails(ctx); len(recipients) > 0 {
+		return recipients
+	}
+	if s.adminRecipientRepo == nil {
+		return nil
+	}
+
+	const pageSize = 100
+	noSubscriptions := false
+	recipients := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+	for page := 1; ; page++ {
+		admins, result, err := s.adminRecipientRepo.ListWithFilters(ctx, pagination.PaginationParams{
+			Page: page, PageSize: pageSize,
+		}, UserListFilters{
+			Role:                 RoleAdmin,
+			Status:               StatusActive,
+			IncludeSubscriptions: &noSubscriptions,
+		})
+		if err != nil {
+			return nil
+		}
+		for i := range admins {
+			email, ok := normalizeBalanceNotifyRecipient(admins[i].Email)
+			if !ok {
+				continue
+			}
+			key := strings.ToLower(email)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			recipients = append(recipients, email)
+		}
+		if result == nil || int64(page*pageSize) >= result.Total {
+			break
+		}
+	}
+	return recipients
 }
 
 // getSiteName reads site name from settings with fallback.

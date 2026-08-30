@@ -8820,7 +8820,24 @@
                 >
                 <Toggle v-model="form.account_quota_notify_enabled" />
               </div>
-              <div v-if="form.account_quota_notify_enabled">
+              <div class="flex items-center justify-between gap-4">
+                <div>
+                  <label
+                    class="mb-0 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >{{ t("admin.settings.quotaNotify.upstreamBalanceEnabled") }}</label
+                  >
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.quotaNotify.upstreamBalanceHint") }}
+                  </p>
+                </div>
+                <Toggle v-model="form.upstream_balance_notify_enabled" />
+              </div>
+              <div
+                v-if="
+                  form.account_quota_notify_enabled ||
+                  form.upstream_balance_notify_enabled
+                "
+              >
                 <label
                   class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
                   >{{ t("admin.settings.quotaNotify.emails") }}</label
@@ -10027,6 +10044,7 @@ const form = reactive<SettingsForm>({
   balance_low_notify_recharge_url: "",
   subscription_expiry_notify_enabled: true,
   account_quota_notify_enabled: false,
+  upstream_balance_notify_enabled: true,
   account_quota_notify_emails: [] as NotifyEmailEntry[],
   // Channel Monitor feature switch
   channel_monitor_enabled: true,
@@ -11726,6 +11744,8 @@ async function saveSettings() {
       subscription_expiry_notify_enabled:
         form.subscription_expiry_notify_enabled,
       account_quota_notify_enabled: form.account_quota_notify_enabled,
+      upstream_balance_notify_enabled:
+        form.upstream_balance_notify_enabled,
       account_quota_notify_emails: (
         form.account_quota_notify_emails || []
       ).filter((e) => e.email.trim() !== ""),

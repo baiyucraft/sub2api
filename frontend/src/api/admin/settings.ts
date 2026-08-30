@@ -720,6 +720,7 @@ export interface SystemSettings {
   balance_low_notify_recharge_url: string;
   subscription_expiry_notify_enabled: boolean;
   account_quota_notify_enabled: boolean;
+  upstream_balance_notify_enabled: boolean;
   account_quota_notify_emails: NotifyEmailEntry[];
 
   // Channel Monitor feature switch
@@ -1032,6 +1033,7 @@ export interface UpdateSettingsRequest {
   balance_low_notify_recharge_url?: string;
   subscription_expiry_notify_enabled?: boolean;
   account_quota_notify_enabled?: boolean;
+  upstream_balance_notify_enabled?: boolean;
   account_quota_notify_emails?: NotifyEmailEntry[];
 
   // Channel Monitor feature switch
