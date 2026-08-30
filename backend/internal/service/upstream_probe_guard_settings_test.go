@@ -78,6 +78,44 @@ func TestProbeGuardAuthenticationAndGateway403Classification(t *testing.T) {
 	require.Zero(t, gateway.Current.ConsecutiveFails)
 }
 
+func TestProbeGuardDoesNotCountProtocolOrCapabilityFailures(t *testing.T) {
+	registry := &UpstreamHealthRegistry{items: make(map[int64]UpstreamHealthSnapshot)}
+	settings := DefaultUpstreamProbeGuardSettings()
+	settings.SuspendAfterFailures = 1
+	for _, tc := range []struct {
+		status string
+		reason string
+	}{
+		{status: "invalid_response", reason: "probe_response_mismatch"},
+		{status: "invalid_response", reason: "probe_protocol_mismatch"},
+		{status: "incomplete", reason: "probe_incomplete_stream"},
+		{status: "incomplete", reason: "probe_response_incomplete"},
+		{status: "unsupported_model", reason: "probe_model_unsupported"},
+		{status: "configuration_error", reason: "probe_base_url_invalid"},
+		{status: "unavailable", reason: "probe_transport_unavailable"},
+		{status: "challenge_error", reason: "probe_challenge_error"},
+		{status: "unsupported_account", reason: "probe_account_unsupported"},
+		{status: "cancelled", reason: "probe_cancelled"},
+		{status: "invalid_response", reason: "probe_response_empty"},
+		{status: "quality_degraded", reason: "probe_quality_degraded"},
+	} {
+		transition := registry.RecordProbeFailureWithGuardTransition(1, tc.status, tc.reason, nil, time.Now(), settings)
+		require.Equal(t, UpstreamHealthDegraded, transition.Current.Status, tc.reason)
+		require.Zero(t, transition.Current.ConsecutiveFails, tc.reason)
+	}
+}
+
+func TestProbeGuardCountsExplicitUpstreamResponseErrors(t *testing.T) {
+	registry := &UpstreamHealthRegistry{items: make(map[int64]UpstreamHealthSnapshot)}
+	settings := DefaultUpstreamProbeGuardSettings()
+	settings.SuspendAfterFailures = 1
+
+	transition := registry.RecordProbeFailureWithGuardTransition(1, "failed", "probe_response_failed", nil, time.Now(), settings)
+
+	require.Equal(t, UpstreamHealthSuspended, transition.Current.Status)
+	require.Equal(t, 1, transition.Current.ConsecutiveFails)
+}
+
 func TestProbeGuardDisabledKeepsEvidenceWithoutSchedulingSuspension(t *testing.T) {
 	registry := &UpstreamHealthRegistry{items: make(map[int64]UpstreamHealthSnapshot)}
 	settings := DefaultUpstreamProbeGuardSettings()

@@ -14,7 +14,8 @@ const {
   getBatchUsage,
   getUpstreamBillingProbeSettings,
   probeKey,
-  setKeyObservation
+  setKeyObservation,
+  showError
 } = vi.hoisted(() => ({
   ordinaryList: vi.fn(),
   upstreamList: vi.fn(),
@@ -26,7 +27,8 @@ const {
   getBatchUsage: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn(),
   probeKey: vi.fn(),
-  setKeyObservation: vi.fn()
+  setKeyObservation: vi.fn(),
+  showError: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -64,7 +66,7 @@ vi.mock('@/api/admin/upstreamManagement', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
+    showError,
     showSuccess: vi.fn(),
     showInfo: vi.fn()
   })
@@ -82,7 +84,16 @@ vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
     ...actual,
-    useI18n: () => ({ t: (key: string) => key })
+    useI18n: () => ({
+      t: (key: string, params?: Record<string, unknown>) => {
+        if (key === 'admin.upstreamManagement.actions.probeFailedWithDetail') return `${params?.message}: ${params?.detail}`
+        if (key === 'admin.upstreamManagement.actions.probeModel') return `model ${params?.model}`
+        if (key === 'admin.upstreamManagement.actions.probeHttpStatus') return `HTTP ${params?.status}`
+        if (key === 'admin.upstreamManagement.actions.probeDetailSeparator') return '; '
+        if (key === 'admin.upstreamManagement.health.reasons.probe_model_unsupported') return 'unsupported probe model'
+        return key
+      }
+    })
   }
 })
 
@@ -200,6 +211,7 @@ describe('admin AccountsView upstream management mode', () => {
     getUpstreamBillingProbeSettings.mockReset()
     probeKey.mockReset()
     setKeyObservation.mockReset()
+    showError.mockReset()
 
     upstreamList.mockResolvedValue({
       items: [{
@@ -397,6 +409,30 @@ describe('admin AccountsView upstream management mode', () => {
 
     resolveProbe?.({ observation_enabled: false })
     await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('shows sanitized probe classification metadata after a manual probe failure', async () => {
+    probeKey.mockRejectedValue({
+      reason: 'UPSTREAM_KEY_PROBE_FAILED',
+      message: 'upstream key probe failed',
+      metadata: {
+        probe_reason: 'probe_model_unsupported',
+        protocol: 'gemini_stream_generate_content',
+        model: 'gemini-3.7-flash',
+        http_status: '404'
+      }
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="upstream-probe-action"]').trigger('click')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith(
+      'upstream key probe failed: unsupported probe model; model gemini-3.7-flash; HTTP 404'
+    )
     wrapper.unmount()
   })
 

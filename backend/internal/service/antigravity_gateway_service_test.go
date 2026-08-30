@@ -27,6 +27,26 @@ type antigravityFailingWriter struct {
 	writes    int
 }
 
+func TestAntigravityProbeErrorKeepsClassificationWithoutResponseBody(t *testing.T) {
+	secretBody := errors.New(`{"error":"secret-token-and-request-body"}`)
+	err := &AntigravityProbeError{StatusCode: http.StatusTooManyRequests, Reason: "upstream_http_error", Err: secretBody}
+	require.Contains(t, err.Error(), "HTTP")
+	require.NotContains(t, err.Error(), "secret-token")
+	require.ErrorIs(t, err, secretBody)
+}
+
+func TestAntigravityProbeRetryLogsRedactResponseBody(t *testing.T) {
+	body := []byte(`{"error":"provider-secret"}`)
+	require.Equal(t, "[redacted]", antigravityProbeLogBody(antigravityRetryLoopParams{prefix: "[antigravity-Probe] account=1"}, body, 200))
+	require.Equal(t, `{"error":"provider-secret"}`, antigravityProbeLogBody(antigravityRetryLoopParams{prefix: "[gateway] account=1"}, body, 200))
+}
+
+func TestAntigravityProbeProtocolUsesMappedModel(t *testing.T) {
+	require.True(t, isAntigravityGeminiProbeModel(" gemini-2.5-flash "))
+	require.False(t, isAntigravityGeminiProbeModel("probe-gemini"))
+	require.False(t, isAntigravityGeminiProbeModel("claude-sonnet-4-6"))
+}
+
 func (w *antigravityFailingWriter) Write(p []byte) (int, error) {
 	if w.writes >= w.failAfter {
 		return 0, errors.New("write failed: client disconnected")

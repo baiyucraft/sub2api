@@ -45,6 +45,39 @@
           </div>
         </div>
 
+        <div>
+          <label class="input-label">{{ t('profile.balanceNotify.defaultEmail') }}</label>
+          <div
+            class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-dark-600 dark:bg-dark-700/60"
+            data-testid="balance-notify-default-email"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-200">
+                {{ hasUsableDefaultEmail ? userEmail : t('profile.balanceNotify.defaultEmailUnavailable') }}
+              </span>
+              <span
+                class="rounded-full px-2 py-0.5 text-xs font-medium"
+                :class="activeExtraEmails.length > 0 || !hasUsableDefaultEmail
+                  ? 'bg-gray-200 text-gray-600 dark:bg-dark-600 dark:text-gray-300'
+                  : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'"
+              >
+                {{ !hasUsableDefaultEmail
+                  ? t('profile.balanceNotify.defaultEmailUnavailableStatus')
+                  : activeExtraEmails.length > 0
+                  ? t('profile.balanceNotify.defaultEmailReplaced')
+                  : t('profile.balanceNotify.defaultEmailActive') }}
+              </span>
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ !hasUsableDefaultEmail
+                ? t('profile.balanceNotify.defaultEmailUnavailableHint')
+                : activeExtraEmails.length > 0
+                ? t('profile.balanceNotify.defaultEmailReplacedHint')
+                : t('profile.balanceNotify.defaultEmailHint') }}
+            </p>
+          </div>
+        </div>
+
         <!-- Email list with toggles -->
         <div>
           <label class="input-label">{{ t('profile.balanceNotify.extraEmails') }}</label>
@@ -157,7 +190,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
@@ -207,17 +240,21 @@ let verifyTimer: ReturnType<typeof setInterval> | null = null
 const canAddMore = computed(() => {
   return emailEntries.value.length + pendingEmails.value.length < maxTotalEmails
 })
+const activeExtraEmails = computed(() =>
+  emailEntries.value.filter(entry => entry.verified && !entry.disabled && isUsableNotificationEmail(entry.email))
+)
+const hasUsableDefaultEmail = computed(() => {
+  return isUsableNotificationEmail(props.userEmail)
+})
+
+function isUsableNotificationEmail(raw: string): boolean {
+  const email = raw.trim().toLowerCase()
+  return /^[^\s@]+@[^\s@]+$/.test(email) && !email.endsWith('.invalid')
+}
 
 watch(() => props.enabled, (val) => { notifyEnabled.value = val })
 watch(() => props.threshold, (val) => { customThreshold.value = val })
 watch(() => props.extraEmails, (val) => { emailEntries.value = [...val] })
-
-// When list is empty on mount, pre-fill the add input with user's email
-onMounted(() => {
-  if (emailEntries.value.length === 0 && props.userEmail) {
-    newEmail.value = props.userEmail
-  }
-})
 
 onUnmounted(() => {
   for (const pe of pendingEmails.value) {

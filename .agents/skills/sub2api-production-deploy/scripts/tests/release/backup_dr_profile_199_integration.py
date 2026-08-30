@@ -188,7 +188,7 @@ archive_sha=$(sha256sum "$gate_dir/candidate.tar.gz" | awk '{{print $1}}')
 image_id=sha256:$(printf 'd%.0s' {{1..64}})
 jq -n --arg release_id "$release_id" --arg profile {profile} --arg archive_sha "$archive_sha" --arg image_id "$image_id" \
   --argjson migration_sha256 {migration_json} \
-  '{{manifest:{{release_id:$release_id,profile:$profile,migration_sha256:$migration_sha256}},evidence:{{candidate_archive_sha256:$archive_sha,candidate_image_id:$image_id}}}}' > "$gate_dir/gate.json"
+  '{{manifest:{{release_id:$release_id,profile:$profile,schema:1,migration_sha256:$migration_sha256}},evidence:{{candidate_archive_sha256:$archive_sha,candidate_image_id:$image_id}}}}' > "$gate_dir/gate.json"
 chmod 400 "$gate_dir/gate.json"
 export SUB2API_HELPER_TEST_MODE=true
 export SUB2API_UNIT_LOCK_PATH="$vm_temp/libexec/.sub2api-release-unit.lock"

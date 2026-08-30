@@ -420,8 +420,9 @@ func (r *UpstreamHealthRegistry) recordProbeFailureWithGuard(keyID int64, status
 	customCodes := upstreamProbeGuardCustomCodeSet(settings)
 	authFailure := (code == 401 || code == 403) && strings.TrimSpace(reason) != "gateway_intercepted"
 	_, customCode := customCodes[code]
-	countFailure := authFailure || (code >= 500 && code != 529) || (code >= 400 && code < 500 && customCode) || ((code == 429 || code == 529) && customCode)
-	if code == 0 {
+	countFailure := probeFailureCountsTowardScheduling(status, reason) &&
+		(authFailure || (code >= 500 && code != 529) || (code >= 400 && code < 500 && customCode) || ((code == 429 || code == 529) && customCode))
+	if code == 0 && probeFailureCountsTowardScheduling(status, reason) {
 		countFailure = true
 	}
 	if !countFailure {
@@ -491,6 +492,9 @@ func (r *UpstreamHealthRegistry) ReevaluateProbeGuard(settings UpstreamProbeGuar
 }
 
 func probeFailureStillCounts(status, reason string, settings UpstreamProbeGuardSettings) bool {
+	if !probeFailureCountsTowardScheduling(status, reason) {
+		return false
+	}
 	code := upstreamProbeStatusCode(status)
 	if (code == 401 || code == 403) && strings.TrimSpace(reason) != "gateway_intercepted" {
 		return true
@@ -500,6 +504,27 @@ func probeFailureStillCounts(status, reason string, settings UpstreamProbeGuardS
 	}
 	_, custom := upstreamProbeGuardCustomCodeSet(settings)[code]
 	return custom && ((code >= 400 && code < 500) || code == 529)
+}
+
+// probeFailureCountsTowardScheduling keeps protocol, challenge and capability
+// failures visible in health history without treating them as transient
+// upstream outages. Only failures that can reasonably indicate an account
+// should be removed from scheduling are allowed to advance the probe guard.
+func probeFailureCountsTowardScheduling(status, reason string) bool {
+	switch strings.TrimSpace(reason) {
+	case "probe_response_mismatch", "probe_protocol_mismatch", "probe_incomplete_stream",
+		"probe_response_incomplete",
+		"probe_model_unsupported", "probe_credentials_missing", "probe_base_url_invalid",
+		"probe_protocol_unsupported", "probe_platform_unsupported", "probe_request_invalid",
+		"probe_transport_unavailable", "probe_challenge_error", "probe_account_unsupported",
+		"probe_cancelled", "probe_response_empty", "probe_quality_degraded":
+		return false
+	case "probe_transport_error", "probe_timeout", "probe_stream_error", "probe_upstream_error",
+		"probe_response_failed", "authentication_failed", "capacity_limited", "upstream_server_error", "upstream_http_error":
+		return true
+	default:
+		return strings.TrimSpace(status) != "" && strings.TrimSpace(status) != "invalid_response" && strings.TrimSpace(status) != "unsupported_model" && strings.TrimSpace(status) != "configuration_error"
+	}
 }
 
 func (r *UpstreamHealthRegistry) Snapshot(keyID int64) UpstreamHealthSnapshot {
