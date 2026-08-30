@@ -183,7 +183,10 @@ func applyPublicRateTrendToView(
 		return
 	}
 	view.CurrentPublicRate = trend.CurrentRate
+	view.AveragePublicRate = trend.AverageRate
 	view.RateObservedSince = trend.ObservedSince
+	view.RateRangeStart = trend.RangeStart
+	view.RateRangeEnd = trend.RangeEnd
 	view.RateTrend = trend.Points
 }
 
@@ -292,7 +295,10 @@ func (s *ChannelMonitorService) GetUserDetail(
 		trends := s.batchPublicRateTrends(ctx, []*ChannelMonitor{m}, rateRange, time.Now().UTC())
 		if trend, ok := trends[*m.GroupID]; ok {
 			detail.CurrentPublicRate = trend.CurrentRate
+			detail.AveragePublicRate = trend.AverageRate
 			detail.RateObservedSince = trend.ObservedSince
+			detail.RateRangeStart = trend.RangeStart
+			detail.RateRangeEnd = trend.RangeEnd
 			detail.RateTrend = trend.Points
 		} else {
 			detail.RateTrend = []PublicRateTrendPoint{}

@@ -8,16 +8,18 @@ shift 2 || true
 backup_root=${BACKUP_ROOT:-/srv/sub2api-backups}
 release_root=${RELEASE_ROOT:-/srv/sub2api-backups/releases}
 retention_days=${RELEASE_RETENTION_DAYS:-30}
-keep_recent=${KEEP_RECENT_RELEASES:-2}
+keep_recent=${KEEP_RECENT_RELEASES:-1}
 keep_recent_per_profile=${KEEP_RECENT_PER_PROFILE:-$keep_recent}
+keep_latest_profile_only=${KEEP_LATEST_PROFILE_ONLY:-true}
 failed_retention_days=${FAILED_RELEASE_RETENTION_DAYS:-7}
 
 [[ $mode == dry-run || $mode == apply ]]
 [[ $backup_root == /srv/sub2api-backups ]]
 [[ $release_root == /srv/sub2api-backups/releases ]]
 [[ $retention_days =~ ^[0-9]+$ && $retention_days -ge 30 ]]
-[[ $keep_recent =~ ^[0-9]+$ && $keep_recent -ge 2 ]]
+[[ $keep_recent =~ ^[0-9]+$ && $keep_recent -ge 1 ]]
 [[ $keep_recent_per_profile =~ ^[0-9]+$ && $keep_recent_per_profile -ge 1 ]]
+[[ $keep_latest_profile_only == true || $keep_latest_profile_only == false ]]
 [[ $failed_retention_days =~ ^[0-9]+$ && $failed_retention_days -ge 1 ]]
 [[ -d $backup_root && ! -L $backup_root ]]
 [[ -d $release_root && ! -L $release_root ]]
@@ -88,8 +90,14 @@ for bundle in "${release_dirs[@]}"; do
   printf '%s\t%s\t%s\t%s\n' "$profile" "$release_epoch" "$release_id" "$bundle" >> "$all"
 done
 
-LC_ALL=C sort -t $'\t' -k1,1 -k2,2nr -k3,3 "$all" \
-  | awk -F '\t' -v keep="$keep_recent_per_profile" 'count[$1]++ < keep {print $4}' > "$recent"
+latest_profile=$(cut -f1 "$all" | LC_ALL=C sort -n | tail -n 1)
+if [[ $keep_latest_profile_only == true ]]; then
+  LC_ALL=C sort -t $'\t' -k2,2nr -k3,3 "$all" \
+    | awk -F '\t' -v profile="$latest_profile" -v keep="$keep_recent" '$1 == profile && count++ < keep {print $4}' > "$recent"
+else
+  LC_ALL=C sort -t $'\t' -k1,1 -k2,2nr -k3,3 "$all" \
+    | awk -F '\t' -v keep="$keep_recent_per_profile" 'count[$1]++ < keep {print $4}' > "$recent"
+fi
 while IFS= read -r -d '' link; do
   target=$(realpath -e -- "$link" 2>/dev/null || true)
   [[ -n $target && $target == "$release_root/"* && -d $target && ! -L $target ]] || continue
@@ -102,7 +110,7 @@ while IFS=$'\t' read -r profile release_epoch release_id bundle; do
   grep -Fxq "$bundle" "$recent" && continue
   grep -Fxq "$bundle" "$protected" && continue
   bundle_mtime=$(stat -c '%Y' "$bundle")
-  if (( bundle_mtime >= cutoff )); then
+  if [[ $keep_latest_profile_only != true && $bundle_mtime -ge $cutoff ]]; then
     (( bundle_mtime < failed_cutoff )) || continue
     release_is_explicitly_failed "$profile" "$release_id" || continue
   fi
@@ -121,7 +129,7 @@ candidate_release_ids=$(paste -sd, "$candidate_ids")
 free_before=$(df -PB1 "$backup_root" | awk 'NR==2 {print $4}')
 
 if [[ $mode == dry-run ]]; then
-  printf 'cleanup_mode=dry-run\ncleanup_status=ready\nplan_sha256=%s\ncandidate_count=%s\ncandidate_bytes=%s\ncandidate_release_ids=%s\nfree_before=%s\nkeep_recent=%s\nretention_days=%s\n' "$plan_sha" "$candidate_count" "$candidate_bytes" "$candidate_release_ids" "$free_before" "$keep_recent" "$retention_days"
+  printf 'cleanup_mode=dry-run\ncleanup_status=ready\nplan_sha256=%s\ncandidate_count=%s\ncandidate_bytes=%s\ncandidate_release_ids=%s\nfree_before=%s\nkeep_recent=%s\nkeep_latest_profile_only=%s\nlatest_profile=%s\nretention_days=%s\n' "$plan_sha" "$candidate_count" "$candidate_bytes" "$candidate_release_ids" "$free_before" "$keep_recent" "$keep_latest_profile_only" "$latest_profile" "$retention_days"
   exit 0
 fi
 

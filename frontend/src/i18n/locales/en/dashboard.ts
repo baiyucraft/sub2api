@@ -511,6 +511,10 @@ export default {
     rateTrend: {
       title: 'Group rate trend',
       series: 'Public rate',
+      current: 'Current',
+      average: 'Range average',
+      observedAverage: 'Observed average',
+      historyIncomplete: 'Rate history is incomplete; the average covers only the observed interval',
       chartLabel: 'Group public rate trend chart',
       timeColumn: 'Time',
       empty: 'No rate changes recorded'

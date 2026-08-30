@@ -538,7 +538,7 @@ export default {
         lifetimeSince: '自 {date} 可追溯'
       },
       sortBy: '排序方式',
-      sortCurrentPageOnly: '仅对本页数据排序',
+      sortAllResults: '按全部筛选结果排序',
       noSubscription: '暂无订阅',
       publicGroupCount: '+{count} 公开',
       exclusiveLabel: '专属',

@@ -39,7 +39,10 @@ export interface UserMonitorView {
   timeline: MonitorTimelinePoint[]
   show_group_rate: boolean
   current_public_rate?: number | null
+  average_public_rate?: number | null
   rate_observed_since?: string | null
+  rate_range_start?: string | null
+  rate_range_end?: string | null
   rate_trend?: MonitorRateTrendPoint[]
   /**
    * 主模型最近配额快照。仅当系统开启 channel_monitor_show_quota 时
@@ -78,7 +81,10 @@ export interface UserMonitorDetail {
   models: UserMonitorModelDetail[]
   show_group_rate: boolean
   current_public_rate?: number | null
+  average_public_rate?: number | null
   rate_observed_since?: string | null
+  rate_range_start?: string | null
+  rate_range_end?: string | null
   rate_trend?: MonitorRateTrendPoint[]
 }
 

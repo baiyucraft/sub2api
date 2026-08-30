@@ -324,7 +324,9 @@ backup-host-space-clean.sh dry-run
 
 固定规则：
 
-- 默认每个 profile 保留最近 2 个 release，并保留至少 30 天；
+- 当前策略只保留最高版本 profile 的最新 1 个恢复包；不再保留历史版本或同一版本的旧恢复包。脚本默认以 `KEEP_LATEST_PROFILE_ONLY=true`、`KEEP_RECENT_RELEASES=1` 执行，历史包不受 30 天窗口限制而直接进入候选；如需临时恢复按 profile 保留策略，必须显式设置 `KEEP_LATEST_PROFILE_ONLY=false`，且不得低于每个 profile 1 个包；
+- 该策略只作用于可验证且未被指针/恢复标记保护的 release bundle；`candidate`、`verified`、`current`、`previous`、`recovery`、`baseline` 等指针仍优先保护；
+- 每次清理前仍须 dry-run、核对候选集合并使用同一 `plan_sha256` apply；
 - 明确失败且超过 7 天的 release，在没有任何保护标记时可进入候选；
 - 失败状态无法从脱敏发布日志明确证明，或日志同时包含成功与失败阶段时，继续保留；
 - `candidates`、`promotion-input`、`verified-bundles` 等 profile 元数据目录跳过扫描，不当作 release bundle；

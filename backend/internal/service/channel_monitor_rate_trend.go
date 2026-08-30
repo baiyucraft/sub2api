@@ -48,7 +48,10 @@ type PublicRateTrendPoint struct {
 
 type PublicRateTrend struct {
 	CurrentRate   *float64
+	AverageRate   *float64
 	ObservedSince *time.Time
+	RangeStart    *time.Time
+	RangeEnd      *time.Time
 	Points        []PublicRateTrendPoint
 }
 
@@ -94,8 +97,16 @@ func monitorRangeWindowDays(monitorRange string) int {
 }
 
 func buildPublicRateTrend(series GroupRateSnapshotSeries, from, until time.Time) PublicRateTrend {
-	if until.Before(from) || len(series.Snapshots) == 0 {
+	if until.Before(from) {
 		return PublicRateTrend{Points: []PublicRateTrendPoint{}}
+	}
+	trend := PublicRateTrend{
+		RangeStart: &from,
+		RangeEnd:   &until,
+		Points:     []PublicRateTrendPoint{},
+	}
+	if len(series.Snapshots) == 0 {
+		return trend
 	}
 
 	snapshots := append([]GroupRateSnapshot(nil), series.Snapshots...)
@@ -129,20 +140,52 @@ func buildPublicRateTrend(series GroupRateSnapshotSeries, from, until time.Time)
 	}
 
 	points = normalizePublicRateTrendPoints(points, from, until)
+	trend.Points = points
+	trend.AverageRate = averagePublicRate(points, until)
 	latest := latestEffectiveSnapshot(snapshots, until)
 	if latest == nil {
-		return PublicRateTrend{Points: points}
+		return trend
 	}
 	current := publicRateAt(*latest, until)
 	observedSince := series.ObservedSince
 	if observedSince.IsZero() {
 		observedSince = snapshots[0].EffectiveAt
 	}
-	return PublicRateTrend{
-		CurrentRate:   &current,
-		ObservedSince: &observedSince,
-		Points:        points,
+	trend.CurrentRate = &current
+	trend.ObservedSince = &observedSince
+	return trend
+}
+
+// averagePublicRate integrates the effective public rate over the observable
+// portion of the requested window. The first point is the coverage boundary:
+// it equals the requested start when a baseline snapshot exists, otherwise it
+// is the first snapshot inside the window. This prevents inventing rate
+// history before collection started.
+func averagePublicRate(points []PublicRateTrendPoint, until time.Time) *float64 {
+	if len(points) == 0 || !until.After(points[0].ObservedAt) {
+		return nil
 	}
+
+	var weightedRate float64
+	var observedDuration time.Duration
+	for i := range points {
+		segmentStart := points[i].ObservedAt
+		segmentEnd := until
+		if i+1 < len(points) && points[i+1].ObservedAt.Before(segmentEnd) {
+			segmentEnd = points[i+1].ObservedAt
+		}
+		if !segmentEnd.After(segmentStart) {
+			continue
+		}
+		duration := segmentEnd.Sub(segmentStart)
+		weightedRate += points[i].Rate * duration.Seconds()
+		observedDuration += duration
+	}
+	if observedDuration <= 0 {
+		return nil
+	}
+	average := weightedRate / observedDuration.Seconds()
+	return &average
 }
 
 func latestEffectiveSnapshot(snapshots []GroupRateSnapshot, at time.Time) *GroupRateSnapshot {

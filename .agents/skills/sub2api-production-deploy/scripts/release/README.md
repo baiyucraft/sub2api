@@ -41,7 +41,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 .agents/skills/sub2api-production-deploy/scripts/release/backup-release-retention-clean.sh apply <plan_sha256> <release_id> [release_id...]
 ```
 
-该脚本只处理 `/srv/sub2api-backups/releases` 中满足分层保留策略、无指针引用、无恢复/协调标记且 checksum 完整的历史 bundle；明确失败且超过 7 天的 bundle 可提前进入候选，无法证明失败的继续保留。`candidates`、`promotion-input`、`verified-bundles` 等元数据目录会跳过；不触碰 daily、release-logs、candidate、verified 或恢复资产。apply 不接受未出现在同一次 dry-run 候选清单中的 release ID。
+该脚本只处理 `/srv/sub2api-backups/releases` 中满足校验、无指针引用、无恢复/协调标记且 checksum 完整的历史 bundle。默认 `KEEP_LATEST_PROFILE_ONLY=true`、`KEEP_RECENT_RELEASES=1`：仅保留最高版本 profile 的最新一个 bundle，其余历史 profile 和同一 profile 的旧 bundle 进入候选，不受 30 天窗口限制；`candidates`、`promotion-input`、`verified-bundles` 等元数据目录会跳过，candidate/verified/recovery/baseline 等指针始终保护。需要恢复旧的按 profile 保留策略时，显式设置 `KEEP_LATEST_PROFILE_ONLY=false`。apply 不接受未出现在同一次 dry-run 候选清单中的 release ID。
 
 该命令保留 current、pre-switch、所有容器引用和 recovery point 镜像；残留 migration 容器只报告不删除。它只删除 full-SHA tag 的零引用旧 Sub2API image，并以容量边界 `max-used-space=2gb,reserved-space=2gb` 执行一次 BuildKit LRU GC。禁止 volume/image/system prune，实际释放只看 `df` 前后差值。
 

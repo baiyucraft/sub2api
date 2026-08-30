@@ -58,7 +58,7 @@ describe('MonitorDetailDialog', () => {
     expect(wrapper.get('[data-test="mobile-model-metrics"] dt').text()).toContain('channelStatus.detailColumns.latestLatency')
   })
 
-  it('passes the localized time column to the rate trend chart', async () => {
+  it('passes the real range and weighted average to the rate trend chart', async () => {
     status.mockResolvedValueOnce({
       id: 8,
       name: 'gpt',
@@ -66,6 +66,10 @@ describe('MonitorDetailDialog', () => {
       group_name: 'gpt',
       show_group_rate: true,
       current_public_rate: 0.03,
+      average_public_rate: 0.02765,
+      rate_observed_since: '2026-07-17T00:00:00Z',
+      rate_range_start: '2026-07-18T00:00:00Z',
+      rate_range_end: '2026-07-19T00:00:00Z',
       rate_trend: [{ observed_at: '2026-07-18T01:02:03Z', rate: 0.03 }],
       models: [],
     })
@@ -76,14 +80,22 @@ describe('MonitorDetailDialog', () => {
         stubs: {
           BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
           TrendChart: {
-            props: ['timeColumnLabel'],
-            template: '<div data-test="trend-time-column">{{ timeColumnLabel }}</div>',
+            props: {
+              timeColumnLabel: String,
+              proportionalTime: Boolean,
+              xMin: String,
+              xMax: String,
+            },
+            template: '<div data-test="trend-time-column">{{ timeColumnLabel }}|{{ proportionalTime }}|{{ xMin }}|{{ xMax }}</div>',
           },
         },
       },
     })
     await flushPromises()
 
-    expect(wrapper.get('[data-test="trend-time-column"]').text()).toBe('channelStatus.rateTrend.timeColumn')
+    expect(wrapper.get('[data-test="trend-time-column"]').text()).toContain('channelStatus.rateTrend.timeColumn|true')
+    expect(wrapper.get('[data-test="trend-time-column"]').text()).toContain('2026-07-18T00:00:00Z|2026-07-19T00:00:00Z')
+    expect(wrapper.text()).toContain('0.030x')
+    expect(wrapper.text()).toContain('0.028x')
   })
 })
