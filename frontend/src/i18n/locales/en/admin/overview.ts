@@ -560,7 +560,7 @@ export default {
         lifetimeSince: 'Traceable since {date}'
       },
       sortBy: 'Sort By',
-      sortCurrentPageOnly: 'Sorts current page only',
+      sortAllResults: 'Sorts all filtered results',
       noSubscription: 'No subscription',
       publicGroupCount: '+{count} public',
       exclusiveLabel: 'exclusive',

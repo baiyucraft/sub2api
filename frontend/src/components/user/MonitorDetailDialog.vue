@@ -13,18 +13,50 @@
     </div>
     <div v-else>
       <section v-if="detail.show_group_rate" class="mb-5 rounded-xl border border-sky-100 bg-sky-50/50 p-4 dark:border-sky-500/20 dark:bg-sky-500/5">
-        <div class="mb-3 flex items-center justify-between gap-3">
-          <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ t('channelStatus.rateTrend.title') }}</h3>
-          <span class="font-mono text-sm font-semibold text-sky-700 dark:text-sky-300">{{ formatRate(detail.current_public_rate) }}</span>
+        <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ t('channelStatus.rateTrend.title') }}</h3>
+            <p
+              v-if="historyPartial"
+              class="mt-1 text-xs text-amber-700 dark:text-amber-300"
+              data-test="detail-rate-history-partial"
+            >
+              {{ t('channelStatus.rateTrend.historyIncomplete') }}
+            </p>
+          </div>
+          <dl class="grid grid-cols-2 gap-x-5 text-right tabular-nums">
+            <div>
+              <dt class="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                {{ t('channelStatus.rateTrend.current') }}
+              </dt>
+              <dd class="font-mono text-sm font-semibold text-sky-700 dark:text-sky-300">
+                {{ formatPublicRate(detail.current_public_rate) }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                {{ t(historyPartial ? 'channelStatus.rateTrend.observedAverage' : 'channelStatus.rateTrend.average') }}
+              </dt>
+              <dd class="font-mono text-sm font-semibold text-gray-700 dark:text-gray-200">
+                {{ formatPublicRate(detail.average_public_rate) }}
+              </dd>
+            </div>
+          </dl>
         </div>
         <TrendChart
-          :timestamps="(detail.rate_trend || []).map(point => point.observed_at)"
+          :timestamps="rateChartData.timestamps"
           :series="rateSeries"
-          :height="220"
+          :height="240"
+          proportional-time
+          :x-min="detail.rate_range_start"
+          :x-max="detail.rate_range_end"
+          :y-min="rateAxis.min"
+          :y-max="rateAxis.max"
+          y-grace="10%"
           :empty-text="t('channelStatus.rateTrend.empty')"
           :chart-label="t('channelStatus.rateTrend.chartLabel')"
           :time-column-label="t('channelStatus.rateTrend.timeColumn')"
-          :value-formatter="formatRate"
+          :value-formatter="formatPublicRate"
         />
       </section>
       <div class="hidden overflow-x-auto sm:block">
@@ -131,6 +163,12 @@ import {
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import {
+  buildRateTrendChartData,
+  formatPublicRate,
+  rateAxisBounds,
+  rateHistoryIsPartial,
+} from '@/utils/channelMonitorRateTrend'
 
 const props = defineProps<{
   show: boolean
@@ -149,18 +187,24 @@ const { statusLabel, statusBadgeClass, formatLatency, formatPercent, formatMonit
 
 const detail = ref<UserMonitorDetail | null>(null)
 const loading = ref(false)
+const rateChartData = computed(() => buildRateTrendChartData(
+  detail.value?.rate_trend,
+  detail.value?.rate_range_end,
+  detail.value?.current_public_rate,
+))
+const rateAxis = computed(() => rateAxisBounds(rateChartData.value.values))
+const historyPartial = computed(() => rateHistoryIsPartial(
+  detail.value?.rate_observed_since,
+  detail.value?.rate_range_start,
+))
 const rateSeries = computed(() => [{
   label: t('channelStatus.rateTrend.series'),
-  data: (detail.value?.rate_trend || []).map(point => point.rate),
+  data: rateChartData.value.values,
   tone: 'primary' as const,
-  stepped: true as const,
   pointStyle: 'circle' as const,
+  pointRadius: 0,
+  pointHoverRadius: 4,
 }])
-
-function formatRate(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return '-'
-  return `${value.toFixed(2)}x`
-}
 
 async function load(id: number) {
   detail.value = null

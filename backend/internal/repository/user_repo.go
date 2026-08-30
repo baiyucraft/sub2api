@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 
@@ -582,12 +583,13 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 		return nil, nil, err
 	}
 
-	usersQuery := q.
-		Offset(params.Offset()).
-		Limit(params.Limit())
+	usersQuery := q
 	for _, order := range userListOrder(params) {
 		usersQuery = usersQuery.Order(order)
 	}
+	// Apply ordering before pagination so usage aggregates are evaluated over
+	// the complete filtered user set, not merely the current page.
+	usersQuery = usersQuery.Offset(params.Offset()).Limit(params.Limit())
 
 	users, err := usersQuery.All(userCtx)
 	if err != nil {
@@ -645,6 +647,18 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 func userListOrder(params pagination.PaginationParams) []func(*entsql.Selector) {
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := params.NormalizedSortOrder(pagination.SortOrderDesc)
+	if usageExpr, ok := userUsageSortExpression(sortBy); ok {
+		direction := "DESC"
+		tieOrder := entsql.Desc
+		if sortOrder == pagination.SortOrderAsc {
+			direction = "ASC"
+			tieOrder = entsql.Asc
+		}
+		return []func(*entsql.Selector){func(s *entsql.Selector) {
+			s.OrderExpr(entsql.Expr(usageExpr(s) + " " + direction))
+			s.OrderBy(tieOrder(s.C(dbuser.FieldID)))
+		}}
+	}
 
 	if sortBy == "last_used_at" {
 		return userLastUsedAtOrder(sortOrder)
@@ -705,6 +719,87 @@ func userListOrder(params pagination.PaginationParams) []func(*entsql.Selector) 
 		}
 	}
 	return []func(*entsql.Selector){dbent.Desc(field), dbent.Desc(dbuser.FieldID)}
+}
+
+// userUsageSortExpression returns a parameter-free, allowlisted correlated
+// aggregate used to sort users before OFFSET/LIMIT are applied.  The dates are
+// derived from the configured application timezone, while usage_logs
+// comparisons use timestamptz boundaries carrying the configured offset.
+// Keeping all SQL fragments in this allowlist prevents sort_by from becoming
+// dynamic SQL.
+func userUsageSortExpression(sortBy string) (func(*entsql.Selector) string, bool) {
+	today := timezone.Today()
+	tomorrow := today.AddDate(0, 0, 1)
+	last30 := today.AddDate(0, 0, -29)
+	todayDate := today.Format("2006-01-02")
+	last30Date := last30.Format("2006-01-02")
+	tomorrowDate := tomorrow.Format("2006-01-02")
+	// Quote timestamp literals rather than relying on the database session
+	// timezone. This keeps the application's day boundaries stable on hosts
+	// configured with UTC or another timezone.
+	todayTS := today.Format(time.RFC3339)
+	last30TS := last30.Format(time.RFC3339)
+	tomorrowTS := tomorrow.Format(time.RFC3339)
+
+	daily := func(column, start, end string) func(*entsql.Selector) string {
+		return func(s *entsql.Selector) string {
+			userID := s.C(dbuser.FieldID)
+			where := fmt.Sprintf("d.user_id = %s", userID)
+			if start != "" {
+				where += fmt.Sprintf(" AND d.bucket_date >= DATE '%s'", start)
+			}
+			if end != "" {
+				where += fmt.Sprintf(" AND d.bucket_date < DATE '%s'", end)
+			}
+			return fmt.Sprintf("COALESCE((SELECT SUM(%s) FROM usage_dashboard_user_daily d WHERE %s), 0)", column, where)
+		}
+	}
+	tokens := "(d.input_tokens + d.output_tokens + d.cache_creation_tokens + d.cache_read_tokens)"
+	platform := func(name, startTS, endTS string) func(*entsql.Selector) string {
+		return func(s *entsql.Selector) string {
+			userID := s.C(dbuser.FieldID)
+			where := fmt.Sprintf("ul.user_id = %s AND ul.actual_cost > 0 AND lower(%s) = '%s'", userID, usageLogEffectivePlatformExpr, name)
+			if startTS != "" {
+				where += fmt.Sprintf(" AND ul.created_at >= TIMESTAMPTZ '%s'", startTS)
+			}
+			if endTS != "" {
+				where += fmt.Sprintf(" AND ul.created_at < TIMESTAMPTZ '%s'", endTS)
+			}
+			return fmt.Sprintf("COALESCE((SELECT SUM(ul.actual_cost) FROM usage_logs ul LEFT JOIN groups g ON g.id = ul.group_id LEFT JOIN accounts a ON a.id = ul.account_id WHERE %s), 0)", where)
+		}
+	}
+
+	switch {
+	case sortBy == "usage_today_tokens":
+		return daily(tokens, todayDate, tomorrowDate), true
+	case sortBy == "usage_last_30d_tokens":
+		return daily(tokens, last30Date, tomorrowDate), true
+	case sortBy == "usage_lifetime_tokens":
+		return daily(tokens, "", ""), true
+	case sortBy == "usage_today_spend":
+		return daily("d.user_spend", todayDate, tomorrowDate), true
+	case sortBy == "usage_last_30d_spend":
+		return daily("d.user_spend", last30Date, tomorrowDate), true
+	case sortBy == "usage_lifetime_spend":
+		return daily("d.user_spend", "", ""), true
+	case sortBy == "usage_today_cost":
+		return daily("d.account_cost", todayDate, tomorrowDate), true
+	case sortBy == "usage_last_30d_cost":
+		return daily("d.account_cost", last30Date, tomorrowDate), true
+	case sortBy == "usage_lifetime_cost":
+		return daily("d.account_cost", "", ""), true
+	}
+
+	platforms := []string{"anthropic", "openai", "gemini", "antigravity"}
+	for _, name := range platforms {
+		if sortBy == "usage_"+name+"_today_spend" {
+			return platform(name, todayTS, tomorrowTS), true
+		}
+		if sortBy == "usage_"+name+"_last_30d_spend" {
+			return platform(name, last30TS, tomorrowTS), true
+		}
+	}
+	return nil, false
 }
 
 func (r *userRepository) GetLatestUsedAtByUserIDs(ctx context.Context, userIDs []int64) (map[int64]*time.Time, error) {

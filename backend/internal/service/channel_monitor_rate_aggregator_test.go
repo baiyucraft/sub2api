@@ -84,13 +84,19 @@ func TestListUserView_PublicRateTrendIsBatchedAndOptional(t *testing.T) {
 
 	require.True(t, views[0].ShowGroupRate)
 	require.Equal(t, 1.25, *views[0].CurrentPublicRate)
+	require.Equal(t, 1.25, *views[0].AveragePublicRate)
+	require.NotNil(t, views[0].RateRangeStart)
+	require.NotNil(t, views[0].RateRangeEnd)
 	require.NotEmpty(t, views[0].RateTrend)
 	require.True(t, views[1].ShowGroupRate)
 	require.Equal(t, views[0].RateTrend, views[1].RateTrend)
 
 	require.False(t, views[2].ShowGroupRate)
 	require.Nil(t, views[2].CurrentPublicRate)
+	require.Nil(t, views[2].AveragePublicRate)
 	require.Nil(t, views[2].RateObservedSince)
+	require.Nil(t, views[2].RateRangeStart)
+	require.Nil(t, views[2].RateRangeEnd)
 	require.Nil(t, views[2].RateTrend)
 }
 
@@ -150,6 +156,7 @@ func TestFilterUserVisibleMonitors_UnboundManagedMonitorIsHidden(t *testing.T) {
 type monitorDetailRepositoryStub struct {
 	ChannelMonitorRepository
 	monitor             *ChannelMonitor
+	seriesByGroup       map[int64]GroupRateSnapshotSeries
 	availabilityWindows []int
 	latestCalls         int
 }
@@ -166,6 +173,14 @@ func (s *monitorDetailRepositoryStub) ListLatestPerModel(context.Context, int64)
 func (s *monitorDetailRepositoryStub) ComputeAvailability(_ context.Context, _ int64, windowDays int) ([]*ChannelMonitorAvailability, error) {
 	s.availabilityWindows = append(s.availabilityWindows, windowDays)
 	return []*ChannelMonitorAvailability{{Model: s.monitor.PrimaryModel, AvailabilityPct: float64(windowDays)}}, nil
+}
+
+func (s *monitorDetailRepositoryStub) ListGroupRateSnapshots(
+	_ context.Context,
+	_ []int64,
+	_, _ time.Time,
+) (map[int64]GroupRateSnapshotSeries, error) {
+	return s.seriesByGroup, nil
 }
 
 func TestGetUserDetail_UnauthorizedGroupReturnsNotFoundBeforeAggregation(t *testing.T) {
@@ -202,4 +217,38 @@ func TestGetUserDetail_Includes24HourAvailability(t *testing.T) {
 	}, repo.availabilityWindows)
 	require.Len(t, detail.Models, 1)
 	require.Equal(t, float64(monitorAvailability24Hours), detail.Models[0].Availability24h)
+}
+
+func TestGetUserDetail_IncludesSamePublicRateMetadataAsList(t *testing.T) {
+	groupID := int64(11)
+	effective := time.Now().UTC().Add(-48 * time.Hour)
+	repo := &monitorDetailRepositoryStub{
+		monitor: &ChannelMonitor{
+			ID: 4, Enabled: true, GroupID: &groupID, PrimaryModel: "gpt",
+			CredentialMode: ChannelMonitorCredentialManagedLocal, ShowGroupRate: true,
+		},
+		seriesByGroup: map[int64]GroupRateSnapshotSeries{
+			groupID: {
+				ObservedSince: effective,
+				Snapshots: []GroupRateSnapshot{{
+					GroupID:        groupID,
+					RateMultiplier: 1.25,
+					Timezone:       "UTC",
+					EffectiveAt:    effective,
+				}},
+			},
+		},
+	}
+	svc := NewChannelMonitorService(repo, nil)
+
+	detail, err := svc.GetUserDetail(
+		context.Background(), 4, MonitorRateRange24Hours, map[int64]struct{}{groupID: {}},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1.25, *detail.CurrentPublicRate)
+	require.Equal(t, 1.25, *detail.AveragePublicRate)
+	require.Equal(t, effective, *detail.RateObservedSince)
+	require.NotNil(t, detail.RateRangeStart)
+	require.NotNil(t, detail.RateRangeEnd)
+	require.NotEmpty(t, detail.RateTrend)
 }

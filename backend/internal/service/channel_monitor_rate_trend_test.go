@@ -55,6 +55,9 @@ func TestBuildPublicRateTrend_PeakBoundaries(t *testing.T) {
 	require.Equal(t, &observed, trend.ObservedSince)
 	require.NotNil(t, trend.CurrentRate)
 	require.Equal(t, 2.0, *trend.CurrentRate)
+	require.Equal(t, 2.5, *trend.AverageRate)
+	require.Equal(t, from, *trend.RangeStart)
+	require.Equal(t, until, *trend.RangeEnd)
 	require.Equal(t, []PublicRateTrendPoint{
 		{ObservedAt: from, Rate: 2},
 		{ObservedAt: time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC), Rate: 3},
@@ -88,6 +91,40 @@ func TestBuildPublicRateTrend_ConfigChangeReplacesSameTimestampPoint(t *testing.
 		{ObservedAt: changeAt, Rate: 6},
 		{ObservedAt: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC), Rate: 4},
 	}, trend.Points)
+	require.Equal(t, 3.5, *trend.AverageRate)
+}
+
+func TestBuildPublicRateTrend_ConfigChangeWinsAtPeakBoundary(t *testing.T) {
+	from := time.Date(2026, 7, 18, 9, 0, 0, 0, time.UTC)
+	changeAt := time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC)
+	until := time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC)
+	trend := buildPublicRateTrend(GroupRateSnapshotSeries{Snapshots: []GroupRateSnapshot{
+		{
+			RateMultiplier:     2,
+			PeakRateEnabled:    true,
+			PeakStart:          "10:00",
+			PeakEnd:            "12:00",
+			PeakRateMultiplier: 1.5,
+			Timezone:           "UTC",
+			EffectiveAt:        from.Add(-time.Hour),
+		},
+		{
+			RateMultiplier:     4,
+			PeakRateEnabled:    true,
+			PeakStart:          "10:00",
+			PeakEnd:            "12:00",
+			PeakRateMultiplier: 2,
+			Timezone:           "UTC",
+			EffectiveAt:        changeAt,
+		},
+	}}, from, until)
+
+	require.Equal(t, []PublicRateTrendPoint{
+		{ObservedAt: from, Rate: 2},
+		{ObservedAt: changeAt, Rate: 8},
+		{ObservedAt: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC), Rate: 4},
+	}, trend.Points)
+	require.Equal(t, 5.5, *trend.AverageRate)
 }
 
 func TestBuildPublicRateTrend_SupportsCrossDayHistoricalConfig(t *testing.T) {
@@ -108,6 +145,7 @@ func TestBuildPublicRateTrend_SupportsCrossDayHistoricalConfig(t *testing.T) {
 		{ObservedAt: time.Date(2026, 7, 18, 22, 0, 0, 0, time.UTC), Rate: 2},
 		{ObservedAt: time.Date(2026, 7, 19, 2, 0, 0, 0, time.UTC), Rate: 1},
 	}, trend.Points)
+	require.InDelta(t, 10.0/6.0, *trend.AverageRate, 1e-12)
 }
 
 func TestBuildPublicRateTrend_DoesNotFabricateBeforeFirstSnapshot(t *testing.T) {
@@ -123,4 +161,35 @@ func TestBuildPublicRateTrend_DoesNotFabricateBeforeFirstSnapshot(t *testing.T) 
 	require.Len(t, trend.Points, 1)
 	require.Equal(t, observed, trend.Points[0].ObservedAt)
 	require.Equal(t, observed, *trend.ObservedSince)
+	require.Equal(t, 1.25, *trend.AverageRate)
+	require.Equal(t, from, *trend.RangeStart)
+	require.Equal(t, until, *trend.RangeEnd)
+}
+
+func TestBuildPublicRateTrend_NoHistoryReturnsRangeWithoutAverage(t *testing.T) {
+	from := time.Date(2026, 7, 18, 9, 0, 0, 0, time.UTC)
+	until := from.Add(4 * time.Hour)
+
+	trend := buildPublicRateTrend(GroupRateSnapshotSeries{}, from, until)
+
+	require.Empty(t, trend.Points)
+	require.Nil(t, trend.CurrentRate)
+	require.Nil(t, trend.AverageRate)
+	require.Nil(t, trend.ObservedSince)
+	require.Equal(t, from, *trend.RangeStart)
+	require.Equal(t, until, *trend.RangeEnd)
+}
+
+func TestBuildPublicRateTrend_ZeroDurationHasNoAverage(t *testing.T) {
+	at := time.Date(2026, 7, 18, 9, 0, 0, 0, time.UTC)
+
+	trend := buildPublicRateTrend(GroupRateSnapshotSeries{Snapshots: []GroupRateSnapshot{{
+		RateMultiplier: 2,
+		Timezone:       "UTC",
+		EffectiveAt:    at.Add(-time.Hour),
+	}}}, at, at)
+
+	require.Nil(t, trend.AverageRate)
+	require.Equal(t, at, *trend.RangeStart)
+	require.Equal(t, at, *trend.RangeEnd)
 }

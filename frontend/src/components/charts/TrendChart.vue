@@ -82,6 +82,10 @@ interface Props {
   maxTicks?: number
   yMin?: number
   yMax?: number
+  yGrace?: string | number
+  proportionalTime?: boolean
+  xMin?: string | null
+  xMax?: string | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -91,6 +95,7 @@ const props = withDefaults(defineProps<Props>(), {
   height: '18rem',
   showLegend: true,
   zeroBaseline: false,
+  proportionalTime: false,
   valueFormatter: (value: number) => value.toLocaleString(),
   maxTicks: 8
 })
@@ -133,7 +138,9 @@ const palette = computed(() => isDark.value
     })
 
 const chartData = computed<ChartData<'line'>>(() => ({
-  labels: props.timestamps.map(formatAxisTimestamp),
+  labels: props.proportionalTime
+    ? props.timestamps.map((timestamp, index) => timestampForLinearAxis(timestamp, index))
+    : props.timestamps.map(formatAxisTimestamp),
   datasets: props.series.map((item, index) => buildDataset(item, index))
 }))
 
@@ -146,7 +153,7 @@ const chartOptions = computed<ChartOptions<'line'>>(() => {
     responsive: true,
     maintainAspectRatio: false,
     animation: reduceMotion ? false : { duration: 180 },
-    interaction: { intersect: false, mode: 'index' },
+    interaction: { intersect: false, mode: props.proportionalTime ? 'nearest' : 'index' },
     plugins: {
       legend: {
         display: props.showLegend,
@@ -188,12 +195,18 @@ const chartOptions = computed<ChartOptions<'line'>>(() => {
     },
     scales: {
       x: {
+        type: props.proportionalTime ? 'linear' : 'category',
+        min: props.proportionalTime ? optionalTimestamp(props.xMin) : undefined,
+        max: props.proportionalTime ? optionalTimestamp(props.xMax) : undefined,
         grid: { display: false },
         ticks: {
           color: colors.text,
           maxTicksLimit: props.maxTicks,
           autoSkip: true,
           autoSkipPadding: 16,
+          callback: props.proportionalTime
+            ? (value) => formatAxisTimestamp(new Date(Number(value)).toISOString())
+            : undefined,
           font: { size: 10 }
         },
         border: { color: colors.grid }
@@ -202,6 +215,7 @@ const chartOptions = computed<ChartOptions<'line'>>(() => {
         beginAtZero: props.zeroBaseline,
         min: props.yMin,
         max: props.yMax,
+        grace: props.yGrace,
         grid: {
           color: (context) => Number(context.tick.value) === 0 ? colors.zero : colors.grid,
           lineWidth: (context) => Number(context.tick.value) === 0 ? 1.5 : 1
@@ -222,9 +236,16 @@ function buildDataset(item: TrendChartSeries, index: number): ChartDataset<'line
   const color = palette.value[tone]
   const isPrimary = tone === 'primary'
 
+  const data = props.proportionalTime
+    ? item.data.map((value, pointIndex) => ({
+        x: timestampForLinearAxis(props.timestamps[pointIndex] || '', pointIndex),
+        y: value,
+      }))
+    : item.data
+
   return {
     label: item.label,
-    data: item.data,
+    data,
     borderColor: color,
     backgroundColor: item.fill ? withAlpha(color, isDark.value ? 0.16 : 0.1) : 'transparent',
     borderWidth: isPrimary ? 2.5 : 2,
@@ -254,6 +275,17 @@ function formatAxisTimestamp(value: string): string {
   return Number.isNaN(date.getTime())
     ? value
     : date.toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function timestampForLinearAxis(value: string, fallback: number): number {
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) ? timestamp : fallback
+}
+
+function optionalTimestamp(value: string | null | undefined): number | undefined {
+  if (!value) return undefined
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) ? timestamp : undefined
 }
 
 function formatFullTimestamp(value: string): string {

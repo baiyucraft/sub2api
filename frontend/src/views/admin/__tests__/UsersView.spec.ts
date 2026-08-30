@@ -218,7 +218,7 @@ describe('admin UsersView', () => {
     )
   })
 
-  it('clears usage current-page sort when switching to last_used_at server sort', async () => {
+  it('requests usage sorting from the server and clears it when switching to last_used_at', async () => {
     vi.useFakeTimers()
     localStorage.setItem('user-column-settings-version', '3')
     localStorage.setItem(
@@ -298,8 +298,19 @@ describe('admin UsersView', () => {
     await wrapper.get('[data-test="usage-sort-usage-today-spend"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-test="row-order"]').text()).toBe('usage-first@example.com,last-used-first@example.com')
+    // The list response order is authoritative: usage data loaded for the
+    // current page must not reorder rows locally.
+    expect(wrapper.get('[data-test="row-order"]').text()).toBe('last-used-first@example.com,usage-first@example.com')
     expect(localStorage.getItem('admin-users-usage-sort')).toContain('"key":"usage"')
+    expect(listUsers).toHaveBeenLastCalledWith(
+      1,
+      20,
+      expect.objectContaining({
+        sort_by: 'usage_today_spend',
+        sort_order: 'desc'
+      }),
+      expect.any(Object)
+    )
 
     await wrapper.get('[data-test="sort-last-used"]').trigger('click')
     await flushPromises()
