@@ -157,7 +157,7 @@ type UpstreamKey struct {
 }
 
 type UpstreamConfigRepository interface {
-	List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error)
+	List(ctx context.Context, params pagination.PaginationParams, filter UpstreamConfigListFilter) ([]UpstreamConfig, *pagination.PaginationResult, error)
 	GetByID(ctx context.Context, id int64) (*UpstreamConfig, error)
 	Create(ctx context.Context, config *UpstreamConfig) error
 	Update(ctx context.Context, config *UpstreamConfig) error
@@ -173,6 +173,13 @@ type UpstreamConfigRepository interface {
 	RecordCheckResult(ctx context.Context, id int64, success bool, safeErr string) error
 	SaveRefreshedTokens(ctx context.Context, id int64, accessToken, refreshToken string, expiresAt *time.Time) error
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
+}
+
+type UpstreamConfigListFilter struct {
+	Provider             string
+	Status               string
+	Search               string
+	BalanceSortAvailable bool
 }
 
 // UpstreamConfigDeleteOptions controls destructive operations on an upstream
@@ -714,8 +721,8 @@ func (s *UpstreamConfigService) applySub2APIComplianceSettings(ctx context.Conte
 	return nil
 }
 
-func (s *UpstreamConfigService) List(ctx context.Context, params pagination.PaginationParams, provider, status, search string) ([]UpstreamConfig, *pagination.PaginationResult, error) {
-	configs, total, err := s.repo.List(ctx, params, provider, status, search)
+func (s *UpstreamConfigService) List(ctx context.Context, params pagination.PaginationParams, filter UpstreamConfigListFilter) ([]UpstreamConfig, *pagination.PaginationResult, error) {
+	configs, total, err := s.repo.List(ctx, params, filter)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2437,7 +2444,7 @@ func (s *UpstreamConfigService) listActiveUpstreamConfigs(ctx context.Context, p
 			configs, result, err := s.repo.List(ctx, pagination.PaginationParams{
 				Page:     page,
 				PageSize: pageSize,
-			}, provider, StatusActive, "")
+			}, UpstreamConfigListFilter{Provider: provider, Status: StatusActive})
 			if err != nil {
 				return nil, err
 			}

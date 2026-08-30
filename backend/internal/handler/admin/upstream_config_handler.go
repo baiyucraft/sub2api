@@ -94,15 +94,23 @@ func (h *UpstreamConfigHandler) DashboardDetail(c *gin.Context) {
 
 func (h *UpstreamConfigHandler) List(c *gin.Context) {
 	page, pageSize := response.ParsePagination(c)
+	threshold := h.upstreamBalanceThreshold(c)
 	configs, total, err := h.service.List(c.Request.Context(), pagination.PaginationParams{
-		Page:     page,
-		PageSize: pageSize,
-	}, c.Query("provider"), c.Query("status"), c.Query("search"))
+		Page:      page,
+		PageSize:  pageSize,
+		SortBy:    c.Query("sort_by"),
+		SortOrder: c.Query("sort_order"),
+	}, service.UpstreamConfigListFilter{
+		Provider:             c.Query("provider"),
+		Status:               c.Query("status"),
+		Search:               c.Query("search"),
+		BalanceSortAvailable: threshold > 0,
+	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Paginated(c, sanitizeUpstreamConfigsWithThreshold(configs, h.upstreamBalanceThreshold(c)), total.Total, page, pageSize)
+	response.Paginated(c, sanitizeUpstreamConfigsWithThreshold(configs, threshold), total.Total, page, pageSize)
 }
 
 func (h *UpstreamConfigHandler) GetByID(c *gin.Context) {
