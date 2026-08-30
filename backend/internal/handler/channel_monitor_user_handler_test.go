@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -129,4 +130,33 @@ func TestChannelMonitorUserList_ReturnsUnifiedRangeAndAvailability(t *testing.T)
 	require.Equal(t, 15.0, body.Data.Items[0].Availability)
 	require.Equal(t, 7.0, body.Data.Items[0].Availability7d)
 	require.Equal(t, int64(42), groups.requestedUserID)
+}
+
+func TestUserMonitorRateMetadataMapsToListAndDetailResponses(t *testing.T) {
+	average := 1.234
+	from := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+	until := from.Add(24 * time.Hour)
+	observed := from.Add(2 * time.Hour)
+
+	list := userMonitorViewToItem(&service.UserMonitorView{
+		AveragePublicRate: &average,
+		RateObservedSince: &observed,
+		RateRangeStart:    &from,
+		RateRangeEnd:      &until,
+	}, false)
+	require.Equal(t, &average, list.AveragePublicRate)
+	require.Equal(t, from.Format(time.RFC3339), *list.RateRangeStart)
+	require.Equal(t, until.Format(time.RFC3339), *list.RateRangeEnd)
+	require.Equal(t, observed.Format(time.RFC3339), *list.RateObservedSince)
+
+	detail := userMonitorDetailToResponse(&service.UserMonitorDetail{
+		AveragePublicRate: &average,
+		RateObservedSince: &observed,
+		RateRangeStart:    &from,
+		RateRangeEnd:      &until,
+	})
+	require.Equal(t, &average, detail.AveragePublicRate)
+	require.Equal(t, from.Format(time.RFC3339), *detail.RateRangeStart)
+	require.Equal(t, until.Format(time.RFC3339), *detail.RateRangeEnd)
+	require.Equal(t, observed.Format(time.RFC3339), *detail.RateObservedSince)
 }

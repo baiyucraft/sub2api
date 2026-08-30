@@ -190,7 +190,10 @@ type UserMonitorView struct {
 	Timeline             []UserMonitorTimelinePoint // 主模型最近 N 个历史点（按 checked_at DESC，最新在前）
 	ShowGroupRate        bool
 	CurrentPublicRate    *float64
+	AveragePublicRate    *float64
 	RateObservedSince    *time.Time
+	RateRangeStart       *time.Time
+	RateRangeEnd         *time.Time
 	RateTrend            []PublicRateTrendPoint
 	// LatestQuota 主模型最近一次配额快照；channel_monitor_show_quota=false
 	// 时由 handler 服务端剥离。
@@ -223,7 +226,10 @@ type UserMonitorDetail struct {
 	Models            []ModelDetail
 	ShowGroupRate     bool
 	CurrentPublicRate *float64
+	AveragePublicRate *float64
 	RateObservedSince *time.Time
+	RateRangeStart    *time.Time
+	RateRangeEnd      *time.Time
 	RateTrend         []PublicRateTrendPoint
 }
 

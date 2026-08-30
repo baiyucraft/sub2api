@@ -516,6 +516,10 @@ export default {
     rateTrend: {
       title: '分组倍率趋势',
       series: '公开倍率',
+      current: '当前倍率',
+      average: '范围平均',
+      observedAverage: '可观测平均',
+      historyIncomplete: '倍率历史不完整，平均值仅覆盖可观测区间',
       chartLabel: '分组公开倍率趋势图',
       timeColumn: '时间',
       empty: '暂无倍率变化记录'

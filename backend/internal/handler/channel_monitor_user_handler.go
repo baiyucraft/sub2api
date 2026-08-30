@@ -76,7 +76,10 @@ type channelMonitorUserListItem struct {
 	Timeline             []channelMonitorUserTimelinePoint    `json:"timeline"`
 	ShowGroupRate        bool                                 `json:"show_group_rate"`
 	CurrentPublicRate    *float64                             `json:"current_public_rate,omitempty"`
+	AveragePublicRate    *float64                             `json:"average_public_rate,omitempty"`
 	RateObservedSince    *string                              `json:"rate_observed_since,omitempty"`
+	RateRangeStart       *string                              `json:"rate_range_start,omitempty"`
+	RateRangeEnd         *string                              `json:"rate_range_end,omitempty"`
 	RateTrend            []channelMonitorUserRateTrendPoint   `json:"rate_trend,omitempty"`
 	// LatestQuota 主模型最近配额快照；channel_monitor_show_quota=false 时
 	// 由 userMonitorViewToItem 的调用方传入 false 剥离（服务端脱敏，非仅前端隐藏）。
@@ -106,7 +109,10 @@ type channelMonitorUserDetailResponse struct {
 	Models            []channelMonitorUserModelStat      `json:"models"`
 	ShowGroupRate     bool                               `json:"show_group_rate"`
 	CurrentPublicRate *float64                           `json:"current_public_rate,omitempty"`
+	AveragePublicRate *float64                           `json:"average_public_rate,omitempty"`
 	RateObservedSince *string                            `json:"rate_observed_since,omitempty"`
+	RateRangeStart    *string                            `json:"rate_range_start,omitempty"`
+	RateRangeEnd      *string                            `json:"rate_range_end,omitempty"`
 	RateTrend         []channelMonitorUserRateTrendPoint `json:"rate_trend,omitempty"`
 }
 
@@ -158,7 +164,10 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 		Timeline:             timeline,
 		ShowGroupRate:        v.ShowGroupRate,
 		CurrentPublicRate:    v.CurrentPublicRate,
+		AveragePublicRate:    v.AveragePublicRate,
 		RateObservedSince:    formatOptionalMonitorTime(v.RateObservedSince),
+		RateRangeStart:       formatOptionalMonitorTime(v.RateRangeStart),
+		RateRangeEnd:         formatOptionalMonitorTime(v.RateRangeEnd),
 		RateTrend:            rateTrend,
 	}
 	if includeQuota {
@@ -189,7 +198,10 @@ func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUs
 		Models:            models,
 		ShowGroupRate:     d.ShowGroupRate,
 		CurrentPublicRate: d.CurrentPublicRate,
+		AveragePublicRate: d.AveragePublicRate,
 		RateObservedSince: formatOptionalMonitorTime(d.RateObservedSince),
+		RateRangeStart:    formatOptionalMonitorTime(d.RateRangeStart),
+		RateRangeEnd:      formatOptionalMonitorTime(d.RateRangeEnd),
 		RateTrend:         userMonitorRateTrendToResponse(d.RateTrend),
 	}
 }

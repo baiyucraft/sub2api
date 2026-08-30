@@ -458,7 +458,7 @@
             </button>
           </template>
 
-          <!-- 用量列自定义表头：列名 + 单个排序图标按钮，点击展开"今日/近30天"菜单。
+          <!-- 用量列自定义表头：列名 + 单个排序图标按钮，点击展开时间窗口菜单。
                column.sortable=false，DataTable 内置点击逻辑不会触发；
                菜单项三态循环：desc → asc → off。 -->
           <template
@@ -501,7 +501,7 @@
                     <path d="M10 3l-4 5h8l-4-5zM10 17l4-5H6l4 5z" />
                   </svg>
                 </button>
-                <!-- 弹出菜单：今日 / 近30天，点击进行三态循环切换。 -->
+                <!-- 弹出菜单：今日 / 近30天 / 累计，点击进行三态循环切换。 -->
                 <div
                   v-if="openUsageSortMenu === usageKey"
                   class="absolute right-0 top-full z-50 mt-1 min-w-[188px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
@@ -533,7 +533,7 @@
                     </svg>
                   </button>
                   <div class="mt-1 border-t border-gray-100 px-3 py-1 text-[10px] normal-case tracking-normal text-gray-400 dark:border-dark-700 dark:text-dark-500">
-                    {{ t('admin.users.sortCurrentPageOnly') }}
+                    {{ t('admin.users.sortAllResults') }}
                   </div>
                 </div>
               </div>
@@ -1253,7 +1253,7 @@ const rememberUsageSnapshot = (
 const getPlatformUsage = (userId: number, platform: string) =>
   usageStats.value[userId]?.by_platform?.find((p) => p.platform === platform)
 
-// 用量列数据在当前页异步合并，因此单独按周期 + 指标做稳定的本地排序。
+// 用量排序状态会转换为用户列表接口的服务端排序键，确保排序发生在分页之前。
 type UsageWindowKey = 'today' | 'last_30d' | 'lifetime'
 type UsageSortMetric = 'tokens' | 'spend' | 'cost'
 type UsageSortState = {
@@ -1369,6 +1369,8 @@ const toggleUsageSort = (
   }
   persistUsageSort()
   openUsageSortMenu.value = null
+  pagination.page = 1
+  void loadUsers()
 }
 
 // 点击图标本身不触发排序，仅开关菜单；首次排序由用户在菜单内选择 metric 触发（默认 desc，详见 toggleUsageSort）。
@@ -1376,47 +1378,16 @@ const toggleUsageSortMenu = (key: string) => {
   openUsageSortMenu.value = openUsageSortMenu.value === key ? null : key
 }
 
-const getUsageValue = (
-  userId: number,
-  key: string,
-  window: UsageWindowKey,
-  metric: UsageSortMetric
-): number => {
-  const stats = usageStats.value[userId]
-  if (!stats) return 0
-  const platform = USAGE_COLUMN_PLATFORMS[key]
-  if (platform === null) {
-    const windowStats = stats[window]
-    if (!windowStats) {
-      if (metric !== 'spend' || window === 'lifetime') return 0
-      return window === 'today'
-        ? stats.today_actual_cost ?? 0
-        : stats.total_actual_cost ?? 0
-    }
-    if (metric === 'tokens') return windowStats.total_tokens ?? 0
-    if (metric === 'cost') return windowStats.account_cost ?? 0
-    return windowStats.user_spend ?? 0
+const usageSortToServerSortKey = (sort: Exclude<UsageSortState, null>): string => {
+  const platform = USAGE_COLUMN_PLATFORMS[sort.key]
+  if (platform) {
+    return `usage_${platform}_${sort.window === 'today' ? 'today' : 'last_30d'}_spend`
   }
-  const p = stats.by_platform?.find((x) => x.platform === platform)
-  if (!p || metric !== 'spend' || window === 'lifetime') return 0
-  return window === 'today' ? p.today_actual_cost ?? 0 : p.total_actual_cost ?? 0
+  return `usage_${sort.window}_${sort.metric}`
 }
 
-// 在 server-side 排序结果之上叠加用量列的本地排序；无 usageSort 时直接透传原数组。
-// 稳定排序：等值按原 index 保序，避免拉取新用量数据时表行抖动。
-const sortedUsers = computed(() => {
-  const s = usageSort.value
-  if (!s) return users.value
-  return [...users.value]
-    .map((row, index) => ({ row, index }))
-    .sort((a, b) => {
-      const av = getUsageValue(a.row.id, s.key, s.window, s.metric)
-      const bv = getUsageValue(b.row.id, s.key, s.window, s.metric)
-      if (av !== bv) return s.order === 'asc' ? av - bv : bv - av
-      return a.index - b.index
-    })
-    .map((x) => x.row)
-})
+// 服务端已按全量筛选结果排序；前端只展示当前页，不能再按异步用量数据重排。
+const sortedUsers = computed(() => users.value)
 
 const {
   selectedIds,
@@ -1739,8 +1710,8 @@ const loadUsers = async () => {
         attributes: Object.keys(attrFilters).length > 0 ? attrFilters : undefined,
         // 始终请求 subscriptions：列隐藏时仍需用于 UserPlatformQuotaModal 的 active-subscription 警示 banner
         include_subscriptions: true,
-        sort_by: sortState.sort_by,
-        sort_order: sortState.sort_order
+        sort_by: usageSort.value ? usageSortToServerSortKey(usageSort.value) : sortState.sort_by,
+        sort_order: usageSort.value ? usageSort.value.order : sortState.sort_order
       },
       { signal }
     )
