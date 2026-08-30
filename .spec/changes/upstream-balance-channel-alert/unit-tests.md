@@ -23,8 +23,8 @@
 - Test：`backend/internal/service/notification_email_service_test.go` 与 upstream operations service test。
 - Modify：余额告警通知编排和模板 payload。
 - 映射：ST-003、ST-005、安全边界。
-- Red：通知关闭/无收件人/发送失败导致事件或快照回滚，或 payload 泄露凭据。
-- Green：复用管理员额度告警收件人和去重，通知失败只记录脱敏错误；payload 仅含 allowlisted 渠道余额字段和后台链接。
+- Red：渠道余额提醒被账号限额开关错误关闭、空额外邮箱不能回退管理员注册邮箱、发送失败导致事件或快照回滚，或 payload 泄露凭据。
+- Green：使用默认开启的独立开关；有效管理员通知邮箱优先，空列表回退启用中管理员注册邮箱；通知失败只记录脱敏错误，payload 仅含 allowlisted 渠道余额字段和后台链接。
 - Refactor：抽取 provider-neutral balance alert payload builder，保持其它额度通知不变。
 
 ## UT-004 DTO 与看板聚合

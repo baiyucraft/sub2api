@@ -354,6 +354,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		BalanceLowNotifyRechargeURL:                            settings.BalanceLowNotifyRechargeURL,
 		SubscriptionExpiryNotifyEnabled:                        settings.SubscriptionExpiryNotifyEnabled,
 		AccountQuotaNotifyEnabled:                              settings.AccountQuotaNotifyEnabled,
+		UpstreamBalanceNotifyEnabled:                           settings.UpstreamBalanceNotifyEnabled,
 		AccountQuotaNotifyEmails:                               dto.NotifyEmailEntriesFromService(settings.AccountQuotaNotifyEmails),
 		PaymentEnabled:                                         paymentCfg.Enabled,
 		PaymentMinAmount:                                       paymentCfg.MinAmount,

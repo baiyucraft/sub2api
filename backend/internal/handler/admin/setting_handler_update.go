@@ -304,6 +304,7 @@ type UpdateSettingsRequest struct {
 	BalanceLowNotifyRechargeURL     *string                 `json:"balance_low_notify_recharge_url"`
 	SubscriptionExpiryNotifyEnabled *bool                   `json:"subscription_expiry_notify_enabled"`
 	AccountQuotaNotifyEnabled       *bool                   `json:"account_quota_notify_enabled"`
+	UpstreamBalanceNotifyEnabled    *bool                   `json:"upstream_balance_notify_enabled"`
 	AccountQuotaNotifyEmails        *[]dto.NotifyEmailEntry `json:"account_quota_notify_emails"`
 
 	// Payment configuration (integrated into settings, full replace)
@@ -1917,6 +1918,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AccountQuotaNotifyEnabled
 		}(),
+		UpstreamBalanceNotifyEnabled: func() bool {
+			if req.UpstreamBalanceNotifyEnabled != nil {
+				return *req.UpstreamBalanceNotifyEnabled
+			}
+			return previousSettings.UpstreamBalanceNotifyEnabled
+		}(),
 		AccountQuotaNotifyEmails: func() []service.NotifyEmailEntry {
 			if req.AccountQuotaNotifyEmails != nil {
 				return dto.NotifyEmailEntriesToService(*req.AccountQuotaNotifyEmails)
@@ -2410,6 +2417,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		BalanceLowNotifyRechargeURL:                            updatedSettings.BalanceLowNotifyRechargeURL,
 		SubscriptionExpiryNotifyEnabled:                        updatedSettings.SubscriptionExpiryNotifyEnabled,
 		AccountQuotaNotifyEnabled:                              updatedSettings.AccountQuotaNotifyEnabled,
+		UpstreamBalanceNotifyEnabled:                           updatedSettings.UpstreamBalanceNotifyEnabled,
 		AccountQuotaNotifyEmails:                               dto.NotifyEmailEntriesFromService(updatedSettings.AccountQuotaNotifyEmails),
 		PaymentEnabled:                                         updatedPaymentCfg.Enabled,
 		PaymentMinAmount:                                       updatedPaymentCfg.MinAmount,

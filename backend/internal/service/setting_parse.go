@@ -977,6 +977,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// 账号限额通知
 	result.AccountQuotaNotifyEnabled = settings[SettingKeyAccountQuotaNotifyEnabled] == "true"
+	result.UpstreamBalanceNotifyEnabled = !isFalseSettingValue(settings[SettingKeyUpstreamBalanceNotifyEnabled])
 	if raw := strings.TrimSpace(settings[SettingKeyAccountQuotaNotifyEmails]); raw != "" {
 		result.AccountQuotaNotifyEmails = ParseNotifyEmails(raw)
 	}

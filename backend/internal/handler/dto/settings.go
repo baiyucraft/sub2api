@@ -307,6 +307,7 @@ type SystemSettings struct {
 	BalanceLowNotifyRechargeURL     string             `json:"balance_low_notify_recharge_url"`
 	SubscriptionExpiryNotifyEnabled bool               `json:"subscription_expiry_notify_enabled"`
 	AccountQuotaNotifyEnabled       bool               `json:"account_quota_notify_enabled"`
+	UpstreamBalanceNotifyEnabled    bool               `json:"upstream_balance_notify_enabled"`
 	AccountQuotaNotifyEmails        []NotifyEmailEntry `json:"account_quota_notify_emails"`
 
 	// Channel Monitor feature switch

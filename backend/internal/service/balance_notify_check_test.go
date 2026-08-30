@@ -4,10 +4,35 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
 )
+
+type adminNotificationRecipientReaderStub struct {
+	users   []User
+	err     error
+	filters []UserListFilters
+}
+
+func (s *adminNotificationRecipientReaderStub) ListWithFilters(_ context.Context, params pagination.PaginationParams, filters UserListFilters) ([]User, *pagination.PaginationResult, error) {
+	s.filters = append(s.filters, filters)
+	if s.err != nil {
+		return nil, nil, s.err
+	}
+	start := params.Offset()
+	if start >= len(s.users) {
+		return []User{}, &pagination.PaginationResult{Total: int64(len(s.users)), Page: params.Page, PageSize: params.PageSize}, nil
+	}
+	end := start + params.Limit()
+	if end > len(s.users) {
+		end = len(s.users)
+	}
+	return append([]User(nil), s.users[start:end]...), &pagination.PaginationResult{Total: int64(len(s.users)), Page: params.Page, PageSize: params.PageSize}, nil
+}
 
 // newBalanceNotifyServiceForTest constructs a BalanceNotifyService with an
 // in-memory settings repo and a non-nil emailService so that the guard-clause
@@ -19,7 +44,7 @@ func newBalanceNotifyServiceForTest() (*BalanceNotifyService, *mockSettingRepo) 
 	// any accidental fallback reads still succeed. Tests should not trigger a
 	// crossing that reaches SendEmail.
 	email := NewEmailService(repo, nil)
-	return NewBalanceNotifyService(email, repo, nil), repo
+	return NewBalanceNotifyService(email, repo, nil, nil), repo
 }
 
 // ---------- guard clauses ----------
@@ -165,6 +190,98 @@ func TestIsAccountQuotaNotifyEnabled(t *testing.T) {
 	// Explicit "true"
 	repo.data[SettingKeyAccountQuotaNotifyEnabled] = "true"
 	require.True(t, s.isAccountQuotaNotifyEnabled(context.Background()))
+}
+
+func TestIsUpstreamBalanceNotifyEnabledDefaultsToTrue(t *testing.T) {
+	s, repo := newBalanceNotifyServiceForTest()
+
+	require.True(t, s.isUpstreamBalanceNotifyEnabled(context.Background()))
+
+	repo.data[SettingKeyUpstreamBalanceNotifyEnabled] = "false"
+	require.False(t, s.isUpstreamBalanceNotifyEnabled(context.Background()))
+
+	repo.data[SettingKeyUpstreamBalanceNotifyEnabled] = "true"
+	require.True(t, s.isUpstreamBalanceNotifyEnabled(context.Background()))
+}
+
+func TestGetUpstreamBalanceNotifyRecipientsPrefersConfiguredEmails(t *testing.T) {
+	repo := newMockSettingRepo()
+	repo.data[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails([]NotifyEmailEntry{
+		{Email: "alerts@example.com", Verified: true},
+	})
+	admins := &adminNotificationRecipientReaderStub{users: []User{{Email: "admin@example.com"}}}
+	s := NewBalanceNotifyService(NewEmailService(repo, nil), repo, nil, admins)
+
+	require.Equal(t, []string{"alerts@example.com"}, s.getUpstreamBalanceNotifyRecipients(context.Background()))
+	require.Empty(t, admins.filters)
+}
+
+func TestGetUpstreamBalanceNotifyRecipientsFallsBackToActiveAdminEmails(t *testing.T) {
+	repo := newMockSettingRepo()
+	admins := &adminNotificationRecipientReaderStub{users: []User{
+		{Email: "Primary@Example.com"},
+		{Email: "primary@example.com"},
+		{Email: "invalid"},
+		{Email: "second@example.com"},
+	}}
+	s := NewBalanceNotifyService(NewEmailService(repo, nil), repo, nil, admins)
+
+	recipients := s.getUpstreamBalanceNotifyRecipients(context.Background())
+	require.Equal(t, []string{"Primary@Example.com", "second@example.com"}, recipients)
+	require.Len(t, admins.filters, 1)
+	require.Equal(t, RoleAdmin, admins.filters[0].Role)
+	require.Equal(t, StatusActive, admins.filters[0].Status)
+	require.NotNil(t, admins.filters[0].IncludeSubscriptions)
+	require.False(t, *admins.filters[0].IncludeSubscriptions)
+}
+
+func TestGetUpstreamBalanceNotifyRecipientsSafelySkipsRepositoryFailure(t *testing.T) {
+	repo := newMockSettingRepo()
+	admins := &adminNotificationRecipientReaderStub{err: errors.New("database unavailable")}
+	s := NewBalanceNotifyService(NewEmailService(repo, nil), repo, nil, admins)
+
+	require.Empty(t, s.getUpstreamBalanceNotifyRecipients(context.Background()))
+}
+
+func TestNotifyUpstreamBalanceLowDefaultsEnabledAndUsesAdminRegistrationEmail(t *testing.T) {
+	ctx := context.Background()
+	repo := newNotificationEmailMemorySettingRepo()
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	require.NoError(t, repo.SetMultiple(ctx, smtpServer.settings()))
+	require.NoError(t, repo.Set(ctx, SettingKeyAccountQuotaNotifyEnabled, "false"))
+
+	emailService := NewEmailService(repo, nil)
+	notificationService := NewNotificationEmailService(repo, emailService)
+	admins := &adminNotificationRecipientReaderStub{users: []User{{Email: "admin@example.com"}}}
+	s := NewBalanceNotifyService(emailService, repo, nil, admins)
+	s.SetNotificationEmailService(notificationService)
+
+	s.NotifyUpstreamBalanceLow(ctx, &UpstreamConfig{
+		ID:       42,
+		Name:     "低余额渠道",
+		Provider: UpstreamProviderSub2API,
+		SiteURL:  "https://upstream.example",
+	}, 8, 10, time.Now().UTC(), time.Now().UTC().Add(-time.Minute))
+
+	require.Equal(t, int64(1), smtpServer.messageCount())
+}
+
+func TestNotifyUpstreamBalanceLowDedicatedToggleCanDisable(t *testing.T) {
+	ctx := context.Background()
+	repo := newNotificationEmailMemorySettingRepo()
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	require.NoError(t, repo.SetMultiple(ctx, smtpServer.settings()))
+	require.NoError(t, repo.Set(ctx, SettingKeyUpstreamBalanceNotifyEnabled, "false"))
+
+	emailService := NewEmailService(repo, nil)
+	notificationService := NewNotificationEmailService(repo, emailService)
+	admins := &adminNotificationRecipientReaderStub{users: []User{{Email: "admin@example.com"}}}
+	s := NewBalanceNotifyService(emailService, repo, nil, admins)
+	s.SetNotificationEmailService(notificationService)
+
+	s.NotifyUpstreamBalanceLow(ctx, &UpstreamConfig{ID: 42, Name: "低余额渠道"}, 8, 10, time.Now().UTC(), time.Now().UTC())
+
+	require.Zero(t, smtpServer.messageCount())
 }
 
 func TestGetSiteName_FallsBackToDefault(t *testing.T) {

@@ -28,13 +28,13 @@ tdd
 ## 2. 事件生命周期与管理员邮件通知
 
 - [ ] 2.1 Red：UT-002/UT-003 验证重复同步重复告警、恢复不关闭和通知失败回滚等缺陷。
-- [ ] 2.2 Green：接入 `evaluateUpstreamBalanceIncident`，按渠道周期幂等打开/关闭事件并复用额度通知设置。
+- [ ] 2.2 Green：接入 `evaluateUpstreamBalanceIncident`，按渠道周期幂等打开/关闭事件；渠道余额通知使用独立默认开启开关，有效管理员通知邮箱优先，空列表回退启用中管理员注册邮箱。
 - [ ] 2.3 Refactor：模板和 payload 只保留 allowlisted 字段，复用 provider 后台 URL helper。
 
 ### CheckList
 
 - [ ] 事件首次打开、重复同步、恢复和再跌破测试通过
-- [ ] 通知关闭/无收件人/发送失败不影响快照和事件
+- [ ] 独立通知开关关闭/无有效管理员邮箱/发送失败不影响快照和事件
 - [ ] 邮件、日志和事件不含敏感信息
 - [ ] 相关 repository/service/notification tests 与注释检查通过
 
@@ -98,3 +98,10 @@ tdd
 - 账号级余额字段、账号临时不可调度联动、用户端通知、生产数据回写和真实 provider 充值动作不在本 change 内。
 
 > 两种模式都必须完成测试、review、verification 和 archive 门禁；Lite 不使用 readiness 字段或额外确认步骤。
+
+## 2026-08-30 通知开关纠偏证据
+
+- 已将渠道余额通知从 `account_quota_notify_enabled` 解耦为缺失时默认开启的 `upstream_balance_notify_enabled`。
+- 已实现收件人优先级：有效管理员通知邮箱优先；空列表回退启用中管理员的合法注册邮箱。
+- 已通过相关 Go service/handler/server 测试、SettingsView Vitest、`pnpm typecheck`、`pnpm lint:check`、`git diff --check` 与 strict validate。
+- 本次未执行 VM Gate、生产部署、真实 SMTP 投递或生产配置写入。
