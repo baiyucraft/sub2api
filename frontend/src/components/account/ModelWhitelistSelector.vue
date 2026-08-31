@@ -173,7 +173,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
-  'upstream-synced': [models: string[]]
+  'upstream-synced': [models?: string[]]
 }>()
 
 const appStore = useAppStore()
@@ -324,11 +324,12 @@ const syncUpstreamModels = async () => {
       return
     }
 
-    if (result.persisted === true) {
-      emit('upstream-synced', upstreamModels)
-      appStore.showSuccess(t('admin.accounts.refreshUpstreamModelsSuccess', { count: upstreamModels.length }))
-      return
-    }
+	if (result.persisted === true) {
+		emit('upstream-synced', upstreamModels)
+		appStore.showSuccess(t('admin.accounts.refreshUpstreamModelsSuccess', { count: upstreamModels.length }))
+		return
+	}
+	if (!props.accountId) emit('upstream-synced')
 
     const newModels = [...props.modelValue]
     let addedCount = 0
@@ -340,6 +341,10 @@ const syncUpstreamModels = async () => {
     }
 
     emit('update:modelValue', newModels)
+    if (result.warnings?.some(warning => warning.code === 'upstream_model_metadata_incomplete')) {
+      appStore.showWarning(t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
+      return
+    }
     if (addedCount > 0) {
       appStore.showSuccess(t('admin.accounts.syncUpstreamModelsSuccess', { count: addedCount, total: upstreamModels.length }))
     } else {

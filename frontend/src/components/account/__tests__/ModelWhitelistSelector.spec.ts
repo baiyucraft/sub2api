@@ -1,9 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
-const { copyToClipboard, syncUpstreamModels } = vi.hoisted(() => ({
+const {
+  copyToClipboard,
+  showError,
+  showSuccess,
+  showInfo,
+  showWarning,
+  syncUpstreamModels,
+  syncUpstreamModelsPreview
+} = vi.hoisted(() => ({
   copyToClipboard: vi.fn().mockResolvedValue(true),
-  syncUpstreamModels: vi.fn()
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
+  showInfo: vi.fn(),
+  showWarning: vi.fn(),
+  syncUpstreamModels: vi.fn(),
+  syncUpstreamModelsPreview: vi.fn()
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -18,10 +31,18 @@ vi.mock('vue-i18n', async () => {
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
-    showInfo: vi.fn()
+    showError,
+    showSuccess,
+    showInfo,
+    showWarning
   })
+}))
+
+vi.mock('@/api/admin/accounts', () => ({
+  accountsAPI: {
+    syncUpstreamModels,
+    syncUpstreamModelsPreview
+  }
 }))
 
 vi.mock('@/composables/useClipboard', () => ({
@@ -30,20 +51,14 @@ vi.mock('@/composables/useClipboard', () => ({
   })
 }))
 
-vi.mock('@/api/admin/accounts', () => ({
-  accountsAPI: {
-    syncUpstreamModels,
-    syncUpstreamModelsPreview: vi.fn()
-  }
-}))
-
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 
-function mountSelector() {
+function mountSelector(props: Record<string, unknown> = {}) {
   return mount(ModelWhitelistSelector, {
     props: {
       modelValue: [],
-      platform: 'openai'
+      platform: 'openai',
+      ...props,
     },
     global: {
       stubs: {
@@ -69,6 +84,12 @@ describe('ModelWhitelistSelector', () => {
   beforeEach(() => {
     copyToClipboard.mockClear()
     syncUpstreamModels.mockReset()
+    showError.mockReset()
+    showSuccess.mockReset()
+    showInfo.mockReset()
+    showWarning.mockReset()
+    syncUpstreamModels.mockReset()
+    syncUpstreamModelsPreview.mockReset()
   })
 
   it('copies a model ID without selecting the model', async () => {
@@ -158,5 +179,72 @@ describe('ModelWhitelistSelector', () => {
 
     expect(wrapper.emitted('update:modelValue')).toEqual([[['existing-model', 'server-model']]])
     expect(wrapper.emitted('upstream-synced')).toBeUndefined()
+  })
+
+  it('warns when model IDs sync but capability metadata is incomplete', async () => {
+    syncUpstreamModels.mockResolvedValue({
+      models: ['x-preview-f-free'],
+      warnings: [
+        {
+          code: 'upstream_model_metadata_incomplete',
+          message: 'Model IDs were synced, but capability metadata could not be updated.'
+        }
+      ]
+    })
+    const wrapper = mount(ModelWhitelistSelector, {
+      props: {
+        modelValue: [],
+        platform: 'openai',
+        accountId: 46
+      },
+      global: {
+        stubs: {
+          ModelIcon: true
+        }
+      }
+    })
+
+    const syncButton = wrapper
+      .findAll('button')
+      .find(button => button.text() === 'admin.accounts.syncUpstreamModels')
+    expect(syncButton).toBeDefined()
+    await syncButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['x-preview-f-free']]])
+    expect(showWarning).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataIncomplete')
+    expect(showSuccess).not.toHaveBeenCalled()
+  })
+
+  it('reports a successful preview so account creation can persist metadata', async () => {
+    syncUpstreamModelsPreview.mockResolvedValue({
+      models: ['x-preview-f-free'],
+      metadata: {
+        'x-preview-f-free': {
+          id: 'x-preview-f-free',
+          reasoning: true,
+          supported_reasoning_levels: ['low', 'high', 'max'],
+        },
+      },
+    })
+    const wrapper = mountSelector({
+      syncCredentials: {
+        platform: 'openai',
+        type: 'apikey',
+        base_url: 'https://opencode.ai/zen/v1',
+        api_key: 'test-key',
+      },
+    })
+    const syncButton = wrapper
+      .findAll('button')
+      .find(button => button.text() === 'admin.accounts.syncUpstreamModels')
+
+    expect(syncButton).toBeDefined()
+    await syncButton?.trigger('click')
+    await flushPromises()
+
+    expect(syncUpstreamModelsPreview).toHaveBeenCalledOnce()
+    expect(wrapper.emitted('upstream-synced')).toEqual([[]])
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['x-preview-f-free']]])
   })
 })
