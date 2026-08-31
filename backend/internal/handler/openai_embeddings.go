@@ -109,6 +109,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
+	failedRouteKeys := make(map[string]struct{})
 	var lastFailoverErr *service.UpstreamFailoverError
 	switchCount := 0
 	maxAccountSwitches := h.maxAccountSwitches
@@ -123,7 +124,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 
 	for {
 		selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			service.ContextWithFailedProxyRoutes(c.Request.Context(), failedRouteKeys),
 			apiKey.GroupID,
 			"",
 			"",
@@ -224,7 +225,11 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 					return
 				}
 				h.gatewayService.RecordOpenAIAccountSwitch()
-				failedAccountIDs[account.ID] = struct{}{}
+				if failoverErr.RouteFailure && failoverErr.RouteKey != "" {
+					failedRouteKeys[failoverErr.RouteKey] = struct{}{}
+				} else {
+					failedAccountIDs[account.ID] = struct{}{}
+				}
 				lastFailoverErr = failoverErr
 				if switchCount >= maxAccountSwitches {
 					h.handleFailoverExhausted(c, failoverErr, false)

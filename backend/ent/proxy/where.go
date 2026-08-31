@@ -913,6 +913,29 @@ func HasAccountsWith(preds ...predicate.Account) predicate.Proxy {
 	})
 }
 
+// HasBoundAccounts applies the HasEdge predicate on the "bound_accounts" edge.
+func HasBoundAccounts() predicate.Proxy {
+	return predicate.Proxy(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, BoundAccountsTable, BoundAccountsPrimaryKey...),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasBoundAccountsWith applies the HasEdge predicate on the "bound_accounts" edge with a given conditions (other predicates).
+func HasBoundAccountsWith(preds ...predicate.Account) predicate.Proxy {
+	return predicate.Proxy(func(s *sql.Selector) {
+		step := newBoundAccountsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasBackupProxy applies the HasEdge predicate on the "backup_proxy" edge.
 func HasBackupProxy() predicate.Proxy {
 	return predicate.Proxy(func(s *sql.Selector) {
@@ -928,6 +951,29 @@ func HasBackupProxy() predicate.Proxy {
 func HasBackupProxyWith(preds ...predicate.Proxy) predicate.Proxy {
 	return predicate.Proxy(func(s *sql.Selector) {
 		step := newBackupProxyStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasAccountBindings applies the HasEdge predicate on the "account_bindings" edge.
+func HasAccountBindings() predicate.Proxy {
+	return predicate.Proxy(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, AccountBindingsTable, AccountBindingsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAccountBindingsWith applies the HasEdge predicate on the "account_bindings" edge with a given conditions (other predicates).
+func HasAccountBindingsWith(preds ...predicate.AccountProxyBinding) predicate.Proxy {
+	return predicate.Proxy(func(s *sql.Selector) {
+		step := newAccountBindingsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

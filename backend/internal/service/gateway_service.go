@@ -503,6 +503,21 @@ type GatewayCache interface {
 	GetReasoningContent(ctx context.Context, itemID string) (string, error)
 }
 
+// GatewayRouteCache optionally persists the proxy half of a sticky binding.
+// GatewayCache remains unchanged for compatibility with existing test doubles.
+type GatewayRouteCache interface {
+	GetSessionProxyID(ctx context.Context, groupID int64, sessionHash string) (int64, error)
+	SetSessionProxyID(ctx context.Context, groupID int64, sessionHash string, proxyID int64, ttl time.Duration) error
+	DeleteSessionProxyID(ctx context.Context, groupID int64, sessionHash string) error
+}
+
+// GatewayAtomicRouteCache keeps the account and proxy halves of a sticky route
+// consistent. The optional interface preserves compatibility with lightweight
+// test doubles and alternate cache implementations.
+type GatewayAtomicRouteCache interface {
+	SetSessionRoute(ctx context.Context, groupID int64, sessionHash string, accountID, proxyID int64, ttl time.Duration) error
+}
+
 // derefGroupID safely dereferences *int64 to int64, returning 0 if nil
 func derefGroupID(groupID *int64) int64 {
 	if groupID == nil {
@@ -571,15 +586,21 @@ func shouldClearStickySession(account *Account, requestedModel string) bool {
 type AccountWaitPlan struct {
 	AccountID      int64
 	MaxConcurrency int
+	Target         ConcurrencyTarget
 	Timeout        time.Duration
 	MaxWaiting     int
 }
 
 type AccountSelectionResult struct {
-	Account     *Account
-	Acquired    bool
-	ReleaseFunc func()
-	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	Account *Account
+	// ProxyID/Proxy identify the concrete proxy route chosen for this request.
+	// Zero values preserve legacy single-proxy/Direct behavior.
+	ProxyID           int64
+	Proxy             *Proxy
+	ConcurrencyTarget ConcurrencyTarget
+	Acquired          bool
+	ReleaseFunc       func()
+	WaitPlan          *AccountWaitPlan // nil means no wait allowed
 	// profitGate 携带本次选号真实生效的利润门（无门为 nil）。门安装在调度栈的
 	// 局部 ctx 上，handler 必须经 ContextWithSelectionProfitGate 重放后才能在
 	// 调度栈之外做抢槽后终检与准入后粘性绑定。
@@ -594,6 +615,27 @@ type AccountSelectionResult struct {
 // ProfitGateActive 报告本次选号是否处于利润门之下。
 func (r *AccountSelectionResult) ProfitGateActive() bool {
 	return r != nil && r.profitGate != nil
+}
+
+// ReplaceAccountPreservingRoute installs a freshly hydrated account without
+// losing the concrete proxy selected by the scheduler. Handlers that reload
+// accounts for final eligibility checks must use this helper.
+func (r *AccountSelectionResult) ReplaceAccountPreservingRoute(account *Account) {
+	if r == nil || account == nil {
+		return
+	}
+	if r.Proxy != nil {
+		proxyID := r.Proxy.ID
+		account.ProxyID = &proxyID
+		account.Proxy = r.Proxy
+		r.ProxyID = r.Proxy.ID
+	}
+	r.Account = account
+	if r.ProxyID > 0 {
+		r.ConcurrencyTarget = AccountProxyConcurrencyTarget(account, r.ProxyID)
+	} else {
+		r.ConcurrencyTarget = account.SchedulingConcurrencyTarget()
+	}
 }
 
 // ClaudeUsage 表示Claude API返回的usage信息
@@ -703,6 +745,10 @@ type UpstreamFailoverError struct {
 	NextAccountAction        NextAccountAction
 	ClientStatusCode         int
 	ClientMessage            string
+	// RouteFailure marks proxy/DNS/TCP/TLS transport failures that should
+	// exclude only the selected account+proxy route when another route exists.
+	RouteFailure bool
+	RouteKey     string
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -963,15 +1009,39 @@ func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, 
 	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTL)
 }
 
+func (s *GatewayService) BindStickySessionRoute(ctx context.Context, groupID *int64, sessionHash string, account *Account) error {
+	if account == nil {
+		return nil
+	}
+	proxyID := int64(0)
+	if account.Proxy != nil && account.Proxy.ID > 0 {
+		proxyID = account.Proxy.ID
+	}
+	if routeCache, ok := s.cache.(GatewayAtomicRouteCache); ok && sessionHash != "" {
+		return routeCache.SetSessionRoute(ctx, derefGroupID(groupID), sessionHash, account.ID, proxyID, stickySessionTTL)
+	}
+	if err := s.BindStickySession(ctx, groupID, sessionHash, account.ID); err != nil {
+		return err
+	}
+	routeCache, ok := s.cache.(GatewayRouteCache)
+	if !ok {
+		return nil
+	}
+	if account.Proxy == nil || account.Proxy.ID <= 0 {
+		return routeCache.DeleteSessionProxyID(ctx, derefGroupID(groupID), sessionHash)
+	}
+	return routeCache.SetSessionProxyID(ctx, derefGroupID(groupID), sessionHash, account.Proxy.ID, stickySessionTTL)
+}
+
 // bindGatewayStickySessionDuringSelection preserves the normal eager sticky
 // behavior unless a profit gate is installed. Profit-controlled requests bind
 // only after the terminal post-slot check, otherwise a rejected candidate could
 // overwrite a healthy pre-existing sticky binding.
-func (s *GatewayService) bindGatewayStickySessionDuringSelection(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
+func (s *GatewayService) bindGatewayStickySessionDuringSelection(ctx context.Context, groupID *int64, sessionHash string, account *Account) error {
 	if gatewayProfitControlGateActive(ctx) {
 		return nil
 	}
-	return s.BindStickySession(ctx, groupID, sessionHash, accountID)
+	return s.BindStickySessionRoute(ctx, groupID, sessionHash, account)
 }
 
 // BindStickySessionAfterProfitAdmission records a terminally admitted
@@ -997,6 +1067,41 @@ func (s *GatewayService) BindStickySessionAfterProfitAdmission(ctx context.Conte
 		return nil
 	}
 	return s.BindStickySession(ctx, groupID, sessionHash, accountID)
+}
+
+func (s *GatewayService) BindStickySessionRouteAfterProfitAdmission(ctx context.Context, groupID *int64, sessionHash string, account *Account) error {
+	if account == nil || sessionHash == "" || s.cache == nil {
+		return nil
+	}
+	if !gatewayProfitControlGateActive(ctx) {
+		return s.BindStickySessionRoute(ctx, groupID, sessionHash, account)
+	}
+	existingAccountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
+	if err != nil && !errors.Is(err, ErrStickySessionNotFound) {
+		slog.Warn("profit_control_sticky_binding_read_failed", "group_id", derefGroupID(groupID), "account_id", account.ID, "error", err)
+		return nil
+	}
+	if existingAccountID > 0 && existingAccountID != account.ID {
+		return nil
+	}
+	proxyID := int64(0)
+	if account.Proxy != nil && account.Proxy.ID > 0 {
+		proxyID = account.Proxy.ID
+	}
+	if routeCache, ok := s.cache.(GatewayAtomicRouteCache); ok && sessionHash != "" {
+		return routeCache.SetSessionRoute(ctx, derefGroupID(groupID), sessionHash, account.ID, proxyID, stickySessionTTL)
+	}
+	if err := s.BindStickySession(ctx, groupID, sessionHash, account.ID); err != nil {
+		return err
+	}
+	routeCache, ok := s.cache.(GatewayRouteCache)
+	if !ok || sessionHash == "" {
+		return nil
+	}
+	if account.Proxy == nil || account.Proxy.ID <= 0 {
+		return routeCache.DeleteSessionProxyID(ctx, derefGroupID(groupID), sessionHash)
+	}
+	return routeCache.SetSessionProxyID(ctx, derefGroupID(groupID), sessionHash, account.Proxy.ID, stickySessionTTL)
 }
 
 // GetCachedSessionAccountID retrieves the account ID bound to a sticky session.

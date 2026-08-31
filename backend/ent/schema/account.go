@@ -241,6 +241,8 @@ func (Account) Edges() []ent.Edge {
 		edge.To("proxy", Proxy.Type).
 			Field("proxy_id").
 			Unique(),
+		edge.To("proxies", Proxy.Type).
+			Through("proxy_bindings", AccountProxyBinding.Type),
 		edge.From("upstream_config", UpstreamConfig.Type).
 			Ref("accounts").
 			Field("upstream_config_id").

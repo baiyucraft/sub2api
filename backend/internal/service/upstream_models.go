@@ -428,6 +428,12 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	}
 	s.modelMetadataRegistryMu.Unlock()
 
+	return withAccountProxyFallback(ctx, account, func(attempt *Account) (map[string]modelsDevProvider, error) {
+		return s.fetchModelsDevRegistryOnce(ctx, attempt)
+	})
+}
+
+func (s *AccountTestService) fetchModelsDevRegistryOnce(ctx context.Context, account *Account) (map[string]modelsDevProvider, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsDevRegistryURL, nil)
 	if err != nil {
 		return nil, err
@@ -458,7 +464,7 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 
 	s.modelMetadataRegistryMu.Lock()
 	s.modelMetadataRegistry = registry
-	s.modelMetadataRegistryAt = now
+	s.modelMetadataRegistryAt = time.Now()
 	s.modelMetadataRegistryMu.Unlock()
 	return registry, nil
 }
@@ -566,6 +572,24 @@ func normalizeModelRegistryBaseURL(raw string) string {
 }
 
 func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account *Account) ([]string, []byte, error) {
+	type upstreamModelListResult struct {
+		models []string
+		body   []byte
+	}
+	result, err := withAccountProxyFallback(ctx, account, func(attempt *Account) (*upstreamModelListResult, error) {
+		models, body, fetchErr := s.fetchUpstreamModelListOnce(ctx, attempt)
+		if fetchErr != nil {
+			return nil, fetchErr
+		}
+		return &upstreamModelListResult{models: models, body: body}, nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return result.models, result.body, nil
+}
+
+func (s *AccountTestService) fetchUpstreamModelListOnce(ctx context.Context, account *Account) ([]string, []byte, error) {
 	if s == nil {
 		return nil, nil, newUpstreamModelSyncConfigError("Account test service is not configured", nil)
 	}

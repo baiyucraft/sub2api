@@ -645,61 +645,98 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	if err != nil {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "invalid_base_url", 0)
 	}
-	proxyURL := ""
-	if account.ProxyID != nil {
+	// Preserve the identity guard for legacy single-proxy snapshots. A missing
+	// or mismatched hydrated proxy must never silently become a direct probe.
+	if account.ProxyID != nil && *account.ProxyID > 0 && len(account.ProxyIDs) == 0 {
 		if account.Proxy == nil {
 			return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "proxy_unavailable", 0)
 		}
-		if account.Proxy.ID != *account.ProxyID {
+		if account.Proxy.ID > 0 && account.Proxy.ID != *account.ProxyID {
 			return nil, ErrUpstreamBillingProbeIdentityChanged
 		}
-		proxyURL = account.Proxy.URL()
+	}
+	if accountHasConfiguredProxy(account) && len(AvailableAccountProxyRoutes(account, now)) == 0 {
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "proxy_unavailable", 0)
+	}
+	// A legacy account snapshot with a configured proxy must carry the same
+	// hydrated proxy identity. Never silently downgrade a missing or mismatched
+	// proxy to a direct billing request.
+	if len(account.ProxyIDs) == 0 && account.ProxyID != nil {
+		if account.Proxy == nil {
+			return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "proxy_unavailable", 0)
+		}
+		if account.Proxy.ID > 0 && account.Proxy.ID != *account.ProxyID {
+			return nil, ErrUpstreamBillingProbeIdentityChanged
+		}
 	}
 	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, "/v1/sub2api/billing")
-	probeCtx, cancel := context.WithTimeout(ctx, upstreamBillingProbeRequestTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, probeURL, bytes.NewReader(nil))
-	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "request_build_failed", 0)
-	}
 	// OpenAI 账号保持官方 openai 传输画像；其他平台探测走默认画像。
 	profile := HTTPUpstreamProfileDefault
 	if account.Platform == PlatformOpenAI {
 		profile = HTTPUpstreamProfileOpenAI
 	}
-	reqCtx := WithHTTPUpstreamProfile(req.Context(), profile)
-	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(reqCtx))
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	account.ApplyHeaderOverrides(req.Header)
-	var tlsProfile *tlsfingerprint.Profile
-	if s.accountTestService.tlsFPProfileService != nil {
-		tlsProfile = s.accountTestService.tlsFPProfileService.ResolveTLSProfile(account)
+	type billingProbeHTTPResult struct {
+		body     []byte
+		header   http.Header
+		status   int
+		tooLarge bool
 	}
-	resp, err := s.accountTestService.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
+	failureReason := "request_failed"
+	result, err := withAccountProxyFallback(ctx, account, func(attempt *Account) (*billingProbeHTTPResult, error) {
+		probeCtx, cancel := context.WithTimeout(ctx, upstreamBillingProbeRequestTimeout)
+		defer cancel()
+		req, buildErr := http.NewRequestWithContext(probeCtx, http.MethodGet, probeURL, bytes.NewReader(nil))
+		if buildErr != nil {
+			failureReason = "request_build_failed"
+			return nil, buildErr
+		}
+		reqCtx := WithHTTPUpstreamProfile(req.Context(), profile)
+		req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(reqCtx))
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		attempt.ApplyHeaderOverrides(req.Header)
+		var tlsProfile *tlsfingerprint.Profile
+		if s.accountTestService.tlsFPProfileService != nil {
+			tlsProfile = s.accountTestService.tlsFPProfileService.ResolveTLSProfile(attempt)
+		}
+		resp, requestErr := s.accountTestService.httpUpstream.DoWithTLS(req, upstreamModelsProxyURL(attempt), attempt.ID, attempt.Concurrency, tlsProfile)
+		if requestErr != nil {
+			failureReason = "request_failed"
+			return nil, requestErr
+		}
+		if resp == nil || resp.Body == nil {
+			failureReason = "empty_response"
+			return nil, errors.New("upstream billing probe returned an empty response")
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, upstreamBillingProbeMaxBodyBytes+1))
+		if readErr != nil {
+			failureReason = "response_read_failed"
+			return nil, readErr
+		}
+		return &billingProbeHTTPResult{
+			body:     body,
+			header:   resp.Header.Clone(),
+			status:   resp.StatusCode,
+			tooLarge: len(body) > upstreamBillingProbeMaxBodyBytes,
+		}, nil
+	})
 	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "request_failed", 0)
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, failureReason, 0)
 	}
-	if resp == nil || resp.Body == nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "empty_response", 0)
+	body := result.body
+	if result.tooLarge {
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, result.status, "response_too_large", retryAfter(result.header, now))
 	}
-	defer func() { _ = resp.Body.Close() }()
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, upstreamBillingProbeMaxBodyBytes+1))
-	if readErr != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "response_read_failed", retryAfter(resp.Header, now))
+	if result.status == http.StatusNotFound || result.status == http.StatusMethodNotAllowed {
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, result.status, "unsupported", retryAfter(result.header, now))
 	}
-	if len(body) > upstreamBillingProbeMaxBodyBytes {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "response_too_large", retryAfter(resp.Header, now))
-	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "unsupported", retryAfter(resp.Header, now))
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "http_error", retryAfter(resp.Header, now))
+	if result.status < 200 || result.status >= 300 {
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, result.status, "http_error", retryAfter(result.header, now))
 	}
 	data, err := parseUpstreamBillingProbeResponse(body)
 	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "invalid_response", retryAfter(resp.Header, now))
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, result.status, "invalid_response", retryAfter(result.header, now))
 	}
 	snapshot := &UpstreamBillingProbeSnapshot{
 		Status:        UpstreamBillingProbeStatusOK,
@@ -708,7 +745,7 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		FreshUntil:    probeTimePtr(now.Add(2 * time.Duration(intervalMinutes) * time.Minute)),
 		LastAttemptAt: now,
 		NextProbeAt:   now.Add(nextProbeDelay(intervalMinutes, 0)),
-		HTTPStatus:    resp.StatusCode,
+		HTTPStatus:    result.status,
 	}
 	// 账号级值域与精度只在真要写回时才有影响：只观察上游声明、未开启同步的
 	// 账号不因声明值不适配 accounts.rate_multiplier 而被记成探测失败并进入

@@ -316,6 +316,42 @@ func newUpstreamHealthChallenge() (upstreamHealthChallenge, error) {
 }
 
 func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account *Account, model string) (UpstreamHealthProbeResult, error) {
+	attempts := accountProxyAttempts(account)
+	if len(attempts) == 0 {
+		if accountHasConfiguredProxy(account) {
+			result := UpstreamHealthProbeResult{Model: strings.TrimSpace(model)}
+			return failUpstreamHealthProbe(result, "probe_proxy_unavailable", "probe_proxy_unavailable", ErrNoAvailableAccountProxyRoutes)
+		}
+		return s.runUpstreamHealthProbeOnce(ctx, account, model)
+	}
+	var lastResult UpstreamHealthProbeResult
+	var lastErr error
+	for index, attempt := range attempts {
+		result, err := s.runUpstreamHealthProbeOnce(ctx, attempt, model)
+		lastResult, lastErr = result, err
+		if err == nil {
+			return result, nil
+		}
+		if index == len(attempts)-1 || !upstreamHealthProbeRouteFailure(ctx, result, err) {
+			return result, err
+		}
+	}
+	return lastResult, lastErr
+}
+
+func upstreamHealthProbeRouteFailure(ctx context.Context, result UpstreamHealthProbeResult, err error) bool {
+	if isAccountProxyTransportError(ctx, err) {
+		return true
+	}
+	switch result.Reason {
+	case "probe_transport_error", "probe_timeout", "probe_stream_error":
+		return ctx == nil || ctx.Err() == nil
+	default:
+		return false
+	}
+}
+
+func (s *AccountTestService) runUpstreamHealthProbeOnce(ctx context.Context, account *Account, model string) (UpstreamHealthProbeResult, error) {
 	result := UpstreamHealthProbeResult{Model: strings.TrimSpace(model)}
 	if account == nil {
 		return failUpstreamHealthProbe(result, "unsupported_account", "probe_account_unsupported", errors.New("upstream health probe account is required"))

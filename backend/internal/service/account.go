@@ -122,10 +122,16 @@ type Account struct {
 	ParentAccountID *int64 // non-nil → 影子账号（不持凭据，透传母账号凭据）
 	QuotaDimension  string // 用量维度："" / "global" / "spark"
 
-	Proxy         *Proxy
-	AccountGroups []AccountGroup
-	GroupIDs      []int64
-	Groups        []*Group
+	Proxy   *Proxy
+	Proxies []*Proxy
+	// ProxyIDs preserves the configured order for multi-proxy accounts while
+	// Proxy remains the legacy preferred (first) proxy.
+	ProxyIDs []int64
+	// ProxyBindingsChanged is write-path metadata and must never enter scheduler snapshots.
+	ProxyBindingsChanged bool `json:"-"`
+	AccountGroups        []AccountGroup
+	GroupIDs             []int64
+	Groups               []*Group
 
 	// model_mapping 热路径缓存（非持久化字段）
 	modelMappingCache               map[string]string

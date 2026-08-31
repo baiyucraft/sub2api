@@ -7,6 +7,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
+	"github.com/Wei-Shaw/sub2api/ent/accountproxybinding"
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
@@ -291,6 +292,16 @@ func init() {
 	accountgroupDescCreatedAt := accountgroupFields[4].Descriptor()
 	// accountgroup.DefaultCreatedAt holds the default value on creation for the created_at field.
 	accountgroup.DefaultCreatedAt = accountgroupDescCreatedAt.Default.(func() time.Time)
+	accountproxybindingFields := schema.AccountProxyBinding{}.Fields()
+	_ = accountproxybindingFields
+	// accountproxybindingDescPosition is the schema descriptor for position field.
+	accountproxybindingDescPosition := accountproxybindingFields[2].Descriptor()
+	// accountproxybinding.PositionValidator is a validator for the "position" field. It is called by the builders before save.
+	accountproxybinding.PositionValidator = accountproxybindingDescPosition.Validators[0].(func(int) error)
+	// accountproxybindingDescCreatedAt is the schema descriptor for created_at field.
+	accountproxybindingDescCreatedAt := accountproxybindingFields[3].Descriptor()
+	// accountproxybinding.DefaultCreatedAt holds the default value on creation for the created_at field.
+	accountproxybinding.DefaultCreatedAt = accountproxybindingDescCreatedAt.Default.(func() time.Time)
 	announcementFields := schema.Announcement{}.Fields()
 	_ = announcementFields
 	// announcementDescTitle is the schema descriptor for title field.

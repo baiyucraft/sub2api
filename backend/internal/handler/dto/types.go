@@ -214,6 +214,7 @@ type Account struct {
 	Extra                     map[string]any                 `json:"extra"`
 	OllamaCloudUsage          *service.OllamaCloudUsageState `json:"ollama_cloud_usage,omitempty"`
 	ProxyID                   *int64                         `json:"proxy_id"`
+	ProxyIDs                  []int64                        `json:"proxy_ids,omitempty"`
 	ProxyFallbackOriginID     *int64                         `json:"proxy_fallback_origin_id"`
 	ProxyFallbackOriginName   *string                        `json:"proxy_fallback_origin_name,omitempty"`
 	UpstreamConfigID          *int64                         `json:"upstream_config_id,omitempty"`
@@ -325,11 +326,22 @@ type Account struct {
 	ParentSubscriptionExpiresAt string `json:"parent_subscription_expires_at,omitempty"`
 	ParentChatGPTAccountID      string `json:"parent_chatgpt_account_id,omitempty"`
 
-	Proxy         *Proxy         `json:"proxy,omitempty"`
-	AccountGroups []AccountGroup `json:"account_groups,omitempty"`
+	Proxy           *Proxy          `json:"proxy,omitempty"`
+	Proxies         []*Proxy        `json:"proxies,omitempty"`
+	ProxyCapacities []ProxyCapacity `json:"proxy_capacities,omitempty"`
+	AccountGroups   []AccountGroup  `json:"account_groups,omitempty"`
 
 	GroupIDs []int64  `json:"group_ids,omitempty"`
 	Groups   []*Group `json:"groups,omitempty"`
+}
+
+type ProxyCapacity struct {
+	ProxyID            int64  `json:"proxy_id"`
+	Name               string `json:"name,omitempty"`
+	CurrentConcurrency *int   `json:"current_concurrency,omitempty"`
+	Waiting            *int   `json:"waiting,omitempty"`
+	Limit              *int   `json:"limit,omitempty"`
+	Available          bool   `json:"available"`
 }
 
 type UpstreamImagePricing struct {

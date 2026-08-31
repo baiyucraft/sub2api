@@ -223,6 +223,21 @@ func TestLiveCreateFailoverUsesExistingOpenAIPolicy(t *testing.T) {
 	require.True(t, service.shouldFailoverLiveCreateError(errors.New("transport failed")))
 }
 
+func TestLiveRecordConcurrencyTargetPreservesAccountProxyRoute(t *testing.T) {
+	record := &LiveCallRecord{
+		AccountID:                41,
+		ConcurrencyTargetKind:    ConcurrencyTargetAccountProxy,
+		ConcurrencyTargetID:      41,
+		ConcurrencyTargetProxyID: 9,
+	}
+
+	require.Equal(t, ConcurrencyTarget{
+		Kind:    ConcurrencyTargetAccountProxy,
+		ID:      41,
+		ProxyID: 9,
+	}, liveRecordConcurrencyTarget(record))
+}
+
 func TestLiveCallIDFromLocation(t *testing.T) {
 	callID, err := liveCallIDFromLocation("https://chatgpt.com/backend-api/codex/call_123?intent=quicksilver")
 	require.NoError(t, err)

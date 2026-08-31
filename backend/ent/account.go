@@ -109,6 +109,8 @@ type AccountEdges struct {
 	Groups []*Group `json:"groups,omitempty"`
 	// Proxy holds the value of the proxy edge.
 	Proxy *Proxy `json:"proxy,omitempty"`
+	// Proxies holds the value of the proxies edge.
+	Proxies []*Proxy `json:"proxies,omitempty"`
 	// UpstreamConfig holds the value of the upstream_config edge.
 	UpstreamConfig *UpstreamConfig `json:"upstream_config,omitempty"`
 	// UpstreamKey holds the value of the upstream_key edge.
@@ -123,9 +125,11 @@ type AccountEdges struct {
 	UpstreamEvents []*UpstreamEvent `json:"upstream_events,omitempty"`
 	// AccountGroups holds the value of the account_groups edge.
 	AccountGroups []*AccountGroup `json:"account_groups,omitempty"`
+	// ProxyBindings holds the value of the proxy_bindings edge.
+	ProxyBindings []*AccountProxyBinding `json:"proxy_bindings,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [9]bool
+	loadedTypes [11]bool
 }
 
 // GroupsOrErr returns the Groups value or an error if the edge
@@ -148,12 +152,21 @@ func (e AccountEdges) ProxyOrErr() (*Proxy, error) {
 	return nil, &NotLoadedError{edge: "proxy"}
 }
 
+// ProxiesOrErr returns the Proxies value or an error if the edge
+// was not loaded in eager-loading.
+func (e AccountEdges) ProxiesOrErr() ([]*Proxy, error) {
+	if e.loadedTypes[2] {
+		return e.Proxies, nil
+	}
+	return nil, &NotLoadedError{edge: "proxies"}
+}
+
 // UpstreamConfigOrErr returns the UpstreamConfig value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e AccountEdges) UpstreamConfigOrErr() (*UpstreamConfig, error) {
 	if e.UpstreamConfig != nil {
 		return e.UpstreamConfig, nil
-	} else if e.loadedTypes[2] {
+	} else if e.loadedTypes[3] {
 		return nil, &NotFoundError{label: upstreamconfig.Label}
 	}
 	return nil, &NotLoadedError{edge: "upstream_config"}
@@ -164,7 +177,7 @@ func (e AccountEdges) UpstreamConfigOrErr() (*UpstreamConfig, error) {
 func (e AccountEdges) UpstreamKeyOrErr() (*UpstreamKey, error) {
 	if e.UpstreamKey != nil {
 		return e.UpstreamKey, nil
-	} else if e.loadedTypes[3] {
+	} else if e.loadedTypes[4] {
 		return nil, &NotFoundError{label: upstreamkey.Label}
 	}
 	return nil, &NotLoadedError{edge: "upstream_key"}
@@ -175,7 +188,7 @@ func (e AccountEdges) UpstreamKeyOrErr() (*UpstreamKey, error) {
 func (e AccountEdges) ParentOrErr() (*Account, error) {
 	if e.Parent != nil {
 		return e.Parent, nil
-	} else if e.loadedTypes[4] {
+	} else if e.loadedTypes[5] {
 		return nil, &NotFoundError{label: account.Label}
 	}
 	return nil, &NotLoadedError{edge: "parent"}
@@ -184,7 +197,7 @@ func (e AccountEdges) ParentOrErr() (*Account, error) {
 // ChildrenOrErr returns the Children value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) ChildrenOrErr() ([]*Account, error) {
-	if e.loadedTypes[5] {
+	if e.loadedTypes[6] {
 		return e.Children, nil
 	}
 	return nil, &NotLoadedError{edge: "children"}
@@ -193,7 +206,7 @@ func (e AccountEdges) ChildrenOrErr() ([]*Account, error) {
 // UsageLogsOrErr returns the UsageLogs value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) UsageLogsOrErr() ([]*UsageLog, error) {
-	if e.loadedTypes[6] {
+	if e.loadedTypes[7] {
 		return e.UsageLogs, nil
 	}
 	return nil, &NotLoadedError{edge: "usage_logs"}
@@ -202,7 +215,7 @@ func (e AccountEdges) UsageLogsOrErr() ([]*UsageLog, error) {
 // UpstreamEventsOrErr returns the UpstreamEvents value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) UpstreamEventsOrErr() ([]*UpstreamEvent, error) {
-	if e.loadedTypes[7] {
+	if e.loadedTypes[8] {
 		return e.UpstreamEvents, nil
 	}
 	return nil, &NotLoadedError{edge: "upstream_events"}
@@ -211,10 +224,19 @@ func (e AccountEdges) UpstreamEventsOrErr() ([]*UpstreamEvent, error) {
 // AccountGroupsOrErr returns the AccountGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) AccountGroupsOrErr() ([]*AccountGroup, error) {
-	if e.loadedTypes[8] {
+	if e.loadedTypes[9] {
 		return e.AccountGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "account_groups"}
+}
+
+// ProxyBindingsOrErr returns the ProxyBindings value or an error if the edge
+// was not loaded in eager-loading.
+func (e AccountEdges) ProxyBindingsOrErr() ([]*AccountProxyBinding, error) {
+	if e.loadedTypes[10] {
+		return e.ProxyBindings, nil
+	}
+	return nil, &NotLoadedError{edge: "proxy_bindings"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -533,6 +555,11 @@ func (_m *Account) QueryProxy() *ProxyQuery {
 	return NewAccountClient(_m.config).QueryProxy(_m)
 }
 
+// QueryProxies queries the "proxies" edge of the Account entity.
+func (_m *Account) QueryProxies() *ProxyQuery {
+	return NewAccountClient(_m.config).QueryProxies(_m)
+}
+
 // QueryUpstreamConfig queries the "upstream_config" edge of the Account entity.
 func (_m *Account) QueryUpstreamConfig() *UpstreamConfigQuery {
 	return NewAccountClient(_m.config).QueryUpstreamConfig(_m)
@@ -566,6 +593,11 @@ func (_m *Account) QueryUpstreamEvents() *UpstreamEventQuery {
 // QueryAccountGroups queries the "account_groups" edge of the Account entity.
 func (_m *Account) QueryAccountGroups() *AccountGroupQuery {
 	return NewAccountClient(_m.config).QueryAccountGroups(_m)
+}
+
+// QueryProxyBindings queries the "proxy_bindings" edge of the Account entity.
+func (_m *Account) QueryProxyBindings() *AccountProxyBindingQuery {
+	return NewAccountClient(_m.config).QueryProxyBindings(_m)
 }
 
 // Update returns a builder for updating this Account.

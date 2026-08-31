@@ -34,4 +34,10 @@ describe('CreateAccountModal Grok account types', () => {
   it('hides Grok password authorize option in the create flow', () => {
     expect(source).toContain(':show-email-password-option="false"')
   })
+
+  it('submits the full ordered proxy binding list for SSO imports', () => {
+    const start = source.indexOf('adminAPI.grok.createFromSSO({')
+    expect(start).toBeGreaterThan(-1)
+    expect(source.slice(start, start + 600)).toContain('proxy_ids: [...form.proxy_ids]')
+  })
 })

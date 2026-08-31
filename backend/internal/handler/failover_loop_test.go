@@ -727,6 +727,48 @@ func TestHandleFailoverError_FailedAccountIDs(t *testing.T) {
 	})
 }
 
+func TestHandleFailoverError_CountsSameAccountRetriesPerProxyRoute(t *testing.T) {
+	state := NewFailoverState(5, false)
+	routeOne := &service.UpstreamFailoverError{
+		StatusCode:             http.StatusBadGateway,
+		RetryableOnSameAccount: true,
+		SameAccountRetryDelay:  time.Nanosecond,
+		RouteFailure:           true,
+		RouteKey:               "account_proxy:9:101",
+	}
+	routeTwo := &service.UpstreamFailoverError{
+		StatusCode:             http.StatusBadGateway,
+		RetryableOnSameAccount: true,
+		SameAccountRetryDelay:  time.Nanosecond,
+		RouteFailure:           true,
+		RouteKey:               "account_proxy:9:102",
+	}
+
+	require.Equal(t, FailoverContinue, state.HandleFailoverError(context.Background(), nil, 9, service.PlatformOpenAI, 2, routeOne))
+	require.Equal(t, FailoverContinue, state.HandleFailoverError(context.Background(), nil, 9, service.PlatformOpenAI, 2, routeTwo))
+	require.Equal(t, 1, state.SameRouteRetryCount[routeOne.RouteKey])
+	require.Equal(t, 1, state.SameRouteRetryCount[routeTwo.RouteKey])
+	require.Empty(t, state.SameAccountRetryCount)
+	require.Empty(t, state.FailedAccountIDs)
+}
+
+func TestOpenAIChatCompletionsProxyFailover_TransportKeepsAccountEligible(t *testing.T) {
+	failedAccounts := map[int64]struct{}{}
+	failedRoutes := map[string]struct{}{}
+	routeErr := &service.UpstreamFailoverError{
+		RouteFailure: true,
+		RouteKey:     "account_proxy:55:8",
+	}
+
+	recordProxyAwareFailoverExclusion(failedAccounts, failedRoutes, 55, routeErr)
+
+	require.Empty(t, failedAccounts)
+	require.Contains(t, failedRoutes, routeErr.RouteKey)
+
+	recordProxyAwareFailoverExclusion(failedAccounts, failedRoutes, 55, &service.UpstreamFailoverError{StatusCode: http.StatusUnauthorized})
+	require.Contains(t, failedAccounts, int64(55))
+}
+
 // ---------------------------------------------------------------------------
 // HandleFailoverError — LastFailoverErr 更新
 // ---------------------------------------------------------------------------

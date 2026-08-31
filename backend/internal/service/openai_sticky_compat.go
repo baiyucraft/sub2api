@@ -199,6 +199,46 @@ func (s *OpenAIGatewayService) refreshStickySessionTTL(ctx context.Context, grou
 	return err
 }
 
+func (s *OpenAIGatewayService) setStickySessionRoute(ctx context.Context, groupID *int64, sessionHash string, account *Account, ttl time.Duration) error {
+	if s == nil || s.cache == nil || account == nil || account.ID <= 0 {
+		return nil
+	}
+	primaryKey := s.openAISessionCacheKey(sessionHash)
+	if primaryKey == "" {
+		return nil
+	}
+	proxyID := int64(0)
+	if account.Proxy != nil && account.Proxy.ID > 0 {
+		proxyID = account.Proxy.ID
+	}
+	if routeCache, ok := s.cache.(GatewayAtomicRouteCache); ok {
+		if err := routeCache.SetSessionRoute(ctx, derefGroupID(groupID), primaryKey, account.ID, proxyID, ttl); err != nil {
+			return err
+		}
+	} else {
+		if err := s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), primaryKey, account.ID, ttl); err != nil {
+			return err
+		}
+		if routeCache, ok := s.cache.(GatewayRouteCache); ok {
+			if proxyID > 0 {
+				if err := routeCache.SetSessionProxyID(ctx, derefGroupID(groupID), primaryKey, proxyID, ttl); err != nil {
+					return err
+				}
+			} else if err := routeCache.DeleteSessionProxyID(ctx, derefGroupID(groupID), primaryKey); err != nil {
+				return err
+			}
+		}
+	}
+	if !s.openAISessionHashDualWriteOldEnabled() {
+		return nil
+	}
+	legacyKey := s.openAILegacySessionCacheKey(ctx, sessionHash)
+	if legacyKey == "" {
+		return nil
+	}
+	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), legacyKey, account.ID, s.openAIStickyLegacyTTL(ttl))
+}
+
 func (s *OpenAIGatewayService) deleteStickySessionAccountID(ctx context.Context, groupID *int64, sessionHash string) error {
 	if s == nil || s.cache == nil {
 		return nil

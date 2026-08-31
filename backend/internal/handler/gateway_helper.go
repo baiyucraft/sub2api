@@ -213,7 +213,15 @@ func (h *ConcurrencyHelper) IncrementAccountWaitCount(ctx context.Context, accou
 }
 
 func (h *ConcurrencyHelper) IncrementAccountWaitCountForAccount(ctx context.Context, account *service.Account, maxWait int) (bool, error) {
-	return h.concurrencyService.IncrementTargetWaitCount(ctx, account.SchedulingConcurrencyTarget(), maxWait)
+	target := account.SchedulingConcurrencyTarget()
+	if account != nil && account.Proxy != nil {
+		target = service.AccountProxyConcurrencyTarget(account, account.Proxy.ID)
+	}
+	return h.concurrencyService.IncrementTargetWaitCount(ctx, target, maxWait)
+}
+
+func (h *ConcurrencyHelper) IncrementTargetWaitCount(ctx context.Context, target service.ConcurrencyTarget, maxWait int) (bool, error) {
+	return h.concurrencyService.IncrementTargetWaitCount(ctx, target, maxWait)
 }
 
 // DecrementAccountWaitCount decrements the wait count for an account
@@ -222,7 +230,15 @@ func (h *ConcurrencyHelper) DecrementAccountWaitCount(ctx context.Context, accou
 }
 
 func (h *ConcurrencyHelper) DecrementAccountWaitCountForAccount(ctx context.Context, account *service.Account) {
-	h.concurrencyService.DecrementTargetWaitCount(ctx, account.SchedulingConcurrencyTarget())
+	target := account.SchedulingConcurrencyTarget()
+	if account != nil && account.Proxy != nil {
+		target = service.AccountProxyConcurrencyTarget(account, account.Proxy.ID)
+	}
+	h.concurrencyService.DecrementTargetWaitCount(ctx, target)
+}
+
+func (h *ConcurrencyHelper) DecrementTargetWaitCount(ctx context.Context, target service.ConcurrencyTarget) {
+	h.concurrencyService.DecrementTargetWaitCount(ctx, target)
 }
 
 // TryAcquireUserSlot 尝试立即获取用户并发槽位。
@@ -269,12 +285,24 @@ func (h *ConcurrencyHelper) TryAcquireAccountSlot(ctx context.Context, accountID
 }
 
 func (h *ConcurrencyHelper) TryAcquireAccountSlotForAccount(ctx context.Context, account *service.Account) (func(), bool, error) {
-	result, err := h.concurrencyService.AcquireTargetSlot(ctx, account.SchedulingConcurrencyTarget())
+	target := account.SchedulingConcurrencyTarget()
+	if account != nil && account.Proxy != nil {
+		target = service.AccountProxyConcurrencyTarget(account, account.Proxy.ID)
+	}
+	result, err := h.concurrencyService.AcquireTargetSlot(ctx, target)
 	if err != nil {
 		return nil, false, err
 	}
 	if !result.Acquired {
 		return nil, false, nil
+	}
+	return result.ReleaseFunc, true, nil
+}
+
+func (h *ConcurrencyHelper) TryAcquireTargetSlot(ctx context.Context, target service.ConcurrencyTarget) (func(), bool, error) {
+	result, err := h.concurrencyService.AcquireTargetSlot(ctx, target)
+	if err != nil || !result.Acquired {
+		return nil, false, err
 	}
 	return result.ReleaseFunc, true, nil
 }
@@ -469,8 +497,18 @@ func (h *ConcurrencyHelper) AcquireAccountSlotWithWaitTimeout(c *gin.Context, ac
 }
 
 func (h *ConcurrencyHelper) AcquireAccountSlotWithWaitTimeoutForAccount(c *gin.Context, account *service.Account, timeout time.Duration, isStream bool, streamStarted *bool) (func(), error) {
+	target := account.SchedulingConcurrencyTarget()
+	if account != nil && account.Proxy != nil {
+		target = service.AccountProxyConcurrencyTarget(account, account.Proxy.ID)
+	}
 	return h.waitForAcquireWithPingTimeout(c, "account", timeout, isStream, streamStarted, true, func(ctx context.Context) (*service.AcquireResult, error) {
-		return h.concurrencyService.AcquireTargetSlot(ctx, account.SchedulingConcurrencyTarget())
+		return h.concurrencyService.AcquireTargetSlot(ctx, target)
+	})
+}
+
+func (h *ConcurrencyHelper) AcquireTargetSlotWithWaitTimeout(c *gin.Context, target service.ConcurrencyTarget, timeout time.Duration, isStream bool, streamStarted *bool) (func(), error) {
+	return h.waitForAcquireWithPingTimeout(c, "account_proxy", timeout, isStream, streamStarted, true, func(ctx context.Context) (*service.AcquireResult, error) {
+		return h.concurrencyService.AcquireTargetSlot(ctx, target)
 	})
 }
 

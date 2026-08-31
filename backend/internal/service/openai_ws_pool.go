@@ -77,6 +77,7 @@ type openAIWSAcquireRequest struct {
 }
 
 type openAIWSHandshakeCompatibilityKey struct {
+	proxyURL            string
 	betaFeatures        string
 	codexInstallationID string
 	sessionIDHyphen     string
@@ -861,7 +862,7 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 
 retryAcquire:
 	accountID := req.Account.ID
-	compatibility := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers)
+	compatibility := normalizeOpenAIWSRequestCompatibility(req.Account, req.Headers, req.ProxyURL)
 	routingAffinity := normalizeOpenAIWSRoutingAffinity(req.Headers)
 	effectiveMaxConns := p.effectiveMaxConnsByAccount(req.Account)
 	if effectiveMaxConns <= 0 {
@@ -1807,7 +1808,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 	}
 	id := p.nextConnID(req.Account.ID)
 	pooledConn := newOpenAIWSConn(id, req.Account.ID, conn, handshakeHeaders)
-	pooledConn.handshakeCompatibility = normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers)
+	pooledConn.handshakeCompatibility = normalizeOpenAIWSRequestCompatibility(req.Account, req.Headers, req.ProxyURL)
 	pooledConn.routingAffinity = normalizeOpenAIWSRoutingAffinity(req.Headers)
 	return pooledConn, nil
 }
@@ -1879,7 +1880,7 @@ func (p *openAIWSConnPool) effectiveMaxConnsByAccount(account *Account) int {
 		if account.Concurrency <= 0 {
 			return 0
 		}
-		return min(account.Concurrency, hardCap)
+		return min(account.Concurrency*openAIWSAccountRouteCapacityMultiplier(account), hardCap)
 	}
 	if account == nil || !p.dynamicMaxConnsEnabled() {
 		return hardCap
@@ -1892,7 +1893,7 @@ func (p *openAIWSConnPool) effectiveMaxConnsByAccount(account *Account) int {
 	if factor <= 0 {
 		factor = 1.0
 	}
-	effective := int(math.Ceil(float64(account.Concurrency) * factor))
+	effective := int(math.Ceil(float64(account.Concurrency*openAIWSAccountRouteCapacityMultiplier(account)) * factor))
 	if effective < 1 {
 		effective = 1
 	}
@@ -1990,7 +1991,18 @@ func cloneOpenAIWSAcquireRequestPtr(req *openAIWSAcquireRequest) *openAIWSAcquir
 func sameOpenAIWSPrewarmTarget(a, b openAIWSAcquireRequest) bool {
 	return stringsTrim(a.WSURL) == stringsTrim(b.WSURL) &&
 		stringsTrim(a.ProxyURL) == stringsTrim(b.ProxyURL) &&
-		normalizeOpenAIWSHandshakeCompatibility(a.Account, a.Headers) == normalizeOpenAIWSHandshakeCompatibility(b.Account, b.Headers)
+		normalizeOpenAIWSRequestCompatibility(a.Account, a.Headers, a.ProxyURL) == normalizeOpenAIWSRequestCompatibility(b.Account, b.Headers, b.ProxyURL)
+}
+
+func openAIWSAccountRouteCapacityMultiplier(account *Account) int {
+	if account == nil || account.IsUpstreamBound() {
+		return 1
+	}
+	count := len(AvailableAccountProxyRoutes(account, time.Now()))
+	if count < 1 {
+		return 1
+	}
+	return count
 }
 
 func normalizeOpenAIWSBetaFeatures(headers http.Header) string {
@@ -2035,6 +2047,12 @@ func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Head
 	key.threadID = normalizeOpenAIWSStableIdentityHeader(headers, "thread-id")
 	key.clientRequestID = normalizeOpenAIWSStableIdentityHeader(headers, "x-client-request-id")
 	key.codexWindowID = normalizeOpenAIWSStableIdentityHeader(headers, "x-codex-window-id")
+	return key
+}
+
+func normalizeOpenAIWSRequestCompatibility(account *Account, headers http.Header, proxyURL string) openAIWSHandshakeCompatibilityKey {
+	key := normalizeOpenAIWSHandshakeCompatibility(account, headers)
+	key.proxyURL = stringsTrim(proxyURL)
 	return key
 }
 

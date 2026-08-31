@@ -122,13 +122,13 @@ func TestOpenAICompactSelectionKeepsPreferredAheadWithinCapabilityTier(t *testin
 	ordinary := &Account{
 		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Priority: 1,
 		RateMultiplier: testFloat64Ptr(0.01), UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
-		Extra: map[string]any{"openai_compact_supported": true},
+		Extra:         map[string]any{"openai_compact_supported": true},
 		AccountGroups: []AccountGroup{{GroupID: groupID}},
 	}
 	preferred := &Account{
 		ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Priority: 1,
 		RateMultiplier: testFloat64Ptr(0.20), UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
-		Extra: map[string]any{"openai_compact_supported": true},
+		Extra:         map[string]any{"openai_compact_supported": true},
 		AccountGroups: []AccountGroup{{GroupID: groupID, SchedulerPreferred: true}},
 	}
 	unknownPreferred := &Account{

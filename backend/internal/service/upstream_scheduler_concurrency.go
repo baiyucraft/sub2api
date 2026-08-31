@@ -9,8 +9,11 @@ import (
 const (
 	UpstreamSchedulerConcurrencyOverrideKey = "scheduler_concurrency_override"
 
-	ConcurrencyTargetAccount  = "account"
-	ConcurrencyTargetUpstream = "upstream"
+	ConcurrencyTargetAccount = "account"
+	// ConcurrencyTargetAccountProxy isolates capacity for one proxy binding
+	// of an account. ID is the account ID and ProxyID identifies the route.
+	ConcurrencyTargetAccountProxy = "account_proxy"
+	ConcurrencyTargetUpstream     = "upstream"
 
 	UpstreamConcurrencySourceOverride  = "override"
 	UpstreamConcurrencySourceProvider  = "provider"
@@ -138,21 +141,97 @@ func nonNegativeInt(value any) (int, bool) {
 func intPointer(value int) *int { return &value }
 
 type ConcurrencyTarget struct {
-	Kind  string `json:"kind"`
-	ID    int64  `json:"id"`
-	Limit int    `json:"limit"`
+	Kind    string `json:"kind"`
+	ID      int64  `json:"id"`
+	ProxyID int64  `json:"proxy_id,omitempty"`
+	Limit   int    `json:"limit"`
 }
 
 func (t ConcurrencyTarget) normalized() ConcurrencyTarget {
+	if t.Kind == ConcurrencyTargetAccountProxy {
+		if t.ID <= 0 || t.ProxyID <= 0 {
+			t.Kind = ConcurrencyTargetAccount
+			t.ProxyID = 0
+		}
+		return t
+	}
 	if t.Kind != ConcurrencyTargetUpstream || t.ID <= 0 {
 		t.Kind = ConcurrencyTargetAccount
+		t.ProxyID = 0
 	}
 	return t
 }
 
 func (t ConcurrencyTarget) Key() string {
 	t = t.normalized()
+	if t.Kind == ConcurrencyTargetAccountProxy {
+		return t.Kind + ":" + strconv.FormatInt(t.ID, 10) + ":" + strconv.FormatInt(t.ProxyID, 10)
+	}
 	return t.Kind + ":" + strconv.FormatInt(t.ID, 10)
+}
+
+// AccountProxyConcurrencyTarget constructs an account+proxy target while
+// retaining the account's effective concurrency limit. A non-positive proxy
+// ID falls back to the legacy account target.
+func AccountProxyConcurrencyTarget(account *Account, proxyID int64) ConcurrencyTarget {
+	if account == nil || proxyID <= 0 {
+		if account == nil {
+			return ConcurrencyTarget{Kind: ConcurrencyTargetAccount}
+		}
+		return account.SchedulingConcurrencyTarget()
+	}
+	target := account.SchedulingConcurrencyTarget()
+	// Upstream-bound accounts intentionally keep the shared upstream pool;
+	// account_proxy applies to ordinary accounts only.
+	if target.Kind == ConcurrencyTargetUpstream {
+		return target
+	}
+	return ConcurrencyTarget{Kind: ConcurrencyTargetAccountProxy, ID: account.ID, ProxyID: proxyID, Limit: target.Limit}
+}
+
+// SchedulingConcurrencyTargets expands an account into one independent target
+// per configured proxy. With no configured proxies it returns the legacy
+// account/upstream target. Ordering follows ProxyIDs (or Proxies when IDs are
+// not hydrated), and duplicate IDs are ignored defensively.
+func (a *Account) SchedulingConcurrencyTargets() []ConcurrencyTarget {
+	if a == nil {
+		return []ConcurrencyTarget{{Kind: ConcurrencyTargetAccount}}
+	}
+	base := a.SchedulingConcurrencyTarget()
+	if base.Kind == ConcurrencyTargetUpstream {
+		return []ConcurrencyTarget{base}
+	}
+	ids := a.ProxyIDs
+	if len(ids) == 0 && len(a.Proxies) > 0 {
+		ids = make([]int64, 0, len(a.Proxies))
+		for _, proxy := range a.Proxies {
+			if proxy != nil {
+				ids = append(ids, proxy.ID)
+			}
+		}
+	}
+	if len(ids) == 0 && a.ProxyID != nil && *a.ProxyID > 0 {
+		ids = []int64{*a.ProxyID}
+	}
+	if len(ids) == 0 {
+		return []ConcurrencyTarget{base}
+	}
+	result := make([]ConcurrencyTarget, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, proxyID := range ids {
+		if proxyID <= 0 {
+			continue
+		}
+		if _, ok := seen[proxyID]; ok {
+			continue
+		}
+		seen[proxyID] = struct{}{}
+		result = append(result, AccountProxyConcurrencyTarget(a, proxyID))
+	}
+	if len(result) == 0 {
+		return []ConcurrencyTarget{base}
+	}
+	return result
 }
 
 func (a *Account) SchedulingConcurrencyTarget() ConcurrencyTarget {

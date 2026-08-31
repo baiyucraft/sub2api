@@ -123,6 +123,36 @@ func (s *ProxyExpirySuite) TestSweep_ProxyMode_Healthy() {
 	s.Require().Equal(pid, *origin)
 }
 
+func (s *ProxyExpirySuite) TestSweepAndRevertPreserveOrderedMultiProxyBindings() {
+	future := time.Now().Add(24 * time.Hour)
+	past := time.Now().Add(-time.Hour)
+	backup := s.mkProxy("p-ordered-backup", service.FallbackModeNone, &future, nil)
+	secondary := s.mkProxy("p-ordered-secondary", service.FallbackModeNone, &future, nil)
+	primary := s.mkProxy("p-ordered-primary", service.FallbackModeProxy, &past, &backup)
+	accountID := s.mkAccountWithProxy(primary)
+	_, err := s.tx.ExecContext(s.ctx, `
+		INSERT INTO account_proxy_bindings (account_id, proxy_id, position)
+		VALUES ($1,$2,0),($1,$3,1)`, accountID, primary, secondary)
+	s.Require().NoError(err)
+
+	_, err = s.repo.SweepExpiredProxies(s.ctx, time.Now())
+	s.Require().NoError(err)
+	accountRepo := newAccountRepositoryWithSQL(s.tx.Client(), s.tx, nil)
+	fallbackAccount, err := accountRepo.GetByID(s.ctx, accountID)
+	s.Require().NoError(err)
+	s.Require().Equal([]int64{backup, secondary}, fallbackAccount.ProxyIDs)
+	s.Require().NotNil(fallbackAccount.ProxyID)
+	s.Require().Equal(backup, *fallbackAccount.ProxyID)
+
+	s.Require().NoError(accountRepo.RevertProxyFallback(s.ctx, accountID))
+	reverted, err := accountRepo.GetByID(s.ctx, accountID)
+	s.Require().NoError(err)
+	s.Require().Equal([]int64{primary, secondary}, reverted.ProxyIDs)
+	s.Require().NotNil(reverted.ProxyID)
+	s.Require().Equal(primary, *reverted.ProxyID)
+	s.Require().Nil(reverted.ProxyFallbackOriginID)
+}
+
 func (s *ProxyExpirySuite) TestSweep_NoneMode_KeepsAccount() {
 	past := time.Now().Add(-time.Hour)
 	pid := s.mkProxy("p-none", service.FallbackModeNone, &past, nil)

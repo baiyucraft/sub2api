@@ -44,6 +44,7 @@ type dataAccount struct {
 	Credentials map[string]any `json:"credentials"`
 	Extra       map[string]any `json:"extra"`
 	ProxyKey    *string        `json:"proxy_key"`
+	ProxyKeys   []string       `json:"proxy_keys"`
 	Concurrency int            `json:"concurrency"`
 	Priority    int            `json:"priority"`
 }
@@ -72,7 +73,40 @@ func setupAccountDataRouter() (*gin.Engine, *stubAdminService) {
 
 	router.GET("/api/v1/admin/accounts/data", h.ExportData)
 	router.POST("/api/v1/admin/accounts/data", h.ImportData)
+	router.POST("/api/v1/admin/accounts", h.Create)
+	router.PUT("/api/v1/admin/accounts/:id", h.Update)
 	return router, adminSvc
+}
+
+func TestCreateAccountPassesOrderedProxyIDs(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	body, _ := json.Marshal(map[string]any{
+		"name": "account", "platform": service.PlatformGemini, "type": service.AccountTypeAPIKey,
+		"credentials": map[string]any{"api_key": "x"}, "proxy_ids": []int64{12, 11},
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	t.Logf("duplicate copy response: %s", rec.Body.String())
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.NotNil(t, adminSvc.createdAccounts[0].ProxyIDs)
+	require.Equal(t, []int64{12, 11}, *adminSvc.createdAccounts[0].ProxyIDs)
+}
+
+func TestUpdateAccountPassesExplicitEmptyProxyIDs(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	body, _ := json.Marshal(map[string]any{"proxy_ids": []int64{}})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/accounts/42", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	t.Logf("copy response: %s", rec.Body.String())
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, adminSvc.lastUpdateAccountInput)
+	require.NotNil(t, adminSvc.lastUpdateAccountInput.ProxyIDs)
+	require.Empty(t, *adminSvc.lastUpdateAccountInput.ProxyIDs)
 }
 
 func TestExportDataIncludesSecrets(t *testing.T) {
@@ -110,6 +144,7 @@ func TestExportDataIncludesSecrets(t *testing.T) {
 			Credentials: map[string]any{"token": "secret"},
 			Extra:       map[string]any{"note": "x"},
 			ProxyID:     &proxyID,
+			ProxyIDs:    []int64{proxyID, 12},
 			Concurrency: 3,
 			Priority:    50,
 			Status:      service.StatusDisabled,
@@ -126,10 +161,13 @@ func TestExportDataIncludesSecrets(t *testing.T) {
 	require.Equal(t, 0, resp.Code)
 	require.Empty(t, resp.Data.Type)
 	require.Equal(t, 0, resp.Data.Version)
-	require.Len(t, resp.Data.Proxies, 1)
+	require.Len(t, resp.Data.Proxies, 2)
 	require.Equal(t, "pass", resp.Data.Proxies[0].Password)
 	require.Len(t, resp.Data.Accounts, 1)
 	require.Equal(t, "secret", resp.Data.Accounts[0].Credentials["token"])
+	require.NotNil(t, resp.Data.Accounts[0].ProxyKey)
+	require.Len(t, resp.Data.Accounts[0].ProxyKeys, 2)
+	require.Equal(t, *resp.Data.Accounts[0].ProxyKey, resp.Data.Accounts[0].ProxyKeys[0])
 }
 
 func TestExportDataWithoutProxies(t *testing.T) {
@@ -340,7 +378,7 @@ func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 	require.True(t, adminSvc.createdAccounts[0].SkipDefaultGroupBind)
 }
 
-func TestImportDataCopiesAccountsPerProxyAndAppliesOverrides(t *testing.T) {
+func TestImportDataBindsMultipleProxiesAndAppliesOverrides(t *testing.T) {
 	router, adminSvc := setupAccountDataRouter()
 	adminSvc.proxies = []service.Proxy{
 		{ID: 11, Name: "HK", Protocol: "http", Host: "127.0.0.1", Port: 8001, Status: service.StatusActive},
@@ -355,7 +393,7 @@ func TestImportDataCopiesAccountsPerProxyAndAppliesOverrides(t *testing.T) {
 				"concurrency": 2, "rate_multiplier": 0.5,
 			}},
 		},
-		"copy_proxy_ids":                  []int64{11, 12, 11},
+		"copy_proxy_ids":                  []int64{11, 12},
 		"override_concurrency":            0,
 		"override_rate_multiplier":        0,
 		"override_codex_fingerprint_mode": "session",
@@ -366,24 +404,119 @@ func TestImportDataCopiesAccountsPerProxyAndAppliesOverrides(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Len(t, adminSvc.createdAccounts, 3)
-	require.Equal(t, "codex - HK", adminSvc.createdAccounts[0].Name)
-	require.Equal(t, "codex - US", adminSvc.createdAccounts[1].Name)
-	require.Equal(t, "codex - HK", adminSvc.createdAccounts[2].Name)
-	require.Equal(t, int64(11), *adminSvc.createdAccounts[0].ProxyID)
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.Equal(t, "codex", adminSvc.createdAccounts[0].Name)
+	require.Equal(t, []int64{11, 12}, *adminSvc.createdAccounts[0].ProxyIDs)
 	require.Equal(t, 0, adminSvc.createdAccounts[0].Concurrency)
-	require.NotNil(t, adminSvc.createdAccounts[0].RateMultiplier)
 	require.Equal(t, float64(0), *adminSvc.createdAccounts[0].RateMultiplier)
 	require.Equal(t, "session", adminSvc.createdAccounts[0].Extra["codex_fingerprint_mode"])
 	require.NotContains(t, adminSvc.createdAccounts[0].Extra, "codex_fingerprint_seed")
 }
 
-func TestImportDataRejectsUnavailableCopyProxyBeforeCreation(t *testing.T) {
+func TestImportDataRejectsUnavailableLegacyProxyBeforeCreation(t *testing.T) {
 	router, adminSvc := setupAccountDataRouter()
 	adminSvc.proxies = []service.Proxy{{ID: 1, Name: "disabled", Status: service.StatusDisabled}}
 	data := map[string]any{
-		"data":           map[string]any{"type": dataType, "version": dataVersion, "proxies": []any{}, "accounts": []any{}},
+		"data":      map[string]any{"type": dataType, "version": dataVersion, "proxies": []any{}, "accounts": []any{}},
+		"proxy_ids": []int64{1},
+	}
+	body, _ := json.Marshal(data)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Empty(t, adminSvc.createdAccounts)
+}
+
+func TestImportDataRejectsDuplicateProxyBindings(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	adminSvc.proxies = []service.Proxy{{ID: 1, Name: "active", Status: service.StatusActive}}
+	data := map[string]any{
+		"data":      map[string]any{"type": dataType, "version": dataVersion, "proxies": []any{}, "accounts": []any{}},
+		"proxy_ids": []int64{1, 1},
+	}
+	body, _ := json.Marshal(data)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Empty(t, adminSvc.createdAccounts)
+}
+
+func TestImportDataProxyIDsTakePrecedenceOverLegacyAlias(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	adminSvc.proxies = []service.Proxy{
+		{ID: 1, Name: "first", Status: service.StatusActive},
+		{ID: 2, Name: "legacy", Status: service.StatusActive},
+	}
+	data := map[string]any{
+		"data": map[string]any{
+			"type": dataType, "version": dataVersion, "proxies": []any{},
+			"accounts": []any{map[string]any{
+				"name": "account", "platform": service.PlatformGemini, "type": service.AccountTypeAPIKey,
+				"credentials": map[string]any{"api_key": "x"}, "concurrency": 1,
+			}},
+		},
+		"proxy_ids":      []int64{1},
+		"copy_proxy_ids": []int64{2},
+	}
+	body, _ := json.Marshal(data)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Empty(t, adminSvc.createdAccounts)
+}
+
+func TestImportDataRejectsDuplicateLegacyCopyProxyAlias(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	adminSvc.proxies = []service.Proxy{{ID: 1, Name: "same", Status: service.StatusActive}}
+	data := map[string]any{
+		"data": map[string]any{
+			"type": dataType, "version": dataVersion, "proxies": []any{},
+			"accounts": []any{map[string]any{"name": "account", "platform": service.PlatformGemini, "type": service.AccountTypeAPIKey, "credentials": map[string]any{"api_key": "x"}}},
+		},
+		"copy_proxy_ids": []int64{1, 1},
+	}
+	body, _ := json.Marshal(data)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Empty(t, adminSvc.createdAccounts)
+}
+
+func TestImportDataBindsUnnamedProxyWithoutRenamingAccount(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	adminSvc.proxies = []service.Proxy{{ID: 1, Host: "127.0.0.1", Port: 8080, Status: service.StatusActive}}
+	data := map[string]any{
+		"data": map[string]any{
+			"type": dataType, "version": dataVersion, "proxies": []any{},
+			"accounts": []any{map[string]any{"name": "account", "platform": service.PlatformGemini, "type": service.AccountTypeAPIKey, "credentials": map[string]any{"api_key": "x"}}},
+		},
 		"copy_proxy_ids": []int64{1},
+	}
+	body, _ := json.Marshal(data)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.Equal(t, "account", adminSvc.createdAccounts[0].Name)
+	require.Equal(t, []int64{1}, *adminSvc.createdAccounts[0].ProxyIDs)
+}
+
+func TestImportDataRejectsAmbiguousProxyOptions(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	adminSvc.proxies = []service.Proxy{{ID: 1, Status: service.StatusActive}}
+	data := map[string]any{
+		"data":      map[string]any{"type": dataType, "version": dataVersion, "proxies": []any{}, "accounts": []any{}},
+		"proxy_ids": []int64{1}, "copy_proxy_ids": []int64{1},
 	}
 	body, _ := json.Marshal(data)
 	rec := httptest.NewRecorder()
