@@ -15,10 +15,19 @@ export function buildRateTrendChartData(
   rangeEnd: string | null | undefined,
   currentRate: number | null | undefined,
 ): RateTrendChartData {
-  const normalized = (points || [])
+  const sorted = (points || [])
     .filter((point) => Number.isFinite(Date.parse(point.observed_at)) && Number.isFinite(point.rate))
     .slice()
     .sort((a, b) => Date.parse(a.observed_at) - Date.parse(b.observed_at))
+  const normalized = sorted.reduce<MonitorRateTrendPoint[]>((result, point) => {
+    const previous = result[result.length - 1]
+    if (previous && Date.parse(previous.observed_at) === Date.parse(point.observed_at)) {
+      result[result.length - 1] = point
+    } else {
+      result.push(point)
+    }
+    return result
+  }, [])
 
   const timestamps = normalized.map((point) => point.observed_at)
   const values = normalized.map((point) => point.rate)

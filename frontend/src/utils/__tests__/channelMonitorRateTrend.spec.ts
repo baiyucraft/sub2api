@@ -24,6 +24,27 @@ describe('channelMonitorRateTrend', () => {
     })
   })
 
+  it('keeps irregular time spacing and collapses duplicate instants to the latest value', () => {
+    const data = buildRateTrendChartData([
+      { observed_at: '2026-08-29T10:00:00Z', rate: 0.12 },
+      { observed_at: '2026-08-29T01:00:00Z', rate: 0.12 },
+      { observed_at: '2026-08-29T10:00:00.000Z', rate: 0.15 },
+      { observed_at: '2026-08-29T10:01:00Z', rate: 0.12 },
+    ], '2026-08-30T00:00:00Z', 0.12)
+
+    expect(data).toEqual({
+      timestamps: [
+        '2026-08-29T01:00:00Z',
+        '2026-08-29T10:00:00.000Z',
+        '2026-08-29T10:01:00Z',
+        '2026-08-30T00:00:00Z',
+      ],
+      values: [0.12, 0.15, 0.12, 0.12],
+    })
+    expect(Date.parse(data.timestamps[1]) - Date.parse(data.timestamps[0])).toBe(9 * 60 * 60 * 1000)
+    expect(Date.parse(data.timestamps[2]) - Date.parse(data.timestamps[1])).toBe(60 * 1000)
+  })
+
   it('adds readable vertical padding for both flat and changing rate series', () => {
     const flat = rateAxisBounds([0.035, 0.035])
     expect(flat.min).toBeCloseTo(0.0322)
