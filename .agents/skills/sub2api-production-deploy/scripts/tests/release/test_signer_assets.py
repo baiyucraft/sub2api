@@ -92,7 +92,7 @@ class SignerAssetTest(unittest.TestCase):
 
     def test_dr_signer_contract_rejects_untrusted_shapes(self) -> None:
         script = (DEPLOY_ROOT / "release" / "sign-dr-evidence.sh").read_text(encoding="utf-8")
-        self.assertIn("(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242)", script)
+        self.assertIn("(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243)", script)
         self.assertIn("keys | sort", script)
         self.assertIn("temporary_material_destroyed == \"pass\"", script)
         self.assertIn("redis_backup_dbsize - .redis_restored_dbsize", script)

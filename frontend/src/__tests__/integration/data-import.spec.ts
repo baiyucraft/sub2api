@@ -18,6 +18,9 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       importData: vi.fn()
+    },
+    proxies: {
+      getAll: vi.fn()
     }
   }
 }))
@@ -60,6 +63,23 @@ describe('ImportDataModal', () => {
     showWarning.mockReset()
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockReset()
+    vi.mocked(adminAPI.proxies.getAll).mockReset()
+    vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([
+      {
+        id: 12,
+        name: 'Hong Kong 1',
+        host: '127.0.0.1',
+        port: 8080,
+        status: 'active'
+      } as never
+    ])
+  })
+
+  it('打开弹窗时加载当前可用代理', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    mountModal()
+    await flushPromises()
+    expect(adminAPI.proxies.getAll).toHaveBeenCalledTimes(1)
   })
 
   it('未选择文件时提示错误', async () => {

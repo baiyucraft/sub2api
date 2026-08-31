@@ -29,6 +29,7 @@ from .paths import (
     deploy_asset_path,
     skill_asset_path,
 )
+from .profiles import CURRENT_RELEASE_PROFILE
 
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -299,7 +300,7 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
     if manifest.get("origin") != profile["origin"] or manifest.get("vm_identity") != profile["vm_identity"]:
         raise RuntimeError("manifest origin or VM identity does not match")
     if schema == 2:
-        if profile.get("gate_schema") != 2 or profile.get("name") != "242":
+        if profile.get("gate_schema") != 2:
             raise RuntimeError("Gate v2 manifest requires the current release profile")
         catalog = discover_migration_catalog(workspace_root(), commit)
         if manifest.get("migration_catalog") != catalog:
@@ -405,7 +406,7 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
 
 def bind_production_snapshot(manifest: dict[str, Any], image_id: str, snapshot_sha256: str) -> dict[str, Any]:
     """Bind the point-in-time production baseline before VM Gate starts."""
-    if manifest.get("schema") != 2 or manifest.get("profile") != "242":
+    if manifest.get("schema") != 2 or manifest.get("profile") != CURRENT_RELEASE_PROFILE:
         raise RuntimeError("production snapshot binding requires Gate v2")
     validate_image_id(image_id)
     if not re.fullmatch(r"[0-9a-f]{64}", snapshot_sha256):

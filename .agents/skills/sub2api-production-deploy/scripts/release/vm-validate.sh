@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 trap 'rc=$?; printf "vm_validate_failure_line=%s status=%s\\n" "$LINENO" "$rc"; exit "$rc"' ERR
-# Legacy Gate v1 profile allowlist: (182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242)
+# Legacy Gate v1 profile allowlist; Gate v2 current profile is 243 and 242 remains historical.
 
 required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv rm sed seq sha256sum sleep sort ss stat tr xargs)
 for command_name in "${required_commands[@]}"; do
@@ -34,16 +34,16 @@ test_tag="sub2api:vm-test-$commit"
 profile=$(jq -er '.profile' "$manifest")
 manifest_schema=$(jq -er '.schema' "$manifest")
 if [[ "$manifest_schema" == 2 ]]; then
-  [[ "$profile" == 242 ]]
-  [[ "$release_id" =~ ^242-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-  [[ "$version" == 0.1.183-baiyu ]]
+  [[ "$profile" == 243 ]]
+  [[ "$release_id" =~ ^243-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+  [[ "$version" == 0.1.184-baiyu ]]
   [[ $(jq -er '.release_asset_layout' "$manifest") == skill-v1 ]]
   [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
   [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
   [[ $(jq -er '.migration_catalog | type' "$manifest") == array ]]
   [[ $(jq -er '.catalog_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
   [[ $(jq -er '.checksum_policy_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
-  [[ $(jq -er '.parent_profile' "$manifest") == 241 ]]
+  [[ $(jq -er '.parent_profile' "$manifest") == 242 ]]
   [[ $(jq -er '.new_migrations | length' "$manifest") == 0 ]]
   [[ -n "$production_snapshot" && -f "$production_snapshot" && ! -L "$production_snapshot" ]]
   [[ -n "$pre_gate_descriptor" && -f "$pre_gate_descriptor" && ! -L "$pre_gate_descriptor" ]]
@@ -353,7 +353,7 @@ SQL
   probe_port=$(docker port "$probe_app" 8080/tcp | sed -n 's/^127\.0\.0\.1://p')
   [[ "$probe_port" =~ ^[1-9][0-9]{0,4}$ ]]
   [[ $(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_port/health") == 200 ]]
-  # Profile 242 is health-only: do not read API keys or issue application
+  # Current Gate v2 profiles are health-only: do not read API keys or issue application
   # availability requests. Candidate container health and the /health route
   # are the only runtime availability checks in this Gate.
   if is_pending_v2 195_upstream_scheduling_monitor_rates.sql; then
@@ -369,7 +369,7 @@ SQL
   [[ "$candidate_size" =~ ^[1-9][0-9]*$ ]]
   pending_json=$(printf '%s' "$plan_before" | jq --slurpfile hooks "$hook_results_file" '[.pending[] | . as $item | ($hooks[0][.filename] // null) as $result | if $result == null then {filename,checksum} else {filename,checksum,preflight:true,postflight:true,hook_results:$result,rollback_policy:"coordinated_restore"} end]')
   jq -n --slurpfile m "$manifest" --arg image "$candidate_image_id" --arg archive "$candidate_archive_sha" --arg old_image_id "$old_image_id" --arg snapshot_sha "$(jq -r '.production_snapshot_sha256' "$manifest")" --argjson size "$candidate_size" --argjson pending "$pending_json" --argjson plan_before "$(cat "$state_dir/plan-before.json")" \
-    '{gate_version:2,profile_id:242,manifest:$m[0],evidence:{candidate_image_id:$image,candidate_archive_sha256:$archive,candidate_size:$size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,production_current_image_id:$old_image_id,production_snapshot_sha256:$snapshot_sha,catalog_sha256:$m[0].catalog_sha256,checksum_policy_sha256:$m[0].checksum_policy_sha256,checksum_policy_version:"sub2api-migration-checksum-policy-v1",migration_evidence:{database_high_watermark:($plan_before.database_high_watermark // null),pending:$pending,existing_checksums_verified:true,isolated_upgrade_verified:true,final_schema_verified:true},release_policy:{canary_verified:"not_checked",restore_points_verified:true}}}' > "$output_dir/gate.json"
+    '{gate_version:2,profile_id:($m[0].profile|tonumber),manifest:$m[0],evidence:{candidate_image_id:$image,candidate_archive_sha256:$archive,candidate_size:$size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,production_current_image_id:$old_image_id,production_snapshot_sha256:$snapshot_sha,catalog_sha256:$m[0].catalog_sha256,checksum_policy_sha256:$m[0].checksum_policy_sha256,checksum_policy_version:"sub2api-migration-checksum-policy-v1",migration_evidence:{database_high_watermark:($plan_before.database_high_watermark // null),pending:$pending,existing_checksums_verified:true,isolated_upgrade_verified:true,final_schema_verified:true},release_policy:{canary_verified:"not_checked",restore_points_verified:true}}}' > "$output_dir/gate.json"
   chmod 400 "$output_dir/gate.json"
   install -m 400 "$candidate_archive" "$output_dir/candidate.tar.gz"
   /usr/local/libexec/sub2api-sign-gate "$output_dir/gate.json" "$output_dir/gate.sig"
@@ -378,8 +378,8 @@ SQL
   printf 'candidate_image_id=%s\ncandidate_archive_sha256=%s\n' "$candidate_image_id" "$candidate_archive_sha"
   exit 0
 fi
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 ]]
 [[ $release_id == "$profile-${commit:0:12}-"* ]]
 [[ $(jq -er '.schema' "$manifest") == 1 ]]
 [[ $(jq -er '.version' "$manifest") == "$version" ]]

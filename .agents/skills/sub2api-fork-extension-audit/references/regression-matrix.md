@@ -18,7 +18,7 @@
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 质量与累计用量 | 质量仅展示不参与调度；coverage/backfill 完整后才允许 raw cleanup；日聚合时区正确 |
 | 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；成本摘要必须结构化展示能力、倍率来源和分辨率成本；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
-| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–240 map/checksum/compatibility identity 不可变；当前 profile 242 为 Gate v2 合同，parent 为 241、`new_migrations=[]`，由 release manifest 绑定数据库 migration catalog 与生产兼容快照；`VERSION = upstream VERSION + -baiyu` |
+| migration/profile/version | migration 233 语义、官方 221–223 本地重编号、历史 profile 233–242 合同不可变；当前 profile 243 对应 `0.1.184-baiyu`、parent 为 242、`new_migrations=[]`，由 release manifest 绑定数据库 migration catalog 与生产兼容快照；`VERSION = upstream VERSION + -baiyu`；fork VERSION 每变化一次都新增下一个连续 profile，即使没有 migration 也不得回写旧 profile |
 | 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
 
 ## 全量门禁

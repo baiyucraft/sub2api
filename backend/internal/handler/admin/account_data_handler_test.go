@@ -339,3 +339,80 @@ func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 	require.Len(t, adminSvc.createdAccounts, 1)
 	require.True(t, adminSvc.createdAccounts[0].SkipDefaultGroupBind)
 }
+
+func TestImportDataCopiesAccountsPerProxyAndAppliesOverrides(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	adminSvc.proxies = []service.Proxy{
+		{ID: 11, Name: "HK", Protocol: "http", Host: "127.0.0.1", Port: 8001, Status: service.StatusActive},
+		{ID: 12, Name: "US", Protocol: "http", Host: "127.0.0.1", Port: 8002, Status: service.StatusActive},
+	}
+	data := map[string]any{
+		"data": map[string]any{
+			"type": dataType, "version": dataVersion, "proxies": []any{},
+			"accounts": []any{map[string]any{
+				"name": "codex", "platform": service.PlatformOpenAI, "type": service.AccountTypeOAuth,
+				"credentials": map[string]any{"token": "x"}, "extra": map[string]any{"codex_fingerprint_seed": "should-not-copy"},
+				"concurrency": 2, "rate_multiplier": 0.5,
+			}},
+		},
+		"copy_proxy_ids":                  []int64{11, 12, 11},
+		"override_concurrency":            0,
+		"override_rate_multiplier":        0,
+		"override_codex_fingerprint_mode": "session",
+	}
+	body, _ := json.Marshal(data)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, adminSvc.createdAccounts, 3)
+	require.Equal(t, "codex - HK", adminSvc.createdAccounts[0].Name)
+	require.Equal(t, "codex - US", adminSvc.createdAccounts[1].Name)
+	require.Equal(t, "codex - HK", adminSvc.createdAccounts[2].Name)
+	require.Equal(t, int64(11), *adminSvc.createdAccounts[0].ProxyID)
+	require.Equal(t, 0, adminSvc.createdAccounts[0].Concurrency)
+	require.NotNil(t, adminSvc.createdAccounts[0].RateMultiplier)
+	require.Equal(t, float64(0), *adminSvc.createdAccounts[0].RateMultiplier)
+	require.Equal(t, "session", adminSvc.createdAccounts[0].Extra["codex_fingerprint_mode"])
+	require.NotContains(t, adminSvc.createdAccounts[0].Extra, "codex_fingerprint_seed")
+}
+
+func TestImportDataRejectsUnavailableCopyProxyBeforeCreation(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	adminSvc.proxies = []service.Proxy{{ID: 1, Name: "disabled", Status: service.StatusDisabled}}
+	data := map[string]any{
+		"data":           map[string]any{"type": dataType, "version": dataVersion, "proxies": []any{}, "accounts": []any{}},
+		"copy_proxy_ids": []int64{1},
+	}
+	body, _ := json.Marshal(data)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Empty(t, adminSvc.createdAccounts)
+}
+
+func TestImportDataIgnoresCodexOverrideForNonOpenAIAccounts(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	data := map[string]any{
+		"data": map[string]any{
+			"type": dataType, "version": dataVersion, "proxies": []any{},
+			"accounts": []any{map[string]any{
+				"name": "gemini", "platform": service.PlatformGemini, "type": service.AccountTypeAPIKey,
+				"credentials": map[string]any{"api_key": "x"}, "extra": map[string]any{"region": "global"},
+				"concurrency": 2,
+			}},
+		},
+		"override_codex_fingerprint_mode": "full",
+	}
+	body, _ := json.Marshal(data)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.Equal(t, map[string]any{"region": "global"}, adminSvc.createdAccounts[0].Extra)
+}

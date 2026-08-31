@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-# Legacy Gate v1 profile allowlist: (182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242)
+# Release profile allowlist for cleanup/recovery assets; 242 and 243 are Gate v2 profiles.
 
 mode=${1:?cleanup mode is required}
 release_id=${2:?release ID is required}
@@ -8,7 +8,7 @@ expected_current_image=${3:?current image ID is required}
 pre_switch_image=${4:?pre-switch image ID is required}
 expected_plan_sha256=${5:--}
 [[ $mode == dry-run || $mode == apply ]]
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $expected_current_image =~ ^sha256:[0-9a-f]{64}$ ]]
 [[ $pre_switch_image =~ ^sha256:[0-9a-f]{64}$ ]]
 [[ $expected_current_image != "$pre_switch_image" ]]

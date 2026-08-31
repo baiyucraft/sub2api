@@ -21,7 +21,7 @@ from .manifest import (
     validate_manifest_profile_contract,
 )
 from .paths import LAYOUT_DEPLOY_V1, RELEASE_PACKAGE_ROOT
-from .profiles import get_profile
+from .profiles import CURRENT_RELEASE_PROFILE, get_profile
 from .process import run_hidden
 from .migration_planner import CHECKSUM_POLICY_VERSION, HOOK_REGISTRY, catalog_sha256, checksum_policy_sha256
 
@@ -329,10 +329,12 @@ def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, al
     evidence = document["evidence"]
     if not isinstance(manifest, dict) or not isinstance(evidence, dict) or manifest.get("schema") != 2:
         raise RuntimeError("Gate v2 schema is missing")
-    if document.get("gate_version") != 2 or document.get("profile_id") != 242:
+    if document.get("gate_version") != 2 or document.get("profile_id") != int(expected_profile):
         raise RuntimeError("Gate v2 identity is invalid")
-    if manifest.get("profile") != expected_profile or expected_profile != "242":
-        raise RuntimeError("Gate v2 is only accepted for current profile 242")
+    if manifest.get("profile") != expected_profile:
+        raise RuntimeError("Gate v2 manifest profile does not match expected profile")
+    if expected_profile != CURRENT_RELEASE_PROFILE and not allow_historical_runner:
+        raise RuntimeError(f"Gate v2 is only accepted for current profile {CURRENT_RELEASE_PROFILE}")
     profile = get_profile(expected_profile)
     validate_manifest_profile_contract(manifest, profile)
     validate_commit(manifest["commit_sha"])
