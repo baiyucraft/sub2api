@@ -262,6 +262,21 @@ func (_u *ProxyUpdate) AddAccounts(v ...*Account) *ProxyUpdate {
 	return _u.AddAccountIDs(ids...)
 }
 
+// AddBoundAccountIDs adds the "bound_accounts" edge to the Account entity by IDs.
+func (_u *ProxyUpdate) AddBoundAccountIDs(ids ...int64) *ProxyUpdate {
+	_u.mutation.AddBoundAccountIDs(ids...)
+	return _u
+}
+
+// AddBoundAccounts adds the "bound_accounts" edges to the Account entity.
+func (_u *ProxyUpdate) AddBoundAccounts(v ...*Account) *ProxyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddBoundAccountIDs(ids...)
+}
+
 // SetBackupProxy sets the "backup_proxy" edge to the Proxy entity.
 func (_u *ProxyUpdate) SetBackupProxy(v *Proxy) *ProxyUpdate {
 	return _u.SetBackupProxyID(v.ID)
@@ -291,6 +306,27 @@ func (_u *ProxyUpdate) RemoveAccounts(v ...*Account) *ProxyUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
+}
+
+// ClearBoundAccounts clears all "bound_accounts" edges to the Account entity.
+func (_u *ProxyUpdate) ClearBoundAccounts() *ProxyUpdate {
+	_u.mutation.ClearBoundAccounts()
+	return _u
+}
+
+// RemoveBoundAccountIDs removes the "bound_accounts" edge to Account entities by IDs.
+func (_u *ProxyUpdate) RemoveBoundAccountIDs(ids ...int64) *ProxyUpdate {
+	_u.mutation.RemoveBoundAccountIDs(ids...)
+	return _u
+}
+
+// RemoveBoundAccounts removes "bound_accounts" edges to Account entities.
+func (_u *ProxyUpdate) RemoveBoundAccounts(v ...*Account) *ProxyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveBoundAccountIDs(ids...)
 }
 
 // ClearBackupProxy clears the "backup_proxy" edge to the Proxy entity.
@@ -490,6 +526,63 @@ func (_u *ProxyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.BoundAccountsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.BoundAccountsTable,
+			Columns: proxy.BoundAccountsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedBoundAccountsIDs(); len(nodes) > 0 && !_u.mutation.BoundAccountsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.BoundAccountsTable,
+			Columns: proxy.BoundAccountsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.BoundAccountsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.BoundAccountsTable,
+			Columns: proxy.BoundAccountsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.BackupProxyCleared() {
@@ -774,6 +867,21 @@ func (_u *ProxyUpdateOne) AddAccounts(v ...*Account) *ProxyUpdateOne {
 	return _u.AddAccountIDs(ids...)
 }
 
+// AddBoundAccountIDs adds the "bound_accounts" edge to the Account entity by IDs.
+func (_u *ProxyUpdateOne) AddBoundAccountIDs(ids ...int64) *ProxyUpdateOne {
+	_u.mutation.AddBoundAccountIDs(ids...)
+	return _u
+}
+
+// AddBoundAccounts adds the "bound_accounts" edges to the Account entity.
+func (_u *ProxyUpdateOne) AddBoundAccounts(v ...*Account) *ProxyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddBoundAccountIDs(ids...)
+}
+
 // SetBackupProxy sets the "backup_proxy" edge to the Proxy entity.
 func (_u *ProxyUpdateOne) SetBackupProxy(v *Proxy) *ProxyUpdateOne {
 	return _u.SetBackupProxyID(v.ID)
@@ -803,6 +911,27 @@ func (_u *ProxyUpdateOne) RemoveAccounts(v ...*Account) *ProxyUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
+}
+
+// ClearBoundAccounts clears all "bound_accounts" edges to the Account entity.
+func (_u *ProxyUpdateOne) ClearBoundAccounts() *ProxyUpdateOne {
+	_u.mutation.ClearBoundAccounts()
+	return _u
+}
+
+// RemoveBoundAccountIDs removes the "bound_accounts" edge to Account entities by IDs.
+func (_u *ProxyUpdateOne) RemoveBoundAccountIDs(ids ...int64) *ProxyUpdateOne {
+	_u.mutation.RemoveBoundAccountIDs(ids...)
+	return _u
+}
+
+// RemoveBoundAccounts removes "bound_accounts" edges to Account entities.
+func (_u *ProxyUpdateOne) RemoveBoundAccounts(v ...*Account) *ProxyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveBoundAccountIDs(ids...)
 }
 
 // ClearBackupProxy clears the "backup_proxy" edge to the Proxy entity.
@@ -1032,6 +1161,63 @@ func (_u *ProxyUpdateOne) sqlSave(ctx context.Context) (_node *Proxy, err error)
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.BoundAccountsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.BoundAccountsTable,
+			Columns: proxy.BoundAccountsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedBoundAccountsIDs(); len(nodes) > 0 && !_u.mutation.BoundAccountsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.BoundAccountsTable,
+			Columns: proxy.BoundAccountsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.BoundAccountsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.BoundAccountsTable,
+			Columns: proxy.BoundAccountsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.BackupProxyCleared() {

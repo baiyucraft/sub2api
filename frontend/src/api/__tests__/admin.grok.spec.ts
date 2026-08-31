@@ -26,11 +26,17 @@ describe('admin Grok SSO import API', () => {
 
     await createFromSSO({
       sso_tokens: Array.from({ length: keyCount }, (_, index) => `sso-${index + 1}`),
+      proxy_id: 11,
+      proxy_ids: [11, 12],
     })
 
     expect(post).toHaveBeenCalledWith(
       '/admin/grok/sso-to-oauth',
-      expect.objectContaining({ sso_tokens: expect.any(Array) }),
+      expect.objectContaining({
+        sso_tokens: expect.any(Array),
+        proxy_id: 11,
+        proxy_ids: [11, 12],
+      }),
       { timeout: expectedTimeout },
     )
   })

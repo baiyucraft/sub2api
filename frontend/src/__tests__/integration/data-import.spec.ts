@@ -71,6 +71,13 @@ describe('ImportDataModal', () => {
         host: '127.0.0.1',
         port: 8080,
         status: 'active'
+      } as never,
+      {
+        id: 13,
+        name: 'Tokyo 1',
+        host: '127.0.0.2',
+        port: 8080,
+        status: 'active'
       } as never
     ])
   })
@@ -195,6 +202,41 @@ describe('ImportDataModal', () => {
     expect(showSuccess).toHaveBeenCalledWith('admin.accounts.dataImportSuccess')
   })
 
+  it('binds selected proxies once without multiplying imported accounts', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    vi.mocked(adminAPI.accounts.importData).mockResolvedValue({
+      proxy_created: 0,
+      proxy_reused: 0,
+      proxy_failed: 0,
+      account_created: 2,
+      account_failed: 0
+    })
+    const wrapper = mountModal()
+    await flushPromises()
+    const input = wrapper.find('input[type="file"]')
+    setInputFiles(input.element, [
+      makeJsonFile('accounts.json', JSON.stringify({
+        exported_at: '2026-08-31T00:00:00Z',
+        proxies: [],
+        accounts: [{ name: 'a' }, { name: 'b' }]
+      }))
+    ])
+    await input.trigger('change')
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.dataImportEstimatedAccounts')
+
+    const addButton = wrapper.findAll('button').find((button) => button.text() === 'admin.accounts.dataImportAddProxyBinding')
+    expect(addButton).toBeDefined()
+    await addButton!.trigger('click')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(adminAPI.accounts.importData).toHaveBeenCalledWith(expect.objectContaining({
+      proxy_ids: [12],
+      data: expect.objectContaining({ accounts: [{ name: 'a' }, { name: 'b' }] })
+    }))
+  })
+
   it('部分成功时关闭弹窗仍通知父组件刷新', async () => {
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockResolvedValue({
@@ -225,8 +267,9 @@ describe('ImportDataModal', () => {
     expect(showError).toHaveBeenCalledWith('admin.accounts.dataImportCompletedWithErrors')
     expect(wrapper.emitted('imported')).toBeUndefined()
 
-    // 第二个 btn-secondary 是 footer 的取消按钮(第一个是选择文件)
-    await wrapper.findAll('button.btn-secondary')[1]!.trigger('click')
+    // 最后一个 btn-secondary 是 footer 的取消按钮，其它按钮属于文件/复制设置。
+    const secondaryButtons = wrapper.findAll('button.btn-secondary')
+    await secondaryButtons[secondaryButtons.length - 1]!.trigger('click')
 
     expect(wrapper.emitted('imported')).toHaveLength(1)
     expect(wrapper.emitted('close')).toHaveLength(1)

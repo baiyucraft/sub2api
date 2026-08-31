@@ -124,30 +124,44 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		return err
 	}
 
-	// 构建上游请求
-	upstreamReq, wireBody, err := s.buildCountTokensRequest(ctx, c, account, body, token, tokenType, reqModel, shouldMimicClaudeCode)
+	// 先构建一次校验请求配置；实际发送时会为每个代理重新构造请求体和 URL。
+	_, _, err = s.buildCountTokensRequest(ctx, c, account, body, token, tokenType, reqModel, shouldMimicClaudeCode)
 	if err != nil {
 		s.countTokensError(c, http.StatusInternalServerError, "api_error", "Failed to build request")
 		return err
 	}
-	// 先记录首发 wire body；如果后面进入 400 retry，retry 会基于未签名的逻辑 body 重新构建。
-	acceptedWireBody := wireBody
-
-	// 获取代理URL（自定义 base URL 模式下，proxy 通过 buildCustomRelayURL 作为查询参数传递）
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		if !account.IsCustomBaseURLEnabled() || account.GetCustomBaseURL() == "" {
-			proxyURL = account.Proxy.URL()
-		}
+	type countTokensAttempt struct {
+		account  *Account
+		request  *http.Request
+		response *http.Response
+		proxyURL string
+		wireBody []byte
 	}
-
-	// 发送请求
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	attemptResult, err := withAccountProxyFallback(ctx, account, func(attempt *Account) (*countTokensAttempt, error) {
+		request, attemptWireBody, buildErr := s.buildCountTokensRequest(ctx, c, attempt, body, token, tokenType, reqModel, shouldMimicClaudeCode)
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		proxyURL := ""
+		if attempt.ProxyID != nil && attempt.Proxy != nil && (!attempt.IsCustomBaseURLEnabled() || attempt.GetCustomBaseURL() == "") {
+			proxyURL = attempt.Proxy.URL()
+		}
+		response, requestErr := s.httpUpstream.DoWithTLS(request, proxyURL, attempt.ID, attempt.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(attempt))
+		if requestErr != nil {
+			return nil, requestErr
+		}
+		return &countTokensAttempt{account: attempt, request: request, response: response, proxyURL: proxyURL, wireBody: attemptWireBody}, nil
+	})
 	if err != nil {
 		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Request failed")
 		return fmt.Errorf("upstream request failed: %w", err)
 	}
+	selectedAccount := attemptResult.account
+	resp := attemptResult.response
+	proxyURL := attemptResult.proxyURL
+	// 先记录首发 wire body；如果后面进入 400 retry，retry 会基于未签名的逻辑 body 重新构建。
+	acceptedWireBody := attemptResult.wireBody
 
 	// 读取响应体
 	countTokensTooLarge := func(c *gin.Context) {
@@ -167,9 +181,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error on count_tokens, retrying with filtered thinking blocks", account.ID)
 
 		filteredBody := FilterThinkingBlocksForRetry(body, reqModel)
-		retryReq, retryWireBody, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
+		retryReq, retryWireBody, buildErr := s.buildCountTokensRequest(ctx, c, selectedAccount, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
 		if buildErr == nil {
-			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, selectedAccount.ID, selectedAccount.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(selectedAccount))
 			if retryErr == nil {
 				if retryResp.StatusCode < 400 {
 					// count_tokens 签名重试成功后记录最终 wire body，错误响应仍保留原 body 便于后续处理。
@@ -255,26 +269,40 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		return fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
 	}
 
-	upstreamReq, err := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)
+	_, err = s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)
 	if err != nil {
 		s.countTokensError(c, http.StatusInternalServerError, "api_error", "Failed to build request")
 		return err
 	}
-
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	type countTokensPassthroughAttempt struct {
+		request  *http.Request
+		response *http.Response
 	}
-
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	var lastRequest *http.Request
+	attemptResult, err := withAccountProxyFallback(ctx, account, func(attempt *Account) (*countTokensPassthroughAttempt, error) {
+		request, buildErr := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, attempt, body, token)
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		lastRequest = request
+		response, requestErr := s.httpUpstream.DoWithTLS(request, upstreamModelsProxyURL(attempt), attempt.ID, attempt.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(attempt))
+		if requestErr != nil {
+			return nil, requestErr
+		}
+		return &countTokensPassthroughAttempt{request: request, response: response}, nil
+	})
 	if err != nil {
+		upstreamURL := ""
+		if lastRequest != nil {
+			upstreamURL = safeUpstreamURL(lastRequest.URL.String())
+		}
 		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,
 			AccountName:        account.Name,
 			UpstreamStatusCode: 0,
-			UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+			UpstreamURL:        upstreamURL,
 			Passthrough:        true,
 			Kind:               "request_error",
 			Message:            sanitizeUpstreamErrorMessage(err.Error()),
@@ -282,6 +310,8 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Request failed")
 		return fmt.Errorf("upstream request failed: %w", err)
 	}
+	upstreamReq := attemptResult.request
+	resp := attemptResult.response
 
 	countTokensTooLarge := func(c *gin.Context) {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")

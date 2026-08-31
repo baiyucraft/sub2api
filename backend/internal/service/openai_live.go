@@ -144,13 +144,15 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 	}
 
 	excluded := make(map[int64]struct{})
+	failedRoutes := make(map[string]struct{})
 	// Live 按通话时长计费，不属于 token 利润门的语义范围：显式豁免，避免
 	// 防御性装门按文本 D 过滤 Live 账号池且门与计费时刻不同源。
 	ctx = WithOpenAIProfitControlSuppressed(ctx)
 	var lastErr error
 	for attempt := 0; attempt <= 3; attempt++ {
+		selectionCtx := ContextWithFailedProxyRoutes(ctx, failedRoutes)
 		selection, _, selectErr := s.SelectAccountWithSchedulerForCapability(
-			ctx,
+			selectionCtx,
 			identity.GroupID,
 			"",
 			uuid.NewString(),
@@ -176,7 +178,10 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 		}
 
 		account := selection.Account
-		concurrencyTarget := account.SchedulingConcurrencyTarget()
+		concurrencyTarget := selection.ConcurrencyTarget
+		if concurrencyTarget.Kind == "" {
+			concurrencyTarget = account.SchedulingConcurrencyTarget()
+		}
 		leaseID := generateRequestID()
 		var acquired bool
 		var acquireErr error
@@ -200,7 +205,12 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			if !s.shouldFailoverLiveCreateError(createErr) {
 				return nil, createErr
 			}
-			excluded[account.ID] = struct{}{}
+			var transportErr *liveUpstreamTransportError
+			if errors.As(createErr, &transportErr) && selection.ProxyID > 0 {
+				failedRoutes[AccountProxyConcurrencyTarget(account, selection.ProxyID).Key()] = struct{}{}
+			} else {
+				excluded[account.ID] = struct{}{}
+			}
 			lastErr = createErr
 			continue
 		}
@@ -211,24 +221,25 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			model = "gpt-live"
 		}
 		record := &LiveCallRecord{
-			CallID:                created.CallID,
-			CallHash:              hashLiveCallID(created.CallID),
-			AccountID:             account.ID,
-			ConcurrencyTargetKind: concurrencyTarget.Kind,
-			ConcurrencyTargetID:   concurrencyTarget.ID,
-			APIKeyID:              identity.APIKeyID,
-			UserID:                identity.UserID,
-			GroupID:               liveGroupID(identity.GroupID),
-			SubscriptionID:        liveGroupID(identity.SubscriptionID),
-			LeaseID:               leaseID,
-			Model:                 model,
-			CreatedAt:             now,
-			ExpiresAt:             now.Add(s.liveMaxSessionDuration()),
-			Controller:            LiveControllerPending,
-			UserAgent:             identity.UserAgent,
-			IPAddress:             identity.IPAddress,
-			InboundEndpoint:       identity.InboundEndpoint,
-			AttestationCiphertext: attestationCiphertext,
+			CallID:                   created.CallID,
+			CallHash:                 hashLiveCallID(created.CallID),
+			AccountID:                account.ID,
+			ConcurrencyTargetKind:    concurrencyTarget.Kind,
+			ConcurrencyTargetID:      concurrencyTarget.ID,
+			ConcurrencyTargetProxyID: concurrencyTarget.ProxyID,
+			APIKeyID:                 identity.APIKeyID,
+			UserID:                   identity.UserID,
+			GroupID:                  liveGroupID(identity.GroupID),
+			SubscriptionID:           liveGroupID(identity.SubscriptionID),
+			LeaseID:                  leaseID,
+			Model:                    model,
+			CreatedAt:                now,
+			ExpiresAt:                now.Add(s.liveMaxSessionDuration()),
+			Controller:               LiveControllerPending,
+			UserAgent:                identity.UserAgent,
+			IPAddress:                identity.IPAddress,
+			InboundEndpoint:          identity.InboundEndpoint,
+			AttestationCiphertext:    attestationCiphertext,
 		}
 		mappingTTL := s.liveMaxSessionDuration() + 5*time.Minute
 		if saveErr := store.SaveLiveCall(ctx, record, mappingTTL); saveErr != nil {
@@ -256,6 +267,24 @@ func (s *OpenAIGatewayService) shouldFailoverLiveCreateError(err error) bool {
 		"",
 		upstreamErr.ResponseBody,
 	)
+}
+
+type liveUpstreamTransportError struct {
+	err error
+}
+
+func (e *liveUpstreamTransportError) Error() string {
+	if e == nil || e.err == nil {
+		return "live upstream transport failed"
+	}
+	return e.err.Error()
+}
+
+func (e *liveUpstreamTransportError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
 }
 
 func (s *OpenAIGatewayService) createUpstreamLiveCall(
@@ -307,7 +336,7 @@ func (s *OpenAIGatewayService) createUpstreamLiveCall(
 	resp, err := s.doOpenAIUpstream(upstreamReq, resolveAccountProxyURL(account), account)
 	if err != nil {
 		logLiveCreateStageFailure(ctx, account.ID, "upstream_transport", err)
-		return nil, err
+		return nil, &liveUpstreamTransportError{err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	responseBody, readErr := io.ReadAll(io.LimitReader(resp.Body, liveUpstreamBodyLimit+1))
@@ -826,6 +855,9 @@ func (s *OpenAIGatewayService) releaseLiveRecordLease(record *LiveCallRecord) {
 }
 
 func liveRecordConcurrencyTarget(record *LiveCallRecord) ConcurrencyTarget {
+	if record != nil && record.ConcurrencyTargetKind == ConcurrencyTargetAccountProxy && record.ConcurrencyTargetID > 0 && record.ConcurrencyTargetProxyID > 0 {
+		return ConcurrencyTarget{Kind: ConcurrencyTargetAccountProxy, ID: record.ConcurrencyTargetID, ProxyID: record.ConcurrencyTargetProxyID}
+	}
 	if record != nil && record.ConcurrencyTargetKind == ConcurrencyTargetUpstream && record.ConcurrencyTargetID > 0 {
 		return ConcurrencyTarget{Kind: ConcurrencyTargetUpstream, ID: record.ConcurrencyTargetID}
 	}

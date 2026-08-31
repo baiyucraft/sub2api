@@ -577,6 +577,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	firstOutputTimeoutSwitchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
+	failedRouteKeys := make(map[string]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
@@ -607,7 +608,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// Select account supporting the requested model
 		reqLog.Debug("openai.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			service.ContextWithFailedProxyRoutes(c.Request.Context(), failedRouteKeys),
 			apiKey.GroupID,
 			previousResponseID,
 			sessionHash,
@@ -851,7 +852,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						}
 					}
 					h.gatewayService.RecordOpenAIAccountSwitch()
-					failedAccountIDs[account.ID] = struct{}{}
+					if failoverErr.RouteFailure && failoverErr.RouteKey != "" {
+						failedRouteKeys[failoverErr.RouteKey] = struct{}{}
+					} else {
+						failedAccountIDs[account.ID] = struct{}{}
+					}
 					lastFailoverErr = failoverErr
 					if switchCount >= maxAccountSwitches {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
@@ -1199,6 +1204,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	switchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
+	failedRouteKeys := make(map[string]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
@@ -1218,7 +1224,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			service.ContextWithFailedProxyRoutes(c.Request.Context(), failedRouteKeys),
 			apiKey.GroupID,
 			"", // no previous_response_id
 			sessionHash,
@@ -1413,7 +1419,11 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						}
 					}
 					h.gatewayService.RecordOpenAIAccountSwitch()
-					failedAccountIDs[account.ID] = struct{}{}
+					if failoverErr.RouteFailure && failoverErr.RouteKey != "" {
+						failedRouteKeys[failoverErr.RouteKey] = struct{}{}
+					} else {
+						failedAccountIDs[account.ID] = struct{}{}
+					}
 					lastFailoverErr = failoverErr
 					if switchCount >= maxAccountSwitches {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
@@ -1717,6 +1727,15 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 	// 门只存在于调度栈的局部 ctx，必须经选号结果重放到本函数的 ctx 上。
 	ctx := service.ContextWithSelectionProfitGate(c.Request.Context(), selection)
 	account := selection.Account
+	if selection.ConcurrencyTarget.ID <= 0 {
+		if selection.WaitPlan != nil && selection.WaitPlan.Target.ID > 0 {
+			selection.ConcurrencyTarget = selection.WaitPlan.Target
+		} else if selection.Proxy != nil {
+			selection.ConcurrencyTarget = service.AccountProxyConcurrencyTarget(account, selection.Proxy.ID)
+		} else {
+			selection.ConcurrencyTarget = account.SchedulingConcurrencyTarget()
+		}
+	}
 	if selection.Acquired {
 		latest, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(ctx, account)
 		if vetoed {
@@ -1727,11 +1746,11 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 			return nil, openAISlotAcquireProfitVetoed
 		}
 		account = latest
-		selection.Account = latest
+		selection.ReplaceAccountPreservingRoute(latest)
 		// 调度器已抢槽路径无门时由选号内部完成 eager 绑定；门下选号内部
 		// 推迟绑定，这里在终检通过后补准入后绑定。
 		if selection.ProfitGateActive() {
-			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, account.ID); err != nil {
+			if err := h.gatewayService.BindStickySessionRouteAfterProfitAdmission(ctx, groupID, sessionHash, account); err != nil {
 				reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			}
 		}
@@ -1743,7 +1762,7 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 		return nil, openAISlotAcquireFailed
 	}
 
-	fastReleaseFunc, fastAcquired, err := h.concurrencyHelper.TryAcquireAccountSlotForAccount(ctx, account)
+	fastReleaseFunc, fastAcquired, err := h.concurrencyHelper.TryAcquireTargetSlot(ctx, selection.ConcurrencyTarget)
 	if err != nil {
 		reqLog.Warn("openai.account_slot_quick_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		status, errType, message := concurrencyErrorResponse(err, "account")
@@ -1762,14 +1781,14 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 			return nil, openAISlotAcquireProfitVetoed
 		}
 		account = latest
-		selection.Account = latest
-		if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, account.ID); err != nil {
+		selection.ReplaceAccountPreservingRoute(latest)
+		if err := h.gatewayService.BindStickySessionRouteAfterProfitAdmission(ctx, groupID, sessionHash, account); err != nil {
 			reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		}
 		return wrapReleaseOnDone(ctx, fastReleaseFunc), openAISlotAcquireOK
 	}
 
-	canWait, waitErr := h.concurrencyHelper.IncrementAccountWaitCountForAccount(ctx, account, selection.WaitPlan.MaxWaiting)
+	canWait, waitErr := h.concurrencyHelper.IncrementTargetWaitCount(ctx, selection.ConcurrencyTarget, selection.WaitPlan.MaxWaiting)
 	if waitErr != nil {
 		reqLog.Warn("openai.account_wait_counter_increment_failed", zap.Int64("account_id", account.ID), zap.Error(waitErr))
 	} else if !canWait {
@@ -1784,15 +1803,15 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 	accountWaitCounted := waitErr == nil && canWait
 	releaseWait := func() {
 		if accountWaitCounted {
-			h.concurrencyHelper.DecrementAccountWaitCountForAccount(ctx, account)
+			h.concurrencyHelper.DecrementTargetWaitCount(ctx, selection.ConcurrencyTarget)
 			accountWaitCounted = false
 		}
 	}
 	defer releaseWait()
 
-	accountReleaseFunc, err := h.concurrencyHelper.AcquireAccountSlotWithWaitTimeoutForAccount(
+	accountReleaseFunc, err := h.concurrencyHelper.AcquireTargetSlotWithWaitTimeout(
 		c,
-		account,
+		selection.ConcurrencyTarget,
 		selection.WaitPlan.Timeout,
 		reqStream,
 		streamStarted,
@@ -1817,8 +1836,8 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 		return nil, openAISlotAcquireProfitVetoed
 	}
 	account = latest
-	selection.Account = latest
-	if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, account.ID); err != nil {
+	selection.ReplaceAccountPreservingRoute(latest)
+	if err := h.gatewayService.BindStickySessionRouteAfterProfitAdmission(ctx, groupID, sessionHash, account); err != nil {
 		reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 	}
 	return wrapReleaseOnDone(ctx, accountReleaseFunc), openAISlotAcquireOK
@@ -2079,6 +2098,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	switchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
+	failedRouteKeys := make(map[string]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
@@ -2122,7 +2142,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return false
 		}
 		h.gatewayService.RecordOpenAIAccountSwitch()
-		failedAccountIDs[account.ID] = struct{}{}
+		if failoverErr.RouteFailure && failoverErr.RouteKey != "" {
+			failedRouteKeys[failoverErr.RouteKey] = struct{}{}
+		} else {
+			failedAccountIDs[account.ID] = struct{}{}
+		}
 		lastFailoverErr = failoverErr
 		if switchCount >= maxAccountSwitches {
 			closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
@@ -2168,7 +2192,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 		reqLog.Debug("openai.websocket_account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			ctx,
+			service.ContextWithFailedProxyRoutes(ctx, failedRouteKeys),
 			apiKey.GroupID,
 			previousResponseID,
 			sessionHash,
@@ -2223,7 +2247,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				continue
 			}
 			account = latest
-			selection.Account = latest
+			selection.ReplaceAccountPreservingRoute(latest)
 		}
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
@@ -2256,7 +2280,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				continue
 			}
 			account = latest
-			selection.Account = latest
+			selection.ReplaceAccountPreservingRoute(latest)
 			accountReleaseFunc = fastReleaseFunc
 		}
 		// 准入完成：门并入连接 ctx，turn 级复核与 failover 重选共用。
@@ -2265,7 +2289,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// captured by the previous failover account before credential lookup.
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 		currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
-		if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, apiKey.GroupID, sessionHash, account.ID); err != nil {
+		if err := h.gatewayService.BindStickySessionRouteAfterProfitAdmission(ctx, apiKey.GroupID, sessionHash, account); err != nil {
 			reqLog.Warn("openai.websocket_bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		}
 

@@ -19,18 +19,21 @@ func TestGatewayCacheLiveCallIdentityAndController(t *testing.T) {
 	otherInstance, ok := NewGatewayCache(client).(service.LiveCallStore)
 	require.True(t, ok)
 	record := &service.LiveCallRecord{
-		CallID:                "call_secret",
-		CallHash:              HashLiveCallID("call_secret"),
-		AccountID:             11,
-		APIKeyID:              22,
-		UserID:                33,
-		GroupID:               44,
-		LeaseID:               "lease",
-		Model:                 "gpt-live-test",
-		AttestationCiphertext: "encrypted-attestation",
-		CreatedAt:             time.Now(),
-		ExpiresAt:             time.Now().Add(time.Hour),
-		Controller:            service.LiveControllerPending,
+		CallID:                   "call_secret",
+		CallHash:                 HashLiveCallID("call_secret"),
+		AccountID:                11,
+		ConcurrencyTargetKind:    service.ConcurrencyTargetAccountProxy,
+		ConcurrencyTargetID:      11,
+		ConcurrencyTargetProxyID: 55,
+		APIKeyID:                 22,
+		UserID:                   33,
+		GroupID:                  44,
+		LeaseID:                  "lease",
+		Model:                    "gpt-live-test",
+		AttestationCiphertext:    "encrypted-attestation",
+		CreatedAt:                time.Now(),
+		ExpiresAt:                time.Now().Add(time.Hour),
+		Controller:               service.LiveControllerPending,
 	}
 	require.NoError(t, cache.SaveLiveCall(context.Background(), record, time.Hour))
 
@@ -38,6 +41,9 @@ func TestGatewayCacheLiveCallIdentityAndController(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, record.CallID, loaded.CallID)
 	require.Equal(t, record.AccountID, loaded.AccountID)
+	require.Equal(t, record.ConcurrencyTargetKind, loaded.ConcurrencyTargetKind)
+	require.Equal(t, record.ConcurrencyTargetID, loaded.ConcurrencyTargetID)
+	require.Equal(t, record.ConcurrencyTargetProxyID, loaded.ConcurrencyTargetProxyID)
 	require.Equal(t, record.AttestationCiphertext, loaded.AttestationCiphertext)
 
 	claimed, err := cache.ClaimLiveController(context.Background(), record.CallHash, service.LiveControllerObserver, "observer-1")
@@ -59,4 +65,30 @@ func TestGatewayCacheLiveCallIdentityAndController(t *testing.T) {
 	closed, err = cache.MarkLiveCallClosed(context.Background(), record.CallHash, time.Hour)
 	require.NoError(t, err)
 	require.False(t, closed)
+}
+
+func TestGatewayCacheStickyRouteIsWrittenAndRefreshedTogether(t *testing.T) {
+	redisServer := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	cache := NewGatewayCache(client)
+	routeCache, ok := cache.(service.GatewayAtomicRouteCache)
+	require.True(t, ok)
+
+	ctx := context.Background()
+	require.NoError(t, routeCache.SetSessionRoute(ctx, 7, "session", 41, 9, time.Minute))
+	accountID, err := cache.GetSessionAccountID(ctx, 7, "session")
+	require.NoError(t, err)
+	require.Equal(t, int64(41), accountID)
+	proxyCache := cache.(service.GatewayRouteCache)
+	proxyID, err := proxyCache.GetSessionProxyID(ctx, 7, "session")
+	require.NoError(t, err)
+	require.Equal(t, int64(9), proxyID)
+
+	require.NoError(t, cache.RefreshSessionTTL(ctx, 7, "session", 2*time.Minute))
+	require.Equal(t, 2*time.Minute, redisServer.TTL(buildSessionKey(7, "session")))
+	require.Equal(t, 2*time.Minute, redisServer.TTL(buildSessionProxyKey(7, "session")))
+
+	require.NoError(t, routeCache.SetSessionRoute(ctx, 7, "session", 41, 0, time.Minute))
+	_, err = proxyCache.GetSessionProxyID(ctx, 7, "session")
+	require.ErrorIs(t, err, service.ErrStickySessionNotFound)
 }
