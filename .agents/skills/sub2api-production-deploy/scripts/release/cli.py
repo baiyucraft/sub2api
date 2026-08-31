@@ -21,7 +21,7 @@ from .doctor import NODES, ReleaseDoctor
 from .gate import verify_gate
 from .manifest import bind_production_snapshot, create_manifest, sha256_file, write_manifest_once
 from .paths import RUN_ROOT, SCRIPTS_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
-from .profiles import get_profile, get_release_profile
+from .profiles import CURRENT_RELEASE_PROFILE, get_profile, get_release_profile
 from .production_bootstrap import bootstrap_production
 from .migration_planner import plan_migrations
 from .production_snapshot import decode_snapshot, snapshot_sha256
@@ -636,25 +636,25 @@ def main() -> None:
     bootstrap_parser = subparsers.add_parser("bootstrap-trust")
     bootstrap_parser.set_defaults(handler=bootstrap)
     production_bootstrap_parser = subparsers.add_parser("bootstrap-production")
-    production_bootstrap_parser.add_argument("--profile", default="182")
+    production_bootstrap_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     production_bootstrap_parser.set_defaults(handler=production_bootstrap)
     doctor_parser = subparsers.add_parser("doctor")
-    doctor_parser.add_argument("--profile", default="182")
+    doctor_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     doctor_parser.add_argument("--commit")
     doctor_parser.add_argument("--node", choices=("all", *NODES), default="all")
     doctor_parser.set_defaults(handler=doctor)
     validate_parser = subparsers.add_parser("vm-validate")
-    validate_parser.add_argument("--profile", default="182")
+    validate_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     validate_parser.add_argument("--commit", required=True)
     validate_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES, required=True)
     validate_parser.set_defaults(handler=vm_validate)
     deploy_parser = subparsers.add_parser("deploy")
-    deploy_parser.add_argument("--profile", default="182")
+    deploy_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     deploy_parser.add_argument("--commit", required=True)
     deploy_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
     deploy_parser.set_defaults(handler=deploy)
     release_parser = subparsers.add_parser("release")
-    release_parser.add_argument("--profile", default="182")
+    release_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     release_parser.add_argument("--gate", required=True)
     release_parser.set_defaults(handler=release)
     status_parser = subparsers.add_parser("status")
@@ -669,12 +669,12 @@ def main() -> None:
     logs_parser.add_argument("--since", type=_parse_since)
     logs_parser.set_defaults(handler=logs)
     start_parser = subparsers.add_parser("deploy-start")
-    start_parser.add_argument("--profile", default="182")
+    start_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     start_parser.add_argument("--commit", required=True)
     start_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
     start_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["start"]).start(args))
     follow_start_parser = subparsers.add_parser("deploy-follow")
-    follow_start_parser.add_argument("--profile", default="182")
+    follow_start_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     follow_start_parser.add_argument("--commit", required=True)
     follow_start_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
     follow_start_parser.add_argument("--lang", choices=("zh-CN",), default="zh-CN")

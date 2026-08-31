@@ -509,10 +509,10 @@ PROFILES["241"] = {
     ],
 }
 
-# Gate v2 starts at profile 242.  Unlike every historical profile, this entry
-# declares only its release lineage and the migrations introduced by this
-# version.  The complete catalog is discovered from the candidate commit.
-_PROFILE_242_RUNTIME_KEYS = (
+# Gate v2 starts at profile 242.  Each fork VERSION gets a new immutable
+# profile, even when no database migration is added.  The complete catalog is
+# discovered from the candidate commit for every Gate v2 profile.
+_PROFILE_V2_RUNTIME_KEYS = (
     "origin", "gate_ttl_seconds", "vm_identity", "vm_source",
     "vm_deploy", "vm_data", "rack_source", "rack_deploy",
     "public_domain", "rack_public_ip", "dmit_public_ip",
@@ -520,7 +520,7 @@ _PROFILE_242_RUNTIME_KEYS = (
     "minimum_backup_free_bytes", "minimum_free_after_bytes",
 )
 PROFILES["242"] = {
-    **{key: PROFILES["241"][key] for key in _PROFILE_242_RUNTIME_KEYS},
+    **{key: PROFILES["241"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
     "name": "242",
     "version": "0.1.183-baiyu",
     "parent": "241",
@@ -532,7 +532,22 @@ PROFILES["242"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "242"
+# Profile 242 is retained as an immutable historical release contract.  The
+# current fork VERSION is 0.1.184-baiyu, so the next release profile is 243.
+PROFILES["243"] = {
+    **{key: PROFILES["242"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "243",
+    "version": "0.1.184-baiyu",
+    "parent": "242",
+    "new_migrations": [],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "243"
 
 
 def get_profile(name: str) -> dict:
