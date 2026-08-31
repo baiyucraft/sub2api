@@ -78,6 +78,7 @@ const series = computed(() => [{
   label: t('channelStatus.rateTrend.series'),
   data: chartData.value.values,
   tone: 'primary' as const,
+  cubicInterpolationMode: 'monotone' as const,
   pointStyle: 'circle' as const,
   pointRadius: 0,
   pointHoverRadius: 4,

@@ -107,4 +107,23 @@ describe('TrendChart', () => {
     const categoryOptions = category.getComponent({ name: 'MockTrendLine' }).props('options') as any
     expect(categoryOptions.scales.x.type).toBe('category')
   })
+
+  it('uses monotone interpolation only when the series requests it', () => {
+    const wrapper = mount(TrendChart, {
+      props: {
+        timestamps: ['2026-07-18T00:00:00Z', '2026-07-18T00:01:00Z'],
+        series: [
+          { label: '倍率', data: [0.12, 0.15], cubicInterpolationMode: 'monotone' },
+          { label: '普通趋势', data: [1, 2] },
+        ],
+        emptyText: '暂无数据',
+        chartLabel: '趋势图',
+      },
+    })
+
+    const line = wrapper.getComponent({ name: 'MockTrendLine' })
+    const data = line.props('data') as { datasets: Array<Record<string, unknown>> }
+    expect(data.datasets[0].cubicInterpolationMode).toBe('monotone')
+    expect(data.datasets[1].cubicInterpolationMode).toBeUndefined()
+  })
 })

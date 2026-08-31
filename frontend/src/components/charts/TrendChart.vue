@@ -252,6 +252,7 @@ function buildDataset(item: TrendChartSeries, index: number): ChartDataset<'line
     borderDash: item.borderDash || [],
     fill: item.fill ? 'origin' : false,
     tension: item.stepped ? 0 : 0.22,
+    cubicInterpolationMode: item.cubicInterpolationMode,
     stepped: item.stepped || false,
     pointStyle: item.pointStyle || defaultPointStyle(index),
     pointRadius: item.pointRadius ?? (item.stepped ? 2.5 : 0),

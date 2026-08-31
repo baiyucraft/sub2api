@@ -45,8 +45,9 @@ describe('GroupRateTrend', () => {
               proportionalTime: Boolean,
               xMin: String,
               xMax: String,
+              series: Array,
             },
-            template: '<div data-test="trend-chart-props">{{ timeColumnLabel }}|{{ height }}|{{ proportionalTime }}|{{ xMin }}|{{ xMax }}|{{ timestamps.join(",") }}</div>',
+            template: '<div data-test="trend-chart-props">{{ timeColumnLabel }}|{{ height }}|{{ proportionalTime }}|{{ xMin }}|{{ xMax }}|{{ timestamps.join(",") }}|{{ series[0].cubicInterpolationMode }}</div>',
           },
         },
       },
@@ -56,6 +57,7 @@ describe('GroupRateTrend', () => {
     expect(chartProps).toContain('channelStatus.rateTrend.timeColumn|152|true')
     expect(chartProps).toContain('2026-07-18T00:00:00Z|2026-07-19T00:00:00Z')
     expect(chartProps).toContain('2026-07-19T00:00:00Z')
+    expect(chartProps).toContain('|monotone')
     expect(wrapper.get('[data-test="current-public-rate"]').text()).toBe('0.030x')
     expect(wrapper.get('[data-test="average-public-rate"]').text()).toBe('0.028x')
     expect(wrapper.find('[data-test="rate-history-partial"]').exists()).toBe(false)

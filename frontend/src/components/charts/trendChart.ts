@@ -5,6 +5,7 @@ export interface TrendChartSeries {
   label: string
   data: Array<number | null>
   tone?: TrendChartTone
+  cubicInterpolationMode?: 'default' | 'monotone'
   borderDash?: number[]
   fill?: boolean
   stepped?: boolean | 'before' | 'after' | 'middle'
