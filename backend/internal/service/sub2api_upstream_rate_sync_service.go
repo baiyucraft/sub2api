@@ -311,24 +311,78 @@ func (s *Sub2APIUpstreamRateSyncService) SyncAccountNow(ctx context.Context, acc
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	proxyURL, err := s.resolveAccountProxyURL(ctx, *account)
-	if err != nil {
-		return s.recordSyncError(ctx, account, err)
-	}
-	target, err := s.newSub2APISyncTarget(ctx, *account, proxyURL)
-	if err != nil {
-		return s.recordSyncError(ctx, account, err)
-	}
-	session, refreshedTokens, err := s.fetchUserLoginSession(ctx, target)
-	if refreshedTokens != nil {
-		if saveErr := s.saveRefreshedSub2APITokens(ctx, account, *refreshedTokens); saveErr != nil {
-			return s.recordSyncError(ctx, account, saveErr)
+	routeAccount := account
+	if len(account.Proxies) == 0 && (len(account.ProxyIDs) > 0 || account.ProxyID != nil) {
+		if s.proxyRepo == nil {
+			return s.recordSyncError(ctx, account, fmt.Errorf("account proxies are configured but proxy repository is unavailable"))
 		}
+		proxyIDs := append([]int64(nil), account.ProxyIDs...)
+		if len(proxyIDs) == 0 && account.ProxyID != nil {
+			proxyIDs = []int64{*account.ProxyID}
+		}
+		var proxies []Proxy
+		var resolveErr error
+		if len(proxyIDs) == 1 {
+			var proxy *Proxy
+			proxy, resolveErr = s.proxyRepo.GetByID(ctx, proxyIDs[0])
+			if resolveErr == nil && proxy != nil {
+				proxies = []Proxy{*proxy}
+			}
+		} else {
+			proxies, resolveErr = s.proxyRepo.ListByIDs(ctx, proxyIDs)
+		}
+		if resolveErr != nil {
+			return s.recordSyncError(ctx, account, fmt.Errorf("resolve account proxies: %w", resolveErr))
+		}
+		proxyByID := make(map[int64]*Proxy, len(proxies))
+		for i := range proxies {
+			proxyByID[proxies[i].ID] = &proxies[i]
+		}
+		orderedProxies := make([]*Proxy, 0, len(proxyIDs))
+		for _, proxyID := range proxyIDs {
+			proxy, ok := proxyByID[proxyID]
+			if !ok {
+				return s.recordSyncError(ctx, account, fmt.Errorf("resolve account proxy %d: proxy not found", proxyID))
+			}
+			orderedProxies = append(orderedProxies, proxy)
+		}
+		if len(orderedProxies) == 0 {
+			return s.recordSyncError(ctx, account, fmt.Errorf("account proxy bindings are empty"))
+		}
+		copyAccount := *account
+		copyAccount.Proxy = orderedProxies[0]
+		copyAccount.ProxyIDs = append([]int64(nil), proxyIDs...)
+		copyAccount.Proxies = orderedProxies
+		routeAccount = &copyAccount
 	}
+	type syncSessionAttempt struct {
+		target  sub2APISyncTarget
+		session *sub2APIUserLoginSession
+	}
+	result, err := withAccountProxyFallback(ctx, routeAccount, func(attempt *Account) (*syncSessionAttempt, error) {
+		proxyURL, resolveErr := s.resolveAccountProxyURL(ctx, *attempt)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		target, targetErr := s.newSub2APISyncTarget(ctx, *attempt, proxyURL)
+		if targetErr != nil {
+			return nil, targetErr
+		}
+		session, refreshedTokens, fetchErr := s.fetchUserLoginSession(ctx, target)
+		if refreshedTokens != nil {
+			if saveErr := s.saveRefreshedSub2APITokens(ctx, account, *refreshedTokens); saveErr != nil {
+				return nil, saveErr
+			}
+		}
+		if fetchErr != nil {
+			return nil, fetchErr
+		}
+		return &syncSessionAttempt{target: target, session: session}, nil
+	})
 	if err != nil {
 		return s.recordSyncError(ctx, account, err)
 	}
-	return s.syncTargetWithSession(ctx, target, session)
+	return s.syncTargetWithSession(ctx, result.target, result.session)
 }
 
 func (s *Sub2APIUpstreamRateSyncService) runOnce() {

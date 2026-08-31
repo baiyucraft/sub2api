@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseCodexSessionImportEntriesSupportsRawTokenJSONAndArray(t *testing.T) {
@@ -646,6 +647,45 @@ func TestImportCodexSessionsAccessTokenOnlySameWorkspaceDifferentUsersCreatesTwo
 	if svc.createdAccounts[0].Credentials["chatgpt_user_id"] == svc.createdAccounts[1].Credentials["chatgpt_user_id"] {
 		t.Fatalf("created accounts share user id: %v", svc.createdAccounts)
 	}
+}
+
+func TestImportCodexSessionsPassesOrderedProxyIDsAndSynchronizesLegacyID(t *testing.T) {
+	svc := newCodexImportMemoryAdminService(nil)
+	svc.proxies = []service.Proxy{
+		{ID: 11, Status: service.StatusActive},
+		{ID: 12, Status: service.StatusActive},
+	}
+	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	proxyIDs := []int64{12, 11}
+	req := CodexSessionImportRequest{ProxyIDs: &proxyIDs, SkipDefaultGroupBind: boolPtr(true)}
+	entries := []codexImportEntry{{Index: 1, Value: buildCodexAccessOnlyImportValue(t, "workspace-proxy", "user-proxy")}}
+
+	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Created)
+	require.Len(t, svc.createdAccounts, 1)
+	require.Equal(t, []int64{12, 11}, *svc.createdAccounts[0].ProxyIDs)
+	require.Equal(t, int64(12), *svc.createdAccounts[0].ProxyID)
+}
+
+func TestImportCodexSessionsExplicitEmptyProxyIDsClearsExistingBindings(t *testing.T) {
+	existingToken := buildCodexAccessToken(t, "workspace-direct", "user-direct", time.Now().Add(time.Hour))
+	svc := newCodexImportMemoryAdminService([]service.Account{{
+		ID: 10, Name: "existing", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+		Credentials: map[string]any{"chatgpt_account_id": "workspace-direct", "chatgpt_user_id": "user-direct", "access_token": existingToken},
+	}})
+	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	proxyIDs := []int64{}
+	req := CodexSessionImportRequest{ProxyIDs: &proxyIDs, SkipDefaultGroupBind: boolPtr(true)}
+	entries := []codexImportEntry{{Index: 1, Value: map[string]any{"access_token": existingToken}}}
+
+	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Updated)
+	require.Len(t, svc.updatedAccounts, 1)
+	require.NotNil(t, svc.updatedAccounts[0].input.ProxyIDs)
+	require.Empty(t, *svc.updatedAccounts[0].input.ProxyIDs)
+	require.Nil(t, svc.updatedAccounts[0].input.ProxyID)
 }
 
 func TestImportCodexSessionsAccessTokenOnlySameWorkspaceAndUserDifferentTokensCreatesTwoAccounts(t *testing.T) {

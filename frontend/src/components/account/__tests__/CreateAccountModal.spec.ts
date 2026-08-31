@@ -69,6 +69,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 import CreateAccountModal from '../CreateAccountModal.vue'
+import OrderedProxySelector from '../OrderedProxySelector.vue'
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -133,9 +134,9 @@ const ModelWhitelistSelectorStub = defineComponent({
   >models</button>`,
 })
 
-function mountModal(groups: any[] = []) {
+function mountModal(groups: any[] = [], proxies: any[] = []) {
   return mount(CreateAccountModal, {
-    props: { show: true, proxies: [], groups },
+    props: { show: true, proxies, groups },
     global: {
       stubs: {
         BaseDialog: BaseDialogStub,
@@ -183,9 +184,13 @@ async function submitApiKeyAccount(
   return wrapper
 }
 
-async function openCodexImportStep(toggleClicks = 0) {
-  const wrapper = mountModal()
+async function openCodexImportStep(toggleClicks = 0, proxies: any[] = [], proxyIDs: number[] = []) {
+  const wrapper = mountModal([], proxies)
   await selectButtonByText(wrapper, 'OpenAI')
+  if (proxyIDs.length > 0) {
+    wrapper.getComponent(OrderedProxySelector).vm.$emit('update:modelValue', proxyIDs)
+    await wrapper.vm.$nextTick()
+  }
   for (let click = 0; click < toggleClicks; click += 1) {
     await wrapper.get('[data-testid="openai-long-context-billing-toggle"]').trigger('click')
   }
@@ -193,6 +198,11 @@ async function openCodexImportStep(toggleClicks = 0) {
   await wrapper.get('form#create-account-form').trigger('submit.prevent')
   return wrapper
 }
+
+const activeProxies = [
+  { id: 11, name: 'Hong Kong', status: 'active', expires_at: null },
+  { id: 12, name: 'Tokyo', status: 'active', expires_at: null }
+] as any[]
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
   beforeEach(() => {
@@ -487,6 +497,28 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createOpenAICodexPATMock).toHaveBeenCalledTimes(1)
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBeUndefined()
+  })
+
+  it('submits all selected proxies for Codex session imports', async () => {
+    const wrapper = await openCodexImportStep(0, activeProxies, [11, 12])
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    expect(importCodexSessionMock).toHaveBeenCalledWith(expect.objectContaining({
+      proxy_id: 11,
+      proxy_ids: [11, 12]
+    }))
+  })
+
+  it('submits all selected proxies for Codex PAT imports', async () => {
+    const wrapper = await openCodexImportStep(0, activeProxies, [11, 12])
+    await wrapper.get('[data-testid="import-codex-pat"]').trigger('click')
+    await flushPromises()
+
+    expect(createOpenAICodexPATMock).toHaveBeenCalledWith(expect.objectContaining({
+      proxy_id: 11,
+      proxy_ids: [11, 12]
+    }))
   })
 
   it('sends explicit true for Codex session import after the toggle is enabled', async () => {

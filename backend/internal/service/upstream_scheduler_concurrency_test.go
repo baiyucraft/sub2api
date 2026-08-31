@@ -185,3 +185,28 @@ func TestUpstreamAccountIgnoresKeyLevelLoadFactor(t *testing.T) {
 	require.Equal(t, ConcurrencyTargetUpstream, schedulingDescriptor.TargetKind)
 	require.Equal(t, configID, schedulingDescriptor.TargetID)
 }
+
+func TestAccountProxyConcurrencyTargetUsesIndependentRoute(t *testing.T) {
+	account := &Account{ID: 41, Concurrency: 5, ProxyIDs: []int64{7, 9}}
+
+	targets := account.SchedulingConcurrencyTargets()
+
+	require.Equal(t, []ConcurrencyTarget{
+		{Kind: ConcurrencyTargetAccountProxy, ID: 41, ProxyID: 7, Limit: 5},
+		{Kind: ConcurrencyTargetAccountProxy, ID: 41, ProxyID: 9, Limit: 5},
+	}, targets)
+	require.Equal(t, "account_proxy:41:7", targets[0].Key())
+	require.NotEqual(t, targets[0].Key(), targets[1].Key())
+}
+
+func TestAccountProxyConcurrencyTargetsDeduplicateAndFallback(t *testing.T) {
+	account := &Account{ID: 42, Concurrency: 3, ProxyIDs: []int64{8, 8, 0}}
+	require.Equal(t, []ConcurrencyTarget{
+		{Kind: ConcurrencyTargetAccountProxy, ID: 42, ProxyID: 8, Limit: 3},
+	}, account.SchedulingConcurrencyTargets())
+
+	direct := &Account{ID: 43, Concurrency: 2}
+	require.Equal(t, []ConcurrencyTarget{
+		{Kind: ConcurrencyTargetAccount, ID: 43, Limit: 2},
+	}, direct.SchedulingConcurrencyTargets())
+}

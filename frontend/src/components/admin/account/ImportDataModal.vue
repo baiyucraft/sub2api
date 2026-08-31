@@ -54,46 +54,53 @@
       <div v-if="previewAccountCount > 0" class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-700">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.dataImportCopyProxies') }}</div>
+            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.dataImportProxyBindings') }}</div>
+            <div class="mt-0.5 text-xs font-medium text-gray-700 dark:text-dark-200">
+              {{ t('admin.accounts.dataImportEstimatedAccounts', { count: previewAccountCount }) }}
+            </div>
             <div class="text-xs text-gray-500 dark:text-dark-400">
-              {{ copyProxyIds.length
-                ? t('admin.accounts.dataImportCopyCount', { count: previewAccountCount * copyProxyIds.length })
+              {{ proxyIds.length
+                ? t('admin.accounts.dataImportProxyBindingCount', { count: proxyIds.length })
                 : t('admin.accounts.dataImportCompatMode') }}
             </div>
           </div>
-          <button type="button" class="btn btn-ghost shrink-0" :disabled="copyProxyIds.length >= 50 || proxiesLoading" @click="addCopyProxy">
-            {{ t('admin.accounts.dataImportAddCopy') }}
+          <button
+            type="button"
+            class="btn btn-secondary shrink-0"
+            :disabled="proxiesLoading || proxyOptions.length === 0 || proxyIds.length >= 50"
+            @click="addProxyBinding"
+          >
+            {{ t('admin.accounts.dataImportAddProxyBinding') }}
           </button>
         </div>
         <div v-if="proxiesLoading" class="text-xs text-gray-500 dark:text-dark-400">{{ t('common.loading') }}</div>
-        <div v-else-if="copyProxyIds.length" class="space-y-2">
-          <div v-for="(proxyId, index) in copyProxyIds" :key="`copy-proxy-${index}`" class="flex items-center gap-2">
-            <span class="w-6 text-center text-xs text-gray-500">{{ index + 1 }}</span>
-            <div class="min-w-0 flex-1">
-              <Select
-                :model-value="proxyId"
-                :options="proxyOptions"
-                :placeholder="t('admin.accounts.dataImportSelectProxy')"
-                searchable
-                :aria-label="t('admin.accounts.dataImportSelectProxy')"
-                @update:model-value="(value) => setCopyProxy(index, value)"
-              />
-            </div>
+        <div v-else-if="proxyIds.length" class="space-y-2" role="list">
+          <div
+            v-for="(proxyId, index) in proxyIds"
+            :key="`proxy-binding-${index}`"
+            role="listitem"
+            class="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-2"
+          >
+            <span class="text-center text-xs text-gray-500">{{ index + 1 }}</span>
+            <Select
+              :model-value="proxyId"
+              :options="proxyOptions"
+              searchable
+              :placeholder="t('admin.accounts.dataImportSelectProxyBinding')"
+              :aria-label="t('admin.accounts.dataImportSelectProxyBinding')"
+              @update:model-value="setProxyBinding(index, $event)"
+            />
             <button
               type="button"
-              class="btn btn-secondary inline-flex h-9 w-9 items-center justify-center p-0"
-              :aria-label="t('admin.accounts.dataImportRemoveCopy')"
-              :title="t('admin.accounts.dataImportRemoveCopy')"
-              @click="removeCopyProxy(index)"
+              class="btn btn-secondary inline-flex h-11 w-11 items-center justify-center p-0"
+              :aria-label="t('admin.accounts.dataImportRemoveProxyBinding')"
+              :title="t('admin.accounts.dataImportRemoveProxyBinding')"
+              @click="removeProxyBinding(index)"
             >
-              <Icon name="x" size="sm" />
+              <span aria-hidden="true">×</span>
             </button>
           </div>
-          <div v-if="previewName" class="text-xs text-gray-500 dark:text-dark-400">
-            {{ t('admin.accounts.dataImportPreviewName', { name: previewName }) }}
-          </div>
         </div>
-        <div v-else class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.accounts.dataImportCompatMode') }}</div>
       </div>
 
       <div v-if="previewAccountCount > 0" class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-700">
@@ -163,7 +170,6 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
-import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import type { AdminDataImportResult, AdminDataPayload, Proxy } from '@/types'
@@ -191,13 +197,11 @@ const hasCreatedData = ref(false)
 const result = ref<AdminDataImportResult | null>(null)
 const proxies = ref<Proxy[]>([])
 const proxiesLoading = ref(false)
-const copyProxyIds = ref<number[]>([])
+const proxyIds = ref<number[]>([])
 const overrideConcurrency = ref('')
 const overrideRateMultiplier = ref('')
 const overrideCodexFingerprintMode = ref<'off' | 'device' | 'session' | 'full' | null>(null)
 const previewAccountCount = ref(0)
-const previewName = ref('')
-const previewBaseName = ref('')
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedFilesLabel = computed(() => {
@@ -210,7 +214,8 @@ const fileListTitle = computed(() => files.value.map((item) => item.name).join('
 const errorItems = computed(() => result.value?.errors || [])
 const proxyOptions = computed<SelectOption[]>(() => proxies.value.map((proxy) => ({
   value: proxy.id,
-  label: proxy.name || `${proxy.host}:${proxy.port}`
+  label: proxy.name || `${proxy.host}:${proxy.port}`,
+  disabled: proxyIds.value.includes(proxy.id)
 })))
 const codexFingerprintOptions = computed<SelectOption[]>(() => [
   { value: 'off', label: t('admin.accounts.codexFingerprintOff') },
@@ -227,16 +232,14 @@ watch(
       dragDepth.value = 0
       hasCreatedData.value = false
       result.value = null
-      copyProxyIds.value = []
+      proxyIds.value = []
       overrideConcurrency.value = ''
       overrideRateMultiplier.value = ''
       overrideCodexFingerprintMode.value = null
       previewAccountCount.value = 0
-      previewName.value = ''
-      previewBaseName.value = ''
       proxiesLoading.value = true
       Promise.resolve().then(() => adminAPI.proxies.getAll()).then((items) => {
-        proxies.value = items.filter((proxy) => proxy.status === 'active')
+        proxies.value = items.filter((proxy) => proxy.status === 'active' && !isProxyExpired(proxy.expires_at))
         if (files.value.length) void updatePreview(files.value)
       }).catch(() => {
         proxies.value = []
@@ -251,31 +254,37 @@ watch(
   { immediate: true }
 )
 
-watch([copyProxyIds, proxies], () => {
-  if (!previewBaseName.value || !copyProxyIds.value.length) return
-  const suffix = proxies.value.find((item) => item.id === copyProxyIds.value[0])
-  if (!suffix) return
-  previewName.value = `${previewBaseName.value} - ${suffix.name || `${suffix.host}:${suffix.port}`}`
-}, { deep: true })
-
-const addCopyProxy = () => {
-  if (copyProxyIds.value.length >= 50 || proxies.value.length === 0) return
-  copyProxyIds.value.push(proxies.value[0]?.id ?? 0)
-}
-
-const setCopyProxy = (index: number, value: unknown) => {
-  const id = Number(value)
-  if (!Number.isInteger(id) || id <= 0) return
-  copyProxyIds.value[index] = id
-}
-
-const removeCopyProxy = (index: number) => {
-  copyProxyIds.value.splice(index, 1)
-  if (copyProxyIds.value.length === 0) previewName.value = ''
-}
-
 const openFilePicker = () => {
   fileInput.value?.click()
+}
+
+const isProxyExpired = (expiresAt: string | number | null | undefined): boolean => {
+  if (!expiresAt) return false
+  const timestamp = typeof expiresAt === 'number' ? expiresAt * 1000 : Date.parse(expiresAt)
+  return Number.isFinite(timestamp) && timestamp <= Date.now()
+}
+
+const addProxyBinding = () => {
+  if (proxiesLoading.value || proxyIds.value.length >= 50) return
+  const next = proxyOptions.value.find((option) => !option.disabled)
+  if (!next) return
+  proxyIds.value = [...proxyIds.value, Number(next.value)]
+}
+
+const setProxyBinding = (index: number, value: unknown) => {
+  const proxyID = Number(value)
+  if (!Number.isInteger(proxyID) || proxyID <= 0) return
+  if (proxyIds.value.some((id, slotIndex) => slotIndex !== index && id === proxyID)) {
+    appStore.showError(t('admin.accounts.dataImportDuplicateProxy'))
+    return
+  }
+  const next = [...proxyIds.value]
+  next[index] = proxyID
+  proxyIds.value = next
+}
+
+const removeProxyBinding = (index: number) => {
+  proxyIds.value = proxyIds.value.filter((_, slotIndex) => slotIndex !== index)
 }
 
 const handleFileChange = (event: Event) => {
@@ -314,29 +323,22 @@ const setSelectedFiles = (sourceFiles: FileList | File[] | null | undefined) => 
   files.value = picked
   result.value = null
   previewAccountCount.value = 0
-  previewName.value = ''
-  previewBaseName.value = ''
   void updatePreview(picked)
 }
 
 const updatePreview = async (sourceFiles: File[]) => {
   let count = 0
-  let firstName = ''
   for (const sourceFile of sourceFiles) {
     try {
       const parsed = JSON.parse(await readFileAsText(sourceFile))
       if (isValidDataPayload(parsed)) {
         count += parsed.accounts.length
-        if (!firstName && parsed.accounts[0]?.name) firstName = parsed.accounts[0].name
       }
     } catch {
       // Full validation and user-facing errors remain in handleImport.
     }
   }
   previewAccountCount.value = count
-  const proxy = proxies.value.find((item) => item.id === copyProxyIds.value[0])
-  previewBaseName.value = firstName
-  previewName.value = firstName && proxy ? `${firstName} - ${proxy.name || `${proxy.host}:${proxy.port}`}` : ''
 }
 
 const handleDragEnter = () => {
@@ -426,9 +428,9 @@ const handleImport = async () => {
 
   importing.value = true
   try {
-    if (copyProxyIds.value.length > 0) {
+    if (proxyIds.value.length > 0) {
       const validProxyIds = new Set(proxies.value.map((proxy) => proxy.id))
-      if (copyProxyIds.value.some((id) => !Number.isInteger(id) || id <= 0 || !validProxyIds.has(id))) {
+      if (proxyIds.value.length > 50 || new Set(proxyIds.value).size !== proxyIds.value.length || proxyIds.value.some((id) => !Number.isInteger(id) || id <= 0 || !validProxyIds.has(id))) {
         appStore.showError(t('admin.accounts.dataImportInvalidProxy'))
         return
       }
@@ -472,7 +474,7 @@ const handleImport = async () => {
       data: dataPayload,
       skip_default_group_bind: true
     }
-    if (copyProxyIds.value.length > 0) importOptions.copy_proxy_ids = [...copyProxyIds.value]
+    if (proxyIds.value.length > 0) importOptions.proxy_ids = [...proxyIds.value]
     if (concurrencyOverride !== undefined) importOptions.override_concurrency = concurrencyOverride
     if (rateOverride !== undefined) importOptions.override_rate_multiplier = rateOverride
     if (overrideCodexFingerprintMode.value) {

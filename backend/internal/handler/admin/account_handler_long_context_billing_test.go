@@ -163,3 +163,25 @@ func TestOpenAIOAuthCodexPATBoundaryRejectsMalformedOpenAILongContextBillingValu
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &responseBody))
 	require.Equal(t, "OPENAI_LONG_CONTEXT_BILLING_INVALID", responseBody.Reason)
 }
+
+func TestOpenAIOAuthCodexPATRejectsDuplicateProxyIDsBeforeTokenValidation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewOpenAIOAuthHandler(nil, newStubAdminService(), nil, nil)
+	router := gin.New()
+	router.Use(gin.Recovery())
+	router.POST("/openai/create-from-codex-pat", handler.CreateAccountFromCodexPAT)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/openai/create-from-codex-pat", bytes.NewBufferString(
+		`{"access_token":"at-token","proxy_ids":[11,11]}`,
+	))
+	request.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	var responseBody struct {
+		Reason string `json:"reason"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &responseBody))
+	require.Equal(t, "DUPLICATE_ACCOUNT_PROXY", responseBody.Reason)
+}

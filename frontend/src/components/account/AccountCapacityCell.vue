@@ -1,7 +1,22 @@
 <template>
   <div class="flex flex-col gap-0.5">
+    <!-- 多代理并发槽位：每个代理独立占用完整账号并发额度。 -->
+    <div v-if="showProxyCapacityRows" class="space-y-0.5 text-xs">
+      <div
+        v-for="item in proxyCapacityItems"
+        :key="item.proxy_id"
+        class="flex min-w-[120px] items-center justify-between gap-2 rounded bg-gray-50 px-1.5 py-0.5 text-gray-700 dark:bg-dark-800 dark:text-gray-200"
+        :title="item.available === false ? t('admin.accounts.capacity.proxyUnavailable') : undefined"
+      >
+        <span class="min-w-0 truncate">{{ item.name }}</span>
+        <span :class="item.available === false ? 'text-gray-400' : 'font-mono'">
+          {{ formatProxyCapacity(item) }}
+        </span>
+      </div>
+    </div>
+
     <!-- 并发槽位 -->
-    <CapacityBadge :color-class="concurrencyClass" :tooltip="concurrencyTooltip" :current="currentConcurrency" :max="concurrencyMaximumLabel">
+    <CapacityBadge v-else :color-class="concurrencyClass" :tooltip="concurrencyTooltip" :current="currentConcurrency" :max="concurrencyMaximumLabel">
       <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
       </svg>
@@ -48,9 +63,37 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
+const proxyCapacityItems = computed(() => {
+  const items = props.account.proxy_capacities || props.account.proxy_capacity || []
+  if (!Array.isArray(items)) return []
+  return items.map((item) => ({
+    ...item,
+    name: ('name' in item && typeof item.name === 'string' && item.name) || item.proxy?.name || proxyLabel(item.proxy_id)
+  }))
+})
+const showProxyCapacityRows = computed(() =>
+  proxyCapacityItems.value.length > 1 ||
+  (proxyCapacityItems.value.length === 1 && proxyCapacityItems.value[0]?.available === false)
+)
+const singleAvailableProxyCapacity = computed(() =>
+  proxyCapacityItems.value.length === 1 && proxyCapacityItems.value[0]?.available !== false
+    ? proxyCapacityItems.value[0]
+    : null
+)
+
+const proxyLabel = (proxyId: number) => `Proxy #${proxyId}`
+
 // ====== 并发 ======
-const currentConcurrency = computed(() => props.account.current_concurrency || 0)
-const concurrencyMaximum = computed(() => props.account.scheduler_concurrency_limit ?? props.account.concurrency)
+const currentConcurrency = computed(() => {
+  if (singleAvailableProxyCapacity.value) {
+    return singleAvailableProxyCapacity.value.current_concurrency ?? '—'
+  }
+  return props.account.current_concurrency ?? '—'
+})
+const numericCurrentConcurrency = computed(() =>
+  typeof currentConcurrency.value === 'number' ? currentConcurrency.value : null
+)
+const concurrencyMaximum = computed(() => singleAvailableProxyCapacity.value?.limit ?? props.account.scheduler_concurrency_limit ?? props.account.concurrency)
 const concurrencyMaximumLabel = computed(() => props.account.scheduler_concurrency_unlimited ? '∞' : concurrencyMaximum.value)
 
 const concurrencyTooltip = computed(() => {
@@ -63,12 +106,19 @@ const concurrencyTooltip = computed(() => {
 })
 
 const concurrencyClass = computed(() => {
-  const current = currentConcurrency.value
+  const current = numericCurrentConcurrency.value
   const max = concurrencyMaximum.value
-  if (!props.account.scheduler_concurrency_unlimited && max > 0 && current >= max) return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-  if (current > 0) return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+  if (current != null && !props.account.scheduler_concurrency_unlimited && max > 0 && current >= max) return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+  if (current != null && current > 0) return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
   return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
 })
+
+const formatProxyCapacity = (item: (typeof proxyCapacityItems.value)[number]): string => {
+  if (item.available === false) return '—'
+  const current = item.current_concurrency == null ? '—' : item.current_concurrency
+  const limit = item.limit == null ? '∞' : item.limit
+  return `${current} / ${limit}`
+}
 
 // ====== 窗口费用 ======
 const isAnthropicOAuthOrSetupToken = computed(() =>

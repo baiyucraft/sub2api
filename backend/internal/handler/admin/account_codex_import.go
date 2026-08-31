@@ -28,6 +28,7 @@ type CodexSessionImportRequest struct {
 	Notes                   *string        `json:"notes"`
 	GroupIDs                []int64        `json:"group_ids"`
 	ProxyID                 *int64         `json:"proxy_id"`
+	ProxyIDs                *[]int64       `json:"proxy_ids"`
 	Concurrency             *int           `json:"concurrency"`
 	Priority                *int           `json:"priority"`
 	RateMultiplier          *float64       `json:"rate_multiplier"`
@@ -162,6 +163,12 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 		Total: len(entries),
 		Items: make([]CodexSessionImportItem, 0, len(entries)),
 	}
+	proxyIDs, proxyID, err := resolveRequestedAccountProxyIDs(ctx, h.adminService, req.ProxyIDs, req.ProxyID)
+	if err != nil {
+		return result, err
+	}
+	req.ProxyIDs = proxyIDs
+	req.ProxyID = proxyID
 
 	existingAccounts, err := h.listAccountsFiltered(ctx, service.PlatformOpenAI, service.AccountTypeOAuth, "", "", 0, "", "created_at", "desc")
 	if err != nil {
@@ -286,7 +293,10 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 				ExpiresAt:          effectiveExpiresAt,
 				AutoPauseOnExpired: autoPauseOnExpired,
 			}
-			if req.ProxyID != nil {
+			if req.ProxyIDs != nil {
+				updateInput.ProxyIDs = req.ProxyIDs
+				updateInput.ProxyID = req.ProxyID
+			} else if req.ProxyID != nil {
 				updateInput.ProxyID = req.ProxyID
 			}
 			if len(req.GroupIDs) > 0 {
@@ -336,6 +346,7 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 			Credentials:           credentials,
 			Extra:                 extra,
 			ProxyID:               req.ProxyID,
+			ProxyIDs:              req.ProxyIDs,
 			Concurrency:           concurrency,
 			Priority:              priority,
 			RateMultiplier:        req.RateMultiplier,

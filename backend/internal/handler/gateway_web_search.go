@@ -133,6 +133,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 	}
 
 	failedAccounts := make(map[int64]struct{})
+	failedRoutes := make(map[string]struct{})
 	var account *service.Account
 	var accountReleaseFunc func()
 	var nativeResp *websearch.SearchResponse
@@ -149,7 +150,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 	// First attempt + up to 3 failover accounts (max 4 total).
 	for attempt := 0; attempt < 4; attempt++ {
 		selected, selectErr := h.gatewayService.SelectAccountWithLoadAwareness(
-			c.Request.Context(), groupID, "", searchModel, failedAccounts, "", 0,
+			service.ContextWithFailedProxyRoutes(c.Request.Context(), failedRoutes), groupID, "", searchModel, failedAccounts, "", 0,
 		)
 		if selectErr != nil {
 			if attempt == 0 {
@@ -179,7 +180,11 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 				h.handleConcurrencyError(c, acquireErr, "account", false)
 				return
 			}
-			failedAccounts[selected.Account.ID] = struct{}{}
+			if selected.ProxyID > 0 {
+				failedRoutes[selected.ConcurrencyTarget.Key()] = struct{}{}
+			} else {
+				failedAccounts[selected.Account.ID] = struct{}{}
+			}
 			continue
 		}
 		account = selected.Account
@@ -197,7 +202,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		if !errors.As(err, &failoverErr) || !failoverErr.ShouldRetryNextAccount() {
 			break
 		}
-		failedAccounts[account.ID] = struct{}{}
+		recordProxyAwareFailoverExclusion(failedAccounts, failedRoutes, account.ID, failoverErr)
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 			accountReleaseFunc = nil

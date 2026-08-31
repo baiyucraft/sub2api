@@ -175,6 +175,7 @@ type OpenAICodexPATCreateRequest struct {
 	Notes                   *string        `json:"notes"`
 	GroupIDs                []int64        `json:"group_ids"`
 	ProxyID                 *int64         `json:"proxy_id"`
+	ProxyIDs                *[]int64       `json:"proxy_ids"`
 	Concurrency             *int           `json:"concurrency"`
 	Priority                *int           `json:"priority"`
 	RateMultiplier          *float64       `json:"rate_multiplier"`
@@ -296,20 +297,29 @@ func (h *OpenAIOAuthHandler) RefreshAccountToken(c *gin.Context) {
 // POST /api/v1/admin/openai/create-from-oauth
 func (h *OpenAIOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 	var req struct {
-		SessionID   string  `json:"session_id" binding:"required"`
-		Code        string  `json:"code" binding:"required"`
-		State       string  `json:"state" binding:"required"`
-		RedirectURI string  `json:"redirect_uri"`
-		ProxyID     *int64  `json:"proxy_id"`
-		Name        string  `json:"name"`
-		Concurrency int     `json:"concurrency"`
-		Priority    int     `json:"priority"`
-		GroupIDs    []int64 `json:"group_ids"`
+		SessionID   string   `json:"session_id" binding:"required"`
+		Code        string   `json:"code" binding:"required"`
+		State       string   `json:"state" binding:"required"`
+		RedirectURI string   `json:"redirect_uri"`
+		ProxyID     *int64   `json:"proxy_id"`
+		ProxyIDs    *[]int64 `json:"proxy_ids"`
+		Name        string   `json:"name"`
+		Concurrency int      `json:"concurrency"`
+		Priority    int      `json:"priority"`
+		GroupIDs    []int64  `json:"group_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+
+	proxyIDs, proxyID, err := resolveRequestedAccountProxyIDs(c.Request.Context(), h.adminService, req.ProxyIDs, req.ProxyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	req.ProxyIDs = proxyIDs
+	req.ProxyID = proxyID
 
 	// Exchange code for tokens
 	tokenInfo, err := h.openaiOAuthService.ExchangeCode(c.Request.Context(), &service.OpenAIExchangeCodeInput{
@@ -346,6 +356,7 @@ func (h *OpenAIOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		Credentials: credentials,
 		Extra:       nil,
 		ProxyID:     req.ProxyID,
+		ProxyIDs:    req.ProxyIDs,
 		Concurrency: req.Concurrency,
 		Priority:    req.Priority,
 		GroupIDs:    req.GroupIDs,
@@ -386,6 +397,13 @@ func (h *OpenAIOAuthHandler) CreateAccountFromCodexPAT(c *gin.Context) {
 		response.BadRequest(c, "load_factor must be <= 10000")
 		return
 	}
+	proxyIDs, proxyID, err := resolveRequestedAccountProxyIDs(c.Request.Context(), h.adminService, req.ProxyIDs, req.ProxyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	req.ProxyIDs = proxyIDs
+	req.ProxyID = proxyID
 
 	var proxyURL string
 	if req.ProxyID != nil {
@@ -437,6 +455,7 @@ func (h *OpenAIOAuthHandler) CreateAccountFromCodexPAT(c *gin.Context) {
 		Credentials:           credentials,
 		Extra:                 extra,
 		ProxyID:               req.ProxyID,
+		ProxyIDs:              req.ProxyIDs,
 		Concurrency:           concurrency,
 		Priority:              priority,
 		RateMultiplier:        req.RateMultiplier,
