@@ -808,7 +808,7 @@ exit "$code"
         if self.manifest.get("schema") == 2:
             self.migration_preflight_v2()
             return
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             return
         assertion_context = f"{self.state_dir}/migration-preflight-context.sh"
         profile_name = self.profile["name"]
@@ -872,7 +872,7 @@ exit "$code"
             self.stage("migration_195_preflight_failed", failure)
             raise
         self.stage("migration_195_preflight_verified", values)
-        if self.profile["name"] in {"232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if self.profile["name"] in {"232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             if self.migration_232_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 232 preflight status is unknown")
             self.stage("migration_232_preflight")
@@ -888,7 +888,7 @@ exit "$code"
                 },
             )
             self.stage("migration_232_preflight_verified", values)
-        if self.profile["name"] in {"233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if self.profile["name"] in {"233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             if self.migration_233_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 233 preflight status is unknown")
             self.stage("migration_233_preflight")
@@ -924,9 +924,9 @@ exit "$code"
                 self.stage("migration_233_preflight_failed", failure)
                 raise
             self.stage("migration_233_preflight_verified", values)
-        if self.profile["name"] in {"235", "236", "237", "238", "239", "240", "241", "242"} and self.migration_234_status not in {"absent", "verified"}:
+        if self.profile["name"] in {"235", "236", "237", "238", "239", "240", "241", "242", "243"} and self.migration_234_status not in {"absent", "verified"}:
             raise RuntimeError("migration 234 preflight status is unknown")
-        if self.profile["name"] in {"235", "236", "237", "238", "239", "240", "241", "242"}:
+        if self.profile["name"] in {"235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             self.stage("migration_234_preflight")
             env = assertion_env(self.migration_234_status)
             values = self.run_remote(
@@ -935,7 +935,7 @@ exit "$code"
                 {"migration_234_schema_state", "migration_234_schema_verified", "migration_234_preflight"},
             )
             self.stage("migration_234_preflight_verified", values)
-        if self.profile["name"] in {"237", "238", "239", "240", "241", "242"}:
+        if self.profile["name"] in {"237", "238", "239", "240", "241", "242", "243"}:
             for number, status, script_name, fields in (
                 (235, self.migration_235_status, "migration-235-assert.sh", {"migration_235_schema_state", "migration_235_preflight"}),
                 (236, self.migration_236_status, "migration-236-assert.sh", {"migration_236_schema_state", "migration_236_preflight"}),
@@ -946,7 +946,7 @@ exit "$code"
                 env = assertion_env(status)
                 values = self.run_remote("racknerd", f"{env} {self.active_assets}/{script_name} preflight", fields)
                 self.stage(f"migration_{number}_preflight_verified", values)
-        if self.profile["name"] in {"238", "239", "240", "241", "242"}:
+        if self.profile["name"] in {"238", "239", "240", "241", "242", "243"}:
             if self.migration_237_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 237 preflight status is unknown")
             self.stage("migration_237_preflight")
@@ -957,7 +957,7 @@ exit "$code"
                 {"migration_237_schema_state", "migration_237_preflight", "migration_237_postflight"},
             )
             self.stage("migration_237_preflight_verified", values)
-        if self.profile["name"] in {"239", "240", "241", "242"}:
+        if self.profile["name"] in {"239", "240", "241", "242", "243"}:
             if self.migration_238_status not in {"absent", "verified"}:
                 raise RuntimeError("migration 238 preflight status is unknown")
             self.stage("migration_238_preflight")
@@ -1009,7 +1009,7 @@ exit "$code"
         if self.manifest.get("schema") == 2:
             self.bind_migration_plan_v2()
             return
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             return
         self.stage("migration_195_bind_recovery_point")
         env = quoted_env({"RELEASE_DIR": self.release_dir, "DEPLOYMENT_MODE": self.deployment_mode})
@@ -1019,7 +1019,7 @@ exit "$code"
             {"migration_195_plan_sha256", "migration_195_recovery_sha256"},
         )
         self.stage("migration_195_plan_bound", values)
-        if self.profile["name"] in {"232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if self.profile["name"] in {"232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             self.stage("migration_232_bind_recovery_point")
             env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_232_status})
             values = self.run_remote(
@@ -1028,7 +1028,7 @@ exit "$code"
                 {"migration_232_plan_sha256", "migration_232_recovery_sha256"},
             )
             self.stage("migration_232_plan_bound", values)
-        if self.profile["name"] in {"239", "240", "241", "242"}:
+        if self.profile["name"] in {"239", "240", "241", "242", "243"}:
             self.stage("migration_239_bind_recovery_point")
             env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": self.migration_239_status})
             values = self.run_remote(
@@ -1070,7 +1070,7 @@ exit "$code"
             "background_activation",
             "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
         }
-        if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.update({
                 "migration_195_affected", "migration_195_unproven",
                 "migration_195_plan_sha256", "migration_195_database_postflight", "migration_195_postflight",
@@ -1078,34 +1078,34 @@ exit "$code"
                 "migration_195_account_mismatch", "migration_195_snapshot_missing", "migration_195_outbox_missing",
                 "migration_195_constraint_missing", "migration_195_trigger_missing",
             })
-        if getattr(self, "profile", {}).get("name") in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.add("managed_monitor_key_names_verified")
-        if getattr(self, "profile", {}).get("name") in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.add("reasoning_effort_policy_verified")
-        if getattr(self, "profile", {}).get("name") in {"202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.update({
                 "alipay_mobile_precreate_migration_verified",
                 "group_auth_cache_image_generation_verified",
                 "composite_model_routes_verified",
             })
-        if getattr(self, "profile", {}).get("name") in {"206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.update({
                 "session_id_columns_verified",
                 "live_request_type_verified",
                 "group_allow_live_verified",
                 "email_alias_index_verified",
             })
-        if getattr(self, "profile", {}).get("name") in {"208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.add("passkey_schema_verified")
-        if getattr(self, "profile", {}).get("name") in {"209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.add("user_usage_aggregation_schema_verified")
-        if getattr(self, "profile", {}).get("name") in {"212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.add("group_profit_control_schema_verified")
             allowed.add("group_profit_auth_cache_trigger_verified")
-        if getattr(self, "profile", {}).get("name") in {"215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.add("usage_log_upstream_model_columns_verified")
             allowed.add("usage_log_upstream_model_mismatch_index_verified")
-        if getattr(self, "profile", {}).get("name") in {"232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.update({
                 "migration_232_backup_rows",
                 "migration_232_remaining_rows",
@@ -1116,7 +1116,7 @@ exit "$code"
                 "group_media_pricing_schema_verified",
                 "group_media_auth_cache_trigger_verified",
             })
-        if getattr(self, "profile", {}).get("name") in {"233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.update({
                 "migration_233_duplicate_keys",
                 "migration_233_index_verified",
@@ -1127,21 +1127,21 @@ exit "$code"
                 "migration_233_trigger_verified",
                 "migration_233_postflight",
             })
-        if getattr(self, "profile", {}).get("name") in {"235", "236", "237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             allowed.update({"migration_234_schema_state", "migration_234_schema_verified", "migration_234_postflight"})
-        if getattr(self, "profile", {}).get("name") in {"237", "238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"237", "238", "239", "240", "241", "242", "243"}:
             allowed.update({
                 "migration_235_schema_state", "migration_235_schema_verified", "migration_235_postflight",
                 "migration_236_schema_state", "migration_236_schema_verified", "migration_236_postflight",
             })
-        if getattr(self, "profile", {}).get("name") in {"238", "239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"238", "239", "240", "241", "242", "243"}:
             allowed.update({
                 "migration_237_schema_state",
                 "migration_237_schema_verified",
                 "migration_237_preflight",
                 "migration_237_postflight",
             })
-        if getattr(self, "profile", {}).get("name") in {"239", "240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"239", "240", "241", "242", "243"}:
             allowed.update({
                 "migration_238_schema_state",
                 "migration_238_schema_verified",
@@ -1152,7 +1152,7 @@ exit "$code"
                 "migration_239_constraint_verified",
                 "migration_239_postflight",
             })
-        if getattr(self, "profile", {}).get("name") in {"240", "241", "242"}:
+        if getattr(self, "profile", {}).get("name") in {"240", "241", "242", "243"}:
             allowed.update({
                 "migration_240_schema_state",
                 "migration_240_schema_verified",
@@ -1163,10 +1163,10 @@ exit "$code"
                 "migration_241_preflight",
                 "migration_241_postflight",
             })
-        # Profile 242 uses Gate v2 and its switch script emits only the v2
-        # contract.  The legacy 242-245 migration fields belong exclusively
-        # to historical profile 241; requiring them for profile 242 turns a
-        # successful runtime switch into a false missing-field failure.
+        # Gate v2 profiles use a compact switch contract.  The legacy 242-245
+        # migration fields belong exclusively to historical profile 241;
+        # requiring them for a Gate v2 release turns a successful runtime
+        # switch into a false missing-field failure.
         if getattr(self, "profile", {}).get("name") in {"241"}:
             for number in (242, 243, 244, 245):
                 allowed.update({
@@ -1175,10 +1175,10 @@ exit "$code"
                     f"migration_{number}_preflight",
                     f"migration_{number}_postflight",
                 })
-        if getattr(self, "profile", {}).get("name") == "242":
+        if self.manifest.get("schema") == 2:
             # Gate v2 has a deliberately smaller switch contract.  Do not
             # inherit any of the legacy migration/schema evidence fields above:
-            # switch.sh profile 242 emits only these core runtime fields plus
+            # switch.sh for Gate v2 emits only these core runtime fields plus
             # the prompt-audit not-applicable triplet.
             allowed = {
                 "migration_verified", "running_image_id", "internal_health", "public_traffic_enabled",
@@ -1456,7 +1456,7 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
         if recovery_needed is None:
             raise RuntimeError("old application slot state is unknown")
         migration_committed = self.migration_started
-        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             migration_committed = self.remote_migration_committed()
             if migration_committed is None:
                 raise RuntimeError("migration 195 committed state is unknown")
@@ -1541,7 +1541,7 @@ fi
             except BaseException:
                 return None
             return {"true": True, "false": False}.get(value)
-        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242"}:
+        if self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}:
             return self.migration_started
         status_by_migration = {
             "195_upstream_scheduling_monitor_rates.sql": self.migration_195_status,

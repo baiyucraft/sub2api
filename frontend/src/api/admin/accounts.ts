@@ -762,14 +762,27 @@ export async function exportData(options?: {
   return data
 }
 
-export async function importData(payload: {
+export interface AdminDataImportOptions {
   data: AdminDataPayload
   skip_default_group_bind?: boolean
-}): Promise<AdminDataImportResult> {
-  const { data } = await apiClient.post<AdminDataImportResult>('/admin/accounts/data', {
+  copy_proxy_ids?: number[]
+  override_concurrency?: number
+  override_rate_multiplier?: number
+  override_codex_fingerprint_mode?: 'off' | 'device' | 'session' | 'full'
+}
+
+export async function importData(payload: AdminDataImportOptions): Promise<AdminDataImportResult> {
+  const request: Record<string, unknown> = {
     data: payload.data,
     skip_default_group_bind: payload.skip_default_group_bind
-  })
+  }
+  if (payload.copy_proxy_ids !== undefined) request.copy_proxy_ids = payload.copy_proxy_ids
+  if (payload.override_concurrency !== undefined) request.override_concurrency = payload.override_concurrency
+  if (payload.override_rate_multiplier !== undefined) request.override_rate_multiplier = payload.override_rate_multiplier
+  if (payload.override_codex_fingerprint_mode !== undefined) {
+    request.override_codex_fingerprint_mode = payload.override_codex_fingerprint_mode
+  }
+  const { data } = await apiClient.post<AdminDataImportResult>('/admin/accounts/data', request)
   return data
 }
 

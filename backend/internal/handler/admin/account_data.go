@@ -2,11 +2,14 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"log/slog"
 
@@ -74,9 +77,18 @@ type DataAccount struct {
 }
 
 type DataImportRequest struct {
-	Data                 DataPayload `json:"data"`
-	SkipDefaultGroupBind *bool       `json:"skip_default_group_bind"`
+	Data                         DataPayload `json:"data"`
+	SkipDefaultGroupBind         *bool       `json:"skip_default_group_bind"`
+	CopyProxyIDs                 []int64     `json:"copy_proxy_ids,omitempty"`
+	OverrideConcurrency          *int        `json:"override_concurrency,omitempty"`
+	OverrideRateMultiplier       *float64    `json:"override_rate_multiplier,omitempty"`
+	OverrideCodexFingerprintMode *string     `json:"override_codex_fingerprint_mode,omitempty"`
 }
+
+const (
+	maxImportCopyProxySlots   = 50
+	importAccountNameMaxRunes = 100
+)
 
 type DataImportResult struct {
 	ProxyCreated   int               `json:"proxy_created"`
@@ -241,8 +253,16 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if req.OverrideCodexFingerprintMode != nil {
+		normalizedMode := strings.ToLower(strings.TrimSpace(*req.OverrideCodexFingerprintMode))
+		req.OverrideCodexFingerprintMode = &normalizedMode
+	}
 
 	if err := validateDataHeader(req.Data); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if err := validateDataImportOptions(req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -253,6 +273,13 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 }
 
 func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) (DataImportResult, error) {
+	if err := validateDataImportOptions(req); err != nil {
+		return DataImportResult{}, infraerrors.BadRequest("INVALID_IMPORT_OPTIONS", err.Error())
+	}
+	if req.OverrideCodexFingerprintMode != nil {
+		normalizedMode := strings.ToLower(strings.TrimSpace(*req.OverrideCodexFingerprintMode))
+		req.OverrideCodexFingerprintMode = &normalizedMode
+	}
 	skipDefaultGroupBind := true
 	if req.SkipDefaultGroupBind != nil {
 		skipDefaultGroupBind = *req.SkipDefaultGroupBind
@@ -264,6 +291,22 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 	existingProxies, err := h.listAllProxies(ctx)
 	if err != nil {
 		return result, err
+	}
+
+	// Copy slots are validated before any account (or imported proxy) is created.
+	copyProxies := make([]service.Proxy, 0, len(req.CopyProxyIDs))
+	if len(req.CopyProxyIDs) > 0 {
+		byID := make(map[int64]service.Proxy, len(existingProxies))
+		for _, proxy := range existingProxies {
+			byID[proxy.ID] = proxy
+		}
+		for _, id := range req.CopyProxyIDs {
+			proxy, ok := byID[id]
+			if !ok || !proxy.IsActive() || proxy.IsExpired(time.Now()) {
+				return result, infraerrors.BadRequest("INVALID_COPY_PROXY", fmt.Sprintf("copy proxy id %d is not available", id))
+			}
+			copyProxies = append(copyProxies, proxy)
+		}
 	}
 
 	proxyKeyToID := make(map[string]int64, len(existingProxies))
@@ -410,68 +453,112 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 	var privacyAccounts []*service.Account
 
 	for i := range dataPayload.Accounts {
-		item := dataPayload.Accounts[i]
-		if err := validateDataAccount(item); err != nil {
-			result.AccountFailed++
-			result.Errors = append(result.Errors, DataImportError{
-				Kind:    "account",
-				Name:    item.Name,
-				Message: err.Error(),
-			})
+		source := dataPayload.Accounts[i]
+		copyCount := len(copyProxies)
+		if copyCount == 0 {
+			copyCount = 1
+		}
+		if err := validateDataAccount(source); err != nil {
+			for range copyCount {
+				result.AccountFailed++
+				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: source.Name, Message: err.Error()})
+			}
 			continue
 		}
+		for copyIndex := 0; copyIndex < copyCount; copyIndex++ {
+			item, cloneErr := cloneDataAccount(source)
+			if cloneErr != nil {
+				result.AccountFailed++
+				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: source.Name, Message: "failed to clone account data: " + cloneErr.Error()})
+				continue
+			}
+			// Fingerprint seeds are system-managed and must never be imported/copied.
+			if item.Extra != nil {
+				delete(item.Extra, "codex_fingerprint_seed")
+			}
+			var copyProxy *service.Proxy
+			if len(copyProxies) > 0 {
+				copyProxy = &copyProxies[copyIndex]
+				proxyName := strings.TrimSpace(copyProxy.Name)
+				if proxyName == "" {
+					proxyName = net.JoinHostPort(copyProxy.Host, strconv.Itoa(copyProxy.Port))
+				}
+				item.Name = strings.TrimSpace(source.Name) + " - " + proxyName
+				if utf8.RuneCountInString(item.Name) > importAccountNameMaxRunes {
+					result.AccountFailed++
+					result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: "generated account name exceeds 100 characters"})
+					continue
+				}
+			}
+			if req.OverrideConcurrency != nil {
+				item.Concurrency = *req.OverrideConcurrency
+			}
+			if req.OverrideRateMultiplier != nil {
+				value := *req.OverrideRateMultiplier
+				item.RateMultiplier = &value
+			}
+			if req.OverrideCodexFingerprintMode != nil && isOpenAIOAuthLikeImport(item) {
+				if item.Extra == nil {
+					item.Extra = make(map[string]any)
+				}
+				item.Extra["codex_fingerprint_mode"] = strings.TrimSpace(*req.OverrideCodexFingerprintMode)
+			}
 
-		var proxyID *int64
-		if item.ProxyKey != nil && *item.ProxyKey != "" {
-			if id, ok := proxyKeyToID[*item.ProxyKey]; ok {
+			var proxyID *int64
+			if copyProxy != nil {
+				id := copyProxy.ID
 				proxyID = &id
-			} else {
+			} else if item.ProxyKey != nil && *item.ProxyKey != "" {
+				if id, ok := proxyKeyToID[*item.ProxyKey]; ok {
+					proxyID = &id
+				} else {
+					result.AccountFailed++
+					result.Errors = append(result.Errors, DataImportError{
+						Kind:     "account",
+						Name:     item.Name,
+						ProxyKey: *item.ProxyKey,
+						Message:  "proxy_key not found",
+					})
+					continue
+				}
+			}
+
+			enrichCredentialsFromIDToken(&item)
+
+			accountInput := &service.CreateAccountInput{
+				Name:                 item.Name,
+				Notes:                item.Notes,
+				Platform:             item.Platform,
+				Type:                 item.Type,
+				Credentials:          item.Credentials,
+				Extra:                item.Extra,
+				ProxyID:              proxyID,
+				Concurrency:          item.Concurrency,
+				Priority:             item.Priority,
+				RateMultiplier:       item.RateMultiplier,
+				GroupIDs:             nil,
+				ExpiresAt:            item.ExpiresAt,
+				AutoPauseOnExpired:   item.AutoPauseOnExpired,
+				SkipDefaultGroupBind: skipDefaultGroupBind,
+			}
+
+			created, err := h.adminService.CreateAccount(ctx, accountInput)
+			if err != nil {
 				result.AccountFailed++
 				result.Errors = append(result.Errors, DataImportError{
-					Kind:     "account",
-					Name:     item.Name,
-					ProxyKey: *item.ProxyKey,
-					Message:  "proxy_key not found",
+					Kind:    "account",
+					Name:    item.Name,
+					Message: err.Error(),
 				})
 				continue
 			}
+			// 收集 Antigravity OAuth 账号，稍后异步设置隐私
+			if created.Platform == service.PlatformAntigravity && created.Type == service.AccountTypeOAuth {
+				privacyAccounts = append(privacyAccounts, created)
+			}
+			h.scheduleGrokImportProbe(created)
+			result.AccountCreated++
 		}
-
-		enrichCredentialsFromIDToken(&item)
-
-		accountInput := &service.CreateAccountInput{
-			Name:                 item.Name,
-			Notes:                item.Notes,
-			Platform:             item.Platform,
-			Type:                 item.Type,
-			Credentials:          item.Credentials,
-			Extra:                item.Extra,
-			ProxyID:              proxyID,
-			Concurrency:          item.Concurrency,
-			Priority:             item.Priority,
-			RateMultiplier:       item.RateMultiplier,
-			GroupIDs:             nil,
-			ExpiresAt:            item.ExpiresAt,
-			AutoPauseOnExpired:   item.AutoPauseOnExpired,
-			SkipDefaultGroupBind: skipDefaultGroupBind,
-		}
-
-		created, err := h.adminService.CreateAccount(ctx, accountInput)
-		if err != nil {
-			result.AccountFailed++
-			result.Errors = append(result.Errors, DataImportError{
-				Kind:    "account",
-				Name:    item.Name,
-				Message: err.Error(),
-			})
-			continue
-		}
-		// 收集 Antigravity OAuth 账号，稍后异步设置隐私
-		if created.Platform == service.PlatformAntigravity && created.Type == service.AccountTypeOAuth {
-			privacyAccounts = append(privacyAccounts, created)
-		}
-		h.scheduleGrokImportProbe(created)
-		result.AccountCreated++
 	}
 
 	// 异步设置 Antigravity 隐私，避免大量导入时阻塞请求
@@ -659,6 +746,48 @@ func validateDataHeader(payload DataPayload) error {
 		return errors.New("accounts is required")
 	}
 	return nil
+}
+
+func validateDataImportOptions(req DataImportRequest) error {
+	if len(req.CopyProxyIDs) > maxImportCopyProxySlots {
+		return fmt.Errorf("copy_proxy_ids must contain at most %d proxies", maxImportCopyProxySlots)
+	}
+	for _, id := range req.CopyProxyIDs {
+		if id <= 0 {
+			return fmt.Errorf("copy proxy id %d is invalid", id)
+		}
+	}
+	if req.OverrideConcurrency != nil && *req.OverrideConcurrency < 0 {
+		return errors.New("override_concurrency must be >= 0")
+	}
+	if req.OverrideRateMultiplier != nil && *req.OverrideRateMultiplier < 0 {
+		return errors.New("override_rate_multiplier must be >= 0")
+	}
+	if req.OverrideCodexFingerprintMode != nil {
+		switch strings.ToLower(strings.TrimSpace(*req.OverrideCodexFingerprintMode)) {
+		case "off", "device", "session", "full":
+		default:
+			return fmt.Errorf("override_codex_fingerprint_mode is invalid: %q", *req.OverrideCodexFingerprintMode)
+		}
+	}
+	return nil
+}
+
+func cloneDataAccount(source DataAccount) (DataAccount, error) {
+	payload, err := json.Marshal(source)
+	if err != nil {
+		return DataAccount{}, err
+	}
+	var clone DataAccount
+	if err := json.Unmarshal(payload, &clone); err != nil {
+		return DataAccount{}, err
+	}
+	return clone, nil
+}
+
+func isOpenAIOAuthLikeImport(item DataAccount) bool {
+	return strings.EqualFold(strings.TrimSpace(item.Platform), service.PlatformOpenAI) &&
+		(strings.EqualFold(strings.TrimSpace(item.Type), service.AccountTypeOAuth) || strings.EqualFold(strings.TrimSpace(item.Type), service.AccountTypeSetupToken))
 }
 
 func validateDataProxy(item DataProxy) error {

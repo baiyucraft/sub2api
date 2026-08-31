@@ -252,6 +252,24 @@ class Audit:
             if not profile:
                 self.add("blocker", "historical_profile_missing", "历史 profile 不存在", profile=name)
                 continue
+            if expected.get("gate_schema") == 2:
+                actual_contract = {
+                    "version": profile.get("version"),
+                    "parent": profile.get("parent"),
+                    "gate_schema": profile.get("gate_schema"),
+                    "new_migrations": profile.get("new_migrations"),
+                    "release_policy": profile.get("release_policy"),
+                }
+                mismatches = {
+                    key: {"expected": value, "actual": actual_contract.get(key)}
+                    for key, value in expected.items()
+                    if key != "status" and actual_contract.get(key) != value
+                }
+                if mismatches:
+                    self.add("blocker", "historical_profile_drift", "历史 Gate v2 profile 合同漂移", profile=name, mismatches=mismatches)
+                else:
+                    self.add("pass", "historical_profile_contract", "历史 profile 合同保持不变", profile=name)
+                continue
             migrations = profile.get("migrations", [])
             migration_map: dict[str, str] = {}
             missing = []
@@ -283,8 +301,19 @@ class Audit:
         if not profile:
             self.add("blocker", "current_profile_missing", "当前 profile 不存在", profile=name)
             return
+        # Older standalone audit fixtures may expose only PROFILES.  When the
+        # source declares an explicit current pointer, enforce it; otherwise
+        # retain the legacy fixture contract and validate the catalog/profile
+        # fields below.
+        if "CURRENT_RELEASE_PROFILE" in namespace:
+            declared_current = str(namespace.get("CURRENT_RELEASE_PROFILE", ""))
+            if declared_current != name:
+                self.add("blocker", "current_profile_pointer_drift", "CURRENT_RELEASE_PROFILE 未指向审计目录声明的当前 profile", expected=name, actual=declared_current)
+        fork_version = (self.show(self.head, "backend/cmd/server/VERSION") or "").strip()
+        if fork_version and profile.get("version") != fork_version:
+            self.add("blocker", "current_profile_version_drift", "当前 profile 版本与 fork VERSION 不一致", profile=name, profile_version=profile.get("version"), fork_version=fork_version)
 
-        # Gate v2 profile 242 deliberately does not carry the legacy ordered
+        # Gate v2 profiles deliberately do not carry the legacy ordered
         # migration/compatibility contract. Its release manifest binds the
         # migration catalog and production compatibility at release time.
         if profile.get("gate_schema") == 2:

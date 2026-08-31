@@ -51,6 +51,69 @@
         />
       </div>
 
+      <div v-if="previewAccountCount > 0" class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.dataImportCopyProxies') }}</div>
+            <div class="text-xs text-gray-500 dark:text-dark-400">
+              {{ copyProxyIds.length
+                ? t('admin.accounts.dataImportCopyCount', { count: previewAccountCount * copyProxyIds.length })
+                : t('admin.accounts.dataImportCompatMode') }}
+            </div>
+          </div>
+          <button type="button" class="btn btn-ghost shrink-0" :disabled="copyProxyIds.length >= 50 || proxiesLoading" @click="addCopyProxy">
+            {{ t('admin.accounts.dataImportAddCopy') }}
+          </button>
+        </div>
+        <div v-if="proxiesLoading" class="text-xs text-gray-500 dark:text-dark-400">{{ t('common.loading') }}</div>
+        <div v-else-if="copyProxyIds.length" class="space-y-2">
+          <div v-for="(proxyId, index) in copyProxyIds" :key="`copy-proxy-${index}`" class="flex items-center gap-2">
+            <span class="w-6 text-center text-xs text-gray-500">{{ index + 1 }}</span>
+            <div class="min-w-0 flex-1">
+              <Select
+                :model-value="proxyId"
+                :options="proxyOptions"
+                :placeholder="t('admin.accounts.dataImportSelectProxy')"
+                searchable
+                :aria-label="t('admin.accounts.dataImportSelectProxy')"
+                @update:model-value="(value) => setCopyProxy(index, value)"
+              />
+            </div>
+            <button
+              type="button"
+              class="btn btn-secondary inline-flex h-9 w-9 items-center justify-center p-0"
+              :aria-label="t('admin.accounts.dataImportRemoveCopy')"
+              :title="t('admin.accounts.dataImportRemoveCopy')"
+              @click="removeCopyProxy(index)"
+            >
+              <Icon name="x" size="sm" />
+            </button>
+          </div>
+          <div v-if="previewName" class="text-xs text-gray-500 dark:text-dark-400">
+            {{ t('admin.accounts.dataImportPreviewName', { name: previewName }) }}
+          </div>
+        </div>
+        <div v-else class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.accounts.dataImportCompatMode') }}</div>
+      </div>
+
+      <div v-if="previewAccountCount > 0" class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.dataImportOverrides') }}</div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.dataImportConcurrency') }}</label>
+            <input v-model="overrideConcurrency" class="input" type="number" min="0" step="1" :placeholder="t('admin.accounts.dataImportKeepOriginal')" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.dataImportRateMultiplier') }}</label>
+            <input v-model="overrideRateMultiplier" class="input" type="number" min="0" step="0.001" :placeholder="t('admin.accounts.dataImportKeepOriginal')" />
+          </div>
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.dataImportCodexFingerprint') }}</label>
+          <Select v-model="overrideCodexFingerprintMode" :options="codexFingerprintOptions" clearable :placeholder="t('admin.accounts.dataImportKeepOriginal')" />
+        </div>
+      </div>
+
       <div
         v-if="result"
         class="space-y-2 rounded-xl border border-gray-200 p-4 dark:border-dark-700"
@@ -99,9 +162,11 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import Select, { type SelectOption } from '@/components/common/Select.vue'
+import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
-import type { AdminDataImportResult, AdminDataPayload } from '@/types'
+import type { AdminDataImportResult, AdminDataPayload, Proxy } from '@/types'
 
 interface Props {
   show: boolean
@@ -124,6 +189,15 @@ const dragDepth = ref(0)
 const dragActive = computed(() => dragDepth.value > 0)
 const hasCreatedData = ref(false)
 const result = ref<AdminDataImportResult | null>(null)
+const proxies = ref<Proxy[]>([])
+const proxiesLoading = ref(false)
+const copyProxyIds = ref<number[]>([])
+const overrideConcurrency = ref('')
+const overrideRateMultiplier = ref('')
+const overrideCodexFingerprintMode = ref<'off' | 'device' | 'session' | 'full' | null>(null)
+const previewAccountCount = ref(0)
+const previewName = ref('')
+const previewBaseName = ref('')
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedFilesLabel = computed(() => {
@@ -134,6 +208,16 @@ const selectedFilesLabel = computed(() => {
 const fileListTitle = computed(() => files.value.map((item) => item.name).join(', '))
 
 const errorItems = computed(() => result.value?.errors || [])
+const proxyOptions = computed<SelectOption[]>(() => proxies.value.map((proxy) => ({
+  value: proxy.id,
+  label: proxy.name || `${proxy.host}:${proxy.port}`
+})))
+const codexFingerprintOptions = computed<SelectOption[]>(() => [
+  { value: 'off', label: t('admin.accounts.codexFingerprintOff') },
+  { value: 'device', label: t('admin.accounts.codexFingerprintDevice') },
+  { value: 'session', label: t('admin.accounts.codexFingerprintSession') },
+  { value: 'full', label: t('admin.accounts.codexFingerprintFull') }
+])
 
 watch(
   () => props.show,
@@ -143,12 +227,52 @@ watch(
       dragDepth.value = 0
       hasCreatedData.value = false
       result.value = null
+      copyProxyIds.value = []
+      overrideConcurrency.value = ''
+      overrideRateMultiplier.value = ''
+      overrideCodexFingerprintMode.value = null
+      previewAccountCount.value = 0
+      previewName.value = ''
+      previewBaseName.value = ''
+      proxiesLoading.value = true
+      Promise.resolve().then(() => adminAPI.proxies.getAll()).then((items) => {
+        proxies.value = items.filter((proxy) => proxy.status === 'active')
+        if (files.value.length) void updatePreview(files.value)
+      }).catch(() => {
+        proxies.value = []
+      }).finally(() => {
+        proxiesLoading.value = false
+      })
       if (fileInput.value) {
         fileInput.value.value = ''
       }
     }
-  }
+  },
+  { immediate: true }
 )
+
+watch([copyProxyIds, proxies], () => {
+  if (!previewBaseName.value || !copyProxyIds.value.length) return
+  const suffix = proxies.value.find((item) => item.id === copyProxyIds.value[0])
+  if (!suffix) return
+  previewName.value = `${previewBaseName.value} - ${suffix.name || `${suffix.host}:${suffix.port}`}`
+}, { deep: true })
+
+const addCopyProxy = () => {
+  if (copyProxyIds.value.length >= 50 || proxies.value.length === 0) return
+  copyProxyIds.value.push(proxies.value[0]?.id ?? 0)
+}
+
+const setCopyProxy = (index: number, value: unknown) => {
+  const id = Number(value)
+  if (!Number.isInteger(id) || id <= 0) return
+  copyProxyIds.value[index] = id
+}
+
+const removeCopyProxy = (index: number) => {
+  copyProxyIds.value.splice(index, 1)
+  if (copyProxyIds.value.length === 0) previewName.value = ''
+}
 
 const openFilePicker = () => {
   fileInput.value?.click()
@@ -189,6 +313,30 @@ const setSelectedFiles = (sourceFiles: FileList | File[] | null | undefined) => 
   }
   files.value = picked
   result.value = null
+  previewAccountCount.value = 0
+  previewName.value = ''
+  previewBaseName.value = ''
+  void updatePreview(picked)
+}
+
+const updatePreview = async (sourceFiles: File[]) => {
+  let count = 0
+  let firstName = ''
+  for (const sourceFile of sourceFiles) {
+    try {
+      const parsed = JSON.parse(await readFileAsText(sourceFile))
+      if (isValidDataPayload(parsed)) {
+        count += parsed.accounts.length
+        if (!firstName && parsed.accounts[0]?.name) firstName = parsed.accounts[0].name
+      }
+    } catch {
+      // Full validation and user-facing errors remain in handleImport.
+    }
+  }
+  previewAccountCount.value = count
+  const proxy = proxies.value.find((item) => item.id === copyProxyIds.value[0])
+  previewBaseName.value = firstName
+  previewName.value = firstName && proxy ? `${firstName} - ${proxy.name || `${proxy.host}:${proxy.port}`}` : ''
 }
 
 const handleDragEnter = () => {
@@ -278,6 +426,29 @@ const handleImport = async () => {
 
   importing.value = true
   try {
+    if (copyProxyIds.value.length > 0) {
+      const validProxyIds = new Set(proxies.value.map((proxy) => proxy.id))
+      if (copyProxyIds.value.some((id) => !Number.isInteger(id) || id <= 0 || !validProxyIds.has(id))) {
+        appStore.showError(t('admin.accounts.dataImportInvalidProxy'))
+        return
+      }
+    }
+    let concurrencyOverride: number | undefined
+    if (overrideConcurrency.value.trim()) {
+      concurrencyOverride = Number(overrideConcurrency.value)
+      if (!Number.isInteger(concurrencyOverride) || concurrencyOverride < 0) {
+        appStore.showError(t('admin.accounts.dataImportInvalidConcurrency'))
+        return
+      }
+    }
+    let rateOverride: number | undefined
+    if (overrideRateMultiplier.value.trim()) {
+      rateOverride = Number(overrideRateMultiplier.value)
+      if (!Number.isFinite(rateOverride) || rateOverride < 0) {
+        appStore.showError(t('admin.accounts.dataImportInvalidRateMultiplier'))
+        return
+      }
+    }
     const dataPayloads: AdminDataPayload[] = []
     for (const sourceFile of files.value) {
       let parsed: unknown
@@ -297,10 +468,17 @@ const handleImport = async () => {
     }
     const dataPayload = mergeDataPayloads(dataPayloads)
 
-    const res = await adminAPI.accounts.importData({
+    const importOptions: Parameters<typeof adminAPI.accounts.importData>[0] = {
       data: dataPayload,
       skip_default_group_bind: true
-    })
+    }
+    if (copyProxyIds.value.length > 0) importOptions.copy_proxy_ids = [...copyProxyIds.value]
+    if (concurrencyOverride !== undefined) importOptions.override_concurrency = concurrencyOverride
+    if (rateOverride !== undefined) importOptions.override_rate_multiplier = rateOverride
+    if (overrideCodexFingerprintMode.value) {
+      importOptions.override_codex_fingerprint_mode = overrideCodexFingerprintMode.value
+    }
+    const res = await adminAPI.accounts.importData(importOptions)
 
     result.value = res
 

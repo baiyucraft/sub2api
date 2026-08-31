@@ -60,7 +60,7 @@ preflight_phase=migration_contract
 manifest_schema=$(jq -er '.manifest.schema' "$active_claim/gate.json")
 if [[ $manifest_schema == 2 ]]; then
   [[ $(jq -er '.gate_version' "$active_claim/gate.json") == 2 ]]
-  [[ $(jq -er '.profile_id' "$active_claim/gate.json") == 242 ]]
+  [[ $(jq -er '.profile_id' "$active_claim/gate.json") == "$(jq -er '.manifest.profile' "$active_claim/gate.json")" ]]
   [[ "$active_image" == "$(jq -er '.evidence.production_current_image_id' "$active_claim/gate.json")" ]]
   snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
   printf '%s' "$snapshot_rows" | jq -e 'type == "array"' >/dev/null
