@@ -152,7 +152,6 @@ vi.mock('vue-i18n', async () => {
 })
 
 import CreateAccountModal from '../CreateAccountModal.vue'
-import OrderedProxySelector from '../OrderedProxySelector.vue'
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -217,9 +216,9 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function mountModal(proxies: any[] = []) {
+function mountModal() {
   return mount(CreateAccountModal, {
-    props: { show: false, proxies, groups: [] },
+    props: { show: false, proxies: [], groups: [] },
     global: {
       stubs: {
         BaseDialog: BaseDialogStub,
@@ -309,32 +308,6 @@ describe('CreateAccountModal upstream account name', () => {
         pool_mode_retry_count: 5,
         pool_mode_retry_status_codes: [429, 503]
       })
-    }))
-  })
-
-  it('clears hidden proxy bindings when switching to an upstream config', async () => {
-    const wrapper = mountModal([
-      { id: 11, name: 'Hong Kong', status: 'active', expires_at: null },
-      { id: 12, name: 'Tokyo', status: 'active', expires_at: null }
-    ])
-    await wrapper.setProps({ show: true })
-    await flushPromises()
-    wrapper.getComponent(OrderedProxySelector).vm.$emit('update:modelValue', [11, 12])
-    await wrapper.vm.$nextTick()
-    expect(wrapper.getComponent(OrderedProxySelector).props('modelValue')).toEqual([11, 12])
-
-    await wrapper.get('[data-testid="upstream-account-category"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.findComponent(OrderedProxySelector).exists()).toBe(false)
-    await wrapper.get('[data-testid="upstream-config-select"]').setValue('1')
-    await flushPromises()
-    await wrapper.get('[data-testid="upstream-key-selector"]').trigger('click')
-    await wrapper.get('#create-account-form').trigger('submit')
-    await flushPromises()
-
-    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
-      proxy_id: null,
-      proxy_ids: []
     }))
   })
 

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"log/slog"
 
@@ -67,7 +69,6 @@ type DataAccount struct {
 	Credentials        map[string]any `json:"credentials"`
 	Extra              map[string]any `json:"extra,omitempty"`
 	ProxyKey           *string        `json:"proxy_key,omitempty"`
-	ProxyKeys          []string       `json:"proxy_keys,omitempty"`
 	Concurrency        int            `json:"concurrency"`
 	Priority           int            `json:"priority"`
 	RateMultiplier     *float64       `json:"rate_multiplier,omitempty"`
@@ -78,15 +79,14 @@ type DataAccount struct {
 type DataImportRequest struct {
 	Data                         DataPayload `json:"data"`
 	SkipDefaultGroupBind         *bool       `json:"skip_default_group_bind"`
-	ProxyIDs                     *[]int64    `json:"proxy_ids,omitempty"`
-	CopyProxyIDs                 *[]int64    `json:"copy_proxy_ids,omitempty"`
+	CopyProxyIDs                 []int64     `json:"copy_proxy_ids,omitempty"`
 	OverrideConcurrency          *int        `json:"override_concurrency,omitempty"`
 	OverrideRateMultiplier       *float64    `json:"override_rate_multiplier,omitempty"`
 	OverrideCodexFingerprintMode *string     `json:"override_codex_fingerprint_mode,omitempty"`
 }
 
 const (
-	maxImportProxySlots       = 50
+	maxImportCopyProxySlots   = 50
 	importAccountNameMaxRunes = 100
 )
 
@@ -210,20 +210,10 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 	for i := range accounts {
 		acc := accounts[i]
 		var proxyKey *string
-		proxyKeys := make([]string, 0, len(acc.ProxyIDs))
-		for _, proxyID := range acc.ProxyIDs {
-			if key, ok := proxyKeyByID[proxyID]; ok {
-				proxyKeys = append(proxyKeys, key)
-			}
-		}
-		if len(proxyKeys) == 0 && acc.ProxyID != nil {
+		if acc.ProxyID != nil {
 			if key, ok := proxyKeyByID[*acc.ProxyID]; ok {
-				proxyKeys = append(proxyKeys, key)
+				proxyKey = &key
 			}
-		}
-		if len(proxyKeys) > 0 {
-			key := proxyKeys[0]
-			proxyKey = &key
 		}
 		var expiresAt *int64
 		if acc.ExpiresAt != nil {
@@ -238,7 +228,6 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 			Credentials:        acc.Credentials,
 			Extra:              acc.Extra,
 			ProxyKey:           proxyKey,
-			ProxyKeys:          proxyKeys,
 			Concurrency:        acc.Concurrency,
 			Priority:           acc.Priority,
 			RateMultiplier:     acc.RateMultiplier,
@@ -304,25 +293,19 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 		return result, err
 	}
 
-	// Explicit account proxy bindings and copy slots have distinct semantics.
-	requestProxyIDs := req.ProxyIDs
-	copyProxyIDs := req.CopyProxyIDs
-	if requestProxyIDs != nil && copyProxyIDs != nil {
-		return result, infraerrors.BadRequest("AMBIGUOUS_ACCOUNT_PROXY_OPTIONS", "proxy_ids and copy_proxy_ids cannot be used together")
-	}
-	if requestProxyIDs == nil {
-		requestProxyIDs = copyProxyIDs
-	}
-	if requestProxyIDs != nil {
+	// Copy slots are validated before any account (or imported proxy) is created.
+	copyProxies := make([]service.Proxy, 0, len(req.CopyProxyIDs))
+	if len(req.CopyProxyIDs) > 0 {
 		byID := make(map[int64]service.Proxy, len(existingProxies))
 		for _, proxy := range existingProxies {
 			byID[proxy.ID] = proxy
 		}
-		for _, id := range *requestProxyIDs {
+		for _, id := range req.CopyProxyIDs {
 			proxy, ok := byID[id]
 			if !ok || !proxy.IsActive() || proxy.IsExpired(time.Now()) {
-				return result, infraerrors.BadRequest("INVALID_ACCOUNT_PROXY", fmt.Sprintf("proxy id %d is not available", id))
+				return result, infraerrors.BadRequest("INVALID_COPY_PROXY", fmt.Sprintf("copy proxy id %d is not available", id))
 			}
+			copyProxies = append(copyProxies, proxy)
 		}
 	}
 
@@ -471,28 +454,41 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 
 	for i := range dataPayload.Accounts {
 		source := dataPayload.Accounts[i]
+		copyCount := len(copyProxies)
+		if copyCount == 0 {
+			copyCount = 1
+		}
 		if err := validateDataAccount(source); err != nil {
-			result.AccountFailed++
-			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: source.Name, Message: err.Error()})
+			for range copyCount {
+				result.AccountFailed++
+				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: source.Name, Message: err.Error()})
+			}
 			continue
 		}
-		// proxy_ids (and legacy copy_proxy_ids) bind all selected proxies to one
-		// imported account; they never create account copies.
-		{
+		for copyIndex := 0; copyIndex < copyCount; copyIndex++ {
 			item, cloneErr := cloneDataAccount(source)
 			if cloneErr != nil {
 				result.AccountFailed++
-				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: dataPayload.Accounts[i].Name, Message: "failed to clone account data: " + cloneErr.Error()})
+				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: source.Name, Message: "failed to clone account data: " + cloneErr.Error()})
 				continue
 			}
-			if err := validateDataAccount(item); err != nil {
-				result.AccountFailed++
-				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: err.Error()})
-				continue
-			}
-			// Fingerprint seeds are system-managed and must never be imported.
+			// Fingerprint seeds are system-managed and must never be imported/copied.
 			if item.Extra != nil {
 				delete(item.Extra, "codex_fingerprint_seed")
+			}
+			var copyProxy *service.Proxy
+			if len(copyProxies) > 0 {
+				copyProxy = &copyProxies[copyIndex]
+				proxyName := strings.TrimSpace(copyProxy.Name)
+				if proxyName == "" {
+					proxyName = net.JoinHostPort(copyProxy.Host, strconv.Itoa(copyProxy.Port))
+				}
+				item.Name = strings.TrimSpace(source.Name) + " - " + proxyName
+				if utf8.RuneCountInString(item.Name) > importAccountNameMaxRunes {
+					result.AccountFailed++
+					result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: "generated account name exceeds 100 characters"})
+					continue
+				}
 			}
 			if req.OverrideConcurrency != nil {
 				item.Concurrency = *req.OverrideConcurrency
@@ -508,26 +504,21 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 				item.Extra["codex_fingerprint_mode"] = strings.TrimSpace(*req.OverrideCodexFingerprintMode)
 			}
 
-			var proxyIDs []int64
-			if requestProxyIDs != nil {
-				proxyIDs = append([]int64{}, (*requestProxyIDs)...)
-			} else {
-				proxyKeys := item.ProxyKeys
-				if len(proxyKeys) == 0 && item.ProxyKey != nil && strings.TrimSpace(*item.ProxyKey) != "" {
-					proxyKeys = []string{*item.ProxyKey}
-				}
-				var missingProxyKey string
-				for _, proxyKey := range proxyKeys {
-					id, ok := proxyKeyToID[proxyKey]
-					if !ok {
-						missingProxyKey = proxyKey
-						break
-					}
-					proxyIDs = append(proxyIDs, id)
-				}
-				if missingProxyKey != "" {
+			var proxyID *int64
+			if copyProxy != nil {
+				id := copyProxy.ID
+				proxyID = &id
+			} else if item.ProxyKey != nil && *item.ProxyKey != "" {
+				if id, ok := proxyKeyToID[*item.ProxyKey]; ok {
+					proxyID = &id
+				} else {
 					result.AccountFailed++
-					result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, ProxyKey: missingProxyKey, Message: "proxy_key not found"})
+					result.Errors = append(result.Errors, DataImportError{
+						Kind:     "account",
+						Name:     item.Name,
+						ProxyKey: *item.ProxyKey,
+						Message:  "proxy_key not found",
+					})
 					continue
 				}
 			}
@@ -541,6 +532,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 				Type:                 item.Type,
 				Credentials:          item.Credentials,
 				Extra:                item.Extra,
+				ProxyID:              proxyID,
 				Concurrency:          item.Concurrency,
 				Priority:             item.Priority,
 				RateMultiplier:       item.RateMultiplier,
@@ -549,16 +541,18 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 				AutoPauseOnExpired:   item.AutoPauseOnExpired,
 				SkipDefaultGroupBind: skipDefaultGroupBind,
 			}
-			if requestProxyIDs != nil || len(proxyIDs) > 0 {
-				accountInput.ProxyIDs = &proxyIDs
-			}
 
 			created, err := h.adminService.CreateAccount(ctx, accountInput)
 			if err != nil {
 				result.AccountFailed++
-				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: err.Error()})
+				result.Errors = append(result.Errors, DataImportError{
+					Kind:    "account",
+					Name:    item.Name,
+					Message: err.Error(),
+				})
 				continue
 			}
+			// 收集 Antigravity OAuth 账号，稍后异步设置隐私
 			if created.Platform == service.PlatformAntigravity && created.Type == service.AccountTypeOAuth {
 				privacyAccounts = append(privacyAccounts, created)
 			}
@@ -674,20 +668,18 @@ func (h *AccountHandler) resolveExportProxies(ctx context.Context, accounts []se
 	seen := make(map[int64]struct{})
 	ids := make([]int64, 0)
 	for i := range accounts {
-		accountProxyIDs := accounts[i].ProxyIDs
-		if len(accountProxyIDs) == 0 && accounts[i].ProxyID != nil {
-			accountProxyIDs = []int64{*accounts[i].ProxyID}
+		if accounts[i].ProxyID == nil {
+			continue
 		}
-		for _, id := range accountProxyIDs {
-			if id <= 0 {
-				continue
-			}
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			ids = append(ids, id)
+		id := *accounts[i].ProxyID
+		if id <= 0 {
+			continue
 		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
 	}
 	if len(ids) == 0 {
 		return []service.Proxy{}, nil
@@ -757,38 +749,12 @@ func validateDataHeader(payload DataPayload) error {
 }
 
 func validateDataImportOptions(req DataImportRequest) error {
-	if req.ProxyIDs != nil && req.CopyProxyIDs != nil {
-		return errors.New("proxy_ids and copy_proxy_ids cannot be used together")
+	if len(req.CopyProxyIDs) > maxImportCopyProxySlots {
+		return fmt.Errorf("copy_proxy_ids must contain at most %d proxies", maxImportCopyProxySlots)
 	}
-	if req.ProxyIDs != nil {
-		proxyIDs := *req.ProxyIDs
-		if len(proxyIDs) > maxImportProxySlots {
-			return fmt.Errorf("proxy_ids must contain at most %d proxies", maxImportProxySlots)
-		}
-		seen := make(map[int64]struct{}, len(proxyIDs))
-		for _, id := range proxyIDs {
-			if id <= 0 {
-				return fmt.Errorf("proxy id %d is invalid", id)
-			}
-			if _, ok := seen[id]; ok {
-				return fmt.Errorf("proxy id %d is duplicated", id)
-			}
-			seen[id] = struct{}{}
-		}
-	}
-	if req.CopyProxyIDs != nil {
-		if len(*req.CopyProxyIDs) > maxImportProxySlots {
-			return fmt.Errorf("copy_proxy_ids must contain at most %d proxies", maxImportProxySlots)
-		}
-		seen := make(map[int64]struct{}, len(*req.CopyProxyIDs))
-		for _, id := range *req.CopyProxyIDs {
-			if id <= 0 {
-				return fmt.Errorf("copy proxy id %d is invalid", id)
-			}
-			if _, ok := seen[id]; ok {
-				return fmt.Errorf("copy proxy id %d is duplicated", id)
-			}
-			seen[id] = struct{}{}
+	for _, id := range req.CopyProxyIDs {
+		if id <= 0 {
+			return fmt.Errorf("copy proxy id %d is invalid", id)
 		}
 	}
 	if req.OverrideConcurrency != nil && *req.OverrideConcurrency < 0 {
@@ -805,15 +771,6 @@ func validateDataImportOptions(req DataImportRequest) error {
 		}
 	}
 	return nil
-}
-
-func findProxyByID(proxies []service.Proxy, id int64) (service.Proxy, bool) {
-	for i := range proxies {
-		if proxies[i].ID == id {
-			return proxies[i], true
-		}
-	}
-	return service.Proxy{}, false
 }
 
 func cloneDataAccount(source DataAccount) (DataAccount, error) {

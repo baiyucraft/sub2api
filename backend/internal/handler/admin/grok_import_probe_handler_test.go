@@ -36,12 +36,7 @@ func (s *grokImportAdminService) CreateAccount(_ context.Context, input *service
 	s.mu.Lock()
 	s.nextID++
 	id := s.nextID
-	s.createdAccounts = append(s.createdAccounts, input)
 	s.mu.Unlock()
-	proxyIDs := []int64(nil)
-	if input.ProxyIDs != nil {
-		proxyIDs = append(proxyIDs, (*input.ProxyIDs)...)
-	}
 	return &service.Account{
 		ID:          id,
 		Name:        input.Name,
@@ -50,7 +45,6 @@ func (s *grokImportAdminService) CreateAccount(_ context.Context, input *service
 		Credentials: input.Credentials,
 		Extra:       input.Extra,
 		ProxyID:     input.ProxyID,
-		ProxyIDs:    proxyIDs,
 		Concurrency: input.Concurrency,
 		Status:      service.StatusActive,
 		Schedulable: true,
@@ -59,48 +53,7 @@ func (s *grokImportAdminService) CreateAccount(_ context.Context, input *service
 	}, nil
 }
 
-func TestGrokSSOBatchImportPassesOrderedProxyIDs(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	adminService := newGrokImportAdminService()
-	adminService.proxies = []service.Proxy{
-		{ID: 11, Status: service.StatusActive},
-		{ID: 12, Status: service.StatusActive},
-	}
-	oauthService := service.NewGrokOAuthService(&grokImportProxyRepo{proxies: map[int64]*service.Proxy{
-		12: {ID: 12, Protocol: "http", Host: "127.0.0.1", Port: 8080, Status: service.StatusActive},
-	}}, grokImportOAuthClientStub{})
-	defer oauthService.Stop()
-	handler := NewGrokOAuthHandler(oauthService, adminService, nil, nil)
-
-	router := gin.New()
-	router.POST("/api/v1/admin/grok/sso-to-oauth", handler.CreateAccountsFromSSO)
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/grok/sso-to-oauth", strings.NewReader(
-		`{"sso_tokens":["sso-one"],"proxy_id":99,"proxy_ids":[12,11]}`,
-	))
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Len(t, adminService.createdAccounts, 1)
-	require.Equal(t, []int64{12, 11}, *adminService.createdAccounts[0].ProxyIDs)
-	require.Equal(t, int64(12), *adminService.createdAccounts[0].ProxyID)
-}
-
 type grokImportOAuthClientStub struct{}
-
-type grokImportProxyRepo struct {
-	service.ProxyRepository
-	proxies map[int64]*service.Proxy
-}
-
-func (r *grokImportProxyRepo) GetByID(_ context.Context, id int64) (*service.Proxy, error) {
-	proxy := r.proxies[id]
-	if proxy == nil {
-		return nil, service.ErrProxyNotFound
-	}
-	return proxy, nil
-}
 
 func (grokImportOAuthClientStub) ExchangeCode(context.Context, string, string, string, string, string) (*xai.TokenResponse, error) {
 	return &xai.TokenResponse{AccessToken: "access-token", RefreshToken: "refresh-token", ExpiresIn: 3600}, nil

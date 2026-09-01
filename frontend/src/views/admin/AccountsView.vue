@@ -416,17 +416,17 @@
           </template>
           <template #cell-proxy="{ row }">
             <div class="flex flex-col gap-1">
-              <div v-if="accountProxies(row).length" class="flex flex-col gap-1">
-                <div v-for="proxy in accountProxies(row)" :key="proxy.id" class="flex items-center gap-2">
-                  <span class="max-w-[12rem] truncate text-sm text-gray-700 dark:text-gray-300">{{ proxy.name }}</span>
-                  <span v-if="proxy.country_code" class="text-xs text-gray-500 dark:text-gray-400">
-                    ({{ proxy.country_code }})
-                  </span>
-                  <span v-if="proxy.status !== 'active'" class="badge badge-warning text-[10px]">{{ t('common.inactive') }}</span>
-                  <span v-else-if="proxy.expires_at" :class="proxyExpiryBadge(proxy)">{{ proxyExpiryText(proxy) }}</span>
-                </div>
+              <div v-if="row.proxy" class="flex items-center gap-2">
+                <span class="text-sm text-gray-700 dark:text-gray-300">{{ row.proxy.name }}</span>
+                <span v-if="row.proxy.country_code" class="text-xs text-gray-500 dark:text-gray-400">
+                  ({{ row.proxy.country_code }})
+                </span>
               </div>
               <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+              <div v-if="row.proxy && row.proxy.expires_at" class="flex items-center gap-2 text-xs">
+                <span class="text-gray-600 dark:text-gray-300">{{ formatDateTime(row.proxy.expires_at) }}</span>
+                <span :class="proxyExpiryBadge(row.proxy)">{{ proxyExpiryText(row.proxy) }}</span>
+              </div>
               <div v-if="row.proxy_fallback_origin_id" class="flex items-center gap-1">
                 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :title="t('admin.accounts.fallbackActiveTip', { origin: row.proxy_fallback_origin_name })">
                   {{ t('admin.accounts.fallbackActive') }}
@@ -3259,13 +3259,10 @@ const isExpired = (value: number | null) => {
   if (!value) return false
   return value * 1000 <= Date.now()
 }
-const accountProxies = (account: Account): AccountProxy[] => {
-  if (Array.isArray(account.proxies) && account.proxies.length > 0) return account.proxies
-  return account.proxy ? [account.proxy] : []
-}
-const proxyExpiryBadge = (proxy: AccountProxy): string => proxyExpiryBadgeClass(proxy.expires_at, proxy.status)
-const proxyExpiryText = (proxy: AccountProxy): string => {
-  const { key, params } = proxyExpiryLabelKey(proxy.expires_at, proxy.status)
+// 所绑定代理的有效期(逻辑同 /admin/proxies,见 utils/proxyExpiry)
+const proxyExpiryBadge = (p: AccountProxy): string => proxyExpiryBadgeClass(p.expires_at, p.status)
+const proxyExpiryText = (p: AccountProxy): string => {
+  const { key, params } = proxyExpiryLabelKey(p.expires_at, p.status)
   return params ? t(key, params) : t(key)
 }
 

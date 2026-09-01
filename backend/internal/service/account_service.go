@@ -141,14 +141,6 @@ type AccountRepository interface {
 	ListShadowsByParent(ctx context.Context, parentID int64) ([]*Account, error)
 }
 
-// AccountProxyBindingAtomicRepository marks repositories that persist an
-// account's ordered proxy bindings and its spark-shadow bindings atomically.
-// Older narrow test doubles may omit this capability and are handled by the
-// admin service compatibility path.
-type AccountProxyBindingAtomicRepository interface {
-	PersistsAccountProxyBindingsAtomically() bool
-}
-
 // ScopedAccountLister is an optional extension used by the admin account
 // views. Keeping it separate from AccountRepository preserves the existing
 // repository contract and makes the upstream management page easy to carry
@@ -216,7 +208,6 @@ type CreateAccountRequest struct {
 	Credentials        map[string]any `json:"credentials"`
 	Extra              map[string]any `json:"extra"`
 	ProxyID            *int64         `json:"proxy_id"`
-	ProxyIDs           *[]int64       `json:"proxy_ids"`
 	Concurrency        int            `json:"concurrency"`
 	Priority           int            `json:"priority"`
 	GroupIDs           []int64        `json:"group_ids"`
@@ -231,7 +222,6 @@ type UpdateAccountRequest struct {
 	Credentials        *map[string]any `json:"credentials"`
 	Extra              *map[string]any `json:"extra"`
 	ProxyID            *int64          `json:"proxy_id"`
-	ProxyIDs           *[]int64        `json:"proxy_ids"`
 	Concurrency        *int            `json:"concurrency"`
 	Priority           *int            `json:"priority"`
 	Status             *string         `json:"status"`
@@ -248,14 +238,6 @@ type AccountService struct {
 
 type groupExistenceBatchChecker interface {
 	ExistsByIDs(ctx context.Context, ids []int64) (map[int64]bool, error)
-}
-
-func cloneAccountProxyIDs(proxyIDs *[]int64) []int64 {
-	if proxyIDs == nil {
-		return nil
-	}
-	cloned := append([]int64(nil), (*proxyIDs)...)
-	return cloned
 }
 
 // NewAccountService 创建账号服务实例
@@ -284,19 +266,10 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		Credentials: SanitizeStoredCredentials(req.Platform, req.Credentials),
 		Extra:       prepareCodexFingerprintExtraForCreate(req.Platform, req.Type, req.Extra),
 		ProxyID:     req.ProxyID,
-		ProxyIDs:    cloneAccountProxyIDs(req.ProxyIDs),
 		Concurrency: req.Concurrency,
 		Priority:    req.Priority,
 		Status:      StatusActive,
 		ExpiresAt:   req.ExpiresAt,
-	}
-	if req.ProxyIDs != nil {
-		if len(account.ProxyIDs) > 0 {
-			first := account.ProxyIDs[0]
-			account.ProxyID = &first
-		} else {
-			account.ProxyID = nil
-		}
 	}
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
@@ -399,21 +372,8 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, account.Extra)
 	}
 
-	if req.ProxyIDs != nil {
-		account.ProxyIDs = append([]int64(nil), (*req.ProxyIDs)...)
-		if len(account.ProxyIDs) > 0 {
-			first := account.ProxyIDs[0]
-			account.ProxyID = &first
-		} else {
-			account.ProxyID = nil
-		}
-	} else if req.ProxyID != nil {
+	if req.ProxyID != nil {
 		account.ProxyID = req.ProxyID
-		if *req.ProxyID > 0 {
-			account.ProxyIDs = []int64{*req.ProxyID}
-		} else {
-			account.ProxyIDs = nil
-		}
 	}
 
 	if req.Concurrency != nil {

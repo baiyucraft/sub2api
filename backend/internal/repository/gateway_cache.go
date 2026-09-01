@@ -15,7 +15,6 @@ import (
 )
 
 const stickySessionPrefix = "sticky_session:"
-const stickySessionProxyPrefix = "sticky_session_proxy:"
 const openAIResponsesSessionWindowPrefix = "openai_responses_session_window:"
 const liveCallPrefix = "live:call:"
 
@@ -31,38 +30,6 @@ func NewGatewayCache(rdb *redis.Client) service.GatewayCache {
 // 格式: sticky_session:{groupID}:{sessionHash}
 func buildSessionKey(groupID int64, sessionHash string) string {
 	return fmt.Sprintf("%s%d:%s", stickySessionPrefix, groupID, sessionHash)
-}
-
-func buildSessionProxyKey(groupID int64, sessionHash string) string {
-	return fmt.Sprintf("%s%d:%s", stickySessionProxyPrefix, groupID, sessionHash)
-}
-
-func (c *gatewayCache) GetSessionProxyID(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
-	proxyID, err := c.rdb.Get(ctx, buildSessionProxyKey(groupID, sessionHash)).Int64()
-	if errors.Is(err, redis.Nil) {
-		return 0, service.ErrStickySessionNotFound
-	}
-	return proxyID, err
-}
-
-func (c *gatewayCache) SetSessionProxyID(ctx context.Context, groupID int64, sessionHash string, proxyID int64, ttl time.Duration) error {
-	return c.rdb.Set(ctx, buildSessionProxyKey(groupID, sessionHash), proxyID, ttl).Err()
-}
-
-func (c *gatewayCache) SetSessionRoute(ctx context.Context, groupID int64, sessionHash string, accountID, proxyID int64, ttl time.Duration) error {
-	pipe := c.rdb.TxPipeline()
-	pipe.Set(ctx, buildSessionKey(groupID, sessionHash), accountID, ttl)
-	if proxyID > 0 {
-		pipe.Set(ctx, buildSessionProxyKey(groupID, sessionHash), proxyID, ttl)
-	} else {
-		pipe.Del(ctx, buildSessionProxyKey(groupID, sessionHash))
-	}
-	_, err := pipe.Exec(ctx)
-	return err
-}
-
-func (c *gatewayCache) DeleteSessionProxyID(ctx context.Context, groupID int64, sessionHash string) error {
-	return c.rdb.Del(ctx, buildSessionProxyKey(groupID, sessionHash)).Err()
 }
 
 func buildOpenAIResponsesSessionWindowKey(groupID int64, sessionHash string) string {
@@ -87,11 +54,8 @@ func (c *gatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, s
 }
 
 func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, sessionHash string, ttl time.Duration) error {
-	pipe := c.rdb.TxPipeline()
-	pipe.Expire(ctx, buildSessionKey(groupID, sessionHash), ttl)
-	pipe.Expire(ctx, buildSessionProxyKey(groupID, sessionHash), ttl)
-	_, err := pipe.Exec(ctx)
-	return err
+	key := buildSessionKey(groupID, sessionHash)
+	return c.rdb.Expire(ctx, key, ttl).Err()
 }
 
 // DeleteSessionAccountID 删除粘性会话与账号的绑定关系。
@@ -102,7 +66,8 @@ func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, ses
 // Called when the bound account becomes unavailable (e.g., error status, disabled,
 // or unschedulable), allowing subsequent requests to select a new available account.
 func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64, sessionHash string) error {
-	return c.rdb.Del(ctx, buildSessionKey(groupID, sessionHash), buildSessionProxyKey(groupID, sessionHash)).Err()
+	key := buildSessionKey(groupID, sessionHash)
+	return c.rdb.Del(ctx, key).Err()
 }
 
 var claimOpenAIResponsesSessionWindowScript = redis.NewScript(`
@@ -440,25 +405,22 @@ func (c *gatewayCache) SaveLiveCall(ctx context.Context, record *service.LiveCal
 		return fmt.Errorf("invalid live call record")
 	}
 	values := map[string]any{
-		"call_id":                     record.CallID,
-		"account_id":                  record.AccountID,
-		"concurrency_target_kind":     record.ConcurrencyTargetKind,
-		"concurrency_target_id":       record.ConcurrencyTargetID,
-		"concurrency_target_proxy_id": record.ConcurrencyTargetProxyID,
-		"api_key_id":                  record.APIKeyID,
-		"user_id":                     record.UserID,
-		"group_id":                    record.GroupID,
-		"subscription_id":             record.SubscriptionID,
-		"lease_id":                    record.LeaseID,
-		"model":                       record.Model,
-		"created_at":                  record.CreatedAt.UnixMilli(),
-		"expires_at":                  record.ExpiresAt.UnixMilli(),
-		"controller":                  record.Controller,
-		"controller_owner":            record.ControllerOwner,
-		"user_agent":                  record.UserAgent,
-		"ip_address":                  record.IPAddress,
-		"inbound_endpoint":            record.InboundEndpoint,
-		"attestation":                 record.AttestationCiphertext,
+		"call_id":          record.CallID,
+		"account_id":       record.AccountID,
+		"api_key_id":       record.APIKeyID,
+		"user_id":          record.UserID,
+		"group_id":         record.GroupID,
+		"subscription_id":  record.SubscriptionID,
+		"lease_id":         record.LeaseID,
+		"model":            record.Model,
+		"created_at":       record.CreatedAt.UnixMilli(),
+		"expires_at":       record.ExpiresAt.UnixMilli(),
+		"controller":       record.Controller,
+		"controller_owner": record.ControllerOwner,
+		"user_agent":       record.UserAgent,
+		"ip_address":       record.IPAddress,
+		"inbound_endpoint": record.InboundEndpoint,
+		"attestation":      record.AttestationCiphertext,
 	}
 	key := liveCallKey(record.CallHash)
 	pipe := c.rdb.TxPipeline()
@@ -483,26 +445,23 @@ func (c *gatewayCache) GetLiveCall(ctx context.Context, callHash string) (*servi
 	createdAt := time.UnixMilli(parseInt("created_at"))
 	expiresAt := time.UnixMilli(parseInt("expires_at"))
 	return &service.LiveCallRecord{
-		CallID:                   values["call_id"],
-		CallHash:                 callHash,
-		AccountID:                parseInt("account_id"),
-		ConcurrencyTargetKind:    values["concurrency_target_kind"],
-		ConcurrencyTargetID:      parseInt("concurrency_target_id"),
-		ConcurrencyTargetProxyID: parseInt("concurrency_target_proxy_id"),
-		APIKeyID:                 parseInt("api_key_id"),
-		UserID:                   parseInt("user_id"),
-		GroupID:                  parseInt("group_id"),
-		SubscriptionID:           parseInt("subscription_id"),
-		LeaseID:                  values["lease_id"],
-		Model:                    values["model"],
-		CreatedAt:                createdAt,
-		ExpiresAt:                expiresAt,
-		Controller:               values["controller"],
-		ControllerOwner:          values["controller_owner"],
-		UserAgent:                values["user_agent"],
-		IPAddress:                values["ip_address"],
-		InboundEndpoint:          values["inbound_endpoint"],
-		AttestationCiphertext:    values["attestation"],
+		CallID:                values["call_id"],
+		CallHash:              callHash,
+		AccountID:             parseInt("account_id"),
+		APIKeyID:              parseInt("api_key_id"),
+		UserID:                parseInt("user_id"),
+		GroupID:               parseInt("group_id"),
+		SubscriptionID:        parseInt("subscription_id"),
+		LeaseID:               values["lease_id"],
+		Model:                 values["model"],
+		CreatedAt:             createdAt,
+		ExpiresAt:             expiresAt,
+		Controller:            values["controller"],
+		ControllerOwner:       values["controller_owner"],
+		UserAgent:             values["user_agent"],
+		IPAddress:             values["ip_address"],
+		InboundEndpoint:       values["inbound_endpoint"],
+		AttestationCiphertext: values["attestation"],
 	}, nil
 }
 

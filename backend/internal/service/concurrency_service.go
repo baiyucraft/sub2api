@@ -66,12 +66,6 @@ type ConcurrencyTargetCache interface {
 	GetConcurrencyTargetWaitingCount(ctx context.Context, target ConcurrencyTarget) (int, error)
 }
 
-// ConcurrencyTargetLoadCache exposes load by the full scheduling target key.
-// It is optional so existing narrow cache doubles remain source compatible.
-type ConcurrencyTargetLoadCache interface {
-	GetConcurrencyTargetsLoadBatch(ctx context.Context, targets []ConcurrencyTarget) (map[string]*AccountLoadInfo, error)
-}
-
 type APIKeyConcurrencyCache interface {
 	TrackAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
 	ReleaseAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
@@ -334,10 +328,6 @@ type AccountWithConcurrency struct {
 	MaxConcurrency int
 	TargetKind     string
 	TargetID       int64
-	// ProxyID is populated for account_proxy scheduling targets. It is
-	// intentionally optional so legacy account/upstream descriptors remain
-	// wire-compatible.
-	ProxyID int64
 }
 
 type UserWithConcurrency struct {
@@ -347,8 +337,6 @@ type UserWithConcurrency struct {
 
 type AccountLoadInfo struct {
 	AccountID          int64
-	ProxyID            int64
-	TargetKey          string
 	CurrentConcurrency int
 	WaitingCount       int
 	LoadRate           int // 0-100+ (percent)
@@ -427,19 +415,6 @@ func (s *ConcurrencyService) AcquireTargetSlot(ctx context.Context, target Concu
 		Acquired:    false,
 		ReleaseFunc: nil,
 	}, nil
-}
-
-// GetConcurrencyTargetsLoadBatch reads independent load for account, upstream,
-// and account+proxy targets. Callers key results with ConcurrencyTarget.Key().
-func (s *ConcurrencyService) GetConcurrencyTargetsLoadBatch(ctx context.Context, targets []ConcurrencyTarget) (map[string]*AccountLoadInfo, error) {
-	if len(targets) == 0 || s == nil || s.cache == nil {
-		return map[string]*AccountLoadInfo{}, nil
-	}
-	cache, ok := s.cache.(ConcurrencyTargetLoadCache)
-	if !ok {
-		return nil, errors.New("concurrency target load cache is unavailable")
-	}
-	return cache.GetConcurrencyTargetsLoadBatch(ctx, targets)
 }
 
 // AcquireUserSlot attempts to acquire a concurrency slot for a user.

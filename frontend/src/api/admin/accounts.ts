@@ -765,8 +765,6 @@ export async function exportData(options?: {
 export interface AdminDataImportOptions {
   data: AdminDataPayload
   skip_default_group_bind?: boolean
-  /** Ordered proxy bindings for each imported account. */
-  proxy_ids?: number[]
   copy_proxy_ids?: number[]
   override_concurrency?: number
   override_rate_multiplier?: number
@@ -778,7 +776,6 @@ export async function importData(payload: AdminDataImportOptions): Promise<Admin
     data: payload.data,
     skip_default_group_bind: payload.skip_default_group_bind
   }
-  if (payload.proxy_ids !== undefined) request.proxy_ids = payload.proxy_ids
   if (payload.copy_proxy_ids !== undefined) request.copy_proxy_ids = payload.copy_proxy_ids
   if (payload.override_concurrency !== undefined) request.override_concurrency = payload.override_concurrency
   if (payload.override_rate_multiplier !== undefined) request.override_rate_multiplier = payload.override_rate_multiplier

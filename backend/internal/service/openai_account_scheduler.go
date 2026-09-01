@@ -314,18 +314,6 @@ type defaultOpenAIAccountScheduler struct {
 	grokFreeQuotaGateCache sync.Map // key: int64(accountID), value: grokFreeQuotaGateCacheEntry
 }
 
-func (s *defaultOpenAIAccountScheduler) routedSelection(
-	ctx context.Context,
-	account *Account,
-	acquired bool,
-	release func(),
-	waitPlan *AccountWaitPlan,
-) *AccountSelectionResult {
-	ctx = s.service.withOpenAIProxyStreamRouteExclusions(ctx, account)
-	proxy := selectionProxyForAccountRoute(ctx, s.service.concurrencyService, account, acquired)
-	return attachSelectionProfitGate(ctx, accountSelectionResultForProxyRoute(account, proxy, acquired, release, waitPlan))
-}
-
 type openAISelectionProbeBudget struct {
 	acquires  int
 	rechecks  int
@@ -468,7 +456,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			decision.SelectedAccountID = selection.Account.ID
 			decision.SelectedAccountType = selection.Account.Type
 			if req.SessionHash != "" {
-				_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, selection.Account)
+				_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, selection.Account.ID)
 			}
 			return selection, decision, nil
 		}
@@ -625,7 +613,11 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		if !req.PreserveStickyBinding {
 			_ = s.service.refreshStickySessionTTL(ctx, req.GroupID, sessionHash, s.service.openAIWSSessionStickyTTL())
 		}
-		return s.routedSelection(ctx, account, true, result.ReleaseFunc, nil), false, nil
+		return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+			Account:     account,
+			Acquired:    true,
+			ReleaseFunc: result.ReleaseFunc,
+		}), false, nil
 	}
 
 	cfg := s.service.schedulingConfig()
@@ -641,11 +633,14 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			)
 			return nil, true, nil
 		}
-		return s.routedSelection(ctx, account, false, nil, &AccountWaitPlan{
-			AccountID:      accountID,
-			MaxConcurrency: account.Concurrency,
-			Timeout:        cfg.StickySessionWaitTimeout,
-			MaxWaiting:     cfg.StickySessionMaxWaiting,
+		return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+			Account: account,
+			WaitPlan: &AccountWaitPlan{
+				AccountID:      accountID,
+				MaxConcurrency: account.Concurrency,
+				Timeout:        cfg.StickySessionWaitTimeout,
+				MaxWaiting:     cfg.StickySessionMaxWaiting,
+			},
 		}), false, nil
 	}
 	return nil, false, nil
@@ -1485,7 +1480,6 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 			fullTargets[target.Key()] = struct{}{}
 			continue
 		}
-		selectedProxy := candidate.account.Proxy
 
 		fresh := s.service.resolveFreshSchedulableOpenAIAccount(ctx, candidate.account, req.Platform, req.RequestedModel, false, req.RequiredCapability)
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
@@ -1520,21 +1514,19 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 			if result == nil || !result.Acquired {
 				continue
 			}
-			selectedProxy = fresh.Proxy
-		} else if selectedProxy != nil {
-			proxyID := selectedProxy.ID
-			fresh.ProxyID = &proxyID
-			fresh.Proxy = selectedProxy
 		}
-		selection := s.routedSelection(ctx, fresh, true, result.ReleaseFunc, nil)
-		selection.imageCostKnown = candidate.imageCostKnown
-		selection.imageCostStatus = candidate.imageCostStatus
-		selection.imageCostRank = candidate.imageCostRank
-		selection.imageCostValue = candidate.imageCostValue
 		if req.SessionHash != "" && !req.PreserveStickyBinding {
-			_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, selection.Account)
+			_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, fresh.ID)
 		}
-		return selection, compactBlocked, nil
+		return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+			Account:         fresh,
+			Acquired:        true,
+			ReleaseFunc:     result.ReleaseFunc,
+			imageCostKnown:  candidate.imageCostKnown,
+			imageCostStatus: candidate.imageCostStatus,
+			imageCostRank:   candidate.imageCostRank,
+			imageCostValue:  candidate.imageCostValue,
+		}), compactBlocked, nil
 	}
 	return nil, compactBlocked, nil
 }
@@ -1634,17 +1626,24 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		}
 		if result != nil && result.Acquired {
 			if req.SessionHash != "" && !req.PreserveStickyBinding {
-				_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, account)
+				_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, account.ID)
 			}
-			return s.routedSelection(ctx, account, true, result.ReleaseFunc, nil), nil
+			return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+				Account:     account,
+				Acquired:    true,
+				ReleaseFunc: result.ReleaseFunc,
+			}), nil
 		}
 		if s.service.concurrencyService != nil {
 			cfg := s.service.schedulingConfig()
-			return s.routedSelection(ctx, account, false, nil, &AccountWaitPlan{
-				AccountID:      account.ID,
-				MaxConcurrency: account.Concurrency,
-				Timeout:        cfg.StickySessionWaitTimeout,
-				MaxWaiting:     cfg.StickySessionMaxWaiting,
+			return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+				Account: account,
+				WaitPlan: &AccountWaitPlan{
+					AccountID:      account.ID,
+					MaxConcurrency: account.Concurrency,
+					Timeout:        cfg.StickySessionWaitTimeout,
+					MaxWaiting:     cfg.StickySessionMaxWaiting,
+				},
 			}), nil
 		}
 	}
@@ -2082,17 +2081,19 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 				compactBlocked = true
 				continue
 			}
-			selection := s.routedSelection(ctx, fresh, false, nil, &AccountWaitPlan{
-				AccountID:      fresh.ID,
-				MaxConcurrency: fresh.Concurrency,
-				Timeout:        cfg.FallbackWaitTimeout,
-				MaxWaiting:     cfg.FallbackMaxWaiting,
-			})
-			selection.imageCostKnown = candidate.imageCostKnown
-			selection.imageCostStatus = candidate.imageCostStatus
-			selection.imageCostRank = candidate.imageCostRank
-			selection.imageCostValue = candidate.imageCostValue
-			return selection, candidateCount, topK, loadSkew, nil
+			return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+				Account: fresh,
+				WaitPlan: &AccountWaitPlan{
+					AccountID:      fresh.ID,
+					MaxConcurrency: fresh.Concurrency,
+					Timeout:        cfg.FallbackWaitTimeout,
+					MaxWaiting:     cfg.FallbackMaxWaiting,
+				},
+				imageCostKnown:  candidate.imageCostKnown,
+				imageCostStatus: candidate.imageCostStatus,
+				imageCostRank:   candidate.imageCostRank,
+				imageCostValue:  candidate.imageCostValue,
+			}), candidateCount, topK, loadSkew, nil
 		}
 	}
 

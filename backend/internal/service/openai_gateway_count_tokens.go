@@ -40,22 +40,6 @@ type openAIInputTokensCountPrepared struct {
 	UpstreamModel   string
 }
 
-func (s *OpenAIGatewayService) doInputTokensWithProxyFallback(
-	ctx context.Context,
-	c *gin.Context,
-	account *Account,
-	body []byte,
-	token string,
-) (*http.Response, error) {
-	return withAccountProxyFallback(ctx, account, func(attempt *Account) (*http.Response, error) {
-		request, err := s.buildInputTokensUpstreamRequest(ctx, c, attempt, body, token)
-		if err != nil {
-			return nil, err
-		}
-		return s.doOpenAIUpstream(request, upstreamModelsProxyURL(attempt), attempt)
-	})
-}
-
 // ForwardResponsesInputTokens handles the native OpenAI
 // POST /v1/responses/input_tokens shape. Custom OpenAI-compatible relays often
 // implement /responses but not this preflight endpoint, so those accounts use
@@ -89,13 +73,17 @@ func (s *OpenAIGatewayService) ForwardResponsesInputTokens(
 	}
 
 	upstreamBody := ReplaceModelInBody(body, prepared.UpstreamModel)
-	_, err = s.buildInputTokensUpstreamRequest(ctx, c, account, upstreamBody, token)
+	upstreamReq, err := s.buildInputTokensUpstreamRequest(ctx, c, account, upstreamBody, token)
 	if err != nil {
 		writeOpenAIResponsesInputTokensError(c, http.StatusInternalServerError, "api_error", "Failed to build request")
 		return fmt.Errorf("responses input_tokens: build upstream request: %w", err)
 	}
 
-	resp, err := s.doInputTokensWithProxyFallback(ctx, c, account, upstreamBody, token)
+	proxyURL := ""
+	if account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
@@ -325,13 +313,17 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 		return fmt.Errorf("get access token: %w", err)
 	}
 
-	_, err = s.buildInputTokensUpstreamRequest(ctx, c, account, upstreamBody, token)
+	upstreamReq, err := s.buildInputTokensUpstreamRequest(ctx, c, account, upstreamBody, token)
 	if err != nil {
 		writeAnthropicCountTokensError(c, http.StatusInternalServerError, "api_error", "Failed to build request")
 		return fmt.Errorf("build input_tokens request: %w", err)
 	}
 
-	resp, err := s.doInputTokensWithProxyFallback(ctx, c, account, upstreamBody, token)
+	proxyURL := ""
+	if account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
