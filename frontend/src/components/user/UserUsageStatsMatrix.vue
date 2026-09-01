@@ -69,8 +69,17 @@
               <Icon name="exclamationCircle" size="xs" />
             </span>
           </span>
-          <span class="text-right font-medium tabular-nums text-gray-700 dark:text-gray-200">
-            {{ formatCompactTokens(window.data.total_tokens) }}
+          <span class="flex min-w-0 flex-col items-end text-right tabular-nums">
+            <span class="font-medium text-gray-700 dark:text-gray-200">
+              {{ formatCompactTokens(window.data.total_tokens) }}
+            </span>
+            <span
+              class="text-[10px] font-normal leading-3 text-sky-600 dark:text-sky-400"
+              :title="formatCacheRateTitle(window.data)"
+              :data-test="`user-usage-cache-rate-${window.key}`"
+            >
+              {{ t('admin.users.usageStats.cacheRateShort') }} {{ formatCacheRate(window.data) }}
+            </span>
           </span>
           <span class="text-right font-medium tabular-nums text-emerald-700 dark:text-emerald-300">
             {{ formatCompactMoney(window.data.user_spend) }}
@@ -104,6 +113,15 @@
             <dd class="font-mono tabular-nums">{{ formatExactTokens(window.data.cache_creation_tokens) }}</dd>
             <dt class="text-gray-400">{{ t('admin.users.usageStats.cacheReadTokens') }}</dt>
             <dd class="font-mono tabular-nums">{{ formatExactTokens(window.data.cache_read_tokens) }}</dd>
+            <dt class="text-gray-400">{{ t('admin.users.usageStats.promptTokens') }}</dt>
+            <dd class="font-mono tabular-nums">{{ formatExactTokens(cachePromptTokens(window.data)) }}</dd>
+            <dt class="text-gray-400">{{ t('admin.users.usageStats.cacheRate') }}</dt>
+            <dd
+              class="font-mono tabular-nums text-sky-300"
+              :data-test="`user-usage-cache-rate-detail-${window.key}`"
+            >
+              {{ formatCacheRate(window.data) }}
+            </dd>
             <dt class="border-t border-white/10 pt-1 text-gray-400">{{ t('admin.users.usageStats.totalTokens') }}</dt>
             <dd class="border-t border-white/10 pt-1 font-mono tabular-nums">{{ formatExactTokens(window.data.total_tokens) }}</dd>
             <dt class="text-gray-400">{{ t('admin.users.usageStats.spend') }}</dt>
@@ -229,6 +247,36 @@ function formatExactMoney(value: number): string {
     minimumFractionDigits: 4,
     maximumFractionDigits: 6
   })}`
+}
+
+function normalizeTokenCount(value: number | null | undefined): number {
+  return Number.isFinite(value) && Number(value) > 0 ? Number(value) : 0
+}
+
+function cachePromptTokens(data: UserUsageWindow): number {
+  return normalizeTokenCount(data.input_tokens) +
+    normalizeTokenCount(data.cache_creation_tokens) +
+    normalizeTokenCount(data.cache_read_tokens)
+}
+
+function cacheRate(data: UserUsageWindow): number | null {
+  const denominator = cachePromptTokens(data)
+  if (denominator <= 0) return null
+  const numerator = normalizeTokenCount(data.cache_read_tokens)
+  return Math.min(100, Math.max(0, numerator * 100 / denominator))
+}
+
+function formatCacheRate(data: UserUsageWindow): string {
+  const value = cacheRate(data)
+  return value === null ? '—' : `${value.toFixed(2)}%`
+}
+
+function formatCacheRateTitle(data: UserUsageWindow): string {
+  return t('admin.users.usageStats.cacheRateTitle', {
+    rate: formatCacheRate(data),
+    numerator: formatExactTokens(normalizeTokenCount(data.cache_read_tokens)),
+    denominator: formatExactTokens(cachePromptTokens(data))
+  })
 }
 
 function trimFixed(value: number, digits: number): string {
