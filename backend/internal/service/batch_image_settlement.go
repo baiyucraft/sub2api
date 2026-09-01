@@ -258,6 +258,12 @@ func (s *BatchImageSettlementService) recordUsageLog(ctx context.Context, job *B
 	inboundEndpoint := "/v1/images/batches"
 	upstreamEndpoint := "vertex:batchPredictionJobs"
 	imageSize := "1K"
+	totalCost := actualCost
+	if job.PricingSnapshotVersion >= 1 && job.GroupRateMultiplier == 0 {
+		// 0 专属倍率只免用户消费。usage_log 仍须保留未应用用户倍率
+		// 的图片原始成本，供请求/Token/账号成本等统计使用。
+		totalCost = float64(job.SuccessCount) * job.BaseUnitPrice
+	}
 	usageLog := &UsageLog{
 		UserID:                job.UserID,
 		APIKeyID:              *job.APIKeyID,
@@ -272,8 +278,8 @@ func (s *BatchImageSettlementService) recordUsageLog(ctx context.Context, job *B
 		InboundEndpoint:       &inboundEndpoint,
 		UpstreamEndpoint:      &upstreamEndpoint,
 		ImageCount:            job.SuccessCount,
-		ImageOutputCost:       actualCost,
-		TotalCost:             actualCost,
+		ImageOutputCost:       totalCost,
+		TotalCost:             totalCost,
 		ActualCost:            actualCost,
 		RateMultiplier:        job.GroupRateMultiplier * job.BatchDiscountMultiplier,
 		AccountRateMultiplier: &accountRateMultiplier,

@@ -21,13 +21,14 @@ const rawUsageLogModelColumn = "model"
 // usageLogSuccessFilterUL 用于把"失败请求 usage log"（tokens=0、cost=0、不计费的占位记录）
 // 从统计性聚合中排除，避免污染 Dashboard / 用量拆分等指标。
 //
-// schema 中没有 success bool 列；新增列要做迁移，风险大；这里用 actual_cost > 0 作为代理：
-// 任何成功落账的请求都会产生 actual_cost（包括 token 计费、纯图片 token 计费、按次/按图计费），
-// 反之 failed-request usage log 的 actual_cost 为 0。
+// schema 中没有 success bool 列；新增列要做迁移，风险大。正常请求用 actual_cost > 0
+// 识别；显式用户 0 倍率请求虽然实际消费为 0，但仍保留未应用用户倍率的 total_cost，
+// 并将 rate_multiplier 记录为 0，因此也必须纳入请求、Token 和渠道统计。失败占位记录
+// 通常同时为 actual_cost=0、total_cost=0，仍会被排除。
 // 早期版本用 4 项 token 和 > 0 判定会把"按次/按图计费"与"image_output_tokens 独立计费"的纯图片
-// 请求误判为失败，导致这部分请求从用量统计里消失，故改用 actual_cost。
+// 请求误判为失败，导致这部分请求从用量统计里消失；当前过滤器同时兼容实际计费和显式 0 倍率成功请求。
 // 配合 `FROM usage_logs ul` JOIN 查询使用。
-const usageLogSuccessFilterUL = "ul.actual_cost > 0"
+const usageLogSuccessFilterUL = "(ul.actual_cost > 0 OR (ul.actual_cost = 0 AND ul.total_cost > 0 AND ul.rate_multiplier = 0))"
 
 // usageLogEffectivePlatformExpr 用于按"有效平台"维度聚合 usage_logs：
 // 优先取请求实际走的分组 platform，若分组未设置 platform 再 fallback 到 account.platform。

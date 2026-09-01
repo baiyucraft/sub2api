@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -195,11 +196,11 @@ func (s *adminServiceImpl) assignDefaultSubscriptions(ctx context.Context, userI
 }
 
 func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *UpdateUserInput) (*User, error) {
-	// 校验用户专属分组倍率：必须 > 0（nil 合法，表示清除专属倍率）
+	// 校验用户专属分组倍率：允许显式 0（nil 合法，表示清除专属倍率）。
 	if input.GroupRates != nil {
 		for groupID, rate := range input.GroupRates {
-			if rate != nil && *rate <= 0 {
-				return nil, fmt.Errorf("rate_multiplier must be > 0 (group_id=%d)", groupID)
+			if rate != nil && (*rate < 0 || math.IsNaN(*rate) || math.IsInf(*rate, 0)) {
+				return nil, fmt.Errorf("rate_multiplier must be >= 0 (group_id=%d)", groupID)
 			}
 		}
 	}
@@ -302,6 +303,10 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	if input.GroupRates != nil && s.userGroupRateRepo != nil {
 		if err := s.userGroupRateRepo.SyncUserGroupRates(ctx, user.ID, input.GroupRates); err != nil {
 			logger.LegacyPrintf("service.admin", "failed to sync user group rates: user_id=%d err=%v", user.ID, err)
+		}
+		InvalidateUserGroupRateCachesByUser(user.ID)
+		if s.authCacheInvalidator != nil {
+			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
 		}
 	}
 
