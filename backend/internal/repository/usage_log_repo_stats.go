@@ -43,7 +43,7 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 			WHERE ul.%[1]s = ANY($1)
 				AND ul.created_at >= $2
 				AND ul.created_at < $4
-				AND ul.actual_cost > 0
+				AND `+usageLogSuccessFilterUL+`
 				AND ul.stream = TRUE
 		), quality AS (
 			SELECT

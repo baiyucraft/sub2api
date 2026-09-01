@@ -233,6 +233,44 @@ func TestBatchImageSettlementService_UsesSubmittedPricingSnapshot(t *testing.T) 
 	require.InDelta(t, 0.55, billing.captures[0].HoldAmount, 1e-12)
 }
 
+func TestBatchImageSettlementService_ExplicitZeroRateDoesNotChargeButKeepsRawUsageCost(t *testing.T) {
+	repo := newFakeBatchImageRepository()
+	job := testSettlingBatchImageJob("imgbatch_zero_rate")
+	job.SuccessCount = 2
+	job.FailCount = 0
+	job.ItemCount = 2
+	job.PricingSnapshotVersion = 1
+	job.BaseUnitPrice = 0.25
+	job.GroupRateMultiplier = 0
+	job.AccountRateMultiplier = 1
+	job.BatchDiscountMultiplier = 1
+	job.HoldMultiplier = 1
+	job.BillableUnitPrice = 0
+	job.HoldUnitPrice = 0
+	job.EstimatedCost = 0
+	holdAmount := 0.0
+	job.HoldAmount = &holdAmount
+	repo.jobs[job.BatchID] = job
+	billing := &fakeBatchImageBillingRepo{}
+	usageLogs := &batchImageUsageLogRepoStub{}
+	svc := &BatchImageSettlementService{
+		Repo: repo, BillingRepo: billing, UsageLogRepo: usageLogs,
+		Pricing: &fakeBatchImagePricingResolver{unitPrice: 0.50},
+	}
+
+	result, err := svc.Settle(context.Background(), job.BatchID)
+	require.NoError(t, err)
+	require.Zero(t, result.ActualCost)
+	require.Len(t, billing.captures, 1)
+	require.Zero(t, billing.captures[0].ActualAmount)
+	require.Zero(t, billing.captures[0].HoldAmount)
+	require.NotNil(t, usageLogs.lastLog)
+	// 用户消费为 0，但 usage log 保留未应用用户倍率的原始图片成本。
+	require.Zero(t, usageLogs.lastLog.ActualCost)
+	require.Equal(t, 0.5, usageLogs.lastLog.TotalCost)
+	require.Equal(t, 0.5, usageLogs.lastLog.ImageOutputCost)
+}
+
 func TestBatchImageSettlementService_BillingFailureLeavesSettlingAndRecordsError(t *testing.T) {
 	repo := newFakeBatchImageRepository()
 	job := testSettlingBatchImageJob("imgbatch_billing_fail")

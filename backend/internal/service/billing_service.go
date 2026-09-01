@@ -194,15 +194,19 @@ type UsageTokens struct {
 
 // CostBreakdown 费用明细
 type CostBreakdown struct {
-	InputCost                 float64 // 文本输入费用（不含图片输入，图片输入单独记入 ImageInputCost）
-	ImageInputCost            float64 // 图片输入 token 费用（如 gpt-image-2 图片编辑）
-	OutputCost                float64
-	ImageOutputCost           float64
-	CacheCreationCost         float64
-	CacheReadCost             float64
-	TotalCost                 float64
-	ActualCost                float64 // 应用倍率后的实际费用
-	BillingMode               string  // 计费模式（"token"/"per_request"/"image"），由 CalculateCostUnified 填充
+	InputCost         float64 // 文本输入费用（不含图片输入，图片输入单独记入 ImageInputCost）
+	ImageInputCost    float64 // 图片输入 token 费用（如 gpt-image-2 图片编辑）
+	OutputCost        float64
+	ImageOutputCost   float64
+	CacheCreationCost float64
+	CacheReadCost     float64
+	TotalCost         float64
+	ActualCost        float64 // 应用倍率后的实际费用
+	// QuotaMeterCost 是 API Key、时间窗和用户×平台配额使用的计量金额。
+	// 正常请求与 ActualCost 一致；用户专属倍率显式为 0 时按分组原价计算。
+	QuotaMeterCost            float64
+	QuotaMeterCostSet         bool
+	BillingMode               string // 计费模式（"token"/"per_request"/"image"），由 CalculateCostUnified 填充
 	LongContextBillingApplied bool
 }
 
@@ -218,6 +222,7 @@ func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
 	cost.CacheReadCost *= multiplier
 	cost.TotalCost *= multiplier
 	cost.ActualCost *= multiplier
+	cost.QuotaMeterCost *= multiplier
 }
 
 func resolvedChannelTimeMultiplier(resolved *ResolvedPricing, at time.Time) float64 {

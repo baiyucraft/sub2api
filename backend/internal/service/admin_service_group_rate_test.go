@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"testing"
 
@@ -23,6 +24,10 @@ type userGroupRateRepoStubForGroupRate struct {
 	syncedGroupID int64
 	syncedEntries []GroupRateMultiplierInput
 	syncGroupErr  error
+
+	syncedUserID int64
+	syncedRates  map[int64]*float64
+	syncUserErr  error
 
 	rpmSyncedGroupID int64
 	rpmSyncedEntries []GroupRPMOverrideInput
@@ -48,8 +53,10 @@ func (s *userGroupRateRepoStubForGroupRate) GetByGroupID(_ context.Context, grou
 	return s.getByGroupIDData[groupID], nil
 }
 
-func (s *userGroupRateRepoStubForGroupRate) SyncUserGroupRates(_ context.Context, _ int64, _ map[int64]*float64) error {
-	panic("unexpected SyncUserGroupRates call")
+func (s *userGroupRateRepoStubForGroupRate) SyncUserGroupRates(_ context.Context, userID int64, rates map[int64]*float64) error {
+	s.syncedUserID = userID
+	s.syncedRates = rates
+	return s.syncUserErr
 }
 
 func (s *userGroupRateRepoStubForGroupRate) SyncGroupRateMultipliers(_ context.Context, groupID int64, entries []GroupRateMultiplierInput) error {
@@ -174,6 +181,29 @@ func TestAdminService_BatchSetGroupRateMultipliers(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(10), repo.syncedGroupID)
 		require.Equal(t, entries, repo.syncedEntries)
+	})
+
+	t.Run("accepts explicit zero and invalidates group caches", func(t *testing.T) {
+		repo := &userGroupRateRepoStubForGroupRate{}
+		invalidator := &authCacheInvalidatorStub{}
+		svc := &adminServiceImpl{userGroupRateRepo: repo, authCacheInvalidator: invalidator}
+
+		err := svc.BatchSetGroupRateMultipliers(context.Background(), 10, []GroupRateMultiplierInput{
+			{UserID: 1, RateMultiplier: 0},
+		})
+		require.NoError(t, err)
+		require.Equal(t, []GroupRateMultiplierInput{{UserID: 1, RateMultiplier: 0}}, repo.syncedEntries)
+		require.Equal(t, []int64{10}, invalidator.groupIDs)
+	})
+
+	t.Run("rejects non-finite and negative values", func(t *testing.T) {
+		for _, rate := range []float64{-0.01, math.NaN(), math.Inf(1), math.Inf(-1)} {
+			repo := &userGroupRateRepoStubForGroupRate{}
+			svc := &adminServiceImpl{userGroupRateRepo: repo}
+			err := svc.BatchSetGroupRateMultipliers(context.Background(), 10, []GroupRateMultiplierInput{{UserID: 1, RateMultiplier: rate}})
+			require.Error(t, err)
+			require.Zero(t, repo.syncedGroupID)
+		}
 	})
 
 	t.Run("returns nil when repo is nil", func(t *testing.T) {

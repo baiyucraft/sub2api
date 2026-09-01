@@ -192,6 +192,28 @@ func TestPeakMultiplier_GatewayBillingSequence(t *testing.T) {
 		}
 	})
 
+	t.Run("explicit user zero suppresses independent image multiplier", func(t *testing.T) {
+		indGroup := newPeakGroup(true, "14:00", "18:00", 3.0)
+		indGroup.ImageRateIndependent = true
+		indGroup.ImageRateMultiplier = 0.5
+		indKey := &APIKey{Group: indGroup}
+		tokenMultiplier, imageMultiplier := computePeakAwareMultipliersForUser(indKey, baseMultiplier, at(15, 30), true)
+		if !approxEq(imageMultiplier, 0) {
+			t.Fatalf("explicit user zero must suppress independent image multiplier: got %v", imageMultiplier)
+		}
+		if want := baseMultiplier * 3.0; !approxEq(tokenMultiplier, want) {
+			t.Fatalf("token multiplier should retain peak composition before user-zero billing: got %v, want %v", tokenMultiplier, want)
+		}
+		if got := resolveVideoRateMultiplierForUser(&APIKey{Group: func() *Group {
+			g := newPeakGroup(false, "", "", 1)
+			g.VideoRateIndependent = true
+			g.VideoRateMultiplier = 0.7
+			return g
+		}()}, baseMultiplier, true); !approxEq(got, 0) {
+			t.Fatalf("explicit user zero must suppress independent video multiplier: got %v", got)
+		}
+	})
+
 	t.Run("nil api key degrades to base multipliers", func(t *testing.T) {
 		now := at(15, 30)
 		tokenMultiplier, imageMultiplier := computePeakAwareMultipliers(nil, baseMultiplier, now)

@@ -125,6 +125,9 @@ type openAIProfitControlGate struct {
 	threshold float64
 	// pricingAt 是本请求的统一定价时刻（D 侧）。
 	pricingAt time.Time
+	// zeroRateExempt is an explicit user/group billing override. It bypasses
+	// profit filtering for this request only; the gate remains observable.
+	zeroRateExempt bool
 }
 
 // WithOpenAIRequestPricingContext 在请求开始处装配请求级定价上下文：固定
@@ -254,18 +257,24 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 		billingGroup = ctxGroup
 	}
 	downstream := billingGroup.RateMultiplier
+	zeroRateExempt := false
 	if userID, _ := ctx.Value(ctxkey.UserID).(int64); userID > 0 {
-		downstream = s.ResolveUserGroupRateMultiplier(ctx, userID, billingGroup.ID, billingGroup.RateMultiplier)
+		if s.userGroupRateResolver != nil {
+			downstream, zeroRateExempt = s.userGroupRateResolver.ResolveWithExplicitZero(ctx, userID, billingGroup.ID, billingGroup.RateMultiplier)
+		} else {
+			downstream = s.ResolveUserGroupRateMultiplier(ctx, userID, billingGroup.ID, billingGroup.RateMultiplier)
+		}
 	}
 	downstream *= billingGroup.PeakMultiplierAt(pricingAt)
 
 	deduction := group.ProfitMinMargin + group.ProfitSafetyBuffer
 	threshold := clampProfitControlThreshold(downstream * (1 - deduction))
 	return &openAIProfitControlGate{
-		groupID:   *groupID,
-		platform:  group.Platform,
-		threshold: threshold,
-		pricingAt: pricingAt,
+		groupID:        *groupID,
+		platform:       group.Platform,
+		threshold:      threshold,
+		pricingAt:      pricingAt,
+		zeroRateExempt: zeroRateExempt,
 	}
 }
 
@@ -302,6 +311,9 @@ func ContextWithSelectionProfitGate(ctx context.Context, sel *AccountSelectionRe
 func openAIProfitControlVetoReason(ctx context.Context, account *Account) (bool, string) {
 	gate, _ := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
 	if gate == nil || account == nil {
+		return false, ""
+	}
+	if gate.zeroRateExempt {
 		return false, ""
 	}
 	if account.RateMultiplier == nil ||
