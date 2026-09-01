@@ -183,7 +183,6 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	requestCtx := service.WithOpenAIProfitControlSuppressed(c.Request.Context())
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
-	failedRouteKeys := make(map[string]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
@@ -205,7 +204,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			return
 		}
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			service.ContextWithFailedProxyRoutes(requestCtx, failedRouteKeys),
+			requestCtx,
 			apiKey.GroupID,
 			"",
 			sessionHash,
@@ -382,7 +381,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 					}
 				}
 				h.gatewayService.RecordOpenAIAccountSwitch()
-				recordProxyAwareFailoverExclusion(failedAccountIDs, failedRouteKeys, account.ID, failoverErr)
+				failedAccountIDs[account.ID] = struct{}{}
 				lastFailoverErr = failoverErr
 				if switchCount >= maxAccountSwitches {
 					h.handleFailoverExhausted(c, failoverErr, false)

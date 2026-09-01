@@ -45,12 +45,8 @@ const (
 	FieldExpiryWarnDays = "expiry_warn_days"
 	// EdgeAccounts holds the string denoting the accounts edge name in mutations.
 	EdgeAccounts = "accounts"
-	// EdgeBoundAccounts holds the string denoting the bound_accounts edge name in mutations.
-	EdgeBoundAccounts = "bound_accounts"
 	// EdgeBackupProxy holds the string denoting the backup_proxy edge name in mutations.
 	EdgeBackupProxy = "backup_proxy"
-	// EdgeAccountBindings holds the string denoting the account_bindings edge name in mutations.
-	EdgeAccountBindings = "account_bindings"
 	// Table holds the table name of the proxy in the database.
 	Table = "proxies"
 	// AccountsTable is the table that holds the accounts relation/edge.
@@ -60,22 +56,10 @@ const (
 	AccountsInverseTable = "accounts"
 	// AccountsColumn is the table column denoting the accounts relation/edge.
 	AccountsColumn = "proxy_id"
-	// BoundAccountsTable is the table that holds the bound_accounts relation/edge. The primary key declared below.
-	BoundAccountsTable = "account_proxy_bindings"
-	// BoundAccountsInverseTable is the table name for the Account entity.
-	// It exists in this package in order to avoid circular dependency with the "account" package.
-	BoundAccountsInverseTable = "accounts"
 	// BackupProxyTable is the table that holds the backup_proxy relation/edge.
 	BackupProxyTable = "proxies"
 	// BackupProxyColumn is the table column denoting the backup_proxy relation/edge.
 	BackupProxyColumn = "backup_proxy_id"
-	// AccountBindingsTable is the table that holds the account_bindings relation/edge.
-	AccountBindingsTable = "account_proxy_bindings"
-	// AccountBindingsInverseTable is the table name for the AccountProxyBinding entity.
-	// It exists in this package in order to avoid circular dependency with the "accountproxybinding" package.
-	AccountBindingsInverseTable = "account_proxy_bindings"
-	// AccountBindingsColumn is the table column denoting the account_bindings relation/edge.
-	AccountBindingsColumn = "proxy_id"
 )
 
 // Columns holds all SQL columns for proxy fields.
@@ -96,12 +80,6 @@ var Columns = []string{
 	FieldBackupProxyID,
 	FieldExpiryWarnDays,
 }
-
-var (
-	// BoundAccountsPrimaryKey and BoundAccountsColumn2 are the table columns denoting the
-	// primary key for the bound_accounts relation (M2M).
-	BoundAccountsPrimaryKey = []string{"account_id", "proxy_id"}
-)
 
 // ValidColumn reports if the column name is valid (part of the table columns).
 func ValidColumn(column string) bool {
@@ -241,38 +219,10 @@ func ByAccounts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
-// ByBoundAccountsCount orders the results by bound_accounts count.
-func ByBoundAccountsCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newBoundAccountsStep(), opts...)
-	}
-}
-
-// ByBoundAccounts orders the results by bound_accounts terms.
-func ByBoundAccounts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newBoundAccountsStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
-
 // ByBackupProxyField orders the results by backup_proxy field.
 func ByBackupProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newBackupProxyStep(), sql.OrderByField(field, opts...))
-	}
-}
-
-// ByAccountBindingsCount orders the results by account_bindings count.
-func ByAccountBindingsCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newAccountBindingsStep(), opts...)
-	}
-}
-
-// ByAccountBindings orders the results by account_bindings terms.
-func ByAccountBindings(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newAccountBindingsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
 func newAccountsStep() *sqlgraph.Step {
@@ -282,24 +232,10 @@ func newAccountsStep() *sqlgraph.Step {
 		sqlgraph.Edge(sqlgraph.O2M, true, AccountsTable, AccountsColumn),
 	)
 }
-func newBoundAccountsStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(BoundAccountsInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2M, true, BoundAccountsTable, BoundAccountsPrimaryKey...),
-	)
-}
 func newBackupProxyStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(Table, FieldID),
 		sqlgraph.Edge(sqlgraph.O2O, false, BackupProxyTable, BackupProxyColumn),
-	)
-}
-func newAccountBindingsStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(AccountBindingsInverseTable, AccountBindingsColumn),
-		sqlgraph.Edge(sqlgraph.O2M, true, AccountBindingsTable, AccountBindingsColumn),
 	)
 }

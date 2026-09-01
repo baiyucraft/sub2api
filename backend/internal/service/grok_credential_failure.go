@@ -247,20 +247,6 @@ func classifyGrokCredentialFailure(account *Account, err error) grokCredentialFa
 		}
 		return false
 	}
-	containsChain := func(values ...string) bool {
-		if contains(values...) {
-			return true
-		}
-		for current := err; current != nil; {
-			for _, value := range values {
-				if strings.Contains(strings.ToLower(current.Error()), value) || strings.Contains(strings.ToLower(infraerrors.Reason(current)), value) {
-					return true
-				}
-			}
-			current = errors.Unwrap(current)
-		}
-		return false
-	}
 	var providerConfigErr *providerConfigurationRefreshError
 	var containmentErr *providerCycleContainmentRefreshError
 
@@ -290,7 +276,7 @@ func classifyGrokCredentialFailure(account *Account, err error) grokCredentialFa
 		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderConfig, action: NextAccountStop, message: "Grok OAuth provider configuration is unavailable"}
 	case errors.Is(err, errGrokOAuthRefreshNotConfigured), contains("invalid_client", "unauthorized_client", "invalid_scope", "unknown scope", "grok oauth service is not configured", "grok_oauth_proxy_not_available"):
 		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderConfig, action: NextAccountStop, message: "Grok OAuth provider configuration is unavailable"}
-	case containsChain("grok_oauth_proxy_lookup_failed"),
+	case contains("grok_oauth_proxy_lookup_failed"),
 		contains("grok_oauth_token_refresh_failed") && contains("status 403") && (account == nil || account.ProxyID == nil):
 		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, action: NextAccountStop, message: "Grok OAuth provider is temporarily unavailable"}
 	case contains("grok_oauth_client_init_failed") && (account == nil || account.ProxyID == nil):

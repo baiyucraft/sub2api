@@ -24,11 +24,9 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	dbaccountgroup "github.com/Wei-Shaw/sub2api/ent/accountgroup"
-	dbaccountproxybinding "github.com/Wei-Shaw/sub2api/ent/accountproxybinding"
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
-	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	dbupstreamconfig "github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -57,10 +55,6 @@ type accountRepository struct {
 	// ensuring sticky sessions can promptly detect unavailable accounts.
 	schedulerCache service.SchedulerCache
 }
-
-// PersistsAccountProxyBindingsAtomically reports that Update performs ordered
-// account-proxy binding writes and spark-shadow propagation in one transaction.
-func (r *accountRepository) PersistsAccountProxyBindingsAtomically() bool { return true }
 
 var schedulerNeutralExtraKeyPrefixes = []string{
 	"codex_primary_",
@@ -139,18 +133,12 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
-	normalizeAccountProxyCompatibility(account, true)
 	var created *dbent.Account
 	err := r.withAccountWriteTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
 		var err error
 		created, err = createAccountRecord(txCtx, txClient, account)
 		if err != nil {
 			return err
-		}
-		if len(account.ProxyIDs) > 0 {
-			if err := replaceAccountProxyBindings(txCtx, txClient, created.ID, account.ProxyIDs); err != nil {
-				return err
-			}
 		}
 		return enqueueSchedulerOutbox(txCtx, txClient, service.SchedulerOutboxEventAccountChanged, &created.ID, nil, buildSchedulerGroupPayload(account.GroupIDs))
 	})
@@ -259,7 +247,6 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
-	normalizeAccountProxyCompatibility(account, true)
 	var created *dbent.Account
 	var persistedGroups []service.AccountGroup
 	var groupIDs []int64
@@ -268,11 +255,6 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 		created, err = createAccountRecord(txCtx, txClient, account)
 		if err != nil {
 			return err
-		}
-		if len(account.ProxyIDs) > 0 {
-			if err := replaceAccountProxyBindings(txCtx, txClient, created.ID, account.ProxyIDs); err != nil {
-				return err
-			}
 		}
 
 		groupIDs = make([]int64, 0, len(groups))
@@ -520,7 +502,6 @@ func (r *accountRepository) updateAccount(
 	if account == nil {
 		return nil
 	}
-	replaceProxyBindings := normalizeAccountProxyCompatibility(account, false)
 
 	baseCtx := ctx
 	contextTx := dbent.TxFromContext(ctx)
@@ -552,13 +533,6 @@ func (r *accountRepository) updateAccount(
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
-	var shadowIDs []int64
-	if replaceProxyBindings {
-		shadowIDs, err = replaceAccountProxyBindingsWithShadows(ctx, client, account, account.ProxyIDs)
-		if err != nil {
-			return err
-		}
-	}
 	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
 		return err
 	}
@@ -573,107 +547,8 @@ func (r *accountRepository) updateAccount(
 	// 否则网关在 outbox worker 延迟或异常时仍可能读到旧配置。
 	if contextTx == nil {
 		r.syncSchedulerAccountSnapshot(baseCtx, account.ID)
-		for _, shadowID := range shadowIDs {
-			r.syncSchedulerAccountSnapshot(baseCtx, shadowID)
-		}
 	}
 	return nil
-}
-
-func replaceAccountProxyBindings(ctx context.Context, client *dbent.Client, accountID int64, proxyIDs []int64) error {
-	if _, err := client.AccountProxyBinding.Delete().
-		Where(dbaccountproxybinding.AccountIDEQ(accountID)).
-		Exec(ctx); err != nil {
-		return err
-	}
-	if len(proxyIDs) == 0 {
-		return nil
-	}
-	builders := make([]*dbent.AccountProxyBindingCreate, 0, len(proxyIDs))
-	for position, proxyID := range proxyIDs {
-		builders = append(builders, client.AccountProxyBinding.Create().
-			SetAccountID(accountID).
-			SetProxyID(proxyID).
-			SetPosition(position))
-	}
-	_, err := client.AccountProxyBinding.CreateBulk(builders...).Save(ctx)
-	return err
-}
-
-func replaceAccountProxyBindingsWithShadows(ctx context.Context, client *dbent.Client, account *service.Account, proxyIDs []int64) ([]int64, error) {
-	if account == nil {
-		return nil, nil
-	}
-	if err := replaceAccountProxyBindings(ctx, client, account.ID, proxyIDs); err != nil {
-		return nil, err
-	}
-	if account.ParentAccountID != nil {
-		return nil, nil
-	}
-	shadows, err := client.Account.Query().
-		Where(dbaccount.ParentAccountIDEQ(account.ID), dbaccount.QuotaDimensionEQ(dbaccount.QuotaDimensionSpark)).
-		Select(dbaccount.FieldID).
-		All(ctx)
-	if err != nil {
-		return nil, err
-	}
-	shadowIDs := make([]int64, 0, len(shadows))
-	for _, shadow := range shadows {
-		if shadow == nil {
-			continue
-		}
-		builder := client.Account.UpdateOneID(shadow.ID)
-		if len(proxyIDs) == 0 {
-			builder.ClearProxyID()
-		} else {
-			builder.SetProxyID(proxyIDs[0])
-		}
-		if _, err := builder.Save(ctx); err != nil {
-			return nil, err
-		}
-		if err := replaceAccountProxyBindings(ctx, client, shadow.ID, proxyIDs); err != nil {
-			return nil, err
-		}
-		if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &shadow.ID, nil, nil); err != nil {
-			return nil, err
-		}
-		shadowIDs = append(shadowIDs, shadow.ID)
-	}
-	return shadowIDs, nil
-}
-
-func normalizeAccountProxyCompatibility(account *service.Account, creating bool) bool {
-	if account == nil {
-		return false
-	}
-	bindingsChanged := creating || account.ProxyBindingsChanged
-	if !bindingsChanged {
-		currentFirst := int64(0)
-		if len(account.ProxyIDs) > 0 {
-			currentFirst = account.ProxyIDs[0]
-		}
-		legacyFirst := int64(0)
-		if account.ProxyID != nil && *account.ProxyID > 0 {
-			legacyFirst = *account.ProxyID
-		}
-		bindingsChanged = currentFirst != legacyFirst
-		if bindingsChanged {
-			if legacyFirst == 0 {
-				account.ProxyIDs = []int64{}
-			} else {
-				account.ProxyIDs = []int64{legacyFirst}
-			}
-		}
-	}
-	if bindingsChanged {
-		if len(account.ProxyIDs) == 0 {
-			account.ProxyID = nil
-		} else {
-			first := account.ProxyIDs[0]
-			account.ProxyID = &first
-		}
-	}
-	return bindingsChanged
 }
 
 func (r *accountRepository) updateLockedAccount(
@@ -3569,11 +3444,6 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		if updates.ProbeEnabled != nil && rows != expectedProbeRows {
 			return 0, service.ErrUpstreamBillingProbeAccountInvalid
 		}
-		if rows > 0 && updates.ProxyID != nil {
-			if err := replaceBulkAccountProxyBindings(ctx, r.sql, ids, *updates.ProxyID); err != nil {
-				return 0, err
-			}
-		}
 		if rows > 0 {
 			err = enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountBulkChanged, nil, nil, map[string]any{"account_ids": ids})
 		}
@@ -3596,11 +3466,6 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			if rows == 0 {
 				return nil
 			}
-			if updates.ProxyID != nil {
-				if replaceErr := replaceBulkAccountProxyBindings(txCtx, client, ids, *updates.ProxyID); replaceErr != nil {
-					return replaceErr
-				}
-			}
 			return enqueueSchedulerOutbox(txCtx, client, service.SchedulerOutboxEventAccountBulkChanged, nil, nil, map[string]any{"account_ids": ids})
 		})
 	}
@@ -3615,27 +3480,6 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 	}
 	return rows, nil
-}
-
-type accountProxyBindingBulkExecutor interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
-
-func replaceBulkAccountProxyBindings(ctx context.Context, executor accountProxyBindingBulkExecutor, accountIDs []int64, proxyID int64) error {
-	if _, err := executor.ExecContext(ctx, "DELETE FROM account_proxy_bindings WHERE account_id = ANY($1)", pq.Array(accountIDs)); err != nil {
-		return err
-	}
-	if proxyID <= 0 {
-		return nil
-	}
-	_, err := executor.ExecContext(ctx, `
-		INSERT INTO account_proxy_bindings (account_id, proxy_id, position, created_at)
-		SELECT id, $2, 0, NOW()
-		FROM accounts
-		WHERE id = ANY($1) AND deleted_at IS NULL
-		ON CONFLICT (account_id, proxy_id) DO UPDATE SET position = EXCLUDED.position
-	`, pq.Array(accountIDs), proxyID)
-	return err
 }
 
 func lockBulkUpdateUpstreamReferences(ctx context.Context, client *dbent.Client, ids []int64) error {
@@ -3808,15 +3652,6 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		}
 	}
 
-	proxyBindings, err := r.loadAccountProxyBindings(ctx, accountIDs)
-	if err != nil {
-		return nil, err
-	}
-	for _, bindings := range proxyBindings {
-		for _, binding := range bindings {
-			proxyIDs = append(proxyIDs, binding.ProxyID)
-		}
-	}
 	proxyMap, err := r.loadProxies(ctx, proxyIDs)
 	if err != nil {
 		return nil, err
@@ -3832,29 +3667,9 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if out == nil {
 			continue
 		}
-		// Prefer the ordered many-proxy relation when present. Legacy accounts
-		// without a backfilled row continue to use accounts.proxy_id.
-		if bindings := proxyBindings[acc.ID]; len(bindings) > 0 {
-			out.ProxyIDs = make([]int64, 0, len(bindings))
-			out.Proxies = make([]*service.Proxy, 0, len(bindings))
-			for _, binding := range bindings {
-				out.ProxyIDs = append(out.ProxyIDs, binding.ProxyID)
-				if proxy, ok := proxyMap[binding.ProxyID]; ok && proxy != nil {
-					out.Proxies = append(out.Proxies, proxy)
-				}
-			}
-			if len(out.ProxyIDs) > 0 {
-				first := out.ProxyIDs[0]
-				out.ProxyID = &first
-				if proxy, ok := proxyMap[first]; ok {
-					out.Proxy = proxy
-				}
-			}
-		} else if acc.ProxyID != nil {
-			out.ProxyIDs = []int64{*acc.ProxyID}
+		if acc.ProxyID != nil {
 			if proxy, ok := proxyMap[*acc.ProxyID]; ok {
 				out.Proxy = proxy
-				out.Proxies = []*service.Proxy{proxy}
 			}
 		}
 		if out.UpstreamConfigID != nil {
@@ -3864,8 +3679,6 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 			out.UpstreamSchedulingEnabled = &enabled
 			out.ProxyID = nil
 			out.Proxy = nil
-			out.ProxyIDs = nil
-			out.Proxies = nil
 			if cfg, ok := upstreamConfigs[*out.UpstreamConfigID]; ok && cfg != nil {
 				siteURL := cfg.SiteURL
 				configName := cfg.Name
@@ -3893,10 +3706,8 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 				out.UpstreamConcurrencyOverride = resolvedConcurrency.Override
 				if cfg.ProxyID != nil {
 					out.ProxyID = cfg.ProxyID
-					out.ProxyIDs = []int64{*cfg.ProxyID}
 					if proxy, ok := proxyMap[*cfg.ProxyID]; ok {
 						out.Proxy = proxy
-						out.Proxies = []*service.Proxy{proxy}
 					}
 				}
 			}
@@ -3991,34 +3802,6 @@ func notExpiredPredicate(now time.Time) dbpredicate.Account {
 	)
 }
 
-func (r *accountRepository) loadAccountProxyBindings(ctx context.Context, accountIDs []int64) (map[int64][]*dbent.AccountProxyBinding, error) {
-	out := make(map[int64][]*dbent.AccountProxyBinding)
-	accountIDs = uniquePositiveInt64s(accountIDs)
-	if len(accountIDs) == 0 {
-		return out, nil
-	}
-	for start := 0; start < len(accountIDs); start += postgresParameterBatchSize {
-		end := start + postgresParameterBatchSize
-		if end > len(accountIDs) {
-			end = len(accountIDs)
-		}
-		bindings, err := r.client.AccountProxyBinding.Query().
-			Where(dbaccountproxybinding.AccountIDIn(accountIDs[start:end]...)).
-			Order(dbaccountproxybinding.ByAccountID(), dbaccountproxybinding.ByPosition(), dbaccountproxybinding.ByProxyID()).
-			All(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, binding := range bindings {
-			if binding == nil {
-				continue
-			}
-			out[binding.AccountID] = append(out[binding.AccountID], binding)
-		}
-	}
-	return out, nil
-}
-
 func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (map[int64]*service.Proxy, error) {
 	proxyMap := make(map[int64]*service.Proxy)
 	proxyIDs = uniquePositiveInt64s(proxyIDs)
@@ -4031,16 +3814,12 @@ func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (
 		if end > len(proxyIDs) {
 			end = len(proxyIDs)
 		}
-		proxies, err := r.client.Proxy.Query().Where(dbproxy.IDIn(proxyIDs[start:end]...)).All(mixins.SkipSoftDelete(ctx))
+		proxies, err := r.client.Proxy.Query().Where(dbproxy.IDIn(proxyIDs[start:end]...)).All(ctx)
 		if err != nil {
 			return nil, err
 		}
 		for _, p := range proxies {
-			mapped := proxyEntityToService(p)
-			if mapped != nil && p.DeletedAt != nil {
-				mapped.Status = service.StatusDisabled
-			}
-			proxyMap[p.ID] = mapped
+			proxyMap[p.ID] = proxyEntityToService(p)
 		}
 	}
 	return proxyMap, nil
@@ -4674,68 +4453,18 @@ func (r *accountRepository) ResetQuotaUsedAndClearRateLimitCooldown(ctx context.
 // 仅当 proxy_fallback_origin_id IS NOT NULL 时执行更新；
 // 若影响行数为 0，则返回 ErrAccountNotInFallback（账号存在但不在 fallback 状态）。
 func (r *accountRepository) RevertProxyFallback(ctx context.Context, accountID int64) error {
-	baseCtx := ctx
-	var shadowIDs []int64
-	err := r.withAccountWriteTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
-		rows, err := client.QueryContext(txCtx, `
-			SELECT proxy_fallback_origin_id,
-				COALESCE((extra -> $2)::text, 'null'),
-				parent_account_id
-			FROM accounts
-			WHERE id=$1 AND proxy_fallback_origin_id IS NOT NULL AND deleted_at IS NULL
-			FOR UPDATE`, accountID, proxyFallbackOriginProxyIDsExtraKey)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = rows.Close() }()
-		if !rows.Next() {
-			if err := rows.Err(); err != nil {
-				return err
-			}
-			return service.ErrAccountNotInFallback
-		}
-		var (
-			originProxyID int64
-			proxyIDsJSON  string
-			parentID      *int64
-		)
-		if err := rows.Scan(&originProxyID, &proxyIDsJSON, &parentID); err != nil {
-			return err
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		proxyIDs := []int64(nil)
-		if proxyIDsJSON != "" && proxyIDsJSON != "null" {
-			if err := json.Unmarshal([]byte(proxyIDsJSON), &proxyIDs); err != nil {
-				return fmt.Errorf("decode proxy fallback routes for account %d: %w", accountID, err)
-			}
-		}
-		if len(proxyIDs) == 0 {
-			proxyIDs = []int64{originProxyID}
-		}
-		account := &service.Account{ID: accountID, ParentAccountID: parentID}
-		shadowIDs, err = replaceAccountProxyBindingsWithShadows(txCtx, client, account, proxyIDs)
-		if err != nil {
-			return err
-		}
-		if _, err := client.ExecContext(txCtx, `
-			UPDATE accounts
-			SET proxy_id=$2,
-				proxy_fallback_origin_id=NULL,
-				extra=COALESCE(extra, '{}'::jsonb) - $3,
-				updated_at=NOW()
-			WHERE id=$1`, accountID, proxyIDs[0], proxyFallbackOriginProxyIDsExtraKey); err != nil {
-			return err
-		}
-		return enqueueSchedulerOutbox(txCtx, client, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil)
-	})
+	res, err := r.sql.ExecContext(ctx, `
+		UPDATE accounts SET proxy_id=proxy_fallback_origin_id, proxy_fallback_origin_id=NULL, updated_at=NOW()
+		WHERE id=$1 AND proxy_fallback_origin_id IS NOT NULL AND deleted_at IS NULL`, accountID)
 	if err != nil {
 		return err
 	}
-	r.syncSchedulerAccountSnapshot(baseCtx, accountID)
-	for _, shadowID := range shadowIDs {
-		r.syncSchedulerAccountSnapshot(baseCtx, shadowID)
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return service.ErrAccountNotInFallback
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] revert fallback enqueue failed: account=%d err=%v", accountID, err)
 	}
 	return nil
 }

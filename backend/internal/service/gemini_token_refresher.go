@@ -34,9 +34,7 @@ func (r *GeminiTokenRefresher) NeedsRefresh(account *Account, refreshWindow time
 }
 
 func (r *GeminiTokenRefresher) Refresh(ctx context.Context, account *Account) (map[string]any, error) {
-	tokenInfo, err := withAccountProxyFallback(ctx, account, func(attempt *Account) (*GeminiTokenInfo, error) {
-		return r.geminiOAuthService.RefreshAccountToken(ctx, attempt)
-	})
+	tokenInfo, err := r.geminiOAuthService.RefreshAccountToken(ctx, account)
 	if err != nil {
 		return nil, err
 	}

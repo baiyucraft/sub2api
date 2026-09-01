@@ -132,7 +132,6 @@ type CreateAccountRequest struct {
 	Credentials             map[string]any `json:"credentials" binding:"required"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
-	ProxyIDs                *[]int64       `json:"proxy_ids"`
 	UpstreamConfigID        *int64         `json:"upstream_config_id"`
 	UpstreamKeyID           *int64         `json:"upstream_key_id"`
 	Concurrency             int            `json:"concurrency"`
@@ -155,7 +154,6 @@ type UpdateAccountRequest struct {
 	Credentials             map[string]any `json:"credentials"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
-	ProxyIDs                *[]int64       `json:"proxy_ids"`
 	UpstreamConfigID        *int64         `json:"upstream_config_id"`
 	UpstreamKeyID           *int64         `json:"upstream_key_id"`
 	Concurrency             *int           `json:"concurrency"`
@@ -227,41 +225,6 @@ type AccountWithConcurrency struct {
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
 }
 
-func buildProxyCapacities(account *service.Account, loads map[string]*service.AccountLoadInfo) []dto.ProxyCapacity {
-	if account == nil || account.IsUpstreamBound() || len(account.ProxyIDs) == 0 {
-		return nil
-	}
-	now := time.Now()
-	proxyByID := make(map[int64]*service.Proxy, len(account.Proxies))
-	for _, proxy := range account.Proxies {
-		if proxy != nil {
-			proxyByID[proxy.ID] = proxy
-		}
-	}
-	items := make([]dto.ProxyCapacity, 0, len(account.ProxyIDs))
-	for _, proxyID := range account.ProxyIDs {
-		proxy := proxyByID[proxyID]
-		target := service.AccountProxyConcurrencyTarget(account, proxyID)
-		limit := target.Limit
-		item := dto.ProxyCapacity{
-			ProxyID:   proxyID,
-			Limit:     &limit,
-			Available: proxy != nil && proxy.IsActive() && !proxy.IsExpired(now),
-		}
-		if proxy != nil {
-			item.Name = proxy.Name
-		}
-		if load := loads[target.Key()]; load != nil {
-			current := load.CurrentConcurrency
-			waiting := load.WaitingCount
-			item.CurrentConcurrency = &current
-			item.Waiting = &waiting
-		}
-		items = append(items, item)
-	}
-	return items
-}
-
 type AccountUpstreamHealth struct {
 	service.UpstreamHealthSnapshot
 	History []service.UpstreamHealthObservation `json:"history,omitempty"`
@@ -327,17 +290,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	}
 
 	if h.concurrencyService != nil {
-		if len(account.ProxyIDs) > 0 && !account.IsUpstreamBound() {
-			loads, err := h.concurrencyService.GetConcurrencyTargetsLoadBatch(ctx, account.SchedulingConcurrencyTargets())
-			if err == nil {
-				item.Account.SetProxyCapacities(buildProxyCapacities(account, loads))
-				for _, load := range loads {
-					if load != nil {
-						item.CurrentConcurrency += load.CurrentConcurrency
-					}
-				}
-			}
-		} else if loads, err := h.concurrencyService.GetAccountsLoadBatch(ctx, []service.AccountWithConcurrency{service.AccountConcurrencyLoadDescriptor(account)}); err == nil && loads[account.ID] != nil {
+		if loads, err := h.concurrencyService.GetAccountsLoadBatch(ctx, []service.AccountWithConcurrency{service.AccountConcurrencyLoadDescriptor(account)}); err == nil && loads[account.ID] != nil {
 			item.CurrentConcurrency = loads[account.ID].CurrentConcurrency
 		}
 	}
@@ -716,7 +669,6 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	concurrencyCounts := make(map[int64]int)
-	proxyCapacityLoads := make(map[string]*service.AccountLoadInfo)
 	var ttftGuardDegradations map[int64][]service.OpenAITTFTGuardDegradation
 	var upstreamHealthHistories map[int64][]service.UpstreamHealthObservation
 	var windowCosts map[int64]float64
@@ -741,26 +693,13 @@ func (h *AccountHandler) List(c *gin.Context) {
 	// 始终获取调度并发数；上游账号按 upstream_config_id 共享同一目标。
 	if h.concurrencyService != nil {
 		loadReq := make([]service.AccountWithConcurrency, 0, len(accounts))
-		proxyTargets := make([]service.ConcurrencyTarget, 0)
 		for i := range accounts {
-			if len(accounts[i].ProxyIDs) > 0 && !accounts[i].IsUpstreamBound() {
-				proxyTargets = append(proxyTargets, accounts[i].SchedulingConcurrencyTargets()...)
-				continue
-			}
 			loadReq = append(loadReq, service.AccountConcurrencyLoadDescriptor(&accounts[i]))
 		}
 		if loads, loadErr := h.concurrencyService.GetAccountsLoadBatch(c.Request.Context(), loadReq); loadErr == nil {
 			for accountID, load := range loads {
 				if load != nil {
 					concurrencyCounts[accountID] = load.CurrentConcurrency
-				}
-			}
-		}
-		if loads, loadErr := h.concurrencyService.GetConcurrencyTargetsLoadBatch(c.Request.Context(), proxyTargets); loadErr == nil {
-			proxyCapacityLoads = loads
-			for _, load := range loads {
-				if load != nil {
-					concurrencyCounts[load.AccountID] += load.CurrentConcurrency
 				}
 			}
 		}
@@ -864,7 +803,6 @@ func (h *AccountHandler) List(c *gin.Context) {
 			SchedulerScores:       schedulerGroupScores[acc.ID],
 			TTFTGuardDegradations: accountTTFTGuardDegradations,
 		}
-		item.Account.SetProxyCapacities(buildProxyCapacities(acc, proxyCapacityLoads))
 		target := acc.SchedulingConcurrencyTarget()
 		item.SchedulerConcurrencyLimit = target.Limit
 		item.SchedulerConcurrencyScope = target.Kind
@@ -1099,7 +1037,6 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			Credentials:           req.Credentials,
 			Extra:                 req.Extra,
 			ProxyID:               req.ProxyID,
-			ProxyIDs:              req.ProxyIDs,
 			UpstreamConfigID:      req.UpstreamConfigID,
 			UpstreamKeyID:         req.UpstreamKeyID,
 			Concurrency:           req.Concurrency,
@@ -1229,7 +1166,6 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		Credentials:           req.Credentials,
 		Extra:                 req.Extra,
 		ProxyID:               req.ProxyID,
-		ProxyIDs:              req.ProxyIDs,
 		UpstreamConfigID:      req.UpstreamConfigID,
 		UpstreamKeyID:         req.UpstreamKeyID,
 		Concurrency:           req.Concurrency, // 指针类型，nil 表示未提供

@@ -1566,11 +1566,7 @@
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />
         </div>
-        <OrderedProxySelector
-          v-model="form.proxy_ids"
-          :proxies="proxies"
-        />
-        <p class="input-hint">{{ t('admin.accounts.proxyBindingHint') }}</p>
+        <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
       </div>
 
       <div v-if="!isUpstreamBoundAccount" class="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -2862,8 +2858,8 @@ import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
+import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
-import OrderedProxySelector from '@/components/account/OrderedProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import UpstreamKeySelector from '@/components/account/UpstreamKeySelector.vue'
 import CustomErrorCodeSelector from '@/components/account/CustomErrorCodeSelector.vue'
@@ -2947,6 +2943,7 @@ const browserTimeZone = getBrowserTimeZone()
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
 const isSparkShadow = computed(() => props.account?.parent_account_id != null)
+
 const hideAccountLongContextBilling = computed(() => {
   return allSelectedGroupsEnableLongContextPricing(form.group_ids, props.groups)
 })
@@ -3599,7 +3596,6 @@ const form = reactive({
   name: '',
   notes: '',
   proxy_id: null as number | null,
-  proxy_ids: [] as number[],
   concurrency: 1,
   load_factor: null as number | null,
   priority: 1,
@@ -3734,9 +3730,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
   form.proxy_id = newAccount.proxy_id
-  form.proxy_ids = Array.isArray(newAccount.proxy_ids)
-    ? [...newAccount.proxy_ids]
-    : (newAccount.proxy_id != null ? [newAccount.proxy_id] : [])
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
@@ -4681,10 +4674,10 @@ const handleSubmit = async () => {
 
   const updatePayload: Record<string, unknown> = { ...form }
   try {
-    const selectedProxyIds = Array.from(new Set(form.proxy_ids.filter((id) => Number.isInteger(id) && id > 0)))
-    updatePayload.proxy_ids = selectedProxyIds
-    // Keep the legacy scalar in sync for older servers/clients.
-    updatePayload.proxy_id = selectedProxyIds[0] ?? 0
+    // 后端期望 proxy_id: 0 表示清除代理，而不是 null
+    if (updatePayload.proxy_id === null) {
+      updatePayload.proxy_id = 0
+    }
     if (form.expires_at === null) {
       updatePayload.expires_at = 0
     }
@@ -4714,7 +4707,6 @@ const handleSubmit = async () => {
       if (props.mode === 'upstream') {
         delete updatePayload.type
         delete updatePayload.proxy_id
-        delete updatePayload.proxy_ids
         delete updatePayload.upstream_config_id
         delete updatePayload.upstream_key_id
       } else {
@@ -4730,7 +4722,6 @@ const handleSubmit = async () => {
         updatePayload.upstream_config_id = editUpstreamConfigId.value
         updatePayload.upstream_key_id = editUpstreamKeyId.value
         updatePayload.proxy_id = 0
-        updatePayload.proxy_ids = []
       }
     }
 

@@ -6,59 +6,8 @@ import (
 	"context"
 	"testing"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/stretchr/testify/require"
 )
-
-func TestAccountRepoProxyUpdateAtomicallyPropagatesOrderedBindingsToShadow(t *testing.T) {
-	ctx := context.Background()
-	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
-	first := mustCreateProxyForShadowBindingTest(t, ctx, tx.Client(), "shadow-first", 18081)
-	second := mustCreateProxyForShadowBindingTest(t, ctx, tx.Client(), "shadow-second", 18082)
-
-	parent := &service.Account{
-		Name: "proxy-parent", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
-		Credentials: map[string]any{}, Extra: map[string]any{}, Status: service.StatusActive,
-		Schedulable: true, ProxyIDs: []int64{first.ID}, ProxyID: &first.ID,
-	}
-	require.NoError(t, repo.Create(ctx, parent))
-	shadow := &service.Account{
-		Name: "proxy-shadow", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
-		Credentials: map[string]any{}, Extra: map[string]any{}, Status: service.StatusActive,
-		Schedulable: true, ParentAccountID: &parent.ID, QuotaDimension: service.QuotaDimensionSpark,
-		ProxyIDs: []int64{first.ID}, ProxyID: &first.ID,
-	}
-	require.NoError(t, repo.Create(ctx, shadow))
-
-	parent.ProxyIDs = []int64{second.ID, first.ID}
-	parent.ProxyID = &second.ID
-	parent.ProxyBindingsChanged = true
-	require.NoError(t, repo.Update(ctx, parent))
-
-	reloadedParent, err := repo.GetByID(ctx, parent.ID)
-	require.NoError(t, err)
-	reloadedShadow, err := repo.GetByID(ctx, shadow.ID)
-	require.NoError(t, err)
-	require.Equal(t, []int64{second.ID, first.ID}, reloadedParent.ProxyIDs)
-	require.Equal(t, reloadedParent.ProxyIDs, reloadedShadow.ProxyIDs)
-	require.NotNil(t, reloadedShadow.ProxyID)
-	require.Equal(t, second.ID, *reloadedShadow.ProxyID)
-}
-
-func mustCreateProxyForShadowBindingTest(t *testing.T, ctx context.Context, client *dbent.Client, name string, port int) *dbent.Proxy {
-	t.Helper()
-	proxy, err := client.Proxy.Create().
-		SetName(name).
-		SetProtocol("http").
-		SetHost("127.0.0.1").
-		SetPort(port).
-		SetStatus(service.StatusActive).
-		Save(ctx)
-	require.NoError(t, err)
-	return proxy
-}
 
 func TestAccountRepoSparkShadowRoundTrip(t *testing.T) {
 	ctx := context.Background()

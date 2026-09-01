@@ -229,34 +229,10 @@ func (c *openAIProxyStreamCircuit) ensureCapacityLocked(now time.Time) {
 }
 
 func openAIProxyStreamCircuitProxyID(account *Account) (int64, bool) {
-	if account == nil || account.Platform != PlatformOpenAI {
-		return 0, false
-	}
-	if account.Proxy != nil && account.Proxy.ID > 0 {
-		return account.Proxy.ID, true
-	}
-	if account.ProxyID == nil || *account.ProxyID <= 0 {
+	if account == nil || account.Platform != PlatformOpenAI || account.ProxyID == nil || *account.ProxyID <= 0 {
 		return 0, false
 	}
 	return *account.ProxyID, true
-}
-
-func (s *OpenAIGatewayService) withOpenAIProxyStreamRouteExclusions(ctx context.Context, account *Account) context.Context {
-	if s == nil || account == nil || account.Platform != PlatformOpenAI || openAIProxyStreamQuarantineBypassed(ctx) {
-		return ctx
-	}
-	circuit := s.getOpenAIProxyStreamCircuit()
-	if circuit == nil {
-		return ctx
-	}
-	failed := make(map[string]struct{})
-	now := time.Now()
-	for _, proxy := range AvailableAccountProxyRoutes(account, now) {
-		if circuit.isBlocked(proxy.ID, now) {
-			failed[AccountProxyConcurrencyTarget(account, proxy.ID).Key()] = struct{}{}
-		}
-	}
-	return ContextWithFailedProxyRoutes(ctx, failed)
 }
 
 func (s *OpenAIGatewayService) recordOpenAIProxyStreamDisconnect(account *Account, streamErr error, upstreamRequestID string) {
@@ -308,25 +284,15 @@ func openAIProxyStreamQuarantineBypassed(ctx context.Context) bool {
 }
 
 func (s *OpenAIGatewayService) isOpenAIProxyStreamQuarantined(ctx context.Context, account *Account) bool {
-	if account == nil || account.Platform != PlatformOpenAI || openAIProxyStreamQuarantineBypassed(ctx) {
+	proxyID, ok := openAIProxyStreamCircuitProxyID(account)
+	if !ok {
+		return false
+	}
+	if openAIProxyStreamQuarantineBypassed(ctx) {
 		return false
 	}
 	circuit := s.getOpenAIProxyStreamCircuit()
-	if circuit == nil {
-		return false
-	}
-	now := time.Now()
-	proxies := AvailableAccountProxyRoutes(account, now)
-	if len(proxies) == 0 {
-		proxyID, ok := openAIProxyStreamCircuitProxyID(account)
-		return ok && circuit.isBlocked(proxyID, now)
-	}
-	for _, proxy := range proxies {
-		if !circuit.isBlocked(proxy.ID, now) {
-			return false
-		}
-	}
-	return true
+	return circuit != nil && circuit.isBlocked(proxyID, time.Now())
 }
 
 // logOpenAIProxyStreamQuarantineFailOpen emits a rate-limited warning when a
