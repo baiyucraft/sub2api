@@ -33,6 +33,8 @@ SSH_CONFIG = ROOT / ".ssh.local"
 KNOWN_HOSTS = ROOT / ".tmp" / "known_hosts"
 RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$")
 MAX_EVENT_LOG_BYTES = 16 * 1024 * 1024
+TRANSFER_CHUNK_BYTES = 8 * 1024 * 1024
+TRANSFER_MAX_ATTEMPTS = 8
 REMOTE_EVENT_LOGS = {
     "local_vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
     "vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
@@ -333,37 +335,91 @@ exit "$code"
 
     def upload_file(self, name: str, local_path: pathlib.Path, remote_path: str, mode: int = 0o600) -> None:
         self._require_temp_path(name, remote_path)
-        client = self.connect(name)
-        try:
-            sftp = client.open_sftp()
+        if not local_path.is_file() or local_path.is_symlink():
+            raise RuntimeError("local transfer input is not a regular file")
+        expected_size = local_path.stat().st_size
+        for attempt in range(1, TRANSFER_MAX_ATTEMPTS + 1):
+            client = None
+            sftp = None
             try:
-                sftp.put(str(local_path), remote_path)
+                client = self.connect(name)
+                sftp = client.open_sftp()
+                try:
+                    attributes = sftp.lstat(remote_path) if hasattr(sftp, "lstat") else sftp.stat(remote_path)
+                    remote_size = int(attributes.st_size)
+                    if remote_size < 0:
+                        raise RuntimeError("remote transfer output size is invalid")
+                    if remote_size > expected_size:
+                        sftp.remove(remote_path)
+                        remote_size = 0
+                except (OSError, IOError):
+                    remote_size = 0
+                if remote_size == expected_size:
+                    sftp.chmod(remote_path, mode)
+                    return
+                with local_path.open("rb") as source, sftp.file(remote_path, "ab") as target:
+                    source.seek(remote_size)
+                    remaining = expected_size - remote_size
+                    while remaining:
+                        chunk = source.read(min(TRANSFER_CHUNK_BYTES, remaining))
+                        if not chunk:
+                            raise OSError("local transfer input ended before expected size")
+                        target.write(chunk)
+                        target.flush()
+                        remaining -= len(chunk)
+                if int(sftp.stat(remote_path).st_size) != expected_size:
+                    raise OSError("remote transfer output size mismatch")
                 sftp.chmod(remote_path, mode)
+                return
+            except (EOFError, OSError, IOError, paramiko.SSHException):
+                if attempt == TRANSFER_MAX_ATTEMPTS:
+                    raise
             finally:
-                sftp.close()
-        finally:
-            client.close()
+                if sftp is not None:
+                    sftp.close()
+                if client is not None:
+                    client.close()
 
     def download_file(self, name: str, remote_path: str, local_path: pathlib.Path) -> None:
         self._require_temp_path(name, remote_path)
-        client = self.connect(name)
-        try:
-            sftp = client.open_sftp()
+        for attempt in range(1, TRANSFER_MAX_ATTEMPTS + 1):
+            client = None
+            sftp = None
             try:
-                # Keep enough read-ahead to hide proxy round-trip latency while
-                # bounding Paramiko's request queue for large release archives.
-                # The caller still verifies the complete checksum before the
-                # staged asset is accepted.
-                sftp.get(
-                    remote_path,
-                    str(local_path),
-                    prefetch=True,
-                    max_concurrent_prefetch_requests=64,
-                )
+                client = self.connect(name)
+                sftp = client.open_sftp()
+                attributes = sftp.lstat(remote_path) if hasattr(sftp, "lstat") else sftp.stat(remote_path)
+                expected_size = int(attributes.st_size)
+                mode = getattr(attributes, "st_mode", None)
+                if expected_size < 0 or mode is not None and not stat.S_ISREG(mode):
+                    raise RuntimeError("remote transfer input is invalid")
+                current_size = local_path.stat().st_size if local_path.exists() else 0
+                if local_path.is_symlink():
+                    raise RuntimeError("local transfer output must not be a symlink")
+                if current_size > expected_size:
+                    local_path.write_bytes(b"")
+                    current_size = 0
+                with sftp.file(remote_path, "rb") as source, local_path.open("ab") as target:
+                    source.seek(current_size)
+                    remaining = expected_size - current_size
+                    while remaining:
+                        chunk = source.read(min(TRANSFER_CHUNK_BYTES, remaining))
+                        if not chunk:
+                            raise OSError("remote transfer input ended before expected size")
+                        target.write(chunk)
+                        target.flush()
+                        remaining -= len(chunk)
+                if local_path.stat().st_size != expected_size:
+                    raise OSError("local transfer output size mismatch")
+                return
+            except (EOFError, OSError, IOError, paramiko.SSHException):
+                if attempt == TRANSFER_MAX_ATTEMPTS:
+                    raise
             finally:
-                sftp.close()
-        finally:
-            client.close()
+                if sftp is not None:
+                    sftp.close()
+                if client is not None:
+                    client.close()
 
     def copy_file_between(
         self,
