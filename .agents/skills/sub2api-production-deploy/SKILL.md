@@ -160,7 +160,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - 核对“输入、状态、证据、恢复、最终验真”五个面：完整 commit/origin、candidate image、migration 状态与 checksum、backup/restore point、active claim/committed marker、运行 image、`verify-result` 和 post-deploy `doctor` 必须使用同一 release 身份。
 - 任何代码或发布资产修复都必须重新生成完整 40 位 commit、Gate、candidate archive/image 和唯一 release ID；禁止用旧 Gate、旧 candidate、旧 checksum 或历史成功日志证明新代码。
 - 若失败发生在远端命令、SSH、测试断言或输出解析之后，先按结构化状态做 reconciliation，再决定是否继续；不得以“可能没有提交”或“工具超时”作为重跑依据。
-- Gate v2 当前 profile（现为 profile 243）的升级合同是 health-only；历史 profile 242 保留相同合同用于受控恢复/审计。只验证容器 health、应用 `/health` 和路由可达性；不得读取账号池、Canary/API key、Bearer 凭据，不发送模型/upstream 请求，不生成 usage attribution。`probe_*` 只有在明确表示隔离 DB/Redis/容器健康时才可使用。
+- Gate v2 当前 profile（现为 profile 244）的升级合同是 health-only；历史 profile 242-243 保留相同合同用于受控恢复/审计。只验证容器 health、应用 `/health` 和路由可达性；不得读取账号池、Canary/API key、Bearer 凭据，不发送模型/upstream 请求，不生成 usage attribution。`probe_*` 只有在明确表示隔离 DB/Redis/容器健康时才可使用。
 - 关联面审计完成后，至少运行对应 release 测试、完整 release suite、`git diff --check`、shell 语法检查，并重新执行适用的 `doctor`、`verify-result` 和 post-deploy doctor。
 
 ### 一次性修复门禁

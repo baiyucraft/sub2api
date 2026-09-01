@@ -2,7 +2,7 @@
 
 ## Fork 版本命名
 
-Fork 版本号直接使用官方源版本并追加 `-baiyu`，不补写或重复 `0.1.` 前缀。例如官方源版本为 `0.176` 时，fork 版本必须是 `0.176-baiyu`。fork `VERSION` 每变化一次，就新增下一个连续整数 profile，parent 指向上一个当前 profile；即使没有 migration 也必须创建新 profile 并使用 `new_migrations=[]`。历史 profile 的版本、parent、Gate、candidate、migration 和 checksum 不回写。当前映射为 profile 242 → `0.1.183-baiyu`（历史）、profile 243 → `0.1.184-baiyu`（当前）；下一版 `0.1.185-baiyu` 应新增 profile 244。
+Fork 版本号直接使用官方源版本并追加 `-baiyu`，不补写或重复 `0.1.` 前缀。例如官方源版本为 `0.176` 时，fork 版本必须是 `0.176-baiyu`。fork `VERSION` 每变化一次，就新增下一个连续整数 profile，parent 指向上一个当前 profile；即使没有 migration 也必须创建新 profile 并使用 `new_migrations=[]`。历史 profile 的版本、parent、Gate、candidate、migration 和 checksum 不回写。当前映射为 profile 242 → `0.1.183-baiyu`（历史）、profile 243 → `0.1.184-baiyu`（历史）、profile 244 → `0.1.185-baiyu`（当前）。
 
 标准入口（启动后调用端可断开）：
 
