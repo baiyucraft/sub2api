@@ -17,6 +17,10 @@ vi.mock('vue-i18n', async () => {
     'admin.users.usageStats.outputTokens': '输出 Token',
     'admin.users.usageStats.cacheCreationTokens': '缓存写入 Token',
     'admin.users.usageStats.cacheReadTokens': '缓存读取 Token',
+    'admin.users.usageStats.promptTokens': '提示词总 Token',
+    'admin.users.usageStats.cacheRate': '缓存率',
+    'admin.users.usageStats.cacheRateShort': '缓存',
+    'admin.users.usageStats.cacheRateTitle': '缓存率 {rate}（缓存读取 {numerator} / 提示词总量 {denominator}）',
     'admin.users.usageStats.totalTokens': '总 Token',
     'admin.users.usageStats.margin': '差额',
     'admin.users.usageStats.noUsage': '暂无用量',
@@ -76,6 +80,9 @@ describe('UserUsageStatsMatrix', () => {
     expect(wrapper.text()).toContain('$0.2600')
     expect(wrapper.text()).toContain('$73.50')
     expect(wrapper.text()).toContain('$346.22')
+    expect(wrapper.get('[data-test="user-usage-cache-rate-today"]').text()).toBe('缓存 50.00%')
+    expect(wrapper.get('[data-test="user-usage-cache-rate-last_30d"]').text()).toBe('缓存 50.00%')
+    expect(wrapper.get('[data-test="user-usage-cache-rate-lifetime"]').text()).toBe('缓存 50.00%')
     expect(wrapper.get('[data-test="user-usage-window-today"]').findAll('.font-mono')).toHaveLength(0)
   })
 
@@ -88,6 +95,10 @@ describe('UserUsageStatsMatrix', () => {
     expect(details.classes()).toContain('!block')
     expect(details.text()).toContain('输入 Token')
     expect(details.text()).toContain('1,000')
+    expect(details.text()).toContain('提示词总 Token')
+    expect(details.text()).toContain('8,000')
+    expect(details.get('[data-test="user-usage-cache-rate-detail-today"]').text()).toBe('50.00%')
+    expect(wrapper.get('[data-test="user-usage-cache-rate-today"]').attributes('title')).toContain('4,000 / 提示词总量 8,000')
     expect(details.text()).toContain('$0.2600')
     expect(details.text()).toContain('$0.1800')
     expect(details.text()).toContain('$0.0800')
@@ -155,5 +166,41 @@ describe('UserUsageStatsMatrix', () => {
     expect(wrapper.get('[data-test="user-usage-no-data"]').text()).toBe('暂无用量')
     expect(wrapper.find('[data-test="user-usage-window-today"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('$0.0000')
+  })
+
+  it('calculates each window against all prompt tokens without output tokens', () => {
+    const wrapper = mount(UserUsageStatsMatrix, {
+      props: {
+        stats: stats({
+          today: windowStats({ input_tokens: 100, output_tokens: 9_999, cache_creation_tokens: 100, cache_read_tokens: 200 }),
+          last_30d: windowStats({ input_tokens: 0, output_tokens: 9_999, cache_creation_tokens: 0, cache_read_tokens: 200 }),
+          lifetime: windowStats({ input_tokens: 900, output_tokens: 9_999, cache_creation_tokens: 100, cache_read_tokens: 0 })
+        })
+      }
+    })
+
+    expect(wrapper.get('[data-test="user-usage-cache-rate-today"]').text()).toBe('缓存 50.00%')
+    expect(wrapper.get('[data-test="user-usage-cache-rate-last_30d"]').text()).toBe('缓存 100.00%')
+    expect(wrapper.get('[data-test="user-usage-cache-rate-lifetime"]').text()).toBe('缓存 0.00%')
+  })
+
+  it('shows no cache rate when prompt totals are empty or invalid', () => {
+    const invalidWindow = windowStats({
+      input_tokens: Number.NaN,
+      output_tokens: 1,
+      cache_creation_tokens: -10,
+      cache_read_tokens: Number.NaN,
+      total_tokens: 1
+    })
+    const wrapper = mount(UserUsageStatsMatrix, {
+      props: {
+        stats: stats({ today: invalidWindow })
+      }
+    })
+
+    const rate = wrapper.get('[data-test="user-usage-cache-rate-today"]')
+    expect(rate.text()).toBe('缓存 —')
+    expect(rate.attributes('title')).toContain('缓存率 —')
+    expect(rate.attributes('title')).toContain('提示词总量 0')
   })
 })
