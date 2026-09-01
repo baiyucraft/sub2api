@@ -270,7 +270,7 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         self.assertIn("write_container_images", script)
         self.assertIn("write_protected_images", script)
         self.assertIn("--filter dangling=true", script)
-        self.assertIn("${#tags[@]} == 0", script)
+        self.assertIn("docker image ls --no-trunc --filter dangling=true", script)
         self.assertIn('docker image rm "$image_id"', script)
         self.assertIn("pre-image-id", script)
         self.assertIn('[[ ! -L $release_state ]]', script)
