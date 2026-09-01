@@ -112,7 +112,7 @@ const SelectStub = defineComponent({
   name: 'SelectStub',
   props: {
     modelValue: {
-      type: [String, Number, Boolean, Array, null],
+      type: [String, Number, Boolean, null],
       default: ''
     },
     options: {
@@ -608,23 +608,6 @@ describe('EditAccountModal', () => {
       proxy_id: 0
     })
     expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('name')
-  })
-
-  it('preserves ordered multi-proxy bindings on ordinary account save', async () => {
-    const account = buildAccount()
-    account.proxy_id = 7
-    account.proxy_ids = [7, 9]
-    updateAccountMock.mockReset()
-    updateAccountMock.mockResolvedValue(account)
-
-    const wrapper = mountModal(account)
-    await flushPromises()
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-
-    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
-      proxy_id: 7,
-      proxy_ids: [7, 9]
-    }))
   })
 
   it('rehydrates and updates pool mode for an upstream-bound account', async () => {

@@ -353,11 +353,11 @@ func (s *OpenAIGatewayService) ProfitControlVetoLatest(ctx context.Context, sele
 // behavior for requests without a profit gate. Profit-controlled requests bind
 // only after the terminal post-slot check, so an account rejected after a rate
 // refresh cannot become the new sticky target.
-func (s *OpenAIGatewayService) bindOpenAIStickySessionDuringSelection(ctx context.Context, groupID *int64, sessionHash string, account *Account) error {
+func (s *OpenAIGatewayService) bindOpenAIStickySessionDuringSelection(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if gatewayProfitControlGateActive(ctx) || preserveOpenAIGuardianParentBinding(ctx, sessionHash) {
 		return nil
 	}
-	return s.BindStickySessionRouteAfterProfitAdmission(ctx, groupID, sessionHash, account)
+	return s.BindStickySession(ctx, groupID, sessionHash, accountID)
 }
 
 // BindStickySessionAfterProfitAdmission records the terminally admitted
@@ -385,30 +385,6 @@ func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context
 		return nil
 	}
 	return s.BindStickySession(ctx, groupID, sessionHash, accountID)
-}
-
-func (s *OpenAIGatewayService) BindStickySessionRouteAfterProfitAdmission(ctx context.Context, groupID *int64, sessionHash string, account *Account) error {
-	if account == nil {
-		return nil
-	}
-	if sessionHash == "" || s.cache == nil || preserveOpenAIGuardianParentBinding(ctx, sessionHash) {
-		return nil
-	}
-	if gatewayProfitControlGateActive(ctx) {
-		existingAccountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash)
-		if err != nil && !errors.Is(err, ErrStickySessionNotFound) {
-			slog.Warn("profit_control_sticky_binding_read_failed", "group_id", derefGroupID(groupID), "account_id", account.ID, "error", err)
-			return nil
-		}
-		if existingAccountID > 0 && existingAccountID != account.ID {
-			return nil
-		}
-	}
-	ttl := openaiStickySessionTTL
-	if s.cfg != nil && s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds > 0 {
-		ttl = time.Duration(s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds) * time.Second
-	}
-	return s.setStickySessionRoute(ctx, groupID, sessionHash, account, ttl)
 }
 
 // ---- 可观测性：按分组累计计数 + 采样日志（无逐请求输出） ----

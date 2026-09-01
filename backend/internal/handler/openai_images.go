@@ -150,7 +150,6 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	switchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
-	failedRouteKeys := make(map[string]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	stopJSONKeepalive := func() {}
@@ -161,7 +160,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	for {
 		reqLog.Debug("openai.images.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForImages(
-			service.ContextWithFailedProxyRoutes(requestCtx, failedRouteKeys),
+			requestCtx,
 			apiKey.GroupID,
 			sessionHash,
 			routingModel,
@@ -354,11 +353,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 						}
 					}
 					h.gatewayService.RecordOpenAIAccountSwitch()
-					if failoverErr.RouteFailure && failoverErr.RouteKey != "" {
-						failedRouteKeys[failoverErr.RouteKey] = struct{}{}
-					} else {
-						failedAccountIDs[account.ID] = struct{}{}
-					}
+					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					if switchCount >= maxAccountSwitches {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)

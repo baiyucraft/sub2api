@@ -113,7 +113,6 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(c, nil, searchID)
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
-	failedRouteKeys := make(map[string]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	switchCount := 0
@@ -127,7 +126,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 
 	for {
 		selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			service.ContextWithFailedProxyRoutes(c.Request.Context(), failedRouteKeys),
+			c.Request.Context(),
 			apiKey.GroupID,
 			"",
 			sessionHash,
@@ -238,11 +237,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 			}
 		}
 		h.gatewayService.RecordOpenAIAccountSwitch()
-		if failoverErr.RouteFailure && failoverErr.RouteKey != "" {
-			failedRouteKeys[failoverErr.RouteKey] = struct{}{}
-		} else {
-			failedAccountIDs[account.ID] = struct{}{}
-		}
+		failedAccountIDs[account.ID] = struct{}{}
 		lastFailoverErr = failoverErr
 		if switchCount >= h.maxAccountSwitches {
 			h.handleFailoverExhausted(c, failoverErr, false)

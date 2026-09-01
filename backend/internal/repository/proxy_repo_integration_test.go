@@ -92,27 +92,6 @@ func (s *ProxyRepoSuite) TestDelete() {
 	s.Require().Error(err, "expected error after delete")
 }
 
-func (s *ProxyRepoSuite) TestSoftDeleteKeepsBindingsAndHardDeleteIsConstrained() {
-	proxyRow := s.mustCreateProxy(&service.Proxy{
-		Name: "bound-delete", Protocol: "http", Host: "127.0.0.1", Port: 18080, Status: service.StatusActive,
-	})
-	accountID := s.mustInsertAccount("bound-delete-account", &proxyRow.ID)
-	_, err := s.tx.ExecContext(s.ctx, `
-		INSERT INTO account_proxy_bindings (account_id, proxy_id, position)
-		VALUES ($1,$2,0)`, accountID, proxyRow.ID)
-	s.Require().NoError(err)
-
-	s.Require().NoError(s.repo.Delete(s.ctx, proxyRow.ID))
-	var bindingCount int
-	s.Require().NoError(scanSingleRow(s.ctx, s.tx, `
-		SELECT COUNT(*) FROM account_proxy_bindings WHERE account_id=$1 AND proxy_id=$2`,
-		[]any{accountID, proxyRow.ID}, &bindingCount))
-	s.Require().Equal(1, bindingCount)
-
-	_, err = s.tx.ExecContext(s.ctx, `DELETE FROM proxies WHERE id=$1`, proxyRow.ID)
-	s.Require().Error(err, "hard delete must remain blocked while an account binding exists")
-}
-
 // --- List / ListWithFilters ---
 
 func (s *ProxyRepoSuite) TestList() {
@@ -332,16 +311,19 @@ func (s *ProxyRepoSuite) mustCreateProxyWithTimes(name, status string, createdAt
 	return p
 }
 
-func (s *ProxyRepoSuite) mustInsertAccount(name string, proxyID *int64) int64 {
+func (s *ProxyRepoSuite) mustInsertAccount(name string, proxyID *int64) {
 	s.T().Helper()
 	var pid any
 	if proxyID != nil {
 		pid = *proxyID
 	}
-	var accountID int64
-	err := scanSingleRow(s.ctx, s.tx,
-		"INSERT INTO accounts (name, platform, type, proxy_id) VALUES ($1, $2, $3, $4) RETURNING id",
-		[]any{name, service.PlatformAnthropic, service.AccountTypeOAuth, pid}, &accountID)
+	_, err := s.tx.ExecContext(
+		s.ctx,
+		"INSERT INTO accounts (name, platform, type, proxy_id) VALUES ($1, $2, $3, $4)",
+		name,
+		service.PlatformAnthropic,
+		service.AccountTypeOAuth,
+		pid,
+	)
 	s.Require().NoError(err, "insert account")
-	return accountID
 }

@@ -253,7 +253,6 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		Extra:                     extra,
 		OllamaCloudUsage:          ollamaCloudUsage,
 		ProxyID:                   a.ProxyID,
-		ProxyIDs:                  append([]int64(nil), a.ProxyIDs...),
 		ProxyFallbackOriginID:     a.ProxyFallbackOriginID,
 		ProxyFallbackOriginName:   a.ProxyFallbackOriginName,
 		UpstreamConfigID:          a.UpstreamConfigID,
@@ -447,13 +446,6 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	return out
 }
 
-func (a *Account) SetProxyCapacities(items []ProxyCapacity) {
-	if a == nil {
-		return
-	}
-	a.ProxyCapacities = items
-}
-
 func upstreamModelSyncProjection(a *service.Account) *UpstreamModelSync {
 	if a == nil || a.UpstreamConfigID == nil || a.UpstreamKeyID == nil {
 		return nil
@@ -558,12 +550,6 @@ func AccountFromService(a *service.Account) *Account {
 	}
 	out := AccountFromServiceShallow(a)
 	out.Proxy = ProxyFromService(a.Proxy)
-	if len(a.Proxies) > 0 {
-		out.Proxies = make([]*Proxy, 0, len(a.Proxies))
-		for _, proxy := range a.Proxies {
-			out.Proxies = append(out.Proxies, ProxyFromService(proxy))
-		}
-	}
 	if len(a.AccountGroups) > 0 {
 		out.AccountGroups = make([]AccountGroup, 0, len(a.AccountGroups))
 		for i := range a.AccountGroups {
@@ -850,19 +836,19 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 	usageLog := usageLogFromServiceUser(l)
 	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
 	return &AdminUsageLog{
-		UsageLog:                usageLog,
-		UpstreamModel:           l.UpstreamModel,
+		UsageLog:              usageLog,
+		UpstreamModel:         l.UpstreamModel,
 		UpstreamReasoningEffort: adminUpstreamReasoningEffort(l),
-		UpstreamResponseModel:   l.UpstreamResponseModel,
-		UpstreamModelMismatch:   l.UpstreamModelMismatch,
-		ChannelID:               l.ChannelID,
-		ModelMappingChain:       l.ModelMappingChain,
-		BillingTier:             l.BillingTier,
-		AccountRateMultiplier:   l.AccountRateMultiplier,
-		AccountStatsCost:        l.AccountStatsCost,
-		OutputTPS:               l.OutputTPS(),
-		IPAddress:               l.IPAddress,
-		Account:                 AccountSummaryFromService(l.Account),
+		UpstreamResponseModel: l.UpstreamResponseModel,
+		UpstreamModelMismatch: l.UpstreamModelMismatch,
+		ChannelID:             l.ChannelID,
+		ModelMappingChain:     l.ModelMappingChain,
+		BillingTier:           l.BillingTier,
+		AccountRateMultiplier: l.AccountRateMultiplier,
+		AccountStatsCost:      l.AccountStatsCost,
+		OutputTPS:             l.OutputTPS(),
+		IPAddress:             l.IPAddress,
+		Account:               AccountSummaryFromService(l.Account),
 	}
 }
 

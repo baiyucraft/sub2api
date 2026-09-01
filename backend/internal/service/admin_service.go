@@ -371,15 +371,13 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
-	Name        string
-	Notes       *string
-	Platform    string
-	Type        string
-	Credentials map[string]any
-	Extra       map[string]any
-	ProxyID     *int64
-	// ProxyIDs explicitly configures ordered proxy bindings. nil preserves legacy proxy_id semantics.
-	ProxyIDs           *[]int64
+	Name               string
+	Notes              *string
+	Platform           string
+	Type               string
+	Credentials        map[string]any
+	Extra              map[string]any
+	ProxyID            *int64
 	UpstreamConfigID   *int64
 	UpstreamKeyID      *int64
 	Concurrency        int
@@ -407,14 +405,12 @@ type ShadowOptions struct {
 }
 
 type UpdateAccountInput struct {
-	Name        string
-	Notes       *string
-	Type        string // Account type: oauth, setup-token, apikey
-	Credentials map[string]any
-	Extra       map[string]any
-	ProxyID     *int64
-	// ProxyIDs explicitly replaces ordered proxy bindings. nil leaves existing bindings unchanged.
-	ProxyIDs              *[]int64
+	Name                  string
+	Notes                 *string
+	Type                  string // Account type: oauth, setup-token, apikey
+	Credentials           map[string]any
+	Extra                 map[string]any
+	ProxyID               *int64
 	UpstreamConfigID      *int64
 	UpstreamKeyID         *int64
 	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"

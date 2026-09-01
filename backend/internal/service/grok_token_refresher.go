@@ -86,9 +86,7 @@ func (r *GrokTokenRefresher) Refresh(ctx context.Context, account *Account) (map
 	if r == nil || r.grokOAuthService == nil {
 		return nil, errors.New("grok oauth service is not configured")
 	}
-	tokenInfo, err := withAccountProxyFallback(ctx, account, func(attempt *Account) (*GrokTokenInfo, error) {
-		return r.grokOAuthService.RefreshAccountToken(ctx, attempt)
-	})
+	tokenInfo, err := r.grokOAuthService.RefreshAccountToken(ctx, account)
 	if err != nil {
 		return nil, err
 	}

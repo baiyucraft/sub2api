@@ -2850,15 +2850,6 @@ func (s *GeminiMessagesCompatService) ForwardAIStudioGET(ctx context.Context, ac
 		return nil, errors.New("invalid path")
 	}
 	path = sanitizedPath
-	return withAccountProxyFallback(ctx, account, func(attempt *Account) (*UpstreamHTTPResult, error) {
-		return s.forwardAIStudioGETOnce(ctx, attempt, path)
-	})
-}
-
-func (s *GeminiMessagesCompatService) forwardAIStudioGETOnce(ctx context.Context, account *Account, path string) (*UpstreamHTTPResult, error) {
-	if account == nil {
-		return nil, errors.New("account is nil")
-	}
 
 	baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
 	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)

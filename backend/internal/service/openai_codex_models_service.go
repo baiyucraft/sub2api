@@ -1335,7 +1335,6 @@ type codexModelsManifestRequest struct {
 	accountID           int64
 	credentialAccountID int64
 	credentialAccount   *Account
-	routeAccount        *Account
 	accountConcurrency  int
 	useAPIKeyUpstream   bool
 }
@@ -1519,7 +1518,6 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 		accountID:           account.ID,
 		credentialAccountID: credAccount.ID,
 		credentialAccount:   credAccount,
-		routeAccount:        account,
 		accountConcurrency:  account.Concurrency,
 		useAPIKeyUpstream:   useAPIKeyUpstream,
 	}
@@ -1638,27 +1636,6 @@ func (s *OpenAIGatewayService) refreshCachedAPIKeyCodexModelsManifest(cacheKey s
 }
 
 func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Context, request codexModelsManifestRequest, ifNoneMatch string) (*CodexModelsManifest, error) {
-	// A bare legacy proxy_id can be present on lightweight account snapshots
-	// without the proxy metadata required to construct an HTTP transport. Keep
-	// the historical direct request in that case; hydrated accounts with an
-	// actual Proxy/Proxies object still use the route-aware fallback below.
-	if request.routeAccount == nil || (request.routeAccount.Proxy == nil && len(request.routeAccount.Proxies) == 0) {
-		return s.fetchCodexModelsManifestUpstreamOnce(ctx, request, ifNoneMatch)
-	}
-	return withAccountProxyFallback(ctx, request.routeAccount, func(attempt *Account) (*CodexModelsManifest, error) {
-		attemptRequest := request
-		attemptRequest.proxyURL = upstreamModelsProxyURL(attempt)
-		if request.credentialAccount != nil {
-			credentialAccount := *request.credentialAccount
-			credentialAccount.ProxyID = attempt.ProxyID
-			credentialAccount.Proxy = attempt.Proxy
-			attemptRequest.credentialAccount = &credentialAccount
-		}
-		return s.fetchCodexModelsManifestUpstreamOnce(ctx, attemptRequest, ifNoneMatch)
-	})
-}
-
-func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstreamOnce(ctx context.Context, request codexModelsManifestRequest, ifNoneMatch string) (*CodexModelsManifest, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, codexModelsManifestRequestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, request.url, nil)

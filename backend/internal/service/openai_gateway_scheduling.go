@@ -917,16 +917,9 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	// Set sticky session binding
 	// 利润门下推迟到 handler 终检通过后再绑定；TTFT 排除账号也不能成为新粘性目标。
 	if sessionHash != "" && !gatewayProfitControlGateActive(ctx) && !openAITTFTGuardExcludedAccount(ctx, stickyAccountID) {
-		selectedProxy := selectionProxyForAccountRoute(ctx, s.concurrencyService, hydrated, false)
-		if selectedProxy != nil {
-			proxyID := selectedProxy.ID
-			hydrated.ProxyID = &proxyID
-			hydrated.Proxy = selectedProxy
-		}
-		if selectedProxy != nil || !accountHasConfiguredProxy(hydrated) {
-			_ = s.setStickySessionRoute(ctx, groupID, sessionHash, hydrated, openaiStickySessionTTL)
-		}
+		_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, selected.ID, openaiStickySessionTTL)
 	}
+
 	return hydrated, nil
 }
 
@@ -1152,11 +1145,6 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if accountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash); err == nil {
 			stickyAccountID = accountID
 		}
-		if routeCache, ok := s.cache.(GatewayRouteCache); ok {
-			if proxyID, err := routeCache.GetSessionProxyID(ctx, derefGroupID(groupID), s.openAISessionCacheKey(sessionHash)); err == nil {
-				ctx = ContextWithPreferredProxyRoute(ctx, proxyID)
-			}
-		}
 	}
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
 		account, err := s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability, preferLowUpstreamRate)
@@ -1168,8 +1156,8 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			return s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
 		}
 		if stickyAccountID > 0 && stickyAccountID == account.ID && s.concurrencyService != nil {
-			waitingCount, routeAvailable := accountProxyRouteWaitingCount(ctx, s.concurrencyService, account)
-			if routeAvailable && waitingCount < cfg.StickySessionMaxWaiting {
+			waitingCount, _ := s.concurrencyService.GetTargetWaitingCount(ctx, account.SchedulingConcurrencyTarget())
+			if waitingCount < cfg.StickySessionMaxWaiting {
 				return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 					AccountID:      account.ID,
 					MaxConcurrency: account.Concurrency,
@@ -1240,8 +1228,8 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 							return selection, nil
 						}
 
-						waitingCount, routeAvailable := accountProxyRouteWaitingCount(ctx, s.concurrencyService, account)
-						if routeAvailable && waitingCount < cfg.StickySessionMaxWaiting {
+						waitingCount, _ := s.concurrencyService.GetTargetWaitingCount(ctx, account.SchedulingConcurrencyTarget())
+						if waitingCount < cfg.StickySessionMaxWaiting {
 							return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 								AccountID:      accountID,
 								MaxConcurrency: account.Concurrency,
@@ -1418,7 +1406,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 					return nil, true, selectErr
 				}
 				if sessionHash != "" && !stickySpillover && !gatewayProfitControlGateActive(ctx) && !openAITTFTGuardExcludedAccount(ctx, stickyAccountID) {
-					_ = s.bindOpenAIStickySessionDuringSelection(ctx, groupID, sessionHash, selection.Account)
+					_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, fresh.ID, openaiStickySessionTTL)
 				}
 				return selection, true, nil
 			}
@@ -1470,7 +1458,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 						return nil, selectErr
 					}
 					if sessionHash != "" && !stickySpillover && !gatewayProfitControlGateActive(ctx) && !openAITTFTGuardExcludedAccount(ctx, stickyAccountID) {
-						_ = s.bindOpenAIStickySessionDuringSelection(ctx, groupID, sessionHash, selection.Account)
+						_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, fresh.ID, openaiStickySessionTTL)
 					}
 					return selection, nil
 				}
@@ -1572,14 +1560,10 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 }
 
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, account *Account) (*AcquireResult, error) {
-	ctx = s.withOpenAIProxyStreamRouteExclusions(ctx, account)
-	proxy, _, result, err := AcquireAccountProxyRoute(ctx, s.concurrencyService, account)
-	if err == nil && result != nil && result.Acquired && proxy != nil {
-		proxyID := proxy.ID
-		account.ProxyID = &proxyID
-		account.Proxy = proxy
+	if s.concurrencyService == nil {
+		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
 	}
-	return result, err
+	return s.concurrencyService.AcquireTargetSlot(ctx, account.SchedulingConcurrencyTarget())
 }
 
 func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) *Account {
@@ -1787,30 +1771,16 @@ func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, accou
 }
 
 func (s *OpenAIGatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {
-	ctx = s.withOpenAIProxyStreamRouteExclusions(ctx, account)
-	selectedProxy := selectionProxyForAccountRoute(ctx, s.concurrencyService, account, acquired)
-	if selectedProxy == nil && accountHasConfiguredProxy(account) {
-		if acquired && release != nil {
-			release()
-		}
-		return nil, ErrNoAvailableAccountProxyRoutes
-	}
 	hydrated, err := s.hydrateSelectedAccount(ctx, account)
 	if err != nil {
 		return nil, err
 	}
-	// Preserve the concrete proxy selected before hydration. A fresh scheduler
-	// snapshot can otherwise restore the legacy first proxy and desynchronise
-	// forwarding from the proxy-level concurrency lease.
-	if hydrated != nil && selectedProxy != nil {
-		for _, proxy := range hydrated.Proxies {
-			if proxy != nil && proxy.ID == selectedProxy.ID {
-				selectedProxy = proxy
-				break
-			}
-		}
-	}
-	return attachSelectionProfitGate(ctx, accountSelectionResultForProxyRoute(hydrated, selectedProxy, acquired, release, waitPlan)), nil
+	return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+		Account:     hydrated,
+		Acquired:    acquired,
+		ReleaseFunc: release,
+		WaitPlan:    waitPlan,
+	}), nil
 }
 
 func (s *OpenAIGatewayService) newAcquiredSelectionResult(ctx context.Context, account *Account, release func()) (*AccountSelectionResult, error) {

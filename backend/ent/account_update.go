@@ -735,21 +735,6 @@ func (_u *AccountUpdate) SetProxy(v *Proxy) *AccountUpdate {
 	return _u.SetProxyID(v.ID)
 }
 
-// AddProxyIDs adds the "proxies" edge to the Proxy entity by IDs.
-func (_u *AccountUpdate) AddProxyIDs(ids ...int64) *AccountUpdate {
-	_u.mutation.AddProxyIDs(ids...)
-	return _u
-}
-
-// AddProxies adds the "proxies" edges to the Proxy entity.
-func (_u *AccountUpdate) AddProxies(v ...*Proxy) *AccountUpdate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.AddProxyIDs(ids...)
-}
-
 // SetUpstreamConfig sets the "upstream_config" edge to the UpstreamConfig entity.
 func (_u *AccountUpdate) SetUpstreamConfig(v *UpstreamConfig) *AccountUpdate {
 	return _u.SetUpstreamConfigID(v.ID)
@@ -854,27 +839,6 @@ func (_u *AccountUpdate) RemoveGroups(v ...*Group) *AccountUpdate {
 func (_u *AccountUpdate) ClearProxy() *AccountUpdate {
 	_u.mutation.ClearProxy()
 	return _u
-}
-
-// ClearProxies clears all "proxies" edges to the Proxy entity.
-func (_u *AccountUpdate) ClearProxies() *AccountUpdate {
-	_u.mutation.ClearProxies()
-	return _u
-}
-
-// RemoveProxyIDs removes the "proxies" edge to Proxy entities by IDs.
-func (_u *AccountUpdate) RemoveProxyIDs(ids ...int64) *AccountUpdate {
-	_u.mutation.RemoveProxyIDs(ids...)
-	return _u
-}
-
-// RemoveProxies removes "proxies" edges to Proxy entities.
-func (_u *AccountUpdate) RemoveProxies(v ...*Proxy) *AccountUpdate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveProxyIDs(ids...)
 }
 
 // ClearUpstreamConfig clears the "upstream_config" edge to the UpstreamConfig entity.
@@ -1318,63 +1282,6 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.ProxiesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: false,
-			Table:   account.ProxiesTable,
-			Columns: account.ProxiesPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
-		createE.defaults()
-		_, specE := createE.createSpec()
-		edge.Target.Fields = specE.Fields
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.RemovedProxiesIDs(); len(nodes) > 0 && !_u.mutation.ProxiesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: false,
-			Table:   account.ProxiesTable,
-			Columns: account.ProxiesPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
-		createE.defaults()
-		_, specE := createE.createSpec()
-		edge.Target.Fields = specE.Fields
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.ProxiesIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: false,
-			Table:   account.ProxiesTable,
-			Columns: account.ProxiesPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
-		createE.defaults()
-		_, specE := createE.createSpec()
-		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.UpstreamConfigCleared() {
@@ -2320,21 +2227,6 @@ func (_u *AccountUpdateOne) SetProxy(v *Proxy) *AccountUpdateOne {
 	return _u.SetProxyID(v.ID)
 }
 
-// AddProxyIDs adds the "proxies" edge to the Proxy entity by IDs.
-func (_u *AccountUpdateOne) AddProxyIDs(ids ...int64) *AccountUpdateOne {
-	_u.mutation.AddProxyIDs(ids...)
-	return _u
-}
-
-// AddProxies adds the "proxies" edges to the Proxy entity.
-func (_u *AccountUpdateOne) AddProxies(v ...*Proxy) *AccountUpdateOne {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.AddProxyIDs(ids...)
-}
-
 // SetUpstreamConfig sets the "upstream_config" edge to the UpstreamConfig entity.
 func (_u *AccountUpdateOne) SetUpstreamConfig(v *UpstreamConfig) *AccountUpdateOne {
 	return _u.SetUpstreamConfigID(v.ID)
@@ -2439,27 +2331,6 @@ func (_u *AccountUpdateOne) RemoveGroups(v ...*Group) *AccountUpdateOne {
 func (_u *AccountUpdateOne) ClearProxy() *AccountUpdateOne {
 	_u.mutation.ClearProxy()
 	return _u
-}
-
-// ClearProxies clears all "proxies" edges to the Proxy entity.
-func (_u *AccountUpdateOne) ClearProxies() *AccountUpdateOne {
-	_u.mutation.ClearProxies()
-	return _u
-}
-
-// RemoveProxyIDs removes the "proxies" edge to Proxy entities by IDs.
-func (_u *AccountUpdateOne) RemoveProxyIDs(ids ...int64) *AccountUpdateOne {
-	_u.mutation.RemoveProxyIDs(ids...)
-	return _u
-}
-
-// RemoveProxies removes "proxies" edges to Proxy entities.
-func (_u *AccountUpdateOne) RemoveProxies(v ...*Proxy) *AccountUpdateOne {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveProxyIDs(ids...)
 }
 
 // ClearUpstreamConfig clears the "upstream_config" edge to the UpstreamConfig entity.
@@ -2933,63 +2804,6 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.ProxiesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: false,
-			Table:   account.ProxiesTable,
-			Columns: account.ProxiesPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
-		createE.defaults()
-		_, specE := createE.createSpec()
-		edge.Target.Fields = specE.Fields
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.RemovedProxiesIDs(); len(nodes) > 0 && !_u.mutation.ProxiesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: false,
-			Table:   account.ProxiesTable,
-			Columns: account.ProxiesPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
-		createE.defaults()
-		_, specE := createE.createSpec()
-		edge.Target.Fields = specE.Fields
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.ProxiesIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: false,
-			Table:   account.ProxiesTable,
-			Columns: account.ProxiesPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		createE := &AccountProxyBindingCreate{config: _u.config, mutation: newAccountProxyBindingMutation(_u.config, OpCreate)}
-		createE.defaults()
-		_, specE := createE.createSpec()
-		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.UpstreamConfigCleared() {

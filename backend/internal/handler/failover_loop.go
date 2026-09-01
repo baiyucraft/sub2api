@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -127,9 +126,7 @@ type FailoverState struct {
 	SwitchCount           int
 	MaxSwitches           int
 	FailedAccountIDs      map[int64]struct{}
-	FailedRouteKeys       map[string]struct{}
 	SameAccountRetryCount map[int64]int
-	SameRouteRetryCount   map[string]int
 	LastFailoverErr       *service.UpstreamFailoverError
 	ForceCacheBilling     bool
 	hasBoundSession       bool
@@ -149,9 +146,7 @@ func NewFailoverState(maxSwitches int, hasBoundSession bool) *FailoverState {
 	return &FailoverState{
 		MaxSwitches:            maxSwitches,
 		FailedAccountIDs:       make(map[int64]struct{}),
-		FailedRouteKeys:        make(map[string]struct{}),
 		SameAccountRetryCount:  make(map[int64]int),
-		SameRouteRetryCount:    make(map[string]int),
 		hasBoundSession:        hasBoundSession,
 		profitVetoedAccountIDs: make(map[int64]struct{}),
 	}
@@ -178,18 +173,6 @@ func (s *FailoverState) RecordProfitVeto(accountID int64) FailoverAction {
 
 // ProfitVetoCount 返回本次请求累计的利润否决次数（供日志使用）。
 func (s *FailoverState) ProfitVetoCount() int { return s.profitVetoCount }
-
-func recordProxyAwareFailoverExclusion(failedAccounts map[int64]struct{}, failedRoutes map[string]struct{}, accountID int64, failoverErr *service.UpstreamFailoverError) {
-	if failoverErr != nil && failoverErr.RouteFailure && failoverErr.RouteKey != "" {
-		if failedRoutes != nil {
-			failedRoutes[failoverErr.RouteKey] = struct{}{}
-		}
-		return
-	}
-	if failedAccounts != nil && accountID > 0 {
-		failedAccounts[accountID] = struct{}{}
-	}
-}
 
 // allExclusionsAreProfitVetoed 判断排除列表是否已全部由利润门否决贡献。
 // 此时清空 FailedAccountIDs 会被原样恢复，退避重试不会带来任何新候选。
@@ -226,14 +209,7 @@ func (s *FailoverState) HandleFailoverError(
 	}
 
 	// 同账号重试不算切换账号，粘性会话仅在实际切换时强制缓存计费。
-	retryKey := failoverErr.RouteKey
-	if retryKey == "" {
-		retryKey = fmt.Sprintf("account:%d", accountID)
-	}
 	retryCount := s.SameAccountRetryCount[accountID]
-	if failoverErr.RouteFailure {
-		retryCount = s.SameRouteRetryCount[retryKey]
-	}
 	sameAccountRetry := sameAccountRetryAllowed(failoverErr, retryCount, retryLimit)
 	if needForceCacheBilling(s.hasBoundSession, failoverErr, sameAccountRetry) {
 		s.ForceCacheBilling = true
@@ -242,20 +218,12 @@ func (s *FailoverState) HandleFailoverError(
 	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试。
 	// 重试次数上限 retryLimit 由调用方传入（账号级 pool_mode_retry_count 配置）。
 	if sameAccountRetry {
-		if failoverErr.RouteFailure {
-			s.SameRouteRetryCount[retryKey]++
-		} else {
-			s.SameAccountRetryCount[accountID]++
-		}
-		currentRetryCount := s.SameAccountRetryCount[accountID]
-		if failoverErr.RouteFailure {
-			currentRetryCount = s.SameRouteRetryCount[retryKey]
-		}
-		retryDelay := sameAccountRetryDelayFor(failoverErr, currentRetryCount)
+		s.SameAccountRetryCount[accountID]++
+		retryDelay := sameAccountRetryDelayFor(failoverErr, s.SameAccountRetryCount[accountID])
 		logger.FromContext(ctx).Warn("gateway.failover_same_account_retry",
 			zap.Int64("account_id", accountID),
 			zap.Int("upstream_status", failoverErr.StatusCode),
-			zap.Int("same_account_retry_count", currentRetryCount),
+			zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]),
 			zap.Int("same_account_retry_max", retryLimit),
 			zap.Duration("retry_delay", retryDelay),
 		)
@@ -266,24 +234,12 @@ func (s *FailoverState) HandleFailoverError(
 	}
 
 	// 同账号重试用尽，执行临时封禁
-	if failoverErr.RetryableOnSameAccount && !failoverErr.RouteFailure {
+	if failoverErr.RetryableOnSameAccount {
 		gatewayService.TempUnscheduleRetryableError(ctx, accountID, failoverErr)
 	}
 
-	// Proxy transport failures only exclude the selected route; account-level
-	// auth/quota/model errors continue to exclude the whole account.
-	if failoverErr.RouteFailure {
-		if s.FailedRouteKeys == nil {
-			s.FailedRouteKeys = make(map[string]struct{})
-		}
-		key := failoverErr.RouteKey
-		if key == "" {
-			key = fmt.Sprintf("account:%d", accountID)
-		}
-		s.FailedRouteKeys[key] = struct{}{}
-	} else {
-		s.FailedAccountIDs[accountID] = struct{}{}
-	}
+	// 加入失败列表
+	s.FailedAccountIDs[accountID] = struct{}{}
 
 	// 检查是否耗尽
 	if s.SwitchCount >= s.MaxSwitches {

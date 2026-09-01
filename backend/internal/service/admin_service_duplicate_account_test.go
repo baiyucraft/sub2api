@@ -94,7 +94,6 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		Platform:              PlatformAnthropic,
 		Type:                  AccountTypeAPIKey,
 		ProxyID:               &proxyID,
-		ProxyIDs:              []int64{proxyID, 18},
 		ProxyFallbackOriginID: &originalProxyID,
 		Concurrency:           6,
 		Priority:              40,
@@ -169,7 +168,6 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	require.True(t, source.ExpiresAt.Equal(*duplicate.ExpiresAt))
 	require.Equal(t, source.Notes, duplicate.Notes)
 	require.Equal(t, source.ProxyFallbackOriginID, duplicate.ProxyID)
-	require.Equal(t, []int64{originalProxyID, 18}, duplicate.ProxyIDs)
 	require.Equal(t, source.RateMultiplier, duplicate.RateMultiplier)
 	require.Equal(t, source.LoadFactor, duplicate.LoadFactor)
 	require.Equal(t, source.GroupIDs, repo.groupsOf[duplicate.ID])

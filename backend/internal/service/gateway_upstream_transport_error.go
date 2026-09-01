@@ -57,19 +57,14 @@ func (s *GatewayService) handleUpstreamTransportError(ctx context.Context, c *gi
 	// Transport attempt left local validation; count Ollama Cloud activity.
 	scheduleOllamaCloudUsageActivity(s.deferredService, account)
 
-	if classifyUpstreamTransportError(err).Persistent && !accountHasConfiguredProxy(account) {
+	if classifyUpstreamTransportError(err).Persistent {
 		s.tempUnscheduleTransportError(ctx, account, safeErr)
 	}
 
-	failover := &UpstreamFailoverError{
+	return &UpstreamFailoverError{
 		StatusCode:   http.StatusBadGateway,
 		ResponseBody: gatewayTransportFailoverBody,
-		RouteFailure: account != nil && account.Proxy != nil && !account.IsUpstreamBound(),
 	}
-	if failover.RouteFailure {
-		failover.RouteKey = AccountProxyConcurrencyTarget(account, account.Proxy.ID).Key()
-	}
-	return failover
 }
 
 // tempUnscheduleTransportError marks an account temporarily unschedulable

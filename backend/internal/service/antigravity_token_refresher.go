@@ -86,9 +86,7 @@ func clearAntigravityForceTokenRefreshExtra() map[string]any {
 
 // Refresh 执行 token 刷新
 func (r *AntigravityTokenRefresher) Refresh(ctx context.Context, account *Account) (map[string]any, error) {
-	tokenInfo, err := withAccountProxyFallback(ctx, account, func(attempt *Account) (*AntigravityTokenInfo, error) {
-		return r.antigravityOAuthService.RefreshAccountToken(ctx, attempt)
-	})
+	tokenInfo, err := r.antigravityOAuthService.RefreshAccountToken(ctx, account)
 	if err != nil {
 		return nil, err
 	}

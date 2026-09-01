@@ -327,24 +327,10 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	}
 	autoPauseOnExpired := source.AutoPauseOnExpired
 	groups, groupIDs := duplicateAccountGroups(source)
-	proxyIDs := append([]int64(nil), source.ProxyIDs...)
-	if len(proxyIDs) == 0 && source.ProxyID != nil && *source.ProxyID > 0 {
-		proxyIDs = []int64{*source.ProxyID}
-	}
+	proxyID := source.ProxyID
 	if source.ProxyFallbackOriginID != nil {
-		// Proxy fallback is transient runtime state. Restore the configured first
-		// route while preserving the remaining ordered routes.
-		if len(proxyIDs) == 0 {
-			proxyIDs = []int64{*source.ProxyFallbackOriginID}
-		} else {
-			proxyIDs[0] = *source.ProxyFallbackOriginID
-			proxyIDs = uniqueOrderedProxyIDs(proxyIDs)
-		}
-	}
-	var proxyID *int64
-	if len(proxyIDs) > 0 {
-		first := proxyIDs[0]
-		proxyID = &first
+		// Proxy fallback is transient runtime state; duplicate the configured origin.
+		proxyID = source.ProxyFallbackOriginID
 	}
 	input := &CreateAccountInput{
 		Name:                  duplicateAccountName(source.Name),
@@ -363,10 +349,6 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		AutoPauseOnExpired:    &autoPauseOnExpired,
 		SkipDefaultGroupBind:  true,
 		SkipMixedChannelCheck: true,
-	}
-	if len(proxyIDs) > 0 {
-		copyProxyIDs := append([]int64(nil), proxyIDs...)
-		input.ProxyIDs = &copyProxyIDs
 	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
@@ -393,22 +375,6 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	duplicate.AccountGroups = groups
 	duplicate.GroupIDs = groupIDs
 	return duplicate, nil
-}
-
-func uniqueOrderedProxyIDs(proxyIDs []int64) []int64 {
-	out := make([]int64, 0, len(proxyIDs))
-	seen := make(map[int64]struct{}, len(proxyIDs))
-	for _, proxyID := range proxyIDs {
-		if proxyID <= 0 {
-			continue
-		}
-		if _, ok := seen[proxyID]; ok {
-			continue
-		}
-		seen[proxyID] = struct{}{}
-		out = append(out, proxyID)
-	}
-	return out
 }
 
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {
@@ -499,19 +465,6 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Status:           StatusActive,
 		Schedulable:      true,
 	}
-	if input.ProxyIDs != nil {
-		account.ProxyIDs = append([]int64{}, (*input.ProxyIDs)...)
-		if len(account.ProxyIDs) > 0 {
-			first := account.ProxyIDs[0]
-			account.ProxyID = &first
-		} else {
-			account.ProxyID = nil
-		}
-	} else if input.ProxyID != nil && *input.ProxyID > 0 {
-		account.ProxyIDs = []int64{*input.ProxyID}
-	} else if input.ProxyID != nil {
-		account.ProxyID = nil
-	}
 	if input.ProbeEnabled != nil && *input.ProbeEnabled {
 		if !isUpstreamBillingProbeAccount(account) {
 			return nil, ErrUpstreamBillingProbeAccountInvalid
@@ -563,15 +516,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 	if trimUpstreamNameWhitespace(input.Name) == "" {
 		return nil, infraerrors.BadRequest("ACCOUNT_NAME_REQUIRED", "account name is required")
-	}
-	if input.ProxyIDs != nil {
-		if err := s.validateAccountProxyIDs(ctx, *input.ProxyIDs); err != nil {
-			return nil, err
-		}
-	} else if input.ProxyID != nil && *input.ProxyID > 0 {
-		if err := s.validateAccountProxyIDs(ctx, []int64{*input.ProxyID}); err != nil {
-			return nil, err
-		}
 	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
@@ -664,7 +608,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return nil, err
 	}
 	if account.IsUpstreamBound() {
-		if input.Name != "" || input.Type != "" || input.ProxyID != nil || input.ProxyIDs != nil || input.UpstreamConfigID != nil || input.UpstreamKeyID != nil ||
+		if input.Name != "" || input.Type != "" || input.ProxyID != nil || input.UpstreamConfigID != nil || input.UpstreamKeyID != nil ||
 			input.Concurrency != nil || input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil || input.ProbeEnabled != nil || input.RateSyncEnabled != nil {
 			return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account identity, credentials, proxy, concurrency, rate, and priority are managed by the upstream config or key; load factor is not configurable for upstream accounts")
 		}
@@ -854,39 +798,16 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if requestedRateSyncEnabledUpdate != nil {
 		account.Extra[UpstreamBillingRateSyncEnabledExtraKey] = *requestedRateSyncEnabledUpdate
 	}
-	if input.ProxyIDs != nil && !account.IsCredentialShadow() {
-		if err := s.validateAccountProxyIDs(ctx, *input.ProxyIDs); err != nil {
-			return nil, err
-		}
-		account.ProxyIDs = append([]int64{}, (*input.ProxyIDs)...)
-		account.Proxies = nil
-		account.Proxy = nil
-		account.ProxyBindingsChanged = true
-		if len(account.ProxyIDs) == 0 {
-			account.ProxyID = nil
-		} else {
-			first := account.ProxyIDs[0]
-			account.ProxyID = &first
-		}
-	}
-	if input.ProxyIDs == nil && input.ProxyID != nil && *input.ProxyID > 0 && !account.IsCredentialShadow() {
-		if err := s.validateAccountProxyIDs(ctx, []int64{*input.ProxyID}); err != nil {
-			return nil, err
-		}
-	}
 	// 影子代理恒继承母账号(由 propagateProxyToShadows 同步),不接受独立编辑——外审 B/P1;
 	// 否则要等母账号下次改 proxy 才被覆盖,期间影子会出现"有时继承、有时独立"的漂移。
-	if input.ProxyIDs == nil && input.ProxyID != nil && !account.IsCredentialShadow() {
+	if input.ProxyID != nil && !account.IsCredentialShadow() {
 		// 0 表示清除代理（前端发送 0 而不是 null 来表达清除意图）
 		if *input.ProxyID == 0 {
 			account.ProxyID = nil
-			account.ProxyIDs = nil
 		} else {
 			account.ProxyID = input.ProxyID
-			account.ProxyIDs = []int64{*input.ProxyID}
 		}
 		account.Proxy = nil // 清除关联对象，防止 GORM Save 时根据 Proxy.ID 覆盖 ProxyID
-		account.ProxyBindingsChanged = true
 	}
 	if input.UpstreamConfigID != nil {
 		if *input.UpstreamConfigID == 0 {
@@ -1026,20 +947,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
-	// The Ent repository persists parent and shadow proxy bindings atomically.
-	// Keep the propagation fallback for older narrow repository doubles and
-	// external implementations that predate the binding transaction contract.
-	if input.ProxyIDs != nil && !account.IsCredentialShadow() {
-		if atomicRepo, ok := s.accountRepo.(AccountProxyBindingAtomicRepository); !ok || !atomicRepo.PersistsAccountProxyBindingsAtomically() {
-			if err := s.propagateProxiesToShadows(ctx, id, account.ProxyIDs); err != nil {
-				return nil, err
-			}
-		}
-	} else if input.ProxyIDs == nil && input.ProxyID != nil && !account.IsCredentialShadow() {
-		if atomicRepo, ok := s.accountRepo.(AccountProxyBindingAtomicRepository); !ok || !atomicRepo.PersistsAccountProxyBindingsAtomically() {
-			if err := s.propagateProxyToShadows(ctx, id, account.ProxyID); err != nil {
-				return nil, err
-			}
+	// 将 proxy 变更传播到 spark 影子账号（同步；Update 内部已触发调度快照）。
+	// 影子自身 proxy 不可独立编辑(见上),故对影子的更新不触发传播。
+	if input.ProxyID != nil && !account.IsCredentialShadow() {
+		if err := s.propagateProxyToShadows(ctx, id, account.ProxyID); err != nil {
+			return nil, err
 		}
 	}
 
@@ -1057,50 +969,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	s.scheduleSub2APIUpstreamRateSync(updated)
 	return updated, nil
-}
-
-const maxAccountProxyBindings = 50
-
-func (s *adminServiceImpl) validateAccountProxyIDs(ctx context.Context, proxyIDs []int64) error {
-	if len(proxyIDs) > maxAccountProxyBindings {
-		return infraerrors.BadRequest("ACCOUNT_PROXY_LIMIT_EXCEEDED", fmt.Sprintf("proxy_ids must contain at most %d proxies", maxAccountProxyBindings))
-	}
-	seen := make(map[int64]struct{}, len(proxyIDs))
-	for _, proxyID := range proxyIDs {
-		if proxyID <= 0 {
-			return infraerrors.BadRequest("INVALID_ACCOUNT_PROXY", fmt.Sprintf("proxy id %d is invalid", proxyID))
-		}
-		if _, ok := seen[proxyID]; ok {
-			return infraerrors.BadRequest("DUPLICATE_ACCOUNT_PROXY", fmt.Sprintf("proxy id %d is duplicated", proxyID))
-		}
-		seen[proxyID] = struct{}{}
-	}
-	if len(proxyIDs) == 0 {
-		return nil
-	}
-	if s.proxyRepo == nil {
-		// Narrow internal/unit callers may omit proxyRepo; the repository layer
-		// still enforces foreign keys, while production admin wiring always
-		// supplies the availability validator.
-		return nil
-	}
-	proxies, err := s.proxyRepo.ListByIDs(ctx, proxyIDs)
-	if err != nil {
-		return err
-	}
-	available := make(map[int64]struct{}, len(proxies))
-	now := time.Now()
-	for i := range proxies {
-		if proxies[i].IsActive() && !proxies[i].IsExpired(now) {
-			available[proxies[i].ID] = struct{}{}
-		}
-	}
-	for _, proxyID := range proxyIDs {
-		if _, ok := available[proxyID]; !ok {
-			return infraerrors.BadRequest("INVALID_ACCOUNT_PROXY", fmt.Sprintf("proxy id %d is not available", proxyID))
-		}
-	}
-	return nil
 }
 
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
@@ -1608,7 +1476,15 @@ func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, 
 }
 
 func (s *adminServiceImpl) RevertAccountProxyFallback(ctx context.Context, id int64) error {
-	return s.accountRepo.RevertProxyFallback(ctx, id)
+	if err := s.accountRepo.RevertProxyFallback(ctx, id); err != nil {
+		return err
+	}
+	// 加载回退后的账号以获取实际 ProxyID，再传播到影子账号
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get account after proxy revert: %w", err)
+	}
+	return s.propagateProxyToShadows(ctx, id, account.ProxyID)
 }
 
 // CreateShadow 为指定 OpenAI OAuth 母账号创建 spark 维度影子账号（一母一影）。
@@ -1697,7 +1573,6 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 		ParentAccountID: &parentID,
 		QuotaDimension:  QuotaDimensionSpark,
 		ProxyID:         parent.ProxyID,
-		ProxyIDs:        append([]int64(nil), parent.ProxyIDs...),
 		Priority:        priority,
 		Concurrency:     concurrency,
 		Schedulable:     true,
@@ -1742,34 +1617,16 @@ func (s *adminServiceImpl) propagateProxyToShadows(ctx context.Context, parentID
 	return propagateAccountProxyToShadows(ctx, s.accountRepo, parentID, proxyID)
 }
 
-func (s *adminServiceImpl) propagateProxiesToShadows(ctx context.Context, parentID int64, proxyIDs []int64) error {
-	return propagateAccountProxiesToShadows(ctx, s.accountRepo, parentID, proxyIDs)
-}
-
 // propagateAccountProxyToShadows 把母账号的 proxy 同步到其所有 spark 影子(影子 proxy 恒继承母账号)。
 // 供 AdminService 编辑路径与 CRS 同步路径共用——后者改动母账号 proxy 后必须同样传播,否则影子保留
 // 旧 proxy 出现出站漂移(外审第8轮)。
 func propagateAccountProxyToShadows(ctx context.Context, repo AccountRepository, parentID int64, proxyID *int64) error {
-	proxyIDs := []int64(nil)
-	if proxyID != nil && *proxyID > 0 {
-		proxyIDs = []int64{*proxyID}
-	}
-	return propagateAccountProxiesToShadows(ctx, repo, parentID, proxyIDs)
-}
-
-func propagateAccountProxiesToShadows(ctx context.Context, repo AccountRepository, parentID int64, proxyIDs []int64) error {
 	shadows, err := repo.ListShadowsByParent(ctx, parentID)
 	if err != nil {
 		return fmt.Errorf("list spark shadows for proxy propagation: %w", err)
 	}
 	for _, shadow := range shadows {
-		shadow.ProxyIDs = append([]int64(nil), proxyIDs...)
-		shadow.ProxyBindingsChanged = true
-		shadow.ProxyID = nil
-		if len(proxyIDs) > 0 {
-			first := proxyIDs[0]
-			shadow.ProxyID = &first
-		}
+		shadow.ProxyID = proxyID
 		if err := repo.Update(ctx, shadow); err != nil {
 			return fmt.Errorf("update spark shadow %d proxy: %w", shadow.ID, err)
 		}

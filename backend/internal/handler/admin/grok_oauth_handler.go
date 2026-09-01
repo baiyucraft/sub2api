@@ -322,7 +322,6 @@ type GrokSSOToOAuthRequest struct {
 	Name               string         `json:"name"`
 	Notes              *string        `json:"notes"`
 	ProxyID            *int64         `json:"proxy_id"`
-	ProxyIDs           *[]int64       `json:"proxy_ids"`
 	GroupIDs           []int64        `json:"group_ids"`
 	Credentials        map[string]any `json:"credentials"`
 	Extra              map[string]any `json:"extra"`
@@ -368,13 +367,6 @@ func (h *GrokOAuthHandler) CreateAccountsFromSSO(c *gin.Context) {
 		response.BadRequest(c, "sso_tokens is required")
 		return
 	}
-	proxyIDs, proxyID, err := resolveRequestedAccountProxyIDs(c.Request.Context(), h.adminService, req.ProxyIDs, req.ProxyID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	req.ProxyIDs = proxyIDs
-	req.ProxyID = proxyID
 
 	ctx := c.Request.Context()
 	workerCount := grokSSOImportConcurrency
@@ -445,7 +437,6 @@ func (h *GrokOAuthHandler) createAccountFromSSOToken(ctx context.Context, req Gr
 		Credentials:        credentials,
 		Extra:              cloneGrokSSOMap(req.Extra),
 		ProxyID:            req.ProxyID,
-		ProxyIDs:           req.ProxyIDs,
 		Concurrency:        req.Concurrency,
 		LoadFactor:         req.LoadFactor,
 		Priority:           req.Priority,

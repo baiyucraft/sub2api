@@ -179,14 +179,13 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 	}
 
 	failed := map[int64]struct{}{}
-	failedRoutes := map[string]struct{}{}
 	var last *service.UpstreamFailoverError
 	reqLog := requestLogger(c, "handler.openai_gateway.grok_voice", zap.String("endpoint", endpoint))
 	selectionModel := "grok-4.5"
 
 	for attempts := 0; attempts < 4; attempts++ {
 		selection, _, selectErr := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			service.ContextWithFailedProxyRoutes(c.Request.Context(), failedRoutes),
+			c.Request.Context(),
 			apiKey.GroupID,
 			"",
 			"",
@@ -233,7 +232,7 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 		}
 		var failoverErr *service.UpstreamFailoverError
 		if errors.As(forwardErr, &failoverErr) && failoverErr.ShouldRetryNextAccount() {
-			recordProxyAwareFailoverExclusion(failed, failedRoutes, account.ID, failoverErr)
+			failed[account.ID] = struct{}{}
 			last = failoverErr
 			continue
 		}

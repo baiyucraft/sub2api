@@ -202,21 +202,6 @@ func (_c *ProxyCreate) AddAccounts(v ...*Account) *ProxyCreate {
 	return _c.AddAccountIDs(ids...)
 }
 
-// AddBoundAccountIDs adds the "bound_accounts" edge to the Account entity by IDs.
-func (_c *ProxyCreate) AddBoundAccountIDs(ids ...int64) *ProxyCreate {
-	_c.mutation.AddBoundAccountIDs(ids...)
-	return _c
-}
-
-// AddBoundAccounts adds the "bound_accounts" edges to the Account entity.
-func (_c *ProxyCreate) AddBoundAccounts(v ...*Account) *ProxyCreate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _c.AddBoundAccountIDs(ids...)
-}
-
 // SetBackupProxy sets the "backup_proxy" edge to the Proxy entity.
 func (_c *ProxyCreate) SetBackupProxy(v *Proxy) *ProxyCreate {
 	return _c.SetBackupProxyID(v.ID)
@@ -445,26 +430,6 @@ func (_c *ProxyCreate) createSpec() (*Proxy, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := _c.mutation.BoundAccountsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   proxy.BoundAccountsTable,
-			Columns: proxy.BoundAccountsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		createE := &AccountProxyBindingCreate{config: _c.config, mutation: newAccountProxyBindingMutation(_c.config, OpCreate)}
-		createE.defaults()
-		_, specE := createE.createSpec()
-		edge.Target.Fields = specE.Fields
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.BackupProxyIDs(); len(nodes) > 0 {

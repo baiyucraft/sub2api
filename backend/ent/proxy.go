@@ -55,15 +55,11 @@ type Proxy struct {
 type ProxyEdges struct {
 	// Accounts holds the value of the accounts edge.
 	Accounts []*Account `json:"accounts,omitempty"`
-	// BoundAccounts holds the value of the bound_accounts edge.
-	BoundAccounts []*Account `json:"bound_accounts,omitempty"`
 	// BackupProxy holds the value of the backup_proxy edge.
 	BackupProxy *Proxy `json:"backup_proxy,omitempty"`
-	// AccountBindings holds the value of the account_bindings edge.
-	AccountBindings []*AccountProxyBinding `json:"account_bindings,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [2]bool
 }
 
 // AccountsOrErr returns the Accounts value or an error if the edge
@@ -75,33 +71,15 @@ func (e ProxyEdges) AccountsOrErr() ([]*Account, error) {
 	return nil, &NotLoadedError{edge: "accounts"}
 }
 
-// BoundAccountsOrErr returns the BoundAccounts value or an error if the edge
-// was not loaded in eager-loading.
-func (e ProxyEdges) BoundAccountsOrErr() ([]*Account, error) {
-	if e.loadedTypes[1] {
-		return e.BoundAccounts, nil
-	}
-	return nil, &NotLoadedError{edge: "bound_accounts"}
-}
-
 // BackupProxyOrErr returns the BackupProxy value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e ProxyEdges) BackupProxyOrErr() (*Proxy, error) {
 	if e.BackupProxy != nil {
 		return e.BackupProxy, nil
-	} else if e.loadedTypes[2] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: proxy.Label}
 	}
 	return nil, &NotLoadedError{edge: "backup_proxy"}
-}
-
-// AccountBindingsOrErr returns the AccountBindings value or an error if the edge
-// was not loaded in eager-loading.
-func (e ProxyEdges) AccountBindingsOrErr() ([]*AccountProxyBinding, error) {
-	if e.loadedTypes[3] {
-		return e.AccountBindings, nil
-	}
-	return nil, &NotLoadedError{edge: "account_bindings"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -243,19 +221,9 @@ func (_m *Proxy) QueryAccounts() *AccountQuery {
 	return NewProxyClient(_m.config).QueryAccounts(_m)
 }
 
-// QueryBoundAccounts queries the "bound_accounts" edge of the Proxy entity.
-func (_m *Proxy) QueryBoundAccounts() *AccountQuery {
-	return NewProxyClient(_m.config).QueryBoundAccounts(_m)
-}
-
 // QueryBackupProxy queries the "backup_proxy" edge of the Proxy entity.
 func (_m *Proxy) QueryBackupProxy() *ProxyQuery {
 	return NewProxyClient(_m.config).QueryBackupProxy(_m)
-}
-
-// QueryAccountBindings queries the "account_bindings" edge of the Proxy entity.
-func (_m *Proxy) QueryAccountBindings() *AccountProxyBindingQuery {
-	return NewProxyClient(_m.config).QueryAccountBindings(_m)
 }
 
 // Update returns a builder for updating this Proxy.

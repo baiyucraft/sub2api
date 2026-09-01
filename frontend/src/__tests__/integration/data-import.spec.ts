@@ -71,13 +71,6 @@ describe('ImportDataModal', () => {
         host: '127.0.0.1',
         port: 8080,
         status: 'active'
-      } as never,
-      {
-        id: 13,
-        name: 'Tokyo 1',
-        host: '127.0.0.2',
-        port: 8080,
-        status: 'active'
       } as never
     ])
   })
@@ -202,7 +195,7 @@ describe('ImportDataModal', () => {
     expect(showSuccess).toHaveBeenCalledWith('admin.accounts.dataImportSuccess')
   })
 
-  it('binds selected proxies once without multiplying imported accounts', async () => {
+  it('creates one account copy per selected proxy', async () => {
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockResolvedValue({
       proxy_created: 0,
@@ -223,16 +216,17 @@ describe('ImportDataModal', () => {
     ])
     await input.trigger('change')
     await flushPromises()
-    expect(wrapper.text()).toContain('admin.accounts.dataImportEstimatedAccounts')
+    expect(wrapper.text()).toContain('admin.accounts.dataImportCompatMode')
 
-    const addButton = wrapper.findAll('button').find((button) => button.text() === 'admin.accounts.dataImportAddProxyBinding')
+    const addButton = wrapper.findAll('button').find((button) => button.text() === 'admin.accounts.dataImportAddCopy')
     expect(addButton).toBeDefined()
     await addButton!.trigger('click')
+    expect(wrapper.text()).toContain('admin.accounts.dataImportCopyCount')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith(expect.objectContaining({
-      proxy_ids: [12],
+      copy_proxy_ids: [12],
       data: expect.objectContaining({ accounts: [{ name: 'a' }, { name: 'b' }] })
     }))
   })
@@ -302,9 +296,8 @@ describe('ImportDataModal', () => {
     expect(showError).toHaveBeenCalledWith('admin.accounts.dataImportCompletedWithErrors')
     expect(wrapper.emitted('imported')).toBeUndefined()
 
-    // 最后一个 btn-secondary 是 footer 的取消按钮，其它按钮属于文件/复制设置。
-    const secondaryButtons = wrapper.findAll('button.btn-secondary')
-    await secondaryButtons[secondaryButtons.length - 1]!.trigger('click')
+    // 第二个 btn-secondary 是 footer 的取消按钮(第一个是选择文件)
+    await wrapper.findAll('button.btn-secondary')[1]!.trigger('click')
 
     expect(wrapper.emitted('imported')).toHaveLength(1)
     expect(wrapper.emitted('close')).toHaveLength(1)

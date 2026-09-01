@@ -138,11 +138,6 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 			stickyAccountID = accountID
 			stickySource = "cache"
 		}
-		if routeCache, ok := s.cache.(GatewayRouteCache); ok {
-			if proxyID, err := routeCache.GetSessionProxyID(ctx, derefGroupID(groupID), sessionHash); err == nil {
-				ctx = ContextWithPreferredProxyRoute(ctx, proxyID)
-			}
-		}
 	}
 
 	// [DEBUG-STICKY] 调度器入口日志
@@ -197,8 +192,8 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 			}
 
 			if stickyAccountID > 0 && stickyAccountID == account.ID && s.concurrencyService != nil {
-				waitingCount, routeAvailable := accountProxyRouteWaitingCount(ctx, s.concurrencyService, account)
-				if routeAvailable && waitingCount < cfg.StickySessionMaxWaiting {
+				waitingCount, _ := s.concurrencyService.GetTargetWaitingCount(ctx, account.SchedulingConcurrencyTarget())
+				if waitingCount < cfg.StickySessionMaxWaiting {
 					return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 						AccountID:      account.ID,
 						MaxConcurrency: account.Concurrency,
@@ -380,8 +375,8 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 							}
 
 							if stickyCacheMissReason == "" {
-								waitingCount, routeAvailable := accountProxyRouteWaitingCount(ctx, s.concurrencyService, stickyAccount)
-								if routeAvailable && waitingCount < cfg.StickySessionMaxWaiting {
+								waitingCount, _ := s.concurrencyService.GetTargetWaitingCount(ctx, stickyAccount.SchedulingConcurrencyTarget())
+								if waitingCount < cfg.StickySessionMaxWaiting {
 									// 会话数量限制检查（等待计划也需要占用会话配额）
 									if !s.checkAndRegisterSession(ctx, stickyAccount, sessionHash) {
 										stickyCacheMissReason = "session_limit"
@@ -492,7 +487,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 								continue
 							}
 							if sessionHash != "" && s.cache != nil {
-								_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, item.account)
+								_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, item.account.ID)
 							}
 							if s.debugModelRoutingEnabled() {
 								logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed select: group_id=%v model=%s session=%s account=%d preferred_pool_hit=%v preferred_candidates=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), item.account.ID, pool.preferred, len(routedPreferred))
@@ -598,8 +593,8 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 						)
 					}
 
-					waitingCount, routeAvailable := accountProxyRouteWaitingCount(ctx, s.concurrencyService, account)
-					if routeAvailable && waitingCount < cfg.StickySessionMaxWaiting {
+					waitingCount, _ := s.concurrencyService.GetTargetWaitingCount(ctx, account.SchedulingConcurrencyTarget())
+					if waitingCount < cfg.StickySessionMaxWaiting {
 						// 会话数量限制检查（等待计划也需要占用会话配额）
 						if !s.checkAndRegisterSession(ctx, account, sessionHash) {
 							// 会话限制已满，继续到 Layer 2
@@ -761,7 +756,7 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 						result.ReleaseFunc() // 释放槽位，继续尝试下一个账号
 					} else {
 						if sessionHash != "" && s.cache != nil {
-							_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.account)
+							_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.account.ID)
 						}
 						return s.newSelectionResult(ctx, selected.account, true, result.ReleaseFunc, nil)
 					}
@@ -834,7 +829,7 @@ func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates
 					continue
 				}
 				if sessionHash != "" && s.cache != nil {
-					_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, acc)
+					_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, acc.ID)
 				}
 				selection, err := s.newSelectionResult(ctx, acc, true, result.ReleaseFunc, nil)
 				if err != nil {
@@ -1181,23 +1176,10 @@ func (s *GatewayService) isAccountInGroup(account *Account, groupID *int64) bool
 }
 
 func (s *GatewayService) tryAcquireAccountSlot(ctx context.Context, account *Account) (*AcquireResult, error) {
-	proxy, _, result, err := AcquireAccountProxyRoute(ctx, s.concurrencyService, account)
-	if err == nil && result != nil && result.Acquired && proxy != nil {
-		proxyID := proxy.ID
-		account.ProxyID = &proxyID
-		account.Proxy = proxy
-	}
-	return result, err
-}
-
-// tryAcquireAccountProxySlot reserves capacity from the selected proxy route
-// of an ordinary account. Upstream-bound accounts continue to use their shared
-// upstream target regardless of proxy ID.
-func (s *GatewayService) tryAcquireAccountProxySlot(ctx context.Context, account *Account, proxyID int64) (*AcquireResult, error) {
 	if s.concurrencyService == nil {
 		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
 	}
-	return s.concurrencyService.AcquireTargetSlot(ctx, AccountProxyConcurrencyTarget(account, proxyID))
+	return s.concurrencyService.AcquireTargetSlot(ctx, account.SchedulingConcurrencyTarget())
 }
 
 type usageLogWindowStatsBatchProvider interface {
@@ -1569,13 +1551,6 @@ func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Ac
 }
 
 func (s *GatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {
-	selectedProxy := selectionProxyForAccountRoute(ctx, s.concurrencyService, account, acquired)
-	if selectedProxy == nil && accountHasConfiguredProxy(account) {
-		if acquired && release != nil {
-			release()
-		}
-		return nil, ErrNoAvailableAccountProxyRoutes
-	}
 	hydrated, err := s.hydrateSelectedAccount(ctx, account)
 	if err != nil {
 		if acquired && release != nil {
@@ -1583,18 +1558,12 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 		}
 		return nil, err
 	}
-	// Hydrating the scheduler snapshot reloads the account and may restore its
-	// legacy first proxy. Keep the route that was actually selected/acquired so
-	// forwarding and the concurrency target stay aligned.
-	if hydrated != nil && selectedProxy != nil {
-		for _, proxy := range hydrated.Proxies {
-			if proxy != nil && proxy.ID == selectedProxy.ID {
-				selectedProxy = proxy
-				break
-			}
-		}
-	}
-	return attachSelectionProfitGate(ctx, accountSelectionResultForProxyRoute(hydrated, selectedProxy, acquired, release, waitPlan)), nil
+	return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+		Account:     hydrated,
+		Acquired:    acquired,
+		ReleaseFunc: release,
+		WaitPlan:    waitPlan,
+	}), nil
 }
 
 // filterByMinPriority 过滤出优先级最小的账号集合
@@ -2060,7 +2029,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 
 		if selected != nil {
 			if sessionHash != "" && s.cache != nil {
-				if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected); err != nil {
+				if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.ID); err != nil {
 					logger.LegacyPrintf("service.gateway", "set session account failed: session=%s account_id=%d err=%v", sessionHash, selected.ID, err)
 				}
 			}
@@ -2185,7 +2154,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 
 	// 4. 建立粘性绑定
 	if sessionHash != "" && s.cache != nil {
-		if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected); err != nil {
+		if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.ID); err != nil {
 			logger.LegacyPrintf("service.gateway", "set session account failed: session=%s account_id=%d err=%v", sessionHash, selected.ID, err)
 		}
 	}
@@ -2326,7 +2295,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 		if selected != nil {
 			if sessionHash != "" && s.cache != nil {
-				if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected); err != nil {
+				if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.ID); err != nil {
 					logger.LegacyPrintf("service.gateway", "set session account failed: session=%s account_id=%d err=%v", sessionHash, selected.ID, err)
 				}
 			}
@@ -2452,7 +2421,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 	// 4. 建立粘性绑定
 	if sessionHash != "" && s.cache != nil {
-		if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected); err != nil {
+		if err := s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.ID); err != nil {
 			logger.LegacyPrintf("service.gateway", "set session account failed: session=%s account_id=%d err=%v", sessionHash, selected.ID, err)
 		}
 	}

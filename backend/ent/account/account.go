@@ -96,8 +96,6 @@ const (
 	EdgeGroups = "groups"
 	// EdgeProxy holds the string denoting the proxy edge name in mutations.
 	EdgeProxy = "proxy"
-	// EdgeProxies holds the string denoting the proxies edge name in mutations.
-	EdgeProxies = "proxies"
 	// EdgeUpstreamConfig holds the string denoting the upstream_config edge name in mutations.
 	EdgeUpstreamConfig = "upstream_config"
 	// EdgeUpstreamKey holds the string denoting the upstream_key edge name in mutations.
@@ -112,8 +110,6 @@ const (
 	EdgeUpstreamEvents = "upstream_events"
 	// EdgeAccountGroups holds the string denoting the account_groups edge name in mutations.
 	EdgeAccountGroups = "account_groups"
-	// EdgeProxyBindings holds the string denoting the proxy_bindings edge name in mutations.
-	EdgeProxyBindings = "proxy_bindings"
 	// Table holds the table name of the account in the database.
 	Table = "accounts"
 	// GroupsTable is the table that holds the groups relation/edge. The primary key declared below.
@@ -128,11 +124,6 @@ const (
 	ProxyInverseTable = "proxies"
 	// ProxyColumn is the table column denoting the proxy relation/edge.
 	ProxyColumn = "proxy_id"
-	// ProxiesTable is the table that holds the proxies relation/edge. The primary key declared below.
-	ProxiesTable = "account_proxy_bindings"
-	// ProxiesInverseTable is the table name for the Proxy entity.
-	// It exists in this package in order to avoid circular dependency with the "proxy" package.
-	ProxiesInverseTable = "proxies"
 	// UpstreamConfigTable is the table that holds the upstream_config relation/edge.
 	UpstreamConfigTable = "accounts"
 	// UpstreamConfigInverseTable is the table name for the UpstreamConfig entity.
@@ -176,13 +167,6 @@ const (
 	AccountGroupsInverseTable = "account_groups"
 	// AccountGroupsColumn is the table column denoting the account_groups relation/edge.
 	AccountGroupsColumn = "account_id"
-	// ProxyBindingsTable is the table that holds the proxy_bindings relation/edge.
-	ProxyBindingsTable = "account_proxy_bindings"
-	// ProxyBindingsInverseTable is the table name for the AccountProxyBinding entity.
-	// It exists in this package in order to avoid circular dependency with the "accountproxybinding" package.
-	ProxyBindingsInverseTable = "account_proxy_bindings"
-	// ProxyBindingsColumn is the table column denoting the proxy_bindings relation/edge.
-	ProxyBindingsColumn = "account_id"
 )
 
 // Columns holds all SQL columns for account fields.
@@ -232,9 +216,6 @@ var (
 	// GroupsPrimaryKey and GroupsColumn2 are the table columns denoting the
 	// primary key for the groups relation (M2M).
 	GroupsPrimaryKey = []string{"account_id", "group_id"}
-	// ProxiesPrimaryKey and ProxiesColumn2 are the table columns denoting the
-	// primary key for the proxies relation (M2M).
-	ProxiesPrimaryKey = []string{"account_id", "proxy_id"}
 )
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -530,20 +511,6 @@ func ByProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 	}
 }
 
-// ByProxiesCount orders the results by proxies count.
-func ByProxiesCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newProxiesStep(), opts...)
-	}
-}
-
-// ByProxies orders the results by proxies terms.
-func ByProxies(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newProxiesStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
-
 // ByUpstreamConfigField orders the results by upstream_config field.
 func ByUpstreamConfigField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -620,20 +587,6 @@ func ByAccountGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newAccountGroupsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
-
-// ByProxyBindingsCount orders the results by proxy_bindings count.
-func ByProxyBindingsCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newProxyBindingsStep(), opts...)
-	}
-}
-
-// ByProxyBindings orders the results by proxy_bindings terms.
-func ByProxyBindings(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newProxyBindingsStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
 func newGroupsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -646,13 +599,6 @@ func newProxyStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ProxyInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, false, ProxyTable, ProxyColumn),
-	)
-}
-func newProxiesStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(ProxiesInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2M, false, ProxiesTable, ProxiesPrimaryKey...),
 	)
 }
 func newUpstreamConfigStep() *sqlgraph.Step {
@@ -702,12 +648,5 @@ func newAccountGroupsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AccountGroupsInverseTable, AccountGroupsColumn),
 		sqlgraph.Edge(sqlgraph.O2M, true, AccountGroupsTable, AccountGroupsColumn),
-	)
-}
-func newProxyBindingsStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(ProxyBindingsInverseTable, ProxyBindingsColumn),
-		sqlgraph.Edge(sqlgraph.O2M, true, ProxyBindingsTable, ProxyBindingsColumn),
 	)
 }

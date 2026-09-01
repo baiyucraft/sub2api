@@ -14,7 +14,6 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
-	"github.com/Wei-Shaw/sub2api/ent/accountproxybinding"
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
@@ -79,7 +78,6 @@ const (
 	TypeAPIKey                        = "APIKey"
 	TypeAccount                       = "Account"
 	TypeAccountGroup                  = "AccountGroup"
-	TypeAccountProxyBinding           = "AccountProxyBinding"
 	TypeAnnouncement                  = "Announcement"
 	TypeAnnouncementRead              = "AnnouncementRead"
 	TypeAuthIdentity                  = "AuthIdentity"
@@ -2600,9 +2598,6 @@ type AccountMutation struct {
 	clearedgroups                      bool
 	proxy                              *int64
 	clearedproxy                       bool
-	proxies                            map[int64]struct{}
-	removedproxies                     map[int64]struct{}
-	clearedproxies                     bool
 	upstream_config                    *int64
 	clearedupstream_config             bool
 	upstream_key                       *int64
@@ -4613,60 +4608,6 @@ func (m *AccountMutation) ResetProxy() {
 	m.clearedproxy = false
 }
 
-// AddProxyIDs adds the "proxies" edge to the Proxy entity by ids.
-func (m *AccountMutation) AddProxyIDs(ids ...int64) {
-	if m.proxies == nil {
-		m.proxies = make(map[int64]struct{})
-	}
-	for i := range ids {
-		m.proxies[ids[i]] = struct{}{}
-	}
-}
-
-// ClearProxies clears the "proxies" edge to the Proxy entity.
-func (m *AccountMutation) ClearProxies() {
-	m.clearedproxies = true
-}
-
-// ProxiesCleared reports if the "proxies" edge to the Proxy entity was cleared.
-func (m *AccountMutation) ProxiesCleared() bool {
-	return m.clearedproxies
-}
-
-// RemoveProxyIDs removes the "proxies" edge to the Proxy entity by IDs.
-func (m *AccountMutation) RemoveProxyIDs(ids ...int64) {
-	if m.removedproxies == nil {
-		m.removedproxies = make(map[int64]struct{})
-	}
-	for i := range ids {
-		delete(m.proxies, ids[i])
-		m.removedproxies[ids[i]] = struct{}{}
-	}
-}
-
-// RemovedProxies returns the removed IDs of the "proxies" edge to the Proxy entity.
-func (m *AccountMutation) RemovedProxiesIDs() (ids []int64) {
-	for id := range m.removedproxies {
-		ids = append(ids, id)
-	}
-	return
-}
-
-// ProxiesIDs returns the "proxies" edge IDs in the mutation.
-func (m *AccountMutation) ProxiesIDs() (ids []int64) {
-	for id := range m.proxies {
-		ids = append(ids, id)
-	}
-	return
-}
-
-// ResetProxies resets all changes to the "proxies" edge.
-func (m *AccountMutation) ResetProxies() {
-	m.proxies = nil
-	m.clearedproxies = false
-	m.removedproxies = nil
-}
-
 // ClearUpstreamConfig clears the "upstream_config" edge to the UpstreamConfig entity.
 func (m *AccountMutation) ClearUpstreamConfig() {
 	m.clearedupstream_config = true
@@ -5913,15 +5854,12 @@ func (m *AccountMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *AccountMutation) AddedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 8)
 	if m.groups != nil {
 		edges = append(edges, account.EdgeGroups)
 	}
 	if m.proxy != nil {
 		edges = append(edges, account.EdgeProxy)
-	}
-	if m.proxies != nil {
-		edges = append(edges, account.EdgeProxies)
 	}
 	if m.upstream_config != nil {
 		edges = append(edges, account.EdgeUpstreamConfig)
@@ -5958,12 +5896,6 @@ func (m *AccountMutation) AddedIDs(name string) []ent.Value {
 		if id := m.proxy; id != nil {
 			return []ent.Value{*id}
 		}
-	case account.EdgeProxies:
-		ids := make([]ent.Value, 0, len(m.proxies))
-		for id := range m.proxies {
-			ids = append(ids, id)
-		}
-		return ids
 	case account.EdgeUpstreamConfig:
 		if id := m.upstream_config; id != nil {
 			return []ent.Value{*id}
@@ -6000,12 +5932,9 @@ func (m *AccountMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *AccountMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 8)
 	if m.removedgroups != nil {
 		edges = append(edges, account.EdgeGroups)
-	}
-	if m.removedproxies != nil {
-		edges = append(edges, account.EdgeProxies)
 	}
 	if m.removedchildren != nil {
 		edges = append(edges, account.EdgeChildren)
@@ -6026,12 +5955,6 @@ func (m *AccountMutation) RemovedIDs(name string) []ent.Value {
 	case account.EdgeGroups:
 		ids := make([]ent.Value, 0, len(m.removedgroups))
 		for id := range m.removedgroups {
-			ids = append(ids, id)
-		}
-		return ids
-	case account.EdgeProxies:
-		ids := make([]ent.Value, 0, len(m.removedproxies))
-		for id := range m.removedproxies {
 			ids = append(ids, id)
 		}
 		return ids
@@ -6059,15 +5982,12 @@ func (m *AccountMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *AccountMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 8)
 	if m.clearedgroups {
 		edges = append(edges, account.EdgeGroups)
 	}
 	if m.clearedproxy {
 		edges = append(edges, account.EdgeProxy)
-	}
-	if m.clearedproxies {
-		edges = append(edges, account.EdgeProxies)
 	}
 	if m.clearedupstream_config {
 		edges = append(edges, account.EdgeUpstreamConfig)
@@ -6098,8 +6018,6 @@ func (m *AccountMutation) EdgeCleared(name string) bool {
 		return m.clearedgroups
 	case account.EdgeProxy:
 		return m.clearedproxy
-	case account.EdgeProxies:
-		return m.clearedproxies
 	case account.EdgeUpstreamConfig:
 		return m.clearedupstream_config
 	case account.EdgeUpstreamKey:
@@ -6145,9 +6063,6 @@ func (m *AccountMutation) ResetEdge(name string) error {
 		return nil
 	case account.EdgeProxy:
 		m.ResetProxy()
-		return nil
-	case account.EdgeProxies:
-		m.ResetProxies()
 		return nil
 	case account.EdgeUpstreamConfig:
 		m.ResetUpstreamConfig()
@@ -6689,491 +6604,6 @@ func (m *AccountGroupMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown AccountGroup edge %s", name)
-}
-
-// AccountProxyBindingMutation represents an operation that mutates the AccountProxyBinding nodes in the graph.
-type AccountProxyBindingMutation struct {
-	config
-	op             Op
-	typ            string
-	position       *int
-	addposition    *int
-	created_at     *time.Time
-	clearedFields  map[string]struct{}
-	account        *int64
-	clearedaccount bool
-	proxy          *int64
-	clearedproxy   bool
-	done           bool
-	oldValue       func(context.Context) (*AccountProxyBinding, error)
-	predicates     []predicate.AccountProxyBinding
-}
-
-var _ ent.Mutation = (*AccountProxyBindingMutation)(nil)
-
-// accountproxybindingOption allows management of the mutation configuration using functional options.
-type accountproxybindingOption func(*AccountProxyBindingMutation)
-
-// newAccountProxyBindingMutation creates new mutation for the AccountProxyBinding entity.
-func newAccountProxyBindingMutation(c config, op Op, opts ...accountproxybindingOption) *AccountProxyBindingMutation {
-	m := &AccountProxyBindingMutation{
-		config:        c,
-		op:            op,
-		typ:           TypeAccountProxyBinding,
-		clearedFields: make(map[string]struct{}),
-	}
-	for _, opt := range opts {
-		opt(m)
-	}
-	return m
-}
-
-// Client returns a new `ent.Client` from the mutation. If the mutation was
-// executed in a transaction (ent.Tx), a transactional client is returned.
-func (m AccountProxyBindingMutation) Client() *Client {
-	client := &Client{config: m.config}
-	client.init()
-	return client
-}
-
-// Tx returns an `ent.Tx` for mutations that were executed in transactions;
-// it returns an error otherwise.
-func (m AccountProxyBindingMutation) Tx() (*Tx, error) {
-	if _, ok := m.driver.(*txDriver); !ok {
-		return nil, errors.New("ent: mutation is not running in a transaction")
-	}
-	tx := &Tx{config: m.config}
-	tx.init()
-	return tx, nil
-}
-
-// SetAccountID sets the "account_id" field.
-func (m *AccountProxyBindingMutation) SetAccountID(i int64) {
-	m.account = &i
-}
-
-// AccountID returns the value of the "account_id" field in the mutation.
-func (m *AccountProxyBindingMutation) AccountID() (r int64, exists bool) {
-	v := m.account
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetAccountID resets all changes to the "account_id" field.
-func (m *AccountProxyBindingMutation) ResetAccountID() {
-	m.account = nil
-}
-
-// SetProxyID sets the "proxy_id" field.
-func (m *AccountProxyBindingMutation) SetProxyID(i int64) {
-	m.proxy = &i
-}
-
-// ProxyID returns the value of the "proxy_id" field in the mutation.
-func (m *AccountProxyBindingMutation) ProxyID() (r int64, exists bool) {
-	v := m.proxy
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetProxyID resets all changes to the "proxy_id" field.
-func (m *AccountProxyBindingMutation) ResetProxyID() {
-	m.proxy = nil
-}
-
-// SetPosition sets the "position" field.
-func (m *AccountProxyBindingMutation) SetPosition(i int) {
-	m.position = &i
-	m.addposition = nil
-}
-
-// Position returns the value of the "position" field in the mutation.
-func (m *AccountProxyBindingMutation) Position() (r int, exists bool) {
-	v := m.position
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// AddPosition adds i to the "position" field.
-func (m *AccountProxyBindingMutation) AddPosition(i int) {
-	if m.addposition != nil {
-		*m.addposition += i
-	} else {
-		m.addposition = &i
-	}
-}
-
-// AddedPosition returns the value that was added to the "position" field in this mutation.
-func (m *AccountProxyBindingMutation) AddedPosition() (r int, exists bool) {
-	v := m.addposition
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetPosition resets all changes to the "position" field.
-func (m *AccountProxyBindingMutation) ResetPosition() {
-	m.position = nil
-	m.addposition = nil
-}
-
-// SetCreatedAt sets the "created_at" field.
-func (m *AccountProxyBindingMutation) SetCreatedAt(t time.Time) {
-	m.created_at = &t
-}
-
-// CreatedAt returns the value of the "created_at" field in the mutation.
-func (m *AccountProxyBindingMutation) CreatedAt() (r time.Time, exists bool) {
-	v := m.created_at
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetCreatedAt resets all changes to the "created_at" field.
-func (m *AccountProxyBindingMutation) ResetCreatedAt() {
-	m.created_at = nil
-}
-
-// ClearAccount clears the "account" edge to the Account entity.
-func (m *AccountProxyBindingMutation) ClearAccount() {
-	m.clearedaccount = true
-	m.clearedFields[accountproxybinding.FieldAccountID] = struct{}{}
-}
-
-// AccountCleared reports if the "account" edge to the Account entity was cleared.
-func (m *AccountProxyBindingMutation) AccountCleared() bool {
-	return m.clearedaccount
-}
-
-// AccountIDs returns the "account" edge IDs in the mutation.
-// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
-// AccountID instead. It exists only for internal usage by the builders.
-func (m *AccountProxyBindingMutation) AccountIDs() (ids []int64) {
-	if id := m.account; id != nil {
-		ids = append(ids, *id)
-	}
-	return
-}
-
-// ResetAccount resets all changes to the "account" edge.
-func (m *AccountProxyBindingMutation) ResetAccount() {
-	m.account = nil
-	m.clearedaccount = false
-}
-
-// ClearProxy clears the "proxy" edge to the Proxy entity.
-func (m *AccountProxyBindingMutation) ClearProxy() {
-	m.clearedproxy = true
-	m.clearedFields[accountproxybinding.FieldProxyID] = struct{}{}
-}
-
-// ProxyCleared reports if the "proxy" edge to the Proxy entity was cleared.
-func (m *AccountProxyBindingMutation) ProxyCleared() bool {
-	return m.clearedproxy
-}
-
-// ProxyIDs returns the "proxy" edge IDs in the mutation.
-// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
-// ProxyID instead. It exists only for internal usage by the builders.
-func (m *AccountProxyBindingMutation) ProxyIDs() (ids []int64) {
-	if id := m.proxy; id != nil {
-		ids = append(ids, *id)
-	}
-	return
-}
-
-// ResetProxy resets all changes to the "proxy" edge.
-func (m *AccountProxyBindingMutation) ResetProxy() {
-	m.proxy = nil
-	m.clearedproxy = false
-}
-
-// Where appends a list predicates to the AccountProxyBindingMutation builder.
-func (m *AccountProxyBindingMutation) Where(ps ...predicate.AccountProxyBinding) {
-	m.predicates = append(m.predicates, ps...)
-}
-
-// WhereP appends storage-level predicates to the AccountProxyBindingMutation builder. Using this method,
-// users can use type-assertion to append predicates that do not depend on any generated package.
-func (m *AccountProxyBindingMutation) WhereP(ps ...func(*sql.Selector)) {
-	p := make([]predicate.AccountProxyBinding, len(ps))
-	for i := range ps {
-		p[i] = ps[i]
-	}
-	m.Where(p...)
-}
-
-// Op returns the operation name.
-func (m *AccountProxyBindingMutation) Op() Op {
-	return m.op
-}
-
-// SetOp allows setting the mutation operation.
-func (m *AccountProxyBindingMutation) SetOp(op Op) {
-	m.op = op
-}
-
-// Type returns the node type of this mutation (AccountProxyBinding).
-func (m *AccountProxyBindingMutation) Type() string {
-	return m.typ
-}
-
-// Fields returns all fields that were changed during this mutation. Note that in
-// order to get all numeric fields that were incremented/decremented, call
-// AddedFields().
-func (m *AccountProxyBindingMutation) Fields() []string {
-	fields := make([]string, 0, 4)
-	if m.account != nil {
-		fields = append(fields, accountproxybinding.FieldAccountID)
-	}
-	if m.proxy != nil {
-		fields = append(fields, accountproxybinding.FieldProxyID)
-	}
-	if m.position != nil {
-		fields = append(fields, accountproxybinding.FieldPosition)
-	}
-	if m.created_at != nil {
-		fields = append(fields, accountproxybinding.FieldCreatedAt)
-	}
-	return fields
-}
-
-// Field returns the value of a field with the given name. The second boolean
-// return value indicates that this field was not set, or was not defined in the
-// schema.
-func (m *AccountProxyBindingMutation) Field(name string) (ent.Value, bool) {
-	switch name {
-	case accountproxybinding.FieldAccountID:
-		return m.AccountID()
-	case accountproxybinding.FieldProxyID:
-		return m.ProxyID()
-	case accountproxybinding.FieldPosition:
-		return m.Position()
-	case accountproxybinding.FieldCreatedAt:
-		return m.CreatedAt()
-	}
-	return nil, false
-}
-
-// OldField returns the old value of the field from the database. An error is
-// returned if the mutation operation is not UpdateOne, or the query to the
-// database failed.
-func (m *AccountProxyBindingMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
-	return nil, errors.New("edge schema AccountProxyBinding does not support getting old values")
-}
-
-// SetField sets the value of a field with the given name. It returns an error if
-// the field is not defined in the schema, or if the type mismatched the field
-// type.
-func (m *AccountProxyBindingMutation) SetField(name string, value ent.Value) error {
-	switch name {
-	case accountproxybinding.FieldAccountID:
-		v, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetAccountID(v)
-		return nil
-	case accountproxybinding.FieldProxyID:
-		v, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetProxyID(v)
-		return nil
-	case accountproxybinding.FieldPosition:
-		v, ok := value.(int)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetPosition(v)
-		return nil
-	case accountproxybinding.FieldCreatedAt:
-		v, ok := value.(time.Time)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetCreatedAt(v)
-		return nil
-	}
-	return fmt.Errorf("unknown AccountProxyBinding field %s", name)
-}
-
-// AddedFields returns all numeric fields that were incremented/decremented during
-// this mutation.
-func (m *AccountProxyBindingMutation) AddedFields() []string {
-	var fields []string
-	if m.addposition != nil {
-		fields = append(fields, accountproxybinding.FieldPosition)
-	}
-	return fields
-}
-
-// AddedField returns the numeric value that was incremented/decremented on a field
-// with the given name. The second boolean return value indicates that this field
-// was not set, or was not defined in the schema.
-func (m *AccountProxyBindingMutation) AddedField(name string) (ent.Value, bool) {
-	switch name {
-	case accountproxybinding.FieldPosition:
-		return m.AddedPosition()
-	}
-	return nil, false
-}
-
-// AddField adds the value to the field with the given name. It returns an error if
-// the field is not defined in the schema, or if the type mismatched the field
-// type.
-func (m *AccountProxyBindingMutation) AddField(name string, value ent.Value) error {
-	switch name {
-	case accountproxybinding.FieldPosition:
-		v, ok := value.(int)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddPosition(v)
-		return nil
-	}
-	return fmt.Errorf("unknown AccountProxyBinding numeric field %s", name)
-}
-
-// ClearedFields returns all nullable fields that were cleared during this
-// mutation.
-func (m *AccountProxyBindingMutation) ClearedFields() []string {
-	return nil
-}
-
-// FieldCleared returns a boolean indicating if a field with the given name was
-// cleared in this mutation.
-func (m *AccountProxyBindingMutation) FieldCleared(name string) bool {
-	_, ok := m.clearedFields[name]
-	return ok
-}
-
-// ClearField clears the value of the field with the given name. It returns an
-// error if the field is not defined in the schema.
-func (m *AccountProxyBindingMutation) ClearField(name string) error {
-	return fmt.Errorf("unknown AccountProxyBinding nullable field %s", name)
-}
-
-// ResetField resets all changes in the mutation for the field with the given name.
-// It returns an error if the field is not defined in the schema.
-func (m *AccountProxyBindingMutation) ResetField(name string) error {
-	switch name {
-	case accountproxybinding.FieldAccountID:
-		m.ResetAccountID()
-		return nil
-	case accountproxybinding.FieldProxyID:
-		m.ResetProxyID()
-		return nil
-	case accountproxybinding.FieldPosition:
-		m.ResetPosition()
-		return nil
-	case accountproxybinding.FieldCreatedAt:
-		m.ResetCreatedAt()
-		return nil
-	}
-	return fmt.Errorf("unknown AccountProxyBinding field %s", name)
-}
-
-// AddedEdges returns all edge names that were set/added in this mutation.
-func (m *AccountProxyBindingMutation) AddedEdges() []string {
-	edges := make([]string, 0, 2)
-	if m.account != nil {
-		edges = append(edges, accountproxybinding.EdgeAccount)
-	}
-	if m.proxy != nil {
-		edges = append(edges, accountproxybinding.EdgeProxy)
-	}
-	return edges
-}
-
-// AddedIDs returns all IDs (to other nodes) that were added for the given edge
-// name in this mutation.
-func (m *AccountProxyBindingMutation) AddedIDs(name string) []ent.Value {
-	switch name {
-	case accountproxybinding.EdgeAccount:
-		if id := m.account; id != nil {
-			return []ent.Value{*id}
-		}
-	case accountproxybinding.EdgeProxy:
-		if id := m.proxy; id != nil {
-			return []ent.Value{*id}
-		}
-	}
-	return nil
-}
-
-// RemovedEdges returns all edge names that were removed in this mutation.
-func (m *AccountProxyBindingMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 2)
-	return edges
-}
-
-// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
-// the given name in this mutation.
-func (m *AccountProxyBindingMutation) RemovedIDs(name string) []ent.Value {
-	return nil
-}
-
-// ClearedEdges returns all edge names that were cleared in this mutation.
-func (m *AccountProxyBindingMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 2)
-	if m.clearedaccount {
-		edges = append(edges, accountproxybinding.EdgeAccount)
-	}
-	if m.clearedproxy {
-		edges = append(edges, accountproxybinding.EdgeProxy)
-	}
-	return edges
-}
-
-// EdgeCleared returns a boolean which indicates if the edge with the given name
-// was cleared in this mutation.
-func (m *AccountProxyBindingMutation) EdgeCleared(name string) bool {
-	switch name {
-	case accountproxybinding.EdgeAccount:
-		return m.clearedaccount
-	case accountproxybinding.EdgeProxy:
-		return m.clearedproxy
-	}
-	return false
-}
-
-// ClearEdge clears the value of the edge with the given name. It returns an error
-// if that edge is not defined in the schema.
-func (m *AccountProxyBindingMutation) ClearEdge(name string) error {
-	switch name {
-	case accountproxybinding.EdgeAccount:
-		m.ClearAccount()
-		return nil
-	case accountproxybinding.EdgeProxy:
-		m.ClearProxy()
-		return nil
-	}
-	return fmt.Errorf("unknown AccountProxyBinding unique edge %s", name)
-}
-
-// ResetEdge resets all changes to the edge with the given name in this mutation.
-// It returns an error if the edge is not defined in the schema.
-func (m *AccountProxyBindingMutation) ResetEdge(name string) error {
-	switch name {
-	case accountproxybinding.EdgeAccount:
-		m.ResetAccount()
-		return nil
-	case accountproxybinding.EdgeProxy:
-		m.ResetProxy()
-		return nil
-	}
-	return fmt.Errorf("unknown AccountProxyBinding edge %s", name)
 }
 
 // AnnouncementMutation represents an operation that mutates the Announcement nodes in the graph.
@@ -41019,36 +40449,33 @@ func (m *PromoCodeUsageMutation) ResetEdge(name string) error {
 // ProxyMutation represents an operation that mutates the Proxy nodes in the graph.
 type ProxyMutation struct {
 	config
-	op                    Op
-	typ                   string
-	id                    *int64
-	created_at            *time.Time
-	updated_at            *time.Time
-	deleted_at            *time.Time
-	name                  *string
-	protocol              *string
-	host                  *string
-	port                  *int
-	addport               *int
-	username              *string
-	password              *string
-	status                *string
-	expires_at            *time.Time
-	fallback_mode         *string
-	expiry_warn_days      *int
-	addexpiry_warn_days   *int
-	clearedFields         map[string]struct{}
-	accounts              map[int64]struct{}
-	removedaccounts       map[int64]struct{}
-	clearedaccounts       bool
-	bound_accounts        map[int64]struct{}
-	removedbound_accounts map[int64]struct{}
-	clearedbound_accounts bool
-	backup_proxy          *int64
-	clearedbackup_proxy   bool
-	done                  bool
-	oldValue              func(context.Context) (*Proxy, error)
-	predicates            []predicate.Proxy
+	op                  Op
+	typ                 string
+	id                  *int64
+	created_at          *time.Time
+	updated_at          *time.Time
+	deleted_at          *time.Time
+	name                *string
+	protocol            *string
+	host                *string
+	port                *int
+	addport             *int
+	username            *string
+	password            *string
+	status              *string
+	expires_at          *time.Time
+	fallback_mode       *string
+	expiry_warn_days    *int
+	addexpiry_warn_days *int
+	clearedFields       map[string]struct{}
+	accounts            map[int64]struct{}
+	removedaccounts     map[int64]struct{}
+	clearedaccounts     bool
+	backup_proxy        *int64
+	clearedbackup_proxy bool
+	done                bool
+	oldValue            func(context.Context) (*Proxy, error)
+	predicates          []predicate.Proxy
 }
 
 var _ ent.Mutation = (*ProxyMutation)(nil)
@@ -41812,60 +41239,6 @@ func (m *ProxyMutation) ResetAccounts() {
 	m.removedaccounts = nil
 }
 
-// AddBoundAccountIDs adds the "bound_accounts" edge to the Account entity by ids.
-func (m *ProxyMutation) AddBoundAccountIDs(ids ...int64) {
-	if m.bound_accounts == nil {
-		m.bound_accounts = make(map[int64]struct{})
-	}
-	for i := range ids {
-		m.bound_accounts[ids[i]] = struct{}{}
-	}
-}
-
-// ClearBoundAccounts clears the "bound_accounts" edge to the Account entity.
-func (m *ProxyMutation) ClearBoundAccounts() {
-	m.clearedbound_accounts = true
-}
-
-// BoundAccountsCleared reports if the "bound_accounts" edge to the Account entity was cleared.
-func (m *ProxyMutation) BoundAccountsCleared() bool {
-	return m.clearedbound_accounts
-}
-
-// RemoveBoundAccountIDs removes the "bound_accounts" edge to the Account entity by IDs.
-func (m *ProxyMutation) RemoveBoundAccountIDs(ids ...int64) {
-	if m.removedbound_accounts == nil {
-		m.removedbound_accounts = make(map[int64]struct{})
-	}
-	for i := range ids {
-		delete(m.bound_accounts, ids[i])
-		m.removedbound_accounts[ids[i]] = struct{}{}
-	}
-}
-
-// RemovedBoundAccounts returns the removed IDs of the "bound_accounts" edge to the Account entity.
-func (m *ProxyMutation) RemovedBoundAccountsIDs() (ids []int64) {
-	for id := range m.removedbound_accounts {
-		ids = append(ids, id)
-	}
-	return
-}
-
-// BoundAccountsIDs returns the "bound_accounts" edge IDs in the mutation.
-func (m *ProxyMutation) BoundAccountsIDs() (ids []int64) {
-	for id := range m.bound_accounts {
-		ids = append(ids, id)
-	}
-	return
-}
-
-// ResetBoundAccounts resets all changes to the "bound_accounts" edge.
-func (m *ProxyMutation) ResetBoundAccounts() {
-	m.bound_accounts = nil
-	m.clearedbound_accounts = false
-	m.removedbound_accounts = nil
-}
-
 // ClearBackupProxy clears the "backup_proxy" edge to the Proxy entity.
 func (m *ProxyMutation) ClearBackupProxy() {
 	m.clearedbackup_proxy = true
@@ -42307,12 +41680,9 @@ func (m *ProxyMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *ProxyMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 2)
 	if m.accounts != nil {
 		edges = append(edges, proxy.EdgeAccounts)
-	}
-	if m.bound_accounts != nil {
-		edges = append(edges, proxy.EdgeBoundAccounts)
 	}
 	if m.backup_proxy != nil {
 		edges = append(edges, proxy.EdgeBackupProxy)
@@ -42330,12 +41700,6 @@ func (m *ProxyMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
-	case proxy.EdgeBoundAccounts:
-		ids := make([]ent.Value, 0, len(m.bound_accounts))
-		for id := range m.bound_accounts {
-			ids = append(ids, id)
-		}
-		return ids
 	case proxy.EdgeBackupProxy:
 		if id := m.backup_proxy; id != nil {
 			return []ent.Value{*id}
@@ -42346,12 +41710,9 @@ func (m *ProxyMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *ProxyMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 2)
 	if m.removedaccounts != nil {
 		edges = append(edges, proxy.EdgeAccounts)
-	}
-	if m.removedbound_accounts != nil {
-		edges = append(edges, proxy.EdgeBoundAccounts)
 	}
 	return edges
 }
@@ -42366,24 +41727,15 @@ func (m *ProxyMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
-	case proxy.EdgeBoundAccounts:
-		ids := make([]ent.Value, 0, len(m.removedbound_accounts))
-		for id := range m.removedbound_accounts {
-			ids = append(ids, id)
-		}
-		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *ProxyMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 2)
 	if m.clearedaccounts {
 		edges = append(edges, proxy.EdgeAccounts)
-	}
-	if m.clearedbound_accounts {
-		edges = append(edges, proxy.EdgeBoundAccounts)
 	}
 	if m.clearedbackup_proxy {
 		edges = append(edges, proxy.EdgeBackupProxy)
@@ -42397,8 +41749,6 @@ func (m *ProxyMutation) EdgeCleared(name string) bool {
 	switch name {
 	case proxy.EdgeAccounts:
 		return m.clearedaccounts
-	case proxy.EdgeBoundAccounts:
-		return m.clearedbound_accounts
 	case proxy.EdgeBackupProxy:
 		return m.clearedbackup_proxy
 	}
@@ -42422,9 +41772,6 @@ func (m *ProxyMutation) ResetEdge(name string) error {
 	switch name {
 	case proxy.EdgeAccounts:
 		m.ResetAccounts()
-		return nil
-	case proxy.EdgeBoundAccounts:
-		m.ResetBoundAccounts()
 		return nil
 	case proxy.EdgeBackupProxy:
 		m.ResetBackupProxy()

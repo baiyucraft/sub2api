@@ -135,19 +135,14 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		return err
 	}
 
-	if classifyUpstreamTransportError(err).Persistent && !accountHasConfiguredProxy(account) {
+	if classifyUpstreamTransportError(err).Persistent {
 		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
 	}
 
-	failover := &UpstreamFailoverError{
+	return &UpstreamFailoverError{
 		StatusCode:   http.StatusBadGateway,
 		ResponseBody: openAITransportFailoverBody,
-		RouteFailure: account != nil && account.Proxy != nil && !account.IsUpstreamBound(),
 	}
-	if failover.RouteFailure {
-		failover.RouteKey = AccountProxyConcurrencyTarget(account, account.Proxy.ID).Key()
-	}
-	return failover
 }
 
 // tempUnscheduleOpenAITransportError marks an account temporarily unschedulable

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -26,19 +25,17 @@ import (
 const (
 	// 并发槽位键前缀（有序集合）
 	// 格式: concurrency:account:{accountID}
-	accountSlotKeyPrefix      = "concurrency:account:"
-	accountProxySlotKeyPrefix = "concurrency:account_proxy:"
+	accountSlotKeyPrefix = "concurrency:account:"
 	// Upstream targets share one slot pool across all derived accounts/keys.
 	upstreamSlotKeyPrefix = "concurrency:upstream:"
 	// 格式: concurrency:user:{userID}
 	userSlotKeyPrefix = "concurrency:user:"
 	// 格式: concurrency:api_key:{apiKeyID}
-	apiKeySlotKeyPrefix           = "concurrency:api_key:"
-	liveAccountSlotKeyPrefix      = "concurrency:live:account:"
-	liveAccountProxySlotKeyPrefix = "concurrency:live:account_proxy:"
-	liveUpstreamSlotKeyPrefix     = "concurrency:live:upstream:"
-	liveUserSlotKeyPrefix         = "concurrency:live:user:"
-	liveAPIKeySlotKeyPrefix       = "concurrency:live:api_key:"
+	apiKeySlotKeyPrefix       = "concurrency:api_key:"
+	liveAccountSlotKeyPrefix  = "concurrency:live:account:"
+	liveUpstreamSlotKeyPrefix = "concurrency:live:upstream:"
+	liveUserSlotKeyPrefix     = "concurrency:live:user:"
+	liveAPIKeySlotKeyPrefix   = "concurrency:live:api_key:"
 	// API-key-scoped client WebSocket ingress leases use a shorter TTL than
 	// ordinary request slots, because idle ingress sessions do not hold a turn slot.
 	openAIWSIngressLeaseKeyPrefix  = "concurrency:openai_ws_ingress:api_key:"
@@ -47,19 +44,17 @@ const (
 	// 等待队列计数器格式: concurrency:wait:{userID}
 	waitQueueKeyPrefix = "concurrency:wait:"
 	// 账号级等待队列计数器格式: wait:account:{accountID}
-	accountWaitKeyPrefix      = "wait:account:"
-	accountProxyWaitKeyPrefix = "wait:account_proxy:"
-	upstreamWaitKeyPrefix     = "wait:upstream:"
+	accountWaitKeyPrefix  = "wait:account:"
+	upstreamWaitKeyPrefix = "wait:upstream:"
 
 	// 默认槽位过期时间（分钟），可通过配置覆盖
 	defaultSlotTTLMinutes = 15
 
 	// 活跃索引用来替代后台任务全量 SCAN 槽位键。
 	// member 是账号/用户 ID，score 是“预计仍需关注到”的 Redis Unix 秒时间戳。
-	accountActiveIndexKey      = "concurrency:account:active_index" // ZSET member=accountID, score=expireAtUnixSeconds
-	accountProxyActiveIndexKey = "concurrency:account_proxy:active_index"
-	upstreamActiveIndexKey     = "concurrency:upstream:active_index" // ZSET member=upstreamConfigID, score=expireAtUnixSeconds
-	userActiveIndexKey         = "concurrency:user:active_index"     // ZSET member=userID, score=expireAtUnixSeconds
+	accountActiveIndexKey  = "concurrency:account:active_index"  // ZSET member=accountID, score=expireAtUnixSeconds
+	upstreamActiveIndexKey = "concurrency:upstream:active_index" // ZSET member=upstreamConfigID, score=expireAtUnixSeconds
+	userActiveIndexKey     = "concurrency:user:active_index"     // ZSET member=userID, score=expireAtUnixSeconds
 
 	// 后台清理只按批处理索引候选，避免单次任务占用 Redis 太久。
 	activeIndexCleanupBatchSize  = 1000
@@ -392,10 +387,6 @@ func accountSlotKey(accountID int64) string {
 	return fmt.Sprintf("%s%d", accountSlotKeyPrefix, accountID)
 }
 
-func accountProxySlotKey(accountID, proxyID int64) string {
-	return fmt.Sprintf("%s%d:%d", accountProxySlotKeyPrefix, accountID, proxyID)
-}
-
 func upstreamSlotKey(upstreamConfigID int64) string {
 	return fmt.Sprintf("%s%d", upstreamSlotKeyPrefix, upstreamConfigID)
 }
@@ -410,10 +401,6 @@ func apiKeySlotKey(apiKeyID int64) string {
 
 func liveAccountSlotKey(accountID int64) string {
 	return fmt.Sprintf("%s%d", liveAccountSlotKeyPrefix, accountID)
-}
-
-func liveAccountProxySlotKey(accountID, proxyID int64) string {
-	return fmt.Sprintf("%s%d:%d", liveAccountProxySlotKeyPrefix, accountID, proxyID)
 }
 
 func liveUpstreamSlotKey(upstreamConfigID int64) string {
@@ -440,21 +427,11 @@ func accountWaitKey(accountID int64) string {
 	return fmt.Sprintf("%s%d", accountWaitKeyPrefix, accountID)
 }
 
-func accountProxyWaitKey(accountID, proxyID int64) string {
-	return fmt.Sprintf("%s%d:%d", accountProxyWaitKeyPrefix, accountID, proxyID)
-}
-
 func upstreamWaitKey(upstreamConfigID int64) string {
 	return fmt.Sprintf("%s%d", upstreamWaitKeyPrefix, upstreamConfigID)
 }
 
 func targetKeys(target service.ConcurrencyTarget) (slotKey, liveKey, waitKey, indexKey string, id int64) {
-	if target.Kind == service.ConcurrencyTargetAccountProxy && target.ID > 0 && target.ProxyID > 0 {
-		// Composite targets have no legacy integer-only active-index member. The
-		// sorted sets are TTL-cleaned on access; leave index maintenance disabled
-		// for this target kind to avoid colliding with account IDs.
-		return accountProxySlotKey(target.ID, target.ProxyID), liveAccountProxySlotKey(target.ID, target.ProxyID), accountProxyWaitKey(target.ID, target.ProxyID), "", target.ID
-	}
 	if target.Kind == service.ConcurrencyTargetUpstream && target.ID > 0 {
 		return upstreamSlotKey(target.ID), liveUpstreamSlotKey(target.ID), upstreamWaitKey(target.ID), upstreamActiveIndexKey, target.ID
 	}
@@ -488,7 +465,7 @@ var (
 // score 为给定的绝对过期时间（Redis Unix 秒）。索引失败不影响并发槽位/等待队列本身，
 // 后续释放或清理会再次校正，因此只记日志不上抛。
 func (c *concurrencyCache) touchActiveIndexAt(ctx context.Context, indexKey string, id int64, expireAt int64) {
-	if c == nil || c.rdb == nil || indexKey == "" || id <= 0 || expireAt <= 0 {
+	if c == nil || c.rdb == nil || id <= 0 || expireAt <= 0 {
 		return
 	}
 	if err := c.rdb.ZAdd(ctx, indexKey, redis.Z{
@@ -505,22 +482,7 @@ func (c *concurrencyCache) refreshAccountActiveIndex(ctx context.Context, accoun
 
 func (c *concurrencyCache) refreshConcurrencyTargetActiveIndex(ctx context.Context, target service.ConcurrencyTarget) {
 	slotKey, _, waitKey, indexKey, id := targetKeys(target)
-	if indexKey == "" {
-		return
-	}
 	c.refreshActiveIndex(ctx, indexKey, id, slotKey, waitKey)
-}
-
-func (c *concurrencyCache) expireCompositeTargetKeys(ctx context.Context, target service.ConcurrencyTarget) {
-	if target.Kind != service.ConcurrencyTargetAccountProxy || target.ID <= 0 || target.ProxyID <= 0 {
-		return
-	}
-	slotKey, liveKey, waitKey, _, _ := targetKeys(target)
-	pipe := c.rdb.Pipeline()
-	pipe.Expire(ctx, slotKey, time.Duration(c.slotTTLSeconds*2)*time.Second)
-	pipe.Expire(ctx, liveKey, time.Duration(liveLeaseTTLSeconds*2)*time.Second)
-	pipe.Expire(ctx, waitKey, time.Duration(c.waitQueueTTLSeconds*2)*time.Second)
-	_, _ = pipe.Exec(ctx)
 }
 
 func (c *concurrencyCache) refreshUserActiveIndex(ctx context.Context, userID int64) {
@@ -719,7 +681,6 @@ func (c *concurrencyCache) AcquireConcurrencyTargetSlot(ctx context.Context, tar
 		if _, err := trackSlotScript.Run(ctx, c.rdb, []string{slotKey}, c.slotTTLSeconds, requestID).Result(); err != nil {
 			return false, err
 		}
-		c.expireCompositeTargetKeys(ctx, target)
 		now, err := c.redisUnixSeconds(ctx)
 		if err == nil {
 			c.touchActiveIndexAt(ctx, indexKey, id, now+int64(c.slotTTLSeconds))
@@ -731,7 +692,6 @@ func (c *concurrencyCache) AcquireConcurrencyTargetSlot(ctx context.Context, tar
 		return false, err
 	}
 	if result == 1 {
-		c.expireCompositeTargetKeys(ctx, target)
 		c.touchActiveIndexAt(ctx, indexKey, id, now+int64(c.slotTTLSeconds))
 	}
 	return result == 1, nil
@@ -1110,7 +1070,6 @@ func (c *concurrencyCache) IncrementConcurrencyTargetWaitCount(ctx context.Conte
 		return false, err
 	}
 	if result == 1 {
-		c.expireCompositeTargetKeys(ctx, target)
 		c.touchActiveIndexAt(ctx, indexKey, id, now+int64(c.waitQueueTTLSeconds))
 	}
 	return result == 1, nil
@@ -1159,15 +1118,12 @@ func (c *concurrencyCache) GetAccountsLoadBatch(ctx context.Context, accounts []
 	cmds := make(map[string]targetCmds, len(accounts))
 	accountTargets := make(map[int64]string, len(accounts))
 	for _, acc := range accounts {
-		target := service.ConcurrencyTarget{Kind: acc.TargetKind, ID: acc.TargetID, ProxyID: acc.ProxyID, Limit: acc.MaxConcurrency}
+		target := service.ConcurrencyTarget{Kind: acc.TargetKind, ID: acc.TargetID, Limit: acc.MaxConcurrency}
 		if target.Kind != service.ConcurrencyTargetUpstream || target.ID <= 0 {
-			if target.Kind != service.ConcurrencyTargetAccountProxy || target.ID <= 0 || target.ProxyID <= 0 {
-				target.Kind = service.ConcurrencyTargetAccount
-				target.ID = acc.ID
-				target.ProxyID = 0
-			}
+			target.Kind = service.ConcurrencyTargetAccount
+			target.ID = acc.ID
 		}
-		targetKey := target.Key()
+		targetKey := target.Kind + ":" + strconv.FormatInt(target.ID, 10)
 		accountTargets[acc.ID] = targetKey
 		if _, exists := cmds[targetKey]; exists {
 			continue
@@ -1203,7 +1159,6 @@ func (c *concurrencyCache) GetAccountsLoadBatch(ctx context.Context, accounts []
 			CurrentConcurrency: currentConcurrency,
 			WaitingCount:       waitingCount,
 			LoadRate:           loadRate,
-			TargetKey:          targetKey,
 		}
 	}
 
@@ -1215,70 +1170,10 @@ func (c *concurrencyCache) GetAccountsLoadBatch(ctx context.Context, accounts []
 		}
 		copy := *load
 		copy.AccountID = acc.ID
-		copy.ProxyID = acc.ProxyID
 		loadMap[acc.ID] = &copy
 	}
 
 	return loadMap, nil
-}
-
-func (c *concurrencyCache) GetConcurrencyTargetsLoadBatch(ctx context.Context, targets []service.ConcurrencyTarget) (map[string]*service.AccountLoadInfo, error) {
-	if len(targets) == 0 {
-		return map[string]*service.AccountLoadInfo{}, nil
-	}
-	now, err := c.rdb.Time(ctx).Result()
-	if err != nil {
-		return nil, fmt.Errorf("redis TIME: %w", err)
-	}
-	cutoffTime := now.Unix() - int64(c.slotTTLSeconds)
-	pipe := c.rdb.Pipeline()
-	type targetCmds struct {
-		target   service.ConcurrencyTarget
-		zcardCmd *redis.IntCmd
-		liveCmd  *redis.IntCmd
-		getCmd   *redis.StringCmd
-	}
-	cmds := make(map[string]targetCmds, len(targets))
-	for _, raw := range targets {
-		target := raw
-		key := target.Key()
-		if _, exists := cmds[key]; exists {
-			continue
-		}
-		slotKey, liveKey, waitKey, _, _ := targetKeys(target)
-		pipe.ZRemRangeByScore(ctx, slotKey, "-inf", strconv.FormatInt(cutoffTime, 10))
-		pipe.ZRemRangeByScore(ctx, liveKey, "-inf", strconv.FormatInt(now.Unix()-liveLeaseTTLSeconds, 10))
-		cmds[key] = targetCmds{
-			target:   target,
-			zcardCmd: pipe.ZCard(ctx, slotKey),
-			liveCmd:  pipe.ZCard(ctx, liveKey),
-			getCmd:   pipe.Get(ctx, waitKey),
-		}
-	}
-	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("pipeline exec: %w", err)
-	}
-	loads := make(map[string]*service.AccountLoadInfo, len(cmds))
-	for key, cmd := range cmds {
-		current := int(cmd.zcardCmd.Val() + cmd.liveCmd.Val())
-		waiting := 0
-		if value, err := cmd.getCmd.Int(); err == nil {
-			waiting = value
-		}
-		loadRate := 0
-		if cmd.target.Limit > 0 {
-			loadRate = (current + waiting) * 100 / cmd.target.Limit
-		}
-		loads[key] = &service.AccountLoadInfo{
-			AccountID:          cmd.target.ID,
-			ProxyID:            cmd.target.ProxyID,
-			TargetKey:          key,
-			CurrentConcurrency: current,
-			WaitingCount:       waiting,
-			LoadRate:           loadRate,
-		}
-	}
-	return loads, nil
 }
 
 func (c *concurrencyCache) GetUsersLoadBatch(ctx context.Context, users []service.UserWithConcurrency) (map[int64]*service.UserLoadInfo, error) {

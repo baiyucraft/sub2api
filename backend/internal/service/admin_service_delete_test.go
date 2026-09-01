@@ -334,7 +334,6 @@ type proxyRepoStub struct {
 	countErr     error
 	accountCount int64
 	deletedIDs   []int64
-	proxies      []Proxy
 }
 
 func (s *proxyRepoStub) Create(ctx context.Context, proxy *Proxy) error {
@@ -346,17 +345,7 @@ func (s *proxyRepoStub) GetByID(ctx context.Context, id int64) (*Proxy, error) {
 }
 
 func (s *proxyRepoStub) ListByIDs(ctx context.Context, ids []int64) ([]Proxy, error) {
-	wanted := make(map[int64]struct{}, len(ids))
-	for _, id := range ids {
-		wanted[id] = struct{}{}
-	}
-	out := make([]Proxy, 0, len(ids))
-	for _, proxy := range s.proxies {
-		if _, ok := wanted[proxy.ID]; ok {
-			out = append(out, proxy)
-		}
-	}
-	return out, nil
+	panic("unexpected ListByIDs call")
 }
 
 func (s *proxyRepoStub) Update(ctx context.Context, proxy *Proxy) error {
@@ -732,13 +721,13 @@ func TestAdminService_DeleteProxy_Idempotent(t *testing.T) {
 	require.Equal(t, []int64{404}, repo.deletedIDs)
 }
 
-func TestAdminService_DeleteProxy_InUseSoftDeletesAndKeepsBindings(t *testing.T) {
+func TestAdminService_DeleteProxy_InUse(t *testing.T) {
 	repo := &proxyRepoStub{accountCount: 2}
 	svc := &adminServiceImpl{proxyRepo: repo}
 
 	err := svc.DeleteProxy(context.Background(), 77)
-	require.NoError(t, err)
-	require.Equal(t, []int64{77}, repo.deletedIDs)
+	require.ErrorIs(t, err, ErrProxyInUse)
+	require.Empty(t, repo.deletedIDs)
 }
 
 func TestAdminService_DeleteProxy_Error(t *testing.T) {

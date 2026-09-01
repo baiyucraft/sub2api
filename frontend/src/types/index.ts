@@ -1227,26 +1227,6 @@ export interface Account {
     }
   } & Record<string, unknown>)
   proxy_id: number | null
-  /** Ordered proxy bindings; proxy_id/proxy remain the first binding for compatibility. */
-  proxy_ids?: number[]
-  proxies?: Proxy[]
-  proxy_capacity?: Array<{
-    proxy_id: number
-    proxy?: Proxy
-    current_concurrency?: number
-    waiting?: number
-    limit?: number | null
-    available?: boolean
-  }>
-  proxy_capacities?: Array<{
-    proxy_id: number
-    proxy?: Proxy
-    name?: string
-    current_concurrency?: number
-    waiting?: number
-    limit?: number | null
-    available?: boolean
-  }>
   upstream_config_id?: number | null
   upstream_key_id?: number | null
   upstream_site_url?: string | null
@@ -1675,7 +1655,6 @@ export interface CreateAccountRequest {
   upstream_config_id?: number | null
   upstream_key_id?: number | null
   proxy_id?: number | null
-  proxy_ids?: number[]
   concurrency?: number
   load_factor?: number | null
   priority?: number
@@ -1696,7 +1675,6 @@ export interface UpdateAccountRequest {
   upstream_config_id?: number | null
   upstream_key_id?: number | null
   proxy_id?: number | null
-  proxy_ids?: number[]
   concurrency?: number
   load_factor?: number | null
   priority?: number
@@ -1788,7 +1766,6 @@ export interface AdminDataAccount {
   credentials: Record<string, unknown>
   extra?: Record<string, unknown>
   proxy_key?: string | null
-  proxy_keys?: string[]
   concurrency: number
   priority: number
   rate_multiplier?: number | null
@@ -1819,7 +1796,6 @@ export interface CodexSessionImportRequest {
   notes?: string | null
   group_ids?: number[]
   proxy_id?: number | null
-  proxy_ids?: number[]
   concurrency?: number
   priority?: number
   rate_multiplier?: number
@@ -1839,7 +1815,6 @@ export interface OpenAICodexPATCreateRequest {
   notes?: string | null
   group_ids?: number[]
   proxy_id?: number | null
-  proxy_ids?: number[]
   concurrency?: number
   priority?: number
   rate_multiplier?: number

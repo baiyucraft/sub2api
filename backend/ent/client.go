@@ -17,7 +17,6 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
-	"github.com/Wei-Shaw/sub2api/ent/accountproxybinding"
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
@@ -81,8 +80,6 @@ type Client struct {
 	Account *AccountClient
 	// AccountGroup is the client for interacting with the AccountGroup builders.
 	AccountGroup *AccountGroupClient
-	// AccountProxyBinding is the client for interacting with the AccountProxyBinding builders.
-	AccountProxyBinding *AccountProxyBindingClient
 	// Announcement is the client for interacting with the Announcement builders.
 	Announcement *AnnouncementClient
 	// AnnouncementRead is the client for interacting with the AnnouncementRead builders.
@@ -191,7 +188,6 @@ func (c *Client) init() {
 	c.APIKey = NewAPIKeyClient(c.config)
 	c.Account = NewAccountClient(c.config)
 	c.AccountGroup = NewAccountGroupClient(c.config)
-	c.AccountProxyBinding = NewAccountProxyBindingClient(c.config)
 	c.Announcement = NewAnnouncementClient(c.config)
 	c.AnnouncementRead = NewAnnouncementReadClient(c.config)
 	c.AuthIdentity = NewAuthIdentityClient(c.config)
@@ -334,7 +330,6 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		APIKey:                        NewAPIKeyClient(cfg),
 		Account:                       NewAccountClient(cfg),
 		AccountGroup:                  NewAccountGroupClient(cfg),
-		AccountProxyBinding:           NewAccountProxyBindingClient(cfg),
 		Announcement:                  NewAnnouncementClient(cfg),
 		AnnouncementRead:              NewAnnouncementReadClient(cfg),
 		AuthIdentity:                  NewAuthIdentityClient(cfg),
@@ -404,7 +399,6 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		APIKey:                        NewAPIKeyClient(cfg),
 		Account:                       NewAccountClient(cfg),
 		AccountGroup:                  NewAccountGroupClient(cfg),
-		AccountProxyBinding:           NewAccountProxyBindingClient(cfg),
 		Announcement:                  NewAnnouncementClient(cfg),
 		AnnouncementRead:              NewAnnouncementReadClient(cfg),
 		AuthIdentity:                  NewAuthIdentityClient(cfg),
@@ -481,19 +475,19 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.APIKey, c.Account, c.AccountGroup, c.AccountProxyBinding, c.Announcement,
-		c.AnnouncementRead, c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent,
-		c.BatchImageItem, c.BatchImageJob, c.ChannelMonitor,
-		c.ChannelMonitorDailyRollup, c.ChannelMonitorHistory,
-		c.ChannelMonitorRequestTemplate, c.CompositeModelRoute, c.ErrorPassthroughRule,
-		c.Group, c.GroupRateSnapshot, c.IdempotencyRecord, c.IdentityAdoptionDecision,
-		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
-		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.RedeemCode,
-		c.SecuritySecret, c.Setting, c.SubscriptionPlan, c.TLSFingerprintProfile,
-		c.UpstreamAuthSession, c.UpstreamBalanceSnapshot, c.UpstreamConfig,
-		c.UpstreamEvent, c.UpstreamHealthObservation, c.UpstreamIncident,
-		c.UpstreamKey, c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult,
-		c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
+		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
+		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
+		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
+		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
+		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.GroupRateSnapshot,
+		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.PaymentAuditLog,
+		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
+		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
+		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UpstreamAuthSession,
+		c.UpstreamBalanceSnapshot, c.UpstreamConfig, c.UpstreamEvent,
+		c.UpstreamHealthObservation, c.UpstreamIncident, c.UpstreamKey,
+		c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult, c.UpstreamSyncRun,
+		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
 		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
 		c.UserSubscription,
 	} {
@@ -505,19 +499,19 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.APIKey, c.Account, c.AccountGroup, c.AccountProxyBinding, c.Announcement,
-		c.AnnouncementRead, c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent,
-		c.BatchImageItem, c.BatchImageJob, c.ChannelMonitor,
-		c.ChannelMonitorDailyRollup, c.ChannelMonitorHistory,
-		c.ChannelMonitorRequestTemplate, c.CompositeModelRoute, c.ErrorPassthroughRule,
-		c.Group, c.GroupRateSnapshot, c.IdempotencyRecord, c.IdentityAdoptionDecision,
-		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
-		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.RedeemCode,
-		c.SecuritySecret, c.Setting, c.SubscriptionPlan, c.TLSFingerprintProfile,
-		c.UpstreamAuthSession, c.UpstreamBalanceSnapshot, c.UpstreamConfig,
-		c.UpstreamEvent, c.UpstreamHealthObservation, c.UpstreamIncident,
-		c.UpstreamKey, c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult,
-		c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
+		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
+		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
+		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
+		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
+		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.GroupRateSnapshot,
+		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.PaymentAuditLog,
+		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
+		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
+		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UpstreamAuthSession,
+		c.UpstreamBalanceSnapshot, c.UpstreamConfig, c.UpstreamEvent,
+		c.UpstreamHealthObservation, c.UpstreamIncident, c.UpstreamKey,
+		c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult, c.UpstreamSyncRun,
+		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
 		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
 		c.UserSubscription,
 	} {
@@ -534,8 +528,6 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Account.mutate(ctx, m)
 	case *AccountGroupMutation:
 		return c.AccountGroup.mutate(ctx, m)
-	case *AccountProxyBindingMutation:
-		return c.AccountProxyBinding.mutate(ctx, m)
 	case *AnnouncementMutation:
 		return c.Announcement.mutate(ctx, m)
 	case *AnnouncementReadMutation:
@@ -974,22 +966,6 @@ func (c *AccountClient) QueryProxy(_m *Account) *ProxyQuery {
 	return query
 }
 
-// QueryProxies queries the proxies edge of a Account.
-func (c *AccountClient) QueryProxies(_m *Account) *ProxyQuery {
-	query := (&ProxyClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := _m.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(account.Table, account.FieldID, id),
-			sqlgraph.To(proxy.Table, proxy.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, false, account.ProxiesTable, account.ProxiesPrimaryKey...),
-		)
-		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
 // QueryUpstreamConfig queries the upstream_config edge of a Account.
 func (c *AccountClient) QueryUpstreamConfig(_m *Account) *UpstreamConfigQuery {
 	query := (&UpstreamConfigClient{config: c.config}).Query()
@@ -1095,22 +1071,6 @@ func (c *AccountClient) QueryAccountGroups(_m *Account) *AccountGroupQuery {
 			sqlgraph.From(account.Table, account.FieldID, id),
 			sqlgraph.To(accountgroup.Table, accountgroup.AccountColumn),
 			sqlgraph.Edge(sqlgraph.O2M, true, account.AccountGroupsTable, account.AccountGroupsColumn),
-		)
-		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
-// QueryProxyBindings queries the proxy_bindings edge of a Account.
-func (c *AccountClient) QueryProxyBindings(_m *Account) *AccountProxyBindingQuery {
-	query := (&AccountProxyBindingClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := _m.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(account.Table, account.FieldID, id),
-			sqlgraph.To(accountproxybinding.Table, accountproxybinding.AccountColumn),
-			sqlgraph.Edge(sqlgraph.O2M, true, account.ProxyBindingsTable, account.ProxyBindingsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -1258,122 +1218,6 @@ func (c *AccountGroupClient) mutate(ctx context.Context, m *AccountGroupMutation
 		return (&AccountGroupDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown AccountGroup mutation op: %q", m.Op())
-	}
-}
-
-// AccountProxyBindingClient is a client for the AccountProxyBinding schema.
-type AccountProxyBindingClient struct {
-	config
-}
-
-// NewAccountProxyBindingClient returns a client for the AccountProxyBinding from the given config.
-func NewAccountProxyBindingClient(c config) *AccountProxyBindingClient {
-	return &AccountProxyBindingClient{config: c}
-}
-
-// Use adds a list of mutation hooks to the hooks stack.
-// A call to `Use(f, g, h)` equals to `accountproxybinding.Hooks(f(g(h())))`.
-func (c *AccountProxyBindingClient) Use(hooks ...Hook) {
-	c.hooks.AccountProxyBinding = append(c.hooks.AccountProxyBinding, hooks...)
-}
-
-// Intercept adds a list of query interceptors to the interceptors stack.
-// A call to `Intercept(f, g, h)` equals to `accountproxybinding.Intercept(f(g(h())))`.
-func (c *AccountProxyBindingClient) Intercept(interceptors ...Interceptor) {
-	c.inters.AccountProxyBinding = append(c.inters.AccountProxyBinding, interceptors...)
-}
-
-// Create returns a builder for creating a AccountProxyBinding entity.
-func (c *AccountProxyBindingClient) Create() *AccountProxyBindingCreate {
-	mutation := newAccountProxyBindingMutation(c.config, OpCreate)
-	return &AccountProxyBindingCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// CreateBulk returns a builder for creating a bulk of AccountProxyBinding entities.
-func (c *AccountProxyBindingClient) CreateBulk(builders ...*AccountProxyBindingCreate) *AccountProxyBindingCreateBulk {
-	return &AccountProxyBindingCreateBulk{config: c.config, builders: builders}
-}
-
-// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
-// a builder and applies setFunc on it.
-func (c *AccountProxyBindingClient) MapCreateBulk(slice any, setFunc func(*AccountProxyBindingCreate, int)) *AccountProxyBindingCreateBulk {
-	rv := reflect.ValueOf(slice)
-	if rv.Kind() != reflect.Slice {
-		return &AccountProxyBindingCreateBulk{err: fmt.Errorf("calling to AccountProxyBindingClient.MapCreateBulk with wrong type %T, need slice", slice)}
-	}
-	builders := make([]*AccountProxyBindingCreate, rv.Len())
-	for i := 0; i < rv.Len(); i++ {
-		builders[i] = c.Create()
-		setFunc(builders[i], i)
-	}
-	return &AccountProxyBindingCreateBulk{config: c.config, builders: builders}
-}
-
-// Update returns an update builder for AccountProxyBinding.
-func (c *AccountProxyBindingClient) Update() *AccountProxyBindingUpdate {
-	mutation := newAccountProxyBindingMutation(c.config, OpUpdate)
-	return &AccountProxyBindingUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOne returns an update builder for the given entity.
-func (c *AccountProxyBindingClient) UpdateOne(_m *AccountProxyBinding) *AccountProxyBindingUpdateOne {
-	mutation := newAccountProxyBindingMutation(c.config, OpUpdateOne)
-	mutation.account = &_m.AccountID
-	mutation.proxy = &_m.ProxyID
-	return &AccountProxyBindingUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// Delete returns a delete builder for AccountProxyBinding.
-func (c *AccountProxyBindingClient) Delete() *AccountProxyBindingDelete {
-	mutation := newAccountProxyBindingMutation(c.config, OpDelete)
-	return &AccountProxyBindingDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// Query returns a query builder for AccountProxyBinding.
-func (c *AccountProxyBindingClient) Query() *AccountProxyBindingQuery {
-	return &AccountProxyBindingQuery{
-		config: c.config,
-		ctx:    &QueryContext{Type: TypeAccountProxyBinding},
-		inters: c.Interceptors(),
-	}
-}
-
-// QueryAccount queries the account edge of a AccountProxyBinding.
-func (c *AccountProxyBindingClient) QueryAccount(_m *AccountProxyBinding) *AccountQuery {
-	return c.Query().
-		Where(accountproxybinding.AccountID(_m.AccountID), accountproxybinding.ProxyID(_m.ProxyID)).
-		QueryAccount()
-}
-
-// QueryProxy queries the proxy edge of a AccountProxyBinding.
-func (c *AccountProxyBindingClient) QueryProxy(_m *AccountProxyBinding) *ProxyQuery {
-	return c.Query().
-		Where(accountproxybinding.AccountID(_m.AccountID), accountproxybinding.ProxyID(_m.ProxyID)).
-		QueryProxy()
-}
-
-// Hooks returns the client hooks.
-func (c *AccountProxyBindingClient) Hooks() []Hook {
-	return c.hooks.AccountProxyBinding
-}
-
-// Interceptors returns the client interceptors.
-func (c *AccountProxyBindingClient) Interceptors() []Interceptor {
-	return c.inters.AccountProxyBinding
-}
-
-func (c *AccountProxyBindingClient) mutate(ctx context.Context, m *AccountProxyBindingMutation) (Value, error) {
-	switch m.Op() {
-	case OpCreate:
-		return (&AccountProxyBindingCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdate:
-		return (&AccountProxyBindingUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdateOne:
-		return (&AccountProxyBindingUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpDelete, OpDeleteOne:
-		return (&AccountProxyBindingDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
-	default:
-		return nil, fmt.Errorf("ent: unknown AccountProxyBinding mutation op: %q", m.Op())
 	}
 }
 
@@ -5124,22 +4968,6 @@ func (c *ProxyClient) QueryAccounts(_m *Proxy) *AccountQuery {
 	return query
 }
 
-// QueryBoundAccounts queries the bound_accounts edge of a Proxy.
-func (c *ProxyClient) QueryBoundAccounts(_m *Proxy) *AccountQuery {
-	query := (&AccountClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := _m.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(proxy.Table, proxy.FieldID, id),
-			sqlgraph.To(account.Table, account.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, true, proxy.BoundAccountsTable, proxy.BoundAccountsPrimaryKey...),
-		)
-		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
 // QueryBackupProxy queries the backup_proxy edge of a Proxy.
 func (c *ProxyClient) QueryBackupProxy(_m *Proxy) *ProxyQuery {
 	query := (&ProxyClient{config: c.config}).Query()
@@ -5149,22 +4977,6 @@ func (c *ProxyClient) QueryBackupProxy(_m *Proxy) *ProxyQuery {
 			sqlgraph.From(proxy.Table, proxy.FieldID, id),
 			sqlgraph.To(proxy.Table, proxy.FieldID),
 			sqlgraph.Edge(sqlgraph.O2O, false, proxy.BackupProxyTable, proxy.BackupProxyColumn),
-		)
-		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
-// QueryAccountBindings queries the account_bindings edge of a Proxy.
-func (c *ProxyClient) QueryAccountBindings(_m *Proxy) *AccountProxyBindingQuery {
-	query := (&AccountProxyBindingClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := _m.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(proxy.Table, proxy.FieldID, id),
-			sqlgraph.To(accountproxybinding.Table, accountproxybinding.ProxyColumn),
-			sqlgraph.Edge(sqlgraph.O2M, true, proxy.AccountBindingsTable, proxy.AccountBindingsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -9328,30 +9140,30 @@ func (c *UserSubscriptionClient) mutate(ctx context.Context, m *UserSubscription
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		APIKey, Account, AccountGroup, AccountProxyBinding, Announcement,
-		AnnouncementRead, AuthIdentity, AuthIdentityChannel, BatchImageEvent,
-		BatchImageItem, BatchImageJob, ChannelMonitor, ChannelMonitorDailyRollup,
-		ChannelMonitorHistory, ChannelMonitorRequestTemplate, CompositeModelRoute,
-		ErrorPassthroughRule, Group, GroupRateSnapshot, IdempotencyRecord,
-		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
-		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
-		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
-		UpstreamAuthSession, UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent,
+		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
+		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
+		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
+		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
+		Group, GroupRateSnapshot, IdempotencyRecord, IdentityAdoptionDecision,
+		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
+		PromoCode, PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting,
+		SubscriptionPlan, TLSFingerprintProfile, UpstreamAuthSession,
+		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent,
 		UpstreamHealthObservation, UpstreamIncident, UpstreamKey,
 		UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask,
 		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
 		UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
-		APIKey, Account, AccountGroup, AccountProxyBinding, Announcement,
-		AnnouncementRead, AuthIdentity, AuthIdentityChannel, BatchImageEvent,
-		BatchImageItem, BatchImageJob, ChannelMonitor, ChannelMonitorDailyRollup,
-		ChannelMonitorHistory, ChannelMonitorRequestTemplate, CompositeModelRoute,
-		ErrorPassthroughRule, Group, GroupRateSnapshot, IdempotencyRecord,
-		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
-		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
-		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
-		UpstreamAuthSession, UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent,
+		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
+		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
+		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
+		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
+		Group, GroupRateSnapshot, IdempotencyRecord, IdentityAdoptionDecision,
+		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
+		PromoCode, PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting,
+		SubscriptionPlan, TLSFingerprintProfile, UpstreamAuthSession,
+		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent,
 		UpstreamHealthObservation, UpstreamIncident, UpstreamKey,
 		UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask,
 		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,

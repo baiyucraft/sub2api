@@ -242,59 +242,6 @@ func TestSub2APIUpstreamRateSync_UsesAccountProxyForUserLoginAndFallback(t *test
 	require.Empty(t, repo.extraUpdates)
 }
 
-func TestSub2APIUpstreamRateSync_RetriesNextAccountProxyOnTransportFailure(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "proxy-good", r.Header.Get("X-Test-Proxy-ID"))
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/api/v1/auth/login":
-			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"jwt-upstream"}}`))
-		case "/api/v1/keys":
-			http.NotFound(w, r)
-		case "/api/v1/api-keys":
-			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":1,"key":"sk-upstream","group_id":10,"group":{"id":10,"platform":"openai","rate_multiplier":0.12}}],"page":1,"page_size":100,"pages":1}}`))
-		case "/api/v1/groups/rates":
-			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer upstream.Close()
-
-	// Reserve and release a local port so the first proxy reliably fails at
-	// connect time, which is the transport-failure boundary for fallback.
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	badAddr := listener.Addr().String()
-	require.NoError(t, listener.Close())
-	badHost, badPortRaw, err := net.SplitHostPort(badAddr)
-	require.NoError(t, err)
-	badPort, err := strconv.Atoi(badPortRaw)
-	require.NoError(t, err)
-
-	goodProxyServer := newSub2APITestHTTPProxy(t, "proxy-good")
-	defer goodProxyServer.Close()
-	goodProxy := proxyFromTestServer(t, 12, goodProxyServer)
-	badProxy := Proxy{ID: 11, Name: "proxy-bad", Protocol: "http", Host: badHost, Port: badPort, Status: StatusActive}
-
-	account := newSub2APIRateSyncAccount(42, upstream.URL+"/v1", "sk-upstream")
-	account.ProxyID = &badProxy.ID
-	account.ProxyIDs = []int64{badProxy.ID, goodProxy.ID}
-	proxyRepo := &sub2APIRateSyncProxyRepo{proxies: map[int64]Proxy{
-		badProxy.ID:  badProxy,
-		goodProxy.ID: goodProxy,
-	}}
-	repo := &sub2APIRateSyncAccountRepo{}
-	svc := NewSub2APIUpstreamRateSyncService(repo, proxyRepo, time.Minute)
-	enableLegacySub2APICompliance(svc)
-
-	err = svc.SyncAccountNow(context.Background(), &account)
-
-	require.NoError(t, err)
-	require.Len(t, repo.bulkUpdates, 1)
-	require.Equal(t, 1, proxyRepo.listCalls)
-}
-
 func TestSub2APIUpstreamRateSync_KeysFallback(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
