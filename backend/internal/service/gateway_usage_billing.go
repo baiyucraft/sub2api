@@ -836,7 +836,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		cost.QuotaMeterCostSet = true
 		if apiKey.Group != nil && apiKey.GroupID != nil && zeroRate {
 			groupText, groupImage := computePeakAwareMultipliers(apiKey, apiKey.Group.RateMultiplier, pricingAt)
-			meter := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, groupText, groupImage, pricingAt, opts)
+			meter := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, groupText, groupImage, pricingAt)
 			if meter != nil {
 				cost.QuotaMeterCost = meter.ActualCost
 				cost.QuotaMeterCostSet = true
