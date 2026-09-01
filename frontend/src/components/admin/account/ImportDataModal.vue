@@ -224,6 +224,11 @@ const codexFingerprintOptions = computed<SelectOption[]>(() => [
   { value: 'full', label: t('admin.accounts.codexFingerprintFull') }
 ])
 
+const optionalNumberInputText = (value: unknown): string => {
+  if (value === null || value === undefined) return ''
+  return String(value).trim()
+}
+
 watch(
   () => props.show,
   (open) => {
@@ -436,16 +441,18 @@ const handleImport = async () => {
       }
     }
     let concurrencyOverride: number | undefined
-    if (overrideConcurrency.value.trim()) {
-      concurrencyOverride = Number(overrideConcurrency.value)
+    const concurrencyText = optionalNumberInputText(overrideConcurrency.value)
+    if (concurrencyText !== '') {
+      concurrencyOverride = Number(concurrencyText)
       if (!Number.isInteger(concurrencyOverride) || concurrencyOverride < 0) {
         appStore.showError(t('admin.accounts.dataImportInvalidConcurrency'))
         return
       }
     }
     let rateOverride: number | undefined
-    if (overrideRateMultiplier.value.trim()) {
-      rateOverride = Number(overrideRateMultiplier.value)
+    const rateText = optionalNumberInputText(overrideRateMultiplier.value)
+    if (rateText !== '') {
+      rateOverride = Number(rateText)
       if (!Number.isFinite(rateOverride) || rateOverride < 0) {
         appStore.showError(t('admin.accounts.dataImportInvalidRateMultiplier'))
         return
