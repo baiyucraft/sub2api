@@ -162,7 +162,7 @@ list_image_candidates() {
     done
     # An image with no RepoTags is a dangling layer. Tagged images must still
     # carry a full-SHA release tag; arbitrary or mutable tags are excluded.
-    [[ $valid == true && ( $has_tag == true || ${#tags[@]} == 0 ) ]] || continue
+    [[ $valid == true ]] || continue
     image_size=$(docker image inspect -f '{{.Size}}' "$image_id")
     [[ $image_size =~ ^[0-9]+$ ]]
     printf '%s\t%s\n' "$image_id" "$image_size" >> "$work_dir/image-candidates"
@@ -188,7 +188,7 @@ remove_image_candidates() {
       has_tag=true
       [[ $tag =~ ^sub2api:.+-[0-9a-f]{40}$ ]] || valid=false
     done
-    [[ $valid == true && ( $has_tag == true || ${#tags[@]} == 0 ) ]]
+    [[ $valid == true ]]
     if [[ $has_tag == true ]]; then
       docker image rm "${tags[@]}" >/dev/null 2>&1
     else
