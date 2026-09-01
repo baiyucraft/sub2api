@@ -130,21 +130,58 @@ class SSHOutputTest(unittest.TestCase):
         self.assertIn("mv -f", script)
         self.assertIn("assembled_size", script)
 
-    def test_large_upload_cleans_parts_when_a_part_fails(self) -> None:
+    def test_large_upload_preserves_parts_when_a_part_fails(self) -> None:
         runner = object.__new__(SSHRunner)
         runner.temp_dirs = {("vm", "/tmp/transfer")}
         runner._require_temp_path = lambda *_args: None
         runner._emit = lambda *_args, **_kwargs: None
-        runner.run = mock.Mock(return_value=SSHResult({"transfer_parts_cleaned": "true"}))
+        runner.run = mock.Mock()
         runner._upload_range = mock.Mock(side_effect=OSError("disconnect"))
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "image.tar.gz"
             path.write_bytes(b"x" * (64 * 1024 * 1024))
             with self.assertRaisesRegex(OSError, "disconnect"):
                 runner._upload_file_parallel("vm", path, "/tmp/transfer/image.tar.gz", 0o400)
-        cleanup_script = runner.run.call_args.args[1]
-        self.assertIn("parallel-part-", cleanup_script)
-        self.assertIn("parallel-assembled", cleanup_script)
+        runner.run.assert_not_called()
+
+    def test_large_download_uses_sixteen_parts_and_atomic_assembly(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.temp_dirs = {("vm", "/tmp/transfer")}
+        runner._require_temp_path = lambda *_args: None
+        downloaded: list[tuple[int, int]] = []
+
+        def download_range(_name, _remote, local, start, end, _file_size):
+            downloaded.append((start, end))
+            local.write_bytes(bytes([len(downloaded)]) * (end - start))
+
+        runner._download_range = download_range
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "image.tar.gz"
+            runner._download_file_parallel("vm", "/tmp/transfer/image.tar.gz", local, 64)
+            self.assertEqual(local.stat().st_size, 64)
+            self.assertEqual(len(downloaded), 16)
+            self.assertEqual(sorted(downloaded)[0][0], 0)
+            self.assertEqual(sorted(downloaded)[-1][1], 64)
+            self.assertFalse(any(local.parent.glob("image.tar.gz.parallel-*")))
+
+    def test_large_download_keeps_checkpoints_after_part_failure(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.temp_dirs = {("vm", "/tmp/transfer")}
+        runner._require_temp_path = lambda *_args: None
+
+        def download_range(_name, _remote, local, start, end, _file_size):
+            if start == 0:
+                local.write_bytes(b"done" * ((end - start) // 4))
+                return
+            raise OSError("disconnect")
+
+        runner._download_range = download_range
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "image.tar.gz"
+            with self.assertRaisesRegex(OSError, "disconnect"):
+                runner._download_file_parallel("vm", "/tmp/transfer/image.tar.gz", local, 64)
+            self.assertTrue((local.parent / "image.tar.gz.parallel-part-00").is_file())
+            self.assertFalse(local.exists())
 
     def test_download_uses_prefetch_and_resumes_local_checkpoint(self) -> None:
         value = b"0123456789"
