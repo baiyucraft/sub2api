@@ -142,7 +142,12 @@ write_protected_images() {
 list_image_candidates() {
   local image_id image_size valid has_tag tag
   write_protected_images | LC_ALL=C sort -u > "$work_dir/protected-images"
-  docker image ls --no-trunc --filter 'reference=sub2api:*' --format '{{.ID}}' | LC_ALL=C sort -u > "$work_dir/sub2api-images"
+  {
+    docker image ls --no-trunc --filter 'reference=sub2api:*' --format '{{.ID}}'
+    # Failed candidate imports may leave untagged layers. They are considered
+    # only after protected-container and release-image checks below.
+    docker image ls --no-trunc --filter dangling=true --format '{{.ID}}'
+  } | LC_ALL=C sort -u > "$work_dir/sub2api-images"
   : > "$work_dir/image-candidates"
   while IFS= read -r image_id; do
     [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || continue
@@ -155,7 +160,9 @@ list_image_candidates() {
       has_tag=true
       [[ $tag =~ ^sub2api:.+-[0-9a-f]{40}$ ]] || valid=false
     done
-    [[ $valid == true && $has_tag == true ]] || continue
+    # An image with no RepoTags is a dangling layer. Tagged images must still
+    # carry a full-SHA release tag; arbitrary or mutable tags are excluded.
+    [[ $valid == true && ( $has_tag == true || ${#tags[@]} == 0 ) ]] || continue
     image_size=$(docker image inspect -f '{{.Size}}' "$image_id")
     [[ $image_size =~ ^[0-9]+$ ]]
     printf '%s\t%s\n' "$image_id" "$image_size" >> "$work_dir/image-candidates"
@@ -181,8 +188,12 @@ remove_image_candidates() {
       has_tag=true
       [[ $tag =~ ^sub2api:.+-[0-9a-f]{40}$ ]] || valid=false
     done
-    [[ $valid == true && $has_tag == true ]]
-    docker image rm "${tags[@]}" >/dev/null 2>&1
+    [[ $valid == true && ( $has_tag == true || ${#tags[@]} == 0 ) ]]
+    if [[ $has_tag == true ]]; then
+      docker image rm "${tags[@]}" >/dev/null 2>&1
+    else
+      docker image rm "$image_id" >/dev/null 2>&1
+    fi
     ! docker image inspect "$image_id" >/dev/null 2>&1
     removed=$((removed + 1))
   done < "$work_dir/apply-image-ids"
