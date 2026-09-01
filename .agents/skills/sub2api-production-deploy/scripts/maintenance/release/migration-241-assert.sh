@@ -4,7 +4,7 @@ set -Eeuo pipefail
 phase=${1:?phase is required}
 migration_status=${MIGRATION_STATUS:-absent}
 source "${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/context.sh}"
-[[ $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 ]] || exit 1
+[[ $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 ]] || exit 1
 [[ $phase == preflight || $phase == postflight ]] || exit 1
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 

@@ -533,7 +533,8 @@ PROFILES["242"] = {
 }
 
 # Profile 242 is retained as an immutable historical release contract.  The
-# current fork VERSION is 0.1.184-baiyu, so the next release profile is 243.
+# current fork VERSION is 0.1.184-baiyu, so profile 243 is its immutable
+# successor.
 PROFILES["243"] = {
     **{key: PROFILES["242"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
     "name": "243",
@@ -547,7 +548,22 @@ PROFILES["243"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "243"
+# Profile 243 is retained as an immutable historical release contract.  The
+# current fork VERSION is 0.1.185-baiyu, so the next release profile is 244.
+PROFILES["244"] = {
+    **{key: PROFILES["243"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "244",
+    "version": "0.1.185-baiyu",
+    "parent": "243",
+    "new_migrations": [],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "244"
 
 
 def get_profile(name: str) -> dict:
