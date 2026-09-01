@@ -8,9 +8,11 @@ import re
 import secrets
 import shlex
 import posixpath
+import socket
 import stat
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -35,6 +37,10 @@ RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$")
 MAX_EVENT_LOG_BYTES = 16 * 1024 * 1024
 TRANSFER_CHUNK_BYTES = 8 * 1024 * 1024
 TRANSFER_MAX_ATTEMPTS = 8
+TRANSFER_DOWNLOAD_PREFETCH_REQUESTS = 64
+TRANSFER_UPLOAD_PARTS = 16
+TRANSFER_PARALLEL_MIN_BYTES = 32 * 1024 * 1024
+TRANSFER_SOCKET_TIMEOUT = 90
 REMOTE_EVENT_LOGS = {
     "local_vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
     "vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
@@ -338,15 +344,29 @@ exit "$code"
         if not local_path.is_file() or local_path.is_symlink():
             raise RuntimeError("local transfer input is not a regular file")
         expected_size = local_path.stat().st_size
+        if expected_size < TRANSFER_PARALLEL_MIN_BYTES:
+            self._upload_file_sequential(name, local_path, remote_path, mode)
+            return
+        self._upload_file_parallel(name, local_path, remote_path, mode)
+
+    def _upload_file_sequential(self, name: str, local_path: pathlib.Path, remote_path: str, mode: int) -> None:
+        """Upload small control assets without creating a pool of SSH sessions."""
+        expected_size = local_path.stat().st_size
         for attempt in range(1, TRANSFER_MAX_ATTEMPTS + 1):
             client = None
             sftp = None
             try:
                 client = self.connect(name)
                 sftp = client.open_sftp()
+                self._set_sftp_timeout(sftp)
+                remote_exists = False
                 try:
                     attributes = sftp.lstat(remote_path) if hasattr(sftp, "lstat") else sftp.stat(remote_path)
+                    remote_exists = True
                     remote_size = int(attributes.st_size)
+                    remote_mode = getattr(attributes, "st_mode", None)
+                    if remote_mode is not None and not stat.S_ISREG(remote_mode):
+                        raise RuntimeError("remote transfer output is not a regular file")
                     if remote_size < 0:
                         raise RuntimeError("remote transfer output size is invalid")
                     if remote_size > expected_size:
@@ -354,26 +374,169 @@ exit "$code"
                         remote_size = 0
                 except (OSError, IOError):
                     remote_size = 0
+                if not remote_exists or remote_size != expected_size:
+                    with local_path.open("rb") as source, sftp.file(remote_path, "ab") as target:
+                        self._set_sftp_file_timeout(target)
+                        if hasattr(target, "set_pipelined"):
+                            target.set_pipelined(True)
+                        source.seek(remote_size)
+                        remaining = expected_size - remote_size
+                        while remaining:
+                            chunk = source.read(min(TRANSFER_CHUNK_BYTES, remaining))
+                            if not chunk:
+                                raise OSError("local transfer input ended before expected size")
+                            target.write(chunk)
+                            remaining -= len(chunk)
+                        target.flush()
+                    if int(sftp.stat(remote_path).st_size) != expected_size:
+                        raise OSError("remote transfer output size mismatch")
+                sftp.chmod(remote_path, mode)
+                return
+            except (EOFError, OSError, IOError, socket.timeout, paramiko.SSHException) as error:
+                if attempt == TRANSFER_MAX_ATTEMPTS:
+                    raise
+                self._emit(name, event="transfer_retry", message="SFTP upload retrying from the remote checkpoint", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
+                time.sleep(min(2 ** (attempt - 1), 4))
+            finally:
+                if sftp is not None:
+                    sftp.close()
+                if client is not None:
+                    client.close()
+
+    @staticmethod
+    def _transfer_ranges(size: int, parts: int) -> list[tuple[int, int]]:
+        if size < 0 or parts < 1:
+            raise ValueError("invalid transfer range input")
+        if size == 0:
+            return [(0, 0)]
+        count = min(parts, size)
+        base, remainder = divmod(size, count)
+        ranges: list[tuple[int, int]] = []
+        start = 0
+        for index in range(count):
+            length = base + (1 if index < remainder else 0)
+            end = start + length
+            ranges.append((start, end))
+            start = end
+        return ranges
+
+    @staticmethod
+    def _set_sftp_timeout(sftp, timeout: int = TRANSFER_SOCKET_TIMEOUT) -> None:
+        channel = getattr(sftp, "get_channel", lambda: None)()
+        if channel is not None and hasattr(channel, "settimeout"):
+            channel.settimeout(timeout)
+
+    @staticmethod
+    def _set_sftp_file_timeout(stream, timeout: int = TRANSFER_SOCKET_TIMEOUT) -> None:
+        if hasattr(stream, "settimeout"):
+            stream.settimeout(timeout)
+
+    def _upload_file_parallel(self, name: str, local_path: pathlib.Path, remote_path: str, mode: int) -> None:
+        expected_size = local_path.stat().st_size
+        ranges = self._transfer_ranges(expected_size, TRANSFER_UPLOAD_PARTS)
+        part_paths = [f"{remote_path}.parallel-part-{index:02d}" for index in range(len(ranges))]
+        temporary_path = f"{remote_path}.parallel-assembled"
+        for part_path in part_paths:
+            self._require_temp_path(name, part_path)
+        self._require_temp_path(name, temporary_path)
+
+        def upload_one(index: int) -> None:
+            start, end = ranges[index]
+            self._upload_range(name, local_path, part_paths[index], start, end)
+
+        try:
+            with ThreadPoolExecutor(max_workers=len(ranges), thread_name_prefix="sftp-upload") as executor:
+                futures = [executor.submit(upload_one, index) for index in range(len(ranges))]
+                for future in futures:
+                    future.result()
+        except BaseException:
+            self._cleanup_parallel_parts(name, remote_path, part_paths, temporary_path)
+            raise
+
+        quoted_parts = " ".join(shlex.quote(path) for path in part_paths)
+        script = f'''set -Eeuo pipefail
+final={shlex.quote(remote_path)}
+assembled={shlex.quote(temporary_path)}
+if [[ -L "$final" || -L "$assembled" ]]; then exit 91; fi
+parts=({quoted_parts})
+for part in "${{parts[@]}}"; do
+  [[ -f "$part" && ! -L "$part" ]]
+done
+rm -f -- "$assembled"
+cat -- "${{parts[@]}}" > "$assembled"
+chmod {mode:o} "$assembled"
+[[ $(stat -c '%s' "$assembled") == {expected_size} ]]
+if [[ -e "$final" && ! -f "$final" ]]; then exit 92; fi
+mv -f -- "$assembled" "$final"
+for part in "${{parts[@]}}"; do rm -f -- "$part"; done
+for part in "${{parts[@]}}"; do [[ ! -e "$part" ]]; done
+printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
+'''
+        try:
+            assembled = self.run(name, script, {"assembled_size"}, timeout=max(120, expected_size // (1024 * 1024) * 10)).values
+        except BaseException:
+            self._cleanup_parallel_parts(name, remote_path, part_paths, temporary_path)
+            raise
+        if int(assembled["assembled_size"]) != expected_size:
+            raise OSError("remote assembled transfer size mismatch")
+
+    def _cleanup_parallel_parts(self, name: str, remote_path: str, part_paths: list[str], temporary_path: str) -> None:
+        paths = [*part_paths, temporary_path]
+        for path in paths:
+            self._require_temp_path(name, path)
+        script = "rm -f -- " + " ".join(shlex.quote(path) for path in paths) + " && printf 'transfer_parts_cleaned=true\\n'"
+        try:
+            self.run(name, script, {"transfer_parts_cleaned"}, timeout=120)
+        except BaseException as error:
+            self._emit(name, event="transfer_cleanup_failed", message="Parallel SFTP temporary cleanup failed", level="warn", details={"error_type": type(error).__name__})
+
+    def _upload_range(self, name: str, local_path: pathlib.Path, remote_path: str, start: int, end: int) -> None:
+        expected_size = end - start
+        for attempt in range(1, TRANSFER_MAX_ATTEMPTS + 1):
+            client = None
+            sftp = None
+            try:
+                client = self.connect(name)
+                sftp = client.open_sftp()
+                self._set_sftp_timeout(sftp)
+                try:
+                    attributes = sftp.lstat(remote_path) if hasattr(sftp, "lstat") else sftp.stat(remote_path)
+                    remote_size = int(attributes.st_size)
+                    remote_mode = getattr(attributes, "st_mode", None)
+                    if remote_mode is not None and not stat.S_ISREG(remote_mode):
+                        raise RuntimeError("remote transfer part is not a regular file")
+                    if remote_size < 0:
+                        raise RuntimeError("remote transfer part size is invalid")
+                    if remote_size > expected_size:
+                        sftp.remove(remote_path)
+                        remote_size = 0
+                except (OSError, IOError):
+                    remote_size = 0
                 if remote_size == expected_size:
-                    sftp.chmod(remote_path, mode)
                     return
                 with local_path.open("rb") as source, sftp.file(remote_path, "ab") as target:
-                    source.seek(remote_size)
+                    self._set_sftp_file_timeout(target)
+                    if hasattr(target, "set_pipelined"):
+                        target.set_pipelined(True)
+                    source.seek(start + remote_size)
                     remaining = expected_size - remote_size
                     while remaining:
                         chunk = source.read(min(TRANSFER_CHUNK_BYTES, remaining))
                         if not chunk:
-                            raise OSError("local transfer input ended before expected size")
+                            raise OSError("local transfer input ended before expected part size")
                         target.write(chunk)
-                        target.flush()
                         remaining -= len(chunk)
+                    target.flush()
                 if int(sftp.stat(remote_path).st_size) != expected_size:
-                    raise OSError("remote transfer output size mismatch")
-                sftp.chmod(remote_path, mode)
+                    raise OSError("remote transfer part size mismatch")
+                if attempt > 1:
+                    self._emit(name, event="transfer_part_retry_succeeded", message="Parallel SFTP transfer part recovered", details={"attempt": attempt, "bytes": expected_size})
                 return
-            except (EOFError, OSError, IOError, paramiko.SSHException):
+            except (EOFError, OSError, IOError, socket.timeout, paramiko.SSHException) as error:
                 if attempt == TRANSFER_MAX_ATTEMPTS:
                     raise
+                self._emit(name, event="transfer_part_retry", message="Parallel SFTP transfer part retrying", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
+                time.sleep(min(2 ** (attempt - 1), 4))
             finally:
                 if sftp is not None:
                     sftp.close()
@@ -388,6 +551,7 @@ exit "$code"
             try:
                 client = self.connect(name)
                 sftp = client.open_sftp()
+                self._set_sftp_timeout(sftp)
                 attributes = sftp.lstat(remote_path) if hasattr(sftp, "lstat") else sftp.stat(remote_path)
                 expected_size = int(attributes.st_size)
                 mode = getattr(attributes, "st_mode", None)
@@ -400,7 +564,10 @@ exit "$code"
                     local_path.write_bytes(b"")
                     current_size = 0
                 with sftp.file(remote_path, "rb") as source, local_path.open("ab") as target:
+                    self._set_sftp_file_timeout(source)
                     source.seek(current_size)
+                    if hasattr(source, "prefetch"):
+                        source.prefetch(expected_size, max_concurrent_requests=TRANSFER_DOWNLOAD_PREFETCH_REQUESTS)
                     remaining = expected_size - current_size
                     while remaining:
                         chunk = source.read(min(TRANSFER_CHUNK_BYTES, remaining))
@@ -412,9 +579,11 @@ exit "$code"
                 if local_path.stat().st_size != expected_size:
                     raise OSError("local transfer output size mismatch")
                 return
-            except (EOFError, OSError, IOError, paramiko.SSHException):
+            except (EOFError, OSError, IOError, socket.timeout, paramiko.SSHException) as error:
                 if attempt == TRANSFER_MAX_ATTEMPTS:
                     raise
+                self._emit(name, event="transfer_retry", message="SFTP download retrying from the local checkpoint", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
+                time.sleep(min(2 ** (attempt - 1), 4))
             finally:
                 if sftp is not None:
                     sftp.close()

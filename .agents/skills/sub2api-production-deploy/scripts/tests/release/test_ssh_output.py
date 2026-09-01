@@ -15,7 +15,7 @@ import paramiko
 DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
-from release.ssh import KNOWN_HOSTS, REMOTE_RAW_LOGS, ROOT, SSH_CONFIG, SSHRunner
+from release.ssh import KNOWN_HOSTS, REMOTE_RAW_LOGS, ROOT, SSH_CONFIG, SSHResult, SSHRunner
 
 
 class FakeChannel:
@@ -102,6 +102,108 @@ class FakeSFTPClient(FakeClient):
 
 
 class SSHOutputTest(unittest.TestCase):
+    def test_transfer_ranges_are_contiguous_and_balanced(self) -> None:
+        self.assertEqual(SSHRunner._transfer_ranges(0, 16), [(0, 0)])
+        ranges = SSHRunner._transfer_ranges(100, 16)
+        self.assertEqual(len(ranges), 16)
+        self.assertEqual(ranges[0][0], 0)
+        self.assertEqual(ranges[-1][1], 100)
+        self.assertTrue(all(end > start for start, end in ranges))
+        self.assertLessEqual(max(end - start for start, end in ranges) - min(end - start for start, end in ranges), 1)
+
+    def test_large_upload_uses_sixteen_parts_and_atomic_assembly(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.temp_dirs = {("vm", "/tmp/transfer")}
+        runner._require_temp_path = lambda *_args: None
+        uploaded: list[tuple[int, int]] = []
+        runner._upload_range = lambda _name, _local, _remote, start, end: uploaded.append((start, end))
+        runner.run = mock.Mock(return_value=SSHResult({"assembled_size": str(64 * 1024 * 1024)}))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "image.tar.gz"
+            path.write_bytes(b"x" * (64 * 1024 * 1024))
+            runner._upload_file_parallel("vm", path, "/tmp/transfer/image.tar.gz", 0o400)
+        self.assertEqual(len(uploaded), 16)
+        self.assertEqual(sorted(uploaded)[0][0], 0)
+        self.assertEqual(sorted(uploaded)[-1][1], 64 * 1024 * 1024)
+        script = runner.run.call_args.args[1]
+        self.assertIn("cat --", script)
+        self.assertIn("mv -f", script)
+        self.assertIn("assembled_size", script)
+
+    def test_large_upload_cleans_parts_when_a_part_fails(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.temp_dirs = {("vm", "/tmp/transfer")}
+        runner._require_temp_path = lambda *_args: None
+        runner._emit = lambda *_args, **_kwargs: None
+        runner.run = mock.Mock(return_value=SSHResult({"transfer_parts_cleaned": "true"}))
+        runner._upload_range = mock.Mock(side_effect=OSError("disconnect"))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "image.tar.gz"
+            path.write_bytes(b"x" * (64 * 1024 * 1024))
+            with self.assertRaisesRegex(OSError, "disconnect"):
+                runner._upload_file_parallel("vm", path, "/tmp/transfer/image.tar.gz", 0o400)
+        cleanup_script = runner.run.call_args.args[1]
+        self.assertIn("parallel-part-", cleanup_script)
+        self.assertIn("parallel-assembled", cleanup_script)
+
+    def test_download_uses_prefetch_and_resumes_local_checkpoint(self) -> None:
+        value = b"0123456789"
+        runner = object.__new__(SSHRunner)
+        runner.temp_dirs = {("vm", "/tmp/transfer")}
+
+        class Source:
+            def __init__(self):
+                self.position = 0
+                self.prefetch_args = None
+                self.channel = FakeChannel()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                pass
+
+            def settimeout(self, _timeout):
+                pass
+
+            def seek(self, position):
+                self.position = position
+
+            def prefetch(self, file_size, max_concurrent_requests):
+                self.prefetch_args = (file_size, max_concurrent_requests)
+
+            def read(self, size):
+                chunk = value[self.position:self.position + size]
+                self.position += len(chunk)
+                return chunk
+
+        source = Source()
+
+        class SFTP:
+            def lstat(self, _path):
+                return SimpleNamespace(st_size=len(value), st_mode=stat.S_IFREG | 0o600, st_nlink=1)
+
+            def file(self, _path, _mode):
+                return source
+
+            def close(self):
+                pass
+
+        class Client:
+            def open_sftp(self):
+                return SFTP()
+
+            def close(self):
+                pass
+
+        runner.connect = lambda _name: Client()
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "recovery.tar"
+            local.write_bytes(value[:3])
+            runner.download_file("vm", "/tmp/transfer/recovery.tar", local)
+            self.assertEqual(local.read_bytes(), value)
+        self.assertEqual(source.prefetch_args, (len(value), 64))
+
     def test_connection_files_are_repo_local(self) -> None:
         self.assertEqual(SSH_CONFIG, ROOT / ".ssh.local")
         self.assertEqual(KNOWN_HOSTS, ROOT / ".tmp" / "known_hosts")

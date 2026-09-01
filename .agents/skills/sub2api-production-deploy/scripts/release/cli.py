@@ -110,10 +110,12 @@ def _copy_remote_file_via_local(
 
     ``SSHRunner.copy_file_between`` streams one 1 MiB block synchronously from
     one SFTP connection into another.  For large recovery artifacts this makes
-    the controller wait on both links for every block.  Paramiko's native
-    ``get``/``put`` paths pipeline each individual leg more efficiently.  The
-    plaintext staging file is kept under the release workspace only for the
-    duration of the two transfers and is removed on every exit path.
+    the controller wait on both links for every block.  Large downloads use
+    Paramiko prefetch and large uploads use sixteen independently resumable
+    SFTP parts, followed by a remote atomic assembly.  Small control assets
+    stay on a single connection.  The plaintext staging file is kept under
+    the release workspace only for the duration of the two transfers and is
+    removed on every exit path.
     """
     if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
         raise RuntimeError(f"{label} expected checksum is invalid")
