@@ -1539,11 +1539,11 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('migration-240-status', observation)
         self.assertIn('migration-241-status', precise_rate)
 
-    def test_profile_242_is_health_only_and_does_not_use_canary_credentials(self) -> None:
+    def test_profile_244_is_health_only_and_does_not_use_canary_credentials(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         preflight = (DEPLOY_ROOT / "maintenance" / "release" / "preflight.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        self.assertIn('[[ "$profile" == 243 ]]', validator)
+        self.assertIn('[[ "$profile" == 244 ]]', validator)
         self.assertIn('canary_verified:"not_checked"', validator)
         self.assertNotIn("candidate-canary.json", validator)
         self.assertNotIn("key='admin_api_key'", validator)
@@ -1557,14 +1557,14 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertNotIn("canary-api-key", v2)
         self.assertNotIn("CANARY_KEY_FILE", preflight)
         self.assertNotIn("canary-api-key", preflight)
-        self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["243"]'):])
+        self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["244"]'):])
 
-    def test_profile_242_version_contract_matches_vm_validator(self) -> None:
+    def test_profile_244_version_contract_matches_vm_validator(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        profile_block = profiles[profiles.index('PROFILES["243"]'):]
-        self.assertIn('"version": "0.1.184-baiyu"', profile_block)
-        self.assertIn('[[ "$version" == 0.1.184-baiyu ]]', validator)
+        profile_block = profiles[profiles.index('PROFILES["244"]'):]
+        self.assertIn('"version": "0.1.185-baiyu"', profile_block)
+        self.assertIn('[[ "$version" == 0.1.185-baiyu ]]', validator)
 
     def test_profile_242_switch_uses_gate_v2_without_legacy_state_files(self) -> None:
         switch = self.script("switch.sh")
