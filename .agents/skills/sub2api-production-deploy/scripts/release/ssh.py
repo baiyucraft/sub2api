@@ -358,7 +358,7 @@ exit "$code"
                     remote_path,
                     str(local_path),
                     prefetch=True,
-                    max_concurrent_prefetch_requests=16,
+                    max_concurrent_prefetch_requests=64,
                 )
             finally:
                 sftp.close()
