@@ -63,7 +63,7 @@
           <button
             type="button"
             class="btn btn-primary shrink-0"
-            :disabled="!selectedUser || !newRate"
+            :disabled="!selectedUser || newRate === null || newRate < 0 || !Number.isFinite(newRate)"
             @click="handleAddLocal"
           >
             {{ t('common.add') }}
@@ -167,7 +167,7 @@
                       <input
                         type="number"
                         step="0.001"
-                        min="0.001"
+                        min="0"
                         autocomplete="off"
                         :value="entry.rate_multiplier ?? ''"
                         :placeholder="String(props.group?.rate_multiplier ?? 1)"
@@ -403,7 +403,7 @@ const selectUser = (user: AdminUser) => {
 
 // 本地添加（或覆盖已有用户）
 const handleAddLocal = () => {
-  if (!selectedUser.value || !newRate.value) return
+  if (!selectedUser.value || newRate.value === null || !Number.isFinite(newRate.value) || newRate.value < 0) return
   const user = selectedUser.value
   const idx = localEntries.value.findIndex(e => e.user_id === user.id)
   const entry: LocalEntry = {
@@ -435,7 +435,7 @@ const updateLocalRate = (userId: number, value: string) => {
     return
   }
   const num = parseFloat(value)
-  if (isNaN(num)) return
+  if (!Number.isFinite(num) || num < 0) return
   entry.rate_multiplier = num
 }
 
@@ -471,6 +471,12 @@ const handleCancel = () => {
 // 保存：一次性提交所有数据（只提交 rate_multiplier；rpm_override 由独立弹窗管理）
 const handleSave = async () => {
   if (!props.group) return
+  const serverRates = new Map(serverEntries.value.map(e => [e.user_id, e.rate_multiplier ?? null]))
+  // 只有新增或改成显式 0 时确认；已有 0 配置未发生变化不应重复打扰管理员。
+  if (localEntries.value.some((e) => e.rate_multiplier === 0 && serverRates.get(e.user_id) !== 0)) {
+    const confirmed = window.confirm(t('admin.groups.zeroRateConfirm'))
+    if (!confirmed) return
+  }
   saving.value = true
   try {
     const entries = localEntries.value

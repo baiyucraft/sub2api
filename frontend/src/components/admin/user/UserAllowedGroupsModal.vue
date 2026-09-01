@@ -81,7 +81,7 @@
                   <input
                     type="number"
                     step="0.001"
-                    min="0.001"
+                    min="0"
                     :value="config.customRate ?? ''"
                     @input="updateCustomRate(config.groupId, ($event.target as HTMLInputElement).value)"
                     :placeholder="String(config.defaultRate)"
@@ -161,7 +161,7 @@
                   <input
                     type="number"
                     step="0.001"
-                    min="0.001"
+                    min="0"
                     :value="config.customRate ?? ''"
                     @input="updateCustomRate(config.groupId, ($event.target as HTMLInputElement).value)"
                     :placeholder="String(config.defaultRate)"
@@ -312,13 +312,22 @@ const updateCustomRate = (groupId: number, value: string) => {
       config.customRate = null
     } else {
       const numValue = parseFloat(value)
-      config.customRate = isNaN(numValue) ? null : numValue
+      config.customRate = Number.isFinite(numValue) && numValue >= 0 ? numValue : null
     }
   }
 }
 
 const handleSave = async () => {
   if (!props.user) return
+
+  // 只有新增或改成显式 0 时确认；已有 0 配置未发生变化不应重复打扰管理员。
+  const changedToZero = groupConfigs.value.some(
+    (c) => c.customRate === 0 && originalGroupRates.value[c.groupId] !== 0,
+  )
+  if (changedToZero) {
+    const confirmed = window.confirm(t('admin.users.zeroRateConfirm'))
+    if (!confirmed) return
+  }
   submitting.value = true
 
   try {

@@ -14,8 +14,13 @@ import (
 )
 
 func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+	multiplier, _ := s.resolveUserGroupRateMultiplierWithExplicitZero(ctx, userID, groupID, groupDefaultMultiplier)
+	return multiplier
+}
+
+func (s *GatewayService) resolveUserGroupRateMultiplierWithExplicitZero(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) (float64, bool) {
 	if s == nil {
-		return groupDefaultMultiplier
+		return groupDefaultMultiplier, false
 	}
 	resolver := s.userGroupRateResolver
 	if resolver == nil {
@@ -27,7 +32,7 @@ func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID,
 			"service.gateway",
 		)
 	}
-	return resolver.Resolve(ctx, userID, groupID, groupDefaultMultiplier)
+	return resolver.ResolveWithExplicitZero(ctx, userID, groupID, groupDefaultMultiplier)
 }
 
 // ResolveUserGroupRateMultiplier resolves the same cached multiplier used by usage billing.
@@ -119,11 +124,22 @@ func QuotaPlatform(ctx context.Context, apiKey *APIKey) string {
 }
 
 func (p *postUsageBillingParams) shouldDeductAPIKeyQuota() bool {
-	return p.Cost.ActualCost > 0 && p.APIKey.Quota > 0 && p.APIKeyService != nil
+	return p.quotaMeterCost() > 0 && p.APIKey.Quota > 0 && p.APIKeyService != nil
 }
 
 func (p *postUsageBillingParams) shouldUpdateRateLimits() bool {
-	return p.Cost.ActualCost > 0 && p.APIKey.HasRateLimits() && p.APIKeyService != nil
+	return p.quotaMeterCost() > 0 && p.APIKey.HasRateLimits() && p.APIKeyService != nil
+}
+
+func (p *postUsageBillingParams) quotaMeterCost() float64 {
+	if p == nil || p.Cost == nil {
+		return 0
+	}
+	if p.Cost.QuotaMeterCostSet {
+		return p.Cost.QuotaMeterCost
+	}
+	// Backward compatibility for callers/tests constructing CostBreakdown directly.
+	return p.Cost.ActualCost
 }
 
 func (p *postUsageBillingParams) shouldUpdateAccountQuota() bool {
@@ -160,13 +176,13 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 	}
 
 	if p.shouldDeductAPIKeyQuota() {
-		if err := p.APIKeyService.UpdateQuotaUsed(billingCtx, p.APIKey.ID, cost.ActualCost); err != nil {
+		if err := p.APIKeyService.UpdateQuotaUsed(billingCtx, p.APIKey.ID, p.quotaMeterCost()); err != nil {
 			slog.Error("update api key quota failed", "api_key_id", p.APIKey.ID, "error", err)
 		}
 	}
 
 	if p.shouldUpdateRateLimits() {
-		if err := p.APIKeyService.UpdateRateLimitUsage(billingCtx, p.APIKey.ID, cost.ActualCost); err != nil {
+		if err := p.APIKeyService.UpdateRateLimitUsage(billingCtx, p.APIKey.ID, p.quotaMeterCost()); err != nil {
 			slog.Error("update api key rate limit usage failed", "api_key_id", p.APIKey.ID, "error", err)
 		}
 	}
@@ -184,12 +200,12 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 	//   - flusher_enabled=false（降级）:保留原有同步直写 DB
 	//   - flusher_enabled=true:跳过直写 DB，由 flusher 异步批量刷（markDirty 在 IncrementUserPlatformQuotaUsage 内部完成）
 	//   - 失败仅记 ALERT log + counter，不阻断主扣费流程
-	if !p.IsSubscriptionBill && p.Platform != "" && cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
+	if !p.IsSubscriptionBill && p.Platform != "" && p.quotaMeterCost() > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
 		if deps.billingCacheService.HasUserPlatformQuotaLimit(billingCtx, p.User.ID, p.Platform) {
-			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, cost.ActualCost)
+			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.quotaMeterCost())
 			if deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
 				// 降级路径:flusher 未启用时保留原有同步直写 DB
-				if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(billingCtx, p.User.ID, p.Platform, cost.ActualCost, time.Now().UTC()); err != nil {
+				if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(billingCtx, p.User.ID, p.Platform, p.quotaMeterCost(), time.Now().UTC()); err != nil {
 					userPlatformQuotaDBIncrLegacyErrorTotal.Add(1)
 					logger.LegacyPrintf("service.gateway", "ALERT: legacy incr user platform quota DB failed user=%d platform=%s cost=%f: %v", p.User.ID, p.Platform, cost.ActualCost, err)
 				}
@@ -319,10 +335,10 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	}
 
 	if p.shouldDeductAPIKeyQuota() {
-		cmd.APIKeyQuotaCost = p.Cost.ActualCost
+		cmd.APIKeyQuotaCost = p.quotaMeterCost()
 	}
 	if p.shouldUpdateRateLimits() {
-		cmd.APIKeyRateLimitCost = p.Cost.ActualCost
+		cmd.APIKeyRateLimitCost = p.quotaMeterCost()
 	}
 	if p.shouldUpdateAccountQuota() {
 		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
@@ -379,8 +395,8 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 		syncBalanceCacheAfterDeduction(ctx, p, deps, result)
 	}
 
-	if p.Cost.ActualCost > 0 && p.APIKey != nil && p.APIKey.HasRateLimits() {
-		deps.billingCacheService.QueueUpdateAPIKeyRateLimitUsage(p.APIKey.ID, p.Cost.ActualCost)
+	if p.quotaMeterCost() > 0 && p.APIKey != nil && p.APIKey.HasRateLimits() {
+		deps.billingCacheService.QueueUpdateAPIKeyRateLimitUsage(p.APIKey.ID, p.quotaMeterCost())
 	}
 
 	deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
@@ -392,13 +408,13 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	//     限制在并发 in-flight 请求数量内（旧实现的异步入队会让超支无限累积直到 worker 处理）
 	//   - DB 异步(flusher_enabled=false):在独立 goroutine 中走 detached context,失败用 ALERT log 触发 oncall 对账
 	//   - flusher_enabled=true:不直写 DB,由 flusher 异步批量刷（markDirty 已在 IncrementUserPlatformQuotaUsage 内部完成）
-	if !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
+	if !p.IsSubscriptionBill && p.Platform != "" && p.quotaMeterCost() > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
 		if deps.billingCacheService.HasUserPlatformQuotaLimit(ctx, p.User.ID, p.Platform) {
-			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
+			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.quotaMeterCost())
 			if deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
 				// 降级路径:flusher 未启用时保留原有异步直写 DB
 				dbCtx, dbCancel := detachUpstreamContext(ctx)
-				userID, platform, cost := p.User.ID, p.Platform, p.Cost.ActualCost
+				userID, platform, cost := p.User.ID, p.Platform, p.quotaMeterCost()
 				go func() {
 					defer func() {
 						if r := recover(); r != nil {
@@ -799,12 +815,13 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// 获取费率倍数（优先级：用户专属 > 分组默认 > 系统默认）
 	multiplier := 1.0
+	zeroRate := false
 	if s.cfg != nil {
 		multiplier = s.cfg.Default.RateMultiplier
 	}
 	if apiKey.GroupID != nil && apiKey.Group != nil {
 		groupDefault := apiKey.Group.RateMultiplier
-		multiplier = s.ResolveUserGroupRateMultiplier(ctx, user.ID, *apiKey.GroupID, groupDefault)
+		multiplier, zeroRate = s.resolveUserGroupRateMultiplierWithExplicitZero(ctx, user.ID, *apiKey.GroupID, groupDefault)
 	}
 	// token 倍率叠加高峰因子（token 计费含图片 token，图片按次倍率不受影响）。高峰因子按请求时刻现算，
 	// 不并入上面的 getUserGroupRateMultiplier，以免污染 user:group 倍率缓存。
@@ -812,7 +829,13 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if pricingAt.IsZero() {
 		pricingAt = timezone.Now()
 	}
-	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, multiplier, pricingAt)
+	multiplier, imageMultiplier := computePeakAwareMultipliersForUser(apiKey, multiplier, pricingAt, zeroRate)
+	if zeroRate {
+		// 显式用户 0 倍率优先于图片独立倍率：用户消费始终为 0。
+		// 配额计量在下方通过分组原价单独重算，不复用这些用户实付倍率。
+		multiplier = 0
+		imageMultiplier = 0
+	}
 
 	// 确定计费模型
 	concreteBillingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
@@ -860,6 +883,19 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 				// 因此这里不改写它，改由日志记录实际生效的计费基准。
 				logResponseModelBillingApplied("service.gateway", account, result.RequestID, billingModel, responseModel, cost, responseCost)
 				cost = responseCost
+			}
+		}
+	}
+	// 0 倍率用户不扣用户余额，但配额仍按分组原价计量。
+	if cost != nil {
+		cost.QuotaMeterCost = cost.ActualCost
+		cost.QuotaMeterCostSet = true
+		if apiKey.Group != nil && apiKey.GroupID != nil && zeroRate {
+			groupText, groupImage := computePeakAwareMultipliers(apiKey, apiKey.Group.RateMultiplier, pricingAt)
+			meter := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, groupText, groupImage, pricingAt, opts)
+			if meter != nil {
+				cost.QuotaMeterCost = meter.ActualCost
+				cost.QuotaMeterCostSet = true
 			}
 		}
 	}

@@ -762,7 +762,7 @@ func userUsageSortExpression(sortBy string) (func(*entsql.Selector) string, bool
 	platform := func(name, startTS, endTS string) func(*entsql.Selector) string {
 		return func(s *entsql.Selector) string {
 			userID := s.C(dbuser.FieldID)
-			where := fmt.Sprintf("ul.user_id = %s AND ul.actual_cost > 0 AND lower(%s) = '%s'", userID, usageLogEffectivePlatformExpr, name)
+			where := fmt.Sprintf("ul.user_id = %s AND %s AND lower(%s) = '%s'", userID, usageLogSuccessFilterUL, usageLogEffectivePlatformExpr, name)
 			if startTS != "" {
 				where += fmt.Sprintf(" AND ul.created_at >= TIMESTAMPTZ '%s'", startTS)
 			}

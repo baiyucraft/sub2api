@@ -382,7 +382,15 @@ func NormalizePeakRateConfig(subscriptionType string, enabled bool, start, end s
 // gateway_service.recordUsageCore 与 openai_gateway_service.RecordUsage 共用此函数，
 // 锁死"高峰因子只乘入 token 倍率、图片按次倍率不受影响"这一叠加顺序——任何调换都会被 group_peak_rate_test 覆盖。
 func computePeakAwareMultipliers(apiKey *APIKey, base float64, now time.Time) (text, image float64) {
-	image = resolveImageRateMultiplier(apiKey, base)
+	return computePeakAwareMultipliersForUser(apiKey, base, now, false)
+}
+
+// computePeakAwareMultipliersForUser is the request billing variant. An
+// explicit user/group zero override must also suppress independent media
+// multipliers configured on the group; those multipliers are only fallbacks
+// for users without the explicit override.
+func computePeakAwareMultipliersForUser(apiKey *APIKey, base float64, now time.Time, explicitZero bool) (text, image float64) {
+	image = resolveImageRateMultiplierForUser(apiKey, base, explicitZero)
 	peak := 1.0
 	if apiKey != nil && apiKey.Group != nil {
 		peak = apiKey.Group.PeakMultiplierAt(now)

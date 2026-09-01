@@ -83,3 +83,28 @@ func TestAdminService_UpdateUser_InvalidatesAuthCacheOnRegistrationEmailChange(t
 	require.Equal(t, "new@example.com", updated.Email)
 	require.Equal(t, []int64{42}, invalidator.userIDs, "注册邮箱变更后应立即失效 API Key 认证快照")
 }
+
+func TestAdminService_UpdateUser_AllowsExplicitZeroGroupRateAndInvalidatesCaches(t *testing.T) {
+	base := &userRepoStub{user: &User{ID: 42, Email: "u@example.com"}}
+	repo := &rpmUserRepoStub{userRepoStub: base}
+	rateRepo := &userGroupRateRepoStubForGroupRate{}
+	invalidator := &authCacheInvalidatorStub{}
+	svc := &adminServiceImpl{
+		userRepo:             repo,
+		redeemCodeRepo:       &redeemRepoStub{},
+		userGroupRateRepo:    rateRepo,
+		authCacheInvalidator: invalidator,
+	}
+
+	rate := 0.0
+	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+		GroupRates: map[int64]*float64{7: &rate},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.Equal(t, int64(42), rateRepo.syncedUserID)
+	require.Contains(t, rateRepo.syncedRates, int64(7))
+	require.NotNil(t, rateRepo.syncedRates[7])
+	require.Equal(t, 0.0, *rateRepo.syncedRates[7])
+	require.Equal(t, []int64{42}, invalidator.userIDs, "显式 0 倍率变更后应立即失效 API Key 认证快照")
+}

@@ -73,9 +73,11 @@ func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
 
 	require.Contains(t, query, "ON CONFLICT (request_id, api_key_id) DO NOTHING")
 	require.NotContains(t, strings.ToUpper(query), "DO UPDATE")
-	require.Len(t, usageLogInsertArgTypes, 63)
-	require.Len(t, prepared.args, 63)
-	require.Len(t, args, 64)
+	// The insert projection includes native_compaction_v2 in addition to the
+	// historical fields; keep the test coupled to the canonical projection
+	// rather than an obsolete hard-coded column count.
+	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
+	require.Len(t, args, len(usageLogInsertArgTypes)+1)
 	require.Equal(t, sql.NullInt64{Int64: upstreamConfigID, Valid: true}, prepared.args[3])
 	require.Equal(t, sql.NullInt64{Int64: upstreamKeyID, Valid: true}, prepared.args[4])
 	require.Equal(t, sql.NullString{String: currency, Valid: true}, prepared.args[31])
@@ -84,5 +86,5 @@ func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
 	require.Equal(t, 3, strings.Count(query, "upstream_key_id"))
 	require.Equal(t, 3, strings.Count(query, "upstream_cost_currency"))
 	require.Equal(t, 3, strings.Count(query, "upstream_cost_to_cny_rate"))
-	require.Contains(t, query, "$64::timestamptz")
+	require.Contains(t, query, "$66::timestamptz")
 }

@@ -37,7 +37,7 @@ func TestUsageLogRepositoryGetAccountQualityStatsBatch(t *testing.T) {
 		int64(0), int64(0), int64(4), int64(1), end.Add(-2*time.Hour), nil,
 	)
 
-	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*ul\.cache_creation_tokens.*actual_cost > 0.*ul\.stream = TRUE.*quality AS.*COUNT\(\*\) FILTER \(WHERE created_at >= \$3\).*SUM\(input_tokens \+ cache_creation_tokens \+ cache_read_tokens\) FILTER \(WHERE created_at >= \$3\).*SUM\(input_tokens \+ cache_creation_tokens \+ cache_read_tokens\).*WHERE duration_ms IS NOT NULL.*ops_error_logs.*oe\.stream = TRUE.*oe\.is_count_tokens = FALSE`).
+	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*ul\.cache_creation_tokens.*total_cost > 0.*ul\.stream = TRUE.*quality AS.*COUNT\(\*\) FILTER \(WHERE created_at >= \$3\).*SUM\(input_tokens \+ cache_creation_tokens \+ cache_read_tokens\) FILTER \(WHERE created_at >= \$3\).*SUM\(input_tokens \+ cache_creation_tokens \+ cache_read_tokens\).*WHERE duration_ms IS NOT NULL.*ops_error_logs.*oe\.stream = TRUE.*oe\.is_count_tokens = FALSE`).
 		WithArgs(pq.Array(accountIDs), start, realtimeStart, end).
 		WillReturnRows(rows)
 

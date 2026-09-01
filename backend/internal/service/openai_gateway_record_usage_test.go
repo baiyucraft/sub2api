@@ -2306,6 +2306,30 @@ func TestOpenAIGatewayServiceRecordUsage_ImageIndependentMultiplierUsesImageRate
 	require.Equal(t, string(BillingModeImage), *usageRepo.lastLog.BillingMode)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_ZeroUserRateOverridesIndependentImageRate(t *testing.T) {
+	imagePrice := 0.2
+	userRate := 0.0
+	groupID := int64(123)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(
+		usageRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		&openAIUserGroupRateRepoStub{rate: &userRate},
+	)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{RequestID: "resp_image_zero_rate", Model: "gpt-image-2", ImageCount: 1, ImageSize: "1K", Duration: time.Second},
+		APIKey: &APIKey{ID: 10123, GroupID: i64p(groupID), Group: &Group{ID: groupID, RateMultiplier: 0.15, ImageRateIndependent: true, ImageRateMultiplier: 1, ImagePrice1K: &imagePrice}},
+		User:   &User{ID: 20123}, Account: &Account{ID: 30123},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Zero(t, usageRepo.lastLog.ActualCost)
+	require.Equal(t, 0.2, usageRepo.lastLog.TotalCost)
+}
+
 func TestGrokVideoBillingUsesSeparateVideoRateMultiplier(t *testing.T) {
 	imagePrice2K := 0.4
 	videoPrice480P := 0.08

@@ -59,7 +59,10 @@ func TestUserGroupRateResolverResolve_InvalidCacheEntryLoadsRepoAndCaches(t *tes
 
 	cached, ok := cache.Get("101:202")
 	require.True(t, ok)
-	require.Equal(t, rate, cached)
+	entry, ok := cached.(cachedUserGroupRate)
+	require.True(t, ok)
+	require.Equal(t, rate, entry.multiplier)
+	require.True(t, entry.hasOverride)
 
 	hit, miss, load, _, fallback := GatewayUserGroupRateCacheStats()
 	require.Equal(t, int64(0), hit)
@@ -80,4 +83,29 @@ func TestGatewayServiceGetUserGroupRateMultiplier_FallbacksAndUsesExistingResolv
 	got := svc.getUserGroupRateMultiplier(context.Background(), 101, 202, 1.2)
 	require.Equal(t, rate, got)
 	require.Equal(t, 1, repo.calls)
+}
+
+func TestUserGroupRateResolver_ExplicitZeroAndInvalidation(t *testing.T) {
+	rate := 1.25
+	repo := &userGroupRateResolverRepoStub{rate: &rate}
+	resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.test")
+
+	require.False(t, resolver.IsExplicitZero(context.Background(), 101, 202))
+	rate = 0
+	// The cached positive value must remain until the administrative invalidation.
+	require.False(t, resolver.IsExplicitZero(context.Background(), 101, 202))
+	InvalidateUserGroupRateCaches(101, 202)
+	require.True(t, resolver.IsExplicitZero(context.Background(), 101, 202))
+
+	rate = 1.5
+	InvalidateUserGroupRateCaches(101, 202)
+	require.Equal(t, 1.5, resolver.Resolve(context.Background(), 101, 202, 2.0))
+}
+
+func TestUserGroupRateResolver_MissingRateFallsBackToGroupDefault(t *testing.T) {
+	repo := &userGroupRateResolverRepoStub{rate: nil}
+	resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.test")
+
+	require.False(t, resolver.IsExplicitZero(context.Background(), 101, 202))
+	require.Equal(t, 2.0, resolver.Resolve(context.Background(), 101, 202, 2.0))
 }

@@ -1022,6 +1022,7 @@ func (s *BatchImagePublicService) resolvePricingSnapshot(ctx context.Context, ow
 			groupDefaultMultiplier = 0
 		}
 		effectiveGroupMultiplier := groupDefaultMultiplier
+		explicitZeroRate := false
 		if s.UserGroupRateRepo != nil {
 			userRate, rateErr := s.UserGroupRateRepo.GetByUserAndGroup(ctx, owner.UserID, group.ID)
 			if rateErr != nil {
@@ -1029,10 +1030,13 @@ func (s *BatchImagePublicService) resolvePricingSnapshot(ctx context.Context, ow
 			}
 			if userRate != nil {
 				effectiveGroupMultiplier = *userRate
+				explicitZeroRate = *userRate == 0
 			}
 		}
 		groupMultiplier = effectiveGroupMultiplier
-		if group.ImageRateIndependent {
+		// 显式 0 的用户专属倍率必须覆盖图片独立倍率：该任务不冻结、
+		// 不扣用户余额；任务统计的原始图片成本仍在结算时保留。
+		if group.ImageRateIndependent && !explicitZeroRate {
 			groupMultiplier = group.ImageRateMultiplier
 		}
 		if groupMultiplier < 0 {

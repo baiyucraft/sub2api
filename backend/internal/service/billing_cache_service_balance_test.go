@@ -63,6 +63,33 @@ func TestCheckBillingEligibility_AllowsBalanceAtMinimumReserve(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCheckBillingEligibility_ExplicitZeroRateSkipsBalanceCheck(t *testing.T) {
+	cache := &balanceEligibilityCacheStub{balance: 0}
+	rate := 0.0
+	rateRepo := &userGroupRateResolverRepoStub{rate: &rate}
+	cfg := &config.Config{}
+	cfg.Billing.MinimumBalanceReserve = 0.01
+	svc := NewBillingCacheService(cache, nil, nil, nil, nil, rateRepo, cfg, nil)
+	t.Cleanup(svc.Stop)
+
+	err := svc.CheckBillingEligibility(context.Background(), &User{ID: 1}, nil, &Group{ID: 2, SubscriptionType: SubscriptionTypeStandard}, nil, "")
+	require.NoError(t, err)
+}
+
+func TestCheckBillingEligibility_ExplicitZeroGroupRateBypassesBalance(t *testing.T) {
+	cache := &balanceEligibilityCacheStub{balance: 0}
+	rate := 0.0
+	rateRepo := &userGroupRateResolverRepoStub{rate: &rate}
+	cfg := &config.Config{}
+	cfg.Billing.MinimumBalanceReserve = 0.01
+	svc := NewBillingCacheService(cache, nil, nil, nil, nil, rateRepo, cfg, nil)
+	t.Cleanup(svc.Stop)
+
+	group := &Group{ID: 10, SubscriptionType: SubscriptionTypeStandard, RateMultiplier: 1}
+	err := svc.CheckBillingEligibility(context.Background(), &User{ID: 1}, nil, group, nil, "")
+	require.NoError(t, err, "显式 0 倍率应跳过余额最低储备检查")
+}
+
 func TestSyncBalanceCacheAfterDeduction_InvalidatesExhaustedBalance(t *testing.T) {
 	cache := &balanceEligibilityCacheStub{
 		balance:                  0.50,

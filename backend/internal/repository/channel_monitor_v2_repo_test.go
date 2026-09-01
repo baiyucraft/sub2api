@@ -291,11 +291,11 @@ func TestChannelMonitorV2ErrorAggregationResolvesCompositePlatform(t *testing.T)
 func TestChannelMonitorV2UsageSuccessExcludesCyberBillingRows(t *testing.T) {
 	for _, query := range []string{channelMonitorV2UsageMetricsSQL, channelMonitorV2UserMetricsSQL} {
 		require.Contains(t, query, "COALESCE(ul.request_type, 0) NOT IN (4, 6)")
-		require.Contains(t, query, "ul.actual_cost > 0")
+		require.Contains(t, query, "ul.total_cost > 0")
 	}
 	require.Contains(t, channelMonitorV2PlatformSQL, "g.platform = 'composite'")
 	require.Contains(t, channelMonitorV2PlatformSQL, "a.platform")
-	require.Contains(t, channelMonitorV2HistogramSQL, "ul.actual_cost > 0")
+	require.Contains(t, channelMonitorV2HistogramSQL, "ul.total_cost > 0")
 }
 
 func TestChannelMonitorV2RatesUseCoveredWindow(t *testing.T) {
