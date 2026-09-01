@@ -11,6 +11,7 @@ import posixpath
 import socket
 import stat
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -39,6 +40,9 @@ TRANSFER_CHUNK_BYTES = 8 * 1024 * 1024
 TRANSFER_MAX_ATTEMPTS = 8
 TRANSFER_DOWNLOAD_PREFETCH_REQUESTS = 64
 TRANSFER_PARALLEL_PARTS = 16
+# Keep the sixteen-part layout while bounding simultaneous SSH handshakes.
+# RackNerd's sshd/proxy can reject bursts above its MaxStartups threshold.
+TRANSFER_MAX_ACTIVE_CONNECTIONS = 8
 TRANSFER_DOWNLOAD_PART_PREFETCH_REQUESTS = 8
 TRANSFER_PARALLEL_MIN_BYTES = 32 * 1024 * 1024
 TRANSFER_SOCKET_TIMEOUT = 90
@@ -56,6 +60,8 @@ REMOTE_RAW_LOGS = {
     "dmit": "/var/lib/sub2api-release/logs/{release_id}/remote.raw.log",
     "backup": "/srv/sub2api-backups/release-logs/{release_id}/remote.raw.log",
 }
+
+_TRANSFER_CONNECTION_SEMAPHORE = threading.BoundedSemaphore(TRANSFER_MAX_ACTIVE_CONNECTIONS)
 
 
 @dataclass
@@ -499,6 +505,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
         for attempt in range(1, TRANSFER_MAX_ATTEMPTS + 1):
             client = None
             sftp = None
+            _TRANSFER_CONNECTION_SEMAPHORE.acquire()
             try:
                 client = self.connect(name)
                 sftp = client.open_sftp()
@@ -546,6 +553,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
                     sftp.close()
                 if client is not None:
                     client.close()
+                _TRANSFER_CONNECTION_SEMAPHORE.release()
 
     def download_file(self, name: str, remote_path: str, local_path: pathlib.Path) -> None:
         self._require_temp_path(name, remote_path)
@@ -687,6 +695,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
         for attempt in range(1, TRANSFER_MAX_ATTEMPTS + 1):
             client = None
             sftp = None
+            _TRANSFER_CONNECTION_SEMAPHORE.acquire()
             try:
                 client = self.connect(name)
                 sftp = client.open_sftp()
@@ -735,6 +744,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
                     sftp.close()
                 if client is not None:
                     client.close()
+                _TRANSFER_CONNECTION_SEMAPHORE.release()
 
     def copy_file_between(
         self,
