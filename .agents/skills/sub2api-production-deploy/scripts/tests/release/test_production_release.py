@@ -1111,7 +1111,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         preflight = self.script("preflight.sh")
         switch = self.script("switch.sh")
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}', production)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244"}', production)
         self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237", switch)
         self.assertIn("migration_206_status", production)
         self.assertIn("migration_206_status", preflight)
@@ -1171,7 +1171,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
     def test_profile_213_reuses_profile_212_migration_and_schema_evidence(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         switch = self.script("switch.sh")
-        self.assertIn('{"212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243"}', production)
+        self.assertIn('{"212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244"}', production)
         self.assertIn("$profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237", switch)
         self.assertNotIn("migration_213_status", production)
         self.assertNotIn("migration_213_status", self.script("preflight.sh"))
@@ -1224,7 +1224,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("precise_data_plan_query", assertion)
         self.assertIn("release_profile=${release_profile:-$profile}", assertion)
         self.assertIn("$profile == 240 || $profile == 241 || $profile == 242 || $profile == 243", assertion)
-        self.assertIn("if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 || $release_profile == 243 ]]; then", assertion)
+        self.assertIn("if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 || $release_profile == 243 || $release_profile == 244 ]]; then", assertion)
         self.assertNotIn("if [[ $profile == 240 ]]; then", assertion)
         self.assertIn("ROUND(k.source_rate_multiplier * COALESCE(c.recharge_rate, 1), 10)", assertion)
         self.assertGreater(switch.index('migration-195-assert.sh" postflight_db'), switch.index('docker compose "${candidate_compose_args[@]}"'))
@@ -1464,7 +1464,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
 
     def test_profile_238_switch_accepts_all_migration_237_postflight_output_fields(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
-        condition = 'if getattr(self, "profile", {}).get("name") in {"238", "239", "240", "241", "242", "243"}:'
+        condition = 'if getattr(self, "profile", {}).get("name") in {"238", "239", "240", "241", "242", "243", "244"}:'
         switch_allowlist = production[
             production.index(condition):
             production.index("try:", production.index(condition))
@@ -1479,7 +1479,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
 
     def test_profile_239_switch_accepts_current_postflight_output_fields(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
-        condition = 'if getattr(self, "profile", {}).get("name") in {"239", "240", "241", "242", "243"}:'
+        condition = 'if getattr(self, "profile", {}).get("name") in {"239", "240", "241", "242", "243", "244"}:'
         switch_allowlist = production[
             production.index(condition):
             production.index("try:", production.index(condition))
@@ -1512,7 +1512,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
 
     def test_profile_240_switch_accepts_new_observation_and_precise_rate_fields(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
-        condition = 'if getattr(self, "profile", {}).get("name") in {"240", "241", "242", "243"}:'
+        condition = 'if getattr(self, "profile", {}).get("name") in {"240", "241", "242", "243", "244"}:'
         switch_allowlist = production[
             production.index(condition):
             production.index("try:", production.index(condition))

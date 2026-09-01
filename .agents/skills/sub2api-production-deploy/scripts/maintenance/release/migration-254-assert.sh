@@ -12,7 +12,7 @@ source "$context_file"
 db_container=${ASSERT_DB_CONTAINER:-sub2api-postgres}
 db_user=${ASSERT_DB_USER:-sub2api}
 db_name=${ASSERT_DB_NAME:-sub2api}
-[[ $profile == 242 || $profile == 243 ]] || exit 1
+[[ $profile == 242 || $profile == 243 || $profile == 244 ]] || exit 1
 [[ $phase == preflight || $phase == postflight ]] || exit 1
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 [[ -d $release_dir && ! -L $release_dir && -d $state_dir && ! -L $state_dir ]] || exit 1
