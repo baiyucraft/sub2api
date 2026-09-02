@@ -17,6 +17,11 @@ import type {
   UserAffiliateDetail,
   AffiliateTransferResponse,
   PlatformQuotasResponse,
+  UserActivityActionResponse,
+  UserActivityRewardsResponse,
+  UserActivitySummary,
+  UserActivityType,
+  UserActivityRewardType,
 } from '@/types'
 
 /**
@@ -194,6 +199,27 @@ export async function getMyPlatformQuotas(): Promise<PlatformQuotasResponse> {
   return data
 }
 
+export async function getActivitySummary(): Promise<UserActivitySummary> {
+  const { data } = await apiClient.get<UserActivitySummary>('/user/activities/summary')
+  return data
+}
+
+export async function getActivityRewards(params: { page?: number; page_size?: number; type?: UserActivityRewardType } = {}): Promise<UserActivityRewardsResponse> {
+  const { data } = await apiClient.get<UserActivityRewardsResponse>('/user/activities/rewards', { params })
+  return data
+}
+
+export async function openDailyActivityGift(idempotencyKey?: string): Promise<UserActivityActionResponse> {
+  const { data } = await apiClient.post<UserActivityActionResponse>('/user/activities/daily-gift/open', idempotencyKey ? { idempotency_key: idempotencyKey } : undefined, idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined)
+  return data
+}
+
+export async function drawDailyActivity(type: UserActivityType, count = 1, idempotencyKey?: string): Promise<UserActivityActionResponse> {
+  const payload = { activity_type: type === 'recharge' ? 'recharge_draw' : type === 'consumption' ? 'spend_draw' : 'invite_draw', count, ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}) }
+  const { data } = await apiClient.post<UserActivityActionResponse>('/user/activities/draw', payload, idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined)
+  return data
+}
+
 export const userAPI = {
   getProfile,
   updateProfile,
@@ -210,6 +236,10 @@ export const userAPI = {
   getAffiliateDetail,
   transferAffiliateQuota,
   getMyPlatformQuotas,
+  getActivitySummary,
+  getActivityRewards,
+  openDailyActivityGift,
+  drawDailyActivity,
 }
 
 export default userAPI
