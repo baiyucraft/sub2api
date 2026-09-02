@@ -541,12 +541,12 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
                 if int(sftp.stat(remote_path).st_size) != expected_size:
                     raise OSError("remote transfer part size mismatch")
                 if attempt > 1:
-                    self._emit(name, event="transfer_part_retry_succeeded", message="Parallel SFTP transfer part recovered", details={"attempt": attempt, "bytes": expected_size})
+                    self._emit(name, stage="transfer", event="transfer_part_retry_succeeded", message="Parallel SFTP transfer part recovered", details={"attempt": attempt, "bytes": expected_size})
                 return
             except (EOFError, OSError, IOError, socket.timeout, paramiko.SSHException) as error:
                 if attempt == TRANSFER_MAX_ATTEMPTS:
                     raise
-                self._emit(name, event="transfer_part_retry", message="Parallel SFTP transfer part retrying", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
+                self._emit(name, stage="transfer", event="transfer_part_retry", message="Parallel SFTP transfer part retrying", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
                 time.sleep(min(2 ** (attempt - 1), 4))
             finally:
                 if sftp is not None:
@@ -732,12 +732,12 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
                 if local_path.stat().st_size != expected_size:
                     raise OSError("local transfer checkpoint size mismatch")
                 if attempt > 1:
-                    self._emit(name, event="transfer_part_retry_succeeded", message="Parallel SFTP download part recovered", details={"attempt": attempt, "bytes": expected_size})
+                    self._emit(name, stage="transfer", event="transfer_part_retry_succeeded", message="Parallel SFTP download part recovered", details={"attempt": attempt, "bytes": expected_size})
                 return
             except (EOFError, OSError, IOError, socket.timeout, paramiko.SSHException) as error:
                 if attempt == TRANSFER_MAX_ATTEMPTS:
                     raise
-                self._emit(name, event="transfer_part_retry", message="Parallel SFTP download part retrying", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
+                self._emit(name, stage="transfer", event="transfer_part_retry", message="Parallel SFTP download part retrying", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
                 time.sleep(min(2 ** (attempt - 1), 4))
             finally:
                 if sftp is not None:
