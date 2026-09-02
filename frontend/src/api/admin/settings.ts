@@ -390,6 +390,23 @@ export function deriveWeChatConnectStoredMode(
   return normalizeWeChatConnectMode(legacyMode);
 }
 
+export interface DailyActivityConfig {
+  enabled: boolean;
+  daily_gift_threshold: number;
+  daily_gift_min_reward: number;
+  daily_gift_max_reward: number;
+  recharge_draw_threshold: number;
+  recharge_draw_min_reward: number;
+  recharge_draw_max_reward: number;
+  consumption_draw_threshold: number;
+  consumption_draw_min_reward: number;
+  consumption_draw_max_reward: number;
+  invite_qualification_amount: number;
+  invite_draw_required_count: number;
+  invite_draw_min_reward: number;
+  invite_draw_max_reward: number;
+}
+
 /**
  * System settings interface
  */
@@ -745,6 +762,7 @@ export interface SystemSettings {
 
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: boolean;
+  daily_activity_config: DailyActivityConfig;
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
@@ -1059,6 +1077,7 @@ export interface UpdateSettingsRequest {
 
   // Affiliate (邀请返利) feature switch
   affiliate_enabled?: boolean;
+  daily_activity_config?: DailyActivityConfig;
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;

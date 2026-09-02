@@ -7707,6 +7707,67 @@
           </div>
         </div>
 
+        <!-- Daily activity rewards -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.dailyActivity.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.dailyActivity.description') }}
+            </p>
+          </div>
+          <div class="space-y-6 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.dailyActivity.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.dailyActivity.enabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.daily_activity_config.enabled" />
+            </div>
+
+            <div class="grid gap-5 lg:grid-cols-2">
+              <fieldset class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+                <legend class="px-2 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.settings.features.dailyActivity.dailyGift') }}</legend>
+                <div class="grid gap-4 sm:grid-cols-3">
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.threshold') }}<input v-model.number="form.daily_activity_config.daily_gift_threshold" type="number" min="0.01" step="0.01" class="input mt-1" /></label>
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.rewardMin') }}<input v-model.number="form.daily_activity_config.daily_gift_min_reward" type="number" min="0" step="0.01" class="input mt-1" /></label>
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.rewardMax') }}<input v-model.number="form.daily_activity_config.daily_gift_max_reward" type="number" min="0" step="0.01" class="input mt-1" /></label>
+                </div>
+              </fieldset>
+              <fieldset class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+                <legend class="px-2 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.settings.features.dailyActivity.rechargeDraw') }}</legend>
+                <div class="grid gap-4 sm:grid-cols-3">
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.threshold') }}<input v-model.number="form.daily_activity_config.recharge_draw_threshold" type="number" min="0.01" step="0.01" class="input mt-1" /></label>
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.rewardMin') }}<input v-model.number="form.daily_activity_config.recharge_draw_min_reward" type="number" min="0" step="0.01" class="input mt-1" /></label>
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.rewardMax') }}<input v-model.number="form.daily_activity_config.recharge_draw_max_reward" type="number" min="0" step="0.01" class="input mt-1" /></label>
+                </div>
+              </fieldset>
+              <fieldset class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+                <legend class="px-2 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.settings.features.dailyActivity.consumptionDraw') }}</legend>
+                <div class="grid gap-4 sm:grid-cols-3">
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.threshold') }}<input v-model.number="form.daily_activity_config.consumption_draw_threshold" type="number" min="0.01" step="0.01" class="input mt-1" /></label>
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.rewardMin') }}<input v-model.number="form.daily_activity_config.consumption_draw_min_reward" type="number" min="0" step="0.01" class="input mt-1" /></label>
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.rewardMax') }}<input v-model.number="form.daily_activity_config.consumption_draw_max_reward" type="number" min="0" step="0.01" class="input mt-1" /></label>
+                </div>
+              </fieldset>
+              <fieldset class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+                <legend class="px-2 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.settings.features.dailyActivity.inviteDraw') }}</legend>
+                <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.inviteThreshold') }}<input v-model.number="form.daily_activity_config.invite_qualification_amount" type="number" min="0.01" step="0.01" class="input mt-1" /></label>
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.inviteCount') }}<input v-model.number="form.daily_activity_config.invite_draw_required_count" type="number" min="1" step="1" class="input mt-1" /></label>
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.rewardMin') }}<input v-model.number="form.daily_activity_config.invite_draw_min_reward" type="number" min="0" step="0.01" class="input mt-1" /></label>
+                  <label class="text-xs text-gray-500">{{ t('admin.settings.features.dailyActivity.rewardMax') }}<input v-model.number="form.daily_activity_config.invite_draw_max_reward" type="number" min="0" step="0.01" class="input mt-1" /></label>
+                </div>
+              </fieldset>
+            </div>
+          </div>
+        </div>
+
         <!-- Affiliate add/edit modal -->
         <div
           v-if="affiliateModal.open"
@@ -10092,6 +10153,22 @@ const form = reactive<SettingsForm>({
   plugin_management_enabled: false,
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: false,
+  daily_activity_config: {
+    enabled: true,
+    daily_gift_threshold: 10,
+    daily_gift_min_reward: 0,
+    daily_gift_max_reward: 0.5,
+    recharge_draw_threshold: 50,
+    recharge_draw_min_reward: 0.5,
+    recharge_draw_max_reward: 1,
+    consumption_draw_threshold: 50,
+    consumption_draw_min_reward: 0.5,
+    consumption_draw_max_reward: 1,
+    invite_qualification_amount: 10,
+    invite_draw_required_count: 5,
+    invite_draw_min_reward: 5,
+    invite_draw_max_reward: 10,
+  },
   // Allow user view error requests
   allow_user_view_error_requests: false,
 });
@@ -11804,6 +11881,7 @@ async function saveSettings() {
       plugin_management_enabled: form.plugin_management_enabled,
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
+      daily_activity_config: { ...form.daily_activity_config },
       allow_user_view_error_requests: form.allow_user_view_error_requests,
     };
 

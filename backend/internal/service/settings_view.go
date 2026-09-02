@@ -181,6 +181,7 @@ type SystemSettings struct {
 	CyberSessionBlockEnabled     bool
 	CyberSessionBlockTTLSeconds  int
 	AffiliateEnabled             bool
+	DailyActivityConfig          DailyActivityConfig
 	AffiliateRebateRate          float64
 	AffiliateRebateFreezeHours   int
 	AffiliateRebateDurationDays  int

@@ -33,6 +33,13 @@ func RegisterUserRoutes(
 			user.PUT("", h.User.UpdateProfile)
 			user.GET("/aff", h.User.GetAffiliate)
 			user.POST("/aff/transfer", h.User.TransferAffiliateQuota)
+			activities := user.Group("/activities")
+			{
+				activities.GET("/summary", h.User.GetDailyActivitySummary)
+				activities.GET("/rewards", h.User.GetDailyActivityRewards)
+				activities.POST("/daily-gift/open", h.User.OpenDailyActivityGift)
+				activities.POST("/draw", h.User.DrawDailyActivity)
+			}
 			user.POST("/account-bindings/email/send-code", h.User.SendEmailBindingCode)
 			user.POST("/account-bindings/email", h.User.BindEmailIdentity)
 			user.DELETE("/account-bindings/:provider", h.User.UnbindIdentity)

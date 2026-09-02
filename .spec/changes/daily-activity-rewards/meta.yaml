@@ -1,0 +1,11 @@
+id: daily-activity-rewards
+stage: implementation
+deliveryShape: single-change
+implementation-mode: tdd
+artifacts:
+  proposal: {status: present}
+  design: {status: present}
+  systemTests: {status: present}
+  unitTests: {status: present}
+  tasks: {status: present}
+  metadata: {status: present}

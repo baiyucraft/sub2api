@@ -225,6 +225,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled:              "false",
+		SettingKeyDailyActivityConfig:           `{"enabled":true,"daily_gift_threshold":10,"daily_gift_min_reward":0,"daily_gift_max_reward":0.5,"recharge_draw_threshold":50,"recharge_draw_min_reward":0.5,"recharge_draw_max_reward":1,"consumption_draw_threshold":50,"consumption_draw_min_reward":0.5,"consumption_draw_max_reward":1,"invite_qualification_amount":10,"invite_draw_required_count":5,"invite_draw_min_reward":5,"invite_draw_max_reward":10}`,
 		SettingKeyAffiliateAdminRechargeEnabled: strconv.FormatBool(AdminRechargeRebateEnabledDefault),
 
 		// 风控中心功能（默认关闭，显式启用）
@@ -859,6 +860,13 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"
+	result.DailyActivityConfig = DefaultDailyActivityConfig()
+	if raw := strings.TrimSpace(settings[SettingKeyDailyActivityConfig]); raw != "" {
+		var cfg DailyActivityConfig
+		if json.Unmarshal([]byte(raw), &cfg) == nil && ValidateDailyActivityConfig(cfg) == nil {
+			result.DailyActivityConfig = cfg
+		}
+	}
 
 	// 风控中心功能（默认关闭，严格 true 才启用）
 	result.RiskControlEnabled = settings[SettingKeyRiskControlEnabled] == "true"

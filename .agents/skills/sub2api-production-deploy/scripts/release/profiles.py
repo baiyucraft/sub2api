@@ -576,6 +576,7 @@ PROFILES["245"] = {
         "257_group_force_openai_fast.sql",
         "258_group_reasoning_effort_over_limit.sql",
         "259_group_free_openai_fast.sql",
+        "260_daily_activity_rewards.sql",
     ],
     "gate_schema": 2,
     "release_policy": {
