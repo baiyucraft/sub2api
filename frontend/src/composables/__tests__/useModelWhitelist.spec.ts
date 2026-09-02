@@ -37,6 +37,8 @@ describe('useModelWhitelist', () => {
   })
 
   it('Claude 模型列表包含新发布的 Claude 模型', () => {
+    expect(getModelsByPlatform('claude')).toContain('claude-fable-5-1')
+    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5-1')
     expect(getModelsByPlatform('claude')).toContain('claude-fable-5')
     expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
     expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
@@ -58,7 +60,7 @@ describe('useModelWhitelist', () => {
   it('国产平台使用各自模型目录且未知平台不回退 Claude', () => {
     expect(getModelsByPlatform('kimi')).toContain('kimi-k2')
     expect(getModelsByPlatform('zhipu')).toContain('glm-4.6')
-    expect(getModelsByPlatform('deepseek')).toContain('deepseek-reasoner')
+    expect(getModelsByPlatform('deepseek')).toContain('deepseek-v4-pro')
     expect(getModelsByPlatform('kimi')).not.toContain('claude-sonnet-4-6')
     expect(getModelsByPlatform('zhipu')).not.toContain('claude-sonnet-4-6')
     expect(getModelsByPlatform('deepseek')).not.toContain('claude-sonnet-4-6')
