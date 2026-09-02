@@ -549,7 +549,7 @@ PROFILES["243"] = {
 }
 
 # Profile 243 is retained as an immutable historical release contract.  The
-# current fork VERSION is 0.1.185-baiyu, so the next release profile is 244.
+# fork VERSION 0.1.185-baiyu therefore uses profile 244.
 PROFILES["244"] = {
     **{key: PROFILES["243"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
     "name": "244",
@@ -563,7 +563,28 @@ PROFILES["244"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "244"
+# Profile 244 is retained as an immutable historical release contract.  The
+# official 0.2.0 merge appends four upstream migrations under the next locally
+# available numbers because upstream 232/233 conflict with released fork IDs.
+PROFILES["245"] = {
+    **{key: PROFILES["244"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "245",
+    "version": "0.2.0-baiyu",
+    "parent": "244",
+    "new_migrations": [
+        "256_channel_cache_write_1h_pricing.sql",
+        "257_group_force_openai_fast.sql",
+        "258_group_reasoning_effort_over_limit.sql",
+        "259_group_free_openai_fast.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "245"
 
 
 def get_profile(name: str) -> dict:

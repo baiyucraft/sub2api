@@ -1111,7 +1111,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         preflight = self.script("preflight.sh")
         switch = self.script("switch.sh")
-        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244"}', production)
+        self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245"}', production)
         self.assertIn("$profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237", switch)
         self.assertIn("migration_206_status", production)
         self.assertIn("migration_206_status", preflight)
@@ -1171,7 +1171,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
     def test_profile_213_reuses_profile_212_migration_and_schema_evidence(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         switch = self.script("switch.sh")
-        self.assertIn('{"212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244"}', production)
+        self.assertIn('{"212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245"}', production)
         self.assertIn("$profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237", switch)
         self.assertNotIn("migration_213_status", production)
         self.assertNotIn("migration_213_status", self.script("preflight.sh"))
@@ -1224,7 +1224,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("precise_data_plan_query", assertion)
         self.assertIn("release_profile=${release_profile:-$profile}", assertion)
         self.assertIn("$profile == 240 || $profile == 241 || $profile == 242 || $profile == 243", assertion)
-        self.assertIn("if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 || $release_profile == 243 || $release_profile == 244 ]]; then", assertion)
+        self.assertIn("if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 || $release_profile == 243 || $release_profile == 244 || $release_profile == 245 ]]; then", assertion)
         self.assertNotIn("if [[ $profile == 240 ]]; then", assertion)
         self.assertIn("ROUND(k.source_rate_multiplier * COALESCE(c.recharge_rate, 1), 10)", assertion)
         self.assertGreater(switch.index('migration-195-assert.sh" postflight_db'), switch.index('docker compose "${candidate_compose_args[@]}"'))
@@ -1464,7 +1464,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
 
     def test_profile_238_switch_accepts_all_migration_237_postflight_output_fields(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
-        condition = 'if getattr(self, "profile", {}).get("name") in {"238", "239", "240", "241", "242", "243", "244"}:'
+        condition = 'if getattr(self, "profile", {}).get("name") in {"238", "239", "240", "241", "242", "243", "244", "245"}:'
         switch_allowlist = production[
             production.index(condition):
             production.index("try:", production.index(condition))
@@ -1479,7 +1479,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
 
     def test_profile_239_switch_accepts_current_postflight_output_fields(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
-        condition = 'if getattr(self, "profile", {}).get("name") in {"239", "240", "241", "242", "243", "244"}:'
+        condition = 'if getattr(self, "profile", {}).get("name") in {"239", "240", "241", "242", "243", "244", "245"}:'
         switch_allowlist = production[
             production.index(condition):
             production.index("try:", production.index(condition))
@@ -1512,7 +1512,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
 
     def test_profile_240_switch_accepts_new_observation_and_precise_rate_fields(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
-        condition = 'if getattr(self, "profile", {}).get("name") in {"240", "241", "242", "243", "244"}:'
+        condition = 'if getattr(self, "profile", {}).get("name") in {"240", "241", "242", "243", "244", "245"}:'
         switch_allowlist = production[
             production.index(condition):
             production.index("try:", production.index(condition))
@@ -1539,11 +1539,11 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('migration-240-status', observation)
         self.assertIn('migration-241-status', precise_rate)
 
-    def test_profile_244_is_health_only_and_does_not_use_canary_credentials(self) -> None:
+    def test_profile_245_is_health_only_and_does_not_use_canary_credentials(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         preflight = (DEPLOY_ROOT / "maintenance" / "release" / "preflight.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        self.assertIn('[[ "$profile" == 244 ]]', validator)
+        self.assertIn('[[ "$profile" == 245 ]]', validator)
         self.assertIn('canary_verified:"not_checked"', validator)
         self.assertNotIn("candidate-canary.json", validator)
         self.assertNotIn("key='admin_api_key'", validator)
@@ -1557,14 +1557,16 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertNotIn("canary-api-key", v2)
         self.assertNotIn("CANARY_KEY_FILE", preflight)
         self.assertNotIn("canary-api-key", preflight)
-        self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["244"]'):])
+        self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["245"]'):])
 
-    def test_profile_244_version_contract_matches_vm_validator(self) -> None:
+    def test_profile_245_version_contract_matches_vm_validator(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        profile_block = profiles[profiles.index('PROFILES["244"]'):]
-        self.assertIn('"version": "0.1.185-baiyu"', profile_block)
-        self.assertIn('[[ "$version" == 0.1.185-baiyu ]]', validator)
+        profile_block = profiles[profiles.index('PROFILES["245"]'):]
+        self.assertIn('"version": "0.2.0-baiyu"', profile_block)
+        self.assertIn('[[ "$version" == 0.2.0-baiyu ]]', validator)
+        self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 244 ]]', validator)
+        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 4 ]]', validator)
 
     def test_profile_242_switch_uses_gate_v2_without_legacy_state_files(self) -> None:
         switch = self.script("switch.sh")

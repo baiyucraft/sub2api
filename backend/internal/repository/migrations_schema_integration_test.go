@@ -74,8 +74,10 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireConstraintDefinitionContains(t, tx, "upstream_keys", "upstream_keys_platform_detection_status_valid", "platform_detection_status", "'legacy'", "'detected'", "'unresolved'", "'ambiguous'", "'conflict'")
 	requireIndex(t, tx, "upstream_keys", "idx_upstream_keys_config_missing")
 
-	// groups: OpenAI Live 默认关闭，管理员显式开启后才可访问。
+	// groups: OpenAI Live 与 Fast 强制策略都默认关闭，管理员显式开启后才生效。
 	requireColumn(t, tx, "groups", "allow_live", "boolean", 0, false)
+	requireColumn(t, tx, "groups", "force_openai_fast", "boolean", 0, false)
+	requireColumn(t, tx, "groups", "free_openai_fast", "boolean", 0, false)
 
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)

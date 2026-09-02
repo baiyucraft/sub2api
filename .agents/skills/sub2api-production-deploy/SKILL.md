@@ -14,7 +14,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 - 生产旧容器在 candidate 构建、传输和验证完成前保持运行。
 - 正常应用发布使用 active/candidate 双槽：候选先在备用 loopback 端口启动，Nginx 通过原子 upstream 文件和 graceful reload 切流，旧容器最长排空 60 分钟后再停止。排空超时或连接状态不确定时优先把路由 reload 回旧槽，禁止强杀旧长连接。协调数据恢复仍允许停机。
 - 应用发布身份必须是完整 40 位 commit SHA、唯一 full-SHA tag 和不可变 `candidate_image_id`；运维资产至少记录完整 commit SHA。禁止用 `latest`、`main` 或短版本作为应用身份。
-- Fork 版本号必须直接继承官方源版本并追加 `-baiyu`，不自行补写或重复前缀：官方源 `VERSION=0.1.177` 时 fork 版本为 `0.1.177-baiyu`。每当 fork `VERSION` 相对当前 release profile 发生变化，必须新增下一个连续整数 profile，并将 `parent` 指向此前当前 profile；即使没有新增 migration 也要创建新 profile，`new_migrations=[]`。历史 profile 的版本、parent、Gate、candidate、migration 与 checksum 证据保持不可变，禁止直接改写旧 profile 追随新版本。例如 profile 242 固定对应 `0.1.183-baiyu`，`0.1.184-baiyu` 使用 profile 243，后续 `0.1.185-baiyu` 使用 profile 244。
+- Fork 版本号必须直接继承官方源版本并追加 `-baiyu`，不自行补写或重复前缀：官方源 `VERSION=0.1.177` 时 fork 版本为 `0.1.177-baiyu`。每当 fork `VERSION` 相对当前 release profile 发生变化，必须新增下一个连续整数 profile，并将 `parent` 指向此前当前 profile；即使没有新增 migration 也要创建新 profile，`new_migrations=[]`。历史 profile 的版本、parent、Gate、candidate、migration 与 checksum 证据保持不可变，禁止直接改写旧 profile 追随新版本。当前连续映射为 profile 242 → `0.1.183-baiyu`、243 → `0.1.184-baiyu`、244 → `0.1.185-baiyu`、245 → `0.2.0-baiyu`。
 - 执行 `doctor`、`bootstrap-production` 或 `deploy` 前，必须用 `git rev-parse --verify <commit>^{commit}` 得到实际完整 SHA，并将同一个 40 位小写值传入所有阶段；禁止手工复制、截断或补写 SHA。
 - 后端、数据库、迁移、fork/upstream、共享契约、配置语义、混合改动和不确定改动必须经过 VM Gate 的 `sub2api-dev`；本机可以运行跨平台静态/unit 门禁，但不得启动本地后端作为最终联调服务。
 - 只有最终 diff 严格限定在 `frontend/`，且只包含 UI、样式、静态资源或前端测试时，才允许不导入新的 candidate 到 VM；浏览器 smoke 仍应把 API 代理到已验证的 VM Gate 服务。
@@ -160,7 +160,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - 核对“输入、状态、证据、恢复、最终验真”五个面：完整 commit/origin、candidate image、migration 状态与 checksum、backup/restore point、active claim/committed marker、运行 image、`verify-result` 和 post-deploy `doctor` 必须使用同一 release 身份。
 - 任何代码或发布资产修复都必须重新生成完整 40 位 commit、Gate、candidate archive/image 和唯一 release ID；禁止用旧 Gate、旧 candidate、旧 checksum 或历史成功日志证明新代码。
 - 若失败发生在远端命令、SSH、测试断言或输出解析之后，先按结构化状态做 reconciliation，再决定是否继续；不得以“可能没有提交”或“工具超时”作为重跑依据。
-- Gate v2 当前 profile（现为 profile 244）的升级合同是 health-only；历史 profile 242-243 保留相同合同用于受控恢复/审计。只验证容器 health、应用 `/health` 和路由可达性；不得读取账号池、Canary/API key、Bearer 凭据，不发送模型/upstream 请求，不生成 usage attribution。`probe_*` 只有在明确表示隔离 DB/Redis/容器健康时才可使用。
+- Gate v2 当前 profile（现为 profile 245）的升级合同是 health-only；历史 profile 242-244 保留相同合同用于受控恢复/审计。只验证容器 health、应用 `/health` 和路由可达性；不得读取账号池、Canary/API key、Bearer 凭据，不发送模型/upstream 请求，不生成 usage attribution。`probe_*` 只有在明确表示隔离 DB/Redis/容器健康时才可使用。
 - 关联面审计完成后，至少运行对应 release 测试、完整 release suite、`git diff --check`、shell 语法检查，并重新执行适用的 `doctor`、`verify-result` 和 post-deploy doctor。
 
 ### 一次性修复门禁
