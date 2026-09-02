@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ type UserHandler struct {
 	emailCache            service.EmailCache
 	affiliateService      *service.AffiliateService
 	userPlatformQuotaRepo service.UserPlatformQuotaRepository
+	dailyActivityService  *service.DailyActivityService
 }
 
 // NewUserHandler creates a new UserHandler
@@ -32,7 +34,12 @@ func NewUserHandler(
 	emailCache service.EmailCache,
 	affiliateService *service.AffiliateService,
 	userPlatformQuotaRepo service.UserPlatformQuotaRepository,
+	dailyActivityServices ...*service.DailyActivityService,
 ) *UserHandler {
+	var dailyActivityService *service.DailyActivityService
+	if len(dailyActivityServices) > 0 {
+		dailyActivityService = dailyActivityServices[0]
+	}
 	return &UserHandler{
 		userService:           userService,
 		authService:           authService,
@@ -40,7 +47,121 @@ func NewUserHandler(
 		emailCache:            emailCache,
 		affiliateService:      affiliateService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		dailyActivityService:  dailyActivityService,
 	}
+}
+
+// GetDailyActivitySummary returns server-calculated activity progress.
+func (h *UserHandler) GetDailyActivitySummary(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.dailyActivityService == nil {
+		response.InternalError(c, "Daily activities unavailable")
+		return
+	}
+	data, err := h.dailyActivityService.Summary(c.Request.Context(), subject.UserID, time.Now())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, data)
+}
+
+func (h *UserHandler) GetDailyActivityRewards(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.dailyActivityService == nil {
+		response.InternalError(c, "Daily activities unavailable")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	activityType := strings.TrimSpace(c.Query("type"))
+	data, err := h.dailyActivityService.Rewards(c.Request.Context(), subject.UserID, page, size, activityType)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, data)
+}
+
+type DailyActivityDrawRequest struct {
+	ActivityType   string `json:"activity_type"`
+	Type           string `json:"type"`
+	Count          int    `json:"count"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+func (h *UserHandler) OpenDailyActivityGift(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.dailyActivityService == nil {
+		response.InternalError(c, "Daily activities unavailable")
+		return
+	}
+	key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if key == "" {
+		var req struct {
+			IdempotencyKey string `json:"idempotency_key"`
+		}
+		_ = c.ShouldBindJSON(&req)
+		key = req.IdempotencyKey
+	}
+	reward, err := h.dailyActivityService.OpenDailyGift(c.Request.Context(), subject.UserID, key, time.Now())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	summary, summaryErr := h.dailyActivityService.Summary(c.Request.Context(), subject.UserID, time.Now())
+	if summaryErr != nil {
+		response.ErrorFrom(c, summaryErr)
+		return
+	}
+	response.Success(c, gin.H{"reward": reward, "summary": summary})
+}
+
+func (h *UserHandler) DrawDailyActivity(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.dailyActivityService == nil {
+		response.InternalError(c, "Daily activities unavailable")
+		return
+	}
+	var req DailyActivityDrawRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(req.ActivityType) == "" {
+		req.ActivityType = req.Type
+	}
+	key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if key == "" {
+		key = req.IdempotencyKey
+	}
+	rewards, err := h.dailyActivityService.Draw(c.Request.Context(), subject.UserID, req.ActivityType, req.Count, key, time.Now())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	summary, summaryErr := h.dailyActivityService.Summary(c.Request.Context(), subject.UserID, time.Now())
+	if summaryErr != nil {
+		response.ErrorFrom(c, summaryErr)
+		return
+	}
+	response.Success(c, gin.H{"rewards": rewards, "summary": summary})
 }
 
 // GetMyPlatformQuotas GET /user/platform-quotas

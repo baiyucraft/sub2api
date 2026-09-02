@@ -171,6 +171,65 @@ export interface AffiliateTransferResponse {
   balance: number
 }
 
+export type UserActivityType = 'recharge' | 'consumption' | 'invite'
+export type UserActivityRewardType = 'daily_gift' | 'recharge_draw' | 'spend_draw' | 'invite_draw'
+
+export interface UserActivityProgress {
+  amount: number
+  threshold: number
+  available_draws: number
+  lifetime_draws?: number
+}
+
+export interface UserActivityDailyGift {
+  eligible: boolean
+  claimed: boolean
+  amount: number
+  threshold: number
+}
+
+export interface UserActivityInviteProgress {
+  qualified_count: number
+  required_count: number
+  available_draws: number
+  lifetime_count?: number
+}
+
+export interface UserActivitySummary {
+  enabled: boolean
+  balance?: number
+  activity_date: string
+  timezone: string
+  next_reset_at: string
+  daily_gift: UserActivityDailyGift
+  recharge: UserActivityProgress
+  consumption: UserActivityProgress
+  invite: UserActivityInviteProgress
+}
+
+export interface UserActivityReward {
+  id: number | string
+  type: UserActivityRewardType
+  amount: number
+  created_at: string
+  period_date?: string
+  source?: string
+}
+
+export interface UserActivityRewardsResponse {
+  items: UserActivityReward[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface UserActivityActionResponse {
+  reward?: UserActivityReward
+  rewards?: UserActivityReward[]
+  summary?: UserActivitySummary
+}
+
+
 export interface SendVerifyCodeRequest {
   email: string
   turnstile_token?: string

@@ -457,6 +457,14 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
+	if err := ValidateDailyActivityConfig(settings.DailyActivityConfig); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_DAILY_ACTIVITY_CONFIG", err.Error())
+	}
+	dailyActivityJSON, err := json.Marshal(settings.DailyActivityConfig)
+	if err != nil {
+		return nil, fmt.Errorf("marshal daily activity config: %w", err)
+	}
+	updates[SettingKeyDailyActivityConfig] = string(dailyActivityJSON)
 
 	// 风控中心功能开关
 	updates[SettingKeyRiskControlEnabled] = strconv.FormatBool(settings.RiskControlEnabled)

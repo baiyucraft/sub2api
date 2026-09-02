@@ -265,6 +265,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/activities/daily',
+    name: 'DailyActivities',
+    component: () => import('@/views/user/DailyActivitiesView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: false, title: 'Daily Activities', titleKey: 'activities.title', descriptionKey: 'activities.description' }
+  },
+  {
     path: '/available-channels',
     name: 'UserAvailableChannels',
     component: () => import('@/views/user/AvailableChannelsView.vue'),

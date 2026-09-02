@@ -384,6 +384,11 @@ func (s *PaymentService) markCompleted(ctx context.Context, o *dbent.PaymentOrde
 		})
 		s.dispatchPaymentFulfillmentNotification(o, auditAction)
 	}
+	if auditAction == "RECHARGE_SUCCESS" && s.dailyActivityService != nil {
+		if err := s.dailyActivityService.SyncInvitationMilestoneForInvitee(ctx, o.UserID, o.ID); err != nil {
+			slog.Warn("sync activity invitation milestone after recharge failed", "order_id", o.ID, "user_id", o.UserID, "error", err)
+		}
+	}
 	return nil
 }
 

@@ -198,6 +198,7 @@ type PaymentService struct {
 	resumeService            *PaymentResumeService
 	affiliateService         *AffiliateService
 	notificationEmailService *NotificationEmailService
+	dailyActivityService     *DailyActivityService
 }
 
 func NewPaymentService(entClient *dbent.Client, registry *payment.Registry, loadBalancer payment.LoadBalancer, redeemService *RedeemService, subscriptionSvc *SubscriptionService, configService *PaymentConfigService, userRepo UserRepository, groupRepo GroupRepository, affiliateService *AffiliateService) *PaymentService {
@@ -208,6 +209,14 @@ func NewPaymentService(entClient *dbent.Client, registry *payment.Registry, load
 
 func (s *PaymentService) SetNotificationEmailService(notificationEmailService *NotificationEmailService) {
 	s.notificationEmailService = notificationEmailService
+}
+
+// SetDailyActivityService attaches the activity milestone sink without changing
+// the constructor signature used by existing payment tests.
+func (s *PaymentService) SetDailyActivityService(activityService *DailyActivityService) {
+	if s != nil {
+		s.dailyActivityService = activityService
+	}
 }
 
 // --- Provider Registry ---
