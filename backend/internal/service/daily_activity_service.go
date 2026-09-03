@@ -143,6 +143,39 @@ func (s *DailyActivityService) rechargeAmount(ctx context.Context, q activityQue
 	return amount, nil
 }
 
+func (s *DailyActivityService) cumulativeRechargeDrawCredits(ctx context.Context, q activityQueryRower, userID int64, start, end time.Time, threshold float64) (int64, error) {
+	query := fmt.Sprintf(`
+SELECT COALESCE(SUM(FLOOR(daily.amount / $4)), 0)::bigint
+FROM (
+  SELECT (event_at AT TIME ZONE 'Asia/Shanghai')::date AS activity_date,
+         SUM(amount) AS amount
+  FROM (%s) recharge_events
+  GROUP BY (event_at AT TIME ZONE 'Asia/Shanghai')::date
+) daily`, s.activityRechargeSourcesSQL("$1", "$2", "$3"))
+	var credits int64
+	if err := q.QueryRowContext(ctx, query, userID, start, end, threshold).Scan(&credits); err != nil {
+		return 0, err
+	}
+	return credits, nil
+}
+
+func (s *DailyActivityService) cumulativeSpendDrawCredits(ctx context.Context, q activityQueryRower, userID int64, start, end time.Time, threshold float64) (int64, error) {
+	const query = `
+SELECT COALESCE(SUM(FLOOR(daily.amount / $4)), 0)::bigint
+FROM (
+  SELECT (created_at AT TIME ZONE 'Asia/Shanghai')::date AS activity_date,
+         SUM(GREATEST(actual_cost, 0)) AS amount
+  FROM usage_logs
+  WHERE user_id=$1 AND created_at >= $2 AND created_at < $3
+  GROUP BY (created_at AT TIME ZONE 'Asia/Shanghai')::date
+) daily`
+	var credits int64
+	if err := q.QueryRowContext(ctx, query, userID, start, end, threshold).Scan(&credits); err != nil {
+		return 0, err
+	}
+	return credits, nil
+}
+
 // activityRechargeSourcesSQL returns the monetary events which have the same
 // qualification semantics as the invitation rebate flow. Payment orders are
 // included for both balance and subscription purchases. A successful payment
@@ -417,34 +450,51 @@ func (s *DailyActivityService) SyncCredits(ctx context.Context, userID int64, no
 		return ErrActivityDisabled
 	}
 	day, _ := activityDay(now)
-	start, end := activityPeriod(day)
-	start = laterTime(start, s.startedAt(ctx))
+	dayStart, end := activityPeriod(day)
+	start := s.startedAt(ctx)
+	// A missing activation setting must never make a fallback deployment scan
+	// pre-activity history. Preserve the old safe behavior and start at today.
+	if !start.After(time.Unix(0, 0).UTC()) {
+		start = dayStart
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	var recharge, spend, invite int64
-	rechargeSQL := fmt.Sprintf(`SELECT FLOOR(COALESCE(SUM(amount),0)/$4) FROM (%s) recharge`, s.activityRechargeSourcesSQL("$1", "$2", "$3"))
-	if err = tx.QueryRowContext(ctx, rechargeSQL, userID, start, end, cfg.RechargeDrawThreshold).Scan(&recharge); err != nil {
+	if recharge, err = s.cumulativeRechargeDrawCredits(ctx, tx, userID, start, end, cfg.RechargeDrawThreshold); err != nil {
 		return err
 	}
-	if err = tx.QueryRowContext(ctx, `SELECT FLOOR(COALESCE(SUM(GREATEST(actual_cost,0)),0)/$4) FROM usage_logs WHERE user_id=$1 AND created_at >= $2 AND created_at < $3`, userID, start, end, cfg.ConsumptionDrawThreshold).Scan(&spend); err != nil {
+	if spend, err = s.cumulativeSpendDrawCredits(ctx, tx, userID, start, end, cfg.ConsumptionDrawThreshold); err != nil {
 		return err
 	}
 	if err = tx.QueryRowContext(ctx, `SELECT FLOOR(COUNT(*)/$2) FROM activity_invitation_milestones WHERE inviter_id=$1`, userID, cfg.InviteDrawRequiredCount).Scan(&invite); err != nil {
 		return err
 	}
-	for typ, total := range map[string]int64{activityRechargeDraw: recharge, activitySpendDraw: spend, activityInviteDraw: invite} {
-		var current int64
-		if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(credit_index)+1,0) FROM activity_draw_credits WHERE user_id=$1 AND activity_type=$2`, userID, typ).Scan(&current); err != nil {
+	var lockedUserID int64
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
+		return err
+	}
+	creditTargets := []struct {
+		typ   string
+		total int64
+	}{
+		{typ: activityRechargeDraw, total: recharge},
+		{typ: activitySpendDraw, total: spend},
+		{typ: activityInviteDraw, total: invite},
+	}
+	for _, target := range creditTargets {
+		typ, total := target.typ, target.total
+		var existing, nextIndex int64
+		if err = tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(credit_index)+1,0) FROM activity_draw_credits WHERE user_id=$1 AND activity_type=$2`, userID, typ).Scan(&existing, &nextIndex); err != nil {
 			return err
 		}
-		for current < total {
-			if _, err = tx.ExecContext(ctx, `INSERT INTO activity_draw_credits(user_id,activity_type,credit_index,source) VALUES($1,$2,$3,'threshold') ON CONFLICT DO NOTHING`, userID, typ, current); err != nil {
+		for missing := total - existing; missing > 0; missing-- {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO activity_draw_credits(user_id,activity_type,credit_index,source) VALUES($1,$2,$3,'threshold') ON CONFLICT DO NOTHING`, userID, typ, nextIndex); err != nil {
 				return err
 			}
-			current++
+			nextIndex++
 		}
 	}
 	return tx.Commit()
