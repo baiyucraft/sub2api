@@ -171,10 +171,11 @@ production_migration_status=verified
 {migration_checks}
 test -r /etc/nginx/nginx.conf && test -r /etc/letsencrypt/live/{profile['public_domain']}/fullchain.pem
 test -f /root/.ssh/sub2api_backup_upload && test ! -L /root/.ssh/sub2api_backup_upload
-set +e
-ssh -i /root/.ssh/sub2api_backup_upload -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o LogLevel=ERROR sub2api-backup@47.85.205.94 doctor-probe </dev/null >/dev/null 2>&1
-backup_ssh_code=$?
-set -e
+if ssh -i /root/.ssh/sub2api_backup_upload -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o LogLevel=ERROR sub2api-backup@47.85.205.94 doctor-probe </dev/null >/dev/null 2>&1; then
+  backup_ssh_code=0
+else
+  backup_ssh_code=$?
+fi
 [[ $backup_ssh_code != 255 ]]
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{{print $4}}' || df -PB1 / | awk 'NR==2{{print $4}}')
 test "$free_bytes" -ge {profile['minimum_rack_free_bytes']}
