@@ -749,6 +749,7 @@ export default {
     availableDraws: '可抽次数：{count}',
     drawOne: '抽一次',
     drawAll: '全部抽取',
+    goRecharge: '去充值',
     drawing: '抽取中...',
     rules: '奖励和资格由服务端计算，活动记录可审计。',
     dailyGift: { title: '每日充值礼包', description: '今日充值达到 {amount} 即可领取一次', claimed: '今日已领取', eligible: '可以领取', unavailable: '完成充值后可领取', button: '领取礼包' },

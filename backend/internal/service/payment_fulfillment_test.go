@@ -668,6 +668,12 @@ func TestFulfillmentLeaseVersionRejectsStaleWorker(t *testing.T) {
 	require.NoError(t, svc.markCompleted(ctx, order, secondLease, "SUBSCRIPTION_SUCCESS"))
 }
 
+func TestShouldSyncDailyActivityInvitationMilestone(t *testing.T) {
+	require.True(t, shouldSyncDailyActivityInvitationMilestone("RECHARGE_SUCCESS"))
+	require.True(t, shouldSyncDailyActivityInvitationMilestone("SUBSCRIPTION_SUCCESS"))
+	require.False(t, shouldSyncDailyActivityInvitationMilestone("PAYMENT_FAILED"))
+}
+
 func TestExecuteBalanceFulfillmentRecoversAfterRedeemWithoutCreditingAgain(t *testing.T) {
 	ctx := context.Background()
 	client := newPaymentConfigServiceTestClient(t)
