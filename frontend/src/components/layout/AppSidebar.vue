@@ -349,6 +349,10 @@ const GiftIcon = {
     )
 }
 
+const DailyActivityEmojiIcon = {
+  render: () => h('span', { class: 'text-[1.35rem] leading-none', 'aria-hidden': 'true' }, '🎁')
+}
+
 const UserIcon = {
   render: () =>
     h(
@@ -759,7 +763,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
     { path: '/affiliate', label: t('nav.affiliate'), icon: UsersIcon, hideInSimpleMode: true, featureFlag: flagAffiliate },
-    { path: '/activities/daily', label: t('nav.dailyActivities'), icon: GiftIcon, hideInSimpleMode: true },
+    { path: '/activities/daily', label: t('nav.dailyActivities'), icon: DailyActivityEmojiIcon, hideInSimpleMode: true },
     { path: '/profile', label: t('nav.profile'), icon: UserIcon },
     ...customMenuItemsForUser.value.map((item): NavItem => ({
       path: `/custom/${item.id}`,

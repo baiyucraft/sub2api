@@ -130,6 +130,19 @@ func laterTime(left, right time.Time) time.Time {
 	return left
 }
 
+type activityQueryRower interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func (s *DailyActivityService) rechargeAmount(ctx context.Context, q activityQueryRower, userID int64, start, end time.Time) (float64, error) {
+	rechargeSQL := fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) FROM (%s) recharge`, s.activityRechargeSourcesSQL("$1", "$2", "$3"))
+	var amount float64
+	if err := q.QueryRowContext(ctx, rechargeSQL, userID, start, end).Scan(&amount); err != nil {
+		return 0, err
+	}
+	return amount, nil
+}
+
 // activityRechargeSourcesSQL returns the monetary events which have the same
 // qualification semantics as the invitation rebate flow. Payment orders are
 // included for both balance and subscription purchases. A successful payment
@@ -237,18 +250,25 @@ type ActivityProgress struct {
 	Threshold      float64 `json:"threshold"`
 	AvailableDraws int64   `json:"available_draws"`
 	LifetimeDraws  int64   `json:"lifetime_draws,omitempty"`
+	RewardMin      float64 `json:"reward_min"`
+	RewardMax      float64 `json:"reward_max"`
 }
 type DailyGiftProgress struct {
 	Eligible  bool    `json:"eligible"`
 	Claimed   bool    `json:"claimed"`
 	Amount    float64 `json:"amount"`
 	Threshold float64 `json:"threshold"`
+	RewardMin float64 `json:"reward_min"`
+	RewardMax float64 `json:"reward_max"`
 }
 type InviteProgress struct {
-	QualifiedCount int64 `json:"qualified_count"`
-	RequiredCount  int64 `json:"required_count"`
-	AvailableDraws int64 `json:"available_draws"`
-	LifetimeCount  int64 `json:"lifetime_count,omitempty"`
+	QualifiedCount      int64   `json:"qualified_count"`
+	RequiredCount       int64   `json:"required_count"`
+	AvailableDraws      int64   `json:"available_draws"`
+	LifetimeCount       int64   `json:"lifetime_count,omitempty"`
+	QualificationAmount float64 `json:"qualification_amount"`
+	RewardMin           float64 `json:"reward_min"`
+	RewardMax           float64 `json:"reward_max"`
 }
 
 type DailyActivityReward struct {
@@ -316,10 +336,11 @@ func (s *DailyActivityService) Summary(ctx context.Context, userID int64, now ti
 	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(balance,0) FROM users WHERE id=$1 AND deleted_at IS NULL`, userID).Scan(&balance); err != nil {
 		return nil, err
 	}
-	rechargeSQL := fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) FROM (%s) recharge`, s.activityRechargeSourcesSQL("$1", "$2", "$3"))
-	if err := s.db.QueryRowContext(ctx, rechargeSQL, userID, start, end).Scan(&recharge); err != nil {
+	rechargeAmount, err := s.rechargeAmount(ctx, s.db, userID, start, end)
+	if err != nil {
 		return nil, err
 	}
+	recharge = rechargeAmount
 	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(GREATEST(actual_cost,0)),0) FROM usage_logs WHERE user_id=$1 AND created_at >= $2 AND created_at < $3`, userID, start, end).Scan(&spend); err != nil {
 		return nil, err
 	}
@@ -342,10 +363,10 @@ func (s *DailyActivityService) Summary(ctx context.Context, userID int64, now ti
 	}
 	next := day.AddDate(0, 0, 1).Format(time.RFC3339)
 	return &DailyActivitySummary{Enabled: cfg.Enabled, Balance: balance, ActivityDate: date, Timezone: "Asia/Shanghai", NextResetAt: next,
-		DailyGift:   DailyGiftProgress{Eligible: recharge >= cfg.DailyGiftThreshold && claimed == 0, Claimed: claimed > 0, Threshold: cfg.DailyGiftThreshold},
-		Recharge:    ActivityProgress{Amount: recharge, Threshold: cfg.RechargeDrawThreshold, AvailableDraws: rechargeCredits},
-		Consumption: ActivityProgress{Amount: spend, Threshold: cfg.ConsumptionDrawThreshold, AvailableDraws: spendCredits},
-		Invite:      InviteProgress{QualifiedCount: qualified, RequiredCount: cfg.InviteDrawRequiredCount, AvailableDraws: inviteCredits, LifetimeCount: qualified}}, nil
+		DailyGift:   DailyGiftProgress{Eligible: recharge >= cfg.DailyGiftThreshold && claimed == 0, Claimed: claimed > 0, Threshold: cfg.DailyGiftThreshold, RewardMin: cfg.DailyGiftMinReward, RewardMax: cfg.DailyGiftMaxReward},
+		Recharge:    ActivityProgress{Amount: recharge, Threshold: cfg.RechargeDrawThreshold, AvailableDraws: rechargeCredits, RewardMin: cfg.RechargeDrawMinReward, RewardMax: cfg.RechargeDrawMaxReward},
+		Consumption: ActivityProgress{Amount: spend, Threshold: cfg.ConsumptionDrawThreshold, AvailableDraws: spendCredits, RewardMin: cfg.ConsumptionDrawMinReward, RewardMax: cfg.ConsumptionDrawMaxReward},
+		Invite:      InviteProgress{QualifiedCount: qualified, RequiredCount: cfg.InviteDrawRequiredCount, AvailableDraws: inviteCredits, LifetimeCount: qualified, QualificationAmount: cfg.InviteQualificationAmount, RewardMin: cfg.InviteDrawMinReward, RewardMax: cfg.InviteDrawMaxReward}}, nil
 }
 
 // SyncInvitationMilestones derives one permanent qualification per invitee from
@@ -472,7 +493,7 @@ func (s *DailyActivityService) OpenDailyGift(ctx context.Context, userID int64, 
 	}
 	defer tx.Rollback()
 	var recharge float64
-	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount),0) FROM payment_orders WHERE user_id=$1 AND status='COMPLETED' AND paid_at >= $2 AND paid_at < $3 AND order_type='balance'`, userID, start, end).Scan(&recharge); err != nil {
+	if recharge, err = s.rechargeAmount(ctx, tx, userID, start, end); err != nil {
 		return nil, err
 	}
 	if recharge < cfg.DailyGiftThreshold {

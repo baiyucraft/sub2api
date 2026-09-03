@@ -734,11 +734,11 @@ export default {
     resetAt: 'Progress resets daily at {time}',
     countdown: 'Resets in {time}',
     balance: 'Balance: {amount}',
-    refresh: 'Refresh', loading: 'Loading activities...', loadFailed: 'Failed to load activity data', rewardClaimed: 'Reward credited: {amount}', actionFailed: 'Activity action failed', copyLink: 'Copy invite link', linkCopied: 'Invite link copied', progress: 'Progress', availableDraws: 'Available draws: {count}', drawOne: 'Draw once', drawAll: 'Draw all', goRecharge: 'Recharge now', drawing: 'Drawing...', rules: 'Eligibility and rewards are calculated server-side and activity records are auditable.',
+    refresh: 'Refresh', loading: 'Loading activities...', loadFailed: 'Failed to load activity data', rewardClaimed: 'Reward credited: {amount}', actionFailed: 'Activity action failed', copyLink: 'Copy invite link', linkCopied: 'Invite link copied', progress: 'Progress', availableDraws: 'Available draws: {count}', drawOne: 'Draw once', drawAll: 'Draw all', goRecharge: 'Recharge now', drawing: 'Drawing...', rules: 'Eligibility and rewards are calculated server-side and activity records are auditable.', rewardRange: 'Reward per draw: {range}',
     dailyGift: { title: 'Daily Recharge Gift', description: 'Recharge {amount} today to claim once', claimed: 'Claimed today', eligible: 'Ready to claim', unavailable: 'Recharge to unlock', button: 'Claim gift' },
     recharge: { title: 'Recharge Draw', description: 'Earn one draw for each {amount} recharged today', amount: 'Today recharge' },
     consumption: { title: 'Usage Draw', description: 'Earn one draw for each {amount} spent today', amount: 'Today usage' },
-    invite: { title: 'Invite Milestone Draw', description: 'Each invitee counts once after meeting the activity recharge threshold', qualified: 'Qualified invites', requirement: 'One permanent draw every {count}' },
+    invite: { title: 'Invite Milestone Draw', description: 'Each invitee counts once after reaching {amount} in successful activity recharge', qualified: 'Qualified invites', requirement: 'One permanent draw every {count}' },
     rewards: { title: 'Reward history', empty: 'No rewards yet', date: 'Time', type: 'Activity', amount: 'Reward', filterLabel: 'Filter reward type', all: 'All', previous: 'Previous', next: 'Next', dailyGift: 'Daily gift', recharge: 'Recharge draw', consumption: 'Usage draw', invite: 'Invite draw' },
   },
 

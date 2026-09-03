@@ -28,6 +28,24 @@ func TestDailyActivityRechargeSourcesMatchAffiliateQualification(t *testing.T) {
 	require.NotContains(t, query, "rc.type='admin_balance'")
 }
 
+func TestDailyActivityRechargeAmountUsesUnifiedSources(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	svc := NewDailyActivityService(db, nil)
+	start := time.Date(2026, time.September, 3, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	mock.ExpectQuery(`(?s)SELECT COALESCE\(SUM\(amount\),0\).*order_type IN \('balance','subscription'\).*redeem_codes.*activity_recharge_events`).
+		WithArgs(int64(7), start, end).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(100.0))
+
+	amount, err := svc.rechargeAmount(context.Background(), db, 7, start, end)
+	require.NoError(t, err)
+	require.Equal(t, 100.0, amount)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestDailyActivityRecordAdminRechargeUsesAffiliateSwitch(t *testing.T) {
 	tests := []struct {
 		name    string
