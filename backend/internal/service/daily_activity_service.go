@@ -130,6 +130,68 @@ func laterTime(left, right time.Time) time.Time {
 	return left
 }
 
+// activityRechargeSourcesSQL returns the monetary events which have the same
+// qualification semantics as the invitation rebate flow. Payment orders are
+// included for both balance and subscription purchases. A successful payment
+// fulfillment also creates and redeems a balance code, so those codes are
+// excluded by recharge_code to avoid counting the same payment twice.
+//
+// Administrator additions are persisted as explicit activity events at the
+// moment the existing affiliate switch accepts them. This avoids confusing an
+// administrator's "set balance" operation with an actual recharge.
+//
+// The expression/placeholder arguments are internal fixed SQL fragments (never
+// client input).
+func (s *DailyActivityService) activityRechargeSourcesSQL(userExpr, startExpr, endExpr string) string {
+	upperBound := func(column string) string {
+		if strings.TrimSpace(endExpr) == "" {
+			return ""
+		}
+		return " AND " + column + " < " + endExpr
+	}
+	parts := []string{
+		fmt.Sprintf(`SELECT po.amount AS amount, po.paid_at AS event_at
+			FROM payment_orders po
+			WHERE po.user_id=%s AND po.order_type IN ('balance','subscription')
+			  AND po.status='COMPLETED' AND po.paid_at IS NOT NULL
+			  AND po.paid_at >= %s%s`, userExpr, startExpr, upperBound("po.paid_at")),
+		fmt.Sprintf(`SELECT rc.value AS amount, rc.used_at AS event_at
+			FROM redeem_codes rc
+			WHERE rc.used_by=%s AND rc.type='balance' AND rc.status='used'
+			  AND rc.value > 0 AND rc.used_at IS NOT NULL
+			  AND rc.used_at >= %s%s
+			  AND NOT EXISTS (
+				  SELECT 1 FROM payment_orders po
+				  WHERE po.recharge_code=rc.code
+				    AND po.order_type IN ('balance','subscription')
+			  )`, userExpr, startExpr, upperBound("rc.used_at")),
+		fmt.Sprintf(`SELECT are.amount AS amount, are.occurred_at AS event_at
+			FROM activity_recharge_events are
+			WHERE are.user_id=%s AND are.source_type='admin_balance_add'
+			  AND are.amount > 0 AND are.occurred_at >= %s%s`, userExpr, startExpr, upperBound("are.occurred_at")),
+	}
+	return strings.Join(parts, " UNION ALL ")
+}
+
+// RecordAdminRecharge records only the administrator "add" events already
+// accepted by the invitation-rebate switch. sourceKey is generated once per
+// balance adjustment and provides retry-safe deduplication.
+func (s *DailyActivityService) RecordAdminRecharge(ctx context.Context, userID int64, amount float64, sourceKey string, occurredAt time.Time) error {
+	if s == nil || s.db == nil {
+		return errors.New("activity database unavailable")
+	}
+	if userID <= 0 || amount <= 0 || strings.TrimSpace(sourceKey) == "" {
+		return nil
+	}
+	if s.settings == nil || s.settings.settingRepo == nil || !s.settings.IsAffiliateAdminRechargeEnabled(ctx) {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO activity_recharge_events(user_id,source_type,source_key,amount,occurred_at)
+		VALUES($1,'admin_balance_add',$2,$3,$4)
+		ON CONFLICT (source_type,source_key) DO NOTHING`, userID, sourceKey, amount, occurredAt)
+	return err
+}
+
 const (
 	activityDailyGift    = "daily_gift"
 	activityRechargeDraw = "recharge_draw"
@@ -254,7 +316,8 @@ func (s *DailyActivityService) Summary(ctx context.Context, userID int64, now ti
 	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(balance,0) FROM users WHERE id=$1 AND deleted_at IS NULL`, userID).Scan(&balance); err != nil {
 		return nil, err
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount),0) FROM payment_orders WHERE user_id=$1 AND status='COMPLETED' AND paid_at >= $2 AND paid_at < $3 AND order_type='balance'`, userID, start, end).Scan(&recharge); err != nil {
+	rechargeSQL := fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) FROM (%s) recharge`, s.activityRechargeSourcesSQL("$1", "$2", "$3"))
+	if err := s.db.QueryRowContext(ctx, rechargeSQL, userID, start, end).Scan(&recharge); err != nil {
 		return nil, err
 	}
 	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(GREATEST(actual_cost,0)),0) FROM usage_logs WHERE user_id=$1 AND created_at >= $2 AND created_at < $3`, userID, start, end).Scan(&spend); err != nil {
@@ -286,25 +349,22 @@ func (s *DailyActivityService) Summary(ctx context.Context, userID int64, now ti
 }
 
 // SyncInvitationMilestones derives one permanent qualification per invitee from
-// successful balance payments. It is idempotent and intentionally independent
+// successful qualifying recharges. It is idempotent and intentionally independent
 // from affiliate rebate settlement.
 func (s *DailyActivityService) SyncInvitationMilestones(ctx context.Context, inviterID int64) error {
 	cfg := s.config(ctx)
-	_, err := s.db.ExecContext(ctx, `
+	rechargeSQL := s.activityRechargeSourcesSQL("ua.user_id", "$3", "")
+	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO activity_invitation_milestones(inviter_id, invitee_id, qualifying_amount, qualifying_order_id)
 SELECT ua.inviter_id, ua.user_id, q.total_amount, q.order_id
 FROM user_affiliates ua
 JOIN LATERAL (
-  SELECT COALESCE(SUM(po.amount),0) AS total_amount, MIN(po.id) AS order_id
-  FROM payment_orders po
-		WHERE po.user_id=ua.user_id AND po.order_type='balance'
-		    AND po.status = 'COMPLETED'
-		    AND po.paid_at IS NOT NULL
-		    AND po.paid_at >= $3
+	  SELECT COALESCE(SUM(amount),0) AS total_amount, NULL::bigint AS order_id
+	  FROM (%s) recharge_events
 	) q ON q.total_amount >= $2
 	WHERE ua.inviter_id=$1
 
-	ON CONFLICT (inviter_id, invitee_id) DO NOTHING`, inviterID, cfg.InviteQualificationAmount, s.startedAt(ctx))
+	ON CONFLICT (inviter_id, invitee_id) DO NOTHING`, rechargeSQL), inviterID, cfg.InviteQualificationAmount, s.startedAt(ctx))
 	return err
 }
 
@@ -315,18 +375,17 @@ func (s *DailyActivityService) SyncInvitationMilestoneForInvitee(ctx context.Con
 	if !cfg.Enabled {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `
+	rechargeSQL := s.activityRechargeSourcesSQL("ua.user_id", "$4", "")
+	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO activity_invitation_milestones(inviter_id, invitee_id, qualifying_amount, qualifying_order_id)
 SELECT ua.inviter_id, ua.user_id, totals.total_amount, $2
 FROM user_affiliates ua
 JOIN LATERAL (
-  SELECT COALESCE(SUM(po.amount),0) AS total_amount
-  FROM payment_orders po
-  WHERE po.user_id=ua.user_id AND po.order_type='balance'
-    AND po.status='COMPLETED' AND po.paid_at IS NOT NULL AND po.paid_at >= $4
+  SELECT COALESCE(SUM(amount),0) AS total_amount
+  FROM (%s) recharge_events
 ) totals ON totals.total_amount >= $3
 WHERE ua.user_id=$1 AND ua.inviter_id IS NOT NULL
-ON CONFLICT (inviter_id, invitee_id) DO NOTHING`, inviteeID, orderID, cfg.InviteQualificationAmount, s.startedAt(ctx))
+ON CONFLICT (inviter_id, invitee_id) DO NOTHING`, rechargeSQL), inviteeID, orderID, cfg.InviteQualificationAmount, s.startedAt(ctx))
 	return err
 }
 
@@ -345,7 +404,8 @@ func (s *DailyActivityService) SyncCredits(ctx context.Context, userID int64, no
 	}
 	defer tx.Rollback()
 	var recharge, spend, invite int64
-	if err = tx.QueryRowContext(ctx, `SELECT FLOOR(COALESCE(SUM(amount),0)/$4) FROM payment_orders WHERE user_id=$1 AND status='COMPLETED' AND paid_at >= $2 AND paid_at < $3 AND order_type='balance'`, userID, start, end, cfg.RechargeDrawThreshold).Scan(&recharge); err != nil {
+	rechargeSQL := fmt.Sprintf(`SELECT FLOOR(COALESCE(SUM(amount),0)/$4) FROM (%s) recharge`, s.activityRechargeSourcesSQL("$1", "$2", "$3"))
+	if err = tx.QueryRowContext(ctx, rechargeSQL, userID, start, end, cfg.RechargeDrawThreshold).Scan(&recharge); err != nil {
 		return err
 	}
 	if err = tx.QueryRowContext(ctx, `SELECT FLOOR(COALESCE(SUM(GREATEST(actual_cost,0)),0)/$4) FROM usage_logs WHERE user_id=$1 AND created_at >= $2 AND created_at < $3`, userID, start, end, cfg.ConsumptionDrawThreshold).Scan(&spend); err != nil {

@@ -584,6 +584,11 @@ func (s *adminServiceImpl) UpdateUserBalance(ctx context.Context, userID int64, 
 		if err := s.redeemCodeRepo.Create(ctx, adjustmentRecord); err != nil {
 			logger.LegacyPrintf("service.admin", "failed to create balance adjustment redeem code: %v", err)
 		}
+		if operation == "add" && balance > 0 && s.dailyActivityService != nil {
+			if err := s.dailyActivityService.RecordAdminRecharge(ctx, userID, balance, code, now); err != nil {
+				logger.LegacyPrintf("service.admin", "failed to record daily activity admin recharge: user_id=%d amount=%.8f err=%v", userID, balance, err)
+			}
+		}
 	}
 
 	return user, nil

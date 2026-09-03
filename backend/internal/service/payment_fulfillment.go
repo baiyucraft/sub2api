@@ -384,12 +384,16 @@ func (s *PaymentService) markCompleted(ctx context.Context, o *dbent.PaymentOrde
 		})
 		s.dispatchPaymentFulfillmentNotification(o, auditAction)
 	}
-	if auditAction == "RECHARGE_SUCCESS" && s.dailyActivityService != nil {
+	if shouldSyncDailyActivityInvitationMilestone(auditAction) && s.dailyActivityService != nil {
 		if err := s.dailyActivityService.SyncInvitationMilestoneForInvitee(ctx, o.UserID, o.ID); err != nil {
 			slog.Warn("sync activity invitation milestone after recharge failed", "order_id", o.ID, "user_id", o.UserID, "error", err)
 		}
 	}
 	return nil
+}
+
+func shouldSyncDailyActivityInvitationMilestone(auditAction string) bool {
+	return auditAction == "RECHARGE_SUCCESS" || auditAction == "SUBSCRIPTION_SUCCESS"
 }
 
 func (s *PaymentService) dispatchPaymentFulfillmentNotification(o *dbent.PaymentOrder, auditAction string) {

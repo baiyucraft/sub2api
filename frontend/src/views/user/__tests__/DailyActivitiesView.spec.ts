@@ -18,6 +18,14 @@ vi.mock('vue-i18n', async (importOriginal) => {
 })
 
 describe('DailyActivitiesView', () => {
+  const global = {
+    stubs: {
+      AppLayout: { template: '<main><slot /></main>' },
+      Icon: true,
+      RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
+    },
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
     getActivitySummary.mockResolvedValue({
@@ -35,7 +43,7 @@ describe('DailyActivitiesView', () => {
   })
 
   it('renders server-owned progress and does not calculate a reward amount', async () => {
-    const wrapper = mount(DailyActivitiesView, { global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, Icon: true } } })
+    const wrapper = mount(DailyActivitiesView, { global })
     await flushPromises()
     expect(wrapper.text()).toContain('activities.invite.qualified')
     expect(wrapper.text()).toContain('3 / 5')
@@ -44,7 +52,7 @@ describe('DailyActivitiesView', () => {
 
   it('opens the daily gift through the user API', async () => {
     openDailyActivityGift.mockResolvedValue({ reward: { id: 1, type: 'daily_gift', amount: 0.25, created_at: '2026-09-02T01:00:00Z' } })
-    const wrapper = mount(DailyActivitiesView, { global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, Icon: true } } })
+    const wrapper = mount(DailyActivitiesView, { global })
     await flushPromises()
     await wrapper.find('button.btn.btn-primary').trigger('click')
     await flushPromises()
@@ -53,7 +61,7 @@ describe('DailyActivitiesView', () => {
 
   it('maps reward types and requests the selected server-side filter', async () => {
     getActivityRewards.mockResolvedValueOnce({ items: [{ id: 2, type: 'spend_draw', amount: 0.75, created_at: '2026-09-02T02:00:00Z' }], total: 1, page: 1, page_size: 20 })
-    const wrapper = mount(DailyActivitiesView, { global: { stubs: { AppLayout: { template: '<main><slot /></main>' }, Icon: true } } })
+    const wrapper = mount(DailyActivitiesView, { global })
     await flushPromises()
     expect(wrapper.text()).toContain('activities.rewards.consumption')
 
@@ -61,5 +69,14 @@ describe('DailyActivitiesView', () => {
     await wrapper.find('select').setValue('invite_draw')
     await flushPromises()
     expect(getActivityRewards).toHaveBeenLastCalledWith({ page: 1, page_size: 20, type: 'invite_draw' })
+  })
+
+  it('links both recharge activity cards to the recharge store', async () => {
+    const wrapper = mount(DailyActivitiesView, { global })
+    await flushPromises()
+
+    const rechargeLinks = wrapper.findAll('a[href="/recharge-store"]')
+    expect(rechargeLinks).toHaveLength(2)
+    expect(rechargeLinks.every(link => link.text().includes('activities.goRecharge'))).toBe(true)
   })
 })

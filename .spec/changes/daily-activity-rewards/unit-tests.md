@@ -5,9 +5,11 @@
 - Test：`backend/internal/service/activity_rewards_test.go`
 - Modify：活动规则/进度 service
 - 映射：ST-01、ST-05 / 中国时区和 10/50 元门槛
-- Red：未实现活动日归属、成功订单过滤或显式 0 倍率消费排除时失败。
+- Red：未实现活动日归属、余额/订阅成功订单、正数余额兑换码、支付自动兑换码去重、管理员 add 开关语义或显式 0 倍率消费排除时失败。
 - Green：以固定时钟和 fixture 计算 summary，区分每日进度与永久机会。
 - Refactor：将门槛和规则版本读取集中到不可变配置快照。
+
+充值来源测试必须明确拒绝管理员 set/subtract、并发码、订阅码、负数余额码和失败/取消/退款订单；管理员 add 使用独立活动事件保存当时的开关资格，不从历史 admin_balance 正数差额猜测。
 
 ## UT-02 奖励金额与安全输入
 

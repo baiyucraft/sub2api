@@ -698,6 +698,7 @@ type adminServiceImpl struct {
 	runtimeBlocker       AccountRuntimeBlocker
 	sub2APIRateSync      Sub2APIUpstreamRateSyncTrigger
 	affiliateService     adminRechargeAffiliateAccruer
+	dailyActivityService activityAdminRechargeRecorder
 	compositeRouteRepo   CompositeModelRouteRepository
 	compositeResolver    *CompositeRouteResolver
 	// 分组平台变更后用来失效渠道缓存；可为 nil（缓存会在 TTL 到期后自然重建）
@@ -712,6 +713,10 @@ type ChannelCacheInvalidator interface {
 
 type adminRechargeAffiliateAccruer interface {
 	AccrueInviteRebate(ctx context.Context, inviteeUserID int64, baseRechargeAmount float64) (float64, error)
+}
+
+type activityAdminRechargeRecorder interface {
+	RecordAdminRecharge(ctx context.Context, userID int64, amount float64, sourceKey string, occurredAt time.Time) error
 }
 
 type userGroupRateBatchReader interface {
@@ -741,6 +746,7 @@ func NewAdminService(
 	runtimeBlocker AccountRuntimeBlocker,
 	sub2APIRateSync Sub2APIUpstreamRateSyncTrigger,
 	affiliateService *AffiliateService,
+	dailyActivityService *DailyActivityService,
 	compositeRouteRepo CompositeModelRouteRepository,
 	compositeResolver *CompositeRouteResolver,
 	channelCacheInvalidator ChannelCacheInvalidator,
@@ -770,6 +776,7 @@ func NewAdminService(
 		runtimeBlocker:       runtimeBlocker,
 		sub2APIRateSync:      sub2APIRateSync,
 		affiliateService:     affiliateService,
+		dailyActivityService: dailyActivityService,
 		compositeRouteRepo:   compositeRouteRepo,
 		compositeResolver:    compositeResolver,
 

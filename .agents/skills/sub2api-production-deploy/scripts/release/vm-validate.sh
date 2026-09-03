@@ -44,13 +44,14 @@ if [[ "$manifest_schema" == 2 ]]; then
   [[ $(jq -er '.catalog_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
   [[ $(jq -er '.checksum_policy_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
   [[ $(jq -er '.parent_profile' "$manifest") == 244 ]]
-  [[ $(jq -er '.new_migrations | length' "$manifest") == 5 ]]
+  [[ $(jq -er '.new_migrations | length' "$manifest") == 6 ]]
   jq -e '.new_migrations == [
     "256_channel_cache_write_1h_pricing.sql",
     "257_group_force_openai_fast.sql",
     "258_group_reasoning_effort_over_limit.sql",
     "259_group_free_openai_fast.sql",
-    "260_daily_activity_rewards.sql"
+    "260_daily_activity_rewards.sql",
+    "261_daily_activity_recharge_events.sql"
   ]' "$manifest" >/dev/null
   [[ -n "$production_snapshot" && -f "$production_snapshot" && ! -L "$production_snapshot" ]]
   [[ -n "$pre_gate_descriptor" && -f "$pre_gate_descriptor" && ! -L "$pre_gate_descriptor" ]]
