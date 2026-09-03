@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -71,6 +72,20 @@ type adminRechargeAffiliateAccruerStub struct {
 type adminRechargeAffiliateAccrual struct {
 	userID int64
 	amount float64
+}
+
+type activityAdminRechargeRecorderStub struct {
+	calls []activityAdminRechargeRecord
+}
+
+type activityAdminRechargeRecord struct {
+	userID int64
+	amount float64
+}
+
+func (s *activityAdminRechargeRecorderStub) RecordAdminRecharge(_ context.Context, userID int64, amount float64, _ string, _ time.Time) error {
+	s.calls = append(s.calls, activityAdminRechargeRecord{userID: userID, amount: amount})
+	return nil
 }
 
 func (s *adminRechargeAffiliateAccruerStub) AccrueInviteRebate(_ context.Context, userID int64, amount float64) (float64, error) {
@@ -239,6 +254,35 @@ func TestAdminService_UpdateUserBalance_AdminRechargeAffiliateRebate(t *testing.
 			_, err := svc.UpdateUserBalance(context.Background(), 7, tt.amount, tt.operation, "")
 			require.NoError(t, err)
 			require.Equal(t, tt.wantCalls, affiliate.calls)
+		})
+	}
+}
+
+func TestAdminService_UpdateUserBalance_RecordsOnlyPositiveAddForActivity(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation string
+		amount    float64
+		wantCalls []activityAdminRechargeRecord
+	}{
+		{name: "add", operation: "add", amount: 5, wantCalls: []activityAdminRechargeRecord{{userID: 7, amount: 5}}},
+		{name: "set increase", operation: "set", amount: 15},
+		{name: "subtract", operation: "subtract", amount: 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			baseRepo := &userRepoStub{user: &User{ID: 7, Balance: 10}}
+			recorder := &activityAdminRechargeRecorderStub{}
+			svc := &adminServiceImpl{
+				userRepo:             &balanceUserRepoStub{userRepoStub: baseRepo},
+				redeemCodeRepo:       &balanceRedeemRepoStub{redeemRepoStub: &redeemRepoStub{}},
+				dailyActivityService: recorder,
+			}
+
+			_, err := svc.UpdateUserBalance(context.Background(), 7, tt.amount, tt.operation, "")
+			require.NoError(t, err)
+			require.Equal(t, tt.wantCalls, recorder.calls)
 		})
 	}
 }
