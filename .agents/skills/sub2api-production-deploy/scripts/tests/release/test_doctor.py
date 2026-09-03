@@ -98,6 +98,8 @@ class DoctorTest(unittest.TestCase):
         self.assertTrue(all(character in "\n\t" or ord(character) >= 32 for character in script))
         self.assertIn("production_migration_status=verified", script)
         self.assertIn("production_migration_status=absent", script)
+        self.assertIn("if ssh -i /home/example/.ssh/local-key", script)
+        self.assertNotIn("set +e\nssh -i /home/example/.ssh/local-key", script)
 
         bootstrap_runner = mock.Mock()
         bootstrap_runner.run.return_value.values = {"production_bootstrap": "true"}
