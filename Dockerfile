@@ -111,6 +111,14 @@ RUN --mount=type=cache,id=sub2api-go-mod,target=/go/pkg/mod \
     -o /app/upstream-account-name-backfill \
     ./cmd/upstream-account-name-backfill
 
+RUN --mount=type=cache,id=sub2api-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=sub2api-go-build,target=/root/.cache/go-build \
+    GOMAXPROCS=1 GOMEMLIMIT=1GiB GOGC=50 CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
+    -p 1 \
+    -trimpath \
+    -o /app/daily-activity-backfill \
+    ./cmd/daily-activity-backfill
+
 # -----------------------------------------------------------------------------
 # Stage 3: PostgreSQL Client (version-matched with docker-compose)
 # -----------------------------------------------------------------------------
@@ -155,6 +163,7 @@ WORKDIR /app
 # Copy binary/resources with ownership to avoid extra full-layer chown copy
 COPY --from=backend-builder --chown=sub2api:sub2api /app/sub2api /app/sub2api
 COPY --from=backend-builder --chown=sub2api:sub2api /app/upstream-account-name-backfill /app/upstream-account-name-backfill
+COPY --from=backend-builder --chown=sub2api:sub2api /app/daily-activity-backfill /app/daily-activity-backfill
 COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
 
 # Create data directory
