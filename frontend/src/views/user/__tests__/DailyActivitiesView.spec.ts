@@ -33,10 +33,10 @@ describe('DailyActivitiesView', () => {
       activity_date: '2026-09-02',
       timezone: 'Asia/Shanghai',
       next_reset_at: '2026-09-03T00:00:00+08:00',
-      daily_gift: { eligible: true, claimed: false, amount: 0, threshold: 10 },
-      recharge: { amount: 10, threshold: 50, available_draws: 0 },
-      consumption: { amount: 20, threshold: 50, available_draws: 0 },
-      invite: { qualified_count: 3, required_count: 5, available_draws: 0 },
+      daily_gift: { eligible: true, claimed: false, amount: 0, threshold: 10, reward_min: 0, reward_max: 0.5 },
+      recharge: { amount: 10, threshold: 50, available_draws: 0, reward_min: 0.5, reward_max: 1 },
+      consumption: { amount: 20, threshold: 50, available_draws: 0, reward_min: 0.5, reward_max: 1 },
+      invite: { qualified_count: 3, required_count: 5, available_draws: 0, qualification_amount: 10, reward_min: 5, reward_max: 10 },
     })
     getActivityRewards.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 })
     getAffiliateDetail.mockResolvedValue({ aff_code: 'ABC' })
@@ -48,6 +48,8 @@ describe('DailyActivitiesView', () => {
     expect(wrapper.text()).toContain('activities.invite.qualified')
     expect(wrapper.text()).toContain('3 / 5')
     expect(wrapper.text()).toContain('activities.dailyGift.button')
+    expect(wrapper.text()).toContain('activities.rewardRange')
+    expect(wrapper.text()).toContain('activities.invite.description')
   })
 
   it('opens the daily gift through the user API', async () => {
@@ -78,5 +80,13 @@ describe('DailyActivitiesView', () => {
     const rechargeLinks = wrapper.findAll('a[href="/recharge-store"]')
     expect(rechargeLinks).toHaveLength(2)
     expect(rechargeLinks.every(link => link.text().includes('activities.goRecharge'))).toBe(true)
+  })
+
+  it('keeps the invite link action inside the invite card', async () => {
+    const wrapper = mount(DailyActivitiesView, { global })
+    await flushPromises()
+
+    const inviteCard = wrapper.findAll('section.card').find(card => card.text().includes('activities.invite.title'))
+    expect(inviteCard?.text()).toContain('activities.copyLink')
   })
 })

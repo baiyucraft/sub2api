@@ -752,10 +752,11 @@ export default {
     goRecharge: '去充值',
     drawing: '抽取中...',
     rules: '奖励和资格由服务端计算，活动记录可审计。',
+    rewardRange: '单次奖励：{range}',
     dailyGift: { title: '每日充值礼包', description: '今日充值达到 {amount} 即可领取一次', claimed: '今日已领取', eligible: '可以领取', unavailable: '完成充值后可领取', button: '领取礼包' },
     recharge: { title: '充值抽奖', description: '今日充值每满 {amount} 获得一次机会', amount: '今日充值' },
     consumption: { title: '消费抽奖', description: '今日消费每满 {amount} 获得一次机会', amount: '今日消费' },
-    invite: { title: '邀请达标抽奖', description: '每位被邀请用户达到活动充值门槛时计数一次', qualified: '达标邀请', requirement: '每 {count} 次获得一次永久机会' },
+    invite: { title: '邀请达标抽奖', description: '每位被邀请用户累计成功充值达到 {amount} 时计数一次', qualified: '达标邀请', requirement: '每 {count} 次获得一次永久机会' },
     rewards: { title: '奖励明细', empty: '暂无奖励记录', date: '时间', type: '活动', amount: '奖励金额', filterLabel: '筛选奖励类型', all: '全部', previous: '上一页', next: '下一页', dailyGift: '每日礼包', recharge: '充值抽奖', consumption: '消费抽奖', invite: '邀请抽奖' },
   },
 

@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	stderrors "errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +26,23 @@ type UserHandler struct {
 	affiliateService      *service.AffiliateService
 	userPlatformQuotaRepo service.UserPlatformQuotaRepository
 	dailyActivityService  *service.DailyActivityService
+}
+
+func writeDailyActivityError(c *gin.Context, err error) bool {
+	var status int
+	var message string
+	switch {
+	case stderrors.Is(err, service.ErrActivityDisabled):
+		status, message = http.StatusNotFound, "daily activities are disabled"
+	case stderrors.Is(err, service.ErrActivityNotReady):
+		status, message = http.StatusConflict, "daily activity requirement is not met"
+	case stderrors.Is(err, service.ErrActivityNoCredit):
+		status, message = http.StatusConflict, "no available activity draw credit"
+	default:
+		return false
+	}
+	response.Error(c, status, message)
+	return true
 }
 
 // NewUserHandler creates a new UserHandler
@@ -64,6 +83,9 @@ func (h *UserHandler) GetDailyActivitySummary(c *gin.Context) {
 	}
 	data, err := h.dailyActivityService.Summary(c.Request.Context(), subject.UserID, time.Now())
 	if err != nil {
+		if writeDailyActivityError(c, err) {
+			return
+		}
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -85,6 +107,9 @@ func (h *UserHandler) GetDailyActivityRewards(c *gin.Context) {
 	activityType := strings.TrimSpace(c.Query("type"))
 	data, err := h.dailyActivityService.Rewards(c.Request.Context(), subject.UserID, page, size, activityType)
 	if err != nil {
+		if writeDailyActivityError(c, err) {
+			return
+		}
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -118,6 +143,9 @@ func (h *UserHandler) OpenDailyActivityGift(c *gin.Context) {
 	}
 	reward, err := h.dailyActivityService.OpenDailyGift(c.Request.Context(), subject.UserID, key, time.Now())
 	if err != nil {
+		if writeDailyActivityError(c, err) {
+			return
+		}
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -153,6 +181,9 @@ func (h *UserHandler) DrawDailyActivity(c *gin.Context) {
 	}
 	rewards, err := h.dailyActivityService.Draw(c.Request.Context(), subject.UserID, req.ActivityType, req.Count, key, time.Now())
 	if err != nil {
+		if writeDailyActivityError(c, err) {
+			return
+		}
 		response.ErrorFrom(c, err)
 		return
 	}

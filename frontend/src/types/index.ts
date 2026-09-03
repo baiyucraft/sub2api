@@ -179,6 +179,8 @@ export interface UserActivityProgress {
   threshold: number
   available_draws: number
   lifetime_draws?: number
+  reward_min: number
+  reward_max: number
 }
 
 export interface UserActivityDailyGift {
@@ -186,6 +188,8 @@ export interface UserActivityDailyGift {
   claimed: boolean
   amount: number
   threshold: number
+  reward_min: number
+  reward_max: number
 }
 
 export interface UserActivityInviteProgress {
@@ -193,6 +197,9 @@ export interface UserActivityInviteProgress {
   required_count: number
   available_draws: number
   lifetime_count?: number
+  qualification_amount: number
+  reward_min: number
+  reward_max: number
 }
 
 export interface UserActivitySummary {
