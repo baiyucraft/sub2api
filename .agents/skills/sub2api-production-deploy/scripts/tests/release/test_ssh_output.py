@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import ast
 import json
 import stat
 import tempfile
@@ -102,6 +103,17 @@ class FakeSFTPClient(FakeClient):
 
 
 class SSHOutputTest(unittest.TestCase):
+    def test_all_structured_transfer_events_declare_stage(self) -> None:
+        source = (DEPLOY_ROOT / "release" / "ssh.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        missing: list[int] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or node.func.attr != "_emit":
+                continue
+            if not any(keyword.arg == "stage" for keyword in node.keywords):
+                missing.append(node.lineno)
+        self.assertEqual(missing, [])
+
     def test_transfer_ranges_are_contiguous_and_balanced(self) -> None:
         self.assertEqual(SSHRunner._transfer_ranges(0, 16), [(0, 0)])
         ranges = SSHRunner._transfer_ranges(100, 16)
