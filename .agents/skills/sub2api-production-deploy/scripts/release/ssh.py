@@ -404,7 +404,7 @@ exit "$code"
             except (EOFError, OSError, IOError, socket.timeout, paramiko.SSHException) as error:
                 if attempt == TRANSFER_MAX_ATTEMPTS:
                     raise
-                self._emit(name, event="transfer_retry", message="SFTP upload retrying from the remote checkpoint", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
+                self._emit(name, stage="transfer", event="transfer_retry", message="SFTP upload retrying from the remote checkpoint", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
                 time.sleep(min(2 ** (attempt - 1), 4))
             finally:
                 if sftp is not None:
@@ -462,7 +462,7 @@ exit "$code"
             # Keep completed parts on the remote checkpoint.  The caller may
             # retry the same release path, and each part can resume without
             # retransmitting the other fifteen ranges.
-            self._emit(name, event="transfer_parts_preserved", message="Parallel SFTP upload checkpoints preserved for retry", level="warn", details={"parts": len(part_paths)})
+            self._emit(name, stage="transfer", event="transfer_parts_preserved", message="Parallel SFTP upload checkpoints preserved for retry", level="warn", details={"parts": len(part_paths)})
             raise
 
         quoted_parts = " ".join(shlex.quote(path) for path in part_paths)
@@ -487,7 +487,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
         try:
             assembled = self.run(name, script, {"assembled_size"}, timeout=max(120, expected_size // (1024 * 1024) * 10)).values
         except BaseException:
-            self._emit(name, event="transfer_parts_preserved", message="Parallel SFTP upload checkpoints preserved after assembly failure", level="warn", details={"parts": len(part_paths)})
+            self._emit(name, stage="transfer", event="transfer_parts_preserved", message="Parallel SFTP upload checkpoints preserved after assembly failure", level="warn", details={"parts": len(part_paths)})
             raise
         if int(assembled["assembled_size"]) != expected_size:
             raise OSError("remote assembled transfer size mismatch")
@@ -500,7 +500,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
         try:
             self.run(name, script, {"transfer_parts_cleaned"}, timeout=120)
         except BaseException as error:
-            self._emit(name, event="transfer_cleanup_failed", message="Parallel SFTP temporary cleanup failed", level="warn", details={"error_type": type(error).__name__})
+            self._emit(name, stage="transfer", event="transfer_cleanup_failed", message="Parallel SFTP temporary cleanup failed", level="warn", details={"error_type": type(error).__name__})
 
     def _upload_range(self, name: str, local_path: pathlib.Path, remote_path: str, start: int, end: int) -> None:
         expected_size = end - start
@@ -628,7 +628,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
             except (EOFError, OSError, IOError, socket.timeout, paramiko.SSHException) as error:
                 if attempt == TRANSFER_MAX_ATTEMPTS:
                     raise
-                self._emit(name, event="transfer_retry", message="SFTP download retrying from the local checkpoint", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
+                self._emit(name, stage="transfer", event="transfer_retry", message="SFTP download retrying from the local checkpoint", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
                 time.sleep(min(2 ** (attempt - 1), 4))
             finally:
                 if sftp is not None:
@@ -822,7 +822,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
                 if int(target_attributes.st_size) != size:
                     raise RuntimeError("remote transfer size differs at destination")
                 if attempt > 1:
-                    self._emit(source_name, event="transfer_retry_succeeded", message="Protected SFTP transfer recovered", details={"attempt": attempt, "bytes": size})
+                    self._emit(source_name, stage="transfer", event="transfer_retry_succeeded", message="Protected SFTP transfer recovered", details={"attempt": attempt, "bytes": size})
                 return size
             except (paramiko.SSHException, EOFError, OSError, RuntimeError) as error:
                 if isinstance(error, RuntimeError) and str(error) in {"remote transfer input size is invalid", "remote transfer input is not a regular file"}:
@@ -830,7 +830,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
                 last_error = error
                 if attempt >= maximum_attempts:
                     raise
-                self._emit(source_name, event="transfer_retry", message="Protected SFTP transfer retrying", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
+                self._emit(source_name, stage="transfer", event="transfer_retry", message="Protected SFTP transfer retrying", details={"attempt": attempt, "next_attempt": attempt + 1, "error_type": type(error).__name__})
                 time.sleep(min(2 ** (attempt - 1), 4))
             finally:
                 for handle in (source_sftp, target_sftp, source_client, target_client):
