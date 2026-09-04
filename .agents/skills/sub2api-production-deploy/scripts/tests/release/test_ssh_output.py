@@ -276,6 +276,19 @@ class SSHOutputTest(unittest.TestCase):
             self.assertEqual(local.read_bytes(), value)
         self.assertEqual(source.prefetch_args, (len(value), 64))
 
+    def test_racknerd_large_download_uses_single_resumable_prefetch_transport(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.temp_dirs = {("racknerd", "/tmp/transfer")}
+        runner._require_temp_path = lambda *_args: None
+        runner._remote_file_size = mock.Mock(return_value=64 * 1024 * 1024)
+        runner._download_file_sequential = mock.Mock()
+        runner._download_file_parallel = mock.Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "recovery.tar"
+            runner.download_file("racknerd", "/tmp/transfer/recovery.tar", local)
+        runner._download_file_sequential.assert_called_once_with("racknerd", "/tmp/transfer/recovery.tar", local)
+        runner._download_file_parallel.assert_not_called()
+
     def test_connection_files_are_repo_local(self) -> None:
         self.assertEqual(SSH_CONFIG, ROOT / ".ssh.local")
         self.assertEqual(KNOWN_HOSTS, ROOT / ".tmp" / "known_hosts")
