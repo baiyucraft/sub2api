@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import subprocess
+import time
 from pathlib import Path
 
 import paramiko
@@ -20,6 +21,7 @@ VALIDATOR = RELEASE_PACKAGE_ROOT / "vm-validate.sh"
 GATE_SIGNER = RELEASE_PACKAGE_ROOT / "sign-gate.sh"
 DR_SIGNER = RELEASE_PACKAGE_ROOT / "sign-dr-evidence.sh"
 NODES = ("local", "vm", "racknerd", "dmit", "backup")
+RACKNERD_READONLY_RETRY_DELAYS = (0, 2, 5)
 
 
 def import_trusted_host_keys() -> None:
@@ -78,6 +80,26 @@ class ReleaseDoctor:
         if self.runner is None:
             self.runner = SSHRunner()
         return self.runner
+
+    def _run_racknerd_readonly(self, script: str, allowed: set[str], timeout: int) -> dict[str, str]:
+        """Retry only the idempotent RackNerd doctor probe after transport loss."""
+
+        last_error: BaseException | None = None
+        for delay in RACKNERD_READONLY_RETRY_DELAYS:
+            if delay:
+                time.sleep(delay)
+            try:
+                return self._ssh().run("racknerd", script, allowed, timeout=timeout).values
+            except (EOFError, OSError, paramiko.SSHException) as error:
+                last_error = error
+            except RuntimeError as error:
+                # Paramiko reports a channel that vanished before an exit status
+                # as -1. Do not retry ordinary non-zero remote command failures.
+                if "exit code -1" not in str(error):
+                    raise
+                last_error = error
+        assert last_error is not None
+        raise last_error
 
     def check_vm(self) -> dict[str, str]:
         profile = self.profile
@@ -181,7 +203,11 @@ free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{{print $4}}' || df
 test "$free_bytes" -ge {profile['minimum_rack_free_bytes']}
 printf 'racknerd_ready=true\nracknerd_free_bytes=%s\nbackup_protocol_ready=true\nproduction_migration_status=%s\nproduction_current_image_id=%s\nproduction_snapshot_b64=%s\n' "$free_bytes" "$production_migration_status" "$active_image" "$snapshot_b64"
 """
-        return self._ssh().run("racknerd", script, {"racknerd_ready", "racknerd_free_bytes", "backup_protocol_ready", "production_migration_status", "production_current_image_id", "production_snapshot_b64"}, timeout=300).values
+        return self._run_racknerd_readonly(
+            script,
+            {"racknerd_ready", "racknerd_free_bytes", "backup_protocol_ready", "production_migration_status", "production_current_image_id", "production_snapshot_b64"},
+            timeout=300,
+        )
 
     def check_dmit(self) -> dict[str, str]:
         script = """
