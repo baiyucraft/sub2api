@@ -107,6 +107,25 @@ class DoctorTest(unittest.TestCase):
         bootstrap_scripts = "\n".join(call.args[1] for call in bootstrap_runner.run.call_args_list)
         self.assertTrue(all(character in "\n\t" or ord(character) >= 32 for character in bootstrap_scripts))
 
+    def test_racknerd_readonly_probe_retries_transport_loss(self) -> None:
+        runner = mock.Mock()
+        success = mock.Mock(values={"racknerd_ready": "true"})
+        runner.run.side_effect = [RuntimeError("racknerd stage failed with exit code -1; remote stderr withheld"), success]
+        doctor = ReleaseDoctor("182", runner=runner)
+        with mock.patch("release.doctor.time.sleep") as sleep:
+            result = doctor._run_racknerd_readonly("printf ok", {"racknerd_ready"}, timeout=300)
+        self.assertEqual(result, {"racknerd_ready": "true"})
+        self.assertEqual(runner.run.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    def test_racknerd_readonly_probe_does_not_retry_remote_failure(self) -> None:
+        runner = mock.Mock()
+        runner.run.side_effect = RuntimeError("racknerd stage failed with exit code 1; remote stderr withheld")
+        doctor = ReleaseDoctor("182", runner=runner)
+        with self.assertRaisesRegex(RuntimeError, "exit code 1"):
+            doctor._run_racknerd_readonly("false", {"racknerd_ready"}, timeout=300)
+        runner.run.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
