@@ -1566,7 +1566,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('"version": "0.2.0-baiyu"', profile_block)
         self.assertIn('[[ "$version" == 0.2.0-baiyu ]]', validator)
         self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 244 ]]', validator)
-        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 6 ]]', validator)
+        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 7 ]]', validator)
 
     def test_profile_242_switch_uses_gate_v2_without_legacy_state_files(self) -> None:
         switch = self.script("switch.sh")
