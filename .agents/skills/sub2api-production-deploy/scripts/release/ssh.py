@@ -560,6 +560,13 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
     def download_file(self, name: str, remote_path: str, local_path: pathlib.Path) -> None:
         self._require_temp_path(name, remote_path)
         expected_size = self._remote_file_size(name, remote_path)
+        if name == "racknerd":
+            # The RackNerd path traverses a SOCKS proxy which is stable with one
+            # SSH transport and Paramiko's bounded 64-request prefetch, but
+            # repeatedly drops when several SSH handshakes run in parallel.
+            # The sequential downloader still resumes from local_path.size.
+            self._download_file_sequential(name, remote_path, local_path)
+            return
         if expected_size >= TRANSFER_PARALLEL_MIN_BYTES:
             self._download_file_parallel(name, remote_path, local_path, expected_size)
             return
