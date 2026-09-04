@@ -1303,7 +1303,7 @@ func (s *UserService) sendNotifyVerifyEmail(ctx context.Context, emailService *E
 			slog.Warn("template notification email verification failed; falling back to built-in body", "recipient_hash", notificationEmailHash(email), "err", err.Error())
 		}
 	}
-	subject := fmt.Sprintf("[%s] 通知邮箱验证码 / Notification Email Verification", siteName)
+	subject := fmt.Sprintf("[%s] 通知邮箱验证码", siteName)
 	body := buildNotifyVerifyEmailBody(code, siteName)
 	return emailService.SendEmail(ctx, email, subject, body)
 }
@@ -1450,19 +1450,16 @@ const notifyVerifyEmailTemplate = `<!DOCTYPE html>
             <h1>%s</h1>
         </div>
         <div class="content">
-            <p style="font-size: 18px; color: #333;">通知邮箱验证码 / Notification Email Verification</p>
+            <p style="font-size: 18px; color: #333;">通知邮箱验证码</p>
             <div class="code">%s</div>
             <div class="info">
                 <p>您正在添加额外的通知邮箱，请输入此验证码完成验证。</p>
-                <p>You are adding an extra notification email. Please enter this code to verify.</p>
                 <p>此验证码将在 <strong>15 分钟</strong>后失效。</p>
-                <p>This code will expire in <strong>15 minutes</strong>.</p>
                 <p>如果您没有请求此验证码，请忽略此邮件。</p>
-                <p>If you did not request this code, please ignore this email.</p>
             </div>
         </div>
         <div class="footer">
-            <p>此邮件由系统自动发送，请勿回复。/ This is an automated message, please do not reply.</p>
+            <p>此邮件由系统自动发送，请勿回复。</p>
         </div>
     </div>
 </body>

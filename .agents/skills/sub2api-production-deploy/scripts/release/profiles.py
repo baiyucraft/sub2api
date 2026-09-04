@@ -566,7 +566,8 @@ PROFILES["244"] = {
 # Profile 244 is retained as an immutable historical release contract.  The
 # official 0.2.0 merge appends four upstream migrations under the next locally
 # available numbers because upstream 232/233 conflict with released fork IDs,
-# followed by the daily-activity schema owned by this pending fork profile.
+# followed by the daily-activity and extra-cost schemas owned by this current
+# fork profile.
 PROFILES["245"] = {
     **{key: PROFILES["244"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
     "name": "245",
@@ -579,6 +580,7 @@ PROFILES["245"] = {
         "259_group_free_openai_fast.sql",
         "260_daily_activity_rewards.sql",
         "261_daily_activity_recharge_events.sql",
+        "262_extra_cost_entries.sql",
     ],
     "gate_schema": 2,
     "release_policy": {

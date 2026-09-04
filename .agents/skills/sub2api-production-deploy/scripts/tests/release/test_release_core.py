@@ -323,6 +323,7 @@ class ReleaseCoreTest(unittest.TestCase):
             "259_group_free_openai_fast.sql",
             "260_daily_activity_rewards.sql",
             "261_daily_activity_recharge_events.sql",
+            "262_extra_cost_entries.sql",
         ])
         self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "245")
         with self.assertRaises(ValueError):

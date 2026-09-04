@@ -21,14 +21,20 @@ import (
 type DashboardHandler struct {
 	dashboardService   *service.DashboardService
 	aggregationService *service.DashboardAggregationService
+	extraCostService   *service.ExtraCostService
 	startTime          time.Time // Server start time for uptime calculation
 }
 
 // NewDashboardHandler creates a new admin dashboard handler
-func NewDashboardHandler(dashboardService *service.DashboardService, aggregationService *service.DashboardAggregationService) *DashboardHandler {
+func NewDashboardHandler(dashboardService *service.DashboardService, aggregationService *service.DashboardAggregationService, extraCostServices ...*service.ExtraCostService) *DashboardHandler {
+	var extraCostService *service.ExtraCostService
+	if len(extraCostServices) > 0 {
+		extraCostService = extraCostServices[0]
+	}
 	return &DashboardHandler{
 		dashboardService:   dashboardService,
 		aggregationService: aggregationService,
+		extraCostService:   extraCostService,
 		startTime:          time.Now(),
 	}
 }
@@ -116,6 +122,10 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"total_tokens":                stats.TotalTokens,
 		"total_cost":                  stats.TotalCost,       // 标准计费
 		"total_actual_cost":           stats.TotalActualCost, // 实际扣除
+		"total_account_cost":          stats.TotalAccountCost,
+		"total_usage_account_cost":    stats.TotalUsageAccountCost,
+		"total_extra_cost":            stats.TotalExtraCost,
+		"total_total_account_cost":    stats.TotalTotalAccountCost,
 
 		// 今日 Token 使用统计
 		"today_requests":              stats.TodayRequests,
@@ -126,6 +136,10 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"today_tokens":                stats.TodayTokens,
 		"today_cost":                  stats.TodayCost,       // 今日标准计费
 		"today_actual_cost":           stats.TodayActualCost, // 今日实际扣除
+		"today_account_cost":          stats.TodayAccountCost,
+		"today_usage_account_cost":    stats.TodayUsageAccountCost,
+		"today_extra_cost":            stats.TodayExtraCost,
+		"today_total_account_cost":    stats.TodayTotalAccountCost,
 
 		// 系统运行统计
 		"average_duration_ms": stats.AverageDurationMs,
@@ -281,6 +295,14 @@ func (h *DashboardHandler) GetUsageTrend(c *gin.Context) {
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
+	if h.extraCostService != nil && userID == 0 && apiKeyID == 0 && accountID == 0 && groupID == 0 && model == "" && requestType == nil && stream == nil && billingType == nil && nativeCompactionV2 == nil && upstreamModelMismatch == nil {
+		if dailyCosts, sumErr := h.extraCostService.DailySums(c.Request.Context(), &startTime, &endTime); sumErr == nil {
+			trend = mergeTrendAccountCosts(trend, dailyCosts, granularity)
+		} else {
+			response.ErrorFrom(c, sumErr)
+			return
+		}
+	}
 
 	response.Success(c, gin.H{
 		"trend":       trend,
@@ -288,6 +310,26 @@ func (h *DashboardHandler) GetUsageTrend(c *gin.Context) {
 		"end_date":    endTime.Add(-24 * time.Hour).Format("2006-01-02"),
 		"granularity": granularity,
 	})
+}
+
+func mergeTrendAccountCosts(trend []usagestats.TrendDataPoint, dailyCosts map[string]float64, granularity string) []usagestats.TrendDataPoint {
+	if len(trend) == 0 || len(dailyCosts) == 0 {
+		return trend
+	}
+	merged := append([]usagestats.TrendDataPoint(nil), trend...)
+	used := make(map[string]bool, len(dailyCosts))
+	for i := range merged {
+		day := merged[i].Date
+		if len(day) > 10 {
+			day = day[:10]
+		}
+		if amount, ok := dailyCosts[day]; ok && !used[day] {
+			merged[i].AccountCost += amount
+			used[day] = true
+		}
+	}
+	_ = granularity // hourly buckets receive the day's manual cost at its first bucket.
+	return merged
 }
 
 // GetModelStats handles getting model usage statistics

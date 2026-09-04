@@ -110,7 +110,7 @@ func TestOpsScheduledReportLegacyTemplateReceivesSummaryHTML(t *testing.T) {
 	_, err := notificationService.UpdateTemplate(
 		ctx,
 		NotificationEmailEventOpsScheduledReport,
-		"en",
+		"zh",
 		"Legacy report {{report_name}}",
 		`<section data-template="legacy">{{report_html}}</section>`,
 	)
