@@ -16,7 +16,17 @@ import paramiko
 DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
-from release.ssh import KNOWN_HOSTS, REMOTE_RAW_LOGS, ROOT, SSH_CONFIG, SSHResult, SSHRunner, TRANSFER_MAX_ACTIVE_CONNECTIONS
+from release.ssh import (
+    DIRECT_SSH_KEEPALIVE_SECONDS,
+    KNOWN_HOSTS,
+    PROXY_SSH_KEEPALIVE_SECONDS,
+    REMOTE_RAW_LOGS,
+    ROOT,
+    SSH_CONFIG,
+    SSHResult,
+    SSHRunner,
+    TRANSFER_MAX_ACTIVE_CONNECTIONS,
+)
 
 
 class FakeChannel:
@@ -328,6 +338,52 @@ class SSHOutputTest(unittest.TestCase):
         clients.extend([Client(), Client(), Client()])
         with mock.patch("release.ssh.paramiko.SSHClient", side_effect=clients), mock.patch("release.ssh.time.sleep"):
             self.assertIs(clients[2], runner.connect("vm"))
+
+    def test_connection_uses_shorter_keepalive_for_socks_proxy(self) -> None:
+        keepalive_seconds: list[int] = []
+
+        class Transport:
+            def set_keepalive(self, seconds: int) -> None:
+                keepalive_seconds.append(seconds)
+
+        class Client:
+            def load_host_keys(self, _path: str) -> None:
+                pass
+
+            def get_host_keys(self):
+                return {}
+
+            def set_missing_host_key_policy(self, _policy) -> None:
+                pass
+
+            def connect(self, **_kwargs) -> None:
+                pass
+
+            def get_transport(self):
+                return Transport()
+
+            def close(self) -> None:
+                pass
+
+        runner = object.__new__(SSHRunner)
+        runner.servers = {
+            "racknerd": {
+                "host": "example.test",
+                "user": "root",
+                "password": "secret",
+                "proxy": "127.0.0.1:7897",
+            },
+            "vm": {"host": "example.test", "user": "root", "password": "secret"},
+        }
+        runner.temp_dirs = set()
+        proxy_socket = mock.Mock()
+        with (
+            mock.patch("release.ssh.paramiko.SSHClient", side_effect=[Client(), Client()]),
+            mock.patch("release.ssh.socks.socksocket", return_value=proxy_socket),
+        ):
+            runner.connect("racknerd").close()
+            runner.connect("vm").close()
+        self.assertEqual(keepalive_seconds, [PROXY_SSH_KEEPALIVE_SECONDS, DIRECT_SSH_KEEPALIVE_SECONDS])
 
     def runner(self, stdout: bytes, stderr: bytes = b"") -> SSHRunner:
         instance = object.__new__(SSHRunner)

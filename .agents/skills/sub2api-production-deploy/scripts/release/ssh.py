@@ -48,6 +48,8 @@ TRANSFER_MAX_ACTIVE_CONNECTIONS = 4
 TRANSFER_DOWNLOAD_PART_PREFETCH_REQUESTS = 8
 TRANSFER_PARALLEL_MIN_BYTES = 32 * 1024 * 1024
 TRANSFER_SOCKET_TIMEOUT = 90
+PROXY_SSH_KEEPALIVE_SECONDS = 10
+DIRECT_SSH_KEEPALIVE_SECONDS = 30
 REMOTE_EVENT_LOGS = {
     "local_vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
     "vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
@@ -197,7 +199,12 @@ exit "$code"
                 transport = client.get_transport()
                 if transport is None:
                     raise RuntimeError(f"{name} SSH transport is unavailable")
-                transport.set_keepalive(30)
+                # The local SOCKS path has a short idle tolerance. Send SSH
+                # keepalives well before that boundary so long read-only
+                # checks and resumable transfers do not lose their channel.
+                transport.set_keepalive(
+                    PROXY_SSH_KEEPALIVE_SECONDS if config.get("proxy") else DIRECT_SSH_KEEPALIVE_SECONDS
+                )
                 self._emit(
                     name, stage="ssh_connect", event="connection_verified",
                     message="SSH connection verified", command_id=identifier, attempt=attempt,
