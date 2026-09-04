@@ -40,9 +40,11 @@ TRANSFER_CHUNK_BYTES = 8 * 1024 * 1024
 TRANSFER_MAX_ATTEMPTS = 8
 TRANSFER_DOWNLOAD_PREFETCH_REQUESTS = 64
 TRANSFER_PARALLEL_PARTS = 16
-# Keep the sixteen-part layout while bounding simultaneous SSH handshakes.
-# RackNerd's sshd/proxy can reject bursts above its MaxStartups threshold.
-TRANSFER_MAX_ACTIVE_CONNECTIONS = 8
+# Keep the sixteen-part checkpoint layout while bounding simultaneous SSH
+# handshakes. RackNerd's proxy becomes unstable under eight concurrent SSH
+# sessions; four keeps useful parallelism without triggering a connection
+# storm, and incomplete parts are recovered serially below.
+TRANSFER_MAX_ACTIVE_CONNECTIONS = 4
 TRANSFER_DOWNLOAD_PART_PREFETCH_REQUESTS = 8
 TRANSFER_PARALLEL_MIN_BYTES = 32 * 1024 * 1024
 TRANSFER_SOCKET_TIMEOUT = 90
@@ -657,10 +659,34 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
             start, end = ranges[index]
             self._download_range(name, remote_path, part_paths[index], start, end, expected_size)
 
+        retryable_errors: list[BaseException] = []
+        fatal_error: BaseException | None = None
         with ThreadPoolExecutor(max_workers=len(ranges), thread_name_prefix="sftp-download") as executor:
             futures = [executor.submit(download_one, index) for index in range(len(ranges))]
             for future in futures:
-                future.result()
+                try:
+                    future.result()
+                except (EOFError, OSError, IOError, socket.timeout, paramiko.SSHException) as error:
+                    retryable_errors.append(error)
+                except BaseException as error:
+                    fatal_error = fatal_error or error
+
+        if fatal_error is not None:
+            raise fatal_error
+        if retryable_errors:
+            self._emit(
+                name,
+                stage="transfer",
+                event="transfer_parallel_degraded",
+                message="Parallel SFTP download degraded to serial checkpoint recovery",
+                level="warn",
+                details={"parts": len(ranges), "failed_parts": len(retryable_errors)},
+            )
+            for index, (start, end) in enumerate(ranges):
+                part_path = part_paths[index]
+                if part_path.exists() and not part_path.is_symlink() and part_path.stat().st_size == end - start:
+                    continue
+                self._download_range(name, remote_path, part_path, start, end, expected_size)
 
         if assembled_path.exists():
             assembled_path.unlink()

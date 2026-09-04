@@ -61,7 +61,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 
 - VM 空间清理必须在目标 commit 已同步到 `/opt/sub2api-src` 后解析 profile 兼容镜像；源码落后时先同步 `origin/main`，无法证明兼容 tag 时停止清理。
 - 历史兼容 Candidate 导入只用于 VM 回滚 smoke，必须独立验签并核对 archive、release asset、migration map、commit 和 image ID；不修改历史 Gate，不把它当作当前生产 Gate。
-- SSH banner/EOF/transport 在建立连接阶段做有限重试；RackNerd 的纯只读 `doctor` 综合探针遇到连接中断或 `exit_code=-1` 时也可有限重放。任何发布写命令已开始或状态不明时，仍必须先核对 release 目录、`.active-release`、committed marker 和 checksum，禁止自动重放。
+- SSH banner/EOF/transport 在建立连接阶段做有限重试；RackNerd 的纯只读 `doctor` 综合探针遇到连接中断或 `exit_code=-1` 时也可有限重放。大文件仍拆为 16 个可续传分片，但最多同时建立 4 条 SSH 连接；并行阶段耗尽重试后按未完成分片串行恢复。任何发布写命令已开始或状态不明时，仍必须先核对 release 目录、`.active-release`、committed marker 和 checksum，禁止自动重放。
 - claim 前失败只能在远端 release 目录与 `.active-release` 都明确不存在时使用新 commit、新 Gate、新 release ID 重试；失败 release 证据保留。
 - 成功发布必须执行 `verify-result` 和 post-deploy `doctor`，确认运行 image、claim、备份 units、迁移和 direct/DMIT 双链路；收口后删除一次性诊断脚本，保留 release/Gate/checksum 证据。
 

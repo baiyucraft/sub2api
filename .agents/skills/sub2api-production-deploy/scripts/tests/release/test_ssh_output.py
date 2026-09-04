@@ -15,7 +15,7 @@ import paramiko
 DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
-from release.ssh import KNOWN_HOSTS, REMOTE_RAW_LOGS, ROOT, SSH_CONFIG, SSHResult, SSHRunner
+from release.ssh import KNOWN_HOSTS, REMOTE_RAW_LOGS, ROOT, SSH_CONFIG, SSHResult, SSHRunner, TRANSFER_MAX_ACTIVE_CONNECTIONS
 
 
 class FakeChannel:
@@ -163,6 +163,29 @@ class SSHOutputTest(unittest.TestCase):
             self.assertEqual(sorted(downloaded)[0][0], 0)
             self.assertEqual(sorted(downloaded)[-1][1], 64)
             self.assertFalse(any(local.parent.glob("image.tar.gz.parallel-*")))
+
+    def test_large_download_recovers_failed_parallel_parts_serially(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.temp_dirs = {("vm", "/tmp/transfer")}
+        runner._require_temp_path = lambda *_args: None
+        events: list[str] = []
+        runner._emit = lambda _name, **event: events.append(event["event"])
+        attempts: dict[int, int] = {}
+
+        def download_range(_name, _remote, local, start, end, _file_size):
+            attempts[start] = attempts.get(start, 0) + 1
+            if start != 0 and attempts[start] == 1:
+                raise paramiko.SSHException("connection reset")
+            local.write_bytes(bytes([start % 251]) * (end - start))
+
+        runner._download_range = download_range
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "image.tar.gz"
+            runner._download_file_parallel("vm", "/tmp/transfer/image.tar.gz", local, 64)
+            self.assertEqual(local.stat().st_size, 64)
+            self.assertFalse(any(local.parent.glob("image.tar.gz.parallel-*")))
+        self.assertIn("transfer_parallel_degraded", events)
+        self.assertEqual(TRANSFER_MAX_ACTIVE_CONNECTIONS, 4)
 
     def test_large_download_keeps_checkpoints_after_part_failure(self) -> None:
         runner = object.__new__(SSHRunner)
