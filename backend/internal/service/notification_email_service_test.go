@@ -459,6 +459,37 @@ func TestNotificationEmailSendDeduplicatesSubscriptionExpiryReminder(t *testing.
 	require.Equal(t, int64(1), smtpServer.messageCount())
 }
 
+func TestNotificationEmailSendAlwaysUsesChineseLocale(t *testing.T) {
+	ctx := context.Background()
+	repo := newNotificationEmailMemorySettingRepo()
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	require.NoError(t, repo.SetMultiple(ctx, smtpServer.settings()))
+
+	emailSvc := NewEmailService(repo, nil)
+	svc := NewNotificationEmailService(repo, emailSvc)
+	require.NoError(t, svc.Send(ctx, NotificationEmailSendInput{
+		Event:          NotificationEmailEventBalanceLow,
+		Locale:         "en-US,en;q=0.9",
+		RecipientEmail: "user@example.com",
+		RecipientName:  "用户",
+		UserID:         42,
+		SourceType:     "balance_low",
+		SourceID:       "42",
+		ReminderKey:    "2026-09-04",
+		Variables: map[string]string{
+			"current_balance": "1.00",
+			"threshold":       "5.00",
+			"recharge_url":    "https://example.com/recharge",
+		},
+	}))
+
+	body := smtpServer.lastMessageBody(t)
+	require.Contains(t, body, "余额不足提醒")
+	require.Contains(t, body, "请及时充值以免服务中断")
+	require.NotContains(t, body, "Low balance alert")
+	require.NotContains(t, body, "Your current balance")
+}
+
 func TestNotificationEmailSendRespectsLegacyDeliveryKey(t *testing.T) {
 	ctx := context.Background()
 	repo := newNotificationEmailMemorySettingRepo()

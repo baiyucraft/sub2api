@@ -393,10 +393,10 @@ func (s *NotificationEmailService) Send(ctx context.Context, input NotificationE
 		}
 	}
 
-	locale := normalizeNotificationLocale(input.Locale)
-	if strings.TrimSpace(input.Locale) == "" {
-		locale = s.ResolveRecipientLocale(ctx, input.UserID, recipient)
-	}
+	// Live notification delivery is fixed to Chinese. The Locale field and the
+	// remembered recipient preference remain available for preview/compatibility,
+	// but must not make a production notification unexpectedly switch language.
+	locale := notificationEmailLocaleChinese
 	tmpl, err := s.GetTemplate(ctx, normalizedEvent, locale)
 	if err != nil {
 		return notificationEmailTemplateErr(err)
@@ -1425,7 +1425,7 @@ var notificationEmailOfficialTemplates = map[string]map[string]notificationEmail
 			Subject: "[{{site_name}}] 网络安全策略拦截提醒",
 			HTML: notificationEmailCard("#ef4444", "网络安全策略拦截提醒", `
 <p>{{recipient_name}}，您好：</p>
-<p>您的请求被上游服务商的网络安全策略（cyber policy）拦截。</p>
+<p>您的请求被上游服务商的网络安全策略拦截。</p>
 <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
   <tr><td style="width:128px;vertical-align:top;">触发时间</td><td style="overflow-wrap:anywhere;word-break:break-word;">{{triggered_at}}</td></tr>
   <tr><td style="width:128px;vertical-align:top;">模型</td><td style="overflow-wrap:anywhere;word-break:break-word;">{{model}}</td></tr>

@@ -35,19 +35,21 @@
       </div>
       <template v-else-if="summary && summary.enabled">
         <div class="grid gap-4 md:grid-cols-2">
-          <section class="card border-l-4 border-l-amber-400 p-5">
+          <section class="card flex h-full flex-col border-l-4 border-l-amber-400 p-5">
             <div class="flex items-start justify-between gap-4">
               <div><p class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('activities.dailyGift.title') }}</p><p class="mt-1 text-sm text-gray-500 dark:text-dark-400">{{ t('activities.dailyGift.description', { amount: formatCurrency(summary.daily_gift.threshold) }) }}</p><p class="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">{{ t('activities.rewardRange', { range: formatRewardRange(summary.daily_gift.reward_min, summary.daily_gift.reward_max) }) }}</p></div>
               <Icon name="gift" size="lg" class="text-amber-500" />
             </div>
-            <p class="mt-5 text-sm" :class="summary.daily_gift.eligible ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-dark-400'">{{ summary.daily_gift.claimed ? t('activities.dailyGift.claimed') : summary.daily_gift.eligible ? t('activities.dailyGift.eligible') : t('activities.dailyGift.unavailable') }}</p>
-            <div class="mt-4 flex flex-col gap-2 sm:flex-row">
+            <div class="mt-5 flex items-baseline justify-between"><span class="text-sm text-gray-500 dark:text-dark-400">{{ t('activities.dailyGift.progress') }}</span><strong class="text-xl text-gray-900 dark:text-white">{{ formatCurrency(summary.daily_gift.amount) }} / {{ formatCurrency(summary.daily_gift.threshold) }}</strong></div>
+            <div class="mt-3 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-700"><div class="h-full rounded-full bg-amber-400 transition-all" :style="{ width: dailyGiftPercent + '%' }" /></div>
+            <p class="mt-3 text-sm" :class="summary.daily_gift.claimed || summary.daily_gift.eligible ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-dark-400'">{{ summary.daily_gift.claimed ? t('activities.dailyGift.claimed') : summary.daily_gift.eligible ? t('activities.dailyGift.eligible') : t('activities.dailyGift.remaining', { amount: formatCurrency(dailyGiftRemaining) }) }}</p>
+            <div class="mt-auto pt-4"><p class="mb-3 text-xs text-gray-400 dark:text-dark-500">{{ t('activities.dailyGift.resetHint') }}</p><div class="flex flex-col gap-2 sm:flex-row">
               <RouterLink class="btn btn-secondary flex-1" to="/recharge-store">
                 <Icon name="dollar" size="sm" />
                 {{ t('activities.goRecharge') }}
               </RouterLink>
               <button class="btn btn-primary flex-1" :disabled="!summary.daily_gift.eligible || summary.daily_gift.claimed || busy" @click="claimGift">{{ t('activities.dailyGift.button') }}</button>
-            </div>
+            </div></div>
           </section>
 
           <ActivityDrawCard type="recharge" :progress="summary.recharge" :title="t('activities.recharge.title')" :description="t('activities.recharge.description', { amount: formatCurrency(summary.recharge.threshold) })" :reward-range-label="t('activities.rewardRange', { range: formatRewardRange(summary.recharge.reward_min, summary.recharge.reward_max) })" :progress-label="t('activities.progress')" :available-draws-label="t('activities.availableDraws', { count: summary.recharge.available_draws })" :draw-one-label="t('activities.drawOne')" :draw-all-label="t('activities.drawAll')" :recharge-label="t('activities.goRecharge')" :busy="busy" @draw="draw('recharge', $event)" />
@@ -103,6 +105,16 @@ const resetCountdown = computed(() => {
   return `${Math.floor(seconds / 3600).toString().padStart(2, '0')}:${Math.floor((seconds % 3600) / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
 })
 const invitePercent = computed(() => summary.value ? Math.min(100, summary.value.invite.qualified_count / Math.max(1, summary.value.invite.required_count) * 100) : 0)
+const dailyGiftPercent = computed(() => {
+  const gift = summary.value?.daily_gift
+  if (!gift || !Number.isFinite(gift.amount) || !Number.isFinite(gift.threshold) || gift.threshold <= 0) return 0
+  return Math.min(100, Math.max(0, gift.amount / gift.threshold * 100))
+})
+const dailyGiftRemaining = computed(() => {
+  const gift = summary.value?.daily_gift
+  if (!gift || !Number.isFinite(gift.amount) || !Number.isFinite(gift.threshold)) return 0
+  return Math.max(0, gift.threshold - gift.amount)
+})
 function formatRewardRange(min?: number, max?: number): string {
   if (!Number.isFinite(min) || !Number.isFinite(max)) return '-'
   return `${formatCurrency(min as number)} – ${formatCurrency(max as number)}`

@@ -106,6 +106,16 @@ func (c *snapshotCache) Set(key string, payload any) snapshotCacheEntry {
 	return entry
 }
 
+// Clear drops all in-process snapshots after a cross-cutting ledger mutation.
+func (c *snapshotCache) Clear() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.items = make(map[string]snapshotCacheEntry)
+	c.mu.Unlock()
+}
+
 func (c *snapshotCache) GetOrLoad(key string, load func() (any, error)) (snapshotCacheEntry, bool, error) {
 	if load == nil {
 		return snapshotCacheEntry{}, false, nil

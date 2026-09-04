@@ -32,9 +32,9 @@ const (
 
 // quotaDimLabels maps dimension names to display labels.
 var quotaDimLabels = map[string]string{
-	quotaDimDaily:  "日限额 / Daily",
-	quotaDimWeekly: "周限额 / Weekly",
-	quotaDimTotal:  "总限额 / Total",
+	quotaDimDaily:  "日限额",
+	quotaDimWeekly: "周限额",
+	quotaDimTotal:  "总限额",
 }
 
 // AccountQuotaReader provides read access to account quota data.
@@ -573,7 +573,7 @@ func (s *BalanceNotifyService) sendBalanceLowEmails(recipients []string, userID 
 		}
 		recipients = fallbackRecipients
 	}
-	subject := fmt.Sprintf("[%s] 余额不足提醒 / Balance Low Alert", sanitizeEmailHeader(siteName))
+	subject := fmt.Sprintf("[%s] 余额不足提醒", sanitizeEmailHeader(siteName))
 	body := s.buildBalanceLowEmailBody(html.EscapeString(displayName), balance, threshold, html.EscapeString(siteName), rechargeURL)
 	s.sendEmails(recipients, subject, body, "user_email", userEmail, "balance", balance)
 }
@@ -633,7 +633,7 @@ func (s *BalanceNotifyService) sendQuotaAlertEmails(adminEmails []string, accoun
 		adminEmails = fallbackRecipients
 	}
 
-	subject := fmt.Sprintf("[%s] 账号限额告警 / Account Quota Alert - %s", sanitizeEmailHeader(siteName), sanitizeEmailHeader(accountName))
+	subject := fmt.Sprintf("[%s] 账号限额告警 - %s", sanitizeEmailHeader(siteName), sanitizeEmailHeader(accountName))
 	body := s.buildQuotaAlertEmailBody(accountID, html.EscapeString(accountName), html.EscapeString(platform), html.EscapeString(dimLabel), used, dim.limit, remaining, thresholdDisplay, html.EscapeString(siteName))
 	s.sendEmails(adminEmails, subject, body, "account", accountName, "dimension", dim.name)
 }
@@ -644,7 +644,7 @@ func sanitizeEmailHeader(s string) string {
 }
 
 // balanceLowEmailTemplate is the HTML template for balance low notifications.
-// Format args: siteName, userName, userName, balance, threshold, threshold.
+// Format args: siteName, userName, balance, threshold.
 // The recharge button is appended dynamically when rechargeURL is set.
 const balanceLowEmailTemplate = `<!DOCTYPE html>
 <html>
@@ -667,13 +667,10 @@ const balanceLowEmailTemplate = `<!DOCTYPE html>
         <div class="header"><h1>%s</h1></div>
         <div class="content">
             <p style="font-size: 18px; color: #333;">%s，您的余额不足</p>
-            <p style="color: #666;">Dear %s, your balance is running low</p>
             <div class="balance">$%.2f</div>
             <div class="info">
                 <p>您的账户余额已低于提醒阈值 <strong>$%.2f</strong>。</p>
-                <p>Your account balance has fallen below the alert threshold of <strong>$%.2f</strong>.</p>
                 <p>请及时充值以免服务中断。</p>
-                <p>Please top up to avoid service interruption.</p>
             </div>
             %s
         </div>
@@ -705,18 +702,17 @@ const quotaAlertEmailTemplate = `<!DOCTYPE html>
     <div class="container">
         <div class="header"><h1>%s</h1></div>
         <div class="content">
-            <p style="font-size: 18px; color: #333; text-align: center;">账号限额告警 / Account Quota Alert</p>
-            <div class="metric"><span class="metric-label">账号 ID / Account ID</span><span class="metric-value">#%d</span></div>
-            <div class="metric"><span class="metric-label">账号 / Account</span><span class="metric-value">%s</span></div>
-            <div class="metric"><span class="metric-label">平台 / Platform</span><span class="metric-value">%s</span></div>
-            <div class="metric"><span class="metric-label">维度 / Dimension</span><span class="metric-value">%s</span></div>
-            <div class="metric"><span class="metric-label">已使用 / Used</span><span class="metric-value">$%.2f</span></div>
-            <div class="metric"><span class="metric-label">限额 / Limit</span><span class="metric-value">%s</span></div>
-            <div class="metric"><span class="metric-label">剩余额度 / Remaining</span><span class="metric-value">$%.2f</span></div>
-            <div class="metric"><span class="metric-label">提醒阈值 / Alert Threshold</span><span class="metric-value">%s</span></div>
+            <p style="font-size: 18px; color: #333; text-align: center;">账号限额告警</p>
+            <div class="metric"><span class="metric-label">账号 ID</span><span class="metric-value">#%d</span></div>
+            <div class="metric"><span class="metric-label">账号</span><span class="metric-value">%s</span></div>
+            <div class="metric"><span class="metric-label">平台</span><span class="metric-value">%s</span></div>
+            <div class="metric"><span class="metric-label">维度</span><span class="metric-value">%s</span></div>
+            <div class="metric"><span class="metric-label">已使用</span><span class="metric-value">$%.2f</span></div>
+            <div class="metric"><span class="metric-label">限额</span><span class="metric-value">%s</span></div>
+            <div class="metric"><span class="metric-label">剩余额度</span><span class="metric-value">$%.2f</span></div>
+            <div class="metric"><span class="metric-label">提醒阈值</span><span class="metric-value">%s</span></div>
             <div class="info">
                 <p>账号剩余额度已低于提醒阈值，请及时关注。</p>
-                <p>Account remaining quota has fallen below the alert threshold.</p>
             </div>
         </div>
         <div class="footer"><p>此邮件由系统自动发送，请勿回复。</p></div>
@@ -728,16 +724,16 @@ const quotaAlertEmailTemplate = `<!DOCTYPE html>
 func (s *BalanceNotifyService) buildBalanceLowEmailBody(userName string, balance, threshold float64, siteName, rechargeURL string) string {
 	rechargeBlock := ""
 	if rechargeURL != "" {
-		rechargeBlock = fmt.Sprintf(`<a href="%s" class="recharge-btn">立即充值 / Top Up Now</a>`, html.EscapeString(rechargeURL))
+		rechargeBlock = fmt.Sprintf(`<a href="%s" class="recharge-btn">立即充值</a>`, html.EscapeString(rechargeURL))
 	}
-	return fmt.Sprintf(balanceLowEmailTemplate, siteName, userName, userName, balance, threshold, threshold, rechargeBlock)
+	return fmt.Sprintf(balanceLowEmailTemplate, siteName, userName, balance, threshold, rechargeBlock)
 }
 
 // buildQuotaAlertEmailBody builds HTML email for account quota alert.
 func (s *BalanceNotifyService) buildQuotaAlertEmailBody(accountID int64, accountName, platform, dimLabel string, used, limit, remaining float64, thresholdDisplay, siteName string) string {
 	limitStr := fmt.Sprintf("$%.2f", limit)
 	if limit <= 0 {
-		limitStr = "无限制 / Unlimited"
+		limitStr = "无限制"
 	}
 	return fmt.Sprintf(quotaAlertEmailTemplate, siteName, accountID, accountName, platform, dimLabel, used, limitStr, remaining, thresholdDisplay)
 }

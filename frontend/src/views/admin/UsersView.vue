@@ -540,11 +540,14 @@
               </div>
               <div
                 v-if="usageKey === 'usage'"
-                class="mt-1.5 grid grid-cols-[2.75rem_3.7rem_4.2rem_4.2rem] items-center gap-x-1.5 border-t border-gray-200/80 pt-1.5 text-[10px] font-medium normal-case tracking-normal text-gray-400 dark:border-dark-700 dark:text-dark-500"
+                class="mt-1.5 grid grid-cols-[2.75rem_3.2rem_4.1rem_3.8rem_3.8rem] items-center gap-x-1.5 border-t border-gray-200/80 pt-1.5 text-[10px] font-medium normal-case tracking-normal text-gray-400 dark:border-dark-700 dark:text-dark-500"
                 data-test="user-usage-column-metrics"
               >
                 <span aria-hidden="true"></span>
                 <span class="text-right">{{ t('admin.users.usageStats.token') }}</span>
+                <span class="whitespace-nowrap text-right text-sky-700/80 dark:text-sky-300/80">
+                  {{ t('admin.users.usageStats.cacheRateShort') }}
+                </span>
                 <span class="text-right text-emerald-700/80 dark:text-emerald-300/80">
                   {{ t('admin.users.usageStats.spend') }}
                 </span>
@@ -893,7 +896,7 @@ const allColumns = computed<Column[]>(() => [
     key: 'usage',
     label: t('admin.users.columns.usage'),
     sortable: false,
-    class: 'w-[16rem] min-w-[16rem]',
+    class: 'w-[19rem] min-w-[19rem]',
     mobileStacked: true
   },
   { key: 'usage_anthropic', label: t('admin.users.columns.usageAnthropic'), sortable: false },

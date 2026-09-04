@@ -325,6 +325,12 @@ func (s *DashboardService) evictDashboardStatsCache(reason error) {
 	}
 }
 
+// InvalidateCache clears the dashboard snapshot after an out-of-band cost
+// ledger mutation. The next dashboard request rebuilds the totals.
+func (s *DashboardService) InvalidateCache() {
+	s.evictDashboardStatsCache(nil)
+}
+
 func (s *DashboardService) cacheOperationContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), s.refreshTimeout)
 }

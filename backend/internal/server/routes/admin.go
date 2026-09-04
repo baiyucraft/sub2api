@@ -36,6 +36,7 @@ func RegisterAdminRoutes(
 
 		// 仪表盘
 		registerDashboardRoutes(admin, h)
+		registerExtraCostRoutes(admin, h)
 
 		// 用户管理
 		registerUserManagementRoutes(admin, h)
@@ -137,6 +138,16 @@ func RegisterAdminRoutes(
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
 	}
+}
+
+func registerExtraCostRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	if h.Admin == nil || h.Admin.ExtraCost == nil {
+		return
+	}
+	extraCosts := admin.Group("/extra-costs")
+	extraCosts.GET("", h.Admin.ExtraCost.List)
+	extraCosts.POST("", h.Admin.ExtraCost.Create)
+	extraCosts.POST("/:id/reverse", h.Admin.ExtraCost.Reverse)
 }
 
 func registerUpstreamManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
