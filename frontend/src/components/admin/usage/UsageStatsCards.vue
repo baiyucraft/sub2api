@@ -67,11 +67,13 @@
         <p class="text-xl font-bold text-green-600">
           ${{ (stats?.total_actual_cost || 0).toFixed(4) }}
         </p>
-        <p class="text-xs text-gray-400">
-          <template v-if="showAccountCost && totalAccountCost != null">
-            <span class="text-orange-500">{{ t('usage.accountCost') }} ${{ totalAccountCost.toFixed(4) }}</span>
-            <span> · </span>
-          </template>
+        <p v-if="showAccountCost" class="flex flex-wrap gap-x-1 text-xs text-gray-400">
+          <span class="text-orange-500">{{ t('usage.usageAccountCost') }} ${{ usageAccountCost.toFixed(4) }}</span>
+          <span> · </span>
+          <span class="text-amber-600">{{ t('usage.extraCost') }} ${{ extraCost.toFixed(4) }}</span>
+          <span> · </span>
+          <span class="font-medium text-red-600">{{ t('usage.totalAccountCost') }} ${{ totalAccountCost.toFixed(4) }}</span>
+          <span> · </span>
           <span>
             {{ t('usage.standardCost') }}
             <span :class="{ 'line-through': strikeStandardCost }">${{ (stats?.total_cost || 0).toFixed(4) }}</span>
@@ -106,9 +108,17 @@ const props = withDefaults(defineProps<{
 
 const { t } = useI18n()
 
+const usageAccountCost = computed(() => {
+  const stats = props.stats as (AdminUsageStatsResponse & { total_usage_account_cost?: number }) | null
+  return stats?.total_usage_account_cost ?? stats?.total_account_cost ?? 0
+})
+const extraCost = computed(() => {
+  const stats = props.stats as (AdminUsageStatsResponse & { total_extra_cost?: number }) | null
+  return stats?.total_extra_cost ?? 0
+})
 const totalAccountCost = computed(() => {
-  const stats = props.stats as (AdminUsageStatsResponse & { total_account_cost?: number }) | null
-  return stats?.total_account_cost ?? null
+  const stats = props.stats as (AdminUsageStatsResponse & { total_total_account_cost?: number; total_combined_account_cost?: number }) | null
+  return stats?.total_total_account_cost ?? stats?.total_combined_account_cost ?? (usageAccountCost.value + extraCost.value)
 })
 const showAccountCost = computed(() => props.showAccountCost)
 const strikeStandardCost = computed(() => props.strikeStandardCost)

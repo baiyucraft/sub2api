@@ -1,6 +1,6 @@
 <template>
   <div
-    class="w-full min-w-0 text-left md:w-[16rem] md:min-w-[16rem]"
+    class="w-full min-w-0 text-left md:w-[19rem] md:min-w-[19rem]"
     data-test="user-usage-stats-matrix"
   >
     <div
@@ -69,17 +69,18 @@
               <Icon name="exclamationCircle" size="xs" />
             </span>
           </span>
-          <span class="flex min-w-0 flex-col items-end text-right tabular-nums">
-            <span class="font-medium text-gray-700 dark:text-gray-200">
-              {{ formatCompactTokens(window.data.total_tokens) }}
-            </span>
-            <span
-              class="text-[10px] font-normal leading-3 text-sky-600 dark:text-sky-400"
-              :title="formatCacheRateTitle(window.data)"
-              :data-test="`user-usage-cache-rate-${window.key}`"
-            >
-              {{ t('admin.users.usageStats.cacheRateShort') }} {{ formatCacheRate(window.data) }}
-            </span>
+          <span
+            class="min-w-0 text-right font-medium tabular-nums text-gray-700 dark:text-gray-200"
+            :data-test="`user-usage-token-${window.key}`"
+          >
+            {{ formatCompactTokens(window.data.total_tokens) }}
+          </span>
+          <span
+            class="min-w-0 whitespace-nowrap text-right text-[10px] font-normal leading-3 text-sky-600 tabular-nums dark:text-sky-400"
+            :title="formatCacheRateTitle(window.data)"
+            :data-test="`user-usage-cache-rate-${window.key}`"
+          >
+            {{ t('admin.users.usageStats.cacheRateShort') }} {{ formatCacheRate(window.data) }}
           </span>
           <span class="text-right font-medium tabular-nums text-emerald-700 dark:text-emerald-300">
             {{ formatCompactMoney(window.data.user_spend) }}
@@ -297,7 +298,7 @@ function closeDetails() {
 <style scoped>
 .usage-matrix-grid {
   display: grid;
-  grid-template-columns: 2.75rem 3.7rem 4.2rem 4.2rem;
+  grid-template-columns: 2.75rem 3.2rem 4.1rem 3.8rem 3.8rem;
   column-gap: 0.375rem;
   align-items: center;
 }

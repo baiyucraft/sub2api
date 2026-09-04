@@ -119,10 +119,14 @@
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.today_account_cost) }}</span
+                    :title="t('admin.dashboard.usageAccountCost')"
+                    >{{ t('admin.dashboard.usageAccountCostShort') }} ${{ formatCost(usageAccountCost('today')) }}</span
                   >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
+                  <span class="text-gray-400 dark:text-gray-500"> · </span>
+                  <span class="text-amber-600 dark:text-amber-400" :title="t('admin.dashboard.extraCost')">{{ t('admin.dashboard.extraCostShort') }} ${{ formatCost(extraCost('today')) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500"> · </span>
+                  <span class="font-semibold text-red-600 dark:text-red-400" :title="t('admin.dashboard.totalAccountCost')">{{ t('admin.dashboard.totalAccountCostShort') }} ${{ formatCost(combinedAccountCost('today')) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500"> · </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
                     :title="t('admin.dashboard.standard')"
@@ -155,10 +159,14 @@
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.total_account_cost) }}</span
+                    :title="t('admin.dashboard.usageAccountCost')"
+                    >{{ t('admin.dashboard.usageAccountCostShort') }} ${{ formatCost(usageAccountCost('total')) }}</span
                   >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
+                  <span class="text-gray-400 dark:text-gray-500"> · </span>
+                  <span class="text-amber-600 dark:text-amber-400" :title="t('admin.dashboard.extraCost')">{{ t('admin.dashboard.extraCostShort') }} ${{ formatCost(extraCost('total')) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500"> · </span>
+                  <span class="font-semibold text-red-600 dark:text-red-400" :title="t('admin.dashboard.totalAccountCost')">{{ t('admin.dashboard.totalAccountCostShort') }} ${{ formatCost(combinedAccountCost('total')) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500"> · </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
                     :title="t('admin.dashboard.standard')"
@@ -223,7 +231,7 @@
               {{ t('admin.dashboard.quickActions') }}
             </h2>
           </div>
-          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
             <button
               v-if="canUseBatchImage"
               type="button"
@@ -260,6 +268,24 @@
                 </span>
               </span>
               <Icon name="chevronRight" size="sm" class="text-gray-400 group-hover:text-emerald-500" />
+            </button>
+            <button
+              type="button"
+              class="group flex items-center gap-3 rounded-lg bg-gray-50 p-3 text-left transition-colors hover:bg-orange-50 dark:bg-dark-800/50 dark:hover:bg-orange-900/20"
+              @click="showExtraCostsDialog = true"
+            >
+              <span class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400">
+                <Icon name="calculator" size="md" :stroke-width="2" />
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('admin.dashboard.extraCosts') }}
+                </span>
+                <span class="block text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.extraCostsDesc') }}
+                </span>
+              </span>
+              <Icon name="chevronRight" size="sm" class="text-gray-400 group-hover:text-orange-500" />
             </button>
           </div>
         </div>
@@ -337,6 +363,13 @@
         </div>
       </template>
     </div>
+    <ExtraCostsDialog
+      :show="showExtraCostsDialog"
+      :start-date="startDate"
+      :end-date="endDate"
+      @close="showExtraCostsDialog = false"
+      @changed="loadDashboardStats"
+    />
   </AppLayout>
 </template>
 
@@ -362,6 +395,7 @@ import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
+import ExtraCostsDialog from '@/components/admin/usage/ExtraCostsDialog.vue'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 
 import {
@@ -396,6 +430,7 @@ const chartsLoading = ref(false)
 const userTrendLoading = ref(false)
 const rankingLoading = ref(false)
 const rankingError = ref(false)
+const showExtraCostsDialog = ref(false)
 
 // Chart data
 const trendData = ref<TrendDataPoint[]>([])
@@ -409,6 +444,40 @@ let chartLoadSeq = 0
 let usersTrendLoadSeq = 0
 let rankingLoadSeq = 0
 const rankingLimit = 12
+
+const usageAccountCost = (scope: 'today' | 'total'): number => {
+  if (!stats.value) return 0
+  const statsWithExtra = stats.value as DashboardStats & {
+    today_usage_account_cost?: number
+    total_usage_account_cost?: number
+  }
+  const value = scope === 'today' ? statsWithExtra.today_usage_account_cost : statsWithExtra.total_usage_account_cost
+  return Number.isFinite(value) ? Number(value) : Number(stats.value[scope === 'today' ? 'today_account_cost' : 'total_account_cost'] || 0)
+}
+
+const extraCost = (scope: 'today' | 'total'): number => {
+  if (!stats.value) return 0
+  const statsWithExtra = stats.value as DashboardStats & {
+    today_extra_cost?: number
+    total_extra_cost?: number
+  }
+  const value = scope === 'today' ? statsWithExtra.today_extra_cost : statsWithExtra.total_extra_cost
+  return Number.isFinite(value) ? Number(value) : 0
+}
+
+const combinedAccountCost = (scope: 'today' | 'total'): number => {
+  if (!stats.value) return 0
+  const statsWithExtra = stats.value as DashboardStats & {
+    today_total_account_cost?: number
+    total_total_account_cost?: number
+    today_combined_account_cost?: number
+    total_combined_account_cost?: number
+  }
+  const explicit = scope === 'today'
+    ? (statsWithExtra.today_total_account_cost ?? statsWithExtra.today_combined_account_cost)
+    : (statsWithExtra.total_total_account_cost ?? statsWithExtra.total_combined_account_cost)
+  return Number.isFinite(explicit) ? Number(explicit) : usageAccountCost(scope) + extraCost(scope)
+}
 
 // Helper function to format date in local timezone
 const formatLocalDate = (date: Date): string => {

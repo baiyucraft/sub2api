@@ -707,7 +707,7 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertEmail(ctx context.Context, runt
 	// Apply/update rate limiter.
 	s.emailLimiter.SetLimit(emailCfg.Alert.RateLimitPerHour)
 
-	subject := fmt.Sprintf("[Ops Alert][%s] %s", strings.TrimSpace(rule.Severity), strings.TrimSpace(rule.Name))
+	subject := fmt.Sprintf("[运维告警][%s] %s", strings.TrimSpace(rule.Severity), strings.TrimSpace(rule.Name))
 	body := buildOpsAlertEmailBody(rule, event)
 
 	anySent := false
@@ -801,13 +801,13 @@ func buildOpsAlertEmailBody(rule *OpsAlertRule, event *OpsAlertEvent) string {
 		threshold = fmt.Sprintf("%.2f", *event.ThresholdValue)
 	}
 	return fmt.Sprintf(`
-<h2>Ops Alert</h2>
-<p><b>Rule</b>: %s</p>
-<p><b>Severity</b>: %s</p>
-<p><b>Status</b>: %s</p>
-<p><b>Metric</b>: %s %s %s</p>
-<p><b>Fired at</b>: %s</p>
-<p><b>Description</b>: %s</p>
+<h2>运维告警</h2>
+<p><b>规则</b>：%s</p>
+<p><b>严重级别</b>：%s</p>
+<p><b>状态</b>：%s</p>
+<p><b>指标</b>：%s %s %s</p>
+<p><b>触发时间</b>：%s</p>
+<p><b>说明</b>：%s</p>
 `,
 		htmlEscape(rule.Name),
 		htmlEscape(rule.Severity),

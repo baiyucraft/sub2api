@@ -233,6 +233,14 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		return err
 	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
+	stats.TotalUsageAccountCost = stats.TotalAccountCost
+	var extraTotalCost float64
+	if err := scanSingleRow(ctx, r.sql, "SELECT COALESCE(SUM(amount), 0) FROM extra_cost_entries", nil, &extraTotalCost); err != nil {
+		return err
+	}
+	stats.TotalAccountCost += extraTotalCost
+	stats.TotalExtraCost = extraTotalCost
+	stats.TotalTotalAccountCost = stats.TotalAccountCost
 	if stats.TotalRequests > 0 {
 		stats.AverageDurationMs = float64(totalDurationMs) / float64(stats.TotalRequests)
 	}
@@ -271,6 +279,14 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		}
 	}
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
+	stats.TodayUsageAccountCost = stats.TodayAccountCost
+	var extraTodayCost float64
+	if err := scanSingleRow(ctx, r.sql, "SELECT COALESCE(SUM(amount), 0) FROM extra_cost_entries WHERE cost_date = $1::date", []any{todayUTC}, &extraTodayCost); err != nil {
+		return err
+	}
+	stats.TodayAccountCost += extraTodayCost
+	stats.TodayExtraCost = extraTodayCost
+	stats.TodayTotalAccountCost = stats.TodayAccountCost
 
 	hourlyActiveQuery := `
 		SELECT active_users
@@ -357,6 +373,21 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 	}
 
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
+	stats.TotalUsageAccountCost = stats.TotalAccountCost
+	stats.TodayUsageAccountCost = stats.TodayAccountCost
+	var extraTotalCost, extraTodayCost float64
+	if err := scanSingleRow(ctx, r.sql, `SELECT
+		COALESCE(SUM(amount) FILTER (WHERE cost_date >= $1::date AND cost_date < $2::date), 0),
+		COALESCE(SUM(amount) FILTER (WHERE cost_date >= $3::date AND cost_date < $4::date), 0)
+		FROM extra_cost_entries`, []any{startUTC, endUTC, todayUTC, todayUTC.Add(24 * time.Hour)}, &extraTotalCost, &extraTodayCost); err != nil {
+		return err
+	}
+	stats.TotalAccountCost += extraTotalCost
+	stats.TodayAccountCost += extraTodayCost
+	stats.TotalExtraCost = extraTotalCost
+	stats.TodayExtraCost = extraTodayCost
+	stats.TotalTotalAccountCost = stats.TotalAccountCost
+	stats.TodayTotalAccountCost = stats.TodayAccountCost
 
 	hourStart := now.UTC().Truncate(time.Hour)
 	hourEnd := hourStart.Add(time.Hour)

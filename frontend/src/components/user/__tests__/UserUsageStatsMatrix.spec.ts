@@ -72,7 +72,7 @@ describe('UserUsageStatsMatrix', () => {
   it('renders the compact today, 30-day, and lifetime matrix', () => {
     const wrapper = mount(UserUsageStatsMatrix, { props: { stats: stats() } })
 
-    expect(wrapper.classes()).toContain('md:w-[16rem]')
+    expect(wrapper.classes()).toContain('md:w-[19rem]')
     expect(wrapper.find('[data-test="user-usage-mobile-header"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="user-usage-window-today"]').text()).toContain('24.8K')
     expect(wrapper.get('[data-test="user-usage-window-last_30d"]').text()).toContain('7.2M')
@@ -83,6 +83,13 @@ describe('UserUsageStatsMatrix', () => {
     expect(wrapper.get('[data-test="user-usage-cache-rate-today"]').text()).toBe('缓存 50.00%')
     expect(wrapper.get('[data-test="user-usage-cache-rate-last_30d"]').text()).toBe('缓存 50.00%')
     expect(wrapper.get('[data-test="user-usage-cache-rate-lifetime"]').text()).toBe('缓存 50.00%')
+    const todayCells = wrapper.get('[data-test="user-usage-window-today"]').findAll(':scope > span')
+    expect(todayCells).toHaveLength(5)
+    expect(todayCells[0].text()).toBe('今日')
+    expect(todayCells[1].attributes('data-test')).toBe('user-usage-token-today')
+    expect(todayCells[2].attributes('data-test')).toBe('user-usage-cache-rate-today')
+    expect(todayCells[3].text()).toBe('$0.2600')
+    expect(todayCells[4].text()).toBe('$0.1800')
     expect(wrapper.get('[data-test="user-usage-window-today"]').findAll('.font-mono')).toHaveLength(0)
   })
 

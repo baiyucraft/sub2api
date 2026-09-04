@@ -163,7 +163,7 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 	}
 
 	siteName := h.settingService.GetSiteName(c.Request.Context())
-	subject := "[" + siteName + "] Test Email"
+	subject := "[" + siteName + "] SMTP 测试邮件"
 	body := `
 <!DOCTYPE html>
 <html>
@@ -185,11 +185,11 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
         </div>
         <div class="content">
             <div class="success">✓</div>
-            <h2>Email Configuration Successful!</h2>
-            <p>This is a test email to verify your SMTP settings are working correctly.</p>
+            <h2>邮件配置测试成功</h2>
+            <p>这是一封用于验证 SMTP 设置是否正常工作的测试邮件。</p>
         </div>
         <div class="footer">
-            <p>This is an automated test message.</p>
+            <p>此邮件由系统自动发送，请勿回复。</p>
         </div>
     </div>
 </body>

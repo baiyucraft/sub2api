@@ -38,6 +38,7 @@ import adminComplianceAPI from './compliance'
 import auditAPI from './audit'
 import upstreamManagementAPI from './upstreamManagement'
 import pluginsAPI from './plugins'
+import extraCostsAPI from './extraCosts'
 
 /**
  * Unified admin API object for convenient access
@@ -77,7 +78,8 @@ export const adminAPI = {
   compliance: adminComplianceAPI,
   audit: auditAPI,
   upstreamManagement: upstreamManagementAPI,
-  plugins: pluginsAPI
+  plugins: pluginsAPI,
+  extraCosts: extraCostsAPI
 }
 
 export {
@@ -115,7 +117,8 @@ export {
   adminComplianceAPI,
   auditAPI,
   upstreamManagementAPI,
-  pluginsAPI
+  pluginsAPI,
+  extraCostsAPI
 }
 
 export default adminAPI

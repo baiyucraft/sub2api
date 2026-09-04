@@ -21,10 +21,11 @@ import (
 
 // UsageHandler handles admin usage-related requests
 type UsageHandler struct {
-	usageService   *service.UsageService
-	apiKeyService  *service.APIKeyService
-	adminService   service.AdminService
-	cleanupService *service.UsageCleanupService
+	usageService     *service.UsageService
+	apiKeyService    *service.APIKeyService
+	adminService     service.AdminService
+	cleanupService   *service.UsageCleanupService
+	extraCostService *service.ExtraCostService
 }
 
 // NewUsageHandler creates a new admin usage handler
@@ -33,12 +34,18 @@ func NewUsageHandler(
 	apiKeyService *service.APIKeyService,
 	adminService service.AdminService,
 	cleanupService *service.UsageCleanupService,
+	extraCostServices ...*service.ExtraCostService,
 ) *UsageHandler {
+	var extraCostService *service.ExtraCostService
+	if len(extraCostServices) > 0 {
+		extraCostService = extraCostServices[0]
+	}
 	return &UsageHandler{
-		usageService:   usageService,
-		apiKeyService:  apiKeyService,
-		adminService:   adminService,
-		cleanupService: cleanupService,
+		usageService:     usageService,
+		apiKeyService:    apiKeyService,
+		adminService:     adminService,
+		cleanupService:   cleanupService,
+		extraCostService: extraCostService,
 	}
 }
 
@@ -392,6 +399,28 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		}
 		stats = s
 		c.Header("X-Usage-Stats-Cache", cacheStatusValue(hit))
+	}
+	// 人工额外成本只属于全局账号成本，不混入用户、账号、分组或 API Key
+	// 的筛选结果；按成本发生日范围单独合并，避免污染用量日志统计。
+	if h.extraCostService != nil && userID == 0 && apiKeyID == 0 && accountID == 0 && groupID == 0 {
+		extraCost, sumErr := h.extraCostService.Sum(c.Request.Context(), filters.StartTime, filters.EndTime)
+		if sumErr != nil {
+			response.ErrorFrom(c, sumErr)
+			return
+		}
+		// getStatsCached may return the shared cached pointer; copy before
+		// adding manual costs so repeated requests cannot accumulate twice.
+		adjusted := *stats
+		stats = &adjusted
+		usageCost := 0.0
+		if adjusted.TotalAccountCost != nil {
+			usageCost = *adjusted.TotalAccountCost
+		}
+		stats.TotalUsageAccountCost = &usageCost
+		stats.TotalExtraCost = extraCost
+		totalCost := usageCost + extraCost
+		stats.TotalTotalAccountCost = &totalCost
+		stats.TotalAccountCost = &totalCost
 	}
 
 	response.Success(c, stats)
