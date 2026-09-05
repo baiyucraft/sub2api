@@ -117,16 +117,12 @@
                     >${{ formatCost(stats.today_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('admin.dashboard.accountCost') }}：</span>
-                  <span
-                    class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.usageAccountCost')"
-                    >${{ formatCost(usageAccountCost('today')) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> + </span>
-                  <span class="text-amber-600 dark:text-amber-400" :title="t('admin.dashboard.extraCost')">${{ formatCost(extraCost('today')) }}</span>
-                  <span class="text-gray-400 dark:text-gray-500"> = </span>
-                  <span class="font-semibold text-red-600 dark:text-red-400" :title="t('admin.dashboard.totalAccountCost')">${{ formatCost(combinedAccountCost('today')) }}</span>
+                  <AccountCostAmount
+                    tooltip-id="today-account-cost-breakdown"
+                    :total-cost="formatCost(combinedAccountCost('today'))"
+                    :usage-cost="formatCost(usageAccountCost('today'))"
+                    :extra-cost="formatCost(extraCost('today'))"
+                  />
                   <span class="text-gray-400 dark:text-gray-500"> · </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
@@ -158,16 +154,12 @@
                     >${{ formatCost(stats.total_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('admin.dashboard.accountCost') }}：</span>
-                  <span
-                    class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.usageAccountCost')"
-                    >${{ formatCost(usageAccountCost('total')) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> + </span>
-                  <span class="text-amber-600 dark:text-amber-400" :title="t('admin.dashboard.extraCost')">${{ formatCost(extraCost('total')) }}</span>
-                  <span class="text-gray-400 dark:text-gray-500"> = </span>
-                  <span class="font-semibold text-red-600 dark:text-red-400" :title="t('admin.dashboard.totalAccountCost')">${{ formatCost(combinedAccountCost('total')) }}</span>
+                  <AccountCostAmount
+                    tooltip-id="total-account-cost-breakdown"
+                    :total-cost="formatCost(combinedAccountCost('total'))"
+                    :usage-cost="formatCost(usageAccountCost('total'))"
+                    :extra-cost="formatCost(extraCost('total'))"
+                  />
                   <span class="text-gray-400 dark:text-gray-500"> · </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
@@ -404,6 +396,7 @@ import Select from '@/components/common/Select.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import ExtraCostsDialog from '@/components/admin/usage/ExtraCostsDialog.vue'
+import AccountCostAmount from '@/components/admin/usage/AccountCostAmount.vue'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 
 import {

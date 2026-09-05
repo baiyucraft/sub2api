@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import type { DashboardStats } from '@/types'
 import DashboardView from '../DashboardView.vue'
+import AccountCostAmount from '@/components/admin/usage/AccountCostAmount.vue'
 
 const { getSnapshotV2, getUserUsageTrend, getUserSpendingRanking } = vi.hoisted(() => ({
   getSnapshotV2: vi.fn(),
@@ -113,6 +114,45 @@ describe('admin DashboardView', () => {
       start_date: '',
       end_date: ''
     })
+  })
+
+  it('shows today and total combined costs without a prefix and with separate hover details', async () => {
+    getSnapshotV2.mockResolvedValueOnce({
+      stats: {
+        ...createDashboardStats(),
+        today_usage_account_cost: 2,
+        today_extra_cost: 3,
+        today_total_account_cost: 5,
+        total_usage_account_cost: 12,
+        total_extra_cost: 6,
+        total_total_account_cost: 18,
+      },
+      trend: [],
+      models: [],
+    })
+    const wrapper = mount(DashboardView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          LoadingSpinner: true, Icon: true, DateRangePicker: true, Select: true,
+          ModelDistributionChart: true, TokenUsageTrend: true, Line: true,
+        },
+      },
+    })
+    await flushPromises()
+    const amounts = wrapper.findAllComponents(AccountCostAmount)
+    expect(amounts.map((amount) => amount.text())).toEqual(['$5.00', '$18.00'])
+    expect(wrapper.text()).not.toContain('admin.dashboard.accountCost')
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false)
+    for (const [index, amount] of amounts.entries()) {
+      await amount.trigger('mouseenter')
+      const tooltip = amount.get('[role="tooltip"]')
+      expect(tooltip.text()).toContain(index === 0 ? '$2.00' : '$12.00')
+      expect(tooltip.text()).toContain(index === 0 ? '$3.00' : '$6.00')
+      await amount.trigger('mouseleave')
+    }
+    expect(amounts[0].props('tooltipId')).not.toBe(amounts[1].props('tooltipId'))
+    wrapper.unmount()
   })
 
   it('uses last 24 hours as default dashboard range', async () => {

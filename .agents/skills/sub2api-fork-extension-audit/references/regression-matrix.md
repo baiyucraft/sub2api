@@ -83,3 +83,10 @@ Redis 调度缓存、共享并发 lease/queue 和健康 Registry 不残留旧状
 DataTable 高频 ResizeObserver 通知只触发一帧测量
 图片成本摘要字段缺失、partial、stale 和免费成本 0 的结构化展示
 ```
+
+## 额外成本金额输入
+
+- `ExtraCostsDialog` 的金额状态接受 `string | number`；原生数字输入事件不得触发 `trim is not a function` 或卸载弹窗。
+- 空值、负数和非有限值禁止提交；整数、小数及 `0` 可提交且发送数值金额；只输入不调用新增 API。
+- 成本摘要复用 `frontend/src/components/admin/usage/AccountCostAmount.vue`：默认只显示合计，悬浮、点击和键盘聚焦显示加数；Escape/失焦关闭。用量总消费保留“成本：”，仪表盘今日/累计均无前缀；保留服务端合计（含零）、旧字段回退和隐藏账号成本行为。
+- 最低回归：`frontend/src/components/admin/usage/__tests__/ExtraCostsDialog.spec.ts`、`frontend/src/components/admin/usage/__tests__/UsageStatsCards.spec.ts`、`frontend/src/views/admin/__tests__/DashboardView.spec.ts`。

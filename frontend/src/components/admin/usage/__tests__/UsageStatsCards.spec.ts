@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import UsageStatsCards from '../UsageStatsCards.vue'
+import AccountCostAmount from '../AccountCostAmount.vue'
 
 const messages: Record<string, string> = {
   'usage.totalRequests': 'Total Requests',
@@ -15,6 +16,7 @@ const messages: Record<string, string> = {
   'usage.cacheReadTokensLabel': 'Cache Read',
   'usage.totalCost': 'Total Cost',
   'usage.accountCost': 'Cost',
+  'admin.dashboard.accountCost': '成本',
   'usage.standardCost': 'Standard',
   'usage.avgDuration': 'Avg Duration',
 }
@@ -44,6 +46,49 @@ const stats = {
 }
 
 describe('UsageStatsCards', () => {
+  it('shows only the combined cost with a prefix, revealing addends on hover or focus', async () => {
+    const wrapper = mount(UsageStatsCards, {
+      props: { stats: { ...stats, total_account_cost: 2, total_extra_cost: 3 } },
+      global: { stubs: { Icon: true } },
+    })
+    const amount = wrapper.getComponent(AccountCostAmount)
+    expect(wrapper.text()).toContain('成本：')
+    expect(amount.text()).toBe('$5.0000')
+    expect(amount.find('[role="tooltip"]').exists()).toBe(false)
+
+    await amount.trigger('mouseenter')
+    const tooltip = amount.get('[role="tooltip"]')
+    expect(tooltip.text()).toContain('$2.0000')
+    expect(tooltip.text()).toContain('+')
+    expect(tooltip.text()).toContain('$3.0000')
+    expect(amount.attributes('aria-describedby')).toBe(tooltip.attributes('id'))
+    await amount.trigger('mouseleave')
+    expect(amount.find('[role="tooltip"]').exists()).toBe(false)
+    await amount.trigger('focus')
+    expect(amount.find('[role="tooltip"]').exists()).toBe(true)
+    await amount.trigger('keydown', { key: 'Escape' })
+    expect(amount.find('[role="tooltip"]').exists()).toBe(false)
+    await amount.trigger('click')
+    expect(amount.find('[role="tooltip"]').exists()).toBe(true)
+    await amount.trigger('blur')
+    expect(amount.find('[role="tooltip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps server totals, zero, legacy fallback and hidden account cost behavior', async () => {
+    const wrapper = mount(UsageStatsCards, {
+      props: { stats },
+      global: { stubs: { Icon: true } },
+    })
+    expect(wrapper.getComponent(AccountCostAmount).text()).toBe('$0.0010')
+    await wrapper.setProps({ stats: { ...stats, total_total_account_cost: 0, total_extra_cost: 3 } })
+    expect(wrapper.getComponent(AccountCostAmount).text()).toBe('$0.0000')
+    await wrapper.setProps({ showAccountCost: false })
+    expect(wrapper.findComponent(AccountCostAmount).exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('成本：')
+    wrapper.unmount()
+  })
+
   it('shows cache token breakdown values', () => {
     const wrapper = mount(UsageStatsCards, {
       props: {

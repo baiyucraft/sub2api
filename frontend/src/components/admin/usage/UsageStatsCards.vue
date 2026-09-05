@@ -69,11 +69,12 @@
         </p>
         <p v-if="showAccountCost" class="flex flex-wrap gap-x-1 text-xs text-gray-400">
           <span>{{ t('admin.dashboard.accountCost') }}：</span>
-          <span class="text-orange-500">${{ usageAccountCost.toFixed(4) }}</span>
-          <span> + </span>
-          <span class="text-amber-600">${{ extraCost.toFixed(4) }}</span>
-          <span> = </span>
-          <span class="font-medium text-red-600">${{ totalAccountCost.toFixed(4) }}</span>
+          <AccountCostAmount
+            tooltip-id="usage-account-cost-breakdown"
+            :total-cost="totalAccountCost.toFixed(4)"
+            :usage-cost="usageAccountCost.toFixed(4)"
+            :extra-cost="extraCost.toFixed(4)"
+          />
           <span> · </span>
           <span>
             {{ t('usage.standardCost') }}
@@ -97,6 +98,7 @@ import { useI18n } from 'vue-i18n'
 import type { AdminUsageStatsResponse } from '@/api/admin/usage'
 import type { UsageStatsResponse } from '@/types'
 import Icon from '@/components/icons/Icon.vue'
+import AccountCostAmount from './AccountCostAmount.vue'
 
 const props = withDefaults(defineProps<{
   stats: (AdminUsageStatsResponse | UsageStatsResponse) | null
