@@ -23,8 +23,10 @@ function mountField(props: { platform?: string; type?: string; modelValue?: stri
 }
 
 describe('UpstreamRequestIdHeaderField', () => {
-  it('lists relay and official header examples for API key accounts', () => {
+  it('lists relay and official header examples for API key accounts', async () => {
     const wrapper = mountField({ platform: 'openai', type: 'apikey' })
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false)
+    await wrapper.get('.group').trigger('mouseenter')
     const text = wrapper.text()
 
     expect(text).toContain('admin.accounts.upstreamRequestIdHeaderHelp.intro')
@@ -36,8 +38,9 @@ describe('UpstreamRequestIdHeaderField', () => {
     expect(text).toContain('x-request-id')
   })
 
-  it('lists only the official header for accounts that connect to the platform directly', () => {
+  it('lists only the official header for accounts that connect to the platform directly', async () => {
     const wrapper = mountField({ platform: 'anthropic', type: 'oauth' })
+    await wrapper.get('.group').trigger('mouseenter')
     const text = wrapper.text()
 
     expect(text).toContain('admin.accounts.upstreamRequestIdHeaderHelp.official:Anthropic')
@@ -46,8 +49,9 @@ describe('UpstreamRequestIdHeaderField', () => {
     expect(text).not.toContain('X-Oneapi-Request-Id')
   })
 
-  it('omits the examples section when no header is known for the platform', () => {
+  it('omits the examples section when no header is known for the platform', async () => {
     const wrapper = mountField({ platform: 'kimi', type: 'oauth' })
+    await wrapper.get('.group').trigger('mouseenter')
     const text = wrapper.text()
 
     expect(text).toContain('admin.accounts.upstreamRequestIdHeaderHelp.intro')
