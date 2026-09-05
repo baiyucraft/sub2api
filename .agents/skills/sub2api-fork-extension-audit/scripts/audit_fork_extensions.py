@@ -46,7 +46,7 @@ class Audit:
         self.dirty_paths: list[str] = []
 
     def git(self, *args: str, check: bool = True) -> str:
-        proc = subprocess.run(["git", *args], cwd=self.root, text=True, encoding="utf-8", errors="replace", capture_output=True)
+        proc = subprocess.run(["git", "-c", "core.quotepath=false", *args], cwd=self.root, text=True, encoding="utf-8", errors="replace", capture_output=True)
         if check and proc.returncode:
             raise RuntimeError(proc.stderr.strip() or f"git {' '.join(args)} failed")
         if proc.returncode and check:
@@ -146,6 +146,14 @@ class Audit:
         fork = current.strip()
         expected = official + self.catalog.get("version_contract", {}).get("fork_suffix", "-baiyu")
         if fork != expected:
+            # Only a verified pre-merge baseline may defer the target version.
+            # Post-merge always requires the exact target upstream version.
+            suffix = self.catalog.get("version_contract", {}).get("fork_suffix", "-baiyu")
+            base_version = (self.show(self.merge_base, "backend/cmd/server/VERSION") or "").strip()
+            if (self.mode == "pre-merge" and base_version and fork == base_version + suffix
+                    and fork == self.catalog.get("current_profile", {}).get("version")):
+                self.add("warning", "version_upgrade_required", "合并前版本与现有基线一致；合并后必须升级 VERSION 和连续 profile", official=official, fork=fork, expected=expected)
+                return
             self.add("blocker", "fork_version_mismatch", "fork VERSION 未按官方版本追加 -baiyu", official=official, fork=fork, expected=expected)
         else:
             self.add("pass", "version_contract", "VERSION 满足官方版本加后缀合同", official=official, fork=fork)

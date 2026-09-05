@@ -5,6 +5,7 @@
 1. 显式取得 `upstream/main` 的 40 位完整 SHA，记录来源，不把当前样本固化为未来目标。
 2. 确认工作区无未授权改动和未解决冲突。
 3. 执行 `pre-merge`，保存报告并处理所有 blocker 与目录更新要求。
+   合并前允许尚未升级目标 VERSION，但必须同时匹配 merge-base 官方版本加后缀和当前 profile；此时记录 `version_upgrade_required`。post-merge 仍严格要求目标官方 VERSION 加后缀，不允许旧版本放行。Git 文件名使用未转义 UTF-8，中文公告等独立文件必须精确登记。
 4. 阅读报告的 fork-only commits、路径分组、高风险文件和最低测试。
 5. 对本地 bug fix、兼容层和 workaround，检查目标 upstream commit 中是否已有对应官方修复；开放 PR、Issue 建议和未进入目标 commit 的代码只能作为参考，不能据此删除现有实现。
 
