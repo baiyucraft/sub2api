@@ -47,23 +47,24 @@ describe('HelpTooltip', () => {
     })
 
     const trigger = wrapper.get('.group')
-    const tooltip = getTooltipElement()
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
 
     await trigger.trigger('mouseenter')
     await nextTick()
-    expect(tooltip.style.display).not.toBe('none')
+    const tooltip = getTooltipElement()
+    expect(tooltip.textContent).toContain('copyable details')
 
     await trigger.trigger('mouseleave', { relatedTarget: tooltip })
     await nextTick()
-    expect(tooltip.style.display).not.toBe('none')
+    expect(getTooltipElement()).toBe(tooltip)
 
     tooltip.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: trigger.element }))
     await nextTick()
-    expect(tooltip.style.display).not.toBe('none')
+    expect(getTooltipElement()).toBe(tooltip)
 
     tooltip.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: null }))
     await nextTick()
-    expect(tooltip.style.display).toBe('none')
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
 
     wrapper.unmount()
   })
