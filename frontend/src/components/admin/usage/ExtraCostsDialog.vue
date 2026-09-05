@@ -115,7 +115,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 const today = () => new Date().toISOString().slice(0, 10)
-const form = reactive<{ cost_date: string; amount: string; category: ExtraCostType; notes: string }>({ cost_date: today(), amount: '', category: 'account', notes: '' })
+const form = reactive<{ cost_date: string; amount: string | number; category: ExtraCostType; notes: string }>({ cost_date: today(), amount: '', category: 'account', notes: '' })
 const filters = reactive<{ start_date: string; end_date: string; category?: ExtraCostType }>({ start_date: props.startDate || today(), end_date: props.endDate || today() })
 const entries = ref<ExtraCostEntry[]>([])
 const loading = ref(false)
@@ -134,7 +134,7 @@ const typeOptions = computed(() => [
   { value: 'adjustment', label: t('admin.dashboard.extraCostTypes.adjustment') }
 ])
 const filterTypeOptions = computed(() => [{ value: undefined, label: t('admin.dashboard.extraCostTypes.all') }, ...typeOptions.value])
-const canSubmit = computed(() => form.cost_date.length > 0 && form.amount.trim() !== '' && Number.isFinite(Number(form.amount)) && Number(form.amount) >= 0)
+const canSubmit = computed(() => form.cost_date.length > 0 && String(form.amount).trim() !== '' && Number.isFinite(Number(form.amount)) && Number(form.amount) >= 0)
 
 const close = () => emit('close')
 const formatCost = (value: number | null | undefined) => (Number.isFinite(Number(value)) ? Number(value).toFixed(4) : '0.0000')
