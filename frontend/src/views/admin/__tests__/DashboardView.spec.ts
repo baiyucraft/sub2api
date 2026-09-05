@@ -143,4 +143,29 @@ describe('admin DashboardView', () => {
       granularity: 'hour'
     }))
   })
+
+  it('distinguishes a recent usage request failure from an empty result', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    getUserUsageTrend.mockRejectedValueOnce(new Error('request failed'))
+
+    const wrapper = mount(DashboardView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          LoadingSpinner: true,
+          Icon: true,
+          DateRangePicker: true,
+          Select: true,
+          ModelDistributionChart: true,
+          TokenUsageTrend: true,
+          Line: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.dashboard.userTrendLoadFailed')
+    consoleError.mockRestore()
+  })
 })

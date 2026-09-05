@@ -869,6 +869,37 @@ func TestUsageLogRepositoryGetUserSpendingRanking(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestUsageLogRepositoryGetUserUsageTrendScansAccountCost(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+
+	rows := sqlmock.NewRows([]string{
+		"date", "user_id", "email", "username", "requests", "tokens", "cost", "actual_cost", "account_cost",
+	}).AddRow("2025-01-01 00:00", int64(7), "user@example.com", "user", int64(3), int64(900), 1.5, 1.2, 0.8)
+
+	mock.ExpectQuery("WITH top_users AS \\(").
+		WithArgs(start, end, 12, start, end).
+		WillReturnRows(rows)
+
+	got, err := repo.GetUserUsageTrend(context.Background(), start, end, "hour", 12)
+	require.NoError(t, err)
+	require.Equal(t, []usagestats.UserUsageTrendPoint{{
+		Date:        "2025-01-01 00:00",
+		UserID:      7,
+		Email:       "user@example.com",
+		Username:    "user",
+		Requests:    3,
+		Tokens:      900,
+		Cost:        1.5,
+		ActualCost:  1.2,
+		AccountCost: 0.8,
+	}}, got)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestBuildRequestTypeFilterConditionLegacyFallback(t *testing.T) {
 	tests := []struct {
 		name      string

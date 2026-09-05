@@ -19,15 +19,23 @@ SPEC.loader.exec_module(MODULE)
 def valid_document() -> dict[str, object]:
     return {
         "servers": {
+            "dmit": {
+                "purpose": "relay",
+                "host": "relay.invalid",
+                "port": 1030,
+                "user": "root",
+                "private_key": "relay-key",
+                "connection": "direct",
+            },
             "racknerd": {
                 "purpose": "production",
                 "host": "example.invalid",
                 "port": 22,
                 "user": "operator",
                 "password": "secret",
-                "connection": "proxy",
-                "proxy": "127.0.0.1:7897",
-                "proxy_command": "C:/Program Files/Git/mingw64/bin/connect.exe -S 127.0.0.1:7897 %h %p",
+                "connection": "http_connect_via_ssh",
+                "proxy": "10.77.0.1:1080",
+                "proxy_via": "dmit",
             },
             "other": {"ignored": True},
         }
@@ -37,11 +45,22 @@ def valid_document() -> dict[str, object]:
 class ConfigTests(unittest.TestCase):
     def test_valid_config(self) -> None:
         config = MODULE.parse_config_document(valid_document())
-        self.assertEqual(config.proxy_host, "127.0.0.1")
-        self.assertEqual(config.proxy_port, 7897)
+        self.assertEqual(config.proxy_host, "10.77.0.1")
+        self.assertEqual(config.proxy_port, 1080)
+        self.assertEqual(config.relay.host, "relay.invalid")
+
+    @staticmethod
+    def legacy_document() -> dict[str, object]:
+        document = valid_document()
+        racknerd = document["servers"]["racknerd"]
+        racknerd["connection"] = "proxy"
+        racknerd["proxy"] = "127.0.0.1:7897"
+        racknerd.pop("proxy_via")
+        racknerd["proxy_command"] = "C:/Program Files/Git/mingw64/bin/connect.exe -S 127.0.0.1:7897 %h %p"
+        return document
 
     def test_accepts_quoted_connect_executable(self) -> None:
-        document = valid_document()
+        document = self.legacy_document()
         document["servers"]["racknerd"]["proxy_command"] = (
             '"C:/Program Files/Git/mingw64/bin/connect.exe" -S 127.0.0.1:7897 %h %p'
         )
@@ -67,13 +86,13 @@ class ConfigTests(unittest.TestCase):
             MODULE.parse_config_document(document)
 
     def test_rejects_proxy_extra_argument(self) -> None:
-        document = valid_document()
+        document = self.legacy_document()
         document["servers"]["racknerd"]["proxy_command"] += " --extra"
         with self.assertRaisesRegex(MODULE.StatusCheckError, "proxy_config_unsupported"):
             MODULE.parse_config_document(document)
 
     def test_rejects_nonlocal_proxy(self) -> None:
-        document = valid_document()
+        document = self.legacy_document()
         document["servers"]["racknerd"]["proxy"] = "10.0.0.1:7897"
         document["servers"]["racknerd"]["proxy_command"] = (
             "C:/Tools/connect.exe -S 10.0.0.1:7897 %h %p"
@@ -81,8 +100,52 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.StatusCheckError, "proxy_config_unsupported"):
             MODULE.parse_config_document(document)
 
+    def test_rejects_wrong_relay_proxy_endpoint(self) -> None:
+        document = valid_document()
+        document["servers"]["racknerd"]["proxy"] = "10.77.0.1:8888"
+        with self.assertRaisesRegex(MODULE.StatusCheckError, "proxy_config_unsupported"):
+            MODULE.parse_config_document(document)
+
+    def test_rejects_non_direct_relay(self) -> None:
+        document = valid_document()
+        document["servers"]["dmit"]["connection"] = "proxy"
+        with self.assertRaisesRegex(MODULE.StatusCheckError, "proxy_config_unsupported"):
+            MODULE.parse_config_document(document)
+
 
 class ParserTests(unittest.TestCase):
+    def test_http_connect_accepts_success_response(self) -> None:
+        class Channel:
+            def __init__(self):
+                self.response = bytearray(b"HTTP/1.0 200 Connection established\r\nHeader: value\r\n\r\n")
+                self.request = b""
+
+            def sendall(self, value: bytes) -> None:
+                self.request += value
+
+            def recv(self, size: int) -> bytes:
+                value = bytes(self.response[:size])
+                del self.response[:size]
+                return value
+
+        channel = Channel()
+        MODULE.establish_http_connect(channel, "rack.invalid", 1030)
+        self.assertIn(b"CONNECT rack.invalid:1030 HTTP/1.1", channel.request)
+
+    def test_http_connect_rejects_forbidden_response(self) -> None:
+        class Channel:
+            response = bytearray(b"HTTP/1.0 403 Access denied\r\n\r\n")
+
+            def sendall(self, _value: bytes) -> None:
+                pass
+
+            def recv(self, size: int) -> bytes:
+                value = bytes(self.response[:size])
+                del self.response[:size]
+                return value
+
+        with self.assertRaisesRegex(MODULE.StatusCheckError, "proxy_or_connection_failed"):
+            MODULE.establish_http_connect(Channel(), "rack.invalid", 1030)
     def test_internal_health_uses_the_recorded_active_port(self) -> None:
         check = next(item for item in MODULE.CHECKS if item.name == "internal_health_http")
         self.assertIn("active_slot=/opt/sub2api/active-app", check.command)

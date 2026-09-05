@@ -567,7 +567,7 @@ func configuredCodexGPTReasoningLevels(modelID string) []configuredCodexReasonin
 		{Effort: "xhigh", Description: "Extra-high reasoning depth for difficult tasks"},
 	}
 	normalized := getNormalizedCodexModel(modelID)
-	if isOpenAIGPT56Model(modelID) {
+	if isOpenAIGPT56Model(modelID) || isGPT6AstraCodexModel(modelID) {
 		levels = append(levels, configuredCodexReasoningLevel{
 			Effort:      "max",
 			Description: "Maximum reasoning depth for complex tasks",
@@ -592,7 +592,11 @@ func isOpenAICodexGPTModel(modelID string) bool {
 
 func isOpenAICodexReasoningGPTModel(modelID string) bool {
 	normalized := canonicalizeOpenAIModelAliasSpelling(modelID)
-	return strings.HasPrefix(normalized, "gpt-5")
+	return strings.HasPrefix(normalized, "gpt-5") || isGPT6AstraCodexModel(normalized)
+}
+
+func isGPT6AstraCodexModel(modelID string) bool {
+	return canonicalizeOpenAIModelAliasSpelling(modelID) == "gpt-6-astra"
 }
 
 func isOpenAICodexImageInputModel(modelID string) bool {

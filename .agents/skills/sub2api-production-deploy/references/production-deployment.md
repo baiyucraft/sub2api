@@ -69,7 +69,7 @@
 7. 要求备份机至少有 `5 GiB` 可用空间。
 8. 若 `/etc/sub2api-backup.env` 没有 Healthchecks 配置，报告 `backup completed, external alerting incomplete`。
 
-旧的 `backups/latest` 工作流已经废弃，不能重新引入。DMIT 不参与备份。
+旧的 `backups/latest` 工作流已经废弃，不能重新引入。DMIT 不参与备份数据处理；本地到 RackNerd 的发布控制和加密产物传输经 DMIT 1080 中继。
 
 ## 生产迁移前置校验
 

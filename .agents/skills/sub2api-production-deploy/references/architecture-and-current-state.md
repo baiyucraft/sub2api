@@ -48,6 +48,11 @@
            -> VM 本地 PostgreSQL:5432
            -> VM 本地 Redis:6379
            -> /opt/sub2api-deploy/data-dev
+
+发布控制与产物传输
+  本地发布器 -> DMIT SSH:1030
+             -> DMIT 10.77.0.1:1080 HTTP CONNECT
+             -> RackNerd SSH:1030
 ```
 
 正式业务域名是 `sub.baiyuapi.xyz`。公网业务只应使用 HTTPS；DMIT 是国内线路入口，不承载 Sub2API、数据库或备份。
@@ -57,7 +62,7 @@
 | 节点 | 角色 | 允许做什么 | 明确禁止 |
 | --- | --- | --- | --- |
 | RackNerd | 生产应用和生产数据 | 构建 candidate、运行 Sub2API/Nginx/PostgreSQL/Redis、生成加密备份 | 把生产数据复制到本地 VM；用浮动 tag 发布 |
-| DMIT | 国内线路机 | HAProxy、ACME/HTTP 转发、PROXY v2 | 构建镜像、运行数据库、保存备份、承载业务应用 |
+| DMIT | 国内线路机与受限发布中继 | HAProxy、ACME/HTTP 转发、PROXY v2；通过 SSH 封装的 1080 HTTP CONNECT 转发发布控制与加密产物 | 构建镜像、运行数据库、保存备份、承载业务应用；公开 1080 或恢复旧 8888 |
 | 47.85.205.94 | 异地加密备份机 | 接收和校验加密 artifact、保存 `candidate/verified`、向隔离恢复环境提供密文 | 运行生产 Sub2API、保存解密私钥、接收明文 secret、在本机解密或恢复生产数据 |
 | 本地 VM | `sub2api-dev` 开发门禁 | 用 VM 本地 PG/Redis 验证 candidate、执行临时恢复演练 | 连接 RackNerd 生产 PG/Redis、使用生产 `.env`、作为生产副本 |
 
@@ -78,7 +83,7 @@
 
 - RackNerd 的 PostgreSQL 和 Redis 是生产唯一数据源。
 - VM 的 PostgreSQL、Redis、`data-dev` 必须是本地资源；SSH 隧道端口、RackNerd 地址、生产 DSN 一旦出现在 dev 容器配置中，立即停止验证。
-- DMIT 的 `80/443/1030` 是线路或管理入口；DMIT 不接收备份流量。
+- DMIT 的 `80/443/1030` 是线路或管理入口；`1080` 只监听 WireGuard 地址并限制来源，发布器先建立 DMIT SSH 再使用 HTTP CONNECT。DMIT 只转发加密流量，不落盘、不接收备份资产。
 - RackNerd 的 `18443` 只接受 DMIT 转发；生产应用只监听 `127.0.0.1:18080/18081` 双槽之一，由 `/opt/sub2api/active-app` 和受管 Nginx upstream 指向当前 active slot，不直接暴露应用端口。
 - Nginx `http {}` 必须保持 `underscores_in_headers on;`，双链路都要验证。
 

@@ -133,7 +133,7 @@ class SSHOutputTest(unittest.TestCase):
         self.assertTrue(all(end > start for start, end in ranges))
         self.assertLessEqual(max(end - start for start, end in ranges) - min(end - start for start, end in ranges), 1)
 
-    def test_large_upload_uses_sixteen_parts_and_atomic_assembly(self) -> None:
+    def test_large_upload_uses_eight_parts_and_atomic_assembly(self) -> None:
         runner = object.__new__(SSHRunner)
         runner.temp_dirs = {("vm", "/tmp/transfer")}
         runner._require_temp_path = lambda *_args: None
@@ -144,7 +144,7 @@ class SSHOutputTest(unittest.TestCase):
             path = Path(directory) / "image.tar.gz"
             path.write_bytes(b"x" * (64 * 1024 * 1024))
             runner._upload_file_parallel("vm", path, "/tmp/transfer/image.tar.gz", 0o400)
-        self.assertEqual(len(uploaded), 16)
+        self.assertEqual(len(uploaded), 8)
         self.assertEqual(sorted(uploaded)[0][0], 0)
         self.assertEqual(sorted(uploaded)[-1][1], 64 * 1024 * 1024)
         script = runner.run.call_args.args[1]
@@ -166,7 +166,7 @@ class SSHOutputTest(unittest.TestCase):
                 runner._upload_file_parallel("vm", path, "/tmp/transfer/image.tar.gz", 0o400)
         runner.run.assert_not_called()
 
-    def test_large_download_uses_sixteen_parts_and_atomic_assembly(self) -> None:
+    def test_large_download_uses_eight_parts_and_atomic_assembly(self) -> None:
         runner = object.__new__(SSHRunner)
         runner.temp_dirs = {("vm", "/tmp/transfer")}
         runner._require_temp_path = lambda *_args: None
@@ -181,7 +181,7 @@ class SSHOutputTest(unittest.TestCase):
             local = Path(directory) / "image.tar.gz"
             runner._download_file_parallel("vm", "/tmp/transfer/image.tar.gz", local, 64)
             self.assertEqual(local.stat().st_size, 64)
-            self.assertEqual(len(downloaded), 16)
+            self.assertEqual(len(downloaded), 8)
             self.assertEqual(sorted(downloaded)[0][0], 0)
             self.assertEqual(sorted(downloaded)[-1][1], 64)
             self.assertFalse(any(local.parent.glob("image.tar.gz.parallel-*")))
@@ -207,7 +207,7 @@ class SSHOutputTest(unittest.TestCase):
             self.assertEqual(local.stat().st_size, 64)
             self.assertFalse(any(local.parent.glob("image.tar.gz.parallel-*")))
         self.assertIn("transfer_parallel_degraded", events)
-        self.assertEqual(TRANSFER_MAX_ACTIVE_CONNECTIONS, 4)
+        self.assertEqual(TRANSFER_MAX_ACTIVE_CONNECTIONS, 8)
 
     def test_large_download_keeps_checkpoints_after_part_failure(self) -> None:
         runner = object.__new__(SSHRunner)
@@ -302,6 +302,66 @@ class SSHOutputTest(unittest.TestCase):
     def test_connection_files_are_repo_local(self) -> None:
         self.assertEqual(SSH_CONFIG, ROOT / ".ssh.local")
         self.assertEqual(KNOWN_HOSTS, ROOT / ".tmp" / "known_hosts")
+
+    def test_validates_http_connect_relay_route(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.servers = {
+            "dmit": {"host": "relay.test", "user": "root", "password": "secret", "connection": "direct"},
+            "racknerd": {
+                "host": "rack.test", "user": "root", "password": "secret",
+                "connection": "http_connect_via_ssh", "proxy_via": "dmit", "proxy": "10.77.0.1:1080",
+            },
+        }
+        runner._validate_proxy_routes()
+
+    def test_rejects_recursive_http_connect_relay_route(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.servers = {
+            "dmit": {
+                "host": "relay.test", "user": "root", "password": "secret", "connection": "http_connect_via_ssh",
+                "proxy_via": "racknerd", "proxy": "10.77.0.1:1080",
+            },
+            "racknerd": {
+                "host": "rack.test", "user": "root", "password": "secret", "connection": "http_connect_via_ssh",
+                "proxy_via": "dmit", "proxy": "10.77.0.1:1080",
+            },
+        }
+        with self.assertRaisesRegex(RuntimeError, "relay"):
+            runner._validate_proxy_routes()
+
+    def test_http_connect_consumes_only_proxy_headers(self) -> None:
+        class Channel:
+            def __init__(self):
+                self.response = bytearray(b"HTTP/1.0 200 Connection established\r\nHeader: value\r\n\r\nSSH-banner")
+                self.request = b""
+
+            def sendall(self, value: bytes) -> None:
+                self.request += value
+
+            def recv(self, size: int) -> bytes:
+                value = bytes(self.response[:size])
+                del self.response[:size]
+                return value
+
+        channel = Channel()
+        SSHRunner._establish_http_connect(channel, "rack.test", 1030)
+        self.assertEqual(bytes(channel.response), b"SSH-banner")
+        self.assertIn(b"CONNECT rack.test:1030 HTTP/1.1", channel.request)
+
+    def test_http_connect_rejects_non_200(self) -> None:
+        class Channel:
+            response = bytearray(b"HTTP/1.0 403 Access denied\r\n\r\n")
+
+            def sendall(self, _value: bytes) -> None:
+                pass
+
+            def recv(self, size: int) -> bytes:
+                value = bytes(self.response[:size])
+                del self.response[:size]
+                return value
+
+        with self.assertRaisesRegex(OSError, "rejected"):
+            SSHRunner._establish_http_connect(Channel(), "rack.test", 1030)
 
     def test_connection_retries_transport_banner_failures(self) -> None:
         runner = object.__new__(SSHRunner)

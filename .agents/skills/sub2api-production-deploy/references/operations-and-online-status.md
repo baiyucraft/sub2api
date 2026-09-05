@@ -5,7 +5,7 @@
 - [运维原则](#运维原则)
 - [状态记录格式](#状态记录格式)
 - [白名单采集](#白名单采集)
-- [Windows SOCKS SSH](#windows-socks-ssh)
+- [Windows 经 DMIT 发布 SSH](#windows-经-dmit-发布-ssh)
 - [日常检查矩阵](#日常检查矩阵)
 - [发布前巡检](#发布前巡检)
 - [发布中巡检](#发布中巡检)
@@ -56,9 +56,9 @@ freshness: fresh | stale | unknown
 - 完整容器 environment、完整 `docker inspect`、展开后的 Compose。
 - `systemctl cat` 原始内容、宽泛日志和可能含凭据的请求体。
 
-## Windows SOCKS SSH
+## Windows 经 DMIT 发布 SSH
 
-RackNerd 的 Windows 巡检优先使用 skill 自带的固定脚本：
+RackNerd 的 Windows 巡检和生产发布统一使用 DMIT 中继。固定脚本为：
 
 ```text
 python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status.py --config .ssh.local
@@ -67,10 +67,11 @@ python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status
 运行约束：
 
 - 依赖必须与 `scripts/requirements-readonly-status.txt` 精确一致；缺失或不一致时停止。只允许在获批的本地受控环境预装，生产巡检期间禁止临时联网安装。
-- 脚本只接受当前本机 `connect.exe -S ... %h %p` SOCKS5 形式，只解析 endpoint，绝不执行 `proxy_command`。
-- 不把 OpenSSH `ProxyCommand` 原样传给 Windows Paramiko。Paramiko 的 subprocess pipe 不能按 Unix socket 使用 `select()`，且不会替 OpenSSH 展开 `%h/%p`。
+- 当前配置固定为 `connection=http_connect_via_ssh`、`proxy_via=dmit`、`proxy=10.77.0.1:1080`。发布器先校验并直连 DMIT SSH，再由该 SSH transport 打开到 1080 的通道，执行 HTTP CONNECT 到 RackNerd 管理端口。
+- RackNerd 命令、SFTP 上传下载、恢复包和镜像传输都复用同一 `SSHRunner.connect` 路由；不得只给 doctor 走代理而让写操作直连。
+- 旧本机 `connect.exe` SOCKS 配置仅保留解析兼容，不是当前生产发布路径；当前路由禁止回退到本机代理、直连或 DMIT 8888。
 - 使用 PySocks socket 后，SSH host key 仍按 RackNerd 原始 `host:port` 从用户 `known_hosts` 校验；未知或不匹配立即停止，禁止 `AutoAddPolicy`。
-- 禁止直连 fallback。代理失败写 `unknown`；直连超时不能证明应用故障。
+- 禁止直连 fallback。DMIT SSH、1080 或 HTTP CONNECT 任一失败均写 `unknown/failed` 并停止发布；不得用公网健康掩盖发布通道失败。
 - 脚本只输出固定枚举、HTTP code 和 image ID。任何 stderr、异常详情、host、user、代理 endpoint、密钥路径或原始远端输出都不得进入报告。
 
 代理连接、SSH 认证、内部应用检查和公网 HTTPS 是不同层。某层失败只报告该层，不能用公网 200 掩盖内部未知，也不能用 SSH 客户端错误宣告业务下线。
@@ -91,10 +92,11 @@ python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status
 ### DMIT
 
 - HAProxy active/enabled 和版本。
+- `sub2api-tinyproxy.service` active/enabled，1080 监听在 WireGuard 地址，允许 DMIT/RackNerd WireGuard 对端，并允许 CONNECT 到 RackNerd 管理端口；旧 `tinyproxy.service` disabled/inactive 且 8888 不监听。
 - `80/443/1030` 监听。
 - 从外部或允许的检查点验证 DMIT HTTPS `/health`。
 - 确认它没有数据库、Sub2API 容器或备份 artifact。
-- 正常发布不修改 DMIT 配置。
+- 正常发布不修改 DMIT 配置；只在单独获批的运维控制变更中维护 1080 中继。
 
 ### 47.85.205.94
 

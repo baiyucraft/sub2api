@@ -128,7 +128,7 @@ func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, e
 	results = make([]UserUsageTrendPoint, 0)
 	for rows.Next() {
 		var row UserUsageTrendPoint
-		if err = rows.Scan(&row.Date, &row.UserID, &row.Email, &row.Username, &row.Requests, &row.Tokens, &row.Cost, &row.ActualCost); err != nil {
+		if err = rows.Scan(&row.Date, &row.UserID, &row.Email, &row.Username, &row.Requests, &row.Tokens, &row.Cost, &row.ActualCost, &row.AccountCost); err != nil {
 			return nil, err
 		}
 		results = append(results, row)

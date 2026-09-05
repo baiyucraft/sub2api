@@ -45,7 +45,7 @@ RackNerd
   └─ 只向外部隔离恢复环境提供密文，不解密、不承载生产
 
 DMIT
-  └─ 只做 HAProxy/ACME 线路转发，不接收、不保存、不恢复备份
+  └─ 做 HAProxy/ACME 线路转发，并可作为发布 SSH/加密产物的受限传输中继；不接收、不保存、不恢复备份
 
 本地 VM
   └─ 可做 sub2api-dev 验证或一次性隔离恢复，不是生产备份副本
@@ -85,7 +85,7 @@ DMIT
 8. 记录包文件名、大小、mtime、checksum 和状态，不记录明文内容。
 9. 如果 `/etc/sub2api-backup.env` 没有 Healthchecks URL，报告：`backup completed, external alerting incomplete`。
 
-旧的 `backups/latest` 流程已经废弃，不得重新引入。DMIT 不得参与任何备份步骤。
+旧的 `backups/latest` 流程已经废弃，不得重新引入。DMIT 不参与备份生成、保存、校验或恢复；它只可作为到 RackNerd 的加密传输中继。
 
 ## 不兼容迁移恢复点
 

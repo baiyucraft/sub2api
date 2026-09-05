@@ -39,17 +39,17 @@ MAX_EVENT_LOG_BYTES = 16 * 1024 * 1024
 TRANSFER_CHUNK_BYTES = 8 * 1024 * 1024
 TRANSFER_MAX_ATTEMPTS = 8
 TRANSFER_DOWNLOAD_PREFETCH_REQUESTS = 64
-TRANSFER_PARALLEL_PARTS = 16
-# Keep the sixteen-part checkpoint layout while bounding simultaneous SSH
-# handshakes. RackNerd's proxy becomes unstable under eight concurrent SSH
-# sessions; four keeps useful parallelism without triggering a connection
-# storm, and incomplete parts are recovered serially below.
-TRANSFER_MAX_ACTIVE_CONNECTIONS = 4
+TRANSFER_PARALLEL_PARTS = 8
+# Eight independently resumable parts provide enough throughput over the
+# DMIT relay without creating the connection storm seen with sixteen SSH
+# sessions. Failed parts remain checkpoints and are recovered independently.
+TRANSFER_MAX_ACTIVE_CONNECTIONS = 8
 TRANSFER_DOWNLOAD_PART_PREFETCH_REQUESTS = 8
 TRANSFER_PARALLEL_MIN_BYTES = 32 * 1024 * 1024
 TRANSFER_SOCKET_TIMEOUT = 90
 PROXY_SSH_KEEPALIVE_SECONDS = 10
 DIRECT_SSH_KEEPALIVE_SECONDS = 30
+HTTP_CONNECT_MAX_HEADER_BYTES = 16 * 1024
 REMOTE_EVENT_LOGS = {
     "local_vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
     "vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
@@ -77,10 +77,86 @@ class SSHRunner:
     def __init__(self) -> None:
         document = yaml.safe_load(SSH_CONFIG.read_text(encoding="utf-8"))
         self.servers = document["servers"]
+        self._validate_proxy_routes()
         self.temp_dirs: set[tuple[str, str]] = set()
         self.event_log_path = os.environ.get("SUB2API_EVENT_LOG")
         self.release_id = os.environ.get("SUB2API_RELEASE_ID")
         self.deployment_mode = os.environ.get("SUB2API_DEPLOYMENT_MODE")
+
+    @staticmethod
+    def _parse_proxy_endpoint(value: str) -> tuple[str, int]:
+        if not isinstance(value, str) or value.count(":") != 1:
+            raise RuntimeError("SSH proxy endpoint is invalid")
+        host, raw_port = value.rsplit(":", 1)
+        if not host or not raw_port.isdigit():
+            raise RuntimeError("SSH proxy endpoint is invalid")
+        port = int(raw_port)
+        if not 1 <= port <= 65535:
+            raise RuntimeError("SSH proxy endpoint is invalid")
+        return host, port
+
+    def _validate_proxy_routes(self) -> None:
+        if not isinstance(self.servers, dict):
+            raise RuntimeError("SSH server configuration is invalid")
+        for name, config in self.servers.items():
+            if not isinstance(config, dict):
+                raise RuntimeError("SSH server configuration is invalid")
+            relay_name = config.get("proxy_via")
+            if relay_name is None:
+                continue
+            if config.get("connection") != "http_connect_via_ssh":
+                raise RuntimeError("SSH relay proxy connection mode is invalid")
+            if not isinstance(relay_name, str) or relay_name == name or relay_name not in self.servers:
+                raise RuntimeError("SSH relay proxy target is invalid")
+            relay = self.servers[relay_name]
+            if not isinstance(relay, dict) or relay.get("proxy_via") or relay.get("proxy"):
+                raise RuntimeError("SSH relay must use a direct connection")
+            if relay.get("connection") not in {None, "direct"}:
+                raise RuntimeError("SSH relay connection mode is invalid")
+            self._parse_proxy_endpoint(config.get("proxy"))
+
+    @staticmethod
+    def _establish_http_connect(channel, target_host: str, target_port: int) -> None:
+        authority = f"{target_host}:{target_port}"
+        request = (
+            f"CONNECT {authority} HTTP/1.1\r\n"
+            f"Host: {authority}\r\n"
+            "Proxy-Connection: keep-alive\r\n\r\n"
+        ).encode("ascii")
+        channel.sendall(request)
+        response = bytearray()
+        while not response.endswith(b"\r\n\r\n"):
+            if len(response) >= HTTP_CONNECT_MAX_HEADER_BYTES:
+                raise OSError("HTTP CONNECT proxy response is too large")
+            chunk = channel.recv(1)
+            if not chunk:
+                raise OSError("HTTP CONNECT proxy closed before the tunnel was established")
+            response.extend(chunk)
+        status_line = bytes(response).split(b"\r\n", 1)[0]
+        parts = status_line.split(b" ", 2)
+        if len(parts) < 2 or parts[0] not in {b"HTTP/1.0", b"HTTP/1.1"} or parts[1] != b"200":
+            raise OSError("HTTP CONNECT proxy rejected the tunnel")
+
+    def _open_http_connect_via_ssh(self, name: str, config: dict, command_id: str):
+        relay_name = config["proxy_via"]
+        relay_client = self.connect(relay_name, command_id=f"{command_id}-relay")
+        try:
+            relay_transport = relay_client.get_transport()
+            if relay_transport is None:
+                raise OSError("SSH relay transport is unavailable")
+            proxy_host, proxy_port = self._parse_proxy_endpoint(config["proxy"])
+            channel = relay_transport.open_channel(
+                "direct-tcpip",
+                (proxy_host, proxy_port),
+                ("127.0.0.1", 0),
+                timeout=30,
+            )
+            channel.settimeout(30)
+            self._establish_http_connect(channel, config["host"], int(config.get("port", 22)))
+            return relay_client, channel
+        except BaseException:
+            relay_client.close()
+            raise
 
     def _logger(self, node: str) -> JSONLEventLogger | None:
         path = getattr(self, "event_log_path", None)
@@ -158,11 +234,15 @@ exit "$code"
         for attempt in range(1, 4):
             client: paramiko.SSHClient | None = None
             proxy_socket = None
+            relay_client: paramiko.SSHClient | None = None
             try:
                 self._emit(
                     name, stage="ssh_connect", event="connection_attempt_started",
                     message="SSH connection attempt started", command_id=identifier, attempt=attempt,
-                    details={"proxy_enabled": bool(config.get("proxy"))},
+                    details={
+                        "proxy_enabled": bool(config.get("proxy")),
+                        "proxy_via_ssh": bool(config.get("proxy_via")),
+                    },
                 )
                 kwargs = {
                     "hostname": config["host"],
@@ -178,7 +258,10 @@ exit "$code"
                     kwargs["key_filename"] = str(pathlib.Path(config["private_key"]).expanduser())
                 else:
                     kwargs["password"] = config["password"]
-                if config.get("proxy"):
+                if config.get("proxy_via"):
+                    relay_client, proxy_socket = self._open_http_connect_via_ssh(name, config, identifier)
+                    kwargs["sock"] = proxy_socket
+                elif config.get("proxy"):
                     host, port = config["proxy"].rsplit(":", 1)
                     proxy_socket = socks.socksocket()
                     proxy_socket.set_proxy(socks.SOCKS5, host, int(port))
@@ -205,6 +288,18 @@ exit "$code"
                 transport.set_keepalive(
                     PROXY_SSH_KEEPALIVE_SECONDS if config.get("proxy") else DIRECT_SSH_KEEPALIVE_SECONDS
                 )
+                if relay_client is not None:
+                    original_close = client.close
+                    parent_client = relay_client
+
+                    def close_proxy_chain() -> None:
+                        try:
+                            original_close()
+                        finally:
+                            parent_client.close()
+
+                    client.close = close_proxy_chain  # type: ignore[method-assign]
+                    relay_client = None
                 self._emit(
                     name, stage="ssh_connect", event="connection_verified",
                     message="SSH connection verified", command_id=identifier, attempt=attempt,
@@ -216,6 +311,8 @@ exit "$code"
                     client.close()
                 if proxy_socket is not None:
                     proxy_socket.close()
+                if relay_client is not None:
+                    relay_client.close()
                 self._emit(
                     name, stage="ssh_connect", event="connection_attempt_failed",
                     message="SSH connection attempt failed", command_id=identifier, attempt=attempt,
@@ -758,7 +855,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
                     source.seek(start + current_size)
                     if hasattr(source, "prefetch"):
                         # Paramiko treats ``file_size`` as an absolute end
-                        # offset.  Limit prefetch to this range so sixteen
+                        # offset. Limit prefetch to this range so parallel
                         # workers do not each queue the entire remote file.
                         source.prefetch(end, max_concurrent_requests=TRANSFER_DOWNLOAD_PART_PREFETCH_REQUESTS)
                     remaining = expected_size - current_size

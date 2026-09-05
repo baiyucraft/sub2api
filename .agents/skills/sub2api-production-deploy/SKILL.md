@@ -10,6 +10,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 ## 不可违反的边界
 
 - 读取 `.ssh.local` 只能作为连接输入；禁止输出、提交或记录密码、私钥、token、`.env`、完整环境变量、展开后的 Compose 和原始连接资料。
+- RackNerd 的发布命令、状态检查、镜像与恢复包传输必须使用 `.ssh.local` 的 `http_connect_via_ssh` 路由，经 DMIT SSH 和仅监听 WireGuard 的 `10.77.0.1:1080` HTTP CONNECT 代理到达 RackNerd；禁止静默回退到本机 SOCKS、旧 `8888` 或直连。DMIT 中继或 1080 失败时发布必须停止。
 - 任何远程写操作前先给出方案并获得用户确认；只读核验也必须采用字段白名单。
 - 生产旧容器在 candidate 构建、传输和验证完成前保持运行。
 - 正常应用发布使用 active/candidate 双槽：候选先在备用 loopback 端口启动，Nginx 通过原子 upstream 文件和 graceful reload 切流，旧容器最长排空 60 分钟后再停止。排空超时或连接状态不确定时优先把路由 reload 回旧槽，禁止强杀旧长连接。协调数据恢复仍允许停机。
@@ -43,6 +44,10 @@ description: 面向 Sub2API fork 的构建、开发门禁、生产发布、备�
 海外/默认 -> RackNerd:443 -> Nginx -> active slot:18080/18081
 国内      -> DMIT:443 -> HAProxy(PROXY v2)
                          -> RackNerd:18443 -> Nginx -> active slot:18080/18081
+
+发布控制/传输
+  本地 -> SSH DMIT:1030 -> DMIT HTTP CONNECT 10.77.0.1:1080
+       -> RackNerd:1030
 
 RackNerd -> PostgreSQL + Redis + 加密备份源
          -> 47.85.205.94（只保存和校验密文）

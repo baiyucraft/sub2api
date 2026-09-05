@@ -34,9 +34,13 @@ vi.mock('@/composables/useAutoRefresh', () => ({
   },
 }))
 
-vi.mock('vue-i18n', () => ({
-  useI18n: () => ({ t: (key: string) => key }),
-}))
+vi.mock('vue-i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue-i18n')>()
+  return {
+    ...actual,
+    useI18n: () => ({ t: (key: string) => key }),
+  }
+})
 
 vi.mock('@/components/layout/AppLayout.vue', () => ({
   default: defineComponent({
