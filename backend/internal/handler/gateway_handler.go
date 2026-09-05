@@ -171,6 +171,19 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	reqStream := parsedReq.Stream
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
+	if policyBody, changed, err := applyAnthropicReasoningEffortPolicyForRequest(c, apiKey, body); err != nil {
+		respondOpenAIReasoningEffortPolicyError(c, err, h.errorResponse)
+		return
+	} else if changed {
+		if err := parsedReq.ReplaceBody(policyBody); err != nil {
+			reqLog.Warn("gateway.reasoning_effort_policy_parse_failed", zap.Error(err))
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to apply reasoning effort policy")
+			return
+		}
+		body = parsedReq.Body.Bytes()
+		reqModel = parsedReq.Model
+		reqStream = parsedReq.Stream
+	}
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
 	// 解析渠道级模型映射
@@ -395,7 +408,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.Int64("account_id", account.ID),
 						zap.Int("max_waiting", selection.WaitPlan.MaxWaiting),
 					)
-					h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Too many pending requests, please retry later", streamStarted)
+					h.handleStreamingAwareErrorWithCode(c, http.StatusTooManyRequests, "rate_limit_error", gatewayQueueFullCode, "Too many pending requests, please retry later", streamStarted)
 					return
 				}
 				if err == nil && canWait {
@@ -609,6 +622,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		c.Request = c.Request.WithContext(ctx)
 	}
 
+	// 会话槽失败释放：failover 链上每个选中的 Anthropic OAuth 账号都注册过同一会话
+	// （checkAndRegisterSession）。若请求最终失败（转发失败/客户端中断/换号耗尽），
+	// 须立即释放本次会话注册——上游从未真正服务该会话，继续占槽会让 max_sessions
+	// 受限的账号被失败请求的 session hash 卡满整个空闲窗口，后续新会话全部被拒。
+	// 成功请求保持既有空闲超时语义（会话按最后活动时间过期）。
+	sessionSlotAccounts := make(map[int64]*service.Account)
+	upstreamServedSession := false
+	defer func() {
+		h.releaseUnservedAccountSessions(sessionSlotAccounts, sessionKey, upstreamServedSession)
+	}()
+
 	for {
 		fs := NewFailoverState(h.maxAccountSwitches, hasBoundSession)
 		retryWithFallback := false
@@ -670,6 +694,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
 
+			// Selection has already registered the session, including wait plans.
+			// Track it before interception, queue admission, or profit veto can return.
+			sessionSlotAccounts[account.ID] = account
 			// [DEBUG-STICKY] 打印账号选择结果
 			reqLog.Info("sticky.account_selected",
 				zap.Int64("selected_account_id", account.ID),
@@ -718,7 +745,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.Int64("account_id", account.ID),
 						zap.Int("max_waiting", selection.WaitPlan.MaxWaiting),
 					)
-					h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Too many pending requests, please retry later", streamStarted)
+					h.handleStreamingAwareErrorWithCode(c, http.StatusTooManyRequests, "rate_limit_error", gatewayQueueFullCode, "Too many pending requests, please retry later", streamStarted)
 					return
 				}
 				if err == nil && canWait {
@@ -761,6 +788,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", profitVetoExhaustedMessage, streamStarted)
 					return
 				}
+				// 尝试被否决（从未转发），立即释放该账号的会话注册
+				h.gatewayService.ReleaseAccountSession(context.Background(), account, sessionKey)
+				delete(sessionSlotAccounts, account.ID)
 				continue
 			}
 			account = latest
@@ -981,6 +1011,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						currentSubscription = nil
 						fallbackUsed = true
 						retryWithFallback = true
+						// 原分组账号已确定性失败（prompt too long），先释放其会话注册再走兜底分组
+						for _, acc := range sessionSlotAccounts {
+							h.gatewayService.ReleaseAccountSession(context.Background(), acc, sessionKey)
+						}
+						sessionSlotAccounts = make(map[int64]*service.Account)
 						break
 					}
 					_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
@@ -996,6 +1031,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 					switch action {
 					case FailoverContinue:
+						// 本次尝试已确定性失败，立即释放该账号的会话注册
+						h.gatewayService.ReleaseAccountSession(context.Background(), account, sessionKey)
+						delete(sessionSlotAccounts, account.ID)
 						continue
 					case FailoverExhausted:
 						h.handleFailoverExhausted(c, fs.LastFailoverErr, account.Platform, streamStarted)
@@ -1034,6 +1072,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				// 不会走到这里重复计费。
 				if result != nil {
 					submitForwardUsage(result)
+					// 上游已接受并计量本次会话（流中断），会话槽保持既有语义
+					upstreamServedSession = true
 				}
 				return
 			}
@@ -1059,11 +1099,23 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			submitForwardUsage(result)
+			// 转发成功，会话槽保持既有空闲超时语义
+			upstreamServedSession = true
 			return
 		}
 		if !retryWithFallback {
 			return
 		}
+	}
+}
+
+func (h *GatewayHandler) releaseUnservedAccountSessions(accounts map[int64]*service.Account, sessionKey string, upstreamServed bool) {
+	if upstreamServed {
+		return
+	}
+	// Release must survive cancellation of the client request.
+	for _, account := range accounts {
+		h.gatewayService.ReleaseAccountSession(context.Background(), account, sessionKey)
 	}
 }
 
@@ -1816,8 +1868,8 @@ func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, su
 
 // handleConcurrencyError handles concurrency-related acquire errors.
 func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
-	status, errType, message := concurrencyErrorResponse(err, slotType)
-	h.handleStreamingAwareError(c, status, errType, message, streamStarted)
+	status, errType, code, message := concurrencyErrorResponse(err, slotType)
+	h.handleStreamingAwareErrorWithCode(c, status, errType, code, message, streamStarted)
 }
 
 func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, platform string, streamStarted bool) {
@@ -1888,6 +1940,10 @@ func (h *GatewayHandler) mapUpstreamError(statusCode int) (int, string, string) 
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
 func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	h.handleStreamingAwareErrorWithCode(c, status, errType, "", message, streamStarted)
+}
+
+func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, errType, code, message string, streamStarted bool) {
 	if streamStarted {
 		// 响应状态码已固化为 200（ping/部分数据已 flush），错误只能就地以 SSE 帧回传。
 		// 标记本次流内错误，供 ops_error_logger 补记——否则该中间件按 status>=400 采集，
@@ -1898,7 +1954,7 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 		// response.completed/failed/incomplete/cancelled 集合。
 		// Anthropic-backed Responses 路径同样会因为通用 error 帧被拒。
 		if inboundIsResponses(c) {
-			if writeResponsesFailedSSE(c, errType, message) {
+			if writeResponsesFailedSSE(c, errType, code, message) {
 				return
 			}
 		}
@@ -1906,7 +1962,11 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
 			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
-			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
+			errorCode := ""
+			if code != "" {
+				errorCode = `,"code":` + strconv.Quote(code)
+			}
+			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + errorCode + `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
 			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
 				_ = c.Error(err)
 			}
@@ -1916,7 +1976,7 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 	}
 
 	// Normal case: return JSON response with proper status code
-	h.errorResponse(c, status, errType, message)
+	h.errorResponseWithCode(c, status, errType, code, message)
 }
 
 // ensureForwardErrorResponse 在 Forward 返回错误但尚未写响应时补写统一错误响应。
@@ -2008,12 +2068,17 @@ func (h *GatewayHandler) checkClaudeCodeVersion(c *gin.Context) bool {
 
 // errorResponse 返回Claude API格式的错误响应
 func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	h.errorResponseWithCode(c, status, errType, "", message)
+}
+
+func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
+	errorObject := gin.H{"type": errType, "message": message}
+	if code != "" {
+		errorObject["code"] = code
+	}
 	c.JSON(status, gin.H{
-		"type": "error",
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
+		"type":  "error",
+		"error": errorObject,
 	})
 }
 
@@ -2126,6 +2191,8 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	if err := h.gatewayService.ForwardCountTokens(c.Request.Context(), c, account, parsedReq); err != nil {
 		reqLog.Error("gateway.count_tokens_forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		// 错误响应已在 ForwardCountTokens 中处理
+		// 上游未服务该会话，立即释放选号时注册的会话槽（客户端可能已断开，用独立 ctx）
+		h.gatewayService.ReleaseAccountSession(context.Background(), account, sessionHash)
 		return
 	}
 }

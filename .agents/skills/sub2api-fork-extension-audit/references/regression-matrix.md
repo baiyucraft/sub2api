@@ -18,7 +18,9 @@
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 质量与累计用量 | 质量仅展示不参与调度；coverage/backfill 完整后才允许 raw cleanup；日聚合时区正确 |
 | 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；成本摘要必须结构化展示能力、倍率来源和分辨率成本；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
-| migration/profile/version | migration 233 语义、官方 migration 编号冲突按内容重编号、历史 profile 233–244 合同不可变；当前 profile 245 对应 `0.2.0-baiyu`、parent 为 244、`new_migrations=256–262`，由 release manifest 绑定数据库 migration catalog 与生产兼容快照；`VERSION = upstream VERSION + -baiyu`；fork VERSION 每变化一次都新增下一个连续 profile，不得回写旧 profile |
+| migration/profile/version | migration 233 语义、官方 migration 编号冲突按内容重编号、历史 profile 233–245 合同不可变；当前 profile 246 对应 `0.2.1-baiyu`、parent 为 245、`new_migrations=263–266`，由 release manifest 绑定数据库 migration catalog 与生产兼容快照；`VERSION = upstream VERSION + -baiyu`；fork VERSION 每变化一次都新增下一个连续 profile，不得回写旧 profile |
+| 官方 Astra 支持 | 使用目标官方的识别、静态目录、live/pinned 能力和测试；默认 medium 与 low 至 max，live/pinned 额外能力不被 fork 旧规则裁剪；ultrafast 与推理 ultra 区分；Anthropic 桥接、指纹、0 倍率和共享并发单独回归 |
+| compact 账号列表与编辑 | 脱敏列表保留上游身份、能力和调度字段；按需详情不被列表刷新覆盖；模型同步 persisted 分支与官方元数据分支独立；图片回填和请求 ID 头字段只放宽精确白名单 |
 | 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
 | 发布 DMIT 中继 | `test_ssh_output.py`、`test_racknerd_readonly_status.py`；验证 DMIT direct SSH、1080 HTTP CONNECT、RackNerd host key、代理失败 fail-closed，以及命令/SFTP 共用连接入口 |
 

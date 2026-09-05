@@ -4,6 +4,7 @@ package repository
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -86,5 +87,5 @@ func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
 	require.Equal(t, 3, strings.Count(query, "upstream_key_id"))
 	require.Equal(t, 3, strings.Count(query, "upstream_cost_currency"))
 	require.Equal(t, 3, strings.Count(query, "upstream_cost_to_cny_rate"))
-	require.Contains(t, query, "$66::timestamptz")
+	require.Contains(t, query, fmt.Sprintf("$%d::timestamptz", len(usageLogInsertArgTypes)+1))
 }
