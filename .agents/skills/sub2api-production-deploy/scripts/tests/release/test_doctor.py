@@ -14,6 +14,24 @@ from release.production_bootstrap import bootstrap_production
 
 
 class DoctorTest(unittest.TestCase):
+    def test_dmit_check_requires_release_proxy_and_disables_legacy_proxy(self) -> None:
+        runner = mock.Mock()
+        runner.run.return_value.values = {
+            "dmit_ready": "true",
+            "proxy_v2_ready": "true",
+            "release_proxy_ready": "true",
+            "legacy_proxy_disabled": "true",
+        }
+        ReleaseDoctor("182", runner=runner).check_dmit()
+        script = runner.run.call_args.args[1]
+        allowed = runner.run.call_args.args[2]
+        self.assertIn("sub2api-tinyproxy.service", script)
+        self.assertIn("sport = :1080", script)
+        self.assertIn("sport = :8888", script)
+        self.assertIn("ConnectPort[[:space:]]+1030", script)
+        self.assertIn("release_proxy_ready", allowed)
+        self.assertIn("legacy_proxy_disabled", allowed)
+
     def test_complete_repo_host_key_snapshot_does_not_read_user_home(self) -> None:
         private_hosts = mock.Mock()
         private_hosts.lookup.return_value = {"ssh-ed25519": mock.Mock()}

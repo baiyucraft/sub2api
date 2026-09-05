@@ -68,11 +68,12 @@
           ${{ (stats?.total_actual_cost || 0).toFixed(4) }}
         </p>
         <p v-if="showAccountCost" class="flex flex-wrap gap-x-1 text-xs text-gray-400">
-          <span class="text-orange-500">{{ t('usage.usageAccountCost') }} ${{ usageAccountCost.toFixed(4) }}</span>
-          <span> · </span>
-          <span class="text-amber-600">{{ t('usage.extraCost') }} ${{ extraCost.toFixed(4) }}</span>
-          <span> · </span>
-          <span class="font-medium text-red-600">{{ t('usage.totalAccountCost') }} ${{ totalAccountCost.toFixed(4) }}</span>
+          <span>{{ t('admin.dashboard.accountCost') }}：</span>
+          <span class="text-orange-500">${{ usageAccountCost.toFixed(4) }}</span>
+          <span> + </span>
+          <span class="text-amber-600">${{ extraCost.toFixed(4) }}</span>
+          <span> = </span>
+          <span class="font-medium text-red-600">${{ totalAccountCost.toFixed(4) }}</span>
           <span> · </span>
           <span>
             {{ t('usage.standardCost') }}

@@ -217,9 +217,32 @@ test "$(systemctl is-active haproxy)" = active
 haproxy -c -f /etc/haproxy/haproxy.cfg >/dev/null
 ss -H -ltn sport = :443 | grep -q .
 grep -Eq 'send-proxy-v2|send-proxy' /etc/haproxy/haproxy.cfg
-printf 'dmit_ready=true\nproxy_v2_ready=true\n'
+test "$(systemctl is-active sub2api-tinyproxy.service)" = active
+test "$(systemctl is-enabled sub2api-tinyproxy.service)" = enabled
+test "$(systemctl is-active tinyproxy.service || true)" = inactive
+test "$(systemctl is-enabled tinyproxy.service || true)" = disabled
+ss -H -ltn sport = :1080 | grep -q .
+test -z "$(ss -H -ltn sport = :8888)"
+proxy_pid=$(systemctl show -p MainPID --value sub2api-tinyproxy.service)
+test "$proxy_pid" -gt 1
+proxy_config=''
+want_proxy_config=false
+while IFS= read -r arg; do
+  if [ "$want_proxy_config" = true ]; then proxy_config=$arg; want_proxy_config=false; continue; fi
+  case "$arg" in -c) want_proxy_config=true;; -c*) proxy_config=${arg#-c};; esac
+done < <(tr '\\0' '\\n' < "/proc/$proxy_pid/cmdline")
+test -n "$proxy_config" && test -f "$proxy_config" && test ! -L "$proxy_config"
+grep -Eq '^[[:space:]]*Listen[[:space:]]+10\.77\.0\.1([[:space:]]|$)' "$proxy_config"
+grep -Eq '^[[:space:]]*Allow[[:space:]]+10\.77\.0\.1([[:space:]]|$)' "$proxy_config"
+grep -Eq '^[[:space:]]*Allow[[:space:]]+10\.77\.0\.2([[:space:]]|$)' "$proxy_config"
+grep -Eq '^[[:space:]]*ConnectPort[[:space:]]+1030([[:space:]]|$)' "$proxy_config"
+printf 'dmit_ready=true\nproxy_v2_ready=true\nrelease_proxy_ready=true\nlegacy_proxy_disabled=true\n'
 """
-        return self._ssh().run("dmit", script, {"dmit_ready", "proxy_v2_ready"}).values
+        return self._ssh().run(
+            "dmit",
+            script,
+            {"dmit_ready", "proxy_v2_ready", "release_proxy_ready", "legacy_proxy_disabled"},
+        ).values
 
     def check_backup(self) -> dict[str, str]:
         profile = self.profile
