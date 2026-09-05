@@ -111,7 +111,7 @@ def _copy_remote_file_via_local(
     ``SSHRunner.copy_file_between`` streams one 1 MiB block synchronously from
     one SFTP connection into another.  For large recovery artifacts this makes
     the controller wait on both links for every block.  Large downloads use
-    sixteen independently resumable SFTP parts and large uploads use the same
+    eight independently resumable SFTP parts and large uploads use the same
     part layout, followed by atomic assembly at the destination.  Small
     control assets stay on a single connection.  The plaintext staging file
     is kept under the release workspace only for the duration of the two

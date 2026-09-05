@@ -117,15 +117,16 @@
                     >${{ formatCost(stats.today_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('admin.dashboard.accountCost') }}：</span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.usageAccountCost')"
-                    >{{ t('admin.dashboard.usageAccountCostShort') }} ${{ formatCost(usageAccountCost('today')) }}</span
+                    >${{ formatCost(usageAccountCost('today')) }}</span
                   >
-                  <span class="text-gray-400 dark:text-gray-500"> · </span>
-                  <span class="text-amber-600 dark:text-amber-400" :title="t('admin.dashboard.extraCost')">{{ t('admin.dashboard.extraCostShort') }} ${{ formatCost(extraCost('today')) }}</span>
-                  <span class="text-gray-400 dark:text-gray-500"> · </span>
-                  <span class="font-semibold text-red-600 dark:text-red-400" :title="t('admin.dashboard.totalAccountCost')">{{ t('admin.dashboard.totalAccountCostShort') }} ${{ formatCost(combinedAccountCost('today')) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500"> + </span>
+                  <span class="text-amber-600 dark:text-amber-400" :title="t('admin.dashboard.extraCost')">${{ formatCost(extraCost('today')) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500"> = </span>
+                  <span class="font-semibold text-red-600 dark:text-red-400" :title="t('admin.dashboard.totalAccountCost')">${{ formatCost(combinedAccountCost('today')) }}</span>
                   <span class="text-gray-400 dark:text-gray-500"> · </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
@@ -157,15 +158,16 @@
                     >${{ formatCost(stats.total_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('admin.dashboard.accountCost') }}：</span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.usageAccountCost')"
-                    >{{ t('admin.dashboard.usageAccountCostShort') }} ${{ formatCost(usageAccountCost('total')) }}</span
+                    >${{ formatCost(usageAccountCost('total')) }}</span
                   >
-                  <span class="text-gray-400 dark:text-gray-500"> · </span>
-                  <span class="text-amber-600 dark:text-amber-400" :title="t('admin.dashboard.extraCost')">{{ t('admin.dashboard.extraCostShort') }} ${{ formatCost(extraCost('total')) }}</span>
-                  <span class="text-gray-400 dark:text-gray-500"> · </span>
-                  <span class="font-semibold text-red-600 dark:text-red-400" :title="t('admin.dashboard.totalAccountCost')">{{ t('admin.dashboard.totalAccountCostShort') }} ${{ formatCost(combinedAccountCost('total')) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500"> + </span>
+                  <span class="text-amber-600 dark:text-amber-400" :title="t('admin.dashboard.extraCost')">${{ formatCost(extraCost('total')) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500"> = </span>
+                  <span class="font-semibold text-red-600 dark:text-red-400" :title="t('admin.dashboard.totalAccountCost')">${{ formatCost(combinedAccountCost('total')) }}</span>
                   <span class="text-gray-400 dark:text-gray-500"> · </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
@@ -351,6 +353,12 @@
               <div v-if="userTrendLoading" class="flex h-full items-center justify-center">
                 <LoadingSpinner size="md" />
               </div>
+              <div
+                v-else-if="userTrendError"
+                class="flex h-full items-center justify-center text-sm text-red-500 dark:text-red-400"
+              >
+                {{ t('admin.dashboard.userTrendLoadFailed') }}
+              </div>
               <Line v-else-if="userTrendChartData" :data="userTrendChartData" :options="lineOptions" />
               <div
                 v-else
@@ -428,6 +436,7 @@ const stats = ref<DashboardStats | null>(null)
 const loading = ref(false)
 const chartsLoading = ref(false)
 const userTrendLoading = ref(false)
+const userTrendError = ref(false)
 const rankingLoading = ref(false)
 const rankingError = ref(false)
 const showExtraCostsDialog = ref(false)
@@ -751,6 +760,7 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
 const loadUsersTrend = async () => {
   const currentSeq = ++usersTrendLoadSeq
   userTrendLoading.value = true
+  userTrendError.value = false
   try {
     const response = await adminAPI.dashboard.getUserUsageTrend({
       start_date: startDate.value,
@@ -764,6 +774,7 @@ const loadUsersTrend = async () => {
     if (currentSeq !== usersTrendLoadSeq) return
     console.error('Error loading users trend:', error)
     userTrend.value = []
+    userTrendError.value = true
   } finally {
     if (currentSeq === usersTrendLoadSeq) {
       userTrendLoading.value = false

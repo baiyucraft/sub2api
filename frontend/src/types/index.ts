@@ -2257,6 +2257,7 @@ export interface UserUsageTrendPoint {
   tokens: number
   cost: number // 标准计费
   actual_cost: number // 实际扣除
+  account_cost: number // 账号成本
 }
 
 export interface UserSpendingRankingItem {

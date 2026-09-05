@@ -230,14 +230,15 @@ type GroupStat struct {
 
 // UserUsageTrendPoint represents user usage trend data point
 type UserUsageTrendPoint struct {
-	Date       string  `json:"date"`
-	UserID     int64   `json:"user_id"`
-	Email      string  `json:"email"`
-	Username   string  `json:"username"`
-	Requests   int64   `json:"requests"`
-	Tokens     int64   `json:"tokens"`
-	Cost       float64 `json:"cost"`        // 标准计费
-	ActualCost float64 `json:"actual_cost"` // 实际扣除
+	Date        string  `json:"date"`
+	UserID      int64   `json:"user_id"`
+	Email       string  `json:"email"`
+	Username    string  `json:"username"`
+	Requests    int64   `json:"requests"`
+	Tokens      int64   `json:"tokens"`
+	Cost        float64 `json:"cost"`         // 标准计费
+	ActualCost  float64 `json:"actual_cost"`  // 实际扣除
+	AccountCost float64 `json:"account_cost"` // 账号成本
 }
 
 // UserSpendingRankingItem represents a user spending ranking row.
