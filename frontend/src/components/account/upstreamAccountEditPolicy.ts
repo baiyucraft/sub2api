@@ -25,6 +25,8 @@ const EDITABLE_EXTRA_KEYS = new Set([
   'auto_pause_7d_threshold',
   'codex_image_generation_bridge',
   'codex_image_generation_explicit_tool_policy',
+  'images_url_to_b64_json',
+  'upstream_request_id_header',
   'mixed_scheduling',
   'openai_apikey_responses_websockets_v2_enabled',
   'openai_apikey_responses_websockets_v2_mode',

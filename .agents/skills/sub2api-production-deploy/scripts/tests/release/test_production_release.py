@@ -169,6 +169,32 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertNotIn("restore.sh", first_script)
         self.assertEqual(release.result["status"], "recovered")
 
+    def test_profile_246_recovery_queries_committed_state_before_selecting_action(self) -> None:
+        for committed, script in ((False, "resume-old.sh"), (True, "restore.sh")):
+            with self.subTest(committed=committed):
+                release = self.release()
+                release.profile["name"] = "246"
+                release.manifest = {"schema": 2}
+                release.migration_started = True
+                release.remote_pre_switch_recovery_needed = mock.Mock(return_value=True)
+                release.remote_migration_committed = mock.Mock(return_value=committed)
+                release.recover()
+                release.remote_migration_committed.assert_called_once_with()
+                self.assertIn(script, release.run_remote.call_args_list[0].args[1])
+                self.assertEqual(release.result["status"], "recovered")
+
+    def test_profile_246_unknown_committed_state_blocks_recovery_writes(self) -> None:
+        release = self.release()
+        release.profile["name"] = "246"
+        release.manifest = {"schema": 2}
+        release.migration_started = True
+        release.remote_pre_switch_recovery_needed = mock.Mock(return_value=True)
+        release.remote_migration_committed = mock.Mock(return_value=None)
+        with self.assertRaisesRegex(RuntimeError, "migration committed state is unknown"):
+            release.recover()
+        release.remote_migration_committed.assert_called_once_with()
+        release.run_remote.assert_not_called()
+
     def test_freeze_marks_state_only_after_remote_success(self) -> None:
         release = self.release()
         release.frozen = False
@@ -1224,7 +1250,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("precise_data_plan_query", assertion)
         self.assertIn("release_profile=${release_profile:-$profile}", assertion)
         self.assertIn("$profile == 240 || $profile == 241 || $profile == 242 || $profile == 243", assertion)
-        self.assertIn("if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 || $release_profile == 243 || $release_profile == 244 || $release_profile == 245 ]]; then", assertion)
+        self.assertIn("if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 || $release_profile == 243 || $release_profile == 244 || $release_profile == 245 || $release_profile == 246 ]]; then", assertion)
         self.assertNotIn("if [[ $profile == 240 ]]; then", assertion)
         self.assertIn("ROUND(k.source_rate_multiplier * COALESCE(c.recharge_rate, 1), 10)", assertion)
         self.assertGreater(switch.index('migration-195-assert.sh" postflight_db'), switch.index('docker compose "${candidate_compose_args[@]}"'))
@@ -1294,7 +1320,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("migration_manifest_sha256", switch)
         self.assertIn("printf 'migration=%s checksum=%s", switch)
         self.assertIn("remote_migration_committed", production)
-        self.assertIn("migration 195 committed state is unknown", production)
+        self.assertIn("migration committed state is unknown", production)
 
     def test_migration_preflight_uses_minimal_frozen_context_and_reports_195_failure(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
@@ -1539,11 +1565,11 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('migration-240-status', observation)
         self.assertIn('migration-241-status', precise_rate)
 
-    def test_profile_245_is_health_only_and_does_not_use_canary_credentials(self) -> None:
+    def test_profile_246_is_health_only_and_does_not_use_canary_credentials(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         preflight = (DEPLOY_ROOT / "maintenance" / "release" / "preflight.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        self.assertIn('[[ "$profile" == 245 ]]', validator)
+        self.assertIn('[[ "$profile" == 246 ]]', validator)
         self.assertIn('canary_verified:"not_checked"', validator)
         self.assertNotIn("candidate-canary.json", validator)
         self.assertNotIn("key='admin_api_key'", validator)
@@ -1557,16 +1583,16 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertNotIn("canary-api-key", v2)
         self.assertNotIn("CANARY_KEY_FILE", preflight)
         self.assertNotIn("canary-api-key", preflight)
-        self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["245"]'):])
+        self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["246"]'):])
 
-    def test_profile_245_version_contract_matches_vm_validator(self) -> None:
+    def test_profile_246_version_contract_matches_vm_validator(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        profile_block = profiles[profiles.index('PROFILES["245"]'):]
-        self.assertIn('"version": "0.2.0-baiyu"', profile_block)
-        self.assertIn('[[ "$version" == 0.2.0-baiyu ]]', validator)
-        self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 244 ]]', validator)
-        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 7 ]]', validator)
+        profile_block = profiles[profiles.index('PROFILES["246"]'):]
+        self.assertIn('"version": "0.2.1-baiyu"', profile_block)
+        self.assertIn('[[ "$version" == 0.2.1-baiyu ]]', validator)
+        self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 245 ]]', validator)
+        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 4 ]]', validator)
 
     def test_profile_242_switch_uses_gate_v2_without_legacy_state_files(self) -> None:
         switch = self.script("switch.sh")

@@ -1456,10 +1456,13 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
         if recovery_needed is None:
             raise RuntimeError("old application slot state is unknown")
         migration_committed = self.migration_started
-        if self.migration_started and getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245"}:
+        if self.migration_started and (
+            getattr(self, "manifest", {}).get("schema") == 2
+            or getattr(self, "profile", {}).get("name") in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245"}
+        ):
             migration_committed = self.remote_migration_committed()
             if migration_committed is None:
-                raise RuntimeError("migration 195 committed state is unknown")
+                raise RuntimeError("migration committed state is unknown")
         if recovery_needed and migration_committed:
             env = quoted_env({"RELEASE_DIR": self.release_dir})
             values = self.run_remote(

@@ -589,7 +589,27 @@ PROFILES["245"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "245"
+# Profile 245 is immutable. Upstream 0.2.1 migrations use the next free fork
+# filenames, preserving every released migration and checksum.
+PROFILES["246"] = {
+    **{key: PROFILES["245"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "246",
+    "version": "0.2.1-baiyu",
+    "parent": "245",
+    "new_migrations": [
+        "263_add_usage_log_upstream_request_id.sql",
+        "264_add_usage_log_upstream_request_id_index_notx.sql",
+        "265_channel_max_reasoning_effort_multiplier.sql",
+        "266_group_codex_models_manifest_config.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "246"
 
 
 def get_profile(name: str) -> dict:

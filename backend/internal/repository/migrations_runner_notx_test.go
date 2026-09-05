@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"io/fs"
 	"strings"
 	"testing"
@@ -257,6 +258,38 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_effective_upstream_model_
 	err = applyMigrationsFS(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_NonTransactionalMigration_UpstreamRequestIDIndexRetry(t *testing.T) {
+	require.Equal(t, "264_add_usage_log_upstream_request_id_index_notx.sql", usageLogsUpstreamRequestIDIndexMigration)
+	content, err := migrations.FS.ReadFile(usageLogsUpstreamRequestIDIndexMigration)
+	require.NoError(t, err)
+	for _, invalid := range []bool{false, true} {
+		t.Run(fmt.Sprintf("invalid_%t", invalid), func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer func() { _ = db.Close() }()
+			prepareMigrationsBootstrapExpectations(mock)
+			mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+				WithArgs(usageLogsUpstreamRequestIDIndexMigration).WillReturnError(sql.ErrNoRows)
+			mock.ExpectQuery("SELECT EXISTS \\(").WithArgs(usageLogsUpstreamRequestIDIndex).
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(invalid))
+			if invalid {
+				mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS idx_usage_logs_upstream_request_id").
+					WillReturnResult(sqlmock.NewResult(0, 0))
+			}
+			mock.ExpectExec("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_upstream_request_id").
+				WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectExec("INSERT INTO schema_migrations").
+				WithArgs(usageLogsUpstreamRequestIDIndexMigration, migrationContentChecksum(string(content))).
+				WillReturnResult(sqlmock.NewResult(1, 1))
+			mock.ExpectExec("SELECT pg_advisory_unlock").WithArgs(migrationsAdvisoryLockID).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			fsys := fstest.MapFS{usageLogsUpstreamRequestIDIndexMigration: &fstest.MapFile{Data: content}}
+			require.NoError(t, applyMigrationsFS(context.Background(), db, fsys))
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }
 
 func TestApplyMigrationsFS_PaymentOrdersOutTradeNoUniqueMigration_FailsFastOnDuplicatePrecheck(t *testing.T) {

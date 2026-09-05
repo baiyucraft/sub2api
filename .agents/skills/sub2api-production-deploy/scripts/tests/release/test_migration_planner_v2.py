@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import re
 import unittest
 import sys
 from pathlib import Path
@@ -10,9 +11,49 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.gate import _validate_v2_pending
 from release.migration_planner import HOOK_REGISTRY, checksum_policy_sha256, catalog_sha256, discover_migration_catalog, pending_hooks, plan_migrations
+from release.paths import WORKSPACE
+from release.profiles import get_profile
 
 
 class MigrationPlannerV2Test(unittest.TestCase):
+    def test_profile_245_snapshot_only_plans_profile_246_migrations(self) -> None:
+        catalog = discover_migration_catalog(WORKSPACE)
+        expected = get_profile("246")["new_migrations"]
+        snapshot = {item["filename"]: item["checksum"] for item in catalog if item["filename"] not in expected}
+        plan = plan_migrations(catalog, snapshot)
+        self.assertTrue(plan["existing_checksums_verified"])
+        self.assertEqual(plan["conflicts"], [])
+        self.assertEqual(plan["unknown"], [])
+        self.assertEqual([item["filename"] for item in plan["pending"]], expected)
+        self.assertEqual([item["filename"] for item in plan["pending"] if item["non_transactional"]], [expected[1]])
+        self.assertEqual(pending_hooks(plan["pending"]), [])
+        snapshot.update({item["filename"]: item["checksum"] for item in plan["pending"]})
+        self.assertEqual(plan_migrations(catalog, snapshot)["pending"], [])
+
+    def test_official_pre_renumbering_records_remain_unknown(self) -> None:
+        catalog = discover_migration_catalog(WORKSPACE)
+        for filename in (
+            "232_add_usage_log_upstream_request_id.sql",
+            "233_add_usage_log_upstream_request_id_index_notx.sql",
+            "234_channel_max_reasoning_effort_multiplier.sql",
+            "234_group_codex_models_manifest_config.sql",
+        ):
+            with self.subTest(filename=filename):
+                plan = plan_migrations(catalog, {filename: "a" * 64})
+                self.assertFalse(plan["existing_checksums_verified"])
+                self.assertEqual(plan["unknown"], [{"filename": filename, "checksum": "a" * 64}])
+
+    def test_every_pending_hook_accepts_current_profile(self) -> None:
+        for hook in HOOK_REGISTRY.values():
+            with self.subTest(script=hook["script"]):
+                script = (DEPLOY_ROOT / "maintenance" / "release" / hook["script"]).read_text(encoding="utf-8")
+                allowed = re.findall(r"\$profile == ([0-9]+)", script)
+                self.assertIn("246", allowed)
+        script = (DEPLOY_ROOT / "maintenance" / "release" / "migration-195-assert.sh").read_text(encoding="utf-8")
+        for line in script.splitlines():
+            if "if [[ $release_profile == 240" in line:
+                self.assertIn("$release_profile == 246", line)
+
     def test_empty_catalog_and_pending_are_valid(self) -> None:
         catalog = [{"filename": "001_first.sql", "checksum": "a" * 64, "non_transactional": False}]
         plan = plan_migrations(catalog, {})

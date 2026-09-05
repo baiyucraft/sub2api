@@ -17,6 +17,8 @@ func TestValidateUpstreamAccountEditableUpdate(t *testing.T) {
 				"pool_mode_retry_status_codes": []any{float64(401), float64(429), float64(503)},
 			},
 			Extra: map[string]any{
+				"images_url_to_b64_json":              true,
+				"upstream_request_id_header":          "X-Upstream-Request-ID",
 				"openai_passthrough":                  true,
 				"openai_long_context_billing_enabled": true,
 				"quota_limit":                         float64(100),
@@ -42,6 +44,8 @@ func TestValidateUpstreamAccountEditableUpdate(t *testing.T) {
 func TestMergeUpstreamAccountEditableExtraPreservesRuntimeState(t *testing.T) {
 	merged := mergeUpstreamAccountEditableExtra(
 		map[string]any{
+			"images_url_to_b64_json":     true,
+			"upstream_request_id_header": "X-Upstream-Request-ID",
 			"openai_passthrough":         true,
 			UpstreamBillingProbeExtraKey: map[string]any{"status": "ok"},
 			"quota_used":                 float64(12),
@@ -49,6 +53,8 @@ func TestMergeUpstreamAccountEditableExtraPreservesRuntimeState(t *testing.T) {
 		map[string]any{"quota_limit": float64(100)},
 	)
 
+	require.NotContains(t, merged, "images_url_to_b64_json")
+	require.NotContains(t, merged, "upstream_request_id_header")
 	require.NotContains(t, merged, "openai_passthrough")
 	require.Equal(t, float64(100), merged["quota_limit"])
 	require.Contains(t, merged, UpstreamBillingProbeExtraKey)
