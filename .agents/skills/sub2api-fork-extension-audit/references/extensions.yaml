@@ -177,7 +177,7 @@
     "backend/internal/service/openai_gateway_apikey_item_id_test.go": "保留 fork 的 ctc/fc 命名空间回归夹具；官方同一实现已在 openai_responses_item_id.go 合并，后续补充测试覆盖 tool_search、空 ID 和 WebSocket 兼容行为。",
     "frontend/src/views/admin/AccountsView.vue": "保留 fork 的 upstream scope、健康/质量/缓存率列和运行态隔离；官方仅有 priority 默认显示修复，已在 merge 后补丁中按区块吸收。"
   },
-  "registered_support_paths": [".agents/skills/sub2api-production-deploy/**", ".agents/skills/sub2api-fork-extension-audit/**", "backend/**", "frontend/**", "deploy/**", "Dockerfile", "DEV_GUIDE.md", "README*.md", "docs/**", "openspec/**", ".gitignore", ".gitattributes", ".dockerignore"],
+  "registered_support_paths": [".agents/skills/sub2api-production-deploy/**", ".agents/skills/sub2api-fork-extension-audit/**", "backend/**", "frontend/**", "deploy/**", "Dockerfile", "DEV_GUIDE.md", "README*.md", "docs/**", "openspec/**", "重磅推出活动.md", ".gitignore", ".gitattributes", ".dockerignore"],
   "extensions": [
     {
       "id": "upstream-config-management", "title": "上游配置、Key、看板与账号入口", "description": "独立管理 upstream configs/keys、按配置聚合的整体看板、派生账号、provider 同步、账号编辑白名单及局部运行态刷新。", "ownership": "fork", "risk_level": "high",
