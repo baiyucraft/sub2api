@@ -393,7 +393,7 @@
             />
           </template>
           <template #cell-groups="{ row }">
-            <AccountGroupsCell :groups="row.groups" :max-display="4" />
+            <AccountGroupsCell :groups="accountGroupsForRow(row)" :max-display="4" />
           </template>
           <template #header-usage="{ column }">
             <div class="flex items-center">
@@ -718,7 +718,7 @@ import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
 import { escapeCsvCell } from '@/utils/csv'
-import type { Account, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
+import type { Account, AccountListItem, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const CreateAccountModal = defineAsyncComponent(() => import('@/components/account/CreateAccountModal.vue'))
 const EditAccountModal = defineAsyncComponent(() => import('@/components/account/EditAccountModal.vue'))
@@ -834,6 +834,12 @@ const upstreamRateTrendAccount = ref<Account | null>(null)
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
+const groupsByID = computed(() => new Map(groups.value.map(group => [group.id, group])))
+const accountGroupsForRow = (account: Pick<AccountListItem, 'group_ids'>): AdminGroup[] => {
+  const groupIDs = account.group_ids ?? []
+  if (groupIDs.length === 0) return []
+  return groupIDs.map(id => groupsByID.value.get(id)).filter((group): group is AdminGroup => Boolean(group))
+}
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
 type AccountBulkEditTarget =
@@ -1609,7 +1615,7 @@ const upstreamVisibleFilters = (filters: Record<string, unknown>) => {
 const fetchAccounts = (page: number, pageSize: number, filters: Record<string, unknown>) =>
   props.scope === 'upstream'
     ? upstreamManagementAPI.listAccounts({ page, page_size: pageSize, ...upstreamVisibleFilters(filters) })
-    : adminAPI.accounts.list(page, pageSize, filters as any)
+: adminAPI.accounts.list(page, pageSize, filters as any)
 
 const {
   items: accounts,
@@ -1621,13 +1627,14 @@ const {
   debouncedReload: baseDebouncedReload,
   handlePageChange: baseHandlePageChange,
   handlePageSizeChange: baseHandlePageSizeChange
-} = useTableLoader<Account, any>({
+} = useTableLoader<AccountListItem, any>({
   fetchFn: fetchAccounts,
   initialParams: {
     platform: '',
     status: '',
     group: '',
     search: '',
+    lite: '1',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order,
@@ -1653,7 +1660,7 @@ const {
   toggleVisible,
   selectVisible: selectCurrentPage,
   batchUpdate
-} = useTableSelection<Account>({
+} = useTableSelection<AccountListItem>({
   rows: accounts,
   getId: (account) => account.id
 })
@@ -1758,8 +1765,6 @@ const resetAutoRefreshCache = () => {
   upstreamBillingRateETag.value = null
 }
 
-const isFirstLoad = ref(true)
-
 type AccountLoadOptions = {
   refreshTodayStats?: boolean
 }
@@ -1777,14 +1782,8 @@ const load = async (options: AccountLoadOptions = {}) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
-  if (isFirstLoad.value) {
-    requestParams.lite = '1'
-  }
+  requestParams.lite = '1'
   await baseLoad()
-  if (isFirstLoad.value) {
-    isFirstLoad.value = false
-    delete requestParams.lite
-  }
   const refreshTasks = [refreshAccountQualityBatch({ force: true })]
   if (options.refreshTodayStats !== false) {
     refreshTasks.push(refreshTodayStatsBatch({ force: true }))
@@ -2047,8 +2046,8 @@ const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
 }
 
 const syncAccountRefs = (nextAccount: Account) => {
-  if (edAcc.value?.id === nextAccount.id) edAcc.value = nextAccount
-  if (reAuthAcc.value?.id === nextAccount.id) reAuthAcc.value = nextAccount
+  // List refreshes must not replace detail snapshots or reset unsaved editor state.
+  // Detail mutations update the editor through its own response or an explicit refetch.
   if (tempUnschedAcc.value?.id === nextAccount.id) tempUnschedAcc.value = nextAccount
   if (deletingAcc.value?.id === nextAccount.id) deletingAcc.value = nextAccount
   if (menu.acc?.id === nextAccount.id) menu.acc = nextAccount
@@ -2609,7 +2608,27 @@ const cols = computed(() =>
   )
 )
 
-const handleEdit = (a: Account) => { edAcc.value = a; showEdit.value = true }
+const accountDetailLoading = new Set<number>()
+const loadAccountDetails = async (account: Pick<AccountListItem, 'id'>): Promise<Account | null> => {
+  if (accountDetailLoading.has(account.id)) return null
+  accountDetailLoading.add(account.id)
+  try {
+    return await adminAPI.accounts.getById(account.id)
+  } catch (error) {
+    console.error('Failed to load account details:', error)
+    appStore.showError(extractApiErrorMessage(error, t('common.error')))
+    return null
+  } finally {
+    accountDetailLoading.delete(account.id)
+  }
+}
+
+const handleEdit = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  edAcc.value = account
+  showEdit.value = true
+}
 const closeMenu = () => {
   menu.show = false
   menu.anchorEl = null
@@ -3025,8 +3044,10 @@ const handleAccountUpdated = (updatedAccount: Account) => {
 }
 const handleManagedModelSyncRefresh = async () => {
   await load()
-  if (edAcc.value) {
-    edAcc.value = accounts.value.find((account) => account.id === edAcc.value?.id) ?? edAcc.value
+  const editingID = edAcc.value?.id
+  if (editingID) {
+    const detail = await loadAccountDetails({ id: editingID })
+    if (detail && edAcc.value?.id === editingID) edAcc.value = detail
   }
 }
 const formatExportTimestamp = () => {
@@ -3091,8 +3112,18 @@ const accountExportStepUp = useStepUp()
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
-const handleTest = (a: Account) => { testingAcc.value = a; showTest.value = true }
-const handleViewStats = (a: Account) => { statsAcc.value = a; showStats.value = true }
+const handleTest = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  testingAcc.value = account
+  showTest.value = true
+}
+const handleViewStats = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  statsAcc.value = account
+  showStats.value = true
+}
 const handleSchedule = async (a: Account) => {
   scheduleAcc.value = a
   scheduleModelOptions.value = []

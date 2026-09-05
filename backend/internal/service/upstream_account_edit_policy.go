@@ -29,6 +29,8 @@ var upstreamAccountEditableCredentialKeys = map[string]struct{}{
 }
 
 var upstreamAccountEditableExtraKeys = map[string]struct{}{
+	"images_url_to_b64_json":                        {},
+	"upstream_request_id_header":                    {},
 	"allow_overages":                                {},
 	"anthropic_apikey_auth_scheme":                  {},
 	"anthropic_passthrough":                         {},

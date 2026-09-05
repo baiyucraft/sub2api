@@ -222,7 +222,7 @@
 
 ## 停机发布恢复备份单元的 benign stderr 被判失败
 
-- 历史 profile 现象：候选切换、迁移、当时的双链路 canary 和 downtime finalize 全部通过，随后 release 进入恢复；生产旧镜像最终健康，但 runner 报 exit 97。Gate v2（历史 profile 242-244、当前 profile 245）不执行 Canary。
+- 历史 profile 现象：候选切换、迁移、当时的双链路 canary 和 downtime finalize 全部通过，随后 release 进入恢复；生产旧镜像最终健康，但 runner 报 exit 97。Gate v2（历史 profile 242-245、当前 profile 246）不执行 Canary。
 - 根因：`restore-backup-units.sh` 返回结构化成功 stdout 的同时写出 benign stderr；SSH runner 的通用合同把任意非空 stderr 统一视为失败。
 - 证据：release `237-8691759b2452-1786828578-37913f43` 的 history 已到 `downtime_finalized`，raw log 随后出现 `backup_units_restored=true` 和 `exit=97`。
 - 修复：生产脚本通过共享 helper 将该命令 stderr 追加到 release root-only `restore-backup-units.stderr`，stdout 只返回 `backup_units_restored=true`；命令真正非零仍 fail-closed。
@@ -362,7 +362,7 @@
 - **预防测试**：覆盖启动握手、长时间无输出、观察器超时、SSH 断开后重连、早期字段为空和最终退出；验证观察器关闭不会终止 worker。
 
 - **生产成功判定必须成套**：不能只看 VM Gate、容器 `/health=200`、`production-result` 或 `verify-result` 任一单项。至少同时核对签名 Gate、`production-result.json` 为 `production_verified`（或 `production_verified_after_reconciliation`）且顶层 `status=verified`、`verify-result=verified`、运行 image 等于 candidate image，以及 post-deploy doctor 通过。
-- **报告分层**：VM Gate、生产切换/`verify-result`、post-deploy doctor 和业务能力验证必须分开报告；`/health` 只证明容器启动与路由可达，不代表模型、账号或流式能力已验证。Gate v2 profile 242-244（历史）与 245（当前）均为 health-only，账号池、Canary、Bearer/API key、真实 upstream/model 请求和 usage attribution 均保持 `not_checked`。
+- **报告分层**：VM Gate、生产切换/`verify-result`、post-deploy doctor 和业务能力验证必须分开报告；`/health` 只证明容器启动与路由可达，不代表模型、账号或流式能力已验证。Gate v2 profile 242-245（历史）与 246（当前）均为 health-only，账号池、Canary、Bearer/API key、真实 upstream/model 请求和 usage attribution 均保持 `not_checked`。
 - **空间清理边界**：空间不足时先 dry-run，再使用同一计划 checksum apply；只运行版本化 cleaner，最多一次，并保留 candidate、旧运行 image、Gate、恢复点和失败 release 证据。禁止 `docker system prune`、删卷、删 PostgreSQL/Redis、`data-dev` 或备份；BuildKit GC 必须同时具备明确的 `max-used-space` 与 `reserved-space`。
 - **输出与身份安全**：doctor/status/follow 只输出白名单字段和脱敏摘要，不回显完整 snapshot、环境变量、原始日志、请求头或凭据。PowerShell 发布参数不要依赖易被解释的 `HEAD^{commit}` 文本，必须由现场 `git rev-parse` 生成并贯穿全流程的完整 40 位小写 SHA。
 - **状态**：已由 release `242-a15fefb7a6a5-1787786100-53f9251e` 的 VM Gate、`verify-result` 和 post-deploy doctor 复核；真实模型/Provider 流式能力仍按合同记为 `not_checked`。
