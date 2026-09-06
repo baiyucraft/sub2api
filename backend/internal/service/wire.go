@@ -1034,6 +1034,10 @@ func ProvideOpsIngressRejectAggregator(opsRepo OpsRepository, opsService *OpsSer
 // ProvideSettingService wires SettingService with group reader and proxy repo.
 func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, cfg *config.Config) *SettingService {
 	svc := NewSettingService(settingRepo, cfg)
+	// Upstream retry status codes are a single process-wide policy. Warm it once
+	// at startup so newly-created upstream accounts automatically inherit the
+	// current setting without copying anything into account credentials.
+	svc.WarmUpstreamPoolModeRetryStatusCodes(context.Background())
 	// Warm the standalone TTFT guard at its owning service boundary.
 	svc.WarmOpenAITTFTGuardConfig(context.Background())
 	svc.SetDefaultSubscriptionGroupReader(groupRepo)

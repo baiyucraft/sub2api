@@ -942,7 +942,7 @@ export default {
         'Only applies in pool mode. Use 0 to disable in-place retry. Default {default}, maximum {max}.',
       poolModeRetryStatusCodes: 'Retry Status Codes',
       poolModeRetryStatusCodesHint:
-        'Comma-separated HTTP status codes (100-599) that trigger same-account retry in pool mode. Leave blank to use defaults ({default}).',
+        'Applies only to non-upstream pool accounts. Configure upstream accounts globally in Upstream Management settings. Use comma-separated HTTP status codes (100-599); leave blank for defaults ({default}).',
       customErrorCodes: 'Custom Error Codes',
       customErrorCodesHint: 'Only stop scheduling for selected error codes',
       customErrorCodesWarning:

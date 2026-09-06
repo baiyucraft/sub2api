@@ -1342,8 +1342,19 @@ func (a *Account) GetPoolModeRetryStatusCodes() []int {
 }
 
 // IsPoolModeRetryableStatus 在账号上下文中判断给定状态码是否应触发同账号重试。
-// 若账号未配置 pool_mode_retry_status_codes，则回退到默认列表。
+// 生产运行时，上游账号统一使用系统级配置；未安装系统级配置时保留
+// 账号凭据解析逻辑，以兼容旧数据和隔离单元测试。
 func (a *Account) IsPoolModeRetryableStatus(statusCode int) bool {
+	if a != nil && a.IsUpstreamBound() {
+		if codes, configured := globalPoolModeRetryStatusConfigured(); configured {
+			for _, code := range codes {
+				if code == statusCode {
+					return true
+				}
+			}
+			return false
+		}
+	}
 	codes := a.GetPoolModeRetryStatusCodes()
 	if codes == nil {
 		return isPoolModeRetryableStatus(statusCode)

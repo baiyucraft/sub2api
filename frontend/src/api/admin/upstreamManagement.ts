@@ -33,15 +33,6 @@ export interface UpstreamManagementSettings {
   model_alias_rules?: Record<string, string>
   confidence_probe: UpstreamConfidenceProbeSettings
   pool_mode_retry_status_codes?: number[]
-  pool_mode_retry_status_codes_result?: UpstreamRetryStatusCodesBatchResult
-}
-
-export interface UpstreamRetryStatusCodesBatchResult {
-  success: number
-  failed: number
-  success_ids: number[]
-  failed_ids: number[]
-  results: Array<{ account_id: number; success: boolean; error?: string }>
 }
 
 export interface UpstreamConfidenceProbeSettings {
