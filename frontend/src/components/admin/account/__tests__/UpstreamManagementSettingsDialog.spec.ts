@@ -81,7 +81,8 @@ describe('UpstreamManagementSettingsDialog', () => {
       },
       probe_models: { openai: 'gpt-live', anthropic: 'claude-live', gemini: 'gemini-live' },
       probe_interval_seconds: 420,
-      model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' }
+      model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' },
+      pool_mode_retry_status_codes: [401, 403, 429]
     })
     getCandidates.mockResolvedValue({ candidates: {
       openai: ['gpt-live', 'gpt-fallback'],
@@ -101,7 +102,8 @@ describe('UpstreamManagementSettingsDialog', () => {
       },
       probe_models: { openai: 'custom-model', anthropic: 'claude-live', gemini: 'gemini-live' },
       probe_interval_seconds: 300,
-      model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' }
+      model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' },
+      pool_mode_retry_status_codes: [401, 403, 429]
     })
   })
 
@@ -192,6 +194,39 @@ describe('UpstreamManagementSettingsDialog', () => {
     const wrapper = mountDialog(true)
     await flushPromises()
     expect(wrapper.findAll('[data-test="model-alias-row"]')).toHaveLength(0)
+  })
+
+  it('normalizes retry status codes and confirms the upstream-wide overwrite', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const wrapper = mountDialog(true)
+    await flushPromises()
+    await wrapper.get('[data-test="pool-mode-retry-status-codes"]').setValue(' 503, 429, 503 ')
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      pool_mode_retry_status_codes: [429, 503]
+    }))
+    confirm.mockRestore()
+  })
+
+  it('does not submit when clearing retry status codes is cancelled', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const wrapper = mountDialog(true)
+    await flushPromises()
+    await wrapper.get('[data-test="pool-mode-retry-status-codes"]').setValue('')
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(updateSettings).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('rejects retry status codes outside the HTTP range', async () => {
+    const wrapper = mountDialog(true)
+    await flushPromises()
+    await wrapper.get('[data-test="pool-mode-retry-status-codes"]').setValue('99, 429')
+    expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
   })
 
   it('validates alias rows and does not call sync APIs for incomplete rows', async () => {

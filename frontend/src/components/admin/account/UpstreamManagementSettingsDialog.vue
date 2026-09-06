@@ -43,6 +43,21 @@
         </div>
       </section>
 
+      <section v-if="!probeOnly" class="rounded-2xl border border-amber-200 bg-amber-50/60 p-5 dark:border-amber-900/60 dark:bg-amber-950/20">
+        <div class="flex items-start gap-3">
+          <div class="min-w-0 flex-1">
+            <h4 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.retryStatusCodes.title') }}</h4>
+            <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-300">{{ t('admin.upstreamManagement.retryStatusCodes.description') }}</p>
+          </div>
+        </div>
+        <label class="mt-4 block max-w-xl space-y-1.5">
+          <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.retryStatusCodes.label') }}</span>
+          <input v-model="poolModeRetryStatusCodesInput" data-test="pool-mode-retry-status-codes" type="text" class="input" :placeholder="DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ')" />
+          <span class="block text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.retryStatusCodes.hint', { default: DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ') }) }}</span>
+          <span v-if="retryStatusCodesError" class="block text-sm text-red-600 dark:text-red-400">{{ retryStatusCodesError }}</span>
+        </label>
+      </section>
+
       <section v-if="probeOnly" class="rounded-2xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-900/60">
         <div>
           <h4 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.probeModels.title') }}</h4>
@@ -221,6 +236,7 @@ const defaults: UpstreamManagementSettings = {
   probe_interval_seconds: 300,
   model_alias_rules: {},
   confidence_probe: { enabled: false, reasoning_effort: 'high', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 70, prompt_version: 'openai-juice-multiprobe-v2' }
+  , pool_mode_retry_status_codes: [401, 403, 429]
 }
 const draft = reactive<UpstreamManagementSettings>(structuredClone(defaults))
 const probeIntervalMinutes = ref(5)
@@ -229,6 +245,9 @@ const loading = ref(false)
 const saving = ref(false)
 const modelAliasRows = ref<ModelAliasRow[]>([])
 const modelAliasError = ref('')
+const poolModeRetryStatusCodesInput = ref('')
+const retryStatusCodesError = ref('')
+const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
 let nextModelAliasRowId = 1
 
 const candidateOptions = computed<Record<string, SelectOption[]>>(() => Object.fromEntries(
@@ -243,6 +262,7 @@ const valid = computed(() => {
   const recoverySuccesses = Number(draft.probe_guard.recovery_successes)
   const customCodes = draft.probe_guard.custom_error_codes || []
   const confidence = draft.confidence_probe
+  parsePoolModeRetryStatusCodes()
   return Number.isFinite(threshold) && threshold >= 5 && threshold <= 300 &&
     Number.isInteger(samples) && samples >= 2 && samples <= 20 &&
     Number.isInteger(intervalMinutes) && intervalMinutes >= 1 && intervalMinutes <= 60 &&
@@ -253,8 +273,29 @@ const valid = computed(() => {
     platforms.value.filter(platform => platform.probe_supported).every(platform => {
       const value = draft.probe_models[platform.id]?.trim() || ''
       return value.length > 0 && value.length <= 120
-    }) && parseModelAliasRules() !== null
+    }) && parseModelAliasRules() !== null && parsePoolModeRetryStatusCodes() !== null
 })
+
+function parsePoolModeRetryStatusCodes(): number[] | null {
+  retryStatusCodesError.value = ''
+  const raw = poolModeRetryStatusCodesInput.value.trim()
+  if (!raw) return []
+  const values = raw.split(',').map(value => value.trim()).filter(Boolean)
+  const parsed: number[] = []
+  for (const value of values) {
+    if (!/^\d+$/.test(value)) {
+      retryStatusCodesError.value = t('admin.upstreamManagement.retryStatusCodes.invalid')
+      return null
+    }
+    const code = Number(value)
+    if (!Number.isInteger(code) || code < 100 || code > 599) {
+      retryStatusCodesError.value = t('admin.upstreamManagement.retryStatusCodes.invalid')
+      return null
+    }
+    parsed.push(code)
+  }
+  return Array.from(new Set(parsed)).sort((a, b) => a - b)
+}
 
 function parseModelAliasRules(): Record<string, string> | null {
   modelAliasError.value = ''
@@ -294,6 +335,8 @@ async function load() {
     draft.confidence_probe = { ...defaults.confidence_probe, ...(settings.confidence_probe || {}) }
     draft.confidence_probe.reasoning_effort = 'high'
     draft.confidence_probe.prompt_version = 'openai-juice-multiprobe-v2'
+    poolModeRetryStatusCodesInput.value = (settings.pool_mode_retry_status_codes?.length ? settings.pool_mode_retry_status_codes : DEFAULT_POOL_MODE_RETRY_STATUS_CODES).join(', ')
+    retryStatusCodesError.value = ''
     modelAliasRows.value = Object.entries(settings.model_alias_rules || {}).map(([source, target]) => ({ id: nextModelAliasRowId++, source, target }))
     modelAliasError.value = ''
     probeIntervalMinutes.value = Math.max(1, Math.min(60, Math.round(draft.probe_interval_seconds / 60)))
@@ -319,6 +362,16 @@ async function save() {
   try {
     const modelAliasRules = parseModelAliasRules()
     if (!modelAliasRules) return
+    const retryStatusCodes = parsePoolModeRetryStatusCodes()
+    if (!retryStatusCodes) return
+    const previousRetryStatusCodes = draft.pool_mode_retry_status_codes || DEFAULT_POOL_MODE_RETRY_STATUS_CODES
+    const retryChanged = JSON.stringify(previousRetryStatusCodes) !== JSON.stringify(retryStatusCodes)
+    if (retryChanged) {
+      const confirmed = window.confirm(retryStatusCodes.length === 0
+        ? t('admin.upstreamManagement.retryStatusCodes.clearConfirm')
+        : t('admin.upstreamManagement.retryStatusCodes.overwriteConfirm'))
+      if (!confirmed) return
+    }
     const payload: UpstreamManagementSettings = {
       ttft_guard: { ...draft.ttft_guard },
       probe_guard: {
@@ -331,12 +384,25 @@ async function save() {
       probe_models: Object.fromEntries(Object.entries(draft.probe_models).map(([platform, model]) => [platform, model.trim()])),
       probe_interval_seconds: probeIntervalMinutes.value * 60,
       model_alias_rules: modelAliasRules
-      , confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'high', prompt_version: 'openai-juice-multiprobe-v2' }
+      , confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'high', prompt_version: 'openai-juice-multiprobe-v2' },
+      ...(probeOnly.value ? {} : { pool_mode_retry_status_codes: retryStatusCodes })
     }
     const saved = probeOnly.value
       ? await upstreamManagementAPI.updateProbeSettings(payload)
       : await upstreamManagementAPI.updateSettings(payload)
-    appStore.showSuccess(t('admin.upstreamManagement.saved'))
+    const result = saved.pool_mode_retry_status_codes_result
+    if (result && result.failed > 0) {
+      const details = result.results
+        .filter(item => !item.success)
+        .slice(0, 5)
+        .map(item => `#${item.account_id}: ${item.error || 'unknown error'}`)
+        .join('; ')
+      appStore.showError(`${t('admin.upstreamManagement.retryStatusCodes.partialResult', { success: result.success, failed: result.failed })}${details ? ` (${details})` : ''}`)
+    } else if (result) {
+      appStore.showSuccess(t('admin.upstreamManagement.retryStatusCodes.successResult', { count: result.success }))
+    } else {
+      appStore.showSuccess(t('admin.upstreamManagement.saved'))
+    }
     emit('saved', saved)
     emit('close')
   } catch (error) {
