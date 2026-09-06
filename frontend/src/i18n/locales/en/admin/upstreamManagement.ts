@@ -18,6 +18,17 @@ export default {
       loadFailed: 'Failed to load upstream management settings',
       invalid: 'Check the first-token threshold, sample count, probe models, probe interval, and probe error codes.'
     },
+    retryStatusCodes: {
+      title: 'Same-account retry status codes',
+      label: 'Override upstream accounts',
+      description: 'Only upstream accounts are changed. Ordinary accounts are unaffected; existing per-account settings will be overwritten.',
+      hint: 'Enter HTTP status codes (100–599) separated by commas. Leave blank to clear custom values on all upstream accounts and restore defaults ({default}).',
+      invalid: 'Enter integer HTTP status codes from 100 to 599, separated by commas.',
+      overwriteConfirm: 'Overwrite the same-account retry status codes for all upstream accounts? Ordinary accounts are unaffected, and per-account settings will be replaced.',
+      clearConfirm: 'Clear custom same-account retry status codes for all upstream accounts and restore defaults? Ordinary accounts are unaffected.',
+      successResult: 'Applied same-account retry status codes to {count} upstream accounts',
+      partialResult: 'Upstream account status codes partially applied: {success} succeeded, {failed} failed'
+    },
     probeSettings: {
       title: 'Probe settings',
       open: 'Probe settings'

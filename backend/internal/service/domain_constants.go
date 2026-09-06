@@ -596,6 +596,9 @@ const (
 	// SettingKeyUpstreamModelAliasRules stores global source -> target model aliases
 	// used when sync-managed upstream accounts refresh their model mappings.
 	SettingKeyUpstreamModelAliasRules = "upstream_model_alias_rules"
+	// SettingKeyUpstreamPoolModeRetryStatusCodes stores the management-level
+	// retry status code override applied to all upstream-bound accounts.
+	SettingKeyUpstreamPoolModeRetryStatusCodes = "upstream_pool_mode_retry_status_codes"
 
 	// =========================
 	// Claude Code Version Check

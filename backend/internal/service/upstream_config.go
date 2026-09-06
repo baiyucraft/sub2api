@@ -103,12 +103,53 @@ type UpstreamConfig struct {
 }
 
 type UpstreamManagementSettings struct {
-	TTFTGuard            OpenAITTFTGuardSettings         `json:"ttft_guard"`
-	ProbeModels          UpstreamProbeModels             `json:"probe_models"`
-	ProbeIntervalSeconds int                             `json:"probe_interval_seconds"`
-	ProbeGuard           UpstreamProbeGuardSettings      `json:"probe_guard"`
-	ModelAliasRules      map[string]string               `json:"model_alias_rules"`
-	ConfidenceProbe      UpstreamConfidenceProbeSettings `json:"confidence_probe"`
+	TTFTGuard                      OpenAITTFTGuardSettings              `json:"ttft_guard"`
+	ProbeModels                    UpstreamProbeModels                  `json:"probe_models"`
+	ProbeIntervalSeconds           int                                  `json:"probe_interval_seconds"`
+	ProbeGuard                     UpstreamProbeGuardSettings           `json:"probe_guard"`
+	ModelAliasRules                map[string]string                    `json:"model_alias_rules"`
+	ConfidenceProbe                UpstreamConfidenceProbeSettings      `json:"confidence_probe"`
+	PoolModeRetryStatusCodes       []int                                `json:"pool_mode_retry_status_codes"`
+	PoolModeRetryStatusCodesResult *UpstreamRetryStatusCodesBatchResult `json:"pool_mode_retry_status_codes_result,omitempty"`
+}
+
+// UpstreamRetryStatusCodesBatchResult reports the per-account outcome of a
+// management-level retry status-code override. The operation deliberately
+// continues after an individual account failure so one stale/broken row does
+// not prevent healthy upstream accounts from being updated.
+type UpstreamRetryStatusCodesBatchResult struct {
+	Success    int                       `json:"success"`
+	Failed     int                       `json:"failed"`
+	SuccessIDs []int64                   `json:"success_ids"`
+	FailedIDs  []int64                   `json:"failed_ids"`
+	Results    []BulkUpdateAccountResult `json:"results"`
+}
+
+type upstreamAccountCredentialsUpdater interface {
+	UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error
+}
+
+var defaultUpstreamPoolModeRetryStatusCodes = []int{401, 403, 429}
+
+func normalizeUpstreamPoolModeRetryStatusCodes(codes []int) ([]int, error) {
+	seen := make(map[int]struct{}, len(codes))
+	normalized := make([]int, 0, len(codes))
+	for _, code := range codes {
+		if code < 100 || code > 599 {
+			return nil, infraerrors.BadRequest("INVALID_UPSTREAM_POOL_MODE_RETRY_STATUS_CODES", "pool_mode_retry_status_codes must contain HTTP status codes between 100 and 599")
+		}
+		if _, ok := seen[code]; ok {
+			continue
+		}
+		seen[code] = struct{}{}
+		normalized = append(normalized, code)
+	}
+	sort.Ints(normalized)
+	return normalized, nil
+}
+
+func cloneUpstreamPoolModeRetryStatusCodes(codes []int) []int {
+	return append([]int(nil), codes...)
 }
 
 func (c *UpstreamConfig) EffectiveAPIURL() string {
@@ -528,7 +569,7 @@ func (s *UpstreamConfigService) GetProbePlatformCatalog() []UpstreamProbePlatfor
 
 func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (UpstreamManagementSettings, error) {
 	if s == nil || s.settingService == nil {
-		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}, ConfidenceProbe: DefaultUpstreamConfidenceProbeSettings()}, nil
+		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}, ConfidenceProbe: DefaultUpstreamConfidenceProbeSettings(), PoolModeRetryStatusCodes: cloneUpstreamPoolModeRetryStatusCodes(defaultUpstreamPoolModeRetryStatusCodes)}, nil
 	}
 	ttft, err := s.settingService.GetOpenAITTFTGuardSettings(ctx)
 	if err != nil {
@@ -555,7 +596,109 @@ func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (Upst
 	if confidenceErr != nil {
 		return UpstreamManagementSettings{}, confidenceErr
 	}
-	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases, ConfidenceProbe: confidence}, nil
+	retryCodes, retryErr := s.getManagementRetryStatusCodes(ctx)
+	if retryErr != nil {
+		return UpstreamManagementSettings{}, retryErr
+	}
+	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases, ConfidenceProbe: confidence, PoolModeRetryStatusCodes: retryCodes}, nil
+}
+
+func (s *UpstreamConfigService) getManagementRetryStatusCodes(ctx context.Context) ([]int, error) {
+	if s == nil || s.settingService == nil || s.settingService.settingRepo == nil {
+		return cloneUpstreamPoolModeRetryStatusCodes(defaultUpstreamPoolModeRetryStatusCodes), nil
+	}
+	raw, err := s.settingService.settingRepo.GetValue(ctx, SettingKeyUpstreamPoolModeRetryStatusCodes)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return cloneUpstreamPoolModeRetryStatusCodes(defaultUpstreamPoolModeRetryStatusCodes), nil
+		}
+		return nil, err
+	}
+	var codes []int
+	if err := json.Unmarshal([]byte(raw), &codes); err != nil {
+		return nil, infraerrors.InternalServer("INVALID_UPSTREAM_POOL_MODE_RETRY_STATUS_CODES_SETTING", "stored upstream retry status codes are invalid")
+	}
+	return normalizeUpstreamPoolModeRetryStatusCodes(codes)
+}
+
+// SetManagementSettingsWithRetryStatusCodes saves the ordinary upstream
+// settings and, when retryCodes is non-nil, applies the supplied status-code
+// list to every currently upstream-bound account. A nil pointer means the
+// caller did not request this batch operation.
+func (s *UpstreamConfigService) SetManagementSettingsWithRetryStatusCodes(ctx context.Context, settings UpstreamManagementSettings, retryCodes *[]int) (*UpstreamRetryStatusCodesBatchResult, error) {
+	if retryCodes == nil {
+		if err := s.SetManagementSettings(ctx, settings); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+	normalized, err := normalizeUpstreamPoolModeRetryStatusCodes(*retryCodes)
+	if err != nil {
+		return nil, err
+	}
+	if s == nil || s.settingService == nil || s.settingService.settingRepo == nil {
+		return nil, infraerrors.ServiceUnavailable("UPSTREAM_MANAGEMENT_SETTINGS_UNAVAILABLE", "upstream management settings are unavailable")
+	}
+	// Validate and persist ordinary settings before touching account rows. This
+	// preserves the existing settings endpoint behavior and ensures malformed
+	// retry codes are rejected before any write.
+	if err := s.SetManagementSettings(ctx, settings); err != nil {
+		return nil, err
+	}
+	result, err := s.applyManagementRetryStatusCodes(ctx, normalized)
+	if err != nil {
+		return nil, err
+	}
+	encoded, marshalErr := json.Marshal(normalized)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	if err := s.settingService.settingRepo.Set(ctx, SettingKeyUpstreamPoolModeRetryStatusCodes, string(encoded)); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (s *UpstreamConfigService) applyManagementRetryStatusCodes(ctx context.Context, codes []int) (*UpstreamRetryStatusCodesBatchResult, error) {
+	result := &UpstreamRetryStatusCodesBatchResult{SuccessIDs: []int64{}, FailedIDs: []int64{}, Results: []BulkUpdateAccountResult{}}
+	if s == nil || s.accountRepo == nil {
+		return nil, infraerrors.ServiceUnavailable("UPSTREAM_ACCOUNT_REPOSITORY_UNAVAILABLE", "upstream account repository is unavailable")
+	}
+	lister, ok := s.accountRepo.(ScopedAccountLister)
+	if !ok {
+		return nil, infraerrors.ServiceUnavailable("UPSTREAM_ACCOUNT_REPOSITORY_UNAVAILABLE", "upstream account repository does not support scoped account listing")
+	}
+	updater, ok := s.accountRepo.(upstreamAccountCredentialsUpdater)
+	if !ok {
+		return nil, infraerrors.ServiceUnavailable("UPSTREAM_ACCOUNT_REPOSITORY_UNAVAILABLE", "upstream account repository does not support credential updates")
+	}
+	accounts, err := lister.ListAllWithFiltersScoped(ctx, "", "", "", "", 0, "", AccountListScopeUpstream)
+	if err != nil {
+		return nil, err
+	}
+	for _, account := range accounts {
+		credentials := make(map[string]any, len(account.Credentials)+1)
+		for key, value := range account.Credentials {
+			credentials[key] = value
+		}
+		if len(codes) == 0 {
+			delete(credentials, "pool_mode_retry_status_codes")
+		} else {
+			credentials["pool_mode_retry_status_codes"] = cloneUpstreamPoolModeRetryStatusCodes(codes)
+		}
+		updateErr := updater.UpdateCredentials(ctx, account.ID, credentials)
+		item := BulkUpdateAccountResult{AccountID: account.ID, Success: updateErr == nil}
+		if updateErr != nil {
+			item.Error = updateErr.Error()
+			result.Failed++
+			result.FailedIDs = append(result.FailedIDs, account.ID)
+		} else {
+			result.Success++
+			result.SuccessIDs = append(result.SuccessIDs, account.ID)
+		}
+		result.Results = append(result.Results, item)
+	}
+	return result, nil
 }
 
 func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, settings UpstreamManagementSettings) error {

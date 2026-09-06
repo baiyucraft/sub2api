@@ -16,12 +16,13 @@ type upstreamProbeModelsRequest struct {
 }
 
 type upstreamManagementSettingsRequest struct {
-	TTFTGuard            service.OpenAITTFTGuardSettings          `json:"ttft_guard"`
-	ProbeModels          service.UpstreamProbeModels              `json:"probe_models"`
-	ProbeIntervalSeconds int                                      `json:"probe_interval_seconds"`
-	ProbeGuard           *service.UpstreamProbeGuardSettings      `json:"probe_guard"`
-	ModelAliasRules      map[string]string                        `json:"model_alias_rules"`
-	ConfidenceProbe      *service.UpstreamConfidenceProbeSettings `json:"confidence_probe"`
+	TTFTGuard                service.OpenAITTFTGuardSettings          `json:"ttft_guard"`
+	ProbeModels              service.UpstreamProbeModels              `json:"probe_models"`
+	ProbeIntervalSeconds     int                                      `json:"probe_interval_seconds"`
+	ProbeGuard               *service.UpstreamProbeGuardSettings      `json:"probe_guard"`
+	ModelAliasRules          map[string]string                        `json:"model_alias_rules"`
+	ConfidenceProbe          *service.UpstreamConfidenceProbeSettings `json:"confidence_probe"`
+	PoolModeRetryStatusCodes *[]int                                   `json:"pool_mode_retry_status_codes"`
 }
 
 func (h *UpstreamConfigHandler) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
@@ -129,14 +130,30 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 	if settings.ProbeIntervalSeconds == 0 {
 		settings.ProbeIntervalSeconds = service.DefaultUpstreamProbeIntervalSeconds
 	}
-	if err := h.service.SetManagementSettings(c.Request.Context(), settings); err != nil {
-		response.ErrorFrom(c, err)
+	var retryResult *service.UpstreamRetryStatusCodesBatchResult
+	var setErr error
+	// The probe-settings alias shares this handler but must never trigger an
+	// account credential overwrite. Retry status codes belong to the ordinary
+	// upstream-management settings action only.
+	if strings.HasSuffix(c.Request.URL.Path, "/probe-settings") {
+		req.PoolModeRetryStatusCodes = nil
+	}
+	if req.PoolModeRetryStatusCodes != nil {
+		retryResult, setErr = h.service.SetManagementSettingsWithRetryStatusCodes(c.Request.Context(), settings, req.PoolModeRetryStatusCodes)
+	} else {
+		setErr = h.service.SetManagementSettings(c.Request.Context(), settings)
+	}
+	if setErr != nil {
+		response.ErrorFrom(c, setErr)
 		return
 	}
 	saved, err := h.service.GetManagementSettings(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	if retryResult != nil {
+		saved.PoolModeRetryStatusCodesResult = retryResult
 	}
 	response.Success(c, saved)
 }
