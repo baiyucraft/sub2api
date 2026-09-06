@@ -170,7 +170,8 @@ func (r *upstreamRetryStatusCodesRepoStub) UpdateCredentials(_ context.Context, 
 	return nil
 }
 
-func TestSetManagementSettingsWithRetryStatusCodesUpdatesOnlyUpstreamAccounts(t *testing.T) {
+func TestSetManagementSettingsWithRetryStatusCodesUsesOneGlobalPolicy(t *testing.T) {
+	t.Cleanup(ResetGlobalPoolModeRetryStatusCodesForTest)
 	settingRepo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
 	accountRepo := &upstreamRetryStatusCodesRepoStub{
 		accounts: []Account{
@@ -183,17 +184,19 @@ func TestSetManagementSettingsWithRetryStatusCodesUpdatesOnlyUpstreamAccounts(t 
 	service := NewUpstreamConfigService(nil, nil, accountRepo)
 	service.SetHealthProbeDependencies(nil, NewSettingService(settingRepo, nil))
 	codes := []int{429, 502, 429}
-	result, err := service.SetManagementSettingsWithRetryStatusCodes(context.Background(), validUpstreamManagementSettings(), &codes)
+	err := service.SetManagementSettingsWithRetryStatusCodes(context.Background(), validUpstreamManagementSettings(), &codes)
 	require.NoError(t, err)
-	require.Equal(t, 2, result.Success)
-	require.Zero(t, result.Failed)
-	require.Equal(t, []int64{11, 12}, result.SuccessIDs)
-	require.Equal(t, map[string]any{"api_key": "upstream-1", "pool_mode_retry_status_codes": []int{429, 502}}, accountRepo.updated[11])
-	require.Equal(t, map[string]any{"api_key": "upstream-2", "pool_mode_retry_status_codes": []int{429, 502}}, accountRepo.updated[12])
+	require.Empty(t, accountRepo.updated)
 	require.JSONEq(t, `[429,502]`, settingRepo.values[SettingKeyUpstreamPoolModeRetryStatusCodes])
+	upstreamConfigID := int64(1)
+	upstreamKeyID := int64(2)
+	upstream := &Account{UpstreamConfigID: &upstreamConfigID, UpstreamKeyID: &upstreamKeyID, Credentials: map[string]any{"pool_mode_retry_status_codes": []any{401}}}
+	require.True(t, upstream.IsPoolModeRetryableStatus(502))
+	require.False(t, upstream.IsPoolModeRetryableStatus(401))
 }
 
-func TestSetManagementSettingsWithRetryStatusCodesClearsAccountOverrides(t *testing.T) {
+func TestSetManagementSettingsWithRetryStatusCodesEmptyRestoresDefaults(t *testing.T) {
+	t.Cleanup(ResetGlobalPoolModeRetryStatusCodesForTest)
 	settingRepo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
 	accountRepo := &upstreamRetryStatusCodesRepoStub{accounts: []Account{{ID: 21, Credentials: map[string]any{
 		"api_key": "upstream", "pool_mode_retry_status_codes": []any{502},
@@ -201,14 +204,30 @@ func TestSetManagementSettingsWithRetryStatusCodesClearsAccountOverrides(t *test
 	service := NewUpstreamConfigService(nil, nil, accountRepo)
 	service.SetHealthProbeDependencies(nil, NewSettingService(settingRepo, nil))
 	codes := []int{}
-	result, err := service.SetManagementSettingsWithRetryStatusCodes(context.Background(), validUpstreamManagementSettings(), &codes)
+	err := service.SetManagementSettingsWithRetryStatusCodes(context.Background(), validUpstreamManagementSettings(), &codes)
 	require.NoError(t, err)
-	require.Equal(t, 1, result.Success)
-	require.NotContains(t, accountRepo.updated[21], "pool_mode_retry_status_codes")
+	require.Empty(t, accountRepo.updated)
 	require.JSONEq(t, `[]`, settingRepo.values[SettingKeyUpstreamPoolModeRetryStatusCodes])
 	got, err := service.GetManagementSettings(context.Background())
 	require.NoError(t, err)
-	require.Empty(t, got.PoolModeRetryStatusCodes)
+	require.Equal(t, []int{401, 403, 429}, got.PoolModeRetryStatusCodes)
+}
+
+func TestWarmUpstreamPoolModeRetryStatusCodesAppliesToNewAccounts(t *testing.T) {
+	t.Cleanup(ResetGlobalPoolModeRetryStatusCodesForTest)
+	repo := &upstreamManagementSettingRepoStub{values: map[string]string{
+		SettingKeyUpstreamPoolModeRetryStatusCodes: `[502, 502]`,
+	}}
+	settingService := NewSettingService(repo, nil)
+	settingService.WarmUpstreamPoolModeRetryStatusCodes(context.Background())
+	configID, keyID := int64(1), int64(2)
+	newAccount := &Account{
+		UpstreamConfigID: &configID,
+		UpstreamKeyID:    &keyID,
+		Credentials:      map[string]any{"pool_mode_retry_status_codes": []any{401}},
+	}
+	require.True(t, newAccount.IsPoolModeRetryableStatus(502))
+	require.False(t, newAccount.IsPoolModeRetryableStatus(401))
 }
 
 func TestSetManagementSettingsWithRetryStatusCodesRejectsInvalidCodesBeforeWrite(t *testing.T) {
@@ -217,7 +236,7 @@ func TestSetManagementSettingsWithRetryStatusCodesRejectsInvalidCodesBeforeWrite
 	service := NewUpstreamConfigService(nil, nil, accountRepo)
 	service.SetHealthProbeDependencies(nil, NewSettingService(settingRepo, nil))
 	for _, codes := range [][]int{{99}, {600}, {401, 401, 0}} {
-		_, err := service.SetManagementSettingsWithRetryStatusCodes(context.Background(), validUpstreamManagementSettings(), &codes)
+		err := service.SetManagementSettingsWithRetryStatusCodes(context.Background(), validUpstreamManagementSettings(), &codes)
 		require.Error(t, err)
 	}
 	require.Empty(t, accountRepo.updated)
