@@ -335,7 +335,9 @@ async function load() {
     draft.confidence_probe = { ...defaults.confidence_probe, ...(settings.confidence_probe || {}) }
     draft.confidence_probe.reasoning_effort = 'high'
     draft.confidence_probe.prompt_version = 'openai-juice-multiprobe-v2'
-    poolModeRetryStatusCodesInput.value = (settings.pool_mode_retry_status_codes?.length ? settings.pool_mode_retry_status_codes : DEFAULT_POOL_MODE_RETRY_STATUS_CODES).join(', ')
+    const loadedRetryStatusCodes = settings.pool_mode_retry_status_codes?.length ? settings.pool_mode_retry_status_codes : DEFAULT_POOL_MODE_RETRY_STATUS_CODES
+    draft.pool_mode_retry_status_codes = [...loadedRetryStatusCodes]
+    poolModeRetryStatusCodesInput.value = loadedRetryStatusCodes.join(', ')
     retryStatusCodesError.value = ''
     modelAliasRows.value = Object.entries(settings.model_alias_rules || {}).map(([source, target]) => ({ id: nextModelAliasRowId++, source, target }))
     modelAliasError.value = ''
@@ -390,19 +392,7 @@ async function save() {
     const saved = probeOnly.value
       ? await upstreamManagementAPI.updateProbeSettings(payload)
       : await upstreamManagementAPI.updateSettings(payload)
-    const result = saved.pool_mode_retry_status_codes_result
-    if (result && result.failed > 0) {
-      const details = result.results
-        .filter(item => !item.success)
-        .slice(0, 5)
-        .map(item => `#${item.account_id}: ${item.error || 'unknown error'}`)
-        .join('; ')
-      appStore.showError(`${t('admin.upstreamManagement.retryStatusCodes.partialResult', { success: result.success, failed: result.failed })}${details ? ` (${details})` : ''}`)
-    } else if (result) {
-      appStore.showSuccess(t('admin.upstreamManagement.retryStatusCodes.successResult', { count: result.success }))
-    } else {
-      appStore.showSuccess(t('admin.upstreamManagement.saved'))
-    }
+    appStore.showSuccess(t('admin.upstreamManagement.saved'))
     emit('saved', saved)
     emit('close')
   } catch (error) {

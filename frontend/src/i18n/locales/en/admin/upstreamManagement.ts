@@ -21,13 +21,11 @@ export default {
     retryStatusCodes: {
       title: 'Same-account retry status codes',
       label: 'Override upstream accounts',
-      description: 'Only upstream accounts are changed. Ordinary accounts are unaffected; existing per-account settings will be overwritten.',
-      hint: 'Enter HTTP status codes (100–599) separated by commas. Leave blank to clear custom values on all upstream accounts and restore defaults ({default}).',
+      description: 'One global policy for all upstream accounts; newly added upstream accounts inherit it automatically. Ordinary accounts are unaffected.',
+      hint: 'Enter HTTP status codes (100–599) separated by commas. Leave blank to restore the system defaults ({default}).',
       invalid: 'Enter integer HTTP status codes from 100 to 599, separated by commas.',
-      overwriteConfirm: 'Overwrite the same-account retry status codes for all upstream accounts? Ordinary accounts are unaffected, and per-account settings will be replaced.',
-      clearConfirm: 'Clear custom same-account retry status codes for all upstream accounts and restore defaults? Ordinary accounts are unaffected.',
-      successResult: 'Applied same-account retry status codes to {count} upstream accounts',
-      partialResult: 'Upstream account status codes partially applied: {success} succeeded, {failed} failed'
+      overwriteConfirm: 'Change the global same-account retry status codes used by all upstream accounts? Newly added upstream accounts will inherit it automatically; ordinary accounts are unaffected.',
+      clearConfirm: 'Restore the system-default same-account retry status codes for all upstream accounts? Ordinary accounts are unaffected.'
     },
     probeSettings: {
       title: 'Probe settings',
