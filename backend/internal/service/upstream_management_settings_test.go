@@ -136,6 +136,114 @@ func TestSetManagementSettingsValidatesEverythingBeforeWriting(t *testing.T) {
 	require.Empty(t, repo.values)
 }
 
+type upstreamRetryStatusCodesRepoStub struct {
+	AccountRepository
+	accounts []Account
+	updated  map[int64]map[string]any
+	errors   map[int64]error
+}
+
+func (r *upstreamRetryStatusCodesRepoStub) ListAllWithFiltersScoped(_ context.Context, _ string, _ string, _ string, _ string, _ int64, _ string, scope AccountListScope) ([]Account, error) {
+	if scope != AccountListScopeUpstream {
+		return nil, errors.New("unexpected account scope")
+	}
+	return append([]Account(nil), r.accounts...), nil
+}
+
+func (r *upstreamRetryStatusCodesRepoStub) ListWithFiltersScoped(_ context.Context, _ pagination.PaginationParams, _ string, _ string, _ string, _ string, _ int64, _ string, scope AccountListScope) ([]Account, *pagination.PaginationResult, error) {
+	accounts, err := r.ListAllWithFiltersScoped(context.Background(), "", "", "", "", 0, "", scope)
+	return accounts, &pagination.PaginationResult{Page: 1, PageSize: len(accounts), Total: int64(len(accounts))}, err
+}
+
+func (r *upstreamRetryStatusCodesRepoStub) UpdateCredentials(_ context.Context, id int64, credentials map[string]any) error {
+	if err := r.errors[id]; err != nil {
+		return err
+	}
+	if r.updated == nil {
+		r.updated = make(map[int64]map[string]any)
+	}
+	cloned := make(map[string]any, len(credentials))
+	for key, value := range credentials {
+		cloned[key] = value
+	}
+	r.updated[id] = cloned
+	return nil
+}
+
+func TestSetManagementSettingsWithRetryStatusCodesUpdatesOnlyUpstreamAccounts(t *testing.T) {
+	settingRepo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
+	accountRepo := &upstreamRetryStatusCodesRepoStub{
+		accounts: []Account{
+			{ID: 11, Credentials: map[string]any{"api_key": "upstream-1"}},
+			{ID: 12, Credentials: map[string]any{"api_key": "upstream-2", "pool_mode_retry_status_codes": []any{401}}},
+		},
+	}
+	// The scoped repository contract guarantees these are upstream-bound rows;
+	// ordinary accounts are intentionally not returned by the stub.
+	service := NewUpstreamConfigService(nil, nil, accountRepo)
+	service.SetHealthProbeDependencies(nil, NewSettingService(settingRepo, nil))
+	codes := []int{429, 502, 429}
+	result, err := service.SetManagementSettingsWithRetryStatusCodes(context.Background(), validUpstreamManagementSettings(), &codes)
+	require.NoError(t, err)
+	require.Equal(t, 2, result.Success)
+	require.Zero(t, result.Failed)
+	require.Equal(t, []int64{11, 12}, result.SuccessIDs)
+	require.Equal(t, map[string]any{"api_key": "upstream-1", "pool_mode_retry_status_codes": []int{429, 502}}, accountRepo.updated[11])
+	require.Equal(t, map[string]any{"api_key": "upstream-2", "pool_mode_retry_status_codes": []int{429, 502}}, accountRepo.updated[12])
+	require.JSONEq(t, `[429,502]`, settingRepo.values[SettingKeyUpstreamPoolModeRetryStatusCodes])
+}
+
+func TestSetManagementSettingsWithRetryStatusCodesClearsAccountOverrides(t *testing.T) {
+	settingRepo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
+	accountRepo := &upstreamRetryStatusCodesRepoStub{accounts: []Account{{ID: 21, Credentials: map[string]any{
+		"api_key": "upstream", "pool_mode_retry_status_codes": []any{502},
+	}}}}
+	service := NewUpstreamConfigService(nil, nil, accountRepo)
+	service.SetHealthProbeDependencies(nil, NewSettingService(settingRepo, nil))
+	codes := []int{}
+	result, err := service.SetManagementSettingsWithRetryStatusCodes(context.Background(), validUpstreamManagementSettings(), &codes)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Success)
+	require.NotContains(t, accountRepo.updated[21], "pool_mode_retry_status_codes")
+	require.JSONEq(t, `[]`, settingRepo.values[SettingKeyUpstreamPoolModeRetryStatusCodes])
+	got, err := service.GetManagementSettings(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, got.PoolModeRetryStatusCodes)
+}
+
+func TestSetManagementSettingsWithRetryStatusCodesRejectsInvalidCodesBeforeWrite(t *testing.T) {
+	settingRepo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
+	accountRepo := &upstreamRetryStatusCodesRepoStub{accounts: []Account{{ID: 31}}}
+	service := NewUpstreamConfigService(nil, nil, accountRepo)
+	service.SetHealthProbeDependencies(nil, NewSettingService(settingRepo, nil))
+	for _, codes := range [][]int{{99}, {600}, {401, 401, 0}} {
+		_, err := service.SetManagementSettingsWithRetryStatusCodes(context.Background(), validUpstreamManagementSettings(), &codes)
+		require.Error(t, err)
+	}
+	require.Empty(t, accountRepo.updated)
+	require.Empty(t, settingRepo.values)
+}
+
+func TestGetManagementSettingsLoadsRetryStatusCodesWithDefaultFallback(t *testing.T) {
+	settingRepo := &upstreamManagementSettingRepoStub{values: map[string]string{
+		SettingKeyUpstreamPoolModeRetryStatusCodes: `[503,401,503]`,
+	}}
+	service := NewUpstreamConfigService(nil, nil, nil)
+	service.SetHealthProbeDependencies(nil, NewSettingService(settingRepo, nil))
+	got, err := service.GetManagementSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []int{401, 503}, got.PoolModeRetryStatusCodes)
+}
+
+func validUpstreamManagementSettings() UpstreamManagementSettings {
+	return UpstreamManagementSettings{
+		TTFTGuard:   OpenAITTFTGuardSettings{Enabled: false, DegradationTTFTSeconds: 20, MinSamples: 5},
+		ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: 300,
+		ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{},
+		ConfidenceProbe: DefaultUpstreamConfidenceProbeSettings(),
+	}
+}
+
 func TestUpstreamProbeIntervalDefaultsAndValidatesRange(t *testing.T) {
 	repo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
 	settingService := NewSettingService(repo, nil)
