@@ -1,0 +1,8 @@
+name: sub2api_astrbot
+display_name: Sub2API 渠道状态
+desc: 查询和定时发送 Sub2API 渠道状态，并支持 QQ 官方机器人新人欢迎。
+short_desc: Sub2API 渠道状态与 QQ 入群欢迎
+author: baiyucraft
+version: 0.1.0
+repo: https://github.com/Wei-Shaw/sub2api
+astrbot_version: ">=4.27.5,<5"
