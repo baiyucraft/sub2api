@@ -1,0 +1,60 @@
+{
+  "base_url": {
+    "type": "string",
+    "description": "Sub2API 根地址，不要填写 /api/v1",
+    "default": "",
+    "hint": "例如 http://127.0.0.1:8000"
+  },
+  "SUB2API_ADMIN_KEY": {
+    "type": "string",
+    "description": "Sub2API 管理员 API Key",
+    "default": "",
+    "obvious_hint": true,
+    "hint": "仅在 AstrBot 配置中保存，不会发送到聊天或普通日志"
+  },
+  "status_interval_seconds": {
+    "type": "int",
+    "description": "定时状态发送间隔（秒）",
+    "default": 3600,
+    "slider": {
+      "min": 300,
+      "max": 86400,
+      "step": 60
+    }
+  },
+  "qq_status_group_ids": {
+    "type": "string",
+    "description": "QQ 状态发送目标，逗号、空格或换行分隔",
+    "default": "",
+    "hint": "优先填写完整 unified_msg_origin；也可填写 QQ 群 OpenID"
+  },
+  "telegram_status_chat_ids": {
+    "type": "string",
+    "description": "Telegram 状态发送目标，逗号、空格或换行分隔",
+    "default": "",
+    "hint": "优先填写完整 unified_msg_origin；也可填写聊天 ID"
+  },
+  "welcome_enabled": {
+    "type": "bool",
+    "description": "启用 QQ 官方机器人入群欢迎监听",
+    "default": false,
+    "hint": "当前 AstrBot QQ 官方适配器通常不会透传成员加入事件"
+  },
+  "welcome_group_ids": {
+    "type": "string",
+    "description": "QQ 欢迎目标群，逗号、空格或换行分隔",
+    "default": "",
+    "hint": "可填写群 OpenID 或事件中的群 ID"
+  },
+  "welcome_message": {
+    "type": "text",
+    "description": "QQ 新成员欢迎语",
+    "default": "欢迎加入本群！\n发送 /status 查询渠道状态。",
+    "hint": "可用占位符：{user_id}、{group_id}、{mention}"
+  },
+  "welcome_at_member": {
+    "type": "bool",
+    "description": "欢迎语中 @ 新成员",
+    "default": true
+  }
+}
