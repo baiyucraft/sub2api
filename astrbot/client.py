@@ -73,14 +73,20 @@ class Sub2APIClient:
             raise Sub2APIError(f"无法连接 Sub2API: {exc}") from exc
         return unwrap_response(payload)
 
-    async def _fetch_history(self, session: aiohttp.ClientSession, monitor_id: Any) -> tuple[dict[str, Any], ...]:
+    async def _fetch_history(self, session: aiohttp.ClientSession, monitor_id: Any, model: Any = None) -> tuple[dict[str, Any], ...]:
+        params: dict[str, Any] = {"limit": 60}
+        if model:
+            params["model"] = model
         async with self.history_semaphore:
-            payload = await self._json(session, f"admin/channel-monitors/{monitor_id}/history", limit=60)
+            payload = await self._json(session, f"admin/channel-monitors/{monitor_id}/history", **params)
         if isinstance(payload, dict):
             items = payload.get("items") or payload.get("data") or payload.get("history") or []
         else:
             items = payload or []
-        return tuple(item for item in items if isinstance(item, dict))
+        rows = [item for item in items if isinstance(item, dict)]
+        if all(item.get("checked_at") for item in rows):
+            rows.sort(key=lambda item: str(item.get("checked_at")))
+        return tuple(rows)
 
     async def _fetch_group(self, session: aiohttp.ClientSession, group_id: Any) -> dict[str, Any] | None:
         if group_id is None:
@@ -122,7 +128,11 @@ class Sub2APIClient:
                 page += 1
             histories = await asyncio.gather(
                 *[
-                    self._fetch_history(session, item.get("id"))
+                    self._fetch_history(
+                        session,
+                        item.get("id"),
+                        item.get("primary_model") or item.get("model"),
+                    )
                     if item.get("id") is not None and not item.get("timeline")
                     else asyncio.sleep(0, result=tuple(item.get("timeline") or ()))
                     for item in monitors
