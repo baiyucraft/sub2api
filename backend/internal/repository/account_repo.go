@@ -251,6 +251,13 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 	var persistedGroups []service.AccountGroup
 	var groupIDs []int64
 	err := r.withAccountWriteTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
+		groupIDs = make([]int64, 0, len(groups))
+		for i := range groups {
+			groupIDs = append(groupIDs, groups[i].GroupID)
+		}
+		if err := lockLiveGroups(txCtx, txClient, groupIDs); err != nil {
+			return err
+		}
 		var err error
 		created, err = createAccountRecord(txCtx, txClient, account)
 		if err != nil {
@@ -2116,13 +2123,30 @@ func (r *accountRepository) ClearError(ctx context.Context, id int64) error {
 }
 
 func (r *accountRepository) AddToGroup(ctx context.Context, accountID, groupID int64, priority int) error {
-	_, err := r.client.AccountGroup.Create().
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return err
+	}
+	client := r.client
+	if tx != nil {
+		defer func() { _ = tx.Rollback() }()
+		client = tx.Client()
+	}
+	if err := lockLiveGroups(ctx, client, []int64{groupID}); err != nil {
+		return err
+	}
+	_, err = client.AccountGroup.Create().
 		SetAccountID(accountID).
 		SetGroupID(groupID).
 		SetPriority(priority).
 		Save(ctx)
 	if err != nil {
 		return err
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 	}
 	payload := buildSchedulerGroupPayload([]int64{groupID})
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountGroupsChanged, &accountID, nil, payload); err != nil {
@@ -2183,6 +2207,9 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 	} else {
 		// 已处于外部事务中（ErrTxStarted），复用当前 client
 		txClient = r.client
+	}
+	if err := lockLiveGroups(ctx, txClient, groupIDs); err != nil {
+		return err
 	}
 
 	if len(groupIDs) == 0 {

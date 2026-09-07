@@ -609,7 +609,24 @@ PROFILES["246"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "246"
+# Profile 246 is immutable. Upstream 0.2.2 group model allowlist uses the next
+# free fork filename, preserving every released migration and checksum.
+PROFILES["247"] = {
+    **{key: PROFILES["246"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "247",
+    "version": "0.2.2-baiyu",
+    "parent": "246",
+    "new_migrations": [
+        "267_group_model_allowlist.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "247"
 
 
 def get_profile(name: str) -> dict:
