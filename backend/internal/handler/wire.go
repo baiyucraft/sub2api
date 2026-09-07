@@ -48,6 +48,7 @@ func ProvideAdminHandlers(
 	affiliateHandler *admin.AffiliateHandler,
 	complianceHandler *admin.ComplianceHandler,
 	auditLogHandler *admin.AuditLogHandler,
+	extraCostHandler *admin.ExtraCostHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 ) *AdminHandlers {
@@ -92,6 +93,7 @@ func ProvideAdminHandlers(
 		Affiliate:              affiliateHandler,
 		Compliance:             complianceHandler,
 		AuditLog:               auditLogHandler,
+		ExtraCost:              extraCostHandler,
 	}
 }
 
@@ -151,6 +153,26 @@ func ProvideBatchImageHandler(
 	h := NewBatchImageHandler(batchService, download, cleanup)
 	h.openAI = openAI
 	return h
+}
+
+func ProvideDailyActivityServices(svc *service.DailyActivityService, billingCacheService *service.BillingCacheService) []*service.DailyActivityService {
+	svc.SetBillingCache(billingCacheService)
+	return []*service.DailyActivityService{svc}
+}
+
+func ProvideExtraCostServices(svc *service.ExtraCostService) []*service.ExtraCostService {
+	return []*service.ExtraCostService{svc}
+}
+
+func ProvideExtraCostService(
+	repo service.ExtraCostRepository,
+	dashboardService *service.DashboardService,
+) *service.ExtraCostService {
+	return service.NewExtraCostService(
+		repo,
+		dashboardService.InvalidateCache,
+		admin.InvalidateDashboardQueryCaches,
+	)
 }
 
 // ProvideSystemHandler creates admin.SystemHandler with UpdateService
@@ -249,6 +271,9 @@ var ProviderSet = wire.NewSet(
 	NewModelPlazaHandler,
 	NewAsyncImageHandler,
 	ProvideBatchImageHandler,
+	ProvideDailyActivityServices,
+	ProvideExtraCostService,
+	ProvideExtraCostServices,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
@@ -287,6 +312,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,
+	admin.NewExtraCostHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,
