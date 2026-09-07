@@ -130,6 +130,7 @@ export default {
       disabled: '关闭',
       noData: '暂无',
       reason: '原因',
+      probeFailedReason: '探针返回结果无法验证',
       lastProbe: '最近探测',
       probeStatus: '最近探测结果',
       lastTraffic: '最近流量证据',
