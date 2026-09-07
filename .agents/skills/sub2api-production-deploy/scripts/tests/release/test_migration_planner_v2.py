@@ -16,16 +16,16 @@ from release.profiles import get_profile
 
 
 class MigrationPlannerV2Test(unittest.TestCase):
-    def test_profile_245_snapshot_only_plans_profile_246_migrations(self) -> None:
+    def test_profile_246_snapshot_only_plans_profile_247_migrations(self) -> None:
         catalog = discover_migration_catalog(WORKSPACE)
-        expected = get_profile("246")["new_migrations"]
+        expected = get_profile("247")["new_migrations"]
         snapshot = {item["filename"]: item["checksum"] for item in catalog if item["filename"] not in expected}
         plan = plan_migrations(catalog, snapshot)
         self.assertTrue(plan["existing_checksums_verified"])
         self.assertEqual(plan["conflicts"], [])
         self.assertEqual(plan["unknown"], [])
         self.assertEqual([item["filename"] for item in plan["pending"]], expected)
-        self.assertEqual([item["filename"] for item in plan["pending"] if item["non_transactional"]], [expected[1]])
+        self.assertEqual([item["filename"] for item in plan["pending"] if item["non_transactional"]], [])
         self.assertEqual(pending_hooks(plan["pending"]), [])
         snapshot.update({item["filename"]: item["checksum"] for item in plan["pending"]})
         self.assertEqual(plan_migrations(catalog, snapshot)["pending"], [])
@@ -37,6 +37,7 @@ class MigrationPlannerV2Test(unittest.TestCase):
             "233_add_usage_log_upstream_request_id_index_notx.sql",
             "234_channel_max_reasoning_effort_multiplier.sql",
             "234_group_codex_models_manifest_config.sql",
+            "235_group_model_allowlist.sql",
         ):
             with self.subTest(filename=filename):
                 plan = plan_migrations(catalog, {filename: "a" * 64})
@@ -48,11 +49,11 @@ class MigrationPlannerV2Test(unittest.TestCase):
             with self.subTest(script=hook["script"]):
                 script = (DEPLOY_ROOT / "maintenance" / "release" / hook["script"]).read_text(encoding="utf-8")
                 allowed = re.findall(r"\$profile == ([0-9]+)", script)
-                self.assertIn("246", allowed)
+                self.assertIn("247", allowed)
         script = (DEPLOY_ROOT / "maintenance" / "release" / "migration-195-assert.sh").read_text(encoding="utf-8")
         for line in script.splitlines():
             if "if [[ $release_profile == 240" in line:
-                self.assertIn("$release_profile == 246", line)
+                self.assertIn("$release_profile == 247", line)
 
     def test_empty_catalog_and_pending_are_valid(self) -> None:
         catalog = [{"filename": "001_first.sql", "checksum": "a" * 64, "non_transactional": False}]

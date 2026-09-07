@@ -16,14 +16,14 @@ spec.loader.exec_module(module)
     ("pre-merge", "0.2.0-baiyu", "0.1.9-baiyu", "0.2.0", "fork_version_mismatch"),
     ("pre-merge", "0.2.0-baiyu", "0.2.0-baiyu", "0.1.9", "fork_version_mismatch"),
     ("pre-merge", "0.2.0-baiyu", "0.2.0-baiyu", "", "fork_version_mismatch"),
-    ("post-merge", "0.2.1-baiyu", "0.2.1-baiyu", "0.2.0", "version_contract"),
+    ("post-merge", "0.2.2-baiyu", "0.2.2-baiyu", "0.2.1", "version_contract"),
 ])
 def test_version_validation_respects_merge_phase(tmp_path, mode, fork, profile, base, expected):
     audit = module.Audit(tmp_path, mode, "a" * 40, None, tmp_path / "catalog.json")
     audit.head = "b" * 40
     audit.merge_base = "c" * 40
     audit.catalog = {"current_profile": {"version": profile}}
-    versions = {audit.upstream_ref: "0.2.1", audit.head: fork, audit.merge_base: base}
+    versions = {audit.upstream_ref: "0.2.2", audit.head: fork, audit.merge_base: base}
     audit.show = lambda ref, path: versions[ref]
     audit.check_versions()
     assert audit.findings[0]["code"] == expected
