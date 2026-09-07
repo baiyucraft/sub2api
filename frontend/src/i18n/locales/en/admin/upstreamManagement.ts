@@ -130,6 +130,7 @@ export default {
       disabled: 'Off',
       noData: 'No data',
       reason: 'Reason',
+      probeFailedReason: 'Probe response could not be verified',
       lastProbe: 'Last probe',
       probeStatus: 'Last probe result',
       lastTraffic: 'Recent traffic evidence',

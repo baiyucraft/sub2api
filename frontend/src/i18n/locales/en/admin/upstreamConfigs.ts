@@ -349,6 +349,10 @@ export default {
       sub2apiNotInCNConfirmed: 'Confirm all Sub2API password logins meet the non-mainland-China requirement',
       sub2apiNotInCNConfirmedHint: 'When enabled, the system sends a “not located in mainland China” declaration to third-party sites for every Sub2API email/password login. Enable it only after confirming all affected logins meet that requirement.'
     },
+    rateTrend: {
+      deletedKey: '[Deleted]',
+      unnamedKey: 'Unnamed key'
+    },
     operations: {
       syncRunsTitle: 'Sync Runs',
       eventsTitle: 'Upstream Events',

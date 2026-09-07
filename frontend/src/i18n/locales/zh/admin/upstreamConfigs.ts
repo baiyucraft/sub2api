@@ -349,6 +349,10 @@ export default {
       sub2apiNotInCNConfirmed: '确认所有 Sub2API 账密登录均符合非中国大陆地区要求',
       sub2apiNotInCNConfirmedHint: '开启后，系统会在所有 Sub2API 上游的账密登录请求中，向第三方站点发送“确认不位于中国大陆”的声明。请仅在你确认所有相关登录均符合该要求时开启。'
     },
+    rateTrend: {
+      deletedKey: '[已删除]',
+      unnamedKey: '未命名 Key'
+    },
     operations: {
       syncRunsTitle: '同步记录',
       eventsTitle: '上游事件',
