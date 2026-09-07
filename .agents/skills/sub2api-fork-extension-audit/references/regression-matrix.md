@@ -23,6 +23,7 @@
 | compact 账号列表与编辑 | 脱敏列表保留上游身份、能力和调度字段；按需详情不被列表刷新覆盖；模型同步 persisted 分支与官方元数据分支独立；图片回填和请求 ID 头字段只放宽精确白名单 |
 | 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
 | 发布 DMIT 中继 | `test_ssh_output.py`、`test_racknerd_readonly_status.py`；验证 DMIT direct SSH、1080 HTTP CONNECT、RackNerd host key、代理失败 fail-closed，以及命令/SFTP 共用连接入口 |
+| AstrBot 渠道状态插件 | `python -m pytest astrbot/tests -q`；V2 snapshot 优先、V1 history 回退、平台分组、普通倍率、不泄露管理员 API Key、/status 与定时推送均为单图 |
 
 ## 全量门禁
 

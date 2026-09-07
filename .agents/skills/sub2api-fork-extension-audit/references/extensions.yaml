@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-09-05",
+  "catalog_version": "2026-09-07",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -505,6 +505,36 @@
     },
     {
       "id": "upstream-global-retry-status-codes", "title": "上游账号统一同账号重试状态码", "description": "同账号重试状态码由 upstream_pool_mode_retry_status_codes 单一系统设置统一控制；所有上游账号（包括新建账号）实时继承，账号凭据中的历史单独字段不再作为上游运行时来源。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/account.go", "backend/internal/service/pool_mode_retry_settings.go", "backend/internal/service/upstream_config.go", "backend/internal/service/wire.go", "backend/internal/handler/admin/upstream_management_handler.go", "frontend/src/api/admin/upstreamManagement.ts", "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue", "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts", "frontend/src/i18n/locales/en/admin/upstreamManagement.ts"], "symbols": ["SettingKeyUpstreamPoolModeRetryStatusCodes", "SetGlobalPoolModeRetryStatusCodes", "WarmUpstreamPoolModeRetryStatusCodes", "IsPoolModeRetryableStatus"], "api_routes": ["/admin/upstream-management/settings"], "settings_keys": ["upstream_pool_mode_retry_status_codes"], "migration_files": [], "required_tests": ["backend/internal/service/upstream_management_settings_test.go", "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts"], "invariants": ["状态码统一存储在系统设置，不再批量写入账号 credentials", "新建和已有上游账号都自动继承当前全局配置", "空值恢复默认 401/403/429", "普通账号仍保留原有账号级语义", "账号凭据中的历史 pool_mode_retry_status_codes 对已安装全局配置的上游账号无效"]
+    },
+    {
+      "id": "astrbot-channel-status-plugin",
+      "title": "AstrBot 渠道状态插件",
+      "description": "独立 AstrBot 插件：通过统一事件 API 拉取渠道快照并渲染一张完整状态图；优先 V2 snapshot，失败后回退 V1 monitor history；支持 /status 与定时推送。",
+      "ownership": "fork",
+      "risk_level": "medium",
+      "paths": [
+        "astrbot/README.md",
+        "astrbot/_conf_schema.json",
+        "astrbot/client.py",
+        "astrbot/main.py",
+        "astrbot/metadata.yaml",
+        "astrbot/renderer.py",
+        "astrbot/requirements.txt",
+        "astrbot/tests/test_plugin.py"
+      ],
+      "symbols": ["Main", "Sub2APIClient", "ChannelSnapshot", "render_status_svg", "format_status", "fetch_snapshots"],
+      "api_routes": [],
+      "settings_keys": [],
+      "migration_files": [],
+      "required_tests": ["astrbot/tests/test_plugin.py"],
+      "invariants": [
+        "使用 AstrBot 统一事件 API，不依赖 OneBot 专用接口",
+        "不在日志、图片或消息中泄露管理员 API Key",
+        "优先请求 V2 snapshot，失败后再回退 V1 monitor history",
+        "/status 与定时推送都发送一张完整状态图",
+        "状态图按平台分组，展示模型、延迟、可用性、分组和普通倍率",
+        "插件独立于 Sub2API 主服务进程，不改变网关计费、调度或账号生命周期"
+      ]
     }
   ]
 }
