@@ -58,9 +58,9 @@ class GateV2Test(unittest.TestCase):
         (self.root / "candidate.tar.gz").write_bytes(archive)
         manifest = {
             "schema": 2,
-            "profile": "246",
-            "release_id": "246-aaaaaaaaaaaa-1-aaaaaaaa",
-            "version": "0.2.1-baiyu",
+            "profile": "247",
+            "release_id": "247-aaaaaaaaaaaa-1-aaaaaaaa",
+            "version": "0.2.2-baiyu",
             "commit_sha": "a" * 40,
             "expires_at": int(time.time()) + 3600,
             "release_asset_layout": LAYOUT_SKILL_V1,
@@ -98,7 +98,7 @@ class GateV2Test(unittest.TestCase):
             },
             "release_policy": {"canary_verified": "not_checked", "restore_points_verified": True},
         }
-        return {"gate_version": 2, "profile_id": 246, "manifest": manifest, "evidence": evidence}
+        return {"gate_version": 2, "profile_id": 247, "manifest": manifest, "evidence": evidence}
 
     def _sign(self, document: dict) -> None:
         payload = self.root / "gate.json"
@@ -109,7 +109,7 @@ class GateV2Test(unittest.TestCase):
             capture_output=True,
         )
 
-    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "246") -> dict:
+    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "247") -> dict:
         with (
             mock.patch("release.gate.validate_manifest_profile_contract"),
             mock.patch("release.gate.get_profile", return_value={}),
@@ -132,12 +132,12 @@ class GateV2Test(unittest.TestCase):
 
     def test_historical_runner_is_allowed_only_for_recovery(self) -> None:
         document = self._document()
-        document["profile_id"] = 245
-        document["manifest"].update(profile="245", release_id="245-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.0-baiyu")
+        document["profile_id"] = 246
+        document["manifest"].update(profile="246", release_id="246-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.1-baiyu")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 246"):
-            self._verify(profile="245")
-        self.assertEqual(self._verify(profile="245", allow_historical_runner=True), document)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 247"):
+            self._verify(profile="246")
+        self.assertEqual(self._verify(profile="246", allow_historical_runner=True), document)
 
     def test_schema_tamper_is_rejected_before_dispatch(self) -> None:
         document = self._document()
@@ -149,14 +149,14 @@ class GateV2Test(unittest.TestCase):
             mock.patch("release.gate.verify_gate_v2") as v2,
             self.assertRaises(subprocess.CalledProcessError),
         ):
-            verify_gate(self.root, self.public_key, "246", accepted_schemas=frozenset({1, 2}))
+            verify_gate(self.root, self.public_key, "247", accepted_schemas=frozenset({1, 2}))
         v1.assert_not_called()
         v2.assert_not_called()
 
     def test_signed_v1_is_rejected_by_v2_only_entry(self) -> None:
         self._sign({"manifest": {"schema": 1}, "evidence": {}})
         with self.assertRaisesRegex(RuntimeError, "schema is not accepted"):
-            verify_gate(self.root, self.public_key, "246", accepted_schemas=frozenset({2}))
+            verify_gate(self.root, self.public_key, "247", accepted_schemas=frozenset({2}))
 
     def test_unsigned_pending_mutation_is_rejected(self) -> None:
         document = self._document()
