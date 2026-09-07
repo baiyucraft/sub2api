@@ -11,9 +11,10 @@ from renderer import format_status, render_status_svg, split_pages  # noqa: E402
 
 
 class Snapshot:
-    def __init__(self, monitor, group=None):
+    def __init__(self, monitor, group=None, history=()):
         self.monitor = monitor
         self.group = group
+        self.history = history
 
 
 def test_normalize_base_url_rejects_credentials_and_query():
@@ -75,3 +76,25 @@ def test_render_status_svg_escapes_channel_name():
     assert "A&lt;&amp;" in svg
     assert "倍率 0.20x" in svg
     assert "<script" not in svg
+
+
+def test_render_status_svg_uses_detail_card_and_history_bars():
+    svg = render_status_svg([
+        Snapshot(
+            {
+                "name": "gpt-plus",
+                "provider": "openai",
+                "primary_status": "healthy",
+                "primary_model": "gpt-5.6-sol",
+                "availability_24h": 99.61,
+            },
+            {"rate_multiplier": 0.22},
+            ({"status": "healthy"}, {"status": "degraded"}),
+        )
+    ])
+    assert "端点 PING" in svg
+    assert "可用性 · 24 小时" in svg
+    assert "近 60 次记录" in svg
+    assert "普通倍率 0.22x" in svg
+    assert "趋势" not in svg
+    assert svg.count("<title>") == 60
