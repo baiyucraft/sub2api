@@ -43,6 +43,14 @@ func TestServiceDisabledDoesNotCreateFileOrReadBody(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
+func TestNewServiceUsesFixedAbsoluteOutputPath(t *testing.T) {
+	observer := NewService()
+
+	require.Equal(t, service.GatewayRequestObserverOutputPath, observer.outputPath)
+	require.True(t, strings.HasPrefix(observer.outputPath, "/"))
+	require.Equal(t, "/app/.tmp/maibon-probe-observation/requests.jsonl", observer.outputPath)
+}
+
 func TestServiceMatchesAPIKeyNameAndPreservesBody(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "requests.jsonl")
 	observer := newService(path, 256, 4)
@@ -86,24 +94,30 @@ func TestServiceMatchesAPIKeyNameAndPreservesBody(t *testing.T) {
 	require.Equal(t, "observer-test", entry["user_agent"])
 }
 
-func TestServiceMatchesFinalAccountIDAndUsesORSemantics(t *testing.T) {
+func TestServiceMatchesPlatformUserIDAndEmailWithORSemantics(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "requests.jsonl")
 	observer := newService(path, 256, 4)
 	require.NoError(t, observer.Apply(context.Background(), Settings{
 		Enabled:     true,
 		APIKeyNames: []string{"other-key"},
-		AccountIDs:  []int64{456},
+		UserIDs:     []int64{456},
+		UserEmails:  []string{"target@example.com"},
 	}))
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 99, UserID: 7, Name: "maibon-gpt"})
+		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+			ID:     99,
+			UserID: 7,
+			Name:   "maibon-gpt",
+			User:   &service.User{ID: 7, Email: "TARGET@example.com"},
+		})
 		c.Next()
 	})
 	router.Use(observer.Middleware())
 	router.POST("/v1/messages", func(c *gin.Context) {
 		_, _ = io.ReadAll(c.Request.Body)
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.AccountID, int64(456)))
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.AccountID, int64(789)))
 		c.Status(http.StatusAccepted)
 	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"prompt":"hello"}`))
@@ -115,8 +129,90 @@ func TestServiceMatchesFinalAccountIDAndUsesORSemantics(t *testing.T) {
 
 	entries := readObservations(t, path)
 	require.Len(t, entries, 1)
-	require.Equal(t, int64(456), int64(entries[0]["account_id"].(float64)))
-	require.Equal(t, []any{"account"}, entries[0]["matched_by"])
+	require.Equal(t, int64(7), int64(entries[0]["user_id"].(float64)))
+	require.Equal(t, int64(789), int64(entries[0]["account_id"].(float64)))
+	require.Equal(t, []any{"user_email"}, entries[0]["matched_by"])
+}
+
+func TestServiceMatchesPlatformUserIDAndRecordsBothSources(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "requests.jsonl")
+	observer := newService(path, 256, 4)
+	require.NoError(t, observer.Apply(context.Background(), Settings{
+		Enabled:    true,
+		UserIDs:    []int64{27},
+		UserEmails: []string{"1069167864@qq.com"},
+	}))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+			UserID: 27,
+			User:   &service.User{ID: 27, Email: "1069167864@qq.com"},
+		})
+		c.Next()
+	})
+	router.Use(observer.Middleware())
+	router.POST("/probe", func(c *gin.Context) {
+		_, _ = io.ReadAll(c.Request.Body)
+		c.Status(http.StatusOK)
+	})
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/probe", strings.NewReader(`{"probe":true}`)))
+	require.NoError(t, observer.Shutdown(context.Background()))
+
+	entries := readObservations(t, path)
+	require.Len(t, entries, 1)
+	require.Equal(t, []any{"user_id", "user_email"}, entries[0]["matched_by"])
+}
+
+func TestServiceDoesNotReadUnmatchedUserBody(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "requests.jsonl")
+	observer := newService(path, 256, 4)
+	require.NoError(t, observer.Apply(context.Background(), Settings{
+		Enabled:    true,
+		UserEmails: []string{"target@example.com"},
+	}))
+
+	readCount := 0
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+			UserID: 7,
+			User:   &service.User{ID: 7, Email: "other@example.com"},
+		})
+		c.Next()
+	})
+	router.Use(observer.Middleware())
+	router.POST("/probe", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	req := httptest.NewRequest(http.MethodPost, "/probe", &countingReader{Reader: strings.NewReader(`{"probe":true}`), count: &readCount})
+	router.ServeHTTP(httptest.NewRecorder(), req)
+	require.Zero(t, readCount)
+	require.NoError(t, observer.Shutdown(context.Background()))
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Empty(t, raw)
+}
+
+func TestServicePreservesLegacyAccountObserverTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "requests.jsonl")
+	observer := newService(path, 256, 4)
+	require.NoError(t, observer.Apply(context.Background(), Settings{
+		Enabled:          true,
+		LegacyAccountIDs: []int64{789},
+	}))
+
+	router := gin.New()
+	router.Use(observer.Middleware())
+	router.POST("/probe", func(c *gin.Context) {
+		_, _ = io.ReadAll(c.Request.Body)
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.AccountID, int64(789)))
+		c.Status(http.StatusOK)
+	})
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/probe", strings.NewReader(`{"probe":true}`)))
+	require.NoError(t, observer.Shutdown(context.Background()))
+
+	entries := readObservations(t, path)
+	require.Len(t, entries, 1)
+	require.Equal(t, []any{"legacy_account_id"}, entries[0]["matched_by"])
 }
 
 func TestServiceTruncatesCapturedBodyButHashesReadBody(t *testing.T) {

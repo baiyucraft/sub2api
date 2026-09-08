@@ -258,7 +258,7 @@
                 </div>
 
                 <div
-                  class="grid grid-cols-1 gap-5 border-t border-gray-100 pt-5 dark:border-dark-700 md:grid-cols-3"
+                  class="grid grid-cols-1 gap-5 border-t border-gray-100 pt-5 dark:border-dark-700 md:grid-cols-2 xl:grid-cols-4"
                 >
                   <div>
                     <label
@@ -304,21 +304,42 @@
                   <div>
                     <label
                       class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                      for="gateway-request-observer-account-ids"
+                      for="gateway-request-observer-user-ids"
                     >
-                      {{ t("admin.settings.gatewayRequestObserver.accountIds") }}
+                      {{ t("admin.settings.gatewayRequestObserver.userIds") }}
                     </label>
                     <textarea
-                      id="gateway-request-observer-account-ids"
-                      v-model="gatewayRequestObserverAccountIdsInput"
-                      data-testid="gateway-request-observer-account-ids"
+                      id="gateway-request-observer-user-ids"
+                      v-model="gatewayRequestObserverUserIdsInput"
+                      data-testid="gateway-request-observer-user-ids"
                       rows="3"
                       inputmode="numeric"
                       class="input min-h-24 resize-y font-mono text-sm"
                       :placeholder="t('admin.settings.gatewayRequestObserver.idsPlaceholder')"
                     ></textarea>
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                      {{ t("admin.settings.gatewayRequestObserver.accountIdsHint") }}
+                      {{ t("admin.settings.gatewayRequestObserver.userIdsHint") }}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      for="gateway-request-observer-user-emails"
+                    >
+                      {{ t("admin.settings.gatewayRequestObserver.userEmails") }}
+                    </label>
+                    <textarea
+                      id="gateway-request-observer-user-emails"
+                      v-model="gatewayRequestObserverUserEmailsInput"
+                      data-testid="gateway-request-observer-user-emails"
+                      rows="3"
+                      inputmode="email"
+                      class="input min-h-24 resize-y font-mono text-sm"
+                      :placeholder="t('admin.settings.gatewayRequestObserver.userEmailsPlaceholder')"
+                    ></textarea>
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRequestObserver.userEmailsHint") }}
                     </p>
                   </div>
                 </div>
@@ -9457,17 +9478,19 @@ const upstreamBillingProbeForm = reactive({
 const gatewayRequestObserverLoading = ref(true);
 const gatewayRequestObserverSaving = ref(false);
 const gatewayRequestObserverOutputPath = ref(
-  ".tmp/maibon-probe-observation/requests.jsonl",
+  "/app/.tmp/maibon-probe-observation/requests.jsonl",
 );
 const gatewayRequestObserverForm = reactive<GatewayRequestObserverSettings>({
   enabled: false,
   api_key_ids: [],
   api_key_names: [],
-  account_ids: [],
+  user_ids: [],
+  user_emails: [],
 });
 const gatewayRequestObserverApiKeyNamesInput = ref("");
 const gatewayRequestObserverApiKeyIdsInput = ref("");
-const gatewayRequestObserverAccountIdsInput = ref("");
+const gatewayRequestObserverUserIdsInput = ref("");
+const gatewayRequestObserverUserEmailsInput = ref("");
 
 // OpenAI TTFT Guard 状态
 const openaiTTFTGuardLoading = ref(true);
@@ -12375,6 +12398,10 @@ function parseGatewayRequestObserverNames(value: string): string[] {
   );
 }
 
+function parseGatewayRequestObserverEmails(value: string): string[] {
+  return parseGatewayRequestObserverNames(value).map((item) => item.toLowerCase());
+}
+
 function parseGatewayRequestObserverIDs(value: string): number[] {
   return Array.from(
     new Set(
@@ -12412,7 +12439,8 @@ async function loadGatewayRequestObserverSettings() {
       api_key_names: Array.isArray(settings.api_key_names)
         ? settings.api_key_names
         : [],
-      account_ids: Array.isArray(settings.account_ids) ? settings.account_ids : [],
+      user_ids: Array.isArray(settings.user_ids) ? settings.user_ids : [],
+      user_emails: Array.isArray(settings.user_emails) ? settings.user_emails : [],
     });
     gatewayRequestObserverApiKeyNamesInput.value = formatGatewayRequestObserverNames(
       gatewayRequestObserverForm.api_key_names,
@@ -12420,8 +12448,11 @@ async function loadGatewayRequestObserverSettings() {
     gatewayRequestObserverApiKeyIdsInput.value = formatGatewayRequestObserverIDs(
       gatewayRequestObserverForm.api_key_ids,
     );
-    gatewayRequestObserverAccountIdsInput.value = formatGatewayRequestObserverIDs(
-      gatewayRequestObserverForm.account_ids,
+    gatewayRequestObserverUserIdsInput.value = formatGatewayRequestObserverIDs(
+      gatewayRequestObserverForm.user_ids,
+    );
+    gatewayRequestObserverUserEmailsInput.value = formatGatewayRequestObserverNames(
+      gatewayRequestObserverForm.user_emails,
     );
     if (typeof settings.output_path === "string" && settings.output_path.trim()) {
       gatewayRequestObserverOutputPath.value = settings.output_path;
@@ -12444,8 +12475,11 @@ async function saveGatewayRequestObserverSettings() {
       api_key_names: parseGatewayRequestObserverNames(
         gatewayRequestObserverApiKeyNamesInput.value,
       ),
-      account_ids: parseGatewayRequestObserverIDs(
-        gatewayRequestObserverAccountIdsInput.value,
+      user_ids: parseGatewayRequestObserverIDs(
+        gatewayRequestObserverUserIdsInput.value,
+      ),
+      user_emails: parseGatewayRequestObserverEmails(
+        gatewayRequestObserverUserEmailsInput.value,
       ),
     };
     const updated =
@@ -12458,9 +12492,12 @@ async function saveGatewayRequestObserverSettings() {
       api_key_names: Array.isArray(updated.api_key_names)
         ? updated.api_key_names
         : payload.api_key_names,
-      account_ids: Array.isArray(updated.account_ids)
-        ? updated.account_ids
-        : payload.account_ids,
+      user_ids: Array.isArray(updated.user_ids)
+        ? updated.user_ids
+        : payload.user_ids,
+      user_emails: Array.isArray(updated.user_emails)
+        ? updated.user_emails
+        : payload.user_emails,
     });
     gatewayRequestObserverApiKeyNamesInput.value = formatGatewayRequestObserverNames(
       gatewayRequestObserverForm.api_key_names,
@@ -12468,8 +12505,11 @@ async function saveGatewayRequestObserverSettings() {
     gatewayRequestObserverApiKeyIdsInput.value = formatGatewayRequestObserverIDs(
       gatewayRequestObserverForm.api_key_ids,
     );
-    gatewayRequestObserverAccountIdsInput.value = formatGatewayRequestObserverIDs(
-      gatewayRequestObserverForm.account_ids,
+    gatewayRequestObserverUserIdsInput.value = formatGatewayRequestObserverIDs(
+      gatewayRequestObserverForm.user_ids,
+    );
+    gatewayRequestObserverUserEmailsInput.value = formatGatewayRequestObserverNames(
+      gatewayRequestObserverForm.user_emails,
     );
     if (typeof updated.output_path === "string" && updated.output_path.trim()) {
       gatewayRequestObserverOutputPath.value = updated.output_path;

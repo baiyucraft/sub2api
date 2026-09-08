@@ -45,6 +45,10 @@ func (r *keyBillingRouteRateRepo) GetRPMOverrideByUserAndGroup(context.Context, 
 }
 
 func newKeyBillingRouteTestRouter(runMode string) (*gin.Engine, *keyBillingRouteRateRepo, string) {
+	return newKeyBillingRouteTestRouterWithOptions(runMode, GatewayRouteOptions{})
+}
+
+func newKeyBillingRouteTestRouterWithOptions(runMode string, options GatewayRouteOptions) (*gin.Engine, *keyBillingRouteRateRepo, string) {
 	gin.SetMode(gin.TestMode)
 	group := &service.Group{
 		ID:               42,
@@ -92,7 +96,7 @@ func newKeyBillingRouteTestRouter(runMode string) (*gin.Engine, *keyBillingRoute
 	if web.HasEmbeddedFrontend() {
 		router.Use(web.ServeEmbeddedFrontend())
 	}
-	RegisterGatewayRoutes(
+	RegisterGatewayRoutesWithOptions(
 		router,
 		&handler.Handlers{Gateway: gatewayHandler, OpenAIGateway: &handler.OpenAIGatewayHandler{}},
 		servermiddleware.NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg),
@@ -102,8 +106,24 @@ func newKeyBillingRouteTestRouter(runMode string) (*gin.Engine, *keyBillingRoute
 		nil,
 		nil,
 		cfg,
+		options,
 	)
 	return router, rateRepo, apiKey.Key
+}
+
+func TestGatewayRoutesKeyBillingRunsPostAuthMiddleware(t *testing.T) {
+	postAuthCalls := 0
+	router, _, key := newKeyBillingRouteTestRouterWithOptions(config.RunModeStandard, GatewayRouteOptions{
+		PostAuthMiddleware: []gin.HandlerFunc{func(c *gin.Context) {
+			postAuthCalls++
+			c.Next()
+		}},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/v1/sub2api/billing", nil)
+	req.Header.Set("Authorization", "Bearer "+key)
+	router.ServeHTTP(httptest.NewRecorder(), req)
+
+	require.Equal(t, 1, postAuthCalls)
 }
 
 func TestGatewayRoutesKeyBillingInfoPathIsRegistered(t *testing.T) {

@@ -211,9 +211,11 @@ func RegisterGatewayRoutesWithOptions(
 	gateway.Use(opsErrorLogger)
 	gateway.Use(endpointNorm)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
+	// Billing is intentionally exempt from group/billing enforcement but still
+	// runs post-auth extensions so opt-in observers see authenticated probes.
+	gateway.Use(options.PostAuthMiddleware...)
 	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
 	gateway.Use(groupModelAllowlist)
-	gateway.Use(options.PostAuthMiddleware...)
 	gateway.Use(compositeTarget)
 	gateway.Use(requireGroupAnthropic)
 	{

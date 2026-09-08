@@ -63,8 +63,9 @@ const {
     enabled: false,
     api_key_ids: [],
     api_key_names: [],
-    account_ids: [],
-    output_path: ".tmp/maibon-probe-observation/requests.jsonl",
+    user_ids: [],
+    user_emails: [],
+    output_path: "/app/.tmp/maibon-probe-observation/requests.jsonl",
   }),
   updateGatewayRequestObserverSettings: vi.fn().mockImplementation(async (payload) => payload),
   getStreamTimeoutSettings: vi.fn(),
@@ -257,8 +258,8 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.gatewayRequestObserver.apiKeyNamesHint": "每行一个。",
     "admin.settings.gatewayRequestObserver.apiKeyIds": "API Key ID",
     "admin.settings.gatewayRequestObserver.apiKeyIdsHint": "每行一个。",
-    "admin.settings.gatewayRequestObserver.accountIds": "上游账号 ID",
-    "admin.settings.gatewayRequestObserver.accountIdsHint": "每行一个。",
+    "admin.settings.gatewayRequestObserver.userIds": "平台用户 ID",
+    "admin.settings.gatewayRequestObserver.userIdsHint": "每行一个。",
     "admin.settings.gatewayRequestObserver.idsPlaceholder": "例如：123",
     "admin.settings.gatewayRequestObserver.status": "状态",
     "admin.settings.gatewayRequestObserver.statusEnabled": "运行中",
@@ -735,8 +736,9 @@ describe("admin SettingsView payment visible method controls", () => {
       enabled: false,
       api_key_ids: [],
       api_key_names: [],
-      account_ids: [],
-      output_path: ".tmp/maibon-probe-observation/requests.jsonl",
+      user_ids: [],
+      user_emails: [],
+      output_path: "/app/.tmp/maibon-probe-observation/requests.jsonl",
     });
     updateGatewayRequestObserverSettings.mockImplementation(async (payload) => payload);
     getStreamTimeoutSettings.mockResolvedValue({
@@ -1490,12 +1492,13 @@ describe("admin SettingsView payment visible method controls", () => {
       enabled: true,
       api_key_ids: [11],
       api_key_names: ["maibon-gpt"],
-      account_ids: [7],
-      output_path: ".tmp/observer/requests.jsonl",
+      user_ids: [27],
+      user_emails: ["1069167864@qq.com"],
+      output_path: "/app/.tmp/observer/requests.jsonl",
     });
     updateGatewayRequestObserverSettings.mockImplementationOnce(async (payload) => ({
       ...payload,
-      output_path: ".tmp/observer/requests.jsonl",
+      output_path: "/app/.tmp/observer/requests.jsonl",
     }));
 
     const wrapper = mountView();
@@ -1525,8 +1528,11 @@ describe("admin SettingsView payment visible method controls", () => {
       .get('[data-testid="gateway-request-observer-api-key-ids"]')
       .setValue("11, 12");
     await card
-      .get('[data-testid="gateway-request-observer-account-ids"]')
-      .setValue("7\n8");
+      .get('[data-testid="gateway-request-observer-user-ids"]')
+      .setValue("27\n28");
+    await card
+      .get('[data-testid="gateway-request-observer-user-emails"]')
+      .setValue("1069167864@qq.com\nother@example.com");
     await card.get('[data-testid="gateway-request-observer-save"]').trigger("click");
     await flushPromises();
 
@@ -1534,10 +1540,11 @@ describe("admin SettingsView payment visible method controls", () => {
       enabled: true,
       api_key_ids: [11, 12],
       api_key_names: ["maibon-gpt", "secondary-key"],
-      account_ids: [7, 8],
+      user_ids: [27, 28],
+      user_emails: ["1069167864@qq.com", "other@example.com"],
     });
     expect(showSuccess).toHaveBeenCalledWith("请求观察器设置已保存");
-    expect(card.text()).toContain(".tmp/observer/requests.jsonl");
+    expect(card.text()).toContain("/app/.tmp/observer/requests.jsonl");
   });
 
   it("loads and saves configurable Grok cross-client model mapping", async () => {
