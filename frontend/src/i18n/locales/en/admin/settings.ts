@@ -214,6 +214,27 @@ export default {
         saved: 'Panel rate limit settings saved',
         saveFailed: 'Failed to save panel rate limit settings'
       },
+      gatewayRequestObserver: {
+        title: 'Request Observer',
+        description: 'Record gateway requests for selected API keys or upstream accounts to inspect probe formats and response status. Disabled by default.',
+        privacyNote: 'Matched requests append a redacted request body and response metadata to a server-side JSONL file. Routing, scheduling, billing, and usage records are unchanged.',
+        enabled: 'Enable request observer',
+        enabledHint: 'Only requests matching at least one target below are recorded; no targets means no requests are recorded.',
+        apiKeyNames: 'API key names',
+        apiKeyNamesPlaceholder: 'For example: maibon-gpt',
+        apiKeyNamesHint: 'Enter multiple names one per line or separated by commas.',
+        apiKeyIds: 'API key IDs',
+        apiKeyIdsHint: 'Enter internal API key IDs one per line or separated by commas.',
+        accountIds: 'Upstream account IDs',
+        accountIdsHint: 'Enter final selected upstream account IDs one per line or separated by commas.',
+        idsPlaceholder: 'For example: 123',
+        status: 'Status',
+        statusEnabled: 'Running',
+        statusDisabled: 'Stopped',
+        outputPath: 'Output file',
+        saved: 'Request observer settings saved',
+        saveFailed: 'Failed to save request observer settings'
+      },
       turnstile: {
         title: 'Cloudflare Turnstile',
         description: 'Bot protection for login and registration',

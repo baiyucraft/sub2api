@@ -50,6 +50,63 @@ func (h *SettingHandler) DeleteAdminAPIKey(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Admin API key deleted"})
 }
 
+// GetGatewayRequestObserverSettings 获取网关请求观察器配置。
+// GET /api/v1/admin/settings/request-observer
+func (h *SettingHandler) GetGatewayRequestObserverSettings(c *gin.Context) {
+	settings, err := h.settingService.GetGatewayRequestObserverSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.GatewayRequestObserverSettings{
+		Enabled:     settings.Enabled,
+		APIKeyIDs:   settings.APIKeyIDs,
+		APIKeyNames: settings.APIKeyNames,
+		AccountIDs:  settings.AccountIDs,
+	})
+}
+
+// UpdateGatewayRequestObserverSettingsRequest 更新网关请求观察器配置请求。
+type UpdateGatewayRequestObserverSettingsRequest struct {
+	Enabled     bool     `json:"enabled"`
+	APIKeyIDs   []int64  `json:"api_key_ids"`
+	APIKeyNames []string `json:"api_key_names"`
+	AccountIDs  []int64  `json:"account_ids"`
+}
+
+// UpdateGatewayRequestObserverSettings 更新网关请求观察器配置。
+// PUT /api/v1/admin/settings/request-observer
+func (h *SettingHandler) UpdateGatewayRequestObserverSettings(c *gin.Context) {
+	var req UpdateGatewayRequestObserverSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	settings := &service.GatewayRequestObserverSettings{
+		Enabled:     req.Enabled,
+		APIKeyIDs:   req.APIKeyIDs,
+		APIKeyNames: req.APIKeyNames,
+		AccountIDs:  req.AccountIDs,
+	}
+	if err := h.settingService.SetGatewayRequestObserverSettings(c.Request.Context(), settings); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	updated, err := h.settingService.GetGatewayRequestObserverSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.GatewayRequestObserverSettings{
+		Enabled:     updated.Enabled,
+		APIKeyIDs:   updated.APIKeyIDs,
+		APIKeyNames: updated.APIKeyNames,
+		AccountIDs:  updated.AccountIDs,
+	})
+}
+
 // GetOverloadCooldownSettings 获取529过载冷却配置
 // GET /api/v1/admin/settings/overload-cooldown
 func (h *SettingHandler) GetOverloadCooldownSettings(c *gin.Context) {
