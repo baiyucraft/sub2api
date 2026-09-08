@@ -3,7 +3,7 @@ set -Eeuo pipefail
 trap 'rc=$?; printf "vm_validate_failure_line=%s status=%s\\n" "$LINENO" "$rc"; exit "$rc"' ERR
 # Legacy Gate v1 profile allowlist; Gate v2 current profile is 248 and 242-247 remain historical.
 
-required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv rm sed seq sha256sum sleep sort ss stat tr xargs)
+required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv rm sed seq sha256sum sleep sort ss stat tar tr xargs)
 for command_name in "${required_commands[@]}"; do
   command -v "$command_name" >/dev/null 2>&1 || exit 127
 done
@@ -77,21 +77,8 @@ if [[ "$manifest_schema" == 2 ]]; then
   install -m 400 "$manifest" "$state_dir/manifest.json"
   manifest="$state_dir/manifest.json"
   printf '%s\n' preflight > "$state_dir/stage"
-  cd "$source_dir"
-  [[ -f .sub2api-deploy-worktree ]]
-  git fetch origin +main:refs/remotes/origin/main >/dev/null 2>&1
-  [[ $(git rev-parse origin/main) == "$commit" ]]
-  git reset --hard "$commit" >/dev/null
-  [[ $(git rev-parse HEAD) == "$commit" ]]
-  while IFS=$'\t' read -r relative expected; do
-    [[ -f "$source_dir/$relative" && ! -L "$source_dir/$relative" ]]
-    [[ $(sha256sum "$source_dir/$relative" | awk '{print $1}') == "$expected" ]]
-  done < <(jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
   old_image_id=$(jq -er '.production_current_image_id' "$manifest")
   [[ "$old_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
-  loaded_old_image=$(gzip -dc "$compatibility_path" | docker load | sed -n 's/^Loaded image ID: //p' | tail -n1)
-  [[ -z "$loaded_old_image" || "$loaded_old_image" == "$old_image_id" ]]
-  [[ $(docker image inspect -f '{{.Id}}' "$old_image_id") == "$old_image_id" ]]
   tag="sub2api:baiyu-$version-$commit"
   v2_stage=preflight
   mark_v2_stage() {
@@ -112,6 +99,23 @@ if [[ "$manifest_schema" == 2 ]]; then
     exit "$code"
   }
   trap on_v2_failure ERR INT TERM
+  cd "$source_dir"
+  [[ -f .sub2api-deploy-worktree ]]
+  git fetch origin +main:refs/remotes/origin/main >/dev/null 2>&1
+  [[ $(git rev-parse origin/main) == "$commit" ]]
+  git reset --hard "$commit" >/dev/null
+  [[ $(git rev-parse HEAD) == "$commit" ]]
+  # The manifest catalog is derived from Git blobs. Rehydrate migrations from
+  # the same commit so a stale CRLF working tree cannot change embedded checksums.
+  git clean -fdx -- backend/migrations >/dev/null
+  git archive --format=tar "$commit" -- backend/migrations | tar -xf - -C "$source_dir"
+  while IFS=$'\t' read -r relative expected; do
+    [[ -f "$source_dir/$relative" && ! -L "$source_dir/$relative" ]]
+    [[ $(sha256sum "$source_dir/$relative" | awk '{print $1}') == "$expected" ]]
+  done < <(jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
+  loaded_old_image=$(gzip -dc "$compatibility_path" | docker load | sed -n 's/^Loaded image ID: //p' | tail -n1)
+  [[ -z "$loaded_old_image" || "$loaded_old_image" == "$old_image_id" ]]
+  [[ $(docker image inspect -f '{{.Id}}' "$old_image_id") == "$old_image_id" ]]
   build_log="$state_dir/build.log"
   : > "$build_log"
   chmod 600 "$build_log"
