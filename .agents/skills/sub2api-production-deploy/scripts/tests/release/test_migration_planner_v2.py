@@ -30,6 +30,20 @@ class MigrationPlannerV2Test(unittest.TestCase):
         snapshot.update({item["filename"]: item["checksum"] for item in plan["pending"]})
         self.assertEqual(plan_migrations(catalog, snapshot)["pending"], [])
 
+    def test_vm_validator_rehydrates_migrations_from_the_target_commit(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        reset = validator.index('git reset --hard "$commit"')
+        clean = validator.index("git clean -fdx -- backend/migrations")
+        rehydrate = validator.index('git archive --format=tar "$commit" -- backend/migrations | tar -xf - -C "$source_dir"')
+        trap = validator.index("trap on_v2_failure ERR INT TERM")
+        build = validator.index("mark_v2_stage candidate_build")
+        self.assertLess(trap, reset)
+        self.assertLess(reset, rehydrate)
+        self.assertLess(clean, rehydrate)
+        self.assertLess(rehydrate, build)
+        required_commands = next(line for line in validator.splitlines() if line.startswith("required_commands="))
+        self.assertIn("tar", required_commands)
+
     def test_official_pre_renumbering_records_remain_unknown(self) -> None:
         catalog = discover_migration_catalog(WORKSPACE)
         for filename in (
