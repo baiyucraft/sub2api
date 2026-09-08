@@ -804,7 +804,7 @@ func (s *AccountTestService) runAnthropicUpstreamHealthProbe(ctx context.Context
 		req.Header.Set(key, value)
 	}
 	req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
-	setAnthropicAPIKeyAuthHeader(req.Header, account, apiKey)
+	setAnthropicAPIKeyAuthHeader(req.Header, account, apiKey, baseURL)
 	account.ApplyHeaderOverrides(req.Header)
 	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseAnthropicUpstreamHealthStream)
 }

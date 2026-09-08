@@ -16,9 +16,9 @@ from release.profiles import get_profile
 
 
 class MigrationPlannerV2Test(unittest.TestCase):
-    def test_profile_246_snapshot_only_plans_profile_247_migrations(self) -> None:
+    def test_profile_247_snapshot_only_plans_profile_248_migrations(self) -> None:
         catalog = discover_migration_catalog(WORKSPACE)
-        expected = get_profile("247")["new_migrations"]
+        expected = get_profile("248")["new_migrations"]
         snapshot = {item["filename"]: item["checksum"] for item in catalog if item["filename"] not in expected}
         plan = plan_migrations(catalog, snapshot)
         self.assertTrue(plan["existing_checksums_verified"])
@@ -49,11 +49,11 @@ class MigrationPlannerV2Test(unittest.TestCase):
             with self.subTest(script=hook["script"]):
                 script = (DEPLOY_ROOT / "maintenance" / "release" / hook["script"]).read_text(encoding="utf-8")
                 allowed = re.findall(r"\$profile == ([0-9]+)", script)
-                self.assertIn("247", allowed)
+                self.assertIn("248", allowed)
         script = (DEPLOY_ROOT / "maintenance" / "release" / "migration-195-assert.sh").read_text(encoding="utf-8")
         for line in script.splitlines():
             if "if [[ $release_profile == 240" in line:
-                self.assertIn("$release_profile == 247", line)
+                self.assertIn("$release_profile == 248", line)
 
     def test_empty_catalog_and_pending_are_valid(self) -> None:
         catalog = [{"filename": "001_first.sql", "checksum": "a" * 64, "non_transactional": False}]
