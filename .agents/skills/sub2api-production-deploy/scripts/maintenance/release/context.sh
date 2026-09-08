@@ -208,6 +208,7 @@ assert_sub2api_compose_closure() {
   [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$expected_image" ]]
   network_mode=$(sub2api_compose_network_mode "$compose_json" "$expected_port")
   assert_sub2api_healthcheck_contract "$compose_json" "$network_mode" "$expected_port"
+  assert_sub2api_observer_storage_contract "$compose_json"
   jq -e --arg instance "$expected_instance" '
     .services.sub2api.container_name == "sub2api" and
     (

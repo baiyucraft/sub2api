@@ -1405,7 +1405,8 @@ export interface GatewayRequestObserverSettings {
   enabled: boolean;
   api_key_ids: number[];
   api_key_names: string[];
-  account_ids: number[];
+  user_ids: number[];
+  user_emails: string[];
   output_path?: string;
 }
 

@@ -38,6 +38,8 @@ services:
     volumes:
       # Local directory mapping for easy migration
       - ./data:/app/data:Z
+      # Short-lived, opt-in request observer output.
+      - ./observer:/app/.tmp/maibon-probe-observation:Z
       # Optional: Mount custom config.yaml (uncomment and create the file first)
       # Copy config.example.yaml to config.yaml, modify it, then uncomment:
       # - ./config.yaml:/app/data/config.yaml

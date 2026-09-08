@@ -11,6 +11,7 @@
 # file that PID 1 cannot read. Resolve the actual PID 1 identity and publish
 # the marker atomically with matching ownership.
 RELEASE_ACTIVATION_MARKER_FAILURE_REASON=unknown
+observer_mount_target=/app/.tmp/maibon-probe-observation
 write_release_activation_marker() {
   local container=${1:?container is required}
   local instance_id=${2:?instance ID is required}
@@ -155,6 +156,21 @@ assert_sub2api_healthcheck_contract() {
   fi
 }
 
+assert_sub2api_observer_storage_contract() {
+  local compose_json=${1:?compose json is required}
+  jq -e --arg target "$observer_mount_target" '
+    [
+      (.services.sub2api.volumes // [])[] |
+      select(
+        .type == "volume" and
+        .source == "sub2api_observer" and
+        .target == $target and
+        (.read_only // false) == false
+      )
+    ] | length == 1
+  ' <<<"$compose_json" >/dev/null
+}
+
 assert_sub2api_runtime_contract() {
   local container=${1:?container is required}
   local expected_image=${2:?expected image is required}
@@ -212,7 +228,11 @@ assert_sub2api_runtime_contract() {
         (($container.NetworkSettings.Ports["8080/tcp"] // []) | length) == 1 and
         $container.NetworkSettings.Ports["8080/tcp"][0].HostIp == "127.0.0.1" and
         $container.NetworkSettings.Ports["8080/tcp"][0].HostPort == $host_port
-      end
+      end and
+      ([
+        ($container.Mounts // [])[] |
+        select(.Destination == "/app/.tmp/maibon-probe-observation" and .RW == true)
+      ] | length) == 1
     ' <<<"$inspect_json" >/dev/null
 }
 

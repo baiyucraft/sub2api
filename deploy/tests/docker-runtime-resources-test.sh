@@ -30,5 +30,9 @@ assert_line Dockerfile.goreleaser 'COPY --chown=sub2api:sub2api backend/resource
 assert_line deploy/Dockerfile 'COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources'
 assert_count .goreleaser.yaml '      - backend/resources' 4
 assert_count .goreleaser.simple.yaml '      - backend/resources' 1
+assert_line deploy/docker-compose.yml '      - sub2api_observer:/app/.tmp/maibon-probe-observation'
+assert_line deploy/docker-compose.standalone.yml '      - sub2api_observer:/app/.tmp/maibon-probe-observation'
+assert_line deploy/docker-compose.local.yml '      - ./observer:/app/.tmp/maibon-probe-observation:Z'
+assert_line deploy/docker-compose.dev.yml '      - ./observer:/app/.tmp/maibon-probe-observation:Z'
 
 printf 'docker runtime resources test passed\n'

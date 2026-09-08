@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	outputPath    = ".tmp/maibon-probe-observation/requests.jsonl"
+	outputPath    = service.GatewayRequestObserverOutputPath
 	maxBodyBytes  = 256 * 1024
 	queueCapacity = 256
 )
@@ -48,17 +48,19 @@ type Service struct {
 }
 
 type runtimeState struct {
-	generation  uint64
-	apiKeyIDs   map[int64]struct{}
-	apiKeyNames map[string]struct{}
-	accountIDs  map[int64]struct{}
-	queue       chan []byte
-	closed      bool
-	mu          sync.Mutex
-	wg          sync.WaitGroup
-	settings    Settings
-	outputPath  string
-	maxBody     int
+	generation       uint64
+	apiKeyIDs        map[int64]struct{}
+	apiKeyNames      map[string]struct{}
+	userIDs          map[int64]struct{}
+	userEmails       map[string]struct{}
+	legacyAccountIDs map[int64]struct{}
+	queue            chan []byte
+	closed           bool
+	mu               sync.Mutex
+	wg               sync.WaitGroup
+	settings         Settings
+	outputPath       string
+	maxBody          int
 }
 
 type observation struct {
@@ -114,7 +116,10 @@ func (s *Service) Middleware() gin.HandlerFunc {
 		}
 		apiKey, hasAPIKey := middleware.GetAPIKeyFromContext(c)
 		apiKeyMatched := hasAPIKey && matchesAPIKey(state, apiKey)
-		needsBodyCapture := apiKeyMatched || len(state.accountIDs) > 0
+		userID, userEmail := observedUser(c, apiKey)
+		userMatches := matchedUserSources(state, userID, userEmail)
+		userMatched := len(userMatches) > 0
+		needsBodyCapture := apiKeyMatched || userMatched || len(state.legacyAccountIDs) > 0
 		var bodyReader *observedBodyReader
 		if needsBodyCapture {
 			bodyReader = wrapObservedBody(c.Request, state.maxBody)
@@ -125,8 +130,8 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			return
 		}
 		accountID := observedAccountID(c)
-		accountMatched := accountID > 0 && matchesAccount(state, accountID)
-		if !apiKeyMatched && !accountMatched {
+		_, legacyAccountMatched := state.legacyAccountIDs[accountID]
+		if !apiKeyMatched && !userMatched && !legacyAccountMatched {
 			return
 		}
 		capturedBody, capturedBytes, truncated, bodyHash := "", 0, false, ""
@@ -139,8 +144,9 @@ func (s *Service) Middleware() gin.HandlerFunc {
 		if apiKeyMatched {
 			matchedBy = append(matchedBy, "api_key")
 		}
-		if accountMatched {
-			matchedBy = append(matchedBy, "account")
+		matchedBy = append(matchedBy, userMatches...)
+		if legacyAccountMatched {
+			matchedBy = append(matchedBy, "legacy_account_id")
 		}
 		entry := observation{
 			ObservedAt: startedAt.UTC(), RequestID: observedStringValue(c, ctxkey.RequestID),
@@ -154,8 +160,9 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			DurationMilliseconds: time.Since(startedAt).Milliseconds(),
 		}
 		if hasAPIKey && apiKey != nil {
-			entry.APIKeyID, entry.APIKeyName, entry.UserID = apiKey.ID, apiKey.Name, apiKey.UserID
+			entry.APIKeyID, entry.APIKeyName = apiKey.ID, apiKey.Name
 		}
+		entry.UserID = userID
 		state.enqueue(entry)
 	}
 }
@@ -183,7 +190,7 @@ func (s *Service) Current() Settings {
 	if state := s.current.Load(); state != nil {
 		return cloneSettings(state.settings)
 	}
-	return Settings{APIKeyIDs: []int64{}, APIKeyNames: []string{}, AccountIDs: []int64{}}
+	return Settings{APIKeyIDs: []int64{}, APIKeyNames: []string{}, UserIDs: []int64{}, UserEmails: []string{}}
 }
 
 func (s *Service) Settings(context.Context) (Settings, error) {
@@ -208,11 +215,13 @@ func (s *Service) Shutdown(ctx context.Context) error {
 func (s *Service) newRuntimeState(settings Settings, generation uint64) *runtimeState {
 	path, bodyLimit, queueLimit := s.runtimeDefaults()
 	state := &runtimeState{
-		generation:  generation,
-		apiKeyIDs:   make(map[int64]struct{}, len(settings.APIKeyIDs)),
-		apiKeyNames: make(map[string]struct{}, len(settings.APIKeyNames)),
-		accountIDs:  make(map[int64]struct{}, len(settings.AccountIDs)),
-		settings:    cloneSettings(settings), outputPath: path, maxBody: bodyLimit,
+		generation:       generation,
+		apiKeyIDs:        make(map[int64]struct{}, len(settings.APIKeyIDs)),
+		apiKeyNames:      make(map[string]struct{}, len(settings.APIKeyNames)),
+		userIDs:          make(map[int64]struct{}, len(settings.UserIDs)),
+		userEmails:       make(map[string]struct{}, len(settings.UserEmails)),
+		legacyAccountIDs: make(map[int64]struct{}, len(settings.LegacyAccountIDs)),
+		settings:         cloneSettings(settings), outputPath: path, maxBody: bodyLimit,
 	}
 	for _, id := range settings.APIKeyIDs {
 		state.apiKeyIDs[id] = struct{}{}
@@ -220,10 +229,16 @@ func (s *Service) newRuntimeState(settings Settings, generation uint64) *runtime
 	for _, name := range settings.APIKeyNames {
 		state.apiKeyNames[strings.ToLower(name)] = struct{}{}
 	}
-	for _, id := range settings.AccountIDs {
-		state.accountIDs[id] = struct{}{}
+	for _, id := range settings.UserIDs {
+		state.userIDs[id] = struct{}{}
 	}
-	if !settings.Enabled || len(state.apiKeyIDs) == 0 && len(state.apiKeyNames) == 0 && len(state.accountIDs) == 0 {
+	for _, email := range settings.UserEmails {
+		state.userEmails[strings.ToLower(email)] = struct{}{}
+	}
+	for _, id := range settings.LegacyAccountIDs {
+		state.legacyAccountIDs[id] = struct{}{}
+	}
+	if !settings.Enabled || len(state.apiKeyIDs) == 0 && len(state.apiKeyNames) == 0 && len(state.userIDs) == 0 && len(state.userEmails) == 0 && len(state.legacyAccountIDs) == 0 {
 		return state
 	}
 	state.queue = make(chan []byte, queueLimit)
@@ -315,12 +330,14 @@ func (s *runtimeState) writeLoop() {
 
 func normalizeSettings(settings *Settings) {
 	settings.APIKeyIDs = normalizeIDs(settings.APIKeyIDs)
-	settings.AccountIDs = normalizeIDs(settings.AccountIDs)
+	settings.UserIDs = normalizeIDs(settings.UserIDs)
+	settings.LegacyAccountIDs = normalizeIDs(settings.LegacyAccountIDs)
 	settings.APIKeyNames = normalizeNames(settings.APIKeyNames)
+	settings.UserEmails = normalizeEmails(settings.UserEmails)
 }
 
 func validateSettings(settings Settings) error {
-	if settings.Enabled && len(settings.APIKeyIDs) == 0 && len(settings.APIKeyNames) == 0 && len(settings.AccountIDs) == 0 {
+	if settings.Enabled && len(settings.APIKeyIDs) == 0 && len(settings.APIKeyNames) == 0 && len(settings.UserIDs) == 0 && len(settings.UserEmails) == 0 && len(settings.LegacyAccountIDs) == 0 {
 		return os.ErrInvalid
 	}
 	return nil
@@ -328,13 +345,13 @@ func validateSettings(settings Settings) error {
 
 func sameSettings(a, b Settings) bool {
 	return a.Enabled == b.Enabled && equalInt64s(a.APIKeyIDs, b.APIKeyIDs) &&
-		equalInt64s(a.AccountIDs, b.AccountIDs) && equalStrings(a.APIKeyNames, b.APIKeyNames)
+		equalInt64s(a.UserIDs, b.UserIDs) && equalInt64s(a.LegacyAccountIDs, b.LegacyAccountIDs) && equalStrings(a.APIKeyNames, b.APIKeyNames) && equalStrings(a.UserEmails, b.UserEmails)
 }
 
 func cloneSettings(in Settings) Settings {
 	return Settings{
 		Enabled: in.Enabled, APIKeyIDs: append([]int64(nil), in.APIKeyIDs...),
-		APIKeyNames: append([]string(nil), in.APIKeyNames...), AccountIDs: append([]int64(nil), in.AccountIDs...),
+		APIKeyNames: append([]string(nil), in.APIKeyNames...), UserIDs: append([]int64(nil), in.UserIDs...), UserEmails: append([]string(nil), in.UserEmails...), LegacyAccountIDs: append([]int64(nil), in.LegacyAccountIDs...),
 	}
 }
 
@@ -379,6 +396,23 @@ func normalizeNames(values []string) []string {
 	return result
 }
 
+func normalizeEmails(values []string) []string {
+	seen := map[string]struct{}{}
+	result := []string{}
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
 func equalInt64s(a, b []int64) bool {
 	if len(a) != len(b) {
 		return false
@@ -414,9 +448,35 @@ func matchesAPIKey(state *runtimeState, key *service.APIKey) bool {
 	return ok
 }
 
-func matchesAccount(state *runtimeState, accountID int64) bool {
-	_, ok := state.accountIDs[accountID]
-	return ok
+func matchedUserSources(state *runtimeState, userID int64, userEmail string) []string {
+	matchedBy := make([]string, 0, 2)
+	if userID > 0 {
+		if _, ok := state.userIDs[userID]; ok {
+			matchedBy = append(matchedBy, "user_id")
+		}
+	}
+	if _, ok := state.userEmails[strings.ToLower(strings.TrimSpace(userEmail))]; ok {
+		matchedBy = append(matchedBy, "user_email")
+	}
+	return matchedBy
+}
+
+func observedUser(c *gin.Context, apiKey *service.APIKey) (int64, string) {
+	var userID int64
+	var email string
+	if apiKey != nil {
+		userID, email = apiKey.UserID, ""
+		if apiKey.User != nil {
+			email = apiKey.User.Email
+			if apiKey.User.ID > 0 {
+				userID = apiKey.User.ID
+			}
+		}
+	}
+	if subject, ok := middleware.GetAuthSubjectFromContext(c); ok && subject.UserID > 0 {
+		userID = subject.UserID
+	}
+	return userID, email
 }
 
 func observedAccountID(c *gin.Context) int64 {

@@ -6,31 +6,40 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
 const (
-	gatewayRequestObserverMaxTargets = 100
-	gatewayRequestObserverMaxNameLen = 128
+	gatewayRequestObserverMaxTargets  = 100
+	gatewayRequestObserverMaxNameLen  = 128
+	gatewayRequestObserverMaxEmailLen = 320
+	// GatewayRequestObserverOutputPath is fixed server-side so short-lived
+	// request observations never depend on the process working directory.
+	GatewayRequestObserverOutputPath = "/app/.tmp/maibon-probe-observation/requests.jsonl"
 )
 
 // GatewayRequestObserverSettings is the persisted, admin-facing observer
 // configuration. It contains selectors only; output and capture limits remain
 // fixed server-side so the feature stays narrowly scoped.
 type GatewayRequestObserverSettings struct {
-	Enabled     bool     `json:"enabled"`
-	APIKeyIDs   []int64  `json:"api_key_ids"`
-	APIKeyNames []string `json:"api_key_names"`
-	AccountIDs  []int64  `json:"account_ids"`
+	Enabled          bool     `json:"enabled"`
+	APIKeyIDs        []int64  `json:"api_key_ids"`
+	APIKeyNames      []string `json:"api_key_names"`
+	UserIDs          []int64  `json:"user_ids"`
+	UserEmails       []string `json:"user_emails"`
+	LegacyAccountIDs []int64  `json:"-"`
 }
 
 func DefaultGatewayRequestObserverSettings() *GatewayRequestObserverSettings {
 	return &GatewayRequestObserverSettings{
-		APIKeyIDs:   []int64{},
-		APIKeyNames: []string{},
-		AccountIDs:  []int64{},
+		APIKeyIDs:        []int64{},
+		APIKeyNames:      []string{},
+		UserIDs:          []int64{},
+		UserEmails:       []string{},
+		LegacyAccountIDs: []int64{},
 	}
 }
 
@@ -39,8 +48,10 @@ func normalizeGatewayRequestObserverSettings(settings *GatewayRequestObserverSet
 		return
 	}
 	settings.APIKeyIDs = normalizePositiveIDs(settings.APIKeyIDs)
-	settings.AccountIDs = normalizePositiveIDs(settings.AccountIDs)
+	settings.UserIDs = normalizePositiveIDs(settings.UserIDs)
+	settings.LegacyAccountIDs = normalizePositiveIDs(settings.LegacyAccountIDs)
 	settings.APIKeyNames = normalizeObserverNames(settings.APIKeyNames)
+	settings.UserEmails = normalizeObserverEmails(settings.UserEmails)
 }
 
 func validateGatewayRequestObserverSettings(settings *GatewayRequestObserverSettings) error {
@@ -52,21 +63,37 @@ func validateGatewayRequestObserverSettings(settings *GatewayRequestObserverSett
 			return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_ID", "API key IDs must be positive")
 		}
 	}
-	for _, id := range settings.AccountIDs {
+	for _, id := range settings.UserIDs {
 		if id <= 0 {
-			return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_ID", "account IDs must be positive")
+			return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_ID", "user IDs must be positive")
+		}
+	}
+	for _, id := range settings.LegacyAccountIDs {
+		if id <= 0 {
+			return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_ID", "legacy account IDs must be positive")
+		}
+	}
+	for _, email := range settings.UserEmails {
+		if len(strings.TrimSpace(email)) > gatewayRequestObserverMaxEmailLen {
+			return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_EMAIL", fmt.Sprintf("user email must be at most %d characters", gatewayRequestObserverMaxEmailLen))
 		}
 	}
 	normalizeGatewayRequestObserverSettings(settings)
-	if len(settings.APIKeyIDs) > gatewayRequestObserverMaxTargets || len(settings.APIKeyNames) > gatewayRequestObserverMaxTargets || len(settings.AccountIDs) > gatewayRequestObserverMaxTargets {
+	if len(settings.APIKeyIDs) > gatewayRequestObserverMaxTargets || len(settings.APIKeyNames) > gatewayRequestObserverMaxTargets || len(settings.UserIDs) > gatewayRequestObserverMaxTargets || len(settings.UserEmails) > gatewayRequestObserverMaxTargets || len(settings.LegacyAccountIDs) > gatewayRequestObserverMaxTargets {
 		return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_TARGETS", fmt.Sprintf("each observer target list must contain at most %d entries", gatewayRequestObserverMaxTargets))
 	}
-	if settings.Enabled && len(settings.APIKeyIDs) == 0 && len(settings.APIKeyNames) == 0 && len(settings.AccountIDs) == 0 {
-		return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_TARGETS", "at least one API key or account target is required when observer is enabled")
+	if settings.Enabled && len(settings.APIKeyIDs) == 0 && len(settings.APIKeyNames) == 0 && len(settings.UserIDs) == 0 && len(settings.UserEmails) == 0 && len(settings.LegacyAccountIDs) == 0 {
+		return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_TARGETS", "at least one API key or user target is required when observer is enabled")
 	}
 	for _, name := range settings.APIKeyNames {
 		if len(name) > gatewayRequestObserverMaxNameLen {
 			return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_NAME", fmt.Sprintf("API key name must be at most %d characters", gatewayRequestObserverMaxNameLen))
+		}
+	}
+	for _, email := range settings.UserEmails {
+		parsed, err := mail.ParseAddress(email)
+		if err != nil || parsed.Address != email || !strings.Contains(email, "@") {
+			return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_EMAIL", "user emails must be valid email addresses")
 		}
 	}
 	return nil
@@ -87,14 +114,34 @@ func (s *SettingService) GetGatewayRequestObserverSettings(ctx context.Context) 
 	if strings.TrimSpace(raw) == "" {
 		return defaults, nil
 	}
-	settings := DefaultGatewayRequestObserverSettings()
-	if err := json.Unmarshal([]byte(raw), settings); err != nil {
+	settings, err := decodeGatewayRequestObserverSettings(raw)
+	if err != nil {
 		slog.Warn("invalid gateway request observer settings; using disabled defaults", "error", err)
 		return defaults, nil
 	}
+	return settings, nil
+}
+
+func decodeGatewayRequestObserverSettings(raw string) (*GatewayRequestObserverSettings, error) {
+	type persistedSettings struct {
+		Enabled     bool     `json:"enabled"`
+		APIKeyIDs   []int64  `json:"api_key_ids"`
+		APIKeyNames []string `json:"api_key_names"`
+		UserIDs     []int64  `json:"user_ids"`
+		UserEmails  []string `json:"user_emails"`
+		AccountIDs  []int64  `json:"account_ids"`
+	}
+
+	var persisted persistedSettings
+	if err := json.Unmarshal([]byte(raw), &persisted); err != nil {
+		return nil, err
+	}
+	settings := &GatewayRequestObserverSettings{
+		Enabled: persisted.Enabled, APIKeyIDs: persisted.APIKeyIDs, APIKeyNames: persisted.APIKeyNames,
+		UserIDs: persisted.UserIDs, UserEmails: persisted.UserEmails, LegacyAccountIDs: persisted.AccountIDs,
+	}
 	if err := validateGatewayRequestObserverSettings(settings); err != nil {
-		slog.Warn("invalid persisted gateway request observer settings; using disabled defaults", "error", err)
-		return defaults, nil
+		return nil, err
 	}
 	return settings, nil
 }
@@ -165,6 +212,26 @@ func normalizeObserverNames(values []string) []string {
 			continue
 		}
 		seen[key] = struct{}{}
+		result = append(result, value)
+	}
+	if result == nil {
+		return []string{}
+	}
+	return result
+}
+
+func normalizeObserverEmails(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
 		result = append(result, value)
 	}
 	if result == nil {

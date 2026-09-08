@@ -62,7 +62,9 @@ func (h *SettingHandler) GetGatewayRequestObserverSettings(c *gin.Context) {
 		Enabled:     settings.Enabled,
 		APIKeyIDs:   settings.APIKeyIDs,
 		APIKeyNames: settings.APIKeyNames,
-		AccountIDs:  settings.AccountIDs,
+		UserIDs:     settings.UserIDs,
+		UserEmails:  settings.UserEmails,
+		OutputPath:  service.GatewayRequestObserverOutputPath,
 	})
 }
 
@@ -71,7 +73,8 @@ type UpdateGatewayRequestObserverSettingsRequest struct {
 	Enabled     bool     `json:"enabled"`
 	APIKeyIDs   []int64  `json:"api_key_ids"`
 	APIKeyNames []string `json:"api_key_names"`
-	AccountIDs  []int64  `json:"account_ids"`
+	UserIDs     []int64  `json:"user_ids"`
+	UserEmails  []string `json:"user_emails"`
 }
 
 // UpdateGatewayRequestObserverSettings 更新网关请求观察器配置。
@@ -87,7 +90,8 @@ func (h *SettingHandler) UpdateGatewayRequestObserverSettings(c *gin.Context) {
 		Enabled:     req.Enabled,
 		APIKeyIDs:   req.APIKeyIDs,
 		APIKeyNames: req.APIKeyNames,
-		AccountIDs:  req.AccountIDs,
+		UserIDs:     req.UserIDs,
+		UserEmails:  req.UserEmails,
 	}
 	if err := h.settingService.SetGatewayRequestObserverSettings(c.Request.Context(), settings); err != nil {
 		response.ErrorFrom(c, err)
@@ -103,7 +107,9 @@ func (h *SettingHandler) UpdateGatewayRequestObserverSettings(c *gin.Context) {
 		Enabled:     updated.Enabled,
 		APIKeyIDs:   updated.APIKeyIDs,
 		APIKeyNames: updated.APIKeyNames,
-		AccountIDs:  updated.AccountIDs,
+		UserIDs:     updated.UserIDs,
+		UserEmails:  updated.UserEmails,
+		OutputPath:  service.GatewayRequestObserverOutputPath,
 	})
 }
 
