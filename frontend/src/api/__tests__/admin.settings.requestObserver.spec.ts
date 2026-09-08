@@ -25,8 +25,9 @@ describe("admin gateway request observer settings API", () => {
       enabled: true,
       api_key_ids: [11],
       api_key_names: ["maibon-gpt"],
-      account_ids: [7],
-      output_path: ".tmp/observer/requests.jsonl",
+      user_ids: [27],
+      user_emails: ["1069167864@qq.com"],
+      output_path: "/app/.tmp/observer/requests.jsonl",
     };
     get.mockResolvedValueOnce({ data: settings });
     put.mockResolvedValueOnce({ data: settings });

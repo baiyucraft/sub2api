@@ -30,6 +30,8 @@ services:
     volumes:
       # Data persistence (config.yaml will be auto-generated here)
       - sub2api_data:/app/data
+      # Short-lived, opt-in request observer output. Kept outside the data volume.
+      - sub2api_observer:/app/.tmp/maibon-probe-observation
       # Optional: Mount custom config.yaml (uncomment and create the file first)
       # Copy config.example.yaml to config.yaml, modify it, then uncomment:
       # - ./config.yaml:/app/data/config.yaml
@@ -317,6 +319,8 @@ services:
 # =============================================================================
 volumes:
   sub2api_data:
+    driver: local
+  sub2api_observer:
     driver: local
   postgres_data:
     driver: local

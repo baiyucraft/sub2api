@@ -33,6 +33,12 @@ services:
       SERVER_PORT: "${SERVER_PORT:-18080}"
     healthcheck:
       test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://127.0.0.1:${SERVER_PORT:-18080}/health"]
+    volumes:
+      - type: volume
+        source: sub2api_observer
+        target: /app/.tmp/maibon-probe-observation
+volumes:
+  sub2api_observer: {}
 EOF
   else
     cat > "$base" <<'EOF'
@@ -47,6 +53,12 @@ services:
       SERVER_PORT: "8080"
     healthcheck:
       test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
+    volumes:
+      - type: volume
+        source: sub2api_observer
+        target: /app/.tmp/maibon-probe-observation
+volumes:
+  sub2api_observer: {}
 EOF
   fi
   write_release_active_override "$override" "$image_id" "$instance_id" "$host_port" "$mode"
@@ -103,7 +115,8 @@ runtime_json() {
         Healthcheck: {Test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", $health]}
       },
       HostConfig: {NetworkMode: "host"},
-      NetworkSettings: {Ports: {}}
+      NetworkSettings: {Ports: {}},
+      Mounts: [{Destination: "/app/.tmp/maibon-probe-observation", RW: true}]
     }]'
   else
     jq -cn --arg image "$image_id" --arg port "$host_port" --arg health "$health_url" '[{
@@ -113,7 +126,8 @@ runtime_json() {
         Healthcheck: {Test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", $health]}
       },
       HostConfig: {NetworkMode: "sub2api-network"},
-      NetworkSettings: {Ports: {"8080/tcp": [{HostIp: "127.0.0.1", HostPort: $port}]}}
+      NetworkSettings: {Ports: {"8080/tcp": [{HostIp: "127.0.0.1", HostPort: $port}]}},
+      Mounts: [{Destination: "/app/.tmp/maibon-probe-observation", RW: true}]
     }]'
   fi
 }
@@ -161,11 +175,13 @@ for host_port in 18080 18081; do
   rendered_host=$(render_compose_contract host "$host_port")
   [[ $(sub2api_compose_network_mode "$rendered_host" "$host_port") == host ]]
   assert_sub2api_healthcheck_contract "$rendered_host" host "$host_port"
+  assert_sub2api_observer_storage_contract "$rendered_host"
   jq -e --arg instance "$instance_id" '.services.sub2api.environment.SUB2API_INSTANCE_ID == $instance' <<<"$rendered_host" >/dev/null
 
   rendered_bridge=$(render_compose_contract bridge "$host_port")
   [[ $(sub2api_compose_network_mode "$rendered_bridge" "$host_port") == bridge ]]
   assert_sub2api_healthcheck_contract "$rendered_bridge" bridge "$host_port"
+  assert_sub2api_observer_storage_contract "$rendered_bridge"
   jq -e --arg instance "$instance_id" '.services.sub2api.environment.SUB2API_INSTANCE_ID == $instance' <<<"$rendered_bridge" >/dev/null
 
   for invalid_health in \
