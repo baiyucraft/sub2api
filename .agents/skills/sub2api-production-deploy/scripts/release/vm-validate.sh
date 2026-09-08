@@ -228,6 +228,8 @@ SQL
   mark_v2_stage migration_plan_before
   plan_before=$(docker run --rm -v "$plan_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log" || true)
   printf '%s' "$plan_before" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
+  printf '%s' "$plan_before" > "$state_dir/plan-before.json"
+  chmod 400 "$state_dir/plan-before.json"
   [[ $(printf '%s' "$plan_before" | jq -r '.catalog_sha256') == $(jq -r '.catalog_sha256' "$manifest") ]]
   [[ $(printf '%s' "$plan_before" | jq -r '.checksum_policy_sha256') == $(jq -r '.checksum_policy_sha256' "$manifest") ]]
   set +e
@@ -237,9 +239,8 @@ SQL
   printf '%s\n' "$actual_plan_exit" > "$state_dir/plan-actual.exit"
   chmod 400 "$state_dir/plan-actual.exit"
   [[ "$actual_plan_exit" == 0 ]]
-  printf '%s' "$plan_before" > "$state_dir/plan-before.json"
   printf '%s' "$actual_plan" > "$state_dir/plan-actual.json"
-  chmod 400 "$state_dir/plan-before.json" "$state_dir/plan-actual.json"
+  chmod 400 "$state_dir/plan-actual.json"
   printf '%s' "$actual_plan" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
   plan_before_pending=$(printf '%s' "$plan_before" | jq -c '.pending | map({filename,checksum})')
   actual_plan_pending=$(printf '%s' "$actual_plan" | jq -c '.pending | map({filename,checksum})')
