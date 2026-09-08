@@ -106,6 +106,13 @@ type SettingRepository interface {
 	Delete(ctx context.Context, key string) error
 }
 
+// GatewayRequestObserverRuntime is the narrow runtime contract used by the
+// persisted settings service. The service layer does not import the observer
+// implementation, so the extension remains removable without gateway coupling.
+type GatewayRequestObserverRuntime interface {
+	Apply(context.Context, GatewayRequestObserverSettings) error
+}
+
 // DefaultSubscriptionGroupReader validates group references used by default subscriptions.
 type DefaultSubscriptionGroupReader interface {
 	GetByID(ctx context.Context, id int64) (*Group, error)
@@ -160,6 +167,27 @@ type SettingService struct {
 
 	channelMonitorRuntimeListenersMu sync.Mutex
 	channelMonitorRuntimeListeners   []func()
+
+	gatewayRequestObserverRuntimeMu sync.RWMutex
+	gatewayRequestObserverRuntime   GatewayRequestObserverRuntime
+}
+
+func (s *SettingService) SetGatewayRequestObserverRuntime(runtime GatewayRequestObserverRuntime) {
+	if s == nil {
+		return
+	}
+	s.gatewayRequestObserverRuntimeMu.Lock()
+	s.gatewayRequestObserverRuntime = runtime
+	s.gatewayRequestObserverRuntimeMu.Unlock()
+}
+
+func (s *SettingService) gatewayRequestObserverRuntimeSnapshot() GatewayRequestObserverRuntime {
+	if s == nil {
+		return nil
+	}
+	s.gatewayRequestObserverRuntimeMu.RLock()
+	defer s.gatewayRequestObserverRuntimeMu.RUnlock()
+	return s.gatewayRequestObserverRuntime
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）

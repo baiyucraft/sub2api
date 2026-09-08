@@ -510,6 +510,14 @@ type BetaPolicySettings struct {
 	Rules []BetaPolicyRule `json:"rules"`
 }
 
+// GatewayRequestObserverSettings 网关请求观察器配置 DTO。
+type GatewayRequestObserverSettings struct {
+	Enabled     bool     `json:"enabled"`
+	APIKeyIDs   []int64  `json:"api_key_ids"`
+	APIKeyNames []string `json:"api_key_names"`
+	AccountIDs  []int64  `json:"account_ids"`
+}
+
 // OpenAIFastPolicyRule OpenAI fast/flex 策略规则 DTO
 type OpenAIFastPolicyRule struct {
 	ServiceTier          string   `json:"service_tier"`

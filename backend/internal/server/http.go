@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/observer"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/websearch"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -22,6 +23,7 @@ import (
 
 // ProviderSet 提供服务器层的依赖
 var ProviderSet = wire.NewSet(
+	observer.ProviderSet,
 	ProvideRouter,
 	ProvideHTTPServer,
 )
@@ -41,6 +43,7 @@ func ProvideRouter(
 	opsService *service.OpsService,
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
+	requestObserver *observer.Service,
 	redisClient *redis.Client,
 ) *gin.Engine {
 	if cfg.Server.Mode == "release" {
@@ -87,7 +90,14 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	settingService.SetGatewayRequestObserverRuntime(requestObserver)
+	if settings, err := settingService.GetGatewayRequestObserverSettings(context.Background()); err != nil {
+		log.Printf("Warning: failed to load gateway request observer settings: %v", err)
+	} else if err := requestObserver.Apply(context.Background(), *settings); err != nil {
+		log.Printf("Warning: failed to apply gateway request observer settings: %v", err)
+	}
+
+	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, requestObserver)
 }
 
 func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {

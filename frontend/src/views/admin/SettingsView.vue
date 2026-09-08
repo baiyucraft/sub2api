@@ -203,6 +203,180 @@
 
         <!-- Tab: Gateway -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
+          <!-- Gateway Request Observer Settings -->
+          <div class="card" data-testid="gateway-request-observer-settings">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.gatewayRequestObserver.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.gatewayRequestObserver.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="gatewayRequestObserverLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div
+                  class="rounded-lg border border-sky-200 bg-sky-50 p-4 dark:border-sky-800 dark:bg-sky-900/20"
+                >
+                  <div class="flex items-start">
+                    <Icon
+                      name="infoCircle"
+                      size="md"
+                      class="mt-0.5 flex-shrink-0 text-sky-500"
+                    />
+                    <p class="ml-3 text-sm text-sky-700 dark:text-sky-300">
+                      {{ t("admin.settings.gatewayRequestObserver.privacyNote") }}
+                    </p>
+                  </div>
+                </div>
+
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">
+                      {{ t("admin.settings.gatewayRequestObserver.enabled") }}
+                    </label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRequestObserver.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle
+                    v-model="gatewayRequestObserverForm.enabled"
+                    data-testid="gateway-request-observer-enabled"
+                  />
+                </div>
+
+                <div
+                  class="grid grid-cols-1 gap-5 border-t border-gray-100 pt-5 dark:border-dark-700 md:grid-cols-3"
+                >
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      for="gateway-request-observer-api-key-names"
+                    >
+                      {{ t("admin.settings.gatewayRequestObserver.apiKeyNames") }}
+                    </label>
+                    <textarea
+                      id="gateway-request-observer-api-key-names"
+                      v-model="gatewayRequestObserverApiKeyNamesInput"
+                      data-testid="gateway-request-observer-api-key-names"
+                      rows="3"
+                      class="input min-h-24 resize-y font-mono text-sm"
+                      :placeholder="t('admin.settings.gatewayRequestObserver.apiKeyNamesPlaceholder')"
+                    ></textarea>
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRequestObserver.apiKeyNamesHint") }}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      for="gateway-request-observer-api-key-ids"
+                    >
+                      {{ t("admin.settings.gatewayRequestObserver.apiKeyIds") }}
+                    </label>
+                    <textarea
+                      id="gateway-request-observer-api-key-ids"
+                      v-model="gatewayRequestObserverApiKeyIdsInput"
+                      data-testid="gateway-request-observer-api-key-ids"
+                      rows="3"
+                      inputmode="numeric"
+                      class="input min-h-24 resize-y font-mono text-sm"
+                      :placeholder="t('admin.settings.gatewayRequestObserver.idsPlaceholder')"
+                    ></textarea>
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRequestObserver.apiKeyIdsHint") }}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      for="gateway-request-observer-account-ids"
+                    >
+                      {{ t("admin.settings.gatewayRequestObserver.accountIds") }}
+                    </label>
+                    <textarea
+                      id="gateway-request-observer-account-ids"
+                      v-model="gatewayRequestObserverAccountIdsInput"
+                      data-testid="gateway-request-observer-account-ids"
+                      rows="3"
+                      inputmode="numeric"
+                      class="input min-h-24 resize-y font-mono text-sm"
+                      :placeholder="t('admin.settings.gatewayRequestObserver.idsPlaceholder')"
+                    ></textarea>
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRequestObserver.accountIdsHint") }}
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4 text-xs dark:border-dark-700"
+                >
+                  <div class="space-y-1 text-gray-500 dark:text-gray-400">
+                    <p>
+                      {{ t("admin.settings.gatewayRequestObserver.status") }}:
+                      <span
+                        class="font-medium"
+                        :class="gatewayRequestObserverForm.enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-600 dark:text-gray-300'"
+                      >
+                        {{ gatewayRequestObserverForm.enabled
+                          ? t("admin.settings.gatewayRequestObserver.statusEnabled")
+                          : t("admin.settings.gatewayRequestObserver.statusDisabled") }}
+                      </span>
+                    </p>
+                    <p>
+                      {{ t("admin.settings.gatewayRequestObserver.outputPath") }}:
+                      <code class="font-mono">{{ gatewayRequestObserverOutputPath }}</code>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="gateway-request-observer-save"
+                    @click="saveGatewayRequestObserverSettings"
+                    :disabled="gatewayRequestObserverSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="gatewayRequestObserverSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{ gatewayRequestObserverSaving ? t("common.saving") : t("common.save") }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- OpenAI TTFT Guard Settings -->
           <!-- TTFT Guard is configured in 上游管理; the legacy card remains only as a compatibility stub. -->
           <div v-if="false" class="card" data-testid="openai-ttft-guard-settings">
@@ -9089,6 +9263,7 @@ import type {
   WebSearchEmulationConfig,
   WebSearchProviderConfig,
   WebSearchTestResult,
+  GatewayRequestObserverSettings,
 } from "@/api/admin/settings";
 import type {
   AdminGroup,
@@ -9277,6 +9452,22 @@ const upstreamBillingProbeForm = reactive({
   enabled: true,
   interval_minutes: 30,
 });
+
+// Gateway request observer state is kept separate from the bulk system settings form.
+const gatewayRequestObserverLoading = ref(true);
+const gatewayRequestObserverSaving = ref(false);
+const gatewayRequestObserverOutputPath = ref(
+  ".tmp/maibon-probe-observation/requests.jsonl",
+);
+const gatewayRequestObserverForm = reactive<GatewayRequestObserverSettings>({
+  enabled: false,
+  api_key_ids: [],
+  api_key_names: [],
+  account_ids: [],
+});
+const gatewayRequestObserverApiKeyNamesInput = ref("");
+const gatewayRequestObserverApiKeyIdsInput = ref("");
+const gatewayRequestObserverAccountIdsInput = ref("");
 
 // OpenAI TTFT Guard 状态
 const openaiTTFTGuardLoading = ref(true);
@@ -12173,6 +12364,129 @@ async function loadUpstreamBillingProbeSettings() {
   }
 }
 
+function parseGatewayRequestObserverNames(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,，;\r\n]+/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function parseGatewayRequestObserverIDs(value: string): number[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,，;\r\n]+/)
+        .map((item) => Number(item.trim()))
+        .filter((item) => Number.isSafeInteger(item) && item > 0),
+    ),
+  );
+}
+
+function formatGatewayRequestObserverNames(value: unknown): string {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .join("\n")
+    : "";
+}
+
+function formatGatewayRequestObserverIDs(value: unknown): string {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is number => typeof item === "number")
+        .join("\n")
+    : "";
+}
+
+async function loadGatewayRequestObserverSettings() {
+  gatewayRequestObserverLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getGatewayRequestObserverSettings();
+    Object.assign(gatewayRequestObserverForm, {
+      enabled: settings.enabled === true,
+      api_key_ids: Array.isArray(settings.api_key_ids) ? settings.api_key_ids : [],
+      api_key_names: Array.isArray(settings.api_key_names)
+        ? settings.api_key_names
+        : [],
+      account_ids: Array.isArray(settings.account_ids) ? settings.account_ids : [],
+    });
+    gatewayRequestObserverApiKeyNamesInput.value = formatGatewayRequestObserverNames(
+      gatewayRequestObserverForm.api_key_names,
+    );
+    gatewayRequestObserverApiKeyIdsInput.value = formatGatewayRequestObserverIDs(
+      gatewayRequestObserverForm.api_key_ids,
+    );
+    gatewayRequestObserverAccountIdsInput.value = formatGatewayRequestObserverIDs(
+      gatewayRequestObserverForm.account_ids,
+    );
+    if (typeof settings.output_path === "string" && settings.output_path.trim()) {
+      gatewayRequestObserverOutputPath.value = settings.output_path;
+    }
+  } catch (_error: unknown) {
+    // Keep the fail-safe disabled defaults when this optional setting cannot be loaded.
+  } finally {
+    gatewayRequestObserverLoading.value = false;
+  }
+}
+
+async function saveGatewayRequestObserverSettings() {
+  gatewayRequestObserverSaving.value = true;
+  try {
+    const payload: GatewayRequestObserverSettings = {
+      enabled: gatewayRequestObserverForm.enabled,
+      api_key_ids: parseGatewayRequestObserverIDs(
+        gatewayRequestObserverApiKeyIdsInput.value,
+      ),
+      api_key_names: parseGatewayRequestObserverNames(
+        gatewayRequestObserverApiKeyNamesInput.value,
+      ),
+      account_ids: parseGatewayRequestObserverIDs(
+        gatewayRequestObserverAccountIdsInput.value,
+      ),
+    };
+    const updated =
+      await adminAPI.settings.updateGatewayRequestObserverSettings(payload);
+    Object.assign(gatewayRequestObserverForm, {
+      enabled: updated.enabled === true,
+      api_key_ids: Array.isArray(updated.api_key_ids)
+        ? updated.api_key_ids
+        : payload.api_key_ids,
+      api_key_names: Array.isArray(updated.api_key_names)
+        ? updated.api_key_names
+        : payload.api_key_names,
+      account_ids: Array.isArray(updated.account_ids)
+        ? updated.account_ids
+        : payload.account_ids,
+    });
+    gatewayRequestObserverApiKeyNamesInput.value = formatGatewayRequestObserverNames(
+      gatewayRequestObserverForm.api_key_names,
+    );
+    gatewayRequestObserverApiKeyIdsInput.value = formatGatewayRequestObserverIDs(
+      gatewayRequestObserverForm.api_key_ids,
+    );
+    gatewayRequestObserverAccountIdsInput.value = formatGatewayRequestObserverIDs(
+      gatewayRequestObserverForm.account_ids,
+    );
+    if (typeof updated.output_path === "string" && updated.output_path.trim()) {
+      gatewayRequestObserverOutputPath.value = updated.output_path;
+    }
+    appStore.showSuccess(t("admin.settings.gatewayRequestObserver.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.gatewayRequestObserver.saveFailed"),
+      ),
+    );
+  } finally {
+    gatewayRequestObserverSaving.value = false;
+  }
+}
+
 async function saveUpstreamBillingProbeSettings() {
   upstreamBillingProbeSaving.value = true;
   try {
@@ -12999,6 +13313,7 @@ onMounted(() => {
   loadSettings();
   loadSubscriptionGroups();
   loadAdminApiKey();
+  loadGatewayRequestObserverSettings();
   loadUpstreamBillingProbeSettings();
   loadOllamaCloudUsageSettings();
   loadOverloadCooldownSettings();

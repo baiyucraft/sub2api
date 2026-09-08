@@ -1399,6 +1399,33 @@ export interface PanelRateLimitSettings {
   public_ip_rpm: number;
 }
 
+// ==================== Gateway Request Observer Settings ====================
+
+export interface GatewayRequestObserverSettings {
+  enabled: boolean;
+  api_key_ids: number[];
+  api_key_names: string[];
+  account_ids: number[];
+  output_path?: string;
+}
+
+export async function getGatewayRequestObserverSettings(): Promise<GatewayRequestObserverSettings> {
+  const { data } = await apiClient.get<GatewayRequestObserverSettings>(
+    "/admin/settings/request-observer",
+  );
+  return data;
+}
+
+export async function updateGatewayRequestObserverSettings(
+  settings: GatewayRequestObserverSettings,
+): Promise<GatewayRequestObserverSettings> {
+  const { data } = await apiClient.put<GatewayRequestObserverSettings>(
+    "/admin/settings/request-observer",
+    settings,
+  );
+  return data;
+}
+
 export async function getPanelRateLimitSettings(): Promise<PanelRateLimitSettings> {
   const { data } = await apiClient.get<PanelRateLimitSettings>(
     "/admin/settings/panel-rate-limit",
@@ -1647,6 +1674,8 @@ export const settingsAPI = {
   updateRateLimit429CooldownSettings,
   getPanelRateLimitSettings,
   updatePanelRateLimitSettings,
+  getGatewayRequestObserverSettings,
+  updateGatewayRequestObserverSettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
   getRectifierSettings,

@@ -214,6 +214,27 @@ export default {
         saved: '面板接口限流配置已保存',
         saveFailed: '保存面板接口限流配置失败'
       },
+      gatewayRequestObserver: {
+        title: '请求观察器',
+        description: '仅按指定 API Key 或上游账号记录网关请求，便于短期排查探针请求格式和响应状态。默认关闭。',
+        privacyNote: '启用后会将命中请求的脱敏请求体和响应元数据追加到服务端 JSONL 文件；不会短路请求、修改调度或写入用量记录。',
+        enabled: '启用请求观察器',
+        enabledHint: '只记录下方任一目标命中的请求；未配置目标时不会记录任何请求。',
+        apiKeyNames: 'API Key 名称',
+        apiKeyNamesPlaceholder: '例如：maibon-gpt',
+        apiKeyNamesHint: '支持多个名称，每行或用逗号分隔。',
+        apiKeyIds: 'API Key ID',
+        apiKeyIdsHint: '填写内部 API Key ID，每行或用逗号分隔。',
+        accountIds: '上游账号 ID',
+        accountIdsHint: '填写最终选中的上游账号 ID，每行或用逗号分隔。',
+        idsPlaceholder: '例如：123',
+        status: '状态',
+        statusEnabled: '运行中',
+        statusDisabled: '已停用',
+        outputPath: '输出文件',
+        saved: '请求观察器设置已保存',
+        saveFailed: '保存请求观察器设置失败'
+      },
       turnstile: {
         title: 'Cloudflare Turnstile',
         description: '登录和注册的机器人防护',
