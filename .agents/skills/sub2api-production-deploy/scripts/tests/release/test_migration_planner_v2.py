@@ -44,6 +44,16 @@ class MigrationPlannerV2Test(unittest.TestCase):
         required_commands = next(line for line in validator.splitlines() if line.startswith("required_commands="))
         self.assertIn("tar", required_commands)
 
+    def test_vm_validator_persists_snapshot_plan_before_digest_checks(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        valid_plan = validator.index('type == "object" and (.pending|type)=="array"')
+        persist = validator.index('printf \'%s\' "$plan_before" > "$state_dir/plan-before.json"')
+        protect = validator.index('chmod 400 "$state_dir/plan-before.json"')
+        catalog = validator.index("jq -r '.catalog_sha256'")
+        self.assertLess(valid_plan, persist)
+        self.assertLess(persist, protect)
+        self.assertLess(protect, catalog)
+
     def test_official_pre_renumbering_records_remain_unknown(self) -> None:
         catalog = discover_migration_catalog(WORKSPACE)
         for filename in (
