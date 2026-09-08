@@ -21,6 +21,8 @@ const {
   updateRateLimit429CooldownSettings,
   getPanelRateLimitSettings,
   updatePanelRateLimitSettings,
+  getGatewayRequestObserverSettings,
+  updateGatewayRequestObserverSettings,
   getStreamTimeoutSettings,
   getRectifierSettings,
   getBetaPolicySettings,
@@ -57,6 +59,14 @@ const {
     public_ip_rpm: 300,
   }),
   updatePanelRateLimitSettings: vi.fn().mockImplementation(async (payload) => payload),
+  getGatewayRequestObserverSettings: vi.fn().mockResolvedValue({
+    enabled: false,
+    api_key_ids: [],
+    api_key_names: [],
+    account_ids: [],
+    output_path: ".tmp/maibon-probe-observation/requests.jsonl",
+  }),
+  updateGatewayRequestObserverSettings: vi.fn().mockImplementation(async (payload) => payload),
   getStreamTimeoutSettings: vi.fn(),
   getRectifierSettings: vi.fn(),
   getBetaPolicySettings: vi.fn(),
@@ -100,6 +110,8 @@ vi.mock("@/api", () => ({
       updateRateLimit429CooldownSettings,
       getPanelRateLimitSettings,
       updatePanelRateLimitSettings,
+      getGatewayRequestObserverSettings,
+      updateGatewayRequestObserverSettings,
       getStreamTimeoutSettings,
       getRectifierSettings,
       getBetaPolicySettings,
@@ -235,6 +247,25 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.upstreamBillingProbe.intervalHint": "范围 5–1440 分钟。",
     "admin.settings.upstreamBillingProbe.saved": "上游倍率自动探测设置已保存",
     "admin.settings.upstreamBillingProbe.saveFailed": "保存上游倍率自动探测设置失败",
+    "admin.settings.gatewayRequestObserver.title": "请求观察器",
+    "admin.settings.gatewayRequestObserver.description": "按指定目标记录网关请求。",
+    "admin.settings.gatewayRequestObserver.privacyNote": "仅记录脱敏请求。",
+    "admin.settings.gatewayRequestObserver.enabled": "启用请求观察器",
+    "admin.settings.gatewayRequestObserver.enabledHint": "只记录命中目标的请求。",
+    "admin.settings.gatewayRequestObserver.apiKeyNames": "API Key 名称",
+    "admin.settings.gatewayRequestObserver.apiKeyNamesPlaceholder": "例如：maibon-gpt",
+    "admin.settings.gatewayRequestObserver.apiKeyNamesHint": "每行一个。",
+    "admin.settings.gatewayRequestObserver.apiKeyIds": "API Key ID",
+    "admin.settings.gatewayRequestObserver.apiKeyIdsHint": "每行一个。",
+    "admin.settings.gatewayRequestObserver.accountIds": "上游账号 ID",
+    "admin.settings.gatewayRequestObserver.accountIdsHint": "每行一个。",
+    "admin.settings.gatewayRequestObserver.idsPlaceholder": "例如：123",
+    "admin.settings.gatewayRequestObserver.status": "状态",
+    "admin.settings.gatewayRequestObserver.statusEnabled": "运行中",
+    "admin.settings.gatewayRequestObserver.statusDisabled": "已停用",
+    "admin.settings.gatewayRequestObserver.outputPath": "输出文件",
+    "admin.settings.gatewayRequestObserver.saved": "请求观察器设置已保存",
+    "admin.settings.gatewayRequestObserver.saveFailed": "保存请求观察器设置失败",
     "admin.settings.openaiFastPolicy.summaryTargetModels": "目标模型",
     "admin.settings.openaiFastPolicy.summaryAllModels": "全部模型",
     "admin.settings.openaiFastPolicy.summaryOtherModels": "其他模型",
@@ -653,6 +684,8 @@ describe("admin SettingsView payment visible method controls", () => {
     getOverloadCooldownSettings.mockReset();
     getRateLimit429CooldownSettings.mockReset();
     updateRateLimit429CooldownSettings.mockReset();
+    getGatewayRequestObserverSettings.mockReset();
+    updateGatewayRequestObserverSettings.mockReset();
     getStreamTimeoutSettings.mockReset();
     getRectifierSettings.mockReset();
     getBetaPolicySettings.mockReset();
@@ -698,6 +731,14 @@ describe("admin SettingsView payment visible method controls", () => {
       cooldown_seconds: 5,
     });
     updateRateLimit429CooldownSettings.mockImplementation(async (payload) => payload);
+    getGatewayRequestObserverSettings.mockResolvedValue({
+      enabled: false,
+      api_key_ids: [],
+      api_key_names: [],
+      account_ids: [],
+      output_path: ".tmp/maibon-probe-observation/requests.jsonl",
+    });
+    updateGatewayRequestObserverSettings.mockImplementation(async (payload) => payload);
     getStreamTimeoutSettings.mockResolvedValue({
       enabled: true,
       action: "temp_unsched",
@@ -1442,6 +1483,61 @@ describe("admin SettingsView payment visible method controls", () => {
       interval_minutes: 60,
     });
     expect(showSuccess).toHaveBeenCalledWith("上游倍率自动探测设置已保存");
+  });
+
+  it("loads and saves gateway request observer targets independently", async () => {
+    getGatewayRequestObserverSettings.mockResolvedValueOnce({
+      enabled: true,
+      api_key_ids: [11],
+      api_key_names: ["maibon-gpt"],
+      account_ids: [7],
+      output_path: ".tmp/observer/requests.jsonl",
+    });
+    updateGatewayRequestObserverSettings.mockImplementationOnce(async (payload) => ({
+      ...payload,
+      output_path: ".tmp/observer/requests.jsonl",
+    }));
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const card = wrapper.get('[data-testid="gateway-request-observer-settings"]');
+    expect(card.text()).toContain("请求观察器");
+    expect(
+      (card.get('[data-testid="gateway-request-observer-enabled"]').element as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(
+      (card.get('[data-testid="gateway-request-observer-api-key-names"]').element as HTMLTextAreaElement)
+        .value,
+    ).toBe("maibon-gpt");
+    expect(
+      (card.get('[data-testid="gateway-request-observer-api-key-ids"]').element as HTMLTextAreaElement)
+        .value,
+    ).toBe("11");
+
+    await card
+      .get('[data-testid="gateway-request-observer-api-key-names"]')
+      .setValue("maibon-gpt\nsecondary-key");
+    await card
+      .get('[data-testid="gateway-request-observer-api-key-ids"]')
+      .setValue("11, 12");
+    await card
+      .get('[data-testid="gateway-request-observer-account-ids"]')
+      .setValue("7\n8");
+    await card.get('[data-testid="gateway-request-observer-save"]').trigger("click");
+    await flushPromises();
+
+    expect(updateGatewayRequestObserverSettings).toHaveBeenCalledWith({
+      enabled: true,
+      api_key_ids: [11, 12],
+      api_key_names: ["maibon-gpt", "secondary-key"],
+      account_ids: [7, 8],
+    });
+    expect(showSuccess).toHaveBeenCalledWith("请求观察器设置已保存");
+    expect(card.text()).toContain(".tmp/observer/requests.jsonl");
   });
 
   it("loads and saves configurable Grok cross-client model mapping", async () => {
