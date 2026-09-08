@@ -25,21 +25,19 @@ const (
 // configuration. It contains selectors only; output and capture limits remain
 // fixed server-side so the feature stays narrowly scoped.
 type GatewayRequestObserverSettings struct {
-	Enabled          bool     `json:"enabled"`
-	APIKeyIDs        []int64  `json:"api_key_ids"`
-	APIKeyNames      []string `json:"api_key_names"`
-	UserIDs          []int64  `json:"user_ids"`
-	UserEmails       []string `json:"user_emails"`
-	LegacyAccountIDs []int64  `json:"-"`
+	Enabled     bool     `json:"enabled"`
+	APIKeyIDs   []int64  `json:"api_key_ids"`
+	APIKeyNames []string `json:"api_key_names"`
+	UserIDs     []int64  `json:"user_ids"`
+	UserEmails  []string `json:"user_emails"`
 }
 
 func DefaultGatewayRequestObserverSettings() *GatewayRequestObserverSettings {
 	return &GatewayRequestObserverSettings{
-		APIKeyIDs:        []int64{},
-		APIKeyNames:      []string{},
-		UserIDs:          []int64{},
-		UserEmails:       []string{},
-		LegacyAccountIDs: []int64{},
+		APIKeyIDs:   []int64{},
+		APIKeyNames: []string{},
+		UserIDs:     []int64{},
+		UserEmails:  []string{},
 	}
 }
 
@@ -49,7 +47,6 @@ func normalizeGatewayRequestObserverSettings(settings *GatewayRequestObserverSet
 	}
 	settings.APIKeyIDs = normalizePositiveIDs(settings.APIKeyIDs)
 	settings.UserIDs = normalizePositiveIDs(settings.UserIDs)
-	settings.LegacyAccountIDs = normalizePositiveIDs(settings.LegacyAccountIDs)
 	settings.APIKeyNames = normalizeObserverNames(settings.APIKeyNames)
 	settings.UserEmails = normalizeObserverEmails(settings.UserEmails)
 }
@@ -68,21 +65,16 @@ func validateGatewayRequestObserverSettings(settings *GatewayRequestObserverSett
 			return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_ID", "user IDs must be positive")
 		}
 	}
-	for _, id := range settings.LegacyAccountIDs {
-		if id <= 0 {
-			return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_ID", "legacy account IDs must be positive")
-		}
-	}
 	for _, email := range settings.UserEmails {
 		if len(strings.TrimSpace(email)) > gatewayRequestObserverMaxEmailLen {
 			return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_EMAIL", fmt.Sprintf("user email must be at most %d characters", gatewayRequestObserverMaxEmailLen))
 		}
 	}
 	normalizeGatewayRequestObserverSettings(settings)
-	if len(settings.APIKeyIDs) > gatewayRequestObserverMaxTargets || len(settings.APIKeyNames) > gatewayRequestObserverMaxTargets || len(settings.UserIDs) > gatewayRequestObserverMaxTargets || len(settings.UserEmails) > gatewayRequestObserverMaxTargets || len(settings.LegacyAccountIDs) > gatewayRequestObserverMaxTargets {
+	if len(settings.APIKeyIDs) > gatewayRequestObserverMaxTargets || len(settings.APIKeyNames) > gatewayRequestObserverMaxTargets || len(settings.UserIDs) > gatewayRequestObserverMaxTargets || len(settings.UserEmails) > gatewayRequestObserverMaxTargets {
 		return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_TARGETS", fmt.Sprintf("each observer target list must contain at most %d entries", gatewayRequestObserverMaxTargets))
 	}
-	if settings.Enabled && len(settings.APIKeyIDs) == 0 && len(settings.APIKeyNames) == 0 && len(settings.UserIDs) == 0 && len(settings.UserEmails) == 0 && len(settings.LegacyAccountIDs) == 0 {
+	if settings.Enabled && len(settings.APIKeyIDs) == 0 && len(settings.APIKeyNames) == 0 && len(settings.UserIDs) == 0 && len(settings.UserEmails) == 0 {
 		return infraerrors.BadRequest("INVALID_GATEWAY_REQUEST_OBSERVER_TARGETS", "at least one API key or user target is required when observer is enabled")
 	}
 	for _, name := range settings.APIKeyNames {
@@ -138,7 +130,7 @@ func decodeGatewayRequestObserverSettings(raw string) (*GatewayRequestObserverSe
 	}
 	settings := &GatewayRequestObserverSettings{
 		Enabled: persisted.Enabled, APIKeyIDs: persisted.APIKeyIDs, APIKeyNames: persisted.APIKeyNames,
-		UserIDs: persisted.UserIDs, UserEmails: persisted.UserEmails, LegacyAccountIDs: persisted.AccountIDs,
+		UserIDs: persisted.UserIDs, UserEmails: persisted.UserEmails,
 	}
 	if err := validateGatewayRequestObserverSettings(settings); err != nil {
 		return nil, err
