@@ -1639,6 +1639,15 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("candidate_pending_checksums", preflight)
         self.assertIn('2> "$candidate_plan_stderr"', preflight)
         self.assertIn("candidate_plan_stderr=$(mktemp", preflight)
+        self.assertIn("if [[ $code -eq 0 ]]; then", preflight)
+        self.assertLess(
+            preflight.index('[[ -z $candidate_plan_tmp ]] || rm -f -- "$candidate_plan_tmp"'),
+            preflight.index('rm -f "$preflight_failure_file"'),
+        )
+        self.assertLess(
+            preflight.index('[[ -z $candidate_override_tmp ]] || rm -f -- "$candidate_override_tmp"', preflight.index("else\n")),
+            preflight.index('local failure_tmp="$preflight_failure_file.tmp.$$"'),
+        )
         self.assertIn('"candidate_pending_names"', production)
         self.assertIn("candidate pending migration checksums differ from signed Gate", production)
 

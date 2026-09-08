@@ -13,12 +13,15 @@ candidate_plan_stderr=
 record_preflight_result() {
   local code=$?
   trap - ERR EXIT
-  [[ -z $candidate_plan_tmp ]] || rm -f -- "$candidate_plan_tmp"
-  [[ -z $candidate_override_tmp ]] || rm -f -- "$candidate_override_tmp"
-  [[ -z $candidate_plan_stderr ]] || rm -f -- "$candidate_plan_stderr"
   if [[ $code -eq 0 ]]; then
+    [[ -z $candidate_plan_tmp ]] || rm -f -- "$candidate_plan_tmp"
+    [[ -z $candidate_override_tmp ]] || rm -f -- "$candidate_override_tmp"
+    [[ -z $candidate_plan_stderr ]] || rm -f -- "$candidate_plan_stderr"
     rm -f "$preflight_failure_file"
   else
+    # Keep root-only planner output for post-recovery diagnosis; it contains
+    # only migration-plan JSON and Compose stderr, not production credentials.
+    [[ -z $candidate_override_tmp ]] || rm -f -- "$candidate_override_tmp"
     local failure_tmp="$preflight_failure_file.tmp.$$"
     printf 'preflight_failure_phase=%s\npreflight_failure_line=%s\n' "$preflight_phase" "$failure_line" > "$failure_tmp"
     chmod 600 "$failure_tmp"
