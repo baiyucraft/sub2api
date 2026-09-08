@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-09-07",
+  "catalog_version": "2026-09-08",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -23,13 +23,13 @@
     "246": {"version":"0.2.1-baiyu","parent":"245","gate_schema":2,"new_migrations":["263_add_usage_log_upstream_request_id.sql","264_add_usage_log_upstream_request_id_index_notx.sql","265_channel_max_reasoning_effort_multiplier.sql","266_group_codex_models_manifest_config.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "247",
+    "id": "248",
     "status": "pending",
-    "version": "0.2.2-baiyu",
-    "parent": "246",
+    "version": "0.2.3-baiyu",
+    "parent": "247",
     "gate_schema": 2,
     "new_migrations": [
-      "267_group_model_allowlist.sql"
+      "268_group_model_allowlist_repair.sql"
     ],
     "release_policy": {
       "compatibility_image": "production_current",
@@ -87,7 +87,8 @@
     "264_add_usage_log_upstream_request_id_index_notx.sql": "41c32a383794730d2bfd88514bf999cfb156cb06324c46b54642736ac8f2fff6",
     "265_channel_max_reasoning_effort_multiplier.sql": "448b59b3168fe4dfe2417f1abd9657d124708c279e2245d55149087838d8c8d6",
     "266_group_codex_models_manifest_config.sql": "8ef9cd9a6a963e79823f8f5d703a6b31fa30ebfca9f8d2337dd451765178e5a0",
-    "267_group_model_allowlist.sql": "34dc807ff3b951533f54b3f575d2b6af7ece851150e95216b887be4d6755cd96"
+    "267_group_model_allowlist.sql": "34dc807ff3b951533f54b3f575d2b6af7ece851150e95216b887be4d6755cd96",
+    "268_group_model_allowlist_repair.sql": "752809cf1d3812ce241606ba8b015dac48bd6c04ab1cde9ef204d138cffb1025"
   },
   "migration_renames": {
     "official_221": "234_group_model_pricing.sql",
@@ -99,6 +100,7 @@
     "official_233_group_free_openai_fast": "259_group_free_openai_fast.sql",
     "official_232_add_usage_log_upstream_request_id": "263_add_usage_log_upstream_request_id.sql",
     "official_235_group_model_allowlist": "267_group_model_allowlist.sql",
+    "official_236_group_model_allowlist_repair": "268_group_model_allowlist_repair.sql",
     "official_233_add_usage_log_upstream_request_id_index_notx": "264_add_usage_log_upstream_request_id_index_notx.sql",
     "official_234_channel_max_reasoning_effort_multiplier": "265_channel_max_reasoning_effort_multiplier.sql",
     "official_234_group_codex_models_manifest_config": "266_group_codex_models_manifest_config.sql"
@@ -378,7 +380,7 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护 fork migration、官方重编号、历史 profile 233–246、当前 profile 247、版本递增、checksum 和 compatibility identity。",
+      "description": "维护 fork migration、官方重编号、历史 profile 233–247、当前 profile 248、版本递增、checksum 和 compatibility identity。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -402,7 +404,8 @@
         "0.1.185-baiyu",
         "0.2.0-baiyu",
         "0.2.1-baiyu",
-        "0.2.2-baiyu"
+        "0.2.2-baiyu",
+        "0.2.3-baiyu"
       ],
       "api_routes": [],
       "settings_keys": [],
@@ -434,10 +437,12 @@
         "264_add_usage_log_upstream_request_id_index_notx.sql",
         "265_channel_max_reasoning_effort_multiplier.sql",
         "266_group_codex_models_manifest_config.sql",
-        "267_group_model_allowlist.sql"
+        "267_group_model_allowlist.sql",
+        "268_group_model_allowlist_repair.sql"
       ],
       "required_tests": [
         "backend/migrations/profile_233_migrations_test.go",
+        "backend/migrations/profile_248_migrations_test.go",
         "backend/migrations/profile_238_migrations_test.go",
         "backend/migrations/profile_239_migrations_test.go",
         "backend/migrations/observation_preference_migration_test.go",
@@ -455,8 +460,8 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py"
       ],
       "invariants": [
-        "历史 profile 233–246 不回写",
-        "当前 profile 247 对应 0.2.2-baiyu，parent 为 246，只追加重编号后的官方 migration 267",
+        "历史 profile 233–247 不回写",
+        "当前 profile 248 对应 0.2.3-baiyu，parent 为 247，只追加重编号后的官方 migration 268；profile 247 保持不可变",
         "fork VERSION 每变化一次必须新增下一个连续整数 profile，即使无 migration 也使用 new_migrations=[]",
         "profile parent 必须指向此前当前 profile，禁止改写旧 profile 追随新版本",
         "官方 migration 按内容重编号，不覆盖 fork 已发布编号；本次官方 232/233/234 的四项依序重编号为 263–266",
