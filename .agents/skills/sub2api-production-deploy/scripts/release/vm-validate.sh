@@ -226,10 +226,15 @@ SQL
   install -o 0 -g 0 -m 444 "$production_snapshot" "$plan_snapshot"
   [[ -f "$plan_snapshot" && ! -L "$plan_snapshot" && $(stat -c '%u:%g:%a:%h' "$plan_snapshot") == 0:0:444:1 ]]
   mark_v2_stage migration_plan_before
-  plan_before=$(docker run --rm -v "$plan_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log" || true)
-  printf '%s' "$plan_before" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
+  set +e
+  plan_before=$(docker run --rm -v "$plan_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log")
+  plan_before_exit=$?
+  set -e
   printf '%s' "$plan_before" > "$state_dir/plan-before.json"
-  chmod 400 "$state_dir/plan-before.json"
+  printf '%s\n' "$plan_before_exit" > "$state_dir/plan-before.exit"
+  chmod 400 "$state_dir/plan-before.json" "$state_dir/plan-before.exit"
+  [[ "$plan_before_exit" == 0 && -n "$plan_before" ]]
+  printf '%s' "$plan_before" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
   [[ $(printf '%s' "$plan_before" | jq -r '.catalog_sha256') == $(jq -r '.catalog_sha256' "$manifest") ]]
   [[ $(printf '%s' "$plan_before" | jq -r '.checksum_policy_sha256') == $(jq -r '.checksum_policy_sha256' "$manifest") ]]
   set +e

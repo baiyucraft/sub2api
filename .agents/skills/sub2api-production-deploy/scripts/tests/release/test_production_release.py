@@ -45,6 +45,12 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertIn("http://127.0.0.1:${SERVER_PORT:-8080}/health", dockerfile)
         self.assertNotIn("http://localhost:${SERVER_PORT:-8080}/health", dockerfile)
 
+    def test_container_entrypoint_is_readable_by_the_reinvoked_runtime_user(self) -> None:
+        dockerfile = (WORKSPACE / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("RUN chmod 755 /app/docker-entrypoint.sh", dockerfile)
+        self.assertNotIn("RUN chmod +x /app/docker-entrypoint.sh", dockerfile)
+
     def test_frontend_bootstrap_pins_pnpm_and_corepack_registry(self) -> None:
         dockerfile = (WORKSPACE / "Dockerfile").read_text(encoding="utf-8")
 
