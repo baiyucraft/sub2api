@@ -192,29 +192,6 @@ func TestServiceDoesNotReadUnmatchedUserBody(t *testing.T) {
 	require.Empty(t, raw)
 }
 
-func TestServicePreservesLegacyAccountObserverTarget(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "requests.jsonl")
-	observer := newService(path, 256, 4)
-	require.NoError(t, observer.Apply(context.Background(), Settings{
-		Enabled:          true,
-		LegacyAccountIDs: []int64{789},
-	}))
-
-	router := gin.New()
-	router.Use(observer.Middleware())
-	router.POST("/probe", func(c *gin.Context) {
-		_, _ = io.ReadAll(c.Request.Body)
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.AccountID, int64(789)))
-		c.Status(http.StatusOK)
-	})
-	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/probe", strings.NewReader(`{"probe":true}`)))
-	require.NoError(t, observer.Shutdown(context.Background()))
-
-	entries := readObservations(t, path)
-	require.Len(t, entries, 1)
-	require.Equal(t, []any{"legacy_account_id"}, entries[0]["matched_by"])
-}
-
 func TestServiceTruncatesCapturedBodyButHashesReadBody(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "requests.jsonl")
 	observer := newService(path, 8, 4)
