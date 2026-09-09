@@ -229,10 +229,13 @@ assert_sub2api_runtime_contract() {
         $container.NetworkSettings.Ports["8080/tcp"][0].HostIp == "127.0.0.1" and
         $container.NetworkSettings.Ports["8080/tcp"][0].HostPort == $host_port
       end and
-      ([
-        ($container.Mounts // [])[] |
-        select(.Destination == "/app/.tmp/maibon-probe-observation" and .RW == true)
-      ] | length) == 1
+      (
+        $policy == "active_compat" or
+        ([
+          ($container.Mounts // [])[] |
+          select(.Destination == "/app/.tmp/maibon-probe-observation" and .RW == true)
+        ] | length) == 1
+      )
     ' <<<"$inspect_json" >/dev/null
 }
 
@@ -258,5 +261,8 @@ write_release_active_override() {
     fi
     printf '    healthcheck:\n'
     printf '      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "%s"]\n' "$health_url"
+    printf '    volumes:\n'
+    printf '      - type: volume\n        source: sub2api_observer\n        target: /app/.tmp/maibon-probe-observation\n'
+    printf 'volumes:\n  sub2api_observer:\n    driver: local\n'
   } > "$output"
 }
