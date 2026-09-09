@@ -1487,64 +1487,11 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(showSuccess).toHaveBeenCalledWith("上游倍率自动探测设置已保存");
   });
 
-  it("loads and saves gateway request observer targets independently", async () => {
-    getGatewayRequestObserverSettings.mockResolvedValueOnce({
-      enabled: true,
-      api_key_ids: [11],
-      api_key_names: ["maibon-gpt"],
-      user_ids: [27],
-      user_emails: ["1069167864@qq.com"],
-      output_path: "/app/.tmp/observer/requests.jsonl",
-    });
-    updateGatewayRequestObserverSettings.mockImplementationOnce(async (payload) => ({
-      ...payload,
-      output_path: "/app/.tmp/observer/requests.jsonl",
-    }));
-
+  it("does not render the observer editor in system settings", async () => {
     const wrapper = mountView();
-
     await flushPromises();
     await openGatewayTab(wrapper);
-
-    const card = wrapper.get('[data-testid="gateway-request-observer-settings"]');
-    expect(card.text()).toContain("请求观察器");
-    expect(
-      (card.get('[data-testid="gateway-request-observer-enabled"]').element as HTMLInputElement)
-        .checked,
-    ).toBe(true);
-    expect(
-      (card.get('[data-testid="gateway-request-observer-api-key-names"]').element as HTMLTextAreaElement)
-        .value,
-    ).toBe("maibon-gpt");
-    expect(
-      (card.get('[data-testid="gateway-request-observer-api-key-ids"]').element as HTMLTextAreaElement)
-        .value,
-    ).toBe("11");
-
-    await card
-      .get('[data-testid="gateway-request-observer-api-key-names"]')
-      .setValue("maibon-gpt\nsecondary-key");
-    await card
-      .get('[data-testid="gateway-request-observer-api-key-ids"]')
-      .setValue("11, 12");
-    await card
-      .get('[data-testid="gateway-request-observer-user-ids"]')
-      .setValue("27\n28");
-    await card
-      .get('[data-testid="gateway-request-observer-user-emails"]')
-      .setValue("1069167864@qq.com\nother@example.com");
-    await card.get('[data-testid="gateway-request-observer-save"]').trigger("click");
-    await flushPromises();
-
-    expect(updateGatewayRequestObserverSettings).toHaveBeenCalledWith({
-      enabled: true,
-      api_key_ids: [11, 12],
-      api_key_names: ["maibon-gpt", "secondary-key"],
-      user_ids: [27, 28],
-      user_emails: ["1069167864@qq.com", "other@example.com"],
-    });
-    expect(showSuccess).toHaveBeenCalledWith("请求观察器设置已保存");
-    expect(card.text()).toContain("/app/.tmp/observer/requests.jsonl");
+    expect(wrapper.find('[data-testid="gateway-request-observer-settings"]').exists()).toBe(false);
   });
 
   it("loads and saves configurable Grok cross-client model mapping", async () => {
