@@ -25,7 +25,7 @@
           >
             <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
           </button>
-          <button type="button" class="btn btn-primary" :disabled="loading || saving" @click="saveSettings">
+          <button type="button" class="btn btn-primary" :disabled="loading || saving || loadFailed" @click="saveSettings">
             <Icon name="check" size="md" class="mr-2" />
             {{ saving ? t('common.saving') : t('admin.customization.saveAll') }}
           </button>
@@ -38,6 +38,14 @@
       </div>
 
       <template v-else>
+        <div v-if="loadFailed" class="rounded-lg border border-red-200 bg-red-50 p-6 text-center text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+          <p>{{ t('admin.customization.loadError') }}</p>
+          <button type="button" class="btn btn-secondary mt-4" @click="loadSettings">
+            <Icon name="refresh" size="sm" class="mr-1.5" />
+            {{ t('admin.customization.refresh') }}
+          </button>
+        </div>
+        <template v-else>
         <section class="rounded-lg bg-white shadow-sm dark:bg-dark-800" data-testid="customization-rules">
           <div class="flex flex-col justify-between gap-3 border-b border-gray-100 px-5 py-4 dark:border-dark-700 sm:flex-row sm:items-center">
             <div>
@@ -114,6 +122,7 @@
             </div>
           </div>
         </section>
+        </template>
       </template>
     </div>
 
@@ -165,6 +174,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const loading = ref(true)
 const saving = ref(false)
+const loadFailed = ref(false)
 const editingIndex = ref<number | null>(null)
 const newRulePending = ref(false)
 const rules = ref<ChannelCustomizationRule[]>([])
@@ -203,8 +213,53 @@ function formatQueryParams(value: Record<string, string[]>): string {
   return Object.entries(value || {}).map(([key, values]) => `${key}=${values.join('|')}`).join('\n')
 }
 
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return Array.from(new Set(value.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean)))
+}
+
+function idList(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  return Array.from(new Set(value.map(item => Number(item)).filter(item => Number.isSafeInteger(item) && item > 0)))
+}
+
+function queryParamMap(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).flatMap(([key, values]) => {
+    const normalized = stringList(values)
+    return normalized.length ? [[key.trim(), normalized] as const] : []
+  }))
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
 function normalizeRule(rule: Partial<ChannelCustomizationRule> = {}): ChannelCustomizationRule {
-  return { name: '', enabled: false, api_key_ids: [], api_key_names: [], user_ids: [], user_emails: [], methods: [], exact_paths: [], path_prefixes: [], user_agent_contains: [], query_params: {}, request_message_text: '', min_delay_ms: 0, max_delay_ms: 0, status_code: 200, content_type: 'application/json', response_body: '', ...rule }
+  const value = rule as Record<string, unknown>
+  const minDelay = Math.max(0, Math.min(10000, finiteNumber(value.min_delay_ms, 0)))
+  const maxDelay = Math.max(minDelay, Math.min(10000, finiteNumber(value.max_delay_ms, minDelay)))
+  const statusCode = finiteNumber(value.status_code, 200)
+  return {
+    name: typeof value.name === 'string' ? value.name : '',
+    enabled: value.enabled === true,
+    api_key_ids: idList(value.api_key_ids),
+    api_key_names: stringList(value.api_key_names),
+    user_ids: idList(value.user_ids),
+    user_emails: stringList(value.user_emails),
+    methods: stringList(value.methods),
+    exact_paths: stringList(value.exact_paths),
+    path_prefixes: stringList(value.path_prefixes),
+    user_agent_contains: stringList(value.user_agent_contains),
+    query_params: queryParamMap(value.query_params),
+    request_message_text: typeof value.request_message_text === 'string' ? value.request_message_text : '',
+    min_delay_ms: minDelay,
+    max_delay_ms: maxDelay,
+    status_code: statusCode >= 100 && statusCode <= 599 ? statusCode : 200,
+    content_type: typeof value.content_type === 'string' && value.content_type.trim() ? value.content_type : 'application/json',
+    response_body: typeof value.response_body === 'string' ? value.response_body : ''
+  }
 }
 
 function setDraft(rule: Partial<ChannelCustomizationRule> = {}) {
@@ -216,19 +271,21 @@ function draftRule(): ChannelCustomizationRule {
   return normalizeRule({ name: draft.name.trim(), enabled: draft.enabled, api_key_ids: ids(draft.api_key_ids), api_key_names: tokens(draft.api_key_names), user_ids: ids(draft.user_ids), user_emails: tokens(draft.user_emails).map(value => value.toLowerCase()), methods: tokens(draft.methods).map(value => value.toUpperCase()), exact_paths: tokens(draft.exact_paths), path_prefixes: tokens(draft.path_prefixes), user_agent_contains: tokens(draft.user_agent_contains), query_params: parseQueryParams(draft.query_params), request_message_text: draft.request_message_text.trim(), min_delay_ms: Number(draft.min_delay_ms) || 0, max_delay_ms: Number(draft.max_delay_ms) || 0, status_code: Number(draft.status_code) || 200, content_type: draft.content_type.trim() || 'application/json', response_body: draft.response_body })
 }
 
-function normalizeSettings(data: Partial<ChannelCustomizationSettings>) {
-  const value: Partial<ChannelCustomizationSettings['observer']> = data.observer || {}
-  Object.assign(observer, { enabled: value.enabled === true, api_key_ids: Array.isArray(value.api_key_ids) ? value.api_key_ids : [], api_key_names: Array.isArray(value.api_key_names) ? value.api_key_names : [], user_ids: Array.isArray(value.user_ids) ? value.user_ids : [], user_emails: Array.isArray(value.user_emails) ? value.user_emails : [], output_path: value.output_path || defaultObserverPath })
+function normalizeSettings(data: Partial<ChannelCustomizationSettings> = {}) {
+  const source = data && typeof data === 'object' ? data : {}
+  const value: Partial<ChannelCustomizationSettings['observer']> = source.observer && typeof source.observer === 'object' ? source.observer : {}
+  Object.assign(observer, { enabled: value.enabled === true, api_key_ids: idList(value.api_key_ids), api_key_names: stringList(value.api_key_names), user_ids: idList(value.user_ids), user_emails: stringList(value.user_emails), output_path: typeof value.output_path === 'string' && value.output_path ? value.output_path : defaultObserverPath })
   observerKeyNames.value = observer.api_key_names.join('\n')
   observerKeyIds.value = observer.api_key_ids.join('\n')
   observerUserIds.value = observer.user_ids.join('\n')
   observerUserEmails.value = observer.user_emails.join('\n')
-  rules.value = Array.isArray(data.rules) ? data.rules.map(normalizeRule) : []
+  rules.value = Array.isArray(source.rules) ? source.rules.map(normalizeRule) : []
 }
 
 async function loadSettings() {
   loading.value = true
-  try { normalizeSettings(await adminAPI.channelCustomization.getSettings()) } catch (error) { appStore.showError(extractApiErrorMessage(error, t('admin.customization.loadError'))) } finally { loading.value = false }
+  loadFailed.value = false
+  try { normalizeSettings(await adminAPI.channelCustomization.getSettings()) } catch (error) { loadFailed.value = true; appStore.showError(extractApiErrorMessage(error, t('admin.customization.loadError'))) } finally { loading.value = false }
 }
 
 function openCreate() { setDraft(); newRulePending.value = true; editingIndex.value = rules.value.length }
