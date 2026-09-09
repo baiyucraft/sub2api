@@ -456,7 +456,7 @@ def verify_vm_only_gate(
         raise RuntimeError("VM-only Gate only accepts the current Gate v2 profile")
     if set(manifest) != {
         "schema", "vm_only_schema", "scope", "release_id", "created_at", "expires_at", "commit_sha", "origin",
-        "profile", "version", "vm_identity", "vm_port", "vm_data", "source_archive_sha256",
+        "profile", "version", "vm_identity", "vm_port", "vm_data", "source_tree_sha256",
         "vm_only_validator_sha256", "vm_only_switch_sha256",
     }:
         raise RuntimeError("VM-only manifest contains unknown or missing fields")
@@ -469,8 +469,8 @@ def verify_vm_only_gate(
     if manifest.get("vm_port") != 8211 or manifest.get("vm_data") != "/opt/sub2api-deploy/data-dev":
         raise RuntimeError("VM-only display target is invalid")
     validate_commit(str(manifest.get("commit_sha", "")))
-    if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("source_archive_sha256", ""))):
-        raise RuntimeError("VM-only source archive checksum is invalid")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(manifest.get("source_tree_sha256", ""))):
+        raise RuntimeError("VM-only source tree checksum is invalid")
     for field in ("vm_only_validator_sha256", "vm_only_switch_sha256"):
         if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get(field, ""))):
             raise RuntimeError(f"VM-only {field} is invalid")
