@@ -12429,41 +12429,6 @@ function formatGatewayRequestObserverIDs(value: unknown): string {
     : "";
 }
 
-async function loadGatewayRequestObserverSettings() {
-  gatewayRequestObserverLoading.value = true;
-  try {
-    const settings = await adminAPI.settings.getGatewayRequestObserverSettings();
-    Object.assign(gatewayRequestObserverForm, {
-      enabled: settings.enabled === true,
-      api_key_ids: Array.isArray(settings.api_key_ids) ? settings.api_key_ids : [],
-      api_key_names: Array.isArray(settings.api_key_names)
-        ? settings.api_key_names
-        : [],
-      user_ids: Array.isArray(settings.user_ids) ? settings.user_ids : [],
-      user_emails: Array.isArray(settings.user_emails) ? settings.user_emails : [],
-    });
-    gatewayRequestObserverApiKeyNamesInput.value = formatGatewayRequestObserverNames(
-      gatewayRequestObserverForm.api_key_names,
-    );
-    gatewayRequestObserverApiKeyIdsInput.value = formatGatewayRequestObserverIDs(
-      gatewayRequestObserverForm.api_key_ids,
-    );
-    gatewayRequestObserverUserIdsInput.value = formatGatewayRequestObserverIDs(
-      gatewayRequestObserverForm.user_ids,
-    );
-    gatewayRequestObserverUserEmailsInput.value = formatGatewayRequestObserverNames(
-      gatewayRequestObserverForm.user_emails,
-    );
-    if (typeof settings.output_path === "string" && settings.output_path.trim()) {
-      gatewayRequestObserverOutputPath.value = settings.output_path;
-    }
-  } catch (_error: unknown) {
-    // Keep the fail-safe disabled defaults when this optional setting cannot be loaded.
-  } finally {
-    gatewayRequestObserverLoading.value = false;
-  }
-}
-
 async function saveGatewayRequestObserverSettings() {
   gatewayRequestObserverSaving.value = true;
   try {

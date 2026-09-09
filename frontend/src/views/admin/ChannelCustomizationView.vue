@@ -216,7 +216,7 @@ function draftRule(): ChannelCustomizationRule {
 }
 
 function normalizeSettings(data: Partial<ChannelCustomizationSettings>) {
-  const value = data.observer || {}
+  const value: Partial<ChannelCustomizationSettings['observer']> = data.observer || {}
   Object.assign(observer, { enabled: value.enabled === true, api_key_ids: Array.isArray(value.api_key_ids) ? value.api_key_ids : [], api_key_names: Array.isArray(value.api_key_names) ? value.api_key_names : [], user_ids: Array.isArray(value.user_ids) ? value.user_ids : [], user_emails: Array.isArray(value.user_emails) ? value.user_emails : [], output_path: value.output_path || defaultObserverPath })
   observerKeyNames.value = observer.api_key_names.join('\n')
   observerKeyIds.value = observer.api_key_ids.join('\n')
