@@ -408,7 +408,7 @@ def create_vm_only_manifest(
     commit: str,
     profile: dict[str, Any],
     release_id: str,
-    source_archive_sha256: str,
+    source_tree_sha256: str,
     validator_sha256: str,
     switch_sha256: str,
 ) -> dict[str, Any]:
@@ -421,8 +421,8 @@ def create_vm_only_manifest(
     commit = validate_commit(commit)
     if profile.get("name") != CURRENT_RELEASE_PROFILE:
         raise RuntimeError("VM-only validation only accepts the current release profile")
-    if not re.fullmatch(r"[0-9a-f]{64}", source_archive_sha256):
-        raise ValueError("source archive checksum is invalid")
+    if not re.fullmatch(r"[0-9a-f]{40}", source_tree_sha256):
+        raise ValueError("source tree checksum is invalid")
     for value, label in ((validator_sha256, "VM-only validator"), (switch_sha256, "VM-only switch")):
         if not re.fullmatch(r"[0-9a-f]{64}", value):
             raise ValueError(f"{label} checksum is invalid")
@@ -445,7 +445,7 @@ def create_vm_only_manifest(
         "vm_identity": "sub2api-dev",
         "vm_port": 8211,
         "vm_data": "/opt/sub2api-deploy/data-dev",
-        "source_archive_sha256": source_archive_sha256,
+        "source_tree_sha256": source_tree_sha256,
         "vm_only_validator_sha256": validator_sha256,
         "vm_only_switch_sha256": switch_sha256,
     }

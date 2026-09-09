@@ -25,20 +25,8 @@ def _git_output(*args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=WORKSPACE, text=True, stderr=subprocess.DEVNULL).strip()
 
 
-def _source_archive_sha256(commit: str) -> str:
-    process = subprocess.Popen(
-        ["git", "archive", "--format=tar", commit],
-        cwd=WORKSPACE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
-    digest = hashlib.sha256()
-    assert process.stdout is not None
-    for chunk in iter(lambda: process.stdout.read(1024 * 1024), b""):
-        digest.update(chunk)
-    if process.wait() != 0:
-        raise RuntimeError("unable to create VM-only source archive digest")
-    return digest.hexdigest()
+def _source_tree_sha256(commit: str) -> str:
+    return _git_output("rev-parse", f"{commit}^{{tree}}")
 
 
 def _assert_local_release(commit: str, profile_name: str) -> dict:
@@ -72,7 +60,7 @@ def vm_only_validate(args: argparse.Namespace, *, runner: SSHRunner | None = Non
         args.commit,
         profile,
         identifier,
-        _source_archive_sha256(args.commit),
+        _source_tree_sha256(args.commit),
         sha256_file(VM_ONLY_VALIDATE),
         sha256_file(VM_ONLY_SWITCH),
     )

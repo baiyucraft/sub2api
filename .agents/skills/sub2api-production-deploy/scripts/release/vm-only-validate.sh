@@ -34,8 +34,8 @@ git fetch origin +main:refs/remotes/origin/main >/dev/null 2>&1
 [[ $(git rev-parse origin/main) == "$commit" ]]
 git reset --hard "$commit" >/dev/null
 [[ $(git rev-parse HEAD) == "$commit" ]]
-source_archive_sha256=$(git archive --format=tar "$commit" | sha256sum | awk '{print $1}')
-[[ $source_archive_sha256 == "$(jq -er '.source_archive_sha256' "$manifest")" ]]
+source_tree_sha256=$(git rev-parse "$commit^{tree}")
+[[ $source_tree_sha256 == "$(jq -er '.source_tree_sha256' "$manifest")" ]]
 
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
 [[ $(docker inspect -f '{{.HostConfig.NetworkMode}}' sub2api-dev) == host ]]

@@ -48,7 +48,7 @@ class VMOnlyGateTest(unittest.TestCase):
             "vm_identity": "sub2api-dev",
             "vm_port": 8211,
             "vm_data": "/opt/sub2api-deploy/data-dev",
-            "source_archive_sha256": "b" * 64,
+            "source_tree_sha256": "b" * 40,
             "vm_only_validator_sha256": "c" * 64,
             "vm_only_switch_sha256": "d" * 64,
         }
@@ -86,7 +86,7 @@ class VMOnlyGateTest(unittest.TestCase):
             "gate_ttl_seconds": 3600,
         }
         with mock.patch("release.manifest.check_output_hidden", return_value="https://github.com/baiyucraft/sub2api.git"):
-            manifest = create_vm_only_manifest("a" * 40, profile, "248-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 64, "c" * 64, "d" * 64)
+            manifest = create_vm_only_manifest("a" * 40, profile, "248-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 40, "c" * 64, "d" * 64)
         self.assertNotIn("production_current_image_id", manifest)
         self.assertNotIn("production_snapshot_sha256", manifest)
 
