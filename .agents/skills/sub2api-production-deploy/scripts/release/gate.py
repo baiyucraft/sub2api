@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import subprocess
 import tempfile
 import time
@@ -432,3 +433,73 @@ def verify_gate(bundle_dir: Path, public_key: Path, expected_profile: str, allow
     if schema == 2:
         return verify_gate_v2(bundle_dir, public_key, expected_profile, allow_expired=allow_expired, allow_historical_runner=allow_historical_runner, verified_document=document)
     return verify_gate_v1(bundle_dir, public_key, expected_profile, allow_expired=allow_expired, allow_historical_runner=allow_historical_runner, verified_document=document)
+
+
+def verify_vm_only_gate(
+    bundle_dir: Path,
+    public_key: Path,
+    expected_profile: str,
+    allow_expired: bool = False,
+) -> dict[str, Any]:
+    """Verify the isolated local-VM Gate without accepting production fields."""
+    document = _verify_gate_signature(bundle_dir, public_key)
+    if set(document) != {"gate_version", "profile_id", "manifest", "evidence"}:
+        raise RuntimeError("VM-only Gate document shape is invalid")
+    manifest = document["manifest"]
+    evidence = document["evidence"]
+    if not isinstance(manifest, dict) or not isinstance(evidence, dict):
+        raise RuntimeError("VM-only Gate document is invalid")
+    if document.get("gate_version") != 2 or document.get("profile_id") != int(expected_profile):
+        raise RuntimeError("VM-only Gate identity is invalid")
+    profile = get_profile(expected_profile)
+    if expected_profile != CURRENT_RELEASE_PROFILE or profile.get("gate_schema") != 2:
+        raise RuntimeError("VM-only Gate only accepts the current Gate v2 profile")
+    if set(manifest) != {
+        "schema", "vm_only_schema", "scope", "release_id", "created_at", "expires_at", "commit_sha", "origin",
+        "profile", "version", "vm_identity", "vm_port", "vm_data", "source_archive_sha256",
+        "vm_only_validator_sha256", "vm_only_switch_sha256",
+    }:
+        raise RuntimeError("VM-only manifest contains unknown or missing fields")
+    if manifest.get("schema") != 2 or manifest.get("vm_only_schema") != 1 or manifest.get("scope") != "vm-only":
+        raise RuntimeError("VM-only manifest scope is invalid")
+    if manifest.get("profile") != expected_profile or manifest.get("version") != profile["version"]:
+        raise RuntimeError("VM-only manifest profile or version is invalid")
+    if manifest.get("origin") != profile["origin"] or manifest.get("vm_identity") != "sub2api-dev":
+        raise RuntimeError("VM-only manifest origin or identity is invalid")
+    if manifest.get("vm_port") != 8211 or manifest.get("vm_data") != "/opt/sub2api-deploy/data-dev":
+        raise RuntimeError("VM-only display target is invalid")
+    validate_commit(str(manifest.get("commit_sha", "")))
+    if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("source_archive_sha256", ""))):
+        raise RuntimeError("VM-only source archive checksum is invalid")
+    for field in ("vm_only_validator_sha256", "vm_only_switch_sha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get(field, ""))):
+            raise RuntimeError(f"VM-only {field} is invalid")
+    if not allow_expired and int(manifest.get("expires_at", 0)) < int(time.time()):
+        raise RuntimeError("VM-only Gate has expired")
+    expected_evidence = {
+        "candidate_image_id", "candidate_archive_sha256", "candidate_size", "candidate_identity_verified",
+        "candidate_health", "existing_app_health", "vm_database_boundary", "vm_redis_boundary", "data_dev_boundary",
+    }
+    if set(evidence) != expected_evidence:
+        raise RuntimeError("VM-only Gate evidence contains unknown or missing fields")
+    validate_image_id(str(evidence.get("candidate_image_id", "")))
+    if evidence.get("candidate_identity_verified") is not True or evidence.get("candidate_health") != "pass":
+        raise RuntimeError("VM-only candidate evidence is incomplete")
+    if evidence.get("existing_app_health") != "pass" or any(evidence.get(field) is not True for field in ("vm_database_boundary", "vm_redis_boundary", "data_dev_boundary")):
+        raise RuntimeError("VM-only environment evidence is incomplete")
+    if type(evidence.get("candidate_size")) is not int or evidence["candidate_size"] <= 0:
+        raise RuntimeError("VM-only candidate size is invalid")
+    if not _is_sha256(evidence.get("candidate_archive_sha256")):
+        raise RuntimeError("VM-only candidate archive checksum is invalid")
+    archive_path = bundle_dir / "candidate.tar.gz"
+    if not archive_path.is_file() or archive_path.is_symlink():
+        raise RuntimeError("VM-only candidate archive is missing")
+    if archive_path.stat().st_size != evidence["candidate_size"]:
+        raise RuntimeError("VM-only candidate archive size does not match")
+    digest = hashlib.sha256()
+    with archive_path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != evidence["candidate_archive_sha256"]:
+        raise RuntimeError("VM-only candidate archive checksum does not match")
+    return document

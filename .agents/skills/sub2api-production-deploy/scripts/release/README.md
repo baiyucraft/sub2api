@@ -18,6 +18,17 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result
 python .agents/skills/sub2api-production-deploy/scripts/release.py logs <release_id> --node all --tail 100
 ```
 
+仅用于本地 VM `sub2api-dev:8211` 展示的隔离入口：
+
+```text
+python .agents/skills/sub2api-production-deploy/scripts/release.py vm-only-validate --profile 248 --commit <40位完整SHA>
+python .agents/skills/sub2api-production-deploy/scripts/release.py vm-only-switch --profile 248 --gate .tmp/releases/<release-id>/vm-only-gate
+```
+
+该入口只连接 `local_vm`，不读取生产快照、不连接 DMIT、RackNerd 或备份机；
+`vm-only-switch` 只允许替换 `sub2api-dev` 的 `8211` 监听和
+`/opt/sub2api-deploy/data-dev` 数据目录。它生成的 Gate 不被生产发布入口接受。
+
 生产部署必须显式选择 `--mode blue-green` 或 `--mode downtime`。非交互执行缺少 mode 会在创建 release 前失败；交互终端会询问部署模式。
 
 日志保留清理先生成计划，再绑定同一个 checksum 执行：

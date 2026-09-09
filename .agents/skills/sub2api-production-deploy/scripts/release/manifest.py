@@ -404,6 +404,53 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
     return manifest
 
 
+def create_vm_only_manifest(
+    commit: str,
+    profile: dict[str, Any],
+    release_id: str,
+    source_archive_sha256: str,
+    validator_sha256: str,
+    switch_sha256: str,
+) -> dict[str, Any]:
+    """Create a manifest for the isolated local-VM display path.
+
+    This contract is deliberately separate from production Gate v2.  It binds
+    the source archive and VM-only scripts without accepting any production
+    snapshot, recovery point, or production image identity.
+    """
+    commit = validate_commit(commit)
+    if profile.get("name") != CURRENT_RELEASE_PROFILE:
+        raise RuntimeError("VM-only validation only accepts the current release profile")
+    if not re.fullmatch(r"[0-9a-f]{64}", source_archive_sha256):
+        raise ValueError("source archive checksum is invalid")
+    for value, label in ((validator_sha256, "VM-only validator"), (switch_sha256, "VM-only switch")):
+        if not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise ValueError(f"{label} checksum is invalid")
+    if not RELEASE_ID.fullmatch(release_id) or release_id.split("-", 1)[0] != profile["name"] or release_id.split("-")[1] != commit[:12]:
+        raise RuntimeError("VM-only release ID does not match profile and commit")
+    origin = check_output_hidden(["git", "remote", "get-url", "origin"], cwd=WORKSPACE, text=True).strip()
+    if origin != profile["origin"]:
+        raise RuntimeError("local origin does not match the release profile")
+    return {
+        "schema": 2,
+        "vm_only_schema": 1,
+        "scope": "vm-only",
+        "release_id": release_id,
+        "created_at": int(time.time()),
+        "expires_at": int(time.time()) + int(profile["gate_ttl_seconds"]),
+        "commit_sha": commit,
+        "origin": origin,
+        "profile": profile["name"],
+        "version": profile["version"],
+        "vm_identity": "sub2api-dev",
+        "vm_port": 8211,
+        "vm_data": "/opt/sub2api-deploy/data-dev",
+        "source_archive_sha256": source_archive_sha256,
+        "vm_only_validator_sha256": validator_sha256,
+        "vm_only_switch_sha256": switch_sha256,
+    }
+
+
 def bind_production_snapshot(manifest: dict[str, Any], image_id: str, snapshot_sha256: str) -> dict[str, Any]:
     """Bind the point-in-time production baseline before VM Gate starts."""
     if manifest.get("schema") != 2 or manifest.get("profile") != CURRENT_RELEASE_PROFILE:
