@@ -857,7 +857,7 @@ export default {
       applyRule: '应用规则',
       validationError: '请检查规则名称、目标、探针条件、延迟和响应配置。',
       saveError: '保存渠道定制失败',
-      emailPlaceholder: 'user@example.com',
+      emailPlaceholder: "user{'@'}example.com",
       save: '保存',
       cancel: '取消',
       delete: '删除',

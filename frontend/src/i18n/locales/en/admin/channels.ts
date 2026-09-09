@@ -859,7 +859,7 @@ export default {
       applyRule: 'Apply Rule',
       validationError: 'Check the rule name, targets, probe conditions, delay, and response settings.',
       saveError: 'Failed to save channel customization',
-      emailPlaceholder: 'user@example.com',
+      emailPlaceholder: "user{'@'}example.com",
       save: 'Save',
       cancel: 'Cancel',
       delete: 'Delete',
