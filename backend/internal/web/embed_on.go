@@ -99,6 +99,14 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			cleanPath = "index.html"
 		}
 
+		// Missing assets must remain a real 404; returning index.html here makes a
+		// broken lazy import look like a successful HTML response to the browser.
+		if strings.HasPrefix(cleanPath, "assets/") && !s.fileExists(cleanPath) {
+			c.Status(http.StatusNotFound)
+			c.Abort()
+			return
+		}
+
 		// For index.html or SPA routes, serve with injected settings
 		if cleanPath == "index.html" || !s.fileExists(cleanPath) {
 			s.serveIndexHTML(c)
