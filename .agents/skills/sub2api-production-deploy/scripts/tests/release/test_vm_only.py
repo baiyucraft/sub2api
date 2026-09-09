@@ -104,6 +104,7 @@ class VMOnlyGateTest(unittest.TestCase):
 
     def test_vm_only_candidate_has_a_private_writable_tmp_directory(self) -> None:
         script = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
+        self.assertIn("-e DATA_DIR=/app/data", script)
         self.assertIn("--tmpfs /app/.tmp:rw,nosuid,nodev,noexec,size=64m", script)
         self.assertIn('-v "$deploy_dir/data-dev:/app/data:ro"', script)
 
