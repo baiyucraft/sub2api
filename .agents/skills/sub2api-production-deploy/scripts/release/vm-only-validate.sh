@@ -65,6 +65,7 @@ cleanup_candidate() {
 }
 trap cleanup_candidate EXIT
 docker run -d --name "$candidate_container" --network host \
+  -e DATA_DIR=/app/data \
   -e SERVER_HOST=127.0.0.1 -e SERVER_PORT="$candidate_port" \
   -e AUTO_SETUP=false -e UPSTREAM_SYNC_AUTO_ENABLED=false \
   -e DASHBOARD_AGGREGATION_ENABLED=false \
