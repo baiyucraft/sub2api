@@ -837,6 +837,7 @@ export default {
       unnamedRule: '未命名规则',
       conditions: '请求条件',
       response: '响应',
+      ruleName: '规则名称',
       moveUp: '上移',
       moveDown: '下移',
       status: '状态',
