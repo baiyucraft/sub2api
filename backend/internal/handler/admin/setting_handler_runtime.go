@@ -144,7 +144,8 @@ func (h *SettingHandler) UpdateGatewayChannelCustomizationSettings(c *gin.Contex
 			APIKeyNames: rule.APIKeyNames, UserIDs: rule.UserIDs, UserEmails: rule.UserEmails,
 			Methods: rule.Methods, ExactPaths: rule.ExactPaths, PathPrefixes: rule.PathPrefixes,
 			UserAgentContains: rule.UserAgentContains, QueryParams: rule.QueryParams,
-			StatusCode: rule.StatusCode, ContentType: rule.ContentType, Body: rule.ResponseBody,
+			RequestMessageText: rule.RequestMessageText,
+			StatusCode:         rule.StatusCode, ContentType: rule.ContentType, Body: rule.ResponseBody,
 			MinDelayMs: rule.MinDelayMs, MaxDelayMs: rule.MaxDelayMs,
 		}
 	}
@@ -167,7 +168,8 @@ func gatewayChannelCustomizationResponse(bundle *service.GatewayChannelCustomiza
 			Name: rule.Name, Enabled: rule.Enabled, APIKeyIDs: rule.APIKeyIDs, APIKeyNames: rule.APIKeyNames,
 			UserIDs: rule.UserIDs, UserEmails: rule.UserEmails, Methods: rule.Methods, ExactPaths: rule.ExactPaths,
 			PathPrefixes: rule.PathPrefixes, UserAgentContains: rule.UserAgentContains, QueryParams: rule.QueryParams,
-			StatusCode: rule.StatusCode, ContentType: rule.ContentType, ResponseBody: rule.Body,
+			RequestMessageText: rule.RequestMessageText,
+			StatusCode:         rule.StatusCode, ContentType: rule.ContentType, ResponseBody: rule.Body,
 			MinDelayMs: rule.MinDelayMs, MaxDelayMs: rule.MaxDelayMs,
 		}
 	}
