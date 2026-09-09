@@ -90,7 +90,7 @@ rollback() {
 }
 trap rollback EXIT
 
-docker compose -f "$compose_file" -f "$override" up -d --no-deps --force-recreate sub2api-dev >/dev/null
+docker compose -f "$compose_file" -f "$override" up -d --no-deps --force-recreate sub2api-dev >/dev/null 2>&1
 for _ in $(seq 1 90); do
   if [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev 2>/dev/null || true) == healthy ]]; then
     break

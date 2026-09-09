@@ -94,6 +94,7 @@ class VMOnlyGateTest(unittest.TestCase):
         script = (DEPLOY_ROOT / "release" / "vm-only-switch.sh").read_text(encoding="utf-8")
         self.assertIn("/^  sub2api-dev:[[:space:]]*$/", script)
         self.assertIn("in_app && /^    image:[[:space:]]*/", script)
+        self.assertIn("up -d --no-deps --force-recreate sub2api-dev >/dev/null 2>&1", script)
         self.assertNotIn("sed '0,/^    image: /", script)
 
     def test_vm_only_contract_checks_the_host_listener(self) -> None:
