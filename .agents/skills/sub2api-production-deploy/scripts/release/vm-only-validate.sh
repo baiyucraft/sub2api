@@ -39,7 +39,7 @@ source_archive_sha256=$(git archive --format=tar "$commit" | sha256sum | awk '{p
 
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
 [[ $(docker inspect -f '{{.HostConfig.NetworkMode}}' sub2api-dev) == host ]]
-[[ $(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' sub2api-dev | grep -Fx 'SERVER_PORT=8211') == SERVER_PORT=8211 ]]
+ss -H -ltn | awk '$4 ~ /:8211$/ {found=1} END {exit !found}'
 [[ $(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' sub2api-dev) == /opt/sub2api-deploy/data-dev ]]
 
 tag="sub2api:vm-only-$release_id"
