@@ -203,6 +203,12 @@ for host_port in 18080 18081; do
     exit 1
   fi
   FAKE_DOCKER_INSPECT="$legacy_host_inspect" assert_sub2api_runtime_contract sub2api "$image_id" host "$host_port" active_compat
+  legacy_host_without_observer="$tmp/host-legacy-without-observer-$host_port.json"
+  jq '.[0].Mounts = []' "$legacy_host_inspect" > "$legacy_host_without_observer"
+  if FAKE_DOCKER_INSPECT="$legacy_host_without_observer" assert_sub2api_runtime_contract sub2api "$image_id" host "$host_port"; then
+    exit 1
+  fi
+  FAKE_DOCKER_INSPECT="$legacy_host_without_observer" assert_sub2api_runtime_contract sub2api "$image_id" host "$host_port" active_compat
 
   bridge_inspect="$tmp/bridge-$host_port.json"
   runtime_json bridge "$host_port" "$bridge_url" > "$bridge_inspect"
@@ -213,6 +219,12 @@ for host_port in 18080 18081; do
     exit 1
   fi
   FAKE_DOCKER_INSPECT="$legacy_bridge_inspect" assert_sub2api_runtime_contract sub2api "$image_id" bridge "$host_port" active_compat
+  legacy_bridge_without_observer="$tmp/bridge-legacy-without-observer-$host_port.json"
+  jq '.[0].Mounts = []' "$legacy_bridge_inspect" > "$legacy_bridge_without_observer"
+  if FAKE_DOCKER_INSPECT="$legacy_bridge_without_observer" assert_sub2api_runtime_contract sub2api "$image_id" bridge "$host_port"; then
+    exit 1
+  fi
+  FAKE_DOCKER_INSPECT="$legacy_bridge_without_observer" assert_sub2api_runtime_contract sub2api "$image_id" bridge "$host_port" active_compat
 
   wrong_bridge="$tmp/bridge-wrong-$host_port.json"
   runtime_json bridge "$host_port" "$bridge_url" | jq '.[0].NetworkSettings.Ports["8080/tcp"][0].HostPort = "19999"' > "$wrong_bridge"
@@ -225,6 +237,8 @@ for host_port in 18080 18081; do
     write_release_active_override "$override" "$image_id" "$instance_id" "$host_port" "$mode"
     grep -Fxq '    container_name: sub2api' "$override"
     grep -Fq "SUB2API_INSTANCE_ID: $instance_id" "$override"
+    grep -Fq '        source: sub2api_observer' "$override"
+    grep -Fq '  sub2api_observer:' "$override"
     if [[ $mode == host ]]; then
       grep -Fq "SERVER_PORT: \"$host_port\"" "$override"
       grep -Fq "$host_url" "$override"
