@@ -1,8 +1,10 @@
 package observer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"math/rand"
 	"strings"
 	"sync/atomic"
@@ -44,6 +46,20 @@ type compiledCustomizationRule struct {
 	queryParams       map[string]map[string]struct{}
 }
 
+const customizationRequestBodyMaxBytes = 256 * 1024
+
+type replayRequestBody struct {
+	io.Reader
+	original io.Closer
+}
+
+func (b *replayRequestBody) Close() error {
+	if b.original == nil {
+		return nil
+	}
+	return b.original.Close()
+}
+
 var CustomizationProviderSet = wire.NewSet(NewCustomizationService)
 
 func NewCustomizationService() *CustomizationService { return &CustomizationService{} }
@@ -72,7 +88,7 @@ func (s *CustomizationService) Apply(_ context.Context, settings service.Gateway
 	return nil
 }
 
-// Middleware 只在认证上下文中匹配目标；不读取请求体，不启动后台 goroutine。
+// Middleware 只在认证上下文中匹配目标；只有规则声明消息文本条件时才读取请求体。
 func (s *CustomizationService) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state := s.current.Load()
@@ -217,7 +233,128 @@ func matchesCustomizationRule(rule compiledCustomizationRule, c *gin.Context, ap
 			}
 		}
 	}
-	return methodMatched && pathMatched && uaMatched && queryMatched
+	if !methodMatched || !pathMatched || !uaMatched || !queryMatched {
+		return false
+	}
+	if rule.rule.RequestMessageText != "" && !matchesRequestMessageText(c, rule.rule.RequestMessageText) {
+		return false
+	}
+	return true
+}
+
+func matchesRequestMessageText(c *gin.Context, expected string) bool {
+	if c == nil || c.Request == nil || c.Request.Body == nil {
+		return false
+	}
+	original := c.Request.Body
+	prefix, err := io.ReadAll(io.LimitReader(original, customizationRequestBodyMaxBytes+1))
+	c.Request.Body = &replayRequestBody{
+		Reader:   io.MultiReader(bytes.NewReader(prefix), original),
+		original: original,
+	}
+	if err != nil || len(prefix) > customizationRequestBodyMaxBytes {
+		return false
+	}
+	return requestBodyContainsExactMessageText(prefix, expected)
+}
+
+func requestBodyContainsExactMessageText(body []byte, expected string) bool {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(body, &root); err != nil {
+		return false
+	}
+	texts := make([]string, 0, 1)
+	for key, raw := range root {
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			continue
+		}
+		switch key {
+		case "input":
+			collectInputMessageTexts(value, &texts)
+		case "messages":
+			collectMessagesMessageTexts(value, &texts)
+		case "contents":
+			collectContentsMessageTexts(value, &texts)
+		default:
+			continue
+		}
+	}
+	return len(texts) == 1 && texts[0] == expected
+}
+
+func collectInputMessageTexts(value any, texts *[]string) {
+	switch item := value.(type) {
+	case string:
+		*texts = append(*texts, item)
+	case []any:
+		for _, child := range item {
+			collectInputMessageTexts(child, texts)
+		}
+	case map[string]any:
+		if role, ok := item["role"].(string); ok && !strings.EqualFold(role, "user") {
+			return
+		}
+		if text, ok := item["text"].(string); ok {
+			*texts = append(*texts, text)
+		}
+		if content, ok := item["content"]; ok {
+			collectContentMessageTexts(content, texts)
+		}
+	}
+}
+
+func collectMessagesMessageTexts(value any, texts *[]string) {
+	items, ok := value.([]any)
+	if !ok {
+		return
+	}
+	for _, item := range items {
+		message, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if role, ok := message["role"].(string); ok && !strings.EqualFold(role, "user") {
+			continue
+		}
+		if content, ok := message["content"]; ok {
+			collectContentMessageTexts(content, texts)
+		}
+	}
+}
+
+func collectContentsMessageTexts(value any, texts *[]string) {
+	items, ok := value.([]any)
+	if !ok {
+		return
+	}
+	for _, item := range items {
+		content, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if role, ok := content["role"].(string); ok && !strings.EqualFold(role, "user") {
+			continue
+		}
+		if parts, ok := content["parts"]; ok {
+			collectContentMessageTexts(parts, texts)
+		}
+	}
+}
+
+func collectContentMessageTexts(value any, texts *[]string) {
+	switch item := value.(type) {
+	case string:
+		*texts = append(*texts, item)
+	case []any:
+		for _, child := range item {
+			collectContentMessageTexts(child, texts)
+		}
+	case map[string]any:
+		if text, ok := item["text"].(string); ok {
+			*texts = append(*texts, text)
+		}
+	}
 }
 
 func customizationUser(c *gin.Context, apiKey *service.APIKey) (int64, string) {
