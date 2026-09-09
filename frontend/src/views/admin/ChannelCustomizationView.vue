@@ -26,7 +26,7 @@
             <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
           </button>
           <button type="button" class="btn btn-primary" :disabled="loading || saving" @click="saveSettings">
-            <Icon name="save" size="md" class="mr-2" />
+            <Icon name="check" size="md" class="mr-2" />
             {{ saving ? t('common.saving') : t('admin.customization.saveAll') }}
           </button>
         </div>
