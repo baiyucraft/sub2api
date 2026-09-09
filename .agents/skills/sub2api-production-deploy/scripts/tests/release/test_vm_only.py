@@ -90,6 +90,18 @@ class VMOnlyGateTest(unittest.TestCase):
         self.assertNotIn("production_current_image_id", manifest)
         self.assertNotIn("production_snapshot_sha256", manifest)
 
+    def test_vm_only_switch_targets_only_the_dev_service_image(self) -> None:
+        script = (DEPLOY_ROOT / "release" / "vm-only-switch.sh").read_text(encoding="utf-8")
+        self.assertIn("/^  sub2api-dev:[[:space:]]*$/", script)
+        self.assertIn("in_app && /^    image:[[:space:]]*/", script)
+        self.assertNotIn("sed '0,/^    image: /", script)
+
+    def test_vm_only_contract_checks_the_host_listener(self) -> None:
+        for name in ("vm-only-validate.sh", "vm-only-switch.sh"):
+            script = (DEPLOY_ROOT / "release" / name).read_text(encoding="utf-8")
+            self.assertIn("ss -H -ltn | awk '$4 ~ /:8211$/", script)
+            self.assertNotIn("SERVER_PORT=8211')", script)
+
 
 if __name__ == "__main__":
     unittest.main()

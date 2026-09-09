@@ -37,7 +37,7 @@ openssl pkeyutl -verify -pubin -inkey "$public_key" -rawin -in "$gate_dir/gate.j
 [[ $(docker inspect -f '{{.Name}}' sub2api-dev) == /sub2api-dev ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
 [[ $(docker inspect -f '{{.HostConfig.NetworkMode}}' sub2api-dev) == host ]]
-[[ $(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' sub2api-dev | grep -Fx 'SERVER_PORT=8211') == SERVER_PORT=8211 ]]
+ss -H -ltn | awk '$4 ~ /:8211$/ {found=1} END {exit !found}'
 [[ $(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' sub2api-dev) == /opt/sub2api-deploy/data-dev ]]
 old_image_id=$(docker inspect -f '{{.Image}}' sub2api-dev)
 
@@ -55,7 +55,13 @@ services:
 YAML
 chmod 600 "$override"
 cp -p -- "$compose_file" "$compose_backup"
-sed '0,/^    image: /s#^    image: .*#    image: '"$candidate_image_id"'#' "$compose_file" >"$compose_file.vm-only.tmp"
+awk -v candidate="$candidate_image_id" '
+  /^  sub2api-dev:[[:space:]]*$/ { in_app=1 }
+  in_app && /^  [^[:space:]][^:]*:/ && $0 !~ /^  sub2api-dev:[[:space:]]*$/ { in_app=0 }
+  in_app && /^    image:[[:space:]]*/ { $0="    image: " candidate; replaced=1 }
+  { print }
+  END { if (!replaced) exit 1 }
+' "$compose_file" >"$compose_file.vm-only.tmp"
 chmod --reference="$compose_file" "$compose_file.vm-only.tmp"
 mv -f -- "$compose_file.vm-only.tmp" "$compose_file"
 
