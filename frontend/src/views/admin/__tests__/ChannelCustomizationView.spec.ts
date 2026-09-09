@@ -47,6 +47,26 @@ describe('ChannelCustomizationView', () => {
     expect(wrapper.get('[data-testid="gateway-request-observer-settings"]').text()).toContain('.tmp/observer.jsonl')
   })
 
+  it('renders safely when the backend returns null rule fields', async () => {
+    getSettings.mockResolvedValueOnce({
+      observer: { enabled: false, api_key_ids: null, api_key_names: null, user_ids: null, user_emails: null, output_path: null },
+      rules: [{ name: 'legacy', enabled: true, api_key_ids: null, api_key_names: null, user_ids: null, user_emails: null, methods: null, exact_paths: null, path_prefixes: null, user_agent_contains: null, query_params: null, request_message_text: null, min_delay_ms: null, max_delay_ms: null, status_code: null, content_type: null, response_body: null }]
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="customization-rule-0"]').text()).toContain('legacy')
+    expect(wrapper.get('[data-testid="gateway-request-observer-settings"]').text()).toContain('/app/.tmp/maibon-probe-observation/requests.jsonl')
+  })
+
+  it('blocks saving when settings cannot be loaded', async () => {
+    getSettings.mockRejectedValueOnce(new Error('unavailable'))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('header button.btn-primary').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="customization-rules"]').exists()).toBe(false)
+    expect(updateSettings).not.toHaveBeenCalled()
+  })
+
   it('validates a rule target before calling the API', async () => {
     const wrapper = mountView()
     await flushPromises()
