@@ -51,6 +51,7 @@ func SetupRouter(
 	cfg *config.Config,
 	redisClient *redis.Client,
 	requestObserver *observer.Service,
+	customization *observer.CustomizationService,
 ) *gin.Engine {
 	instanceID := releaseInstanceID()
 	if instanceID != "" {
@@ -118,7 +119,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, requestObserver)
+	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, requestObserver, customization)
 
 	return r
 }
@@ -141,6 +142,7 @@ func registerRoutes(
 	cfg *config.Config,
 	redisClient *redis.Client,
 	requestObserver *observer.Service,
+	customization *observer.CustomizationService,
 ) {
 	// 通用路由（健康检查、状态等）
 	routes.RegisterCommonRoutes(r)
@@ -158,8 +160,15 @@ func registerRoutes(
 	routes.RegisterModelPlazaRoutes(v1, h, optionalJWTAuth, settingService, panelRateLimiter)
 	routes.RegisterAdminRoutes(v1, h, adminAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
 	options := routes.GatewayRouteOptions{}
-	if requestObserver != nil {
-		options.PostAuthMiddleware = []gin.HandlerFunc{requestObserver.Middleware()}
+	if requestObserver != nil || customization != nil {
+		// Observer must wrap the customization short-circuit, while both remain
+		// after the existing group/model admission middleware.
+		if requestObserver != nil {
+			options.PostPolicyMiddleware = append(options.PostPolicyMiddleware, requestObserver.Middleware())
+		}
+		if customization != nil {
+			options.PostPolicyMiddleware = append(options.PostPolicyMiddleware, customization.Middleware())
+		}
 	}
 	routes.RegisterGatewayRoutesWithOptions(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, options)
 	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, jwtAuth, adminAuth, auditLog, settingService, panelRateLimiter)

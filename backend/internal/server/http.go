@@ -24,6 +24,7 @@ import (
 // ProviderSet 提供服务器层的依赖
 var ProviderSet = wire.NewSet(
 	observer.ProviderSet,
+	observer.CustomizationProviderSet,
 	ProvideRouter,
 	ProvideHTTPServer,
 )
@@ -44,6 +45,7 @@ func ProvideRouter(
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
 	requestObserver *observer.Service,
+	customization *observer.CustomizationService,
 	redisClient *redis.Client,
 ) *gin.Engine {
 	if cfg.Server.Mode == "release" {
@@ -90,14 +92,24 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	settingService.SetGatewayRequestObserverRuntime(requestObserver)
-	if settings, err := settingService.GetGatewayRequestObserverSettings(context.Background()); err != nil {
-		log.Printf("Warning: failed to load gateway request observer settings: %v", err)
-	} else if err := requestObserver.Apply(context.Background(), *settings); err != nil {
-		log.Printf("Warning: failed to apply gateway request observer settings: %v", err)
+	if requestObserver != nil {
+		settingService.SetGatewayRequestObserverRuntime(requestObserver)
+		if settings, err := settingService.GetGatewayRequestObserverSettings(context.Background()); err != nil {
+			log.Printf("Warning: failed to load gateway request observer settings: %v", err)
+		} else if err := requestObserver.Apply(context.Background(), *settings); err != nil {
+			log.Printf("Warning: failed to apply gateway request observer settings: %v", err)
+		}
+	}
+	if customization != nil {
+		settingService.SetGatewayChannelCustomizationRuntime(customization)
+		if settings, err := settingService.GetGatewayChannelCustomizationSettings(context.Background()); err != nil {
+			log.Printf("Warning: failed to load gateway channel customization settings: %v", err)
+		} else if err := customization.Apply(context.Background(), *settings); err != nil {
+			log.Printf("Warning: failed to apply gateway channel customization settings: %v", err)
+		}
 	}
 
-	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, requestObserver)
+	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, requestObserver, customization)
 }
 
 func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {

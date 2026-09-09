@@ -508,6 +508,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/channels/customization',
+    name: 'AdminChannelCustomization',
+    component: () => import('@/views/admin/ChannelCustomizationView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Channel Customization',
+      titleKey: 'admin.channels.customization.title',
+      descriptionKey: 'admin.channels.customization.description'
+    }
+  },
+  {
     path: '/monitor',
     name: 'ChannelStatus',
     component: () => import('@/views/user/ChannelStatusView.vue'),

@@ -113,6 +113,73 @@ func (h *SettingHandler) UpdateGatewayRequestObserverSettings(c *gin.Context) {
 	})
 }
 
+// GetGatewayChannelCustomizationSettings 获取渠道定制与请求观察器配置。
+// GET /api/v1/admin/settings/channel-customization
+func (h *SettingHandler) GetGatewayChannelCustomizationSettings(c *gin.Context) {
+	bundle, err := h.settingService.GetGatewayChannelCustomizationBundle(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gatewayChannelCustomizationResponse(bundle))
+}
+
+// UpdateGatewayChannelCustomizationSettings 更新渠道定制与请求观察器配置。
+// PUT /api/v1/admin/settings/channel-customization
+func (h *SettingHandler) UpdateGatewayChannelCustomizationSettings(c *gin.Context) {
+	var req dto.GatewayChannelCustomizationResponse
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	observerSettings := &service.GatewayRequestObserverSettings{
+		Enabled: req.Observer.Enabled, APIKeyIDs: req.Observer.APIKeyIDs,
+		APIKeyNames: req.Observer.APIKeyNames, UserIDs: req.Observer.UserIDs,
+		UserEmails: req.Observer.UserEmails,
+	}
+	rules := make([]service.GatewayChannelCustomizationRule, len(req.Rules))
+	for i, rule := range req.Rules {
+		rules[i] = service.GatewayChannelCustomizationRule{
+			Name: rule.Name, Enabled: rule.Enabled, APIKeyIDs: rule.APIKeyIDs,
+			APIKeyNames: rule.APIKeyNames, UserIDs: rule.UserIDs, UserEmails: rule.UserEmails,
+			Methods: rule.Methods, ExactPaths: rule.ExactPaths, PathPrefixes: rule.PathPrefixes,
+			UserAgentContains: rule.UserAgentContains, QueryParams: rule.QueryParams,
+			StatusCode: rule.StatusCode, ContentType: rule.ContentType, Body: rule.ResponseBody,
+			MinDelayMs: rule.MinDelayMs, MaxDelayMs: rule.MaxDelayMs,
+		}
+	}
+	if err := h.settingService.SetGatewayChannelCustomizationSettings(c.Request.Context(), observerSettings, &service.GatewayChannelCustomizationSettings{Rules: rules}); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	updated, err := h.settingService.GetGatewayChannelCustomizationBundle(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gatewayChannelCustomizationResponse(updated))
+}
+
+func gatewayChannelCustomizationResponse(bundle *service.GatewayChannelCustomizationBundle) dto.GatewayChannelCustomizationResponse {
+	rules := make([]dto.GatewayChannelCustomizationRule, len(bundle.Rules))
+	for i, rule := range bundle.Rules {
+		rules[i] = dto.GatewayChannelCustomizationRule{
+			Name: rule.Name, Enabled: rule.Enabled, APIKeyIDs: rule.APIKeyIDs, APIKeyNames: rule.APIKeyNames,
+			UserIDs: rule.UserIDs, UserEmails: rule.UserEmails, Methods: rule.Methods, ExactPaths: rule.ExactPaths,
+			PathPrefixes: rule.PathPrefixes, UserAgentContains: rule.UserAgentContains, QueryParams: rule.QueryParams,
+			StatusCode: rule.StatusCode, ContentType: rule.ContentType, ResponseBody: rule.Body,
+			MinDelayMs: rule.MinDelayMs, MaxDelayMs: rule.MaxDelayMs,
+		}
+	}
+	return dto.GatewayChannelCustomizationResponse{
+		Observer: dto.GatewayRequestObserverSettings{
+			Enabled: bundle.Observer.Enabled, APIKeyIDs: bundle.Observer.APIKeyIDs, APIKeyNames: bundle.Observer.APIKeyNames,
+			UserIDs: bundle.Observer.UserIDs, UserEmails: bundle.Observer.UserEmails, OutputPath: service.GatewayRequestObserverOutputPath,
+		},
+		Rules: rules,
+	}
+}
+
 // GetOverloadCooldownSettings 获取529过载冷却配置
 // GET /api/v1/admin/settings/overload-cooldown
 func (h *SettingHandler) GetOverloadCooldownSettings(c *gin.Context) {

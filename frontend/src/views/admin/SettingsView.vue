@@ -204,7 +204,7 @@
         <!-- Tab: Gateway -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
           <!-- Gateway Request Observer Settings -->
-          <div class="card" data-testid="gateway-request-observer-settings">
+          <div v-if="false" class="card" data-testid="gateway-request-observer-settings">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
@@ -13353,7 +13353,6 @@ onMounted(() => {
   loadSettings();
   loadSubscriptionGroups();
   loadAdminApiKey();
-  loadGatewayRequestObserverSettings();
   loadUpstreamBillingProbeSettings();
   loadOllamaCloudUsageSettings();
   loadOverloadCooldownSettings();

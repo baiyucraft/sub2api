@@ -21,6 +21,10 @@ import (
 // The gateway package does not know which extension supplied them.
 type GatewayRouteOptions struct {
 	PostAuthMiddleware []gin.HandlerFunc
+	// PostPolicyMiddleware runs after group/model admission and target
+	// resolution, but before the gateway handler performs billing or upstream
+	// work.
+	PostPolicyMiddleware []gin.HandlerFunc
 }
 
 // RegisterGatewayRoutes registers the API gateway routes without optional extensions.
@@ -218,6 +222,7 @@ func RegisterGatewayRoutesWithOptions(
 	gateway.Use(groupModelAllowlist)
 	gateway.Use(compositeTarget)
 	gateway.Use(requireGroupAnthropic)
+	gateway.Use(options.PostPolicyMiddleware...)
 	{
 		// /v1/messages: auto-route based on group platform
 		gateway.POST("/messages", func(c *gin.Context) {
@@ -372,6 +377,7 @@ func RegisterGatewayRoutesWithOptions(
 	gemini.Use(options.PostAuthMiddleware...)
 	gemini.Use(compositeGeminiTarget)
 	gemini.Use(requireGroupGoogle)
+	gemini.Use(options.PostPolicyMiddleware...)
 	{
 		gemini.GET("/models", h.Gateway.GeminiV1BetaListModels)
 		gemini.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
@@ -390,13 +396,15 @@ func RegisterGatewayRoutesWithOptions(
 	// 根路径别名共用中间件链：白名单准入在 apiKeyAuth 之后、compositeTarget
 	// 之前，避免逐条路由手工维护链导致漏挂。
 	rootRoute := func(method, path string, limit gin.HandlerFunc, handler gin.HandlerFunc) {
-		if len(options.PostAuthMiddleware) == 0 {
+		if len(options.PostAuthMiddleware) == 0 && len(options.PostPolicyMiddleware) == 0 {
 			r.Handle(method, path, limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, requireGroupAnthropic, handler)
 			return
 		}
 		handlers := []gin.HandlerFunc{limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist}
 		handlers = append(handlers, options.PostAuthMiddleware...)
-		handlers = append(handlers, compositeTarget, requireGroupAnthropic, handler)
+		handlers = append(handlers, compositeTarget, requireGroupAnthropic)
+		handlers = append(handlers, options.PostPolicyMiddleware...)
+		handlers = append(handlers, handler)
 		r.Handle(method, path, handlers...)
 	}
 	rootRoute(http.MethodPost, "/responses", bodyLimit, responsesHandler)
@@ -408,12 +416,13 @@ func RegisterGatewayRoutesWithOptions(
 	rootRoute(http.MethodGet, "/models", bodyLimit, modelsHandler)
 	rootRoute(http.MethodPost, "/messages/count_tokens", bodyLimit, countTokensHandler)
 	codexDirect := r.Group("/backend-api/codex")
-	if len(options.PostAuthMiddleware) == 0 {
+	if len(options.PostAuthMiddleware) == 0 && len(options.PostPolicyMiddleware) == 0 {
 		codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, requireGroupAnthropic)
 	} else {
 		codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist)
 		codexDirect.Use(options.PostAuthMiddleware...)
 		codexDirect.Use(compositeTarget, requireGroupAnthropic)
+		codexDirect.Use(options.PostPolicyMiddleware...)
 	}
 	{
 		codexDirect.POST("/realtime/calls", h.OpenAIGateway.Live)
@@ -519,7 +528,9 @@ func RegisterGatewayRoutesWithOptions(
 	// Antigravity 模型列表
 	antigravityModelsHandlers := []gin.HandlerFunc{gin.HandlerFunc(apiKeyAuth)}
 	antigravityModelsHandlers = append(antigravityModelsHandlers, options.PostAuthMiddleware...)
-	antigravityModelsHandlers = append(antigravityModelsHandlers, requireGroupAnthropic, h.Gateway.AntigravityModels)
+	antigravityModelsHandlers = append(antigravityModelsHandlers, requireGroupAnthropic)
+	antigravityModelsHandlers = append(antigravityModelsHandlers, options.PostPolicyMiddleware...)
+	antigravityModelsHandlers = append(antigravityModelsHandlers, h.Gateway.AntigravityModels)
 	r.GET("/antigravity/models", antigravityModelsHandlers...)
 
 	// Antigravity 专用路由（仅使用 antigravity 账户，不混合调度）
@@ -533,6 +544,7 @@ func RegisterGatewayRoutesWithOptions(
 	antigravityV1.Use(groupModelAllowlist)
 	antigravityV1.Use(options.PostAuthMiddleware...)
 	antigravityV1.Use(requireGroupAnthropic)
+	antigravityV1.Use(options.PostPolicyMiddleware...)
 	{
 		antigravityV1.POST("/messages", h.Gateway.Messages)
 		antigravityV1.POST("/messages/count_tokens", h.Gateway.CountTokens)
@@ -550,6 +562,7 @@ func RegisterGatewayRoutesWithOptions(
 	antigravityV1Beta.Use(groupModelAllowlist)
 	antigravityV1Beta.Use(options.PostAuthMiddleware...)
 	antigravityV1Beta.Use(requireGroupGoogle)
+	antigravityV1Beta.Use(options.PostPolicyMiddleware...)
 	{
 		antigravityV1Beta.GET("/models", h.Gateway.GeminiV1BetaListModels)
 		antigravityV1Beta.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)

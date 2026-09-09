@@ -1,0 +1,315 @@
+package observer
+
+import (
+	"context"
+	"encoding/json"
+	"math/rand"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
+	"github.com/google/wire"
+)
+
+// GatewayRequestCustomizer 是认证后的可选本地响应扩展。
+type GatewayRequestCustomizer interface {
+	Middleware() gin.HandlerFunc
+	Apply(context.Context, service.GatewayChannelCustomizationSettings) error
+	Settings(context.Context) (service.GatewayChannelCustomizationSettings, error)
+}
+
+type CustomizationService struct {
+	current atomic.Pointer[customizationRuntimeState]
+}
+
+type customizationRuntimeState struct {
+	generation uint64
+	settings   service.GatewayChannelCustomizationSettings
+	rules      []compiledCustomizationRule
+}
+
+type compiledCustomizationRule struct {
+	rule              service.GatewayChannelCustomizationRule
+	apiKeyIDs         map[int64]struct{}
+	apiKeyNames       map[string]struct{}
+	userIDs           map[int64]struct{}
+	userEmails        map[string]struct{}
+	methods           map[string]struct{}
+	exactPaths        map[string]struct{}
+	pathPrefixes      []string
+	userAgentContains []string
+	queryParams       map[string]map[string]struct{}
+}
+
+var CustomizationProviderSet = wire.NewSet(NewCustomizationService)
+
+func NewCustomizationService() *CustomizationService { return &CustomizationService{} }
+
+func (s *CustomizationService) Settings(context.Context) (service.GatewayChannelCustomizationSettings, error) {
+	if state := s.current.Load(); state != nil {
+		return cloneCustomizationSettings(state.settings), nil
+	}
+	return service.GatewayChannelCustomizationSettings{Rules: []service.GatewayChannelCustomizationRule{}}, nil
+}
+
+func (s *CustomizationService) Apply(_ context.Context, settings service.GatewayChannelCustomizationSettings) error {
+	if err := service.NormalizeGatewayChannelCustomizationSettings(&settings); err != nil {
+		return err
+	}
+	previous := s.current.Load()
+	if previous != nil && serviceGatewayCustomizationSettingsEqual(previous.settings, settings) {
+		return nil
+	}
+	next := &customizationRuntimeState{
+		generation: generationOfCustomization(previous) + 1,
+		settings:   cloneCustomizationSettings(settings),
+		rules:      compileCustomizationRules(settings.Rules),
+	}
+	s.current.Store(next)
+	return nil
+}
+
+// Middleware 只在认证上下文中匹配目标；不读取请求体，不启动后台 goroutine。
+func (s *CustomizationService) Middleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		state := s.current.Load()
+		if state == nil || len(state.rules) == 0 {
+			c.Next()
+			return
+		}
+		apiKey, _ := middleware.GetAPIKeyFromContext(c)
+		userID, userEmail := customizationUser(c, apiKey)
+		for _, rule := range state.rules {
+			if !matchesCustomizationRule(rule, c, apiKey, userID, userEmail) {
+				continue
+			}
+			if !waitCustomizationDelay(c.Request.Context(), rule.rule.MinDelayMs, rule.rule.MaxDelayMs) {
+				c.Abort()
+				return
+			}
+			if s.current.Load() != state {
+				c.Next()
+				return
+			}
+			c.Header("Content-Type", rule.rule.ContentType)
+			if rule.rule.Body == "" {
+				c.Status(rule.rule.StatusCode)
+			} else {
+				c.Data(rule.rule.StatusCode, rule.rule.ContentType, []byte(rule.rule.Body))
+			}
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+func compileCustomizationRules(rules []service.GatewayChannelCustomizationRule) []compiledCustomizationRule {
+	compiled := make([]compiledCustomizationRule, 0, len(rules))
+	for _, rule := range rules {
+		if !rule.Enabled {
+			continue
+		}
+		item := compiledCustomizationRule{
+			rule:              rule,
+			apiKeyIDs:         make(map[int64]struct{}, len(rule.APIKeyIDs)),
+			apiKeyNames:       make(map[string]struct{}, len(rule.APIKeyNames)),
+			userIDs:           make(map[int64]struct{}, len(rule.UserIDs)),
+			userEmails:        make(map[string]struct{}, len(rule.UserEmails)),
+			methods:           make(map[string]struct{}, len(rule.Methods)),
+			exactPaths:        make(map[string]struct{}, len(rule.ExactPaths)),
+			pathPrefixes:      append([]string(nil), rule.PathPrefixes...),
+			userAgentContains: append([]string(nil), rule.UserAgentContains...),
+			queryParams:       make(map[string]map[string]struct{}, len(rule.QueryParams)),
+		}
+		for _, id := range rule.APIKeyIDs {
+			item.apiKeyIDs[id] = struct{}{}
+		}
+		for _, name := range rule.APIKeyNames {
+			item.apiKeyNames[strings.ToLower(name)] = struct{}{}
+		}
+		for _, id := range rule.UserIDs {
+			item.userIDs[id] = struct{}{}
+		}
+		for _, email := range rule.UserEmails {
+			item.userEmails[strings.ToLower(email)] = struct{}{}
+		}
+		for _, method := range rule.Methods {
+			item.methods[method] = struct{}{}
+		}
+		for _, path := range rule.ExactPaths {
+			item.exactPaths[path] = struct{}{}
+		}
+		for key, values := range rule.QueryParams {
+			item.queryParams[key] = make(map[string]struct{}, len(values))
+			for _, value := range values {
+				item.queryParams[key][value] = struct{}{}
+			}
+		}
+		compiled = append(compiled, item)
+	}
+	return compiled
+}
+
+func matchesCustomizationRule(rule compiledCustomizationRule, c *gin.Context, apiKey *service.APIKey, userID int64, userEmail string) bool {
+	targetMatched := false
+	if apiKey != nil {
+		_, targetMatched = rule.apiKeyIDs[apiKey.ID]
+		if !targetMatched {
+			_, targetMatched = rule.apiKeyNames[strings.ToLower(strings.TrimSpace(apiKey.Name))]
+		}
+	}
+	if !targetMatched {
+		_, targetMatched = rule.userIDs[userID]
+	}
+	if !targetMatched {
+		_, targetMatched = rule.userEmails[strings.ToLower(strings.TrimSpace(userEmail))]
+	}
+	if !targetMatched {
+		return false
+	}
+
+	request := c.Request
+	methodMatched := len(rule.methods) == 0
+	if !methodMatched {
+		_, methodMatched = rule.methods[request.Method]
+	}
+	pathMatched := len(rule.exactPaths) == 0 && len(rule.pathPrefixes) == 0
+	if !pathMatched {
+		_, pathMatched = rule.exactPaths[request.URL.Path]
+		if !pathMatched {
+			for _, prefix := range rule.pathPrefixes {
+				if strings.HasPrefix(request.URL.Path, prefix) {
+					pathMatched = true
+					break
+				}
+			}
+		}
+	}
+	uaMatched := len(rule.userAgentContains) == 0
+	if !uaMatched {
+		ua := request.UserAgent()
+		for _, part := range rule.userAgentContains {
+			if strings.Contains(ua, part) {
+				uaMatched = true
+				break
+			}
+		}
+	}
+	queryMatched := len(rule.queryParams) == 0
+	if !queryMatched {
+		queryMatched = true
+		for key, values := range rule.queryParams {
+			actual := request.URL.Query()[key]
+			found := false
+			for _, value := range actual {
+				if _, ok := values[value]; ok {
+					found = true
+					break
+				}
+			}
+			if !found {
+				queryMatched = false
+				break
+			}
+		}
+	}
+	return methodMatched && pathMatched && uaMatched && queryMatched
+}
+
+func customizationUser(c *gin.Context, apiKey *service.APIKey) (int64, string) {
+	var userID int64
+	var email string
+	if apiKey != nil {
+		userID, email = apiKey.UserID, ""
+		if apiKey.User != nil {
+			if apiKey.User.ID > 0 {
+				userID = apiKey.User.ID
+			}
+			email = apiKey.User.Email
+		}
+	}
+	if subject, ok := middleware.GetAuthSubjectFromContext(c); ok && subject.UserID > 0 {
+		userID = subject.UserID
+	}
+	return userID, email
+}
+
+func waitCustomizationDelay(ctx context.Context, minMs, maxMs int) bool {
+	delay := minMs
+	if maxMs > minMs {
+		delay += rand.Intn(maxMs - minMs + 1)
+	}
+	if delay <= 0 {
+		return true
+	}
+	timer := time.NewTimer(time.Duration(delay) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func cloneCustomizationSettings(in service.GatewayChannelCustomizationSettings) service.GatewayChannelCustomizationSettings {
+	return serviceCloneGatewayCustomizationSettings(in)
+}
+
+func serviceCloneGatewayCustomizationSettings(in service.GatewayChannelCustomizationSettings) service.GatewayChannelCustomizationSettings {
+	out := service.GatewayChannelCustomizationSettings{Rules: make([]service.GatewayChannelCustomizationRule, len(in.Rules))}
+	copy(out.Rules, in.Rules)
+	for i := range out.Rules {
+		rule := &out.Rules[i]
+		rule.APIKeyIDs = append([]int64(nil), rule.APIKeyIDs...)
+		rule.APIKeyNames = append([]string(nil), rule.APIKeyNames...)
+		rule.UserIDs = append([]int64(nil), rule.UserIDs...)
+		rule.UserEmails = append([]string(nil), rule.UserEmails...)
+		rule.Methods = append([]string(nil), rule.Methods...)
+		rule.ExactPaths = append([]string(nil), rule.ExactPaths...)
+		rule.PathPrefixes = append([]string(nil), rule.PathPrefixes...)
+		rule.UserAgentContains = append([]string(nil), rule.UserAgentContains...)
+		rule.QueryParams = make(map[string][]string, len(rule.QueryParams))
+		for key, values := range rule.QueryParams {
+			rule.QueryParams[key] = append([]string(nil), values...)
+		}
+	}
+	return out
+}
+
+func serviceGatewayCustomizationSettingsEqual(a, b service.GatewayChannelCustomizationSettings) bool {
+	return customizationSettingsJSONEqual(a, b)
+}
+
+func customizationSettingsJSONEqual(a, b service.GatewayChannelCustomizationSettings) bool {
+	// 配置已规范化；JSON 比较仅用于判断是否需要替换原子快照。
+	return customizationSettingsBytes(a) == customizationSettingsBytes(b)
+}
+
+func customizationSettingsBytes(settings service.GatewayChannelCustomizationSettings) string {
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func mustJSON(value any) []byte {
+	// 仅处理内存中的已知配置结构，序列化失败时返回空字节使其进入替换路径。
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func generationOfCustomization(state *customizationRuntimeState) uint64 {
+	if state == nil {
+		return 0
+	}
+	return state.generation
+}

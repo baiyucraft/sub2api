@@ -589,6 +589,8 @@ const (
 	SettingKeyOpenAITTFTGuardSettings = "openai_ttft_guard_settings"
 	// SettingKeyGatewayRequestObserverSettings stores the opt-in gateway request observer targets.
 	SettingKeyGatewayRequestObserverSettings = "gateway_request_observer_settings"
+	// SettingKeyGatewayChannelCustomizationSettings 存储按顺序匹配的渠道定制短路规则。
+	SettingKeyGatewayChannelCustomizationSettings = "gateway_channel_customization_settings"
 	// SettingKeyUpstreamProbeModels stores provider-specific models used by key health probes.
 	SettingKeyUpstreamProbeModels = "upstream_probe_models"
 	// SettingKeyUpstreamProbeIntervalSeconds controls active key health probe freshness.

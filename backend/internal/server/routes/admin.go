@@ -647,6 +647,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 网关请求观察器
 		adminSettings.GET("/request-observer", h.Admin.Setting.GetGatewayRequestObserverSettings)
 		adminSettings.PUT("/request-observer", h.Admin.Setting.UpdateGatewayRequestObserverSettings)
+		// 渠道定制与请求观察器聚合配置
+		adminSettings.GET("/channel-customization", h.Admin.Setting.GetGatewayChannelCustomizationSettings)
+		adminSettings.PUT("/channel-customization", h.Admin.Setting.UpdateGatewayChannelCustomizationSettings)
 		// 529过载冷却配置
 		adminSettings.GET("/overload-cooldown", h.Admin.Setting.GetOverloadCooldownSettings)
 		adminSettings.PUT("/overload-cooldown", h.Admin.Setting.UpdateOverloadCooldownSettings)

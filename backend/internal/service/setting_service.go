@@ -168,8 +168,10 @@ type SettingService struct {
 	channelMonitorRuntimeListenersMu sync.Mutex
 	channelMonitorRuntimeListeners   []func()
 
-	gatewayRequestObserverRuntimeMu sync.RWMutex
-	gatewayRequestObserverRuntime   GatewayRequestObserverRuntime
+	gatewayRequestObserverRuntimeMu      sync.RWMutex
+	gatewayRequestObserverRuntime        GatewayRequestObserverRuntime
+	gatewayChannelCustomizationRuntimeMu sync.RWMutex
+	gatewayChannelCustomizationRuntime   GatewayChannelCustomizationRuntime
 }
 
 func (s *SettingService) SetGatewayRequestObserverRuntime(runtime GatewayRequestObserverRuntime) {
@@ -188,6 +190,26 @@ func (s *SettingService) gatewayRequestObserverRuntimeSnapshot() GatewayRequestO
 	s.gatewayRequestObserverRuntimeMu.RLock()
 	defer s.gatewayRequestObserverRuntimeMu.RUnlock()
 	return s.gatewayRequestObserverRuntime
+}
+
+// SetGatewayChannelCustomizationRuntime 注入渠道定制运行时。
+// 未注入时配置仍可持久化，便于分阶段启用扩展。
+func (s *SettingService) SetGatewayChannelCustomizationRuntime(runtime GatewayChannelCustomizationRuntime) {
+	if s == nil {
+		return
+	}
+	s.gatewayChannelCustomizationRuntimeMu.Lock()
+	s.gatewayChannelCustomizationRuntime = runtime
+	s.gatewayChannelCustomizationRuntimeMu.Unlock()
+}
+
+func (s *SettingService) gatewayChannelCustomizationRuntimeSnapshot() GatewayChannelCustomizationRuntime {
+	if s == nil {
+		return nil
+	}
+	s.gatewayChannelCustomizationRuntimeMu.RLock()
+	defer s.gatewayChannelCustomizationRuntimeMu.RUnlock()
+	return s.gatewayChannelCustomizationRuntime
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）

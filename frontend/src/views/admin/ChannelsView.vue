@@ -31,6 +31,10 @@
 
           <!-- Right: Actions -->
           <div class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto">
+            <router-link to="/admin/channels/customization" class="btn btn-secondary">
+              <Icon name="bolt" size="md" class="mr-2" />
+              {{ t('nav.channelCustomization') }}
+            </router-link>
             <button
               @click="loadChannels"
               :disabled="loading"
