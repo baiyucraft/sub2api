@@ -716,6 +716,8 @@ const PriceTagIcon = {
     )
 }
 
+const BoltIcon = { render: () => h(Icon, { name: 'bolt' }) }
+
 const ChevronDownIcon = {
   render: () =>
     h(
@@ -822,6 +824,7 @@ const adminNavItems = computed((): NavItem[] => {
       children: [
         { path: '/admin/channels/pricing', label: t('nav.channelPricing'), icon: PriceTagIcon },
         { path: '/admin/channels/monitor', label: t('nav.channelMonitor'), icon: SignalIcon, featureFlag: flagChannelMonitor },
+        { path: '/admin/channels/customization', label: t('nav.channelCustomization'), icon: BoltIcon },
       ],
     },
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },

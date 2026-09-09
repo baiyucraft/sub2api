@@ -520,6 +520,37 @@ type GatewayRequestObserverSettings struct {
 	OutputPath  string   `json:"output_path"`
 }
 
+// GatewayChannelCustomizationRule 渠道定制本地响应规则 DTO。
+type GatewayChannelCustomizationRule struct {
+	Name              string              `json:"name"`
+	Enabled           bool                `json:"enabled"`
+	APIKeyIDs         []int64             `json:"api_key_ids"`
+	APIKeyNames       []string            `json:"api_key_names"`
+	UserIDs           []int64             `json:"user_ids"`
+	UserEmails        []string            `json:"user_emails"`
+	Methods           []string            `json:"methods"`
+	ExactPaths        []string            `json:"exact_paths"`
+	PathPrefixes      []string            `json:"path_prefixes"`
+	UserAgentContains []string            `json:"user_agent_contains"`
+	QueryParams       map[string][]string `json:"query_params"`
+	StatusCode        int                 `json:"status_code"`
+	ContentType       string              `json:"content_type"`
+	ResponseBody      string              `json:"response_body"`
+	MinDelayMs        int                 `json:"min_delay_ms"`
+	MaxDelayMs        int                 `json:"max_delay_ms"`
+}
+
+// GatewayChannelCustomizationSettings 渠道定制配置 DTO。
+type GatewayChannelCustomizationSettings struct {
+	Rules []GatewayChannelCustomizationRule `json:"rules"`
+}
+
+// GatewayChannelCustomizationResponse 渠道定制页面的聚合响应 DTO。
+type GatewayChannelCustomizationResponse struct {
+	Observer GatewayRequestObserverSettings    `json:"observer"`
+	Rules    []GatewayChannelCustomizationRule `json:"rules"`
+}
+
 // OpenAIFastPolicyRule OpenAI fast/flex 策略规则 DTO
 type OpenAIFastPolicyRule struct {
 	ServiceTier          string   `json:"service_tier"`
