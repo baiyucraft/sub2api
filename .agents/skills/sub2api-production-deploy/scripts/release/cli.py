@@ -500,6 +500,20 @@ def production_bootstrap(args: argparse.Namespace) -> None:
     print(" ".join(f"{key}={value}" for key, value in evidence.items()))
 
 
+def vm_only_validate_command(args: argparse.Namespace) -> None:
+    from .vm_only import vm_only_validate
+
+    gate = vm_only_validate(args)
+    print(f"gate={gate}")
+
+
+def vm_only_switch_command(args: argparse.Namespace) -> None:
+    from .vm_only import vm_only_switch
+
+    vm_only_switch(args)
+    print("switch=verified")
+
+
 def production_cleanup(args: argparse.Namespace) -> None:
     from .production_cleanup import cleanup_production
 
@@ -650,6 +664,14 @@ def main() -> None:
     validate_parser.add_argument("--commit", required=True)
     validate_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES, required=True)
     validate_parser.set_defaults(handler=vm_validate)
+    vm_only_validate_parser = subparsers.add_parser("vm-only-validate")
+    vm_only_validate_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
+    vm_only_validate_parser.add_argument("--commit", required=True)
+    vm_only_validate_parser.set_defaults(handler=vm_only_validate_command)
+    vm_only_switch_parser = subparsers.add_parser("vm-only-switch")
+    vm_only_switch_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
+    vm_only_switch_parser.add_argument("--gate", required=True)
+    vm_only_switch_parser.set_defaults(handler=vm_only_switch_command)
     deploy_parser = subparsers.add_parser("deploy")
     deploy_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     deploy_parser.add_argument("--commit", required=True)
