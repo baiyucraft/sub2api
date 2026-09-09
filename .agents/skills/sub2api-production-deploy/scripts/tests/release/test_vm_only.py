@@ -102,6 +102,11 @@ class VMOnlyGateTest(unittest.TestCase):
             self.assertIn("ss -H -ltn | awk '$4 ~ /:8211$/", script)
             self.assertNotIn("SERVER_PORT=8211')", script)
 
+    def test_vm_only_candidate_has_a_private_writable_tmp_directory(self) -> None:
+        script = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
+        self.assertIn("--tmpfs /app/.tmp:rw,nosuid,nodev,noexec,size=64m", script)
+        self.assertIn('-v "$deploy_dir/data-dev:/app/data:ro"', script)
+
 
 if __name__ == "__main__":
     unittest.main()

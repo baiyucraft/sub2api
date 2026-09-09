@@ -69,6 +69,7 @@ docker run -d --name "$candidate_container" --network host \
   -e AUTO_SETUP=false -e UPSTREAM_SYNC_AUTO_ENABLED=false \
   -e DASHBOARD_AGGREGATION_ENABLED=false \
   --read-only --tmpfs /tmp --tmpfs /run \
+  --tmpfs /app/.tmp:rw,nosuid,nodev,noexec,size=64m \
   -v "$deploy_dir/data-dev:/app/data:ro" "$candidate_image_id" >/dev/null
 candidate_health=fail
 for _ in $(seq 1 60); do
