@@ -839,6 +839,7 @@ export default {
       unnamedRule: 'Unnamed rule',
       conditions: 'Request conditions',
       response: 'Response',
+      ruleName: 'Rule name',
       moveUp: 'Move up',
       moveDown: 'Move down',
       status: 'Status',
