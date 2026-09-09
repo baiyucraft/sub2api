@@ -522,22 +522,23 @@ type GatewayRequestObserverSettings struct {
 
 // GatewayChannelCustomizationRule 渠道定制本地响应规则 DTO。
 type GatewayChannelCustomizationRule struct {
-	Name              string              `json:"name"`
-	Enabled           bool                `json:"enabled"`
-	APIKeyIDs         []int64             `json:"api_key_ids"`
-	APIKeyNames       []string            `json:"api_key_names"`
-	UserIDs           []int64             `json:"user_ids"`
-	UserEmails        []string            `json:"user_emails"`
-	Methods           []string            `json:"methods"`
-	ExactPaths        []string            `json:"exact_paths"`
-	PathPrefixes      []string            `json:"path_prefixes"`
-	UserAgentContains []string            `json:"user_agent_contains"`
-	QueryParams       map[string][]string `json:"query_params"`
-	StatusCode        int                 `json:"status_code"`
-	ContentType       string              `json:"content_type"`
-	ResponseBody      string              `json:"response_body"`
-	MinDelayMs        int                 `json:"min_delay_ms"`
-	MaxDelayMs        int                 `json:"max_delay_ms"`
+	Name               string              `json:"name"`
+	Enabled            bool                `json:"enabled"`
+	APIKeyIDs          []int64             `json:"api_key_ids"`
+	APIKeyNames        []string            `json:"api_key_names"`
+	UserIDs            []int64             `json:"user_ids"`
+	UserEmails         []string            `json:"user_emails"`
+	Methods            []string            `json:"methods"`
+	ExactPaths         []string            `json:"exact_paths"`
+	PathPrefixes       []string            `json:"path_prefixes"`
+	UserAgentContains  []string            `json:"user_agent_contains"`
+	QueryParams        map[string][]string `json:"query_params"`
+	RequestMessageText string              `json:"request_message_text,omitempty"`
+	StatusCode         int                 `json:"status_code"`
+	ContentType        string              `json:"content_type"`
+	ResponseBody       string              `json:"response_body"`
+	MinDelayMs         int                 `json:"min_delay_ms"`
+	MaxDelayMs         int                 `json:"max_delay_ms"`
 }
 
 // GatewayChannelCustomizationSettings 渠道定制配置 DTO。

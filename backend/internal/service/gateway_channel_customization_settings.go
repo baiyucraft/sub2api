@@ -32,22 +32,23 @@ type GatewayChannelCustomizationSettings struct {
 
 // GatewayChannelCustomizationRule 描述一个认证后请求的本地响应规则。
 type GatewayChannelCustomizationRule struct {
-	Name              string              `json:"name"`
-	Enabled           bool                `json:"enabled"`
-	APIKeyIDs         []int64             `json:"api_key_ids"`
-	APIKeyNames       []string            `json:"api_key_names"`
-	UserIDs           []int64             `json:"user_ids"`
-	UserEmails        []string            `json:"user_emails"`
-	Methods           []string            `json:"methods"`
-	ExactPaths        []string            `json:"exact_paths"`
-	PathPrefixes      []string            `json:"path_prefixes"`
-	UserAgentContains []string            `json:"user_agent_contains"`
-	QueryParams       map[string][]string `json:"query_params"`
-	StatusCode        int                 `json:"status_code"`
-	ContentType       string              `json:"content_type"`
-	Body              string              `json:"body"`
-	MinDelayMs        int                 `json:"min_delay_ms"`
-	MaxDelayMs        int                 `json:"max_delay_ms"`
+	Name               string              `json:"name"`
+	Enabled            bool                `json:"enabled"`
+	APIKeyIDs          []int64             `json:"api_key_ids"`
+	APIKeyNames        []string            `json:"api_key_names"`
+	UserIDs            []int64             `json:"user_ids"`
+	UserEmails         []string            `json:"user_emails"`
+	Methods            []string            `json:"methods"`
+	ExactPaths         []string            `json:"exact_paths"`
+	PathPrefixes       []string            `json:"path_prefixes"`
+	UserAgentContains  []string            `json:"user_agent_contains"`
+	QueryParams        map[string][]string `json:"query_params"`
+	RequestMessageText string              `json:"request_message_text,omitempty"`
+	StatusCode         int                 `json:"status_code"`
+	ContentType        string              `json:"content_type"`
+	Body               string              `json:"body"`
+	MinDelayMs         int                 `json:"min_delay_ms"`
+	MaxDelayMs         int                 `json:"max_delay_ms"`
 }
 
 // GatewayChannelCustomizationRuntime 是设置服务使用的窄运行时接口。
@@ -96,6 +97,7 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 	rule.ExactPaths = normalizeCustomizationPaths(rule.ExactPaths)
 	rule.PathPrefixes = normalizeCustomizationPaths(rule.PathPrefixes)
 	rule.UserAgentContains = normalizeCustomizationStrings(rule.UserAgentContains)
+	rule.RequestMessageText = strings.TrimSpace(rule.RequestMessageText)
 	if err := validateCustomizationStringList(rule.APIKeyNames, index, "API key names"); err != nil {
 		return err
 	}
@@ -113,6 +115,9 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 	}
 	if err := validateCustomizationStringList(rule.UserAgentContains, index, "user agent conditions"); err != nil {
 		return err
+	}
+	if !validUTF8AndMax(rule.RequestMessageText, gatewayChannelCustomizationMaxStringBytes) {
+		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_CONDITION", fmt.Sprintf("rule %d request message text is too long or invalid", index+1))
 	}
 	if err := normalizeCustomizationQueryParams(rule, index); err != nil {
 		return err
@@ -378,7 +383,7 @@ func hasCustomizationTarget(rule GatewayChannelCustomizationRule) bool {
 }
 
 func hasCustomizationCondition(rule GatewayChannelCustomizationRule) bool {
-	return len(rule.Methods) > 0 || len(rule.ExactPaths) > 0 || len(rule.PathPrefixes) > 0 || len(rule.UserAgentContains) > 0 || len(rule.QueryParams) > 0
+	return len(rule.Methods) > 0 || len(rule.ExactPaths) > 0 || len(rule.PathPrefixes) > 0 || len(rule.UserAgentContains) > 0 || len(rule.QueryParams) > 0 || rule.RequestMessageText != ""
 }
 
 func statusMustNotHaveBody(status int) bool {
@@ -401,6 +406,7 @@ func cloneGatewayChannelCustomizationSettings(in GatewayChannelCustomizationSett
 		out.Rules[i].ExactPaths = append([]string(nil), rule.ExactPaths...)
 		out.Rules[i].PathPrefixes = append([]string(nil), rule.PathPrefixes...)
 		out.Rules[i].UserAgentContains = append([]string(nil), rule.UserAgentContains...)
+		out.Rules[i].RequestMessageText = rule.RequestMessageText
 		out.Rules[i].QueryParams = make(map[string][]string, len(rule.QueryParams))
 		for key, values := range rule.QueryParams {
 			out.Rules[i].QueryParams[key] = append([]string(nil), values...)

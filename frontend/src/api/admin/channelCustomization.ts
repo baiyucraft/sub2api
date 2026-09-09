@@ -32,6 +32,7 @@ export interface ChannelCustomizationRule {
   path_prefixes: string[]
   user_agent_contains: string[]
   query_params: ChannelCustomizationQueryParams
+  request_message_text?: string
   min_delay_ms: number
   max_delay_ms: number
   status_code: number
