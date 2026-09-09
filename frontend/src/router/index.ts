@@ -515,8 +515,8 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: true,
       title: 'Channel Customization',
-      titleKey: 'admin.channels.customization.title',
-      descriptionKey: 'admin.channels.customization.description'
+      titleKey: 'admin.customization.title',
+      descriptionKey: 'admin.customization.description'
     }
   },
   {
