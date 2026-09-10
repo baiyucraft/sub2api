@@ -541,6 +541,7 @@ type GatewayChannelCustomizationRule struct {
 	ResponseBody       string              `json:"response_body"`
 	MinDelayMs         int                 `json:"min_delay_ms"`
 	MaxDelayMs         int                 `json:"max_delay_ms"`
+	HitCount           int64               `json:"hit_count"`
 }
 
 // GatewayChannelCustomizationSettings 渠道定制配置 DTO。

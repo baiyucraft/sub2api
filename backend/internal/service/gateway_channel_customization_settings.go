@@ -57,6 +57,11 @@ type GatewayChannelCustomizationRuntime interface {
 	Apply(context.Context, GatewayChannelCustomizationSettings) error
 }
 
+// GatewayChannelCustomizationHitCounter 返回与规则列表对齐的命中次数。
+type GatewayChannelCustomizationHitCounter interface {
+	HitCounts([]GatewayChannelCustomizationRule) []int64
+}
+
 func DefaultGatewayChannelCustomizationSettings() *GatewayChannelCustomizationSettings {
 	return &GatewayChannelCustomizationSettings{Rules: []GatewayChannelCustomizationRule{}}
 }
@@ -185,12 +190,23 @@ func (s *SettingService) GetGatewayChannelCustomizationBundle(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
-	return &GatewayChannelCustomizationBundle{Observer: *observerSettings, Rules: cloneGatewayChannelCustomizationSettings(*customizationSettings).Rules}, nil
+	rules := cloneGatewayChannelCustomizationSettings(*customizationSettings).Rules
+	hitCounts := make([]int64, len(rules))
+	if runtime := s.gatewayChannelCustomizationRuntimeSnapshot(); runtime != nil {
+		if counter, ok := runtime.(GatewayChannelCustomizationHitCounter); ok {
+			counts := counter.HitCounts(rules)
+			if len(counts) == len(rules) {
+				hitCounts = counts
+			}
+		}
+	}
+	return &GatewayChannelCustomizationBundle{Observer: *observerSettings, Rules: rules, HitCounts: hitCounts}, nil
 }
 
 type GatewayChannelCustomizationBundle struct {
-	Observer GatewayRequestObserverSettings    `json:"observer"`
-	Rules    []GatewayChannelCustomizationRule `json:"rules"`
+	Observer  GatewayRequestObserverSettings    `json:"observer"`
+	Rules     []GatewayChannelCustomizationRule `json:"rules"`
+	HitCounts []int64                           `json:"-"`
 }
 
 func (s *SettingService) SetGatewayChannelCustomizationSettings(ctx context.Context, observerSettings *GatewayRequestObserverSettings, customizationSettings *GatewayChannelCustomizationSettings) error {

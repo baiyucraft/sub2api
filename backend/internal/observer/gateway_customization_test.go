@@ -132,3 +132,65 @@ func TestCustomizationDisabledAndCanceledRequestDoNotShortCircuit(t *testing.T) 
 	router.ServeHTTP(recorder, request)
 	require.False(t, called)
 }
+
+func TestCustomizationCountsSuccessfulShortCircuits(t *testing.T) {
+	serviceUnderTest := NewCustomizationService()
+	first := service.GatewayChannelCustomizationRule{
+		Name: "first", Enabled: true, APIKeyNames: []string{"maibon-gpt"},
+		Methods: []string{http.MethodGet}, ExactPaths: []string{"/v1/models"},
+		StatusCode: http.StatusAccepted, ContentType: "application/json", Body: `{"first":true}`,
+	}
+	second := service.GatewayChannelCustomizationRule{
+		Name: "second", Enabled: true, APIKeyNames: []string{"maibon-gpt"},
+		Methods: []string{http.MethodGet}, ExactPaths: []string{"/v1/models"},
+		StatusCode: http.StatusTeapot, Body: `{"second":true}`,
+	}
+	require.NoError(t, serviceUnderTest.Apply(context.Background(), service.GatewayChannelCustomizationSettings{Rules: []service.GatewayChannelCustomizationRule{first, second}}))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 7, Name: "maibon-gpt", UserID: 42})
+		c.Next()
+	})
+	router.Use(serviceUnderTest.Middleware())
+	router.GET("/v1/models", func(c *gin.Context) { c.String(http.StatusInternalServerError, "downstream") })
+	router.GET("/v1/other", func(c *gin.Context) { c.String(http.StatusOK, "other") })
+
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/other", nil))
+	require.Equal(t, []int64{2, 0}, serviceUnderTest.HitCounts([]service.GatewayChannelCustomizationRule{first, second}))
+
+	first.MinDelayMs = 10
+	first.MaxDelayMs = 20
+	first.Body = `{"first":"updated"}`
+	require.NoError(t, serviceUnderTest.Apply(context.Background(), service.GatewayChannelCustomizationSettings{Rules: []service.GatewayChannelCustomizationRule{first, second}}))
+	require.Equal(t, []int64{2, 0}, serviceUnderTest.HitCounts([]service.GatewayChannelCustomizationRule{first, second}))
+
+	first.ExactPaths = []string{"/v1/changed"}
+	require.NoError(t, serviceUnderTest.Apply(context.Background(), service.GatewayChannelCustomizationSettings{Rules: []service.GatewayChannelCustomizationRule{first, second}}))
+	require.Equal(t, []int64{0, 0}, serviceUnderTest.HitCounts([]service.GatewayChannelCustomizationRule{first, second}))
+}
+
+func TestCustomizationCanceledDelayDoesNotCount(t *testing.T) {
+	serviceUnderTest := NewCustomizationService()
+	rule := service.GatewayChannelCustomizationRule{
+		Name: "delayed", Enabled: true, APIKeyIDs: []int64{9},
+		Methods: []string{http.MethodGet}, ExactPaths: []string{"/probe"},
+		MinDelayMs: 100, MaxDelayMs: 100, StatusCode: http.StatusOK, Body: "ignored",
+	}
+	require.NoError(t, serviceUnderTest.Apply(context.Background(), service.GatewayChannelCustomizationSettings{Rules: []service.GatewayChannelCustomizationRule{rule}}))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 9, Name: "probe"})
+		c.Next()
+	})
+	router.Use(serviceUnderTest.Middleware())
+	router.GET("/probe", func(c *gin.Context) { c.String(http.StatusOK, "ordinary") })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/probe", nil).WithContext(ctx))
+	require.Equal(t, []int64{0}, serviceUnderTest.HitCounts([]service.GatewayChannelCustomizationRule{rule}))
+}
