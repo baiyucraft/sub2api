@@ -210,7 +210,7 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     wrapper.unmount()
   })
 
-  it('点击更多按钮时把真实触发元素作为 AccountActionMenu anchorEl', async () => {
+  it('点击更多按钮时把真实触发元素的位置传给 AccountActionMenu', async () => {
     const account = {
       id: 42,
       name: 'anchor-account',
@@ -230,7 +230,12 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     const menu = wrapper.findComponent(AccountActionMenu)
     expect(menu.props('show')).toBe(true)
     expect(menu.props('account')).toMatchObject({ id: 42 })
-    expect(menu.props('anchorEl')).toBe(moreButton!.element)
+    expect(menu.props('anchorRect')).toMatchObject({
+      top: expect.any(Number),
+      right: expect.any(Number),
+      bottom: expect.any(Number),
+      left: expect.any(Number),
+    })
     wrapper.unmount()
   })
 })

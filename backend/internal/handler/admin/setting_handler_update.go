@@ -347,6 +347,7 @@ type UpdateSettingsRequest struct {
 	ChannelMonitorDegradedThresholdSeconds *int    `json:"channel_monitor_degraded_threshold_seconds"`
 	ChannelMonitorDegradedRetryTolerance   *int    `json:"channel_monitor_degraded_retry_tolerance"`
 	ChannelMonitorDegradedSwitchTolerance  *int    `json:"channel_monitor_degraded_switch_tolerance"`
+	ChannelMonitorHideUserRanking          *bool   `json:"channel_monitor_hide_user_ranking"`
 
 	// Grok model mapping policy
 	GrokDefaultTextModel           *string `json:"grok_default_text_model"`
@@ -1992,6 +1993,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ChannelMonitorDegradedSwitchTolerance
 		}(),
+		ChannelMonitorHideUserRanking: func() bool {
+			if req.ChannelMonitorHideUserRanking != nil {
+				return *req.ChannelMonitorHideUserRanking
+			}
+			return previousSettings.ChannelMonitorHideUserRanking
+		}(),
 		GrokDefaultTextModel: func() string {
 			if req.GrokDefaultTextModel != nil {
 				return *req.GrokDefaultTextModel
@@ -2465,6 +2472,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ChannelMonitorDegradedThresholdSeconds: updatedSettings.ChannelMonitorDegradedThresholdSeconds,
 		ChannelMonitorDegradedRetryTolerance:   updatedSettings.ChannelMonitorDegradedRetryTolerance,
 		ChannelMonitorDegradedSwitchTolerance:  updatedSettings.ChannelMonitorDegradedSwitchTolerance,
+		ChannelMonitorHideUserRanking:          updatedSettings.ChannelMonitorHideUserRanking,
 
 		GrokDefaultTextModel:           updatedSettings.GrokDefaultTextModel,
 		GrokCrossClientModelMapEnabled: updatedSettings.GrokCrossClientModelMapEnabled,

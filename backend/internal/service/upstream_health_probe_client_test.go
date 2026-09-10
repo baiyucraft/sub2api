@@ -295,6 +295,19 @@ func TestRunUpstreamHealthProbeUsesProviderStreamingProfiles(t *testing.T) {
 			},
 		},
 		{
+			name: "minimax chat completions",
+			account: &Account{ID: 9, Platform: PlatformMiniMax, Type: AccountTypeAPIKey, Concurrency: 2, Credentials: map[string]any{
+				"api_key": "minimax-secret", "base_url": "https://minimax.example/v1", "model_mapping": map[string]any{"minimax-probe": "MiniMax-M3"},
+			}},
+			model: "minimax-probe", protocol: upstreamHealthProbeProtocolOpenAIChat,
+			assert: func(t *testing.T, req *http.Request, body []byte) {
+				require.Equal(t, "https://minimax.example/v1/chat/completions", req.URL.String())
+				require.Equal(t, "Bearer minimax-secret", req.Header.Get("Authorization"))
+				require.Equal(t, "MiniMax-M3", gjson.GetBytes(body, "model").String())
+				require.True(t, gjson.GetBytes(body, "stream").Bool())
+			},
+		},
+		{
 			name: "grok chat completions streaming",
 			account: &Account{ID: 7, Platform: PlatformGrok, Type: AccountTypeAPIKey, Concurrency: 2, Credentials: map[string]any{
 				"api_key": "grok-secret", "base_url": "https://grok.example/v1", "model_mapping": map[string]any{"grok-probe": "grok-4.5"},

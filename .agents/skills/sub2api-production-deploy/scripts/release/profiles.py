@@ -643,7 +643,24 @@ PROFILES["248"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "248"
+# Profile 248 is immutable. The merged upstream 0.2.4 release adds the
+# MiniMax platform migration under the next free fork filename.
+PROFILES["249"] = {
+    **{key: PROFILES["248"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "249",
+    "version": "0.2.4-baiyu",
+    "parent": "248",
+    "new_migrations": [
+        "269_add_minimax_platform.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "249"
 
 
 def get_profile(name: str) -> dict:

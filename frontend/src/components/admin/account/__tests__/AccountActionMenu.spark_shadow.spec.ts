@@ -43,10 +43,10 @@ function makeAccount(overrides: Partial<Account>): Account {
 }
 
 const mountMenu = (account: Account) => {
-  const anchorEl = document.createElement('button')
-  document.body.appendChild(anchorEl)
+  const anchor = document.createElement('button')
+  document.body.appendChild(anchor)
   return mount(AccountActionMenu, {
-    props: { show: true, account, anchorEl },
+    props: { show: true, account, anchorRect: anchor.getBoundingClientRect() },
     attachTo: document.body,
   })
 }
