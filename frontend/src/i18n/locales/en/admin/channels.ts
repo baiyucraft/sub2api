@@ -867,7 +867,9 @@ export default {
       cancel: 'Cancel',
       delete: 'Delete',
       edit: 'Edit',
-      refresh: 'Refresh'
+      refresh: 'Refresh',
+      hitCount: 'Hits',
+      hitCountHint: 'Counts successful local short-circuits only. Changing match conditions starts a new count; changing delay or response body keeps it. Counts reset on process restart.'
     },
 
     // Accounts

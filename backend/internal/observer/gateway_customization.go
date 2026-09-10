@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"io"
 	"math/rand"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,6 +27,7 @@ type GatewayRequestCustomizer interface {
 
 type CustomizationService struct {
 	current atomic.Pointer[customizationRuntimeState]
+	hits    sync.Map
 }
 
 type customizationRuntimeState struct {
@@ -44,6 +47,7 @@ type compiledCustomizationRule struct {
 	pathPrefixes      []string
 	userAgentContains []string
 	queryParams       map[string]map[string]struct{}
+	fingerprint       string
 }
 
 const customizationRequestBodyMaxBytes = 256 * 1024
@@ -110,6 +114,7 @@ func (s *CustomizationService) Middleware() gin.HandlerFunc {
 				c.Next()
 				return
 			}
+			s.incrementHit(rule.fingerprint)
 			c.Header("Content-Type", rule.rule.ContentType)
 			if rule.rule.Body == "" {
 				c.Status(rule.rule.StatusCode)
@@ -165,6 +170,7 @@ func compileCustomizationRules(rules []service.GatewayChannelCustomizationRule) 
 				item.queryParams[key][value] = struct{}{}
 			}
 		}
+		item.fingerprint = customizationHitFingerprint(rule)
 		compiled = append(compiled, item)
 	}
 	return compiled
@@ -442,6 +448,94 @@ func mustJSON(value any) []byte {
 		return nil
 	}
 	return data
+}
+
+func (s *CustomizationService) HitCounts(rules []service.GatewayChannelCustomizationRule) []int64 {
+	out := make([]int64, len(rules))
+	if s == nil {
+		return out
+	}
+	for i := range rules {
+		out[i] = s.hitCount(customizationHitFingerprint(rules[i]))
+	}
+	return out
+}
+
+func (s *CustomizationService) incrementHit(fingerprint string) {
+	if s == nil || fingerprint == "" {
+		return
+	}
+	actual, _ := s.hits.LoadOrStore(fingerprint, &atomic.Int64{})
+	actual.(*atomic.Int64).Add(1)
+}
+
+func (s *CustomizationService) hitCount(fingerprint string) int64 {
+	if s == nil || fingerprint == "" {
+		return 0
+	}
+	value, ok := s.hits.Load(fingerprint)
+	if !ok {
+		return 0
+	}
+	return value.(*atomic.Int64).Load()
+}
+
+func customizationHitFingerprint(rule service.GatewayChannelCustomizationRule) string {
+	query := make(map[string][]string, len(rule.QueryParams))
+	for key, values := range rule.QueryParams {
+		query[key] = sortedStrings(values)
+	}
+	payload := struct {
+		Name               string              `json:"name"`
+		APIKeyIDs          []int64             `json:"api_key_ids"`
+		APIKeyNames        []string            `json:"api_key_names"`
+		UserIDs            []int64             `json:"user_ids"`
+		UserEmails         []string            `json:"user_emails"`
+		Methods            []string            `json:"methods"`
+		ExactPaths         []string            `json:"exact_paths"`
+		PathPrefixes       []string            `json:"path_prefixes"`
+		UserAgentContains  []string            `json:"user_agent_contains"`
+		QueryParams        map[string][]string `json:"query_params"`
+		RequestMessageText string              `json:"request_message_text"`
+	}{
+		Name:               strings.TrimSpace(rule.Name),
+		APIKeyIDs:          sortedInt64s(rule.APIKeyIDs),
+		APIKeyNames:        sortedLowerStrings(rule.APIKeyNames),
+		UserIDs:            sortedInt64s(rule.UserIDs),
+		UserEmails:         sortedLowerStrings(rule.UserEmails),
+		Methods:            sortedStrings(rule.Methods),
+		ExactPaths:         sortedStrings(rule.ExactPaths),
+		PathPrefixes:       sortedStrings(rule.PathPrefixes),
+		UserAgentContains:  sortedStrings(rule.UserAgentContains),
+		QueryParams:        query,
+		RequestMessageText: strings.TrimSpace(rule.RequestMessageText),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func sortedStrings(values []string) []string {
+	out := append([]string(nil), values...)
+	slices.Sort(out)
+	return out
+}
+
+func sortedLowerStrings(values []string) []string {
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = strings.ToLower(strings.TrimSpace(value))
+	}
+	slices.Sort(out)
+	return out
+}
+
+func sortedInt64s(values []int64) []int64 {
+	out := append([]int64(nil), values...)
+	slices.Sort(out)
+	return out
 }
 
 func generationOfCustomization(state *customizationRuntimeState) uint64 {

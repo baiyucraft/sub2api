@@ -51,11 +51,18 @@
             <div>
               <h2 class="font-semibold text-gray-900 dark:text-white">{{ t('admin.customization.rules') }}</h2>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.customization.rulesHint') }}</p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.customization.hitCountHint') }}</p>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" @click="openCreate">
-              <Icon name="plus" size="sm" class="mr-1.5" />
-              {{ t('admin.customization.createRule') }}
-            </button>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="btn btn-secondary btn-sm" data-testid="customization-refresh-hits" @click="loadSettings">
+                <Icon name="refresh" size="sm" class="mr-1.5" />
+                {{ t('admin.customization.refresh') }}
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" data-testid="customization-create-rule" @click="openCreate">
+                <Icon name="plus" size="sm" class="mr-1.5" />
+                {{ t('admin.customization.createRule') }}
+              </button>
+            </div>
           </div>
 
           <div v-if="rules.length === 0" class="px-5 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
@@ -72,6 +79,9 @@
                     </h3>
                     <span class="rounded px-2 py-0.5 text-xs" :class="rule.enabled ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-400'">
                       {{ rule.enabled ? t('admin.customization.enabled') : t('admin.customization.disabled') }}
+                    </span>
+                    <span class="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300" :data-testid="`customization-rule-hits-${index}`">
+                      {{ t('admin.customization.hitCount') }}: {{ rule.hit_count || 0 }}
                     </span>
                   </div>
                   <div class="mt-3 grid gap-3 text-sm text-gray-600 dark:text-gray-400 md:grid-cols-2 xl:grid-cols-4">
@@ -258,7 +268,8 @@ function normalizeRule(rule: Partial<ChannelCustomizationRule> = {}): ChannelCus
     max_delay_ms: maxDelay,
     status_code: statusCode >= 100 && statusCode <= 599 ? statusCode : 200,
     content_type: typeof value.content_type === 'string' && value.content_type.trim() ? value.content_type : 'application/json',
-    response_body: typeof value.response_body === 'string' ? value.response_body : ''
+    response_body: typeof value.response_body === 'string' ? value.response_body : '',
+    hit_count: Math.max(0, Math.trunc(finiteNumber(value.hit_count, 0)))
   }
 }
 
@@ -268,7 +279,8 @@ function setDraft(rule: Partial<ChannelCustomizationRule> = {}) {
 }
 
 function draftRule(): ChannelCustomizationRule {
-  return normalizeRule({ name: draft.name.trim(), enabled: draft.enabled, api_key_ids: ids(draft.api_key_ids), api_key_names: tokens(draft.api_key_names), user_ids: ids(draft.user_ids), user_emails: tokens(draft.user_emails).map(value => value.toLowerCase()), methods: tokens(draft.methods).map(value => value.toUpperCase()), exact_paths: tokens(draft.exact_paths), path_prefixes: tokens(draft.path_prefixes), user_agent_contains: tokens(draft.user_agent_contains), query_params: parseQueryParams(draft.query_params), request_message_text: draft.request_message_text.trim(), min_delay_ms: Number(draft.min_delay_ms) || 0, max_delay_ms: Number(draft.max_delay_ms) || 0, status_code: Number(draft.status_code) || 200, content_type: draft.content_type.trim() || 'application/json', response_body: draft.response_body })
+  const current = editingIndex.value !== null && !newRulePending.value ? rules.value[editingIndex.value] : undefined
+  return normalizeRule({ name: draft.name.trim(), enabled: draft.enabled, api_key_ids: ids(draft.api_key_ids), api_key_names: tokens(draft.api_key_names), user_ids: ids(draft.user_ids), user_emails: tokens(draft.user_emails).map(value => value.toLowerCase()), methods: tokens(draft.methods).map(value => value.toUpperCase()), exact_paths: tokens(draft.exact_paths), path_prefixes: tokens(draft.path_prefixes), user_agent_contains: tokens(draft.user_agent_contains), query_params: parseQueryParams(draft.query_params), request_message_text: draft.request_message_text.trim(), min_delay_ms: Number(draft.min_delay_ms) || 0, max_delay_ms: Number(draft.max_delay_ms) || 0, status_code: Number(draft.status_code) || 200, content_type: draft.content_type.trim() || 'application/json', response_body: draft.response_body, hit_count: current?.hit_count || 0 })
 }
 
 function normalizeSettings(data: Partial<ChannelCustomizationSettings> = {}) {

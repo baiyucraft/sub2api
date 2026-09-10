@@ -865,7 +865,9 @@ export default {
       cancel: '取消',
       delete: '删除',
       edit: '编辑',
-      refresh: '刷新'
+      refresh: '刷新',
+      hitCount: '命中次数',
+      hitCountHint: '仅统计本地短路成功的次数。改匹配条件会重新计数；改延迟或响应内容会保留。进程重启后归零。'
     },
 
     // Accounts Management
