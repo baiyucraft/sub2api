@@ -120,7 +120,7 @@ if test -f \"$slot\" && test ! -L \"$slot\" && test \"$slot_container\" = sub2ap
   slot_valid=true
 fi
 compose_valid=false
-if test -d \"$consumed\" && test ! -L \"$consumed\" && (export ACTIVE_CLAIM=\"$consumed\" RELEASE_DIR={shlex.quote(release_dir)}; source \"$consumed/assets/context.sh\"; assert_final_compose_closure \"${{DEPLOY_DIR:-/opt/sub2api}}\" \"$slot_port\") >/dev/null 2>&1; then
+if test -d \"$consumed\" && test ! -L \"$consumed\" && (export ACTIVE_CLAIM=\"$consumed\" RELEASE_DIR={shlex.quote(release_dir)}; source \"$consumed/assets/context.sh\"; source \"$consumed/assets/nginx-ingress-contract.sh\"; assert_final_compose_closure \"${{DEPLOY_DIR:-/opt/sub2api}}\" \"$slot_port\"; assert_nginx_ingress_policy) >/dev/null 2>&1; then
   compose_valid=true
 fi
 if test -d \"$consumed\" && test ! -L \"$consumed\" && test -f \"$consumed/marker\" && test ! -L \"$consumed/marker\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test ! -e \"$active\" && test ! -L \"$active\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$consumed/marker\" && grep -Fxq {shlex.quote(f'candidate_image_id={image_id}')} \"$consumed/marker\" && test \"$slot_valid\" = true && test \"$compose_valid\" = true && test \"$(systemctl is-enabled sub2api-backup.timer 2>/dev/null)\" = enabled; then
@@ -166,6 +166,8 @@ class ProductionRelease:
         self.route_switched = False
         self.route_switch_attempted = False
         self.mask_intent = False
+        self.nginx_ingress_attempted = False
+        self.nginx_ingress_applied = False
         self.backup_values: dict[str, str] | None = None
         self._remote_raw_logging_ready = False
         self._remote_log_sequence = 0
@@ -804,6 +806,39 @@ exit "$code"
             raise RuntimeError("promoted recovery point checksum differs from RackNerd")
         self.stage("backup_verified", {**values, **promoted})
 
+    def apply_nginx_ingress(self) -> None:
+        self.stage("nginx_ingress_apply")
+        self.nginx_ingress_attempted = True
+        env = quoted_env({"RELEASE_DIR": self.release_dir})
+        values = self.run_remote(
+            "racknerd",
+            f"{env} {self.active_assets}/apply-nginx-ingress.sh",
+            {
+                "nginx_ingress_applied",
+                "nginx_request_buffering",
+                "nginx_response_buffering",
+                "nginx_upstream_logging",
+            },
+            timeout=300,
+        )
+        if values["nginx_ingress_applied"] not in {"true", "already_applied"}:
+            raise RuntimeError("Nginx ingress policy was not applied")
+        self.nginx_ingress_applied = True
+        self.stage("nginx_ingress_applied", values)
+
+    def rollback_nginx_ingress(self) -> dict[str, str]:
+        env = quoted_env({"RELEASE_DIR": self.release_dir})
+        values = self.run_remote(
+            "racknerd",
+            f"{env} {self.active_assets}/rollback-nginx-ingress.sh",
+            {"nginx_ingress_rollback"},
+            timeout=300,
+        )
+        if values["nginx_ingress_rollback"] not in {"restored", "not_applicable"}:
+            raise RuntimeError("Nginx ingress rollback returned an invalid state")
+        self.nginx_ingress_applied = False
+        return values
+
     def migration_preflight(self) -> None:
         if self.manifest.get("schema") == 2:
             self.migration_preflight_v2()
@@ -1363,7 +1398,7 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
             "racknerd",
             f"{verify_env} {self.active_assets}/verify.sh",
             {
-                "direct_health", "underscore_header_path", "two_mib_reached_app", "startup_logs",
+                "direct_health", "underscore_header_path", "nginx_ingress_policy", "two_mib_reached_app", "startup_logs",
                 "prompt_audit_disabled", "prompt_audit_jobs", "prompt_audit_events",
             },
             timeout=600,
@@ -1429,7 +1464,11 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
         self.units_masked = False
         self.stage("post_switch_services_restored", {**external_final, **backup_units})
         consume_env = quoted_env({"RELEASE_DIR": self.release_dir})
-        consumed = self.run_remote("racknerd", f"{consume_env} {self.active_assets}/consume.sh", {"gate_consumed"})
+        consumed = self.run_remote(
+            "racknerd",
+            f"{consume_env} {self.active_assets}/consume.sh",
+            {"gate_consumed", "nginx_ingress_policy"},
+        )
         consumed_assets = f"{self.release_dir}/.consumed/assets"
         cleaned = self.run_remote(
             "racknerd",
@@ -1780,6 +1819,7 @@ fi
             self.freeze()
             self.migration_preflight()
             self.backup()
+            self.apply_nginx_ingress()
             self.bind_migration_plan()
             self.switch()
             if getattr(self, "manifest", {}).get("schema") == 2:
@@ -1828,12 +1868,25 @@ fi
                 self.result["status"] = "verified"
                 self.stage("production_verified_after_reconciliation", {"gate_consumed": "true", **cleanup})
                 return
+            ingress_rollback_failed = False
+            if getattr(self, "nginx_ingress_attempted", False):
+                try:
+                    ingress_rollback = self.rollback_nginx_ingress()
+                    self.stage("nginx_ingress_rollback_completed", ingress_rollback)
+                except BaseException:
+                    ingress_rollback_failed = True
+                    self.result["status"] = "blocked_reconciliation"
+                    self.stage("nginx_ingress_rollback_failed")
             if getattr(self, "deployment_mode", "blue-green") == "downtime" and (self.migration_started or self.frozen):
                 try:
                     self.recover()
                 except BaseException:
                     self.result["status"] = "blocked_reconciliation"
                     self.stage("blocked_reconciliation")
+                else:
+                    if ingress_rollback_failed:
+                        self.result["status"] = "blocked_reconciliation"
+                        self.stage("nginx_ingress_rollback_requires_reconciliation", {"application_recovery": "completed"})
                 raise
             if getattr(self, "route_switch_attempted", False) or self.public_exposed:
                 rollback: dict[str, str] | None = None
@@ -1851,6 +1904,10 @@ fi
             except BaseException:
                 self.result["status"] = "blocked_reconciliation"
                 self.stage("blocked_reconciliation")
+            else:
+                if ingress_rollback_failed:
+                    self.result["status"] = "blocked_reconciliation"
+                    self.stage("nginx_ingress_rollback_requires_reconciliation", {"application_recovery": "completed"})
             raise
         self.result["status"] = "verified"
         self._save_result()

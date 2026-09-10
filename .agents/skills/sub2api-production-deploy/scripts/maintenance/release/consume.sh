@@ -3,6 +3,9 @@ set -Eeuo pipefail
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
+source "$assets_dir/nginx-ingress-contract.sh"
+exec 8>/run/lock/sub2api-production-release.lock
+flock -n 8
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 managed_upstream=${NGINX_MANAGED_UPSTREAM:-/etc/nginx/conf.d/sub2api-release-upstream.conf}
 [[ ! -e $release_dir/.consumed ]]
@@ -24,6 +27,7 @@ assert_http_header_equals "$health_headers" X-Sub2API-Instance "$final_instance_
 assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready true
 grep -Fq "server 127.0.0.1:$active_port;" "$managed_upstream"
 [[ $(systemctl is-active nginx) == active ]]
+assert_nginx_ingress_policy
 assert_final_compose_closure "$deploy_dir" "$active_port"
 if [[ -f $state_dir/route-switched && ! -L $state_dir/route-switched ]]; then
   grep -Fxq "phase=final" "$state_dir/route-switched"
@@ -34,3 +38,4 @@ chmod 400 "$active_claim/marker"
 mv -T -- "$active_claim" "$release_dir/.consumed"
 [[ -d $release_dir/.consumed && ! -L $release_dir/.consumed && ! -e $active_claim ]]
 printf 'gate_consumed=true\n'
+printf 'nginx_ingress_policy=pass\n'
