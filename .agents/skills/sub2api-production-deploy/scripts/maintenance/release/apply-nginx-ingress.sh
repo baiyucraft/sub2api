@@ -17,8 +17,15 @@ fi
 (cd "$state_dir" && sha256sum -c backup-result.sha256 >/dev/null)
 
 txn="$state_dir/nginx-ingress-transaction"
-if [[ -d $txn && ! -L $txn && -f $txn/applied ]]; then
-  (cd "$txn" && sha256sum -c SHA256SUMS >/dev/null && sha256sum -c SHA256SUMS.files >/dev/null)
+if [[ -e $txn || -L $txn ]]; then
+  [[ -d $txn && ! -L $txn ]]
+fi
+if [[ -d $txn && ! -L $txn && -f $txn/applied && ! -L $txn/applied ]]; then
+  assert_ingress_transaction_layout "$txn"
+  assert_ingress_transaction_files "$txn"
+  [[ ! -e $txn/rollback-complete && ! -L $txn/rollback-complete ]]
+  [[ ! -e $txn/rollback-failure && ! -L $txn/rollback-failure ]]
+  (cd "$txn" && sha256sum --strict -c SHA256SUMS >/dev/null && sha256sum --strict -c SHA256SUMS.files >/dev/null)
   assert_nginx_ingress_policy
   printf 'nginx_ingress_applied=already_applied\n'
   printf 'nginx_request_buffering=on\nnginx_response_buffering=off\nnginx_upstream_logging=ready\n'
@@ -69,7 +76,9 @@ printf 'release_id=%s\n' "$release_id" > "$txn/identity"
 (cd "$txn" && find files stale -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS.files)
 (cd "$txn" && sha256sum identity targets.tsv stale.tsv SHA256SUMS.files > SHA256SUMS)
 chmod 400 "$txn/identity" "$txn/targets.tsv" "$txn/stale.tsv" "$txn/SHA256SUMS" "$txn/SHA256SUMS.files"
-(cd "$txn" && sha256sum -c SHA256SUMS >/dev/null && sha256sum -c SHA256SUMS.files >/dev/null)
+assert_ingress_transaction_layout "$txn"
+assert_ingress_transaction_files "$txn"
+(cd "$txn" && sha256sum --strict -c SHA256SUMS >/dev/null && sha256sum --strict -c SHA256SUMS.files >/dev/null)
 
 mutation_started=true
 rollback_on_error() {

@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
+source "$assets_dir/nginx-ingress-contract.sh"
 if [[ ${RELEASE_LOCK_HELD:-false} != true ]]; then
   exec 8>/run/lock/sub2api-production-release.lock
   flock -n 8
@@ -13,7 +14,9 @@ if [[ ! -e $txn && ! -L $txn ]]; then
   exit 0
 fi
 [[ -d $txn && ! -L $txn ]]
-(cd "$txn" && sha256sum -c SHA256SUMS >/dev/null && sha256sum -c SHA256SUMS.files >/dev/null)
+assert_ingress_transaction_layout "$txn"
+assert_ingress_transaction_files "$txn"
+(cd "$txn" && sha256sum --strict -c SHA256SUMS >/dev/null && sha256sum --strict -c SHA256SUMS.files >/dev/null)
 grep -Fxq "release_id=$release_id" "$txn/identity"
 
 validate_target() {

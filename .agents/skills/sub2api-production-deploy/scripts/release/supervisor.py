@@ -621,16 +621,48 @@ elif test -e "$active"; then claim=other
 fi
 consumed=false; test -d {release_dir}/.consumed && test ! -L {release_dir}/.consumed && consumed=true
 recovered=false; test -d {release_dir}/.recovered && test ! -L {release_dir}/.recovered && recovered=true
-state_present=false; test -e {state_dir} && state_present=true
+state_present=false
+if test -L {state_dir}; then state_present=unsafe
+elif test -d {state_dir} && test ! -L {state_dir}; then state_present=true
+elif test -e {state_dir}; then state_present=unsafe
+fi
 ingress_transaction=absent
 ingress_txn={state_dir}/nginx-ingress-transaction
-if test -L "$ingress_txn"; then ingress_transaction=unsafe
-elif test -d "$ingress_txn"; then
-  if ! test -f "$ingress_txn/SHA256SUMS" || ! test -f "$ingress_txn/SHA256SUMS.files" || ! (cd "$ingress_txn" && sha256sum -c SHA256SUMS >/dev/null 2>&1 && sha256sum -c SHA256SUMS.files >/dev/null 2>&1); then ingress_transaction=unsafe
-  elif test -f "$ingress_txn/rollback-failure"; then ingress_transaction=rollback_failed
-  elif test -f {state_dir}/nginx-recovery-restored; then ingress_transaction=recovery_restored
-  elif test -f "$ingress_txn/rollback-complete"; then ingress_transaction=rolled_back
-  elif test -f "$ingress_txn/applied"; then ingress_transaction=applied
+if test "$state_present" = unsafe || test -L "$ingress_txn"; then ingress_transaction=unsafe
+elif test -d "$ingress_txn" && test ! -L "$ingress_txn"; then
+  transaction_entries=$(find "$ingress_txn" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)
+  marker_entries=$(find "$ingress_txn" -mindepth 1 -maxdepth 1 \( -name applied -o -name rollback-complete -o -name rollback-failure \) -printf '%f\n' | LC_ALL=C sort)
+  expected_entries=$(printf '%s\n%s\n' 'SHA256SUMS' 'SHA256SUMS.files' 'files' 'identity' 'stale' 'stale.tsv' 'targets.tsv' "$marker_entries" | sed '/^$/d' | LC_ALL=C sort)
+  file_entries_ok=true
+  test "$transaction_entries" = "$expected_entries" || file_entries_ok=false
+  test -d "$ingress_txn/files" && test ! -L "$ingress_txn/files" || file_entries_ok=false
+  test -d "$ingress_txn/stale" && test ! -L "$ingress_txn/stale" || file_entries_ok=false
+  test -z "$(find "$ingress_txn/files" "$ingress_txn/stale" -mindepth 1 ! -type f -print -quit 2>/dev/null)" || file_entries_ok=false
+  for file in identity targets.tsv stale.tsv SHA256SUMS SHA256SUMS.files; do
+    test -f "$ingress_txn/$file" && test ! -L "$ingress_txn/$file" || file_entries_ok=false
+  done
+  for marker in applied rollback-complete rollback-failure; do
+    if test -e "$ingress_txn/$marker" || test -L "$ingress_txn/$marker"; then
+      if ! test -f "$ingress_txn/$marker" || test -L "$ingress_txn/$marker"; then file_entries_ok=false; fi
+    fi
+  done
+  case "$marker_entries" in
+    ''|applied|rollback-complete|rollback-failure|$'applied\nrollback-failure') ;;
+    *) file_entries_ok=false ;;
+  esac
+  recovery_marker={state_dir}/nginx-recovery-restored
+  if test -e "$recovery_marker" || test -L "$recovery_marker"; then
+    test -f "$recovery_marker" && test ! -L "$recovery_marker" || file_entries_ok=false
+  fi
+  expected_files=$(cd "$ingress_txn" && find files stale -type f -print | LC_ALL=C sort)
+  actual_files=$(awk 'NF == 2 && length($1) == 64 {{ print $2 }}' "$ingress_txn/SHA256SUMS.files" | LC_ALL=C sort)
+  test "$actual_files" = "$expected_files" || file_entries_ok=false
+  if ! (cd "$ingress_txn" && sha256sum --strict -c SHA256SUMS >/dev/null 2>&1 && sha256sum --strict -c SHA256SUMS.files >/dev/null 2>&1); then file_entries_ok=false; fi
+  if test "$state_present" != true || test "$file_entries_ok" != true; then ingress_transaction=unsafe
+  elif test -f "$ingress_txn/rollback-failure" && test ! -L "$ingress_txn/rollback-failure"; then ingress_transaction=rollback_failed
+  elif test -f {state_dir}/nginx-recovery-restored && test ! -L {state_dir}/nginx-recovery-restored; then ingress_transaction=recovery_restored
+  elif test -f "$ingress_txn/rollback-complete" && test ! -L "$ingress_txn/rollback-complete"; then ingress_transaction=rolled_back
+  elif test -f "$ingress_txn/applied" && test ! -L "$ingress_txn/applied"; then ingress_transaction=applied
   else ingress_transaction=pending
   fi
 elif test -e "$ingress_txn"; then ingress_transaction=unsafe
