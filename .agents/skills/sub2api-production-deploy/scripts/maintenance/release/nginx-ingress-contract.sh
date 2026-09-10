@@ -30,7 +30,7 @@ assert_managed_proxy_includes() {
       sub(/[[:space:]]+$/, "", value)
       return value
     }
-    /^[[:space:]]*proxy_pass[[:space:]]+http://sub2api_release_backend;[[:space:]]*$/ {
+    /^[[:space:]]*proxy_pass[[:space:]]+http:\/\/sub2api_release_backend;[[:space:]]*$/ {
       if (previous != "include /etc/nginx/snippets/sub2api-release-ingress.conf;") exit 1
       count++
     }
@@ -40,6 +40,41 @@ assert_managed_proxy_includes() {
     }
     END { if (count < 1) exit 1 }
   ' "$site"
+}
+
+assert_ingress_transaction_layout() {
+  local txn=${1:?transaction directory is required}
+  local markers actual expected
+  [[ -d $txn && ! -L $txn ]]
+  [[ -d $txn/files && ! -L $txn/files ]]
+  [[ -d $txn/stale && ! -L $txn/stale ]]
+  for file in identity targets.tsv stale.tsv SHA256SUMS SHA256SUMS.files; do
+    [[ -f $txn/$file && ! -L $txn/$file ]]
+  done
+  for marker in applied rollback-complete rollback-failure; do
+    if [[ -e $txn/$marker || -L $txn/$marker ]]; then
+      [[ -f $txn/$marker && ! -L $txn/$marker ]]
+    fi
+  done
+  markers=$(find "$txn" -mindepth 1 -maxdepth 1 \
+    \( -name applied -o -name rollback-complete -o -name rollback-failure \) \
+    -printf '%f\n' | LC_ALL=C sort)
+  case "$markers" in
+    ''|applied|rollback-complete|rollback-failure|$'applied\nrollback-failure') ;;
+    *) return 1 ;;
+  esac
+  actual=$(find "$txn" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)
+  expected=$(printf '%s\n' SHA256SUMS SHA256SUMS.files files identity stale stale.tsv targets.tsv "$markers" | sed '/^$/d' | LC_ALL=C sort)
+  [[ $actual == "$expected" ]]
+  [[ -z $(find "$txn/files" "$txn/stale" -mindepth 1 ! -type f -print -quit) ]]
+}
+
+assert_ingress_transaction_files() {
+  local txn=${1:?transaction directory is required}
+  local expected actual
+  expected=$(cd "$txn" && find files stale -type f -print | LC_ALL=C sort)
+  actual=$(awk 'NF == 2 && length($1) == 64 { print $2 }' "$txn/SHA256SUMS.files" | LC_ALL=C sort)
+  [[ $actual == "$expected" ]]
 }
 
 rewrite_managed_nginx_site() {

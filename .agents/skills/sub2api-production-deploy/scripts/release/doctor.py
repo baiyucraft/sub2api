@@ -187,7 +187,7 @@ assert_ingress_policy() {{
   [[ $site =~ ^/etc/nginx/sites-enabled/[A-Za-z0-9._-]{{1,160}}$ ]] || return 1
   awk '
     function normalized(value) {{ sub(/^[[:space:]]+/, "", value); sub(/[[:space:]]+$/, "", value); return value }}
-    /^[[:space:]]*proxy_pass[[:space:]]+http://sub2api_release_backend;[[:space:]]*$/ {{
+    /^[[:space:]]*proxy_pass[[:space:]]+http:\\/\\/sub2api_release_backend;[[:space:]]*$/ {{
       if (previous != "include /etc/nginx/snippets/sub2api-release-ingress.conf;") exit 1
       count++
     }}

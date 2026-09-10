@@ -59,7 +59,7 @@ replace_from_snapshot() {
   local kind=${3:?kind is required}
   local tmp
   assert_root_file "$source" "$kind"
-  assert_safe_file_target "$target"
+  assert_safe_file_target "$target" "$kind"
   tmp="$target.restore.$$"
   [[ ! -e $tmp && ! -L $tmp ]]
   cp -p -- "$source" "$tmp"
@@ -68,6 +68,17 @@ replace_from_snapshot() {
 snapshot_entries() {
   local directory=${1:?directory is required}
   mapfile -d '' SNAPSHOT_ENTRIES < <(find "$directory" -mindepth 1 -maxdepth 1 -printf '%f\0')
+}
+assert_observability_snapshot() {
+  local directory=${1:?directory is required}
+  local -a entries=()
+  mapfile -d '' entries < <(find "$directory" -mindepth 1 -maxdepth 1 -name 'observability*' -printf '%f\0')
+  [[ ${#entries[@]} == 1 ]]
+  case "${entries[0]}" in
+    observability.absent|observability.conf) ;;
+    *) return 1 ;;
+  esac
+  assert_root_file "$directory/${entries[0]}" 600
 }
 assert_single_snapshot() {
   local directory=${1:?directory is required}
@@ -145,6 +156,7 @@ restore_nginx_recovery() {
     replace_from_snapshot "$source" "$NGINX_INGRESS_SNIPPET" 600
   fi
 
+  assert_observability_snapshot "$nginx_backup"
   if [[ -e $nginx_backup/observability.absent || -L $nginx_backup/observability.absent ]]; then
     assert_root_file "$nginx_backup/observability.absent" 600
     [[ ! -e $nginx_backup/observability.conf && ! -L $nginx_backup/observability.conf ]]
