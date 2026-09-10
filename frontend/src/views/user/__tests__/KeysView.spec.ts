@@ -11,6 +11,7 @@ const {
   getDashboardApiKeysUsage,
   getAvailableGroups,
   getUserGroupRates,
+  createKey,
   showError,
   showSuccess,
   copyToClipboard,
@@ -22,6 +23,7 @@ const {
   getDashboardApiKeysUsage: vi.fn(),
   getAvailableGroups: vi.fn(),
   getUserGroupRates: vi.fn(),
+  createKey: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
   copyToClipboard: vi.fn(),
@@ -39,6 +41,16 @@ const messages: Record<string, string> = {
   'keys.allStatus': 'All Status',
   'keys.columnSettings': 'Column Settings',
   'keys.createKey': 'Create API Key',
+  'keys.platformLabel': 'Platform',
+  'keys.platforms.anthropic': 'Anthropic',
+  'keys.platforms.openai': 'OpenAI',
+  'keys.platforms.gemini': 'Gemini',
+  'keys.noGroupsAvailable': 'No groups are available to bind',
+  'keys.groupRequired': 'Please select a group',
+  'keys.nameLabel': 'Name',
+  'keys.namePlaceholder': 'My API Key',
+  'keys.groupLabel': 'Group',
+  'keys.selectGroup': 'Select a group',
   'keys.created': 'Created',
   'keys.expiresAt': 'Expires',
   'keys.group': 'Group',
@@ -58,7 +70,7 @@ const messages: Record<string, string> = {
 vi.mock('@/api', () => ({
   keysAPI: {
     list: listKeys,
-    create: vi.fn(),
+    create: createKey,
     update: vi.fn(),
     delete: vi.fn(),
     toggleStatus: vi.fn(),
@@ -189,7 +201,12 @@ const SelectStub = {
   name: 'Select',
   props: ['modelValue', 'options'],
   emits: ['update:modelValue'],
-  template: '<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"></select>',
+  template: '<select v-bind="$attrs" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"></select>',
+}
+
+const BaseDialogStub = {
+  props: ['show'],
+  template: '<div v-if="show"><slot /><slot name="footer" /></div>',
 }
 
 const SearchInputStub = {
@@ -223,12 +240,13 @@ const mountView = async () => {
         TablePageLayout: TablePageLayoutStub,
         DataTable: DataTableStub,
         Pagination: PaginationStub,
-        BaseDialog: true,
+        BaseDialog: BaseDialogStub,
         ConfirmDialog: true,
         EmptyState: true,
         Select: SelectStub,
         SearchInput: SearchInputStub,
         Icon: IconStub,
+        PlatformIcon: true,
         UseKeyModal: true,
         EndpointPopover: true,
         GroupBadge: true,
@@ -265,6 +283,7 @@ describe('user KeysView column settings', () => {
     getDashboardApiKeysUsage.mockReset()
     getAvailableGroups.mockReset()
     getUserGroupRates.mockReset()
+    createKey.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
     copyToClipboard.mockReset()
@@ -282,7 +301,106 @@ describe('user KeysView column settings', () => {
     getDashboardApiKeysUsage.mockResolvedValue({ stats: {} })
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
+    createKey.mockResolvedValue({})
     isCurrentStep.mockReturnValue(false)
+  })
+
+  const createAvailableGroup = (id: number, name: string, platform: string) => ({
+    id,
+    name,
+    platform,
+    description: null,
+    rate_multiplier: 1,
+    peak_rate_enabled: false,
+    peak_start: '00:00',
+    peak_end: '00:00',
+    peak_rate_multiplier: 1,
+    subscription_type: 'none',
+  })
+
+  const createFormGroupSelect = (wrapper: VueWrapper) => {
+    const groupSelect = wrapper.findAllComponents({ name: 'Select' }).find(
+      (component) => component.attributes('data-tour') === 'key-form-group'
+    )
+    if (!groupSelect) throw new Error('Create form group select not found')
+    return groupSelect
+  }
+
+  it('derives platform buttons, defaults to the first platform, and filters group options', async () => {
+    getAvailableGroups.mockResolvedValue([
+      createAvailableGroup(2, 'OpenAI One', 'openai'),
+      createAvailableGroup(1, 'Anthropic One', 'anthropic'),
+      createAvailableGroup(3, 'OpenAI Two', 'openai'),
+    ])
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-test="key-create-platform-anthropic"]').classes()).toContain('text-white')
+    expect(wrapper.find('[data-test="key-create-platform-openai"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="key-create-platform-gemini"]').exists()).toBe(false)
+    expect(createFormGroupSelect(wrapper).props('options')).toEqual([
+      expect.objectContaining({ value: 1, platform: 'anthropic' }),
+    ])
+
+    await wrapper.get('[data-test="key-create-platform-openai"]').trigger('click')
+    await nextTick()
+
+    expect(createFormGroupSelect(wrapper).props('options')).toEqual([
+      expect.objectContaining({ value: 2, platform: 'openai' }),
+      expect.objectContaining({ value: 3, platform: 'openai' }),
+    ])
+  })
+
+  it('clears a selected group when the create platform changes', async () => {
+    getAvailableGroups.mockResolvedValue([
+      createAvailableGroup(1, 'Anthropic One', 'anthropic'),
+      createAvailableGroup(2, 'OpenAI One', 'openai'),
+    ])
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+    await createFormGroupSelect(wrapper).vm.$emit('update:modelValue', 1)
+    await nextTick()
+    expect(createFormGroupSelect(wrapper).props('modelValue')).toBe(1)
+
+    await wrapper.get('[data-test="key-create-platform-openai"]').trigger('click')
+    await nextTick()
+
+    expect(createFormGroupSelect(wrapper).props('modelValue')).toBeNull()
+  })
+
+  it('keeps the existing API key create request shape', async () => {
+    getAvailableGroups.mockResolvedValue([
+      createAvailableGroup(1, 'Anthropic One', 'anthropic'),
+    ])
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+    await wrapper.get('[data-tour="key-form-name"]').setValue('platform-filter-key')
+    await createFormGroupSelect(wrapper).vm.$emit('update:modelValue', 1)
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+
+    expect(createKey).toHaveBeenCalledTimes(1)
+    expect(createKey.mock.calls[0]).toHaveLength(8)
+    expect(createKey.mock.calls[0][0]).toBe('platform-filter-key')
+    expect(createKey.mock.calls[0][1]).toBe(1)
+  })
+
+  it('shows an empty state and keeps the group requirement when no groups are available', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('[data-test^="key-create-platform-"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="key-create-no-groups"]').text()).toBe('No groups are available to bind')
+
+    await wrapper.get('#key-form').trigger('submit')
+    expect(showError).toHaveBeenCalledWith('Please select a group')
+    expect(createKey).not.toHaveBeenCalled()
   })
 
   it('uses the default API key columns with low-frequency columns hidden', async () => {
