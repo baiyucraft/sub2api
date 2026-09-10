@@ -38,6 +38,7 @@ export interface ChannelCustomizationRule {
   status_code: number
   content_type: string
   response_body: string
+  hit_count?: number
 }
 
 export interface ChannelCustomizationSettings {

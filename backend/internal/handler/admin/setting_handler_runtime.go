@@ -172,6 +172,9 @@ func gatewayChannelCustomizationResponse(bundle *service.GatewayChannelCustomiza
 			StatusCode:         rule.StatusCode, ContentType: rule.ContentType, ResponseBody: rule.Body,
 			MinDelayMs: rule.MinDelayMs, MaxDelayMs: rule.MaxDelayMs,
 		}
+		if i < len(bundle.HitCounts) {
+			rules[i].HitCount = bundle.HitCounts[i]
+		}
 	}
 	return dto.GatewayChannelCustomizationResponse{
 		Observer: dto.GatewayRequestObserverSettings{
