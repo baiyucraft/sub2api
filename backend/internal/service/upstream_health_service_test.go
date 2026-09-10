@@ -691,6 +691,81 @@ func TestUpstreamConfigServiceListDueHealthProbeKeysFiltersInvalidBindingsBefore
 	require.Equal(t, []int64{92226, 92227}, ids)
 }
 
+func TestUpstreamConfigServiceListDueHealthProbeKeysPrefersOldestProbe(t *testing.T) {
+	now := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	active := StatusActive
+	const (
+		neverProbedID int64 = 92300
+		oldestID      int64 = 92301
+		tiedID        int64 = 92302
+		recentID      int64 = 92303
+	)
+	repo := &healthEventCaptureRepo{keys: []UpstreamKey{
+		{ID: neverProbedID, Status: active, BoundAccountCount: 1},
+		{ID: oldestID, Status: active, BoundAccountCount: 1},
+		{ID: tiedID, Status: active, BoundAccountCount: 1},
+		{ID: recentID, Status: active, BoundAccountCount: 1},
+	}}
+	oldest := now.Add(-30 * time.Minute)
+	old := defaultUpstreamHealthSnapshot(oldestID)
+	old.LastProbeAt = upstreamHealthTimePtr(oldest)
+	GlobalUpstreamHealthRegistry().Hydrate(old)
+	tied := defaultUpstreamHealthSnapshot(tiedID)
+	tied.LastProbeAt = upstreamHealthTimePtr(oldest)
+	GlobalUpstreamHealthRegistry().Hydrate(tied)
+	recent := defaultUpstreamHealthSnapshot(recentID)
+	recent.LastProbeAt = upstreamHealthTimePtr(now.Add(-20 * time.Minute))
+	GlobalUpstreamHealthRegistry().Hydrate(recent)
+
+	svc := &UpstreamConfigService{repo: repo}
+	ids, err := svc.ListDueHealthProbeKeyIDs(context.Background(), now, 4)
+	require.NoError(t, err)
+	require.Equal(t, []int64{neverProbedID, oldestID, tiedID, recentID}, ids)
+}
+
+func TestUpstreamConfigServiceListDueHealthProbeKeysLimitAppliesAfterFairOrdering(t *testing.T) {
+	now := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	active := StatusActive
+	keys := make([]UpstreamKey, 0, 3)
+	for _, id := range []int64{92310, 92311, 92312} {
+		keys = append(keys, UpstreamKey{ID: id, Status: active, BoundAccountCount: 1})
+	}
+	first := defaultUpstreamHealthSnapshot(92310)
+	first.LastProbeAt = upstreamHealthTimePtr(now.Add(-2 * time.Minute))
+	GlobalUpstreamHealthRegistry().Hydrate(first)
+	second := defaultUpstreamHealthSnapshot(92311)
+	second.LastProbeAt = upstreamHealthTimePtr(now.Add(-20 * time.Minute))
+	GlobalUpstreamHealthRegistry().Hydrate(second)
+
+	svc := &UpstreamConfigService{repo: &healthEventCaptureRepo{keys: keys}}
+	ids, err := svc.ListDueHealthProbeKeyIDs(context.Background(), now, 2)
+	require.NoError(t, err)
+	require.Equal(t, []int64{92312, 92311}, ids)
+}
+
+func TestUpstreamConfigServiceListDueHealthProbeKeysAdvancesAcrossProbeCycles(t *testing.T) {
+	now := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	active := StatusActive
+	keys := make([]UpstreamKey, 0, 4)
+	for _, id := range []int64{92320, 92321, 92322, 92323} {
+		keys = append(keys, UpstreamKey{ID: id, Status: active, BoundAccountCount: 1})
+	}
+	svc := &UpstreamConfigService{repo: &healthEventCaptureRepo{keys: keys}}
+
+	first, err := svc.ListDueHealthProbeKeyIDs(context.Background(), now, 2)
+	require.NoError(t, err)
+	require.Equal(t, []int64{92320, 92321}, first)
+	for _, keyID := range first {
+		item := defaultUpstreamHealthSnapshot(keyID)
+		item.LastProbeAt = upstreamHealthTimePtr(now)
+		GlobalUpstreamHealthRegistry().Hydrate(item)
+	}
+
+	second, err := svc.ListDueHealthProbeKeyIDs(context.Background(), now, 2)
+	require.NoError(t, err)
+	require.Equal(t, []int64{92322, 92323}, second)
+}
+
 func TestUpstreamConfigServiceListDueHealthProbeKeysReloadsConfiguredInterval(t *testing.T) {
 	now := time.Date(2026, 8, 11, 9, 0, 0, 0, time.UTC)
 	active := StatusActive

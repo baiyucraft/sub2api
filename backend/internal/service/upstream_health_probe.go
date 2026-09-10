@@ -235,7 +235,11 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 	}
 	cutoff := now.Add(-s.effectiveHealthProbeInterval(ctx))
 	confidenceIndependent := s.confidenceProbeIndependent(ctx)
-	ids := make([]int64, 0, len(keys))
+	type dueHealthProbeCandidate struct {
+		id          int64
+		lastProbeAt *time.Time
+	}
+	candidates := make([]dueHealthProbeCandidate, 0, len(keys))
 	for _, key := range keys {
 		if key.ID <= 0 || !upstreamKeyIsActive(&key) {
 			continue
@@ -262,11 +266,33 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 		if !confidenceIndependent && item.LastEvidenceAt != nil && item.LastEvidenceAt.After(cutoff) {
 			continue
 		}
-		ids = append(ids, key.ID)
+		candidates = append(candidates, dueHealthProbeCandidate{
+			id:          key.ID,
+			lastProbeAt: item.LastProbeAt,
+		})
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	if len(ids) > limit {
-		ids = ids[:limit]
+	// Prefer keys that have never been probed, then the ones whose last probe
+	// is oldest. Key ID is only a stable tie-breaker; sorting by ID first can
+	// starve higher-ID keys when lower-ID keys repeatedly become due.
+	sort.Slice(candidates, func(i, j int) bool {
+		left, right := candidates[i], candidates[j]
+		switch {
+		case left.lastProbeAt == nil && right.lastProbeAt != nil:
+			return true
+		case left.lastProbeAt != nil && right.lastProbeAt == nil:
+			return false
+		case left.lastProbeAt != nil && right.lastProbeAt != nil && !left.lastProbeAt.Equal(*right.lastProbeAt):
+			return left.lastProbeAt.Before(*right.lastProbeAt)
+		default:
+			return left.id < right.id
+		}
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	ids := make([]int64, 0, len(candidates))
+	for _, candidate := range candidates {
+		ids = append(ids, candidate.id)
 	}
 	return ids, nil
 }
