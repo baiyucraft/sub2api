@@ -73,7 +73,7 @@
               </button>
             </div>
           </div>
-          <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
+          <button @click="openCreateModal" class="btn btn-primary" data-tour="keys-create-btn">
             <Icon name="plus" size="md" class="mr-2" />
             {{ t('keys.createKey') }}
           </button>
@@ -426,7 +426,7 @@
               :title="t('keys.noKeysYet')"
               :description="t('keys.createFirstKey')"
               :action-text="t('keys.createKey')"
-              @action="showCreateModal = true"
+              @action="openCreateModal"
             />
           </template>
         </DataTable>
@@ -464,11 +464,34 @@
           />
         </div>
 
+        <div v-if="!showEditModal && createPlatforms.length > 0">
+          <label class="input-label">{{ t('keys.platformLabel') }}</label>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="platform in createPlatforms"
+              :key="platform"
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors"
+              :class="selectedCreatePlatform === platform ? 'text-white shadow-sm' : 'bg-white hover:bg-gray-50 dark:bg-dark-800 dark:hover:bg-dark-700'"
+              :style="{
+                color: selectedCreatePlatform === platform ? '#fff' : platformAccentColor(platform),
+                borderColor: platformAccentColor(platform),
+                backgroundColor: selectedCreatePlatform === platform ? platformAccentColor(platform) : undefined
+              }"
+              :data-test="`key-create-platform-${platform}`"
+              @click="selectedCreatePlatform = platform"
+            >
+              <PlatformIcon :platform="platform" size="xs" />
+              {{ t(`keys.platforms.${platform}`) }}
+            </button>
+          </div>
+        </div>
+
         <div>
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
             v-model="formData.group_id"
-            :options="groupOptions"
+            :options="formGroupOptions"
             :placeholder="t('keys.selectGroup')"
             :searchable="true"
             :search-placeholder="t('keys.searchGroup')"
@@ -505,6 +528,13 @@
               />
             </template>
           </Select>
+          <p
+            v-if="!showEditModal && formGroupOptions.length === 0"
+            class="mt-2 text-sm text-gray-500 dark:text-dark-400"
+            data-test="key-create-no-groups"
+          >
+            {{ t('keys.noGroupsAvailable') }}
+          </p>
         </div>
 
         <!-- Custom Key Section (only for create) -->
@@ -1117,7 +1147,7 @@
 </template>
 
 <script setup lang="ts">
-	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+	import { ref, reactive, computed, onMounted, onUnmounted, watch, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
 	import { useOnboardingStore } from '@/stores/onboarding'
@@ -1140,11 +1170,13 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
+import PlatformIcon from '@/components/common/PlatformIcon.vue'
 	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
+import { platformAccentColor } from '@/utils/platformColors'
 import {
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
@@ -1302,6 +1334,7 @@ const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
 const showCcsClientSelect = ref(false)
 const showColumnDropdown = ref(false)
+const selectedCreatePlatform = ref<GroupPlatform | null>(null)
 const pendingCcsRow = ref<ApiKey | null>(null)
 const selectedKey = ref<ApiKey | null>(null)
 const copiedKeyId = ref<number | null>(null)
@@ -1424,6 +1457,46 @@ const groupOptions = computed(() =>
   }))
 )
 
+const createPlatformOrder: GroupPlatform[] = [
+  'anthropic',
+  'openai',
+  'gemini',
+  'antigravity',
+  'grok',
+  'kimi',
+  'zhipu',
+  'deepseek',
+  'minimax',
+  'composite'
+]
+
+const createPlatforms = computed(() =>
+  createPlatformOrder.filter((platform) =>
+    groups.value.some((group) => group.platform === platform)
+  )
+)
+
+const formGroupOptions = computed(() => {
+  if (showEditModal.value) return groupOptions.value
+  if (!selectedCreatePlatform.value) return []
+  return groupOptions.value.filter((group) => group.platform === selectedCreatePlatform.value)
+})
+
+watch(createPlatforms, (platforms) => {
+  if (!showCreateModal.value) return
+  if (!selectedCreatePlatform.value || !platforms.includes(selectedCreatePlatform.value)) {
+    selectedCreatePlatform.value = platforms[0] ?? null
+  }
+})
+
+watch(selectedCreatePlatform, (platform) => {
+  if (!showCreateModal.value || formData.value.group_id === null) return
+  const selectedGroup = groups.value.find((group) => group.id === formData.value.group_id)
+  if (!platform || !selectedGroup || selectedGroup.platform !== platform) {
+    formData.value.group_id = null
+  }
+})
+
 // Group dropdown search
 const groupSearchQuery = ref('')
 const filteredGroupOptions = computed(() => {
@@ -1527,6 +1600,12 @@ const loadPublicSettings = async () => {
   } catch (error) {
     console.error('Failed to load public settings:', error)
   }
+}
+
+const openCreateModal = () => {
+  selectedCreatePlatform.value = createPlatforms.value[0] ?? null
+  formData.value.group_id = null
+  showCreateModal.value = true
 }
 
 const openUseKeyModal = (key: ApiKey) => {
@@ -1786,6 +1865,7 @@ const handleDelete = async () => {
 const closeModals = () => {
   showCreateModal.value = false
   showEditModal.value = false
+  selectedCreatePlatform.value = null
   selectedKey.value = null
   formData.value = {
     name: '',
