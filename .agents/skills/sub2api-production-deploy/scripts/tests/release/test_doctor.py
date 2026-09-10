@@ -87,13 +87,14 @@ class DoctorTest(unittest.TestCase):
         runner.run.return_value.values = {"production_bootstrap": "true"}
         bootstrap_production("182", runner)
         scripts = "\n".join(call.args[1] for call in runner.run.call_args_list)
+        allowed = runner.run.call_args.args[2]
         self.assertNotIn("SELECT key FROM api_keys", scripts)
         self.assertNotIn("canary-api-key", scripts)
         self.assertNotIn("docker system prune", scripts)
         self.assertNotIn("install -o root -g root -m 644", scripts)
         self.assertNotIn("systemctl daemon-reload", scripts)
         health_check = scripts.index("for container in sub2api-postgres sub2api-redis")
-        first_app_check = scripts.index("docker inspect -f", scripts.index("if test ! -e \"$active_slot\""))
+        first_app_check = scripts.index("docker inspect -f '{{.State.Health.Status}}' sub2api", scripts.index('if test ! -e "$active_slot"'))
         claim_check = scripts.index("test ! -e /opt/sub2api/releases/.active-release")
         directory_install = scripts.index("install -d -m 700")
         self.assertLess(health_check, directory_install)
@@ -101,12 +102,41 @@ class DoctorTest(unittest.TestCase):
         self.assertGreater(first_app_check, directory_install)
         self.assertIn("active_container=$(sed -n 's/^container=//p'", scripts)
         self.assertIn("legacy_proxy_count=$(grep -Ec", scripts)
-        self.assertIn('test "$legacy_proxy_count" -ge 1', scripts)
-        self.assertNotIn(
-            "test \"$(grep -Ec '^[[:space:]]*proxy_pass[[:space:]]+http://127\\.0\\.0\\.1:18080;[[:space:]]*$' <<<\"$nginx_text\")\" = 1",
-            scripts,
-        )
-        self.assertIn('test "$(wc -l <<<"$site")" = 1', scripts)
+        self.assertNotIn("proxy_request_buffering", scripts)
+        self.assertNotIn("sub2api_upstream", scripts)
+        self.assertNotIn("nginx_ingress_policy", allowed)
+
+    def test_racknerd_doctor_requires_managed_ingress_policy(self) -> None:
+        runner = mock.Mock()
+        runner.run.return_value.values = {"racknerd_ready": "true"}
+        ReleaseDoctor("182", runner=runner).check_racknerd()
+        script = runner.run.call_args.args[1]
+        allowed = runner.run.call_args.args[2]
+        self.assertIn("require_ingress_policy=true", script)
+        self.assertIn("sub2api-release-ingress.conf", script)
+        self.assertIn("proxy_request_buffering on;", script)
+        self.assertIn("proxy_buffering off;", script)
+        self.assertIn("sub2api-release-observability.conf", script)
+        self.assertIn("sub2api-upstream-access", script)
+        self.assertIn("nginx -T", script)
+        self.assertNotIn("conflicting server name|duplicate", script)
+        self.assertIn("nginx_ingress_policy", allowed)
+
+    def test_racknerd_pre_gate_doctor_allows_ingress_update(self) -> None:
+        runner = mock.Mock()
+        runner.run.return_value.values = {"racknerd_ready": "true"}
+        ReleaseDoctor("182", runner=runner).check_racknerd(require_ingress_policy=False)
+        script = runner.run.call_args.args[1]
+        self.assertIn("require_ingress_policy=false", script)
+        self.assertIn("nginx_ingress_policy=needs_update", script)
+
+    def test_run_forwards_ingress_policy_mode_only_to_racknerd(self) -> None:
+        doctor = ReleaseDoctor("182", runner=mock.Mock())
+        doctor.check_racknerd = mock.Mock(return_value={"racknerd_ready": "true"})
+        doctor.check_backup = mock.Mock(return_value={"backup_ready": "true"})
+        doctor.run(("racknerd", "backup"), require_ingress_policy=False)
+        doctor.check_racknerd.assert_called_once_with(require_ingress_policy=False)
+        doctor.check_backup.assert_called_once_with()
 
     def test_remote_scripts_do_not_contain_control_characters(self) -> None:
         runner = mock.Mock()

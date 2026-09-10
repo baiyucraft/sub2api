@@ -12,9 +12,65 @@ active_container_from_slot() {
   [[ -f /opt/sub2api/active-app && ! -L /opt/sub2api/active-app ]]
   sed -n 's/^container=//p' /opt/sub2api/active-app
 }
+assert_ingress_transaction_cleanup_state() {
+  local txn=${1:?transaction directory is required}
+  [[ -d $txn && ! -L $txn ]]
+  local marker
+  for marker in applied rollback-complete rollback-failure; do
+    if [[ -e $txn/$marker || -L $txn/$marker ]]; then
+      [[ -f $txn/$marker && ! -L $txn/$marker ]]
+    fi
+  done
+  [[ ! -e $txn/rollback-failure && ! -L $txn/rollback-failure ]]
+  if [[ $active_claim == "$release_dir/.consumed" ]]; then
+    [[ -f $txn/applied && ! -L $txn/applied ]]
+    [[ ! -e $txn/rollback-complete && ! -L $txn/rollback-complete ]]
+    [[ ! -e $state_dir/nginx-recovery-restored && ! -L $state_dir/nginx-recovery-restored ]]
+  else
+    if [[ -f $txn/rollback-complete ]]; then
+      [[ ! -e $txn/applied && ! -L $txn/applied ]]
+      [[ ! -e $state_dir/nginx-recovery-restored && ! -L $state_dir/nginx-recovery-restored ]]
+    else
+      [[ -f $state_dir/nginx-recovery-restored && ! -L $state_dir/nginx-recovery-restored ]]
+      [[ ! -e $txn/applied && ! -L $txn/applied ]]
+    fi
+  fi
+}
+assert_cleanup_state() {
+  local txn=${1:?transaction directory is required}
+  local recovery_marker="$state_dir/nginx-recovery-restored"
+  local has_recovery=false
+  local has_txn=false
+  local has_applied=false
+  local has_rollback=false
+
+  if [[ -e $recovery_marker || -L $recovery_marker ]]; then
+    [[ -f $recovery_marker && ! -L $recovery_marker ]]
+    has_recovery=true
+  fi
+  if [[ -e $txn || -L $txn ]]; then
+    assert_ingress_transaction_cleanup_state "$txn"
+    has_txn=true
+    [[ -f $txn/applied ]] && has_applied=true
+    [[ -f $txn/rollback-complete ]] && has_rollback=true
+  fi
+
+  if [[ $active_claim == "$release_dir/.consumed" ]]; then
+    [[ $has_txn == true && $has_applied == true && $has_rollback == false && $has_recovery == false ]]
+  elif [[ $has_rollback == true ]]; then
+    [[ $has_txn == true && $has_applied == false && $has_recovery == false ]]
+  else
+    [[ $has_recovery == true && $has_applied == false && $has_rollback == false ]]
+  fi
+}
 state_cleanup=removed
 if [[ -d $state_dir && ! -L $state_dir ]]; then
-  if [[ -f $state_dir/recovery-point.age && -f $state_dir/recovery-point.age.sha256 ]]; then
+  ingress_txn="$state_dir/nginx-ingress-transaction"
+  assert_cleanup_state "$ingress_txn"
+  if [[ -e $state_dir/recovery-point.age || -L $state_dir/recovery-point.age ||
+        -e $state_dir/recovery-point.age.sha256 || -L $state_dir/recovery-point.age.sha256 ]]; then
+    [[ -f $state_dir/recovery-point.age && ! -L $state_dir/recovery-point.age ]]
+    [[ -f $state_dir/recovery-point.age.sha256 && ! -L $state_dir/recovery-point.age.sha256 ]]
     find "$state_dir" -mindepth 1 -maxdepth 1 \
       ! -name recovery-point.age ! -name recovery-point.age.sha256 ! -name pre-image-id \
       ! -name backup-result ! -name backup-result.sha256 ! -name backup-failure \

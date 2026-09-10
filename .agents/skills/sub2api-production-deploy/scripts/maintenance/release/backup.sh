@@ -5,6 +5,7 @@ deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 backup_attempt_id=${BACKUP_ATTEMPT_ID:?BACKUP_ATTEMPT_ID is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
+source "$assets_dir/nginx-ingress-contract.sh"
 [[ $backup_attempt_id == "$release_id-1" || $backup_attempt_id == "$release_id-2" || $backup_attempt_id == "$release_id-3" ]]
 backup_root=${BACKUP_ROOT:-$deploy_dir/backups/automated}
 recipient_file=${AGE_RECIPIENT_FILE:-/root/.config/sub2api-backup/age-recipient.txt}
@@ -101,7 +102,69 @@ fi
 cp -a "$deploy_dir/data" "$work/config/app/data"
 (cd "$work/config/app/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > "$work/metadata/data.sha256")
 nginx -T > "$work/config/nginx/nginx-T.txt" 2>&1
-cp -a /etc/nginx/nginx.conf /etc/nginx/sites-enabled "$work/config/nginx/"
+install -d -m 700 "$work/config/nginx/sites-enabled" "$work/config/nginx/conf.d" "$work/config/nginx/snippets" "$work/config/nginx/release-backups" "$work/config/nginx/logrotate"
+[[ -f /etc/nginx/nginx.conf && ! -L /etc/nginx/nginx.conf ]]
+[[ -d /etc/nginx/sites-enabled && ! -L /etc/nginx/sites-enabled ]]
+[[ -d /etc/nginx/conf.d && ! -L /etc/nginx/conf.d ]]
+[[ -d /etc/nginx/snippets && ! -L /etc/nginx/snippets ]]
+cp -p /etc/nginx/nginx.conf "$work/config/nginx/nginx.conf"
+[[ $(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf) == root:root:600:1 ||
+   $(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf) == root:root:640:1 ||
+   $(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf) == root:root:644:1 ]]
+managed_site=$(find_managed_nginx_site)
+managed_site_stat=$(stat -c '%U:%G:%a:%h' "$managed_site")
+case "$managed_site_stat" in root:root:600:1|root:root:640:1|root:root:644:1) ;; *) exit 1 ;; esac
+cp -p "$managed_site" "$work/config/nginx/sites-enabled/$(basename -- "$managed_site")"
+printf '%s\n' "$managed_site" > "$work/metadata/nginx-managed-site"
+chmod 600 "$work/metadata/nginx-managed-site"
+shopt -s nullglob
+release_confs=(/etc/nginx/conf.d/sub2api-release-*.conf)
+if [[ ${#release_confs[@]} == 0 ]]; then
+  : > "$work/config/nginx/conf.d/.none"
+else
+  for release_conf in "${release_confs[@]}"; do
+    [[ $release_conf =~ ^/etc/nginx/conf.d/sub2api-release-[A-Za-z0-9._-]{1,160}\.conf$ ]]
+    [[ -f $release_conf && ! -L $release_conf ]]
+    [[ $(stat -c '%U:%G:%a:%h' "$release_conf") == root:root:600:1 ]]
+    cp -p "$release_conf" "$work/config/nginx/conf.d/"
+  done
+fi
+if [[ -e $NGINX_INGRESS_SNIPPET || -L $NGINX_INGRESS_SNIPPET ]]; then
+  [[ -f $NGINX_INGRESS_SNIPPET && ! -L $NGINX_INGRESS_SNIPPET ]]
+  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_INGRESS_SNIPPET") == root:root:600:1 ]]
+  cp -p -- "$NGINX_INGRESS_SNIPPET" "$work/config/nginx/snippets/$(basename -- "$NGINX_INGRESS_SNIPPET")"
+else
+  : > "$work/config/nginx/snippets/.absent"
+fi
+if [[ -e $NGINX_OBSERVABILITY_CONF || -L $NGINX_OBSERVABILITY_CONF ]]; then
+  [[ -f $NGINX_OBSERVABILITY_CONF && ! -L $NGINX_OBSERVABILITY_CONF ]]
+  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_OBSERVABILITY_CONF") == root:root:600:1 ]]
+  cp -p -- "$NGINX_OBSERVABILITY_CONF" "$work/config/nginx/observability.conf"
+else
+  : > "$work/config/nginx/observability.absent"
+fi
+if [[ -e $NGINX_SITE_BACKUP_DIR || -L $NGINX_SITE_BACKUP_DIR ]]; then
+  [[ -d $NGINX_SITE_BACKUP_DIR && ! -L $NGINX_SITE_BACKUP_DIR ]]
+  [[ $(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") == root:root:700 ]]
+  [[ -z $(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 ! -type f -print -quit) ]]
+  while IFS= read -r -d '' backup_file; do
+    name=$(basename -- "$backup_file")
+    [[ $name =~ ^[A-Za-z0-9._-]{1,240}$ ]]
+    [[ $(stat -c '%U:%G:%a:%h' "$backup_file") == root:root:600:1 ]]
+    cp -p -- "$backup_file" "$work/config/nginx/release-backups/$name"
+  done < <(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f -print0)
+else
+  : > "$work/config/nginx/release-backups/.absent"
+fi
+if [[ -e $NGINX_UPSTREAM_LOGROTATE || -L $NGINX_UPSTREAM_LOGROTATE ]]; then
+  [[ -f $NGINX_UPSTREAM_LOGROTATE && ! -L $NGINX_UPSTREAM_LOGROTATE ]]
+  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_UPSTREAM_LOGROTATE") == root:root:644:1 ]]
+  # The managed release policy uses rotate 14; preserve the source file byte-for-byte.
+  cp -p "$NGINX_UPSTREAM_LOGROTATE" "$work/config/nginx/logrotate/"
+else
+  : > "$work/config/nginx/logrotate/.absent"
+fi
+shopt -u nullglob
 cp -aL /etc/letsencrypt/live "$work/config/certbot/"
 cp -a /etc/letsencrypt/archive /etc/letsencrypt/renewal "$work/config/certbot/"
 docker inspect "$active_container" sub2api-postgres sub2api-redis --format '{{.Name}} {{.Config.Image}} {{.Image}}' > "$work/metadata/images.txt"

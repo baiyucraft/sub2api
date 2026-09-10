@@ -120,13 +120,35 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_buffering off;
-        proxy_request_buffering off;
+        proxy_request_buffering on;
         proxy_read_timeout 1800s;
         proxy_send_timeout 1800s;
         proxy_pass http://127.0.0.1:8080;
     }
 }
 ```
+
+Keep request and response buffering as separate decisions. Request buffering
+must remain enabled so Nginx receives the complete upload before sending it to
+the application; this prevents an application-side early response or close
+from becoming an Nginx-generated HTML 502 while the client is still uploading.
+`proxy_buffering off` applies only to upstream responses and preserves SSE
+streaming behavior.
+
+For production diagnostics, log upstream status and timings without request
+query strings or bodies. The release runner installs and verifies a dedicated
+rotated access log containing `request_time`, `upstream_status`,
+`upstream_connect_time`, `upstream_header_time`, and
+`upstream_response_time`.
+
+The release runner applies this ingress policy only after the signed Gate has
+been verified and the release recovery point has been created. A pre-Gate
+doctor may report `nginx_ingress_policy=needs_update`; post-deploy doctor and
+verification require the managed include and effective `nginx -T` source to be
+present. If the release fails before Gate consumption, the runner restores the
+previous Nginx files from the release transaction while continuing any required
+application or coordinated data recovery. A failed Nginx rollback remains a
+reconciliation blocker and is not allowed to hide or skip application recovery.
 
 If Nginx gzip is enabled in the `http` block, keep `text/event-stream` out of
 `gzip_types` and do not use `gzip_types *` for Sub2API. The

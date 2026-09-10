@@ -242,7 +242,7 @@ class SupervisorTest(unittest.TestCase):
             "dmit_route_health": "pass", "dmit_streaming": "not_checked",
             "canary_usage_recorded": "not_checked", "real_client_ip": "not_checked", "final_health": "pass",
             "dmit_final_health": "pass", "gate_consumed": "true", "plaintext_state_removed": "true",
-            "backup_units_restored": "true", "running_image_id": image_id,
+            "backup_units_restored": "true", "nginx_ingress_policy": "pass", "running_image_id": image_id,
         }
         self.write(identifier, "gate/production-result.json", {
             "stage": "production_verified", "status": "verified",
@@ -299,6 +299,55 @@ class SupervisorTest(unittest.TestCase):
         self.assertIn('app_health=unknown', probe)
         self.assertIn('if test -n "$active_container" && docker inspect "$active_container"', probe)
         self.assertEqual(value["decision"], "coordinated_restore_required")
+
+    def test_crashed_worker_reconciliation_classifies_ingress_transaction_states(self) -> None:
+        expected_decisions = {
+            "applied": "coordinated_restore_required",
+            "rolled_back": "cleanup_completed_recover",
+            "rollback_failed": "coordinated_restore_required",
+            "recovery_restored": "cleanup_completed_recover",
+            "unsafe": "coordinated_restore_required",
+        }
+
+        for transaction, expected_decision in expected_decisions.items():
+            with self.subTest(transaction=transaction):
+                identifier = f"198-ingress-{transaction.replace('_', '-')}-deadbeef"
+                self.minimum_release(identifier)
+                self.write(identifier, "runner.json", {
+                    "status": "blocked_reconciliation", "pid": 123,
+                    "process_token": "token", "exit_code": 1,
+                })
+                self.write(identifier, "gate/production-result.json", {
+                    "stage": "blocked_reconciliation", "status": "blocked_reconciliation",
+                    "history": [{"stage": "stage_assets_verified"}],
+                })
+                document = {
+                    "manifest": {"release_id": identifier},
+                    "evidence": {"candidate_image_id": "sha256:" + "b" * 64},
+                }
+                remote = {
+                    "active_claim": "matching", "consumed": "false", "recovered": "false",
+                    "state_present": "true", "ingress_transaction": transaction,
+                    "plaintext_cleaned": "true", "route_started": "false",
+                    "migration_started": "false", "app_health": "healthy",
+                    "nginx_active": "true", "backup_timer_enabled": "true",
+                    "running_image_id": "sha256:" + "a" * 64,
+                    "candidate_exists": "true", "candidate_health": "healthy",
+                }
+                ssh = mock.Mock()
+                ssh.run.return_value.values = remote
+
+                with mock.patch.object(supervisor, "verify_gate", return_value=document), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch.object(supervisor, "_runner_alive", return_value=False):
+                    value = supervisor._inspect_reconciliation(identifier)
+
+                self.assertEqual(value["ingress_transaction"], transaction)
+                self.assertEqual(value["decision"], expected_decision)
+                probe = ssh.run.call_args.args[1]
+                allowed_fields = ssh.run.call_args.args[2]
+                self.assertIn("ingress_transaction=unsafe", probe)
+                self.assertIn('test -L "$ingress_txn"', probe)
+                self.assertIn("SHA256SUMS.files", probe)
+                self.assertIn("ingress_transaction", allowed_fields)
 
     def test_foreground_release_without_runner_metadata_only_allows_coordinated_restore(self) -> None:
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"

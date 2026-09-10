@@ -16,19 +16,44 @@
 
 ## 标准入口
 
+### Nginx ingress policy 模式
+
+普通 doctor 和 post-deploy doctor 对生产 ingress 使用严格模式：受管站点必须在每个 `sub2api_release_backend` proxy 前加载 `/etc/nginx/snippets/sub2api-release-ingress.conf`，并由 `nginx -T` 证明请求缓冲开启、响应缓冲关闭及专用 upstream 日志实际生效。为了避免在签名 Gate 和恢复点之前修改生产，`deploy` 与 `vm-validate` 的 pre-Gate RackNerd 快照使用宽松模式；旧配置健康时返回 `nginx_ingress_policy=needs_update`，而不是提前写入 Nginx。
+
+ingress 事务在 release state 中保存目标文件、历史 stale backup 和 checksum。Gate 消费前失败时优先恢复该事务；回滚失败写入 root-only `rollback-failure` 证据并进入 reconciliation。该失败不能阻止停机模式的协调恢复，也不能阻止已公开 candidate 的路由回退。
+
+runner 崩溃或 SSH 回包不确定时，必须先读取并校验 ingress transaction，再决定是否能清理 claim：
+
+| `ingress_transaction` | 含义 | reconciliation 处理 |
+| --- | --- | --- |
+| `applied` | 新 ingress 已应用，尚无已验证的回滚完成证据 | 禁止 claim-only 自动恢复；进入协调恢复或保持 `blocked_reconciliation` |
+| `rolled_back` | 目标文件集合、checksum 和 `rollback-complete` 均通过校验 | 可作为切换前回滚状态，仍须满足其余 claim-only 条件 |
+| `rollback_failed` | 回滚动作失败，存在 root-only `rollback-failure` | 始终为 blocker，禁止清理 transaction 或伪造恢复完成 |
+| `recovery_restored` | 协调恢复已验证并写入恢复 marker | 可作为已恢复状态继续收口，仍须完成健康、claim 和 backup 验收 |
+| `unsafe` | symlink、缺少 checksum、文件集合不一致或校验失败 | fail-closed，禁止自动恢复和清理，必须人工核验 |
+
+只有 `rolled_back` 或 `recovery_restored` 能进入切换前清理分支；`applied`、
+`rollback_failed` 和 `unsafe` 不得因 runner 已退出、旧容器健康或 Nginx active 就被解释为
+“未发生变更”。
+
 蓝绿发布的权威运行态不是固定容器名 `sub2api`，而是 `/opt/sub2api/active-app` 中唯一的 `container`、`port` 与 `image_id`。doctor 必须验证该容器健康、端口仅为 `18080/18081`、镜像 ID 与容器一致，并确认 `/etc/nginx/conf.d/sub2api-release-upstream.conf` 指向同一端口。第一次 bootstrap 可从稳定 `sub2api:18080` 建立该状态；后续发布不得退回固定名称判断。
 
 对已提供 profile 的 RackNerd 应用发布，固定使用：
 
 ```text
-python .agents/skills/sub2api-production-deploy/scripts/release.py doctor --profile <profile> --commit <40位完整SHA>
 python .agents/skills/sub2api-production-deploy/scripts/release.py bootstrap-production --profile <profile>
 python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-start --profile <profile> --commit <40位完整SHA> --mode blue-green|downtime
 python .agents/skills/sub2api-production-deploy/scripts/release.py status <release_id>
 python .agents/skills/sub2api-production-deploy/scripts/release.py wait <release_id> --timeout 900
 python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result <release_id>
+python .agents/skills/sub2api-production-deploy/scripts/release.py doctor --profile <profile> --commit <40位完整SHA>
 ```
 
+- 首次修复发布不要先运行独立的 strict `doctor`。当 pre-Gate doctor 只报告
+  `nginx_ingress_policy=needs_update` 时，由 `deploy-start`/`deploy-follow` 内部的宽松
+  pre-Gate 检查继续进入签名 Gate、停写、恢复点和 ingress apply；严格 `doctor` 放在
+  `verify-result` 之后，作为发布后的独立复核。普通发布若没有待修复的 ingress policy，仍可
+  在发布前单独运行 strict `doctor`。
 - `doctor` 只读检查本地、VM、RackNerd、DMIT 和异地节点，输出字段白名单；失败时禁止进入发布。
 - `bootstrap-production` 只创建缺失的状态目录，并核验信任根、现有应用健康、Nginx 和备份全局锁；不检查账号池或 Canary 凭据，不修改 systemd、不构建、不迁移、不切换应用。已有资产内容不一致时停止。
 - `deploy-start` 是日常一键入口：预分配 release ID 后启动独立 worker；worker 先检查本地、VM 与外部节点，幂等 bootstrap RackNerd 后再检查 RackNerd，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。

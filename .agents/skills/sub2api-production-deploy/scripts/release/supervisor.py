@@ -42,7 +42,8 @@ STATUS_FIELDS = (
 )
 DANGEROUS_STAGES = {
     "production_preflight", "pre_switch_streaming_verified", "freeze", "freeze_verified",
-    "migration_preflight", "backup", "backup_verified", "migration_and_switch",
+    "migration_preflight", "backup", "backup_verified", "nginx_ingress_apply", "nginx_ingress_applied",
+    "migration_and_switch",
     "candidate_internal_verified", "candidate_started", "candidate_healthy",
     "candidate_network_verified", "candidate_port_verified", "candidate_probe_started", "candidate_http_verified", "candidate_headers_verified", "active_health_verified",
     "prompt_audit_verified",
@@ -583,7 +584,7 @@ def verified_result_view(identifier: str) -> dict[str, Any]:
         "dmit_route_health": "pass", "dmit_streaming": "not_checked",
         "canary_usage_recorded": "not_checked", "real_client_ip": "not_checked", "final_health": "pass",
         "dmit_final_health": "pass", "gate_consumed": "true", "plaintext_state_removed": "true",
-        "backup_units_restored": "true",
+        "backup_units_restored": "true", "nginx_ingress_policy": "pass",
     }
     missing = [key for key, value in expected.items() if evidence.get(key) != value]
     candidate = document["evidence"]["candidate_image_id"]
@@ -621,6 +622,19 @@ fi
 consumed=false; test -d {release_dir}/.consumed && test ! -L {release_dir}/.consumed && consumed=true
 recovered=false; test -d {release_dir}/.recovered && test ! -L {release_dir}/.recovered && recovered=true
 state_present=false; test -e {state_dir} && state_present=true
+ingress_transaction=absent
+ingress_txn={state_dir}/nginx-ingress-transaction
+if test -L "$ingress_txn"; then ingress_transaction=unsafe
+elif test -d "$ingress_txn"; then
+  if ! test -f "$ingress_txn/SHA256SUMS" || ! test -f "$ingress_txn/SHA256SUMS.files" || ! (cd "$ingress_txn" && sha256sum -c SHA256SUMS >/dev/null 2>&1 && sha256sum -c SHA256SUMS.files >/dev/null 2>&1); then ingress_transaction=unsafe
+  elif test -f "$ingress_txn/rollback-failure"; then ingress_transaction=rollback_failed
+  elif test -f {state_dir}/nginx-recovery-restored; then ingress_transaction=recovery_restored
+  elif test -f "$ingress_txn/rollback-complete"; then ingress_transaction=rolled_back
+  elif test -f "$ingress_txn/applied"; then ingress_transaction=applied
+  else ingress_transaction=pending
+  fi
+elif test -e "$ingress_txn"; then ingress_transaction=unsafe
+fi
 plaintext_cleaned=false; test -f /opt/sub2api/releases/.active-release/plaintext-cleaned && test ! -L /opt/sub2api/releases/.active-release/plaintext-cleaned && plaintext_cleaned=true
 route_started=false; if test -e {state_dir}/route-switch-intent || test -e {state_dir}/route-switched; then route_started=true; fi
 migration_started=false; if test -e {state_dir}/migration-committed || find {release_dir} {state_dir} -maxdepth 2 -type f -name '*migration*committed*' -print -quit 2>/dev/null | grep -q .; then migration_started=true; fi
@@ -637,9 +651,9 @@ if test -n "$active_container" && docker inspect "$active_container" >/dev/null 
 fi
 nginx_active=false; test "$(systemctl is-active nginx 2>/dev/null || true)" = active && nginx_active=true
 backup_timer_enabled=false; test "$(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true)" = enabled && backup_timer_enabled=true
-printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\nplaintext_cleaned=%s\nroute_started=%s\nmigration_started=%s\ncandidate_exists=%s\ncandidate_health=%s\napp_health=%s\nnginx_active=%s\nbackup_timer_enabled=%s\nrunning_image_id=%s\n' "$claim" "$consumed" "$recovered" "$state_present" "$plaintext_cleaned" "$route_started" "$migration_started" "$candidate_exists" "$candidate_health" "$app_health" "$nginx_active" "$backup_timer_enabled" "$running_image_id"
+printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\ningress_transaction=%s\nplaintext_cleaned=%s\nroute_started=%s\nmigration_started=%s\ncandidate_exists=%s\ncandidate_health=%s\napp_health=%s\nnginx_active=%s\nbackup_timer_enabled=%s\nrunning_image_id=%s\n' "$claim" "$consumed" "$recovered" "$state_present" "$ingress_transaction" "$plaintext_cleaned" "$route_started" "$migration_started" "$candidate_exists" "$candidate_health" "$app_health" "$nginx_active" "$backup_timer_enabled" "$running_image_id"
 """
-    remote = SSHRunner().run("racknerd", script, {"active_claim", "consumed", "recovered", "state_present", "plaintext_cleaned", "route_started", "migration_started", "candidate_exists", "candidate_health", "app_health", "nginx_active", "backup_timer_enabled", "running_image_id"}).values
+    remote = SSHRunner().run("racknerd", script, {"active_claim", "consumed", "recovered", "state_present", "ingress_transaction", "plaintext_cleaned", "route_started", "migration_started", "candidate_exists", "candidate_health", "app_health", "nginx_active", "backup_timer_enabled", "running_image_id"}).values
     history = production.get("history") if isinstance(production.get("history"), list) else []
     stages = {item.get("stage") for item in history if isinstance(item, dict)}
     runner_alive = _runner_alive(runner)
@@ -667,6 +681,7 @@ printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\nplaintext_
         decision, failure_code = "claim_only_recover", "caller_interrupted_after_claim"
     elif (
         remote["active_claim"] == "matching" and remote["state_present"] == "true"
+        and remote.get("ingress_transaction") in {"absent", "rolled_back", "recovery_restored"}
         and remote.get("plaintext_cleaned", "false") == "true" and remote.get("route_started", "true") == "false"
         and remote.get("migration_started", "true") == "false" and remote["app_health"] == "healthy"
         and remote["nginx_active"] == "true" and remote["backup_timer_enabled"] == "true"
@@ -681,7 +696,8 @@ printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\nplaintext_
     return {
         "release_id": identifier, "decision": decision, "failure_code": failure_code,
         "runner_alive": runner_alive, "active_claim": remote["active_claim"],
-        "state_present": remote["state_present"], "plaintext_cleaned": remote.get("plaintext_cleaned", "false"),
+        "state_present": remote["state_present"], "ingress_transaction": remote.get("ingress_transaction", "unsafe"),
+        "plaintext_cleaned": remote.get("plaintext_cleaned", "false"),
         "route_started": remote.get("route_started", "true"), "migration_started": remote.get("migration_started", "true"),
         "app_health": remote["app_health"],
         "nginx_active": remote["nginx_active"], "backup_timer_enabled": remote["backup_timer_enabled"],

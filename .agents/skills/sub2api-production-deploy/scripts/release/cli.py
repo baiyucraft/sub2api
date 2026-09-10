@@ -332,7 +332,7 @@ def vm_validate(args: argparse.Namespace) -> None:
             install_vm_validator(runner)
             doctor.run(("vm", "dmit", "backup"))
             bootstrap_production(args.profile, runner)
-            production_doctor = doctor.run(("racknerd",))
+            production_doctor = doctor.run(("racknerd",), require_ingress_policy=False)
             production_snapshot = decode_snapshot(production_doctor["production_snapshot_b64"])
             production_image_id = str(production_doctor.get("production_current_image_id", ""))
             pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
@@ -436,7 +436,7 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
         bootstrap_production(args.profile, runner)
         if logger:
             logger.emit(stage="bootstrap_production", script="release.cli", event="stage_finished", message="Production bootstrap verified", exit_code=0)
-        production_doctor = doctor.run(("racknerd",))
+        production_doctor = doctor.run(("racknerd",), require_ingress_policy=False)
         profile_for_deploy = get_profile(args.profile)
         if profile_for_deploy.get("gate_schema") == 2:
             production_snapshot = decode_snapshot(production_doctor["production_snapshot_b64"])

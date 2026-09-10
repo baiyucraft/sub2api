@@ -138,7 +138,7 @@ printf 'vm_ready=true\nvm_free_bytes=%s\nvm_database_bytes=%s\nvm_release_unit_s
 """
         return self._ssh().run("local_vm", script, {"vm_ready", "vm_free_bytes", "vm_database_bytes", "vm_release_unit_status"}).values
 
-    def check_racknerd(self) -> dict[str, str]:
+    def check_racknerd(self, require_ingress_policy: bool = True) -> dict[str, str]:
         profile = self.profile
         trust_sha = sha256_file(TRUSTED_KEY)
         snapshot_query = r'''snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
@@ -175,6 +175,50 @@ active_image=$(sed -n 's/^image_id=//p' "$active_slot")
 for container in "$active_container" sub2api-postgres sub2api-redis; do test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$container")" = healthy; done
 test "$(docker inspect -f '{{{{.Image}}}}' "$active_container")" = "$active_image"
 grep -Fq "server 127.0.0.1:$active_port;" /etc/nginx/conf.d/sub2api-release-upstream.conf
+require_ingress_policy={str(require_ingress_policy).lower()}
+assert_ingress_policy() {{
+  local candidate site dump field previous current
+  local -a sites=()
+  while IFS= read -r -d '' candidate; do
+    if grep -Eq '^[[:space:]]*proxy_pass[[:space:]]+http://sub2api_release_backend;[[:space:]]*$' "$candidate"; then sites+=("$candidate"); fi
+  done < <(find /etc/nginx/sites-enabled -maxdepth 1 -type f ! -name '*.sub2api-release-backup' -print0)
+  [[ ${{#sites[@]}} == 1 ]] || return 1
+  site=${{sites[0]}}
+  [[ $site =~ ^/etc/nginx/sites-enabled/[A-Za-z0-9._-]{{1,160}}$ ]] || return 1
+  awk '
+    function normalized(value) {{ sub(/^[[:space:]]+/, "", value); sub(/[[:space:]]+$/, "", value); return value }}
+    /^[[:space:]]*proxy_pass[[:space:]]+http://sub2api_release_backend;[[:space:]]*$/ {{
+      if (previous != "include /etc/nginx/snippets/sub2api-release-ingress.conf;") exit 1
+      count++
+    }}
+    {{ current = normalized($0); if (current != "" && current !~ /^#/) previous = current }}
+    END {{ if (count < 1) exit 1 }}
+  ' "$site" || return 1
+  [[ -z $(find /etc/nginx/sites-enabled -maxdepth 1 -name '*.sub2api-release-backup' -print -quit) ]] || return 1
+  [[ -f /etc/nginx/snippets/sub2api-release-ingress.conf && ! -L /etc/nginx/snippets/sub2api-release-ingress.conf ]] || return 1
+  [[ $(stat -c '%U:%G:%a:%h' /etc/nginx/snippets/sub2api-release-ingress.conf) == root:root:600:1 ]] || return 1
+  [[ $(grep -Fxc 'proxy_request_buffering on;' /etc/nginx/snippets/sub2api-release-ingress.conf) == 1 ]] || return 1
+  [[ $(grep -Fxc 'proxy_buffering off;' /etc/nginx/snippets/sub2api-release-ingress.conf) == 1 ]] || return 1
+  [[ $(grep -Fxc 'access_log /var/log/nginx/sub2api-upstream-access.log sub2api_upstream;' /etc/nginx/snippets/sub2api-release-ingress.conf) == 1 ]] || return 1
+  [[ -f /etc/nginx/conf.d/sub2api-release-observability.conf && ! -L /etc/nginx/conf.d/sub2api-release-observability.conf ]] || return 1
+  [[ $(stat -c '%U:%G:%a:%h' /etc/nginx/conf.d/sub2api-release-observability.conf) == root:root:600:1 ]] || return 1
+  grep -Eq '^[[:space:]]*log_format[[:space:]]+sub2api_upstream([[:space:]]|$)' /etc/nginx/conf.d/sub2api-release-observability.conf || return 1
+  for field in request_time upstream_status upstream_connect_time upstream_header_time upstream_response_time; do grep -Fq "\$$field" /etc/nginx/conf.d/sub2api-release-observability.conf || return 1; done
+  [[ -f /etc/logrotate.d/sub2api-upstream-access && ! -L /etc/logrotate.d/sub2api-upstream-access ]] || return 1
+  [[ $(stat -c '%U:%G:%a:%h' /etc/logrotate.d/sub2api-upstream-access) == root:root:644:1 ]] || return 1
+  [[ -d /etc/nginx/sub2api-release-backups && ! -L /etc/nginx/sub2api-release-backups ]] || return 1
+  [[ $(stat -c '%U:%G:%a' /etc/nginx/sub2api-release-backups) == root:root:700 ]] || return 1
+  dump=$(nginx -T 2>&1) || return 1
+  ! grep -Eqi 'conflicting server name' <<<"$dump" || return 1
+  grep -Fq "# configuration file $site:" <<<"$dump" || return 1
+  grep -Fq '# configuration file /etc/nginx/snippets/sub2api-release-ingress.conf:' <<<"$dump" || return 1
+  grep -Fq '# configuration file /etc/nginx/conf.d/sub2api-release-observability.conf:' <<<"$dump" || return 1
+  return 0
+}}
+nginx_ingress_policy=needs_update
+if assert_ingress_policy; then nginx_ingress_policy=ready; fi
+if [[ $require_ingress_policy == true ]]; then [[ $nginx_ingress_policy == ready ]]; fi
+nginx -t >/dev/null 2>&1
 test "$(systemctl is-active nginx)" = active
 test "$(systemctl is-active sub2api-backup.service 2>/dev/null || true)" != active
 test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
@@ -201,11 +245,11 @@ fi
 [[ $backup_ssh_code != 255 ]]
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{{print $4}}' || df -PB1 / | awk 'NR==2{{print $4}}')
 test "$free_bytes" -ge {profile['minimum_rack_free_bytes']}
-printf 'racknerd_ready=true\nracknerd_free_bytes=%s\nbackup_protocol_ready=true\nproduction_migration_status=%s\nproduction_current_image_id=%s\nproduction_snapshot_b64=%s\n' "$free_bytes" "$production_migration_status" "$active_image" "$snapshot_b64"
+printf 'racknerd_ready=true\nracknerd_free_bytes=%s\nbackup_protocol_ready=true\nnginx_ingress_policy=%s\nproduction_migration_status=%s\nproduction_current_image_id=%s\nproduction_snapshot_b64=%s\n' "$free_bytes" "$nginx_ingress_policy" "$production_migration_status" "$active_image" "$snapshot_b64"
 """
         return self._run_racknerd_readonly(
             script,
-            {"racknerd_ready", "racknerd_free_bytes", "backup_protocol_ready", "production_migration_status", "production_current_image_id", "production_snapshot_b64"},
+            {"racknerd_ready", "racknerd_free_bytes", "backup_protocol_ready", "nginx_ingress_policy", "production_migration_status", "production_current_image_id", "production_snapshot_b64"},
             timeout=300,
         )
 
@@ -258,12 +302,15 @@ printf 'backup_ready=true\nbackup_free_bytes=%s\ndmit_external_health=pass\nback
 """
         return self._ssh().run("backup", script, {"backup_ready", "backup_free_bytes", "dmit_external_health", "backup_public_ip"}).values
 
-    def run(self, nodes: tuple[str, ...] = NODES) -> dict[str, str]:
+    def run(self, nodes: tuple[str, ...] = NODES, *, require_ingress_policy: bool = True) -> dict[str, str]:
         evidence: dict[str, str] = {}
         for node in nodes:
             method = getattr(self, f"check_{node}")
             try:
-                evidence.update(method())
+                if node == "racknerd":
+                    evidence.update(method(require_ingress_policy=require_ingress_policy))
+                else:
+                    evidence.update(method())
             except BaseException as error:
                 raise RuntimeError(f"doctor.{node} failed") from error
         return evidence

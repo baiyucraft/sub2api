@@ -139,6 +139,7 @@ class DeployCommandTest(unittest.TestCase):
         self.assertEqual(doctor.return_value.run.call_args_list[0].args[0], ("local",))
         self.assertEqual(doctor.return_value.run.call_args_list[1].args[0], ("vm", "dmit", "backup"))
         self.assertEqual(doctor.return_value.run.call_args_list[2].args[0], ("racknerd",))
+        self.assertFalse(doctor.return_value.run.call_args_list[2].kwargs["require_ingress_policy"])
         install_unit.assert_called_once_with(doctor.return_value._ssh.return_value)
 
     def test_gate_v2_vm_validate_collects_production_context_without_releasing(self) -> None:
@@ -178,6 +179,7 @@ class DeployCommandTest(unittest.TestCase):
         self.assertEqual(doctor_instance.run.call_args_list[0].args[0], ("local",))
         self.assertEqual(doctor_instance.run.call_args_list[1].args[0], ("vm", "dmit", "backup"))
         self.assertEqual(doctor_instance.run.call_args_list[2].args[0], ("racknerd",))
+        self.assertFalse(doctor_instance.run.call_args_list[2].kwargs["require_ingress_policy"])
         install_unit.assert_called_once_with(runner)
         bootstrap.assert_called_once_with("242", runner)
         prepare.assert_called_once_with(runner, "242-aaaaaaaaaaaa-1-deadbeef", production_image)
