@@ -36,6 +36,12 @@
 
 已接入签名 Gate 的不兼容迁移不得手工拼接生产命令。使用仓库一键入口，并要求 Gate 未过期、未 claim/consume、VM validator 与发布资产 checksum 完全匹配；任一 SSH 回包不确定状态必须从远端 committed marker 重新核验，不能凭本地异常猜测是否执行。
 
+首次修复 Nginx ingress 的发布不要先运行独立 strict `doctor`：pre-Gate doctor 允许返回
+`nginx_ingress_policy=needs_update`，由 `deploy-start`/`deploy-follow` 内部的宽松检查继续完成
+签名 Gate、停写、migration preflight 和正式 recovery point，随后才由 release runner 应用
+ingress。发布完成后再运行同 profile、同完整 SHA 的 strict `doctor` 和 `verify-result`。只有
+不存在待修复 ingress policy 的普通发布，才适合把 strict `doctor` 放在发布前。
+
 ## 运维资产变更
 
 `ops-readonly-assets` 只执行本地校验、review、提交推送和固定字段只读巡检。不得借该类别上传文件、控制服务或修改生产；无需应用镜像、Compose 备份或数据库恢复点。
@@ -125,6 +131,44 @@ preflight 或 postflight 任一不通过，禁止部分迁移和继续启动；�
 不兼容 migration 在生产验收前保持写入冻结。
 
 ## 双路径验收
+
+### Nginx ingress 缓冲与观测合同
+
+生产受管 Sub2API location 必须通过独立 include 同时满足：
+
+```text
+proxy_request_buffering on
+proxy_buffering off
+专用 upstream 状态与耗时 access log
+```
+
+请求缓冲与响应缓冲是两个独立合同。请求缓冲开启后，Nginx 先完整接收客户端上传，再把请求交给应用，避免应用提前返回或关闭连接时由 Nginx 生成 HTML 502；响应缓冲保持关闭以保留 SSE 流式语义。专用日志只记录 URI path、状态、长度和 upstream 耗时，不记录 query、请求体或认证信息。
+
+该配置只能在生产领取并验签 Gate、停写、migration preflight 和正式恢复点完成后由
+release runner 应用。pre-Gate doctor 允许只报告 `nginx_ingress_policy=needs_update`；
+`verify.sh` 与 post-deploy doctor 必须严格验证受管 include、文件 owner/mode、logrotate 和
+`nginx -T` 的实际加载来源。专用 access log 也由 release runner 安装和校验，bootstrap 只
+核验已有资产，不承担首次安装。Gate 消费前失败时恢复本 release 的 Nginx 事务快照；即使
+ingress 回滚失败，也必须继续执行适用的路由回退或协调数据恢复，并将 ingress 状态保留为
+`blocked_reconciliation`。
+
+### Ingress transaction 崩溃恢复
+
+runner 退出、SSH 超时或本地协调器崩溃后，必须从远端重新读取 transaction，而不是依据退出码
+判断 Nginx 是否变更。transaction 必须同时通过目标文件集合和 checksum 校验；symlink、缺失
+checksum、实际文件集合漂移或校验失败统一归类为 `unsafe`。
+
+| 状态 | 允许的自动动作 |
+| --- | --- |
+| `applied` | 不允许 claim-only 清理；进入协调恢复或保持 `blocked_reconciliation` |
+| `rolled_back` | 在其他 committed-state 条件全部满足时允许继续切换前清理 |
+| `rollback_failed` | 保留 blocker 和失败证据，禁止清理或伪造回滚完成 |
+| `recovery_restored` | 仅在恢复 marker、checksum、Nginx reload 和健康检查均通过后继续收口 |
+| `unsafe` | fail-closed，停止自动恢复，转人工现场核验 |
+
+因此，`applied`、`rollback_failed` 和 `unsafe` 不能被“runner 已退出”“旧容器健康”或
+“Nginx active”替代解释；只有 `rolled_back` 和 `recovery_restored` 具备进入清理分支的资格，
+仍需满足 active claim、migration、route、backup 和应用健康条件。
 
 必须逐项记录 `pass / fail / not_checked`：
 

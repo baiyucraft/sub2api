@@ -4,6 +4,7 @@ set -Eeuo pipefail
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
+source "$assets_dir/nginx-ingress-contract.sh"
 exec 9>/run/lock/sub2api-backup-global.lock
 flock -n 9
 [[ -d $state_dir && ! -L $state_dir ]]
@@ -21,9 +22,191 @@ old_release_id=$(sed -n 's/^release_id=//p' "$state_dir/pre-active-app")
 [[ -f $state_dir/recovery-point.tar.sha256 && ! -L $state_dir/recovery-point.tar.sha256 ]]
 (cd "$state_dir" && sha256sum -c recovery-point.tar.sha256 >/dev/null)
 recovery="$state_dir/recovery"
-rm -rf "$recovery"
+if [[ -e $recovery || -L $recovery ]]; then
+  [[ -d $recovery && ! -L $recovery ]]
+  rm -rf -- "$recovery"
+fi
 install -d -m 700 "$recovery"
-cleanup_recovery() { rm -rf "$recovery"; }
+cleanup_recovery() {
+  if [[ -e $recovery || -L $recovery ]]; then
+    [[ -d $recovery && ! -L $recovery ]]
+    rm -rf -- "$recovery"
+  fi
+}
+assert_root_file() {
+  local path=${1:?path is required}
+  local kind=${2:?kind is required}
+  [[ -f $path && ! -L $path ]]
+  case "$kind" in
+    nginx) case "$(stat -c '%U:%G:%a:%h' "$path")" in root:root:600:1|root:root:640:1|root:root:644:1) ;; *) return 1 ;; esac ;;
+    600) [[ $(stat -c '%U:%G:%a:%h' "$path") == root:root:600:1 ]] ;;
+    644) [[ $(stat -c '%U:%G:%a:%h' "$path") == root:root:644:1 ]] ;;
+    *) return 1 ;;
+  esac
+}
+assert_safe_file_target() {
+  local target=${1:?target is required}
+  local kind=${2:?kind is required}
+  local parent=${target%/*}
+  [[ -d $parent && ! -L $parent ]]
+  if [[ -e $target || -L $target ]]; then
+    assert_root_file "$target" "$kind"
+  fi
+}
+replace_from_snapshot() {
+  local source=${1:?source is required}
+  local target=${2:?target is required}
+  local kind=${3:?kind is required}
+  local tmp
+  assert_root_file "$source" "$kind"
+  assert_safe_file_target "$target"
+  tmp="$target.restore.$$"
+  [[ ! -e $tmp && ! -L $tmp ]]
+  cp -p -- "$source" "$tmp"
+  mv -T -- "$tmp" "$target"
+}
+snapshot_entries() {
+  local directory=${1:?directory is required}
+  mapfile -d '' SNAPSHOT_ENTRIES < <(find "$directory" -mindepth 1 -maxdepth 1 -printf '%f\0')
+}
+assert_single_snapshot() {
+  local directory=${1:?directory is required}
+  local expected=${2:?expected is required}
+  local kind=${3:?kind is required}
+  [[ -d $directory && ! -L $directory ]]
+  snapshot_entries "$directory"
+  [[ ${#SNAPSHOT_ENTRIES[@]} == 1 && ${SNAPSHOT_ENTRIES[0]} == "$expected" ]]
+  assert_root_file "$directory/$expected" "$kind"
+}
+restore_nginx_recovery() {
+  local nginx_backup="$recovery/config/nginx"
+  local managed_site managed_name source target dump
+  [[ -d $nginx_backup && ! -L $nginx_backup ]]
+  [[ -d $nginx_backup/sites-enabled && ! -L $nginx_backup/sites-enabled ]]
+  [[ -d $nginx_backup/conf.d && ! -L $nginx_backup/conf.d ]]
+  [[ -d $nginx_backup/snippets && ! -L $nginx_backup/snippets ]]
+  [[ -d $nginx_backup/release-backups && ! -L $nginx_backup/release-backups ]]
+  [[ -d $nginx_backup/logrotate && ! -L $nginx_backup/logrotate ]]
+  assert_root_file "$nginx_backup/nginx.conf" nginx
+  replace_from_snapshot "$nginx_backup/nginx.conf" /etc/nginx/nginx.conf nginx
+  [[ -f $recovery/metadata/nginx-managed-site && ! -L $recovery/metadata/nginx-managed-site ]]
+  managed_site=$(<"$recovery/metadata/nginx-managed-site")
+  [[ $managed_site =~ ^/etc/nginx/sites-enabled/[A-Za-z0-9._-]{1,160}$ ]]
+  managed_name=$(basename -- "$managed_site")
+  source="$nginx_backup/sites-enabled/$managed_name"
+  assert_single_snapshot "$nginx_backup/sites-enabled" "$managed_name" nginx
+  replace_from_snapshot "$source" "$managed_site" nginx
+
+  shopt -s nullglob
+  local -a current_confs=(/etc/nginx/conf.d/sub2api-release-*.conf)
+  local -a backup_confs=("$nginx_backup"/conf.d/sub2api-release-*.conf)
+  snapshot_entries "$nginx_backup/conf.d"
+  if [[ -f $nginx_backup/conf.d/.none ]]; then
+    assert_single_snapshot "$nginx_backup/conf.d" .none 600
+    [[ ${#backup_confs[@]} == 0 ]]
+  else
+    [[ ${#backup_confs[@]} -gt 0 ]]
+    [[ ! -e $nginx_backup/conf.d/.none && ! -L $nginx_backup/conf.d/.none ]]
+    [[ ${#SNAPSHOT_ENTRIES[@]} == ${#backup_confs[@]} ]]
+    for source in "${backup_confs[@]}"; do
+      managed_name=$(basename -- "$source")
+      [[ $managed_name =~ ^sub2api-release-[A-Za-z0-9._-]{1,160}\.conf$ ]]
+      assert_root_file "$source" 600
+    done
+  fi
+  for target in "${current_confs[@]}"; do
+    [[ $target =~ ^/etc/nginx/conf.d/sub2api-release-[A-Za-z0-9._-]{1,160}\.conf$ ]]
+    assert_root_file "$target" 600
+    rm -f -- "$target"
+  done
+  if [[ -f $nginx_backup/conf.d/.none ]]; then
+    :
+  else
+    for source in "${backup_confs[@]}"; do
+      managed_name=$(basename -- "$source")
+      replace_from_snapshot "$source" "/etc/nginx/conf.d/$managed_name" 600
+    done
+  fi
+  local -a live_confs=(/etc/nginx/conf.d/sub2api-release-*.conf)
+  [[ ${#live_confs[@]} == ${#backup_confs[@]} ]]
+  for source in "${backup_confs[@]}"; do
+    managed_name=$(basename -- "$source")
+    assert_root_file "/etc/nginx/conf.d/$managed_name" 600
+  done
+  shopt -u nullglob
+
+  if [[ -e $nginx_backup/snippets/.absent || -L $nginx_backup/snippets/.absent ]]; then
+    assert_single_snapshot "$nginx_backup/snippets" .absent 600
+    assert_safe_file_target "$NGINX_INGRESS_SNIPPET" 600
+    rm -f -- "$NGINX_INGRESS_SNIPPET"
+  else
+    source="$nginx_backup/snippets/$(basename -- "$NGINX_INGRESS_SNIPPET")"
+    assert_single_snapshot "$nginx_backup/snippets" "$(basename -- "$NGINX_INGRESS_SNIPPET")" 600
+    replace_from_snapshot "$source" "$NGINX_INGRESS_SNIPPET" 600
+  fi
+
+  if [[ -e $nginx_backup/observability.absent || -L $nginx_backup/observability.absent ]]; then
+    assert_root_file "$nginx_backup/observability.absent" 600
+    [[ ! -e $nginx_backup/observability.conf && ! -L $nginx_backup/observability.conf ]]
+    assert_safe_file_target "$NGINX_OBSERVABILITY_CONF" 600
+    rm -f -- "$NGINX_OBSERVABILITY_CONF"
+  else
+    [[ ! -e $nginx_backup/observability.absent && ! -L $nginx_backup/observability.absent ]]
+    assert_root_file "$nginx_backup/observability.conf" 600
+    replace_from_snapshot "$nginx_backup/observability.conf" "$NGINX_OBSERVABILITY_CONF" 600
+  fi
+
+  if [[ -e $NGINX_SITE_BACKUP_DIR || -L $NGINX_SITE_BACKUP_DIR ]]; then
+    [[ -d $NGINX_SITE_BACKUP_DIR && ! -L $NGINX_SITE_BACKUP_DIR ]]
+    [[ -z $(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 ! -type f -print -quit) ]]
+    [[ $(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") == root:root:700 ]]
+    find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f -delete
+    rmdir "$NGINX_SITE_BACKUP_DIR"
+  fi
+  snapshot_entries "$nginx_backup/release-backups"
+  if [[ -e $nginx_backup/release-backups/.absent || -L $nginx_backup/release-backups/.absent ]]; then
+    assert_single_snapshot "$nginx_backup/release-backups" .absent 600
+    [[ ! -e $NGINX_SITE_BACKUP_DIR && ! -L $NGINX_SITE_BACKUP_DIR ]]
+  else
+    [[ ! -e $nginx_backup/release-backups/.absent && ! -L $nginx_backup/release-backups/.absent ]]
+    [[ ${#SNAPSHOT_ENTRIES[@]} -gt 0 ]]
+    for managed_name in "${SNAPSHOT_ENTRIES[@]}"; do
+      [[ $managed_name =~ ^[A-Za-z0-9._-]{1,240}$ ]]
+      assert_root_file "$nginx_backup/release-backups/$managed_name" 600
+    done
+    install -d -o root -g root -m 700 "$NGINX_SITE_BACKUP_DIR"
+    while IFS= read -r -d '' source; do
+      managed_name=$(basename -- "$source")
+      replace_from_snapshot "$source" "$NGINX_SITE_BACKUP_DIR/$managed_name" 600
+    done < <(find "$nginx_backup/release-backups" -mindepth 1 -maxdepth 1 -type f -print0)
+    [[ $(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f | wc -l) == ${#SNAPSHOT_ENTRIES[@]} ]]
+    while IFS= read -r -d '' source; do
+      managed_name=$(basename -- "$source")
+      assert_root_file "$NGINX_SITE_BACKUP_DIR/$managed_name" 600
+    done < <(find "$nginx_backup/release-backups" -mindepth 1 -maxdepth 1 -type f -print0)
+  fi
+
+  if [[ -e $nginx_backup/logrotate/.absent || -L $nginx_backup/logrotate/.absent ]]; then
+    assert_single_snapshot "$nginx_backup/logrotate" .absent 600
+    assert_safe_file_target "$NGINX_UPSTREAM_LOGROTATE" 644
+    rm -f -- "$NGINX_UPSTREAM_LOGROTATE"
+  else
+    source="$nginx_backup/logrotate/$(basename -- "$NGINX_UPSTREAM_LOGROTATE")"
+    assert_single_snapshot "$nginx_backup/logrotate" "$(basename -- "$NGINX_UPSTREAM_LOGROTATE")" 644
+    replace_from_snapshot "$source" "$NGINX_UPSTREAM_LOGROTATE" 644
+  fi
+
+  nginx -t >/dev/null 2>&1
+  dump=$(nginx -T 2>&1)
+  grep -Fq "# configuration file $managed_site:" <<<"$dump"
+  for source in "${backup_confs[@]}"; do
+    managed_name=$(basename -- "$source")
+    grep -Fq "# configuration file /etc/nginx/conf.d/$managed_name:" <<<"$dump"
+  done
+  if [[ ! -f $nginx_backup/observability.absent ]]; then
+    grep -Fq "# configuration file $NGINX_OBSERVABILITY_CONF:" <<<"$dump"
+  fi
+}
 fail_closed() {
   code=$?
   local failed=0 app_status nginx_status container_names
@@ -64,6 +247,7 @@ docker rm -f "$active_container" >/dev/null 2>&1 || true
 [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
 tar -C "$recovery" -xf "$state_dir/recovery-point.tar"
 (cd "$recovery" && sha256sum -c SHA256SUMS >/dev/null)
+restore_nginx_recovery
 docker cp "$recovery/redis/dump.rdb" sub2api-redis:/tmp/sub2api-restore.rdb >/dev/null
 redis_rdb_check=$(docker exec sub2api-redis redis-check-rdb /tmp/sub2api-restore.rdb)
 docker exec sub2api-redis rm -f /tmp/sub2api-restore.rdb
@@ -158,6 +342,10 @@ done
 assert_sub2api_runtime_contract sub2api "$(<"$state_dir/pre-image-id")" "$restore_network_mode" "$old_port"
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
 systemctl start nginx
+[[ $(systemctl is-active nginx) == active ]]
+printf 'restored_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$state_dir/nginx-recovery-restored.tmp"
+chmod 400 "$state_dir/nginx-recovery-restored.tmp"
+mv -T -- "$state_dir/nginx-recovery-restored.tmp" "$state_dir/nginx-recovery-restored"
 slot_tmp="$active_slot_file.tmp.$$"
 printf 'container=sub2api\nport=%s\nimage_id=%s\nrelease_id=%s\ninstance_id=%s\n' "$old_port" "$(docker inspect -f '{{.Image}}' sub2api)" "$old_release_id" "$old_instance_id" > "$slot_tmp"
 chmod 600 "$slot_tmp"

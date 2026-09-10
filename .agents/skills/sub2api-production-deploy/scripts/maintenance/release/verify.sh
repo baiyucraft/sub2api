@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
+source "$assets_dir/nginx-ingress-contract.sh"
 domain=${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
 direct_ip=${DIRECT_IP:?DIRECT_IP is required}
 [[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
@@ -29,10 +30,12 @@ large_code=$(curl -sS --resolve "$domain:443:$direct_ip" --max-time 30 -D "$tmp/
 grep -Eiq '^x-request-id:' "$tmp/large.headers"
 [[ $(sha256sum "$tmp/large.body" | awk '{print $1}') == "$internal_body_sha" ]]
 nginx -T 2>&1 | grep -Eq '^[[:space:]]*underscores_in_headers[[:space:]]+on;'
+assert_nginx_ingress_policy
 critical=$(docker logs --since 15m "$candidate_container" 2>&1 | grep -Eic 'panic|fatal|migration.*(failed|error)|database.*(failed|error)|redis.*(failed|error)' || true)
 [[ $critical == 0 ]]
 assert_prompt_audit_disabled
 printf 'direct_health=pass\n'
 printf 'underscore_header_path=pass\n'
+printf 'nginx_ingress_policy=pass\n'
 printf 'two_mib_reached_app=pass\n'
 printf 'startup_logs=pass\n'

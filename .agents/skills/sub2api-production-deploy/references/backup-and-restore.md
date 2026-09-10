@@ -26,6 +26,8 @@
 
 Compose 备份必须保存完整的文件引用闭包：基础 Compose、`.env` 中 `COMPOSE_FILE` 引用的所有 override（包括存在时的 `docker-compose.release-active.yml`）、`include`、`env_file`、本地 config/secret 引用、路径映射、override 缺失标记、选择状态摘要和渲染后的 config checksum。不能只备份一个基础 Compose 文件。
 
+发布恢复点还必须保存 Nginx 受管配置闭包：主配置与 sites-enabled、`sub2api-release-*.conf`、ingress snippet、专用 upstream logrotate，以及 `/etc/nginx/sub2api-release-backups` 中的历史站点快照。缺失的可选资产必须用明确 absent marker 表示，不能把缺失与备份遗漏混为一谈。
+
 备份成功只表示 artifact 已生成并复制；只有在隔离环境中真实恢复 PostgreSQL 和 Redis，才能把版本基线标为 `verified`。
 
 ## 三机分工

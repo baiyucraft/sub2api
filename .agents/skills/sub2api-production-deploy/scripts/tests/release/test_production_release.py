@@ -621,6 +621,8 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.freeze = mock.Mock(side_effect=lambda: setattr(release, "frozen", True))
         release.migration_preflight = mock.Mock()
         release.backup = mock.Mock()
+        release.apply_nginx_ingress = mock.Mock(side_effect=lambda: setattr(release, "nginx_ingress_attempted", True))
+        release.rollback_nginx_ingress = mock.Mock(return_value={"nginx_ingress_rollback": "restored"})
         release.bind_migration_plan = mock.Mock()
         release.switch = mock.Mock(side_effect=RuntimeError("switch failed"))
         release.recover = mock.Mock()
@@ -631,6 +633,7 @@ class ProductionRecoveryTest(unittest.TestCase):
 
         release.recover.assert_called_once()
         release.rollback_route.assert_not_called()
+        release.rollback_nginx_ingress.assert_called_once()
 
     def test_downtime_nginx_or_public_verification_failure_runs_coordinated_recovery(self) -> None:
         release = self.release()
@@ -646,6 +649,8 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.freeze = mock.Mock()
         release.migration_preflight = mock.Mock()
         release.backup = mock.Mock()
+        release.apply_nginx_ingress = mock.Mock(side_effect=lambda: setattr(release, "nginx_ingress_attempted", True))
+        release.rollback_nginx_ingress = mock.Mock(return_value={"nginx_ingress_rollback": "restored"})
         release.bind_migration_plan = mock.Mock()
         release.switch = mock.Mock()
         release.verify_and_finalize = mock.Mock(side_effect=RuntimeError("nginx start failed"))
@@ -657,6 +662,48 @@ class ProductionRecoveryTest(unittest.TestCase):
 
         release.recover.assert_called_once()
         release.rollback_route.assert_not_called()
+        release.rollback_nginx_ingress.assert_called_once()
+
+    def test_ingress_rollback_failure_does_not_skip_downtime_recovery(self) -> None:
+        release = self.release()
+        release.deployment_mode = "downtime"
+        release.claimed = True
+        release.frozen = True
+        release.remote_gate_consumed = mock.Mock(return_value=False)
+        release.upload_assets = mock.Mock(side_effect=RuntimeError("switch failed"))
+        release.nginx_ingress_attempted = True
+        release.rollback_nginx_ingress = mock.Mock(side_effect=RuntimeError("ingress rollback failed"))
+        release.recover = mock.Mock()
+
+        with self.assertRaisesRegex(RuntimeError, "switch failed"):
+            release.execute()
+
+        release.rollback_nginx_ingress.assert_called_once()
+        release.recover.assert_called_once()
+        self.assertEqual(release.result["status"], "blocked_reconciliation")
+        release.stage.assert_any_call(
+            "nginx_ingress_rollback_requires_reconciliation",
+            {"application_recovery": "completed"},
+        )
+
+    def test_ingress_rollback_failure_does_not_skip_route_rollback(self) -> None:
+        release = self.release()
+        release.claimed = True
+        release.public_exposed = True
+        release.remote_gate_consumed = mock.Mock(return_value=False)
+        release.upload_assets = mock.Mock(side_effect=RuntimeError("verification failed"))
+        release.nginx_ingress_attempted = True
+        release.rollback_nginx_ingress = mock.Mock(side_effect=RuntimeError("ingress rollback failed"))
+        release.rollback_route = mock.Mock(return_value={"route_rollback": "true"})
+        release.recover = mock.Mock()
+
+        with self.assertRaisesRegex(RuntimeError, "verification failed"):
+            release.execute()
+
+        release.rollback_nginx_ingress.assert_called_once()
+        release.rollback_route.assert_called_once()
+        release.recover.assert_not_called()
+        self.assertEqual(release.result["status"], "blocked_reconciliation")
 
     def test_remote_claim_probe_is_fail_closed(self) -> None:
         release = self.release()
@@ -976,6 +1023,64 @@ class PublicHealthOnlyTest(unittest.TestCase):
 class ReleaseClaimScriptTest(unittest.TestCase):
     def script(self, name: str) -> str:
         return (DEPLOY_ROOT / "maintenance" / "release" / name).read_text(encoding="utf-8")
+
+    def test_nginx_rewriter_executes_and_preserves_non_target_locations(self) -> None:
+        bash = shutil.which("bash")
+        if bash is None and os.name == "nt":
+            candidate = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
+            bash = str(candidate) if candidate.is_file() else None
+        if bash is None:
+            self.skipTest("bash is unavailable")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "site.conf"
+            output = root / "site.conf.rewritten"
+            source.write_text(
+                "server {\n"
+                "    # comment with braces { }\n"
+                "    location /v1 {\n"
+                "        proxy_request_buffering off;\n"
+                "        proxy_buffering on;\n"
+                "        proxy_pass http://sub2api_release_backend;\n"
+                "    }\n"
+                "    location /v2 {\n"
+                "        include /etc/nginx/snippets/sub2api-release-ingress.conf;\n"
+                "        proxy_pass http://sub2api_release_backend;\n"
+                "    }\n"
+                "    location /other {\n"
+                "        proxy_pass http://other_backend;\n"
+                "    }\n"
+                "}\n",
+                encoding="utf-8",
+            )
+
+            def bash_path(path: Path) -> str:
+                if os.name != "nt":
+                    return path.as_posix()
+                return subprocess.run(
+                    [bash, "-lc", f"cygpath -u {shlex.quote(str(path))}"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+
+            contract = bash_path(DEPLOY_ROOT / "maintenance" / "release" / "nginx-ingress-contract.sh")
+            source_path = bash_path(source)
+            output_path = bash_path(output)
+            command = (
+                f"source {shlex.quote(contract)}; "
+                f"rewrite_managed_nginx_site {shlex.quote(source_path)} {shlex.quote(output_path)}"
+            )
+            subprocess.run([bash, "-c", command], check=True, capture_output=True, text=True)
+
+            rewritten = output.read_text(encoding="utf-8")
+            self.assertEqual(rewritten.count("include /etc/nginx/snippets/sub2api-release-ingress.conf;"), 2)
+            self.assertNotIn("proxy_request_buffering off;", rewritten)
+            self.assertNotIn("proxy_buffering on;", rewritten)
+            self.assertIn("proxy_pass http://other_backend;", rewritten)
+            other_block = rewritten.split("location /other", 1)[1]
+            self.assertNotIn("sub2api-release-ingress.conf", other_block)
 
     def test_prepare_rejects_linked_candidate_and_copies_assets(self) -> None:
         script = self.script("prepare.sh")
@@ -1319,7 +1424,8 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         execute = production[production.index("def execute(self)"):]
         self.assertLess(execute.index("self.freeze()"), execute.index("self.migration_preflight()"))
         self.assertLess(execute.index("self.migration_preflight()"), execute.index("self.backup()"))
-        self.assertLess(execute.index("self.backup()"), execute.index("self.bind_migration_plan()"))
+        self.assertLess(execute.index("self.backup()"), execute.index("self.apply_nginx_ingress()"))
+        self.assertLess(execute.index("self.apply_nginx_ingress()"), execute.index("self.bind_migration_plan()"))
         self.assertLess(execute.index("self.bind_migration_plan()"), execute.index("self.switch()"))
         self.assertLess(switch.index('migration-195-assert.sh" postflight_db'), switch.index("candidate_run_args=(run -d"))
         self.assertIn("migration-committed", switch)
@@ -1905,14 +2011,56 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('exec "$assets_dir/rollback-route.sh"', emergency)
         self.assertNotIn("systemctl stop nginx", emergency)
 
-    def test_bootstrap_restores_original_nginx_site_on_failure(self) -> None:
+    def test_bootstrap_keeps_ingress_upgrade_out_of_pre_gate_path(self) -> None:
         bootstrap = (DEPLOY_ROOT / "release" / "production_bootstrap.py").read_text(encoding="utf-8")
-        self.assertIn('site_backup="$site.sub2api-release-backup"', bootstrap)
-        self.assertIn('install -m 600 "$site_backup" "$site"', bootstrap)
-        self.assertIn('rm -f -- "$managed_upstream"', bootstrap)
-        self.assertIn("nginx -t >/dev/null 2>&1 && systemctl reload nginx", bootstrap)
-        self.assertIn("grep -c '^image_id='", bootstrap)
-        self.assertIn("active_image=$(sed -n 's/^image_id=//p'", bootstrap)
+        self.assertIn("legacy_proxy_count=$(grep -Ec", bootstrap)
+        self.assertNotIn("proxy_request_buffering", bootstrap)
+        self.assertNotIn("sub2api_upstream", bootstrap)
+        self.assertNotIn("apply-nginx-ingress", bootstrap)
+
+    def test_nginx_ingress_assets_are_transactional_and_gate_signed(self) -> None:
+        apply_ingress = self.script("apply-nginx-ingress.sh")
+        rollback_ingress = self.script("rollback-nginx-ingress.sh")
+        contract = self.script("nginx-ingress-contract.sh")
+        backup = self.script("backup.sh")
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        verify = self.script("verify.sh")
+
+        self.assertIn('source /opt/sub2api/releases/.active-release/assets/context.sh', apply_ingress)
+        self.assertIn('/run/lock/sub2api-production-release.lock', apply_ingress)
+        self.assertIn('sha256sum -c backup-result.sha256', apply_ingress)
+        self.assertIn('nginx-ingress-transaction', apply_ingress)
+        self.assertIn('rollback-nginx-ingress.sh', apply_ingress)
+        self.assertIn('rollback-failure', rollback_ingress)
+        self.assertIn('exit 125', rollback_ingress)
+        self.assertIn('rewrite_managed_nginx_site "$site" "$rewrite"', apply_ingress)
+        self.assertIn('include /etc/nginx/snippets/sub2api-release-ingress.conf;', contract)
+        self.assertIn('proxy_request_buffering on;', contract)
+        self.assertIn('proxy_buffering off;', contract)
+        self.assertIn('upstream_response_time', contract)
+        self.assertIn('rotate 14', backup)
+        self.assertIn('nginx -T', contract)
+        self.assertIn('# configuration file $site:', contract)
+        self.assertIn('conflicting server name', contract)
+        self.assertNotIn('conflicting server name|duplicate', contract)
+        self.assertIn('source "$assets_dir/nginx-ingress-contract.sh"', verify)
+        self.assertIn('assert_nginx_ingress_policy', verify)
+        consume = self.script("consume.sh")
+        self.assertIn('/run/lock/sub2api-production-release.lock', consume)
+        self.assertIn('source "$assets_dir/nginx-ingress-contract.sh"', consume)
+        self.assertIn('assert_nginx_ingress_policy', consume)
+        self.assertIn('config/nginx/release-backups', backup)
+        self.assertIn('config/nginx/logrotate', backup)
+        self.assertIn('NGINX_INGRESS_SNIPPET', backup)
+        self.assertIn('def apply_nginx_ingress(self)', production)
+        self.assertIn('def rollback_nginx_ingress(self)', production)
+
+    def test_nginx_ingress_phase_runs_after_restore_point_and_before_switch_contract(self) -> None:
+        production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
+        execute = production[production.index("def execute(self)"):]
+        self.assertLess(execute.index("self.backup()"), execute.index("self.apply_nginx_ingress()"))
+        self.assertLess(execute.index("self.apply_nginx_ingress()"), execute.index("self.bind_migration_plan()"))
+        self.assertLess(execute.index("self.rollback_nginx_ingress()"), execute.index('if getattr(self, "deployment_mode"'))
 
     def test_candidate_preserves_sync_setting_but_waits_for_activation(self) -> None:
         switch = self.script("switch.sh")
