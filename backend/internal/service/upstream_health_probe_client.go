@@ -357,7 +357,7 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 		return s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
 	case PlatformGemini:
 		return s.runGeminiUpstreamHealthProbe(ctx, account, result, challenge)
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek:
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax:
 		// These providers are OpenAI-compatible but their default contract is
 		// Chat Completions, not OpenAI Responses. Keep the probe protocol
 		// explicit so platform-specific base URLs and credentials are preserved.
@@ -368,8 +368,8 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 			return s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
 		}
 		if account.GetAPIProtocol() == APIProtocolResponses {
-			if account.Platform == PlatformDeepseek {
-				return s.runDeepseekResponsesUpstreamHealthProbe(ctx, account, result, challenge)
+			if account.Platform == PlatformDeepseek || account.Platform == PlatformMiniMax {
+				return s.runCNNativeResponsesUpstreamHealthProbe(ctx, account, result, challenge)
 			}
 			return failUpstreamHealthProbe(result, "unsupported_protocol", "probe_protocol_unsupported", errors.New("configured responses protocol is not supported by this provider"))
 		}
@@ -398,9 +398,9 @@ func (s *AccountTestService) runCNAdaptiveUpstreamHealthProbe(ctx context.Contex
 			return s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
 		},
 	}
-	if account.Platform == PlatformDeepseek {
+	if account.Platform == PlatformDeepseek || account.Platform == PlatformMiniMax {
 		probes = append(probes, func() (UpstreamHealthProbeResult, error) {
-			return s.runDeepseekResponsesUpstreamHealthProbe(ctx, account, result, challenge)
+			return s.runCNNativeResponsesUpstreamHealthProbe(ctx, account, result, challenge)
 		})
 	}
 
@@ -616,20 +616,21 @@ func (s *AccountTestService) runOpenAIChatCompletionsUpstreamHealthProbe(ctx con
 	return s.executeUpstreamHealthProbe(req, account, result, challenge.Expected, parseOpenAIChatCompletionsUpstreamHealthStream)
 }
 
-// runDeepseekResponsesUpstreamHealthProbe follows the native DeepSeek
-// /responses contract used by adaptive/fixed forwarding. DeepSeek does not
-// expose the OpenAI Juice confidence surface, so this path uses the regular
-// arithmetic challenge and keeps the probe result comparable to Chat probes.
-func (s *AccountTestService) runDeepseekResponsesUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
+// runCNNativeResponsesUpstreamHealthProbe follows the native stateless
+// Responses contract used by DeepSeek and MiniMax adaptive/fixed forwarding.
+// These providers do not expose the OpenAI Juice confidence surface, so this
+// path uses the regular arithmetic challenge and keeps the probe result
+// comparable to Chat probes.
+func (s *AccountTestService) runCNNativeResponsesUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
 	result.Protocol = upstreamHealthProbeProtocolOpenAI
 	requestedModel := strings.TrimSpace(result.Model)
 	result.Model = account.GetMappedModel(requestedModel)
 	if strings.TrimSpace(result.Model) == "" || !account.IsModelSupported(requestedModel) || isTextProbeUnsupportedModel(result.Model) {
-		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", fmt.Errorf("DeepSeek account does not support probe model %q", requestedModel))
+		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", fmt.Errorf("%s account does not support probe model %q", account.Platform, requestedModel))
 	}
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if authToken == "" {
-		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", errors.New("DeepSeek API key is missing"))
+		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", fmt.Errorf("%s API key is missing", account.Platform))
 	}
 	baseURL := account.GetOpenAIBaseURL()
 	if account.IsAdaptiveAPIProtocol() {
@@ -648,7 +649,7 @@ func (s *AccountTestService) runDeepseekResponsesUpstreamHealthProbe(ctx context
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
-	apiURL := buildOpenAIResponsesURLForPlatform(PlatformDeepseek, baseURL)
+	apiURL := buildOpenAIResponsesURLForPlatform(account.Platform, baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)

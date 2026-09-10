@@ -389,6 +389,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ChannelMonitorDegradedThresholdSeconds: settings.ChannelMonitorDegradedThresholdSeconds,
 		ChannelMonitorDegradedRetryTolerance:   settings.ChannelMonitorDegradedRetryTolerance,
 		ChannelMonitorDegradedSwitchTolerance:  settings.ChannelMonitorDegradedSwitchTolerance,
+		ChannelMonitorHideUserRanking:          settings.ChannelMonitorHideUserRanking,
 
 		GrokDefaultTextModel:           settings.GrokDefaultTextModel,
 		GrokCrossClientModelMapEnabled: settings.GrokCrossClientModelMapEnabled,

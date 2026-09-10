@@ -20,7 +20,7 @@ profile=$(jq -er '.profile' "$manifest")
 commit=$(jq -er '.commit_sha' "$manifest")
 version=$(jq -er '.version' "$manifest")
 release_id=$(jq -er '.release_id' "$manifest")
-[[ $scope == vm-only && $profile == 248 && $release_id == "248-${commit:0:12}-"* ]]
+[[ $scope == vm-only && $profile == 249 && $release_id == "249-${commit:0:12}-"* ]]
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
 [[ $(jq -er '.vm_port' "$manifest") == 8211 ]]
@@ -97,7 +97,7 @@ jq -cnS \
   --arg candidate_image_id "$candidate_image_id" \
   --arg candidate_archive_sha256 "$candidate_archive_sha256" \
   --argjson candidate_size "$candidate_size" \
-  '{gate_version:2,profile_id:248,manifest:$manifest,evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,candidate_identity_verified:true,candidate_health:"pass",existing_app_health:"pass",vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true}}' >"$output_dir/gate.json"
+  '{gate_version:2,profile_id:249,manifest:$manifest,evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,candidate_identity_verified:true,candidate_health:"pass",existing_app_health:"pass",vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true}}' >"$output_dir/gate.json"
 chmod 400 "$output_dir/gate.json"
 /usr/local/libexec/sub2api-sign-gate "$output_dir/gate.json" "$output_dir/gate.sig"
 sha256sum "$output_dir/gate.json" "$output_dir/gate.sig" "$candidate_archive" >"$output_dir/SHA256SUMS"

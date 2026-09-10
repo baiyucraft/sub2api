@@ -23,7 +23,7 @@ func TestRegisteredPlatformsExposeActiveProbeSupport(t *testing.T) {
 		require.True(t, IsConcreteRequestPlatform(platform))
 		require.True(t, UpstreamProbePlatformSupported(platform))
 	}
-	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek} {
+	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax} {
 		require.True(t, IsConcreteRequestPlatform(platform))
 		require.True(t, UpstreamProbePlatformSupported(platform))
 	}
@@ -39,6 +39,7 @@ func TestRegisteredPlatformsUsePlatformSpecificModelCatalogs(t *testing.T) {
 		{PlatformKimi, []string{"kimi-k2.5", "moonshot-v1-128k"}, []string{"claude-sonnet-4-6", "glm-5.2"}},
 		{PlatformZhipu, []string{"glm-4.6", "glm-5.2", "cogview-3"}, []string{"claude-sonnet-4-6", "deepseek-chat"}},
 		{PlatformDeepseek, []string{"deepseek-chat", "deepseek-v4-pro"}, []string{"claude-sonnet-4-6", "glm-5.2"}},
+		{PlatformMiniMax, []string{"MiniMax-M3", "MiniMax-M2.7"}, []string{"claude-sonnet-4-6", "deepseek-chat"}},
 	}
 	for _, tc := range tests {
 		models := DefaultModelIDsForPlatform(tc.platform)

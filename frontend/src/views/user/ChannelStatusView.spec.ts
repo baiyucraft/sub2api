@@ -48,6 +48,7 @@ vi.mock('@/stores/app', () => ({
 vi.mock('@/utils/featureFlags', () => ({
   isChannelMonitorV1Mode: () => false,
   isChannelMonitorThroughputHidden: () => false,
+  isChannelMonitorUserRankingHidden: () => false,
 }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),

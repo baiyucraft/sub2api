@@ -26,5 +26,11 @@ var deepseekOfficialModelIDs = []string{
 	"deepseek-r1", "deepseek-r1-0528",
 	"deepseek-r1-distill-qwen-32b", "deepseek-r1-distill-qwen-14b", "deepseek-r1-distill-qwen-7b",
 	"deepseek-r1-distill-llama-70b", "deepseek-r1-distill-llama-8b",
-	"deepseek-v4-flash", "deepseek-v4-pro",
+"deepseek-v4-flash", "deepseek-v4-pro",
+}
+
+var minimaxOfficialModelIDs = []string{
+	"MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.7-highspeed",
+	"MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1",
+	"MiniMax-M2.1-highspeed", "MiniMax-M2",
 }

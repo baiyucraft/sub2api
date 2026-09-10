@@ -53,6 +53,8 @@ func defaultModelIDsForRegisteredPlatform(platform string) []string {
 		return cloneStrings(zhipuOfficialModelIDs)
 	case PlatformDeepseek:
 		return cloneStrings(deepseekOfficialModelIDs)
+	case PlatformMiniMax:
+		return cloneStrings(minimaxOfficialModelIDs)
 	default:
 		return nil
 	}
@@ -77,6 +79,7 @@ var registeredPlatformCatalog = []PlatformDescriptor{
 	{ID: PlatformKimi, Label: "Kimi", ProbeSupported: true},
 	{ID: PlatformZhipu, Label: "Zhipu GLM", ProbeSupported: true},
 	{ID: PlatformDeepseek, Label: "DeepSeek", ProbeSupported: true},
+	{ID: PlatformMiniMax, Label: "MiniMax", ProbeSupported: true},
 }
 
 func RegisteredPlatformCatalog() []PlatformDescriptor {
