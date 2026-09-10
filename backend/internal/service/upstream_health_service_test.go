@@ -651,10 +651,10 @@ func TestUpstreamConfigServiceListDueHealthProbeKeys(t *testing.T) {
 	now := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
 	active := StatusActive
 	repo := &healthEventCaptureRepo{keys: []UpstreamKey{
-		{ID: 92013, Status: active},
-		{ID: 92011, Status: active},
+		{ID: 92013, Status: active, BoundAccountCount: 1},
+		{ID: 92011, Status: active, BoundAccountCount: 1},
 		{ID: 92012, Status: "inactive"},
-		{ID: 92014, Status: active},
+		{ID: 92014, Status: active, BoundAccountCount: 1},
 	}}
 	disabled := defaultUpstreamHealthSnapshot(92013)
 	disabled.ObservationEnabled = false
@@ -671,11 +671,31 @@ func TestUpstreamConfigServiceListDueHealthProbeKeys(t *testing.T) {
 	require.Equal(t, []int64{92011}, ids)
 }
 
+func TestUpstreamConfigServiceListDueHealthProbeKeysFiltersInvalidBindingsBeforeLimit(t *testing.T) {
+	now := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	active := StatusActive
+	keys := make([]UpstreamKey, 0, 27)
+	for id := int64(92200); id < 92225; id++ {
+		keys = append(keys, UpstreamKey{ID: id, Status: active, BoundAccountCount: 0})
+	}
+	keys = append(keys,
+		UpstreamKey{ID: 92225, Status: active, BoundAccountCount: 2},
+		UpstreamKey{ID: 92226, Status: active, BoundAccountCount: 1},
+		UpstreamKey{ID: 92227, Status: active, BoundAccountCount: 1},
+	)
+	repo := &healthEventCaptureRepo{keys: keys}
+	svc := &UpstreamConfigService{repo: repo}
+
+	ids, err := svc.ListDueHealthProbeKeyIDs(context.Background(), now, 2)
+	require.NoError(t, err)
+	require.Equal(t, []int64{92226, 92227}, ids)
+}
+
 func TestUpstreamConfigServiceListDueHealthProbeKeysReloadsConfiguredInterval(t *testing.T) {
 	now := time.Date(2026, 8, 11, 9, 0, 0, 0, time.UTC)
 	active := StatusActive
 	const keyID int64 = 92015
-	repo := &healthEventCaptureRepo{keys: []UpstreamKey{{ID: keyID, Status: active}}}
+	repo := &healthEventCaptureRepo{keys: []UpstreamKey{{ID: keyID, Status: active, BoundAccountCount: 1}}}
 	lastProbe := defaultUpstreamHealthSnapshot(keyID)
 	lastProbe.LastProbeAt = upstreamHealthTimePtr(now.Add(-2 * time.Minute))
 	GlobalUpstreamHealthRegistry().Hydrate(lastProbe)
@@ -704,8 +724,8 @@ func TestUpstreamConfigServiceListDueHealthProbeKeysUsesConfidenceIndependentMod
 	const openAIEnabledID int64 = 92101
 	const nonOpenAIID int64 = 92104
 	repo := &healthEventCaptureRepo{keys: []UpstreamKey{
-		{ID: openAIEnabledID, Status: active, Platform: &openai},
-		{ID: nonOpenAIID, Status: active, Platform: &gemini},
+		{ID: openAIEnabledID, Status: active, Platform: &openai, BoundAccountCount: 1},
+		{ID: nonOpenAIID, Status: active, Platform: &gemini, BoundAccountCount: 1},
 	}}
 	for _, keyID := range []int64{openAIEnabledID, nonOpenAIID} {
 		item := defaultUpstreamHealthSnapshot(keyID)
