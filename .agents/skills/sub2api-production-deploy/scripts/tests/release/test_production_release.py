@@ -1389,6 +1389,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
 
     def test_coordinated_restore_reads_redis_password_from_startup_arguments(self) -> None:
         restore = self.script("restore.sh")
+        self.assertIn('assert_safe_file_target "$target" "$kind"', restore)
         self.assertIn('index("--requirepass")', restore)
         self.assertIn('startswith("--requirepass=")', restore)
         self.assertIn("IFS= read -r REDISCLI_AUTH", restore)
@@ -2033,6 +2034,13 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('rollback-nginx-ingress.sh', apply_ingress)
         self.assertIn('rollback-failure', rollback_ingress)
         self.assertIn('exit 125', rollback_ingress)
+        self.assertIn('source "$assets_dir/nginx-ingress-contract.sh"', rollback_ingress)
+        self.assertIn('assert_ingress_transaction_layout', apply_ingress)
+        self.assertIn('assert_ingress_transaction_files', apply_ingress)
+        self.assertIn('sha256sum --strict -c SHA256SUMS.files', apply_ingress)
+        self.assertIn('assert_ingress_transaction_layout', rollback_ingress)
+        self.assertIn('assert_ingress_transaction_files', rollback_ingress)
+        self.assertIn('sha256sum --strict -c SHA256SUMS.files', rollback_ingress)
         self.assertIn('rewrite_managed_nginx_site "$site" "$rewrite"', apply_ingress)
         self.assertIn('include /etc/nginx/snippets/sub2api-release-ingress.conf;', contract)
         self.assertIn('proxy_request_buffering on;', contract)
