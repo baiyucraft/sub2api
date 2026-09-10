@@ -208,6 +208,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyChannelMonitorDegradedThresholdSeconds: "6",
 		SettingKeyChannelMonitorDegradedRetryTolerance:   "2",
 		SettingKeyChannelMonitorDegradedSwitchTolerance:  "3",
+		SettingKeyChannelMonitorHideUserRanking:          "false",
 
 		// Grok compatibility defaults: cross-client mapping stays enabled unless
 		// operators explicitly disable it.
@@ -839,6 +840,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ChannelMonitorDegradedThresholdSeconds = parseChannelMonitorDegradedThreshold(settings[SettingKeyChannelMonitorDegradedThresholdSeconds])
 	result.ChannelMonitorDegradedRetryTolerance = parseChannelMonitorDegradedRetryTolerance(settings[SettingKeyChannelMonitorDegradedRetryTolerance])
 	result.ChannelMonitorDegradedSwitchTolerance = parseChannelMonitorDegradedSwitchTolerance(settings[SettingKeyChannelMonitorDegradedSwitchTolerance])
+	result.ChannelMonitorHideUserRanking = isTrueSettingValue(settings[SettingKeyChannelMonitorHideUserRanking])
 
 	// Grok default mapping policy
 	result.GrokDefaultTextModel = strings.TrimSpace(settings[SettingKeyGrokDefaultTextModel])
@@ -1047,6 +1049,15 @@ func clampAffiliateRebateRate(value float64) float64 {
 func isFalseSettingValue(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "false", "0", "off", "disabled":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTrueSettingValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "1", "on", "enabled":
 		return true
 	default:
 		return false

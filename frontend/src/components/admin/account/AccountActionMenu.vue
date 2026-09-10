@@ -1,72 +1,121 @@
 <template>
-  <ActionMenu :show="show" :anchor-el="anchorEl" width="wide" @close="emit('close')">
-    <template #default="{ close }">
-      <div>
+  <Teleport to="body">
+    <div v-if="show && anchorRect">
+      <div class="fixed inset-0 z-[9998]" @click="emit('close')"></div>
+      <div
+        ref="menuRef"
+        class="action-menu-content fixed z-[9999] w-52 overflow-y-auto overscroll-contain rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800"
+        :style="menuStyle"
+        @click.stop
+      >
+        <div class="py-1">
           <template v-if="account">
-            <button v-if="canUseAction('test')" role="menuitem" @click="$emit('test', account); close()">
+            <button v-if="canUseAction('test')" role="menuitem" @click="$emit('test', account); emit('close')">
               <Icon name="play" size="sm" class="text-green-500" :stroke-width="2" />
               {{ t('admin.accounts.testConnection') }}
             </button>
-            <button v-if="canUseAction('stats')" role="menuitem" @click="$emit('stats', account); close()">
+            <button v-if="canUseAction('stats')" role="menuitem" @click="$emit('stats', account); emit('close')">
               <Icon name="chart" size="sm" class="text-indigo-500" />
               {{ t('admin.accounts.viewStats') }}
             </button>
-            <button v-if="canUseAction('schedule')" role="menuitem" @click="$emit('schedule', account); close()">
+            <button v-if="canUseAction('schedule')" role="menuitem" @click="$emit('schedule', account); emit('close')">
               <Icon name="clock" size="sm" class="text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
             </button>
-            <button v-if="canShowRateTrend" role="menuitem" @click="$emit('rate-trend', account); close()">
+            <button v-if="canShowRateTrend" role="menuitem" @click="$emit('rate-trend', account); emit('close')">
               <Icon name="trendingUp" size="sm" class="text-cyan-500" />
               {{ t('admin.upstreamConfigs.actions.rateTrend') }}
             </button>
-            <button v-if="canDuplicate && canUseAction('duplicate')" role="menuitem" @click="$emit('duplicate', account); close()">
+            <button v-if="canDuplicate && canUseAction('duplicate')" role="menuitem" @click="$emit('duplicate', account); emit('close')">
               <Icon name="copy" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
             </button>
-            <!-- 影子账号不持凭据:重授权/刷新 token 对其无效(后端拒绝),故隐藏(外审 G4)。 -->
             <template v-if="(account.type === 'oauth' || account.type === 'setup-token') && !isShadow">
-              <button v-if="canUseAction('reauth')" role="menuitem" @click="$emit('reauth', account); close()" class="text-blue-600">
+              <button v-if="canUseAction('reauth')" role="menuitem" @click="$emit('reauth', account); emit('close')" class="text-blue-600">
                 <Icon name="link" size="sm" />
                 {{ t('admin.accounts.reAuthorize') }}
               </button>
-              <button v-if="canUseAction('refresh_token')" role="menuitem" @click="$emit('refresh-token', account); close()" class="text-purple-600">
+              <button v-if="canUseAction('refresh_token')" role="menuitem" @click="$emit('refresh-token', account); emit('close')" class="text-purple-600">
                 <Icon name="refresh" size="sm" />
                 {{ t('admin.accounts.refreshToken') }}
               </button>
             </template>
-            <button v-if="isOpenAIOAuthParent && canUseAction('create_spark_shadow')" role="menuitem" @click="$emit('create-spark-shadow', account); close()" class="text-amber-600">
+            <button v-if="isOpenAIOAuthParent && canUseAction('create_spark_shadow')" role="menuitem" @click="$emit('create-spark-shadow', account); emit('close')" class="text-amber-600">
               <Icon name="sparkles" size="sm" />
               {{ t('admin.accounts.createSparkShadow') }}
             </button>
-            <button v-if="supportsPrivacy && canUseAction('set_privacy')" role="menuitem" @click="$emit('set-privacy', account); close()" class="text-emerald-600">
+            <button v-if="supportsPrivacy && canUseAction('set_privacy')" role="menuitem" @click="$emit('set-privacy', account); emit('close')" class="text-emerald-600">
               <Icon name="shield" size="sm" />
               {{ t('admin.accounts.setPrivacy') }}
             </button>
             <div v-if="hasRecoverableState" data-menu-divider></div>
-            <button v-if="hasRecoverableState && canUseAction('recover_state')" role="menuitem" @click="$emit('recover-state', account); close()" class="text-emerald-600">
+            <button v-if="hasRecoverableState && canUseAction('recover_state')" role="menuitem" @click="$emit('recover-state', account); emit('close')" class="text-emerald-600">
               <Icon name="sync" size="sm" />
               {{ t('admin.accounts.recoverState') }}
             </button>
-            <button v-if="hasQuotaLimit && canUseAction('reset_quota')" role="menuitem" @click="$emit('reset-quota', account); close()" class="text-teal-600">
+            <button v-if="hasQuotaLimit && canUseAction('reset_quota')" role="menuitem" @click="$emit('reset-quota', account); emit('close')" class="text-teal-600">
               <Icon name="refresh" size="sm" />
               {{ t('admin.accounts.resetQuota') }}
             </button>
           </template>
+        </div>
       </div>
-    </template>
-  </ActionMenu>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useResizeObserver, useWindowSize } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
-import ActionMenu from '@/components/common/ActionMenu.vue'
 import type { Account } from '@/types'
 
-const props = defineProps<{ show: boolean; account: Account | null; anchorEl: HTMLElement | null }>()
+const props = defineProps<{ show: boolean; account: Account | null; anchorRect: DOMRect | null }>()
 const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'rate-trend', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
 const { t } = useI18n()
+const menuRef = ref<HTMLElement | null>(null)
+const { width: viewportWidth, height: viewportHeight } = useWindowSize()
+const viewportPadding = 8
+const menuPosition = ref({ top: viewportPadding, left: viewportPadding })
+const menuStyle = computed(() => ({
+  top: `${menuPosition.value.top}px`,
+  left: `${menuPosition.value.left}px`,
+  maxWidth: `${Math.max(0, viewportWidth.value - viewportPadding * 2)}px`,
+  maxHeight: `${Math.max(0, viewportHeight.value - viewportPadding * 2)}px`
+}))
+
+const updatePosition = () => {
+  if (!menuRef.value || !props.anchorRect) return
+
+  const { width, height } = menuRef.value.getBoundingClientRect()
+  const anchor = props.anchorRect
+  const gap = 4
+  const maxTop = viewportHeight.value - height - viewportPadding
+  const top = anchor.bottom + gap <= maxTop
+    ? anchor.bottom + gap
+    : anchor.top - height - gap
+  const left = viewportWidth.value < 768
+    ? anchor.left + anchor.width / 2 - width / 2
+    : anchor.right - width
+
+  menuPosition.value.top = Math.max(viewportPadding, Math.min(top, maxTop))
+  menuPosition.value.left = Math.max(viewportPadding, Math.min(left, viewportWidth.value - width - viewportPadding))
+}
+
+const handleWindowKeydown = (event: KeyboardEvent) => {
+  if (props.show && event.key === 'Escape') {
+    event.preventDefault()
+    emit('close')
+  }
+}
+
+// Measure after rendering; menu items and translated labels can change its size.
+watch([menuRef, () => props.anchorRect, viewportWidth, viewportHeight], updatePosition, { flush: 'post' })
+useResizeObserver(menuRef, updatePosition)
+onMounted(() => window.addEventListener('keydown', handleWindowKeydown))
+onUnmounted(() => window.removeEventListener('keydown', handleWindowKeydown))
+
 const canDuplicate = computed(() => {
   if (
     !props.account ||
