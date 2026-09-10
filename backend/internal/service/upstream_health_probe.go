@@ -240,6 +240,12 @@ func (s *UpstreamConfigService) ListDueHealthProbeKeyIDs(ctx context.Context, no
 		if key.ID <= 0 || !upstreamKeyIsActive(&key) {
 			continue
 		}
+		// A health probe requires exactly one effective account binding. Filter
+		// invalid candidates before applying the bounded queue limit so orphaned
+		// or conflicting keys cannot consume the entire probe budget forever.
+		if key.BoundAccountCount != 1 {
+			continue
+		}
 		item := GlobalUpstreamHealthRegistry().Snapshot(key.ID)
 		// The persisted column is authoritative even when the in-memory
 		// registry was rebuilt after a restart or a key was restored.

@@ -767,6 +767,7 @@ func (r *upstreamConfigRepository) ListKeys(ctx context.Context, upstreamConfigI
 
 func (r *upstreamConfigRepository) ListAllKeysForHealth(ctx context.Context) ([]service.UpstreamKey, error) {
 	rows, err := r.client.UpstreamKey.Query().
+		WithAccounts(func(q *dbent.AccountQuery) { q.Select(dbaccount.FieldID) }).
 		Order(dbent.Asc(dbupstreamkey.FieldID)).
 		All(ctx)
 	if err != nil {
