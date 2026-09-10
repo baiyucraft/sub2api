@@ -403,8 +403,8 @@ func (s *DailyActivityService) Summary(ctx context.Context, userID int64, now ti
 }
 
 // SyncInvitationMilestones derives one permanent qualification per invitee from
-// successful qualifying recharges. It is idempotent and intentionally independent
-// from affiliate rebate settlement.
+// successful qualifying recharges. It is idempotent and excludes inviters with
+// an explicitly configured exclusive rebate rate.
 func (s *DailyActivityService) SyncInvitationMilestones(ctx context.Context, inviterID int64) error {
 	cfg := s.config(ctx)
 	rechargeSQL := s.activityRechargeSourcesSQL("ua.user_id", "$3", "")
@@ -412,11 +412,13 @@ func (s *DailyActivityService) SyncInvitationMilestones(ctx context.Context, inv
 INSERT INTO activity_invitation_milestones(inviter_id, invitee_id, qualifying_amount, qualifying_order_id)
 SELECT ua.inviter_id, ua.user_id, q.total_amount, q.order_id
 FROM user_affiliates ua
+LEFT JOIN user_affiliates inviter_aff ON inviter_aff.user_id = ua.inviter_id
 JOIN LATERAL (
 	  SELECT COALESCE(SUM(amount),0) AS total_amount, NULL::bigint AS order_id
 	  FROM (%s) recharge_events
 	) q ON q.total_amount >= $2
 	WHERE ua.inviter_id=$1
+	  AND inviter_aff.aff_rebate_rate_percent IS NULL
 
 	ON CONFLICT (inviter_id, invitee_id) DO NOTHING`, rechargeSQL), inviterID, cfg.InviteQualificationAmount, s.startedAt(ctx))
 	return err
@@ -434,11 +436,13 @@ func (s *DailyActivityService) SyncInvitationMilestoneForInvitee(ctx context.Con
 INSERT INTO activity_invitation_milestones(inviter_id, invitee_id, qualifying_amount, qualifying_order_id)
 SELECT ua.inviter_id, ua.user_id, totals.total_amount, $2
 FROM user_affiliates ua
+LEFT JOIN user_affiliates inviter_aff ON inviter_aff.user_id = ua.inviter_id
 JOIN LATERAL (
   SELECT COALESCE(SUM(amount),0) AS total_amount
   FROM (%s) recharge_events
 ) totals ON totals.total_amount >= $3
 WHERE ua.user_id=$1 AND ua.inviter_id IS NOT NULL
+  AND inviter_aff.aff_rebate_rate_percent IS NULL
 ON CONFLICT (inviter_id, invitee_id) DO NOTHING`, rechargeSQL), inviteeID, orderID, cfg.InviteQualificationAmount, s.startedAt(ctx))
 	return err
 }
@@ -469,8 +473,17 @@ func (s *DailyActivityService) SyncCredits(ctx context.Context, userID int64, no
 	if spend, err = s.cumulativeSpendDrawCredits(ctx, tx, userID, start, end, cfg.ConsumptionDrawThreshold); err != nil {
 		return err
 	}
-	if err = tx.QueryRowContext(ctx, `SELECT FLOOR(COUNT(*)/$2) FROM activity_invitation_milestones WHERE inviter_id=$1`, userID, cfg.InviteDrawRequiredCount).Scan(&invite); err != nil {
+	var exclusiveRebate bool
+	err = tx.QueryRowContext(ctx, `SELECT aff_rebate_rate_percent IS NOT NULL FROM user_affiliates WHERE user_id=$1 FOR UPDATE`, userID).Scan(&exclusiveRebate)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = nil
+	} else if err != nil {
 		return err
+	}
+	if !exclusiveRebate {
+		if err = tx.QueryRowContext(ctx, `SELECT FLOOR(COUNT(*)/$2) FROM activity_invitation_milestones WHERE inviter_id=$1`, userID, cfg.InviteDrawRequiredCount).Scan(&invite); err != nil {
+			return err
+		}
 	}
 	var lockedUserID int64
 	if err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
@@ -486,6 +499,9 @@ func (s *DailyActivityService) SyncCredits(ctx context.Context, userID int64, no
 	}
 	for _, target := range creditTargets {
 		typ, total := target.typ, target.total
+		if typ == activityInviteDraw && exclusiveRebate {
+			continue
+		}
 		var existing, nextIndex int64
 		if err = tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(credit_index)+1,0) FROM activity_draw_credits WHERE user_id=$1 AND activity_type=$2`, userID, typ).Scan(&existing, &nextIndex); err != nil {
 			return err
