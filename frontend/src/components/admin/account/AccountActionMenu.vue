@@ -4,60 +4,58 @@
       <div class="fixed inset-0 z-[9998]" @click="emit('close')"></div>
       <div
         ref="menuRef"
-        class="action-menu-content fixed z-[9999] w-52 overflow-y-auto overscroll-contain rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800"
+        class="action-menu-content fixed z-[9999] w-56 overflow-y-auto overscroll-contain rounded-xl bg-white py-1 shadow-lg ring-1 ring-black/5 dark:bg-dark-800"
         :style="menuStyle"
         @click.stop
       >
-        <div class="py-1">
-          <template v-if="account">
-            <button v-if="canUseAction('test')" role="menuitem" @click="$emit('test', account); emit('close')">
-              <Icon name="play" size="sm" class="text-green-500" :stroke-width="2" />
+        <div v-if="account" role="menu" aria-label="Account actions">
+            <button v-if="canUseAction('test')" class="action-menu-item" role="menuitem" @click="$emit('test', account); emit('close')">
+              <Icon name="play" size="sm" class="shrink-0 text-green-500" :stroke-width="2" />
               {{ t('admin.accounts.testConnection') }}
             </button>
-            <button v-if="canUseAction('stats')" role="menuitem" @click="$emit('stats', account); emit('close')">
-              <Icon name="chart" size="sm" class="text-indigo-500" />
+            <button v-if="canUseAction('stats')" class="action-menu-item" role="menuitem" @click="$emit('stats', account); emit('close')">
+              <Icon name="chart" size="sm" class="shrink-0 text-indigo-500" />
               {{ t('admin.accounts.viewStats') }}
             </button>
-            <button v-if="canUseAction('schedule')" role="menuitem" @click="$emit('schedule', account); emit('close')">
-              <Icon name="clock" size="sm" class="text-orange-500" />
+            <button v-if="canUseAction('schedule')" class="action-menu-item" role="menuitem" @click="$emit('schedule', account); emit('close')">
+              <Icon name="clock" size="sm" class="shrink-0 text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
             </button>
-            <button v-if="canShowRateTrend" role="menuitem" @click="$emit('rate-trend', account); emit('close')">
-              <Icon name="trendingUp" size="sm" class="text-cyan-500" />
+            <button v-if="canShowRateTrend" class="action-menu-item" role="menuitem" @click="$emit('rate-trend', account); emit('close')">
+              <Icon name="trendingUp" size="sm" class="shrink-0 text-cyan-500" />
               {{ t('admin.upstreamConfigs.actions.rateTrend') }}
             </button>
-            <button v-if="canDuplicate && canUseAction('duplicate')" role="menuitem" @click="$emit('duplicate', account); emit('close')">
-              <Icon name="copy" size="sm" class="text-sky-500" />
+            <button v-if="canDuplicate && canUseAction('duplicate')" class="action-menu-item" role="menuitem" @click="$emit('duplicate', account); emit('close')">
+              <Icon name="copy" size="sm" class="shrink-0 text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
             </button>
             <template v-if="(account.type === 'oauth' || account.type === 'setup-token') && !isShadow">
-              <button v-if="canUseAction('reauth')" role="menuitem" @click="$emit('reauth', account); emit('close')" class="text-blue-600">
-                <Icon name="link" size="sm" />
+              <button v-if="canUseAction('reauth')" class="action-menu-item text-blue-600" role="menuitem" @click="$emit('reauth', account); emit('close')">
+                <Icon name="link" size="sm" class="shrink-0" />
                 {{ t('admin.accounts.reAuthorize') }}
               </button>
-              <button v-if="canUseAction('refresh_token')" role="menuitem" @click="$emit('refresh-token', account); emit('close')" class="text-purple-600">
-                <Icon name="refresh" size="sm" />
+              <button v-if="canUseAction('refresh_token')" class="action-menu-item text-purple-600" role="menuitem" @click="$emit('refresh-token', account); emit('close')">
+                <Icon name="refresh" size="sm" class="shrink-0" />
                 {{ t('admin.accounts.refreshToken') }}
               </button>
             </template>
-            <button v-if="isOpenAIOAuthParent && canUseAction('create_spark_shadow')" role="menuitem" @click="$emit('create-spark-shadow', account); emit('close')" class="text-amber-600">
-              <Icon name="sparkles" size="sm" />
+            <button v-if="isOpenAIOAuthParent && canUseAction('create_spark_shadow')" class="action-menu-item text-amber-600" role="menuitem" @click="$emit('create-spark-shadow', account); emit('close')">
+              <Icon name="sparkles" size="sm" class="shrink-0" />
               {{ t('admin.accounts.createSparkShadow') }}
             </button>
-            <button v-if="supportsPrivacy && canUseAction('set_privacy')" role="menuitem" @click="$emit('set-privacy', account); emit('close')" class="text-emerald-600">
-              <Icon name="shield" size="sm" />
+            <button v-if="supportsPrivacy && canUseAction('set_privacy')" class="action-menu-item text-emerald-600" role="menuitem" @click="$emit('set-privacy', account); emit('close')">
+              <Icon name="shield" size="sm" class="shrink-0" />
               {{ t('admin.accounts.setPrivacy') }}
             </button>
             <div v-if="hasRecoverableState" data-menu-divider></div>
-            <button v-if="hasRecoverableState && canUseAction('recover_state')" role="menuitem" @click="$emit('recover-state', account); emit('close')" class="text-emerald-600">
-              <Icon name="sync" size="sm" />
+            <button v-if="hasRecoverableState && canUseAction('recover_state')" class="action-menu-item text-emerald-600" role="menuitem" @click="$emit('recover-state', account); emit('close')">
+              <Icon name="sync" size="sm" class="shrink-0" />
               {{ t('admin.accounts.recoverState') }}
             </button>
-            <button v-if="hasQuotaLimit && canUseAction('reset_quota')" role="menuitem" @click="$emit('reset-quota', account); emit('close')" class="text-teal-600">
-              <Icon name="refresh" size="sm" />
+            <button v-if="hasQuotaLimit && canUseAction('reset_quota')" class="action-menu-item text-teal-600" role="menuitem" @click="$emit('reset-quota', account); emit('close')">
+              <Icon name="refresh" size="sm" class="shrink-0" />
               {{ t('admin.accounts.resetQuota') }}
             </button>
-          </template>
         </div>
       </div>
     </div>
@@ -167,3 +165,46 @@ const hasQuotaLimit = computed(() => {
   )
 })
 </script>
+
+<style scoped>
+.action-menu-item {
+  display: flex;
+  width: 100%;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  text-align: left;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  white-space: normal;
+  color: rgb(55 65 81);
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.action-menu-item:hover,
+.action-menu-item:focus-visible {
+  background: rgb(243 244 246);
+  color: rgb(17 24 39);
+  outline: none;
+}
+
+[data-menu-divider] {
+  margin: 0.25rem 0;
+  border-top: 1px solid rgb(229 231 235);
+}
+
+:global(.dark) .action-menu-item {
+  color: rgb(209 213 219);
+}
+
+:global(.dark) .action-menu-item:hover,
+:global(.dark) .action-menu-item:focus-visible {
+  background: rgb(55 65 81);
+  color: rgb(255 255 255);
+}
+
+:global(.dark) [data-menu-divider] {
+  border-color: rgb(75 85 99);
+}
+</style>
