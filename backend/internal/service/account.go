@@ -1591,11 +1591,28 @@ func (a *Account) UsesNativeCNResponses() bool {
 		return false
 	}
 	switch a.GetAPIProtocol() {
-	case APIProtocolResponses, APIProtocolAdaptive:
+	case APIProtocolResponses:
 		return true
+	case APIProtocolAdaptive:
+		return openai_compat.ResolveCNProtocolCapability(a.Extra, openai_compat.CNProtocolResponses) != openai_compat.CNProtocolCapabilityUnsupported
 	default:
 		return false
 	}
+}
+
+// UsesNativeCNAnthropic reports whether an adaptive CN account has a confirmed
+// Anthropic Messages endpoint. Explicit Anthropic accounts always use it.
+func (a *Account) UsesNativeCNAnthropic() bool {
+	if a == nil {
+		return false
+	}
+	if a.IsAnthropicProtocol() {
+		return true
+	}
+	if !a.IsAdaptiveAPIProtocol() {
+		return false
+	}
+	return openai_compat.ResolveCNProtocolCapability(a.Extra, openai_compat.CNProtocolAnthropic) == openai_compat.CNProtocolCapabilitySupported
 }
 
 // IsAdaptiveAPIProtocol 报告账号是否按入站协议动态选择供应商原生端点。
@@ -1623,6 +1640,22 @@ func (a *Account) GetCNProtocolBaseURL(protocol string) string {
 		}
 	}
 	return a.defaultCNProtocolBaseURL(protocol)
+}
+
+// HasExplicitCNProtocolBaseURL reports whether an adaptive CN account has a
+// user-configured base URL for the given protocol. Defaults are intentionally
+// excluded: optional protocol probes must never turn provider defaults into
+// additional account-level requirements.
+func (a *Account) HasExplicitCNProtocolBaseURL(protocol string) bool {
+	if a == nil || !a.IsCNProvider() || !a.IsAdaptiveAPIProtocol() {
+		return false
+	}
+	baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any)
+	if !ok {
+		return false
+	}
+	baseURL, ok := baseURLs[protocol].(string)
+	return ok && strings.TrimSpace(baseURL) != ""
 }
 
 func (a *Account) defaultCNProtocolBaseURL(protocol string) string {

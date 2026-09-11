@@ -120,7 +120,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		if !isResponsesShape {
 			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		}
-		if !account.SupportsNativeCNResponses() {
+		if !account.UsesNativeCNResponses() {
 			var responsesReq apicompat.ResponsesRequest
 			if err := json.Unmarshal(body, &responsesReq); err != nil {
 				return nil, fmt.Errorf("parse responses-shaped chat completions request: %w", err)
@@ -375,7 +375,11 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 			}
 			return s.forwardAsChatCompletions(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel, compatPromptCacheTenantIsolated)
 		}
-		if account.Type == AccountTypeAPIKey &&
+		// CN adaptive routing is decided before dispatch from the persisted
+		// protocol capability. Do not reuse the legacy OpenAI compatibility
+		// fallback here: a failed real Responses request must not issue a second
+		// Chat Completions request with the same client payload.
+		if account.Type == AccountTypeAPIKey && !account.IsCNProvider() &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&
 			!isResponsesEndpointSupportedByStatus(resp.StatusCode) {
 			logger.L().Info("openai chat_completions: /responses unsupported, falling back to raw chat completions",

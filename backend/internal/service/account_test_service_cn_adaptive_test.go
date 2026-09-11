@@ -82,112 +82,105 @@ data: {"type":"response.completed"}
 	}
 }
 
-func TestAccountTestService_AdaptiveChatOnlyProvidersTestChatAndAnthropicEndpoints(t *testing.T) {
+func adaptiveCNProbeResponse(protocol string, status int) *http.Response {
+	if status != http.StatusOK {
+		return newJSONResponse(status, `{"error":{"message":"probe failure"}}`)
+	}
+	return nil
+}
+func adaptiveCNHealthProbeTestService(account *Account, upstream HTTPUpstream) (*AccountTestService, *openAIAccountTestRepo) {
+	repo := &openAIAccountTestRepo{
+		mockAccountRepoForGemini: mockAccountRepoForGemini{
+			accountsByID: map[int64]*Account{account.ID: account},
+		},
+	}
+	return &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: rawChatCompletionsTestConfig()}, repo
+}
+
+func TestAccountTestService_AdaptiveChatOnlyProvidersTestOnlyChatEndpoint(t *testing.T) {
 	account := adaptiveCNAccountTestAccount(301, PlatformZhipu)
-	svc, upstream := adaptiveCNAccountTestService(
-		account,
-		adaptiveCNChatTestResponse(),
-		adaptiveCNAnthropicTestResponse(),
-	)
+	upstream := &upstreamHealthProbeHTTPStub{}
+	svc, _ := adaptiveCNHealthProbeTestService(account, upstream)
 	c, recorder := newTestContext()
 
 	err := svc.TestAccountConnection(c, account.ID, "glm-4.7", "hello", AccountTestModeDefault)
 
 	require.NoError(t, err)
-	require.Len(t, upstream.requests, 2)
+	require.Len(t, upstream.requests, 1)
 	require.Equal(t, "http://chat.example/v1/chat/completions", upstream.requests[0].URL.String())
-	require.Equal(t, "http://anthropic.example/v1/messages", upstream.requests[1].URL.String())
 	require.Equal(t, "Bearer sk-adaptive-test", upstream.requests[0].Header.Get("Authorization"))
-	require.Equal(t, "sk-adaptive-test", upstream.requests[1].Header.Get("x-api-key"))
 	require.Equal(t, 1, strings.Count(recorder.Body.String(), `"type":"test_start"`))
 	require.Equal(t, 1, strings.Count(recorder.Body.String(), `"type":"test_complete"`))
-	require.Contains(t, recorder.Body.String(), "已通过原生 /v1/messages 验证")
 }
 
-func TestAccountTestService_AdaptiveDeepSeekAlsoTestsResponsesEndpoint(t *testing.T) {
+func TestAccountTestService_AdaptiveDeepSeekPrefersResponsesEndpoint(t *testing.T) {
 	account := adaptiveCNAccountTestAccount(302, PlatformDeepseek)
-	svc, upstream := adaptiveCNAccountTestService(
-		account,
-		adaptiveCNChatTestResponse(),
-		adaptiveCNAnthropicTestResponse(),
-		adaptiveCNResponsesTestResponse(),
-	)
+	delete(account.Credentials["api_base_urls"].(map[string]any), APIProtocolAnthropic)
+	upstream := &upstreamHealthProbeHTTPStub{}
+	svc, _ := adaptiveCNHealthProbeTestService(account, upstream)
 	c, recorder := newTestContext()
 
 	err := svc.TestAccountConnection(c, account.ID, "deepseek-chat", "", AccountTestModeDefault)
 
 	require.NoError(t, err)
-	require.Len(t, upstream.requests, 3)
-	require.Equal(t, "http://responses.example/responses", upstream.requests[2].URL.String())
-	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.requests[2].Context()))
-	require.Equal(t, "Bearer sk-adaptive-test", upstream.requests[2].Header.Get("Authorization"))
-	require.True(t, gjson.GetBytes(upstream.bodies[2], "stream").Bool())
-	require.False(t, gjson.GetBytes(upstream.bodies[2], "store").Bool())
-	require.False(t, gjson.GetBytes(upstream.bodies[2], "instructions").Exists())
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "http://responses.example/responses", upstream.requests[0].URL.String())
+	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.requests[0].Context()))
+	require.Equal(t, "Bearer sk-adaptive-test", upstream.requests[0].Header.Get("Authorization"))
+	require.True(t, gjson.GetBytes(upstream.bodies[0], "stream").Bool())
+	require.False(t, gjson.GetBytes(upstream.bodies[0], "store").Bool())
 	require.Equal(t, 1, strings.Count(recorder.Body.String(), `"type":"test_complete"`))
-	require.Contains(t, recorder.Body.String(), "已通过原生 /responses 验证")
 }
 
-func TestAccountTestService_AdaptiveKimiAlsoTestsResponsesEndpoint(t *testing.T) {
+func TestAccountTestService_AdaptiveKimiPrefersResponsesEndpoint(t *testing.T) {
 	account := adaptiveCNAccountTestAccount(306, PlatformKimi)
-	svc, upstream := adaptiveCNAccountTestService(
-		account,
-		adaptiveCNChatTestResponse(),
-		adaptiveCNAnthropicTestResponse(),
-		adaptiveCNResponsesTestResponse(),
-	)
+	delete(account.Credentials["api_base_urls"].(map[string]any), APIProtocolAnthropic)
+	upstream := &upstreamHealthProbeHTTPStub{}
+	svc, _ := adaptiveCNHealthProbeTestService(account, upstream)
 	c, recorder := newTestContext()
 
 	err := svc.TestAccountConnection(c, account.ID, "k3-256k", "", AccountTestModeDefault)
 
 	require.NoError(t, err)
-	require.Len(t, upstream.requests, 3)
-	require.Equal(t, "http://responses.example/v1/responses", upstream.requests[2].URL.String())
-	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.requests[2].Context()))
-	require.Equal(t, "Bearer sk-adaptive-test", upstream.requests[2].Header.Get("Authorization"))
-	require.True(t, gjson.GetBytes(upstream.bodies[2], "stream").Bool())
-	require.False(t, gjson.GetBytes(upstream.bodies[2], "store").Bool())
-	require.False(t, gjson.GetBytes(upstream.bodies[2], "instructions").Exists())
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "http://responses.example/v1/responses", upstream.requests[0].URL.String())
+	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.requests[0].Context()))
+	require.Equal(t, "Bearer sk-adaptive-test", upstream.requests[0].Header.Get("Authorization"))
+	require.True(t, gjson.GetBytes(upstream.bodies[0], "stream").Bool())
+	require.False(t, gjson.GetBytes(upstream.bodies[0], "store").Bool())
 	require.Equal(t, 1, strings.Count(recorder.Body.String(), `"type":"test_complete"`))
-	require.Contains(t, recorder.Body.String(), "已通过原生 /responses 验证")
 }
 
-func TestAccountTestService_AdaptiveStopsAndNamesFailingEndpoint(t *testing.T) {
+func TestAccountTestService_AdaptiveResponsesFailureFallsBackToChat(t *testing.T) {
 	account := adaptiveCNAccountTestAccount(303, PlatformDeepseek)
-	svc, upstream := adaptiveCNAccountTestService(
-		account,
-		adaptiveCNChatTestResponse(),
-		newJSONResponse(http.StatusNotFound, `{"error":{"message":"missing messages route"}}`),
-	)
+	delete(account.Credentials["api_base_urls"].(map[string]any), APIProtocolAnthropic)
+	upstream := &adaptiveProbeFallbackStub{}
+	svc, _ := adaptiveCNHealthProbeTestService(account, upstream)
 	c, recorder := newTestContext()
 
 	err := svc.TestAccountConnection(c, account.ID, "deepseek-chat", "", AccountTestModeDefault)
 
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "Adaptive Anthropic endpoint returned 404")
+	require.NoError(t, err)
 	require.Len(t, upstream.requests, 2)
-	require.Contains(t, recorder.Body.String(), `"type":"error"`)
-	require.NotContains(t, recorder.Body.String(), `"type":"test_complete"`)
+	require.Equal(t, "/responses", upstream.requests[0].URL.Path)
+	require.Equal(t, "/v1/chat/completions", upstream.requests[1].URL.Path)
+	require.Contains(t, recorder.Body.String(), "Chat Completions 回退验证")
+	require.NotContains(t, recorder.Body.String(), `"type":"error"`)
 }
 
-func TestAccountTestService_AdaptiveRejectsInvalidAnthropicSuccessBody(t *testing.T) {
+func TestAccountTestService_AdaptiveFailsOnlyWhenResponsesAndChatFail(t *testing.T) {
 	account := adaptiveCNAccountTestAccount(305, PlatformKimi)
-	svc, upstream := adaptiveCNAccountTestService(
-		account,
-		adaptiveCNChatTestResponse(),
-		newJSONResponse(http.StatusOK, `<html>not an Anthropic stream</html>`),
-	)
+	upstream := &adaptiveProbeSequenceStub{first: upstreamHealthProbeHTTPStub{statusCode: http.StatusNotFound}}
+	svc, _ := adaptiveCNHealthProbeTestService(account, upstream)
 	c, recorder := newTestContext()
 
 	err := svc.TestAccountConnection(c, account.ID, "kimi-k2.5", "", AccountTestModeDefault)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "Adaptive Anthropic stream ended before message_stop")
 	require.Len(t, upstream.requests, 2)
 	require.Contains(t, recorder.Body.String(), `"type":"error"`)
 	require.NotContains(t, recorder.Body.String(), `"type":"test_complete"`)
 }
-
 func TestAccountTestService_FixedCNChatProtocolStillTestsOnlyChatEndpoint(t *testing.T) {
 	account := adaptiveCNAccountTestAccount(304, PlatformZhipu)
 	account.Credentials["api_protocol"] = APIProtocolChatCompletions

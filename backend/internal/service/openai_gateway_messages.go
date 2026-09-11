@@ -48,8 +48,14 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// thinking / tool_use / cache 语义，适配 Claude Code 等原生客户端。
 	// 必须先于 ShouldUseResponsesAPI 分流：Anthropic 协议账号经 probe 落标
 	// openai_responses_supported=false，会先命中下方的 CC 直转分支。
-	if account.IsAnthropicProtocol() || account.IsAdaptiveAPIProtocol() {
+	if account.UsesNativeCNAnthropic() {
 		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+	}
+	// An adaptive CN account must not enter the Responses compatibility chain
+	// merely because its Anthropic capability is unknown. Until an explicit
+	// Anthropic probe succeeds, use the stable direct Chat Completions bridge.
+	if account.IsCNProvider() && account.IsAdaptiveAPIProtocol() {
+		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
 	// 固定 chat_completions 的 CN 账号，以及不支持 Responses 的其他 APIKey

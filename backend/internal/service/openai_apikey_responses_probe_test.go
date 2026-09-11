@@ -58,11 +58,8 @@ func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 		wantSupport bool
 		wantMode    string
 	}{
-		{name: "deepseek adaptive supports responses", id: 201, platform: PlatformDeepseek, protocol: APIProtocolAdaptive, wantSupport: true, wantMode: string(openai_compat.ResponsesSupportModeForceResponses)},
 		{name: "deepseek chat clears forced responses", id: 202, platform: PlatformDeepseek, protocol: APIProtocolChatCompletions, wantSupport: false, wantMode: string(openai_compat.ResponsesSupportModeAuto)},
-		{name: "kimi adaptive supports responses", id: 203, platform: PlatformKimi, protocol: APIProtocolAdaptive, wantSupport: true, wantMode: string(openai_compat.ResponsesSupportModeForceResponses)},
 		{name: "kimi responses protocol supports responses", id: 205, platform: PlatformKimi, protocol: APIProtocolResponses, wantSupport: true, wantMode: string(openai_compat.ResponsesSupportModeForceResponses)},
-		{name: "zhipu adaptive falls back to chat", id: 204, platform: PlatformZhipu, protocol: APIProtocolAdaptive, wantSupport: false, wantMode: string(openai_compat.ResponsesSupportModeAuto)},
 	}
 
 	for _, tc := range tests {
@@ -87,6 +84,44 @@ func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 			require.Equal(t, tc.wantSupport, updates[openai_compat.ExtraKeyResponsesSupported])
 			require.Equal(t, tc.wantMode, updates[openai_compat.ExtraKeyResponsesMode])
 		})
+	}
+}
+
+func TestProbeOpenAIAPIKeyResponsesSupportSkipsAdaptiveCNProviders(t *testing.T) {
+	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek} {
+		t.Run(platform, func(t *testing.T) {
+			updateCalls := make(chan map[string]any, 1)
+			account := Account{
+				ID: platformIDForProbeTest(platform), Platform: platform, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "sk-test", "api_protocol": APIProtocolAdaptive},
+			}
+			repo := &snapshotUpdateAccountRepo{
+				stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
+				updateExtraCalls:      updateCalls,
+			}
+			svc := &AccountTestService{accountRepo: repo}
+
+			svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
+
+			select {
+			case update := <-updateCalls:
+				t.Fatalf("adaptive CN probe must not update legacy Responses mode: %#v", update)
+			default:
+			}
+		})
+	}
+}
+
+func platformIDForProbeTest(platform string) int64 {
+	switch platform {
+	case PlatformKimi:
+		return 203
+	case PlatformZhipu:
+		return 204
+	case PlatformDeepseek:
+		return 201
+	default:
+		return 0
 	}
 }
 

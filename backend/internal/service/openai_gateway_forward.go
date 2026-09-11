@@ -1326,13 +1326,13 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 		return false
 	}
 	if account.IsCNProvider() {
-		// CN 的显式协议配置优先于异步探针 Extra；adaptive 仅 DeepSeek / Kimi
-		// 有原生 Responses，GLM 回退 Chat Completions。
+		// CN 的显式协议配置优先于能力探针；adaptive 账号按最近一次
+		// 协议能力结果决定是否保留原生 Responses。
 		switch account.GetAPIProtocol() {
 		case APIProtocolChatCompletions:
 			return true
 		case APIProtocolAdaptive:
-			return !account.SupportsNativeCNResponses()
+			return !account.UsesNativeCNResponses()
 		default:
 			return false
 		}

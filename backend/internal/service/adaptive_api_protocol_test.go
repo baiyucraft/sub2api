@@ -158,6 +158,11 @@ func TestAdaptiveProtocolRoutesMessagesToNativeAnthropic(t *testing.T) {
 		APIProtocolChatCompletions: "http://chat.example",
 		APIProtocolAnthropic:       "http://anthropic.example",
 	})
+	account.Extra = map[string]any{
+		openai_compat.ExtraKeyCNProtocolCapabilities: map[string]any{
+			openai_compat.CNProtocolAnthropic: string(openai_compat.CNProtocolCapabilitySupported),
+		},
+	}
 
 	_, err := svc.ForwardAsAnthropic(context.Background(), adaptiveProtocolTestContext("/v1/messages", body), account, body, "", "")
 	require.Error(t, err)
@@ -263,4 +268,21 @@ func TestFixedCNResponsesProtocolOverridesStaleChatMode(t *testing.T) {
 			require.Equal(t, "http://responses.example/responses", upstream.lastReq.URL.String())
 		})
 	}
+}
+
+func TestAdaptiveProtocolDoesNotRetryResponsesFailureAsChat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"deepseek-v4","input":"hello","stream":false}`)
+	upstream := &httpUpstreamRecorder{resp: newJSONResponse(http.StatusNotFound, `{"error":{"message":"responses endpoint not found"}}`)}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	account := adaptiveProtocolTestAccount(PlatformDeepseek, map[string]any{
+		APIProtocolChatCompletions: "http://chat.example",
+		APIProtocolResponses:       "http://responses.example",
+	})
+
+	_, err := svc.ForwardAsChatCompletions(context.Background(), adaptiveProtocolTestContext("/v1/chat/completions", body), account, body, "", "")
+
+	require.Error(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "http://responses.example/responses", upstream.requests[0].URL.String())
 }

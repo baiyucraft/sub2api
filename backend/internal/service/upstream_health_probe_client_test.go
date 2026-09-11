@@ -38,6 +38,14 @@ type adaptiveProbeSequenceStub struct {
 	requests []*http.Request
 }
 
+type adaptiveProbeFallbackStub struct {
+	requests []*http.Request
+}
+
+type adaptiveProbeOptionalAnthropicStub struct {
+	requests []*http.Request
+}
+
 type upstreamHealthProbeGeminiTokenCache struct {
 	token string
 }
@@ -82,6 +90,30 @@ func (s *adaptiveProbeSequenceStub) Do(req *http.Request, proxyURL string, accou
 }
 
 func (s *adaptiveProbeSequenceStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return s.Do(req, proxyURL, accountID, concurrency)
+}
+
+func (s *adaptiveProbeFallbackStub) Do(req *http.Request, proxyURL string, accountID int64, concurrency int) (*http.Response, error) {
+	s.requests = append(s.requests, req)
+	if len(s.requests) == 1 {
+		return upstreamHealthProbeJSONResponse(http.StatusUnauthorized, `{"error":{"message":"responses auth unsupported"}}`), nil
+	}
+	return (&upstreamHealthProbeHTTPStub{}).Do(req, proxyURL, accountID, concurrency)
+}
+
+func (s *adaptiveProbeFallbackStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return s.Do(req, proxyURL, accountID, concurrency)
+}
+
+func (s *adaptiveProbeOptionalAnthropicStub) Do(req *http.Request, proxyURL string, accountID int64, concurrency int) (*http.Response, error) {
+	s.requests = append(s.requests, req)
+	if strings.HasSuffix(req.URL.Path, "/v1/messages") {
+		return upstreamHealthProbeJSONResponse(http.StatusUnauthorized, `{"error":{"message":"anthropic unsupported"}}`), nil
+	}
+	return (&upstreamHealthProbeHTTPStub{}).Do(req, proxyURL, accountID, concurrency)
+}
+
+func (s *adaptiveProbeOptionalAnthropicStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
 	return s.Do(req, proxyURL, accountID, concurrency)
 }
 
@@ -518,9 +550,9 @@ func TestCNAdaptiveProbeCoversEveryForwardingProtocol(t *testing.T) {
 		platform  string
 		wantPaths []string
 	}{
-		{name: "kimi", platform: PlatformKimi, wantPaths: []string{"/v1/chat/completions", "/v1/messages"}},
-		{name: "zhipu", platform: PlatformZhipu, wantPaths: []string{"/v1/chat/completions", "/v1/messages"}},
-		{name: "deepseek", platform: PlatformDeepseek, wantPaths: []string{"/v1/chat/completions", "/v1/messages", "/responses"}},
+		{name: "kimi", platform: PlatformKimi, wantPaths: []string{"/v1/responses"}},
+		{name: "zhipu", platform: PlatformZhipu, wantPaths: []string{"/v1/chat/completions"}},
+		{name: "deepseek", platform: PlatformDeepseek, wantPaths: []string{"/responses"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			upstream := &upstreamHealthProbeHTTPStub{}
@@ -528,7 +560,6 @@ func TestCNAdaptiveProbeCoversEveryForwardingProtocol(t *testing.T) {
 				"api_key": "secret", "api_protocol": APIProtocolAdaptive,
 				"api_base_urls": map[string]any{
 					APIProtocolChatCompletions: "https://chat.example/v1",
-					APIProtocolAnthropic:       "https://anthropic.example",
 					APIProtocolResponses:       "https://responses.example",
 				},
 			}}
@@ -551,12 +582,13 @@ func TestCNAdaptiveProbeCoversEveryForwardingProtocol(t *testing.T) {
 	}
 }
 
-func TestCNAdaptiveProbeReturnsConcreteFailingProtocol(t *testing.T) {
-	upstream := &adaptiveProbeSequenceStub{}
-	account := &Account{ID: 921, Platform: PlatformKimi, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{
+func TestCNAdaptiveProbeOptionalAnthropicFailureDoesNotFailAccount(t *testing.T) {
+	upstream := &adaptiveProbeOptionalAnthropicStub{}
+	account := &Account{ID: 922, Platform: PlatformKimi, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{
 		"api_key": "secret", "api_protocol": APIProtocolAdaptive,
 		"api_base_urls": map[string]any{
 			APIProtocolChatCompletions: "https://chat.example/v1",
+			APIProtocolResponses:       "https://responses.example",
 			APIProtocolAnthropic:       "https://anthropic.example",
 		},
 	}}
@@ -564,11 +596,34 @@ func TestCNAdaptiveProbeReturnsConcreteFailingProtocol(t *testing.T) {
 
 	result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "probe-model")
 
-	require.Error(t, err)
-	require.Equal(t, upstreamHealthProbeProtocolAnthropic, result.Protocol)
-	require.Equal(t, "404", result.Result)
-	require.Equal(t, "upstream_http_error", result.Reason)
+	require.NoError(t, err)
+	require.Equal(t, "success", result.Result)
+	require.Equal(t, "authentication_failed", result.ProtocolResults[upstreamHealthProbeProtocolAnthropic].Reason)
+	require.Equal(t, "401", result.ProtocolResults[upstreamHealthProbeProtocolAnthropic].Result)
 	require.Len(t, upstream.requests, 2)
+}
+
+func TestCNAdaptiveProbeReturnsConcreteFailingProtocol(t *testing.T) {
+	upstream := &adaptiveProbeFallbackStub{}
+	account := &Account{ID: 921, Platform: PlatformKimi, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{
+		"api_key": "secret", "api_protocol": APIProtocolAdaptive,
+		"api_base_urls": map[string]any{
+			APIProtocolChatCompletions: "https://chat.example/v1",
+			APIProtocolResponses:       "https://responses.example",
+		},
+	}}
+	svc := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}}
+
+	result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "probe-model")
+
+	require.NoError(t, err)
+	require.Equal(t, upstreamHealthProbeProtocolAdaptive, result.Protocol)
+	require.Equal(t, "responses_unsupported_chat_fallback", result.Reason)
+	require.Equal(t, "401", result.ProtocolResults[upstreamHealthProbeProtocolOpenAI].Result)
+	require.Equal(t, "success", result.ProtocolResults[upstreamHealthProbeProtocolOpenAIChat].Result)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "/v1/responses", upstream.requests[0].URL.Path)
+	require.Equal(t, "/v1/chat/completions", upstream.requests[1].URL.Path)
 }
 
 func TestCNAnthropicProbeUsesProviderProtocolBaseURL(t *testing.T) {

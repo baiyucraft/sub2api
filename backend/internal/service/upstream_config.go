@@ -22,6 +22,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 )
@@ -1612,6 +1613,7 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		result, probeErr = s.accountProber.RunUpstreamHealthProbe(probeCtx, &account, model)
 	}
 	probeRequestSucceeded := probeErr == nil
+	s.persistCNProtocolCapabilities(ctx, &account, result)
 	if confidenceIndependent && s.openAIScheduleReporter != nil {
 		var firstTokenMs *int
 		if result.TTFTMs != nil && *result.TTFTMs > 0 {
@@ -1648,13 +1650,14 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		observation := &UpstreamHealthObservation{
 			UpstreamConfigID: key.UpstreamConfigID, UpstreamKeyID: key.ID, AccountID: &accountID,
 			Platform: account.Platform, Model: result.Model, Protocol: result.Protocol,
-			ObservedAt: item.UpdatedAt, State: item.Status, Source: "probe", Result: item.LastProbeStatus, Reason: item.Reason,
+			ObservedAt: item.UpdatedAt, State: item.Status, Source: "probe", Result: item.LastProbeStatus,
+			Reason:     adaptiveProbeHistoryReason(result, item.Reason),
 			HTTPStatus: result.HTTPStatus, TTFTMs: result.TTFTMs, DurationMs: result.DurationMs,
 			InputTokens: result.InputTokens, OutputTokens: result.OutputTokens, OutputTPS: result.OutputTPS,
 			ConfidenceScore: result.ConfidenceScore, ConfidencePromptVersion: result.ConfidencePromptVersion,
 			RequestedEffort: result.RequestedEffort, ReasoningTokens: result.ReasoningTokens,
 			ConfidenceChecks: result.ConfidenceChecks, ConfidenceStatus: result.ConfidenceStatus,
-			ConfidenceEvidence: result.ConfidenceEvidence,
+			ConfidenceEvidence: adaptiveProtocolProbeEvidence(result.ConfidenceEvidence, result.ProtocolResults),
 		}
 		return s.saveHealthTransitionWithObservation(ctx, keyID, transition, observation)
 	}); err != nil {
@@ -1677,6 +1680,135 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		return item, infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_FAILED", "upstream key probe failed").WithMetadata(metadata)
 	}
 	return item, nil
+}
+
+func (s *UpstreamConfigService) persistCNProtocolCapabilities(ctx context.Context, account *Account, result UpstreamHealthProbeResult) {
+	if s == nil || s.accountRepo == nil || account == nil || !account.IsCNProvider() || account.GetAPIProtocol() != APIProtocolAdaptive {
+		return
+	}
+
+	capabilities := make(map[string]any)
+	if raw, ok := account.Extra[openai_compat.ExtraKeyCNProtocolCapabilities].(map[string]any); ok {
+		for key, value := range raw {
+			capabilities[key] = value
+		}
+	}
+	if len(result.ProtocolResults) > 0 {
+		for protocol, probe := range result.ProtocolResults {
+			status := cnProtocolCapabilityFromProbe(probe)
+			switch protocol {
+			case upstreamHealthProbeProtocolOpenAI:
+				capabilities[openai_compat.CNProtocolResponses] = string(status)
+			case upstreamHealthProbeProtocolOpenAIChat:
+				capabilities[openai_compat.CNProtocolChatCompletions] = string(status)
+			case upstreamHealthProbeProtocolAnthropic:
+				capabilities[openai_compat.CNProtocolAnthropic] = string(status)
+			}
+		}
+	} else if result.Protocol == upstreamHealthProbeProtocolOpenAIChat {
+		capabilities[openai_compat.CNProtocolChatCompletions] = string(cnProtocolCapabilityFromProbe(result))
+	}
+	anthropicConfigured := false
+	if baseURLs, ok := account.Credentials["api_base_urls"].(map[string]any); ok {
+		if baseURL, ok := baseURLs[APIProtocolAnthropic].(string); ok {
+			anthropicConfigured = strings.TrimSpace(baseURL) != ""
+		}
+	}
+	if !anthropicConfigured {
+		capabilities[openai_compat.CNProtocolAnthropic] = string(openai_compat.CNProtocolCapabilityNotConfigured)
+	}
+	if len(capabilities) == 0 {
+		return
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
+		openai_compat.ExtraKeyCNProtocolCapabilities: capabilities,
+	}); err != nil {
+		slog.Warn("failed to persist CN protocol capabilities", "account_id", account.ID, "error", err)
+	}
+}
+
+// cnProtocolCapabilityFromProbe only treats an explicit endpoint/auth rejection
+// as a negative capability result. Transport failures, timeouts, rate limits,
+// 5xx responses, and malformed streams are transient evidence and remain unknown.
+func cnProtocolCapabilityFromProbe(probe UpstreamHealthProbeResult) openai_compat.CNProtocolCapability {
+	if probe.Result == "success" {
+		return openai_compat.CNProtocolCapabilitySupported
+	}
+	if probe.HTTPStatus == nil {
+		return openai_compat.CNProtocolCapabilityUnknown
+	}
+	switch *probe.HTTPStatus {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed:
+		return openai_compat.CNProtocolCapabilityUnsupported
+	default:
+		return openai_compat.CNProtocolCapabilityUnknown
+	}
+}
+
+func adaptiveProtocolProbeEvidence(existing map[string]any, protocolResults map[string]UpstreamHealthProbeResult) map[string]any {
+	if len(protocolResults) == 0 {
+		return existing
+	}
+	evidence := make(map[string]any, len(existing)+1)
+	for key, value := range existing {
+		evidence[key] = value
+	}
+	protocols := make(map[string]any, len(protocolResults))
+	for protocol, probe := range protocolResults {
+		item := map[string]any{"result": strings.TrimSpace(probe.Result), "reason": strings.TrimSpace(probe.Reason)}
+		if probe.HTTPStatus != nil {
+			item["http_status"] = *probe.HTTPStatus
+		}
+		protocols[adaptiveProbeProtocolHistoryLabel(protocol)] = item
+	}
+	evidence["protocol_probe_results"] = protocols
+	return evidence
+}
+func adaptiveProbeHistoryReason(result UpstreamHealthProbeResult, fallback string) string {
+	if len(result.ProtocolResults) == 0 {
+		return strings.TrimSpace(fallback)
+	}
+
+	protocols := make([]string, 0, len(result.ProtocolResults))
+	for protocol := range result.ProtocolResults {
+		protocols = append(protocols, protocol)
+	}
+	sort.Strings(protocols)
+
+	parts := make([]string, 0, len(protocols)+1)
+	overall := strings.TrimSpace(result.Reason)
+	if overall == "" {
+		overall = strings.TrimSpace(fallback)
+	}
+	if overall != "" {
+		parts = append(parts, overall)
+	}
+	for _, protocol := range protocols {
+		probe := result.ProtocolResults[protocol]
+		status := strings.TrimSpace(probe.Result)
+		if status == "" {
+			status = "unknown"
+		}
+		reason := strings.TrimSpace(probe.Reason)
+		if reason != "" && reason != "probe_succeeded" {
+			status += "/" + reason
+		}
+		parts = append(parts, fmt.Sprintf("%s: %s", adaptiveProbeProtocolHistoryLabel(protocol), status))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func adaptiveProbeProtocolHistoryLabel(protocol string) string {
+	switch protocol {
+	case upstreamHealthProbeProtocolOpenAI:
+		return openai_compat.CNProtocolResponses
+	case upstreamHealthProbeProtocolOpenAIChat:
+		return openai_compat.CNProtocolChatCompletions
+	case upstreamHealthProbeProtocolAnthropic:
+		return openai_compat.CNProtocolAnthropic
+	default:
+		return protocol
+	}
 }
 
 func upstreamProbeStatus(message string) string {
