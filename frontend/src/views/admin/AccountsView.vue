@@ -393,7 +393,14 @@
             />
           </template>
           <template #cell-groups="{ row }">
-            <AccountGroupsCell :groups="accountGroupsForRow(row)" :max-display="4" />
+            <AccountGroupsCell
+              :groups="accountGroupsForRow(row)"
+              :max-display="4"
+              :account-id="row.id"
+              :preferred-group-ids="row.preferred_group_ids"
+              :interactive="props.scope === 'upstream'"
+              @toggle-preferred="handleTogglePreferred(row, $event.groupId, $event.preferred)"
+            />
           </template>
           <template #header-usage="{ column }">
             <div class="flex items-center">
@@ -827,6 +834,7 @@ const showUpstreamManagementSettings = ref(false)
 const showUpstreamProbeSettings = ref(false)
 const probingKeyIDs = reactive(new Set<number>())
 const togglingObservationKeyIDs = reactive(new Set<number>())
+const togglingPreferredAccounts = reactive(new Set<string>())
 const showUpstreamKeyEvents = ref(false)
 const upstreamKeyEventsAccount = ref<Account | null>(null)
 const showUpstreamRateTrend = ref(false)
@@ -1634,6 +1642,7 @@ const {
     status: '',
     group: '',
     search: '',
+    preferred: '',
     lite: '1',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
@@ -1812,6 +1821,7 @@ const buildUpstreamBillingRateFilters = () => {
     type: typeof rawParams.type === 'string' ? rawParams.type : '',
     status: typeof rawParams.status === 'string' ? rawParams.status : '',
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
+    preferred: typeof rawParams.preferred === 'string' ? rawParams.preferred : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
     sort_by: sortState.sort_by,
@@ -2034,6 +2044,7 @@ const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
     current.current_window_cost !== next.current_window_cost ||
     current.active_sessions !== next.active_sessions ||
     current.schedulable !== next.schedulable ||
+    JSON.stringify(current.preferred_group_ids ?? []) !== JSON.stringify(next.preferred_group_ids ?? []) ||
     current.status !== next.status ||
     current.rate_limit_reset_at !== next.rate_limit_reset_at ||
     current.overload_until !== next.overload_until ||
@@ -2847,6 +2858,7 @@ const buildBulkEditFilterSnapshot = () => {
     status: typeof rawParams.status === 'string' ? rawParams.status : '',
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
+    preferred: typeof rawParams.preferred === 'string' ? rawParams.preferred : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
     upstream_config_id: typeof rawParams.upstream_config_id === 'string' ? rawParams.upstream_config_id : '',
     upstream_key_id: typeof rawParams.upstream_key_id === 'string' ? rawParams.upstream_key_id : '',
@@ -2932,6 +2944,7 @@ const buildAccountQueryFilters = () => ({
   group: params.group || '',
   privacy_mode: params.privacy_mode || '',
   search: params.search || '',
+  preferred: params.preferred || '',
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
@@ -2976,6 +2989,10 @@ const accountMatchesCurrentFilters = (account: Account) => {
   }
   const search = String(filters.search || '').trim().toLowerCase()
   if (search && !account.name.toLowerCase().includes(search)) return false
+  if (filters.preferred === '1' && !(account.preferred_group_ids ?? []).some((groupId) => {
+    if (!filters.group || filters.group === ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE) return true
+    return groupId === Number(filters.group)
+  })) return false
   return true
 }
 const syncPaginationAfterLocalRemoval = () => {
@@ -3266,6 +3283,32 @@ const handleToggleSchedulable = async (a: Account) => {
     appStore.showError(t('admin.accounts.failedToToggleSchedulable'))
   } finally {
     togglingSchedulable.value = null
+  }
+}
+const handleTogglePreferred = async (account: AccountListItem, groupID: number, preferred: boolean) => {
+  if (props.scope !== 'upstream') return
+  const operationKey = `${account.id}:${groupID}`
+  if (togglingPreferredAccounts.has(operationKey)) return
+
+  const previousIDs = [...(account.preferred_group_ids ?? [])]
+  const nextIDs = preferred
+    ? [...new Set([...previousIDs, groupID])]
+    : previousIDs.filter(id => id !== groupID)
+  account.preferred_group_ids = nextIDs
+  togglingPreferredAccounts.add(operationKey)
+  try {
+    if (preferred) {
+      await adminAPI.groups.setAccountPreferred(groupID, account.id)
+    } else {
+      await adminAPI.groups.clearAccountPreferred(groupID, account.id)
+    }
+    enterAutoRefreshSilentWindow()
+  } catch (error) {
+    account.preferred_group_ids = previousIDs
+    console.error('Failed to toggle preferred account:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.preferredToggleFailed')))
+  } finally {
+    togglingPreferredAccounts.delete(operationKey)
   }
 }
 const handleShowTempUnsched = (a: Account) => { tempUnschedAcc.value = a; showTempUnsched.value = true }

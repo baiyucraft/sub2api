@@ -654,6 +654,54 @@ func (h *GroupHandler) SetPreferredAccounts(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Preferred accounts updated successfully"})
 }
 
+func (h *GroupHandler) SetPreferredAccount(c *gin.Context) {
+	groupID, accountID, ok := parsePreferredAccountRelationIDs(c)
+	if !ok {
+		return
+	}
+	mutator, ok := h.adminService.(service.PreferredAccountMutator)
+	if !ok {
+		response.Error(c, http.StatusServiceUnavailable, "preferred account mutation is not supported")
+		return
+	}
+	if err := mutator.SetPreferredAccount(c.Request.Context(), groupID, accountID, true); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "Preferred account enabled"})
+}
+
+func (h *GroupHandler) ClearPreferredAccount(c *gin.Context) {
+	groupID, accountID, ok := parsePreferredAccountRelationIDs(c)
+	if !ok {
+		return
+	}
+	mutator, ok := h.adminService.(service.PreferredAccountMutator)
+	if !ok {
+		response.Error(c, http.StatusServiceUnavailable, "preferred account mutation is not supported")
+		return
+	}
+	if err := mutator.SetPreferredAccount(c.Request.Context(), groupID, accountID, false); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "Preferred account disabled"})
+}
+
+func parsePreferredAccountRelationIDs(c *gin.Context) (int64, int64, bool) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return 0, 0, false
+	}
+	accountID, err := strconv.ParseInt(c.Param("account_id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return 0, 0, false
+	}
+	return groupID, accountID, true
+}
+
 // GetGroupModelAllowlistCandidates handles getting candidate model IDs for the group model allowlist.
 // GET /api/v1/admin/groups/:id/model-allowlist-candidates
 func (h *GroupHandler) GetGroupModelAllowlistCandidates(c *gin.Context) {

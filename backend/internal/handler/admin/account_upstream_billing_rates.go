@@ -46,6 +46,11 @@ func (h *AccountHandler) GetUpstreamBillingRates(c *gin.Context) {
 	privacyMode := strings.TrimSpace(c.Query("privacy_mode"))
 	sortBy := c.DefaultQuery("sort_by", "name")
 	sortOrder := c.DefaultQuery("sort_order", "asc")
+	preferredQuery := strings.TrimSpace(c.Query("preferred"))
+	if preferredQuery != "" && preferredQuery != "0" && preferredQuery != "1" && !strings.EqualFold(preferredQuery, "true") && !strings.EqualFold(preferredQuery, "false") {
+		response.Error(c, http.StatusBadRequest, "invalid preferred filter")
+		return
+	}
 
 	var groupID int64
 	if groupQuery := c.Query("group"); groupQuery != "" {
@@ -61,8 +66,12 @@ func (h *AccountHandler) GetUpstreamBillingRates(c *gin.Context) {
 		}
 	}
 
+	listCtx := c.Request.Context()
+	if preferredQuery == "1" || strings.EqualFold(preferredQuery, "true") {
+		listCtx = service.WithAccountListPreferred(listCtx, true)
+	}
 	accounts, total, err := h.adminService.ListAccounts(
-		c.Request.Context(), page, pageSize, platform, accountType, status,
+		listCtx, page, pageSize, platform, accountType, status,
 		search, groupID, privacyMode, sortBy, sortOrder,
 	)
 	if err != nil {

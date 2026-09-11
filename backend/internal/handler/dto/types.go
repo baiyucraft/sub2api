@@ -496,8 +496,9 @@ type AccountListItem struct {
 	ParentSubscriptionExpiresAt string `json:"parent_subscription_expires_at,omitempty"`
 	ParentChatGPTAccountID      string `json:"parent_chatgpt_account_id,omitempty"`
 
-	Proxy    *Proxy  `json:"proxy,omitempty"`
-	GroupIDs []int64 `json:"group_ids,omitempty"`
+	Proxy             *Proxy  `json:"proxy,omitempty"`
+	GroupIDs          []int64 `json:"group_ids,omitempty"`
+	PreferredGroupIDs []int64 `json:"preferred_group_ids"`
 }
 
 type AccountGroup struct {

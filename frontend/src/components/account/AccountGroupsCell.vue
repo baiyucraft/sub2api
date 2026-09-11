@@ -2,16 +2,47 @@
   <div v-if="groups && groups.length > 0" class="relative max-w-56">
     <!-- 分组容器：固定最大宽度，最多显示2行 -->
     <div class="flex flex-wrap gap-1 max-h-14 overflow-hidden">
-      <GroupBadge
+      <div
         v-for="group in displayGroups"
         :key="group.id"
-        :name="group.name"
-        :platform="group.platform"
-        :subscription-type="group.subscription_type"
-        :rate-multiplier="group.rate_multiplier"
-        :show-rate="false"
-        class="max-w-24"
-      />
+        class="inline-flex items-center gap-0.5"
+      >
+        <GroupBadge
+          :name="group.name"
+          :platform="group.platform"
+          :subscription-type="group.subscription_type"
+          :rate-multiplier="group.rate_multiplier"
+          :show-rate="false"
+          class="max-w-24"
+        />
+        <button
+          v-if="shouldShowPreferredState && interactive && accountId !== null && accountId !== undefined"
+          type="button"
+          class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-sm leading-none transition-colors hover:bg-amber-50 focus:outline-none focus:ring-1 focus:ring-amber-400 dark:hover:bg-amber-900/30"
+          :class="isPreferred(group.id) ? 'text-amber-500 dark:text-amber-400' : 'text-gray-300 hover:text-amber-500 dark:text-dark-500 dark:hover:text-amber-400'"
+          :title="preferredToggleLabel(group.id)"
+          :aria-label="preferredToggleLabel(group.id)"
+          :aria-pressed="isPreferred(group.id)"
+          :data-account-id="accountId"
+          :data-group-id="group.id"
+          @click.stop="togglePreferred(group.id)"
+        >
+          <Icon name="star" size="xs" :stroke-width="2" aria-hidden="true" />
+        </button>
+        <span
+          v-else-if="shouldShowPreferredState"
+          class="inline-flex h-5 w-5 shrink-0 items-center justify-center text-sm leading-none"
+          :class="isPreferred(group.id) ? 'text-amber-500 dark:text-amber-400' : 'text-gray-300 dark:text-dark-500'"
+          :title="preferredToggleLabel(group.id)"
+          :aria-label="preferredToggleLabel(group.id)"
+          :aria-pressed="isPreferred(group.id)"
+          :data-account-id="accountId"
+          :data-group-id="group.id"
+          role="img"
+        >
+          <Icon name="star" size="xs" :stroke-width="2" aria-hidden="true" />
+        </span>
+      </div>
       <!-- 更多数量徽章 -->
       <button
         v-if="hiddenCount > 0"
@@ -36,6 +67,7 @@
         <div
           v-if="showPopover"
           ref="popoverRef"
+          data-testid="account-groups-popover"
           class="fixed z-50 min-w-48 max-w-96 rounded-lg border border-gray-200 bg-white p-3 shadow-lg dark:border-dark-600 dark:bg-dark-800"
           :style="popoverStyle"
         >
@@ -53,15 +85,46 @@
             </button>
           </div>
           <div class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto">
-            <GroupBadge
+            <div
               v-for="group in groups"
               :key="group.id"
-              :name="group.name"
-              :platform="group.platform"
-              :subscription-type="group.subscription_type"
-              :rate-multiplier="group.rate_multiplier"
-              :show-rate="false"
-            />
+              class="inline-flex items-center gap-0.5"
+            >
+              <GroupBadge
+                :name="group.name"
+                :platform="group.platform"
+                :subscription-type="group.subscription_type"
+                :rate-multiplier="group.rate_multiplier"
+                :show-rate="false"
+              />
+              <button
+                v-if="shouldShowPreferredState && interactive && accountId !== null && accountId !== undefined"
+                type="button"
+                class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-sm leading-none transition-colors hover:bg-amber-50 focus:outline-none focus:ring-1 focus:ring-amber-400 dark:hover:bg-amber-900/30"
+                :class="isPreferred(group.id) ? 'text-amber-500 dark:text-amber-400' : 'text-gray-300 hover:text-amber-500 dark:text-dark-500 dark:hover:text-amber-400'"
+                :title="preferredToggleLabel(group.id)"
+                :aria-label="preferredToggleLabel(group.id)"
+                :aria-pressed="isPreferred(group.id)"
+                :data-account-id="accountId"
+                :data-group-id="group.id"
+                @click.stop="togglePreferred(group.id)"
+              >
+                <Icon name="star" size="xs" :stroke-width="2" aria-hidden="true" />
+              </button>
+              <span
+                v-else-if="shouldShowPreferredState"
+                class="inline-flex h-5 w-5 shrink-0 items-center justify-center text-sm leading-none"
+                :class="isPreferred(group.id) ? 'text-amber-500 dark:text-amber-400' : 'text-gray-300 dark:text-dark-500'"
+                :title="preferredToggleLabel(group.id)"
+                :aria-label="preferredToggleLabel(group.id)"
+                :aria-pressed="isPreferred(group.id)"
+                :data-account-id="accountId"
+                :data-group-id="group.id"
+                role="img"
+              >
+                <Icon name="star" size="xs" :stroke-width="2" aria-hidden="true" />
+              </span>
+            </div>
           </div>
         </div>
       </Transition>
@@ -81,22 +144,46 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import GroupBadge from '@/components/common/GroupBadge.vue'
+import Icon from '@/components/icons/Icon.vue'
 import type { Group } from '@/types'
 
 interface Props {
   groups: Group[] | null | undefined
   maxDisplay?: number
+  preferredGroupIds?: number[]
+  accountId?: number | string | null
+  interactive?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  maxDisplay: 4
+  maxDisplay: 4,
+  interactive: false
 })
+
+const emit = defineEmits<{
+  (event: 'toggle-preferred', payload: { groupId: number; preferred: boolean }): void
+}>()
 
 const { t } = useI18n()
 
 const moreButtonRef = ref<HTMLElement | null>(null)
 const popoverRef = ref<HTMLElement | null>(null)
 const showPopover = ref(false)
+
+const accountId = computed(() => props.accountId)
+const interactive = computed(() => props.interactive)
+const shouldShowPreferredState = computed(() => props.preferredGroupIds !== undefined)
+
+const isPreferred = (groupId: number) => props.preferredGroupIds?.includes(groupId) ?? false
+
+const preferredToggleLabel = (groupId: number) => {
+  return isPreferred(groupId) ? t('admin.accounts.preferredEnabled') : t('admin.accounts.preferredDisabled')
+}
+
+const togglePreferred = (groupId: number) => {
+  if (!props.interactive || props.accountId === null || props.accountId === undefined) return
+  emit('toggle-preferred', { groupId, preferred: !isPreferred(groupId) })
+}
 
 // 显示的分组（最多显示 maxDisplay 个）
 const displayGroups = computed(() => {

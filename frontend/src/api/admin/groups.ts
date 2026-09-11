@@ -233,6 +233,16 @@ export async function updatePreferredAccounts(id: number, accountIds: number[]):
   })
 }
 
+/** Enable one account in a group's preferred account pool. */
+export async function setAccountPreferred(groupId: number, accountId: number): Promise<void> {
+  await apiClient.put('/admin/groups/' + groupId + '/preferred-accounts/' + accountId)
+}
+
+/** Remove one account from a group's preferred account pool. */
+export async function clearAccountPreferred(groupId: number, accountId: number): Promise<void> {
+  await apiClient.delete('/admin/groups/' + groupId + '/preferred-accounts/' + accountId)
+}
+
 export const setPreferredAccountIDs = updatePreferredAccounts
 
 /**
@@ -530,6 +540,8 @@ export const groupsAPI = {
   update,
   getPreferredAccounts,
   updatePreferredAccounts,
+  setAccountPreferred,
+  clearAccountPreferred,
   delete: deleteGroup,
   toggleStatus,
   getStats,
