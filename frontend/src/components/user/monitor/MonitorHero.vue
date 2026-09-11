@@ -1,5 +1,5 @@
 <template>
-  <section class="channel-status-v1-hero sticky top-0 z-30 -mx-4 bg-white/95 px-4 py-3 backdrop-blur-md supports-[backdrop-filter]:bg-white/80 dark:bg-dark-900/95 dark:supports-[backdrop-filter]:bg-dark-900/80 md:-mx-6 md:px-6 md:py-4">
+  <section class="channel-status-v1-hero sticky top-0 z-30 -mx-4 bg-gray-50 px-4 py-3 dark:bg-dark-950 md:-mx-6 md:px-6 md:py-4">
     <div class="flex items-center justify-end gap-3 flex-wrap">
       <div
         role="tablist"
