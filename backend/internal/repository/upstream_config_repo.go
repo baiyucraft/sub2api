@@ -2228,6 +2228,16 @@ func syncUpstreamAccount(ctx context.Context, client *dbent.Client, account *dbe
 		builder.SetCredentials(normalizeJSONMap(account.Credentials))
 		changed = true
 	}
+	// 对历史同步账号补齐国产平台的默认自适应协议；若管理员已经明确
+	// 选择了 chat_completions/anthropic/responses，则保留现有值不覆盖。
+	if service.IsCNProvider(account.Platform) {
+		protocol, _ := account.Credentials["api_protocol"].(string)
+		if strings.TrimSpace(protocol) == "" {
+			account.Credentials["api_protocol"] = service.APIProtocolAdaptive
+			builder.SetCredentials(normalizeJSONMap(account.Credentials))
+			changed = true
+		}
+	}
 	copyUpstreamModelSyncMetadata(extra, key.Extra)
 	afterExtra, _ := json.Marshal(extra)
 	if string(beforeExtra) != string(afterExtra) {

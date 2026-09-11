@@ -121,3 +121,26 @@ func TestReconcileUpstreamAccountsUsesOperationalDefaults(t *testing.T) {
 	require.NotContains(t, account.Credentials, "pool_mode_retry_count")
 	require.NotContains(t, account.Credentials, "pool_mode_retry_status_codes")
 }
+
+func TestReconcileUpstreamAccountsDefaultsCNProviderToAdaptiveProtocol(t *testing.T) {
+	rate := 0.12
+	platform := PlatformZhipu
+	baseURL := "https://relay.example.com/v1"
+	repo := &upstreamAccountDefaultRepo{}
+	svc := NewUpstreamConfigService(nil, nil, repo)
+
+	created, err := svc.reconcileUpstreamAccounts(context.Background(), &UpstreamConfig{
+		ID: 7, Name: "Transit", Provider: UpstreamProviderNewAPI,
+		SiteURL: "https://upstream.example.com",
+	}, []UpstreamKey{{
+		ID: 8, UpstreamConfigID: 7, Name: "GLM", Platform: &platform,
+		BaseURL: &baseURL, RateMultiplier: &rate, Status: StatusActive,
+	}})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, created)
+	require.Len(t, repo.created, 1)
+	account := repo.created[0]
+	require.Equal(t, APIProtocolAdaptive, account.Credentials["api_protocol"])
+	require.Equal(t, baseURL, account.Credentials["base_url"])
+}
