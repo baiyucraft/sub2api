@@ -22,6 +22,11 @@ const (
 	gatewayChannelCustomizationMaxDelayMs     = 10000
 )
 
+const (
+	GatewayChannelCustomizationRequestMessageMatchModeExact = "exact"
+	GatewayChannelCustomizationRequestMessageMatchModeRegex = "regex"
+)
+
 var gatewayCustomizationMethodPattern = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]*$`)
 
 // GatewayChannelCustomizationSettings 是渠道定制的持久化配置。
@@ -32,23 +37,24 @@ type GatewayChannelCustomizationSettings struct {
 
 // GatewayChannelCustomizationRule 描述一个认证后请求的本地响应规则。
 type GatewayChannelCustomizationRule struct {
-	Name               string              `json:"name"`
-	Enabled            bool                `json:"enabled"`
-	APIKeyIDs          []int64             `json:"api_key_ids"`
-	APIKeyNames        []string            `json:"api_key_names"`
-	UserIDs            []int64             `json:"user_ids"`
-	UserEmails         []string            `json:"user_emails"`
-	Methods            []string            `json:"methods"`
-	ExactPaths         []string            `json:"exact_paths"`
-	PathPrefixes       []string            `json:"path_prefixes"`
-	UserAgentContains  []string            `json:"user_agent_contains"`
-	QueryParams        map[string][]string `json:"query_params"`
-	RequestMessageText string              `json:"request_message_text,omitempty"`
-	StatusCode         int                 `json:"status_code"`
-	ContentType        string              `json:"content_type"`
-	Body               string              `json:"body"`
-	MinDelayMs         int                 `json:"min_delay_ms"`
-	MaxDelayMs         int                 `json:"max_delay_ms"`
+	Name                    string              `json:"name"`
+	Enabled                 bool                `json:"enabled"`
+	APIKeyIDs               []int64             `json:"api_key_ids"`
+	APIKeyNames             []string            `json:"api_key_names"`
+	UserIDs                 []int64             `json:"user_ids"`
+	UserEmails              []string            `json:"user_emails"`
+	Methods                 []string            `json:"methods"`
+	ExactPaths              []string            `json:"exact_paths"`
+	PathPrefixes            []string            `json:"path_prefixes"`
+	UserAgentContains       []string            `json:"user_agent_contains"`
+	QueryParams             map[string][]string `json:"query_params"`
+	RequestMessageMatchMode string              `json:"request_message_match_mode"`
+	RequestMessageText      string              `json:"request_message_text,omitempty"`
+	StatusCode              int                 `json:"status_code"`
+	ContentType             string              `json:"content_type"`
+	Body                    string              `json:"body"`
+	MinDelayMs              int                 `json:"min_delay_ms"`
+	MaxDelayMs              int                 `json:"max_delay_ms"`
 }
 
 // GatewayChannelCustomizationRuntime 是设置服务使用的窄运行时接口。
@@ -102,7 +108,16 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 	rule.ExactPaths = normalizeCustomizationPaths(rule.ExactPaths)
 	rule.PathPrefixes = normalizeCustomizationPaths(rule.PathPrefixes)
 	rule.UserAgentContains = normalizeCustomizationStrings(rule.UserAgentContains)
-	rule.RequestMessageText = strings.TrimSpace(rule.RequestMessageText)
+	rule.RequestMessageMatchMode = strings.ToLower(strings.TrimSpace(rule.RequestMessageMatchMode))
+	if rule.RequestMessageMatchMode == "" {
+		rule.RequestMessageMatchMode = GatewayChannelCustomizationRequestMessageMatchModeExact
+	}
+	if rule.RequestMessageMatchMode != GatewayChannelCustomizationRequestMessageMatchModeExact && rule.RequestMessageMatchMode != GatewayChannelCustomizationRequestMessageMatchModeRegex {
+		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_CONDITION", fmt.Sprintf("rule %d request message match mode must be %q or %q", index+1, GatewayChannelCustomizationRequestMessageMatchModeExact, GatewayChannelCustomizationRequestMessageMatchModeRegex))
+	}
+	if rule.RequestMessageMatchMode == GatewayChannelCustomizationRequestMessageMatchModeExact {
+		rule.RequestMessageText = strings.TrimSpace(rule.RequestMessageText)
+	}
 	if err := validateCustomizationStringList(rule.APIKeyNames, index, "API key names"); err != nil {
 		return err
 	}
@@ -123,6 +138,11 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 	}
 	if !validUTF8AndMax(rule.RequestMessageText, gatewayChannelCustomizationMaxStringBytes) {
 		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_CONDITION", fmt.Sprintf("rule %d request message text is too long or invalid", index+1))
+	}
+	if rule.RequestMessageMatchMode == GatewayChannelCustomizationRequestMessageMatchModeRegex && rule.RequestMessageText != "" {
+		if _, err := regexp.Compile(rule.RequestMessageText); err != nil {
+			return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_CONDITION", fmt.Sprintf("rule %d request message regex is invalid: %v", index+1, err))
+		}
 	}
 	if err := normalizeCustomizationQueryParams(rule, index); err != nil {
 		return err

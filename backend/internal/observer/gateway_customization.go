@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math/rand"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -37,17 +39,18 @@ type customizationRuntimeState struct {
 }
 
 type compiledCustomizationRule struct {
-	rule              service.GatewayChannelCustomizationRule
-	apiKeyIDs         map[int64]struct{}
-	apiKeyNames       map[string]struct{}
-	userIDs           map[int64]struct{}
-	userEmails        map[string]struct{}
-	methods           map[string]struct{}
-	exactPaths        map[string]struct{}
-	pathPrefixes      []string
-	userAgentContains []string
-	queryParams       map[string]map[string]struct{}
-	fingerprint       string
+	rule                  service.GatewayChannelCustomizationRule
+	apiKeyIDs             map[int64]struct{}
+	apiKeyNames           map[string]struct{}
+	userIDs               map[int64]struct{}
+	userEmails            map[string]struct{}
+	methods               map[string]struct{}
+	exactPaths            map[string]struct{}
+	pathPrefixes          []string
+	userAgentContains     []string
+	queryParams           map[string]map[string]struct{}
+	requestMessagePattern *regexp.Regexp
+	fingerprint           string
 }
 
 const customizationRequestBodyMaxBytes = 256 * 1024
@@ -83,10 +86,14 @@ func (s *CustomizationService) Apply(_ context.Context, settings service.Gateway
 	if previous != nil && serviceGatewayCustomizationSettingsEqual(previous.settings, settings) {
 		return nil
 	}
+	compiledRules, err := compileCustomizationRules(settings.Rules)
+	if err != nil {
+		return err
+	}
 	next := &customizationRuntimeState{
 		generation: generationOfCustomization(previous) + 1,
 		settings:   cloneCustomizationSettings(settings),
-		rules:      compileCustomizationRules(settings.Rules),
+		rules:      compiledRules,
 	}
 	s.current.Store(next)
 	return nil
@@ -128,7 +135,7 @@ func (s *CustomizationService) Middleware() gin.HandlerFunc {
 	}
 }
 
-func compileCustomizationRules(rules []service.GatewayChannelCustomizationRule) []compiledCustomizationRule {
+func compileCustomizationRules(rules []service.GatewayChannelCustomizationRule) ([]compiledCustomizationRule, error) {
 	compiled := make([]compiledCustomizationRule, 0, len(rules))
 	for _, rule := range rules {
 		if !rule.Enabled {
@@ -170,10 +177,17 @@ func compileCustomizationRules(rules []service.GatewayChannelCustomizationRule) 
 				item.queryParams[key][value] = struct{}{}
 			}
 		}
+		if rule.RequestMessageMatchMode == service.GatewayChannelCustomizationRequestMessageMatchModeRegex && rule.RequestMessageText != "" {
+			pattern, err := regexp.Compile(fullRequestMessagePattern(rule.RequestMessageText))
+			if err != nil {
+				return nil, fmt.Errorf("compile request message regex for rule %q: %w", rule.Name, err)
+			}
+			item.requestMessagePattern = pattern
+		}
 		item.fingerprint = customizationHitFingerprint(rule)
 		compiled = append(compiled, item)
 	}
-	return compiled
+	return compiled, nil
 }
 
 func matchesCustomizationRule(rule compiledCustomizationRule, c *gin.Context, apiKey *service.APIKey, userID int64, userEmail string) bool {
@@ -242,13 +256,13 @@ func matchesCustomizationRule(rule compiledCustomizationRule, c *gin.Context, ap
 	if !methodMatched || !pathMatched || !uaMatched || !queryMatched {
 		return false
 	}
-	if rule.rule.RequestMessageText != "" && !matchesRequestMessageText(c, rule.rule.RequestMessageText) {
+	if rule.rule.RequestMessageText != "" && !matchesRequestMessageText(c, rule) {
 		return false
 	}
 	return true
 }
 
-func matchesRequestMessageText(c *gin.Context, expected string) bool {
+func matchesRequestMessageText(c *gin.Context, rule compiledCustomizationRule) bool {
 	if c == nil || c.Request == nil || c.Request.Body == nil {
 		return false
 	}
@@ -261,10 +275,10 @@ func matchesRequestMessageText(c *gin.Context, expected string) bool {
 	if err != nil || len(prefix) > customizationRequestBodyMaxBytes {
 		return false
 	}
-	return requestBodyContainsExactMessageText(prefix, expected)
+	return requestBodyMatchesMessageText(prefix, rule)
 }
 
-func requestBodyContainsExactMessageText(body []byte, expected string) bool {
+func requestBodyMatchesMessageText(body []byte, rule compiledCustomizationRule) bool {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(body, &root); err != nil {
 		return false
@@ -286,7 +300,17 @@ func requestBodyContainsExactMessageText(body []byte, expected string) bool {
 			continue
 		}
 	}
-	return len(texts) == 1 && texts[0] == expected
+	if len(texts) != 1 {
+		return false
+	}
+	if rule.rule.RequestMessageMatchMode == service.GatewayChannelCustomizationRequestMessageMatchModeRegex {
+		return rule.requestMessagePattern != nil && rule.requestMessagePattern.MatchString(texts[0])
+	}
+	return texts[0] == rule.rule.RequestMessageText
+}
+
+func fullRequestMessagePattern(pattern string) string {
+	return `\A(?:` + pattern + `)\z`
 }
 
 func collectInputMessageTexts(value any, texts *[]string) {
@@ -485,30 +509,40 @@ func customizationHitFingerprint(rule service.GatewayChannelCustomizationRule) s
 	for key, values := range rule.QueryParams {
 		query[key] = sortedStrings(values)
 	}
+	matchMode := rule.RequestMessageMatchMode
+	if matchMode == "" {
+		matchMode = service.GatewayChannelCustomizationRequestMessageMatchModeExact
+	}
+	requestMessageText := rule.RequestMessageText
+	if matchMode == service.GatewayChannelCustomizationRequestMessageMatchModeExact {
+		requestMessageText = strings.TrimSpace(requestMessageText)
+	}
 	payload := struct {
-		Name               string              `json:"name"`
-		APIKeyIDs          []int64             `json:"api_key_ids"`
-		APIKeyNames        []string            `json:"api_key_names"`
-		UserIDs            []int64             `json:"user_ids"`
-		UserEmails         []string            `json:"user_emails"`
-		Methods            []string            `json:"methods"`
-		ExactPaths         []string            `json:"exact_paths"`
-		PathPrefixes       []string            `json:"path_prefixes"`
-		UserAgentContains  []string            `json:"user_agent_contains"`
-		QueryParams        map[string][]string `json:"query_params"`
-		RequestMessageText string              `json:"request_message_text"`
+		Name                    string              `json:"name"`
+		APIKeyIDs               []int64             `json:"api_key_ids"`
+		APIKeyNames             []string            `json:"api_key_names"`
+		UserIDs                 []int64             `json:"user_ids"`
+		UserEmails              []string            `json:"user_emails"`
+		Methods                 []string            `json:"methods"`
+		ExactPaths              []string            `json:"exact_paths"`
+		PathPrefixes            []string            `json:"path_prefixes"`
+		UserAgentContains       []string            `json:"user_agent_contains"`
+		QueryParams             map[string][]string `json:"query_params"`
+		RequestMessageMatchMode string              `json:"request_message_match_mode"`
+		RequestMessageText      string              `json:"request_message_text"`
 	}{
-		Name:               strings.TrimSpace(rule.Name),
-		APIKeyIDs:          sortedInt64s(rule.APIKeyIDs),
-		APIKeyNames:        sortedLowerStrings(rule.APIKeyNames),
-		UserIDs:            sortedInt64s(rule.UserIDs),
-		UserEmails:         sortedLowerStrings(rule.UserEmails),
-		Methods:            sortedStrings(rule.Methods),
-		ExactPaths:         sortedStrings(rule.ExactPaths),
-		PathPrefixes:       sortedStrings(rule.PathPrefixes),
-		UserAgentContains:  sortedStrings(rule.UserAgentContains),
-		QueryParams:        query,
-		RequestMessageText: strings.TrimSpace(rule.RequestMessageText),
+		Name:                    strings.TrimSpace(rule.Name),
+		APIKeyIDs:               sortedInt64s(rule.APIKeyIDs),
+		APIKeyNames:             sortedLowerStrings(rule.APIKeyNames),
+		UserIDs:                 sortedInt64s(rule.UserIDs),
+		UserEmails:              sortedLowerStrings(rule.UserEmails),
+		Methods:                 sortedStrings(rule.Methods),
+		ExactPaths:              sortedStrings(rule.ExactPaths),
+		PathPrefixes:            sortedStrings(rule.PathPrefixes),
+		UserAgentContains:       sortedStrings(rule.UserAgentContains),
+		QueryParams:             query,
+		RequestMessageMatchMode: matchMode,
+		RequestMessageText:      requestMessageText,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
