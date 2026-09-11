@@ -5,9 +5,12 @@
       :interval-seconds="DEFAULT_INTERVAL_SECONDS"
       :range="currentRange"
       :loading="loading"
+      :platforms="platformNavItems"
+      :active-platform="activePlatform"
       :auto-refresh="autoRefresh"
       @update:range="handleRangeChange"
       @refresh="manualReload"
+      @navigate-platform="navigateToPlatform"
     />
 
     <MonitorCardGrid
@@ -16,6 +19,7 @@
       :countdown-seconds="countdown"
       :loading="loading"
       @card-click="openDetail"
+      @platform-section="registerPlatformSection"
     />
 
     <MonitorDetailDialog
@@ -29,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -44,10 +48,12 @@ import MonitorCardGrid from '@/components/user/monitor/MonitorCardGrid.vue'
 import MonitorDetailDialog from '@/components/user/MonitorDetailDialog.vue'
 import { DEFAULT_INTERVAL_SECONDS, STATUS_OPERATIONAL } from '@/constants/channelMonitor'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import { groupMonitorItems } from '@/utils/channelMonitorGrouping'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { providerLabel } = useChannelMonitorFormat()
 
 // ── State ──
 const items = ref<UserMonitorView[]>([])
@@ -55,6 +61,10 @@ const loading = ref(false)
 const currentRange = ref<MonitorRange>('24h')
 const showDetail = ref(false)
 const detailTarget = ref<UserMonitorView | null>(null)
+const activePlatform = ref('')
+const platformSections = new Map<string, HTMLElement>()
+const platformVisibility = new Map<string, number>()
+let platformObserver: IntersectionObserver | null = null
 
 let abortController: AbortController | null = null
 
@@ -82,6 +92,10 @@ const detailTitle = computed(() => {
 })
 
 const groupedItems = computed(() => groupMonitorItems(items.value))
+const platformNavItems = computed(() => groupedItems.value.map((group) => ({
+  value: group.provider,
+  label: group.provider === '__other__' ? t('channelStatus.otherPlatform') : providerLabel(group.provider),
+})))
 
 // ── Loaders ──
 async function reload(silent = false) {
@@ -131,6 +145,34 @@ function closeDetail() {
   detailTarget.value = null
 }
 
+function registerPlatformSection(provider: string, element: HTMLElement | null) {
+  const previous = platformSections.get(provider)
+  if (previous && previous !== element) platformObserver?.unobserve(previous)
+  if (!element) {
+    platformSections.delete(provider)
+    platformVisibility.delete(provider)
+    return
+  }
+  platformSections.set(provider, element)
+  platformObserver?.observe(element)
+}
+
+function navigateToPlatform(provider: string) {
+  activePlatform.value = provider
+  const target = platformSections.get(provider)
+    || document.getElementById(`monitor-platform-${provider}`)?.closest('section') as HTMLElement | null
+  target?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+}
+
+watch(
+  groupedItems,
+  (groups) => {
+    const providers = groups.map((group) => group.provider)
+    if (!providers.includes(activePlatform.value)) activePlatform.value = providers[0] || ''
+  },
+  { immediate: true },
+)
+
 watch(
   () => appStore.cachedPublicSettings?.channel_monitor_enabled,
   (enabled) => {
@@ -139,7 +181,22 @@ watch(
   },
 )
 
-onMounted(() => {
+onMounted(async () => {
+  await nextTick()
+  if (typeof IntersectionObserver !== 'undefined') {
+    const heroHeight = Math.ceil(document.querySelector('.channel-status-v1-hero')?.getBoundingClientRect().height || 96)
+    platformObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const provider = entry.target instanceof HTMLElement ? entry.target.dataset.platform : undefined
+        if (provider) platformVisibility.set(provider, entry.isIntersecting ? entry.intersectionRatio : 0)
+      }
+      const visible = [...platformVisibility.entries()]
+        .filter(([, ratio]) => ratio > 0)
+        .sort(([, leftRatio], [, rightRatio]) => rightRatio - leftRatio)[0]
+      if (visible) activePlatform.value = visible[0]
+    }, { rootMargin: `-${heroHeight}px 0px -55% 0px`, threshold: [0, 0.25, 0.5, 0.75, 1] })
+    for (const element of platformSections.values()) platformObserver.observe(element)
+  }
   void reload(false)
   if (appStore.cachedPublicSettings?.channel_monitor_enabled !== false) {
     autoRefresh.setEnabled(true)
@@ -148,5 +205,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (abortController) abortController.abort()
+  platformObserver?.disconnect()
+  platformObserver = null
+  platformVisibility.clear()
 })
 </script>
