@@ -77,4 +77,17 @@ describe('ChannelCustomizationView', () => {
     expect(showError).toHaveBeenCalled()
     expect(updateSettings).not.toHaveBeenCalled()
   })
+
+  it('preserves the regex message match mode when saving a rule', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="customization-rule-0"] button[title="admin.customization.edit"]').trigger('click')
+    await wrapper.get('[data-testid="customization-rule-form"] select').setValue('regex')
+    await wrapper.get('[data-testid="customization-rule-form"] input.font-mono').setValue('^hi$')
+    await wrapper.get('[data-testid="customization-rule-form"]').trigger('submit')
+    await wrapper.get('header button.btn-primary').trigger('click')
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      rules: [expect.objectContaining({ request_message_match_mode: 'regex', request_message_text: '^hi$' })]
+    }))
+  })
 })
