@@ -10,6 +10,12 @@
     >
       <div class="min-w-0">
         <span class="text-[11px] font-medium text-gray-500 dark:text-gray-400">{{ t('channelStatus.rateTrend.title') }}</span>
+        <span
+          class="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-sky-600 dark:text-sky-300"
+          data-test="rate-trend-toggle-label"
+        >
+          {{ t(expanded ? 'channelStatus.rateTrend.collapse' : 'channelStatus.rateTrend.expand') }}
+        </span>
         <p
           v-if="expanded && historyPartial"
           class="mt-0.5 text-[10px] leading-4 text-amber-700 dark:text-amber-300"

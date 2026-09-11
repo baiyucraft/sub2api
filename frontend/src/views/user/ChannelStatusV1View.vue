@@ -13,14 +13,16 @@
       @navigate-platform="navigateToPlatform"
     />
 
-    <MonitorCardGrid
-      :groups="groupedItems"
-      :range="currentRange"
-      :countdown-seconds="countdown"
-      :loading="loading"
-      @card-click="openDetail"
-      @platform-section="registerPlatformSection"
-    />
+    <div class="mt-6">
+      <MonitorCardGrid
+        :groups="groupedItems"
+        :range="currentRange"
+        :countdown-seconds="countdown"
+        :loading="loading"
+        @card-click="openDetail"
+        @platform-section="registerPlatformSection"
+      />
+    </div>
 
     <MonitorDetailDialog
       :show="showDetail"
