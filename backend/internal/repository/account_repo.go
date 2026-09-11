@@ -1428,20 +1428,29 @@ func (r *accountRepository) SetPreferredAccount(ctx context.Context, groupID, ac
 	set := func(exec sqlExecutor) error {
 		rows, err := exec.QueryContext(ctx, `SELECT scheduler_preferred FROM account_groups WHERE group_id = $1 AND account_id = $2`, groupID, accountID)
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return infraerrors.BadRequest("ACCOUNT_NOT_IN_GROUP", "account is not bound to the current group")
+			}
 			return err
 		}
-		defer func() { _ = rows.Close() }()
 		if !rows.Next() {
-			if err := rows.Err(); err != nil {
-				return err
+			rowsErr := rows.Err()
+			_ = rows.Close()
+			if rowsErr != nil {
+				return rowsErr
 			}
 			return infraerrors.BadRequest("ACCOUNT_NOT_IN_GROUP", "account is not bound to the current group")
 		}
 		var current bool
 		if err := rows.Scan(&current); err != nil {
+			_ = rows.Close()
 			return err
 		}
 		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
 			return err
 		}
 		if current == preferred {
