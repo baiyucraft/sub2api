@@ -242,6 +242,12 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	}
 	redactedCreds, credsStatus := RedactCredentials(a.Credentials)
 	extra := redactAccountManagedExtra(a.Extra)
+	preferredGroupIDs := make([]int64, 0)
+	for _, accountGroup := range a.AccountGroups {
+		if accountGroup.SchedulerPreferred {
+			preferredGroupIDs = append(preferredGroupIDs, accountGroup.GroupID)
+		}
+	}
 	var ollamaCloudUsage *service.OllamaCloudUsageState
 	if state := service.OllamaCloudUsageStateFromAccount(a); state.Eligible {
 		ollamaCloudUsage = state
@@ -287,6 +293,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		SessionWindowEnd:          a.SessionWindowEnd,
 		SessionWindowStatus:       a.SessionWindowStatus,
 		GroupIDs:                  a.GroupIDs,
+		PreferredGroupIDs:         preferredGroupIDs,
 		ParentAccountID:           a.ParentAccountID,
 		QuotaDimension:            a.QuotaDimension,
 	}
@@ -577,10 +584,12 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 	if a == nil {
 		return nil
 	}
-	preferredGroupIDs := make([]int64, 0)
-	for _, group := range a.AccountGroups {
-		if group.SchedulerPreferred {
-			preferredGroupIDs = append(preferredGroupIDs, group.GroupID)
+	preferredGroupIDs := append([]int64(nil), a.PreferredGroupIDs...)
+	if len(preferredGroupIDs) == 0 && len(a.AccountGroups) > 0 {
+		for _, group := range a.AccountGroups {
+			if group.SchedulerPreferred {
+				preferredGroupIDs = append(preferredGroupIDs, group.GroupID)
+			}
 		}
 	}
 	return &AccountListItem{
