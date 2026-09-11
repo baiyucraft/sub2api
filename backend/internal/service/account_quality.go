@@ -98,6 +98,91 @@ type AccountQualityStats struct {
 	ScoreVersion int                    `json:"score_version"`
 }
 
+// AccountQualityFilter identifies the supported administrative account-list
+// quality filters. The suffix is the minimum grade for the selected window.
+type AccountQualityFilter string
+
+const (
+	AccountQualityFilter1hA  AccountQualityFilter = "1h-A"
+	AccountQualityFilter1hB  AccountQualityFilter = "1h-B"
+	AccountQualityFilter24hA AccountQualityFilter = "24h-A"
+	AccountQualityFilter24hB AccountQualityFilter = "24h-B"
+)
+
+// ParseAccountQualityFilter validates the account-list quality_filter query
+// parameter. An empty value means that no quality filtering was requested.
+func ParseAccountQualityFilter(value string) (AccountQualityFilter, bool) {
+	if value == "" {
+		return "", true
+	}
+	switch AccountQualityFilter(value) {
+	case AccountQualityFilter1hA, AccountQualityFilter1hB, AccountQualityFilter24hA, AccountQualityFilter24hB:
+		return AccountQualityFilter(value), true
+	default:
+		return "", false
+	}
+}
+
+// Matches reports whether stats satisfy the requested minimum quality grade.
+// A missing grade is treated as B for compatibility with the list filter's
+// conservative low-evidence policy.
+func (f AccountQualityFilter) Matches(stats AccountQualityStats) bool {
+	var window AccountQualityWindow
+	minimum := ""
+	switch f {
+	case AccountQualityFilter1hA:
+		window, minimum = stats.Recent1h, "A"
+	case AccountQualityFilter1hB:
+		window, minimum = stats.Recent1h, "B"
+	case AccountQualityFilter24hA:
+		window, minimum = stats.Recent24h, "A"
+	case AccountQualityFilter24hB:
+		window, minimum = stats.Recent24h, "B"
+	default:
+		return false
+	}
+
+	grade := window.QualityGrade
+	if grade == "" {
+		grade = "B"
+	}
+	gradeRank, ok := accountQualityGradeRank(grade)
+	minimumRank, minimumOK := accountQualityGradeRank(minimum)
+	return ok && minimumOK && gradeRank <= minimumRank
+}
+
+func (f AccountQualityFilter) Valid() bool {
+	_, ok := ParseAccountQualityFilter(string(f))
+	return ok && f != ""
+}
+
+func accountQualityGradeRank(grade string) (int, bool) {
+	switch grade {
+	case "S+":
+		return 0, true
+	case "S":
+		return 1, true
+	case "S-":
+		return 2, true
+	case "A+":
+		return 3, true
+	case "A":
+		return 4, true
+	case "A-":
+		return 5, true
+	case "B+":
+		return 6, true
+	case "B":
+		return 7, true
+	case "B-":
+		return 8, true
+	case "C":
+		return 9, true
+	default:
+		return 0, false
+	}
+}
+
 // AccountQualitySamples is the repository result before the service applies the
 // display-only scoring policy.
 type AccountQualitySamples struct {

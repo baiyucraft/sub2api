@@ -481,13 +481,15 @@ type BulkUpdateAccountsInput struct {
 }
 
 type BulkUpdateAccountFilters struct {
-	Platform    string
-	Type        string
-	Status      string
-	Group       string
-	Search      string
-	PrivacyMode string
-	Scope       AccountListScope
+	Platform      string
+	Type          string
+	Status        string
+	Group         string
+	Search        string
+	PrivacyMode   string
+	Scope         AccountListScope
+	Preferred     string
+	QualityFilter string
 }
 
 // BulkUpdateAccountResult captures the result for a single account update.
@@ -734,6 +736,17 @@ type adminServiceImpl struct {
 	compositeResolver    *CompositeRouteResolver
 	// 分组平台变更后用来失效渠道缓存；可为 nil（缓存会在 TTL 到期后自然重建）
 	channelCacheInvalidator ChannelCacheInvalidator
+	accountQualityService   *AccountUsageService
+}
+
+// AccountQualityStatsBinder connects the account quality reader to admin
+// operations that need to resolve filter-based account targets.
+type AccountQualityStatsBinder interface {
+	SetAccountQualityStatsService(*AccountUsageService)
+}
+
+func (s *adminServiceImpl) SetAccountQualityStatsService(usage *AccountUsageService) {
+	s.accountQualityService = usage
 }
 
 // ChannelCacheInvalidator 失效渠道缓存。

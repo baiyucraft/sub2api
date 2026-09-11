@@ -13,12 +13,13 @@
     <Select v-if="mode !== 'upstream'" :model-value="filters.privacy_mode" class="w-40" :options="privacyOpts" @update:model-value="updatePrivacyMode" @change="$emit('change')" />
     <Select :model-value="filters.group" class="w-40" :options="gOpts" @update:model-value="updateGroup" @change="$emit('change')" />
     <Select v-if="mode === 'upstream'" :model-value="filters.preferred ?? ''" class="w-40" :options="preferredOpts" @update:model-value="updatePreferred" @change="$emit('change')" />
+    <Select v-if="mode === 'upstream'" :model-value="filters.quality_filter ?? ''" class="w-40" :options="qualityFilterOpts" @update:model-value="updateQualityFilter" @change="$emit('change')" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'; import { useI18n } from 'vue-i18n'; import Select from '@/components/common/Select.vue'; import SearchInput from '@/components/common/SearchInput.vue'
-import type { AdminGroup } from '@/types'
+import type { AccountQualityFilter, AdminGroup } from '@/types'
 const props = withDefaults(defineProps<{
   searchQuery: string
   filters: Record<string, any>
@@ -33,6 +34,7 @@ const updateStatus = (value: string | number | boolean | null) => { emit('update
 const updatePrivacyMode = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, privacy_mode: value }) }
 const updateGroup = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, group: value }) }
 const updatePreferred = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, preferred: value }) }
+const updateQualityFilter = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, quality_filter: value ?? '' }) }
 const pOpts = computed(() => [{ value: '', label: t('admin.accounts.allPlatforms') }, ...CONCRETE_PLATFORM_OPTIONS])
 const tOpts = computed(() => [{ value: '', label: t('admin.accounts.allTypes') }, { value: 'oauth', label: t('admin.accounts.oauthType') }, { value: 'setup-token', label: t('admin.accounts.setupToken') }, { value: 'apikey', label: t('admin.accounts.apiKey') }, { value: 'bedrock', label: 'AWS Bedrock' }])
 const sOpts = computed(() => [{ value: '', label: t('admin.accounts.allStatus') }, { value: 'active', label: t('admin.accounts.status.active') }, { value: 'inactive', label: t('admin.accounts.status.inactive') }, { value: 'error', label: t('admin.accounts.status.error') }, { value: 'rate_limited', label: t('admin.accounts.status.rateLimited') }, { value: 'temp_unschedulable', label: t('admin.accounts.status.tempUnschedulable') }, { value: 'unschedulable', label: t('admin.accounts.status.unschedulable') }])
@@ -51,5 +53,9 @@ const gOpts = computed(() => [
 const preferredOpts = computed(() => [
   { value: '', label: t('admin.accounts.allPreferred') },
   { value: '1', label: t('admin.accounts.preferredOnly') }
+])
+const qualityFilterOpts = computed(() => [
+  { value: '', label: t('admin.accounts.allQualityFilters') },
+  ...(['1h-A', '1h-B', '24h-A', '24h-B'] as AccountQualityFilter[]).map(value => ({ value, label: value }))
 ])
 </script>
