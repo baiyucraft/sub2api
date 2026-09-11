@@ -377,6 +377,8 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		groups.DELETE("/:id/composite-routes/:route_id", h.Admin.Group.DeleteCompositeRoute)
 		groups.GET("/:id/preferred-accounts", h.Admin.Group.GetPreferredAccounts)
 		groups.PUT("/:id/preferred-accounts", h.Admin.Group.SetPreferredAccounts)
+		groups.PUT("/:id/preferred-accounts/:account_id", h.Admin.Group.SetPreferredAccount)
+		groups.DELETE("/:id/preferred-accounts/:account_id", h.Admin.Group.ClearPreferredAccount)
 		groups.GET("/:id", h.Admin.Group.GetByID)
 		groups.POST("", h.Admin.Group.Create)
 		groups.POST("/:id/duplicate", h.Admin.Group.Duplicate)

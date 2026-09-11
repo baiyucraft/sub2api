@@ -577,6 +577,12 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 	if a == nil {
 		return nil
 	}
+	preferredGroupIDs := make([]int64, 0)
+	for _, group := range a.AccountGroups {
+		if group.SchedulerPreferred {
+			preferredGroupIDs = append(preferredGroupIDs, group.GroupID)
+		}
+	}
 	return &AccountListItem{
 		UpstreamConfigID:          a.UpstreamConfigID,
 		UpstreamKeyID:             a.UpstreamKeyID,
@@ -619,6 +625,7 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		QuotaDimension: a.QuotaDimension, ParentEmail: a.ParentEmail, ParentPlanType: a.ParentPlanType,
 		ParentPrivacyMode: a.ParentPrivacyMode, ParentSubscriptionExpiresAt: a.ParentSubscriptionExpiresAt,
 		ParentChatGPTAccountID: a.ParentChatGPTAccountID, Proxy: a.Proxy, GroupIDs: a.GroupIDs,
+		PreferredGroupIDs: preferredGroupIDs,
 	}
 }
 

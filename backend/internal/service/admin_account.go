@@ -27,6 +27,20 @@ type AccountListUpstreamIDs struct {
 	KeyID    *int64
 }
 
+type accountListPreferredContextKey struct{}
+
+func WithAccountListPreferred(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, accountListPreferredContextKey{}, enabled)
+}
+
+func AccountListPreferredFromContext(ctx context.Context) (bool, bool) {
+	if ctx == nil {
+		return false, false
+	}
+	enabled, ok := ctx.Value(accountListPreferredContextKey{}).(bool)
+	return enabled, ok
+}
+
 func WithAccountListUpstreamIDs(ctx context.Context, ids AccountListUpstreamIDs) context.Context {
 	return context.WithValue(ctx, accountListUpstreamIDsContextKey{}, ids)
 }
@@ -42,6 +56,29 @@ func AccountListUpstreamIDsFromContext(ctx context.Context) AccountListUpstreamI
 // Account management implementations
 func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error) {
 	return s.ListAccountsScoped(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, AccountListScopeAll)
+}
+
+func (s *adminServiceImpl) ListAccountsScopedWithPreferred(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, preferred bool, sortBy, sortOrder string, scope AccountListScope) ([]Account, int64, error) {
+	if !scope.Valid() {
+		return nil, 0, fmt.Errorf("invalid account list scope %q", scope)
+	}
+	if groupID > 0 {
+		if err := s.ValidateAccountGroupBindings(ctx, []int64{groupID}); err != nil {
+			return nil, 0, err
+		}
+	}
+	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
+	if scoped, ok := s.accountRepo.(PreferredAccountListRepository); ok {
+		accounts, result, err := scoped.ListWithFiltersScopedPreferred(ctx, params, platform, accountType, status, search, groupID, privacyMode, preferred, scope)
+		if err != nil {
+			return nil, 0, err
+		}
+		return accounts, result.Total, nil
+	}
+	if preferred {
+		return nil, 0, fmt.Errorf("preferred account listing is not supported")
+	}
+	return s.ListAccountsScoped(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope)
 }
 
 func (s *adminServiceImpl) ListAccountsScoped(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, scope AccountListScope) ([]Account, int64, error) {
@@ -71,10 +108,37 @@ func (s *adminServiceImpl) ListAccountsScoped(ctx context.Context, page, pageSiz
 }
 
 func (s *adminServiceImpl) ListAccountsForSchedulerScoreFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error) {
+	return s.ListAccountsForSchedulerScoreFilterWithPreferred(ctx, platform, accountType, status, search, groupID, privacyMode, false)
+}
+
+func (s *adminServiceImpl) ListAccountsForSchedulerScoreFilterWithPreferred(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, preferred bool) ([]Account, error) {
 	if s == nil || s.accountRepo == nil {
 		return nil, nil
 	}
+	if scoped, ok := s.accountRepo.(PreferredAccountListRepository); ok {
+		return scoped.ListAllWithFiltersScopedPreferred(ctx, platform, accountType, status, search, groupID, privacyMode, preferred, AccountListScopeAll)
+	}
+	if preferred {
+		return nil, fmt.Errorf("preferred account listing is not supported")
+	}
 	return s.accountRepo.ListAllWithFilters(ctx, platform, accountType, status, search, groupID, privacyMode)
+}
+
+func (s *adminServiceImpl) SetPreferredAccount(ctx context.Context, groupID, accountID int64, preferred bool) error {
+	if groupID <= 0 {
+		return infraerrors.BadRequest("INVALID_GROUP_ID", "group_id must be positive")
+	}
+	if accountID <= 0 {
+		return infraerrors.BadRequest("INVALID_ACCOUNT_ID", "account_id must be positive")
+	}
+	if _, err := s.groupRepo.GetByIDLite(ctx, groupID); err != nil {
+		return err
+	}
+	preferredRepo, ok := s.accountRepo.(PreferredAccountListRepository)
+	if !ok {
+		return errors.New("preferred account mutation is not supported")
+	}
+	return preferredRepo.SetPreferredAccount(ctx, groupID, accountID, preferred)
 }
 
 func (s *adminServiceImpl) ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, groupID *int64) ([]Account, error) {

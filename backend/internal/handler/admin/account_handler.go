@@ -731,6 +731,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	status := c.Query("status")
 	search := c.Query("search")
 	privacyMode := strings.TrimSpace(c.Query("privacy_mode"))
+	preferredQuery := strings.TrimSpace(c.Query("preferred"))
+	if preferredQuery != "" && preferredQuery != "0" && preferredQuery != "1" && !strings.EqualFold(preferredQuery, "true") && !strings.EqualFold(preferredQuery, "false") {
+		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_PREFERRED_FILTER", "invalid preferred filter"))
+		return
+	}
 	sortBy := c.DefaultQuery("sort_by", "name")
 	sortOrder := c.DefaultQuery("sort_order", "asc")
 	// 标准化和验证 search 参数
@@ -766,6 +771,9 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	listCtx := c.Request.Context()
+	if preferredQuery == "1" || strings.EqualFold(preferredQuery, "true") {
+		listCtx = service.WithAccountListPreferred(listCtx, true)
+	}
 	if scope == service.AccountListScopeUpstream {
 		var upstreamIDs service.AccountListUpstreamIDs
 		parseUpstreamID := func(name string) (*int64, bool) {
@@ -1024,7 +1032,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 				CurrentRPM:                      item.CurrentRPM,
 			}
 		}
-		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"))
+		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery)
 		if etag != "" {
 			c.Header("ETag", etag)
 			c.Header("Vary", "If-None-Match")
@@ -1037,7 +1045,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		return
 	}
 
-	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, false, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"))
+	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, false, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery)
 	if etag != "" {
 		c.Header("ETag", etag)
 		c.Header("Vary", "If-None-Match")
@@ -1069,6 +1077,10 @@ func buildAccountsListETag[T any](
 	if len(scopesAndFilters) > 2 {
 		upstreamKeyID, _ = scopesAndFilters[2].(string)
 	}
+	preferred := ""
+	if len(scopesAndFilters) > 3 {
+		preferred, _ = scopesAndFilters[3].(string)
+	}
 	payload := struct {
 		Total            int64                    `json:"total"`
 		Page             int                      `json:"page"`
@@ -1081,6 +1093,7 @@ func buildAccountsListETag[T any](
 		Scope            service.AccountListScope `json:"scope"`
 		UpstreamConfigID string                   `json:"upstream_config_id"`
 		UpstreamKeyID    string                   `json:"upstream_key_id"`
+		Preferred        string                   `json:"preferred"`
 		Items            []T                      `json:"items"`
 	}{
 		Total:            total,
@@ -1094,6 +1107,7 @@ func buildAccountsListETag[T any](
 		Scope:            scope,
 		UpstreamConfigID: upstreamConfigID,
 		UpstreamKeyID:    upstreamKeyID,
+		Preferred:        preferred,
 		Items:            items,
 	}
 	raw, err := json.Marshal(payload)

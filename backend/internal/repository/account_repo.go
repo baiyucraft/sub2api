@@ -1328,6 +1328,18 @@ func (r *accountRepository) accountListFilteredQuery(ctx context.Context, platfo
 	} else if groupID > 0 {
 		q = q.Where(dbaccount.HasAccountGroupsWith(dbaccountgroup.GroupIDEQ(groupID)))
 	}
+	if preferred, ok := service.AccountListPreferredFromContext(ctx); ok && preferred {
+		if groupID == service.AccountListGroupUngrouped {
+			q = q.Where(dbaccount.IDEQ(0))
+		} else if groupID > 0 {
+			q = q.Where(dbaccount.HasAccountGroupsWith(
+				dbaccountgroup.GroupIDEQ(groupID),
+				dbaccountgroup.SchedulerPreferredEQ(true),
+			))
+		} else {
+			q = q.Where(dbaccount.HasAccountGroupsWith(dbaccountgroup.SchedulerPreferredEQ(true)))
+		}
+	}
 	if privacyMode != "" {
 		q = q.Where(dbpredicate.Account(func(s *entsql.Selector) {
 			path := sqljson.Path("privacy_mode")
@@ -1380,6 +1392,13 @@ func (r *accountRepository) ListWithFiltersScoped(ctx context.Context, params pa
 	return outAccounts, paginationResultFromTotal(int64(total), params), nil
 }
 
+func (r *accountRepository) ListWithFiltersScopedPreferred(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, preferred bool, scope service.AccountListScope) ([]service.Account, *pagination.PaginationResult, error) {
+	if preferred {
+		ctx = service.WithAccountListPreferred(ctx, true)
+	}
+	return r.ListWithFiltersScoped(ctx, params, platform, accountType, status, search, groupID, privacyMode, scope)
+}
+
 func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
 	return r.ListAllWithFiltersScoped(ctx, platform, accountType, status, search, groupID, privacyMode, service.AccountListScopeAll)
 }
@@ -1390,6 +1409,69 @@ func (r *accountRepository) ListAllWithFiltersScoped(ctx context.Context, platfo
 		return nil, err
 	}
 	return r.accountsToService(ctx, accounts)
+}
+
+func (r *accountRepository) ListAllWithFiltersScopedPreferred(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, preferred bool, scope service.AccountListScope) ([]service.Account, error) {
+	if preferred {
+		ctx = service.WithAccountListPreferred(ctx, true)
+	}
+	return r.ListAllWithFiltersScoped(ctx, platform, accountType, status, search, groupID, privacyMode, scope)
+}
+
+// SetPreferredAccount changes one group-local preferred-pool relation. It is
+// intentionally idempotent and emits scheduler invalidation only when the
+// relation actually changes.
+func (r *accountRepository) SetPreferredAccount(ctx context.Context, groupID, accountID int64, preferred bool) error {
+	if groupID <= 0 || accountID <= 0 {
+		return infraerrors.BadRequest("INVALID_ACCOUNT_GROUP_RELATION", "group_id and account_id must be positive")
+	}
+	set := func(exec sqlExecutor) error {
+		rows, err := exec.QueryContext(ctx, `SELECT scheduler_preferred FROM account_groups WHERE group_id = $1 AND account_id = $2`, groupID, accountID)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		if !rows.Next() {
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			return infraerrors.BadRequest("ACCOUNT_NOT_IN_GROUP", "account is not bound to the current group")
+		}
+		var current bool
+		if err := rows.Scan(&current); err != nil {
+			return err
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if current == preferred {
+			return nil
+		}
+		if _, err := exec.ExecContext(ctx, `UPDATE account_groups SET scheduler_preferred = $1 WHERE group_id = $2 AND account_id = $3`, preferred, groupID, accountID); err != nil {
+			return err
+		}
+		if err := enqueueSchedulerOutbox(ctx, exec, service.SchedulerOutboxEventGroupChanged, nil, &groupID, nil); err != nil {
+			return err
+		}
+		payload := map[string]any{
+			"account_ids": []int64{accountID},
+			"group_ids":   []int64{groupID},
+			"reason":      "preferred_account_changed",
+		}
+		return enqueueSchedulerOutbox(ctx, exec, service.SchedulerOutboxEventAccountBulkChanged, nil, nil, payload)
+	}
+	if txSource, ok := r.sql.(sqlTransactor); ok {
+		tx, err := txSource.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		if err := set(tx); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+	return set(r.sql)
 }
 
 func (r *accountRepository) ListByUpstreamKeyID(ctx context.Context, keyID int64) ([]service.Account, error) {

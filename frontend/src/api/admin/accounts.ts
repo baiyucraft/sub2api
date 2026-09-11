@@ -90,6 +90,7 @@ export async function getUpstreamBillingRatesWithEtag(
     type?: string
     status?: string
     group?: string
+    preferred?: string
     search?: string
     privacy_mode?: string
     sort_by?: string
@@ -123,6 +124,7 @@ export async function listWithEtag(
     type?: string
     status?: string
     group?: string
+    preferred?: string
     search?: string
     privacy_mode?: string
     lite?: string
