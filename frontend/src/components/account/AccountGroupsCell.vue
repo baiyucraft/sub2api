@@ -27,7 +27,13 @@
           :data-group-id="group.id"
           @click.stop="togglePreferred(group.id)"
         >
-          <Icon name="star" size="xs" :stroke-width="2" aria-hidden="true" />
+          <Icon
+            name="star"
+            size="xs"
+            :stroke-width="2"
+            :filled="isPreferred(group.id)"
+            aria-hidden="true"
+          />
         </button>
         <span
           v-else-if="shouldShowPreferredState"
@@ -40,7 +46,13 @@
           :data-group-id="group.id"
           role="img"
         >
-          <Icon name="star" size="xs" :stroke-width="2" aria-hidden="true" />
+          <Icon
+            name="star"
+            size="xs"
+            :stroke-width="2"
+            :filled="isPreferred(group.id)"
+            aria-hidden="true"
+          />
         </span>
       </div>
       <!-- 更多数量徽章 -->

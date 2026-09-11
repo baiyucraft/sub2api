@@ -34,7 +34,8 @@ const mountCell = (props: Record<string, unknown> = {}) => mount(AccountGroupsCe
         template: '<span class="group-badge">{{ name }}</span>'
       },
       Icon: {
-        template: '<svg data-testid="preferred-icon" />'
+        props: ['filled'],
+        template: '<svg data-testid="preferred-icon" :data-filled="filled ? \'true\' : \'false\'" />'
       }
     }
   }
@@ -62,6 +63,11 @@ describe('AccountGroupsCell preferred account pool', () => {
     expect(indicators[2].attributes('aria-pressed')).toBe('true')
     expect(indicators[3].attributes('aria-pressed')).toBe('false')
     expect(wrapper.findAll('button[data-group-id]')).toHaveLength(0)
+    const icons = wrapper.findAll('[data-testid="preferred-icon"]')
+    expect(icons[0].attributes('data-filled')).toBe('true')
+    expect(icons[1].attributes('data-filled')).toBe('false')
+    expect(icons[2].attributes('data-filled')).toBe('true')
+    expect(icons[3].attributes('data-filled')).toBe('false')
   })
 
   it('toggles each visible group independently and emits the next state', async () => {
