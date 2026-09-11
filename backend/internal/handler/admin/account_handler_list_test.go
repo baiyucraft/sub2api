@@ -29,6 +29,15 @@ type accountListUpstreamHealthReader struct {
 	states map[int64][]service.UpstreamHealthObservation
 }
 
+type accountListQualityUsageRepo struct {
+	service.UsageLogRepository
+	samples map[int64]service.AccountQualitySamples
+}
+
+func (r *accountListQualityUsageRepo) GetAccountQualityStatsBatch(_ context.Context, _ []int64, _, _, _ time.Time) (map[int64]service.AccountQualitySamples, error) {
+	return r.samples, nil
+}
+
 func (r *accountListUpstreamHealthReader) ListUpstreamHealthHistories(_ context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
 	r.keyIDs = append([]int64(nil), keyIDs...)
 	r.limit = limit
@@ -598,6 +607,70 @@ func TestAccountHandlerListRejectsInvalidUpstreamFilterID(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/upstream-management/accounts?upstream_key_id=not-a-number", nil))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAccountHandlerListQualityFilterRunsBeforePagination(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	adminSvc := newStubAdminService()
+	configID, keyID := int64(281), int64(291)
+	adminSvc.accounts = []service.Account{
+		{ID: 801, Name: "high-quality", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, UpstreamConfigID: &configID, UpstreamKeyID: &keyID},
+		{ID: 802, Name: "no-quality-data", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, UpstreamConfigID: &configID, UpstreamKeyID: &keyID},
+	}
+	firstToken, duration := 800.0, 5000.0
+	usageRepo := &accountListQualityUsageRepo{samples: map[int64]service.AccountQualitySamples{
+		801: {Recent1h: service.AccountQualityWindow{SampleCount: 3, FirstTokenSampleCount: 3, AverageFirstTokenMs: &firstToken, AverageDurationMs: &duration}},
+	}}
+	usageService := service.NewAccountUsageService(nil, usageRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, usageService, nil, nil, nil, nil, nil, nil)
+	router.GET("/api/v1/admin/upstream-management/accounts", handler.ListUpstreamManagement)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/upstream-management/accounts?scope=upstream&quality_filter=1h-A&page=1&page_size=1", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var payload struct {
+		Data struct {
+			Items []struct {
+				ID int64 `json:"id"`
+			} `json:"items"`
+			Total int64 `json:"total"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Equal(t, int64(1), payload.Data.Total)
+	require.Equal(t, []int64{801}, []int64{payload.Data.Items[0].ID})
+}
+
+func TestAccountHandlerListRejectsInvalidQualityFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := NewAccountHandler(newStubAdminService(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router.GET("/api/v1/admin/upstream-management/accounts", handler.ListUpstreamManagement)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/upstream-management/accounts?quality_filter=7d-A", nil))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAccountHandlerListRejectsQualityFilterOutsideUpstreamScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := NewAccountHandler(newStubAdminService(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router.GET("/api/v1/admin/accounts", handler.List)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?quality_filter=1h-B", nil))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAccountListETagIncludesQualityFilter(t *testing.T) {
+	items := []int64{801}
+	withoutFilter := buildAccountsListETag(items, 1, 1, 20, "", "", "", "", true, service.AccountListScopeUpstream, "", "", "", "")
+	withFilter := buildAccountsListETag(items, 1, 1, 20, "", "", "", "", true, service.AccountListScopeUpstream, "", "", "", "1h-A")
+	require.NotEmpty(t, withoutFilter)
+	require.NotEmpty(t, withFilter)
+	require.NotEqual(t, withoutFilter, withFilter)
 }
 
 func TestAccountHandlerUpstreamHealthHistoryInvalidatesETag(t *testing.T) {

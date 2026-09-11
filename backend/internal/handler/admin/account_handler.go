@@ -107,7 +107,7 @@ func NewAccountHandler(
 	rpmCache service.RPMCache,
 	tokenCacheInvalidator service.TokenCacheInvalidator,
 ) *AccountHandler {
-	return &AccountHandler{
+	handler := &AccountHandler{
 		adminService:            adminService,
 		oauthService:            oauthService,
 		openaiOAuthService:      openaiOAuthService,
@@ -123,6 +123,10 @@ func NewAccountHandler(
 		rpmCache:                rpmCache,
 		tokenCacheInvalidator:   tokenCacheInvalidator,
 	}
+	if binder, ok := adminService.(service.AccountQualityStatsBinder); ok {
+		binder.SetAccountQualityStatsService(accountUsageService)
+	}
+	return handler
 }
 
 // CreateAccountRequest represents create account request
@@ -191,13 +195,15 @@ type BulkUpdateAccountsRequest struct {
 }
 
 type BulkUpdateAccountFilters struct {
-	Platform    string `json:"platform"`
-	Type        string `json:"type"`
-	Status      string `json:"status"`
-	Group       string `json:"group"`
-	Search      string `json:"search"`
-	PrivacyMode string `json:"privacy_mode"`
-	Scope       string `json:"scope"`
+	Platform      string `json:"platform"`
+	Type          string `json:"type"`
+	Status        string `json:"status"`
+	Group         string `json:"group"`
+	Search        string `json:"search"`
+	PrivacyMode   string `json:"privacy_mode"`
+	Scope         string `json:"scope"`
+	Preferred     string `json:"preferred"`
+	QualityFilter string `json:"quality_filter"`
 }
 
 // CheckMixedChannelRequest represents check mixed channel risk request
@@ -722,6 +728,63 @@ func (h *AccountHandler) listAccountsScoped(ctx context.Context, page, pageSize 
 	return lister.ListAccountsScoped(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope)
 }
 
+func (h *AccountHandler) listAccountsWithQualityFilter(
+	ctx context.Context,
+	page, pageSize int,
+	platform, accountType, status, search string,
+	groupID int64,
+	privacyMode, sortBy, sortOrder string,
+	scope service.AccountListScope,
+	qualityFilter service.AccountQualityFilter,
+) ([]service.Account, int64, error) {
+	if h.accountUsageService == nil {
+		return nil, 0, fmt.Errorf("account quality filtering is not supported")
+	}
+
+	// Quality filtering must happen before the requested page is selected. Read
+	// the already-filtered and sorted account set in bounded batches so the
+	// repository remains the source of truth for all ordinary list predicates.
+	const batchSize = dataPageCap
+	var candidates []service.Account
+	for candidatePage := 1; ; candidatePage++ {
+		items, total, err := h.listAccountsScoped(ctx, candidatePage, batchSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope)
+		if err != nil {
+			return nil, 0, err
+		}
+		candidates = append(candidates, items...)
+		if len(items) == 0 || len(candidates) >= int(total) {
+			break
+		}
+	}
+
+	accountIDs := make([]int64, 0, len(candidates))
+	for i := range candidates {
+		accountIDs = append(accountIDs, candidates[i].ID)
+	}
+	qualityStats, err := h.accountUsageService.GetAccountQualityStatsBatch(ctx, accountIDs, time.Now().UTC())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	filtered := make([]service.Account, 0, len(candidates))
+	for i := range candidates {
+		if qualityFilter.Matches(qualityStats[candidates[i].ID]) {
+			filtered = append(filtered, candidates[i])
+		}
+	}
+
+	total := len(filtered)
+	start := (page - 1) * pageSize
+	if start >= total {
+		return []service.Account{}, int64(total), nil
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return filtered[start:end], int64(total), nil
+}
+
 // List handles listing all accounts with pagination
 // GET /api/v1/admin/accounts
 func (h *AccountHandler) List(c *gin.Context) {
@@ -732,6 +795,12 @@ func (h *AccountHandler) List(c *gin.Context) {
 	search := c.Query("search")
 	privacyMode := strings.TrimSpace(c.Query("privacy_mode"))
 	preferredQuery := strings.TrimSpace(c.Query("preferred"))
+	qualityFilterQuery := c.Query("quality_filter")
+	qualityFilter, qualityFilterValid := service.ParseAccountQualityFilter(qualityFilterQuery)
+	if !qualityFilterValid {
+		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_QUALITY_FILTER", "invalid quality filter"))
+		return
+	}
 	if preferredQuery != "" && preferredQuery != "0" && preferredQuery != "1" && !strings.EqualFold(preferredQuery, "true") && !strings.EqualFold(preferredQuery, "false") {
 		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_PREFERRED_FILTER", "invalid preferred filter"))
 		return
@@ -749,6 +818,10 @@ func (h *AccountHandler) List(c *gin.Context) {
 	scope := service.AccountListScope(strings.TrimSpace(c.Query("scope")))
 	if !scope.Valid() {
 		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_ACCOUNT_SCOPE", "invalid account list scope"))
+		return
+	}
+	if qualityFilter != "" && scope != service.AccountListScopeUpstream {
+		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_QUALITY_FILTER_SCOPE", "quality filter is only supported for upstream accounts"))
 		return
 	}
 
@@ -798,7 +871,14 @@ func (h *AccountHandler) List(c *gin.Context) {
 		listCtx = service.WithAccountListUpstreamIDs(listCtx, upstreamIDs)
 	}
 
-	accounts, total, err := h.listAccountsScoped(listCtx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope)
+	var accounts []service.Account
+	var total int64
+	var err error
+	if qualityFilter != "" {
+		accounts, total, err = h.listAccountsWithQualityFilter(listCtx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope, qualityFilter)
+	} else {
+		accounts, total, err = h.listAccountsScoped(listCtx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope)
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1032,7 +1112,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 				CurrentRPM:                      item.CurrentRPM,
 			}
 		}
-		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery)
+		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery, qualityFilterQuery)
 		if etag != "" {
 			c.Header("ETag", etag)
 			c.Header("Vary", "If-None-Match")
@@ -1045,7 +1125,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		return
 	}
 
-	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, false, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery)
+	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, false, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery, qualityFilterQuery)
 	if etag != "" {
 		c.Header("ETag", etag)
 		c.Header("Vary", "If-None-Match")
@@ -1081,6 +1161,10 @@ func buildAccountsListETag[T any](
 	if len(scopesAndFilters) > 3 {
 		preferred, _ = scopesAndFilters[3].(string)
 	}
+	qualityFilter := ""
+	if len(scopesAndFilters) > 4 {
+		qualityFilter, _ = scopesAndFilters[4].(string)
+	}
 	payload := struct {
 		Total            int64                    `json:"total"`
 		Page             int                      `json:"page"`
@@ -1094,6 +1178,7 @@ func buildAccountsListETag[T any](
 		UpstreamConfigID string                   `json:"upstream_config_id"`
 		UpstreamKeyID    string                   `json:"upstream_key_id"`
 		Preferred        string                   `json:"preferred"`
+		QualityFilter    string                   `json:"quality_filter"`
 		Items            []T                      `json:"items"`
 	}{
 		Total:            total,
@@ -1108,6 +1193,7 @@ func buildAccountsListETag[T any](
 		UpstreamConfigID: upstreamConfigID,
 		UpstreamKeyID:    upstreamKeyID,
 		Preferred:        preferred,
+		QualityFilter:    qualityFilter,
 		Items:            items,
 	}
 	raw, err := json.Marshal(payload)
@@ -2583,13 +2669,15 @@ func toServiceBulkUpdateAccountFilters(filters *BulkUpdateAccountFilters) *servi
 		return nil
 	}
 	return &service.BulkUpdateAccountFilters{
-		Platform:    filters.Platform,
-		Type:        filters.Type,
-		Status:      filters.Status,
-		Group:       filters.Group,
-		Search:      filters.Search,
-		PrivacyMode: filters.PrivacyMode,
-		Scope:       service.AccountListScope(strings.TrimSpace(filters.Scope)),
+		Platform:      filters.Platform,
+		Type:          filters.Type,
+		Status:        filters.Status,
+		Group:         filters.Group,
+		Search:        filters.Search,
+		PrivacyMode:   filters.PrivacyMode,
+		Scope:         service.AccountListScope(strings.TrimSpace(filters.Scope)),
+		Preferred:     strings.TrimSpace(filters.Preferred),
+		QualityFilter: strings.TrimSpace(filters.QualityFilter),
 	}
 }
 

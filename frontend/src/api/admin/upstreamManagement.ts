@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { Account, PaginatedResponse, UpstreamHealthObservation } from '@/types'
+import type { Account, AccountQualityFilter, PaginatedResponse, UpstreamHealthObservation } from '@/types'
 
 export interface TTFTGuardSettings {
   enabled: boolean
@@ -133,7 +133,23 @@ export interface UpstreamHealthTrend {
   points: UpstreamHealthTrendPoint[]
 }
 
-export async function listAccounts(params: Record<string, unknown> = {}): Promise<PaginatedResponse<Account>> {
+export interface UpstreamAccountListParams extends Record<string, unknown> {
+  page?: number
+  page_size?: number
+  platform?: string
+  status?: string
+  group?: string
+  preferred?: string
+  quality_filter?: AccountQualityFilter
+  search?: string
+  lite?: string
+  include_scheduler_score?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+  scope?: 'upstream'
+}
+
+export async function listAccounts(params: UpstreamAccountListParams = {}): Promise<PaginatedResponse<Account>> {
   const { data } = await apiClient.get<PaginatedResponse<Account>>('/admin/upstream-management/accounts', { params })
   return data
 }
@@ -145,7 +161,7 @@ export interface UpstreamAccountListWithEtagResult {
 }
 
 export async function listAccountsWithEtag(
-  params: Record<string, unknown> = {},
+  params: UpstreamAccountListParams = {},
   options?: { signal?: AbortSignal; etag?: string | null }
 ): Promise<UpstreamAccountListWithEtagResult> {
   const headers: Record<string, string> = {}

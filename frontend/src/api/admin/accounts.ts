@@ -25,6 +25,7 @@ import type {
   UpstreamBillingProbeResult,
   UpstreamBillingProbeSettings,
   AccountQualityStats,
+  AccountQualityFilter,
   UpstreamBillingRatesResponse,
   OllamaCloudUsageSettings,
   OllamaCloudUsageState,
@@ -47,6 +48,7 @@ export async function list(
     type?: string
     status?: string
     group?: string
+    quality_filter?: AccountQualityFilter
     search?: string
     privacy_mode?: string
     lite?: string
@@ -91,6 +93,7 @@ export async function getUpstreamBillingRatesWithEtag(
     status?: string
     group?: string
     preferred?: string
+    quality_filter?: AccountQualityFilter
     search?: string
     privacy_mode?: string
     sort_by?: string
@@ -125,6 +128,7 @@ export async function listWithEtag(
     status?: string
     group?: string
     preferred?: string
+    quality_filter?: AccountQualityFilter
     search?: string
     privacy_mode?: string
     lite?: string

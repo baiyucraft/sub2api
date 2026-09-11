@@ -130,9 +130,10 @@ export default {
       allTypes: '全部类型',
       allStatus: '全部状态',
       allGroups: '全部分组',
+      ungroupedGroup: '未分配分组',
       allPreferred: '全部账号',
       preferredOnly: '仅优先账号',
-      ungroupedGroup: '未分配分组',
+      allQualityFilters: '全部质量筛选',
       oauthType: 'OAuth',
       // Schedulable toggle
       schedulable: '参与调度',

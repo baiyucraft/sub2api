@@ -1454,6 +1454,13 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 	if filters == nil {
 		return nil, nil
 	}
+	qualityFilter, qualityFilterValid := ParseAccountQualityFilter(strings.TrimSpace(filters.QualityFilter))
+	if !qualityFilterValid {
+		return nil, infraerrors.BadRequest("INVALID_QUALITY_FILTER", "invalid quality filter")
+	}
+	if qualityFilter != "" && filters.Scope != AccountListScopeUpstream {
+		return nil, infraerrors.BadRequest("INVALID_QUALITY_FILTER_SCOPE", "quality filter is only supported for upstream accounts")
+	}
 
 	groupID := int64(0)
 	switch strings.TrimSpace(filters.Group) {
@@ -1471,10 +1478,17 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 	const pageSize = 500
 	page := 1
 	accountIDs := make([]int64, 0, pageSize)
+	listCtx := ctx
+	if preferred := strings.TrimSpace(filters.Preferred); preferred != "" && preferred != "0" && !strings.EqualFold(preferred, "false") {
+		if preferred != "1" && !strings.EqualFold(preferred, "true") {
+			return nil, infraerrors.BadRequest("INVALID_PREFERRED_FILTER", "invalid preferred filter")
+		}
+		listCtx = WithAccountListPreferred(listCtx, true)
+	}
 
 	for {
 		accounts, total, err := s.ListAccountsScoped(
-			ctx,
+			listCtx,
 			page,
 			pageSize,
 			filters.Platform,
@@ -1494,10 +1508,28 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 			accountIDs = append(accountIDs, account.ID)
 		}
 		if int64(len(accountIDs)) >= total || len(accounts) == 0 {
-			return accountIDs, nil
+			break
 		}
 		page++
 	}
+
+	if qualityFilter == "" {
+		return accountIDs, nil
+	}
+	if s.accountQualityService == nil {
+		return nil, errors.New("account quality filtering is not supported")
+	}
+	stats, err := s.accountQualityService.GetAccountQualityStatsBatch(ctx, accountIDs, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	filteredIDs := make([]int64, 0, len(accountIDs))
+	for _, accountID := range accountIDs {
+		if qualityFilter.Matches(stats[accountID]) {
+			filteredIDs = append(filteredIDs, accountID)
+		}
+	}
+	return filteredIDs, nil
 }
 
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
