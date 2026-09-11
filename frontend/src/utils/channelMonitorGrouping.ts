@@ -31,5 +31,22 @@ export function groupMonitorItems(items: UserMonitorView[]): MonitorCardGroup[] 
       if (rightOrder != null) return 1
       return left.localeCompare(right)
     })
-    .map(([provider, groupItems]) => ({ provider, items: groupItems }))
+    .map(([provider, groupItems]) => ({
+      provider,
+      items: [...groupItems].sort(compareMonitorItemsByCurrentRate),
+    }))
+}
+
+/** Sort a platform's channels by the currently effective public rate. */
+function compareMonitorItemsByCurrentRate(left: UserMonitorView, right: UserMonitorView): number {
+  const leftRate = left.current_public_rate
+  const rightRate = right.current_public_rate
+  const leftMissing = leftRate == null || Number.isNaN(leftRate)
+  const rightMissing = rightRate == null || Number.isNaN(rightRate)
+
+  if (leftMissing && rightMissing) return left.id - right.id
+  if (leftMissing) return 1
+  if (rightMissing) return -1
+  if (leftRate !== rightRate) return leftRate - rightRate
+  return left.id - right.id
 }

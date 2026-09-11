@@ -7,7 +7,7 @@ vi.mock('vue-i18n', () => ({
 }))
 
 describe('GroupRateTrend', () => {
-  it('uses a proportional time axis and renders current and weighted average rates to three decimals', () => {
+  it('starts collapsed and expands the proportional trend on demand', async () => {
     const wrapper = mount(GroupRateTrend, {
       props: {
         item: {
@@ -53,17 +53,22 @@ describe('GroupRateTrend', () => {
       },
     })
 
+    expect(wrapper.get('button[aria-expanded="false"]')).toBeTruthy()
+    expect(wrapper.get('[data-test="current-public-rate"]').text()).toBe('0.030x')
+    expect(wrapper.find('[data-test="average-public-rate"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="trend-chart-props"]').exists()).toBe(false)
+
+    await wrapper.get('button[aria-expanded="false"]').trigger('click')
     const chartProps = wrapper.get('[data-test="trend-chart-props"]').text()
     expect(chartProps).toContain('channelStatus.rateTrend.timeColumn|152|true')
     expect(chartProps).toContain('2026-07-18T00:00:00Z|2026-07-19T00:00:00Z')
     expect(chartProps).toContain('2026-07-19T00:00:00Z')
     expect(chartProps).toContain('|monotone')
-    expect(wrapper.get('[data-test="current-public-rate"]').text()).toBe('0.030x')
     expect(wrapper.get('[data-test="average-public-rate"]').text()).toBe('0.028x')
     expect(wrapper.find('[data-test="rate-history-partial"]').exists()).toBe(false)
   })
 
-  it('labels the average as partial when the observed history begins inside the selected range', () => {
+  it('labels the average as partial when the observed history begins inside the selected range', async () => {
     const wrapper = mount(GroupRateTrend, {
       props: {
         item: {
@@ -91,6 +96,7 @@ describe('GroupRateTrend', () => {
       global: { stubs: { TrendChart: true } },
     })
 
+    await wrapper.get('button[aria-expanded="false"]').trigger('click')
     expect(wrapper.get('[data-test="rate-history-partial"]').text()).toBe('channelStatus.rateTrend.historyIncomplete')
     expect(wrapper.text()).toContain('channelStatus.rateTrend.observedAverage')
   })

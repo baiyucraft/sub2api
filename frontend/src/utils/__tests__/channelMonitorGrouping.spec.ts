@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { groupMonitorItems } from '@/utils/channelMonitorGrouping'
 
-function monitor(id: number, provider: string): { id: number; provider: string } {
-  return { id, provider }
+function monitor(id: number, provider: string, current_public_rate?: number | null): { id: number; provider: string; current_public_rate?: number | null } {
+  return { id, provider, current_public_rate }
 }
 
 describe('groupMonitorItems', () => {
@@ -26,5 +26,16 @@ describe('groupMonitorItems', () => {
 
     expect(groups.map((group) => group.provider)).toEqual(['gemini', '__other__'])
     expect(groups[1].items.map((item) => item.id)).toEqual([1, 2])
+  })
+
+  it('sorts each platform by current rate, keeps missing rates last, and breaks ties by id', () => {
+    const groups = groupMonitorItems([
+      monitor(9, 'openai', null),
+      monitor(8, 'openai', 0.2),
+      monitor(7, 'openai', 0.1),
+      monitor(6, 'openai', 0.1),
+    ])
+
+    expect(groups[0].items.map((item) => item.id)).toEqual([6, 7, 8, 9])
   })
 })
