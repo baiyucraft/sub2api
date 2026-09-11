@@ -26,7 +26,7 @@ var deepseekOfficialModelIDs = []string{
 	"deepseek-r1", "deepseek-r1-0528",
 	"deepseek-r1-distill-qwen-32b", "deepseek-r1-distill-qwen-14b", "deepseek-r1-distill-qwen-7b",
 	"deepseek-r1-distill-llama-70b", "deepseek-r1-distill-llama-8b",
-"deepseek-v4-flash", "deepseek-v4-pro",
+	"deepseek-v4-flash", "deepseek-v4-pro",
 }
 
 var minimaxOfficialModelIDs = []string{
