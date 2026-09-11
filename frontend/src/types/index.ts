@@ -1566,6 +1566,8 @@ export interface AccountQualityWindow {
   score_basis?: 'ttft_duration' | 'ttft_only' | 'duration_only' | 'ttft_duration_cache' | 'ttft_cache' | 'duration_cache'
 }
 
+export type AccountQualityFilter = '1h-A' | '1h-B' | '24h-A' | '24h-B'
+
 export type AccountQualityActivityState =
   | 'active'
   | 'low_sample'

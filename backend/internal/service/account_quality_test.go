@@ -182,6 +182,42 @@ func TestAccountQualityGradeBoundaries(t *testing.T) {
 	}
 }
 
+func TestAccountQualityFilterMatchesMinimumGradeAndMissingAsB(t *testing.T) {
+	window := func(grade string) AccountQualityWindow {
+		return AccountQualityWindow{QualityGrade: grade}
+	}
+	tests := []struct {
+		name   string
+		filter AccountQualityFilter
+		stats  AccountQualityStats
+		want   bool
+	}{
+		{name: "1h A includes A and above", filter: AccountQualityFilter1hA, stats: AccountQualityStats{Recent1h: window("A")}, want: true},
+		{name: "1h A excludes A minus", filter: AccountQualityFilter1hA, stats: AccountQualityStats{Recent1h: window("A-")}, want: false},
+		{name: "1h B includes B", filter: AccountQualityFilter1hB, stats: AccountQualityStats{Recent1h: window("B")}, want: true},
+		{name: "1h B excludes B minus", filter: AccountQualityFilter1hB, stats: AccountQualityStats{Recent1h: window("B-")}, want: false},
+		{name: "24h reads the 24h window", filter: AccountQualityFilter24hA, stats: AccountQualityStats{Recent1h: window("C"), Recent24h: window("A+")}, want: true},
+		{name: "missing grade is treated as B for B filter", filter: AccountQualityFilter24hB, stats: AccountQualityStats{}, want: true},
+		{name: "missing grade does not satisfy A filter", filter: AccountQualityFilter24hA, stats: AccountQualityStats{}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.filter.Matches(tt.stats))
+		})
+	}
+}
+
+func TestParseAccountQualityFilter(t *testing.T) {
+	for _, value := range []string{"", "1h-A", "1h-B", "24h-A", "24h-B"} {
+		_, ok := ParseAccountQualityFilter(value)
+		require.True(t, ok, "value=%q", value)
+	}
+	for _, value := range []string{"1h-C", "7d-A", "1h-a", "A", "invalid"} {
+		_, ok := ParseAccountQualityFilter(value)
+		require.False(t, ok, "value=%q", value)
+	}
+}
+
 func TestAccountQualityCurvesInterpolateAndRejectMissingValues(t *testing.T) {
 	score, ok := qualityCurveScore(qualityFloat64Ptr(10000), accountQualityTTFTCurve)
 	require.True(t, ok)

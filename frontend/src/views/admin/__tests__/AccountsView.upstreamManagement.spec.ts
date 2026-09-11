@@ -115,12 +115,21 @@ const AccountBulkActionsBarStub = {
 }
 
 const AccountTableFiltersStub = {
-  props: ['mode'],
+  props: ['mode', 'filters'],
   template: `
     <div
       data-test="filters"
       :data-mode="mode"
-    />
+    >
+      <button
+        data-test="quality-filter-1h-a"
+        @click="$emit('update:filters', Object.assign({}, filters, { quality_filter: '1h-A' })); $emit('change')"
+      />
+      <button
+        data-test="quality-filter-clear"
+        @click="$emit('update:filters', Object.assign({}, filters, { quality_filter: '' })); $emit('change')"
+      />
+    </div>
   `
 }
 
@@ -327,6 +336,26 @@ describe('admin AccountsView upstream management mode', () => {
     expect(wrapper.text()).not.toContain('admin.upstreamManagement.probeModels.title')
 
     wrapper.unmount()
+  })
+
+  it('forwards and clears the upstream quality filter when the selector changes', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountView()
+    await flushPromises()
+    upstreamList.mockClear()
+
+    await wrapper.get('[data-test="quality-filter-1h-a"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({ quality_filter: '1h-A' }))
+
+    await wrapper.get('[data-test="quality-filter-clear"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({ quality_filter: '' }))
+
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 
   it('shows the upstream image capability badge and costs only in upstream scope', async () => {

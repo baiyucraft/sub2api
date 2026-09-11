@@ -29,12 +29,22 @@ describe('AccountTableFilters upstream mode', () => {
     })
 
     expect(wrapper.find('input').exists()).toBe(true)
-    expect(wrapper.findAll('select')).toHaveLength(4)
+    expect(wrapper.findAll('select')).toHaveLength(5)
     expect(wrapper.text()).toContain('admin.accounts.allPlatforms')
     expect(wrapper.text()).toContain('admin.accounts.allStatus')
     expect(wrapper.text()).toContain('admin.accounts.allGroups')
     expect(wrapper.text()).toContain('admin.accounts.allPreferred')
     expect(wrapper.text()).toContain('admin.accounts.preferredOnly')
+    expect(wrapper.text()).toContain('admin.accounts.allQualityFilters')
+    expect(wrapper.text()).toContain('1h-A')
+    expect(wrapper.text()).toContain('1h-B')
+    expect(wrapper.text()).toContain('24h-A')
+    expect(wrapper.text()).toContain('24h-B')
+    expect(wrapper.text()).not.toContain('admin.accounts.allTypes')
+    expect(wrapper.text()).not.toContain('admin.accounts.allPrivacyModes')
+    expect(wrapper.text()).not.toContain('admin.upstreamManagement.filters.allConfigs')
+    expect(wrapper.text()).not.toContain('admin.upstreamManagement.filters.allKeys')
+
     const preferredSelect = wrapper.findAllComponents(SelectStub)[3]
     expect(preferredSelect.props('modelValue')).toBe('')
     expect(preferredSelect.props('options')).toEqual([
@@ -42,13 +52,18 @@ describe('AccountTableFilters upstream mode', () => {
       { value: '1', label: 'admin.accounts.preferredOnly' }
     ])
 
-    expect(wrapper.text()).not.toContain('admin.accounts.allTypes')
-    expect(wrapper.text()).not.toContain('admin.accounts.allPrivacyModes')
-    expect(wrapper.text()).not.toContain('admin.upstreamManagement.filters.allConfigs')
-    expect(wrapper.text()).not.toContain('admin.upstreamManagement.filters.allKeys')
+    const qualitySelect = wrapper.findAllComponents(SelectStub)[4]
+    expect(qualitySelect.props('modelValue')).toBe('')
+    expect(qualitySelect.props('options')).toEqual([
+      { value: '', label: 'admin.accounts.allQualityFilters' },
+      { value: '1h-A', label: '1h-A' },
+      { value: '1h-B', label: '1h-B' },
+      { value: '24h-A', label: '24h-A' },
+      { value: '24h-B', label: '24h-B' }
+    ])
   })
 
-  it('emits the preferred filter together with the selected group', async () => {
+  it('passes preferred=1 together with the selected group', async () => {
     const wrapper = mount(AccountTableFilters, {
       props: {
         searchQuery: '',
@@ -63,12 +78,40 @@ describe('AccountTableFilters upstream mode', () => {
       }
     })
 
-    const preferredSelect = wrapper.findAllComponents(SelectStub)[3]
-    await preferredSelect.vm.$emit('update:modelValue', '1')
+    const selects = wrapper.findAllComponents(SelectStub)
+    await selects[3].vm.$emit('update:modelValue', '1')
 
     expect(wrapper.emitted('update:filters')?.at(-1)).toEqual([
       { platform: '', status: '', group: '7', preferred: '1' }
     ])
   })
 
+  it('emits the selected quality filter and clears it back to all', async () => {
+    const wrapper = mount(AccountTableFilters, {
+      props: {
+        searchQuery: '',
+        filters: { platform: '', status: '', group: '', preferred: '', quality_filter: '1h-A' },
+        mode: 'upstream',
+      },
+      global: {
+        stubs: {
+          Select: SelectStub,
+          SearchInput: { template: '<input />' }
+        }
+      }
+    })
+
+    const qualitySelect = wrapper.findAllComponents(SelectStub)[4]
+    expect(qualitySelect.props('modelValue')).toBe('1h-A')
+
+    await qualitySelect.vm.$emit('update:modelValue', '24h-B')
+    expect(wrapper.emitted('update:filters')?.at(-1)).toEqual([
+      { platform: '', status: '', group: '', preferred: '', quality_filter: '24h-B' }
+    ])
+
+    await qualitySelect.vm.$emit('update:modelValue', null)
+    expect(wrapper.emitted('update:filters')?.at(-1)).toEqual([
+      { platform: '', status: '', group: '', preferred: '', quality_filter: '' }
+    ])
+  })
 })

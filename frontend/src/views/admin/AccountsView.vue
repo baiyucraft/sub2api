@@ -725,7 +725,7 @@ import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
 import { escapeCsvCell } from '@/utils/csv'
-import type { Account, AccountListItem, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
+import type { Account, AccountListItem, AccountPlatform, AccountQualityFilter, AccountQualityStats, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const CreateAccountModal = defineAsyncComponent(() => import('@/components/account/CreateAccountModal.vue'))
 const EditAccountModal = defineAsyncComponent(() => import('@/components/account/EditAccountModal.vue'))
@@ -1643,6 +1643,7 @@ const {
     group: '',
     search: '',
     preferred: '',
+    quality_filter: '' as AccountQualityFilter | '',
     lite: '1',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
@@ -1784,6 +1785,9 @@ function markUpstreamBillingSortRefresh() {
   }
 }
 
+const isAccountQualityFilter = (value: unknown): value is AccountQualityFilter =>
+  value === '1h-A' || value === '1h-B' || value === '24h-A' || value === '24h-B'
+
 const load = async (options: AccountLoadOptions = {}) => {
   cancelAccountQualityRequest()
   const requestParams = params as any
@@ -1822,6 +1826,7 @@ const buildUpstreamBillingRateFilters = () => {
     status: typeof rawParams.status === 'string' ? rawParams.status : '',
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     preferred: typeof rawParams.preferred === 'string' ? rawParams.preferred : '',
+    quality_filter: isAccountQualityFilter(rawParams.quality_filter) ? rawParams.quality_filter : undefined,
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
     sort_by: sortState.sort_by,
@@ -2859,6 +2864,7 @@ const buildBulkEditFilterSnapshot = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     preferred: typeof rawParams.preferred === 'string' ? rawParams.preferred : '',
+    quality_filter: typeof rawParams.quality_filter === 'string' ? rawParams.quality_filter : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
     upstream_config_id: typeof rawParams.upstream_config_id === 'string' ? rawParams.upstream_config_id : '',
     upstream_key_id: typeof rawParams.upstream_key_id === 'string' ? rawParams.upstream_key_id : '',
@@ -2945,6 +2951,7 @@ const buildAccountQueryFilters = () => ({
   privacy_mode: params.privacy_mode || '',
   search: params.search || '',
   preferred: params.preferred || '',
+  quality_filter: params.quality_filter || '',
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
