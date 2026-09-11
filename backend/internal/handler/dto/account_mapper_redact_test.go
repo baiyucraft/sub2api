@@ -110,6 +110,23 @@ func TestAccountFromServiceShallow_NilCredentialsOmitsStatus(t *testing.T) {
 	require.Nil(t, got.CredentialsStatus)
 }
 
+func TestAccountFromServiceShallow_ProjectsPreferredGroupIDs(t *testing.T) {
+	src := &service.Account{
+		ID: 42,
+		AccountGroups: []service.AccountGroup{
+			{GroupID: 7, SchedulerPreferred: true},
+			{GroupID: 9, SchedulerPreferred: false},
+			{GroupID: 11, SchedulerPreferred: true},
+		},
+	}
+
+	shallow := AccountFromServiceShallow(src)
+	require.Equal(t, []int64{7, 11}, shallow.PreferredGroupIDs)
+
+	compact := AccountListItemFromAccount(shallow)
+	require.Equal(t, []int64{7, 11}, compact.PreferredGroupIDs)
+}
+
 func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {
 	siteURL := "https://lcodex.cc"
 	configName := "LCodex Primary"
