@@ -17,44 +17,43 @@ import (
 
 const accountTestSuppressCompletionContextKey = "account_test_suppress_completion"
 
-// testCNProviderAdaptiveConnection verifies every native endpoint used by an
-// adaptive CN-provider account. Zhipu uses Chat Completions plus Anthropic;
-// DeepSeek and Kimi additionally use their native Responses endpoints.
+// testCNProviderAdaptiveConnection verifies the native endpoints used by an
+// adaptive CN-provider account. Zhipu only uses Chat Completions; DeepSeek and
+// Kimi additionally use native Responses, while Anthropic is tested only when
+// an explicit Anthropic base URL is configured.
 func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
 	}
 	testModelID = account.GetMappedModel(testModelID)
-
-	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
-	if authToken == "" {
+	if strings.TrimSpace(account.GetOpenAIProtocolAPIKey()) == "" {
 		return s.sendErrorAndEnd(c, "No API key available")
 	}
 
-	// The existing Chat probe owns the SSE lifecycle. Suppress intermediate
-	// completion events until every native adaptive endpoint has passed.
-	c.Set(accountTestSuppressCompletionContextKey, true)
-	defer c.Set(accountTestSuppressCompletionContextKey, false)
-	if err := s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt); err != nil {
-		return err
-	}
+	// Keep manual verification aligned with the active probe. Optional protocol
+	// failures are capability evidence; only the final usable route determines
+	// whether the account test succeeds.
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在按自适应协议链路验证上游"})
 
-	if err := s.testCNProviderAdaptiveAnthropicConnection(c, account, testModelID, authToken); err != nil {
-		return err
+	result, err := s.RunUpstreamHealthProbe(c.Request.Context(), account, testModelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Adaptive upstream probe failed: %s", err.Error()))
 	}
-
-	if account.SupportsNativeCNResponses() {
-		if err := s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken); err != nil {
-			return err
-		}
+	if result.Reason == "responses_unsupported_chat_fallback" {
+		s.sendEvent(c, TestEvent{Type: "status", Text: "原生 Responses 不可用，已通过 Chat Completions 回退验证"})
+	} else {
+		s.sendEvent(c, TestEvent{Type: "status", Text: "已通过自适应协议链路验证"})
 	}
-
-	c.Set(accountTestSuppressCompletionContextKey, false)
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
 }
-
 func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Context, account *Account, testModelID string, authToken string) error {
 	ctx := c.Request.Context()
 	baseURL, err := s.validateUpstreamBaseURL(account.GetCNProtocolBaseURL(APIProtocolAnthropic))

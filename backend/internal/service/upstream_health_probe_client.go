@@ -73,7 +73,11 @@ type UpstreamHealthProbeResult struct {
 	ConfidenceHardAnomaly        bool
 	ConfidenceUnsuccessfulReason string
 	ConfidenceEvidence           map[string]any
-	confidenceChallenge          *upstreamHealthChallenge
+	// ProtocolResults preserves concrete protocol outcomes when an adaptive
+	// probe evaluates more than one route. It is runtime evidence and is not
+	// serialized as a separate database column.
+	ProtocolResults     map[string]UpstreamHealthProbeResult
+	confidenceChallenge *upstreamHealthChallenge
 }
 
 type upstreamHealthChallenge struct {
@@ -368,7 +372,7 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 			return s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
 		}
 		if account.GetAPIProtocol() == APIProtocolResponses {
-			if account.Platform == PlatformDeepseek || account.Platform == PlatformMiniMax {
+			if account.SupportsNativeCNResponses() {
 				return s.runCNNativeResponsesUpstreamHealthProbe(ctx, account, result, challenge)
 			}
 			return failUpstreamHealthProbe(result, "unsupported_protocol", "probe_protocol_unsupported", errors.New("configured responses protocol is not supported by this provider"))
@@ -383,76 +387,57 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 	}
 }
 
-// runCNAdaptiveUpstreamHealthProbe verifies every protocol the adaptive
-// forwarding path can select for the account. Kimi and Zhipu expose native
-// Chat Completions and Anthropic Messages endpoints; DeepSeek additionally
-// exposes its native Responses endpoint. A failure keeps the concrete failing
-// protocol in the result, while a complete pass is recorded as one adaptive
-// health sample with conservative (worst TTFT, total duration/token) metrics.
+// runCNAdaptiveUpstreamHealthProbe verifies the preferred protocol chain for
+// an adaptive CN account. Optional protocol failures are retained as capability
+// evidence and do not fail the account when a usable fallback succeeds.
 func (s *AccountTestService) runCNAdaptiveUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
-	probes := []func() (UpstreamHealthProbeResult, error){
-		func() (UpstreamHealthProbeResult, error) {
-			return s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
-		},
-		func() (UpstreamHealthProbeResult, error) {
-			return s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
-		},
-	}
-	if account.Platform == PlatformDeepseek || account.Platform == PlatformMiniMax {
-		probes = append(probes, func() (UpstreamHealthProbeResult, error) {
-			return s.runCNNativeResponsesUpstreamHealthProbe(ctx, account, result, challenge)
-		})
+	if account.Platform == PlatformZhipu {
+		chatResult, chatErr := s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
+		chatResult.Protocol = upstreamHealthProbeProtocolAdaptive
+		chatResult.ProtocolResults = map[string]UpstreamHealthProbeResult{
+			upstreamHealthProbeProtocolOpenAIChat: chatResult,
+		}
+		return chatResult, chatErr
 	}
 
-	aggregate := result
-	aggregate.Protocol = upstreamHealthProbeProtocolAdaptive
-	aggregate.Result = "success"
-	aggregate.Reason = "probe_succeeded"
-	aggregate.FinishReason = "completed"
-	aggregate.HTTPStatus = probeIntPtr(http.StatusOK)
-	for _, probe := range probes {
-		current, err := probe()
-		if err != nil {
-			return current, err
+	protocolResults := make(map[string]UpstreamHealthProbeResult, 3)
+	probeOptionalAnthropic := func() {
+		if account.Platform == PlatformZhipu || !account.HasExplicitCNProtocolBaseURL(APIProtocolAnthropic) {
+			return
 		}
-		mergeAdaptiveUpstreamHealthProbeResult(&aggregate, current)
+		anthropicResult, _ := s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
+		protocolResults[upstreamHealthProbeProtocolAnthropic] = anthropicResult
 	}
-	setUpstreamHealthProbeOutputTPS(&aggregate)
-	return aggregate, nil
-}
+	if account.Platform == PlatformKimi || account.Platform == PlatformDeepseek || account.Platform == PlatformMiniMax {
+		responsesResult, responsesErr := s.runCNNativeResponsesUpstreamHealthProbe(ctx, account, result, challenge)
+		protocolResults[upstreamHealthProbeProtocolOpenAI] = responsesResult
+		if responsesErr == nil {
+			probeOptionalAnthropic()
+			responsesResult.Protocol = upstreamHealthProbeProtocolAdaptive
+			responsesResult.Reason = "probe_succeeded"
+			responsesResult.ProtocolResults = protocolResults
+			return responsesResult, nil
+		}
 
-func mergeAdaptiveUpstreamHealthProbeResult(aggregate *UpstreamHealthProbeResult, current UpstreamHealthProbeResult) {
-	if aggregate == nil {
-		return
-	}
-	if strings.TrimSpace(current.Model) != "" {
-		aggregate.Model = current.Model
-	}
-	if current.TTFTMs != nil && (aggregate.TTFTMs == nil || *current.TTFTMs > *aggregate.TTFTMs) {
-		value := *current.TTFTMs
-		aggregate.TTFTMs = &value
-	}
-	if current.DurationMs != nil {
-		if aggregate.DurationMs == nil {
-			value := int64(0)
-			aggregate.DurationMs = &value
+		chatResult, chatErr := s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
+		protocolResults[upstreamHealthProbeProtocolOpenAIChat] = chatResult
+		if chatErr == nil {
+			probeOptionalAnthropic()
+			chatResult.Protocol = upstreamHealthProbeProtocolAdaptive
+			chatResult.Reason = "responses_unsupported_chat_fallback"
+			chatResult.ProtocolResults = protocolResults
+			return chatResult, nil
 		}
-		*aggregate.DurationMs += *current.DurationMs
+		chatResult.ProtocolResults = protocolResults
+		return chatResult, chatErr
 	}
-	if current.InputTokens != nil {
-		if aggregate.InputTokens == nil {
-			value := int64(0)
-			aggregate.InputTokens = &value
-		}
-		*aggregate.InputTokens += *current.InputTokens
+
+	chatResult, chatErr := s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
+	chatResult.Protocol = upstreamHealthProbeProtocolAdaptive
+	chatResult.ProtocolResults = map[string]UpstreamHealthProbeResult{
+		upstreamHealthProbeProtocolOpenAIChat: chatResult,
 	}
-	if current.OutputTokens != nil {
-		if aggregate.OutputTokens == nil {
-			value := int64(0)
-			aggregate.OutputTokens = &value
-		}
-		*aggregate.OutputTokens += *current.OutputTokens
-	}
+	return chatResult, chatErr
 }
 
 func (s *AccountTestService) runGrokUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {

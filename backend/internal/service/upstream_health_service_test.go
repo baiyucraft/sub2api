@@ -10,6 +10,7 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
 )
 
@@ -875,4 +876,29 @@ func TestUpstreamConfigServiceListsBoundedHealthHistoriesInOneBatch(t *testing.T
 	require.Len(t, histories[82], 1)
 }
 
+func TestAdaptiveProbeHistoryReasonIncludesConcreteProtocolOutcomes(t *testing.T) {
+	responsesStatus := 401
+	reason := adaptiveProbeHistoryReason(UpstreamHealthProbeResult{
+		Reason: "responses_unsupported_chat_fallback",
+		ProtocolResults: map[string]UpstreamHealthProbeResult{
+			upstreamHealthProbeProtocolOpenAIChat: {Result: "success", Reason: "probe_succeeded"},
+			upstreamHealthProbeProtocolOpenAI:     {Result: "401", Reason: "authentication_failed", HTTPStatus: &responsesStatus},
+		},
+	}, "probe_succeeded")
+
+	require.Equal(t, "responses_unsupported_chat_fallback; chat_completions: success; responses: 401/authentication_failed", reason)
+}
+
 func upstreamHealthTimePtr(value time.Time) *time.Time { return &value }
+
+func TestCNProtocolCapabilityFromProbeKeepsTransientFailuresUnknown(t *testing.T) {
+	status401 := 401
+	status404 := 404
+	status500 := 500
+
+	require.Equal(t, openai_compat.CNProtocolCapabilitySupported, cnProtocolCapabilityFromProbe(UpstreamHealthProbeResult{Result: "success"}))
+	require.Equal(t, openai_compat.CNProtocolCapabilityUnsupported, cnProtocolCapabilityFromProbe(UpstreamHealthProbeResult{Result: "401", HTTPStatus: &status401}))
+	require.Equal(t, openai_compat.CNProtocolCapabilityUnsupported, cnProtocolCapabilityFromProbe(UpstreamHealthProbeResult{Result: "404", HTTPStatus: &status404}))
+	require.Equal(t, openai_compat.CNProtocolCapabilityUnknown, cnProtocolCapabilityFromProbe(UpstreamHealthProbeResult{Result: "500", HTTPStatus: &status500}))
+	require.Equal(t, openai_compat.CNProtocolCapabilityUnknown, cnProtocolCapabilityFromProbe(UpstreamHealthProbeResult{Result: "timeout"}))
+}
