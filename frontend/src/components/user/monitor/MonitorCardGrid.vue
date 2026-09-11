@@ -35,7 +35,9 @@
       <section
         v-for="group in groups"
         :key="group.provider"
-        class="space-y-3"
+        :ref="(el) => emit('platform-section', group.provider, el as HTMLElement | null)"
+        class="space-y-3 scroll-mt-32"
+        :data-platform="group.provider"
         :aria-labelledby="`monitor-platform-${group.provider}`"
       >
         <div class="flex items-center gap-3 px-1">
@@ -84,6 +86,7 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'cardClick', item: UserMonitorView): void
+  (e: 'platform-section', provider: string, element: HTMLElement | null): void
 }>()
 
 const { t } = useI18n()

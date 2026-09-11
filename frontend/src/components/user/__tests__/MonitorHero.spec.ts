@@ -43,4 +43,32 @@ describe('MonitorHero', () => {
     await tabs[2].trigger('click')
     expect(wrapper.emitted('update:range')).toEqual([['15d']])
   })
+
+  it('renders platform navigation and emits the selected platform', async () => {
+    const wrapper = mount(MonitorHero, {
+      props: {
+        overallStatus: 'operational',
+        intervalSeconds: 60,
+        range: '24h',
+        loading: false,
+        platforms: [
+          { value: 'openai', label: 'OpenAI' },
+          { value: 'anthropic', label: 'Anthropic' },
+        ],
+        activePlatform: 'openai',
+      },
+      global: {
+        stubs: {
+          Icon: true,
+          AutoRefreshButton: true,
+        },
+      },
+    })
+
+    const buttons = wrapper.findAll('nav button')
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0].attributes('aria-current')).toBe('location')
+    await buttons[1].trigger('click')
+    expect(wrapper.emitted('navigate-platform')).toEqual([['anthropic']])
+  })
 })
