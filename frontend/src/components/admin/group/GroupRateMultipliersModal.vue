@@ -49,17 +49,33 @@
               </button>
             </div>
           </div>
-          <div class="w-24">
+          <label class="w-24 text-xs font-medium text-gray-500 dark:text-gray-400">
+            <span class="mb-1 block">{{ t('admin.groups.actualRate') }}</span>
             <input
-              v-model.number="newRate"
+              :value="newRate ?? ''"
               type="number"
               step="0.001"
               min="0"
               autocomplete="off"
               class="hide-spinner input w-full"
               placeholder="1.0"
+              @input="updateNewRate(($event.target as HTMLInputElement).value)"
             />
-          </div>
+          </label>
+          <label class="w-24 text-xs font-medium text-gray-500 dark:text-gray-400">
+            <span class="mb-1 block">{{ t('admin.groups.relativeRatePercent') }}</span>
+            <input
+              :value="newRatePercent ?? ''"
+              type="number"
+              step="0.01"
+              min="0"
+              :disabled="!group || group.rate_multiplier <= 0"
+              autocomplete="off"
+              class="hide-spinner input w-full disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-dark-600"
+              placeholder="100"
+              @input="updateNewRatePercent(($event.target as HTMLInputElement).value)"
+            />
+          </label>
           <button
             type="button"
             class="btn btn-primary shrink-0"
@@ -91,6 +107,25 @@
               @click="applyBatchFactor"
             >
               {{ t('admin.groups.applyMultiplier') }}
+            </button>
+            <span class="ml-2 text-xs text-gray-400">%</span>
+            <input
+              v-model.number="batchPercent"
+              type="number"
+              step="0.01"
+              min="0"
+              :disabled="!group || group.rate_multiplier <= 0"
+              autocomplete="off"
+              class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-dark-500 dark:bg-dark-700 dark:disabled:bg-dark-600"
+              placeholder="50"
+            />
+            <button
+              type="button"
+              class="btn btn-primary btn-sm shrink-0 px-2.5 py-1 text-xs"
+              :disabled="batchPercent === null || batchPercent < 0 || !Number.isFinite(batchPercent) || !group || group.rate_multiplier <= 0"
+              @click="applyBatchPercent"
+            >
+              {{ t('admin.groups.applyRatePercent') }}
             </button>
           </div>
           <div class="ml-auto">
@@ -136,6 +171,7 @@
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.userNotes') }}</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.userStatus') }}</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.rateMultiplier') }}</th>
+                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.ratePercent') }}</th>
                     <th v-if="showFinalRate" class="px-3 py-2 text-left text-xs font-medium text-primary-600 dark:text-primary-400">{{ t('admin.groups.finalRate') }}</th>
                     <th v-if="showProfitControlMaxRate" class="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-primary-600 dark:text-primary-400">{{ t('admin.groups.profitControl.maxAccountRate') }}</th>
                     <th class="w-10 px-2 py-2"></th>
@@ -173,6 +209,18 @@
                         :placeholder="String(props.group?.rate_multiplier ?? 1)"
                         class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
                         @change="updateLocalRate(entry.user_id, ($event.target as HTMLInputElement).value)"
+                      />
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        :value="getLocalRatePercent(entry) ?? ''"
+                        :disabled="!group || group.rate_multiplier <= 0"
+                        autocomplete="off"
+                        class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-dark-500 dark:bg-dark-700 dark:disabled:bg-dark-600"
+                        @change="updateLocalRatePercent(entry.user_id, ($event.target as HTMLInputElement).value)"
                       />
                     </td>
                     <td v-if="showFinalRate" class="whitespace-nowrap px-3 py-2 font-medium text-primary-600 dark:text-primary-400">
@@ -254,6 +302,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import { calculateProfitControlMaxAccountRate, formatProfitControlMaxAccountRate } from '@/views/admin/groupsProfitControl'
+import { exclusiveRateToPercent, parseNonNegativeNumber, percentToExclusiveRate } from '@/utils/rateMultiplier'
 
 interface LocalEntry extends GroupRateMultiplierEntry {}
 
@@ -279,9 +328,11 @@ const searchResults = ref<AdminUser[]>([])
 const showDropdown = ref(false)
 const selectedUser = ref<AdminUser | null>(null)
 const newRate = ref<number | null>(null)
+const newRatePercent = ref<number | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const batchFactor = ref<number | null>(null)
+const batchPercent = ref<number | null>(null)
 const previewNow = ref(Date.now())
 let previewClock: ReturnType<typeof setInterval> | null = null
 
@@ -366,6 +417,8 @@ watch(() => props.show, (val) => {
     searchResults.value = []
     selectedUser.value = null
     newRate.value = null
+    newRatePercent.value = null
+    batchPercent.value = null
     loadEntries()
   }
 })
@@ -423,7 +476,18 @@ const handleAddLocal = () => {
   searchQuery.value = ''
   selectedUser.value = null
   newRate.value = null
+  newRatePercent.value = null
   adjustPage()
+}
+
+const updateNewRate = (value: string) => {
+  newRate.value = parseNonNegativeNumber(value)
+  newRatePercent.value = exclusiveRateToPercent(newRate.value, props.group?.rate_multiplier)
+}
+
+const updateNewRatePercent = (value: string) => {
+  newRatePercent.value = parseNonNegativeNumber(value)
+  newRate.value = percentToExclusiveRate(newRatePercent.value, props.group?.rate_multiplier)
 }
 
 // 本地修改倍率
@@ -437,6 +501,19 @@ const updateLocalRate = (userId: number, value: string) => {
   const num = parseFloat(value)
   if (!Number.isFinite(num) || num < 0) return
   entry.rate_multiplier = num
+}
+
+const getLocalRatePercent = (entry: LocalEntry) =>
+  exclusiveRateToPercent(entry.rate_multiplier, props.group?.rate_multiplier)
+
+const updateLocalRatePercent = (userId: number, value: string) => {
+  const entry = localEntries.value.find(e => e.user_id === userId)
+  if (!entry) return
+  if (value.trim() === '') {
+    entry.rate_multiplier = null
+    return
+  }
+  entry.rate_multiplier = percentToExclusiveRate(parseNonNegativeNumber(value), props.group?.rate_multiplier)
 }
 
 // 本地删除
@@ -456,6 +533,15 @@ const applyBatchFactor = () => {
   batchFactor.value = null
 }
 
+const applyBatchPercent = () => {
+  if (batchPercent.value === null || batchPercent.value < 0 || !Number.isFinite(batchPercent.value) || !props.group || props.group.rate_multiplier <= 0) return
+  const actualRate = percentToExclusiveRate(batchPercent.value, props.group.rate_multiplier)
+  for (const entry of localEntries.value) {
+    entry.rate_multiplier = actualRate
+  }
+  batchPercent.value = null
+}
+
 // 本地清空
 const clearAllLocal = () => {
   localEntries.value = []
@@ -465,6 +551,7 @@ const clearAllLocal = () => {
 const handleCancel = () => {
   localEntries.value = cloneEntries(serverEntries.value)
   batchFactor.value = null
+  batchPercent.value = null
   adjustPage()
 }
 

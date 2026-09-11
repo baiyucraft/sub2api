@@ -75,9 +75,10 @@
                   </div>
                 </div>
 
-                <!-- 专属倍率输入 -->
-                <div class="flex flex-shrink-0 items-center gap-3">
-                  <label class="text-sm font-medium text-gray-600 dark:text-gray-400">{{ t('admin.users.customRate') }}</label>
+                <!-- 专属倍率输入：实际值 + 相对普通倍率百分比 -->
+                <div class="flex flex-shrink-0 items-end gap-2">
+                  <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    <span class="mb-1 block">{{ t('admin.users.actualRate') }}</span>
                   <input
                     type="number"
                     step="0.001"
@@ -87,6 +88,21 @@
                     :placeholder="String(config.defaultRate)"
                     class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
                   />
+                  </label>
+                  <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    <span class="mb-1 block">{{ t('admin.users.relativeRatePercent') }}</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      :value="getCustomRatePercent(config) ?? ''"
+                      :disabled="config.defaultRate <= 0"
+                      @input="updateCustomRatePercent(config.groupId, ($event.target as HTMLInputElement).value)"
+                      :placeholder="config.defaultRate > 0 ? '100' : '—'"
+                      :title="config.defaultRate > 0 ? t('admin.users.relativeRatePercentHint') : t('admin.users.relativeRatePercentUnavailable')"
+                      class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-dark-500 dark:bg-dark-700 dark:disabled:bg-dark-600"
+                    />
+                  </label>
                 </div>
               </div>
             </div>
@@ -155,9 +171,10 @@
                   </div>
                 </div>
 
-                <!-- 专属倍率输入 -->
-                <div class="flex flex-shrink-0 items-center gap-3">
-                  <label class="text-sm font-medium text-gray-600 dark:text-gray-400">{{ t('admin.users.customRate') }}</label>
+                <!-- 专属倍率输入：实际值 + 相对普通倍率百分比 -->
+                <div class="flex flex-shrink-0 items-end gap-2">
+                  <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    <span class="mb-1 block">{{ t('admin.users.actualRate') }}</span>
                   <input
                     type="number"
                     step="0.001"
@@ -167,6 +184,21 @@
                     :placeholder="String(config.defaultRate)"
                     class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
                   />
+                  </label>
+                  <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    <span class="mb-1 block">{{ t('admin.users.relativeRatePercent') }}</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      :value="getCustomRatePercent(config) ?? ''"
+                      :disabled="config.defaultRate <= 0"
+                      @input="updateCustomRatePercent(config.groupId, ($event.target as HTMLInputElement).value)"
+                      :placeholder="config.defaultRate > 0 ? '100' : '—'"
+                      :title="config.defaultRate > 0 ? t('admin.users.relativeRatePercentHint') : t('admin.users.relativeRatePercentUnavailable')"
+                      class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-dark-500 dark:bg-dark-700 dark:disabled:bg-dark-600"
+                    />
+                  </label>
                 </div>
               </div>
             </div>
@@ -208,6 +240,7 @@ import { adminAPI } from '@/api/admin'
 import type { AdminUser, Group, GroupPlatform } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
+import { exclusiveRateToPercent, parseNonNegativeNumber, percentToExclusiveRate } from '@/utils/rateMultiplier'
 
 interface GroupRateConfig {
   groupId: number
@@ -311,10 +344,22 @@ const updateCustomRate = (groupId: number, value: string) => {
     if (value === '' || value === null || value === undefined) {
       config.customRate = null
     } else {
-      const numValue = parseFloat(value)
-      config.customRate = Number.isFinite(numValue) && numValue >= 0 ? numValue : null
+      config.customRate = parseNonNegativeNumber(value)
     }
   }
+}
+
+const getCustomRatePercent = (config: GroupRateConfig) =>
+  exclusiveRateToPercent(config.customRate, config.defaultRate)
+
+const updateCustomRatePercent = (groupId: number, value: string) => {
+  const config = groupConfigs.value.find((c) => c.groupId === groupId)
+  if (!config) return
+  if (value.trim() === '') {
+    config.customRate = null
+    return
+  }
+  config.customRate = percentToExclusiveRate(parseNonNegativeNumber(value), config.defaultRate)
 }
 
 const handleSave = async () => {
