@@ -130,6 +130,8 @@ export default {
       allTypes: '全部类型',
       allStatus: '全部状态',
       allGroups: '全部分组',
+      allPreferred: '全部账号',
+      preferredOnly: '仅优先账号',
       ungroupedGroup: '未分配分组',
       oauthType: 'OAuth',
       // Schedulable toggle
@@ -139,6 +141,9 @@ export default {
       schedulableDisabled: '调度已关闭',
       upstreamSchedulingPaused: '所属上游已暂停调度',
       failedToToggleSchedulable: '切换调度状态失败',
+      preferredToggleFailed: '切换优先账号状态失败',
+      preferredEnabled: '已在优先账号池',
+      preferredDisabled: '未在优先账号池',
       groupCountTotal: '共 {count} 个分组',
       columns: {
         name: '名称',

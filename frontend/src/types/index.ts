@@ -1349,6 +1349,8 @@ export interface Account {
   scheduler_scores?: AccountSchedulerGroupScore[] | null
   priority: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
+  /** IDs of groups where this account is in the scheduler preferred pool. */
+  preferred_group_ids?: number[]
   status: 'active' | 'inactive' | 'error'
   error_message: string | null
   last_used_at: string | null

@@ -130,6 +130,8 @@ export default {
       allTypes: 'All Types',
       allStatus: 'All Status',
       allGroups: 'All Groups',
+      allPreferred: 'All Accounts',
+      preferredOnly: 'Preferred Only',
       ungroupedGroup: 'Ungrouped',
       oauthType: 'OAuth',
       setupToken: 'Setup Token',
@@ -141,6 +143,9 @@ export default {
       schedulableDisabled: 'Scheduling disabled',
       upstreamSchedulingPaused: 'Upstream scheduling is paused',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
+      preferredToggleFailed: 'Failed to toggle preferred account status',
+      preferredEnabled: 'In preferred account pool',
+      preferredDisabled: 'Not in preferred account pool',
       groupCountTotal: '{count} groups total',
       platforms: {
         anthropic: 'Anthropic',

@@ -150,6 +150,23 @@ type ScopedAccountLister interface {
 	ListAllWithFiltersScoped(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, scope AccountListScope) ([]Account, error)
 }
 
+// PreferredAccountListRepository is an optional extension for account list
+// filtering and per-account preferred-pool mutations.
+type PreferredAccountListRepository interface {
+	ListWithFiltersScopedPreferred(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, preferred bool, scope AccountListScope) ([]Account, *pagination.PaginationResult, error)
+	ListAllWithFiltersScopedPreferred(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, preferred bool, scope AccountListScope) ([]Account, error)
+	SetPreferredAccount(ctx context.Context, groupID, accountID int64, preferred bool) error
+}
+
+type PreferredAccountListService interface {
+	ListAccountsScopedWithPreferred(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, preferred bool, sortBy, sortOrder string, scope AccountListScope) ([]Account, int64, error)
+	ListAccountsForSchedulerScoreFilterWithPreferred(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, preferred bool) ([]Account, error)
+}
+
+type PreferredAccountMutator interface {
+	SetPreferredAccount(ctx context.Context, groupID, accountID int64, preferred bool) error
+}
+
 type AccountDuplicateRepository interface {
 	// CreateWithAccountGroups atomically persists an account, its exact group priorities,
 	// and the scheduler outbox event for the new routing snapshot.
