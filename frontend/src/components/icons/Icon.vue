@@ -1,7 +1,7 @@
 <template>
   <svg
     :class="sizeClass"
-    fill="none"
+    :fill="filled ? 'currentColor' : 'none'"
     viewBox="0 0 24 24"
     stroke="currentColor"
     :stroke-width="strokeWidth"
@@ -17,9 +17,11 @@ const props = withDefaults(defineProps<{
   name: keyof typeof icons
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
   strokeWidth?: number
+  filled?: boolean
 }>(), {
   size: 'md',
-  strokeWidth: 1.5
+  strokeWidth: 1.5,
+  filled: false
 })
 
 const icons = {
