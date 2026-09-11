@@ -338,6 +338,10 @@ type Account struct {
 
 	GroupIDs []int64  `json:"group_ids,omitempty"`
 	Groups   []*Group `json:"groups,omitempty"`
+
+	// PreferredGroupIDs is an internal bridge used to build the compact admin
+	// account-list DTO; it is intentionally omitted from full account JSON.
+	PreferredGroupIDs []int64 `json:"-"`
 }
 
 type UpstreamImagePricing struct {
