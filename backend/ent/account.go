@@ -57,6 +57,8 @@ type Account struct {
 	UpstreamArchiveReason *string `json:"upstream_archive_reason,omitempty"`
 	// Concurrency holds the value of the "concurrency" field.
 	Concurrency int `json:"concurrency,omitempty"`
+	// RpmLimit holds the value of the "rpm_limit" field.
+	RpmLimit int `json:"rpm_limit,omitempty"`
 	// LoadFactor holds the value of the "load_factor" field.
 	LoadFactor *int `json:"load_factor,omitempty"`
 	// Priority holds the value of the "priority" field.
@@ -228,7 +230,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case account.FieldRateMultiplier, account.FieldUpstreamSourceRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldUpstreamConfigID, account.FieldUpstreamKeyID, account.FieldUpstreamStalePauseKeyID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
+		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldUpstreamConfigID, account.FieldUpstreamKeyID, account.FieldUpstreamStalePauseKeyID, account.FieldConcurrency, account.FieldRpmLimit, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
 			values[i] = new(sql.NullInt64)
 		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldUpstreamLifecycleOwner, account.FieldUpstreamArchiveReason, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus, account.FieldQuotaDimension:
 			values[i] = new(sql.NullString)
@@ -375,6 +377,12 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field concurrency", values[i])
 			} else if value.Valid {
 				_m.Concurrency = int(value.Int64)
+			}
+		case account.FieldRpmLimit:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field rpm_limit", values[i])
+			} else if value.Valid {
+				_m.RpmLimit = int(value.Int64)
 			}
 		case account.FieldLoadFactor:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -662,6 +670,9 @@ func (_m *Account) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("concurrency=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Concurrency))
+	builder.WriteString(", ")
+	builder.WriteString("rpm_limit=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RpmLimit))
 	builder.WriteString(", ")
 	if v := _m.LoadFactor; v != nil {
 		builder.WriteString("load_factor=")

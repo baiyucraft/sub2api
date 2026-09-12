@@ -323,6 +323,27 @@ func (_u *AccountUpdate) AddConcurrency(v int) *AccountUpdate {
 	return _u
 }
 
+// SetRpmLimit sets the "rpm_limit" field.
+func (_u *AccountUpdate) SetRpmLimit(v int) *AccountUpdate {
+	_u.mutation.ResetRpmLimit()
+	_u.mutation.SetRpmLimit(v)
+	return _u
+}
+
+// SetNillableRpmLimit sets the "rpm_limit" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableRpmLimit(v *int) *AccountUpdate {
+	if v != nil {
+		_u.SetRpmLimit(*v)
+	}
+	return _u
+}
+
+// AddRpmLimit adds value to the "rpm_limit" field.
+func (_u *AccountUpdate) AddRpmLimit(v int) *AccountUpdate {
+	_u.mutation.AddRpmLimit(v)
+	return _u
+}
+
 // SetLoadFactor sets the "load_factor" field.
 func (_u *AccountUpdate) SetLoadFactor(v int) *AccountUpdate {
 	_u.mutation.ResetLoadFactor()
@@ -1090,6 +1111,12 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedConcurrency(); ok {
 		_spec.AddField(account.FieldConcurrency, field.TypeInt, value)
 	}
+	if value, ok := _u.mutation.RpmLimit(); ok {
+		_spec.SetField(account.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRpmLimit(); ok {
+		_spec.AddField(account.FieldRpmLimit, field.TypeInt, value)
+	}
 	if value, ok := _u.mutation.LoadFactor(); ok {
 		_spec.SetField(account.FieldLoadFactor, field.TypeInt, value)
 	}
@@ -1812,6 +1839,27 @@ func (_u *AccountUpdateOne) SetNillableConcurrency(v *int) *AccountUpdateOne {
 // AddConcurrency adds value to the "concurrency" field.
 func (_u *AccountUpdateOne) AddConcurrency(v int) *AccountUpdateOne {
 	_u.mutation.AddConcurrency(v)
+	return _u
+}
+
+// SetRpmLimit sets the "rpm_limit" field.
+func (_u *AccountUpdateOne) SetRpmLimit(v int) *AccountUpdateOne {
+	_u.mutation.ResetRpmLimit()
+	_u.mutation.SetRpmLimit(v)
+	return _u
+}
+
+// SetNillableRpmLimit sets the "rpm_limit" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableRpmLimit(v *int) *AccountUpdateOne {
+	if v != nil {
+		_u.SetRpmLimit(*v)
+	}
+	return _u
+}
+
+// AddRpmLimit adds value to the "rpm_limit" field.
+func (_u *AccountUpdateOne) AddRpmLimit(v int) *AccountUpdateOne {
+	_u.mutation.AddRpmLimit(v)
 	return _u
 }
 
@@ -2611,6 +2659,12 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if value, ok := _u.mutation.AddedConcurrency(); ok {
 		_spec.AddField(account.FieldConcurrency, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.RpmLimit(); ok {
+		_spec.SetField(account.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRpmLimit(); ok {
+		_spec.AddField(account.FieldRpmLimit, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.LoadFactor(); ok {
 		_spec.SetField(account.FieldLoadFactor, field.TypeInt, value)

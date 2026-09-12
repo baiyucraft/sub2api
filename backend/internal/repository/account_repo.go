@@ -167,6 +167,7 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 		SetCredentials(normalizeJSONMap(account.Credentials)).
 		SetExtra(normalizeJSONMap(account.Extra)).
 		SetConcurrency(account.Concurrency).
+		SetRpmLimit(account.RPMLimit).
 		SetPriority(account.Priority).
 		SetStatus(account.Status).
 		SetErrorMessage(account.ErrorMessage).
@@ -672,6 +673,7 @@ func buildAccountUpdate(client *dbent.Client, account *service.Account, schedula
 		SetCredentials(normalizeJSONMap(account.Credentials)).
 		SetExtra(normalizeJSONMap(account.Extra)).
 		SetConcurrency(account.Concurrency).
+		SetRpmLimit(account.RPMLimit).
 		SetPriority(account.Priority).
 		SetStatus(account.Status).
 		SetErrorMessage(account.ErrorMessage).
@@ -3411,6 +3413,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		args = append(args, *updates.Concurrency)
 		idx++
 	}
+	if updates.RPMLimit != nil {
+		setClauses = append(setClauses, "rpm_limit = $"+itoa(idx))
+		args = append(args, *updates.RPMLimit)
+		idx++
+	}
 	if updates.Priority != nil {
 		setClauses = append(setClauses, "priority = $"+itoa(idx))
 		args = append(args, *updates.Priority)
@@ -4151,6 +4158,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		UpstreamLifecycleOwner:       m.UpstreamLifecycleOwner,
 		UpstreamArchiveReason:        m.UpstreamArchiveReason,
 		Concurrency:                  m.Concurrency,
+		RPMLimit:                     m.RpmLimit,
 		Priority:                     m.Priority,
 		RateMultiplier:               &rateMultiplier,
 		UpstreamSourceRateMultiplier: m.UpstreamSourceRateMultiplier,

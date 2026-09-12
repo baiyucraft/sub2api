@@ -119,6 +119,10 @@ func (Account) Fields() []ent.Field {
 		field.Int("concurrency").
 			Default(3),
 
+		// rpm_limit: 账号每分钟最大业务请求数，0 表示不限
+		field.Int("rpm_limit").
+			Default(0),
+
 		field.Int("load_factor").Optional().Nillable(),
 
 		// priority: 账户优先级，数值越小优先级越高
