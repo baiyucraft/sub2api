@@ -612,6 +612,8 @@ export default {
       current: '当前倍率',
       expand: '展开倍率趋势',
       collapse: '收起倍率趋势',
+      viewHistory: '查看历史',
+      hideHistory: '收起历史',
       average: '范围平均',
       observedAverage: '可观测平均',
       historyIncomplete: '倍率历史不完整，平均值仅覆盖可观测区间',
