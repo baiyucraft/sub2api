@@ -5,12 +5,16 @@ import { flushPromises, mount } from '@vue/test-utils'
 const {
   updateAccountMock,
   checkMixedChannelRiskMock,
+  showErrorMock,
+  showSuccessMock,
   authIsSimpleMode,
   upstreamConfigsListMock,
   upstreamConfigKeysListMock
 } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
+  showErrorMock: vi.fn(),
+  showSuccessMock: vi.fn(),
   authIsSimpleMode: { value: true },
   upstreamConfigsListMock: vi.fn(),
   upstreamConfigKeysListMock: vi.fn()
@@ -18,8 +22,8 @@ const {
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
+    showError: showErrorMock,
+    showSuccess: showSuccessMock,
     showInfo: vi.fn()
   })
 }))
@@ -377,6 +381,10 @@ function mountModal(
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    showErrorMock.mockReset()
+    showSuccessMock.mockReset()
     upstreamConfigsListMock.mockReset()
     upstreamConfigKeysListMock.mockReset()
     upstreamConfigsListMock.mockResolvedValue({
@@ -504,6 +512,30 @@ describe('EditAccountModal', () => {
     expect(payload?.credentials).not.toHaveProperty('api_key')
     expect(payload?.credentials).not.toHaveProperty('base_url')
     expect(payload?.extra).toMatchObject({ images_url_to_b64_json: true, upstream_request_id_header: 'X-Upstream-Request-ID' })
+  })
+
+  it('persists an upstream RPM limit and rejects a stale backend response', async () => {
+    const account = buildUpstreamBoundAccount()
+    account.rpm_limit = 0
+    updateAccountMock.mockResolvedValue({ ...account, rpm_limit: 0 })
+
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="upstream-rpm-limit"]').setValue('1')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({ rpm_limit: 1 }))
+    expect(showSuccessMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith('admin.accounts.upstreamRpmSaveMismatch')
+    expect(wrapper.find('form#edit-account-form').exists()).toBe(true)
+
+    updateAccountMock.mockResolvedValue({ ...account, rpm_limit: 1 })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(showSuccessMock).toHaveBeenCalledWith('admin.accounts.accountUpdated')
   })
 
   it('keeps the original stale key selectable state, warns, and saves the existing binding', async () => {

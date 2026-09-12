@@ -1238,6 +1238,7 @@ export default {
       updating: '更新中...',
       accountCreated: '账号创建成功',
       accountUpdated: '账号更新成功',
+      upstreamRpmSaveMismatch: '后端未保存 RPM 限制，请确认后端和数据库已升级后重试',
       failedToCreate: '创建账号失败',
       failedToUpdate: '更新账号失败',
       pleaseSelectStatus: '请选择有效的账号状态',

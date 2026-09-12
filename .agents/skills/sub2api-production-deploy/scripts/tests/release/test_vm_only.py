@@ -38,12 +38,12 @@ class VMOnlyGateTest(unittest.TestCase):
             "schema": 2,
             "vm_only_schema": 1,
             "scope": "vm-only",
-            "release_id": "249-aaaaaaaaaaaa-1-aaaaaaaa",
+            "release_id": "250-aaaaaaaaaaaa-1-aaaaaaaa",
             "created_at": int(time.time()),
             "expires_at": int(time.time()) + 3600,
             "commit_sha": "a" * 40,
             "origin": "https://github.com/baiyucraft/sub2api.git",
-            "profile": "249",
+            "profile": "250",
             "version": "0.2.4-baiyu",
             "vm_identity": "sub2api-dev",
             "vm_port": 8211,
@@ -63,7 +63,7 @@ class VMOnlyGateTest(unittest.TestCase):
             "vm_redis_boundary": True,
             "data_dev_boundary": True,
         }
-        document = {"gate_version": 2, "profile_id": 249, "manifest": manifest, "evidence": evidence}
+        document = {"gate_version": 2, "profile_id": 250, "manifest": manifest, "evidence": evidence}
         (self.root / "gate.json").write_bytes(canonical_json(document) + b"\n")
         subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(self.private_key), "-rawin", "-in", str(self.root / "gate.json"), "-out", str(self.root / "gate.sig")], check=True, capture_output=True)
         return self.root
@@ -71,22 +71,22 @@ class VMOnlyGateTest(unittest.TestCase):
     def test_vm_only_gate_is_verified_by_separate_contract(self) -> None:
         bundle = self._bundle()
         with mock.patch("release.gate.get_profile", return_value={"gate_schema": 2, "version": "0.2.4-baiyu", "origin": "https://github.com/baiyucraft/sub2api.git"}):
-            self.assertEqual(verify_vm_only_gate(bundle, self.public_key, "249")["manifest"]["scope"], "vm-only")
+            self.assertEqual(verify_vm_only_gate(bundle, self.public_key, "250")["manifest"]["scope"], "vm-only")
 
     def test_vm_only_gate_is_not_accepted_as_production_gate(self) -> None:
         bundle = self._bundle()
         with self.assertRaises(Exception):
-            verify_gate_v2(bundle, self.public_key, "249")
+            verify_gate_v2(bundle, self.public_key, "250")
 
     def test_vm_only_manifest_has_no_production_snapshot_fields(self) -> None:
         profile = {
-            "name": "249",
+            "name": "250",
             "version": "0.2.4-baiyu",
             "origin": "https://github.com/baiyucraft/sub2api.git",
             "gate_ttl_seconds": 3600,
         }
         with mock.patch("release.manifest.check_output_hidden", return_value="https://github.com/baiyucraft/sub2api.git"):
-            manifest = create_vm_only_manifest("a" * 40, profile, "249-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 40, "c" * 64, "d" * 64)
+            manifest = create_vm_only_manifest("a" * 40, profile, "250-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 40, "c" * 64, "d" * 64)
         self.assertNotIn("production_current_image_id", manifest)
         self.assertNotIn("production_snapshot_sha256", manifest)
 
