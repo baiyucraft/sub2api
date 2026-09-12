@@ -54,13 +54,19 @@ describe('GroupRateTrend', () => {
     })
 
     expect(wrapper.get('button[aria-expanded="false"]')).toBeTruthy()
-    expect(wrapper.get('[data-test="rate-trend-toggle-label"]').text()).toBe('channelStatus.rateTrend.expand')
+    expect(wrapper.get('[data-test="rate-trend-toggle-label"]').text()).toContain('channelStatus.rateTrend.viewHistory')
     expect(wrapper.get('[data-test="current-public-rate"]').text()).toBe('0.030x')
+    const summary = wrapper.get('[data-test="rate-trend-summary"]')
+    expect(summary.find('[data-test="current-public-rate"]').exists()).toBe(true)
+    expect(summary.find('[data-test="rate-trend-toggle-label"]').exists()).toBe(true)
+    expect(summary.text().indexOf('0.030x')).toBeLessThan(
+      summary.text().indexOf('channelStatus.rateTrend.viewHistory'),
+    )
     expect(wrapper.find('[data-test="average-public-rate"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="trend-chart-props"]').exists()).toBe(false)
 
     await wrapper.get('button[aria-expanded="false"]').trigger('click')
-    expect(wrapper.get('[data-test="rate-trend-toggle-label"]').text()).toBe('channelStatus.rateTrend.collapse')
+    expect(wrapper.get('[data-test="rate-trend-toggle-label"]').text()).toContain('channelStatus.rateTrend.hideHistory')
     const chartProps = wrapper.get('[data-test="trend-chart-props"]').text()
     expect(chartProps).toContain('channelStatus.rateTrend.timeColumn|152|true')
     expect(chartProps).toContain('2026-07-18T00:00:00Z|2026-07-19T00:00:00Z')

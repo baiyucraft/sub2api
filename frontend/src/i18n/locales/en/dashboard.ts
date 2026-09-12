@@ -607,6 +607,8 @@ export default {
       current: 'Current',
       expand: 'Expand rate trend',
       collapse: 'Collapse rate trend',
+      viewHistory: 'View history',
+      hideHistory: 'Hide history',
       average: 'Range average',
       observedAverage: 'Observed average',
       historyIncomplete: 'Rate history is incomplete; the average covers only the observed interval',

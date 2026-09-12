@@ -2,7 +2,7 @@
   <section v-if="item.show_group_rate" class="mt-4 rounded-xl border border-sky-100/80 bg-sky-50/50 px-3 py-3 dark:border-sky-500/20 dark:bg-sky-500/5" @click.stop>
     <button
       type="button"
-      class="flex w-full flex-wrap items-start justify-between gap-x-3 gap-y-2 text-left"
+      class="group flex w-full flex-wrap items-start justify-between gap-x-3 gap-y-2 text-left"
       :aria-expanded="expanded"
       :aria-controls="`rate-trend-${item.id}`"
       :title="t(expanded ? 'channelStatus.rateTrend.collapse' : 'channelStatus.rateTrend.expand')"
@@ -10,12 +10,6 @@
     >
       <div class="min-w-0">
         <span class="text-[11px] font-medium text-gray-500 dark:text-gray-400">{{ t('channelStatus.rateTrend.title') }}</span>
-        <span
-          class="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-sky-600 dark:text-sky-300"
-          data-test="rate-trend-toggle-label"
-        >
-          {{ t(expanded ? 'channelStatus.rateTrend.collapse' : 'channelStatus.rateTrend.expand') }}
-        </span>
         <p
           v-if="expanded && historyPartial"
           class="mt-0.5 text-[10px] leading-4 text-amber-700 dark:text-amber-300"
@@ -24,7 +18,7 @@
           {{ t('channelStatus.rateTrend.historyIncomplete') }}
         </p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1" data-test="rate-trend-summary">
         <dl class="text-right tabular-nums">
           <dt class="text-[9px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
             {{ t('channelStatus.rateTrend.current') }}
@@ -33,13 +27,19 @@
             {{ formatPublicRate(item.current_public_rate) }}
           </dd>
         </dl>
-        <Icon
-          name="chevronDown"
-          size="sm"
-          class="mt-2 shrink-0 text-sky-500 transition-transform dark:text-sky-300"
-          :class="expanded ? 'rotate-180' : ''"
-          aria-hidden="true"
-        />
+        <span
+          class="inline-flex items-center gap-1 rounded-md border border-sky-200/80 bg-white/70 px-2 py-1 text-[10px] font-medium text-sky-700 transition-colors group-hover:bg-white dark:border-sky-500/30 dark:bg-dark-900/20 dark:text-sky-300 dark:group-hover:bg-dark-800/60"
+          data-test="rate-trend-toggle-label"
+        >
+          {{ t(expanded ? 'channelStatus.rateTrend.hideHistory' : 'channelStatus.rateTrend.viewHistory') }}
+          <Icon
+            name="chevronDown"
+            size="xs"
+            class="shrink-0 transition-transform"
+            :class="expanded ? 'rotate-180' : ''"
+            aria-hidden="true"
+          />
+        </span>
       </div>
     </button>
     <div v-if="expanded" :id="`rate-trend-${item.id}`" class="mt-2.5">

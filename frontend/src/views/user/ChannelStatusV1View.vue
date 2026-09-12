@@ -56,6 +56,7 @@ import { groupMonitorItems } from '@/utils/channelMonitorGrouping'
 const { t } = useI18n()
 const appStore = useAppStore()
 const { providerLabel } = useChannelMonitorFormat()
+const APP_HEADER_HEIGHT = 64
 
 // ── State ──
 const items = ref<UserMonitorView[]>([])
@@ -196,7 +197,7 @@ onMounted(async () => {
         .filter(([, ratio]) => ratio > 0)
         .sort(([, leftRatio], [, rightRatio]) => rightRatio - leftRatio)[0]
       if (visible) activePlatform.value = visible[0]
-    }, { rootMargin: `-${heroHeight}px 0px -55% 0px`, threshold: [0, 0.25, 0.5, 0.75, 1] })
+    }, { rootMargin: `-${APP_HEADER_HEIGHT + heroHeight}px 0px -55% 0px`, threshold: [0, 0.25, 0.5, 0.75, 1] })
     for (const element of platformSections.values()) platformObserver.observe(element)
   }
   void reload(false)
