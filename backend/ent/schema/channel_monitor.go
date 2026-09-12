@@ -55,7 +55,7 @@ func (ChannelMonitor) Fields() []ent.Field {
 		field.String("api_mode").
 			Default("chat_completions").
 			MaxLen(32).
-			Comment("OpenAI request protocol: chat_completions or responses; non-OpenAI uses chat_completions"),
+			Comment("Monitor request protocol: chat_completions, responses, or zhipu_native"),
 		// endpoint: 探活模式必填（service 层校验）；quota 模式存空串
 		// （列保持 NOT NULL，去掉 NotEmpty 校验器即可）。
 		field.String("endpoint").

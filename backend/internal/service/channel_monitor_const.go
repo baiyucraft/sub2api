@@ -138,7 +138,7 @@ const (
 	providerOpenAIPath = "/v1/chat/completions"
 	// providerGrokPath Grok OpenAI-compatible Chat Completions 路径。
 	providerGrokPath = "/v1/chat/completions"
-	// providerZhipuPath 智谱 OpenAI 兼容 Chat Completions 路径（前缀与官方不同）。
+	// providerZhipuPath 智谱原生 Chat Completions 路径。
 	providerZhipuPath = "/api/paas/v4/chat/completions"
 	// providerOpenAIResponsesPath OpenAI Responses API 路径。
 	providerOpenAIResponsesPath = "/v1/responses"
@@ -258,7 +258,7 @@ var (
 		"CHANNEL_MONITOR_ACCOUNT_NOT_SUPPORTABLE", "linked account cannot serve as a quota data source (cn coding plan must be kimi/zhipu/minimax, cn payg must be kimi/deepseek, openai requires an oauth account, anthropic requires oauth or setup-token)",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions or responses; responses is only supported for openai",
+		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, responses, or zhipu_native; responses is supported for openai or zhipu, zhipu_native is only supported for zhipu",
 	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "openai-compatible replace-mode body_override must include non-empty messages for chat_completions or non-empty instructions and input for responses",

@@ -96,13 +96,14 @@
         </p>
       </div>
 
-      <div v-if="form.provider === PROVIDER_OPENAI && usesProbePart" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
+      <div v-if="supportsExplicitAPIMode(form.provider) && usesProbePart" data-testid="monitor-api-mode" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
         <label class="input-label">{{ t('admin.channelMonitor.form.apiMode') }}</label>
         <div class="grid gap-3 sm:grid-cols-2">
           <button
             v-for="opt in apiModeOptions"
             :key="opt.value"
             type="button"
+            :data-testid="`monitor-api-mode-${opt.value}`"
             :aria-pressed="form.api_mode === opt.value"
             class="rounded-lg border-2 px-3 py-2 text-left transition-colors"
             :class="apiModeButtonClass(opt.value)"
@@ -326,6 +327,7 @@ import {
   PROVIDER_MINIMAX,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
+  API_MODE_ZHIPU_NATIVE,
   CHECK_MODE_PROBE,
   CHECK_MODE_QUOTA,
   CHECK_MODE_QUOTA_PROBE,
@@ -466,8 +468,8 @@ const templatesLoading = ref(false)
 const templateOptions = computed(() => {
   const items = templatesCache.value.filter((t) => {
     if (t.provider !== form.provider) return false
-    if (form.provider !== PROVIDER_OPENAI) return true
-    return normalizeAPIMode(t.api_mode) === form.api_mode
+    if (!supportsExplicitAPIMode(form.provider)) return true
+    return normalizeAPIModeForProvider(t.api_mode, t.provider) === form.api_mode
   })
   return [
     { value: '', label: t('admin.channelMonitor.templateField.none') },
@@ -519,7 +521,7 @@ const templateSelectValue = computed<string>({
     const tpl = templatesCache.value.find((t) => t.id === id)
     if (tpl) {
       suppressFormWatchers = true
-      form.api_mode = normalizeAPIMode(tpl.api_mode)
+      form.api_mode = normalizeAPIModeForProvider(tpl.api_mode, form.provider)
       form.template_id = id
       form.extra_headers = { ...(tpl.extra_headers || {}) }
       form.body_override_mode = tpl.body_override_mode
@@ -535,12 +537,30 @@ const apiModeOptions = computed<{ value: APIMode; label: string; hint: string }[
     label: t('admin.channelMonitor.form.apiModeChatCompletions'),
     hint: t('admin.channelMonitor.form.apiModeChatCompletionsHint'),
   },
-  {
-    value: API_MODE_RESPONSES,
-    label: t('admin.channelMonitor.form.apiModeResponses'),
-    hint: t('admin.channelMonitor.form.apiModeResponsesHint'),
-  },
+  ...(form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_ZHIPU
+    ? [{
+        value: API_MODE_RESPONSES,
+        label: t('admin.channelMonitor.form.apiModeResponses'),
+        hint: t('admin.channelMonitor.form.apiModeResponsesHint'),
+      }]
+    : []),
+  ...(form.provider === PROVIDER_ZHIPU
+    ? [{
+        value: API_MODE_ZHIPU_NATIVE,
+        label: t('admin.channelMonitor.form.apiModeZhipuNative'),
+        hint: t('admin.channelMonitor.form.apiModeZhipuNativeHint'),
+      }]
+    : []),
 ])
+
+function supportsExplicitAPIMode(provider: Provider): boolean {
+  return provider === PROVIDER_OPENAI || provider === PROVIDER_ZHIPU
+}
+
+function normalizeAPIModeForProvider(mode: APIMode | undefined | null, provider: Provider): APIMode {
+  if (provider === PROVIDER_ZHIPU && mode === API_MODE_ZHIPU_NATIVE) return API_MODE_ZHIPU_NATIVE
+  return normalizeAPIMode(mode)
+}
 
 function normalizeAPIMode(mode: APIMode | undefined | null): APIMode {
   return mode === API_MODE_RESPONSES ? API_MODE_RESPONSES : API_MODE_CHAT_COMPLETIONS
@@ -555,10 +575,13 @@ function apiModeButtonClass(mode: APIMode): string {
 }
 
 function templateOptionLabel(tpl: ChannelMonitorTemplate): string {
-  if (tpl.provider !== PROVIDER_OPENAI) return tpl.name
-  const labelKey = normalizeAPIMode(tpl.api_mode) === API_MODE_RESPONSES
-    ? 'admin.channelMonitor.form.apiModeResponses'
-    : 'admin.channelMonitor.form.apiModeChatCompletions'
+  if (!supportsExplicitAPIMode(tpl.provider)) return tpl.name
+  const mode = normalizeAPIModeForProvider(tpl.api_mode, tpl.provider)
+  const labelKey = mode === API_MODE_ZHIPU_NATIVE
+    ? 'admin.channelMonitor.form.apiModeZhipuNative'
+    : mode === API_MODE_RESPONSES
+      ? 'admin.channelMonitor.form.apiModeResponses'
+      : 'admin.channelMonitor.form.apiModeChatCompletions'
   return `${tpl.name} · ${t(labelKey)}`
 }
 
@@ -833,15 +856,13 @@ function selectCredentialMode(mode: MonitorForm['credential_mode']) {
 watch(() => form.provider, () => {
   if (suppressFormWatchers) return
   form.api_key = ''
-  if (form.provider !== PROVIDER_OPENAI) {
-    form.api_mode = API_MODE_CHAT_COMPLETIONS
-  }
+  form.api_mode = normalizeAPIModeForProvider(form.api_mode, form.provider)
   clearRequestSnapshot()
 }, { flush: 'sync' })
 
 watch(() => form.api_mode, () => {
   if (suppressFormWatchers) return
-  if (form.provider === PROVIDER_OPENAI) {
+  if (supportsExplicitAPIMode(form.provider)) {
     clearRequestSnapshot()
   }
 }, { flush: 'sync' })
@@ -878,7 +899,7 @@ function loadFromMonitor(m: ChannelMonitor) {
   suppressFormWatchers = true
   form.name = m.credential_mode === 'managed_local' ? (m.group_name || m.name) : m.name
   form.provider = m.provider
-  form.api_mode = normalizeAPIMode(m.api_mode)
+  form.api_mode = normalizeAPIModeForProvider(m.api_mode, m.provider)
   form.check_mode = m.check_mode || CHECK_MODE_PROBE
   form.account_id = m.account_id ?? null
   form.endpoint = m.endpoint
@@ -954,7 +975,7 @@ function buildPayload(): CreateParams {
   return {
     name: selectedManagedGroup?.name ?? form.name.trim(),
     provider: form.provider,
-    api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
+    api_mode: supportsExplicitAPIMode(form.provider) ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
     check_mode: form.check_mode,
     account_id: usesQuotaMode.value ? form.account_id : null,
     endpoint: usesProbePart.value ? form.endpoint.trim() : '',
