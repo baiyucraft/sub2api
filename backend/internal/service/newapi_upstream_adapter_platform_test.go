@@ -227,7 +227,43 @@ func TestNewAPIPricingFailureProducesPartialEvidence(t *testing.T) {
 	evidence := groups["default"].PlatformEvidence
 	require.Equal(t, newAPIPlatformEvidencePartial, evidence.Status)
 	require.Equal(t, newAPIPlatformSourcePricing, evidence.Source)
+	require.Equal(t, newAPIPlatformReasonPricingUnavailable, evidence.Reason)
 	require.Empty(t, evidence.Candidates)
+}
+
+func TestNewAPIPricingBindingWithoutPlatformEvidenceHasSpecificReason(t *testing.T) {
+	groups := map[string]any{"custom-pool": map[string]any{"ratio": 1}}
+	pricing := []map[string]any{
+		{"model_name": "private-model", "enable_group": "custom-pool"},
+	}
+	items := []map[string]any{
+		{"id": 1, "key": "sk-unknown-pricing", "status": 1, "name": "unknown-pricing", "group": "custom-pool"},
+	}
+	snapshot := runNewAPISnapshotFixture(t, groups, pricing, items)
+	require.Len(t, snapshot.Keys, 1)
+	evidence := snapshot.Keys[0].Extra["newapi_platform_evidence"].(map[string]any)
+	require.Equal(t, UpstreamKeyPlatformDetectionUnresolved, snapshot.Keys[0].PlatformDetectionStatus)
+	require.Equal(t, newAPIPlatformReasonPricingRecordsUnknown, evidence["reason"])
+	require.Equal(t, 1, evidence["matched_pricing_records"])
+}
+
+func TestNewAPIAmbiguousPricingGroupNameRemainsUnresolved(t *testing.T) {
+	groups := map[string]any{
+		"GPT  Plus": map[string]any{"ratio": 1},
+		"gpt plus":  map[string]any{"ratio": 1},
+	}
+	pricing := []map[string]any{
+		{"model_name": "gpt-5.4", "enable_group": " gPt   PlUs "},
+	}
+	items := []map[string]any{
+		{"id": 1, "key": "sk-ambiguous-pricing", "status": 1, "name": "ambiguous-pricing", "group": "GPT  Plus"},
+	}
+	snapshot := runNewAPISnapshotFixture(t, groups, pricing, items)
+	require.Len(t, snapshot.Keys, 1)
+	evidence := snapshot.Keys[0].Extra["newapi_platform_evidence"].(map[string]any)
+	require.Equal(t, UpstreamKeyPlatformDetectionUnresolved, snapshot.Keys[0].PlatformDetectionStatus)
+	require.Equal(t, newAPIPlatformReasonPricingGroupAmbiguous, evidence["reason"])
+	require.Empty(t, evidence["candidates"])
 }
 
 func TestNewAPIPlatformEvidenceAccumulatorDoesNotHideUnknownRecords(t *testing.T) {
@@ -240,6 +276,91 @@ func TestNewAPIPlatformEvidenceAccumulatorDoesNotHideUnknownRecords(t *testing.T
 	require.Equal(t, newAPIPlatformEvidencePartial, evidence.Status)
 	require.Equal(t, []string{PlatformOpenAI}, evidence.Candidates)
 	require.Nil(t, evidence.DetectedPlatform())
+}
+
+func TestNewAPIGroupPlatformEvidenceNormalizesGroupNames(t *testing.T) {
+	groups := map[string]any{
+		"  Gpt   Plus  ": map[string]any{"ratio": 1},
+	}
+	pricing := []map[string]any{
+		{"model_name": "gpt-5.4", "enable_group": "GPT Plus"},
+	}
+	items := []map[string]any{
+		{"id": 1, "key": "sk-normalized-group", "status": 1, "name": "normalized", "group": "gpt plus"},
+	}
+	snapshot := runNewAPISnapshotFixture(t, groups, pricing, items)
+	require.Len(t, snapshot.Keys, 1)
+	key := snapshot.Keys[0]
+	assertNewAPIDetectedPlatform(t, key, PlatformOpenAI, UpstreamKeyPlatformDetectionDetected)
+	evidence := key.Extra["newapi_platform_evidence"].(map[string]any)
+	require.Equal(t, "normalized", evidence["group_match_mode"])
+	require.Equal(t, "gpt plus", evidence["group_normalized_name"])
+}
+
+func TestNewAPIGroupExistsWithoutPricingBindingRemainsUnresolved(t *testing.T) {
+	groups := map[string]any{"gpt-plus": map[string]any{"ratio": 1}}
+	items := []map[string]any{
+		{"id": 1, "key": "sk-no-pricing", "status": 1, "name": "no-pricing", "group": "gpt-plus"},
+	}
+	snapshot := runNewAPISnapshotFixture(t, groups, nil, items)
+	require.Len(t, snapshot.Keys, 1)
+	evidence := snapshot.Keys[0].Extra["newapi_platform_evidence"].(map[string]any)
+	require.Equal(t, UpstreamKeyPlatformDetectionUnresolved, snapshot.Keys[0].PlatformDetectionStatus)
+	require.Equal(t, newAPIPlatformReasonGroupExistsWithoutPricing, evidence["reason"])
+	require.Empty(t, evidence["candidates"])
+}
+
+func TestNewAPIUsableGroupAloneDoesNotInventPlatform(t *testing.T) {
+	groups := map[string]any{"custom-pool": map[string]any{"ratio": 1}}
+	items := []map[string]any{
+		{"id": 1, "key": "sk-usable-only", "status": 1, "name": "usable-only", "group": "custom-pool"},
+	}
+	snapshot := runNewAPISnapshotFixtureWithUsableGroups(t, groups, map[string]string{"custom-pool": "visible"}, nil, items)
+	require.Len(t, snapshot.Keys, 1)
+	evidence := snapshot.Keys[0].Extra["newapi_platform_evidence"].(map[string]any)
+	require.Equal(t, UpstreamKeyPlatformDetectionUnresolved, snapshot.Keys[0].PlatformDetectionStatus)
+	require.Equal(t, newAPIPlatformReasonGroupExistsWithoutPricing, evidence["reason"])
+}
+
+func TestNewAPIGroupExplicitPlatformIsUsedAsEvidence(t *testing.T) {
+	groups := map[string]any{"custom-pool": map[string]any{"ratio": 1, "platform": "OpenAI"}}
+	items := []map[string]any{
+		{"id": 1, "key": "sk-explicit-platform", "status": 1, "name": "explicit", "group": "custom-pool"},
+	}
+	snapshot := runNewAPISnapshotFixture(t, groups, nil, items)
+	require.Len(t, snapshot.Keys, 1)
+	evidence := snapshot.Keys[0].Extra["newapi_platform_evidence"].(map[string]any)
+	assertNewAPIDetectedPlatform(t, snapshot.Keys[0], PlatformOpenAI, UpstreamKeyPlatformDetectionDetected)
+	require.Equal(t, newAPIPlatformReasonGroupExplicit, evidence["reason"])
+}
+
+func runNewAPISnapshotFixture(t *testing.T, groups map[string]any, pricing, items []map[string]any) *upstreamProviderSnapshot {
+	return runNewAPISnapshotFixtureWithUsableGroups(t, groups, nil, pricing, items)
+}
+
+func runNewAPISnapshotFixtureWithUsableGroups(t *testing.T, groups map[string]any, usableGroups map[string]string, pricing []map[string]any, items []map[string]any) *upstreamProviderSnapshot {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/user/self/groups":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": groups})
+		case "/api/pricing":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "usable_group": usableGroups, "data": pricing})
+		case "/api/token/":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"page": 0, "page_size": 100, "total": len(items), "items": items}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	snapshot, err := (newAPIUpstreamProviderAdapter{}).SyncSnapshot(context.Background(), &UpstreamConfig{
+		ID: 99, Name: "NewAPI", Provider: UpstreamProviderNewAPI, SiteURL: server.URL, AuthMode: UpstreamAuthModeCookie,
+		Credentials: map[string]any{AccountCredentialNewAPICookie: "session=fixture", AccountCredentialNewAPIUserID: "4798"},
+	}, "", false)
+	require.NoError(t, err)
+	return snapshot
 }
 
 func TestNewAPIPlatformEvidenceFlowsToUpstreamKeysWithoutOpenAIDefault(t *testing.T) {

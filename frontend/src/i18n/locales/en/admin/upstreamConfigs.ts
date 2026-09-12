@@ -174,6 +174,34 @@ export default {
       notDetected: 'Not detected',
       unsupportedPlatform: 'Unsupported: {platform}',
       conflict: 'Detected evidence conflicts with the current assignment',
+      diagnostics: {
+        group: 'Group',
+        reason: 'Reason',
+        matchMode: 'Group match',
+        pricingMatches: 'Pricing matches',
+        models: 'Model examples',
+        unknownReason: 'Unknown reason',
+        unknownMatchMode: 'Unknown match mode',
+        matchModes: {
+          exact: 'Exact match',
+          normalized: 'Normalized match',
+          normalized_name: 'Normalized name match'
+        },
+        reasons: {
+          group_explicit_platform: 'The group provided an explicit platform',
+          pricing_unique_evidence: 'Pricing records identify one platform',
+          pricing_multiple_platforms: 'Pricing records identify multiple platforms',
+          group_exists_without_pricing_binding: 'The group exists but has no pricing binding',
+          pricing_records_without_platform_evidence: 'Pricing records have no recognizable platform evidence',
+          pricing_group_name_ambiguous: 'The pricing group name is ambiguous',
+          pricing_unavailable: 'Pricing information is temporarily unavailable',
+          pricing_response_invalid: 'The pricing response is invalid',
+          owner_unrecognized: 'The provider value is not recognized',
+          model_unrecognized: 'The model name is not recognized',
+          group_not_in_user_groups: 'The group is not in the user group list',
+          group_platform_unrecognized: 'The group platform value is not recognized'
+        }
+      },
       empty: 'No upstream keys',
       loadFailed: 'Failed to load key platforms',
       updated: 'Key platform updated',
