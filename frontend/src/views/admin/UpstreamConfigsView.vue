@@ -983,20 +983,54 @@
           </template>
 
           <template #cell-detected_platform="{ row }">
-            <PlatformBadge
-              v-if="normalizeKeyPlatform(row.detected_platform)"
-              :platform="normalizeKeyPlatform(row.detected_platform)"
-              :label="keyPlatformLabel(row.detected_platform)"
-            />
-            <span
-              v-else-if="unsupportedDetectedPlatform(row)"
-              class="text-xs font-medium text-amber-700 dark:text-amber-300"
-            >
-              {{ t('admin.upstreamConfigs.keyPlatforms.unsupportedPlatform', { platform: unsupportedDetectedPlatform(row) }) }}
-            </span>
-            <span v-else class="text-sm text-gray-500 dark:text-dark-400">
-              {{ t('admin.upstreamConfigs.keyPlatforms.notDetected') }}
-            </span>
+            <div class="min-w-[210px] space-y-1.5">
+              <PlatformBadge
+                v-if="normalizeKeyPlatform(row.detected_platform)"
+                :platform="normalizeKeyPlatform(row.detected_platform)"
+                :label="keyPlatformLabel(row.detected_platform)"
+              />
+              <span
+                v-else-if="unsupportedDetectedPlatform(row)"
+                class="text-xs font-medium text-amber-700 dark:text-amber-300"
+              >
+                {{ t('admin.upstreamConfigs.keyPlatforms.unsupportedPlatform', { platform: unsupportedDetectedPlatform(row) }) }}
+              </span>
+              <span v-else class="text-sm text-gray-500 dark:text-dark-400">
+                {{ t('admin.upstreamConfigs.keyPlatforms.notDetected') }}
+              </span>
+
+              <div
+                v-if="keyPlatformEvidenceHasDiagnostics(row)"
+                class="space-y-0.5 text-[11px] leading-4 text-gray-500 dark:text-dark-400"
+                :title="keyPlatformEvidenceDiagnosticTitle(row)"
+                :data-test="`key-platform-diagnostics-${row.id}`"
+              >
+                <div v-if="keyPlatformEvidenceGroup(row)">
+                  {{ t('admin.upstreamConfigs.keyPlatforms.diagnostics.group') }}:
+                  {{ keyPlatformEvidenceGroup(row) }}
+                </div>
+                <div v-if="keyPlatformEvidenceReason(row)">
+                  {{ t('admin.upstreamConfigs.keyPlatforms.diagnostics.reason') }}:
+                  {{ keyPlatformEvidenceReasonLabel(row) }}
+                </div>
+                <div v-if="keyPlatformEvidenceMatchMode(row)">
+                  {{ t('admin.upstreamConfigs.keyPlatforms.diagnostics.matchMode') }}:
+                  {{ keyPlatformEvidenceMatchModeLabel(row) }}
+                </div>
+                <div v-if="keyPlatformEvidencePricingCount(row) !== null">
+                  {{ t('admin.upstreamConfigs.keyPlatforms.diagnostics.pricingMatches') }}:
+                  {{ keyPlatformEvidencePricingCount(row) }}
+                </div>
+                <div
+                  v-if="keyPlatformEvidenceModels(row).length"
+                  class="truncate"
+                  :title="keyPlatformEvidenceModels(row).join(', ')"
+                >
+                  {{ t('admin.upstreamConfigs.keyPlatforms.diagnostics.models') }}:
+                  {{ keyPlatformEvidenceModels(row).join(', ') }}
+                </div>
+              </div>
+            </div>
           </template>
 
           <template #cell-platform="{ row }">
@@ -1601,6 +1635,7 @@ import upstreamAPI, {
   type UpstreamKey,
   type UpstreamKeyImagePricing,
   type UpstreamKeyPlatform,
+  type UpstreamPlatformEvidence,
   type UpstreamKeyRateCatalogItem,
   type UpstreamKeyRateTrend
 } from '@/api/admin/upstreamConfigs'
@@ -2823,13 +2858,125 @@ function normalizeKeyPlatform(value: unknown): UpstreamKeyPlatform | null {
     : null
 }
 
+const platformEvidenceReasonKeys = new Set([
+  'group_explicit_platform',
+  'pricing_unique_evidence',
+  'pricing_multiple_platforms',
+  'group_exists_without_pricing_binding',
+  'pricing_records_without_platform_evidence',
+  'pricing_group_name_ambiguous',
+  'pricing_unavailable',
+  'pricing_response_invalid',
+  'owner_unrecognized',
+  'model_unrecognized',
+  'group_not_in_user_groups',
+  'group_platform_unrecognized'
+])
+
+const platformEvidenceMatchModeKeys = new Set(['exact', 'normalized', 'normalized_name'])
+
+function keyPlatformEvidence(key: UpstreamKey): UpstreamPlatformEvidence | null {
+  const extra = key.extra
+  if (!extra || typeof extra !== 'object') return null
+  for (const field of ['newapi_platform_evidence', 'upstream_platform_evidence'] as const) {
+    const evidence = extra[field]
+    if (evidence && typeof evidence === 'object' && !Array.isArray(evidence)) {
+      return evidence
+    }
+  }
+  return null
+}
+
+function evidenceString(key: UpstreamKey, field: keyof UpstreamPlatformEvidence): string {
+  const value = keyPlatformEvidence(key)?.[field]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function keyPlatformEvidenceReason(key: UpstreamKey): string {
+  return evidenceString(key, 'reason')
+}
+
+function keyPlatformEvidenceGroup(key: UpstreamKey): string {
+  return evidenceString(key, 'group_raw_name')
+}
+
+function keyPlatformEvidenceReasonLabel(key: UpstreamKey): string {
+  const reason = keyPlatformEvidenceReason(key)
+  return platformEvidenceReasonKeys.has(reason)
+    ? t(`admin.upstreamConfigs.keyPlatforms.diagnostics.reasons.${reason}`)
+    : reason || t('admin.upstreamConfigs.keyPlatforms.diagnostics.unknownReason')
+}
+
+function keyPlatformEvidenceMatchMode(key: UpstreamKey): string {
+  return evidenceString(key, 'group_match_mode')
+}
+
+function keyPlatformEvidenceMatchModeLabel(key: UpstreamKey): string {
+  const mode = keyPlatformEvidenceMatchMode(key)
+  return platformEvidenceMatchModeKeys.has(mode)
+    ? t(`admin.upstreamConfigs.keyPlatforms.diagnostics.matchModes.${mode}`)
+    : mode || t('admin.upstreamConfigs.keyPlatforms.diagnostics.unknownMatchMode')
+}
+
+function keyPlatformEvidencePricingCount(key: UpstreamKey): number | null {
+  const evidence = keyPlatformEvidence(key)
+  if (!evidence) return null
+  const value = evidence.matched_pricing_records ??
+    evidence.pricing_match_count ??
+    evidence.matched_pricing_count ??
+    evidence.pricing_records
+  const count = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(count) && count >= 0 ? Math.trunc(count) : null
+}
+
+function keyPlatformEvidenceModels(key: UpstreamKey): string[] {
+  const value: unknown = keyPlatformEvidence(key)?.matched_models
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : []
+  return values
+    .filter((model: unknown): model is string => typeof model === 'string')
+    .map((model) => model.trim())
+    .filter(Boolean)
+    .slice(0, 5)
+}
+
+function keyPlatformEvidenceHasDiagnostics(key: UpstreamKey): boolean {
+  return Boolean(
+    keyPlatformEvidenceReason(key) ||
+    keyPlatformEvidenceMatchMode(key) ||
+    keyPlatformEvidencePricingCount(key) !== null ||
+    keyPlatformEvidenceModels(key).length
+  )
+}
+
+function keyPlatformEvidenceDiagnosticTitle(key: UpstreamKey): string {
+  const lines: string[] = []
+  const group = keyPlatformEvidenceGroup(key)
+  const reason = keyPlatformEvidenceReason(key)
+  const matchMode = keyPlatformEvidenceMatchMode(key)
+  const pricingCount = keyPlatformEvidencePricingCount(key)
+  const models = keyPlatformEvidenceModels(key)
+  if (group) lines.push(`${t('admin.upstreamConfigs.keyPlatforms.diagnostics.group')}: ${group}`)
+  if (reason) lines.push(`${t('admin.upstreamConfigs.keyPlatforms.diagnostics.reason')}: ${keyPlatformEvidenceReasonLabel(key)}`)
+  if (matchMode) lines.push(`${t('admin.upstreamConfigs.keyPlatforms.diagnostics.matchMode')}: ${keyPlatformEvidenceMatchModeLabel(key)}`)
+  if (pricingCount !== null) lines.push(`${t('admin.upstreamConfigs.keyPlatforms.diagnostics.pricingMatches')}: ${pricingCount}`)
+  if (models.length) lines.push(`${t('admin.upstreamConfigs.keyPlatforms.diagnostics.models')}: ${models.join(', ')}`)
+  return lines.join('\n')
+}
+
 function unsupportedDetectedPlatform(key: UpstreamKey): string | null {
   const direct = typeof key.detected_platform === 'string' ? key.detected_platform.trim() : ''
   if (direct && !normalizeKeyPlatform(direct)) return direct
-  const evidence = key.extra?.upstream_platform_evidence
-  if (evidence && typeof evidence === 'object' && typeof (evidence as Record<string, unknown>).detected_platform === 'string') {
-    const value = String((evidence as Record<string, unknown>).detected_platform).trim()
-    return value || null
+  const evidence = keyPlatformEvidence(key)
+  if (evidence?.detected_platform && !normalizeKeyPlatform(evidence.detected_platform)) {
+    return evidence.detected_platform.trim() || null
+  }
+  if (String(evidence?.status || '').toLowerCase() === 'unique' && Array.isArray(evidence?.candidates)) {
+    const candidate = evidence.candidates.find((value) => value.trim())?.trim() || ''
+    if (candidate && !normalizeKeyPlatform(candidate)) return candidate
   }
   return null
 }

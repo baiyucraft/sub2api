@@ -1921,6 +1921,71 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.text()).toContain('admin.upstreamConfigs.keyPlatforms.conflict')
   })
 
+  it('renders NewAPI diagnostics and falls back to the legacy evidence field', async () => {
+    listKeysMock.mockResolvedValueOnce([
+      {
+        id: 21,
+        upstream_config_id: 10,
+        name: 'NewAPI unresolved key',
+        platform: null,
+        platform_source: 'unassigned',
+        platform_detection_status: 'unresolved',
+        extra: {
+          newapi_platform_evidence: {
+            status: 'unknown',
+            reason: 'group_exists_without_pricing_binding',
+            group_match_mode: 'normalized_name',
+            matched_pricing_records: 0,
+            matched_models: ['gpt-5.4', 'gpt-5.5']
+          }
+        },
+        bound_account_count: 0,
+        status: 'active',
+        created_at: '',
+        updated_at: '2026-07-14T01:02:03Z'
+      },
+      {
+        id: 22,
+        upstream_config_id: 10,
+        name: 'Legacy evidence key',
+        platform: null,
+        platform_source: 'unassigned',
+        platform_detection_status: 'unresolved',
+        extra: {
+          upstream_platform_evidence: {
+            status: 'unknown',
+            reason: 'pricing_unavailable',
+            matched_pricing_records: 3,
+            matched_models: ['custom-model']
+          }
+        },
+        bound_account_count: 0,
+        status: 'active',
+        created_at: '',
+        updated_at: '2026-07-14T01:02:04Z'
+      }
+    ])
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="row-key-management"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="key-management-platform-tab"]').trigger('click')
+
+    const newapiDiagnostics = wrapper.get('[data-test="key-platform-diagnostics-21"]')
+    expect(newapiDiagnostics.text()).toContain('admin.upstreamConfigs.keyPlatforms.diagnostics.reason')
+    expect(newapiDiagnostics.text()).toContain('admin.upstreamConfigs.keyPlatforms.diagnostics.reasons.group_exists_without_pricing_binding')
+    expect(newapiDiagnostics.text()).toContain('admin.upstreamConfigs.keyPlatforms.diagnostics.matchModes.normalized_name')
+    expect(newapiDiagnostics.text()).toContain('0')
+    expect(newapiDiagnostics.text()).toContain('gpt-5.4, gpt-5.5')
+    expect(newapiDiagnostics.attributes('title')).toContain('pricingMatches')
+
+    const legacyDiagnostics = wrapper.get('[data-test="key-platform-diagnostics-22"]')
+    expect(legacyDiagnostics.text()).toContain('admin.upstreamConfigs.keyPlatforms.diagnostics.reasons.pricing_unavailable')
+    expect(legacyDiagnostics.text()).toContain('3')
+    expect(legacyDiagnostics.text()).toContain('custom-model')
+  })
+
   it('requires confirmation before retrying a 409 with bound-account disabling', async () => {
     listKeysMock.mockResolvedValueOnce([{
       id: 21,
