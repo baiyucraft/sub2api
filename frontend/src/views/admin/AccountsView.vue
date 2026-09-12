@@ -725,6 +725,7 @@ import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
 import { escapeCsvCell } from '@/utils/csv'
+import type { Column } from '@/components/common/types'
 import type { Account, AccountListItem, AccountPlatform, AccountQualityFilter, AccountQualityStats, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const CreateAccountModal = defineAsyncComponent(() => import('@/components/account/CreateAccountModal.vue'))
@@ -2575,8 +2576,8 @@ function getAntigravityTierClass(row: any): string {
 }
 
 // All available columns
-const allColumns = computed(() => {
-  const c = [
+const allColumns = computed<Column[]>(() => {
+  const c: Column[] = [
     { key: 'select', label: '', sortable: false },
     { key: 'name', label: props.scope === 'upstream' ? t('admin.upstreamManagement.columns.accountKey') : t('admin.accounts.columns.name'), sortable: true },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
@@ -2594,7 +2595,12 @@ const allColumns = computed(() => {
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {
-    c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
+    c.push({
+      key: 'groups',
+      label: t('admin.accounts.columns.groups'),
+      sortable: false,
+      class: 'w-[208px] min-w-[208px] max-w-[208px]'
+    })
   }
   c.push({ key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false })
   c.push(
