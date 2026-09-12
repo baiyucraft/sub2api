@@ -1692,6 +1692,12 @@
           </div>
         </div>
       </div>
+      <div v-if="isUpstreamBoundAccount" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <label class="input-label">{{ t('admin.accounts.upstreamRpmLimit') }}</label>
+        <input v-model.number="form.rpm_limit" type="number" min="0" max="100000" step="1" class="input"
+          @input="form.rpm_limit = Math.max(0, Math.trunc(form.rpm_limit || 0))" />
+        <p class="input-hint">{{ t('admin.accounts.upstreamRpmLimitHint') }}</p>
+      </div>
       <div v-if="canEditAccountLocalSettings" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
         <input v-model="expiresAtInput" type="datetime-local" class="input" />
@@ -3755,6 +3761,7 @@ const form = reactive({
   notes: '',
   proxy_id: null as number | null,
   concurrency: 1,
+  rpm_limit: 0,
   load_factor: null as number | null,
   priority: 1,
   rate_multiplier: 1,
@@ -3889,6 +3896,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.notes = newAccount.notes || ''
   form.proxy_id = newAccount.proxy_id
   form.concurrency = newAccount.concurrency
+  form.rpm_limit = Math.max(0, newAccount.rpm_limit ?? 0)
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
   form.rate_multiplier = newAccount.rate_multiplier ?? 1
@@ -4913,6 +4921,10 @@ const handleSubmit = async () => {
     } else {
       delete updatePayload.upstream_billing_probe_enabled
       delete updatePayload.upstream_billing_rate_sync_enabled
+    }
+
+    if (!isUpstreamBoundAccount.value) {
+      delete updatePayload.rpm_limit
     }
 
     if (isUpstreamBoundAccount.value) {

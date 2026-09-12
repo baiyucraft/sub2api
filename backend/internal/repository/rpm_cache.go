@@ -88,6 +88,49 @@ func (c *RPMCacheImpl) IncrementRPM(ctx context.Context, accountID int64) (int, 
 	return int(incrCmd.Val()), nil
 }
 
+var tryAcquireRPMScript = redis.NewScript(`
+local current = tonumber(redis.call("GET", KEYS[1]) or "0")
+local limit = tonumber(ARGV[1])
+local ttl = redis.call("TTL", KEYS[1])
+if ttl < 0 then ttl = 0 end
+if current >= limit then
+  return {0, current, ttl}
+end
+local next = redis.call("INCR", KEYS[1])
+if next == 1 then
+  redis.call("EXPIRE", KEYS[1], ARGV[2])
+  ttl = tonumber(ARGV[2])
+else
+  ttl = redis.call("TTL", KEYS[1])
+end
+return {1, next, ttl}
+`)
+
+// TryAcquireRPM atomically reserves one request in the current minute.
+// It uses the same Redis minute bucket as the legacy RPM counter so the
+// admin display and scheduler prefetch observe the same usage.
+func (c *RPMCacheImpl) TryAcquireRPM(ctx context.Context, accountID int64, limit int) (bool, int, time.Duration, error) {
+	if limit <= 0 {
+		return true, 0, 0, nil
+	}
+	key, err := c.currentMinuteKey(ctx, accountID)
+	if err != nil {
+		return false, 0, 0, fmt.Errorf("rpm acquire: %w", err)
+	}
+	values, err := tryAcquireRPMScript.Run(ctx, c.rdb, []string{key}, limit, int(rpmKeyTTL/time.Second)).Int64Slice()
+	if err != nil {
+		return false, 0, 0, fmt.Errorf("rpm acquire: %w", err)
+	}
+	if len(values) < 3 {
+		return false, 0, 0, errors.New("rpm acquire: malformed redis response")
+	}
+	retryAfter := time.Duration(values[2]) * time.Second
+	if retryAfter < 0 {
+		retryAfter = 0
+	}
+	return values[0] == 1, int(values[1]), retryAfter, nil
+}
+
 // GetRPM 获取当前分钟的 RPM 计数
 func (c *RPMCacheImpl) GetRPM(ctx context.Context, accountID int64) (int, error) {
 	key, err := c.currentMinuteKey(ctx, accountID)

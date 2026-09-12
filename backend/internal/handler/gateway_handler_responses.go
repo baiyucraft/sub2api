@@ -252,6 +252,16 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				reqLog.Warn("gateway.responses.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			}
 		}
+		if allowed, retryAfter, rpmErr := h.gatewayService.TryAcquireAccountRPM(c.Request.Context(), account); !allowed {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			reqLog.Debug("gateway.account_rpm_limit_reached", zap.Int64("account_id", account.ID), zap.Duration("retry_after", retryAfter))
+			continue
+		} else if rpmErr != nil {
+			reqLog.Warn("gateway.account_rpm_check_failed_open", zap.Int64("account_id", account.ID), zap.Error(rpmErr))
+		}
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
 		// 5. Forward request

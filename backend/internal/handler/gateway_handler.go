@@ -462,6 +462,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					reqLog.Warn("gateway.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
+			// 账号级 RPM 在真实上游请求前做最终原子准入；达到上限则释放并发槽并切换账号。
+			if allowed, retryAfter, rpmErr := h.gatewayService.TryAcquireAccountRPM(c.Request.Context(), account); !allowed {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				fs.FailedAccountIDs[account.ID] = struct{}{}
+				reqLog.Debug("gateway.account_rpm_limit_reached", zap.Int64("account_id", account.ID), zap.Duration("retry_after", retryAfter))
+				continue
+			} else if rpmErr != nil {
+				reqLog.Warn("gateway.account_rpm_check_failed_open", zap.Int64("account_id", account.ID), zap.Error(rpmErr))
+			}
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
@@ -541,7 +552,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// RPM 计数递增（Forward 成功后）
 			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
 			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
+			if account.RPMLimit <= 0 && account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
 				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
@@ -801,6 +812,19 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
 					reqLog.Warn("gateway.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
+			}
+			// 账号级 RPM 在真实上游请求前做最终原子准入；达到上限则释放并发槽并切换账号。
+			if allowed, retryAfter, rpmErr := h.gatewayService.TryAcquireAccountRPM(c.Request.Context(), account); !allowed {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				h.gatewayService.ReleaseAccountSession(context.Background(), account, sessionKey)
+				delete(sessionSlotAccounts, account.ID)
+				fs.FailedAccountIDs[account.ID] = struct{}{}
+				reqLog.Debug("gateway.account_rpm_limit_reached", zap.Int64("account_id", account.ID), zap.Duration("retry_after", retryAfter))
+				continue
+			} else if rpmErr != nil {
+				reqLog.Warn("gateway.account_rpm_check_failed_open", zap.Int64("account_id", account.ID), zap.Error(rpmErr))
 			}
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
@@ -1081,7 +1105,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// RPM 计数递增（Forward 成功后）
 			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
 			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
+			if account.RPMLimit <= 0 && account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
 				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}

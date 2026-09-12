@@ -141,6 +141,7 @@ type CreateAccountRequest struct {
 	UpstreamConfigID        *int64         `json:"upstream_config_id"`
 	UpstreamKeyID           *int64         `json:"upstream_key_id"`
 	Concurrency             int            `json:"concurrency"`
+	RPMLimit                int            `json:"rpm_limit"`
 	Priority                int            `json:"priority"`
 	RateMultiplier          *float64       `json:"rate_multiplier"`
 	LoadFactor              *int           `json:"load_factor"`
@@ -163,6 +164,7 @@ type UpdateAccountRequest struct {
 	UpstreamConfigID        *int64         `json:"upstream_config_id"`
 	UpstreamKeyID           *int64         `json:"upstream_key_id"`
 	Concurrency             *int           `json:"concurrency"`
+	RPMLimit                *int           `json:"rpm_limit"`
 	Priority                *int           `json:"priority"`
 	RateMultiplier          *float64       `json:"rate_multiplier"`
 	LoadFactor              *int           `json:"load_factor"`
@@ -182,6 +184,7 @@ type BulkUpdateAccountsRequest struct {
 	Name                    string                    `json:"name"`
 	ProxyID                 *int64                    `json:"proxy_id"`
 	Concurrency             *int                      `json:"concurrency"`
+	RPMLimit                *int                      `json:"rpm_limit"`
 	Priority                *int                      `json:"priority"`
 	RateMultiplier          *float64                  `json:"rate_multiplier"`
 	LoadFactor              *int                      `json:"load_factor"`
@@ -464,7 +467,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 			}
 		}
 
-		if h.rpmCache != nil && account.GetBaseRPM() > 0 {
+		if h.rpmCache != nil && ((account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0) || account.RPMLimit > 0) {
 			if rpm, err := h.rpmCache.GetRPM(ctx, account.ID); err == nil {
 				item.CurrentRPM = &rpm
 			}
@@ -974,6 +977,9 @@ func (h *AccountHandler) List(c *gin.Context) {
 				rpmAccountIDs = append(rpmAccountIDs, acc.ID)
 			}
 		}
+		if acc.RPMLimit > 0 && !(acc.IsAnthropicOAuthOrSetupToken() && acc.GetBaseRPM() > 0) {
+			rpmAccountIDs = append(rpmAccountIDs, acc.ID)
+		}
 	}
 
 	// 始终获取 RPM 计数（Redis GET，极低开销）
@@ -1333,6 +1339,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			UpstreamConfigID:      req.UpstreamConfigID,
 			UpstreamKeyID:         req.UpstreamKeyID,
 			Concurrency:           req.Concurrency,
+			RPMLimit:              req.RPMLimit,
 			Priority:              req.Priority,
 			RateMultiplier:        req.RateMultiplier,
 			LoadFactor:            req.LoadFactor,
@@ -1466,7 +1473,8 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		UpstreamConfigID:      req.UpstreamConfigID,
 		UpstreamKeyID:         req.UpstreamKeyID,
 		Concurrency:           req.Concurrency, // 指针类型，nil 表示未提供
-		Priority:              req.Priority,    // 指针类型，nil 表示未提供
+		RPMLimit:              req.RPMLimit,
+		Priority:              req.Priority, // 指针类型，nil 表示未提供
 		RateMultiplier:        req.RateMultiplier,
 		LoadFactor:            req.LoadFactor,
 		Status:                req.Status,
@@ -2610,6 +2618,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 	hasUpdates := req.Name != "" ||
 		req.ProxyID != nil ||
 		req.Concurrency != nil ||
+		req.RPMLimit != nil ||
 		req.Priority != nil ||
 		req.RateMultiplier != nil ||
 		req.LoadFactor != nil ||
@@ -2631,6 +2640,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		Name:                  req.Name,
 		ProxyID:               req.ProxyID,
 		Concurrency:           req.Concurrency,
+		RPMLimit:              req.RPMLimit,
 		Priority:              req.Priority,
 		RateMultiplier:        req.RateMultiplier,
 		LoadFactor:            req.LoadFactor,

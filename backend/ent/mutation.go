@@ -2569,6 +2569,8 @@ type AccountMutation struct {
 	upstream_archive_reason            *string
 	concurrency                        *int
 	addconcurrency                     *int
+	rpm_limit                          *int
+	addrpm_limit                       *int
 	load_factor                        *int
 	addload_factor                     *int
 	priority                           *int
@@ -3541,6 +3543,62 @@ func (m *AccountMutation) AddedConcurrency() (r int, exists bool) {
 func (m *AccountMutation) ResetConcurrency() {
 	m.concurrency = nil
 	m.addconcurrency = nil
+}
+
+// SetRpmLimit sets the "rpm_limit" field.
+func (m *AccountMutation) SetRpmLimit(i int) {
+	m.rpm_limit = &i
+	m.addrpm_limit = nil
+}
+
+// RpmLimit returns the value of the "rpm_limit" field in the mutation.
+func (m *AccountMutation) RpmLimit() (r int, exists bool) {
+	v := m.rpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRpmLimit returns the old "rpm_limit" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldRpmLimit(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRpmLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRpmLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRpmLimit: %w", err)
+	}
+	return oldValue.RpmLimit, nil
+}
+
+// AddRpmLimit adds i to the "rpm_limit" field.
+func (m *AccountMutation) AddRpmLimit(i int) {
+	if m.addrpm_limit != nil {
+		*m.addrpm_limit += i
+	} else {
+		m.addrpm_limit = &i
+	}
+}
+
+// AddedRpmLimit returns the value that was added to the "rpm_limit" field in this mutation.
+func (m *AccountMutation) AddedRpmLimit() (r int, exists bool) {
+	v := m.addrpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRpmLimit resets all changes to the "rpm_limit" field.
+func (m *AccountMutation) ResetRpmLimit() {
+	m.rpm_limit = nil
+	m.addrpm_limit = nil
 }
 
 // SetLoadFactor sets the "load_factor" field.
@@ -4898,7 +4956,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 38)
+	fields := make([]string, 0, 39)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4952,6 +5010,9 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.concurrency != nil {
 		fields = append(fields, account.FieldConcurrency)
+	}
+	if m.rpm_limit != nil {
+		fields = append(fields, account.FieldRpmLimit)
 	}
 	if m.load_factor != nil {
 		fields = append(fields, account.FieldLoadFactor)
@@ -5057,6 +5118,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.UpstreamArchiveReason()
 	case account.FieldConcurrency:
 		return m.Concurrency()
+	case account.FieldRpmLimit:
+		return m.RpmLimit()
 	case account.FieldLoadFactor:
 		return m.LoadFactor()
 	case account.FieldPriority:
@@ -5142,6 +5205,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldUpstreamArchiveReason(ctx)
 	case account.FieldConcurrency:
 		return m.OldConcurrency(ctx)
+	case account.FieldRpmLimit:
+		return m.OldRpmLimit(ctx)
 	case account.FieldLoadFactor:
 		return m.OldLoadFactor(ctx)
 	case account.FieldPriority:
@@ -5317,6 +5382,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetConcurrency(v)
 		return nil
+	case account.FieldRpmLimit:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRpmLimit(v)
+		return nil
 	case account.FieldLoadFactor:
 		v, ok := value.(int)
 		if !ok {
@@ -5474,6 +5546,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addconcurrency != nil {
 		fields = append(fields, account.FieldConcurrency)
 	}
+	if m.addrpm_limit != nil {
+		fields = append(fields, account.FieldRpmLimit)
+	}
 	if m.addload_factor != nil {
 		fields = append(fields, account.FieldLoadFactor)
 	}
@@ -5500,6 +5575,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedUpstreamStalePauseKeyID()
 	case account.FieldConcurrency:
 		return m.AddedConcurrency()
+	case account.FieldRpmLimit:
+		return m.AddedRpmLimit()
 	case account.FieldLoadFactor:
 		return m.AddedLoadFactor()
 	case account.FieldPriority:
@@ -5537,6 +5614,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddConcurrency(v)
+		return nil
+	case account.FieldRpmLimit:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRpmLimit(v)
 		return nil
 	case account.FieldLoadFactor:
 		v, ok := value.(int)
@@ -5787,6 +5871,9 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldConcurrency:
 		m.ResetConcurrency()
+		return nil
+	case account.FieldRpmLimit:
+		m.ResetRpmLimit()
 		return nil
 	case account.FieldLoadFactor:
 		m.ResetLoadFactor()

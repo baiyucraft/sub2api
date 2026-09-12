@@ -123,6 +123,7 @@ var (
 		{Name: "upstream_lifecycle_owner", Type: field.TypeString, Size: 20, Default: "manual"},
 		{Name: "upstream_archive_reason", Type: field.TypeString, Nullable: true, Size: 32},
 		{Name: "concurrency", Type: field.TypeInt, Default: 3},
+		{Name: "rpm_limit", Type: field.TypeInt, Default: 0},
 		{Name: "load_factor", Type: field.TypeInt, Nullable: true},
 		{Name: "priority", Type: field.TypeInt, Default: 50},
 		{Name: "rate_multiplier", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
@@ -155,25 +156,25 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "accounts_proxies_proxy",
-				Columns:    []*schema.Column{AccountsColumns[35]},
+				Columns:    []*schema.Column{AccountsColumns[36]},
 				RefColumns: []*schema.Column{ProxiesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "accounts_accounts_children",
-				Columns:    []*schema.Column{AccountsColumns[36]},
+				Columns:    []*schema.Column{AccountsColumns[37]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
 				OnDelete:   schema.Restrict,
 			},
 			{
 				Symbol:     "accounts_upstream_configs_accounts",
-				Columns:    []*schema.Column{AccountsColumns[37]},
+				Columns:    []*schema.Column{AccountsColumns[38]},
 				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "accounts_upstream_keys_accounts",
-				Columns:    []*schema.Column{AccountsColumns[38]},
+				Columns:    []*schema.Column{AccountsColumns[39]},
 				RefColumns: []*schema.Column{UpstreamKeysColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -192,62 +193,62 @@ var (
 			{
 				Name:    "account_status",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[20]},
+				Columns: []*schema.Column{AccountsColumns[21]},
 			},
 			{
 				Name:    "account_proxy_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[35]},
+				Columns: []*schema.Column{AccountsColumns[36]},
 			},
 			{
 				Name:    "account_upstream_config_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[37]},
+				Columns: []*schema.Column{AccountsColumns[38]},
 			},
 			{
 				Name:    "account_upstream_key_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[38]},
+				Columns: []*schema.Column{AccountsColumns[39]},
 			},
 			{
 				Name:    "account_priority",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[17]},
+				Columns: []*schema.Column{AccountsColumns[18]},
 			},
 			{
 				Name:    "account_last_used_at",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[22]},
+				Columns: []*schema.Column{AccountsColumns[23]},
 			},
 			{
 				Name:    "account_schedulable",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[25]},
+				Columns: []*schema.Column{AccountsColumns[26]},
 			},
 			{
 				Name:    "account_rate_limited_at",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[26]},
+				Columns: []*schema.Column{AccountsColumns[27]},
 			},
 			{
 				Name:    "account_rate_limit_reset_at",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[27]},
+				Columns: []*schema.Column{AccountsColumns[28]},
 			},
 			{
 				Name:    "account_overload_until",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[28]},
+				Columns: []*schema.Column{AccountsColumns[29]},
 			},
 			{
 				Name:    "account_platform_priority",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[6], AccountsColumns[17]},
+				Columns: []*schema.Column{AccountsColumns[6], AccountsColumns[18]},
 			},
 			{
 				Name:    "account_priority_status",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[17], AccountsColumns[20]},
+				Columns: []*schema.Column{AccountsColumns[18], AccountsColumns[21]},
 			},
 			{
 				Name:    "account_deleted_at",
@@ -257,7 +258,7 @@ var (
 			{
 				Name:    "account_parent_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[36]},
+				Columns: []*schema.Column{AccountsColumns[37]},
 			},
 		},
 	}

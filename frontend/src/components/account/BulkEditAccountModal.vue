@@ -33,6 +33,25 @@
         </div>
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
+            <label class="input-label mb-0">{{ t('admin.accounts.upstreamRpmLimit') }}</label>
+            <input id="bulk-edit-upstream-rpm-enabled" v-model="enableRpmLimit" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          </div>
+          <input
+            v-model.number="upstreamRpmLimit"
+            id="bulk-edit-upstream-rpm-limit"
+            type="number"
+            min="0"
+            max="100000"
+            step="1"
+            :disabled="!enableRpmLimit"
+            class="input"
+            :class="!enableRpmLimit && 'cursor-not-allowed opacity-50'"
+            @input="upstreamRpmLimit = Math.max(0, Math.trunc(upstreamRpmLimit || 0))"
+          />
+          <p class="input-hint">{{ t('admin.accounts.upstreamRpmLimitHint') }}</p>
+        </div>
+        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
             <label class="input-label mb-0">{{ t('admin.accounts.modelMapping') }}</label>
             <input id="bulk-edit-upstream-model-mapping-enabled" v-model="enableModelRestriction" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </div>
@@ -1716,6 +1735,7 @@ const enableCodexCLIOnlyAppServer = ref(false)
 const enableOpenAICompactMode = ref(false)
 const enableOpenAICompactModelMapping = ref(false)
 const enableRpmLimit = ref(false)
+const upstreamRpmLimit = ref(0)
 
 // State - field values
 const submitting = ref(false)
@@ -1980,6 +2000,10 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
       updates.extra = {}
     }
     return updates.extra as Record<string, unknown>
+  }
+
+  if (props.mode === 'upstream' && enableRpmLimit.value) {
+    updates.rpm_limit = Math.max(0, Math.trunc(upstreamRpmLimit.value || 0))
   }
 
   if (enableProxy.value) {
@@ -2437,6 +2461,7 @@ watch(
       enableOpenAICompactMode.value = false
       enableOpenAICompactModelMapping.value = false
       enableRpmLimit.value = false
+      upstreamRpmLimit.value = 0
 
       // Reset all values
       baseUrl.value = ''

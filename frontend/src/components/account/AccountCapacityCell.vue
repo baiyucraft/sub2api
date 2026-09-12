@@ -1,5 +1,12 @@
 <template>
   <div class="flex flex-col gap-0.5">
+    <!-- 通用账号 RPM 限制 -->
+    <CapacityBadge v-if="showAccountRpmLimit" :color-class="accountRpmClass" :tooltip="accountRpmTooltip" :current="accountCurrentRPM" :max="accountRpmLimit">
+      <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+      </svg>
+    </CapacityBadge>
+
     <!-- 并发槽位 -->
     <CapacityBadge :color-class="concurrencyClass" :tooltip="concurrencyTooltip" :current="currentConcurrency" :max="concurrencyMaximumLabel">
       <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -22,7 +29,7 @@
     </CapacityBadge>
 
     <!-- RPM 限制 -->
-    <CapacityBadge v-if="showRpmLimit" :color-class="rpmClass" :tooltip="rpmTooltip" :current="currentRPM" :max="account.base_rpm!" :suffix="rpmStrategyTag">
+    <CapacityBadge v-if="showRpmLimit && !showAccountRpmLimit" :color-class="rpmClass" :tooltip="rpmTooltip" :current="currentRPM" :max="account.base_rpm!" :suffix="rpmStrategyTag">
       <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
       </svg>
@@ -139,7 +146,29 @@ const showRpmLimit = computed(() =>
   props.account.base_rpm > 0
 )
 
-const currentRPM = computed(() => props.account.current_rpm ?? 0)
+const currentRPM = computed(() => Math.max(0, props.account.current_rpm ?? 0))
+
+// 通用账号级 RPM；Anthropic 旧版 base_rpm 在存在账号级限制时不重复展示。
+const accountRpmLimit = computed(() => Math.max(0, props.account.rpm_limit ?? 0))
+const showAccountRpmLimit = computed(() => accountRpmLimit.value > 0)
+const accountCurrentRPM = computed(() => Math.max(0, props.account.current_rpm ?? 0))
+const accountRpmClass = computed(() => {
+  if (!showAccountRpmLimit.value) return ''
+  const current = accountCurrentRPM.value
+  const limit = accountRpmLimit.value
+  if (current >= limit) return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+  if (current >= limit * 0.8) return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+  return 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400'
+})
+const accountRpmTooltip = computed(() => {
+  if (!showAccountRpmLimit.value) return ''
+  const current = accountCurrentRPM.value
+  const limit = accountRpmLimit.value
+  if (current >= limit) return t('admin.accounts.capacity.accountRpm.full', { current, limit })
+  if (current >= limit * 0.8) return t('admin.accounts.capacity.accountRpm.warning', { current, limit })
+  return t('admin.accounts.capacity.accountRpm.normal', { current, limit })
+})
+
 const rpmStrategy = computed(() => props.account.rpm_strategy || 'tiered')
 const rpmStrategyTag = computed(() => rpmStrategy.value === 'sticky_exempt' ? '[S]' : '[T]')
 

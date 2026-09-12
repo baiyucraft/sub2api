@@ -468,6 +468,11 @@ export default {
           full: 'Active sessions full, new sessions must wait (idle timeout: {idle} min)',
           normal: 'Active sessions normal (idle timeout: {idle} min)'
         },
+        accountRpm: {
+          full: 'Account RPM limit reached ({current} / {limit})',
+          warning: 'Account RPM approaching limit ({current} / {limit})',
+          normal: 'Account RPM limit ({current} / {limit})'
+        },
         rpm: {
           full: 'RPM limit reached',
           warning: 'RPM approaching limit',
@@ -1135,6 +1140,8 @@ export default {
       proxy: 'Proxy',
       noProxy: 'No Proxy',
       concurrency: 'Concurrency',
+      upstreamRpmLimit: 'RPM Limit',
+      upstreamRpmLimitHint: 'Maximum business requests per minute for this upstream account; 0 means unlimited.',
       loadFactor: 'Load Factor',
       loadFactorHint: 'Higher load factor increases scheduling frequency',
       upstreamAutoLoadFactor: 'Calculated from priority and concurrency',

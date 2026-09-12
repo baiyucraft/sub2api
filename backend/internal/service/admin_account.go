@@ -414,6 +414,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		Extra:                 extra,
 		ProxyID:               cloneAccountValuePointer(proxyID),
 		Concurrency:           source.Concurrency,
+		RPMLimit:              source.RPMLimit,
 		Priority:              source.Priority,
 		RateMultiplier:        cloneAccountValuePointer(source.RateMultiplier),
 		LoadFactor:            cloneAccountValuePointer(source.LoadFactor),
@@ -448,6 +449,16 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	duplicate.AccountGroups = groups
 	duplicate.GroupIDs = groupIDs
 	return duplicate, nil
+}
+
+func validateAccountRPMLimit(limit int) error {
+	if limit < 0 {
+		return errors.New("rpm_limit must be >= 0")
+	}
+	if limit > 100000 {
+		return errors.New("rpm_limit must be <= 100000")
+	}
+	return nil
 }
 
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {
@@ -515,6 +526,9 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if err := validateAccountRPMLimit(input.RPMLimit); err != nil {
+		return nil, err
+	}
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -534,6 +548,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		UpstreamConfigID: input.UpstreamConfigID,
 		UpstreamKeyID:    input.UpstreamKeyID,
 		Concurrency:      normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
+		RPMLimit:         input.RPMLimit,
 		Priority:         input.Priority,
 		Status:           StatusActive,
 		Schedulable:      true,
@@ -928,6 +943,12 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			delete(account.Extra, OllamaCloudUsageSnapshotExtraKey)
 		}
 	}
+	if input.RPMLimit != nil {
+		if err := validateAccountRPMLimit(*input.RPMLimit); err != nil {
+			return nil, err
+		}
+		account.RPMLimit = *input.RPMLimit
+	}
 	// 只在指针非 nil 时更新 Concurrency（支持设置为 0）
 	if input.Concurrency != nil {
 		account.Concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)
@@ -1176,7 +1197,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		return nil
 	}
 	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck ||
-		input.Concurrency != nil || input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil ||
+		input.Concurrency != nil || input.RPMLimit != nil || input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil ||
 		input.Name != "" || openAISettings.any() || input.ProbeEnabled != nil {
 		if err := loadCachedTargets(); err != nil {
 			return nil, err
@@ -1352,6 +1373,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 	if input.Concurrency != nil {
 		repoUpdates.Concurrency = input.Concurrency
+	}
+	if input.RPMLimit != nil {
+		repoUpdates.RPMLimit = input.RPMLimit
 	}
 	if input.Priority != nil {
 		repoUpdates.Priority = input.Priority

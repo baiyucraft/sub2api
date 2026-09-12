@@ -240,6 +240,20 @@ func (_c *AccountCreate) SetNillableConcurrency(v *int) *AccountCreate {
 	return _c
 }
 
+// SetRpmLimit sets the "rpm_limit" field.
+func (_c *AccountCreate) SetRpmLimit(v int) *AccountCreate {
+	_c.mutation.SetRpmLimit(v)
+	return _c
+}
+
+// SetNillableRpmLimit sets the "rpm_limit" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableRpmLimit(v *int) *AccountCreate {
+	if v != nil {
+		_c.SetRpmLimit(*v)
+	}
+	return _c
+}
+
 // SetLoadFactor sets the "load_factor" field.
 func (_c *AccountCreate) SetLoadFactor(v int) *AccountCreate {
 	_c.mutation.SetLoadFactor(v)
@@ -687,6 +701,10 @@ func (_c *AccountCreate) defaults() error {
 		v := account.DefaultConcurrency
 		_c.mutation.SetConcurrency(v)
 	}
+	if _, ok := _c.mutation.RpmLimit(); !ok {
+		v := account.DefaultRpmLimit
+		_c.mutation.SetRpmLimit(v)
+	}
 	if _, ok := _c.mutation.Priority(); !ok {
 		v := account.DefaultPriority
 		_c.mutation.SetPriority(v)
@@ -767,6 +785,9 @@ func (_c *AccountCreate) check() error {
 	}
 	if _, ok := _c.mutation.Concurrency(); !ok {
 		return &ValidationError{Name: "concurrency", err: errors.New(`ent: missing required field "Account.concurrency"`)}
+	}
+	if _, ok := _c.mutation.RpmLimit(); !ok {
+		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "Account.rpm_limit"`)}
 	}
 	if _, ok := _c.mutation.Priority(); !ok {
 		return &ValidationError{Name: "priority", err: errors.New(`ent: missing required field "Account.priority"`)}
@@ -887,6 +908,10 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Concurrency(); ok {
 		_spec.SetField(account.FieldConcurrency, field.TypeInt, value)
 		_node.Concurrency = value
+	}
+	if value, ok := _c.mutation.RpmLimit(); ok {
+		_spec.SetField(account.FieldRpmLimit, field.TypeInt, value)
+		_node.RpmLimit = value
 	}
 	if value, ok := _c.mutation.LoadFactor(); ok {
 		_spec.SetField(account.FieldLoadFactor, field.TypeInt, value)
@@ -1425,6 +1450,24 @@ func (u *AccountUpsert) UpdateConcurrency() *AccountUpsert {
 // AddConcurrency adds v to the "concurrency" field.
 func (u *AccountUpsert) AddConcurrency(v int) *AccountUpsert {
 	u.Add(account.FieldConcurrency, v)
+	return u
+}
+
+// SetRpmLimit sets the "rpm_limit" field.
+func (u *AccountUpsert) SetRpmLimit(v int) *AccountUpsert {
+	u.Set(account.FieldRpmLimit, v)
+	return u
+}
+
+// UpdateRpmLimit sets the "rpm_limit" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateRpmLimit() *AccountUpsert {
+	u.SetExcluded(account.FieldRpmLimit)
+	return u
+}
+
+// AddRpmLimit adds v to the "rpm_limit" field.
+func (u *AccountUpsert) AddRpmLimit(v int) *AccountUpsert {
+	u.Add(account.FieldRpmLimit, v)
 	return u
 }
 
@@ -2140,6 +2183,27 @@ func (u *AccountUpsertOne) AddConcurrency(v int) *AccountUpsertOne {
 func (u *AccountUpsertOne) UpdateConcurrency() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateConcurrency()
+	})
+}
+
+// SetRpmLimit sets the "rpm_limit" field.
+func (u *AccountUpsertOne) SetRpmLimit(v int) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetRpmLimit(v)
+	})
+}
+
+// AddRpmLimit adds v to the "rpm_limit" field.
+func (u *AccountUpsertOne) AddRpmLimit(v int) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddRpmLimit(v)
+	})
+}
+
+// UpdateRpmLimit sets the "rpm_limit" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateRpmLimit() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateRpmLimit()
 	})
 }
 
@@ -3079,6 +3143,27 @@ func (u *AccountUpsertBulk) AddConcurrency(v int) *AccountUpsertBulk {
 func (u *AccountUpsertBulk) UpdateConcurrency() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateConcurrency()
+	})
+}
+
+// SetRpmLimit sets the "rpm_limit" field.
+func (u *AccountUpsertBulk) SetRpmLimit(v int) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetRpmLimit(v)
+	})
+}
+
+// AddRpmLimit adds v to the "rpm_limit" field.
+func (u *AccountUpsertBulk) AddRpmLimit(v int) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddRpmLimit(v)
+	})
+}
+
+// UpdateRpmLimit sets the "rpm_limit" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateRpmLimit() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateRpmLimit()
 	})
 }
 
