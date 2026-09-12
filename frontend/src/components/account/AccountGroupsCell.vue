@@ -1,19 +1,20 @@
 <template>
-  <div v-if="groups && groups.length > 0" class="relative max-w-56">
+  <div v-if="groups && groups.length > 0" class="account-groups-cell relative w-full min-w-0 max-w-full">
     <!-- 分组容器：固定最大宽度，最多显示2行 -->
-    <div class="flex flex-wrap gap-1 max-h-14 overflow-hidden">
+    <div class="flex min-w-0 flex-wrap gap-1 overflow-hidden max-h-14">
       <div
         v-for="group in displayGroups"
         :key="group.id"
-        class="inline-flex items-center gap-0.5"
+        class="inline-flex min-w-0 max-w-full items-center gap-0.5"
       >
         <GroupBadge
           :name="group.name"
+          :title="group.name"
           :platform="group.platform"
           :subscription-type="group.subscription_type"
           :rate-multiplier="group.rate_multiplier"
           :show-rate="false"
-          class="max-w-24"
+          class="min-w-0 max-w-[10rem]"
         />
         <button
           v-if="shouldShowPreferredState && interactive && accountId !== null && accountId !== undefined"
@@ -100,10 +101,11 @@
             <div
               v-for="group in groups"
               :key="group.id"
-              class="inline-flex items-center gap-0.5"
+              class="inline-flex min-w-0 max-w-full items-center gap-0.5"
             >
               <GroupBadge
                 :name="group.name"
+                :title="group.name"
                 :platform="group.platform"
                 :subscription-type="group.subscription_type"
                 :rate-multiplier="group.rate_multiplier"

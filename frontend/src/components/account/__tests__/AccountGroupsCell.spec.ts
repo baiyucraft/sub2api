@@ -42,6 +42,19 @@ const mountCell = (props: Record<string, unknown> = {}) => mount(AccountGroupsCe
 })
 
 describe('AccountGroupsCell preferred account pool', () => {
+  it('keeps the group cell compact and exposes long names through the title', () => {
+    const wrapper = mountCell({
+      groups: [{ id: 1, name: 'gpt-混合稳定-这是一个很长的分组名称', platform: 'openai' }] as any
+    })
+
+    expect(wrapper.find('.account-groups-cell').classes()).toEqual(
+      expect.arrayContaining(['w-full', 'max-w-full', 'min-w-0'])
+    )
+    expect(wrapper.find('.group-badge').attributes('title')).toBe(
+      'gpt-混合稳定-这是一个很长的分组名称'
+    )
+  })
+
   it('keeps existing calls read-only when preferred props are omitted', () => {
     const wrapper = mountCell({ maxDisplay: 3 })
 
