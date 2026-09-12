@@ -222,6 +222,126 @@ func TestRunCheckForModel_OpenAI_DefaultChatRequest(t *testing.T) {
 	}
 }
 
+func TestZhipuMonitorConfigurationSupportsChatAndResponsesModes(t *testing.T) {
+	if err := validateAPIMode(MonitorProviderZhipu, MonitorAPIModeChatCompletions); err != nil {
+		t.Fatalf("zhipu chat_completions mode should be valid: %v", err)
+	}
+	if err := validateAPIMode(MonitorProviderZhipu, MonitorAPIModeResponses); err != nil {
+		t.Fatalf("zhipu responses mode should be valid: %v", err)
+	}
+	if err := validateReplaceRequestBody(MonitorProviderZhipu, MonitorAPIModeChatCompletions, map[string]any{}); err == nil {
+		t.Fatal("zhipu chat_completions replace body should require messages")
+	}
+	if err := validateReplaceRequestBody(MonitorProviderZhipu, MonitorAPIModeResponses, map[string]any{}); err == nil {
+		t.Fatal("zhipu responses replace body should require instructions and input")
+	}
+	if err := validateAPIMode(MonitorProviderZhipu, MonitorAPIModeZhipuNative); err != nil {
+		t.Fatalf("zhipu native mode should be valid: %v", err)
+	}
+	if err := validateAPIMode(MonitorProviderOpenAI, MonitorAPIModeZhipuNative); err == nil {
+		t.Fatal("zhipu native mode should be rejected for OpenAI")
+	}
+	if err := validateReplaceRequestBody(MonitorProviderZhipu, MonitorAPIModeZhipuNative, map[string]any{}); err == nil {
+		t.Fatal("zhipu native replace body should require messages")
+	}
+
+	chat, chatMode, ok := providerAdapterFor(MonitorProviderZhipu, MonitorAPIModeChatCompletions)
+	if !ok || chatMode != MonitorAPIModeChatCompletions {
+		t.Fatalf("zhipu chat adapter selection = (%v, %q, %v)", chat, chatMode, ok)
+	}
+	if got := chat.buildPath("glm-5.3"); got != providerOpenAIPath {
+		t.Fatalf("zhipu chat path = %q, want %q", got, providerOpenAIPath)
+	}
+
+	responses, responsesMode, ok := providerAdapterFor(MonitorProviderZhipu, MonitorAPIModeResponses)
+	if !ok || responsesMode != MonitorAPIModeResponses {
+		t.Fatalf("zhipu responses adapter selection = (%v, %q, %v)", responses, responsesMode, ok)
+	}
+	if got := responses.buildPath("glm-5.3"); got != providerOpenAIResponsesPath {
+		t.Fatalf("zhipu responses path = %q, want %q", got, providerOpenAIResponsesPath)
+	}
+
+	native, nativeMode, ok := providerAdapterFor(MonitorProviderZhipu, MonitorAPIModeZhipuNative)
+	if !ok || nativeMode != MonitorAPIModeZhipuNative {
+		t.Fatalf("zhipu native adapter selection = (%v, %q, %v)", native, nativeMode, ok)
+	}
+	if got := native.buildPath("glm-5.3"); got != providerZhipuPath {
+		t.Fatalf("zhipu native path = %q, want %q", got, providerZhipuPath)
+	}
+}
+
+func TestRunCheckForModel_ZhipuChatCompletionsRequest(t *testing.T) {
+	h := &openAICaptureHandler{}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderZhipu, endpoint, "zhipu-key", "glm-5.3", &CheckOptions{
+		APIMode: MonitorAPIModeChatCompletions,
+	})
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("zhipu Chat Completions request should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.lastPath != providerOpenAIPath {
+		t.Fatalf("expected zhipu Chat Completions path %q, got %q", providerOpenAIPath, h.lastPath)
+	}
+	if h.lastBody["model"] != "glm-5.3" {
+		t.Errorf("zhipu OpenAI-compatible body should contain model=glm-5.3, got %v", h.lastBody["model"])
+	}
+	if _, ok := h.lastBody["messages"]; !ok {
+		t.Error("zhipu OpenAI-compatible body should contain messages")
+	}
+	if h.lastHeaders.Get("Authorization") != "Bearer zhipu-key" {
+		t.Errorf("expected zhipu bearer auth header, got %q", h.lastHeaders.Get("Authorization"))
+	}
+}
+
+func TestRunCheckForModel_ZhipuResponsesRequest(t *testing.T) {
+	h := &openAICaptureHandler{}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderZhipu, endpoint, "zhipu-key", "glm-5.3", &CheckOptions{
+		APIMode: MonitorAPIModeResponses,
+	})
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("zhipu Responses request should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.lastPath != providerOpenAIResponsesPath {
+		t.Fatalf("expected zhipu Responses path %q, got %q", providerOpenAIResponsesPath, h.lastPath)
+	}
+	if h.lastBody["model"] != "glm-5.3" {
+		t.Errorf("zhipu Responses body should contain model=glm-5.3, got %v", h.lastBody["model"])
+	}
+	if h.lastBody["instructions"] == nil || h.lastBody["input"] == nil {
+		t.Error("zhipu Responses body should contain instructions and input")
+	}
+	if res.TTFTMs == nil {
+		t.Error("zhipu Responses request should record TTFT")
+	}
+}
+
+func TestRunCheckForModel_ZhipuNativeRequest(t *testing.T) {
+	h := &openAICaptureHandler{}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderZhipu, endpoint, "zhipu-key", "glm-5.3", &CheckOptions{
+		APIMode: MonitorAPIModeZhipuNative,
+	})
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("zhipu native request should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.lastPath != providerZhipuPath {
+		t.Fatalf("expected zhipu native path %q, got %q", providerZhipuPath, h.lastPath)
+	}
+	if h.lastBody["model"] != "glm-5.3" {
+		t.Errorf("zhipu native body should contain model=glm-5.3, got %v", h.lastBody["model"])
+	}
+	if _, ok := h.lastBody["messages"]; !ok {
+		t.Error("zhipu native body should contain messages")
+	}
+}
+
 func TestGrokMonitorConfiguration(t *testing.T) {
 	if err := validateProvider(MonitorProviderGrok); err != nil {
 		t.Fatalf("grok provider should be supported: %v", err)

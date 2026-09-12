@@ -85,14 +85,19 @@ func validateCheckMode(provider, checkMode string) error {
 }
 
 // validateAPIMode 校验 provider 与 api_mode 的组合。
-// responses 只对 OpenAI 有意义；其它 provider 使用 chat_completions 作为默认占位。
+// responses 目前对 OpenAI 和智谱开放，均通过本站协议入口探测。
 func validateAPIMode(provider, apiMode string) error {
 	apiMode = defaultAPIMode(apiMode)
 	switch apiMode {
 	case MonitorAPIModeChatCompletions:
 		return nil
 	case MonitorAPIModeResponses:
-		if provider == "" || provider == MonitorProviderOpenAI {
+		if provider == "" || provider == MonitorProviderOpenAI || provider == MonitorProviderZhipu {
+			return nil
+		}
+		return ErrChannelMonitorInvalidAPIMode
+	case MonitorAPIModeZhipuNative:
+		if provider == MonitorProviderZhipu {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode

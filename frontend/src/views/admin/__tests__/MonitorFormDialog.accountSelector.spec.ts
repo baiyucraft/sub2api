@@ -170,6 +170,30 @@ describe('MonitorFormDialog linked account selector', () => {
     monitorUpdate.mockReset().mockResolvedValue({})
   })
 
+  it('exposes Chat Completions and Responses protocols for Zhipu', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="monitor-provider-zhipu"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="monitor-api-mode"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-testid^="monitor-api-mode-"]')).toHaveLength(3)
+    expect(wrapper.find('[data-testid="monitor-api-mode-responses"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="monitor-api-mode-zhipu_native"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="monitor-api-mode-responses"]').trigger('click')
+
+    await wrapper.get('input[placeholder="admin.channelMonitor.form.namePlaceholder"]').setValue('zhipu monitor')
+    await wrapper.get('[data-testid="monitor-primary-model"]').setValue('glm-5.3')
+    await wrapper.get('#channel-monitor-form').trigger('submit')
+    await flushPromises()
+
+    expect(monitorCreate).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'zhipu',
+      api_mode: 'responses',
+    }))
+  })
+
   it('loads the first page of provider accounts when quota mode is enabled', async () => {
     accountsList.mockResolvedValue({ items: [{ id: 1, name: 'a', platform: 'anthropic' }] })
     const wrapper = mountDialog()

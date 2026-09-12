@@ -34,6 +34,7 @@ export const CHECK_MODE_QUOTA_PROBE: CheckMode = 'quota_probe'
 
 export const API_MODE_CHAT_COMPLETIONS: APIMode = 'chat_completions'
 export const API_MODE_RESPONSES: APIMode = 'responses'
+export const API_MODE_ZHIPU_NATIVE: APIMode = 'zhipu_native'
 
 export const PROVIDERS: readonly Provider[] = [
   PROVIDER_OPENAI,
@@ -59,6 +60,7 @@ export const CHECK_MODES: readonly CheckMode[] = [
 export const API_MODES: readonly APIMode[] = [
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
+  API_MODE_ZHIPU_NATIVE,
 ]
 
 export const STATUS_OPERATIONAL: MonitorStatus = 'operational'
