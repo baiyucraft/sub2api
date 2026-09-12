@@ -1695,6 +1695,7 @@
       <div v-if="isUpstreamBoundAccount" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.upstreamRpmLimit') }}</label>
         <input v-model.number="form.rpm_limit" type="number" min="0" max="100000" step="1" class="input"
+          data-testid="upstream-rpm-limit"
           @input="form.rpm_limit = Math.max(0, Math.trunc(form.rpm_limit || 0))" />
         <p class="input-hint">{{ t('admin.accounts.upstreamRpmLimitHint') }}</p>
       </div>
@@ -4867,6 +4868,14 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
   submitting.value = true
   try {
     let updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
+    const requestedRPMLimit = updatePayload.rpm_limit
+    if (
+      typeof requestedRPMLimit === 'number' &&
+      requestedRPMLimit > 0 &&
+      updatedAccount.rpm_limit !== requestedRPMLimit
+    ) {
+      throw new Error(t('admin.accounts.upstreamRpmSaveMismatch'))
+    }
     updatedAccount = await persistGrokMediaEligibility(accountID, updatedAccount)
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
     emit('updated', updatedAccount)

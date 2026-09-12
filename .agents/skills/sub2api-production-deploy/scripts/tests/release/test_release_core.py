@@ -310,7 +310,8 @@ class ReleaseCoreTest(unittest.TestCase):
         historical_245 = get_profile("245")
         historical_246 = get_profile("246")
         historical_248 = get_profile("248")
-        current = get_profile("249")
+        historical_249 = get_profile("249")
+        current = get_profile("250")
         self.assertEqual(historical["version"], "0.1.183-baiyu")
         self.assertEqual(historical["parent"], "241")
         self.assertEqual(historical_243["version"], "0.1.184-baiyu")
@@ -342,20 +343,22 @@ class ReleaseCoreTest(unittest.TestCase):
             "268_group_model_allowlist_repair.sql",
         ])
         self.assertEqual(current["version"], "0.2.4-baiyu")
-        self.assertEqual(current["parent"], "248")
+        self.assertEqual(historical_249["parent"], "248")
+        self.assertEqual(historical_249["new_migrations"], ["269_add_minimax_platform.sql"])
+        self.assertEqual(current["parent"], "249")
         self.assertEqual(current["new_migrations"], [
-            "269_add_minimax_platform.sql",
+            "270_account_rpm_limit.sql",
         ])
-        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "249")
-        self.assertEqual(get_release_profile("249"), current)
+        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "250")
+        self.assertEqual(get_release_profile("250"), current)
         with self.assertRaises(ValueError):
             get_release_profile("246")
         with self.assertRaises(ValueError):
             get_release_profile("245")
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249)"
-        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249"
+        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
@@ -962,7 +965,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241"}', gate)
         self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245"}', production)
         self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 ]]', switch)
-        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 ]]', assertion)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 ]]', assertion)
         self.assertIn('expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241"}', gate)
         self.assertIn("managed monitor key-name evidence", gate)
 

@@ -1166,6 +1166,7 @@ export default {
       updating: 'Updating...',
       accountCreated: 'Account created successfully',
       accountUpdated: 'Account updated successfully',
+      upstreamRpmSaveMismatch: 'The backend did not persist the RPM limit. Upgrade the backend and database, then try again.',
       failedToCreate: 'Failed to create account',
       failedToUpdate: 'Failed to update account',
       pleaseSelectStatus: 'Please select a valid account status',

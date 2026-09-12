@@ -660,7 +660,24 @@ PROFILES["249"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "249"
+# Profile 249 is immutable. Account-level upstream RPM limits add the next
+# fork migration while retaining the upstream 0.2.4 application version.
+PROFILES["250"] = {
+    **{key: PROFILES["249"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "250",
+    "version": "0.2.4-baiyu",
+    "parent": "249",
+    "new_migrations": [
+        "270_account_rpm_limit.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "250"
 
 
 def get_profile(name: str) -> dict:
