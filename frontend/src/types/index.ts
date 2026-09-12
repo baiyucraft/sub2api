@@ -1333,6 +1333,8 @@ export interface Account {
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
   concurrency: number
+  /** Account-level requests-per-minute cap; 0 or missing means unlimited. */
+  rpm_limit?: number
   load_factor?: number | null
   current_concurrency?: number // Real-time concurrency count from Redis
   scheduler_concurrency_limit?: number
@@ -1754,6 +1756,7 @@ export interface CreateAccountRequest {
   upstream_key_id?: number | null
   proxy_id?: number | null
   concurrency?: number
+  rpm_limit?: number
   load_factor?: number | null
   priority?: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
@@ -1774,6 +1777,7 @@ export interface UpdateAccountRequest {
   upstream_key_id?: number | null
   proxy_id?: number | null
   concurrency?: number
+  rpm_limit?: number
   load_factor?: number | null
   priority?: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)

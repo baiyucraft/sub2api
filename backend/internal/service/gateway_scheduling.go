@@ -1450,7 +1450,7 @@ func (s *GatewayService) withRPMPrefetch(ctx context.Context, accounts []Account
 
 	var ids []int64
 	for i := range accounts {
-		if accounts[i].IsAnthropicOAuthOrSetupToken() && accounts[i].GetBaseRPM() > 0 {
+		if accounts[i].RPMLimit > 0 || (accounts[i].IsAnthropicOAuthOrSetupToken() && accounts[i].GetBaseRPM() > 0) {
 			ids = append(ids, accounts[i].ID)
 		}
 	}
@@ -1468,6 +1468,22 @@ func (s *GatewayService) withRPMPrefetch(ctx context.Context, accounts []Account
 // isAccountSchedulableForRPM 检查账号是否可根据 RPM 进行调度
 // 仅适用于 Anthropic OAuth/SetupToken 账号
 func (s *GatewayService) isAccountSchedulableForRPM(ctx context.Context, account *Account, isSticky bool) bool {
+	if account == nil {
+		return false
+	}
+	// 通用账号级 RPM 是硬上限，适用于所有平台和账号类型。
+	if account.RPMLimit > 0 {
+		currentRPM := 0
+		if count, ok := rpmFromPrefetchContext(ctx, account.ID); ok {
+			currentRPM = count
+		} else if s.rpmCache != nil {
+			if count, err := s.rpmCache.GetRPM(ctx, account.ID); err == nil {
+				currentRPM = count
+			}
+		}
+		return currentRPM < account.RPMLimit
+	}
+	// 保留 Anthropic OAuth/SetupToken 的 tiered/sticky 旧语义。
 	if !account.IsAnthropicOAuthOrSetupToken() {
 		return true
 	}
@@ -1476,7 +1492,6 @@ func (s *GatewayService) isAccountSchedulableForRPM(ctx context.Context, account
 		return true
 	}
 
-	// 尝试从预取缓存获取
 	var currentRPM int
 	if count, ok := rpmFromPrefetchContext(ctx, account.ID); ok {
 		currentRPM = count
@@ -1484,7 +1499,6 @@ func (s *GatewayService) isAccountSchedulableForRPM(ctx context.Context, account
 		if count, err := s.rpmCache.GetRPM(ctx, account.ID); err == nil {
 			currentRPM = count
 		}
-		// 失败开放：GetRPM 错误时允许调度
 	}
 
 	schedulability := account.CheckRPMSchedulability(currentRPM)
@@ -1500,15 +1514,31 @@ func (s *GatewayService) isAccountSchedulableForRPM(ctx context.Context, account
 }
 
 // IncrementAccountRPM increments the RPM counter for the given account.
-// 已知 TOCTOU 竞态：调度时读取 RPM 计数与此处递增之间存在时间窗口，
-// 高并发下可能短暂超出 RPM 限制。这是与 WindowCost 一致的 soft-limit
-// 设计权衡——可接受的少量超额优于加锁带来的延迟和复杂度。
+// 兼容旧 Anthropic 软限制路径；新账号级硬限制应优先使用 TryAcquireAccountRPM。
 func (s *GatewayService) IncrementAccountRPM(ctx context.Context, accountID int64) error {
 	if s.rpmCache == nil {
 		return nil
 	}
 	_, err := s.rpmCache.IncrementRPM(ctx, accountID)
 	return err
+}
+
+// TryAcquireAccountRPM performs the final atomic account-level RPM check.
+// Redis errors fail open so a cache outage cannot take down upstream traffic.
+func (s *GatewayService) TryAcquireAccountRPM(ctx context.Context, account *Account) (allowed bool, retryAfter time.Duration, err error) {
+	if account == nil || account.RPMLimit <= 0 || s.rpmCache == nil {
+		return true, 0, nil
+	}
+	limiter, ok := s.rpmCache.(AccountRPMLimiter)
+	if !ok {
+		return true, 0, nil
+	}
+	allowed, _, retryAfter, err = limiter.TryAcquireRPM(ctx, account.ID, account.RPMLimit)
+	if err != nil {
+		slog.Warn("account_rpm_limiter_unavailable_fail_open", "account_id", account.ID, "error", err)
+		return true, 0, err
+	}
+	return allowed, retryAfter, nil
 }
 
 // checkAndRegisterSession 检查并注册会话，用于会话数量限制

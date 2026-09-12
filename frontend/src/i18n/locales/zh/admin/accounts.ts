@@ -346,6 +346,11 @@ export default {
           full: '活跃会话已满，新会话需等待（空闲超时：{idle}分钟）',
           normal: '活跃会话正常（空闲超时：{idle}分钟）'
         },
+        accountRpm: {
+          full: '账号级 RPM 已达上限（{current} / {limit}）',
+          warning: '账号级 RPM 接近上限（{current} / {limit}）',
+          normal: '账号级 RPM 限制（{current} / {limit}）'
+        },
         rpm: {
           full: '已达 RPM 上限',
           warning: 'RPM 接近上限',
@@ -1207,6 +1212,8 @@ export default {
       proxy: '代理',
       noProxy: '无代理',
       concurrency: '并发数',
+      upstreamRpmLimit: 'RPM 限制',
+      upstreamRpmLimitHint: '上游账号每分钟最大业务请求数；0 表示不限制。仅用于账号调度限流。',
       loadFactor: '负载因子',
       loadFactorHint: '提高负载因子可以提高对账号的调度频率',
       upstreamAutoLoadFactor: '按优先级和并发自动计算',

@@ -414,6 +414,7 @@ type CreateAccountInput struct {
 	UpstreamConfigID   *int64
 	UpstreamKeyID      *int64
 	Concurrency        int
+	RPMLimit           int // 账号每分钟业务请求上限，0 表示不限
 	Priority           int
 	RateMultiplier     *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor         *int
@@ -447,6 +448,7 @@ type UpdateAccountInput struct {
 	UpstreamConfigID      *int64
 	UpstreamKeyID         *int64
 	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
+	RPMLimit              *int     // 使用指针区分"未提供"和"设置为0"
 	Priority              *int     // 使用指针区分"未提供"和"设置为0"
 	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor            *int
@@ -466,6 +468,7 @@ type BulkUpdateAccountsInput struct {
 	Name           string
 	ProxyID        *int64
 	Concurrency    *int
+	RPMLimit       *int // 账号每分钟业务请求上限，0 表示不限
 	Priority       *int
 	RateMultiplier *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor     *int

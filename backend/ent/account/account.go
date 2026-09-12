@@ -52,6 +52,8 @@ const (
 	FieldUpstreamArchiveReason = "upstream_archive_reason"
 	// FieldConcurrency holds the string denoting the concurrency field in the database.
 	FieldConcurrency = "concurrency"
+	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
+	FieldRpmLimit = "rpm_limit"
 	// FieldLoadFactor holds the string denoting the load_factor field in the database.
 	FieldLoadFactor = "load_factor"
 	// FieldPriority holds the string denoting the priority field in the database.
@@ -190,6 +192,7 @@ var Columns = []string{
 	FieldUpstreamLifecycleOwner,
 	FieldUpstreamArchiveReason,
 	FieldConcurrency,
+	FieldRpmLimit,
 	FieldLoadFactor,
 	FieldPriority,
 	FieldRateMultiplier,
@@ -260,6 +263,8 @@ var (
 	UpstreamArchiveReasonValidator func(string) error
 	// DefaultConcurrency holds the default value on creation for the "concurrency" field.
 	DefaultConcurrency int
+	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
+	DefaultRpmLimit int
 	// DefaultPriority holds the default value on creation for the "priority" field.
 	DefaultPriority int
 	// DefaultRateMultiplier holds the default value on creation for the "rate_multiplier" field.
@@ -388,6 +393,11 @@ func ByUpstreamArchiveReason(opts ...sql.OrderTermOption) OrderOption {
 // ByConcurrency orders the results by the concurrency field.
 func ByConcurrency(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldConcurrency, opts...).ToFunc()
+}
+
+// ByRpmLimit orders the results by the rpm_limit field.
+func ByRpmLimit(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRpmLimit, opts...).ToFunc()
 }
 
 // ByLoadFactor orders the results by the load_factor field.
