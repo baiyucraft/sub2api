@@ -45,6 +45,20 @@ const (
 	newAPIWarningRevealFailed       = "newapi_token_key_reveal_failed"
 	newAPIWarningPlatformPartial    = "newapi_platform_detection_partial"
 
+	newAPIPlatformReasonGroupExplicit             = "group_explicit_platform"
+	newAPIPlatformReasonPricingUnique             = "pricing_unique_evidence"
+	newAPIPlatformReasonPricingMultiple           = "pricing_multiple_platforms"
+	newAPIPlatformReasonGroupExistsWithoutPricing = "group_exists_without_pricing_binding"
+	newAPIPlatformReasonPricingRecordsUnknown     = "pricing_records_without_platform_evidence"
+	newAPIPlatformReasonPricingGroupAmbiguous     = "pricing_group_name_ambiguous"
+	newAPIPlatformReasonPricingUnavailable        = "pricing_unavailable"
+	newAPIPlatformReasonPricingResponseInvalid    = "pricing_response_invalid"
+	newAPIPlatformReasonOwnerUnrecognized         = "owner_unrecognized"
+	newAPIPlatformReasonModelUnrecognized         = "model_unrecognized"
+	newAPIPlatformReasonGroupNotFound             = "group_not_in_user_groups"
+	newAPIPlatformReasonGroupExplicitUnrecognized = "group_platform_unrecognized"
+	newAPIPlatformMaxMatchedModels                = 8
+
 	newAPIPlatformEvidenceUnique   = "unique"
 	newAPIPlatformEvidenceMultiple = "multiple"
 	newAPIPlatformEvidenceUnknown  = "unknown"
@@ -55,6 +69,7 @@ const (
 	newAPIPlatformSourcePricingOwner     = "pricing_owner"
 	newAPIPlatformSourcePricingModelName = "pricing_model_name"
 	newAPIPlatformSourcePricingMixed     = "pricing_mixed"
+	newAPIPlatformSourceGroupExplicit    = "group_explicit"
 )
 
 var reNewAPISecretKey = regexp.MustCompile(`\bsk-[0-9A-Za-z_-]{8,}\b`)
@@ -118,22 +133,114 @@ func newAPIBearerAuthorization(token string) string {
 type newAPIGroupInfo struct {
 	Desc             string                 `json:"desc"`
 	Ratio            any                    `json:"ratio"`
+	Platform         any                    `json:"platform"`
+	PlatformValues   any                    `json:"platforms"`
+	OwnerBy          any                    `json:"owner_by"`
+	Vendor           any                    `json:"vendor"`
 	Platforms        []string               `json:"-"`
 	PlatformEvidence newAPIPlatformEvidence `json:"-"`
 }
 
 type newAPIPlatformEvidence struct {
-	Status     string
-	Candidates []string
-	Source     string
-	DetectedAt time.Time
+	Status                string
+	Candidates            []string
+	Source                string
+	DetectedAt            time.Time
+	Reason                string
+	MatchedPricingRecords int
+	MatchedModels         []string
+	GroupMatchMode        string
+	GroupRawName          string
+	GroupNormalizedName   string
 }
 
 type newAPIPlatformEvidenceAccumulator struct {
-	candidates map[string]struct{}
-	sources    map[string]struct{}
-	partial    bool
-	unknown    bool
+	candidates            map[string]struct{}
+	sources               map[string]struct{}
+	partial               bool
+	unknown               bool
+	matchedPricingRecords int
+	matchedModels         []string
+	groupMatchMode        string
+	unknownReason         string
+}
+
+type newAPIGroupMatch struct {
+	Name           string
+	Mode           string
+	NormalizedName string
+	Ambiguous      bool
+}
+
+type newAPIGroupIndex struct {
+	exact      map[string]string
+	normalized map[string][]string
+}
+
+func normalizeNewAPIGroupName(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
+}
+
+func newAPIGroupIndexFor(groups map[string]newAPIGroupInfo) newAPIGroupIndex {
+	index := newAPIGroupIndex{
+		exact:      make(map[string]string, len(groups)),
+		normalized: make(map[string][]string, len(groups)),
+	}
+	for name := range groups {
+		index.exact[name] = name
+		normalizedName := normalizeNewAPIGroupName(name)
+		if normalizedName != "" {
+			index.normalized[normalizedName] = append(index.normalized[normalizedName], name)
+		}
+	}
+	for normalizedName := range index.normalized {
+		sort.Strings(index.normalized[normalizedName])
+	}
+	return index
+}
+
+func (i newAPIGroupIndex) resolve(value string) newAPIGroupMatch {
+	if name, ok := i.exact[value]; ok {
+		return newAPIGroupMatch{Name: name, Mode: "exact", NormalizedName: normalizeNewAPIGroupName(value)}
+	}
+	trimmed := strings.TrimSpace(value)
+	if name, ok := i.exact[trimmed]; ok {
+		return newAPIGroupMatch{Name: name, Mode: "exact", NormalizedName: normalizeNewAPIGroupName(value)}
+	}
+	normalizedName := normalizeNewAPIGroupName(value)
+	candidates := i.normalized[normalizedName]
+	switch len(candidates) {
+	case 1:
+		return newAPIGroupMatch{Name: candidates[0], Mode: "normalized", NormalizedName: normalizedName}
+	case 0:
+		return newAPIGroupMatch{Mode: "missing", NormalizedName: normalizedName}
+	default:
+		return newAPIGroupMatch{Mode: "ambiguous", NormalizedName: normalizedName, Ambiguous: true}
+	}
+}
+
+func newAPIGroupExplicitPlatformEvidence(info newAPIGroupInfo, detectedAt time.Time) (newAPIPlatformEvidence, bool) {
+	values := make([]string, 0, 4)
+	for _, value := range []any{info.Platform, info.PlatformValues, info.OwnerBy, info.Vendor} {
+		values = append(values, newAPIStringList(value)...)
+	}
+	if len(values) == 0 {
+		return newAPIPlatformEvidence{}, false
+	}
+	candidates := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if platform := normalizeNewAPIPlatform(value); platform != "" {
+			candidates[platform] = struct{}{}
+		}
+	}
+	if len(candidates) == 0 {
+		evidence := newAPIUnknownPlatformEvidence(newAPIPlatformSourceGroupExplicit, detectedAt)
+		evidence.Reason = newAPIPlatformReasonGroupExplicitUnrecognized
+		return evidence, true
+	}
+	evidence := newAPIPlatformEvidenceFromCandidates(sortedNewAPIPlatforms(candidates), false, newAPIPlatformSourceGroupExplicit, detectedAt)
+	evidence.Reason = newAPIPlatformReasonGroupExplicit
+	return evidence, true
 }
 
 type newAPIKeyListData struct {
@@ -298,6 +405,7 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	}
 	platformDetectedAt := time.Now().UTC()
 	a.enrichGroupsFromPricing(ctx, session, groups, platformDetectedAt)
+	groupIndex := newAPIGroupIndexFor(groups)
 	keyResult, err := a.fetchKeys(ctx, session)
 	if err != nil {
 		return nil, err
@@ -312,10 +420,11 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 	groupsComplete := true
 	for _, row := range keyResult.Rows {
 		group := strings.TrimSpace(row.Group)
+		match := groupIndex.resolve(row.Group)
 		if group == "" {
 			continue
 		}
-		if _, exists := groups[group]; !exists {
+		if match.Ambiguous || match.Name == "" {
 			groupsComplete = false
 			partial = true
 			warnings = appendNewAPIWarnings(warnings, "newapi group snapshot does not cover all returned keys")
@@ -336,12 +445,12 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 			unresolvedKeyCount++
 		}
 		group := strings.TrimSpace(row.Group)
+		groupMatch := groupIndex.resolve(row.Group)
+		groupInfo, groupFound := groups[groupMatch.Name]
 		var rate *float64
-		if group != "" {
-			if info, ok := groups[group]; ok {
-				if parsed, ok := parseNewAPIRatio(info.Ratio); ok {
-					rate = &parsed
-				}
+		if groupFound && !groupMatch.Ambiguous {
+			if parsed, ok := parseNewAPIRatio(groupInfo.Ratio); ok {
+				rate = &parsed
 			}
 		}
 		status := StatusDisabled
@@ -376,15 +485,31 @@ func (a newAPIUpstreamProviderAdapter) SyncSnapshot(ctx context.Context, cfg *Up
 				extra[AccountNewAPIModelLimitsExtraKey] = models
 			}
 		}
-		if info, ok := groups[group]; ok && strings.TrimSpace(info.Desc) != "" {
-			extra["newapi_group_desc"] = strings.TrimSpace(info.Desc)
+		if groupFound && strings.TrimSpace(groupInfo.Desc) != "" {
+			extra["newapi_group_desc"] = strings.TrimSpace(groupInfo.Desc)
 		}
 		evidence := newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricing, platformDetectedAt)
-		if info, ok := groups[group]; ok {
-			evidence = info.PlatformEvidence
+		evidence.GroupRawName = row.Group
+		evidence.GroupNormalizedName = groupMatch.NormalizedName
+		evidence.GroupMatchMode = groupMatch.Mode
+		switch {
+		case groupMatch.Ambiguous:
+			evidence.Reason = newAPIPlatformReasonPricingGroupAmbiguous
+		case !groupFound:
+			evidence.Reason = newAPIPlatformReasonGroupNotFound
+		default:
+			evidence = groupInfo.PlatformEvidence.Clone()
+			evidence.GroupRawName = row.Group
+			evidence.GroupNormalizedName = groupMatch.NormalizedName
+			evidence.GroupMatchMode = groupMatch.Mode
 		}
 		if modelEvidence, used := newAPIModelLimitsPlatformEvidence(row, platformDetectedAt); used {
-			evidence = modelEvidence
+			if modelEvidence.Status != newAPIPlatformEvidenceUnknown || evidence.Status == newAPIPlatformEvidenceUnknown {
+				modelEvidence.GroupRawName = row.Group
+				modelEvidence.GroupNormalizedName = groupMatch.NormalizedName
+				modelEvidence.GroupMatchMode = groupMatch.Mode
+				evidence = modelEvidence
+			}
 		}
 		if evidence.Status == newAPIPlatformEvidencePartial {
 			partial = true
@@ -599,45 +724,105 @@ func (a newAPIUpstreamProviderAdapter) enrichGroupsFromPricing(ctx context.Conte
 	if len(groups) == 0 {
 		return
 	}
-	setNewAPIGroupPlatformEvidence(groups, newAPIPartialPlatformEvidence(newAPIPlatformSourcePricing, detectedAt))
+	groupIndex := newAPIGroupIndexFor(groups)
+	for group, info := range groups {
+		if explicit, used := newAPIGroupExplicitPlatformEvidence(info, detectedAt); used {
+			info.Platforms = append([]string{}, explicit.Candidates...)
+			info.PlatformEvidence = explicit
+		} else {
+			info.Platforms = nil
+			info.PlatformEvidence = newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricing, detectedAt)
+			info.PlatformEvidence.Reason = newAPIPlatformReasonGroupExistsWithoutPricing
+		}
+		info.PlatformEvidence.GroupRawName = group
+		info.PlatformEvidence.GroupNormalizedName = normalizeNewAPIGroupName(group)
+		info.PlatformEvidence.GroupMatchMode = "exact"
+		groups[group] = info
+	}
 	endpoint, err := buildSub2APIURL(session.rootURL, newAPIPricingPath)
 	if err != nil {
+		setNewAPIGroupPlatformEvidenceWithReason(groups, newAPIPartialPlatformEvidence(newAPIPlatformSourcePricing, detectedAt), newAPIPlatformReasonPricingResponseInvalid)
 		return
 	}
 	var payload newAPIPricingData
 	status, err := a.doJSON(ctx, session.client, http.MethodGet, endpoint, session.userID, nil, &payload)
-	if err != nil || status < 200 || status >= 300 || !payload.Success {
+	if err != nil {
+		setNewAPIGroupPlatformEvidenceWithReason(groups, newAPIPartialPlatformEvidence(newAPIPlatformSourcePricing, detectedAt), newAPIPlatformReasonPricingUnavailable)
+		return
+	}
+	if status < 200 || status >= 300 || !payload.Success {
+		reason := newAPIPlatformReasonPricingResponseInvalid
+		if status >= 500 || status == 0 {
+			reason = newAPIPlatformReasonPricingUnavailable
+		}
+		setNewAPIGroupPlatformEvidenceWithReason(groups, newAPIPartialPlatformEvidence(newAPIPlatformSourcePricing, detectedAt), reason)
 		return
 	}
 	for group, desc := range payload.UsableGroup {
-		info, ok := groups[group]
-		if !ok || strings.TrimSpace(info.Desc) != "" {
+		match := groupIndex.resolve(group)
+		info, ok := groups[match.Name]
+		if !ok || match.Ambiguous || strings.TrimSpace(info.Desc) != "" {
 			continue
 		}
 		if desc = strings.TrimSpace(desc); desc != "" {
 			info.Desc = desc
-			groups[group] = info
+			groups[match.Name] = info
 		}
 	}
 	byGroup := make(map[string]*newAPIPlatformEvidenceAccumulator)
+	ambiguousPricingGroups := make(map[string]struct{})
 	for _, record := range payload.Data {
 		evidence := newAPIPricingRecordPlatformEvidence(record, detectedAt)
 		for _, field := range []string{"enable_groups", "enable_group"} {
-			for _, group := range newAPIStringList(record[field]) {
-				if _, ok := groups[group]; !ok {
+			for _, groupName := range newAPIStringList(record[field]) {
+				match := groupIndex.resolve(groupName)
+				if match.Ambiguous {
+					for _, candidate := range groupIndex.normalized[match.NormalizedName] {
+						ambiguousPricingGroups[candidate] = struct{}{}
+					}
 					continue
 				}
-				if byGroup[group] == nil {
-					byGroup[group] = newAPIPlatformAccumulator()
+				if match.Name == "" {
+					continue
 				}
-				byGroup[group].Add(evidence)
+				if byGroup[match.Name] == nil {
+					byGroup[match.Name] = newAPIPlatformAccumulator()
+				}
+				byGroup[match.Name].AddPricingRecord(evidence, strings.TrimSpace(upstreamString(record["model_name"])), match.Mode)
 			}
 		}
 	}
 	for group, info := range groups {
-		evidence := newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricing, detectedAt)
+		match := groupIndex.resolve(group)
+		evidence := info.PlatformEvidence.Clone()
 		if accumulator := byGroup[group]; accumulator != nil {
-			evidence = accumulator.Evidence(detectedAt)
+			pricingEvidence := accumulator.Evidence(detectedAt)
+			if evidence.Status == newAPIPlatformEvidenceUnique && pricingEvidence.Status == newAPIPlatformEvidenceUnknown {
+				pricingEvidence = evidence
+			} else if evidence.Status == newAPIPlatformEvidenceUnique && pricingEvidence.Status != newAPIPlatformEvidenceUnknown {
+				combined := newAPIPlatformAccumulator()
+				combined.Add(evidence)
+				combined.Add(pricingEvidence)
+				pricingEvidence = combined.Evidence(detectedAt)
+				pricingEvidence.MatchedPricingRecords = accumulator.matchedPricingRecords
+				pricingEvidence.MatchedModels = append([]string{}, accumulator.matchedModels...)
+				pricingEvidence.GroupMatchMode = accumulator.groupMatchMode
+			}
+			evidence = pricingEvidence
+		} else if evidence.Status != newAPIPlatformEvidenceUnique && evidence.Status != newAPIPlatformEvidenceMultiple && evidence.Reason == "" {
+			evidence.Reason = newAPIPlatformReasonGroupExistsWithoutPricing
+		}
+		if _, ambiguous := ambiguousPricingGroups[group]; ambiguous && evidence.Status != newAPIPlatformEvidenceUnique && evidence.Status != newAPIPlatformEvidenceMultiple {
+			evidence.Reason = newAPIPlatformReasonPricingGroupAmbiguous
+		}
+		if match.Ambiguous {
+			evidence = newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricing, detectedAt)
+			evidence.Reason = newAPIPlatformReasonPricingGroupAmbiguous
+		}
+		evidence.GroupRawName = group
+		evidence.GroupNormalizedName = normalizeNewAPIGroupName(group)
+		if evidence.GroupMatchMode == "" {
+			evidence.GroupMatchMode = "exact"
 		}
 		info.Platforms = append([]string(nil), evidence.Candidates...)
 		info.PlatformEvidence = evidence
@@ -646,9 +831,17 @@ func (a newAPIUpstreamProviderAdapter) enrichGroupsFromPricing(ctx context.Conte
 }
 
 func setNewAPIGroupPlatformEvidence(groups map[string]newAPIGroupInfo, evidence newAPIPlatformEvidence) {
+	setNewAPIGroupPlatformEvidenceWithReason(groups, evidence, evidence.Reason)
+}
+
+func setNewAPIGroupPlatformEvidenceWithReason(groups map[string]newAPIGroupInfo, evidence newAPIPlatformEvidence, reason string) {
 	for group, info := range groups {
 		info.Platforms = append([]string(nil), evidence.Candidates...)
 		info.PlatformEvidence = evidence.Clone()
+		info.PlatformEvidence.Reason = reason
+		info.PlatformEvidence.GroupRawName = group
+		info.PlatformEvidence.GroupNormalizedName = normalizeNewAPIGroupName(group)
+		info.PlatformEvidence.GroupMatchMode = "exact"
 		groups[group] = info
 	}
 }
@@ -672,17 +865,29 @@ func newAPIPricingRecordPlatformEvidence(record map[string]any, detectedAt time.
 	if hasExplicitValue {
 		candidates := sortedNewAPIPlatforms(explicitCandidates)
 		if len(candidates) == 0 {
-			return newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricingOwner, detectedAt)
+			evidence := newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricingOwner, detectedAt)
+			evidence.Reason = newAPIPlatformReasonOwnerUnrecognized
+			return evidence
 		}
-		return newAPIPlatformEvidenceFromCandidates(candidates, hasUnknownExplicitValue, newAPIPlatformSourcePricingOwner, detectedAt)
+		evidence := newAPIPlatformEvidenceFromCandidates(candidates, hasUnknownExplicitValue, newAPIPlatformSourcePricingOwner, detectedAt)
+		if hasUnknownExplicitValue {
+			evidence.Reason = newAPIPlatformReasonOwnerUnrecognized
+		}
+		return evidence
 	}
 
 	modelName, nonempty := newAPIRecordString(record, "model_name")
 	if !nonempty {
-		return newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricingModelName, detectedAt)
+		evidence := newAPIUnknownPlatformEvidence(newAPIPlatformSourcePricingModelName, detectedAt)
+		evidence.Reason = newAPIPlatformReasonModelUnrecognized
+		return evidence
 	}
 	candidates := newAPIPlatformsFromModelName(modelName)
-	return newAPIPlatformEvidenceFromCandidates(candidates, len(candidates) > 1, newAPIPlatformSourcePricingModelName, detectedAt)
+	evidence := newAPIPlatformEvidenceFromCandidates(candidates, len(candidates) > 1, newAPIPlatformSourcePricingModelName, detectedAt)
+	if len(candidates) == 0 {
+		evidence.Reason = newAPIPlatformReasonModelUnrecognized
+	}
+	return evidence
 }
 
 func newAPIRecordString(record map[string]any, field string) (string, bool) {
@@ -874,6 +1079,33 @@ func (a *newAPIPlatformEvidenceAccumulator) Add(evidence newAPIPlatformEvidence)
 		a.partial = true
 	} else if evidence.Status == newAPIPlatformEvidenceUnknown {
 		a.unknown = true
+		if a.unknownReason == "" {
+			a.unknownReason = evidence.Reason
+		}
+	}
+}
+
+func (a *newAPIPlatformEvidenceAccumulator) AddPricingRecord(evidence newAPIPlatformEvidence, modelName, groupMatchMode string) {
+	if a == nil {
+		return
+	}
+	a.Add(evidence)
+	a.matchedPricingRecords++
+	modelName = strings.TrimSpace(modelName)
+	if modelName != "" && len(a.matchedModels) < newAPIPlatformMaxMatchedModels {
+		seen := false
+		for _, existing := range a.matchedModels {
+			if existing == modelName {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			a.matchedModels = append(a.matchedModels, modelName)
+		}
+	}
+	if groupMatchMode == "exact" || a.groupMatchMode == "" {
+		a.groupMatchMode = groupMatchMode
 	}
 }
 
@@ -890,7 +1122,21 @@ func (a *newAPIPlatformEvidenceAccumulator) Evidence(detectedAt time.Time) newAP
 		source = newAPIPlatformSourcePricingMixed
 	}
 	partial := a.partial || (a.unknown && len(a.candidates) > 0)
-	return newAPIPlatformEvidenceFromCandidates(sortedNewAPIPlatforms(a.candidates), partial, source, detectedAt)
+	evidence := newAPIPlatformEvidenceFromCandidates(sortedNewAPIPlatforms(a.candidates), partial, source, detectedAt)
+	evidence.MatchedPricingRecords = a.matchedPricingRecords
+	evidence.MatchedModels = append([]string{}, a.matchedModels...)
+	evidence.GroupMatchMode = a.groupMatchMode
+	switch {
+	case evidence.Status == newAPIPlatformEvidenceUnique:
+		evidence.Reason = newAPIPlatformReasonPricingUnique
+	case evidence.Status == newAPIPlatformEvidenceMultiple:
+		evidence.Reason = newAPIPlatformReasonPricingMultiple
+	case evidence.Status == newAPIPlatformEvidencePartial && len(evidence.Candidates) > 0:
+		evidence.Reason = newAPIPlatformReasonPricingRecordsUnknown
+	default:
+		evidence.Reason = newAPIPlatformReasonPricingRecordsUnknown
+	}
+	return evidence
 }
 
 func sortedNewAPIPlatforms(values map[string]struct{}) []string {
@@ -925,16 +1171,36 @@ func (e newAPIPlatformEvidence) UpstreamDetectionStatus() string {
 
 func (e newAPIPlatformEvidence) Clone() newAPIPlatformEvidence {
 	e.Candidates = append([]string{}, e.Candidates...)
+	e.MatchedModels = append([]string{}, e.MatchedModels...)
 	return e
 }
 
 func (e newAPIPlatformEvidence) Map() map[string]any {
-	return map[string]any{
+	result := map[string]any{
 		"status":      e.Status,
 		"candidates":  append([]string{}, e.Candidates...),
 		"source":      e.Source,
 		"detected_at": e.DetectedAt.UTC().Format(time.RFC3339Nano),
 	}
+	if e.Reason != "" {
+		result["reason"] = e.Reason
+	}
+	if e.MatchedPricingRecords > 0 || e.GroupRawName != "" {
+		result["matched_pricing_records"] = e.MatchedPricingRecords
+	}
+	if len(e.MatchedModels) > 0 {
+		result["matched_models"] = append([]string{}, e.MatchedModels...)
+	}
+	if e.GroupMatchMode != "" {
+		result["group_match_mode"] = e.GroupMatchMode
+	}
+	if e.GroupRawName != "" {
+		result["group_raw_name"] = e.GroupRawName
+	}
+	if e.GroupNormalizedName != "" {
+		result["group_normalized_name"] = e.GroupNormalizedName
+	}
+	return result
 }
 
 func newAPIStringList(value any) []string {

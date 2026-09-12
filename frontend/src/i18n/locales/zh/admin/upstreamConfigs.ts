@@ -174,6 +174,34 @@ export default {
       notDetected: '未检测',
       unsupportedPlatform: '未支持：{platform}',
       conflict: '检测证据与当前分配冲突',
+      diagnostics: {
+        group: '所属分组',
+        reason: '原因',
+        matchMode: '分组匹配',
+        pricingMatches: '定价命中',
+        models: '模型示例',
+        unknownReason: '未知原因',
+        unknownMatchMode: '未知匹配方式',
+        matchModes: {
+          exact: '精确匹配',
+          normalized: '规范化匹配',
+          normalized_name: '名称规范化匹配'
+        },
+        reasons: {
+          group_explicit_platform: '分组提供了明确平台',
+          pricing_unique_evidence: '定价记录指向唯一平台',
+          pricing_multiple_platforms: '定价记录指向多个平台',
+          group_exists_without_pricing_binding: '分组存在但没有关联定价记录',
+          pricing_records_without_platform_evidence: '定价记录缺少可识别的平台证据',
+          pricing_group_name_ambiguous: '定价中的分组名称存在歧义',
+          pricing_unavailable: '定价信息暂不可用',
+          pricing_response_invalid: '定价响应格式无效',
+          owner_unrecognized: '供应商信息无法识别',
+          model_unrecognized: '模型名称无法识别',
+          group_not_in_user_groups: '分组不在用户分组列表中',
+          group_platform_unrecognized: '分组平台信息无法识别'
+        }
+      },
       empty: '暂无上游 Key',
       loadFailed: '加载 Key 平台失败',
       updated: 'Key 平台已更新',

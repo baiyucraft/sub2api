@@ -46,6 +46,26 @@ export interface UpstreamKeyImagePricing {
   observed_at: string | null
 }
 
+export interface UpstreamPlatformEvidence {
+  status?: string | null
+  candidates?: string[] | null
+  source?: string | null
+  detected_platform?: string | null
+  detected_at?: string | null
+  reason?: string | null
+  matched_pricing_records?: number | null
+  matched_models?: string[] | null
+  group_match_mode?: string | null
+  group_raw_name?: string | null
+  group_normalized_name?: string | null
+  [key: string]: unknown
+}
+
+export type UpstreamKeyExtra = Record<string, unknown> & {
+  newapi_platform_evidence?: UpstreamPlatformEvidence
+  upstream_platform_evidence?: UpstreamPlatformEvidence
+}
+
 export interface UpstreamKey {
   id: number
   upstream_config_id: number
@@ -68,7 +88,7 @@ export interface UpstreamKey {
   last_seen_at?: string | null
   missing_count?: number
   missing_since?: string | null
-  extra?: Record<string, unknown>
+  extra?: UpstreamKeyExtra
   created_at: string
   updated_at: string
 }
