@@ -32,6 +32,9 @@ describe('MonitorHero', () => {
       },
     })
 
+    expect(wrapper.get('.channel-status-v1-hero').classes()).toContain('top-16')
+    expect(wrapper.get('.channel-status-v1-hero').classes()).toContain('z-20')
+
     const tablists = wrapper.findAll('[role="tablist"]')
     expect(tablists).toHaveLength(1)
     expect(tablists[0].attributes('aria-label')).toBe('统计范围')
@@ -68,6 +71,11 @@ describe('MonitorHero', () => {
     const buttons = wrapper.findAll('nav button')
     expect(buttons).toHaveLength(2)
     expect(buttons[0].attributes('aria-current')).toBe('location')
+    expect(buttons[0].find('svg').exists()).toBe(true)
+    expect(buttons[1].find('svg').exists()).toBe(true)
+    expect(buttons[0].classes()).toContain('text-white')
+    expect(buttons[1].classes()).not.toContain('text-white')
+    expect(buttons[0].attributes('style')).toContain('background-color: rgb(34, 197, 94)')
     await buttons[1].trigger('click')
     expect(wrapper.emitted('navigate-platform')).toEqual([['anthropic']])
   })
