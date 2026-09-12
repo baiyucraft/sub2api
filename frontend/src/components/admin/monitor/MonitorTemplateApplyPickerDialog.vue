@@ -56,7 +56,9 @@
           />
           <span class="font-medium text-gray-900 dark:text-white">{{ m.name }}</span>
           <span class="text-xs text-gray-400">{{ m.provider }}</span>
-          <span v-if="m.provider === 'openai'" class="text-xs text-gray-400">{{ m.api_mode }}</span>
+          <span v-if="m.provider === 'openai' || m.provider === 'zhipu'" class="text-xs text-gray-400">
+            {{ apiModeLabel(m.api_mode, m.provider) }}
+          </span>
           <span
             v-if="!m.enabled"
             class="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-dark-700 dark:text-gray-400"
@@ -115,6 +117,16 @@ const monitors = ref<AssociatedMonitorBrief[]>([])
 const selectedIds = ref<number[]>([])
 
 const selectedSet = computed(() => new Set(selectedIds.value))
+
+function apiModeLabel(mode: AssociatedMonitorBrief['api_mode'], provider: AssociatedMonitorBrief['provider']): string {
+  if (provider === 'zhipu' && mode === 'zhipu_native') {
+    return t('admin.channelMonitor.form.apiModeZhipuNative')
+  }
+  if (mode === 'responses') {
+    return t('admin.channelMonitor.form.apiModeResponses')
+  }
+  return t('admin.channelMonitor.form.apiModeChatCompletions')
+}
 
 watch(
   () => [props.show, props.templateId] as const,

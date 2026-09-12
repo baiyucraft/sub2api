@@ -66,11 +66,11 @@
                 {{ modeLabel(tpl.body_override_mode) }}
               </span>
               <span
-                v-if="tpl.provider === PROVIDER_OPENAI"
+                v-if="supportsExplicitAPIMode(tpl.provider)"
                 class="inline-flex items-center rounded-md px-1.5 py-0.5 text-xs"
                 :class="apiModeBadgeClass(tpl.api_mode)"
               >
-                {{ apiModeLabel(tpl.api_mode) }}
+                {{ apiModeLabel(tpl.api_mode, tpl.provider) }}
               </span>
               <span
                 v-if="tpl.associated_monitors > 0"
@@ -144,13 +144,14 @@
         </div>
       </div>
 
-      <div v-if="form.provider === PROVIDER_OPENAI" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
+      <div v-if="supportsExplicitAPIMode(form.provider)" data-testid="monitor-template-api-mode" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
         <label class="input-label">{{ t('admin.channelMonitor.form.apiMode') }}</label>
         <div class="grid gap-3 sm:grid-cols-2">
           <button
             v-for="opt in apiModeOptions"
             :key="opt.value"
             type="button"
+            :data-testid="`monitor-template-api-mode-${opt.value}`"
             class="rounded-lg border-2 px-3 py-2 text-left transition-colors"
             :class="apiModeButtonClass(opt.value)"
             @click="form.api_mode = opt.value"
@@ -257,6 +258,7 @@ import {
   PROVIDERS,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
+  API_MODE_ZHIPU_NATIVE,
 } from '@/constants/channelMonitor'
 
 const props = defineProps<{ show: boolean }>()
@@ -329,7 +331,7 @@ function loadForm(tpl: ChannelMonitorTemplate) {
   form.id = tpl.id
   form.name = tpl.name
   form.provider = tpl.provider
-  form.api_mode = normalizeAPIMode(tpl.api_mode)
+  form.api_mode = normalizeAPIModeForProvider(tpl.api_mode, tpl.provider)
   form.description = tpl.description
   form.extra_headers = { ...(tpl.extra_headers || {}) }
   form.body_override_mode = tpl.body_override_mode
@@ -387,7 +389,7 @@ async function handleSubmit() {
       await adminAPI.channelMonitorTemplate.create({
         name: form.name.trim(),
         provider: form.provider,
-        api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
+        api_mode: supportsExplicitAPIMode(form.provider) ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
         description: form.description.trim(),
         extra_headers: form.extra_headers,
         body_override_mode: form.body_override_mode,
@@ -397,7 +399,7 @@ async function handleSubmit() {
     } else if (typeof editing.value === 'number') {
       await adminAPI.channelMonitorTemplate.update(editing.value, {
         name: form.name.trim(),
-        api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
+        api_mode: supportsExplicitAPIMode(form.provider) ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
         description: form.description.trim(),
         extra_headers: form.extra_headers,
         body_override_mode: form.body_override_mode,
@@ -494,21 +496,37 @@ const apiModeOptions = computed<{ value: APIMode; label: string; hint: string }[
     label: t('admin.channelMonitor.form.apiModeChatCompletions'),
     hint: t('admin.channelMonitor.form.apiModeChatCompletionsHint'),
   },
-  {
-    value: API_MODE_RESPONSES,
-    label: t('admin.channelMonitor.form.apiModeResponses'),
-    hint: t('admin.channelMonitor.form.apiModeResponsesHint'),
-  },
+  ...(form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_ZHIPU
+    ? [{
+        value: API_MODE_RESPONSES,
+        label: t('admin.channelMonitor.form.apiModeResponses'),
+        hint: t('admin.channelMonitor.form.apiModeResponsesHint'),
+      }]
+    : []),
+  ...(form.provider === PROVIDER_ZHIPU
+    ? [{
+        value: API_MODE_ZHIPU_NATIVE,
+        label: t('admin.channelMonitor.form.apiModeZhipuNative'),
+        hint: t('admin.channelMonitor.form.apiModeZhipuNativeHint'),
+      }]
+    : []),
 ])
 
 watch(() => form.provider, (provider) => {
-  if (provider !== PROVIDER_OPENAI) {
-    form.api_mode = API_MODE_CHAT_COMPLETIONS
-  }
+  form.api_mode = normalizeAPIModeForProvider(form.api_mode, provider)
 })
 
 function normalizeAPIMode(mode: APIMode | undefined | null): APIMode {
   return mode === API_MODE_RESPONSES ? API_MODE_RESPONSES : API_MODE_CHAT_COMPLETIONS
+}
+
+function supportsExplicitAPIMode(provider: Provider): boolean {
+  return provider === PROVIDER_OPENAI || provider === PROVIDER_ZHIPU
+}
+
+function normalizeAPIModeForProvider(mode: APIMode | undefined | null, provider: Provider): APIMode {
+  if (provider === PROVIDER_ZHIPU && mode === API_MODE_ZHIPU_NATIVE) return API_MODE_ZHIPU_NATIVE
+  return normalizeAPIMode(mode)
 }
 
 function apiModeButtonClass(mode: APIMode): string {
@@ -519,8 +537,11 @@ function apiModeButtonClass(mode: APIMode): string {
   return 'border-blue-100 bg-white/70 text-gray-600 hover:border-primary-300 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400'
 }
 
-function apiModeLabel(mode: APIMode): string {
-  return normalizeAPIMode(mode) === API_MODE_RESPONSES
+function apiModeLabel(mode: APIMode, provider: Provider): string {
+  const normalized = normalizeAPIModeForProvider(mode, provider)
+  return normalized === API_MODE_ZHIPU_NATIVE
+    ? t('admin.channelMonitor.form.apiModeZhipuNative')
+    : normalized === API_MODE_RESPONSES
     ? t('admin.channelMonitor.form.apiModeResponses')
     : t('admin.channelMonitor.form.apiModeChatCompletions')
 }
@@ -528,6 +549,9 @@ function apiModeLabel(mode: APIMode): string {
 function apiModeBadgeClass(mode: APIMode): string {
   if (normalizeAPIMode(mode) === API_MODE_RESPONSES) {
     return 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300'
+  }
+  if (mode === API_MODE_ZHIPU_NATIVE) {
+    return 'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300'
   }
   return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
 }

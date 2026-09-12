@@ -44,7 +44,7 @@ func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
 // CheckOptions 承载一次检测的自定义入参。
 // 所有字段都是可选（零值即等价于"用默认行为"）。
 type CheckOptions struct {
-	// APIMode 仅对 OpenAI provider 生效；空串等同 chat_completions。
+	// APIMode 选择探针协议；空串等同 chat_completions。
 	APIMode string
 	// ExtraHeaders 用户自定义 HTTP 头（merge 到 adapter 默认 headers，用户优先）。
 	ExtraHeaders map[string]string
@@ -271,8 +271,7 @@ type monitorStreamResult struct {
 var providerAdapters = map[string]providerAdapter{
 	MonitorProviderOpenAI: providerOpenAIChatAdapter,
 	MonitorProviderGrok:   providerGrokChatAdapter,
-	// 国产 3 家（配额模式引入）：均为 OpenAI 兼容 Chat Completions，
-	// 仅智谱路径前缀不同（/api/paas/v4/chat/completions）。
+	// 国产 provider 的监控探针统一走本站 OpenAI 兼容入口。
 	MonitorProviderKimi:     providerKimiChatAdapter,
 	MonitorProviderZhipu:    providerZhipuChatAdapter,
 	MonitorProviderDeepseek: providerDeepseekChatAdapter,
@@ -324,7 +323,10 @@ var providerGrokChatAdapter = newOpenAICompatibleChatAdapter(providerGrokPath)
 var providerKimiChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPath)
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
-var providerZhipuChatAdapter = newOpenAICompatibleChatAdapter(providerZhipuPath)
+var providerZhipuChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPath)
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerZhipuNativeChatAdapter = newOpenAICompatibleChatAdapter(providerZhipuPath)
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
 var providerDeepseekChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPath)
@@ -370,11 +372,15 @@ var providerOpenAIResponsesAdapter = providerAdapter{
 
 // providerAdapterFor 按 provider + api_mode 选择具体 adapter。
 func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool) {
-	if provider == MonitorProviderOpenAI && defaultAPIMode(apiMode) == MonitorAPIModeResponses {
+	apiMode = defaultAPIMode(apiMode)
+	if (provider == MonitorProviderOpenAI || provider == MonitorProviderZhipu) && apiMode == MonitorAPIModeResponses {
 		return providerOpenAIResponsesAdapter, MonitorAPIModeResponses, true
 	}
+	if provider == MonitorProviderZhipu && apiMode == MonitorAPIModeZhipuNative {
+		return providerZhipuNativeChatAdapter, MonitorAPIModeZhipuNative, true
+	}
 	adapter, ok := providerAdapters[provider]
-	return adapter, MonitorAPIModeChatCompletions, ok
+	return adapter, apiMode, ok
 }
 
 // callProvider 通过 providerAdapters 分发到具体实现。
@@ -410,7 +416,7 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 			return "", string(streamed.RawBody), status, switchCount, streamed.TTFTMs, err
 		}
 		if streamed.Text == "" && len(streamed.RawBody) > 0 {
-			if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
+			if (provider == MonitorProviderOpenAI || provider == MonitorProviderZhipu) && apiMode == MonitorAPIModeResponses {
 				streamed.Text = extractOpenAIResponsesText(streamed.RawBody)
 			} else {
 				streamed.Text = extractMonitorResponseText(adapter, streamed.RawBody)
@@ -423,7 +429,7 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	if err != nil {
 		return "", "", status, 0, nil, err
 	}
-	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
+	if (provider == MonitorProviderOpenAI || provider == MonitorProviderZhipu) && apiMode == MonitorAPIModeResponses {
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, switchCount, nil, nil
 	}
 	return extractMonitorResponseText(adapter, respBytes), string(respBytes), status, switchCount, nil, nil
@@ -587,6 +593,9 @@ func buildRequestBody(adapter providerAdapter, provider, apiMode, model, prompt 
 var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderOpenAI + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderOpenAI + ":" + MonitorAPIModeResponses:       {"model": true, "instructions": true, "input": true, "stream": true},
+	MonitorProviderZhipu + ":" + MonitorAPIModeChatCompletions:  {"model": true, "messages": true, "stream": true},
+	MonitorProviderZhipu + ":" + MonitorAPIModeResponses:        {"model": true, "instructions": true, "input": true, "stream": true},
+	MonitorProviderZhipu + ":" + MonitorAPIModeZhipuNative:      {"model": true, "messages": true, "stream": true},
 	MonitorProviderGrok:      {"model": true, "messages": true, "stream": true},
 	MonitorProviderAnthropic: {"model": true, "messages": true},
 	MonitorProviderGemini:    {"contents": true},
@@ -605,7 +614,7 @@ func checkAPIMode(opts *CheckOptions) string {
 }
 
 func bodyMergeDenyKey(provider, apiMode string) string {
-	if provider == MonitorProviderOpenAI {
+	if provider == MonitorProviderOpenAI || provider == MonitorProviderZhipu {
 		return provider + ":" + defaultAPIMode(apiMode)
 	}
 	return provider
@@ -632,7 +641,7 @@ func validateReplaceRequestBody(provider, apiMode string, body map[string]any) e
 		if strings.TrimSpace(stringFromAny(body["instructions"])) == "" || !hasNonEmptyBodyValue(body["input"]) {
 			return fmt.Errorf("replace mode responses body: instructions and input are required")
 		}
-	case MonitorAPIModeChatCompletions:
+	case MonitorAPIModeChatCompletions, MonitorAPIModeZhipuNative:
 		if !hasNonEmptyBodyValue(body["messages"]) {
 			return fmt.Errorf("replace mode chat_completions body: messages are required")
 		}
@@ -753,7 +762,7 @@ func postRawMonitorStream(ctx context.Context, fullURL string, payload []byte, h
 		var done bool
 		var eventErr error
 		switch {
-		case provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses:
+		case (provider == MonitorProviderOpenAI || provider == MonitorProviderZhipu) && apiMode == MonitorAPIModeResponses:
 			done, eventErr = parseMonitorResponsesEvent([]byte(data), &output, &result, requestStartedAt)
 		case provider == MonitorProviderAnthropic:
 			done, eventErr = parseMonitorAnthropicEvent([]byte(data), &output, &result, requestStartedAt)

@@ -44,7 +44,7 @@ func (ChannelMonitorRequestTemplate) Fields() []ent.Field {
 		field.String("api_mode").
 			Default("chat_completions").
 			MaxLen(32).
-			Comment("OpenAI request protocol: chat_completions or responses; non-OpenAI uses chat_completions"),
+			Comment("Monitor request protocol: chat_completions, responses, or zhipu_native"),
 		field.String("description").
 			Optional().
 			Default("").
