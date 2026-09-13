@@ -55,6 +55,51 @@ describe('AccountGroupsCell preferred account pool', () => {
     )
   })
 
+  it('turns groups that overflow the two-row cell into a visible +N entry', async () => {
+    let notifyResize: (() => void) | null = null
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) {
+        notifyResize = callback
+      }
+
+      observe() {}
+      disconnect() {}
+    })
+
+    const wrapper = mountCell({
+      groups: [
+        { id: 1, name: 'gpt-低价-这是一个很长的分组名称', platform: 'openai' },
+        { id: 2, name: 'gpt-混合-这是一个很长的分组名称', platform: 'openai' },
+        { id: 3, name: 'gpt-pro-这是一个很长的分组名称', platform: 'openai' }
+      ] as any
+    })
+    const container = wrapper.get('[data-testid="account-groups-list"]').element
+
+    Object.defineProperties(container, {
+      clientWidth: { configurable: true, value: 208 },
+      clientHeight: { configurable: true, value: 56 },
+      scrollHeight: {
+        configurable: true,
+        get: () => container.querySelectorAll('.group-badge').length > 2 ? 84 : 56
+      }
+    })
+
+    notifyResize?.()
+    await new Promise<void>(resolve => {
+      if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(() => resolve())
+      } else {
+        setTimeout(resolve, 0)
+      }
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findAll('.group-badge')).toHaveLength(2)
+    expect(wrapper.text()).toContain('+1')
+    vi.unstubAllGlobals()
+  })
+
   it('keeps existing calls read-only when preferred props are omitted', () => {
     const wrapper = mountCell({ maxDisplay: 3 })
 
