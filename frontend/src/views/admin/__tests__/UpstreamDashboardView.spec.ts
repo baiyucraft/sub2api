@@ -27,6 +27,7 @@ describe('UpstreamDashboardView contract', () => {
 
   it('surfaces operational signals without mixing them into traffic metrics', () => {
     expect(source).toContain("metrics.balance")
+    expect(source).toContain("metrics.windowCost")
     expect(source).toContain("metrics.openIncidents")
     expect(source).toContain('recent_incidents')
     expect(source).toContain('recent_rate_changes')
@@ -48,6 +49,14 @@ describe('UpstreamDashboardView contract', () => {
     expect(source).toContain('3 - bBasePriority')
     expect(source).toContain("aPinned = aBasePriority == null || a.overall_status === 'disabled'")
     expect(source).toContain('function toggleSortDirection()')
+  })
+
+  it('supports sorting by status, success rate, and window upstream cost', () => {
+    expect(source).toContain("type SortField = 'status' | 'success_rate' | 'upstream_cost'")
+    expect(source).toContain("sortByWindowCost")
+    expect(source).toContain("sortField.value === 'upstream_cost'")
+    expect(source).toContain('aCost == null && bCost != null')
+    expect(source).toContain("sortDirection.value = 'desc'")
   })
 
   it('exposes an accessible sort toggle with directional icons', () => {
