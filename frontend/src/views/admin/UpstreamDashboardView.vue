@@ -13,7 +13,8 @@
         <div class="filter-row">
           <div class="filter-control filter-window-control"><span>{{ t('admin.upstreamDashboard.filters.window') }}</span><div class="window-tabs" role="tablist" :aria-label="t('admin.upstreamDashboard.filters.window')"><button v-for="item in windows" :key="item" type="button" class="window-tab" :class="{ 'window-tab-active': rangeWindow === item }" role="tab" :aria-selected="rangeWindow === item" @click="selectWindow(item)">{{ t(`admin.upstreamDashboard.windows.${item}`) }}</button></div></div>
           <label class="filter-control"><span>{{ t('admin.upstreamDashboard.filters.status') }}</span><Select v-model="status" :options="statusOptions" :aria-label="t('admin.upstreamDashboard.filters.status')" @change="load" /></label>
-          <div class="filter-control sort-control"><span>{{ t('admin.upstreamDashboard.filters.sort') }}</span><button type="button" class="sort-toggle" :aria-label="sortDirection === 'asc' ? t('admin.upstreamDashboard.filters.sortDesc') : t('admin.upstreamDashboard.filters.sortAsc')" :title="sortDirection === 'asc' ? t('admin.upstreamDashboard.filters.sortDesc') : t('admin.upstreamDashboard.filters.sortAsc')" @click="toggleSortDirection"><Icon :name="sortDirection === 'asc' ? 'arrowUp' : 'arrowDown'" size="sm" /></button></div>
+          <label class="filter-control sort-field-control"><span>{{ t('admin.upstreamDashboard.filters.sort') }}</span><Select v-model="sortField" :options="sortOptions" :aria-label="t('admin.upstreamDashboard.filters.sort')" @change="onSortFieldChange" /></label>
+          <div class="filter-control sort-control"><span>{{ t('admin.upstreamDashboard.filters.direction') }}</span><button type="button" class="sort-toggle" :aria-label="sortDirection === 'asc' ? t('admin.upstreamDashboard.filters.sortDesc') : t('admin.upstreamDashboard.filters.sortAsc')" :title="sortDirection === 'asc' ? t('admin.upstreamDashboard.filters.sortDesc') : t('admin.upstreamDashboard.filters.sortAsc')" @click="toggleSortDirection"><Icon :name="sortDirection === 'asc' ? 'arrowUp' : 'arrowDown'" size="sm" /></button></div>
           <label class="filter-control filter-search"><span>{{ t('admin.upstreamDashboard.filters.searchLabel') }}</span><input v-model="search" class="input" :placeholder="t('common.search')" @keyup.enter="load" /></label>
           <div class="filter-actions"><small v-if="lastLoadedAt" class="last-updated">{{ t('admin.upstreamDashboard.lastUpdated', { time: formatClock(lastLoadedAt) }) }}</small><button class="refresh-button" :disabled="loading" :aria-label="t('common.refresh')" @click="load"><Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" /></button></div>
         </div>
@@ -56,6 +57,7 @@
             <span class="signal-value"><strong>{{ item.probe?.samples ? `${formatNumber(item.probe.samples)} · ${stateLabel(item.probe.latest_state)}` : '-' }}</strong><small v-if="item.probe?.latest_observed_at">{{ t('admin.upstreamDashboard.lastProbe', { time: formatObservedAt(item.probe.latest_observed_at) }) }}</small></span>
           </div>
           <div class="card-ops-row">
+            <span class="ops-value"><Icon name="dollar" size="xs" />{{ t('admin.upstreamDashboard.metrics.windowCost') }} <strong>{{ formatCny(item.upstream_cost) }}</strong></span>
             <span class="ops-value" :class="item.balance_low ? 'balance-low-value' : ''"><Icon name="dollar" size="xs" />{{ t('admin.upstreamDashboard.metrics.balance') }} <strong>{{ item.balance_available && item.balance_cny != null ? formatCny(item.balance_cny) : '-' }}</strong><small v-if="item.balance_observed_at">{{ formatObservedAt(item.balance_observed_at) }}</small></span>
             <span v-if="item.balance_low" class="balance-alert" role="status"><Icon name="exclamationTriangle" size="xs" />{{ t('admin.upstreamDashboard.metrics.balanceLow') }}</span>
             <span v-else-if="item.balance_available === false" class="balance-unavailable" :title="item.balance_unavailable_reason || ''">{{ t('admin.upstreamDashboard.metrics.balanceUnavailable') }}</span>
@@ -85,6 +87,7 @@
           <template v-else-if="detail">
             <div class="detail-body">
               <div class="detail-kpis"><Metric :label="t('admin.upstreamDashboard.metrics.requests')" :value="formatNumber(detail.requests)" /><Metric :label="t('admin.upstreamDashboard.metrics.failed')" :value="formatNumber(detail.failed_requests)" /><Metric :label="t('admin.upstreamDashboard.metrics.p95ttft')" :value="formatMs(detail.p95_ttft_ms)" /><Metric :label="t('admin.upstreamDashboard.metrics.p95latency')" :value="formatMs(detail.p95_latency_ms)" /></div>
+              <div class="detail-window-cost"><Metric :label="t('admin.upstreamDashboard.metrics.windowCost')" :value="formatCny(detail.upstream_cost)" /></div>
               <section class="detail-section trend-section"><div class="section-heading"><span class="section-number">00</span><h3>{{ t('admin.upstreamDashboard.sections.trend') }}</h3></div><TrendBars v-if="detail.trend?.length" :points="detail.trend" compact /><p v-else class="detail-empty trend-empty">{{ t('admin.upstreamDashboard.noTrendData') }}</p><p class="detail-meta">{{ t('admin.upstreamDashboard.metrics.requests') }} {{ formatNumber(detail.requests) }} <span>·</span> {{ t('admin.upstreamDashboard.metrics.failed') }} {{ formatNumber(detail.failed_requests) }}</p></section>
               <section class="detail-section"><div class="section-heading"><span class="section-number">01</span><h3>{{ t('admin.upstreamDashboard.sections.traffic') }}</h3></div><div class="mt-4 grid grid-cols-3 gap-2"><Metric :label="'429'" :value="formatNumber(detail.error_429)" /><Metric :label="'5xx'" :value="formatNumber(detail.error_5xx)" /><Metric :label="t('admin.upstreamDashboard.metrics.timeouts')" :value="formatNumber(detail.timeouts)" /></div><ul v-if="detail.traffic?.models?.length" class="model-list"><li v-for="model in detail.traffic.models" :key="model.model"><span class="truncate">{{ model.model }}</span><span>{{ formatNumber(model.requests) }}</span></li></ul><p v-else class="detail-empty">{{ t('admin.upstreamDashboard.noTrafficData') }}</p></section>
               <section class="detail-section detail-section-probe"><div class="section-heading"><span class="section-number">02</span><h3>{{ t('admin.upstreamDashboard.sections.probe') }}</h3></div><p class="detail-callout">{{ stateLabel(detail.probe.latest_state) }}<span>·</span>{{ stateLabel(detail.probe.latest_reason) || t('admin.upstreamDashboard.noReason') }}</p><p class="detail-meta">{{ t('admin.upstreamDashboard.metrics.probeSamples') }} {{ detail.probe.samples }} <span>·</span> TTFT {{ formatMs(detail.probe.average_ttft_ms) }} <span>·</span> {{ formatMs(detail.probe.average_duration_ms) }}</p><p v-if="detail.probe.latest_observed_at" class="detail-meta">{{ t('admin.upstreamDashboard.lastProbe', { time: formatObservedAt(detail.probe.latest_observed_at) }) }}</p><p v-if="detail.probe.confidence_status" class="detail-meta">{{ t('admin.upstreamDashboard.metrics.confidence') }}: {{ stateLabel(detail.probe.confidence_status) }}</p></section>
@@ -141,21 +144,45 @@ const statusOptions = computed(() => [
   ...statuses.map(value => ({ value, label: t(`admin.upstreamDashboard.status.${value}`) }))
 ])
 type SortDirection = 'asc' | 'desc'
+type SortField = 'status' | 'success_rate' | 'upstream_cost'
+const sortField = ref<SortField>('status')
 const sortDirection = ref<SortDirection>('asc')
+const sortOptions = computed(() => [
+  { value: 'status', label: t('admin.upstreamDashboard.filters.sortByStatus') },
+  { value: 'success_rate', label: t('admin.upstreamDashboard.filters.sortBySuccessRate') },
+  { value: 'upstream_cost', label: t('admin.upstreamDashboard.filters.sortByWindowCost') },
+])
 const statusPriority: Record<string, number> = { critical: 0, degraded: 1, data_insufficient: 2, operational: 3, disabled: 4 }
 const displayItems = computed(() => [...items.value].sort((a, b) => {
   const aBasePriority = statusPriority[a.overall_status]
   const bBasePriority = statusPriority[b.overall_status]
+  if (sortField.value === 'upstream_cost') {
+    const aCost = typeof a.upstream_cost === 'number' && Number.isFinite(a.upstream_cost) ? a.upstream_cost : null
+    const bCost = typeof b.upstream_cost === 'number' && Number.isFinite(b.upstream_cost) ? b.upstream_cost : null
+    if (aCost == null && bCost != null) return 1
+    if (aCost != null && bCost == null) return -1
+  }
   const aPinned = aBasePriority == null || a.overall_status === 'disabled'
   const bPinned = bBasePriority == null || b.overall_status === 'disabled'
   if (aPinned !== bPinned) return aPinned ? 1 : -1
   if (aPinned && bPinned) return a.name.localeCompare(b.name)
 
-  const priorityDelta = (sortDirection.value === 'asc' ? aBasePriority : 3 - aBasePriority) - (sortDirection.value === 'asc' ? bBasePriority : 3 - bBasePriority)
-  if (priorityDelta) return priorityDelta
-  const aRate = typeof a.success_rate === 'number' && Number.isFinite(a.success_rate) ? a.success_rate : 0
-  const bRate = typeof b.success_rate === 'number' && Number.isFinite(b.success_rate) ? b.success_rate : 0
-  if (aRate !== bRate) return sortDirection.value === 'asc' ? aRate - bRate : bRate - aRate
+  if (sortField.value === 'upstream_cost') {
+    const aCost = typeof a.upstream_cost === 'number' && Number.isFinite(a.upstream_cost) ? a.upstream_cost : null
+    const bCost = typeof b.upstream_cost === 'number' && Number.isFinite(b.upstream_cost) ? b.upstream_cost : null
+    if (aCost != null && bCost != null && aCost !== bCost) return sortDirection.value === 'asc' ? aCost - bCost : bCost - aCost
+  } else if (sortField.value === 'success_rate') {
+    const aRate = typeof a.success_rate === 'number' && Number.isFinite(a.success_rate) ? a.success_rate : null
+    const bRate = typeof b.success_rate === 'number' && Number.isFinite(b.success_rate) ? b.success_rate : null
+    if (aRate == null && bRate != null) return 1
+    if (aRate != null && bRate == null) return -1
+    if (aRate != null && bRate != null && aRate !== bRate) return sortDirection.value === 'asc' ? aRate - bRate : bRate - aRate
+  } else {
+    const priorityDelta = (sortDirection.value === 'asc' ? aBasePriority : 3 - aBasePriority) - (sortDirection.value === 'asc' ? bBasePriority : 3 - bBasePriority)
+    if (priorityDelta) return priorityDelta
+  }
+  const statusDelta = aBasePriority - bBasePriority
+  if (statusDelta) return statusDelta
   return a.name.localeCompare(b.name)
 }))
 const summary = computed(() => ({
@@ -209,6 +236,10 @@ function selectWindow(value: UpstreamDashboardWindow) {
 function toggleSortDirection() {
   sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
 }
+function onSortFieldChange() {
+  if (sortField.value === 'upstream_cost') sortDirection.value = 'desc'
+  else if (sortField.value === 'status') sortDirection.value = 'asc'
+}
 async function openDetail(item: UpstreamDashboardCard) { lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null; selected.value = item; detail.value = null; detailError.value = ''; const seq = ++detailSeq; detailLoading.value = true; await nextTick(); closeButtonRef.value?.focus(); try { const value = await getDashboardDetail(item.id, rangeWindow.value); if (seq === detailSeq) detail.value = value } catch (e: any) { if (seq === detailSeq) detailError.value = e?.message || t('common.loadFailed') } finally { if (seq === detailSeq) detailLoading.value = false } }
 function closeDetail() { selected.value = null; detail.value = null; detailError.value = ''; detailSeq += 1; lastFocusedElement?.focus(); lastFocusedElement = null }
 function onKeydown(event: KeyboardEvent) { if (event.key === 'Escape' && selected.value) closeDetail() }
@@ -257,7 +288,7 @@ onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() =
 .card-error-row{display:flex;flex-wrap:wrap;gap:.9rem;padding:.8rem 0;font-size:.7rem;color:rgb(71 85 105)}.card-error-row>span{display:inline-flex;align-items:center;gap:.3rem}.card-error-row b{font-weight:700;color:rgb(30 41 59)}.error-dot{height:.4rem;width:.4rem;border-radius:999px}.error-dot-red{background:rgb(239 68 68)}.error-dot-orange{background:rgb(249 115 22)}.error-dot-slate{background:rgb(148 163 184)}
 .card-signal-row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;border-top:1px solid rgb(241 245 249);padding:.65rem 0 0;font-size:.68rem;color:rgb(100 116 139)}.card-signal-row>span{display:inline-flex;align-items:center;gap:.35rem}.card-signal-row strong{font-size:.68rem;font-weight:600;color:rgb(71 85 105)}.signal-marker{height:.42rem;width:.42rem;border-radius:999px}.signal-marker-live{background:rgb(20 184 166)}.signal-marker-muted{background:rgb(203 213 225)}
 .card-ops-row{display:flex;align-items:center;gap:.65rem;min-height:1.8rem;border-top:1px solid rgb(241 245 249);font-size:.66rem;color:rgb(100 116 139)}.ops-value,.incident-count,.rate-change,.balance-alert{display:inline-flex;align-items:center;gap:.25rem;white-space:nowrap}.ops-value strong{color:rgb(51 65 85)}.incident-count{margin-left:auto;color:rgb(220 38 38);font-weight:700}.rate-change{color:rgb(13 148 136)}.balance-low-value strong,.balance-alert{color:rgb(220 38 38)}.balance-unavailable{color:rgb(217 119 6);font-size:.64rem}.summary-item-alert strong{color:rgb(220 38 38)}
-.detail-section-ops{margin-top:1rem}.ops-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin-top:.85rem}
+.detail-window-cost{margin-top:1rem;border:1px solid rgb(204 251 241);border-radius:.85rem;background:rgb(240 253 250);padding:1rem}.detail-section-ops{margin-top:1rem}.ops-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin-top:.85rem}
 .ops-value small{font-size:.58rem;color:rgb(148 163 184)}
 .card-footer{display:grid;grid-template-columns:1fr 1fr auto;align-items:end;gap:.75rem;margin-top:.2rem;border-top:1px solid rgb(241 245 249);padding-top:.8rem}.footer-metric{display:flex;min-width:0;flex-direction:column;gap:.25rem}.footer-metric strong{font-size:.85rem;color:rgb(30 41 59)}.profit-value{color:rgb(5 150 105)!important}.muted-value{color:rgb(148 163 184)!important}.card-link{display:grid;height:1.9rem;width:1.9rem;place-items:center;border:1px solid rgb(226 232 240);border-radius:6px;font-size:1.1rem;color:rgb(100 116 139);transition:color .15s ease,background .15s ease}.dashboard-card:hover .card-link{border-color:rgb(153 246 228);background:rgb(240 253 250);color:rgb(13 148 136)}
 .dashboard-card.status-operational{border-color:rgb(187 247 208);background:rgb(253 255 254)}.dashboard-card.status-degraded{border-color:rgb(253 230 138);background:rgb(255 254 248)}.dashboard-card.status-critical{border-color:rgb(254 202 202);background:rgb(255 252 252)}.dashboard-card.status-disabled,.dashboard-card.status-data_insufficient{border-color:rgb(226 232 240);background:rgb(255 255 255)}
@@ -290,6 +321,6 @@ onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() =
 :global(.dark) .trend-bar{background:rgb(45 212 191 / .78)}
 :global(.dark) .trend-bar-error{background:rgb(245 158 11 / .84)}
 :global(.dark) .upstream-dashboard .card-ops-row{border-color:rgb(51 65 85);color:rgb(148 163 184)}:global(.dark) .upstream-dashboard .ops-value strong{color:rgb(203 213 225)}:global(.dark) .upstream-dashboard .balance-low-value strong,:global(.dark) .upstream-dashboard .balance-alert{color:rgb(248 113 113)}:global(.dark) .upstream-dashboard .balance-unavailable{color:rgb(251 191 36)}:global(.dark) .upstream-dashboard .summary-item-alert strong{color:rgb(248 113 113)}
-.filter-row{grid-template-columns:minmax(300px,2fr) minmax(130px,1fr) auto minmax(220px,1.6fr) auto}
+.filter-row{grid-template-columns:minmax(300px,2fr) minmax(130px,1fr) minmax(160px,1.15fr) minmax(100px,.7fr) minmax(220px,1.6fr) auto}
 @media (max-width:1000px){.filter-window-control{grid-column:span 2}}
 </style>
