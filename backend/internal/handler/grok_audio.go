@@ -77,6 +77,13 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Grok credential unavailable")
 		return
 	}
+	if allowed, retryAfter, _ := h.gatewayService.TryAcquireAccountRPM(c.Request.Context(), selection.Account); !allowed {
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(maxIntDurationSeconds(retryAfter)))
+		}
+		h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", "Grok account RPM limit reached, please retry later")
+		return
+	}
 
 	conn, err := coderws.Accept(c.Writer, c.Request, &coderws.AcceptOptions{CompressionMode: coderws.CompressionContextTakeover})
 	if err != nil {
@@ -220,6 +227,9 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 				return
 			}
 			failed[account.ID] = struct{}{}
+			continue
+		}
+		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, release, failed, reqLog); !allowed {
 			continue
 		}
 		result, forwardErr := func() (*service.OpenAIForwardResult, error) {

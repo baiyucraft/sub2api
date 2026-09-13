@@ -249,6 +249,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 		if allowed, retryAfter, rpmErr := h.gatewayService.TryAcquireAccountRPM(c.Request.Context(), account); !allowed {
+			recordOpenAIRPMRetryAfter(c, retryAfter)
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}

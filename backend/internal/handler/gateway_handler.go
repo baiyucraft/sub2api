@@ -464,6 +464,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 账号级 RPM 在真实上游请求前做最终原子准入；达到上限则释放并发槽并切换账号。
 			if allowed, retryAfter, rpmErr := h.gatewayService.TryAcquireAccountRPM(c.Request.Context(), account); !allowed {
+				recordOpenAIRPMRetryAfter(c, retryAfter)
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
@@ -547,15 +548,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
 				return
-			}
-
-			// RPM 计数递增（Forward 成功后）
-			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
-			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if account.RPMLimit <= 0 && account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
-				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
-					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-				}
 			}
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
@@ -815,6 +807,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 账号级 RPM 在真实上游请求前做最终原子准入；达到上限则释放并发槽并切换账号。
 			if allowed, retryAfter, rpmErr := h.gatewayService.TryAcquireAccountRPM(c.Request.Context(), account); !allowed {
+				recordOpenAIRPMRetryAfter(c, retryAfter)
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
@@ -1100,15 +1093,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					upstreamServedSession = true
 				}
 				return
-			}
-
-			// RPM 计数递增（Forward 成功后）
-			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
-			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if account.RPMLimit <= 0 && account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
-				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
-					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-				}
 			}
 
 			// 绑定粘性会话（成功转发后绑定/刷新）
@@ -1940,6 +1924,7 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 }
 
 func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, errType, code, message string, streamStarted bool) {
+	writeOpenAIRPMRetryAfter(c)
 	if streamStarted {
 		// 响应状态码已固化为 200（ping/部分数据已 flush），错误只能就地以 SSE 帧回传。
 		// 标记本次流内错误，供 ops_error_logger 补记——否则该中间件按 status>=400 采集，
@@ -2068,6 +2053,7 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 }
 
 func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
+	writeOpenAIRPMRetryAfter(c)
 	errorObject := gin.H{"type": errType, "message": message}
 	if code != "" {
 		errorObject["code"] = code

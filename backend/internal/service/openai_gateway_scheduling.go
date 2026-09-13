@@ -899,6 +899,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
+	ctx = s.withAccountRPMPrefetch(ctx, accounts)
 
 	// 3. 按优先级 + LRU 选择最佳账号
 	// Select by priority + LRU
@@ -949,6 +950,11 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 
 	account, err := s.getSchedulableAccount(ctx, accountID)
 	if err != nil {
+		return nil
+	}
+	// A sticky binding must not bypass the account-level RPM pre-check. Keep the
+	// binding intact while the minute budget is exhausted.
+	if !s.isAccountSchedulableForRPM(ctx, account) {
 		return nil
 	}
 
@@ -1008,6 +1014,10 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 
 	for i := range accounts {
 		acc := &accounts[i]
+		if !s.isAccountSchedulableForRPM(ctx, acc) {
+			filterStats.exclude("rpm_limited")
+			continue
+		}
 
 		// 跳过被排除的账号
 		// Skip excluded accounts
@@ -1178,6 +1188,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
+	ctx = s.withAccountRPMPrefetch(ctx, accounts)
 	if len(accounts) == 0 {
 		return nil, noAvailableOpenAISelectionError(requestedModel, false, openAISelectionFilterStats{}.summary(""))
 	}
@@ -1205,7 +1216,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				if clearSticky {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
-				if !clearSticky && isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, false, requiredCapability) {
+				if !clearSticky && s.isAccountSchedulableForRPM(ctx, account) && isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, false, requiredCapability) {
 					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
 					if account == nil {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -1266,6 +1277,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		acc := &accounts[i]
 		if isExcluded(acc.ID) {
 			filterStats.exclude("excluded")
+			continue
+		}
+		if !s.isAccountSchedulableForRPM(ctx, acc) {
+			filterStats.exclude("rpm_limited")
 			continue
 		}
 		// Scheduler snapshots can be temporarily stale (bucket rebuild is throttled);
@@ -1593,6 +1608,9 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccountBeforeProfit(
 	}
 
 	if !isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, fresh, platform, requestedModel, requireCompact, requiredCapability) {
+		return nil
+	}
+	if !s.isAccountSchedulableForRPM(ctx, fresh) {
 		return nil
 	}
 	if !parentHealthyForShadow(fresh, s.parentAccountLookup(ctx)) {

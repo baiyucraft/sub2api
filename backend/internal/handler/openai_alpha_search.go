@@ -174,6 +174,9 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		if slotResult != openAISlotAcquireOK {
 			return
 		}
+		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountRelease, failedAccountIDs, reqLog); !allowed {
+			continue
+		}
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		writerSizeBeforeForward := c.Writer.Size()
 		forwardStart := time.Now()
