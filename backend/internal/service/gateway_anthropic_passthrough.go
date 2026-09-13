@@ -109,6 +109,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			input.Body = input.Parsed.Body.Bytes()
 		}
 
+		s.countLegacyAnthropicRPM(ctx, account)
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 		if err != nil {
 			if resp != nil && resp.Body != nil {

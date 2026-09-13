@@ -435,6 +435,7 @@ type OpenAIGatewayService struct {
 	codexDetector         CodexClientRestrictionDetector
 	schedulerSnapshot     *SchedulerSnapshotService
 	concurrencyService    *ConcurrencyService
+	rpmCache              RPMCache
 	billingService        *BillingService
 	rateLimitService      *RateLimitService
 	billingCacheService   *BillingCacheService
@@ -496,6 +497,37 @@ type OpenAIGatewayService struct {
 	// 剥离跨账号回带（openai_codex_turn_state.go）。
 	openaiCodexTurnStateOrigins sync.Map
 	openaiCodexTurnStateWrites  atomic.Uint64
+}
+
+// SetRPMCache wires the shared account RPM counter into the OpenAI gateway.
+// A setter preserves the constructor contract used by integrations and tests.
+func (s *OpenAIGatewayService) SetRPMCache(cache RPMCache) {
+	if s != nil {
+		s.rpmCache = cache
+	}
+}
+
+func (s *OpenAIGatewayService) withAccountRPMPrefetch(ctx context.Context, accounts []Account) context.Context {
+	if s == nil {
+		return ctx
+	}
+	return withAccountRPMPrefetch(ctx, s.rpmCache, accounts)
+}
+
+func (s *OpenAIGatewayService) isAccountSchedulableForRPM(ctx context.Context, account *Account) bool {
+	if s == nil {
+		return true
+	}
+	return IsAccountSchedulableForRPM(ctx, s.rpmCache, account)
+}
+
+// TryAcquireAccountRPM reserves one account RPM slot immediately before an
+// OpenAI-family upstream request is sent.
+func (s *OpenAIGatewayService) TryAcquireAccountRPM(ctx context.Context, account *Account) (bool, time.Duration, error) {
+	if s == nil {
+		return true, 0, nil
+	}
+	return TryAcquireAccountRPM(ctx, s.rpmCache, account)
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService

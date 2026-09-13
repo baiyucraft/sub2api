@@ -1523,22 +1523,21 @@ func (s *GatewayService) IncrementAccountRPM(ctx context.Context, accountID int6
 	return err
 }
 
+// countLegacyAnthropicRPM records one actual upstream attempt for the legacy
+// Anthropic OAuth/SetupToken tiered limiter.
+func (s *GatewayService) countLegacyAnthropicRPM(ctx context.Context, account *Account) {
+	if account == nil || account.RPMLimit > 0 || !account.IsAnthropicOAuthOrSetupToken() || account.GetBaseRPM() <= 0 {
+		return
+	}
+	if err := s.IncrementAccountRPM(ctx, account.ID); err != nil {
+		slog.Warn("gateway.legacy_anthropic_rpm_increment_failed", "account_id", account.ID, "error", err)
+	}
+}
+
 // TryAcquireAccountRPM performs the final atomic account-level RPM check.
 // Redis errors fail open so a cache outage cannot take down upstream traffic.
 func (s *GatewayService) TryAcquireAccountRPM(ctx context.Context, account *Account) (allowed bool, retryAfter time.Duration, err error) {
-	if account == nil || account.RPMLimit <= 0 || s.rpmCache == nil {
-		return true, 0, nil
-	}
-	limiter, ok := s.rpmCache.(AccountRPMLimiter)
-	if !ok {
-		return true, 0, nil
-	}
-	allowed, _, retryAfter, err = limiter.TryAcquireRPM(ctx, account.ID, account.RPMLimit)
-	if err != nil {
-		slog.Warn("account_rpm_limiter_unavailable_fail_open", "account_id", account.ID, "error", err)
-		return true, 0, err
-	}
-	return allowed, retryAfter, nil
+	return TryAcquireAccountRPM(ctx, s.rpmCache, account)
 }
 
 // checkAndRegisterSession 检查并注册会话，用于会话数量限制

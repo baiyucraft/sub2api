@@ -259,6 +259,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		if slotResult != openAISlotAcquireOK {
 			return
 		}
+		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountReleaseFunc, failedAccountIDs, reqLog); !allowed {
+			continue
+		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		if !parsed.Stream && !jsonKeepaliveStarted {

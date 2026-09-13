@@ -572,6 +572,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	if !s.isAccountRequestCompatible(ctx, account, req) {
 		return nil, false, nil
 	}
+	if !s.service.isAccountSchedulableForRPM(ctx, account) {
+		return nil, false, nil
+	}
 	if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		clearBinding()
 		return nil, false, nil
@@ -1589,6 +1592,9 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		if !s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 			continue
 		}
+		if !s.service.isAccountSchedulableForRPM(ctx, account) {
+			continue
+		}
 		account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 		if account == nil {
 			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
@@ -1710,6 +1716,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	if len(accounts) == 0 {
 		return nil, 0, 0, 0, 0, emptyPreferredFallback, noAvailableOpenAISelectionError(req.RequestedModel, false, openAISelectionFilterStats{}.summary(""))
 	}
+	ctx = s.service.withAccountRPMPrefetch(ctx, accounts)
 	// Local free-tier soft gate on the Grok scheduling path only (not admin probe).
 	accounts = s.filterGrokFreeQuotaAccounts(ctx, accounts)
 	if len(accounts) == 0 {
@@ -1775,6 +1782,10 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}
 		if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 			filterStats.exclude("transport_incompatible")
+			continue
+		}
+		if !s.service.isAccountSchedulableForRPM(ctx, account) {
+			filterStats.exclude("rpm_limit")
 			continue
 		}
 		filtered = append(filtered, account)

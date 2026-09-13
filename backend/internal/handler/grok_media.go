@@ -314,6 +314,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		if slotResult != openAISlotAcquireOK {
 			return
 		}
+		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountReleaseFunc, failedAccountIDs, reqLog); !allowed {
+			continue
+		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()

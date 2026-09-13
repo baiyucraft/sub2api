@@ -754,6 +754,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if slotResult != openAISlotAcquireOK {
 			return
 		}
+		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountReleaseFunc, failedAccountIDs, reqLog); !allowed {
+			continue
+		}
 
 		// Forward request
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
@@ -1343,6 +1346,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		if slotResult != openAISlotAcquireOK {
 			return
+		}
+		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountReleaseFunc, failedAccountIDs, reqLog); !allowed {
+			continue
 		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
@@ -2113,6 +2119,72 @@ func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(
 	return h.acquireOpenAIAccountSlot(c, groupID, sessionHash, selection, reqStream, streamStarted, reqLog, nil)
 }
 
+// acquireOpenAIAccountRPM performs the final account RPM reservation after
+// concurrency admission and immediately before an upstream attempt.
+func (h *OpenAIGatewayHandler) acquireOpenAIAccountRPM(
+	c *gin.Context,
+	account *service.Account,
+	release func(),
+	failedAccountIDs map[int64]struct{},
+	reqLog *zap.Logger,
+) (bool, time.Duration, error) {
+	allowed, retryAfter, err := h.gatewayService.TryAcquireAccountRPM(c.Request.Context(), account)
+	if !allowed {
+		recordOpenAIRPMRetryAfter(c, retryAfter)
+		if release != nil {
+			release()
+		}
+		if failedAccountIDs != nil && account != nil {
+			failedAccountIDs[account.ID] = struct{}{}
+		}
+		if reqLog != nil && account != nil {
+			reqLog.Debug("openai.account_rpm_limit_reached",
+				zap.Int64("account_id", account.ID),
+				zap.Int("rpm_limit", account.RPMLimit),
+				zap.Duration("retry_after", retryAfter),
+			)
+		}
+		return false, retryAfter, nil
+	}
+	if err != nil && reqLog != nil && account != nil {
+		reqLog.Warn("openai.account_rpm_check_failed_open",
+			zap.Int64("account_id", account.ID),
+			zap.Int("rpm_limit", account.RPMLimit),
+			zap.Error(err),
+		)
+	}
+	return true, retryAfter, err
+}
+
+// recordOpenAIRPMRetryAfter keeps the shortest retry window observed while
+// trying alternate accounts. It is only emitted if the request eventually
+// fails, so a successful failover never leaks a stale Retry-After header.
+func recordOpenAIRPMRetryAfter(c *gin.Context, retryAfter time.Duration) {
+	if c == nil || retryAfter <= 0 {
+		return
+	}
+	if c.Request != nil {
+		c.Request = c.Request.WithContext(service.RecordAccountRPMRetryAfter(c.Request.Context(), retryAfter))
+	}
+}
+
+func writeOpenAIRPMRetryAfter(c *gin.Context) {
+	if c == nil || c.Request == nil {
+		return
+	}
+	if seconds := service.AccountRPMRetryAfter(c.Request.Context()); seconds > 0 {
+		c.Header("Retry-After", strconv.Itoa(seconds))
+	}
+}
+
+func maxIntDurationSeconds(d time.Duration) int {
+	seconds := int(d / time.Second)
+	if d > 0 && seconds == 0 {
+		return 1
+	}
+	return seconds
+}
+
 type openAISlotErrorWriter func(status int, errType, code, message string)
 
 // acquireOpenAIAccountSlot centralizes scheduler selection admission. The
@@ -2719,6 +2791,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "failed to get access token")
 			return
 		}
+		if allowed, retryAfter, rpmErr := h.gatewayService.TryAcquireAccountRPM(ctx, account); !allowed {
+			releaseAccountSlot()
+			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, fmt.Sprintf("account RPM limit reached, retry after %d seconds", maxIntDurationSeconds(retryAfter)))
+			return
+		} else if rpmErr != nil {
+			reqLog.Warn("openai.websocket_account_rpm_check_failed_open", zap.Int64("account_id", account.ID), zap.Error(rpmErr))
+		}
 
 		reqLog.Debug("openai.websocket_account_selected",
 			zap.Int64("account_id", account.ID),
@@ -2863,6 +2942,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
 				currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
+				if allowed, retryAfter, rpmErr := h.gatewayService.TryAcquireAccountRPM(ctx, account); !allowed {
+					releaseTurnSlots()
+					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater,
+						fmt.Sprintf("account RPM limit reached, retry after %d seconds", maxIntDurationSeconds(retryAfter)), nil)
+				} else if rpmErr != nil {
+					reqLog.Warn("openai.websocket_turn_rpm_check_failed_open", zap.Int64("account_id", account.ID), zap.Error(rpmErr))
+				}
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
@@ -3470,6 +3556,9 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 	streamStarted bool,
 	countTowardsSLA bool,
 ) {
+	// 若本次请求曾因账号级 RPM 耗尽而排除账号，只有在最终失败响应时
+	// 才向客户端暴露最短重试窗口；成功切换账号的请求不会带出该头。
+	writeOpenAIRPMRetryAfter(c)
 	// body-signal compact 心跳可能已把响应头提交为 200：先停心跳（建立
 	// happens-before，接管 ResponseWriter），并升级为流内错误处理。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
@@ -3653,6 +3742,7 @@ func openAIFirstOutputFailoverExhausted(failoverErr *service.UpstreamFailoverErr
 
 // errorResponse returns OpenAI API format error response
 func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	writeOpenAIRPMRetryAfter(c)
 	// body-signal compact 心跳可能已把响应头提交为 200：JSON 错误体会与已
 	// 提交的 SSE 流交错，必须降级为 response.failed 终止事件（#3887）。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
