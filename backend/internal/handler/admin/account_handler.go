@@ -473,6 +473,13 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 			}
 		}
 	}
+	// 通用账号级 RPM 不限平台；单账号详情不能因为上面的 Anthropic 专用
+	// 配置块未执行而漏读当前分钟计数。
+	if item.CurrentRPM == nil && h.rpmCache != nil && account.RPMLimit > 0 {
+		if rpm, err := h.rpmCache.GetRPM(ctx, account.ID); err == nil {
+			item.CurrentRPM = &rpm
+		}
+	}
 
 	h.enrichShadowParents(ctx, []AccountWithConcurrency{item})
 
