@@ -168,6 +168,30 @@ describe('AccountGroupsCell preferred account pool', () => {
     expect(wrapper.emitted('toggle-preferred')).toEqual([[{ groupId: 4, preferred: false }]])
   })
 
+  it('shows preferred state and supports toggling hidden groups in the +N popover', async () => {
+    const wrapper = mountCell({
+      accountId: 42,
+      preferredGroupIds: [4],
+      interactive: true,
+      maxDisplay: 3
+    })
+
+    await wrapper.find('button:not([data-group-id])').trigger('click')
+
+    const popovers = document.querySelectorAll('[data-testid="account-groups-popover"]')
+    const popover = popovers[popovers.length - 1]
+    expect(popover).not.toBeNull()
+
+    const hiddenGroup = popover?.querySelector<HTMLButtonElement>('button[data-group-id="4"]')
+    expect(hiddenGroup).not.toBeNull()
+    expect(hiddenGroup?.querySelector('[data-testid="preferred-icon"]')?.getAttribute('data-filled')).toBe('true')
+
+    hiddenGroup?.click()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('toggle-preferred')).toEqual([[{ groupId: 4, preferred: false }]])
+  })
+
   it('does not expose toggle controls without an account id', () => {
     const wrapper = mountCell({
       preferredGroupIds: [1],
