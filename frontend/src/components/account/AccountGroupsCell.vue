@@ -1,7 +1,7 @@
 <template>
   <div v-if="groups && groups.length > 0" class="account-groups-cell relative w-full min-w-0 max-w-full">
-    <!-- 分组容器：固定最大宽度，最多显示2行 -->
-    <div class="flex min-w-0 flex-wrap gap-1 overflow-hidden max-h-14">
+    <!-- 分组容器：固定最大宽度，最多显示2行；放不下的分组通过 +N 展开。 -->
+    <div ref="groupsContainerRef" data-testid="account-groups-list" class="flex min-w-0 flex-wrap gap-1 overflow-hidden max-h-14">
       <div
         v-for="group in displayGroups"
         :key="group.id"
@@ -155,7 +155,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -182,7 +182,12 @@ const { t } = useI18n()
 
 const moreButtonRef = ref<HTMLElement | null>(null)
 const popoverRef = ref<HTMLElement | null>(null)
+const groupsContainerRef = ref<HTMLElement | null>(null)
 const showPopover = ref(false)
+const visibleGroupCount = ref<number | null>(null)
+let groupsResizeObserver: ResizeObserver | null = null
+let groupMeasureFrame: number | null = null
+let measuringGroups = false
 
 const accountId = computed(() => props.accountId)
 const interactive = computed(() => props.interactive)
@@ -199,22 +204,74 @@ const togglePreferred = (groupId: number) => {
   emit('toggle-preferred', { groupId, preferred: !isPreferred(groupId) })
 }
 
-// 显示的分组（最多显示 maxDisplay 个）
+const maxVisibleGroupCount = computed(() => {
+  if (!props.groups?.length) return 0
+  const maxDisplay = Math.max(1, Math.floor(props.maxDisplay))
+  // Preserve the existing contract: when the count limit is exceeded, reserve
+  // one slot for the +N control so the hidden groups remain discoverable.
+  const candidateCount = props.groups.length > maxDisplay ? maxDisplay - 1 : props.groups.length
+  return Math.max(1, candidateCount)
+})
+
+// 显示的分组：先按数量上限渲染，再根据实际列宽收缩，避免内容被 max-h-14 静默裁掉。
 const displayGroups = computed(() => {
   if (!props.groups) return []
-  if (props.groups.length <= props.maxDisplay) {
-    return props.groups
-  }
-  // 留一个位置给 +N 按钮
-  return props.groups.slice(0, props.maxDisplay - 1)
+  const count = visibleGroupCount.value ?? maxVisibleGroupCount.value
+  return props.groups.slice(0, count)
 })
 
 // 隐藏的数量
 const hiddenCount = computed(() => {
   if (!props.groups) return 0
-  if (props.groups.length <= props.maxDisplay) return 0
-  return props.groups.length - (props.maxDisplay - 1)
+  return Math.max(0, props.groups.length - displayGroups.value.length)
 })
+
+const measureGroupLayout = async () => {
+  if (measuringGroups) return
+  measuringGroups = true
+
+  try {
+    const container = groupsContainerRef.value
+    const maxCount = maxVisibleGroupCount.value
+
+    if (!container || maxCount === 0) {
+      visibleGroupCount.value = null
+      return
+    }
+
+    // Always retry from the full candidate set after a resize. A wider column may
+    // make a previously hidden group visible again.
+    visibleGroupCount.value = maxCount
+    await nextTick()
+
+    // jsdom and hidden tabs report zero dimensions; defer to the browser's next
+    // ResizeObserver notification instead of treating that as overflow.
+    if (container.clientWidth <= 0 || container.clientHeight <= 0) return
+
+    while (
+      visibleGroupCount.value > 1 &&
+      container.scrollHeight > container.clientHeight + 1
+    ) {
+      visibleGroupCount.value -= 1
+      await nextTick()
+    }
+  } finally {
+    measuringGroups = false
+  }
+}
+
+const scheduleGroupLayoutMeasure = () => {
+  if (groupMeasureFrame !== null) return
+
+  const run = () => {
+    groupMeasureFrame = null
+    void measureGroupLayout()
+  }
+
+  groupMeasureFrame = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+    ? window.requestAnimationFrame(run)
+    : setTimeout(run, 0) as unknown as number
+}
 
 // Popover 位置样式
 const popoverStyle = computed(() => {
@@ -251,9 +308,33 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  scheduleGroupLayoutMeasure()
+
+  if (groupsContainerRef.value && typeof ResizeObserver !== 'undefined') {
+    groupsResizeObserver = new ResizeObserver(() => {
+      scheduleGroupLayoutMeasure()
+    })
+    groupsResizeObserver.observe(groupsContainerRef.value)
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  groupsResizeObserver?.disconnect()
+  groupsResizeObserver = null
+  if (groupMeasureFrame !== null) {
+    if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame(groupMeasureFrame)
+    } else {
+      clearTimeout(groupMeasureFrame)
+    }
+    groupMeasureFrame = null
+  }
 })
+
+watch(
+  [() => props.groups, () => props.maxDisplay],
+  () => scheduleGroupLayoutMeasure(),
+  { deep: true, flush: 'post' }
+)
 </script>
