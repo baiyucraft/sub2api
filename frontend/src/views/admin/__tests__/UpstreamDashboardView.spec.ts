@@ -12,10 +12,10 @@ describe('UpstreamDashboardView contract', () => {
   })
 
   it('keeps the summary icon frames and responsive six-item layout consistent', () => {
-    expect(source).toContain('.summary-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr))')
-    expect(source).toContain('.summary-icon-rose{background:rgb(255 228 230);color:rgb(225 29 72)}')
-    expect(source).toContain('@media (max-width:1000px){.summary-row{grid-template-columns:repeat(3,minmax(0,1fr))}}')
-    expect(source).toContain('@media (max-width:760px){.summary-row{grid-template-columns:repeat(2,minmax(0,1fr))')
+    expect(source).toMatch(/\.summary-row\s*\{[\s\S]*grid-template-columns:\s*repeat\(6,\s*minmax\(0,\s*1fr\)\)/)
+    expect(source).toMatch(/\.summary-icon-rose\s*\{[\s\S]*background:\s*rgb\(255 228 230\);[\s\S]*color:\s*rgb\(225 29 72\)/)
+    expect(source).toMatch(/@media \(max-width:\s*1000px\)[\s\S]*\.summary-row\s*\{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
+    expect(source).toMatch(/@media \(max-width:\s*760px\)[\s\S]*\.summary-row\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
   })
 
   it('keeps traffic and probes separate and renders status classes', () => {
@@ -61,7 +61,7 @@ describe('UpstreamDashboardView contract', () => {
   it('defaults to window cost descending and puts operational status first', () => {
     expect(source).toContain("const sortField = ref<SortField>('upstream_cost')")
     expect(source).toContain("const statusPriority: Record<string, number> = { operational: 0, degraded: 1, critical: 2, data_insufficient: 3, disabled: 4 }")
-    expect(source).toContain("else if (sortField.value === 'status') sortDirection.value = 'desc'")
+    expect(source).toContain("else if (sortField.value === 'status') sortDirection.value = 'asc'")
   })
 
   it('supports sorting by status, success rate, and window upstream cost', () => {
@@ -77,5 +77,37 @@ describe('UpstreamDashboardView contract', () => {
     expect(source).toContain(':aria-label="sortDirection === \'asc\'')
     expect(source).toContain(":name=\"sortDirection === 'asc' ? 'arrowUp' : 'arrowDown'\"")
     expect(source).toContain('@click="toggleSortDirection"')
+  })
+
+  it('keeps high-frequency decision metrics on cards and moves trends to detail', () => {
+    expect(source).toContain('class="card-core-metrics"')
+    expect(source).toContain('class="window-cost-metric"')
+    expect(source).toContain('class="request-metric"')
+    expect(source).toContain('class="latency-metrics"')
+    expect(source).not.toContain('class="card-trend"')
+    expect(source).not.toContain('<TrendBars :points="item.trend" />')
+    expect(source).toContain('<TrendBars v-if="detail.trend?.length" :points="detail.trend" compact />')
+  })
+
+  it('uses neutral cards with a status rail and stable numeric layout', () => {
+    expect(source).toContain('.dashboard-card::before')
+    expect(source).toContain('.dashboard-card.status-operational::before')
+    expect(source).toContain('font-variant-numeric: tabular-nums')
+    expect(source).toContain('.dashboard-card.status-operational, .dashboard-card.status-degraded, .dashboard-card.status-critical { border-color: rgb(226 232 240); background: white; }')
+  })
+
+  it('styles positive, negative, and unavailable profit values distinctly', () => {
+    expect(source).toContain('const profitClass = (value: number | null | undefined)')
+    expect(source).toContain('profit-value-negative')
+    expect(source).toContain('class="detail-big-value" :class="profitClass(detail.estimated_gross_profit)"')
+  })
+
+  it('keeps render-function trend bars styled outside scoped CSS', () => {
+    expect(source).toContain(':global(.trend-bars)')
+    expect(source).toContain(':global(.trend-bar)')
+  })
+
+  it('keeps detail sections numbered in sequence', () => {
+    expect([...source.matchAll(/section-number">(\d+)<\/span>/g)].map(match => match[1])).toEqual(['00', '01', '02', '03', '04', '05', '06'])
   })
 })
