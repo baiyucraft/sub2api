@@ -1,7 +1,7 @@
 export default {
     upstreamDashboard: {
       title: '上游看板', description: '按上游配置查看流量、健康、性能与估算收益。', empty: '暂无匹配的上游配置', openDetail: '打开 {name} 详情', noReason: '暂无原因', estimatedUnavailable: '估算不可用',
-      windows: { '1h': '1 小时', '24h': '24 小时', '7d': '7 天', '15d': '15 天', '30d': '30 天' },
+      windows: { '1h': '1 小时', '24h': '24 小时', today: '今天', '7d': '7 天', '15d': '15 天', '30d': '30 天' },
       filters: { title: '筛选范围', window: '时间窗口', provider: 'Provider', status: '状态', sort: '排序字段', direction: '排序方向', sortByStatus: '状态', sortBySuccessRate: '成功率', sortByWindowCost: '窗口消耗', sortAsc: '切换为正序', sortDesc: '切换为倒序', searchLabel: '搜索渠道', allProviders: '全部 Provider', allStatuses: '全部状态' },
       summary: { configurations: '上游配置', withTraffic: '有真实流量', needAttention: '需要关注', schedulableAccounts: '可调度账号', openIncidents: '未解决事件', balanceLow: '余额不足渠道' },
       windowLabel: '窗口：{window}', lastUpdated: '更新于 {time}', lastProbe: '最近 {time}', emptyHint: '调整筛选条件，或等待新的流量与探针数据。', noTrafficData: '当前窗口暂无真实流量数据。', noTrendData: '当前窗口暂无趋势数据。',

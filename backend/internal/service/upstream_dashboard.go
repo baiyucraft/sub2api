@@ -8,11 +8,12 @@ import (
 type UpstreamDashboardWindow string
 
 const (
-	UpstreamDashboardWindow1h  UpstreamDashboardWindow = "1h"
-	UpstreamDashboardWindow24h UpstreamDashboardWindow = "24h"
-	UpstreamDashboardWindow7d  UpstreamDashboardWindow = "7d"
-	UpstreamDashboardWindow15d UpstreamDashboardWindow = "15d"
-	UpstreamDashboardWindow30d UpstreamDashboardWindow = "30d"
+	UpstreamDashboardWindow1h    UpstreamDashboardWindow = "1h"
+	UpstreamDashboardWindow24h   UpstreamDashboardWindow = "24h"
+	UpstreamDashboardWindowToday UpstreamDashboardWindow = "today"
+	UpstreamDashboardWindow7d    UpstreamDashboardWindow = "7d"
+	UpstreamDashboardWindow15d   UpstreamDashboardWindow = "15d"
+	UpstreamDashboardWindow30d   UpstreamDashboardWindow = "30d"
 )
 
 type UpstreamDashboardFilter struct {

@@ -1,7 +1,7 @@
 export default {
     upstreamDashboard: {
       title: 'Upstream Dashboard', description: 'Review traffic, health, performance, and estimated returns by upstream configuration.', empty: 'No upstream configurations match the filters.', openDetail: 'Open details for {name}', noReason: 'No reason recorded', estimatedUnavailable: 'Estimate unavailable',
-      windows: { '1h': '1 hour', '24h': '24 hours', '7d': '7 days', '15d': '15 days', '30d': '30 days' },
+      windows: { '1h': '1 hour', '24h': '24 hours', today: 'Today', '7d': '7 days', '15d': '15 days', '30d': '30 days' },
       filters: { title: 'Filter scope', window: 'Time window', provider: 'Provider', status: 'Status', sort: 'Sort field', direction: 'Direction', sortByStatus: 'Status', sortBySuccessRate: 'Success rate', sortByWindowCost: 'Window cost', sortAsc: 'Switch to ascending order', sortDesc: 'Switch to descending order', searchLabel: 'Search channels', allProviders: 'All providers', allStatuses: 'All statuses' },
       summary: { configurations: 'Configurations', withTraffic: 'With live traffic', needAttention: 'Need attention', schedulableAccounts: 'Schedulable accounts', openIncidents: 'Open incidents', balanceLow: 'Low-balance channels' },
       windowLabel: 'Window: {window}', lastUpdated: 'Updated {time}', lastProbe: 'Last {time}', emptyHint: 'Adjust the filters or wait for new traffic and probe data.', noTrafficData: 'No live traffic in this window.', noTrendData: 'No trend data in this window.',

@@ -3,9 +3,25 @@ package repository
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDashboardWindowTodayUsesConfiguredTimezoneStartOfDay(t *testing.T) {
+	previousTimezone := timezone.Location().String()
+	require.NoError(t, timezone.Init("Asia/Shanghai"))
+	t.Cleanup(func() { require.NoError(t, timezone.Init(previousTimezone)) })
+
+	now := time.Date(2026, 9, 13, 18, 30, 0, 0, time.UTC)
+	start, end, normalized := dashboardWindow(service.UpstreamDashboardWindowToday, now)
+
+	require.Equal(t, "today", normalized)
+	require.Equal(t, now, end)
+	require.Equal(t, time.Date(2026, 9, 14, 0, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60)).UTC(), start)
+}
 
 func TestDashboardProbeNullableSelectIsScanSafeForMissingObservations(t *testing.T) {
 	projection := strings.Join(strings.Fields(dashboardProbeNullableSelect), " ")
