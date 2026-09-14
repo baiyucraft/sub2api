@@ -53,8 +53,8 @@ func (s *GatewayService) upstreamHealthExcludedAccountIDs(ctx context.Context, g
 	if s == nil || s.accountRepo == nil {
 		return nil
 	}
-	healthRegistry := GlobalUpstreamHealthRegistry()
-	if !healthRegistry.HasTemporaryExclusions() {
+	healthReader := s.forkHealthReader()
+	if !healthReader.HasTemporaryExclusions() {
 		return nil
 	}
 	var accounts []Account
@@ -80,7 +80,7 @@ func (s *GatewayService) upstreamHealthExcludedAccountIDs(ctx context.Context, g
 	for _, id := range ids {
 		keyIDs = append(keyIDs, keyByAccount[id])
 	}
-	keyExcluded := healthRegistry.ExcludedKeyIDs(keyIDs)
+	keyExcluded := healthReader.ExcludedKeyIDs(keyIDs)
 	out := make(map[int64]struct{}, len(keyExcluded))
 	for accountID, keyID := range keyByAccount {
 		if _, ok := keyExcluded[keyID]; ok {

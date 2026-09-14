@@ -111,16 +111,25 @@ func (s *UpstreamConfigService) RecordUpstreamTrafficFailure(ctx context.Context
 }
 
 func (s *UpstreamConfigService) recordUpstreamTrafficEvidence(ctx context.Context, keyID int64, success bool, status, reason string) {
+	_, _ = s.recordUpstreamTrafficEvidenceAt(ctx, keyID, success, status, reason, time.Now().UTC())
+}
+
+// recordUpstreamTrafficEvidenceAt is the service-owned health mutation used
+// by the fork scheduling bridge. Keeping the lock, persistence and rollback
+// here prevents a narrow runtime view from becoming a second health writer.
+func (s *UpstreamConfigService) recordUpstreamTrafficEvidenceAt(ctx context.Context, keyID int64, success bool, status, reason string, now time.Time) (UpstreamHealthTransition, error) {
 	if s == nil || keyID <= 0 {
-		return
+		return UpstreamHealthTransition{}, nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	_ = s.withHealthKeyLock(keyID, func() error {
-		now := time.Now().UTC()
+	var transition UpstreamHealthTransition
+	err := s.withHealthKeyLock(keyID, func() error {
+		if now.IsZero() {
+			now = time.Now().UTC()
+		}
 		registry := GlobalUpstreamHealthRegistry()
-		var transition UpstreamHealthTransition
 		if success {
 			transition = registry.RecordTrafficSuccessTransition(keyID, status, reason, now)
 		} else {
@@ -147,9 +156,11 @@ func (s *UpstreamConfigService) recordUpstreamTrafficEvidence(ctx context.Contex
 		if err := s.saveHealthTransitionWithObservation(persistCtx, keyID, transition, observation); err != nil {
 			// Health evidence is fail-open. The persistence helper restores the
 			// previous in-memory snapshot on failure.
+			transition.Current = transition.Previous
 			return err
 		}
 		s.healthPersistedAt.Store(keyID, now)
 		return nil
 	})
+	return transition, err
 }

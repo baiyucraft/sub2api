@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func intPointer(value int) *int { return &value }
+
 func TestResolveUpstreamSchedulerConcurrency(t *testing.T) {
 	tests := []struct {
 		name          string

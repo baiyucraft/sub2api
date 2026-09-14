@@ -2,16 +2,15 @@ package service
 
 import (
 	"context"
-	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/forkscheduling"
 )
 
 // RPMCache RPM 计数器缓存接口
 // 用于 Anthropic OAuth/SetupToken 账号的每分钟请求数限制
 // AccountRPMLimiter is the optional atomic account-level RPM gate.
 // Implementations should fail-open at the caller when the backing store is unavailable.
-type AccountRPMLimiter interface {
-	TryAcquireRPM(ctx context.Context, accountID int64, limit int) (allowed bool, count int, retryAfter time.Duration, err error)
-}
+type AccountRPMLimiter = forkscheduling.AccountRPMLimiter
 
 type RPMCache interface {
 	// IncrementRPM 原子递增并返回当前分钟的计数
