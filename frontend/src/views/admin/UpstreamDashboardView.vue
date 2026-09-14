@@ -137,7 +137,7 @@ const error = ref('')
 const search = ref('')
 const status = ref('')
 const rangeWindow = ref<UpstreamDashboardWindow>('24h')
-const windows: UpstreamDashboardWindow[] = ['1h','24h','7d','15d','30d']
+const windows: UpstreamDashboardWindow[] = ['1h','24h','today','7d','15d','30d']
 const statuses = ['operational', 'degraded', 'critical', 'disabled', 'data_insufficient']
 const statusOptions = computed(() => [
   { value: '', label: t('admin.upstreamDashboard.filters.allStatuses') },

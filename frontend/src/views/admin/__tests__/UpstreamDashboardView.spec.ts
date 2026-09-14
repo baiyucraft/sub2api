@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../UpstreamDashboardView.vue'), 'utf8')
 
 describe('UpstreamDashboardView contract', () => {
-  it('offers the five supported windows and automatic refresh', () => {
-    expect(source).toContain("['1h','24h','7d','15d','30d']")
+  it('offers the six supported windows and automatic refresh', () => {
+    expect(source).toContain("['1h','24h','today','7d','15d','30d']")
     expect(source).toContain('setInterval(load, 60000)')
   })
 
