@@ -29,6 +29,7 @@ import (
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
 	dbupstreamconfig "github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	dbupstreamkeymodelroute "github.com/Wei-Shaw/sub2api/ent/upstreamkeymodelroute"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -2441,6 +2442,45 @@ func (r *accountRepository) ListSchedulableByGroupID(ctx context.Context, groupI
 	})
 }
 
+func filterAccountsForTargetPlatform(accounts []service.Account, platform string, useMixed, ungroupedOnly bool) []service.Account {
+	filtered := make([]service.Account, 0, len(accounts))
+	for i := range accounts {
+		account := &accounts[i]
+		if ungroupedOnly && (len(account.GroupIDs) > 0 || len(account.AccountGroups) > 0) {
+			continue
+		}
+		if strings.EqualFold(account.Platform, platform) || account.HasRouteTargetPlatform(platform) ||
+			(useMixed && account.Platform == service.PlatformAntigravity && account.IsMixedSchedulingEnabled()) {
+			filtered = append(filtered, *account)
+		}
+	}
+	return filtered
+}
+
+func (r *accountRepository) ListSchedulableByGroupIDAndTargetPlatform(ctx context.Context, groupID int64, platform string, useMixed bool) ([]service.Account, error) {
+	accounts, err := r.ListSchedulableByGroupID(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return filterAccountsForTargetPlatform(accounts, platform, useMixed, false), nil
+}
+
+func (r *accountRepository) ListSchedulableByTargetPlatform(ctx context.Context, platform string, useMixed bool) ([]service.Account, error) {
+	accounts, err := r.ListSchedulable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return filterAccountsForTargetPlatform(accounts, platform, useMixed, false), nil
+}
+
+func (r *accountRepository) ListSchedulableUngroupedByTargetPlatform(ctx context.Context, platform string, useMixed bool) ([]service.Account, error) {
+	accounts, err := r.ListSchedulable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return filterAccountsForTargetPlatform(accounts, platform, useMixed, true), nil
+}
+
 func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Context, groupIDs []int64) ([]service.GroupAccountCapacityRow, error) {
 	groupIDs = uniquePositiveInt64s(groupIDs)
 	if len(groupIDs) == 0 {
@@ -3864,6 +3904,7 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 					out.Extra = map[string]any{}
 				}
 				copyUpstreamModelSyncMetadata(out.Extra, key.Extra)
+				out.UpstreamModelRoutes = append([]service.UpstreamKeyModelRoute(nil), key.ModelRoutes...)
 			}
 		}
 		out.ProxyFallbackOriginID = acc.ProxyFallbackOriginID
@@ -3977,6 +4018,9 @@ func (r *accountRepository) loadUpstreamBindings(ctx context.Context, configIDs,
 		}
 		rows, err := r.client.UpstreamKey.Query().
 			Where(dbupstreamkey.IDIn(keyIDs[start:end]...)).
+			WithModelRoutes(func(q *dbent.UpstreamKeyModelRouteQuery) {
+				q.Order(dbent.Asc(dbupstreamkeymodelroute.FieldPriority), dbent.Asc(dbupstreamkeymodelroute.FieldPublicModel), dbent.Asc(dbupstreamkeymodelroute.FieldID))
+			}).
 			All(ctx)
 		if err != nil {
 			return nil, nil, err

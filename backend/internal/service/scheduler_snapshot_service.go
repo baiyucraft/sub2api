@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,6 +62,14 @@ type legacySchedulerBucketLister interface {
 // and bindings removed after the cached snapshot was written are excluded.
 type upstreamSchedulingGateRepository interface {
 	ListUpstreamSchedulingEnabledAccountIDs(ctx context.Context, accountIDs []int64) ([]int64, error)
+}
+
+// modelRouteSchedulableAccountRepository is an optional production capability.
+// Existing repository stubs keep the legacy platform-only query contract.
+type modelRouteSchedulableAccountRepository interface {
+	ListSchedulableByGroupIDAndTargetPlatform(ctx context.Context, groupID int64, platform string, useMixed bool) ([]Account, error)
+	ListSchedulableByTargetPlatform(ctx context.Context, platform string, useMixed bool) ([]Account, error)
+	ListSchedulableUngroupedByTargetPlatform(ctx context.Context, platform string, useMixed bool) ([]Account, error)
 }
 
 // 查询结果只在一次 rebuild batch 内，按原始 groupID+platform 复用成功的 single/forced 查询；
@@ -450,6 +459,46 @@ func (s *SchedulerSnapshotService) UpdateAccountInCache(ctx context.Context, acc
 	return s.cache.SetAccount(ctx, account)
 }
 
+// RefreshUpstreamKeyRoutes rehydrates every physical account bound to a key
+// and rebuilds all platform buckets for its groups. Rebuilding every concrete
+// platform is intentional: after a route is deleted or moved, the former
+// target platform is no longer present in the fresh account and would
+// otherwise retain a stale bucket member.
+func (s *SchedulerSnapshotService) RefreshUpstreamKeyRoutes(ctx context.Context, keyID int64) error {
+	if s == nil || keyID <= 0 || s.accountRepo == nil {
+		return nil
+	}
+	lister, ok := s.accountRepo.(upstreamAccountBindingLister)
+	if !ok {
+		return nil
+	}
+	accounts, err := lister.ListByUpstreamKeyID(ctx, keyID)
+	if err != nil {
+		return err
+	}
+	groupSet := make(map[int64]struct{})
+	for i := range accounts {
+		account := &accounts[i]
+		if s.cache != nil {
+			if err := s.cache.SetAccount(ctx, account); err != nil {
+				return err
+			}
+		}
+		for _, groupID := range s.normalizeGroupIDs(account.GroupIDs) {
+			groupSet[groupID] = struct{}{}
+		}
+	}
+	if len(groupSet) == 0 {
+		return nil
+	}
+	groupIDs := make([]int64, 0, len(groupSet))
+	for groupID := range groupSet {
+		groupIDs = append(groupIDs, groupID)
+	}
+	sort.Slice(groupIDs, func(i, j int) bool { return groupIDs[i] < groupIDs[j] })
+	return s.rebuildByGroupIDs(ctx, groupIDs, "upstream_key_model_routes", nil)
+}
+
 func (s *SchedulerSnapshotService) runInitialRebuild() {
 	defer s.initialOnce.Do(func() { close(s.initialReady) })
 	if s.cache == nil {
@@ -750,6 +799,9 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 		default:
 			return s.rebuildByGroupIDs(ctx, rebuildGroupIDs, "account_bulk_change", seen)
 		}
+		for _, platform := range accountModelRouteTargetPlatforms(account) {
+			addPlatformGroups(platform, accountGroupIDs)
+		}
 	}
 
 	// payload 携带更新前的组；只扩散到本事件实际涉及的平台，避免平台间交叉重建。
@@ -948,6 +1000,9 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	}
 
 	buckets := s.bucketsForPlatform(account.Platform, groupIDs, seen)
+	for _, platform := range accountModelRouteTargetPlatforms(account) {
+		buckets = append(buckets, s.bucketsForPlatform(platform, groupIDs, seen)...)
+	}
 	if account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled() {
 		buckets = append(buckets, s.bucketsForPlatform(PlatformAnthropic, groupIDs, seen)...)
 		buckets = append(buckets, s.bucketsForPlatform(PlatformGemini, groupIDs, seen)...)
@@ -1622,6 +1677,15 @@ func (s *SchedulerSnapshotService) loadAccountsFromDB(ctx context.Context, bucke
 		groupID = 0
 	}
 
+	if routeRepo, ok := s.accountRepo.(modelRouteSchedulableAccountRepository); ok {
+		if groupID > 0 {
+			return routeRepo.ListSchedulableByGroupIDAndTargetPlatform(ctx, groupID, bucket.Platform, useMixed)
+		}
+		if s.isRunModeSimple() {
+			return routeRepo.ListSchedulableByTargetPlatform(ctx, bucket.Platform, useMixed)
+		}
+		return routeRepo.ListSchedulableUngroupedByTargetPlatform(ctx, bucket.Platform, useMixed)
+	}
 	if useMixed {
 		platforms := []string{bucket.Platform, PlatformAntigravity}
 		var accounts []Account
@@ -1645,7 +1709,6 @@ func (s *SchedulerSnapshotService) loadAccountsFromDB(ctx context.Context, bucke
 		}
 		return filtered, nil
 	}
-
 	if groupID > 0 {
 		return s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, groupID, bucket.Platform)
 	}
@@ -1653,6 +1716,28 @@ func (s *SchedulerSnapshotService) loadAccountsFromDB(ctx context.Context, bucke
 		return s.accountRepo.ListSchedulableByPlatform(ctx, bucket.Platform)
 	}
 	return s.accountRepo.ListSchedulableUngroupedByPlatform(ctx, bucket.Platform)
+}
+
+func accountModelRouteTargetPlatforms(account *Account) []string {
+	if account == nil || len(account.UpstreamModelRoutes) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	platforms := make([]string, 0, len(account.UpstreamModelRoutes))
+	for i := range account.UpstreamModelRoutes {
+		route := account.UpstreamModelRoutes[i]
+		platform := strings.ToLower(strings.TrimSpace(route.TargetPlatform))
+		if !route.IsSchedulable() {
+			continue
+		}
+		if _, ok := seen[platform]; ok {
+			continue
+		}
+		seen[platform] = struct{}{}
+		platforms = append(platforms, platform)
+	}
+	sort.Strings(platforms)
+	return platforms
 }
 
 func (s *SchedulerSnapshotService) loadAccountsForRebuild(

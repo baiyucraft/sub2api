@@ -276,6 +276,20 @@ func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 	models := make([]string, 0)
 	for i := range accounts {
 		account := &accounts[i]
+		for _, route := range account.UpstreamModelRoutes {
+			if !route.IsSchedulable() || !strings.EqualFold(strings.TrimSpace(route.TargetPlatform), PlatformOpenAI) {
+				continue
+			}
+			modelID := strings.TrimSpace(route.PublicModel)
+			if modelID == "" || strings.Contains(modelID, "*") {
+				continue
+			}
+			if _, exists := seen[modelID]; exists {
+				continue
+			}
+			seen[modelID] = struct{}{}
+			models = append(models, modelID)
+		}
 		if account.Platform != PlatformOpenAI {
 			continue
 		}
@@ -312,10 +326,15 @@ func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []s
 		}
 		for i := range accounts {
 			account := &accounts[i]
-			if account.Platform != PlatformOpenAI {
+			_, routed := account.ResolveUpstreamModelRoute(selectedModel, PlatformOpenAI)
+			mappedModel, matched := account.ResolveMappedModel(selectedModel)
+			if routed {
+				matched = true
+				mappedModel = selectedModel
+			}
+			if account.Platform != PlatformOpenAI && !routed {
 				continue
 			}
-			mappedModel, matched := account.ResolveMappedModel(selectedModel)
 			if !matched || strings.TrimSpace(mappedModel) == "" {
 				continue
 			}
@@ -1031,6 +1050,14 @@ func uniqueCodexMappedModel(accounts []Account, platform string, modelID string)
 	targets := make(map[string]struct{})
 	for i := range accounts {
 		account := &accounts[i]
+		if route, ok := account.ResolveUpstreamModelRoute(modelID, platform); ok {
+			mappedModel := strings.TrimSpace(route.UpstreamModel)
+			if mappedModel == "" {
+				mappedModel = modelID
+			}
+			targets[mappedModel] = struct{}{}
+			continue
+		}
 		if account.Platform != platform {
 			continue
 		}
@@ -1081,11 +1108,19 @@ func groupCodexModelSupportsImageInput(
 	candidates := 0
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform != platform || !account.IsModelSupported(upstreamModel) {
+		accountModel := upstreamModel
+		if route, ok := account.ResolveUpstreamModelRoute(modelID, platform); ok {
+			accountModel = strings.TrimSpace(route.UpstreamModel)
+			if accountModel == "" {
+				accountModel = modelID
+			}
+		} else if account.Platform != platform || !account.IsModelSupported(upstreamModel) {
 			continue
+		} else {
+			accountModel = account.GetMappedModel(upstreamModel)
 		}
 		candidates++
-		if !accountCodexModelSupportsImageInput(account, account.GetMappedModel(upstreamModel)) {
+		if !accountCodexModelSupportsImageInput(account, accountModel) {
 			return false
 		}
 	}
@@ -1127,7 +1162,8 @@ func groupCodexModelSupportsSearchTool(
 	candidates := 0
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform != platform || !account.IsModelSupported(upstreamModel) {
+		if _, ok := account.ResolveUpstreamModelRoute(modelID, platform); !ok &&
+			(account.Platform != platform || !account.IsModelSupported(upstreamModel)) {
 			continue
 		}
 		candidates++

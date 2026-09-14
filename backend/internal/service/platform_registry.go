@@ -96,6 +96,36 @@ func DefaultModelIDsForPlatform(platform string) []string {
 	return cloneStrings(defaultModelIDsForRegisteredPlatform(strings.ToLower(strings.TrimSpace(platform))))
 }
 
+// DetectRegisteredModelPlatform performs an exact, case-insensitive lookup in
+// the registered platforms' standard model catalogs. A model present in more
+// than one catalog is reported as ambiguous so callers can require provider
+// metadata or an administrator override (notably Gemini/Antigravity overlap).
+func DetectRegisteredModelPlatform(model string) (platform string, matched bool, ambiguous bool) {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	normalized = strings.TrimPrefix(normalized, "models/")
+	if normalized == "" {
+		return "", false, false
+	}
+	for _, entry := range RegisteredPlatformCatalog() {
+		for _, candidate := range entry.DefaultModels {
+			candidate = strings.ToLower(strings.TrimSpace(candidate))
+			candidate = strings.TrimPrefix(candidate, "models/")
+			if candidate != normalized {
+				continue
+			}
+			if !matched {
+				platform = entry.ID
+				matched = true
+				continue
+			}
+			if platform != entry.ID {
+				return "", true, true
+			}
+		}
+	}
+	return platform, matched, false
+}
+
 func IsConcreteRequestPlatform(platform string) bool {
 	platform = strings.ToLower(strings.TrimSpace(platform))
 	for _, entry := range registeredPlatformCatalog {

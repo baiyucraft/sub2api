@@ -72,6 +72,14 @@ func RequestedPublicModelFromContext(ctx context.Context) (string, bool) {
 	return model, true
 }
 
+func WithRequestedPublicModel(ctx context.Context, model string) context.Context {
+	model = strings.TrimSpace(model)
+	if ctx == nil || model == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, ctxkey.RequestedPublicModel, model)
+}
+
 func CompositeRouteSourceFromContext(ctx context.Context) (string, bool) {
 	if ctx == nil {
 		return "", false
@@ -88,42 +96,72 @@ func CompositeRouteSourceFromContext(ctx context.Context) (string, bool) {
 // platform used by sub2api. It intentionally returns false for ambiguous model
 // names so composite groups fail closed instead of guessing.
 func DetectModelPlatform(model string) (string, bool) {
+	platform, status := detectModelPlatformDetailed(model)
+	return platform, status == UpstreamKeyModelRouteStatusAvailable
+}
+
+func detectModelPlatformDetailed(model string) (string, string) {
 	normalized := strings.ToLower(strings.TrimSpace(model))
 	if normalized == "" {
-		return "", false
+		return "", UpstreamKeyModelRouteStatusUnknown
 	}
 
+	hadModelsPrefix := strings.HasPrefix(normalized, "models/")
 	normalized = strings.TrimPrefix(normalized, "models/")
 	if slash := strings.IndexByte(normalized, '/'); slash > 0 {
 		provider := strings.TrimSpace(normalized[:slash])
 		rest := strings.TrimSpace(normalized[slash+1:])
 		switch provider {
 		case "anthropic", "claude":
-			return PlatformAnthropic, true
+			return PlatformAnthropic, UpstreamKeyModelRouteStatusAvailable
 		case "openai", "chatgpt":
-			return PlatformOpenAI, true
+			return PlatformOpenAI, UpstreamKeyModelRouteStatusAvailable
 		case "google", "google-ai-studio", "gemini":
-			return PlatformGemini, true
+			return PlatformGemini, UpstreamKeyModelRouteStatusAvailable
+		case "antigravity":
+			return PlatformAntigravity, UpstreamKeyModelRouteStatusAvailable
 		case "xai", "x-ai", "grok":
-			return PlatformGrok, true
+			return PlatformGrok, UpstreamKeyModelRouteStatusAvailable
 		case "kimi", "moonshot":
-			return PlatformKimi, true
+			return PlatformKimi, UpstreamKeyModelRouteStatusAvailable
 		case "zhipu", "glm", "bigmodel":
-			return PlatformZhipu, true
+			return PlatformZhipu, UpstreamKeyModelRouteStatusAvailable
 		case "deepseek":
-			return PlatformDeepseek, true
+			return PlatformDeepseek, UpstreamKeyModelRouteStatusAvailable
 		case "minimax":
-			return PlatformMiniMax, true
+			return PlatformMiniMax, UpstreamKeyModelRouteStatusAvailable
 		}
 		if rest != "" {
 			normalized = strings.TrimPrefix(rest, "models/")
 		}
 	}
+	// Explicit model families carry stronger provider intent than a mirrored
+	// catalog entry. Antigravity exposes some Claude IDs internally, but a
+	// bare claude-* model remains an Anthropic request unless qualified by an
+	// antigravity/ provider prefix above. Likewise, the Gemini API's models/
+	// namespace is an explicit Gemini qualification.
+	if strings.HasPrefix(normalized, "claude-") || strings.HasPrefix(normalized, "anthropic.claude-") {
+		return PlatformAnthropic, UpstreamKeyModelRouteStatusAvailable
+	}
+	if hadModelsPrefix && (strings.HasPrefix(normalized, "gemini-") || strings.HasPrefix(normalized, "learnlm-")) {
+		return PlatformGemini, UpstreamKeyModelRouteStatusAvailable
+	}
+	if platform, matched, ambiguous := DetectRegisteredModelPlatform(normalized); ambiguous {
+		// Claude IDs are unambiguous in the public API even though Antigravity
+		// mirrors some Claude catalog entries internally. Preserve the explicit
+		// Claude family prefix instead of turning normal Anthropic models into an
+		// ambiguous route. The Gemini API's `models/` namespace is likewise an
+		// explicit provider-qualified form; bare overlapping Gemini IDs remain
+		// ambiguous and require provider metadata or manual routing.
+		return "", UpstreamKeyModelRouteStatusAmbiguous
+	} else if matched && IsConcreteRequestPlatform(platform) {
+		return platform, UpstreamKeyModelRouteStatusAvailable
+	}
 
 	switch {
 	case strings.HasPrefix(normalized, "anthropic.claude-"),
 		strings.HasPrefix(normalized, "claude-"):
-		return PlatformAnthropic, true
+		return PlatformAnthropic, UpstreamKeyModelRouteStatusAvailable
 	case strings.HasPrefix(normalized, "gpt-"),
 		strings.HasPrefix(normalized, "chatgpt-"),
 		strings.HasPrefix(normalized, "codex-"),
@@ -135,33 +173,33 @@ func DetectModelPlatform(model string) (string, bool) {
 		strings.HasPrefix(normalized, "tts-"),
 		strings.HasPrefix(normalized, "whisper-"),
 		hasOpenAISeriesPrefix(normalized):
-		return PlatformOpenAI, true
+		return PlatformOpenAI, UpstreamKeyModelRouteStatusAvailable
 	case strings.HasPrefix(normalized, "gemini-"),
 		strings.HasPrefix(normalized, "learnlm-"):
-		return PlatformGemini, true
+		return PlatformGemini, UpstreamKeyModelRouteStatusAvailable
 	case normalized == "grok" || strings.HasPrefix(normalized, "grok-"):
-		return PlatformGrok, true
+		return PlatformGrok, UpstreamKeyModelRouteStatusAvailable
 	case normalized == "k3",
 		normalized == "k3-256k",
 		strings.HasPrefix(normalized, "kimi-"),
 		strings.HasPrefix(normalized, "moonshot-"):
-		return PlatformKimi, true
+		return PlatformKimi, UpstreamKeyModelRouteStatusAvailable
 	case strings.HasPrefix(normalized, "glm-"):
-		return PlatformZhipu, true
+		return PlatformZhipu, UpstreamKeyModelRouteStatusAvailable
 	case strings.HasPrefix(normalized, "deepseek-"):
-		return PlatformDeepseek, true
+		return PlatformDeepseek, UpstreamKeyModelRouteStatusAvailable
 	case strings.HasPrefix(normalized, "minimax-"),
 		strings.HasPrefix(normalized, "abab5"),
 		strings.HasPrefix(normalized, "abab6"),
 		strings.HasPrefix(normalized, "abab7"):
-		return PlatformMiniMax, true
+		return PlatformMiniMax, UpstreamKeyModelRouteStatusAvailable
 	default:
-		return "", false
+		return "", UpstreamKeyModelRouteStatusUnknown
 	}
 }
 
 func hasOpenAISeriesPrefix(model string) bool {
-	for _, prefix := range []string{"o1", "o3", "o4", "o5"} {
+	for _, prefix := range []string{"o1", "o2", "o3", "o4", "o5"} {
 		if model == prefix || strings.HasPrefix(model, prefix+"-") {
 			return true
 		}

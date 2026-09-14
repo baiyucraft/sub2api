@@ -140,7 +140,8 @@ export default {
         grok: 'Grok',
         kimi: 'Kimi',
         zhipu: '智谱 GLM',
-        deepseek: 'DeepSeek'
+        deepseek: 'DeepSeek',
+        minimax: 'MiniMax'
       },
       sources: {
         manual: '手动指定',
@@ -216,7 +217,8 @@ export default {
       description: '集中查看上游 Key 的路由归属和生图最终成本。生图成本仅用于成本分析，不参与账号调度。',
       tabs: {
         imagePricing: '生图成本 {count}',
-        platforms: '平台归属'
+        platforms: '平台归属',
+        modelRoutes: '模型路由'
       },
       searchPlaceholder: '搜索 Key、分组或尾号',
       filters: {
@@ -243,6 +245,32 @@ export default {
         empty: '没有符合条件的生图 Key',
         emptyHint: '可切换筛选条件，或同步上游后再查看。'
       }
+    },
+    modelRoutes: {
+      add: '新增路由',
+      addTitle: '新增模型路由',
+      editTitle: '编辑模型路由',
+      hint: '模型平台归属按路由生效；手工路由不会被上游自动同步覆盖。',
+      inheritProtocol: '继承账号协议 / 自适应',
+      empty: '暂无模型路由',
+      emptyHint: '可手工新增路由，或先同步上游模型目录。',
+      loadFailed: '加载模型路由失败',
+      saveFailed: '保存模型路由失败',
+      platformCatalogLoadFailed: '加载平台注册目录失败',
+      updated: '模型路由已保存',
+      restoreAuto: '恢复自动识别',
+      restoredAuto: '已恢复自动识别',
+      restoreAutoFailed: '恢复自动识别失败',
+      deleted: '模型路由已删除',
+      deleteFailed: '删除模型路由失败',
+      deleteTitle: '删除模型路由？',
+      deleteMessage: '确定删除模型 {model} 的路由吗？',
+      fields: { key: '上游 Key', publicModel: '公开模型', upstreamModel: '上游模型', platform: '目标平台', protocol: 'API 协议', priority: '优先级', enabled: '启用' },
+      columns: { key: 'Key', publicModel: '公开模型', upstreamModel: '上游模型', platform: '目标平台', protocol: '协议', source: '来源', status: '状态', actions: '操作' },
+      filters: { allPlatforms: '全部平台' },
+      protocols: { adaptive: '自适应', chatCompletions: 'Chat Completions', responses: 'Responses', anthropic: 'Anthropic Messages' },
+      sources: { auto: '自动识别', manual: '手工覆盖', legacy: '兼容逻辑', unknown: '未知' },
+      status: { available: '可用', disabled: '已禁用', ambiguous: '识别冲突', unknown: '未知', unsupported: '协议不支持', stale: '已过期' }
     },
     dialog: {
       createTitle: '添加上游',
