@@ -1,0 +1,17 @@
+id: adaptive-upstream-scheduler-fork-foundation
+stage: verification
+deliveryShape: single-change
+implementation-mode: tdd
+multiChange:
+  role: child
+  parent: adaptive-upstream-scheduler
+  order: 1
+  dependsOn: []
+artifacts:
+  proposal: {status: present}
+  research: {status: present}
+  design: {status: present}
+  systemTests: {status: present}
+  unitTests: {status: present}
+  tasks: {status: present}
+  metadata: {status: present}

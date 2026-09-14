@@ -1,0 +1,13 @@
+id: adaptive-upstream-scheduler-ttft-traffic-isolation
+stage: design
+deliveryShape: single-change
+implementation-mode: tdd
+multiChange:
+  role: child
+  parent: adaptive-upstream-scheduler
+  order: 6
+  dependsOn: [adaptive-upstream-scheduler-fork-foundation, adaptive-upstream-scheduler-attempt-budget, adaptive-upstream-scheduler-fault-domain-health, adaptive-upstream-scheduler-cache-aware-capacity]
+artifacts:
+  proposal: {status: present}
+  design: {status: present}
+  metadata: {status: present}

@@ -1,72 +1,29 @@
 package service
 
 import (
-	"encoding/json"
-	"strconv"
-	"strings"
+	"github.com/Wei-Shaw/sub2api/internal/forkscheduling"
+	"github.com/Wei-Shaw/sub2api/internal/forkscheduling/legacy"
 )
 
 const (
-	UpstreamSchedulerConcurrencyOverrideKey = "scheduler_concurrency_override"
+	UpstreamSchedulerConcurrencyOverrideKey = forkscheduling.UpstreamSchedulerConcurrencyOverrideKey
 
-	ConcurrencyTargetAccount  = "account"
-	ConcurrencyTargetUpstream = "upstream"
+	ConcurrencyTargetAccount  = forkscheduling.ConcurrencyTargetAccount
+	ConcurrencyTargetUpstream = forkscheduling.ConcurrencyTargetUpstream
 
-	UpstreamConcurrencySourceOverride  = "override"
-	UpstreamConcurrencySourceProvider  = "provider"
-	UpstreamConcurrencySourceUnlimited = "unlimited"
-	UpstreamConcurrencySourceDefault   = "default"
+	UpstreamConcurrencySourceOverride  = forkscheduling.UpstreamConcurrencySourceOverride
+	UpstreamConcurrencySourceProvider  = forkscheduling.UpstreamConcurrencySourceProvider
+	UpstreamConcurrencySourceUnlimited = forkscheduling.UpstreamConcurrencySourceUnlimited
+	UpstreamConcurrencySourceDefault   = forkscheduling.UpstreamConcurrencySourceDefault
 
-	DefaultUpstreamSchedulerConcurrency = 100
-	MaxUpstreamSchedulerConcurrency     = 1_000_000
+	DefaultUpstreamSchedulerConcurrency = forkscheduling.DefaultUpstreamSchedulerConcurrency
+	MaxUpstreamSchedulerConcurrency     = forkscheduling.MaxUpstreamSchedulerConcurrency
 )
 
-// UpstreamSchedulerConcurrency is the normalized scheduling capacity derived
-// from one upstream config. Limit == 0 means explicitly unlimited.
-type UpstreamSchedulerConcurrency struct {
-	Limit       int    `json:"limit"`
-	Source      string `json:"source"`
-	UsesDefault bool   `json:"uses_default"`
-	Unlimited   bool   `json:"unlimited"`
-	Override    *int   `json:"override,omitempty"`
-}
+type UpstreamSchedulerConcurrency = forkscheduling.UpstreamSchedulerConcurrency
 
-// ResolveUpstreamSchedulerConcurrency is the single authority for resolving
-// the shared concurrency limit of an upstream config.
-func ResolveUpstreamSchedulerConcurrency(extra map[string]any) UpstreamSchedulerConcurrency {
-	if override, ok := positiveBoundedInt(extraValue(extra, UpstreamSchedulerConcurrencyOverrideKey)); ok {
-		return UpstreamSchedulerConcurrency{
-			Limit:    override,
-			Source:   UpstreamConcurrencySourceOverride,
-			Override: intPointer(override),
-		}
-	}
-
-	snapshot, _ := extraValue(extra, upstreamConcurrencySnapshotKey).(map[string]any)
-	if upstreamString(snapshot["status"]) == upstreamConcurrencyStatusCurrent {
-		switch upstreamString(snapshot["semantics"]) {
-		case upstreamConcurrencySemanticsLimited:
-			if limit, ok := positiveBoundedInt(snapshot["limit"]); ok {
-				return UpstreamSchedulerConcurrency{Limit: limit, Source: UpstreamConcurrencySourceProvider}
-			}
-		case upstreamConcurrencySemanticsProviderDefined:
-			if limit, ok := positiveBoundedInt(snapshot["raw_value"]); ok {
-				return UpstreamSchedulerConcurrency{Limit: limit, Source: UpstreamConcurrencySourceProvider}
-			}
-		case upstreamConcurrencySemanticsUnlimited:
-			if raw, ok := nonNegativeInt(snapshot["raw_value"]); ok && raw == 0 {
-				return UpstreamSchedulerConcurrency{Source: UpstreamConcurrencySourceUnlimited, Unlimited: true}
-			}
-		}
-	}
-
-	return UpstreamSchedulerConcurrency{
-		Limit:       DefaultUpstreamSchedulerConcurrency,
-		Source:      UpstreamConcurrencySourceDefault,
-		UsesDefault: true,
-	}
-}
-
+// extraValue remains in the service package because upstream configuration
+// parsing also uses it; the scheduling normalization itself lives in legacy.
 func extraValue(extra map[string]any, key string) any {
 	if extra == nil {
 		return nil
@@ -74,105 +31,29 @@ func extraValue(extra map[string]any, key string) any {
 	return extra[key]
 }
 
-func positiveBoundedInt(value any) (int, bool) {
-	parsed, ok := nonNegativeInt(value)
-	if !ok || parsed < 1 || parsed > MaxUpstreamSchedulerConcurrency {
-		return 0, false
-	}
-	return parsed, true
+// ResolveUpstreamSchedulerConcurrency is the single authority for resolving
+// the shared concurrency limit of an upstream config.
+func ResolveUpstreamSchedulerConcurrency(extra map[string]any) UpstreamSchedulerConcurrency {
+	return legacy.ResolveUpstreamSchedulerConcurrency(extra)
 }
 
-func nonNegativeInt(value any) (int, bool) {
-	var parsed int64
-	switch v := value.(type) {
-	case int:
-		parsed = int64(v)
-	case int8:
-		parsed = int64(v)
-	case int16:
-		parsed = int64(v)
-	case int32:
-		parsed = int64(v)
-	case int64:
-		parsed = v
-	case uint:
-		if uint64(v) > uint64(^uint(0)>>1) {
-			return 0, false
-		}
-		parsed = int64(v)
-	case uint64:
-		if v > uint64(^uint(0)>>1) {
-			return 0, false
-		}
-		parsed = int64(v)
-	case float64:
-		if v < 0 || v != float64(int64(v)) {
-			return 0, false
-		}
-		parsed = int64(v)
-	case json.Number:
-		var err error
-		parsed, err = v.Int64()
-		if err != nil {
-			return 0, false
-		}
-	case string:
-		text := strings.TrimSpace(v)
-		if text == "" || !isDecimalInteger(text) {
-			return 0, false
-		}
-		var err error
-		parsed, err = strconv.ParseInt(text, 10, 64)
-		if err != nil {
-			return 0, false
-		}
-	default:
-		return 0, false
-	}
-	if parsed < 0 || parsed > int64(MaxUpstreamSchedulerConcurrency) {
-		return 0, false
-	}
-	return int(parsed), true
-}
-
-func intPointer(value int) *int { return &value }
-
-type ConcurrencyTarget struct {
-	Kind  string `json:"kind"`
-	ID    int64  `json:"id"`
-	Limit int    `json:"limit"`
-}
-
-func (t ConcurrencyTarget) normalized() ConcurrencyTarget {
-	if t.Kind != ConcurrencyTargetUpstream || t.ID <= 0 {
-		t.Kind = ConcurrencyTargetAccount
-	}
-	return t
-}
-
-func (t ConcurrencyTarget) Key() string {
-	t = t.normalized()
-	return t.Kind + ":" + strconv.FormatInt(t.ID, 10)
-}
+type ConcurrencyTarget = forkscheduling.ConcurrencyTarget
 
 func (a *Account) SchedulingConcurrencyTarget() ConcurrencyTarget {
 	if a == nil {
 		return ConcurrencyTarget{Kind: ConcurrencyTargetAccount}
 	}
-	if a.UpstreamConfigID != nil && *a.UpstreamConfigID > 0 {
-		limit := a.UpstreamConcurrencyLimit
-		if a.UpstreamConcurrencyUnlimited {
-			limit = 0
-		} else if limit <= 0 {
-			limit = DefaultUpstreamSchedulerConcurrency
-		}
-		return ConcurrencyTarget{Kind: ConcurrencyTargetUpstream, ID: *a.UpstreamConfigID, Limit: limit}
+	var upstreamConfigID int64
+	if a.UpstreamConfigID != nil {
+		upstreamConfigID = *a.UpstreamConfigID
 	}
-	limit := a.Concurrency
-	if limit < 1 {
-		limit = 1
-	}
-	return ConcurrencyTarget{Kind: ConcurrencyTargetAccount, ID: a.ID, Limit: limit}
+	return legacy.ResolveConcurrencyTarget(forkscheduling.ConcurrencyAccountView{
+		AccountID:         a.ID,
+		UpstreamConfigID:  upstreamConfigID,
+		AccountLimit:      a.Concurrency,
+		UpstreamLimit:     a.UpstreamConcurrencyLimit,
+		UpstreamUnlimited: a.UpstreamConcurrencyUnlimited,
+	})
 }
 
 func AccountConcurrencyLoadDescriptor(account *Account) AccountWithConcurrency {

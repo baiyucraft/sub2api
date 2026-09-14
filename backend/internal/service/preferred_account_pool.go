@@ -3,6 +3,9 @@ package service
 import (
 	"math/rand"
 	"sort"
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/forkscheduling/legacy"
 )
 
 func isAccountPreferredForGroup(account *Account, groupID *int64) bool {
@@ -19,48 +22,67 @@ func isAccountPreferredForGroup(account *Account, groupID *int64) bool {
 
 func partitionPreferredAccountsForGroup(accounts []Account, groupID *int64) ([]Account, []Account) {
 	ordinary := make([]Account, 0, len(accounts))
-	if groupID == nil || len(accounts) == 0 {
+	if len(accounts) == 0 {
 		return nil, append(ordinary, accounts...)
 	}
-	preferred := make([]Account, 0, len(accounts))
-	for _, account := range accounts {
-		if isAccountPreferredForGroup(&account, groupID) {
-			preferred = append(preferred, account)
-			continue
-		}
-		ordinary = append(ordinary, account)
+	views := make([]legacy.Candidate, len(accounts))
+	for i := range accounts {
+		views[i] = legacyCandidateView(&accounts[i], isAccountPreferredForGroup(&accounts[i], groupID), 0)
+	}
+	preferredIndexes, ordinaryIndexes := (legacy.PreferredPolicy{}).PartitionPreferredIndices(views)
+	preferred := make([]Account, 0, len(preferredIndexes))
+	ordinary = make([]Account, 0, len(ordinaryIndexes))
+	for _, index := range preferredIndexes {
+		preferred = append(preferred, accounts[index])
+	}
+	for _, index := range ordinaryIndexes {
+		ordinary = append(ordinary, accounts[index])
 	}
 	return preferred, ordinary
 }
 
 func partitionPreferredAccountPointersForGroup(accounts []*Account, groupID *int64) ([]*Account, []*Account) {
 	ordinary := make([]*Account, 0, len(accounts))
-	if groupID == nil || len(accounts) == 0 {
+	if len(accounts) == 0 {
 		return nil, append(ordinary, accounts...)
 	}
-	preferred := make([]*Account, 0, len(accounts))
-	for _, account := range accounts {
-		if isAccountPreferredForGroup(account, groupID) {
-			preferred = append(preferred, account)
-			continue
-		}
-		ordinary = append(ordinary, account)
+	views := make([]legacy.Candidate, len(accounts))
+	for i, account := range accounts {
+		views[i] = legacyCandidateView(account, isAccountPreferredForGroup(account, groupID), 0)
+	}
+	preferredIndexes, ordinaryIndexes := (legacy.PreferredPolicy{}).PartitionPreferredIndices(views)
+	preferred := make([]*Account, 0, len(preferredIndexes))
+	ordinary = make([]*Account, 0, len(ordinaryIndexes))
+	for _, index := range preferredIndexes {
+		preferred = append(preferred, accounts[index])
+	}
+	for _, index := range ordinaryIndexes {
+		ordinary = append(ordinary, accounts[index])
 	}
 	return preferred, ordinary
 }
 
 func partitionPreferredAccountWithLoadForGroup(accounts []accountWithLoad, groupID *int64) ([]accountWithLoad, []accountWithLoad) {
 	ordinary := make([]accountWithLoad, 0, len(accounts))
-	if groupID == nil || len(accounts) == 0 {
+	if len(accounts) == 0 {
 		return nil, append(ordinary, accounts...)
 	}
-	preferred := make([]accountWithLoad, 0, len(accounts))
-	for _, account := range accounts {
-		if isAccountPreferredForGroup(account.account, groupID) {
-			preferred = append(preferred, account)
-			continue
+	views := make([]legacy.Candidate, len(accounts))
+	for i, account := range accounts {
+		loadRate := 0
+		if account.loadInfo != nil {
+			loadRate = account.loadInfo.LoadRate
 		}
-		ordinary = append(ordinary, account)
+		views[i] = legacyCandidateView(account.account, isAccountPreferredForGroup(account.account, groupID), loadRate)
+	}
+	preferredIndexes, ordinaryIndexes := (legacy.PreferredPolicy{}).PartitionPreferredIndices(views)
+	preferred := make([]accountWithLoad, 0, len(preferredIndexes))
+	ordinary = make([]accountWithLoad, 0, len(ordinaryIndexes))
+	for _, index := range preferredIndexes {
+		preferred = append(preferred, accounts[index])
+	}
+	for _, index := range ordinaryIndexes {
+		ordinary = append(ordinary, accounts[index])
 	}
 	return preferred, ordinary
 }
@@ -80,13 +102,15 @@ func compareAccountSchedulingPriorityOnly(left, right *Account) int {
 	if left == nil || right == nil {
 		return 0
 	}
-	if left.Priority < right.Priority {
-		return -1
-	}
-	if left.Priority > right.Priority {
-		return 1
-	}
-	return 0
+	return legacy.ComparePriorityOnly(legacyCandidateView(left, false, 0), legacyCandidateView(right, false, 0))
+}
+
+func compareLegacyAccountPriorityAndLastUsed(left, right *Account, preferOAuth bool) int {
+	return legacy.ComparePriorityAndLastUsed(legacyCandidateView(left, false, 0), legacyCandidateView(right, false, 0), preferOAuth)
+}
+
+func compareLegacyAccountLoadAware(left, right *Account, leftLoadRate, rightLoadRate int, preferOAuth bool) int {
+	return legacy.CompareLoadAware(legacyCandidateView(left, false, leftLoadRate), legacyCandidateView(right, false, rightLoadRate), preferOAuth)
 }
 
 // compareAccountSchedulingTierIgnoringRate is the stable, non-billing portion
@@ -106,31 +130,21 @@ func comparePreferredAwareAccountSchedulingTier(left, right *Account, groupID *i
 		}
 		return 1
 	}
-	if leftPreferred {
-		return compareAccountSchedulingTierIgnoringRate(left, right)
+	if left == nil || right == nil {
+		return 0
 	}
-	return compareAccountSchedulingTier(left, right)
+	leftView := legacyCandidateView(left, leftPreferred, 0)
+	rightView := legacyCandidateView(right, rightPreferred, 0)
+	return legacy.ComparePreferredAware(leftView, rightView)
 }
 
 func sortPreferredAccountPointersByPriorityAndLastUsed(accounts []*Account, preferOAuth bool) {
 	sort.SliceStable(accounts, func(i, j int) bool {
 		a, b := accounts[i], accounts[j]
-		if tier := compareAccountSchedulingTierIgnoringRate(a, b); tier != 0 {
+		if tier := legacy.ComparePriorityAndLastUsed(legacyCandidateView(a, false, 0), legacyCandidateView(b, false, 0), preferOAuth); tier != 0 {
 			return tier < 0
 		}
-		switch {
-		case a.LastUsedAt == nil && b.LastUsedAt != nil:
-			return true
-		case a.LastUsedAt != nil && b.LastUsedAt == nil:
-			return false
-		case a.LastUsedAt == nil && b.LastUsedAt == nil:
-			if preferOAuth && a.Type != b.Type {
-				return a.Type == AccountTypeOAuth
-			}
-			return false
-		default:
-			return a.LastUsedAt.Before(*b.LastUsedAt)
-		}
+		return false
 	})
 	shuffleWithinPreferredPriorityAndLastUsed(accounts, preferOAuth)
 }
@@ -178,33 +192,25 @@ func samePreferredAccountGroup(a, b *Account) bool {
 	if compareAccountSchedulingTierIgnoringRate(a, b) != 0 {
 		return false
 	}
-	return sameLastUsedAt(a.LastUsedAt, b.LastUsedAt)
+	return legacy.SameLastUsedAt(lastUsedAt(a), lastUsedAt(b))
 }
 
 func sortPreferredAccountsWithLoadByLoadAwareness(accounts []accountWithLoad, preferOAuth bool) {
 	sort.SliceStable(accounts, func(i, j int) bool {
 		a, b := accounts[i], accounts[j]
-		if tier := compareAccountSchedulingTierIgnoringRate(a.account, b.account); tier != 0 {
+		if tier := legacy.CompareLoadAware(legacyCandidateView(a.account, false, accountLoadRate(a.loadInfo)), legacyCandidateView(b.account, false, accountLoadRate(b.loadInfo)), preferOAuth); tier != 0 {
 			return tier < 0
 		}
-		if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
-			return a.loadInfo.LoadRate < b.loadInfo.LoadRate
-		}
-		switch {
-		case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
-			return true
-		case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
-			return false
-		case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
-			if preferOAuth && a.account.Type != b.account.Type {
-				return a.account.Type == AccountTypeOAuth
-			}
-			return false
-		default:
-			return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
-		}
+		return false
 	})
 	shuffleWithinPreferredSortGroups(accounts, preferOAuth)
+}
+
+func accountLoadRate(load *AccountLoadInfo) int {
+	if load == nil {
+		return 0
+	}
+	return load.LoadRate
 }
 
 func shuffleWithinPreferredSortGroups(accounts []accountWithLoad, preferOAuth bool) {
@@ -247,13 +253,25 @@ func shuffleWithinPreferredSortGroups(accounts []accountWithLoad, preferOAuth bo
 }
 
 func samePreferredAccountWithLoadGroup(a, b accountWithLoad) bool {
-	if compareAccountSchedulingTierIgnoringRate(a.account, b.account) != 0 {
+	leftLoadRate, rightLoadRate := 0, 0
+	if a.loadInfo != nil {
+		leftLoadRate = a.loadInfo.LoadRate
+	}
+	if b.loadInfo != nil {
+		rightLoadRate = b.loadInfo.LoadRate
+	}
+	if compareAccountSchedulingTierIgnoringRate(a.account, b.account) != 0 || leftLoadRate != rightLoadRate {
 		return false
 	}
-	if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
-		return false
+	return legacy.SameLastUsedAt(lastUsedAt(a.account), lastUsedAt(b.account))
+}
+
+func lastUsedAt(account *Account) *time.Time {
+	if account == nil || account.LastUsedAt == nil {
+		return nil
 	}
-	return sameLastUsedAt(a.account.LastUsedAt, b.account.LastUsedAt)
+	value := *account.LastUsedAt
+	return &value
 }
 
 func sortOpenAILegacyLoadPool(

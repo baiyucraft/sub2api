@@ -1,0 +1,13 @@
+id: adaptive-upstream-scheduler-attempt-budget
+stage: design
+deliveryShape: single-change
+implementation-mode: tdd
+multiChange:
+  role: child
+  parent: adaptive-upstream-scheduler
+  order: 3
+  dependsOn: [adaptive-upstream-scheduler-fork-foundation, adaptive-upstream-scheduler-error-attribution]
+artifacts:
+  proposal: {status: present}
+  design: {status: present}
+  metadata: {status: present}

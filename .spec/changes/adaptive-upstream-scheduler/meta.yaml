@@ -1,0 +1,63 @@
+id: adaptive-upstream-scheduler
+stage: exploration
+deliveryShape: multi-change
+implementation-mode: tdd
+multiChange:
+  role: parent
+  children:
+    - id: adaptive-upstream-scheduler-fork-foundation
+      order: 1
+      dependsOn: []
+      archiveStatus: archived
+      archivedAt: 2026-09-14T01:34:12.872Z
+      archivedTo: .spec/archive/2026-09-14-adaptive-upstream-scheduler-fork-foundation
+    - id: adaptive-upstream-scheduler-error-attribution
+      order: 2
+      dependsOn: [ adaptive-upstream-scheduler-fork-foundation ]
+    - id: adaptive-upstream-scheduler-attempt-budget
+      order: 3
+      dependsOn:
+        [
+          adaptive-upstream-scheduler-fork-foundation,
+          adaptive-upstream-scheduler-error-attribution
+        ]
+    - id: adaptive-upstream-scheduler-fault-domain-health
+      order: 4
+      dependsOn:
+        [
+          adaptive-upstream-scheduler-fork-foundation,
+          adaptive-upstream-scheduler-error-attribution,
+          adaptive-upstream-scheduler-attempt-budget
+        ]
+    - id: adaptive-upstream-scheduler-cache-aware-capacity
+      order: 5
+      dependsOn:
+        [
+          adaptive-upstream-scheduler-fork-foundation,
+          adaptive-upstream-scheduler-error-attribution
+        ]
+    - id: adaptive-upstream-scheduler-ttft-traffic-isolation
+      order: 6
+      dependsOn:
+        [
+          adaptive-upstream-scheduler-fork-foundation,
+          adaptive-upstream-scheduler-attempt-budget,
+          adaptive-upstream-scheduler-fault-domain-health,
+          adaptive-upstream-scheduler-cache-aware-capacity
+        ]
+    - id: adaptive-upstream-scheduler-shadow-rollout
+      order: 7
+      dependsOn:
+        [
+          adaptive-upstream-scheduler-fork-foundation,
+          adaptive-upstream-scheduler-error-attribution,
+          adaptive-upstream-scheduler-attempt-budget,
+          adaptive-upstream-scheduler-fault-domain-health,
+          adaptive-upstream-scheduler-cache-aware-capacity,
+          adaptive-upstream-scheduler-ttft-traffic-isolation
+        ]
+artifacts:
+  proposal: { status: missing }
+  research: { status: present }
+  split: { status: present }
+  metadata: { status: present }

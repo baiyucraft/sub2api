@@ -16,6 +16,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/forkscheduling/legacy"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
@@ -270,27 +271,7 @@ func compareAccountSchedulingTier(left, right *Account) int {
 	if left == nil || right == nil {
 		return 0
 	}
-	if left.Priority < right.Priority {
-		return -1
-	}
-	if left.Priority > right.Priority {
-		return 1
-	}
-	leftRate, leftOK := upstreamSourceSchedulingRate(left)
-	rightRate, rightOK := upstreamSourceSchedulingRate(right)
-	if leftOK != rightOK {
-		if leftOK {
-			return -1
-		}
-		return 1
-	}
-	if !leftOK || leftRate == rightRate {
-		return 0
-	}
-	if leftRate < rightRate {
-		return -1
-	}
-	return 1
+	return legacy.CompareTier(legacyCandidateView(left, false, 0), legacyCandidateView(right, false, 0))
 }
 
 func upstreamSourceSchedulingRate(account *Account) (float64, bool) {
@@ -1350,25 +1331,13 @@ func (a *Account) GetPoolModeRetryStatusCodes() []int {
 // 账号凭据解析逻辑，以兼容旧数据和隔离单元测试。
 func (a *Account) IsPoolModeRetryableStatus(statusCode int) bool {
 	if a != nil && a.IsUpstreamBound() {
-		if codes, configured := globalPoolModeRetryStatusConfigured(); configured {
-			for _, code := range codes {
-				if code == statusCode {
-					return true
-				}
-			}
-			return false
-		}
+		return retryPolicyForAccount(a).IsRetryableStatus(statusCode)
 	}
 	codes := a.GetPoolModeRetryStatusCodes()
 	if codes == nil {
 		return isPoolModeRetryableStatus(statusCode)
 	}
-	for _, c := range codes {
-		if c == statusCode {
-			return true
-		}
-	}
-	return false
+	return legacy.RetryableStatus(codes, statusCode)
 }
 
 func (a *Account) GetCustomErrorCodes() []int {

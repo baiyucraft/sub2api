@@ -359,7 +359,7 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 // AcquireTargetSlot reserves a slot from either an account-local pool or a
 // shared upstream pool.
 func (s *ConcurrencyService) AcquireTargetSlot(ctx context.Context, target ConcurrencyTarget) (*AcquireResult, error) {
-	target = target.normalized()
+	target = target.Normalized()
 	// Legacy caches cannot observe generic unlimited targets. Production Redis
 	// implements ConcurrencyTargetCache and records them without enforcing a
 	// hard limit, keeping current usage visible while LoadRate remains zero.
@@ -574,7 +574,7 @@ func (s *ConcurrencyService) IncrementTargetWaitCount(ctx context.Context, targe
 	if s.cache == nil {
 		return true, nil
 	}
-	target = target.normalized()
+	target = target.Normalized()
 	var result bool
 	var err error
 	if cache, ok := s.cache.(ConcurrencyTargetCache); ok {
@@ -598,7 +598,7 @@ func (s *ConcurrencyService) DecrementTargetWaitCount(ctx context.Context, targe
 	if s.cache == nil {
 		return
 	}
-	target = target.normalized()
+	target = target.Normalized()
 
 	bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -623,7 +623,7 @@ func (s *ConcurrencyService) GetTargetWaitingCount(ctx context.Context, target C
 	if s.cache == nil {
 		return 0, nil
 	}
-	target = target.normalized()
+	target = target.Normalized()
 	if cache, ok := s.cache.(ConcurrencyTargetCache); ok {
 		return cache.GetConcurrencyTargetWaitingCount(ctx, target)
 	}

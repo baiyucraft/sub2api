@@ -436,6 +436,7 @@ type OpenAIGatewayService struct {
 	schedulerSnapshot     *SchedulerSnapshotService
 	concurrencyService    *ConcurrencyService
 	rpmCache              RPMCache
+	rpmCacheMu            sync.RWMutex
 	billingService        *BillingService
 	rateLimitService      *RateLimitService
 	billingCacheService   *BillingCacheService
@@ -503,22 +504,33 @@ type OpenAIGatewayService struct {
 // A setter preserves the constructor contract used by integrations and tests.
 func (s *OpenAIGatewayService) SetRPMCache(cache RPMCache) {
 	if s != nil {
+		s.rpmCacheMu.Lock()
+		defer s.rpmCacheMu.Unlock()
 		s.rpmCache = cache
 	}
+}
+
+func (s *OpenAIGatewayService) currentRPMCache() RPMCache {
+	if s == nil {
+		return nil
+	}
+	s.rpmCacheMu.RLock()
+	defer s.rpmCacheMu.RUnlock()
+	return s.rpmCache
 }
 
 func (s *OpenAIGatewayService) withAccountRPMPrefetch(ctx context.Context, accounts []Account) context.Context {
 	if s == nil {
 		return ctx
 	}
-	return withAccountRPMPrefetch(ctx, s.rpmCache, accounts)
+	return withAccountRPMPrefetch(ctx, s.currentRPMCache(), accounts)
 }
 
 func (s *OpenAIGatewayService) isAccountSchedulableForRPM(ctx context.Context, account *Account) bool {
 	if s == nil {
 		return true
 	}
-	return IsAccountSchedulableForRPM(ctx, s.rpmCache, account)
+	return IsAccountSchedulableForRPM(ctx, s.currentRPMCache(), account)
 }
 
 // TryAcquireAccountRPM reserves one account RPM slot immediately before an
@@ -527,7 +539,7 @@ func (s *OpenAIGatewayService) TryAcquireAccountRPM(ctx context.Context, account
 	if s == nil {
 		return true, 0, nil
 	}
-	return TryAcquireAccountRPM(ctx, s.rpmCache, account)
+	return TryAcquireAccountRPM(ctx, s.currentRPMCache(), account)
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService

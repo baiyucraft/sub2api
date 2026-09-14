@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/forkscheduling/legacy"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -1267,15 +1268,21 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 }
 
 func partitionPreferredCandidateScores(candidates []openAIAccountCandidateScore, groupID *int64) ([]openAIAccountCandidateScore, []openAIAccountCandidateScore) {
-	preferred := make([]openAIAccountCandidateScore, 0, len(candidates))
-	ordinary := make([]openAIAccountCandidateScore, 0, len(candidates))
-	for _, candidate := range candidates {
+	views := make([]legacy.Candidate, len(candidates))
+	mapped := make([]openAIAccountCandidateScore, len(candidates))
+	for i, candidate := range candidates {
 		candidate.preferred = candidate.preferred || isAccountPreferredForGroup(candidate.account, groupID)
-		if candidate.preferred {
-			preferred = append(preferred, candidate)
-		} else {
-			ordinary = append(ordinary, candidate)
-		}
+		mapped[i] = candidate
+		views[i] = legacyCandidateView(candidate.account, candidate.preferred, accountLoadRate(candidate.loadInfo))
+	}
+	preferredIndexes, ordinaryIndexes := (legacy.PreferredPolicy{}).PartitionPreferredIndices(views)
+	preferred := make([]openAIAccountCandidateScore, 0, len(preferredIndexes))
+	ordinary := make([]openAIAccountCandidateScore, 0, len(ordinaryIndexes))
+	for _, index := range preferredIndexes {
+		preferred = append(preferred, mapped[index])
+	}
+	for _, index := range ordinaryIndexes {
+		ordinary = append(ordinary, mapped[index])
 	}
 	return preferred, ordinary
 }
@@ -3355,19 +3362,7 @@ func (o openAILegacyUpstreamRateOrder) compare(a, b *Account) int {
 	}
 	aRate, aKnown := o.rates[a.ID]
 	bRate, bKnown := o.rates[b.ID]
-	if aKnown != bKnown {
-		if aKnown {
-			return -1
-		}
-		return 1
-	}
-	if !aKnown || aRate == bRate {
-		return 0
-	}
-	if aRate < bRate {
-		return -1
-	}
-	return 1
+	return legacy.CompareRateOnly(legacy.Candidate{Rate: aRate, RateKnown: aKnown}, legacy.Candidate{Rate: bRate, RateKnown: bKnown})
 }
 
 func openAIFreshUpstreamBillingRate(account *Account, now time.Time) (float64, bool) {
