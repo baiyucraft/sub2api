@@ -1491,8 +1491,12 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 
 	platforms := make(map[string]struct{})
 	for _, account := range accounts {
+		if route, ok := account.ResolveUpstreamModelRoute(model, ""); ok {
+			platforms[strings.TrimSpace(route.TargetPlatform)] = struct{}{}
+			continue
+		}
 		platform := strings.TrimSpace(account.Platform)
-		if !isConcreteRequestPlatform(platform) || !explicitModelMappingClaims(account, model) {
+		if account.HasUpstreamModelRoutes() || !isConcreteRequestPlatform(platform) || !explicitModelMappingClaims(account, model) {
 			continue
 		}
 		platforms[platform] = struct{}{}

@@ -252,6 +252,7 @@ type upstreamModelSyncBatchRepoStub struct {
 	maxActive     atomic.Int32
 	mu            sync.Mutex
 	persisted     map[int64]int
+	routes        map[int64][]UpstreamKeyModelRoute
 }
 
 func (r *upstreamModelSyncBatchRepoStub) ListByUpstreamKeyID(_ context.Context, keyID int64) ([]Account, error) {
@@ -274,6 +275,16 @@ func (r *upstreamModelSyncBatchRepoStub) PersistUpstreamModelSync(_ context.Cont
 	}
 	r.persisted[accountID]++
 	r.mu.Unlock()
+	return nil
+}
+
+func (r *upstreamModelSyncBatchRepoStub) SyncUpstreamKeyModelRoutes(_ context.Context, keyID int64, routes []UpstreamKeyModelRoute, _ bool, _ time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.routes == nil {
+		r.routes = map[int64][]UpstreamKeyModelRoute{}
+	}
+	r.routes[keyID] = append([]UpstreamKeyModelRoute(nil), routes...)
 	return nil
 }
 
@@ -301,6 +312,12 @@ func TestManagedModelSyncBatchBoundsConcurrencyAndDeduplicatesAccounts(t *testin
 	for id, count := range repo.persisted {
 		if count != 1 {
 			t.Fatalf("account %d persisted %d times", id, count)
+		}
+	}
+	for _, key := range keys {
+		routes := repo.routes[key.ID]
+		if len(routes) != 1 || routes[0].PublicModel != "gpt-a" || routes[0].TargetPlatform != PlatformOpenAI || !routes[0].Enabled {
+			t.Fatalf("key %d did not persist its auto model route: %#v", key.ID, routes)
 		}
 	}
 }

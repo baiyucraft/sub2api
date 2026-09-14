@@ -79,6 +79,8 @@ type UpstreamKeyEdges struct {
 	Config *UpstreamConfig `json:"config,omitempty"`
 	// Accounts holds the value of the accounts edge.
 	Accounts []*Account `json:"accounts,omitempty"`
+	// ModelRoutes holds the value of the model_routes edge.
+	ModelRoutes []*UpstreamKeyModelRoute `json:"model_routes,omitempty"`
 	// Events holds the value of the events edge.
 	Events []*UpstreamEvent `json:"events,omitempty"`
 	// Incidents holds the value of the incidents edge.
@@ -89,7 +91,7 @@ type UpstreamKeyEdges struct {
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [6]bool
+	loadedTypes [7]bool
 }
 
 // ConfigOrErr returns the Config value or an error if the edge
@@ -112,10 +114,19 @@ func (e UpstreamKeyEdges) AccountsOrErr() ([]*Account, error) {
 	return nil, &NotLoadedError{edge: "accounts"}
 }
 
+// ModelRoutesOrErr returns the ModelRoutes value or an error if the edge
+// was not loaded in eager-loading.
+func (e UpstreamKeyEdges) ModelRoutesOrErr() ([]*UpstreamKeyModelRoute, error) {
+	if e.loadedTypes[2] {
+		return e.ModelRoutes, nil
+	}
+	return nil, &NotLoadedError{edge: "model_routes"}
+}
+
 // EventsOrErr returns the Events value or an error if the edge
 // was not loaded in eager-loading.
 func (e UpstreamKeyEdges) EventsOrErr() ([]*UpstreamEvent, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.Events, nil
 	}
 	return nil, &NotLoadedError{edge: "events"}
@@ -124,7 +135,7 @@ func (e UpstreamKeyEdges) EventsOrErr() ([]*UpstreamEvent, error) {
 // IncidentsOrErr returns the Incidents value or an error if the edge
 // was not loaded in eager-loading.
 func (e UpstreamKeyEdges) IncidentsOrErr() ([]*UpstreamIncident, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[4] {
 		return e.Incidents, nil
 	}
 	return nil, &NotLoadedError{edge: "incidents"}
@@ -133,7 +144,7 @@ func (e UpstreamKeyEdges) IncidentsOrErr() ([]*UpstreamIncident, error) {
 // RateSnapshotsOrErr returns the RateSnapshots value or an error if the edge
 // was not loaded in eager-loading.
 func (e UpstreamKeyEdges) RateSnapshotsOrErr() ([]*UpstreamKeyRateSnapshot, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[5] {
 		return e.RateSnapshots, nil
 	}
 	return nil, &NotLoadedError{edge: "rate_snapshots"}
@@ -142,7 +153,7 @@ func (e UpstreamKeyEdges) RateSnapshotsOrErr() ([]*UpstreamKeyRateSnapshot, erro
 // UsageLogsOrErr returns the UsageLogs value or an error if the edge
 // was not loaded in eager-loading.
 func (e UpstreamKeyEdges) UsageLogsOrErr() ([]*UsageLog, error) {
-	if e.loadedTypes[5] {
+	if e.loadedTypes[6] {
 		return e.UsageLogs, nil
 	}
 	return nil, &NotLoadedError{edge: "usage_logs"}
@@ -364,6 +375,11 @@ func (_m *UpstreamKey) QueryConfig() *UpstreamConfigQuery {
 // QueryAccounts queries the "accounts" edge of the UpstreamKey entity.
 func (_m *UpstreamKey) QueryAccounts() *AccountQuery {
 	return NewUpstreamKeyClient(_m.config).QueryAccounts(_m)
+}
+
+// QueryModelRoutes queries the "model_routes" edge of the UpstreamKey entity.
+func (_m *UpstreamKey) QueryModelRoutes() *UpstreamKeyModelRouteQuery {
+	return NewUpstreamKeyClient(_m.config).QueryModelRoutes(_m)
 }
 
 // QueryEvents queries the "events" edge of the UpstreamKey entity.

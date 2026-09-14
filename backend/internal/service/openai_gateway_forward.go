@@ -71,7 +71,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	// 在分流到 passthrough / Codex transform / 原生 ChatCompletions 之前统一修正
 	// 显式为 null 的工具 Schema type，否则 upstream 的 400 会被归一成可重试的 502，
 	// 同一份坏定义在账号池里反复重放。
-	if sanitizedToolBody, toolSchemaSanitized, toolSchemaErr := sanitizeOpenAIResponsesToolSchemasForPlatform(body, account.Platform); toolSchemaErr != nil {
+	if sanitizedToolBody, toolSchemaSanitized, toolSchemaErr := sanitizeOpenAIResponsesToolSchemasForPlatform(body, account.EffectivePlatform()); toolSchemaErr != nil {
 		return nil, toolSchemaErr
 	} else if toolSchemaSanitized {
 		body = sanitizedToolBody
@@ -134,7 +134,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	nativeCNResponses := account.UsesNativeCNResponses()
-	nativeDeepSeekResponses := account.Platform == PlatformDeepseek && nativeCNResponses
+	nativeDeepSeekResponses := account.EffectivePlatform() == PlatformDeepseek && nativeCNResponses
 	if nativeDeepSeekResponses && account.Type == AccountTypeAPIKey && !compactPath &&
 		needsOpenAIResponsesClientToolAdaptation(body) {
 		adaptedBody, mapping, adaptErr := adaptOpenAIResponsesClientTools(body)
@@ -150,7 +150,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
 	originalModel := reqModel
 
-	if account.Platform == PlatformGrok {
+	if account.EffectivePlatform() == PlatformGrok {
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
 	}
 
@@ -569,7 +569,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if !isCodexCLI {
 		maxOutputTokens := gjson.GetBytes(body, "max_output_tokens")
 		if maxOutputTokens.Exists() {
-			switch account.Platform {
+			switch account.EffectivePlatform() {
 			case PlatformOpenAI, PlatformDeepseek:
 				// Preserve Responses-native output limits unless the selected upstream
 				// explicitly rejects the field in the bounded HTTP retry loop below.
@@ -593,7 +593,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// Chat Completions 习惯发送 max_tokens，兼容 Responses 上游会拒绝该字段（#4417）。
 		// 仅对 OpenAI 平台归一化：Anthropic 合法使用 max_tokens，其 max_output_tokens
 		// 反向转换已在上方 switch 中处理。
-		if account.Platform == PlatformOpenAI {
+		if account.EffectivePlatform() == PlatformOpenAI {
 			if maxTokens := gjson.GetBytes(body, "max_tokens"); maxTokens.Exists() {
 				if !gjson.GetBytes(body, "max_output_tokens").Exists() {
 					markPatchSet("max_output_tokens", maxTokens.Value())
@@ -601,7 +601,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				markPatchDelete("max_tokens")
 			}
 		}
-		if gjson.GetBytes(body, "max_completion_tokens").Exists() && (account.Type == AccountTypeAPIKey || account.Platform != PlatformOpenAI) {
+		if gjson.GetBytes(body, "max_completion_tokens").Exists() && (account.Type == AccountTypeAPIKey || account.EffectivePlatform() != PlatformOpenAI) {
 			markPatchDelete("max_completion_tokens")
 		}
 		for _, unsupportedField := range []string{"prompt_cache_retention", "safety_identifier", "prompt_cache_options"} {
@@ -1008,7 +1008,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		reasoningEffortValue = *reasoningEffort
 	}
 	firstOutputTimeout := time.Duration(0)
-	if reqStream && account.Platform == PlatformOpenAI {
+	if reqStream && account.EffectivePlatform() == PlatformOpenAI {
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffortValue)
 	}
 
@@ -1155,7 +1155,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 					ProxyID:            opsUpstreamProxyID(account),
 					ProxyName:          opsUpstreamProxyName(account),
-					Platform:           account.Platform,
+					Platform:           account.EffectivePlatform(),
 					AccountID:          account.ID,
 					AccountName:        account.Name,
 					UpstreamStatusCode: resp.StatusCode,
@@ -1222,7 +1222,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 							ProxyID:            opsUpstreamProxyID(account),
 							ProxyName:          opsUpstreamProxyName(account),
-							Platform:           account.Platform,
+							Platform:           account.EffectivePlatform(),
 							AccountID:          account.ID,
 							AccountName:        account.Name,
 							UpstreamStatusCode: compactResp.StatusCode,
@@ -1360,13 +1360,16 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			baseURL = account.GetCNProtocolBaseURL(APIProtocolResponses)
 		}
 		if baseURL == "" {
+			if account.EffectiveUpstreamTarget != nil {
+				return nil, errors.New("model route has no explicit upstream endpoint")
+			}
 			targetURL = openaiPlatformAPIURL
 		} else {
 			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 			if err != nil {
 				return nil, err
 			}
-			targetURL = buildOpenAIResponsesURLForPlatform(account.Platform, validatedURL)
+			targetURL = buildOpenAIResponsesURLForPlatform(account.EffectivePlatform(), validatedURL)
 		}
 	default:
 		targetURL = openaiPlatformAPIURL

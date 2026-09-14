@@ -477,6 +477,18 @@ func (f UpstreamKeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamKeyMutation", m)
 }
 
+// The UpstreamKeyModelRouteFunc type is an adapter to allow the use of ordinary
+// function as UpstreamKeyModelRoute mutator.
+type UpstreamKeyModelRouteFunc func(context.Context, *ent.UpstreamKeyModelRouteMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f UpstreamKeyModelRouteFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.UpstreamKeyModelRouteMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.UpstreamKeyModelRouteMutation", m)
+}
+
 // The UpstreamKeyRateSnapshotFunc type is an adapter to allow the use of ordinary
 // function as UpstreamKeyRateSnapshot mutator.
 type UpstreamKeyRateSnapshotFunc func(context.Context, *ent.UpstreamKeyRateSnapshotMutation) (ent.Value, error)

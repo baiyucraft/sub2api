@@ -566,7 +566,12 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, false, nil
 	}
-	if shouldClearStickySession(account, req.RequestedModel) || account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() || !account.IsSchedulable() {
+	account, ok := account.WithEffectiveUpstreamTarget(req.RequestedModel, NormalizeOpenAICompatiblePlatform(req.Platform))
+	if !ok {
+		clearBinding()
+		return nil, false, nil
+	}
+	if shouldClearStickySession(account, req.RequestedModel) || account.EffectivePlatform() != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() || !account.IsSchedulable() {
 		clearBinding()
 		return nil, false, nil
 	}
@@ -1586,7 +1591,11 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		if err != nil || account == nil {
 			continue
 		}
-		if account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() ||
+		account, ok := account.WithEffectiveUpstreamTarget(req.RequestedModel, NormalizeOpenAICompatiblePlatform(req.Platform))
+		if !ok {
+			continue
+		}
+		if account.EffectivePlatform() != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() ||
 			!account.IsSchedulable() || s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
 			continue
 		}
@@ -1768,7 +1777,13 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("not_schedulable")
 			continue
 		}
-		if account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() {
+		resolved, routeOK := account.WithEffectiveUpstreamTarget(req.RequestedModel, NormalizeOpenAICompatiblePlatform(req.Platform))
+		if !routeOK {
+			filterStats.exclude("model_route_unavailable")
+			continue
+		}
+		account = resolved
+		if account.EffectivePlatform() != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() {
 			filterStats.exclude("platform_mismatch")
 			continue
 		}
@@ -2157,6 +2172,11 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if account == nil {
 		return false, "account_nil"
 	}
+	resolved, ok := account.WithEffectiveUpstreamTarget(req.RequestedModel, NormalizeOpenAICompatiblePlatform(req.Platform))
+	if !ok {
+		return false, "model_route_unavailable"
+	}
+	account = resolved
 	if req.RequirePrivacySet && !account.IsPrivacySet() {
 		return false, "privacy_not_set"
 	}

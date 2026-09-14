@@ -92,6 +92,8 @@ type Tx struct {
 	UpstreamIncident *UpstreamIncidentClient
 	// UpstreamKey is the client for interacting with the UpstreamKey builders.
 	UpstreamKey *UpstreamKeyClient
+	// UpstreamKeyModelRoute is the client for interacting with the UpstreamKeyModelRoute builders.
+	UpstreamKeyModelRoute *UpstreamKeyModelRouteClient
 	// UpstreamKeyRateSnapshot is the client for interacting with the UpstreamKeyRateSnapshot builders.
 	UpstreamKeyRateSnapshot *UpstreamKeyRateSnapshotClient
 	// UpstreamSyncResult is the client for interacting with the UpstreamSyncResult builders.
@@ -284,6 +286,7 @@ func (tx *Tx) init() {
 	tx.UpstreamHealthObservation = NewUpstreamHealthObservationClient(tx.config)
 	tx.UpstreamIncident = NewUpstreamIncidentClient(tx.config)
 	tx.UpstreamKey = NewUpstreamKeyClient(tx.config)
+	tx.UpstreamKeyModelRoute = NewUpstreamKeyModelRouteClient(tx.config)
 	tx.UpstreamKeyRateSnapshot = NewUpstreamKeyRateSnapshotClient(tx.config)
 	tx.UpstreamSyncResult = NewUpstreamSyncResultClient(tx.config)
 	tx.UpstreamSyncRun = NewUpstreamSyncRunClient(tx.config)

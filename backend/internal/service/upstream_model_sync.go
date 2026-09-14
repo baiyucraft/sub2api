@@ -276,10 +276,23 @@ func (s *UpstreamConfigService) syncManagedUpstreamAccountModels(ctx context.Con
 	if len(items) == 0 {
 		return stats
 	}
+	var routeRepo upstreamKeyModelRouteSyncRepository
+	if candidate, ok := s.repo.(upstreamKeyModelRouteSyncRepository); ok {
+		routeRepo = candidate
+	} else if candidate, ok := s.accountRepo.(upstreamKeyModelRouteSyncRepository); ok {
+		// Keep lightweight account-repository test doubles and transitional
+		// integrations source compatible. Production resolves this capability from
+		// the upstream config repository.
+		routeRepo = candidate
+	}
 
+	type syncItemResult struct {
+		item   item
+		result UpstreamModelSyncResult
+		err    error
+	}
 	jobs := make(chan item)
-	results := make(chan UpstreamModelSyncResult, len(items))
-	errs := make(chan error, len(items))
+	results := make(chan syncItemResult, len(items))
 	workers := UpstreamModelSyncConcurrency
 	if len(items) < workers {
 		workers = len(items)
@@ -291,8 +304,7 @@ func (s *UpstreamConfigService) syncManagedUpstreamAccountModels(ctx context.Con
 			defer wg.Done()
 			for current := range jobs {
 				result, err := s.accountTestService.SyncUpstreamAccountModels(ctx, &current.account, &current.key, current.force)
-				results <- result
-				errs <- err
+				results <- syncItemResult{item: current, result: result, err: err}
 			}
 		}()
 	}
@@ -303,10 +315,10 @@ func (s *UpstreamConfigService) syncManagedUpstreamAccountModels(ctx context.Con
 		close(jobs)
 		wg.Wait()
 		close(results)
-		close(errs)
 	}()
 
-	for result := range results {
+	for outcome := range results {
+		result := outcome.result
 		if result.Attempted {
 			stats.Attempted++
 		}
@@ -316,9 +328,16 @@ func (s *UpstreamConfigService) syncManagedUpstreamAccountModels(ctx context.Con
 		if result.Skipped {
 			stats.Skipped++
 		}
-	}
-	for err := range errs {
-		if err != nil {
+		if routeRepo != nil && outcome.err == nil && len(result.Models) > 0 && outcome.item.key.ID > 0 {
+			observedAt := time.Now().UTC()
+			routes := BuildAutoUpstreamKeyModelRoutes(outcome.item.key.ID, result.Models, observedAt)
+			if err := routeRepo.SyncUpstreamKeyModelRoutes(ctx, outcome.item.key.ID, routes, true, observedAt); err != nil {
+				stats.Failed++
+			} else {
+				s.refreshKeyModelRouteScheduling(ctx, outcome.item.key.ID)
+			}
+		}
+		if outcome.err != nil {
 			stats.Failed++
 		}
 	}

@@ -910,6 +910,7 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		UpstreamImagePricing:           account.UpstreamImagePricing,
 		UpstreamVideoPricing:           account.UpstreamVideoPricing,
 		UpstreamLongContext:            account.UpstreamLongContext,
+		UpstreamModelRoutes:            append([]service.UpstreamKeyModelRoute(nil), account.UpstreamModelRoutes...),
 		AccountGroups:                  filterSchedulerAccountGroups(account.AccountGroups),
 		GroupIDs:                       filterSchedulerGroupIDs(account.GroupIDs, account.AccountGroups),
 		Credentials:                    filterSchedulerCredentials(account.Credentials),
