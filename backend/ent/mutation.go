@@ -52,6 +52,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamhealthobservation"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	"github.com/Wei-Shaw/sub2api/ent/upstreamkeymodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
@@ -114,6 +115,7 @@ const (
 	TypeUpstreamHealthObservation     = "UpstreamHealthObservation"
 	TypeUpstreamIncident              = "UpstreamIncident"
 	TypeUpstreamKey                   = "UpstreamKey"
+	TypeUpstreamKeyModelRoute         = "UpstreamKeyModelRoute"
 	TypeUpstreamKeyRateSnapshot       = "UpstreamKeyRateSnapshot"
 	TypeUpstreamSyncResult            = "UpstreamSyncResult"
 	TypeUpstreamSyncRun               = "UpstreamSyncRun"
@@ -57974,6 +57976,9 @@ type UpstreamKeyMutation struct {
 	accounts                  map[int64]struct{}
 	removedaccounts           map[int64]struct{}
 	clearedaccounts           bool
+	model_routes              map[int64]struct{}
+	removedmodel_routes       map[int64]struct{}
+	clearedmodel_routes       bool
 	events                    map[int64]struct{}
 	removedevents             map[int64]struct{}
 	clearedevents             bool
@@ -59294,6 +59299,60 @@ func (m *UpstreamKeyMutation) ResetAccounts() {
 	m.removedaccounts = nil
 }
 
+// AddModelRouteIDs adds the "model_routes" edge to the UpstreamKeyModelRoute entity by ids.
+func (m *UpstreamKeyMutation) AddModelRouteIDs(ids ...int64) {
+	if m.model_routes == nil {
+		m.model_routes = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.model_routes[ids[i]] = struct{}{}
+	}
+}
+
+// ClearModelRoutes clears the "model_routes" edge to the UpstreamKeyModelRoute entity.
+func (m *UpstreamKeyMutation) ClearModelRoutes() {
+	m.clearedmodel_routes = true
+}
+
+// ModelRoutesCleared reports if the "model_routes" edge to the UpstreamKeyModelRoute entity was cleared.
+func (m *UpstreamKeyMutation) ModelRoutesCleared() bool {
+	return m.clearedmodel_routes
+}
+
+// RemoveModelRouteIDs removes the "model_routes" edge to the UpstreamKeyModelRoute entity by IDs.
+func (m *UpstreamKeyMutation) RemoveModelRouteIDs(ids ...int64) {
+	if m.removedmodel_routes == nil {
+		m.removedmodel_routes = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.model_routes, ids[i])
+		m.removedmodel_routes[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedModelRoutes returns the removed IDs of the "model_routes" edge to the UpstreamKeyModelRoute entity.
+func (m *UpstreamKeyMutation) RemovedModelRoutesIDs() (ids []int64) {
+	for id := range m.removedmodel_routes {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ModelRoutesIDs returns the "model_routes" edge IDs in the mutation.
+func (m *UpstreamKeyMutation) ModelRoutesIDs() (ids []int64) {
+	for id := range m.model_routes {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetModelRoutes resets all changes to the "model_routes" edge.
+func (m *UpstreamKeyMutation) ResetModelRoutes() {
+	m.model_routes = nil
+	m.clearedmodel_routes = false
+	m.removedmodel_routes = nil
+}
+
 // AddEventIDs adds the "events" edge to the UpstreamEvent entity by ids.
 func (m *UpstreamKeyMutation) AddEventIDs(ids ...int64) {
 	if m.events == nil {
@@ -60166,12 +60225,15 @@ func (m *UpstreamKeyMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *UpstreamKeyMutation) AddedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m._config != nil {
 		edges = append(edges, upstreamkey.EdgeConfig)
 	}
 	if m.accounts != nil {
 		edges = append(edges, upstreamkey.EdgeAccounts)
+	}
+	if m.model_routes != nil {
+		edges = append(edges, upstreamkey.EdgeModelRoutes)
 	}
 	if m.events != nil {
 		edges = append(edges, upstreamkey.EdgeEvents)
@@ -60199,6 +60261,12 @@ func (m *UpstreamKeyMutation) AddedIDs(name string) []ent.Value {
 	case upstreamkey.EdgeAccounts:
 		ids := make([]ent.Value, 0, len(m.accounts))
 		for id := range m.accounts {
+			ids = append(ids, id)
+		}
+		return ids
+	case upstreamkey.EdgeModelRoutes:
+		ids := make([]ent.Value, 0, len(m.model_routes))
+		for id := range m.model_routes {
 			ids = append(ids, id)
 		}
 		return ids
@@ -60232,9 +60300,12 @@ func (m *UpstreamKeyMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *UpstreamKeyMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.removedaccounts != nil {
 		edges = append(edges, upstreamkey.EdgeAccounts)
+	}
+	if m.removedmodel_routes != nil {
+		edges = append(edges, upstreamkey.EdgeModelRoutes)
 	}
 	if m.removedevents != nil {
 		edges = append(edges, upstreamkey.EdgeEvents)
@@ -60258,6 +60329,12 @@ func (m *UpstreamKeyMutation) RemovedIDs(name string) []ent.Value {
 	case upstreamkey.EdgeAccounts:
 		ids := make([]ent.Value, 0, len(m.removedaccounts))
 		for id := range m.removedaccounts {
+			ids = append(ids, id)
+		}
+		return ids
+	case upstreamkey.EdgeModelRoutes:
+		ids := make([]ent.Value, 0, len(m.removedmodel_routes))
+		for id := range m.removedmodel_routes {
 			ids = append(ids, id)
 		}
 		return ids
@@ -60291,12 +60368,15 @@ func (m *UpstreamKeyMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *UpstreamKeyMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.cleared_config {
 		edges = append(edges, upstreamkey.EdgeConfig)
 	}
 	if m.clearedaccounts {
 		edges = append(edges, upstreamkey.EdgeAccounts)
+	}
+	if m.clearedmodel_routes {
+		edges = append(edges, upstreamkey.EdgeModelRoutes)
 	}
 	if m.clearedevents {
 		edges = append(edges, upstreamkey.EdgeEvents)
@@ -60321,6 +60401,8 @@ func (m *UpstreamKeyMutation) EdgeCleared(name string) bool {
 		return m.cleared_config
 	case upstreamkey.EdgeAccounts:
 		return m.clearedaccounts
+	case upstreamkey.EdgeModelRoutes:
+		return m.clearedmodel_routes
 	case upstreamkey.EdgeEvents:
 		return m.clearedevents
 	case upstreamkey.EdgeIncidents:
@@ -60354,6 +60436,9 @@ func (m *UpstreamKeyMutation) ResetEdge(name string) error {
 	case upstreamkey.EdgeAccounts:
 		m.ResetAccounts()
 		return nil
+	case upstreamkey.EdgeModelRoutes:
+		m.ResetModelRoutes()
+		return nil
 	case upstreamkey.EdgeEvents:
 		m.ResetEvents()
 		return nil
@@ -60368,6 +60453,1197 @@ func (m *UpstreamKeyMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown UpstreamKey edge %s", name)
+}
+
+// UpstreamKeyModelRouteMutation represents an operation that mutates the UpstreamKeyModelRoute nodes in the graph.
+type UpstreamKeyModelRouteMutation struct {
+	config
+	op              Op
+	typ             string
+	id              *int64
+	created_at      *time.Time
+	updated_at      *time.Time
+	deleted_at      *time.Time
+	public_model    *string
+	upstream_model  *string
+	target_platform *string
+	api_protocol    *string
+	source          *string
+	enabled         *bool
+	priority        *int
+	addpriority     *int
+	status          *string
+	last_seen_at    *time.Time
+	last_error      *string
+	clearedFields   map[string]struct{}
+	key             *int64
+	clearedkey      bool
+	done            bool
+	oldValue        func(context.Context) (*UpstreamKeyModelRoute, error)
+	predicates      []predicate.UpstreamKeyModelRoute
+}
+
+var _ ent.Mutation = (*UpstreamKeyModelRouteMutation)(nil)
+
+// upstreamkeymodelrouteOption allows management of the mutation configuration using functional options.
+type upstreamkeymodelrouteOption func(*UpstreamKeyModelRouteMutation)
+
+// newUpstreamKeyModelRouteMutation creates new mutation for the UpstreamKeyModelRoute entity.
+func newUpstreamKeyModelRouteMutation(c config, op Op, opts ...upstreamkeymodelrouteOption) *UpstreamKeyModelRouteMutation {
+	m := &UpstreamKeyModelRouteMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeUpstreamKeyModelRoute,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withUpstreamKeyModelRouteID sets the ID field of the mutation.
+func withUpstreamKeyModelRouteID(id int64) upstreamkeymodelrouteOption {
+	return func(m *UpstreamKeyModelRouteMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *UpstreamKeyModelRoute
+		)
+		m.oldValue = func(ctx context.Context) (*UpstreamKeyModelRoute, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().UpstreamKeyModelRoute.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withUpstreamKeyModelRoute sets the old UpstreamKeyModelRoute of the mutation.
+func withUpstreamKeyModelRoute(node *UpstreamKeyModelRoute) upstreamkeymodelrouteOption {
+	return func(m *UpstreamKeyModelRouteMutation) {
+		m.oldValue = func(context.Context) (*UpstreamKeyModelRoute, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m UpstreamKeyModelRouteMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m UpstreamKeyModelRouteMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *UpstreamKeyModelRouteMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *UpstreamKeyModelRouteMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().UpstreamKeyModelRoute.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *UpstreamKeyModelRouteMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *UpstreamKeyModelRouteMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *UpstreamKeyModelRouteMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *UpstreamKeyModelRouteMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetDeletedAt sets the "deleted_at" field.
+func (m *UpstreamKeyModelRouteMutation) SetDeletedAt(t time.Time) {
+	m.deleted_at = &t
+}
+
+// DeletedAt returns the value of the "deleted_at" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) DeletedAt() (r time.Time, exists bool) {
+	v := m.deleted_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDeletedAt returns the old "deleted_at" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldDeletedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDeletedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDeletedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDeletedAt: %w", err)
+	}
+	return oldValue.DeletedAt, nil
+}
+
+// ClearDeletedAt clears the value of the "deleted_at" field.
+func (m *UpstreamKeyModelRouteMutation) ClearDeletedAt() {
+	m.deleted_at = nil
+	m.clearedFields[upstreamkeymodelroute.FieldDeletedAt] = struct{}{}
+}
+
+// DeletedAtCleared returns if the "deleted_at" field was cleared in this mutation.
+func (m *UpstreamKeyModelRouteMutation) DeletedAtCleared() bool {
+	_, ok := m.clearedFields[upstreamkeymodelroute.FieldDeletedAt]
+	return ok
+}
+
+// ResetDeletedAt resets all changes to the "deleted_at" field.
+func (m *UpstreamKeyModelRouteMutation) ResetDeletedAt() {
+	m.deleted_at = nil
+	delete(m.clearedFields, upstreamkeymodelroute.FieldDeletedAt)
+}
+
+// SetUpstreamKeyID sets the "upstream_key_id" field.
+func (m *UpstreamKeyModelRouteMutation) SetUpstreamKeyID(i int64) {
+	m.key = &i
+}
+
+// UpstreamKeyID returns the value of the "upstream_key_id" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) UpstreamKeyID() (r int64, exists bool) {
+	v := m.key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamKeyID returns the old "upstream_key_id" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldUpstreamKeyID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamKeyID: %w", err)
+	}
+	return oldValue.UpstreamKeyID, nil
+}
+
+// ResetUpstreamKeyID resets all changes to the "upstream_key_id" field.
+func (m *UpstreamKeyModelRouteMutation) ResetUpstreamKeyID() {
+	m.key = nil
+}
+
+// SetPublicModel sets the "public_model" field.
+func (m *UpstreamKeyModelRouteMutation) SetPublicModel(s string) {
+	m.public_model = &s
+}
+
+// PublicModel returns the value of the "public_model" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) PublicModel() (r string, exists bool) {
+	v := m.public_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPublicModel returns the old "public_model" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldPublicModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPublicModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPublicModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPublicModel: %w", err)
+	}
+	return oldValue.PublicModel, nil
+}
+
+// ResetPublicModel resets all changes to the "public_model" field.
+func (m *UpstreamKeyModelRouteMutation) ResetPublicModel() {
+	m.public_model = nil
+}
+
+// SetUpstreamModel sets the "upstream_model" field.
+func (m *UpstreamKeyModelRouteMutation) SetUpstreamModel(s string) {
+	m.upstream_model = &s
+}
+
+// UpstreamModel returns the value of the "upstream_model" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) UpstreamModel() (r string, exists bool) {
+	v := m.upstream_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamModel returns the old "upstream_model" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldUpstreamModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamModel: %w", err)
+	}
+	return oldValue.UpstreamModel, nil
+}
+
+// ResetUpstreamModel resets all changes to the "upstream_model" field.
+func (m *UpstreamKeyModelRouteMutation) ResetUpstreamModel() {
+	m.upstream_model = nil
+}
+
+// SetTargetPlatform sets the "target_platform" field.
+func (m *UpstreamKeyModelRouteMutation) SetTargetPlatform(s string) {
+	m.target_platform = &s
+}
+
+// TargetPlatform returns the value of the "target_platform" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) TargetPlatform() (r string, exists bool) {
+	v := m.target_platform
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTargetPlatform returns the old "target_platform" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldTargetPlatform(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTargetPlatform is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTargetPlatform requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTargetPlatform: %w", err)
+	}
+	return oldValue.TargetPlatform, nil
+}
+
+// ResetTargetPlatform resets all changes to the "target_platform" field.
+func (m *UpstreamKeyModelRouteMutation) ResetTargetPlatform() {
+	m.target_platform = nil
+}
+
+// SetAPIProtocol sets the "api_protocol" field.
+func (m *UpstreamKeyModelRouteMutation) SetAPIProtocol(s string) {
+	m.api_protocol = &s
+}
+
+// APIProtocol returns the value of the "api_protocol" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) APIProtocol() (r string, exists bool) {
+	v := m.api_protocol
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAPIProtocol returns the old "api_protocol" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldAPIProtocol(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAPIProtocol is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAPIProtocol requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAPIProtocol: %w", err)
+	}
+	return oldValue.APIProtocol, nil
+}
+
+// ResetAPIProtocol resets all changes to the "api_protocol" field.
+func (m *UpstreamKeyModelRouteMutation) ResetAPIProtocol() {
+	m.api_protocol = nil
+}
+
+// SetSource sets the "source" field.
+func (m *UpstreamKeyModelRouteMutation) SetSource(s string) {
+	m.source = &s
+}
+
+// Source returns the value of the "source" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) Source() (r string, exists bool) {
+	v := m.source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSource returns the old "source" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldSource(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSource: %w", err)
+	}
+	return oldValue.Source, nil
+}
+
+// ResetSource resets all changes to the "source" field.
+func (m *UpstreamKeyModelRouteMutation) ResetSource() {
+	m.source = nil
+}
+
+// SetEnabled sets the "enabled" field.
+func (m *UpstreamKeyModelRouteMutation) SetEnabled(b bool) {
+	m.enabled = &b
+}
+
+// Enabled returns the value of the "enabled" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) Enabled() (r bool, exists bool) {
+	v := m.enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnabled returns the old "enabled" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnabled: %w", err)
+	}
+	return oldValue.Enabled, nil
+}
+
+// ResetEnabled resets all changes to the "enabled" field.
+func (m *UpstreamKeyModelRouteMutation) ResetEnabled() {
+	m.enabled = nil
+}
+
+// SetPriority sets the "priority" field.
+func (m *UpstreamKeyModelRouteMutation) SetPriority(i int) {
+	m.priority = &i
+	m.addpriority = nil
+}
+
+// Priority returns the value of the "priority" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) Priority() (r int, exists bool) {
+	v := m.priority
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPriority returns the old "priority" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldPriority(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPriority is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPriority requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPriority: %w", err)
+	}
+	return oldValue.Priority, nil
+}
+
+// AddPriority adds i to the "priority" field.
+func (m *UpstreamKeyModelRouteMutation) AddPriority(i int) {
+	if m.addpriority != nil {
+		*m.addpriority += i
+	} else {
+		m.addpriority = &i
+	}
+}
+
+// AddedPriority returns the value that was added to the "priority" field in this mutation.
+func (m *UpstreamKeyModelRouteMutation) AddedPriority() (r int, exists bool) {
+	v := m.addpriority
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPriority resets all changes to the "priority" field.
+func (m *UpstreamKeyModelRouteMutation) ResetPriority() {
+	m.priority = nil
+	m.addpriority = nil
+}
+
+// SetStatus sets the "status" field.
+func (m *UpstreamKeyModelRouteMutation) SetStatus(s string) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) Status() (r string, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *UpstreamKeyModelRouteMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetLastSeenAt sets the "last_seen_at" field.
+func (m *UpstreamKeyModelRouteMutation) SetLastSeenAt(t time.Time) {
+	m.last_seen_at = &t
+}
+
+// LastSeenAt returns the value of the "last_seen_at" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) LastSeenAt() (r time.Time, exists bool) {
+	v := m.last_seen_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastSeenAt returns the old "last_seen_at" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldLastSeenAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastSeenAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastSeenAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastSeenAt: %w", err)
+	}
+	return oldValue.LastSeenAt, nil
+}
+
+// ClearLastSeenAt clears the value of the "last_seen_at" field.
+func (m *UpstreamKeyModelRouteMutation) ClearLastSeenAt() {
+	m.last_seen_at = nil
+	m.clearedFields[upstreamkeymodelroute.FieldLastSeenAt] = struct{}{}
+}
+
+// LastSeenAtCleared returns if the "last_seen_at" field was cleared in this mutation.
+func (m *UpstreamKeyModelRouteMutation) LastSeenAtCleared() bool {
+	_, ok := m.clearedFields[upstreamkeymodelroute.FieldLastSeenAt]
+	return ok
+}
+
+// ResetLastSeenAt resets all changes to the "last_seen_at" field.
+func (m *UpstreamKeyModelRouteMutation) ResetLastSeenAt() {
+	m.last_seen_at = nil
+	delete(m.clearedFields, upstreamkeymodelroute.FieldLastSeenAt)
+}
+
+// SetLastError sets the "last_error" field.
+func (m *UpstreamKeyModelRouteMutation) SetLastError(s string) {
+	m.last_error = &s
+}
+
+// LastError returns the value of the "last_error" field in the mutation.
+func (m *UpstreamKeyModelRouteMutation) LastError() (r string, exists bool) {
+	v := m.last_error
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastError returns the old "last_error" field's value of the UpstreamKeyModelRoute entity.
+// If the UpstreamKeyModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UpstreamKeyModelRouteMutation) OldLastError(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastError is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastError requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastError: %w", err)
+	}
+	return oldValue.LastError, nil
+}
+
+// ClearLastError clears the value of the "last_error" field.
+func (m *UpstreamKeyModelRouteMutation) ClearLastError() {
+	m.last_error = nil
+	m.clearedFields[upstreamkeymodelroute.FieldLastError] = struct{}{}
+}
+
+// LastErrorCleared returns if the "last_error" field was cleared in this mutation.
+func (m *UpstreamKeyModelRouteMutation) LastErrorCleared() bool {
+	_, ok := m.clearedFields[upstreamkeymodelroute.FieldLastError]
+	return ok
+}
+
+// ResetLastError resets all changes to the "last_error" field.
+func (m *UpstreamKeyModelRouteMutation) ResetLastError() {
+	m.last_error = nil
+	delete(m.clearedFields, upstreamkeymodelroute.FieldLastError)
+}
+
+// SetKeyID sets the "key" edge to the UpstreamKey entity by id.
+func (m *UpstreamKeyModelRouteMutation) SetKeyID(id int64) {
+	m.key = &id
+}
+
+// ClearKey clears the "key" edge to the UpstreamKey entity.
+func (m *UpstreamKeyModelRouteMutation) ClearKey() {
+	m.clearedkey = true
+	m.clearedFields[upstreamkeymodelroute.FieldUpstreamKeyID] = struct{}{}
+}
+
+// KeyCleared reports if the "key" edge to the UpstreamKey entity was cleared.
+func (m *UpstreamKeyModelRouteMutation) KeyCleared() bool {
+	return m.clearedkey
+}
+
+// KeyID returns the "key" edge ID in the mutation.
+func (m *UpstreamKeyModelRouteMutation) KeyID() (id int64, exists bool) {
+	if m.key != nil {
+		return *m.key, true
+	}
+	return
+}
+
+// KeyIDs returns the "key" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// KeyID instead. It exists only for internal usage by the builders.
+func (m *UpstreamKeyModelRouteMutation) KeyIDs() (ids []int64) {
+	if id := m.key; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetKey resets all changes to the "key" edge.
+func (m *UpstreamKeyModelRouteMutation) ResetKey() {
+	m.key = nil
+	m.clearedkey = false
+}
+
+// Where appends a list predicates to the UpstreamKeyModelRouteMutation builder.
+func (m *UpstreamKeyModelRouteMutation) Where(ps ...predicate.UpstreamKeyModelRoute) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the UpstreamKeyModelRouteMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *UpstreamKeyModelRouteMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.UpstreamKeyModelRoute, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *UpstreamKeyModelRouteMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *UpstreamKeyModelRouteMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (UpstreamKeyModelRoute).
+func (m *UpstreamKeyModelRouteMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *UpstreamKeyModelRouteMutation) Fields() []string {
+	fields := make([]string, 0, 14)
+	if m.created_at != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldUpdatedAt)
+	}
+	if m.deleted_at != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldDeletedAt)
+	}
+	if m.key != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldUpstreamKeyID)
+	}
+	if m.public_model != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldPublicModel)
+	}
+	if m.upstream_model != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldUpstreamModel)
+	}
+	if m.target_platform != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldTargetPlatform)
+	}
+	if m.api_protocol != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldAPIProtocol)
+	}
+	if m.source != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldSource)
+	}
+	if m.enabled != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldEnabled)
+	}
+	if m.priority != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldPriority)
+	}
+	if m.status != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldStatus)
+	}
+	if m.last_seen_at != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldLastSeenAt)
+	}
+	if m.last_error != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldLastError)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *UpstreamKeyModelRouteMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case upstreamkeymodelroute.FieldCreatedAt:
+		return m.CreatedAt()
+	case upstreamkeymodelroute.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case upstreamkeymodelroute.FieldDeletedAt:
+		return m.DeletedAt()
+	case upstreamkeymodelroute.FieldUpstreamKeyID:
+		return m.UpstreamKeyID()
+	case upstreamkeymodelroute.FieldPublicModel:
+		return m.PublicModel()
+	case upstreamkeymodelroute.FieldUpstreamModel:
+		return m.UpstreamModel()
+	case upstreamkeymodelroute.FieldTargetPlatform:
+		return m.TargetPlatform()
+	case upstreamkeymodelroute.FieldAPIProtocol:
+		return m.APIProtocol()
+	case upstreamkeymodelroute.FieldSource:
+		return m.Source()
+	case upstreamkeymodelroute.FieldEnabled:
+		return m.Enabled()
+	case upstreamkeymodelroute.FieldPriority:
+		return m.Priority()
+	case upstreamkeymodelroute.FieldStatus:
+		return m.Status()
+	case upstreamkeymodelroute.FieldLastSeenAt:
+		return m.LastSeenAt()
+	case upstreamkeymodelroute.FieldLastError:
+		return m.LastError()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *UpstreamKeyModelRouteMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case upstreamkeymodelroute.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case upstreamkeymodelroute.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case upstreamkeymodelroute.FieldDeletedAt:
+		return m.OldDeletedAt(ctx)
+	case upstreamkeymodelroute.FieldUpstreamKeyID:
+		return m.OldUpstreamKeyID(ctx)
+	case upstreamkeymodelroute.FieldPublicModel:
+		return m.OldPublicModel(ctx)
+	case upstreamkeymodelroute.FieldUpstreamModel:
+		return m.OldUpstreamModel(ctx)
+	case upstreamkeymodelroute.FieldTargetPlatform:
+		return m.OldTargetPlatform(ctx)
+	case upstreamkeymodelroute.FieldAPIProtocol:
+		return m.OldAPIProtocol(ctx)
+	case upstreamkeymodelroute.FieldSource:
+		return m.OldSource(ctx)
+	case upstreamkeymodelroute.FieldEnabled:
+		return m.OldEnabled(ctx)
+	case upstreamkeymodelroute.FieldPriority:
+		return m.OldPriority(ctx)
+	case upstreamkeymodelroute.FieldStatus:
+		return m.OldStatus(ctx)
+	case upstreamkeymodelroute.FieldLastSeenAt:
+		return m.OldLastSeenAt(ctx)
+	case upstreamkeymodelroute.FieldLastError:
+		return m.OldLastError(ctx)
+	}
+	return nil, fmt.Errorf("unknown UpstreamKeyModelRoute field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UpstreamKeyModelRouteMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case upstreamkeymodelroute.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case upstreamkeymodelroute.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case upstreamkeymodelroute.FieldDeletedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDeletedAt(v)
+		return nil
+	case upstreamkeymodelroute.FieldUpstreamKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamKeyID(v)
+		return nil
+	case upstreamkeymodelroute.FieldPublicModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPublicModel(v)
+		return nil
+	case upstreamkeymodelroute.FieldUpstreamModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamModel(v)
+		return nil
+	case upstreamkeymodelroute.FieldTargetPlatform:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTargetPlatform(v)
+		return nil
+	case upstreamkeymodelroute.FieldAPIProtocol:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAPIProtocol(v)
+		return nil
+	case upstreamkeymodelroute.FieldSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSource(v)
+		return nil
+	case upstreamkeymodelroute.FieldEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnabled(v)
+		return nil
+	case upstreamkeymodelroute.FieldPriority:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPriority(v)
+		return nil
+	case upstreamkeymodelroute.FieldStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case upstreamkeymodelroute.FieldLastSeenAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastSeenAt(v)
+		return nil
+	case upstreamkeymodelroute.FieldLastError:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastError(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyModelRoute field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *UpstreamKeyModelRouteMutation) AddedFields() []string {
+	var fields []string
+	if m.addpriority != nil {
+		fields = append(fields, upstreamkeymodelroute.FieldPriority)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *UpstreamKeyModelRouteMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case upstreamkeymodelroute.FieldPriority:
+		return m.AddedPriority()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UpstreamKeyModelRouteMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case upstreamkeymodelroute.FieldPriority:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPriority(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyModelRoute numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *UpstreamKeyModelRouteMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(upstreamkeymodelroute.FieldDeletedAt) {
+		fields = append(fields, upstreamkeymodelroute.FieldDeletedAt)
+	}
+	if m.FieldCleared(upstreamkeymodelroute.FieldLastSeenAt) {
+		fields = append(fields, upstreamkeymodelroute.FieldLastSeenAt)
+	}
+	if m.FieldCleared(upstreamkeymodelroute.FieldLastError) {
+		fields = append(fields, upstreamkeymodelroute.FieldLastError)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *UpstreamKeyModelRouteMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *UpstreamKeyModelRouteMutation) ClearField(name string) error {
+	switch name {
+	case upstreamkeymodelroute.FieldDeletedAt:
+		m.ClearDeletedAt()
+		return nil
+	case upstreamkeymodelroute.FieldLastSeenAt:
+		m.ClearLastSeenAt()
+		return nil
+	case upstreamkeymodelroute.FieldLastError:
+		m.ClearLastError()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyModelRoute nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *UpstreamKeyModelRouteMutation) ResetField(name string) error {
+	switch name {
+	case upstreamkeymodelroute.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case upstreamkeymodelroute.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case upstreamkeymodelroute.FieldDeletedAt:
+		m.ResetDeletedAt()
+		return nil
+	case upstreamkeymodelroute.FieldUpstreamKeyID:
+		m.ResetUpstreamKeyID()
+		return nil
+	case upstreamkeymodelroute.FieldPublicModel:
+		m.ResetPublicModel()
+		return nil
+	case upstreamkeymodelroute.FieldUpstreamModel:
+		m.ResetUpstreamModel()
+		return nil
+	case upstreamkeymodelroute.FieldTargetPlatform:
+		m.ResetTargetPlatform()
+		return nil
+	case upstreamkeymodelroute.FieldAPIProtocol:
+		m.ResetAPIProtocol()
+		return nil
+	case upstreamkeymodelroute.FieldSource:
+		m.ResetSource()
+		return nil
+	case upstreamkeymodelroute.FieldEnabled:
+		m.ResetEnabled()
+		return nil
+	case upstreamkeymodelroute.FieldPriority:
+		m.ResetPriority()
+		return nil
+	case upstreamkeymodelroute.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case upstreamkeymodelroute.FieldLastSeenAt:
+		m.ResetLastSeenAt()
+		return nil
+	case upstreamkeymodelroute.FieldLastError:
+		m.ResetLastError()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyModelRoute field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *UpstreamKeyModelRouteMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.key != nil {
+		edges = append(edges, upstreamkeymodelroute.EdgeKey)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *UpstreamKeyModelRouteMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case upstreamkeymodelroute.EdgeKey:
+		if id := m.key; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *UpstreamKeyModelRouteMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *UpstreamKeyModelRouteMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *UpstreamKeyModelRouteMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedkey {
+		edges = append(edges, upstreamkeymodelroute.EdgeKey)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *UpstreamKeyModelRouteMutation) EdgeCleared(name string) bool {
+	switch name {
+	case upstreamkeymodelroute.EdgeKey:
+		return m.clearedkey
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *UpstreamKeyModelRouteMutation) ClearEdge(name string) error {
+	switch name {
+	case upstreamkeymodelroute.EdgeKey:
+		m.ClearKey()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyModelRoute unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *UpstreamKeyModelRouteMutation) ResetEdge(name string) error {
+	switch name {
+	case upstreamkeymodelroute.EdgeKey:
+		m.ResetKey()
+		return nil
+	}
+	return fmt.Errorf("unknown UpstreamKeyModelRoute edge %s", name)
 }
 
 // UpstreamKeyRateSnapshotMutation represents an operation that mutates the UpstreamKeyRateSnapshot nodes in the graph.

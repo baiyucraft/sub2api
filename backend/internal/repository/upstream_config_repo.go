@@ -23,6 +23,7 @@ import (
 	dbupstreamconfig "github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	dbupstreamevent "github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
+	dbupstreamkeymodelroute "github.com/Wei-Shaw/sub2api/ent/upstreamkeymodelroute"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -753,6 +754,7 @@ func (r *upstreamConfigRepository) ListKeys(ctx context.Context, upstreamConfigI
 	rows, err := r.client.UpstreamKey.Query().
 		Where(dbupstreamkey.UpstreamConfigIDEQ(upstreamConfigID)).
 		WithAccounts(func(q *dbent.AccountQuery) { q.Select(dbaccount.FieldID) }).
+		WithModelRoutes().
 		Order(dbent.Asc(dbupstreamkey.FieldName), dbent.Asc(dbupstreamkey.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -768,6 +770,7 @@ func (r *upstreamConfigRepository) ListKeys(ctx context.Context, upstreamConfigI
 func (r *upstreamConfigRepository) ListAllKeysForHealth(ctx context.Context) ([]service.UpstreamKey, error) {
 	rows, err := r.client.UpstreamKey.Query().
 		WithAccounts(func(q *dbent.AccountQuery) { q.Select(dbaccount.FieldID) }).
+		WithModelRoutes().
 		Order(dbent.Asc(dbupstreamkey.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -928,7 +931,7 @@ func (r *upstreamConfigRepository) ListKeysForMaskedFallback(ctx context.Context
 }
 
 func (r *upstreamConfigRepository) GetKeyByID(ctx context.Context, id int64) (*service.UpstreamKey, error) {
-	row, err := r.client.UpstreamKey.Query().Where(dbupstreamkey.IDEQ(id)).WithAccounts(func(q *dbent.AccountQuery) { q.Select(dbaccount.FieldID) }).Only(ctx)
+	row, err := r.client.UpstreamKey.Query().Where(dbupstreamkey.IDEQ(id)).WithAccounts(func(q *dbent.AccountQuery) { q.Select(dbaccount.FieldID) }).WithModelRoutes().Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
 			return nil, service.ErrUpstreamKeyNotFound
@@ -936,6 +939,301 @@ func (r *upstreamConfigRepository) GetKeyByID(ctx context.Context, id int64) (*s
 		return nil, err
 	}
 	return upstreamKeyEntityToService(row), nil
+}
+
+func upstreamKeyModelRouteEntityToService(row *dbent.UpstreamKeyModelRoute) service.UpstreamKeyModelRoute {
+	if row == nil {
+		return service.UpstreamKeyModelRoute{}
+	}
+	return service.UpstreamKeyModelRoute{
+		ID: row.ID, UpstreamKeyID: row.UpstreamKeyID, PublicModel: row.PublicModel,
+		UpstreamModel: row.UpstreamModel, TargetPlatform: row.TargetPlatform,
+		APIProtocol: row.APIProtocol, Source: row.Source, Enabled: row.Enabled,
+		Priority: row.Priority, Status: row.Status, LastSeenAt: row.LastSeenAt,
+		LastError: row.LastError, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}
+}
+
+func (r *upstreamConfigRepository) ListUpstreamKeyModelRoutes(ctx context.Context, keyID int64) ([]service.UpstreamKeyModelRoute, error) {
+	rows, err := r.client.UpstreamKeyModelRoute.Query().
+		Where(dbupstreamkeymodelroute.UpstreamKeyIDEQ(keyID)).
+		Order(dbent.Asc(dbupstreamkeymodelroute.FieldPriority), dbent.Asc(dbupstreamkeymodelroute.FieldPublicModel), dbent.Asc(dbupstreamkeymodelroute.FieldID)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.UpstreamKeyModelRoute, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, upstreamKeyModelRouteEntityToService(row))
+	}
+	return out, nil
+}
+
+func (r *upstreamConfigRepository) ListUpstreamKeyModelRoutesByConfig(ctx context.Context, configID int64) ([]service.UpstreamKeyModelRoute, error) {
+	rows, err := r.client.UpstreamKeyModelRoute.Query().
+		Where(dbupstreamkeymodelroute.HasKeyWith(dbupstreamkey.UpstreamConfigIDEQ(configID))).
+		WithKey(func(q *dbent.UpstreamKeyQuery) { q.Select(dbupstreamkey.FieldID, dbupstreamkey.FieldName) }).
+		Order(dbent.Asc(dbupstreamkeymodelroute.FieldPriority), dbent.Asc(dbupstreamkeymodelroute.FieldPublicModel), dbent.Asc(dbupstreamkeymodelroute.FieldID)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.UpstreamKeyModelRoute, 0, len(rows))
+	for _, row := range rows {
+		route := upstreamKeyModelRouteEntityToService(row)
+		if row.Edges.Key != nil {
+			route.KeyName = row.Edges.Key.Name
+		}
+		out = append(out, route)
+	}
+	return out, nil
+}
+
+func (r *upstreamConfigRepository) SaveUpstreamKeyModelRoute(ctx context.Context, route *service.UpstreamKeyModelRoute) error {
+	if route == nil || route.UpstreamKeyID <= 0 || strings.TrimSpace(route.PublicModel) == "" {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_MODEL_ROUTE_INVALID", "upstream key model route is invalid")
+	}
+	publicModel := strings.TrimSpace(route.PublicModel)
+	upstreamModel := strings.TrimSpace(route.UpstreamModel)
+	if upstreamModel == "" {
+		upstreamModel = publicModel
+	}
+	targetPlatform := strings.ToLower(strings.TrimSpace(route.TargetPlatform))
+	if !service.IsConcreteRequestPlatform(targetPlatform) {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_MODEL_ROUTE_PLATFORM_INVALID", "upstream key model route target platform is invalid")
+	}
+	protocol, protocolErr := service.NormalizeUpstreamKeyModelRouteAPIProtocol(targetPlatform, route.APIProtocol)
+	if protocolErr != nil {
+		return protocolErr
+	}
+	source := strings.TrimSpace(route.Source)
+	if source == "" {
+		source = service.UpstreamKeyModelRouteSourceManual
+	}
+	status := strings.TrimSpace(route.Status)
+	if status == "" {
+		status = service.UpstreamKeyModelRouteStatusAvailable
+	}
+	priority := route.Priority
+	if priority < 0 {
+		priority = 100
+	}
+	query := r.client.UpstreamKeyModelRoute.Query().Where(
+		dbupstreamkeymodelroute.UpstreamKeyIDEQ(route.UpstreamKeyID),
+		dbupstreamkeymodelroute.PublicModelEQ(publicModel),
+	)
+	if route.ID > 0 {
+		query = r.client.UpstreamKeyModelRoute.Query().Where(dbupstreamkeymodelroute.IDEQ(route.ID), dbupstreamkeymodelroute.UpstreamKeyIDEQ(route.UpstreamKeyID))
+	}
+	existing, err := query.Only(ctx)
+	if err != nil && !dbent.IsNotFound(err) {
+		return err
+	}
+	if existing == nil {
+		created, createErr := r.client.UpstreamKeyModelRoute.Create().
+			SetUpstreamKeyID(route.UpstreamKeyID).SetPublicModel(publicModel).
+			SetUpstreamModel(upstreamModel).SetTargetPlatform(targetPlatform).
+			SetAPIProtocol(protocol).SetSource(source).
+			SetEnabled(route.Enabled).SetPriority(priority).SetStatus(status).
+			SetNillableLastSeenAt(route.LastSeenAt).SetNillableLastError(route.LastError).Save(ctx)
+		if createErr != nil {
+			return createErr
+		}
+		*route = upstreamKeyModelRouteEntityToService(created)
+		return nil
+	}
+	update := r.client.UpstreamKeyModelRoute.UpdateOneID(existing.ID).
+		SetPublicModel(publicModel).SetUpstreamModel(upstreamModel).
+		SetTargetPlatform(targetPlatform).SetAPIProtocol(protocol).
+		SetSource(source).SetEnabled(route.Enabled).SetPriority(priority).SetStatus(status).
+		SetNillableLastSeenAt(route.LastSeenAt).SetNillableLastError(route.LastError)
+	if route.LastSeenAt == nil {
+		update.ClearLastSeenAt()
+	}
+	if route.LastError == nil {
+		update.ClearLastError()
+	}
+	updated, err := update.Save(ctx)
+	if err != nil {
+		return err
+	}
+	*route = upstreamKeyModelRouteEntityToService(updated)
+	return nil
+}
+
+func (r *upstreamConfigRepository) RestoreUpstreamKeyModelRouteAuto(ctx context.Context, route *service.UpstreamKeyModelRoute) error {
+	if route == nil || route.ID <= 0 || route.UpstreamKeyID <= 0 {
+		return service.ErrUpstreamKeyModelRouteNotFound
+	}
+	update := r.client.UpstreamKeyModelRoute.Update().
+		Where(
+			dbupstreamkeymodelroute.IDEQ(route.ID),
+			dbupstreamkeymodelroute.UpstreamKeyIDEQ(route.UpstreamKeyID),
+		).
+		SetPublicModel(strings.TrimSpace(route.PublicModel)).
+		SetUpstreamModel(strings.TrimSpace(route.UpstreamModel)).
+		SetTargetPlatform(strings.ToLower(strings.TrimSpace(route.TargetPlatform))).
+		SetAPIProtocol("").
+		SetSource(service.UpstreamKeyModelRouteSourceAuto).
+		SetEnabled(route.Enabled).
+		SetPriority(route.Priority).
+		SetStatus(route.Status).
+		SetNillableLastSeenAt(route.LastSeenAt).
+		SetNillableLastError(route.LastError)
+	if route.LastError == nil {
+		update.ClearLastError()
+	}
+	count, err := update.Save(ctx)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return service.ErrUpstreamKeyModelRouteNotFound
+	}
+	updated, err := r.client.UpstreamKeyModelRoute.Query().
+		Where(
+			dbupstreamkeymodelroute.IDEQ(route.ID),
+			dbupstreamkeymodelroute.UpstreamKeyIDEQ(route.UpstreamKeyID),
+		).
+		Only(ctx)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return service.ErrUpstreamKeyModelRouteNotFound
+		}
+		return err
+	}
+	*route = upstreamKeyModelRouteEntityToService(updated)
+	return nil
+}
+
+func (r *upstreamConfigRepository) DeleteUpstreamKeyModelRoute(ctx context.Context, keyID, routeID int64) error {
+	if keyID <= 0 || routeID <= 0 {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_MODEL_ROUTE_INVALID", "upstream key model route is invalid")
+	}
+	return r.client.UpstreamKeyModelRoute.DeleteOneID(routeID).Where(dbupstreamkeymodelroute.UpstreamKeyIDEQ(keyID)).Exec(ctx)
+}
+
+// SyncUpstreamKeyModelRoutes persists an authoritative successful model list
+// while preserving administrator-owned routes. Unknown/ambiguous routes are
+// kept as disabled rows for diagnostics. A partial sync never disables rows
+// missing from the provider response.
+func (r *upstreamConfigRepository) SyncUpstreamKeyModelRoutes(ctx context.Context, keyID int64, routes []service.UpstreamKeyModelRoute, complete bool, observedAt time.Time) error {
+	if keyID <= 0 {
+		return infraerrors.New(http.StatusBadRequest, "UPSTREAM_KEY_MODEL_ROUTE_INVALID", "upstream key model route key is invalid")
+	}
+	return r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		existing, err := client.UpstreamKeyModelRoute.Query().Where(dbupstreamkeymodelroute.UpstreamKeyIDEQ(keyID)).All(txCtx)
+		if err != nil {
+			return err
+		}
+		byModel := make(map[string]*dbent.UpstreamKeyModelRoute, len(existing))
+		for _, row := range existing {
+			byModel[strings.ToLower(strings.TrimSpace(row.PublicModel))] = row
+		}
+		seen := make(map[string]struct{}, len(routes))
+		for i := range routes {
+			route := routes[i]
+			model := strings.TrimSpace(route.PublicModel)
+			if model == "" {
+				continue
+			}
+			modelKey := strings.ToLower(model)
+			seen[modelKey] = struct{}{}
+			row := byModel[modelKey]
+			if row != nil && strings.EqualFold(strings.TrimSpace(row.Source), service.UpstreamKeyModelRouteSourceManual) {
+				continue
+			}
+			upstreamModel := strings.TrimSpace(route.UpstreamModel)
+			if upstreamModel == "" {
+				upstreamModel = model
+			}
+			targetPlatform := strings.ToLower(strings.TrimSpace(route.TargetPlatform))
+			source := strings.TrimSpace(route.Source)
+			if source == "" {
+				source = service.UpstreamKeyModelRouteSourceAuto
+			}
+			status := strings.TrimSpace(route.Status)
+			if status == "" {
+				status = service.UpstreamKeyModelRouteStatusUnknown
+			}
+			enabled := route.Enabled
+			lastError := route.LastError
+			protocol, protocolErr := service.NormalizeUpstreamKeyModelRouteAPIProtocol(targetPlatform, route.APIProtocol)
+			if !service.IsConcreteRequestPlatform(targetPlatform) {
+				enabled = false
+				if status == service.UpstreamKeyModelRouteStatusAvailable {
+					status = service.UpstreamKeyModelRouteStatusUnsupported
+				}
+				reason := "model route target platform is not a registered concrete platform"
+				if targetPlatform != "" {
+					reason = fmt.Sprintf("model route target platform %q is not a registered concrete platform", targetPlatform)
+				}
+				lastError = &reason
+				targetPlatform = ""
+			} else if protocolErr != nil {
+				enabled = false
+				status = service.UpstreamKeyModelRouteStatusUnsupported
+				reason := protocolErr.Error()
+				lastError = &reason
+			}
+			seenAt := route.LastSeenAt
+			if seenAt == nil {
+				seenAt = timePtrForRoute(observedAt)
+			}
+			priority := route.Priority
+			if priority < 0 {
+				priority = 100
+			}
+			if row == nil {
+				builder := client.UpstreamKeyModelRoute.Create().
+					SetUpstreamKeyID(keyID).SetPublicModel(model).
+					SetUpstreamModel(upstreamModel).SetTargetPlatform(targetPlatform).
+					SetAPIProtocol(protocol).SetSource(source).
+					SetEnabled(enabled).SetPriority(priority).SetStatus(status).
+					SetNillableLastSeenAt(seenAt).SetNillableLastError(lastError)
+				if _, err := builder.Save(txCtx); err != nil {
+					return err
+				}
+				continue
+			}
+			update := client.UpstreamKeyModelRoute.UpdateOneID(row.ID).
+				SetUpstreamModel(upstreamModel).SetTargetPlatform(targetPlatform).
+				SetAPIProtocol(protocol).SetSource(source).
+				SetEnabled(enabled).SetPriority(priority).SetStatus(status).
+				SetNillableLastSeenAt(seenAt).SetNillableLastError(lastError)
+			if seenAt == nil {
+				update.ClearLastSeenAt()
+			}
+			if lastError == nil {
+				update.ClearLastError()
+			}
+			if _, err := update.Save(txCtx); err != nil {
+				return err
+			}
+		}
+		if complete {
+			for _, row := range existing {
+				modelKey := strings.ToLower(strings.TrimSpace(row.PublicModel))
+				if _, ok := seen[modelKey]; ok || !strings.EqualFold(strings.TrimSpace(row.Source), service.UpstreamKeyModelRouteSourceAuto) {
+					continue
+				}
+				if _, err := client.UpstreamKeyModelRoute.UpdateOneID(row.ID).
+					SetEnabled(false).SetStatus(service.UpstreamKeyModelRouteStatusStale).
+					SetLastError("model was not returned by the latest complete upstream sync").Save(txCtx); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func timePtrForRoute(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	value = value.UTC()
+	return &value
 }
 
 func (r *upstreamConfigRepository) UpsertKey(ctx context.Context, key *service.UpstreamKey) error {
@@ -2588,6 +2886,10 @@ func upstreamKeyEntityToService(row *dbent.UpstreamKey) *service.UpstreamKey {
 	}
 	extra := copyJSONMap(row.Extra)
 	description, _ := upstreamKeyDescriptionFromExtra(extra)
+	modelRoutes := make([]service.UpstreamKeyModelRoute, 0, len(row.Edges.ModelRoutes))
+	for _, route := range row.Edges.ModelRoutes {
+		modelRoutes = append(modelRoutes, upstreamKeyModelRouteEntityToService(route))
+	}
 	return &service.UpstreamKey{
 		ID:                      row.ID,
 		UpstreamConfigID:        row.UpstreamConfigID,
@@ -2614,6 +2916,7 @@ func upstreamKeyEntityToService(row *dbent.UpstreamKey) *service.UpstreamKey {
 		ObservationEnabled:      row.ObservationEnabled,
 		ObservationEnabledKnown: true,
 		Extra:                   extra,
+		ModelRoutes:             modelRoutes,
 		CreatedAt:               row.CreatedAt,
 		UpdatedAt:               row.UpdatedAt,
 	}

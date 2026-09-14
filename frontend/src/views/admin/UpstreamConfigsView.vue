@@ -931,9 +931,20 @@
               <Icon name="key" size="sm" />
               {{ t('admin.upstreamConfigs.keyManagement.tabs.platforms') }}
             </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="keyManagementTab === 'modelRoutes'"
+              :class="keyManagementTabClass('modelRoutes')"
+              data-test="key-management-model-routes-tab"
+              @click="handleKeyManagementTabChange('modelRoutes')"
+            >
+              <Icon name="swap" size="sm" />
+              {{ t('admin.upstreamConfigs.keyManagement.tabs.modelRoutes') }}
+            </button>
           </div>
 
-          <div v-if="keyManagementTab === 'imagePricing'" class="flex flex-1 flex-col gap-2 sm:max-w-xl sm:flex-row sm:justify-end">
+          <div v-if="keyManagementTab === 'imagePricing' || keyManagementTab === 'modelRoutes'" class="flex flex-1 flex-col gap-2 sm:max-w-xl sm:flex-row sm:justify-end">
             <div class="relative min-w-0 sm:w-64">
               <Icon name="search" size="sm" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
@@ -945,11 +956,29 @@
               />
             </div>
             <Select
+              v-if="keyManagementTab === 'imagePricing'"
               v-model="imagePricingFilter"
               :options="imagePricingFilterOptions"
               data-test="key-management-filter"
               class="sm:w-40"
             />
+            <Select
+              v-if="keyManagementTab === 'modelRoutes'"
+              v-model="modelRoutePlatformFilter"
+              :options="modelRoutePlatformFilterOptions"
+              data-test="model-route-platform-filter"
+              class="sm:w-44"
+            />
+            <button
+              v-if="keyManagementTab === 'modelRoutes'"
+              type="button"
+              class="btn btn-primary flex-none"
+              data-test="add-key-model-route"
+              @click="openModelRouteCreate"
+            >
+              <Icon name="plus" size="sm" class="mr-1.5" />
+              {{ t('admin.upstreamConfigs.modelRoutes.add') }}
+            </button>
           </div>
         </div>
 
@@ -1109,7 +1138,7 @@
         </DataTable>
 
         <DataTable
-          v-else
+          v-else-if="keyManagementTab === 'imagePricing'"
           :columns="imagePricingColumns"
           :data="filteredImagePricingKeys"
           :loading="keyPlatformsLoading"
@@ -1173,6 +1202,69 @@
             </div>
           </template>
         </DataTable>
+
+        <DataTable
+          v-else
+          :columns="modelRouteColumns"
+          :data="filteredModelRoutes"
+          :loading="modelRoutesLoading"
+          row-key="id"
+          :estimate-row-height="68"
+          data-test="model-routes-table"
+        >
+          <template #cell-key="{ row }">
+            <div class="min-w-[160px]">
+              <div class="truncate font-medium text-gray-900 dark:text-gray-100">{{ row.key_name || `#${row.upstream_key_id}` }}</div>
+              <div class="mt-1 font-mono text-xs text-gray-500 dark:text-dark-400">#{{ row.upstream_key_id }}</div>
+            </div>
+          </template>
+          <template #cell-public_model="{ row }">
+            <span class="font-mono text-xs text-gray-800 dark:text-gray-200">{{ row.public_model }}</span>
+          </template>
+          <template #cell-upstream_model="{ row }">
+            <span class="font-mono text-xs text-gray-600 dark:text-dark-300">{{ row.upstream_model }}</span>
+          </template>
+          <template #cell-target_platform="{ row }">
+            <PlatformBadge :platform="row.target_platform" :label="keyPlatformLabel(row.target_platform)" />
+          </template>
+          <template #cell-api_protocol="{ row }">
+            <span class="text-xs text-gray-600 dark:text-dark-300">{{ row.api_protocol || t('admin.upstreamConfigs.modelRoutes.inheritProtocol') }}</span>
+          </template>
+          <template #cell-source="{ row }">
+            <span class="text-xs text-gray-600 dark:text-dark-300">{{ modelRouteSourceLabel(row.source) }}</span>
+          </template>
+          <template #cell-status="{ row }">
+            <span :class="modelRouteStatusClass(row)">{{ modelRouteStatusLabel(row) }}</span>
+          </template>
+          <template #cell-actions="{ row }">
+            <div class="flex items-center gap-1">
+              <button type="button" class="icon-button" :title="t('common.edit')" :data-test="`edit-key-model-route-${row.id}`" @click="openModelRouteEdit(row)">
+                <Icon name="edit" size="sm" />
+              </button>
+              <button
+                v-if="row.source === 'manual'"
+                type="button"
+                class="icon-button text-sky-600 hover:text-sky-700 dark:text-sky-400"
+                :title="t('admin.upstreamConfigs.modelRoutes.restoreAuto')"
+                :disabled="modelRouteDeletingId === row.id"
+                :data-test="`restore-key-model-route-${row.id}`"
+                @click="restoreModelRouteAuto(row)"
+              >
+                <Icon name="refresh" size="sm" />
+              </button>
+              <button type="button" class="icon-button text-red-500 hover:text-red-600" :title="t('common.delete')" :disabled="modelRouteDeletingId === row.id" :data-test="`delete-key-model-route-${row.id}`" @click="askDeleteModelRoute(row)">
+                <Icon name="trash" size="sm" />
+              </button>
+            </div>
+          </template>
+          <template #empty>
+            <div class="flex flex-col items-center py-10 text-center">
+              <Icon name="swap" size="xl" class="mb-3 text-gray-400 dark:text-dark-500" />
+              <p class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('admin.upstreamConfigs.modelRoutes.empty') }}</p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ t('admin.upstreamConfigs.modelRoutes.emptyHint') }}</p>
+            </div>
+          </template>
+        </DataTable>
       </div>
 
       <template #footer>
@@ -1184,6 +1276,64 @@
             @click="closeKeyPlatformsDialog"
           >
             {{ t('common.close') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
+    <BaseDialog
+      :show="modelRouteDialogOpen"
+      :title="modelRouteEditing ? t('admin.upstreamConfigs.modelRoutes.editTitle') : t('admin.upstreamConfigs.modelRoutes.addTitle')"
+      width="normal"
+      :close-on-escape="!modelRouteSaving"
+      :show-close-button="!modelRouteSaving"
+      @close="closeModelRouteDialog"
+    >
+      <form data-test="model-route-form" class="space-y-4" @submit.prevent="saveModelRoute">
+        <label class="block space-y-1">
+          <span class="input-label">{{ t('admin.upstreamConfigs.modelRoutes.fields.key') }}</span>
+          <Select v-model="modelRouteForm.key_id" :options="modelRouteKeyOptions" :disabled="Boolean(modelRouteEditing) || modelRouteSaving" searchable="auto" data-test="model-route-key-select" />
+        </label>
+        <div class="grid gap-4 md:grid-cols-2">
+          <label class="block space-y-1">
+            <span class="input-label">{{ t('admin.upstreamConfigs.modelRoutes.fields.publicModel') }}</span>
+            <input v-model.trim="modelRouteForm.public_model" class="input font-mono text-sm" required :disabled="modelRouteSaving" data-test="model-route-public-model" />
+          </label>
+          <label class="block space-y-1">
+            <span class="input-label">{{ t('admin.upstreamConfigs.modelRoutes.fields.upstreamModel') }}</span>
+            <input v-model.trim="modelRouteForm.upstream_model" class="input font-mono text-sm" required :disabled="modelRouteSaving" data-test="model-route-upstream-model" />
+          </label>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <label class="block space-y-1">
+            <span class="input-label">{{ t('admin.upstreamConfigs.modelRoutes.fields.platform') }}</span>
+            <Select v-model="modelRouteForm.target_platform" :options="keyPlatformOptions" :disabled="modelRouteSaving" data-test="model-route-platform-select" />
+          </label>
+          <label class="block space-y-1">
+            <span class="input-label">{{ t('admin.upstreamConfigs.modelRoutes.fields.protocol') }}</span>
+            <Select v-model="modelRouteForm.api_protocol" :options="modelRouteProtocolOptions" :disabled="modelRouteSaving" data-test="model-route-protocol" />
+          </label>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <label class="block space-y-1">
+            <span class="input-label">{{ t('admin.upstreamConfigs.modelRoutes.fields.priority') }}</span>
+            <input v-model.number="modelRouteForm.priority" class="input text-sm" type="number" min="0" step="1" :disabled="modelRouteSaving" data-test="model-route-priority" />
+          </label>
+          <div class="flex items-end pb-1">
+            <Toggle v-model="modelRouteForm.enabled" :aria-label="t('admin.upstreamConfigs.modelRoutes.fields.enabled')" :disabled="modelRouteSaving" />
+            <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">{{ t('admin.upstreamConfigs.modelRoutes.fields.enabled') }}</span>
+          </div>
+        </div>
+        <p class="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800 dark:border-sky-900/50 dark:bg-sky-900/20 dark:text-sky-200">
+          {{ t('admin.upstreamConfigs.modelRoutes.hint') }}
+        </p>
+      </form>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-secondary" :disabled="modelRouteSaving" @click="closeModelRouteDialog">{{ t('common.cancel') }}</button>
+          <button type="submit" form="model-route-form" class="btn btn-primary" :disabled="modelRouteSaving || !modelRouteForm.key_id">
+            <Icon v-if="modelRouteSaving" name="refresh" size="sm" class="mr-2 animate-spin" />
+            {{ modelRouteSaving ? t('admin.upstreamConfigs.actions.saving') : t('common.save') }}
           </button>
         </div>
       </template>
@@ -1594,6 +1744,16 @@
       @confirm="confirmClearKeyBaseURL"
       @cancel="cancelClearKeyBaseURL"
     />
+    <ConfirmDialog
+      :show="pendingModelRouteDelete !== null"
+      :title="t('admin.upstreamConfigs.modelRoutes.deleteTitle')"
+      :message="t('admin.upstreamConfigs.modelRoutes.deleteMessage', { model: pendingModelRouteDelete?.public_model || '' })"
+      :confirm-text="t('common.delete')"
+      :cancel-text="t('common.cancel')"
+      :danger="true"
+      @confirm="confirmDeleteModelRoute"
+      @cancel="cancelDeleteModelRoute"
+    />
   </AppLayout>
 </template>
 
@@ -1618,6 +1778,10 @@ import UpstreamKeyRateTrendPanel from './upstream/UpstreamKeyRateTrendPanel.vue'
 import type { Column } from '@/components/common/types'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminAPI } from '@/api/admin'
+import {
+  getProbeModelCandidates,
+  type ProbePlatformDescriptor
+} from '@/api/admin/upstreamManagement'
 import upstreamAPI, {
   type UpstreamAuthMode,
   type UpstreamConfig,
@@ -1633,6 +1797,8 @@ import upstreamAPI, {
   type UpstreamTrendRange,
   type UpstreamUsageTrend,
   type UpstreamKey,
+  type UpstreamKeyModelRoute,
+  type UpstreamKeyModelRoutePayload,
   type UpstreamKeyImagePricing,
   type UpstreamKeyPlatform,
   type UpstreamPlatformEvidence,
@@ -1650,7 +1816,7 @@ import {
 type RowAction = 'test' | 'sync'
 type OperationsDrawerMode = 'syncRuns' | 'events' | 'trend' | 'rateTrend' | 'settings'
 type RateRange = { min: number; max: number } | null
-type KeyManagementTab = 'imagePricing' | 'platforms'
+type KeyManagementTab = 'imagePricing' | 'platforms' | 'modelRoutes'
 type ImagePricingFilter = 'supported' | 'all' | 'issues'
 type UpstreamConfigSortColumn =
   | 'id'
@@ -1724,6 +1890,24 @@ const keyPlatformsLoading = ref(false)
 const keyManagementTab = ref<KeyManagementTab>('platforms')
 const keyManagementSearch = ref('')
 const imagePricingFilter = ref<ImagePricingFilter>('supported')
+const registeredKeyPlatforms = ref<ProbePlatformDescriptor[]>([])
+const modelRoutePlatformFilter = ref('all')
+const modelRoutes = ref<UpstreamKeyModelRoute[]>([])
+const modelRoutesLoading = ref(false)
+const modelRouteDialogOpen = ref(false)
+const modelRouteEditing = ref<UpstreamKeyModelRoute | null>(null)
+const modelRouteSaving = ref(false)
+const modelRouteDeletingId = ref<number | null>(null)
+const pendingModelRouteDelete = ref<UpstreamKeyModelRoute | null>(null)
+const modelRouteForm = reactive<Omit<UpstreamKeyModelRoutePayload, 'enabled'> & { key_id: number | null; enabled: boolean }>({
+  key_id: null,
+  public_model: '',
+  upstream_model: '',
+  target_platform: '',
+  api_protocol: '',
+  enabled: true,
+  priority: 0
+})
 const keyBaseUrlDialogOpen = ref(false)
 const keyBaseUrlEditingKey = ref<UpstreamKey | null>(null)
 const keyBaseUrlValue = ref('')
@@ -1934,11 +2118,59 @@ const filteredImagePricingKeys = computed(() => {
 })
 
 const keyPlatformOptions = computed<SelectOption[]>(() =>
-  (['openai', 'anthropic', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek'] as UpstreamKeyPlatform[]).map((platform) => ({
-    value: platform,
-    label: keyPlatformLabel(platform)
+  registeredKeyPlatforms.value.map((platform) => ({
+    value: platform.id,
+    label: platform.label || keyPlatformLabel(platform.id)
   }))
 )
+
+const modelRoutePlatformFilterOptions = computed<SelectOption[]>(() => [
+  { value: 'all', label: t('admin.upstreamConfigs.modelRoutes.filters.allPlatforms') },
+  ...keyPlatformOptions.value
+])
+
+const modelRouteProtocolOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('admin.upstreamConfigs.modelRoutes.inheritProtocol') },
+  { value: 'adaptive', label: t('admin.upstreamConfigs.modelRoutes.protocols.adaptive') },
+  { value: 'chat_completions', label: t('admin.upstreamConfigs.modelRoutes.protocols.chatCompletions') },
+  { value: 'responses', label: t('admin.upstreamConfigs.modelRoutes.protocols.responses') },
+  { value: 'anthropic', label: t('admin.upstreamConfigs.modelRoutes.protocols.anthropic') }
+])
+
+const modelRouteColumns = computed<Column[]>(() => [
+  { key: 'key', label: t('admin.upstreamConfigs.modelRoutes.columns.key') },
+  { key: 'public_model', label: t('admin.upstreamConfigs.modelRoutes.columns.publicModel') },
+  { key: 'upstream_model', label: t('admin.upstreamConfigs.modelRoutes.columns.upstreamModel') },
+  { key: 'target_platform', label: t('admin.upstreamConfigs.modelRoutes.columns.platform') },
+  { key: 'api_protocol', label: t('admin.upstreamConfigs.modelRoutes.columns.protocol') },
+  { key: 'source', label: t('admin.upstreamConfigs.modelRoutes.columns.source') },
+  { key: 'status', label: t('admin.upstreamConfigs.modelRoutes.columns.status') },
+  { key: 'actions', label: t('admin.upstreamConfigs.modelRoutes.columns.actions') }
+])
+
+const filteredModelRoutes = computed(() => {
+  const query = keyManagementSearch.value.trim().toLocaleLowerCase()
+  return modelRoutes.value.filter((route) => {
+    if (modelRoutePlatformFilter.value !== 'all' && route.target_platform !== modelRoutePlatformFilter.value) {
+      return false
+    }
+    if (!query) return true
+    return [
+    route.key_name,
+    route.public_model,
+    route.upstream_model,
+    route.target_platform,
+    route.api_protocol,
+    route.source,
+    route.status
+    ].some((value) => String(value || '').toLocaleLowerCase().includes(query))
+  })
+})
+
+const modelRouteKeyOptions = computed<SelectOption[]>(() => keyPlatformKeys.value.map((key) => ({
+  value: key.id,
+  label: `${key.name || t('admin.upstreamConfigs.keyPlatforms.unnamedKey')} (#${key.id})`
+})))
 
 const keyPlatformSaving = computed(() => updatingKeyPlatformIds.value.size > 0)
 
@@ -2702,8 +2934,29 @@ async function openKeyPlatforms(item: UpstreamConfig) {
   keyManagementTab.value = supportsImagePricingProvider(item.provider) ? 'imagePricing' : 'platforms'
   keyManagementSearch.value = ''
   imagePricingFilter.value = 'supported'
+  modelRoutePlatformFilter.value = 'all'
   keyPlatformsDialogOpen.value = true
+  // Loading the platform catalog is independent from loading the keys. Do not
+  // block the key-management dialog (or legacy platform editing) on a catalog
+  // request that may be unavailable or slow.
+  void loadRegisteredKeyPlatforms()
   await loadKeyPlatforms()
+}
+
+async function loadRegisteredKeyPlatforms() {
+  try {
+    const catalog = await getProbeModelCandidates()
+    registeredKeyPlatforms.value = (catalog.platforms || []).filter((platform) => platform.id !== 'composite')
+  } catch (error: any) {
+    registeredKeyPlatforms.value = []
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.modelRoutes.platformCatalogLoadFailed')))
+  }
+}
+
+async function handleKeyManagementTabChange(tab: KeyManagementTab) {
+  keyManagementTab.value = tab
+  if (tab !== 'modelRoutes' || !keyPlatformsConfig.value) return
+  await loadModelRoutes()
 }
 
 async function loadKeyPlatforms() {
@@ -2726,6 +2979,151 @@ async function loadKeyPlatforms() {
   }
 }
 
+async function loadModelRoutes() {
+  const config = keyPlatformsConfig.value
+  if (!config) return
+  modelRoutesLoading.value = true
+  try {
+    modelRoutes.value = await upstreamAPI.listModelRoutes(config.id)
+  } catch (error: any) {
+    modelRoutes.value = []
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.modelRoutes.loadFailed')))
+  } finally {
+    modelRoutesLoading.value = false
+  }
+}
+
+function openModelRouteCreate() {
+  if (!keyPlatformsConfig.value || !keyPlatformKeys.value.length || !keyPlatformOptions.value.length) return
+  modelRouteEditing.value = null
+  Object.assign(modelRouteForm, {
+    key_id: keyPlatformKeys.value[0]?.id ?? null,
+    public_model: '',
+    upstream_model: '',
+    target_platform: String(keyPlatformOptions.value[0]?.value || ''),
+    api_protocol: '',
+    enabled: true,
+    priority: 0
+  })
+  modelRouteDialogOpen.value = true
+}
+
+function openModelRouteEdit(route: UpstreamKeyModelRoute) {
+  modelRouteEditing.value = route
+  Object.assign(modelRouteForm, {
+    key_id: route.upstream_key_id,
+    public_model: route.public_model,
+    upstream_model: route.upstream_model,
+    target_platform: normalizeKeyPlatform(route.target_platform) || 'openai',
+    api_protocol: route.api_protocol || '',
+    enabled: route.enabled !== false,
+    priority: Number.isFinite(Number(route.priority)) ? Number(route.priority) : 0
+  })
+  modelRouteDialogOpen.value = true
+}
+
+function closeModelRouteDialog() {
+  if (modelRouteSaving.value) return
+  modelRouteDialogOpen.value = false
+  modelRouteEditing.value = null
+}
+
+async function saveModelRoute() {
+  const config = keyPlatformsConfig.value
+  const keyId = modelRouteForm.key_id
+  if (!config || !keyId || modelRouteSaving.value) return
+  const publicModel = modelRouteForm.public_model.trim()
+  const upstreamModel = modelRouteForm.upstream_model.trim()
+  const platform = normalizeKeyPlatform(modelRouteForm.target_platform)
+  if (!publicModel || !upstreamModel || !platform) return
+  const payload: UpstreamKeyModelRoutePayload = {
+    public_model: publicModel,
+    upstream_model: upstreamModel,
+    target_platform: platform,
+    api_protocol: modelRouteForm.api_protocol?.trim() || null,
+    enabled: modelRouteForm.enabled !== false,
+    priority: Math.max(0, Math.trunc(Number(modelRouteForm.priority) || 0))
+  }
+  modelRouteSaving.value = true
+  try {
+    if (modelRouteEditing.value) {
+      await upstreamAPI.updateKeyModelRoute(config.id, keyId, modelRouteEditing.value.id, payload)
+    } else {
+      await upstreamAPI.createKeyModelRoute(config.id, keyId, payload)
+    }
+    closeModelRouteDialog()
+    await loadModelRoutes()
+    appStore.showSuccess(t('admin.upstreamConfigs.modelRoutes.updated'))
+  } catch (error: any) {
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.modelRoutes.saveFailed')))
+  } finally {
+    modelRouteSaving.value = false
+  }
+}
+
+function askDeleteModelRoute(route: UpstreamKeyModelRoute) {
+  pendingModelRouteDelete.value = route
+}
+
+function cancelDeleteModelRoute() {
+  pendingModelRouteDelete.value = null
+}
+
+async function confirmDeleteModelRoute() {
+  const config = keyPlatformsConfig.value
+  const route = pendingModelRouteDelete.value
+  pendingModelRouteDelete.value = null
+  if (!config || !route || modelRouteDeletingId.value !== null) return
+  modelRouteDeletingId.value = route.id
+  try {
+    await upstreamAPI.removeKeyModelRoute(config.id, route.upstream_key_id, route.id)
+    await loadModelRoutes()
+    appStore.showSuccess(t('admin.upstreamConfigs.modelRoutes.deleted'))
+  } catch (error: any) {
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.modelRoutes.deleteFailed')))
+  } finally {
+    modelRouteDeletingId.value = null
+  }
+}
+
+async function restoreModelRouteAuto(route: UpstreamKeyModelRoute) {
+  const config = keyPlatformsConfig.value
+  if (!config || modelRouteDeletingId.value !== null) return
+  modelRouteDeletingId.value = route.id
+  try {
+    await upstreamAPI.restoreKeyModelRouteAuto(config.id, route.upstream_key_id, route.id)
+    await loadModelRoutes()
+    appStore.showSuccess(t('admin.upstreamConfigs.modelRoutes.restoredAuto'))
+  } catch (error: any) {
+    appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.modelRoutes.restoreAutoFailed')))
+  } finally {
+    modelRouteDeletingId.value = null
+  }
+}
+
+function modelRouteSourceLabel(source: unknown): string {
+  const normalized = String(source || '').trim().toLowerCase()
+  return ['auto', 'manual', 'legacy'].includes(normalized)
+    ? t(`admin.upstreamConfigs.modelRoutes.sources.${normalized}`)
+    : normalized || t('admin.upstreamConfigs.modelRoutes.sources.unknown')
+}
+
+function modelRouteStatusLabel(route: UpstreamKeyModelRoute): string {
+  const normalized = String(route.status || '').trim().toLowerCase()
+  return ['available', 'disabled', 'ambiguous', 'unknown', 'unsupported', 'stale'].includes(normalized)
+    ? t(`admin.upstreamConfigs.modelRoutes.status.${normalized}`)
+    : normalized || t('admin.upstreamConfigs.modelRoutes.status.unknown')
+}
+
+function modelRouteStatusClass(route: UpstreamKeyModelRoute): string {
+  const base = 'inline-flex rounded-full px-2.5 py-1 text-xs font-medium'
+  const status = String(route.status || '').trim().toLowerCase()
+  if (status === 'available' && route.enabled !== false) return `${base} bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300`
+  if (status === 'ambiguous' || status === 'unsupported' || status === 'unknown') return `${base} bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300`
+  if (status === 'stale') return `${base} bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300`
+  return `${base} bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-dark-300`
+}
+
 function closeKeyPlatformsDialog() {
   if (keyPlatformSaving.value || keyBaseUrlSaving.value) return
   closeKeyBaseURLDialog()
@@ -2735,8 +3133,13 @@ function closeKeyPlatformsDialog() {
   keyPlatformsDialogOpen.value = false
   keyPlatformsConfig.value = null
   keyPlatformKeys.value = []
+  modelRoutes.value = []
+  modelRouteDialogOpen.value = false
+  modelRouteEditing.value = null
+  pendingModelRouteDelete.value = null
   keyManagementSearch.value = ''
   imagePricingFilter.value = 'supported'
+  modelRoutePlatformFilter.value = 'all'
   pendingKeyPlatformConflict.value = null
   resetKeyPlatformSelections([])
 }
@@ -2853,7 +3256,7 @@ function resetKeyPlatformSelections(keys: UpstreamKey[]) {
 
 function normalizeKeyPlatform(value: unknown): UpstreamKeyPlatform | null {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
-  return ['openai', 'anthropic', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek'].includes(normalized)
+  return registeredKeyPlatforms.value.some((platform) => platform.id === normalized)
     ? normalized as UpstreamKeyPlatform
     : null
 }
@@ -2987,9 +3390,8 @@ function keyPlatformSelection(key: UpstreamKey): UpstreamKeyPlatform | null {
 
 function keyPlatformLabel(value: unknown): string {
   const platform = normalizeKeyPlatform(value)
-  return platform
-    ? t(`admin.upstreamConfigs.keyPlatforms.platforms.${platform}`)
-    : t('admin.upstreamConfigs.keyPlatforms.unassignedPlatform')
+  if (!platform) return t('admin.upstreamConfigs.keyPlatforms.unassignedPlatform')
+  return registeredKeyPlatforms.value.find((item) => item.id === platform)?.label || platform
 }
 
 function keyPlatformSourceLabel(source: unknown): string {

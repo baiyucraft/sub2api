@@ -67,6 +67,8 @@ const (
 	EdgeConfig = "config"
 	// EdgeAccounts holds the string denoting the accounts edge name in mutations.
 	EdgeAccounts = "accounts"
+	// EdgeModelRoutes holds the string denoting the model_routes edge name in mutations.
+	EdgeModelRoutes = "model_routes"
 	// EdgeEvents holds the string denoting the events edge name in mutations.
 	EdgeEvents = "events"
 	// EdgeIncidents holds the string denoting the incidents edge name in mutations.
@@ -91,6 +93,13 @@ const (
 	AccountsInverseTable = "accounts"
 	// AccountsColumn is the table column denoting the accounts relation/edge.
 	AccountsColumn = "upstream_key_id"
+	// ModelRoutesTable is the table that holds the model_routes relation/edge.
+	ModelRoutesTable = "upstream_key_model_routes"
+	// ModelRoutesInverseTable is the table name for the UpstreamKeyModelRoute entity.
+	// It exists in this package in order to avoid circular dependency with the "upstreamkeymodelroute" package.
+	ModelRoutesInverseTable = "upstream_key_model_routes"
+	// ModelRoutesColumn is the table column denoting the model_routes relation/edge.
+	ModelRoutesColumn = "upstream_key_id"
 	// EventsTable is the table that holds the events relation/edge.
 	EventsTable = "upstream_events"
 	// EventsInverseTable is the table name for the UpstreamEvent entity.
@@ -354,6 +363,20 @@ func ByAccounts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByModelRoutesCount orders the results by model_routes count.
+func ByModelRoutesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newModelRoutesStep(), opts...)
+	}
+}
+
+// ByModelRoutes orders the results by model_routes terms.
+func ByModelRoutes(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newModelRoutesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByEventsCount orders the results by events count.
 func ByEventsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -421,6 +444,13 @@ func newAccountsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AccountsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, AccountsTable, AccountsColumn),
+	)
+}
+func newModelRoutesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ModelRoutesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ModelRoutesTable, ModelRoutesColumn),
 	)
 }
 func newEventsStep() *sqlgraph.Step {

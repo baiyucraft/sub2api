@@ -1193,7 +1193,7 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 		}
 	}
 	if account != nil {
-		if schemaBody, schemaChanged, err := sanitizeOpenAIResponsesToolSchemasForPlatform(normalized, account.Platform); err != nil {
+		if schemaBody, schemaChanged, err := sanitizeOpenAIResponsesToolSchemasForPlatform(normalized, account.EffectivePlatform()); err != nil {
 			return body, false, fmt.Errorf("normalize websocket tool schemas: %w", err)
 		} else if schemaChanged {
 			normalized = schemaBody
@@ -1650,7 +1650,7 @@ func openAIFastPolicySettingsFromContext(ctx context.Context) *OpenAIFastPolicyS
 }
 
 func openAIGroupForcesFast(ctx context.Context, account *Account) bool {
-	if ctx == nil || account == nil || account.Platform != PlatformOpenAI {
+	if ctx == nil || account == nil || account.EffectivePlatform() != PlatformOpenAI {
 		return false
 	}
 	group, _ := ctx.Value(ctxkey.Group).(*Group)

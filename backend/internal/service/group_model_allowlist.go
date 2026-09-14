@@ -37,7 +37,7 @@ func supplementUnmappedOpenAIModels(accounts []Account, models []string) []strin
 	}
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform == PlatformOpenAI && len(account.GetModelMapping()) == 0 {
+		if account.Platform == PlatformOpenAI && len(account.GetModelMapping()) == 0 && !account.HasUpstreamModelRoutes() {
 			return dedupeAndSortModelIDs(slices.Concat(models, openai.DefaultModelIDs()))
 		}
 	}
