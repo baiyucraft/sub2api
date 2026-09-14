@@ -11,6 +11,13 @@ describe('UpstreamDashboardView contract', () => {
     expect(source).toContain('setInterval(load, 60000)')
   })
 
+  it('keeps the summary icon frames and responsive six-item layout consistent', () => {
+    expect(source).toContain('.summary-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr))')
+    expect(source).toContain('.summary-icon-rose{background:rgb(255 228 230);color:rgb(225 29 72)}')
+    expect(source).toContain('@media (max-width:1000px){.summary-row{grid-template-columns:repeat(3,minmax(0,1fr))}}')
+    expect(source).toContain('@media (max-width:760px){.summary-row{grid-template-columns:repeat(2,minmax(0,1fr))')
+  })
+
   it('keeps traffic and probes separate and renders status classes', () => {
     expect(source).toContain("sections.traffic")
     expect(source).toContain("sections.probe")
@@ -44,11 +51,17 @@ describe('UpstreamDashboardView contract', () => {
 
   it('supports reversing the actionable status order while pinning disabled and unknown states last', () => {
     expect(source).toContain("type SortDirection = 'asc' | 'desc'")
-    expect(source).toContain("const sortDirection = ref<SortDirection>('asc')")
+    expect(source).toContain("const sortDirection = ref<SortDirection>('desc')")
     expect(source).toContain('3 - aBasePriority')
     expect(source).toContain('3 - bBasePriority')
     expect(source).toContain("aPinned = aBasePriority == null || a.overall_status === 'disabled'")
     expect(source).toContain('function toggleSortDirection()')
+  })
+
+  it('defaults to window cost descending and puts operational status first', () => {
+    expect(source).toContain("const sortField = ref<SortField>('upstream_cost')")
+    expect(source).toContain("const statusPriority: Record<string, number> = { operational: 0, degraded: 1, critical: 2, data_insufficient: 3, disabled: 4 }")
+    expect(source).toContain("else if (sortField.value === 'status') sortDirection.value = 'desc'")
   })
 
   it('supports sorting by status, success rate, and window upstream cost', () => {

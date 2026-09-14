@@ -145,14 +145,14 @@ const statusOptions = computed(() => [
 ])
 type SortDirection = 'asc' | 'desc'
 type SortField = 'status' | 'success_rate' | 'upstream_cost'
-const sortField = ref<SortField>('status')
-const sortDirection = ref<SortDirection>('asc')
+const sortField = ref<SortField>('upstream_cost')
+const sortDirection = ref<SortDirection>('desc')
 const sortOptions = computed(() => [
   { value: 'status', label: t('admin.upstreamDashboard.filters.sortByStatus') },
   { value: 'success_rate', label: t('admin.upstreamDashboard.filters.sortBySuccessRate') },
   { value: 'upstream_cost', label: t('admin.upstreamDashboard.filters.sortByWindowCost') },
 ])
-const statusPriority: Record<string, number> = { critical: 0, degraded: 1, data_insufficient: 2, operational: 3, disabled: 4 }
+const statusPriority: Record<string, number> = { operational: 0, degraded: 1, critical: 2, data_insufficient: 3, disabled: 4 }
 const displayItems = computed(() => [...items.value].sort((a, b) => {
   const aBasePriority = statusPriority[a.overall_status]
   const bBasePriority = statusPriority[b.overall_status]
@@ -238,7 +238,7 @@ function toggleSortDirection() {
 }
 function onSortFieldChange() {
   if (sortField.value === 'upstream_cost') sortDirection.value = 'desc'
-  else if (sortField.value === 'status') sortDirection.value = 'asc'
+  else if (sortField.value === 'status') sortDirection.value = 'desc'
 }
 async function openDetail(item: UpstreamDashboardCard) { lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null; selected.value = item; detail.value = null; detailError.value = ''; const seq = ++detailSeq; detailLoading.value = true; await nextTick(); closeButtonRef.value?.focus(); try { const value = await getDashboardDetail(item.id, rangeWindow.value); if (seq === detailSeq) detail.value = value } catch (e: any) { if (seq === detailSeq) detailError.value = e?.message || t('common.loadFailed') } finally { if (seq === detailSeq) detailLoading.value = false } }
 function closeDetail() { selected.value = null; detail.value = null; detailError.value = ''; detailSeq += 1; lastFocusedElement?.focus(); lastFocusedElement = null }
@@ -275,9 +275,9 @@ onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() =
 /* The dashboard is a quiet operations surface: one control deck, then a readable card grid. */
 .upstream-dashboard{max-width:1600px;margin-inline:auto}
 .control-deck{overflow:hidden;border:1px solid rgb(214 226 228);border-radius:10px;background:rgb(255 255 255 / .88);box-shadow:0 8px 24px rgb(15 23 42 / .045)}
-.summary-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:1rem 1.25rem}
+.summary-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));padding:1rem 1.25rem}
 .summary-item{display:flex;align-items:center;gap:.75rem;min-width:0;border-right:1px solid rgb(226 232 240);background:transparent;padding:.15rem 1.25rem}.summary-item:first-child{padding-left:0}.summary-item:last-child{border-right:0;padding-right:0}.summary-item small{display:block;margin-bottom:.15rem;font-size:.68rem;line-height:1.2;color:rgb(100 116 139)}.summary-item strong{display:block;font-size:1.3rem;line-height:1.15;color:rgb(15 23 42)}
-.summary-icon{display:grid;height:2.25rem;width:2.25rem;flex:none;place-items:center;border-radius:8px}.summary-icon-teal{background:rgb(204 251 241);color:rgb(13 148 136)}.summary-icon-blue{background:rgb(219 234 254);color:rgb(37 99 235)}.summary-icon-amber{background:rgb(254 243 199);color:rgb(217 119 6)}.summary-icon-slate{background:rgb(226 232 240);color:rgb(71 85 105)}
+.summary-icon{display:grid;height:2.25rem;width:2.25rem;flex:none;place-items:center;border-radius:8px}.summary-icon-teal{background:rgb(204 251 241);color:rgb(13 148 136)}.summary-icon-blue{background:rgb(219 234 254);color:rgb(37 99 235)}.summary-icon-amber{background:rgb(254 243 199);color:rgb(217 119 6)}.summary-icon-slate{background:rgb(226 232 240);color:rgb(71 85 105)}.summary-icon-rose{background:rgb(255 228 230);color:rgb(225 29 72)}
 .filter-row{display:grid;grid-template-columns:minmax(300px,2fr) minmax(130px,1fr) minmax(130px,1fr) minmax(220px,1.6fr) auto;align-items:end;gap:.75rem;border-top:1px solid rgb(226 232 240);background:rgb(248 250 252 / .8);padding:.8rem 1.25rem}.filter-control{display:flex;min-width:0;flex-direction:column;gap:.3rem;font-size:.68rem;font-weight:600;color:rgb(100 116 139)}.filter-control .input{width:100%;min-height:2.35rem;border-color:rgb(203 213 225);background:white;font-size:.8rem}.filter-actions{display:flex;align-items:center;justify-content:flex-end;gap:.65rem;min-height:2.35rem}.last-updated{white-space:nowrap;font-size:.62rem;color:rgb(148 163 184)}.refresh-button{display:grid;height:2.35rem;width:2.35rem;place-items:center;border:1px solid rgb(203 213 225);border-radius:7px;background:white;color:rgb(13 148 136);transition:background .15s ease,border-color .15s ease}.refresh-button:hover:not(:disabled){border-color:rgb(20 184 166);background:rgb(240 253 250)}.refresh-button:focus-visible{outline:2px solid rgb(20 184 166);outline-offset:2px}.refresh-button:disabled{cursor:wait;opacity:.55}
 .filter-control :deep(.select-trigger){width:100%;min-height:2.35rem;border-color:rgb(203 213 225);background:white;font-size:.8rem}
 .sort-toggle{display:grid;height:2.35rem;width:2.35rem;place-items:center;border:1px solid rgb(203 213 225);border-radius:7px;background:white;color:rgb(13 148 136);transition:background .15s ease,border-color .15s ease}.sort-toggle:hover{border-color:rgb(20 184 166);background:rgb(240 253 250)}.sort-toggle:focus-visible{outline:2px solid rgb(20 184 166);outline-offset:2px}
@@ -293,6 +293,7 @@ onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() =
 .card-footer{display:grid;grid-template-columns:1fr 1fr auto;align-items:end;gap:.75rem;margin-top:.2rem;border-top:1px solid rgb(241 245 249);padding-top:.8rem}.footer-metric{display:flex;min-width:0;flex-direction:column;gap:.25rem}.footer-metric strong{font-size:.85rem;color:rgb(30 41 59)}.profit-value{color:rgb(5 150 105)!important}.muted-value{color:rgb(148 163 184)!important}.card-link{display:grid;height:1.9rem;width:1.9rem;place-items:center;border:1px solid rgb(226 232 240);border-radius:6px;font-size:1.1rem;color:rgb(100 116 139);transition:color .15s ease,background .15s ease}.dashboard-card:hover .card-link{border-color:rgb(153 246 228);background:rgb(240 253 250);color:rgb(13 148 136)}
 .dashboard-card.status-operational{border-color:rgb(187 247 208);background:rgb(253 255 254)}.dashboard-card.status-degraded{border-color:rgb(253 230 138);background:rgb(255 254 248)}.dashboard-card.status-critical{border-color:rgb(254 202 202);background:rgb(255 252 252)}.dashboard-card.status-disabled,.dashboard-card.status-data_insufficient{border-color:rgb(226 232 240);background:rgb(255 255 255)}
 @media (max-width:1320px){.upstream-dashboard{max-width:none}.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.filter-control .input{font-size:.75rem}}
+@media (max-width:1000px){.summary-row{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:1000px){.filter-window-control{grid-column:span 3}}
 @media (max-width:760px){.summary-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:.85rem}.summary-item{border-right:0;padding:.1rem 0}.filter-row{grid-template-columns:repeat(2,minmax(0,1fr))}.filter-window-control{grid-column:span 2}.filter-search{grid-column:span 2}.refresh-button{justify-self:end}.dashboard-grid{grid-template-columns:1fr}.dashboard-card{padding:1rem}.latency-metrics{padding-left:.75rem}}
 @media (max-width:440px){.summary-row{grid-template-columns:1fr}.filter-row{grid-template-columns:1fr}.filter-window-control,.filter-search{grid-column:auto}.refresh-button{justify-self:start}}
@@ -303,6 +304,7 @@ onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() =
 @media (max-width:560px){.detail-header-side{gap:.45rem}.detail-header-side .status-badge{padding:.25rem .45rem;font-size:.62rem}.trend-bars-compact{height:4rem}}
 :global(.dark) .upstream-dashboard .card-signal-row{border-color:rgb(51 65 85);color:rgb(148 163 184)}:global(.dark) .upstream-dashboard .card-signal-row strong{color:rgb(203 213 225)}:global(.dark) .upstream-dashboard .provider-mark{background:rgb(19 78 74);color:rgb(94 234 212)}
 :global(.dark) .upstream-dashboard .last-updated{color:rgb(100 116 139)}
+:global(.dark) .upstream-dashboard .summary-icon-rose{background:rgb(136 19 55 / .3);color:rgb(253 164 175)}
 .profit-rate{margin-left:.35rem;font-size:.65rem;font-weight:600;color:rgb(100 116 139)}
 :global(.dark) .upstream-dashboard .profit-rate{color:rgb(148 163 184)}
 
