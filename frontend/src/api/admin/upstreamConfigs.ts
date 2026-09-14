@@ -288,7 +288,7 @@ export interface UpstreamUsageTrend {
   points: UpstreamUsageTrendPoint[]
 }
 
-export type UpstreamDashboardWindow = '1h' | '24h' | '7d' | '15d' | '30d'
+export type UpstreamDashboardWindow = '1h' | '24h' | 'today' | '7d' | '15d' | '30d'
 export interface UpstreamDashboardProbeSummary {
   samples: number
   healthy_samples: number

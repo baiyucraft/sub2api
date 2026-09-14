@@ -8,21 +8,25 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-func dashboardWindow(window service.UpstreamDashboardWindow) (time.Duration, string) {
+func dashboardWindow(window service.UpstreamDashboardWindow, now time.Time) (time.Time, time.Time, string) {
+	now = now.UTC()
 	switch window {
 	case service.UpstreamDashboardWindow1h:
-		return time.Hour, "1h"
+		return now.Add(-time.Hour), now, "1h"
+	case service.UpstreamDashboardWindowToday:
+		return timezone.StartOfDay(now).UTC(), now, "today"
 	case service.UpstreamDashboardWindow7d:
-		return 7 * 24 * time.Hour, "7d"
+		return now.Add(-7 * 24 * time.Hour), now, "7d"
 	case service.UpstreamDashboardWindow15d:
-		return 15 * 24 * time.Hour, "15d"
+		return now.Add(-15 * 24 * time.Hour), now, "15d"
 	case service.UpstreamDashboardWindow30d:
-		return 30 * 24 * time.Hour, "30d"
+		return now.Add(-30 * 24 * time.Hour), now, "30d"
 	default:
-		return 24 * time.Hour, "24h"
+		return now.Add(-24 * time.Hour), now, "24h"
 	}
 }
 
@@ -41,10 +45,9 @@ func (r *upstreamConfigRepository) GetUpstreamDashboard(ctx context.Context, fil
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	duration, normalizedWindow := dashboardWindow(filter.Window)
-	start := now.Add(-duration)
+	start, end, normalizedWindow := dashboardWindow(filter.Window, now)
 	where := []string{"c.deleted_at IS NULL"}
-	args := []any{start, now}
+	args := []any{start, end}
 	if p := strings.TrimSpace(filter.Provider); p != "" {
 		args = append(args, p)
 		where = append(where, fmt.Sprintf("c.provider = $%d", len(args)))
@@ -152,7 +155,7 @@ WITH usage AS (
 		return nil, err
 	}
 	defer rows.Close()
-	result := &service.UpstreamDashboardResponse{Window: normalizedWindow, StartAt: start, EndAt: now, Items: []service.UpstreamDashboardCard{}}
+	result := &service.UpstreamDashboardResponse{Window: normalizedWindow, StartAt: start, EndAt: end, Items: []service.UpstreamDashboardCard{}}
 	for rows.Next() {
 		var c service.UpstreamDashboardCard
 		var enabled bool
