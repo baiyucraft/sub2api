@@ -80,11 +80,10 @@
       </div>
     </div>
 
-    <transition name="slide">
-      <div v-if="selected" class="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" :aria-labelledby="detailTitleID" @click.self="closeDetail">
-        <div class="absolute inset-0 bg-black/30" @click="closeDetail" />
-        <aside ref="drawerRef" class="detail-drawer relative h-full w-full max-w-2xl overflow-y-auto bg-gray-50 shadow-2xl dark:bg-dark-950">
-          <div class="detail-header"><div class="min-w-0"><p class="provider-label"><span class="provider-mark" aria-hidden="true">{{ providerInitial(selected.provider) }}</span>{{ selected.provider }}</p><h2 :id="detailTitleID" class="mt-2 truncate text-xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ selected.name }}</h2><p class="mt-1 truncate text-xs text-gray-500 dark:text-dark-400" :title="selected.site_url">{{ selected.site_url }}</p></div><div class="detail-header-side"><span class="status-badge" :class="statusClass(selected.overall_status)"><span class="status-dot" />{{ t(`admin.upstreamDashboard.status.${selected.overall_status}`) }}</span><button ref="closeButtonRef" class="close-button" :aria-label="t('common.close')" @click="closeDetail">×</button></div></div>
+    <BaseDialog :show="selected !== null" :title="selected?.name || ''" width="wide" :close-on-click-outside="true" @close="closeDetail">
+      <template v-if="selected">
+        <div class="detail-modal-content">
+          <div class="detail-context"><div class="min-w-0"><p class="provider-label"><span class="provider-mark" aria-hidden="true">{{ providerInitial(selected.provider) }}</span>{{ selected.provider }}</p><p class="detail-context-endpoint" :title="selected.site_url">{{ selected.site_url }}</p></div><div class="detail-context-side"><span class="status-badge" :class="statusClass(selected.overall_status)"><span class="status-dot" />{{ t(`admin.upstreamDashboard.status.${selected.overall_status}`) }}</span><span class="detail-context-window">{{ t('admin.upstreamDashboard.windowLabel', { window: t(`admin.upstreamDashboard.windows.${rangeWindow}`) }) }}</span></div></div>
           <div v-if="detailLoading" class="mt-6 text-sm text-gray-500">{{ t('common.loading') }}</div>
           <div v-else-if="detailError" class="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-300">{{ detailError }}</div>
           <template v-else-if="detail">
@@ -100,19 +99,20 @@
               <div class="detail-actions"><button class="btn btn-primary" @click="router.push({ path: '/admin/upstream/channels', query: { upstream_config_id: String(detail.id) } })">{{ t('admin.upstreamDashboard.actions.channels') }}</button><button class="btn btn-secondary" @click="router.push({ path: '/admin/upstream/accounts', query: { upstream_config_id: String(detail.id) } })">{{ t('admin.upstreamDashboard.actions.accounts') }}</button><button class="btn btn-secondary" @click="router.push({ path: '/admin/usage', query: { upstream_config_id: String(detail.id) } })">{{ t('admin.upstreamDashboard.actions.usage') }}</button></div>
             </div>
           </template>
-        </aside>
-      </div>
-    </transition>
+        </div>
+      </template>
+    </BaseDialog>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, defineComponent, h, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import Select from '@/components/common/Select.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import { getDashboard, getDashboardDetail, type UpstreamDashboardCard, type UpstreamDashboardDetail, type UpstreamDashboardTrendPoint, type UpstreamDashboardWindow } from '@/api/admin/upstreamConfigs'
 
 const Metric = defineComponent({ props: { label: { type: String, required: true }, value: { type: String, required: true } }, setup: (props) => () => h('div', { class: 'min-w-0' }, [h('div', { class: 'truncate text-[11px] uppercase tracking-wide text-gray-400 dark:text-dark-500' }, props.label), h('div', { class: 'mt-1 text-lg font-semibold text-gray-900 dark:text-white' }, props.value)]) })
@@ -196,10 +196,6 @@ const summary = computed(() => ({
   balanceLowConfigs: items.value.reduce((sum, item) => sum + (item.balance_low === true ? 1 : 0), 0)
 }))
 const lastLoadedAt = ref<Date | null>(null)
-const drawerRef = ref<HTMLElement | null>(null)
-const closeButtonRef = ref<HTMLButtonElement | null>(null)
-const detailTitleID = 'upstream-dashboard-detail-title'
-let lastFocusedElement: HTMLElement | null = null
 let timer: number | undefined
 let loadSeq = 0
 let detailSeq = 0
@@ -244,11 +240,9 @@ function onSortFieldChange() {
   if (sortField.value === 'upstream_cost') sortDirection.value = 'desc'
   else if (sortField.value === 'status') sortDirection.value = 'asc'
 }
-async function openDetail(item: UpstreamDashboardCard) { lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null; selected.value = item; detail.value = null; detailError.value = ''; const seq = ++detailSeq; detailLoading.value = true; await nextTick(); closeButtonRef.value?.focus(); try { const value = await getDashboardDetail(item.id, rangeWindow.value); if (seq === detailSeq) detail.value = value } catch (e: any) { if (seq === detailSeq) detailError.value = e?.message || t('common.loadFailed') } finally { if (seq === detailSeq) detailLoading.value = false } }
-function closeDetail() { selected.value = null; detail.value = null; detailError.value = ''; detailSeq += 1; lastFocusedElement?.focus(); lastFocusedElement = null }
-function onKeydown(event: KeyboardEvent) { if (event.key === 'Escape' && selected.value) closeDetail() }
+async function openDetail(item: UpstreamDashboardCard) { selected.value = item; detail.value = null; detailError.value = ''; const seq = ++detailSeq; detailLoading.value = true; try { const value = await getDashboardDetail(item.id, rangeWindow.value); if (seq === detailSeq) detail.value = value } catch (e: any) { if (seq === detailSeq) detailError.value = e?.message || t('common.loadFailed') } finally { if (seq === detailSeq) detailLoading.value = false } }
+function closeDetail() { selected.value = null; detail.value = null; detailError.value = ''; detailSeq += 1 }
 onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounted(() => { if (timer) window.clearInterval(timer) })
-onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
@@ -397,11 +391,11 @@ onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() =
 .empty-state span:last-child { font-size: .75rem; }
 .empty-state-icon { display: grid; width: 3rem; height: 3rem; place-items: center; border-radius: 8px; background: rgb(241 245 249); color: rgb(100 116 139); }
 
-.detail-drawer { border-left: 1px solid rgb(226 232 240); }
-.detail-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border-bottom: 1px solid rgb(226 232 240); background: rgb(248 250 252 / .96); padding: 1.5rem; backdrop-filter: blur(10px); }
-.detail-header-side { display: flex; flex: none; align-items: center; gap: .75rem; }
-.close-button { display: grid; width: 2.25rem; height: 2.25rem; place-items: center; border: 1px solid rgb(203 213 225); border-radius: 6px; background: white; color: rgb(71 85 105); font-size: 1.2rem; line-height: 1; transition: background .15s ease, color .15s ease; }
-.close-button:hover { background: rgb(15 23 42); color: white; }
+.detail-modal-content { min-width: 0; }
+.detail-context { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border-bottom: 1px solid rgb(226 232 240); padding: .25rem 0 1rem; }
+.detail-context-endpoint { margin-top: .35rem; overflow: hidden; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; color: rgb(100 116 139); }
+.detail-context-side { display: flex; flex: none; flex-direction: column; align-items: flex-end; gap: .45rem; }
+.detail-context-window { font-size: .68rem; color: rgb(100 116 139); }
 .detail-body { padding: 1.5rem; }
 .detail-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; border-bottom: 1px solid rgb(226 232 240); padding-bottom: 1.25rem; }
 .detail-kpis > div, .detail-window-cost { border: 1px solid rgb(226 232 240); border-radius: 8px; background: white; padding: .8rem; }
@@ -427,11 +421,6 @@ onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() =
 .error-list time { white-space: nowrap; color: rgb(148 163 184); }
 .detail-actions { display: flex; flex-wrap: wrap; gap: .6rem; padding-top: 1.25rem; }
 .trend-section { background: rgb(248 250 252); }
-.slide-enter-active, .slide-leave-active { transition: opacity .2s ease; }
-.slide-enter-active aside, .slide-leave-active aside { transition: transform .25s ease; }
-.slide-enter-from, .slide-leave-to { opacity: 0; }
-.slide-enter-from aside, .slide-leave-to aside { transform: translateX(100%); }
-
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 @media (max-width: 1320px) {
@@ -455,8 +444,9 @@ onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() =
 }
 
 @media (max-width: 560px) {
-  .detail-header-side { gap: .45rem; }
-  .detail-header-side .status-badge { padding: .25rem .45rem; font-size: .62rem; }
+  .detail-context { flex-direction: column; gap: .65rem; }
+  .detail-context-side { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; }
+  .detail-context-side .status-badge { padding: .25rem .45rem; font-size: .62rem; }
   .detail-body { padding: .85rem; }
 }
 
@@ -495,14 +485,12 @@ onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() =
 .dark .upstream-dashboard .card-error-row,
 .dark .upstream-dashboard .detail-meta,
 .dark .upstream-dashboard .detail-empty { color: rgb(148 163 184); }
-.dark .upstream-dashboard .filter-row,
-.dark .upstream-dashboard .detail-header { border-color: rgb(51 65 85); background: rgb(2 6 23 / .7); }
+.dark .upstream-dashboard .filter-row { border-color: rgb(51 65 85); background: rgb(2 6 23 / .7); }
 .dark .upstream-dashboard .filter-control .input,
 .dark .upstream-dashboard .filter-control :deep(.select-trigger),
 .dark .upstream-dashboard .window-tabs,
 .dark .upstream-dashboard .refresh-button,
-.dark .upstream-dashboard .sort-toggle,
-.dark .upstream-dashboard .close-button { border-color: rgb(71 85 105); background: rgb(15 23 42); color: rgb(203 213 225); }
+.dark .upstream-dashboard .sort-toggle { border-color: rgb(71 85 105); background: rgb(15 23 42); color: rgb(203 213 225); }
 .dark .upstream-dashboard .window-tab { color: rgb(148 163 184); }
 .dark .upstream-dashboard .window-tab-active { color: white; }
 .dark .upstream-dashboard .card-core-metrics,
@@ -517,7 +505,9 @@ onMounted(() => window.addEventListener('keydown', onKeydown)); onUnmounted(() =
 .dark .upstream-dashboard .model-list li,
 .dark .upstream-dashboard .error-list li { border-color: rgb(51 65 85); }
 .dark .upstream-dashboard .ops-value strong { color: rgb(203 213 225); }
-.dark .upstream-dashboard .detail-drawer { background: rgb(2 6 23); }
+.dark .upstream-dashboard .detail-context { border-color: rgb(51 65 85); }
+.dark .upstream-dashboard .detail-context-endpoint,
+.dark .upstream-dashboard .detail-context-window { color: rgb(148 163 184); }
 .dark .upstream-dashboard .detail-window-cost,
 .dark .upstream-dashboard .trend-section { background: rgb(15 23 42); }
 .dark .upstream-dashboard .profit-value { color: rgb(110 231 183) !important; }

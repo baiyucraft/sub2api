@@ -110,4 +110,14 @@ describe('UpstreamDashboardView contract', () => {
   it('keeps detail sections numbered in sequence', () => {
     expect([...source.matchAll(/section-number">(\d+)<\/span>/g)].map(match => match[1])).toEqual(['00', '01', '02', '03', '04', '05', '06'])
   })
+
+  it('uses the shared BaseDialog for upstream details instead of a side drawer', () => {
+    expect(source).toContain("import BaseDialog from '@/components/common/BaseDialog.vue'")
+    expect(source).toContain('<BaseDialog :show="selected !== null" :title="selected?.name || \'\'" width="wide" :close-on-click-outside="true" @close="closeDetail">')
+    expect(source).toContain('class="detail-context"')
+    expect(source).not.toContain('detail-drawer')
+    expect(source).not.toContain('slide-enter')
+    expect(source).not.toContain('onKeydown')
+    expect(source).not.toContain('closeButtonRef')
+  })
 })
