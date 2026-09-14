@@ -120,4 +120,15 @@ describe('UpstreamDashboardView contract', () => {
     expect(source).not.toContain('onKeydown')
     expect(source).not.toContain('closeButtonRef')
   })
+
+  it('keeps the modal detail hierarchy compact and responsive', () => {
+    expect(source).toContain('class="detail-cost-label"')
+    expect(source).toContain('class="detail-cost-value"')
+    expect(source).toContain('class="detail-inline-metrics"')
+    expect(source).toContain('class="detail-secondary-grid"')
+    expect(source).toMatch(/\.detail-kpis\s*\{[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)/)
+    expect(source).toMatch(/\.detail-empty\s*\{[\s\S]*border:\s*1px dashed/)
+    expect(source).toMatch(/@media \(max-width:\s*760px\)[\s\S]*\.detail-kpis\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)/)
+    expect(source).toMatch(/@media \(max-width:\s*560px\)[\s\S]*\.detail-secondary-grid\s*\{\s*grid-template-columns:\s*1fr/)
+  })
 })
