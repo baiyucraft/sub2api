@@ -21,6 +21,7 @@ import (
 	"github.com/shopspring/decimal"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/Wei-Shaw/sub2api/internal/forkscheduling/legacy"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -116,19 +117,10 @@ type UpstreamManagementSettings struct {
 var defaultUpstreamPoolModeRetryStatusCodes = []int{401, 403, 429}
 
 func normalizeUpstreamPoolModeRetryStatusCodes(codes []int) ([]int, error) {
-	seen := make(map[int]struct{}, len(codes))
-	normalized := make([]int, 0, len(codes))
-	for _, code := range codes {
-		if code < 100 || code > 599 {
-			return nil, infraerrors.BadRequest("INVALID_UPSTREAM_POOL_MODE_RETRY_STATUS_CODES", "pool_mode_retry_status_codes must contain HTTP status codes between 100 and 599")
-		}
-		if _, ok := seen[code]; ok {
-			continue
-		}
-		seen[code] = struct{}{}
-		normalized = append(normalized, code)
+	normalized, err := legacy.NormalizePoolModeRetryStatusCodes(codes)
+	if err != nil {
+		return nil, infraerrors.BadRequest("INVALID_UPSTREAM_POOL_MODE_RETRY_STATUS_CODES", "pool_mode_retry_status_codes must contain HTTP status codes between 100 and 599")
 	}
-	sort.Ints(normalized)
 	return normalized, nil
 }
 
@@ -1302,11 +1294,18 @@ func (s *UpstreamConfigService) syncProbeSchedulingState(ctx context.Context, ke
 // persists the reset as an administrator observation and only affects a
 // probe-owned suspension.
 func (s *UpstreamConfigService) ClearProbeSuspension(ctx context.Context, keyID int64) error {
+	_, _, err := s.clearProbeSuspensionAt(ctx, keyID, time.Now().UTC())
+	return err
+}
+
+func (s *UpstreamConfigService) clearProbeSuspensionAt(ctx context.Context, keyID int64, now time.Time) (UpstreamHealthTransition, bool, error) {
 	if s == nil || keyID <= 0 {
-		return nil
+		return UpstreamHealthTransition{}, false, nil
 	}
-	return s.withHealthKeyLock(keyID, func() error {
-		transition, changed := GlobalUpstreamHealthRegistry().ResetProbeSuspension(keyID, time.Now().UTC())
+	var transition UpstreamHealthTransition
+	var changed bool
+	err := s.withHealthKeyLock(keyID, func() error {
+		transition, changed = GlobalUpstreamHealthRegistry().ResetProbeSuspension(keyID, now)
 		if !changed {
 			return nil
 		}
@@ -1320,6 +1319,7 @@ func (s *UpstreamConfigService) ClearProbeSuspension(ctx context.Context, keyID 
 		}
 		return s.saveHealthTransitionWithObservation(ctx, keyID, transition, observation)
 	})
+	return transition, changed, err
 }
 
 func (s *UpstreamConfigService) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]UpstreamHealthObservation, error) {
@@ -1453,23 +1453,33 @@ func upstreamHealthTime(value any) *time.Time {
 }
 
 func (s *UpstreamConfigService) SetKeyObservation(ctx context.Context, keyID int64, enabled bool) (UpstreamHealthSnapshot, error) {
+	transition, err := s.setKeyObservationAt(ctx, keyID, enabled, time.Now().UTC())
+	if err != nil {
+		return UpstreamHealthSnapshot{}, err
+	}
+	return transition.Current, nil
+}
+
+func (s *UpstreamConfigService) setKeyObservationAt(ctx context.Context, keyID int64, enabled bool, now time.Time) (UpstreamHealthTransition, error) {
+	if s == nil || keyID <= 0 {
+		return UpstreamHealthTransition{}, nil
+	}
 	var item UpstreamHealthSnapshot
-	var saveErr error
+	var transition UpstreamHealthTransition
 	err := s.withHealthKeyLock(keyID, func() error {
-		transition := GlobalUpstreamHealthRegistry().SetObservationTransition(keyID, enabled, time.Now().UTC())
+		transition = GlobalUpstreamHealthRegistry().SetObservationTransition(keyID, enabled, now)
 		item = transition.Current
 		result := "disabled"
 		if enabled {
 			result = "enabled"
 		}
 		observation := &UpstreamHealthObservation{ObservedAt: item.UpdatedAt, State: item.Status, Source: "admin", Result: result, Reason: item.Reason}
-		saveErr = s.saveHealthTransitionWithObservation(ctx, keyID, transition, observation)
-		return saveErr
+		return s.saveHealthTransitionWithObservation(ctx, keyID, transition, observation)
 	})
 	if err != nil {
-		return UpstreamHealthSnapshot{}, err
+		return UpstreamHealthTransition{}, err
 	}
-	return item, nil
+	return transition, nil
 }
 
 func (s *UpstreamConfigService) ProbeKey(ctx context.Context, keyID int64) (UpstreamHealthSnapshot, error) {

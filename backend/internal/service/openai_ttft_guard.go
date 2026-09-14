@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/forkscheduling"
 )
 
 const (
@@ -544,7 +546,10 @@ func (s *OpenAIGatewayService) reportOpenAITTFTGuard(accountID int64, model stri
 		}
 	}
 	cfg := s.openAITTFTGuardConfig()
-	s.getOpenAITTFTGuard().report(accountID, model, success, firstTokenMs, cfg)
+	s.forkTTFTRuntime().Report(
+		forkscheduling.TTFTSample{AccountID: accountID, Model: model, Success: success, FirstTokenMs: firstTokenMs},
+		forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples},
+	)
 }
 
 // OpenAITTFTGuardDegradations implements OpenAITTFTGuardDegradationReader.
@@ -553,7 +558,32 @@ func (s *OpenAIGatewayService) OpenAITTFTGuardDegradations(accountIDs []int64) m
 	if s == nil {
 		return nil
 	}
-	return s.getOpenAITTFTGuard().degradations(accountIDs, s.openAITTFTGuardConfig())
+	cfg := s.openAITTFTGuardConfig()
+	degradations := s.forkTTFTRuntime().Degradations(accountIDs, forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples})
+	if len(degradations) == 0 {
+		return nil
+	}
+	result := make(map[int64][]OpenAITTFTGuardDegradation, len(degradations))
+	for accountID, items := range degradations {
+		converted := make([]OpenAITTFTGuardDegradation, 0, len(items))
+		for _, item := range items {
+			converted = append(converted, OpenAITTFTGuardDegradation{
+				Model:                   item.Model,
+				Reason:                  item.Reason,
+				ThresholdMs:             item.ThresholdMs,
+				LastTTFTMs:              item.LastTTFTMs,
+				EWMAms:                  item.EWMAms,
+				SampleCount:             item.SampleCount,
+				DegradedAt:              item.DegradedAt,
+				LastSampleAt:            item.LastSampleAt,
+				ExpiresAt:               item.ExpiresAt,
+				RecoverySamples:         item.RecoverySamples,
+				RecoverySamplesRequired: item.RecoverySamplesRequired,
+			})
+		}
+		result[accountID] = converted
+	}
+	return result
 }
 
 func (s *OpenAIGatewayService) selectAccountWithScheduler(
@@ -635,13 +665,12 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 		return nil
 	}
 	cfg := s.openAITTFTGuardConfig()
-	guard := s.getOpenAITTFTGuard()
-	healthRegistry := GlobalUpstreamHealthRegistry()
+	healthReader := s.forkHealthReader()
 	if !cfg.Enabled {
 		// Preserve configuration-transition cleanup without paying for a second
 		// account query when neither protection layer can exclude anything.
-		guard.exclusions(nil, callerExcluded, cfg)
-		if !healthRegistry.HasTemporaryExclusions() {
+		s.forkTTFTRuntime().Exclusions(nil, callerExcluded, forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples})
+		if !healthReader.HasTemporaryExclusions() {
 			return nil
 		}
 	}
@@ -660,8 +689,8 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 			continue
 		}
 		if account.UpstreamKeyID != nil {
-			health := healthRegistry.Snapshot(*account.UpstreamKeyID)
-			if health.Status == UpstreamHealthSuspended || health.Status == UpstreamHealthRecovering {
+			health := healthReader.Snapshot(*account.UpstreamKeyID)
+			if health.Status == forkscheduling.HealthStatus(UpstreamHealthSuspended) || health.Status == forkscheduling.HealthStatus(UpstreamHealthRecovering) {
 				healthExcluded[account.ID] = struct{}{}
 				continue
 			}
@@ -679,7 +708,11 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 			model:     canonicalOpenAIAccountSchedulingModel(account, requestedModel),
 		})
 	}
-	ttftExcluded := guard.exclusions(candidates, callerExcluded, cfg)
+	contractCandidates := make([]forkscheduling.CandidateView, 0, len(candidates))
+	for _, candidate := range candidates {
+		contractCandidates = append(contractCandidates, forkscheduling.CandidateView{ID: candidate.accountID, Model: candidate.model})
+	}
+	ttftExcluded := s.forkTTFTRuntime().Exclusions(contractCandidates, callerExcluded, forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples})
 	return mergeOpenAIExcludedAccountIDs(healthExcluded, ttftExcluded)
 }
 

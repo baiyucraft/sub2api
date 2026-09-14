@@ -1,0 +1,13 @@
+id: adaptive-upstream-scheduler-error-attribution
+stage: design
+deliveryShape: single-change
+implementation-mode: tdd
+multiChange:
+  role: child
+  parent: adaptive-upstream-scheduler
+  order: 2
+  dependsOn: [adaptive-upstream-scheduler-fork-foundation]
+artifacts:
+  proposal: {status: present}
+  design: {status: present}
+  metadata: {status: present}

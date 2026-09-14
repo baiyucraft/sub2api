@@ -1,0 +1,13 @@
+id: adaptive-upstream-scheduler-fault-domain-health
+stage: design
+deliveryShape: single-change
+implementation-mode: tdd
+multiChange:
+  role: child
+  parent: adaptive-upstream-scheduler
+  order: 4
+  dependsOn: [adaptive-upstream-scheduler-fork-foundation, adaptive-upstream-scheduler-error-attribution, adaptive-upstream-scheduler-attempt-budget]
+artifacts:
+  proposal: {status: present}
+  design: {status: present}
+  metadata: {status: present}

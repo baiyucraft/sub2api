@@ -1088,7 +1088,7 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 					return rateCmp < 0
 				}
 			}
-			return s.isBetterAccountWithinTier(a, b)
+			return compareLegacyAccountPriorityAndLastUsed(a, b, false) < 0
 		})
 	}
 	sortLegacyOpenAICandidatePool(preferred, true)
@@ -1348,25 +1348,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			sort.SliceStable(ordered, func(i, j int) bool {
 				a, b := ordered[i], ordered[j]
 				if preferred {
-					if tier := compareAccountSchedulingPriorityOnly(a.account, b.account); tier != 0 {
-						return tier < 0
-					}
+					return compareLegacyAccountLoadAware(a.account, b.account, accountLoadRate(a.loadInfo), accountLoadRate(b.loadInfo), false) < 0
 				} else if tier := compareAccountSchedulingTier(a.account, b.account); tier != 0 {
 					return tier < 0
 				}
-				if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
-					return a.loadInfo.LoadRate < b.loadInfo.LoadRate
-				}
-				switch {
-				case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
-					return true
-				case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
-					return false
-				case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
-					return false
-				default:
-					return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
-				}
+				return compareLegacyAccountLoadAware(a.account, b.account, accountLoadRate(a.loadInfo), accountLoadRate(b.loadInfo), false) < 0
 			})
 			shuffleWithinSortGroups(ordered)
 			if !preferred && rateOrder.enabled {
