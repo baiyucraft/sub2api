@@ -309,8 +309,8 @@ func GetInboundEndpoint(c *gin.Context) string {
 }
 
 // GetUpstreamEndpoint derives the upstream endpoint from the context
-// and the request-effective account platform. Handlers call this after
-// scheduling an account, passing account.EffectivePlatform().
+// and the account platform. Handlers call this after scheduling an
+// account, passing account.Platform.
 func GetUpstreamEndpoint(c *gin.Context, platform string) string {
 	// OpenAI 转发服务维护独立的运行时端点上下文，覆盖普通入站推导。
 	// 这对 force_chat_completions 的错误路径尤为重要：此时可能没有
@@ -343,6 +343,6 @@ func setActualUpstreamEndpoint(c *gin.Context, endpoint string) {
 
 func shouldUseAntigravityCompat(account *service.Account) bool {
 	return account != nil &&
-		account.EffectivePlatform() == service.PlatformAntigravity &&
+		account.Platform == service.PlatformAntigravity &&
 		account.Type == service.AccountTypeOAuth
 }

@@ -48,7 +48,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamhealthobservation"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
-	"github.com/Wei-Shaw/sub2api/ent/upstreamkeymodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
@@ -1171,33 +1170,6 @@ func (f TraverseUpstreamKey) Traverse(ctx context.Context, q ent.Query) error {
 	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamKeyQuery", q)
 }
 
-// The UpstreamKeyModelRouteFunc type is an adapter to allow the use of ordinary function as a Querier.
-type UpstreamKeyModelRouteFunc func(context.Context, *ent.UpstreamKeyModelRouteQuery) (ent.Value, error)
-
-// Query calls f(ctx, q).
-func (f UpstreamKeyModelRouteFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
-	if q, ok := q.(*ent.UpstreamKeyModelRouteQuery); ok {
-		return f(ctx, q)
-	}
-	return nil, fmt.Errorf("unexpected query type %T. expect *ent.UpstreamKeyModelRouteQuery", q)
-}
-
-// The TraverseUpstreamKeyModelRoute type is an adapter to allow the use of ordinary function as Traverser.
-type TraverseUpstreamKeyModelRoute func(context.Context, *ent.UpstreamKeyModelRouteQuery) error
-
-// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
-func (f TraverseUpstreamKeyModelRoute) Intercept(next ent.Querier) ent.Querier {
-	return next
-}
-
-// Traverse calls f(ctx, q).
-func (f TraverseUpstreamKeyModelRoute) Traverse(ctx context.Context, q ent.Query) error {
-	if q, ok := q.(*ent.UpstreamKeyModelRouteQuery); ok {
-		return f(ctx, q)
-	}
-	return fmt.Errorf("unexpected query type %T. expect *ent.UpstreamKeyModelRouteQuery", q)
-}
-
 // The UpstreamKeyRateSnapshotFunc type is an adapter to allow the use of ordinary function as a Querier.
 type UpstreamKeyRateSnapshotFunc func(context.Context, *ent.UpstreamKeyRateSnapshotQuery) (ent.Value, error)
 
@@ -1576,8 +1548,6 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.UpstreamIncidentQuery, predicate.UpstreamIncident, upstreamincident.OrderOption]{typ: ent.TypeUpstreamIncident, tq: q}, nil
 	case *ent.UpstreamKeyQuery:
 		return &query[*ent.UpstreamKeyQuery, predicate.UpstreamKey, upstreamkey.OrderOption]{typ: ent.TypeUpstreamKey, tq: q}, nil
-	case *ent.UpstreamKeyModelRouteQuery:
-		return &query[*ent.UpstreamKeyModelRouteQuery, predicate.UpstreamKeyModelRoute, upstreamkeymodelroute.OrderOption]{typ: ent.TypeUpstreamKeyModelRoute, tq: q}, nil
 	case *ent.UpstreamKeyRateSnapshotQuery:
 		return &query[*ent.UpstreamKeyRateSnapshotQuery, predicate.UpstreamKeyRateSnapshot, upstreamkeyratesnapshot.OrderOption]{typ: ent.TypeUpstreamKeyRateSnapshot, tq: q}, nil
 	case *ent.UpstreamSyncResultQuery:

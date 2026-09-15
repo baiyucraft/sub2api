@@ -19,7 +19,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
-	"github.com/Wei-Shaw/sub2api/ent/upstreamkeymodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
@@ -33,7 +32,6 @@ type UpstreamKeyQuery struct {
 	predicates        []predicate.UpstreamKey
 	withConfig        *UpstreamConfigQuery
 	withAccounts      *AccountQuery
-	withModelRoutes   *UpstreamKeyModelRouteQuery
 	withEvents        *UpstreamEventQuery
 	withIncidents     *UpstreamIncidentQuery
 	withRateSnapshots *UpstreamKeyRateSnapshotQuery
@@ -112,28 +110,6 @@ func (_q *UpstreamKeyQuery) QueryAccounts() *AccountQuery {
 			sqlgraph.From(upstreamkey.Table, upstreamkey.FieldID, selector),
 			sqlgraph.To(account.Table, account.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, upstreamkey.AccountsTable, upstreamkey.AccountsColumn),
-		)
-		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
-		return fromU, nil
-	}
-	return query
-}
-
-// QueryModelRoutes chains the current query on the "model_routes" edge.
-func (_q *UpstreamKeyQuery) QueryModelRoutes() *UpstreamKeyModelRouteQuery {
-	query := (&UpstreamKeyModelRouteClient{config: _q.config}).Query()
-	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
-		if err := _q.prepareQuery(ctx); err != nil {
-			return nil, err
-		}
-		selector := _q.sqlQuery(ctx)
-		if err := selector.Err(); err != nil {
-			return nil, err
-		}
-		step := sqlgraph.NewStep(
-			sqlgraph.From(upstreamkey.Table, upstreamkey.FieldID, selector),
-			sqlgraph.To(upstreamkeymodelroute.Table, upstreamkeymodelroute.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, upstreamkey.ModelRoutesTable, upstreamkey.ModelRoutesColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -423,7 +399,6 @@ func (_q *UpstreamKeyQuery) Clone() *UpstreamKeyQuery {
 		predicates:        append([]predicate.UpstreamKey{}, _q.predicates...),
 		withConfig:        _q.withConfig.Clone(),
 		withAccounts:      _q.withAccounts.Clone(),
-		withModelRoutes:   _q.withModelRoutes.Clone(),
 		withEvents:        _q.withEvents.Clone(),
 		withIncidents:     _q.withIncidents.Clone(),
 		withRateSnapshots: _q.withRateSnapshots.Clone(),
@@ -453,17 +428,6 @@ func (_q *UpstreamKeyQuery) WithAccounts(opts ...func(*AccountQuery)) *UpstreamK
 		opt(query)
 	}
 	_q.withAccounts = query
-	return _q
-}
-
-// WithModelRoutes tells the query-builder to eager-load the nodes that are connected to
-// the "model_routes" edge. The optional arguments are used to configure the query builder of the edge.
-func (_q *UpstreamKeyQuery) WithModelRoutes(opts ...func(*UpstreamKeyModelRouteQuery)) *UpstreamKeyQuery {
-	query := (&UpstreamKeyModelRouteClient{config: _q.config}).Query()
-	for _, opt := range opts {
-		opt(query)
-	}
-	_q.withModelRoutes = query
 	return _q
 }
 
@@ -589,10 +553,9 @@ func (_q *UpstreamKeyQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 	var (
 		nodes       = []*UpstreamKey{}
 		_spec       = _q.querySpec()
-		loadedTypes = [7]bool{
+		loadedTypes = [6]bool{
 			_q.withConfig != nil,
 			_q.withAccounts != nil,
-			_q.withModelRoutes != nil,
 			_q.withEvents != nil,
 			_q.withIncidents != nil,
 			_q.withRateSnapshots != nil,
@@ -630,13 +593,6 @@ func (_q *UpstreamKeyQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 		if err := _q.loadAccounts(ctx, query, nodes,
 			func(n *UpstreamKey) { n.Edges.Accounts = []*Account{} },
 			func(n *UpstreamKey, e *Account) { n.Edges.Accounts = append(n.Edges.Accounts, e) }); err != nil {
-			return nil, err
-		}
-	}
-	if query := _q.withModelRoutes; query != nil {
-		if err := _q.loadModelRoutes(ctx, query, nodes,
-			func(n *UpstreamKey) { n.Edges.ModelRoutes = []*UpstreamKeyModelRoute{} },
-			func(n *UpstreamKey, e *UpstreamKeyModelRoute) { n.Edges.ModelRoutes = append(n.Edges.ModelRoutes, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -730,36 +686,6 @@ func (_q *UpstreamKeyQuery) loadAccounts(ctx context.Context, query *AccountQuer
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "upstream_key_id" returned %v for node %v`, *fk, n.ID)
-		}
-		assign(node, n)
-	}
-	return nil
-}
-func (_q *UpstreamKeyQuery) loadModelRoutes(ctx context.Context, query *UpstreamKeyModelRouteQuery, nodes []*UpstreamKey, init func(*UpstreamKey), assign func(*UpstreamKey, *UpstreamKeyModelRoute)) error {
-	fks := make([]driver.Value, 0, len(nodes))
-	nodeids := make(map[int64]*UpstreamKey)
-	for i := range nodes {
-		fks = append(fks, nodes[i].ID)
-		nodeids[nodes[i].ID] = nodes[i]
-		if init != nil {
-			init(nodes[i])
-		}
-	}
-	if len(query.ctx.Fields) > 0 {
-		query.ctx.AppendFieldOnce(upstreamkeymodelroute.FieldUpstreamKeyID)
-	}
-	query.Where(predicate.UpstreamKeyModelRoute(func(s *sql.Selector) {
-		s.Where(sql.InValues(s.C(upstreamkey.ModelRoutesColumn), fks...))
-	}))
-	neighbors, err := query.All(ctx)
-	if err != nil {
-		return err
-	}
-	for _, n := range neighbors {
-		fk := n.UpstreamKeyID
-		node, ok := nodeids[fk]
-		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "upstream_key_id" returned %v for node %v`, fk, n.ID)
 		}
 		assign(node, n)
 	}

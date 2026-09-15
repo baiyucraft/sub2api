@@ -392,12 +392,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	if account == nil {
 		return "account_nil"
 	}
-	resolved, ok := account.WithEffectiveUpstreamTarget(requestedModel, platform)
-	if !ok {
-		return "model_route_unavailable"
-	}
-	account = resolved
-	if account.EffectivePlatform() != platform || !account.IsOpenAICompatible() {
+	if account.Platform != platform || !account.IsOpenAICompatible() {
 		return "platform_mismatch"
 	}
 	if reason := AccountInputLengthFailureReason(ctx, account); reason != "" {
@@ -1551,15 +1546,7 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	}
 	var accounts []Account
 	var err error
-	if routeRepo, ok := s.accountRepo.(modelRouteSchedulableAccountRepository); ok {
-		if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
-			accounts, err = routeRepo.ListSchedulableByTargetPlatform(ctx, platform, false)
-		} else if groupID != nil {
-			accounts, err = routeRepo.ListSchedulableByGroupIDAndTargetPlatform(ctx, *groupID, platform, false)
-		} else {
-			accounts, err = routeRepo.ListSchedulableUngroupedByTargetPlatform(ctx, platform, false)
-		}
-	} else if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, platform)
 	} else if groupID != nil {
 		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
@@ -1608,11 +1595,6 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccountBeforeProfit(
 		}
 		fresh = current
 	}
-	resolved, ok := fresh.WithEffectiveUpstreamTarget(requestedModel, platform)
-	if !ok {
-		return nil
-	}
-	fresh = resolved
 
 	if !isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, fresh, platform, requestedModel, requireCompact, requiredCapability) {
 		return nil
@@ -1666,11 +1648,6 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	if s.schedulerSnapshot == nil || s.accountRepo == nil {
-		resolved, ok := account.WithEffectiveUpstreamTarget(requestedModel, platform)
-		if !ok {
-			return nil
-		}
-		account = resolved
 		if s.openAIGroupRequiresPrivacySet(ctx, groupID) && !account.IsPrivacySet() {
 			return nil
 		}
@@ -1693,11 +1670,6 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	if err != nil || latest == nil {
 		return nil
 	}
-	resolved, ok := latest.WithEffectiveUpstreamTarget(requestedModel, platform)
-	if !ok {
-		return nil
-	}
-	latest = resolved
 	if !s.openAIAccountMatchesSchedulingGroup(latest, groupID) {
 		return nil
 	}
@@ -1801,10 +1773,6 @@ func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, accou
 	}
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected openai account %d not found during hydration", account.ID)
-	}
-	if account.EffectiveUpstreamTarget != nil {
-		target := *account.EffectiveUpstreamTarget
-		hydrated = cloneAccountForEffectiveTarget(hydrated, target)
 	}
 	return hydrated, nil
 }

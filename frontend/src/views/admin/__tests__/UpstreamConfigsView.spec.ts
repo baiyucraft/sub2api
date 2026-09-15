@@ -11,7 +11,7 @@ const {
   getSettingsMock, updateSettingsMock, listSyncRunsMock, getSyncRunMock, listEventsMock,
   listIncidentsMock, listBalanceHistoryMock, getUsageTrendMock, proxiesMock, showErrorMock, showSuccessMock,
   listKeyRateTrendKeysMock, getKeyRateTrendMock, listKeysMock, updateKeyPlatformMock, updateKeyBaseURLMock, updateSchedulingMock, groupsMock,
-  routeState, getProbeModelCandidatesMock
+  routeState
 } = vi.hoisted(() => ({
   listMock: vi.fn(),
   getByIdMock: vi.fn(),
@@ -38,7 +38,6 @@ const {
   groupsMock: vi.fn(),
   routeState: { query: {} as Record<string, string> },
   proxiesMock: vi.fn(),
-  getProbeModelCandidatesMock: vi.fn(),
   showErrorMock: vi.fn(),
   showSuccessMock: vi.fn()
 }))
@@ -72,10 +71,6 @@ vi.mock('@/api/admin/upstreamConfigs', () => ({
 
 vi.mock('vue-router', () => ({
   useRoute: () => routeState
-}))
-
-vi.mock('@/api/admin/upstreamManagement', () => ({
-  getProbeModelCandidates: getProbeModelCandidatesMock
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -363,7 +358,6 @@ describe('UpstreamConfigsView', () => {
     updateSchedulingMock.mockReset()
     groupsMock.mockReset()
     proxiesMock.mockReset()
-    getProbeModelCandidatesMock.mockReset()
     showErrorMock.mockReset()
     showSuccessMock.mockReset()
     mockList()
@@ -394,20 +388,6 @@ describe('UpstreamConfigsView', () => {
         status: 'inactive'
       }
     ])
-    getProbeModelCandidatesMock.mockResolvedValue({
-      candidates: {},
-      platforms: [
-        { id: 'openai', label: 'OpenAI', models: [], probe_supported: true },
-        { id: 'anthropic', label: 'Anthropic', models: [], probe_supported: true },
-        { id: 'gemini', label: 'Gemini', models: [], probe_supported: true },
-        { id: 'antigravity', label: 'Antigravity', models: [], probe_supported: true },
-        { id: 'grok', label: 'Grok', models: [], probe_supported: true },
-        { id: 'kimi', label: 'Kimi', models: [], probe_supported: true },
-        { id: 'zhipu', label: 'Zhipu GLM', models: [], probe_supported: true },
-        { id: 'deepseek', label: 'DeepSeek', models: [], probe_supported: true },
-        { id: 'minimax', label: 'MiniMax', models: [], probe_supported: true }
-      ]
-    })
     createMock.mockResolvedValue(upstreamConfig({ id: 11 }))
     updateMock.mockResolvedValue(upstreamConfig({ id: 10 }))
     removeMock.mockResolvedValue({ message: 'ok' })

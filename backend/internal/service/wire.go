@@ -487,7 +487,6 @@ func ProvideUpstreamConfigService(
 	accountTestService *AccountTestService,
 	settingService *SettingService,
 	balanceNotifyService *BalanceNotifyService,
-	schedulerSnapshot *SchedulerSnapshotService,
 ) *UpstreamConfigService {
 	service := NewUpstreamConfigService(repo, proxyRepo, accountRepo)
 	service.SetUpstreamBalanceNotifier(balanceNotifyService)
@@ -498,7 +497,6 @@ func ProvideUpstreamConfigService(
 	service.SetUpstreamAuthSessionManager(NewUpstreamAuthSessionManager(authSessionRepo, locker, secretEncryptor))
 	service.SetHealthProbeDependencies(accountTestService, settingService)
 	service.SetAccountTestService(accountTestService)
-	service.SetSchedulerSnapshotService(schedulerSnapshot)
 	SetGlobalUpstreamHealthEvidenceRecorder(service)
 	SetGlobalUpstreamHealthManualRecoveryHandler(service)
 	return service

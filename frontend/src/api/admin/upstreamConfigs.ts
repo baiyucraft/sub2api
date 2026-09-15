@@ -4,7 +4,15 @@ import type { PaginatedResponse } from '@/types'
 export type UpstreamProvider = 'sub2api' | 'newapi' | 'lcodex' | 'other'
 export type UpstreamAuthMode = 'user_login' | 'manual_jwt' | 'cookie' | 'access_token'
 export type UpstreamTrendRange = '1h' | '24h' | '7d' | '15d' | '30d'
-export type UpstreamKeyPlatform = string
+export type UpstreamKeyPlatform =
+  | 'openai'
+  | 'anthropic'
+  | 'gemini'
+  | 'antigravity'
+  | 'grok'
+  | 'kimi'
+  | 'zhipu'
+  | 'deepseek'
 
 export interface UpstreamCredentialsStatus {
   has_login_email?: boolean
@@ -53,42 +61,6 @@ export interface UpstreamPlatformEvidence {
   [key: string]: unknown
 }
 
-export type UpstreamKeyModelRouteSource = 'auto' | 'manual' | 'legacy'
-export type UpstreamKeyModelRouteStatus =
-  | 'available'
-  | 'disabled'
-  | 'ambiguous'
-  | 'unknown'
-  | 'unsupported'
-  | 'stale'
-
-export interface UpstreamKeyModelRoute {
-  id: number
-  upstream_key_id: number
-  public_model: string
-  upstream_model: string
-  target_platform: UpstreamKeyPlatform
-  api_protocol?: string | null
-  source: UpstreamKeyModelRouteSource | string
-  enabled: boolean
-  priority?: number
-  status: UpstreamKeyModelRouteStatus | string
-  last_seen_at?: string | null
-  last_error?: string | null
-  created_at?: string
-  updated_at?: string
-  key_name?: string
-}
-
-export interface UpstreamKeyModelRoutePayload {
-  public_model: string
-  upstream_model: string
-  target_platform: UpstreamKeyPlatform
-  api_protocol?: string | null
-  enabled?: boolean
-  priority?: number
-}
-
 export type UpstreamKeyExtra = Record<string, unknown> & {
   newapi_platform_evidence?: UpstreamPlatformEvidence
   upstream_platform_evidence?: UpstreamPlatformEvidence
@@ -112,7 +84,6 @@ export interface UpstreamKey {
   bound_account_count?: number
   rate_multiplier?: number | null
   image_pricing?: UpstreamKeyImagePricing
-  model_routes?: UpstreamKeyModelRoute[]
   status: string
   last_seen_at?: string | null
   missing_count?: number
@@ -656,63 +627,6 @@ export async function updateKeyBaseURL(id: number, keyId: number, payload: Updat
   return data
 }
 
-export async function listKeyModelRoutes(configId: number, keyId: number): Promise<UpstreamKeyModelRoute[]> {
-  const { data } = await apiClient.get<UpstreamKeyModelRoute[]>(
-    `/admin/upstream-configs/${configId}/keys/${keyId}/model-routes`
-  )
-  return data || []
-}
-
-export async function listModelRoutes(configId: number): Promise<UpstreamKeyModelRoute[]> {
-  const { data } = await apiClient.get<UpstreamKeyModelRoute[]>(
-    `/admin/upstream-configs/${configId}/model-routes`
-  )
-  return data || []
-}
-
-export async function createKeyModelRoute(
-  configId: number,
-  keyId: number,
-  payload: UpstreamKeyModelRoutePayload
-): Promise<UpstreamKeyModelRoute> {
-  const { data } = await apiClient.post<UpstreamKeyModelRoute>(
-    `/admin/upstream-configs/${configId}/keys/${keyId}/model-routes`,
-    payload
-  )
-  return data
-}
-
-export async function updateKeyModelRoute(
-  configId: number,
-  keyId: number,
-  routeId: number,
-  payload: UpstreamKeyModelRoutePayload
-): Promise<UpstreamKeyModelRoute> {
-  const { data } = await apiClient.put<UpstreamKeyModelRoute>(
-    `/admin/upstream-configs/${configId}/keys/${keyId}/model-routes/${routeId}`,
-    payload
-  )
-  return data
-}
-
-export async function removeKeyModelRoute(configId: number, keyId: number, routeId: number): Promise<{ message: string }> {
-  const { data } = await apiClient.delete<{ message: string }>(
-    `/admin/upstream-configs/${configId}/keys/${keyId}/model-routes/${routeId}`
-  )
-  return data
-}
-
-export async function restoreKeyModelRouteAuto(
-  configId: number,
-  keyId: number,
-  routeId: number
-): Promise<UpstreamKeyModelRoute> {
-  const { data } = await apiClient.post<UpstreamKeyModelRoute>(
-    `/admin/upstream-configs/${configId}/keys/${keyId}/model-routes/${routeId}/restore-auto`
-  )
-  return data
-}
-
 export default {
   list,
   getById,
@@ -738,11 +652,5 @@ export default {
   listKeys,
   removeKey,
   updateKeyPlatform,
-  updateKeyBaseURL,
-  listKeyModelRoutes,
-  listModelRoutes,
-  createKeyModelRoute,
-  updateKeyModelRoute,
-  removeKeyModelRoute,
-  restoreKeyModelRouteAuto
+  updateKeyBaseURL
 }
