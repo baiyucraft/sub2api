@@ -2573,6 +2573,8 @@ type AccountMutation struct {
 	addconcurrency                     *int
 	rpm_limit                          *int
 	addrpm_limit                       *int
+	probe_min_input_tokens             *int
+	addprobe_min_input_tokens          *int
 	load_factor                        *int
 	addload_factor                     *int
 	priority                           *int
@@ -3601,6 +3603,62 @@ func (m *AccountMutation) AddedRpmLimit() (r int, exists bool) {
 func (m *AccountMutation) ResetRpmLimit() {
 	m.rpm_limit = nil
 	m.addrpm_limit = nil
+}
+
+// SetProbeMinInputTokens sets the "probe_min_input_tokens" field.
+func (m *AccountMutation) SetProbeMinInputTokens(i int) {
+	m.probe_min_input_tokens = &i
+	m.addprobe_min_input_tokens = nil
+}
+
+// ProbeMinInputTokens returns the value of the "probe_min_input_tokens" field in the mutation.
+func (m *AccountMutation) ProbeMinInputTokens() (r int, exists bool) {
+	v := m.probe_min_input_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProbeMinInputTokens returns the old "probe_min_input_tokens" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldProbeMinInputTokens(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProbeMinInputTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProbeMinInputTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProbeMinInputTokens: %w", err)
+	}
+	return oldValue.ProbeMinInputTokens, nil
+}
+
+// AddProbeMinInputTokens adds i to the "probe_min_input_tokens" field.
+func (m *AccountMutation) AddProbeMinInputTokens(i int) {
+	if m.addprobe_min_input_tokens != nil {
+		*m.addprobe_min_input_tokens += i
+	} else {
+		m.addprobe_min_input_tokens = &i
+	}
+}
+
+// AddedProbeMinInputTokens returns the value that was added to the "probe_min_input_tokens" field in this mutation.
+func (m *AccountMutation) AddedProbeMinInputTokens() (r int, exists bool) {
+	v := m.addprobe_min_input_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetProbeMinInputTokens resets all changes to the "probe_min_input_tokens" field.
+func (m *AccountMutation) ResetProbeMinInputTokens() {
+	m.probe_min_input_tokens = nil
+	m.addprobe_min_input_tokens = nil
 }
 
 // SetLoadFactor sets the "load_factor" field.
@@ -4958,7 +5016,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 39)
+	fields := make([]string, 0, 40)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -5015,6 +5073,9 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.rpm_limit != nil {
 		fields = append(fields, account.FieldRpmLimit)
+	}
+	if m.probe_min_input_tokens != nil {
+		fields = append(fields, account.FieldProbeMinInputTokens)
 	}
 	if m.load_factor != nil {
 		fields = append(fields, account.FieldLoadFactor)
@@ -5122,6 +5183,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.Concurrency()
 	case account.FieldRpmLimit:
 		return m.RpmLimit()
+	case account.FieldProbeMinInputTokens:
+		return m.ProbeMinInputTokens()
 	case account.FieldLoadFactor:
 		return m.LoadFactor()
 	case account.FieldPriority:
@@ -5209,6 +5272,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldConcurrency(ctx)
 	case account.FieldRpmLimit:
 		return m.OldRpmLimit(ctx)
+	case account.FieldProbeMinInputTokens:
+		return m.OldProbeMinInputTokens(ctx)
 	case account.FieldLoadFactor:
 		return m.OldLoadFactor(ctx)
 	case account.FieldPriority:
@@ -5391,6 +5456,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRpmLimit(v)
 		return nil
+	case account.FieldProbeMinInputTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProbeMinInputTokens(v)
+		return nil
 	case account.FieldLoadFactor:
 		v, ok := value.(int)
 		if !ok {
@@ -5551,6 +5623,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addrpm_limit != nil {
 		fields = append(fields, account.FieldRpmLimit)
 	}
+	if m.addprobe_min_input_tokens != nil {
+		fields = append(fields, account.FieldProbeMinInputTokens)
+	}
 	if m.addload_factor != nil {
 		fields = append(fields, account.FieldLoadFactor)
 	}
@@ -5579,6 +5654,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedConcurrency()
 	case account.FieldRpmLimit:
 		return m.AddedRpmLimit()
+	case account.FieldProbeMinInputTokens:
+		return m.AddedProbeMinInputTokens()
 	case account.FieldLoadFactor:
 		return m.AddedLoadFactor()
 	case account.FieldPriority:
@@ -5623,6 +5700,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddRpmLimit(v)
+		return nil
+	case account.FieldProbeMinInputTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddProbeMinInputTokens(v)
 		return nil
 	case account.FieldLoadFactor:
 		v, ok := value.(int)
@@ -5876,6 +5960,9 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldRpmLimit:
 		m.ResetRpmLimit()
+		return nil
+	case account.FieldProbeMinInputTokens:
+		m.ResetProbeMinInputTokens()
 		return nil
 	case account.FieldLoadFactor:
 		m.ResetLoadFactor()

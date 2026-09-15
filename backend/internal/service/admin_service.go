@@ -415,6 +415,7 @@ type CreateAccountInput struct {
 	UpstreamKeyID      *int64
 	Concurrency        int
 	RPMLimit           int // 账号每分钟业务请求上限，0 表示不限
+	ProbeMinInputTokens int // 上游要求的最小输入 token 数，0 表示不限
 	Priority           int
 	RateMultiplier     *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor         *int
@@ -449,6 +450,7 @@ type UpdateAccountInput struct {
 	UpstreamKeyID         *int64
 	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
 	RPMLimit              *int     // 使用指针区分"未提供"和"设置为0"
+	ProbeMinInputTokens   *int     // 使用指针区分"未提供"和"设置为0"
 	Priority              *int     // 使用指针区分"未提供"和"设置为0"
 	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor            *int
@@ -469,6 +471,7 @@ type BulkUpdateAccountsInput struct {
 	ProxyID        *int64
 	Concurrency    *int
 	RPMLimit       *int // 账号每分钟业务请求上限，0 表示不限
+	ProbeMinInputTokens *int // 上游要求的最小输入 token 数，0 表示不限
 	Priority       *int
 	RateMultiplier *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor     *int

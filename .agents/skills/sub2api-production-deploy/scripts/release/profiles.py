@@ -677,7 +677,27 @@ PROFILES["250"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "250"
+# Profile 250 is immutable. The probe minimum-input-token contract adds the
+# existing channel/model-route migrations and the new account setting under a
+# new release profile while retaining the same application version.
+PROFILES["251"] = {
+    **{key: PROFILES["250"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "251",
+    "version": "0.2.4-baiyu",
+    "parent": "250",
+    "new_migrations": [
+        "271_channel_monitor_zhipu_native_api_mode.sql",
+        "272_upstream_key_model_routes.sql",
+        "273_account_probe_min_input_tokens.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "251"
 
 
 def get_profile(name: str) -> dict:

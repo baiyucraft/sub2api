@@ -59,6 +59,8 @@ type Account struct {
 	Concurrency int `json:"concurrency,omitempty"`
 	// RpmLimit holds the value of the "rpm_limit" field.
 	RpmLimit int `json:"rpm_limit,omitempty"`
+	// ProbeMinInputTokens holds the value of the "probe_min_input_tokens" field.
+	ProbeMinInputTokens int `json:"probe_min_input_tokens,omitempty"`
 	// LoadFactor holds the value of the "load_factor" field.
 	LoadFactor *int `json:"load_factor,omitempty"`
 	// Priority holds the value of the "priority" field.
@@ -230,7 +232,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case account.FieldRateMultiplier, account.FieldUpstreamSourceRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldUpstreamConfigID, account.FieldUpstreamKeyID, account.FieldUpstreamStalePauseKeyID, account.FieldConcurrency, account.FieldRpmLimit, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
+		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldUpstreamConfigID, account.FieldUpstreamKeyID, account.FieldUpstreamStalePauseKeyID, account.FieldConcurrency, account.FieldRpmLimit, account.FieldProbeMinInputTokens, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
 			values[i] = new(sql.NullInt64)
 		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldUpstreamLifecycleOwner, account.FieldUpstreamArchiveReason, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus, account.FieldQuotaDimension:
 			values[i] = new(sql.NullString)
@@ -383,6 +385,12 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field rpm_limit", values[i])
 			} else if value.Valid {
 				_m.RpmLimit = int(value.Int64)
+			}
+		case account.FieldProbeMinInputTokens:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field probe_min_input_tokens", values[i])
+			} else if value.Valid {
+				_m.ProbeMinInputTokens = int(value.Int64)
 			}
 		case account.FieldLoadFactor:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -673,6 +681,9 @@ func (_m *Account) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("rpm_limit=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RpmLimit))
+	builder.WriteString(", ")
+	builder.WriteString("probe_min_input_tokens=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ProbeMinInputTokens))
 	builder.WriteString(", ")
 	if v := _m.LoadFactor; v != nil {
 		builder.WriteString("load_factor=")

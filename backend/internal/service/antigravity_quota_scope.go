@@ -41,6 +41,13 @@ func (a *Account) IsSchedulableForModelWithContext(ctx context.Context, requeste
 	if !a.IsSchedulable() {
 		return false
 	}
+	// Some upstream accounts reject short request bodies. This gate is applied
+	// after the generic account state check so ordinary user traffic skips those
+	// accounts before consuming concurrency or reaching the upstream. Health
+	// probes do not install this request hint and therefore remain unaffected.
+	if !IsAccountInputLengthEligible(ctx, a) {
+		return false
+	}
 	if a.isModelRateLimitedWithContext(ctx, requestedModel) {
 		// Antigravity + overages 启用 + 积分未耗尽 → 放行（有积分可用）
 		if a.Platform == PlatformAntigravity && a.IsOveragesEnabled() && !a.isCreditsExhausted() {

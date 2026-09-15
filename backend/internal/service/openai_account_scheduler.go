@@ -2177,6 +2177,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 		return false, "model_route_unavailable"
 	}
 	account = resolved
+	if reason := AccountInputLengthFailureReason(ctx, account); reason != "" {
+		return false, reason
+	}
 	if req.RequirePrivacySet && !account.IsPrivacySet() {
 		return false, "privacy_not_set"
 	}

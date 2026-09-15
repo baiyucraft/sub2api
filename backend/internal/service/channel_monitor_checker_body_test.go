@@ -222,6 +222,28 @@ func TestRunCheckForModel_OpenAI_DefaultChatRequest(t *testing.T) {
 	}
 }
 
+func TestRunCheckForModel_PadsChannelMonitorChallengeInput(t *testing.T) {
+	h := &openAICaptureHandler{}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, endpoint, "sk-openai", "gpt-test", nil)
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("expected operational result, got status=%s message=%q", res.Status, res.Message)
+	}
+	prompt, _ := h.lastBody["messages"].([]any)
+	if len(prompt) == 0 {
+		t.Fatal("expected padded channel-monitor messages")
+	}
+	message, _ := prompt[0].(map[string]any)
+	content, _ := message["content"].(string)
+	if len([]rune(content)) < channelMonitorProbeMinimumInputTokens*4 {
+		t.Fatalf("expected padded prompt length >= %d runes, got %d", channelMonitorProbeMinimumInputTokens*4, len([]rune(content)))
+	}
+	if !strings.HasSuffix(content, "A:") {
+		t.Fatalf("expected arithmetic challenge at end of padded prompt, got suffix %q", content[max(0, len(content)-8):])
+	}
+}
+
 func TestZhipuMonitorConfigurationSupportsChatAndResponsesModes(t *testing.T) {
 	if err := validateAPIMode(MonitorProviderZhipu, MonitorAPIModeChatCompletions); err != nil {
 		t.Fatalf("zhipu chat_completions mode should be valid: %v", err)

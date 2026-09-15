@@ -1698,6 +1698,11 @@
           data-testid="upstream-rpm-limit"
           @input="form.rpm_limit = Math.max(0, Math.trunc(form.rpm_limit || 0))" />
         <p class="input-hint">{{ t('admin.accounts.upstreamRpmLimitHint') }}</p>
+        <label class="input-label mt-3">{{ t('admin.accounts.probeMinInputTokens') }}</label>
+        <input v-model.number="form.probe_min_input_tokens" type="number" min="0" max="1000000" step="1" class="input"
+          data-testid="probe-min-input-tokens"
+          @input="form.probe_min_input_tokens = Math.max(0, Math.trunc(form.probe_min_input_tokens || 0))" />
+        <p class="input-hint">{{ t('admin.accounts.probeMinInputTokensHint') }}</p>
       </div>
       <div v-if="canEditAccountLocalSettings" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
@@ -3763,6 +3768,7 @@ const form = reactive({
   proxy_id: null as number | null,
   concurrency: 1,
   rpm_limit: 0,
+  probe_min_input_tokens: 0,
   load_factor: null as number | null,
   priority: 1,
   rate_multiplier: 1,
@@ -3898,6 +3904,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.proxy_id = newAccount.proxy_id
   form.concurrency = newAccount.concurrency
   form.rpm_limit = Math.max(0, newAccount.rpm_limit ?? 0)
+  form.probe_min_input_tokens = Math.max(0, newAccount.probe_min_input_tokens ?? 0)
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
   form.rate_multiplier = newAccount.rate_multiplier ?? 1
@@ -4934,6 +4941,7 @@ const handleSubmit = async () => {
 
     if (!isUpstreamBoundAccount.value) {
       delete updatePayload.rpm_limit
+      delete updatePayload.probe_min_input_tokens
     }
 
     if (isUpstreamBoundAccount.value) {

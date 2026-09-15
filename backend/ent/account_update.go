@@ -344,6 +344,27 @@ func (_u *AccountUpdate) AddRpmLimit(v int) *AccountUpdate {
 	return _u
 }
 
+// SetProbeMinInputTokens sets the "probe_min_input_tokens" field.
+func (_u *AccountUpdate) SetProbeMinInputTokens(v int) *AccountUpdate {
+	_u.mutation.ResetProbeMinInputTokens()
+	_u.mutation.SetProbeMinInputTokens(v)
+	return _u
+}
+
+// SetNillableProbeMinInputTokens sets the "probe_min_input_tokens" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableProbeMinInputTokens(v *int) *AccountUpdate {
+	if v != nil {
+		_u.SetProbeMinInputTokens(*v)
+	}
+	return _u
+}
+
+// AddProbeMinInputTokens adds value to the "probe_min_input_tokens" field.
+func (_u *AccountUpdate) AddProbeMinInputTokens(v int) *AccountUpdate {
+	_u.mutation.AddProbeMinInputTokens(v)
+	return _u
+}
+
 // SetLoadFactor sets the "load_factor" field.
 func (_u *AccountUpdate) SetLoadFactor(v int) *AccountUpdate {
 	_u.mutation.ResetLoadFactor()
@@ -1117,6 +1138,12 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(account.FieldRpmLimit, field.TypeInt, value)
 	}
+	if value, ok := _u.mutation.ProbeMinInputTokens(); ok {
+		_spec.SetField(account.FieldProbeMinInputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedProbeMinInputTokens(); ok {
+		_spec.AddField(account.FieldProbeMinInputTokens, field.TypeInt, value)
+	}
 	if value, ok := _u.mutation.LoadFactor(); ok {
 		_spec.SetField(account.FieldLoadFactor, field.TypeInt, value)
 	}
@@ -1860,6 +1887,27 @@ func (_u *AccountUpdateOne) SetNillableRpmLimit(v *int) *AccountUpdateOne {
 // AddRpmLimit adds value to the "rpm_limit" field.
 func (_u *AccountUpdateOne) AddRpmLimit(v int) *AccountUpdateOne {
 	_u.mutation.AddRpmLimit(v)
+	return _u
+}
+
+// SetProbeMinInputTokens sets the "probe_min_input_tokens" field.
+func (_u *AccountUpdateOne) SetProbeMinInputTokens(v int) *AccountUpdateOne {
+	_u.mutation.ResetProbeMinInputTokens()
+	_u.mutation.SetProbeMinInputTokens(v)
+	return _u
+}
+
+// SetNillableProbeMinInputTokens sets the "probe_min_input_tokens" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableProbeMinInputTokens(v *int) *AccountUpdateOne {
+	if v != nil {
+		_u.SetProbeMinInputTokens(*v)
+	}
+	return _u
+}
+
+// AddProbeMinInputTokens adds value to the "probe_min_input_tokens" field.
+func (_u *AccountUpdateOne) AddProbeMinInputTokens(v int) *AccountUpdateOne {
+	_u.mutation.AddProbeMinInputTokens(v)
 	return _u
 }
 
@@ -2665,6 +2713,12 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(account.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ProbeMinInputTokens(); ok {
+		_spec.SetField(account.FieldProbeMinInputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedProbeMinInputTokens(); ok {
+		_spec.AddField(account.FieldProbeMinInputTokens, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.LoadFactor(); ok {
 		_spec.SetField(account.FieldLoadFactor, field.TypeInt, value)
