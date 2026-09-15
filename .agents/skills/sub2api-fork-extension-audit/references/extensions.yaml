@@ -96,7 +96,9 @@
     "270_account_rpm_limit.sql": "fc5470045fb9813a1c0e1f496c70a1bad6a822b788f1ba41945b841da9c940a6",
     "271_channel_monitor_zhipu_native_api_mode.sql": "399e9db18d5aa208c77e3143cda9bd1fa3f957e0fccf6006a6b8b998a48cc37e",
     "272_upstream_key_model_routes.sql": "76166284c27cfebae05d155fbe126a84804efc76a47c8ae0bcc4db7facf903c0",
-    "273_account_probe_min_input_tokens.sql": "9ec4c906e1246a23a376a5d096ec7c11840eed3c379ebae6bc7618141ab6202a"
+    "273_account_probe_min_input_tokens.sql": "9ec4c906e1246a23a376a5d096ec7c11840eed3c379ebae6bc7618141ab6202a",
+    "274_opencode_go_platform.sql": "64bf7cfed85573467683f941584f63ddd8d390a41fd914d3add32ef0294c729e",
+    "275_purge_unlimited_user_platform_quotas.sql": "03f5bba318b9fcd46e3b524491c5b0e343987384a031d9faae21cecce3bd3cab"
   },
   "migration_renames": {
     "official_221": "234_group_model_pricing.sql",
