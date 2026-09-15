@@ -398,7 +398,7 @@
               :max-display="4"
               :account-id="row.id"
               :preferred-group-ids="row.preferred_group_ids"
-              :interactive="props.scope === 'upstream'"
+              :interactive="true"
               @toggle-preferred="handleTogglePreferred(row, $event.groupId, $event.preferred)"
             />
           </template>
@@ -3299,7 +3299,6 @@ const handleToggleSchedulable = async (a: Account) => {
   }
 }
 const handleTogglePreferred = async (account: AccountListItem, groupID: number, preferred: boolean) => {
-  if (props.scope !== 'upstream') return
   const operationKey = `${account.id}:${groupID}`
   if (togglingPreferredAccounts.has(operationKey)) return
 
