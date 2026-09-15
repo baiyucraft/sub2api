@@ -89,13 +89,36 @@ describe('AppSidebar upstream navigation', () => {
 })
 
 describe('AppSidebar recharge store navigation', () => {
-  const purchaseItem = "{ path: '/purchase', label: t('nav.buySubscription'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment }"
+  const purchaseItem = "{ path: '/purchase', label: purchaseNavLabel.value, icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment }"
   const storeItem = "{ path: '/recharge-store', label: t('nav.rechargeStore'), icon: RechargeStoreIcon }"
   const ordersItem = "{ path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment }"
 
   it('keeps the fixed store between purchase and orders without the native payment flag', () => {
-    expect(componentSource).toContain(`${purchaseItem},\n    ${storeItem},\n    ${ordersItem},`)
+    const purchaseIndex = componentSource.indexOf(purchaseItem)
+    const storeIndex = componentSource.indexOf(storeItem)
+    const ordersIndex = componentSource.indexOf(ordersItem)
+    expect(purchaseIndex).toBeGreaterThanOrEqual(0)
+    expect(storeIndex).toBeGreaterThan(purchaseIndex)
+    expect(ordersIndex).toBeGreaterThan(storeIndex)
     expect(storeItem).not.toContain('featureFlag')
     expect(storeItem).not.toContain('hideInSimpleMode')
+  })
+})
+
+describe('AppSidebar subscription feature flag', () => {
+  it('gates the My Subscriptions entry behind the subscription public-settings flag', () => {
+    expect(componentSource).toContain('const flagSubscription = makeSidebarFlag(FeatureFlags.subscription)')
+    expect(componentSource).toMatch(/path: '\/subscriptions'[^\n]*featureFlag: flagSubscription/)
+  })
+
+  it('also hides the admin Subscription Management entry on recharge-only sites', () => {
+    expect(componentSource).toMatch(/path: '\/admin\/subscriptions'[^\n]*featureFlag: flagSubscription/)
+  })
+
+  it('derives the purchase entry label from the site billing mode', () => {
+    expect(componentSource).toContain("import { resolveSiteBillingMode } from '@/utils/siteBillingMode'")
+    expect(componentSource).toMatch(/case 'recharge_only':\s*return t\('nav\.recharge'\)/)
+    expect(componentSource).toMatch(/case 'subscription_only':\s*return t\('nav\.subscribe'\)/)
+    expect(componentSource).toMatch(/path: '\/purchase'[^\n]*label: purchaseNavLabel\.value/)
   })
 })

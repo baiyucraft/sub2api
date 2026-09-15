@@ -318,11 +318,24 @@ func TestRunUpstreamHealthProbeUsesProviderStreamingProfiles(t *testing.T) {
 			account: &Account{ID: 6, Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Concurrency: 2, Credentials: map[string]any{
 				"api_key": "deepseek-secret", "base_url": "https://deepseek.example/v1",
 			}},
-			model: "deepseek-chat", protocol: upstreamHealthProbeProtocolOpenAIChat,
+			model: "deepseek-v4-pro", protocol: upstreamHealthProbeProtocolOpenAIChat,
 			assert: func(t *testing.T, req *http.Request, body []byte) {
 				require.Equal(t, "https://deepseek.example/v1/chat/completions", req.URL.String())
 				require.Equal(t, "Bearer deepseek-secret", req.Header.Get("Authorization"))
-				require.Equal(t, "deepseek-chat", gjson.GetBytes(body, "model").String())
+				require.Equal(t, "deepseek-v4-pro", gjson.GetBytes(body, "model").String())
+				require.True(t, gjson.GetBytes(body, "stream").Bool())
+			},
+		},
+		{
+			name: "opencode go chat completions",
+			account: &Account{ID: 10, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 2, Credentials: map[string]any{
+				"api_key": "opencode-secret", "base_url": "https://opencode.example/v1",
+			}},
+			model: "deepseek-v4-flash", protocol: upstreamHealthProbeProtocolOpenAIChat,
+			assert: func(t *testing.T, req *http.Request, body []byte) {
+				require.Equal(t, "https://opencode.example/v1/chat/completions", req.URL.String())
+				require.Equal(t, "Bearer opencode-secret", req.Header.Get("Authorization"))
+				require.Equal(t, "deepseek-v4-flash", gjson.GetBytes(body, "model").String())
 				require.True(t, gjson.GetBytes(body, "stream").Bool())
 			},
 		},
@@ -535,7 +548,7 @@ func TestDeepseekResponsesProbeUsesNativeEndpoint(t *testing.T) {
 		"api_key": "secret", "base_url": "https://deepseek.example/v1", "api_protocol": APIProtocolResponses,
 	}}
 	svc := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}}
-	result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "deepseek-chat")
+	result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "deepseek-v4-pro")
 	require.NoError(t, err)
 	require.Equal(t, "success", result.Result)
 	require.Equal(t, upstreamHealthProbeProtocolOpenAI, result.Protocol)
@@ -565,7 +578,11 @@ func TestCNAdaptiveProbeCoversEveryForwardingProtocol(t *testing.T) {
 			}}
 			svc := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}}
 
-			result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "probe-model")
+			model := "probe-model"
+			if tc.platform == PlatformDeepseek {
+				account.Credentials["model_mapping"] = map[string]any{"probe-model": "deepseek-v4-pro"}
+			}
+			result, err := svc.RunUpstreamHealthProbe(context.Background(), account, model)
 
 			require.NoError(t, err)
 			require.Equal(t, "success", result.Result)

@@ -55,6 +55,8 @@ func defaultModelIDsForRegisteredPlatform(platform string) []string {
 		return cloneStrings(deepseekOfficialModelIDs)
 	case PlatformMiniMax:
 		return cloneStrings(minimaxOfficialModelIDs)
+	case PlatformOpenCodeGo:
+		return cloneStrings(DefaultOpenCodeGoModelIDs())
 	default:
 		return nil
 	}
@@ -80,6 +82,7 @@ var registeredPlatformCatalog = []PlatformDescriptor{
 	{ID: PlatformZhipu, Label: "Zhipu GLM", ProbeSupported: true},
 	{ID: PlatformDeepseek, Label: "DeepSeek", ProbeSupported: true},
 	{ID: PlatformMiniMax, Label: "MiniMax", ProbeSupported: true},
+	{ID: PlatformOpenCodeGo, Label: "OpenCode Go", ProbeSupported: true},
 }
 
 func RegisteredPlatformCatalog() []PlatformDescriptor {
