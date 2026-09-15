@@ -148,8 +148,9 @@ const (
 	providerGeminiPathTemplate = "/v1beta/models/%s:streamGenerateContent?alt=sse"
 
 	// MonitorProviderOpenAI 等 provider 字符串常量（也是 ent enum 的实际值）。
-	// 后 4 个 provider（antigravity/kimi/zhipu/deepseek）为配额模式引入：
-	// antigravity 无探活 adapter（仅配额），其余 3 个复用 OpenAI 兼容探活。
+	// 后 5 个 provider（antigravity/kimi/zhipu/deepseek/minimax/opencode_go）为
+	// 配额或兼容协议扩展：antigravity 无探活 adapter（仅配额），其余复用
+	// OpenAI 兼容探活。
 	MonitorProviderOpenAI      = "openai"
 	MonitorProviderAnthropic   = "anthropic"
 	MonitorProviderGemini      = "gemini"
@@ -159,6 +160,7 @@ const (
 	MonitorProviderZhipu       = "zhipu"
 	MonitorProviderDeepseek    = "deepseek"
 	MonitorProviderMiniMax     = "minimax"
+	MonitorProviderOpenCodeGo  = "opencode_go"
 
 	// MonitorCheckMode 检测模式（channel_monitors.check_mode）。
 	//   probe       - LLM 探活（默认，原有行为）

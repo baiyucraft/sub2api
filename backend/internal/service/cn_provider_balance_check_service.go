@@ -97,7 +97,7 @@ func (s *CNProviderBalanceCheckService) Stop() {
 }
 
 func (s *CNProviderBalanceCheckService) runOnce() {
-	// 收集 coding 探测目标（kimi/deepseek + 智谱）与 payg 检查队列。
+	// 收集 coding 探测目标（kimi/deepseek/OpenCode Go + 智谱/MiniMax）与 payg 检查队列。
 	// coding 探测统一在收集完成后按 4 并发执行：单账号探测 15-20s，串行 ×
 	// 多账号会耗尽整体预算（120s 上限），排在后面的账号快照会饥饿，
 	// 连锁影响阈值停调的新鲜度判定。
@@ -118,6 +118,12 @@ func (s *CNProviderBalanceCheckService) runOnce() {
 			// URL 白名单拒绝（CN_BALANCE_URL_REJECTED），不跳过则每个周期都
 			// 白跑并产生告警噪声。
 			if IsOllamaCloudUsageAccount(account) {
+				continue
+			}
+			// OpenCode Go 账号始终走 /usage 额度窗口，即使账号模式不是旧的
+			// account_mode=coding，也不能落入 payg 余额队列。
+			if account.Platform == PlatformOpenCodeGo {
+				quotaTargets = append(quotaTargets, quotaTarget{id: account.ID, platform: account.Platform})
 				continue
 			}
 			// coding 账号：探测滚动窗口并落快照（不要求 Schedulable——已被
@@ -255,7 +261,7 @@ func (s *CNProviderBalanceCheckService) checkOne(ctx context.Context, account *A
 }
 
 func (s *CNProviderBalanceCheckService) platforms() []string {
-	return []string{PlatformKimi, PlatformDeepseek}
+	return []string{PlatformKimi, PlatformDeepseek, PlatformOpenCodeGo}
 }
 
 // allCNBalancesBelowThreshold 判断全部币种余额是否均低于阈值。

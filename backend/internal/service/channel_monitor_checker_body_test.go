@@ -292,6 +292,56 @@ func TestZhipuMonitorConfigurationSupportsChatAndResponsesModes(t *testing.T) {
 	}
 }
 
+func TestOpenCodeGoMonitorConfigurationSupportsChatAndResponsesModes(t *testing.T) {
+	if err := validateProvider(MonitorProviderOpenCodeGo); err != nil {
+		t.Fatalf("opencode_go provider should be valid: %v", err)
+	}
+	if err := validateAPIMode(MonitorProviderOpenCodeGo, MonitorAPIModeChatCompletions); err != nil {
+		t.Fatalf("opencode_go chat_completions mode should be valid: %v", err)
+	}
+	if err := validateAPIMode(MonitorProviderOpenCodeGo, MonitorAPIModeResponses); err != nil {
+		t.Fatalf("opencode_go responses mode should be valid: %v", err)
+	}
+	if err := validateReplaceRequestBody(MonitorProviderOpenCodeGo, MonitorAPIModeChatCompletions, map[string]any{}); err == nil {
+		t.Fatal("opencode_go chat_completions replace body should require messages")
+	}
+	if err := validateReplaceRequestBody(MonitorProviderOpenCodeGo, MonitorAPIModeResponses, map[string]any{}); err == nil {
+		t.Fatal("opencode_go responses replace body should require instructions and input")
+	}
+
+	chat, chatMode, ok := providerAdapterFor(MonitorProviderOpenCodeGo, MonitorAPIModeChatCompletions)
+	if !ok || chatMode != MonitorAPIModeChatCompletions {
+		t.Fatalf("opencode_go chat adapter selection = (%v, %q, %v)", chat, chatMode, ok)
+	}
+	if got := chat.buildPath("glm-5.3"); got != providerOpenAIPath {
+		t.Fatalf("opencode_go chat path = %q, want %q", got, providerOpenAIPath)
+	}
+
+	responses, responsesMode, ok := providerAdapterFor(MonitorProviderOpenCodeGo, MonitorAPIModeResponses)
+	if !ok || responsesMode != MonitorAPIModeResponses {
+		t.Fatalf("opencode_go responses adapter selection = (%v, %q, %v)", responses, responsesMode, ok)
+	}
+	if got := responses.buildPath("gpt-5.6-luna"); got != providerOpenAIResponsesPath {
+		t.Fatalf("opencode_go responses path = %q, want %q", got, providerOpenAIResponsesPath)
+	}
+}
+
+func TestRunCheckForModel_OpenCodeGoAddsSessionHeader(t *testing.T) {
+	h := &openAICaptureHandler{}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenCodeGo, endpoint, "opencode-key", "glm-5.3", &CheckOptions{
+		APIMode: MonitorAPIModeChatCompletions,
+	})
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("opencode_go probe should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if got := h.lastHeaders.Get("X-OpenCode-Session"); got == "" {
+		t.Fatal("opencode_go probe must send X-OpenCode-Session")
+	}
+}
+
 func TestRunCheckForModel_ZhipuChatCompletionsRequest(t *testing.T) {
 	h := &openAICaptureHandler{}
 	endpoint := setupFakeOpenAI(t, h)
