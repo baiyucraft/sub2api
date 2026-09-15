@@ -697,7 +697,26 @@ PROFILES["251"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "251"
+# Profile 251 is immutable. Official 0.2.5 adds OpenCode Go support and
+# removes rows that carry no effective user-platform quota. The upstream
+# migrations are renumbered because the fork already owns migration 238.
+PROFILES["252"] = {
+    **{key: PROFILES["251"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "252",
+    "version": "0.2.5-baiyu",
+    "parent": "251",
+    "new_migrations": [
+        "274_opencode_go_platform.sql",
+        "275_purge_unlimited_user_platform_quotas.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "252"
 
 
 def get_profile(name: str) -> dict:
