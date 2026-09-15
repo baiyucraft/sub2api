@@ -32,7 +32,6 @@ func (s *GatewayService) SelectAccountForModel(ctx context.Context, groupID *int
 
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 func (s *GatewayService) selectAccountForModelWithExclusionsCore(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
-	publicModel := requestedModel
 	// 优先检查 context 中的强制平台（/antigravity 路由）
 	var platform string
 	forcePlatform, hasForcePlatform := ctx.Value(ctxkey.ForcePlatform).(string)
@@ -83,7 +82,7 @@ func (s *GatewayService) selectAccountForModelWithExclusionsCore(ctx context.Con
 		if err != nil {
 			return nil, err
 		}
-		return s.hydrateSelectedAccountForTarget(ctx, account, publicModel, platform)
+		return s.hydrateSelectedAccount(ctx, account)
 	}
 
 	// antigravity 分组、强制平台模式或无分组使用单平台选择
@@ -92,7 +91,7 @@ func (s *GatewayService) selectAccountForModelWithExclusionsCore(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	return s.hydrateSelectedAccountForTarget(ctx, account, publicModel, platform)
+	return s.hydrateSelectedAccount(ctx, account)
 }
 
 // SelectAccountWithLoadAwareness selects account with load-awareness and wait plan.
@@ -216,8 +215,6 @@ func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	ctx = WithRequestedPublicModel(ctx, requestedModel)
-	ctx = WithResolvedTargetPlatform(ctx, platform)
 	preferOAuth := platform == PlatformGemini
 	if s.debugModelRoutingEnabled() && requestedModel != "" && modelRoutingAppliesToTargetPlatform(platform) {
 		logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] load-aware enabled: group_id=%v model=%s session=%s platform=%s", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), platform)
@@ -1093,25 +1090,6 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 		return accounts, useMixed, err
 	}
 	useMixed := (platform == PlatformAnthropic || platform == PlatformGemini) && !hasForcePlatform
-	if routeRepo, ok := s.accountRepo.(modelRouteSchedulableAccountRepository); ok {
-		var accounts []Account
-		var err error
-		if groupID != nil {
-			accounts, err = routeRepo.ListSchedulableByGroupIDAndTargetPlatform(ctx, *groupID, platform, useMixed)
-		} else if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
-			accounts, err = routeRepo.ListSchedulableByTargetPlatform(ctx, platform, useMixed)
-		} else {
-			accounts, err = routeRepo.ListSchedulableUngroupedByTargetPlatform(ctx, platform, useMixed)
-		}
-		if err != nil {
-			return nil, useMixed, err
-		}
-		accounts = s.filterAccountsBySchedulingThreshold(ctx, accounts)
-		if platform == PlatformGrok || strings.EqualFold(platform, PlatformGrok) {
-			accounts = s.filterGrokFreeQuotaAccountsForGateway(ctx, accounts)
-		}
-		return accounts, useMixed, nil
-	}
 	if useMixed {
 		platforms := []string{platform, PlatformAntigravity}
 		var accounts []Account
@@ -1211,12 +1189,12 @@ func (s *GatewayService) isAccountAllowedForPlatform(account *Account, platform 
 		return false
 	}
 	if useMixed {
-		if account.Platform == platform || account.HasRouteTargetPlatform(platform) {
+		if account.Platform == platform {
 			return true
 		}
 		return account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()
 	}
-	return account.Platform == platform || account.HasRouteTargetPlatform(platform)
+	return account.Platform == platform
 }
 
 func (s *GatewayService) isAccountSchedulableForSelection(account *Account) bool {
@@ -1674,86 +1652,16 @@ func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Ac
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected gateway account %d not found during hydration", account.ID)
 	}
-	if account.EffectiveUpstreamTarget != nil {
-		target := *account.EffectiveUpstreamTarget
-		hydrated = cloneAccountForEffectiveTarget(hydrated, target)
-	}
 	return hydrated, nil
 }
 
-func cloneAccountForEffectiveTarget(account *Account, target EffectiveUpstreamTarget) *Account {
-	if account == nil {
-		return nil
-	}
-	copy := *account
-	copy.EffectiveUpstreamTarget = &target
-	return &copy
-}
-
-func (s *GatewayService) hydrateSelectedAccountForTarget(ctx context.Context, account *Account, publicModel, platform string) (*Account, error) {
-	// Resolve against the scheduler candidate before hydration. Scheduler test
-	// doubles and a small number of transitional cache entries may only carry
-	// the fields needed for selection after hydration; preserving the request
-	// local target here keeps legacy mixed scheduling (notably Antigravity) and
-	// model routes stable without mutating the physical account platform.
-	var resolvedTarget *EffectiveUpstreamTarget
-	if account != nil && strings.TrimSpace(publicModel) != "" {
-		if target, ok := account.ResolveEffectiveUpstreamTarget(publicModel, platform); ok {
-			resolvedTarget = &target
-		}
-	}
-	hydrated, err := s.hydrateSelectedAccount(ctx, account)
-	if err != nil || hydrated == nil || strings.TrimSpace(publicModel) == "" {
-		return hydrated, err
-	}
-	if resolvedTarget != nil {
-		return cloneAccountForEffectiveTarget(hydrated, *resolvedTarget), nil
-	}
-	selected, ok := hydrated.WithEffectiveUpstreamTarget(publicModel, platform)
-	if !ok {
-		return nil, fmt.Errorf("%w supporting model: %s (model route unavailable for %s)", ErrNoAvailableAccounts, publicModel, platform)
-	}
-	return selected, nil
-}
-
 func (s *GatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {
-	var resolvedTarget *EffectiveUpstreamTarget
-	if account != nil {
-		if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK {
-			if platform, platformOK := ResolvedTargetPlatformFromContext(ctx); platformOK {
-				if target, ok := account.ResolveEffectiveUpstreamTarget(publicModel, platform); ok {
-					resolvedTarget = &target
-				}
-			}
-		}
-	}
 	hydrated, err := s.hydrateSelectedAccount(ctx, account)
 	if err != nil {
 		if acquired && release != nil {
 			release()
 		}
 		return nil, err
-	}
-	if publicModel, ok := RequestedPublicModelFromContext(ctx); ok {
-		if platform, platformOK := ResolvedTargetPlatformFromContext(ctx); platformOK {
-			if resolvedTarget != nil {
-				hydrated = cloneAccountForEffectiveTarget(hydrated, *resolvedTarget)
-				return attachSelectionProfitGate(ctx, &AccountSelectionResult{
-					Account:     hydrated,
-					Acquired:    acquired,
-					ReleaseFunc: release,
-					WaitPlan:    waitPlan,
-				}), nil
-			}
-			selected, routeOK := hydrated.WithEffectiveUpstreamTarget(publicModel, platform)
-			if !routeOK {
-				if acquired && release != nil {
-					release()
-				}
-				return nil, fmt.Errorf("%w supporting model: %s (model route unavailable for %s)", ErrNoAvailableAccounts, publicModel, platform)
-			}
-			hydrated = selected
-		}
 	}
 	return attachSelectionProfitGate(ctx, &AccountSelectionResult{
 		Account:     hydrated,
@@ -2128,7 +2036,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
-						if !clearSticky && s.isGatewayAccountProfitEligible(ctx, account) && s.isAccountInGroup(account, groupID) && s.isAccountAllowedForPlatform(account, platform, false) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
+						if !clearSticky && s.isGatewayAccountProfitEligible(ctx, account) && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
 							if s.debugModelRoutingEnabled() {
 								logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
 							}
@@ -2250,7 +2158,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
-					if !clearSticky && s.isGatewayAccountProfitEligible(ctx, account) && s.isAccountInGroup(account, groupID) && s.isAccountAllowedForPlatform(account, platform, false) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
+					if !clearSticky && s.isGatewayAccountProfitEligible(ctx, account) && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
 						return account, nil
 					}
 				}
@@ -2768,27 +2676,16 @@ func isPlatformFilteredForSelection(acc *Account, platform string, allowMixedSch
 	if acc == nil {
 		return true
 	}
-	requestedPlatform := strings.ToLower(strings.TrimSpace(platform))
-	// A model-routed account may have a different physical platform from the
-	// provider that serves this request. Once route data exists, use the
-	// schedulable route catalog as the source of truth and fail closed when the
-	// requested provider has no matching route. This keeps diagnostics aligned
-	// with the production repository/snapshot filters instead of reporting a
-	// routed account as platform-mismatched merely because Account.Platform is
-	// its physical provider.
-	if acc.HasUpstreamModelRoutes() && requestedPlatform != "" {
-		return !acc.HasRouteTargetPlatform(requestedPlatform)
-	}
 	if allowMixedScheduling {
-		if strings.EqualFold(strings.TrimSpace(acc.Platform), PlatformAntigravity) {
+		if acc.Platform == PlatformAntigravity {
 			return !acc.IsMixedSchedulingEnabled()
 		}
-		return !strings.EqualFold(strings.TrimSpace(acc.Platform), requestedPlatform)
+		return acc.Platform != platform
 	}
-	if requestedPlatform == "" {
+	if strings.TrimSpace(platform) == "" {
 		return false
 	}
-	return !strings.EqualFold(strings.TrimSpace(acc.Platform), requestedPlatform)
+	return acc.Platform != platform
 }
 
 func appendSelectionFailureSampleID(samples []int64, id int64) []int64 {
@@ -2825,20 +2722,6 @@ func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 // isModelSupportedByAccountWithContext 根据账户平台检查模型支持（带 context）
 // 对于 Antigravity 平台，会先获取映射后的最终模型名（包括 thinking 后缀）再检查支持
 func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
-	publicModel := requestedModel
-	if resolved, ok := RequestedPublicModelFromContext(ctx); ok {
-		publicModel = resolved
-	}
-	targetPlatform := ""
-	if resolved, ok := ResolvedTargetPlatformFromContext(ctx); ok {
-		targetPlatform = resolved
-	} else if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && group != nil && group.Platform != PlatformComposite {
-		targetPlatform = group.Platform
-	}
-	if account != nil && account.HasUpstreamModelRoutes() {
-		_, ok := account.ResolveUpstreamModelRoute(publicModel, targetPlatform)
-		return ok
-	}
 	if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {
 		if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK && !explicitModelMappingClaims(*account, publicModel) {
 			return false

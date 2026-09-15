@@ -54,7 +54,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamhealthobservation"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
-	"github.com/Wei-Shaw/sub2api/ent/upstreamkeymodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
@@ -153,8 +152,6 @@ type Client struct {
 	UpstreamIncident *UpstreamIncidentClient
 	// UpstreamKey is the client for interacting with the UpstreamKey builders.
 	UpstreamKey *UpstreamKeyClient
-	// UpstreamKeyModelRoute is the client for interacting with the UpstreamKeyModelRoute builders.
-	UpstreamKeyModelRoute *UpstreamKeyModelRouteClient
 	// UpstreamKeyRateSnapshot is the client for interacting with the UpstreamKeyRateSnapshot builders.
 	UpstreamKeyRateSnapshot *UpstreamKeyRateSnapshotClient
 	// UpstreamSyncResult is the client for interacting with the UpstreamSyncResult builders.
@@ -227,7 +224,6 @@ func (c *Client) init() {
 	c.UpstreamHealthObservation = NewUpstreamHealthObservationClient(c.config)
 	c.UpstreamIncident = NewUpstreamIncidentClient(c.config)
 	c.UpstreamKey = NewUpstreamKeyClient(c.config)
-	c.UpstreamKeyModelRoute = NewUpstreamKeyModelRouteClient(c.config)
 	c.UpstreamKeyRateSnapshot = NewUpstreamKeyRateSnapshotClient(c.config)
 	c.UpstreamSyncResult = NewUpstreamSyncResultClient(c.config)
 	c.UpstreamSyncRun = NewUpstreamSyncRunClient(c.config)
@@ -370,7 +366,6 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		UpstreamHealthObservation:     NewUpstreamHealthObservationClient(cfg),
 		UpstreamIncident:              NewUpstreamIncidentClient(cfg),
 		UpstreamKey:                   NewUpstreamKeyClient(cfg),
-		UpstreamKeyModelRoute:         NewUpstreamKeyModelRouteClient(cfg),
 		UpstreamKeyRateSnapshot:       NewUpstreamKeyRateSnapshotClient(cfg),
 		UpstreamSyncResult:            NewUpstreamSyncResultClient(cfg),
 		UpstreamSyncRun:               NewUpstreamSyncRunClient(cfg),
@@ -440,7 +435,6 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		UpstreamHealthObservation:     NewUpstreamHealthObservationClient(cfg),
 		UpstreamIncident:              NewUpstreamIncidentClient(cfg),
 		UpstreamKey:                   NewUpstreamKeyClient(cfg),
-		UpstreamKeyModelRoute:         NewUpstreamKeyModelRouteClient(cfg),
 		UpstreamKeyRateSnapshot:       NewUpstreamKeyRateSnapshotClient(cfg),
 		UpstreamSyncResult:            NewUpstreamSyncResultClient(cfg),
 		UpstreamSyncRun:               NewUpstreamSyncRunClient(cfg),
@@ -492,8 +486,8 @@ func (c *Client) Use(hooks ...Hook) {
 		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UpstreamAuthSession,
 		c.UpstreamBalanceSnapshot, c.UpstreamConfig, c.UpstreamEvent,
 		c.UpstreamHealthObservation, c.UpstreamIncident, c.UpstreamKey,
-		c.UpstreamKeyModelRoute, c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult,
-		c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
+		c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult, c.UpstreamSyncRun,
+		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
 		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
 		c.UserSubscription,
 	} {
@@ -516,8 +510,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UpstreamAuthSession,
 		c.UpstreamBalanceSnapshot, c.UpstreamConfig, c.UpstreamEvent,
 		c.UpstreamHealthObservation, c.UpstreamIncident, c.UpstreamKey,
-		c.UpstreamKeyModelRoute, c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult,
-		c.UpstreamSyncRun, c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
+		c.UpstreamKeyRateSnapshot, c.UpstreamSyncResult, c.UpstreamSyncRun,
+		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
 		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
 		c.UserSubscription,
 	} {
@@ -606,8 +600,6 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.UpstreamIncident.mutate(ctx, m)
 	case *UpstreamKeyMutation:
 		return c.UpstreamKey.mutate(ctx, m)
-	case *UpstreamKeyModelRouteMutation:
-		return c.UpstreamKeyModelRoute.mutate(ctx, m)
 	case *UpstreamKeyRateSnapshotMutation:
 		return c.UpstreamKeyRateSnapshot.mutate(ctx, m)
 	case *UpstreamSyncResultMutation:
@@ -7008,22 +7000,6 @@ func (c *UpstreamKeyClient) QueryAccounts(_m *UpstreamKey) *AccountQuery {
 	return query
 }
 
-// QueryModelRoutes queries the model_routes edge of a UpstreamKey.
-func (c *UpstreamKeyClient) QueryModelRoutes(_m *UpstreamKey) *UpstreamKeyModelRouteQuery {
-	query := (&UpstreamKeyModelRouteClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := _m.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(upstreamkey.Table, upstreamkey.FieldID, id),
-			sqlgraph.To(upstreamkeymodelroute.Table, upstreamkeymodelroute.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, upstreamkey.ModelRoutesTable, upstreamkey.ModelRoutesColumn),
-		)
-		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
 // QueryEvents queries the events edge of a UpstreamKey.
 func (c *UpstreamKeyClient) QueryEvents(_m *UpstreamKey) *UpstreamEventQuery {
 	query := (&UpstreamEventClient{config: c.config}).Query()
@@ -7112,157 +7088,6 @@ func (c *UpstreamKeyClient) mutate(ctx context.Context, m *UpstreamKeyMutation) 
 		return (&UpstreamKeyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown UpstreamKey mutation op: %q", m.Op())
-	}
-}
-
-// UpstreamKeyModelRouteClient is a client for the UpstreamKeyModelRoute schema.
-type UpstreamKeyModelRouteClient struct {
-	config
-}
-
-// NewUpstreamKeyModelRouteClient returns a client for the UpstreamKeyModelRoute from the given config.
-func NewUpstreamKeyModelRouteClient(c config) *UpstreamKeyModelRouteClient {
-	return &UpstreamKeyModelRouteClient{config: c}
-}
-
-// Use adds a list of mutation hooks to the hooks stack.
-// A call to `Use(f, g, h)` equals to `upstreamkeymodelroute.Hooks(f(g(h())))`.
-func (c *UpstreamKeyModelRouteClient) Use(hooks ...Hook) {
-	c.hooks.UpstreamKeyModelRoute = append(c.hooks.UpstreamKeyModelRoute, hooks...)
-}
-
-// Intercept adds a list of query interceptors to the interceptors stack.
-// A call to `Intercept(f, g, h)` equals to `upstreamkeymodelroute.Intercept(f(g(h())))`.
-func (c *UpstreamKeyModelRouteClient) Intercept(interceptors ...Interceptor) {
-	c.inters.UpstreamKeyModelRoute = append(c.inters.UpstreamKeyModelRoute, interceptors...)
-}
-
-// Create returns a builder for creating a UpstreamKeyModelRoute entity.
-func (c *UpstreamKeyModelRouteClient) Create() *UpstreamKeyModelRouteCreate {
-	mutation := newUpstreamKeyModelRouteMutation(c.config, OpCreate)
-	return &UpstreamKeyModelRouteCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// CreateBulk returns a builder for creating a bulk of UpstreamKeyModelRoute entities.
-func (c *UpstreamKeyModelRouteClient) CreateBulk(builders ...*UpstreamKeyModelRouteCreate) *UpstreamKeyModelRouteCreateBulk {
-	return &UpstreamKeyModelRouteCreateBulk{config: c.config, builders: builders}
-}
-
-// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
-// a builder and applies setFunc on it.
-func (c *UpstreamKeyModelRouteClient) MapCreateBulk(slice any, setFunc func(*UpstreamKeyModelRouteCreate, int)) *UpstreamKeyModelRouteCreateBulk {
-	rv := reflect.ValueOf(slice)
-	if rv.Kind() != reflect.Slice {
-		return &UpstreamKeyModelRouteCreateBulk{err: fmt.Errorf("calling to UpstreamKeyModelRouteClient.MapCreateBulk with wrong type %T, need slice", slice)}
-	}
-	builders := make([]*UpstreamKeyModelRouteCreate, rv.Len())
-	for i := 0; i < rv.Len(); i++ {
-		builders[i] = c.Create()
-		setFunc(builders[i], i)
-	}
-	return &UpstreamKeyModelRouteCreateBulk{config: c.config, builders: builders}
-}
-
-// Update returns an update builder for UpstreamKeyModelRoute.
-func (c *UpstreamKeyModelRouteClient) Update() *UpstreamKeyModelRouteUpdate {
-	mutation := newUpstreamKeyModelRouteMutation(c.config, OpUpdate)
-	return &UpstreamKeyModelRouteUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOne returns an update builder for the given entity.
-func (c *UpstreamKeyModelRouteClient) UpdateOne(_m *UpstreamKeyModelRoute) *UpstreamKeyModelRouteUpdateOne {
-	mutation := newUpstreamKeyModelRouteMutation(c.config, OpUpdateOne, withUpstreamKeyModelRoute(_m))
-	return &UpstreamKeyModelRouteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOneID returns an update builder for the given id.
-func (c *UpstreamKeyModelRouteClient) UpdateOneID(id int64) *UpstreamKeyModelRouteUpdateOne {
-	mutation := newUpstreamKeyModelRouteMutation(c.config, OpUpdateOne, withUpstreamKeyModelRouteID(id))
-	return &UpstreamKeyModelRouteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// Delete returns a delete builder for UpstreamKeyModelRoute.
-func (c *UpstreamKeyModelRouteClient) Delete() *UpstreamKeyModelRouteDelete {
-	mutation := newUpstreamKeyModelRouteMutation(c.config, OpDelete)
-	return &UpstreamKeyModelRouteDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// DeleteOne returns a builder for deleting the given entity.
-func (c *UpstreamKeyModelRouteClient) DeleteOne(_m *UpstreamKeyModelRoute) *UpstreamKeyModelRouteDeleteOne {
-	return c.DeleteOneID(_m.ID)
-}
-
-// DeleteOneID returns a builder for deleting the given entity by its id.
-func (c *UpstreamKeyModelRouteClient) DeleteOneID(id int64) *UpstreamKeyModelRouteDeleteOne {
-	builder := c.Delete().Where(upstreamkeymodelroute.ID(id))
-	builder.mutation.id = &id
-	builder.mutation.op = OpDeleteOne
-	return &UpstreamKeyModelRouteDeleteOne{builder}
-}
-
-// Query returns a query builder for UpstreamKeyModelRoute.
-func (c *UpstreamKeyModelRouteClient) Query() *UpstreamKeyModelRouteQuery {
-	return &UpstreamKeyModelRouteQuery{
-		config: c.config,
-		ctx:    &QueryContext{Type: TypeUpstreamKeyModelRoute},
-		inters: c.Interceptors(),
-	}
-}
-
-// Get returns a UpstreamKeyModelRoute entity by its id.
-func (c *UpstreamKeyModelRouteClient) Get(ctx context.Context, id int64) (*UpstreamKeyModelRoute, error) {
-	return c.Query().Where(upstreamkeymodelroute.ID(id)).Only(ctx)
-}
-
-// GetX is like Get, but panics if an error occurs.
-func (c *UpstreamKeyModelRouteClient) GetX(ctx context.Context, id int64) *UpstreamKeyModelRoute {
-	obj, err := c.Get(ctx, id)
-	if err != nil {
-		panic(err)
-	}
-	return obj
-}
-
-// QueryKey queries the key edge of a UpstreamKeyModelRoute.
-func (c *UpstreamKeyModelRouteClient) QueryKey(_m *UpstreamKeyModelRoute) *UpstreamKeyQuery {
-	query := (&UpstreamKeyClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := _m.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(upstreamkeymodelroute.Table, upstreamkeymodelroute.FieldID, id),
-			sqlgraph.To(upstreamkey.Table, upstreamkey.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, upstreamkeymodelroute.KeyTable, upstreamkeymodelroute.KeyColumn),
-		)
-		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
-// Hooks returns the client hooks.
-func (c *UpstreamKeyModelRouteClient) Hooks() []Hook {
-	hooks := c.hooks.UpstreamKeyModelRoute
-	return append(hooks[:len(hooks):len(hooks)], upstreamkeymodelroute.Hooks[:]...)
-}
-
-// Interceptors returns the client interceptors.
-func (c *UpstreamKeyModelRouteClient) Interceptors() []Interceptor {
-	inters := c.inters.UpstreamKeyModelRoute
-	return append(inters[:len(inters):len(inters)], upstreamkeymodelroute.Interceptors[:]...)
-}
-
-func (c *UpstreamKeyModelRouteClient) mutate(ctx context.Context, m *UpstreamKeyModelRouteMutation) (Value, error) {
-	switch m.Op() {
-	case OpCreate:
-		return (&UpstreamKeyModelRouteCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdate:
-		return (&UpstreamKeyModelRouteUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdateOne:
-		return (&UpstreamKeyModelRouteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpDelete, OpDeleteOne:
-		return (&UpstreamKeyModelRouteDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
-	default:
-		return nil, fmt.Errorf("ent: unknown UpstreamKeyModelRoute mutation op: %q", m.Op())
 	}
 }
 
@@ -9341,10 +9166,9 @@ type (
 		SubscriptionPlan, TLSFingerprintProfile, UpstreamAuthSession,
 		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent,
 		UpstreamHealthObservation, UpstreamIncident, UpstreamKey,
-		UpstreamKeyModelRoute, UpstreamKeyRateSnapshot, UpstreamSyncResult,
-		UpstreamSyncRun, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription []ent.Hook
+		UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask,
+		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
@@ -9357,10 +9181,9 @@ type (
 		SubscriptionPlan, TLSFingerprintProfile, UpstreamAuthSession,
 		UpstreamBalanceSnapshot, UpstreamConfig, UpstreamEvent,
 		UpstreamHealthObservation, UpstreamIncident, UpstreamKey,
-		UpstreamKeyModelRoute, UpstreamKeyRateSnapshot, UpstreamSyncResult,
-		UpstreamSyncRun, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription []ent.Interceptor
+		UpstreamKeyRateSnapshot, UpstreamSyncResult, UpstreamSyncRun, UsageCleanupTask,
+		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )
 

@@ -75,15 +75,6 @@ type Account struct {
 	UpstreamImagePricing    *UpstreamKeyImagePricing  // 仅上游管理/图片调度展示
 	UpstreamVideoPricing    *UpstreamKeyVideoPricing  // 仅上游管理展示
 	UpstreamLongContext     *UpstreamLongContextState // 仅上游管理展示/计费来源
-	// UpstreamModelRoutes is the model-level capability catalog hydrated from
-	// the bound physical key. It is runtime-only; credentials and capacity stay
-	// attached to this single account even when its models target several
-	// concrete platforms.
-	UpstreamModelRoutes []UpstreamKeyModelRoute
-	// EffectiveUpstreamTarget is request-local selection output. Account.Platform
-	// remains the physical account's main platform for persistence and admin
-	// compatibility; forwarding code must use EffectivePlatform/Model/Protocol.
-	EffectiveUpstreamTarget *EffectiveUpstreamTarget
 	// UpstreamSchedulingEnabled is hydrated from the parent upstream config.
 	// nil keeps old scheduler snapshots compatible and means no parent gate.
 	UpstreamSchedulingEnabled *bool
@@ -401,11 +392,11 @@ func (a *Account) IsPrivacySet() bool {
 }
 
 func (a *Account) IsGemini() bool {
-	return a != nil && a.EffectivePlatform() == PlatformGemini
+	return a.Platform == PlatformGemini
 }
 
 func (a *Account) IsGrok() bool {
-	return a != nil && a.EffectivePlatform() == PlatformGrok
+	return a.Platform == PlatformGrok
 }
 
 func (a *Account) IsGrokOAuth() bool {
@@ -414,31 +405,31 @@ func (a *Account) IsGrokOAuth() bool {
 
 // IsKimi / IsZhipu / IsDeepseek 标识国产 OpenAI 兼容供应商账号。
 func (a *Account) IsKimi() bool {
-	return a != nil && a.EffectivePlatform() == PlatformKimi
+	return a.Platform == PlatformKimi
 }
 
 func (a *Account) IsZhipu() bool {
-	return a != nil && a.EffectivePlatform() == PlatformZhipu
+	return a.Platform == PlatformZhipu
 }
 
 func (a *Account) IsDeepseek() bool {
-	return a != nil && a.EffectivePlatform() == PlatformDeepseek
+	return a.Platform == PlatformDeepseek
 }
 
 func (a *Account) IsMiniMax() bool {
-	return a != nil && a.EffectivePlatform() == PlatformMiniMax
+	return a.Platform == PlatformMiniMax
 }
 
 // IsCNProvider 报告是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek/minimax）。
 func (a *Account) IsCNProvider() bool {
-	return a != nil && IsCNProvider(a.EffectivePlatform())
+	return a != nil && IsCNProvider(a.Platform)
 }
 
 // IsOpenAICompatible 报告账号是否走 OpenAI 网关（OpenAI 协议族）。
 // openai/grok 原生走 OpenAI 网关；国产供应商同为 OpenAI Chat Completions
 // 兼容上游，也经 OpenAI 网关转发。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.EffectivePlatform() == PlatformOpenAI || a.EffectivePlatform() == PlatformGrok || a.IsCNProvider())
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider())
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -1010,11 +1001,6 @@ func (a *Account) GetMappedModel(requestedModel string) string {
 // ResolveMappedModel 获取映射后的模型名，并返回是否命中了账号级映射。
 // matched=true 表示命中了精确映射或通配符映射，即使映射结果与原模型名相同。
 func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string, matched bool) {
-	if a != nil && a.EffectiveUpstreamTarget != nil &&
-		strings.EqualFold(strings.TrimSpace(a.EffectiveUpstreamTarget.PublicModel), strings.TrimSpace(requestedModel)) &&
-		strings.TrimSpace(a.EffectiveUpstreamTarget.UpstreamModel) != "" {
-		return strings.TrimSpace(a.EffectiveUpstreamTarget.UpstreamModel), true
-	}
 	mapping := a.schedulableModelMapping(time.Now().UTC())
 	if len(mapping) == 0 {
 		return requestedModel, false
@@ -1103,26 +1089,14 @@ func (a *Account) ResolveCompactMappedModel(requestedModel string) (mappedModel 
 }
 
 func (a *Account) GetBaseURL() string {
-	if a == nil || a.Type != AccountTypeAPIKey {
+	if a.Type != AccountTypeAPIKey {
 		return ""
-	}
-	if endpoint, routed := a.EffectiveUpstreamEndpoint(); routed {
-		if endpoint == "" {
-			// A model-level route crossing physical platforms without an
-			// explicit endpoint must fail closed. Falling back to the physical
-			// provider's default would send the request to the wrong upstream.
-			return ""
-		}
-		if a.EffectivePlatform() == PlatformAntigravity {
-			return strings.TrimRight(endpoint, "/") + "/antigravity"
-		}
-		return endpoint
 	}
 	baseURL := a.GetCredential("base_url")
 	if baseURL == "" {
 		return "https://api.anthropic.com"
 	}
-	if a.EffectivePlatform() == PlatformAntigravity {
+	if a.Platform == PlatformAntigravity {
 		return strings.TrimRight(baseURL, "/") + "/antigravity"
 	}
 	return baseURL
@@ -1131,23 +1105,11 @@ func (a *Account) GetBaseURL() string {
 // GetGeminiBaseURL 返回 Gemini 兼容端点的 base URL。
 // Antigravity 平台的 APIKey 账号自动拼接 /antigravity。
 func (a *Account) GetGeminiBaseURL(defaultBaseURL string) string {
-	if a == nil {
-		return defaultBaseURL
-	}
-	if endpoint, routed := a.EffectiveUpstreamEndpoint(); routed {
-		if endpoint == "" {
-			return ""
-		}
-		if a.EffectivePlatform() == PlatformAntigravity && a.Type == AccountTypeAPIKey {
-			return strings.TrimRight(endpoint, "/") + "/antigravity"
-		}
-		return endpoint
-	}
 	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
 	if baseURL == "" {
 		return defaultBaseURL
 	}
-	if a.EffectivePlatform() == PlatformAntigravity && a.Type == AccountTypeAPIKey {
+	if a.Platform == PlatformAntigravity && a.Type == AccountTypeAPIKey {
 		return strings.TrimRight(baseURL, "/") + "/antigravity"
 	}
 	return baseURL
@@ -1444,7 +1406,7 @@ func (a *Account) IsAPIKeyOrBedrock() bool {
 }
 
 func (a *Account) IsOpenAI() bool {
-	return a != nil && a.EffectivePlatform() == PlatformOpenAI
+	return a.Platform == PlatformOpenAI
 }
 
 func (a *Account) IsOpenAILongContextBillingEnabled() bool {
@@ -1456,7 +1418,7 @@ func (a *Account) IsOpenAILongContextBillingEnabled() bool {
 }
 
 func (a *Account) IsAnthropic() bool {
-	return a != nil && a.EffectivePlatform() == PlatformAnthropic
+	return a.Platform == PlatformAnthropic
 }
 
 func (a *Account) IsOpenAIOAuth() bool {
@@ -1507,9 +1469,6 @@ func (a *Account) GetOpenAIBaseURL() string {
 	if !a.IsOpenAI() && !a.IsCNProvider() {
 		return ""
 	}
-	if endpoint, routed := a.EffectiveUpstreamEndpoint(); routed {
-		return endpoint
-	}
 	if a.IsCNProvider() && a.IsAdaptiveAPIProtocol() {
 		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
 			if baseURL, ok := baseURLs[APIProtocolChatCompletions].(string); ok && strings.TrimSpace(baseURL) != "" {
@@ -1523,7 +1482,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 		}
 	}
 	// 平台默认 base_url：CN 供应商按 account_mode 选择 payg / coding 默认值。
-	switch a.EffectivePlatform() {
+	switch a.Platform {
 	case PlatformKimi:
 		if a.GetAccountMode() == AccountModeCoding {
 			return DefaultKimiCodingBaseURL
@@ -1566,9 +1525,6 @@ func (a *Account) IsCodingPlan() bool {
 // （与既有行为完全一致）。responses 协议仅 deepseek / kimi / minimax 支持（官方原生
 // Responses 端点，适配 Codex）；zhipu 无此端点。
 func (a *Account) GetAPIProtocol() string {
-	if a != nil && a.EffectiveUpstreamTarget != nil && strings.TrimSpace(a.EffectiveUpstreamTarget.APIProtocol) != "" {
-		return strings.TrimSpace(a.EffectiveUpstreamTarget.APIProtocol)
-	}
 	if a == nil || !a.IsCNProvider() {
 		return APIProtocolChatCompletions
 	}
@@ -1594,7 +1550,7 @@ func (a *Account) SupportsNativeCNResponses() bool {
 	if a == nil {
 		return false
 	}
-	switch a.EffectivePlatform() {
+	switch a.Platform {
 	case PlatformDeepseek, PlatformKimi, PlatformMiniMax:
 		return true
 	default:
@@ -1645,9 +1601,6 @@ func (a *Account) GetCNProtocolBaseURL(protocol string) string {
 	if a == nil || !a.IsCNProvider() {
 		return ""
 	}
-	if endpoint, routed := a.EffectiveUpstreamEndpoint(); routed {
-		return endpoint
-	}
 	if a.IsAdaptiveAPIProtocol() {
 		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
 			if baseURL, ok := baseURLs[protocol].(string); ok && strings.TrimSpace(baseURL) != "" {
@@ -1682,7 +1635,7 @@ func (a *Account) HasExplicitCNProtocolBaseURL(protocol string) bool {
 func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 	switch protocol {
 	case APIProtocolAnthropic:
-		switch a.EffectivePlatform() {
+		switch a.Platform {
 		case PlatformKimi:
 			if a.GetAccountMode() == AccountModeCoding {
 				return DefaultKimiCodingAnthropicBaseURL
@@ -1696,7 +1649,7 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 			return DefaultMiniMaxAnthropicBaseURL
 		}
 	case APIProtocolChatCompletions, APIProtocolResponses:
-		switch a.EffectivePlatform() {
+		switch a.Platform {
 		case PlatformKimi:
 			if a.GetAccountMode() == AccountModeCoding {
 				return DefaultKimiCodingBaseURL
@@ -1729,9 +1682,6 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 	if a == nil || (!a.IsAnthropicProtocol() && !a.IsAdaptiveAPIProtocol()) {
 		return ""
 	}
-	if endpoint, routed := a.EffectiveUpstreamEndpoint(); routed {
-		return endpoint
-	}
 	if a.IsAdaptiveAPIProtocol() {
 		return a.GetCNProtocolBaseURL(APIProtocolAnthropic)
 	}
@@ -1740,7 +1690,7 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 			return baseURL
 		}
 	}
-	switch a.EffectivePlatform() {
+	switch a.Platform {
 	case PlatformKimi:
 		if a.GetAccountMode() == AccountModeCoding {
 			return DefaultKimiCodingAnthropicBaseURL
@@ -1766,7 +1716,7 @@ func (a *Account) GetOpenAIFormatBaseURL() string {
 	if a == nil || !a.IsAnthropicProtocol() {
 		return a.GetOpenAIBaseURL()
 	}
-	switch a.EffectivePlatform() {
+	switch a.Platform {
 	case PlatformKimi:
 		if a.GetAccountMode() == AccountModeCoding {
 			return DefaultKimiCodingBaseURL
@@ -1855,9 +1805,6 @@ func (a *Account) GetGrokBaseURLOr(defaultBaseURL string) string {
 	if a == nil || !a.IsGrok() {
 		return ""
 	}
-	if endpoint, routed := a.EffectiveUpstreamEndpoint(); routed {
-		return endpoint
-	}
 	defaultBaseURL = strings.TrimRight(strings.TrimSpace(defaultBaseURL), "/")
 	if defaultBaseURL == "" {
 		if a.IsGrokOAuth() {
@@ -1938,15 +1885,7 @@ func (a *Account) GetOpenAIProtocolAPIKey() string {
 	if a == nil {
 		return ""
 	}
-	// A model-level route may intentionally cross the physical account's
-	// platform (for example an OpenAI-key account exposing a Claude-compatible
-	// model). API-key credentials belong to the physical account, so routed
-	// requests must not lose access merely because EffectivePlatform is now
-	// Anthropic/Gemini/etc.
-	if a.EffectiveUpstreamTarget != nil && a.Type == AccountTypeAPIKey {
-		return a.GetCredential("api_key")
-	}
-	if a.IsCNProvider() || a.IsGrok() {
+	if a.IsCNProvider() {
 		if a.Type != AccountTypeAPIKey {
 			return ""
 		}

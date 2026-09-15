@@ -222,7 +222,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 	userAgent := c.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(c)
 	inboundEndpoint := GetInboundEndpoint(c)
-	upstreamEndpoint := GetUpstreamEndpoint(c, account.EffectivePlatform())
+	upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 	requestPayloadHash := service.HashUsageRequestPayload([]byte(req.Query))
 	quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 	// Request IDs are billing idempotency keys, so they must be unique per invocation.

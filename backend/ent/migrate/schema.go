@@ -2110,63 +2110,6 @@ var (
 			},
 		},
 	}
-	// UpstreamKeyModelRoutesColumns holds the columns for the "upstream_key_model_routes" table.
-	UpstreamKeyModelRoutesColumns = []*schema.Column{
-		{Name: "id", Type: field.TypeInt64, Increment: true},
-		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
-		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
-		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
-		{Name: "public_model", Type: field.TypeString, Size: 200},
-		{Name: "upstream_model", Type: field.TypeString, Size: 200, Default: ""},
-		{Name: "target_platform", Type: field.TypeString, Size: 50, Default: ""},
-		{Name: "api_protocol", Type: field.TypeString, Size: 50, Default: ""},
-		{Name: "source", Type: field.TypeString, Size: 16, Default: "auto"},
-		{Name: "enabled", Type: field.TypeBool, Default: true},
-		{Name: "priority", Type: field.TypeInt, Default: 100},
-		{Name: "status", Type: field.TypeString, Size: 20, Default: "available"},
-		{Name: "last_seen_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
-		{Name: "last_error", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
-		{Name: "upstream_key_id", Type: field.TypeInt64},
-	}
-	// UpstreamKeyModelRoutesTable holds the schema information for the "upstream_key_model_routes" table.
-	UpstreamKeyModelRoutesTable = &schema.Table{
-		Name:       "upstream_key_model_routes",
-		Columns:    UpstreamKeyModelRoutesColumns,
-		PrimaryKey: []*schema.Column{UpstreamKeyModelRoutesColumns[0]},
-		ForeignKeys: []*schema.ForeignKey{
-			{
-				Symbol:     "upstream_key_model_routes_upstream_keys_model_routes",
-				Columns:    []*schema.Column{UpstreamKeyModelRoutesColumns[14]},
-				RefColumns: []*schema.Column{UpstreamKeysColumns[0]},
-				OnDelete:   schema.NoAction,
-			},
-		},
-		Indexes: []*schema.Index{
-			{
-				Name:    "upstreamkeymodelroute_upstream_key_id_public_model",
-				Unique:  true,
-				Columns: []*schema.Column{UpstreamKeyModelRoutesColumns[14], UpstreamKeyModelRoutesColumns[4]},
-				Annotation: &entsql.IndexAnnotation{
-					Where: "deleted_at IS NULL",
-				},
-			},
-			{
-				Name:    "upstreamkeymodelroute_upstream_key_id_enabled",
-				Unique:  false,
-				Columns: []*schema.Column{UpstreamKeyModelRoutesColumns[14], UpstreamKeyModelRoutesColumns[9]},
-			},
-			{
-				Name:    "upstreamkeymodelroute_upstream_key_id_target_platform_enabled",
-				Unique:  false,
-				Columns: []*schema.Column{UpstreamKeyModelRoutesColumns[14], UpstreamKeyModelRoutesColumns[6], UpstreamKeyModelRoutesColumns[9]},
-			},
-			{
-				Name:    "upstreamkeymodelroute_status",
-				Unique:  false,
-				Columns: []*schema.Column{UpstreamKeyModelRoutesColumns[11]},
-			},
-		},
-	}
 	// UpstreamKeyRateSnapshotsColumns holds the columns for the "upstream_key_rate_snapshots" table.
 	UpstreamKeyRateSnapshotsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2890,7 +2833,6 @@ var (
 		UpstreamHealthObservationsTable,
 		UpstreamIncidentsTable,
 		UpstreamKeysTable,
-		UpstreamKeyModelRoutesTable,
 		UpstreamKeyRateSnapshotsTable,
 		UpstreamSyncResultsTable,
 		UpstreamSyncRunsTable,
@@ -3062,10 +3004,6 @@ func init() {
 	UpstreamKeysTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
 	UpstreamKeysTable.Annotation = &entsql.Annotation{
 		Table: "upstream_keys",
-	}
-	UpstreamKeyModelRoutesTable.ForeignKeys[0].RefTable = UpstreamKeysTable
-	UpstreamKeyModelRoutesTable.Annotation = &entsql.Annotation{
-		Table: "upstream_key_model_routes",
 	}
 	UpstreamKeyRateSnapshotsTable.ForeignKeys[0].RefTable = UpstreamConfigsTable
 	UpstreamKeyRateSnapshotsTable.ForeignKeys[1].RefTable = UpstreamKeysTable

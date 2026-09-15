@@ -232,7 +232,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 	}
 
-	if account != nil && account.EffectivePlatform() == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
+	if account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
 		!isOpenAIResponsesCompactPath(c) && needsOpenAIResponsesClientToolAdaptation(body) {
 		adaptedBody, mapping, adaptErr := adaptOpenAIResponsesClientTools(body)
 		if adaptErr != nil {
@@ -600,7 +600,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 			if err != nil {
 				return nil, err
 			}
-			targetURL = buildOpenAIResponsesURLForPlatform(account.EffectivePlatform(), validatedURL)
+			targetURL = buildOpenAIResponsesURLForPlatform(account.Platform, validatedURL)
 		}
 	}
 	targetURL = appendOpenAIResponsesRequestPathSuffix(targetURL, openAIResponsesRequestPathSuffix(c))
@@ -898,7 +898,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		ProxyID:              opsUpstreamProxyID(account),
 		ProxyName:            opsUpstreamProxyName(account),
-		Platform:             account.EffectivePlatform(),
+		Platform:             account.Platform,
 		AccountID:            account.ID,
 		AccountName:          account.Name,
 		UpstreamStatusCode:   resp.StatusCode,
@@ -966,7 +966,7 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		ProxyID:              opsUpstreamProxyID(account),
 		ProxyName:            opsUpstreamProxyName(account),
-		Platform:             account.EffectivePlatform(),
+		Platform:             account.Platform,
 		AccountID:            account.ID,
 		AccountName:          account.Name,
 		UpstreamStatusCode:   resp.StatusCode,
@@ -1322,7 +1322,7 @@ func logOpenAICapacityFailoverSuppressed(
 	if account != nil {
 		fields = append(fields,
 			zap.Int64("account_id", account.ID),
-			zap.String("platform", account.EffectivePlatform()),
+			zap.String("platform", account.Platform),
 		)
 	}
 	logger.FromContext(ctx).Warn("gateway.failover_suppressed_after_semantic_output", fields...)
@@ -1503,7 +1503,7 @@ func openAIStreamFailedEventPassthroughBody(payload []byte, failedMessage string
 
 // applyOpenAIStreamFailedErrorPassthroughRule 对 response.failed 事件应用错误透传规则：
 // 归一化 body 供关键词匹配/消息提取，并推断语义状态码使按错误码配置的规则可以命中。
-// platform 必须传 account.EffectivePlatform()——同一物理账号可按模型路由到不同平台，规则按本次目标平台匹配。
+// platform 必须传 account.Platform——本服务同时承载 openai 与 grok 平台账号，规则按平台匹配。
 func applyOpenAIStreamFailedErrorPassthroughRule(
 	c *gin.Context,
 	platform string,
@@ -1693,7 +1693,7 @@ func (s *OpenAIGatewayService) recordOpenAIStreamUpstreamError(
 			Detail:             detail,
 		}
 		if account != nil {
-			event.Platform = account.EffectivePlatform()
+			event.Platform = account.Platform
 			event.AccountID = account.ID
 			event.AccountName = account.Name
 		}
@@ -1870,7 +1870,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
 	clientOutputStarted := false
-	codexFailureTerminal := account != nil && account.EffectivePlatform() == PlatformOpenAI
+	codexFailureTerminal := account != nil && account.Platform == PlatformOpenAI
 	failureDelivered := false
 	suppressCurrentEvent := false
 	responseFailedPending := false
@@ -2028,7 +2028,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			if codexFailureTerminal && sawBareError && !sawResponseFailed && eventType != "response.failed" {
 				suppressCurrentEvent = true
 			}
-			if !capacityFailoverSuppressedLogged && account != nil && account.EffectivePlatform() == PlatformOpenAI &&
+			if !capacityFailoverSuppressedLogged && account != nil && account.Platform == PlatformOpenAI &&
 				(eventType == "error" || eventType == "response.failed") &&
 				openAIStreamClientOutputStarted(c, clientOutputStarted) &&
 				isOpenAIUpstreamCapacityShedEvent(dataBytes) {
@@ -2099,7 +2099,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 							s.newOpenAIStreamFailoverErrorWithModel(c, account, true, upstreamRequestID, dataBytes, failedMessage, mappedModel, resp.Header)
 					}
 					if !cyberHit && !sawBareError {
-						if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.EffectivePlatform(), dataBytes, failedMessage); matched {
+						if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
 							// 命中透传规则也要记录 ops 上游错误事件（对齐 CC/Messages 与
 							// antigravity 先例），否则透传命中的 failed 在监控中不可见。
 							s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "http_error", dataBytes, failedMessage)

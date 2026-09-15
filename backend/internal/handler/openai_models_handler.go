@@ -31,7 +31,7 @@ func (h *GatewayHandler) pinnedOpenAIModels(c *gin.Context, group *service.Group
 		writeOpenAIModelsError(c, infraerrors.Code(err), "upstream_error", infraerrors.Message(err))
 		return
 	}
-	setOpsSelectedAccount(c, account.ID, account.EffectivePlatform())
+	setOpsSelectedAccount(c, account.ID, account.Platform)
 	writeOpenAIModelsResponse(c, response)
 }
 

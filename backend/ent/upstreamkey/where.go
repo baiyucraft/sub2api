@@ -1446,29 +1446,6 @@ func HasAccountsWith(preds ...predicate.Account) predicate.UpstreamKey {
 	})
 }
 
-// HasModelRoutes applies the HasEdge predicate on the "model_routes" edge.
-func HasModelRoutes() predicate.UpstreamKey {
-	return predicate.UpstreamKey(func(s *sql.Selector) {
-		step := sqlgraph.NewStep(
-			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, ModelRoutesTable, ModelRoutesColumn),
-		)
-		sqlgraph.HasNeighbors(s, step)
-	})
-}
-
-// HasModelRoutesWith applies the HasEdge predicate on the "model_routes" edge with a given conditions (other predicates).
-func HasModelRoutesWith(preds ...predicate.UpstreamKeyModelRoute) predicate.UpstreamKey {
-	return predicate.UpstreamKey(func(s *sql.Selector) {
-		step := newModelRoutesStep()
-		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
-			for _, p := range preds {
-				p(s)
-			}
-		})
-	})
-}
-
 // HasEvents applies the HasEdge predicate on the "events" edge.
 func HasEvents() predicate.UpstreamKey {
 	return predicate.UpstreamKey(func(s *sql.Selector) {

@@ -17,7 +17,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
-	"github.com/Wei-Shaw/sub2api/ent/upstreamkeymodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
@@ -468,21 +467,6 @@ func (_u *UpstreamKeyUpdate) AddAccounts(v ...*Account) *UpstreamKeyUpdate {
 	return _u.AddAccountIDs(ids...)
 }
 
-// AddModelRouteIDs adds the "model_routes" edge to the UpstreamKeyModelRoute entity by IDs.
-func (_u *UpstreamKeyUpdate) AddModelRouteIDs(ids ...int64) *UpstreamKeyUpdate {
-	_u.mutation.AddModelRouteIDs(ids...)
-	return _u
-}
-
-// AddModelRoutes adds the "model_routes" edges to the UpstreamKeyModelRoute entity.
-func (_u *UpstreamKeyUpdate) AddModelRoutes(v ...*UpstreamKeyModelRoute) *UpstreamKeyUpdate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.AddModelRouteIDs(ids...)
-}
-
 // AddEventIDs adds the "events" edge to the UpstreamEvent entity by IDs.
 func (_u *UpstreamKeyUpdate) AddEventIDs(ids ...int64) *UpstreamKeyUpdate {
 	_u.mutation.AddEventIDs(ids...)
@@ -573,27 +557,6 @@ func (_u *UpstreamKeyUpdate) RemoveAccounts(v ...*Account) *UpstreamKeyUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
-}
-
-// ClearModelRoutes clears all "model_routes" edges to the UpstreamKeyModelRoute entity.
-func (_u *UpstreamKeyUpdate) ClearModelRoutes() *UpstreamKeyUpdate {
-	_u.mutation.ClearModelRoutes()
-	return _u
-}
-
-// RemoveModelRouteIDs removes the "model_routes" edge to UpstreamKeyModelRoute entities by IDs.
-func (_u *UpstreamKeyUpdate) RemoveModelRouteIDs(ids ...int64) *UpstreamKeyUpdate {
-	_u.mutation.RemoveModelRouteIDs(ids...)
-	return _u
-}
-
-// RemoveModelRoutes removes "model_routes" edges to UpstreamKeyModelRoute entities.
-func (_u *UpstreamKeyUpdate) RemoveModelRoutes(v ...*UpstreamKeyModelRoute) *UpstreamKeyUpdate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveModelRouteIDs(ids...)
 }
 
 // ClearEvents clears all "events" edges to the UpstreamEvent entity.
@@ -968,51 +931,6 @@ func (_u *UpstreamKeyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.ModelRoutesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   upstreamkey.ModelRoutesTable,
-			Columns: []string{upstreamkey.ModelRoutesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(upstreamkeymodelroute.FieldID, field.TypeInt64),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.RemovedModelRoutesIDs(); len(nodes) > 0 && !_u.mutation.ModelRoutesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   upstreamkey.ModelRoutesTable,
-			Columns: []string{upstreamkey.ModelRoutesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(upstreamkeymodelroute.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.ModelRoutesIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   upstreamkey.ModelRoutesTable,
-			Columns: []string{upstreamkey.ModelRoutesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(upstreamkeymodelroute.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -1653,21 +1571,6 @@ func (_u *UpstreamKeyUpdateOne) AddAccounts(v ...*Account) *UpstreamKeyUpdateOne
 	return _u.AddAccountIDs(ids...)
 }
 
-// AddModelRouteIDs adds the "model_routes" edge to the UpstreamKeyModelRoute entity by IDs.
-func (_u *UpstreamKeyUpdateOne) AddModelRouteIDs(ids ...int64) *UpstreamKeyUpdateOne {
-	_u.mutation.AddModelRouteIDs(ids...)
-	return _u
-}
-
-// AddModelRoutes adds the "model_routes" edges to the UpstreamKeyModelRoute entity.
-func (_u *UpstreamKeyUpdateOne) AddModelRoutes(v ...*UpstreamKeyModelRoute) *UpstreamKeyUpdateOne {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.AddModelRouteIDs(ids...)
-}
-
 // AddEventIDs adds the "events" edge to the UpstreamEvent entity by IDs.
 func (_u *UpstreamKeyUpdateOne) AddEventIDs(ids ...int64) *UpstreamKeyUpdateOne {
 	_u.mutation.AddEventIDs(ids...)
@@ -1758,27 +1661,6 @@ func (_u *UpstreamKeyUpdateOne) RemoveAccounts(v ...*Account) *UpstreamKeyUpdate
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
-}
-
-// ClearModelRoutes clears all "model_routes" edges to the UpstreamKeyModelRoute entity.
-func (_u *UpstreamKeyUpdateOne) ClearModelRoutes() *UpstreamKeyUpdateOne {
-	_u.mutation.ClearModelRoutes()
-	return _u
-}
-
-// RemoveModelRouteIDs removes the "model_routes" edge to UpstreamKeyModelRoute entities by IDs.
-func (_u *UpstreamKeyUpdateOne) RemoveModelRouteIDs(ids ...int64) *UpstreamKeyUpdateOne {
-	_u.mutation.RemoveModelRouteIDs(ids...)
-	return _u
-}
-
-// RemoveModelRoutes removes "model_routes" edges to UpstreamKeyModelRoute entities.
-func (_u *UpstreamKeyUpdateOne) RemoveModelRoutes(v ...*UpstreamKeyModelRoute) *UpstreamKeyUpdateOne {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveModelRouteIDs(ids...)
 }
 
 // ClearEvents clears all "events" edges to the UpstreamEvent entity.
@@ -2183,51 +2065,6 @@ func (_u *UpstreamKeyUpdateOne) sqlSave(ctx context.Context) (_node *UpstreamKey
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.ModelRoutesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   upstreamkey.ModelRoutesTable,
-			Columns: []string{upstreamkey.ModelRoutesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(upstreamkeymodelroute.FieldID, field.TypeInt64),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.RemovedModelRoutesIDs(); len(nodes) > 0 && !_u.mutation.ModelRoutesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   upstreamkey.ModelRoutesTable,
-			Columns: []string{upstreamkey.ModelRoutesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(upstreamkeymodelroute.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.ModelRoutesIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   upstreamkey.ModelRoutesTable,
-			Columns: []string{upstreamkey.ModelRoutesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(upstreamkeymodelroute.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

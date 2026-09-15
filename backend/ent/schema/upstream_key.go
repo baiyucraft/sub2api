@@ -77,7 +77,6 @@ func (UpstreamKey) Edges() []ent.Edge {
 			Required().
 			Unique(),
 		edge.To("accounts", Account.Type),
-		edge.To("model_routes", UpstreamKeyModelRoute.Type),
 		edge.To("events", UpstreamEvent.Type),
 		edge.To("incidents", UpstreamIncident.Type),
 		edge.To("rate_snapshots", UpstreamKeyRateSnapshot.Type).

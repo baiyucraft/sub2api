@@ -16,7 +16,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
-	"github.com/Wei-Shaw/sub2api/ent/upstreamkeymodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
@@ -357,21 +356,6 @@ func (_c *UpstreamKeyCreate) AddAccounts(v ...*Account) *UpstreamKeyCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddAccountIDs(ids...)
-}
-
-// AddModelRouteIDs adds the "model_routes" edge to the UpstreamKeyModelRoute entity by IDs.
-func (_c *UpstreamKeyCreate) AddModelRouteIDs(ids ...int64) *UpstreamKeyCreate {
-	_c.mutation.AddModelRouteIDs(ids...)
-	return _c
-}
-
-// AddModelRoutes adds the "model_routes" edges to the UpstreamKeyModelRoute entity.
-func (_c *UpstreamKeyCreate) AddModelRoutes(v ...*UpstreamKeyModelRoute) *UpstreamKeyCreate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _c.AddModelRouteIDs(ids...)
 }
 
 // AddEventIDs adds the "events" edge to the UpstreamEvent entity by IDs.
@@ -757,22 +741,6 @@ func (_c *UpstreamKeyCreate) createSpec() (*UpstreamKey, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := _c.mutation.ModelRoutesIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   upstreamkey.ModelRoutesTable,
-			Columns: []string{upstreamkey.ModelRoutesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(upstreamkeymodelroute.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
