@@ -459,6 +459,8 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 			return failUpstreamHealthProbe(result, "unsupported_protocol", "probe_protocol_unsupported", errors.New("configured responses protocol is not supported by this provider"))
 		}
 		return s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
+	case PlatformOpenCodeGo:
+		return s.runOpenCodeGoUpstreamHealthProbe(ctx, account, result, challenge)
 	case PlatformGrok:
 		return s.runGrokUpstreamHealthProbe(ctx, account, result, challenge)
 	case PlatformAntigravity:
@@ -466,6 +468,36 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 	default:
 		return failUpstreamHealthProbe(result, "unsupported_platform", "probe_platform_unsupported", errors.New("platform does not support active probing"))
 	}
+}
+
+// runOpenCodeGoUpstreamHealthProbe follows the model-aware protocol catalog
+// used by OpenCode Go. The account remains a single physical credential while
+// the probe selects the native upstream contract for the requested model.
+func (s *AccountTestService) runOpenCodeGoUpstreamHealthProbe(ctx context.Context, account *Account, result UpstreamHealthProbeResult, challenge upstreamHealthChallenge) (UpstreamHealthProbeResult, error) {
+	requestedModel := strings.TrimSpace(result.Model)
+	mappedModel := account.GetMappedModel(requestedModel)
+	if strings.TrimSpace(mappedModel) == "" || !account.IsModelSupported(requestedModel) || isTextProbeUnsupportedModel(mappedModel) {
+		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", fmt.Errorf("OpenCode Go account does not support probe model %q", requestedModel))
+	}
+
+	protocol := account.GetAPIProtocol()
+	switch protocol {
+	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
+	default:
+		protocol = openCodeGoNativeProtocol(account, mappedModel)
+	}
+
+	var probed UpstreamHealthProbeResult
+	var err error
+	switch protocol {
+	case APIProtocolAnthropic:
+		probed, err = s.runAnthropicUpstreamHealthProbe(ctx, account, result, challenge)
+	case APIProtocolResponses:
+		probed, err = s.runCNNativeResponsesUpstreamHealthProbe(ctx, account, result, challenge)
+	default:
+		probed, err = s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
+	}
+	return probed, err
 }
 
 // runCNAdaptiveUpstreamHealthProbe verifies the preferred protocol chain for

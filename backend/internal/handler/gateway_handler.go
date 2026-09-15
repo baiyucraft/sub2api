@@ -1130,8 +1130,8 @@ func (h *GatewayHandler) releaseUnservedAccountSessions(accounts map[int64]*serv
 	}
 }
 
-// Models handles listing available models
-// GET /v1/models
+// Models lists visible models, or retrieves the exact list entry for a model path parameter.
+// GET /v1/models and /v1/models/:model (also exposed through root aliases)
 // Returns models based on account configurations (model_mapping whitelist)
 // Falls back to default models if no whitelist is configured
 func (h *GatewayHandler) Models(c *gin.Context) {
@@ -1187,18 +1187,12 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Fallback to default models
 	if platform == service.PlatformOpenAI {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   openai.DefaultModels,
-		})
+		writeModelsListResponse(c, openai.DefaultModels)
 		return
 	}
 
 	if platform == service.PlatformGemini {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   geminicli.DefaultModels,
-		})
+		writeModelsListResponse(c, geminicli.DefaultModels)
 		return
 	}
 	if platform == service.PlatformGrok {
@@ -1334,10 +1328,7 @@ func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
 			CreatedAt:   "2024-01-01T00:00:00Z",
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   models,
-	})
+	writeModelsListResponse(c, models)
 }
 
 func writeAllowlistedModelsList(c *gin.Context, platform string, modelIDs []string) {
@@ -1396,10 +1387,7 @@ func writeGrokModelsList(c *gin.Context, modelIDs []string) {
 		models = append(models, item)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   models,
-	})
+	writeModelsListResponse(c, models)
 }
 
 func grokModelSupportsConfigurableReasoning(modelID string) bool {
@@ -1432,10 +1420,7 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 			DisplayName: modelID,
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   models,
-	})
+	writeModelsListResponse(c, models)
 }
 
 // modelListingSource 决定模型列表过滤的候选来源：账户映射（availableModels）
@@ -1458,7 +1443,7 @@ func modelListingSource(platform string, availableModels, fallbackModels []strin
 func defaultCodexModelIDsForPlatform(platform string) []string {
 	switch platform {
 	case service.PlatformDeepseek:
-		return []string{"deepseek-v4-pro", "deepseek-v4-flash"}
+		return []string{"deepseek-v4-pro", "deepseek-v4-flash", "deepseek-flash"}
 	case service.PlatformMiniMax:
 		return []string{"MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"}
 	default:
