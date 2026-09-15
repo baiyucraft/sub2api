@@ -23,6 +23,7 @@ var monitorProviders = map[string]struct{}{
 	MonitorProviderZhipu:       {},
 	MonitorProviderDeepseek:    {},
 	MonitorProviderMiniMax:     {},
+	MonitorProviderOpenCodeGo:  {},
 }
 
 // probeCapableProviders 支持探活（probe / quota_probe）的 provider。
@@ -30,14 +31,15 @@ var monitorProviders = map[string]struct{}{
 //
 //nolint:gochecknoglobals // 静态查表，初始化后不变。
 var probeCapableProviders = map[string]struct{}{
-	MonitorProviderOpenAI:    {},
-	MonitorProviderAnthropic: {},
-	MonitorProviderGemini:    {},
-	MonitorProviderGrok:      {},
-	MonitorProviderKimi:      {},
-	MonitorProviderZhipu:     {},
-	MonitorProviderDeepseek:  {},
-	MonitorProviderMiniMax:   {},
+	MonitorProviderOpenAI:     {},
+	MonitorProviderAnthropic:  {},
+	MonitorProviderGemini:     {},
+	MonitorProviderGrok:       {},
+	MonitorProviderKimi:       {},
+	MonitorProviderZhipu:      {},
+	MonitorProviderDeepseek:   {},
+	MonitorProviderMiniMax:    {},
+	MonitorProviderOpenCodeGo: {},
 }
 
 // validateProvider 校验 provider 字符串。
@@ -94,7 +96,7 @@ func validateAPIMode(provider, apiMode string) error {
 	case MonitorAPIModeChatCompletions:
 		return nil
 	case MonitorAPIModeResponses:
-		if provider == "" || provider == MonitorProviderOpenAI || provider == MonitorProviderZhipu {
+		if provider == "" || provider == MonitorProviderOpenAI || provider == MonitorProviderZhipu || provider == MonitorProviderOpenCodeGo {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode
