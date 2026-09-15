@@ -169,6 +169,7 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 		SetExtra(normalizeJSONMap(account.Extra)).
 		SetConcurrency(account.Concurrency).
 		SetRpmLimit(account.RPMLimit).
+		SetProbeMinInputTokens(max(0, account.ProbeMinInputTokens)).
 		SetPriority(account.Priority).
 		SetStatus(account.Status).
 		SetErrorMessage(account.ErrorMessage).
@@ -675,6 +676,7 @@ func buildAccountUpdate(client *dbent.Client, account *service.Account, schedula
 		SetExtra(normalizeJSONMap(account.Extra)).
 		SetConcurrency(account.Concurrency).
 		SetRpmLimit(account.RPMLimit).
+		SetProbeMinInputTokens(max(0, account.ProbeMinInputTokens)).
 		SetPriority(account.Priority).
 		SetStatus(account.Status).
 		SetErrorMessage(account.ErrorMessage).
@@ -3458,6 +3460,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		args = append(args, *updates.RPMLimit)
 		idx++
 	}
+	if updates.ProbeMinInputTokens != nil {
+		setClauses = append(setClauses, "probe_min_input_tokens = $"+itoa(idx))
+		args = append(args, max(0, *updates.ProbeMinInputTokens))
+		idx++
+	}
 	if updates.Priority != nil {
 		setClauses = append(setClauses, "priority = $"+itoa(idx))
 		args = append(args, *updates.Priority)
@@ -4203,6 +4210,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		UpstreamArchiveReason:        m.UpstreamArchiveReason,
 		Concurrency:                  m.Concurrency,
 		RPMLimit:                     m.RpmLimit,
+		ProbeMinInputTokens:          max(0, m.ProbeMinInputTokens),
 		Priority:                     m.Priority,
 		RateMultiplier:               &rateMultiplier,
 		UpstreamSourceRateMultiplier: m.UpstreamSourceRateMultiplier,

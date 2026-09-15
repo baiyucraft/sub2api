@@ -97,6 +97,84 @@ type upstreamHealthChallenge struct {
 	ExpectedValue  string
 }
 
+// probeInputWithMinimumTokens pads only health-probe input. Some upstream keys
+// reject short request bodies even though normal user traffic may be shorter;
+// the probe must therefore satisfy the account threshold without changing the
+// user's request path. The arithmetic/confidence challenge remains at the end
+// of the text so response validation is unaffected.
+func probeInputWithMinimumTokens(account *Account, input string) string {
+	if account == nil || account.ProbeMinInputTokens <= 0 || strings.TrimSpace(input) == "" {
+		return input
+	}
+	const tokenChars = 4
+	const safetyChars = 64
+	current := len([]rune(input))
+	needed := account.ProbeMinInputTokens*tokenChars + safetyChars - current
+	if needed <= 0 {
+		return input
+	}
+	const unit = "probe context padding "
+	padding := strings.Repeat(unit, (needed+len(unit)-1)/len(unit))
+	paddingRunes := []rune(padding)
+	if len(paddingRunes) > needed {
+		padding = string(paddingRunes[:needed])
+	}
+	return padding + "\n\n" + input
+}
+
+func padUpstreamHealthChallenge(account *Account, challenge upstreamHealthChallenge) upstreamHealthChallenge {
+	if account == nil || account.ProbeMinInputTokens <= 0 {
+		return challenge
+	}
+	challenge.Prompt = probeInputWithMinimumTokens(account, challenge.Prompt)
+	challenge.LegacyPrompt = probeInputWithMinimumTokens(account, challenge.LegacyPrompt)
+	switch input := challenge.Input.(type) {
+	case []map[string]string:
+		copyInput := make([]map[string]string, len(input))
+		copy(copyInput, input)
+		padded := false
+		for i, item := range copyInput {
+			clone := make(map[string]string, len(item))
+			for key, value := range item {
+				clone[key] = value
+			}
+			if !padded && strings.EqualFold(strings.TrimSpace(clone["role"]), "user") {
+				if value := clone["content"]; value != "" {
+					clone["content"] = probeInputWithMinimumTokens(account, value)
+				}
+				if value := clone["text"]; value != "" {
+					clone["text"] = probeInputWithMinimumTokens(account, value)
+				}
+				padded = true
+			}
+			copyInput[i] = clone
+		}
+		challenge.Input = copyInput
+	case []map[string]any:
+		copyInput := make([]map[string]any, len(input))
+		copy(copyInput, input)
+		padded := false
+		for i, item := range copyInput {
+			clone := make(map[string]any, len(item))
+			for key, value := range item {
+				clone[key] = value
+			}
+			if !padded && strings.EqualFold(strings.TrimSpace(fmt.Sprint(clone["role"])), "user") {
+				if value, ok := clone["content"].(string); ok {
+					clone["content"] = probeInputWithMinimumTokens(account, value)
+				}
+				if value, ok := clone["text"].(string); ok {
+					clone["text"] = probeInputWithMinimumTokens(account, value)
+				}
+				padded = true
+			}
+			copyInput[i] = clone
+		}
+		challenge.Input = copyInput
+	}
+	return challenge
+}
+
 var juiceNumberPattern = regexp.MustCompile("^[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)$")
 
 type openAIJuicePromptTemplate struct{ ID, Prompt string }
@@ -343,18 +421,21 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 			if challengeErr != nil {
 				return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", challengeErr)
 			}
+			challenge = padUpstreamHealthChallenge(account, challenge)
 			return s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
 		}
 		juiceChallenge, juiceErr := newOpenAIConfidenceChallenge()
 		if juiceErr != nil {
 			return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", juiceErr)
 		}
+		juiceChallenge = padUpstreamHealthChallenge(account, juiceChallenge)
 		return s.runOpenAIUpstreamHealthProbe(ctx, account, result, juiceChallenge)
 	}
 	challenge, err := newUpstreamHealthChallenge()
 	if err != nil {
 		return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", err)
 	}
+	challenge = padUpstreamHealthChallenge(account, challenge)
 
 	switch platform {
 	case PlatformAnthropic:

@@ -1335,6 +1335,8 @@ export interface Account {
   concurrency: number
   /** Account-level requests-per-minute cap; 0 or missing means unlimited. */
   rpm_limit?: number
+  /** Minimum estimated input tokens accepted by this upstream account; 0 means unlimited. */
+  probe_min_input_tokens?: number
   load_factor?: number | null
   current_concurrency?: number // Real-time concurrency count from Redis
   scheduler_concurrency_limit?: number
@@ -1757,6 +1759,7 @@ export interface CreateAccountRequest {
   proxy_id?: number | null
   concurrency?: number
   rpm_limit?: number
+  probe_min_input_tokens?: number
   load_factor?: number | null
   priority?: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
@@ -1778,6 +1781,7 @@ export interface UpdateAccountRequest {
   proxy_id?: number | null
   concurrency?: number
   rpm_limit?: number
+  probe_min_input_tokens?: number
   load_factor?: number | null
   priority?: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)

@@ -101,6 +101,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	c.Request = c.Request.WithContext(service.WithGatewayInputTokenEstimate(
+		c.Request.Context(), service.EstimateGatewayInputTokens(body, "chat_completions"),
+	))
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
 	setOpsRequestContext(c, reqModel, reqStream)

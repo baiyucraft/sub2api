@@ -256,30 +256,34 @@ func init() {
 	accountDescRpmLimit := accountFields[15].Descriptor()
 	// account.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	account.DefaultRpmLimit = accountDescRpmLimit.Default.(int)
+	// accountDescProbeMinInputTokens is the schema descriptor for probe_min_input_tokens field.
+	accountDescProbeMinInputTokens := accountFields[16].Descriptor()
+	// account.DefaultProbeMinInputTokens holds the default value on creation for the probe_min_input_tokens field.
+	account.DefaultProbeMinInputTokens = accountDescProbeMinInputTokens.Default.(int)
 	// accountDescPriority is the schema descriptor for priority field.
-	accountDescPriority := accountFields[17].Descriptor()
+	accountDescPriority := accountFields[18].Descriptor()
 	// account.DefaultPriority holds the default value on creation for the priority field.
 	account.DefaultPriority = accountDescPriority.Default.(int)
 	// accountDescRateMultiplier is the schema descriptor for rate_multiplier field.
-	accountDescRateMultiplier := accountFields[18].Descriptor()
+	accountDescRateMultiplier := accountFields[19].Descriptor()
 	// account.DefaultRateMultiplier holds the default value on creation for the rate_multiplier field.
 	account.DefaultRateMultiplier = accountDescRateMultiplier.Default.(float64)
 	// accountDescStatus is the schema descriptor for status field.
-	accountDescStatus := accountFields[20].Descriptor()
+	accountDescStatus := accountFields[21].Descriptor()
 	// account.DefaultStatus holds the default value on creation for the status field.
 	account.DefaultStatus = accountDescStatus.Default.(string)
 	// account.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	account.StatusValidator = accountDescStatus.Validators[0].(func(string) error)
 	// accountDescAutoPauseOnExpired is the schema descriptor for auto_pause_on_expired field.
-	accountDescAutoPauseOnExpired := accountFields[24].Descriptor()
+	accountDescAutoPauseOnExpired := accountFields[25].Descriptor()
 	// account.DefaultAutoPauseOnExpired holds the default value on creation for the auto_pause_on_expired field.
 	account.DefaultAutoPauseOnExpired = accountDescAutoPauseOnExpired.Default.(bool)
 	// accountDescSchedulable is the schema descriptor for schedulable field.
-	accountDescSchedulable := accountFields[25].Descriptor()
+	accountDescSchedulable := accountFields[26].Descriptor()
 	// account.DefaultSchedulable holds the default value on creation for the schedulable field.
 	account.DefaultSchedulable = accountDescSchedulable.Default.(bool)
 	// accountDescSessionWindowStatus is the schema descriptor for session_window_status field.
-	accountDescSessionWindowStatus := accountFields[33].Descriptor()
+	accountDescSessionWindowStatus := accountFields[34].Descriptor()
 	// account.SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	account.SessionWindowStatusValidator = accountDescSessionWindowStatus.Validators[0].(func(string) error)
 	accountgroupFields := schema.AccountGroup{}.Fields()

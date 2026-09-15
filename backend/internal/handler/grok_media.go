@@ -96,6 +96,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			return
 		}
 	}
+	c.Request = c.Request.WithContext(service.WithGatewayInputTokenEstimate(
+		c.Request.Context(), service.EstimateGatewayInputTokens(body, "grok_media"),
+	))
 
 	contentType := c.GetHeader("Content-Type")
 	requestInfo := service.ParseGrokMediaRequest(contentType, body)

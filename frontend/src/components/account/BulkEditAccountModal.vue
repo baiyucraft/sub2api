@@ -52,6 +52,27 @@
         </div>
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
+            <label class="input-label mb-0" for="bulk-edit-probe-min-input-tokens-enabled">
+              {{ t('admin.accounts.probeMinInputTokens') }}
+            </label>
+            <input id="bulk-edit-probe-min-input-tokens-enabled" v-model="enableProbeMinInputTokens" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          </div>
+          <input
+            v-model.number="probeMinInputTokens"
+            id="bulk-edit-probe-min-input-tokens"
+            type="number"
+            min="0"
+            max="1000000"
+            step="1"
+            :disabled="!enableProbeMinInputTokens"
+            class="input"
+            :class="!enableProbeMinInputTokens && 'cursor-not-allowed opacity-50'"
+            @input="probeMinInputTokens = Math.max(0, Math.trunc(probeMinInputTokens || 0))"
+          />
+          <p class="input-hint">{{ t('admin.accounts.probeMinInputTokensHint') }}</p>
+        </div>
+        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
             <label class="input-label mb-0">{{ t('admin.accounts.modelMapping') }}</label>
             <input id="bulk-edit-upstream-model-mapping-enabled" v-model="enableModelRestriction" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </div>
@@ -1736,6 +1757,8 @@ const enableOpenAICompactMode = ref(false)
 const enableOpenAICompactModelMapping = ref(false)
 const enableRpmLimit = ref(false)
 const upstreamRpmLimit = ref(0)
+const enableProbeMinInputTokens = ref(false)
+const probeMinInputTokens = ref(0)
 
 // State - field values
 const submitting = ref(false)
@@ -2004,6 +2027,9 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (props.mode === 'upstream' && enableRpmLimit.value) {
     updates.rpm_limit = Math.max(0, Math.trunc(upstreamRpmLimit.value || 0))
+  }
+  if (props.mode === 'upstream' && enableProbeMinInputTokens.value) {
+    updates.probe_min_input_tokens = Math.max(0, Math.trunc(probeMinInputTokens.value || 0))
   }
 
   if (enableProxy.value) {
@@ -2306,6 +2332,7 @@ const handleSubmit = async () => {
     enableOpenAICompactMode.value ||
     enableOpenAICompactModelMapping.value ||
     enableRpmLimit.value ||
+    enableProbeMinInputTokens.value ||
     userMsgQueueMode.value !== null
 
   if (!hasAnyFieldEnabled) {
@@ -2462,6 +2489,8 @@ watch(
       enableOpenAICompactModelMapping.value = false
       enableRpmLimit.value = false
       upstreamRpmLimit.value = 0
+      enableProbeMinInputTokens.value = false
+      probeMinInputTokens.value = 0
 
       // Reset all values
       baseUrl.value = ''

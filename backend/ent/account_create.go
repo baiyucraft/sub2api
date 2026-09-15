@@ -254,6 +254,20 @@ func (_c *AccountCreate) SetNillableRpmLimit(v *int) *AccountCreate {
 	return _c
 }
 
+// SetProbeMinInputTokens sets the "probe_min_input_tokens" field.
+func (_c *AccountCreate) SetProbeMinInputTokens(v int) *AccountCreate {
+	_c.mutation.SetProbeMinInputTokens(v)
+	return _c
+}
+
+// SetNillableProbeMinInputTokens sets the "probe_min_input_tokens" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableProbeMinInputTokens(v *int) *AccountCreate {
+	if v != nil {
+		_c.SetProbeMinInputTokens(*v)
+	}
+	return _c
+}
+
 // SetLoadFactor sets the "load_factor" field.
 func (_c *AccountCreate) SetLoadFactor(v int) *AccountCreate {
 	_c.mutation.SetLoadFactor(v)
@@ -705,6 +719,10 @@ func (_c *AccountCreate) defaults() error {
 		v := account.DefaultRpmLimit
 		_c.mutation.SetRpmLimit(v)
 	}
+	if _, ok := _c.mutation.ProbeMinInputTokens(); !ok {
+		v := account.DefaultProbeMinInputTokens
+		_c.mutation.SetProbeMinInputTokens(v)
+	}
 	if _, ok := _c.mutation.Priority(); !ok {
 		v := account.DefaultPriority
 		_c.mutation.SetPriority(v)
@@ -788,6 +806,9 @@ func (_c *AccountCreate) check() error {
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "Account.rpm_limit"`)}
+	}
+	if _, ok := _c.mutation.ProbeMinInputTokens(); !ok {
+		return &ValidationError{Name: "probe_min_input_tokens", err: errors.New(`ent: missing required field "Account.probe_min_input_tokens"`)}
 	}
 	if _, ok := _c.mutation.Priority(); !ok {
 		return &ValidationError{Name: "priority", err: errors.New(`ent: missing required field "Account.priority"`)}
@@ -912,6 +933,10 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RpmLimit(); ok {
 		_spec.SetField(account.FieldRpmLimit, field.TypeInt, value)
 		_node.RpmLimit = value
+	}
+	if value, ok := _c.mutation.ProbeMinInputTokens(); ok {
+		_spec.SetField(account.FieldProbeMinInputTokens, field.TypeInt, value)
+		_node.ProbeMinInputTokens = value
 	}
 	if value, ok := _c.mutation.LoadFactor(); ok {
 		_spec.SetField(account.FieldLoadFactor, field.TypeInt, value)
@@ -1468,6 +1493,24 @@ func (u *AccountUpsert) UpdateRpmLimit() *AccountUpsert {
 // AddRpmLimit adds v to the "rpm_limit" field.
 func (u *AccountUpsert) AddRpmLimit(v int) *AccountUpsert {
 	u.Add(account.FieldRpmLimit, v)
+	return u
+}
+
+// SetProbeMinInputTokens sets the "probe_min_input_tokens" field.
+func (u *AccountUpsert) SetProbeMinInputTokens(v int) *AccountUpsert {
+	u.Set(account.FieldProbeMinInputTokens, v)
+	return u
+}
+
+// UpdateProbeMinInputTokens sets the "probe_min_input_tokens" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateProbeMinInputTokens() *AccountUpsert {
+	u.SetExcluded(account.FieldProbeMinInputTokens)
+	return u
+}
+
+// AddProbeMinInputTokens adds v to the "probe_min_input_tokens" field.
+func (u *AccountUpsert) AddProbeMinInputTokens(v int) *AccountUpsert {
+	u.Add(account.FieldProbeMinInputTokens, v)
 	return u
 }
 
@@ -2204,6 +2247,27 @@ func (u *AccountUpsertOne) AddRpmLimit(v int) *AccountUpsertOne {
 func (u *AccountUpsertOne) UpdateRpmLimit() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateRpmLimit()
+	})
+}
+
+// SetProbeMinInputTokens sets the "probe_min_input_tokens" field.
+func (u *AccountUpsertOne) SetProbeMinInputTokens(v int) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetProbeMinInputTokens(v)
+	})
+}
+
+// AddProbeMinInputTokens adds v to the "probe_min_input_tokens" field.
+func (u *AccountUpsertOne) AddProbeMinInputTokens(v int) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddProbeMinInputTokens(v)
+	})
+}
+
+// UpdateProbeMinInputTokens sets the "probe_min_input_tokens" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateProbeMinInputTokens() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateProbeMinInputTokens()
 	})
 }
 
@@ -3164,6 +3228,27 @@ func (u *AccountUpsertBulk) AddRpmLimit(v int) *AccountUpsertBulk {
 func (u *AccountUpsertBulk) UpdateRpmLimit() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateRpmLimit()
+	})
+}
+
+// SetProbeMinInputTokens sets the "probe_min_input_tokens" field.
+func (u *AccountUpsertBulk) SetProbeMinInputTokens(v int) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetProbeMinInputTokens(v)
+	})
+}
+
+// AddProbeMinInputTokens adds v to the "probe_min_input_tokens" field.
+func (u *AccountUpsertBulk) AddProbeMinInputTokens(v int) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddProbeMinInputTokens(v)
+	})
+}
+
+// UpdateProbeMinInputTokens sets the "probe_min_input_tokens" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateProbeMinInputTokens() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateProbeMinInputTokens()
 	})
 }
 

@@ -92,6 +92,9 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
+	c.Request = c.Request.WithContext(service.WithGatewayInputTokenEstimate(
+		c.Request.Context(), service.EstimateGatewayInputTokens(body, "chat_completions"),
+	))
 
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))

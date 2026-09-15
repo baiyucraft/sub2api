@@ -3141,6 +3141,12 @@
             @input="form.rpm_limit = Math.max(0, Math.trunc(form.rpm_limit || 0))" />
           <p class="input-hint">{{ t('admin.accounts.upstreamRpmLimitHint') }}</p>
         </div>
+        <div v-if="accountCategory === 'upstream_config'">
+          <label class="input-label">{{ t('admin.accounts.probeMinInputTokens') }}</label>
+          <input v-model.number="form.probe_min_input_tokens" type="number" min="0" max="1000000" step="1" class="input"
+            @input="form.probe_min_input_tokens = Math.max(0, Math.trunc(form.probe_min_input_tokens || 0))" />
+          <p class="input-hint">{{ t('admin.accounts.probeMinInputTokensHint') }}</p>
+        </div>
         <div v-if="accountCategory !== 'upstream_config'">
           <label class="input-label">{{ t('admin.accounts.loadFactor') }}</label>
           <input v-model.number="form.load_factor" type="number" min="1"
@@ -4851,6 +4857,7 @@ const form = reactive({
   proxy_id: null as number | null,
   concurrency: 10,
   rpm_limit: 0,
+  probe_min_input_tokens: 0,
   load_factor: null as number | null,
   priority: 1,
   rate_multiplier: 1,
@@ -5499,6 +5506,7 @@ const resetForm = () => {
   form.proxy_id = null
   form.concurrency = 10
   form.rpm_limit = 0
+  form.probe_min_input_tokens = 0
   form.load_factor = null
   form.priority = 1
   form.rate_multiplier = 1
@@ -6347,6 +6355,7 @@ const createAccountAndFinish = async (
     proxy_id: form.proxy_id,
     concurrency: form.concurrency,
     rpm_limit: accountCategory.value === 'upstream_config' ? form.rpm_limit : undefined,
+    probe_min_input_tokens: accountCategory.value === 'upstream_config' ? form.probe_min_input_tokens : undefined,
     load_factor: form.load_factor ?? undefined,
     priority: form.priority,
     rate_multiplier: form.rate_multiplier,
@@ -6415,6 +6424,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           proxy_id: form.proxy_id,
           concurrency: form.concurrency,
           rpm_limit: accountCategory.value === 'upstream_config' ? form.rpm_limit : undefined,
+          probe_min_input_tokens: accountCategory.value === 'upstream_config' ? form.probe_min_input_tokens : undefined,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
@@ -6593,6 +6603,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           proxy_id: form.proxy_id,
           concurrency: form.concurrency,
           rpm_limit: accountCategory.value === 'upstream_config' ? form.rpm_limit : undefined,
+          probe_min_input_tokens: accountCategory.value === 'upstream_config' ? form.probe_min_input_tokens : undefined,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
@@ -6693,6 +6704,7 @@ const handleOpenAIExchange = async (authCode: string) => {
         proxy_id: form.proxy_id,
         concurrency: form.concurrency,
         rpm_limit: accountCategory.value === 'upstream_config' ? form.rpm_limit : undefined,
+        probe_min_input_tokens: accountCategory.value === 'upstream_config' ? form.probe_min_input_tokens : undefined,
         load_factor: form.load_factor ?? undefined,
         priority: form.priority,
         rate_multiplier: form.rate_multiplier,
@@ -6975,6 +6987,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             proxy_id: form.proxy_id,
             concurrency: form.concurrency,
           rpm_limit: accountCategory.value === 'upstream_config' ? form.rpm_limit : undefined,
+          probe_min_input_tokens: accountCategory.value === 'upstream_config' ? form.probe_min_input_tokens : undefined,
             load_factor: form.load_factor ?? undefined,
             priority: form.priority,
             rate_multiplier: form.rate_multiplier,
@@ -7075,6 +7088,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           proxy_id: form.proxy_id,
           concurrency: form.concurrency,
           rpm_limit: accountCategory.value === 'upstream_config' ? form.rpm_limit : undefined,
+          probe_min_input_tokens: accountCategory.value === 'upstream_config' ? form.probe_min_input_tokens : undefined,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
@@ -7457,6 +7471,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           proxy_id: form.proxy_id,
           concurrency: form.concurrency,
           rpm_limit: accountCategory.value === 'upstream_config' ? form.rpm_limit : undefined,
+          probe_min_input_tokens: accountCategory.value === 'upstream_config' ? form.probe_min_input_tokens : undefined,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,

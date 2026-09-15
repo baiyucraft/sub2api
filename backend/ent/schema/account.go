@@ -123,6 +123,11 @@ func (Account) Fields() []ent.Field {
 		field.Int("rpm_limit").
 			Default(0),
 
+		// probe_min_input_tokens: 上游账号接受探针/业务请求的最小输入 token 门槛，0 表示不限。
+		// 探针会补足输入，普通业务请求低于门槛时跳过该账号。
+		field.Int("probe_min_input_tokens").
+			Default(0),
+
 		field.Int("load_factor").Optional().Nillable(),
 
 		// priority: 账户优先级，数值越小优先级越高

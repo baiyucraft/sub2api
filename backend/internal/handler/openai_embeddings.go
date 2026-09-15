@@ -71,6 +71,9 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	c.Request = c.Request.WithContext(service.WithGatewayInputTokenEstimate(
+		c.Request.Context(), service.EstimateGatewayInputTokens(body, "embeddings"),
+	))
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformAllowed(c, apiKey, reqModel, service.PlatformOpenAI) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")

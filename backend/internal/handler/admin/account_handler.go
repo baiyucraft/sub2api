@@ -142,6 +142,7 @@ type CreateAccountRequest struct {
 	UpstreamKeyID           *int64         `json:"upstream_key_id"`
 	Concurrency             int            `json:"concurrency"`
 	RPMLimit                int            `json:"rpm_limit"`
+	ProbeMinInputTokens     int            `json:"probe_min_input_tokens"`
 	Priority                int            `json:"priority"`
 	RateMultiplier          *float64       `json:"rate_multiplier"`
 	LoadFactor              *int           `json:"load_factor"`
@@ -165,6 +166,7 @@ type UpdateAccountRequest struct {
 	UpstreamKeyID           *int64         `json:"upstream_key_id"`
 	Concurrency             *int           `json:"concurrency"`
 	RPMLimit                *int           `json:"rpm_limit"`
+	ProbeMinInputTokens     *int           `json:"probe_min_input_tokens"`
 	Priority                *int           `json:"priority"`
 	RateMultiplier          *float64       `json:"rate_multiplier"`
 	LoadFactor              *int           `json:"load_factor"`
@@ -185,6 +187,7 @@ type BulkUpdateAccountsRequest struct {
 	ProxyID                 *int64                    `json:"proxy_id"`
 	Concurrency             *int                      `json:"concurrency"`
 	RPMLimit                *int                      `json:"rpm_limit"`
+	ProbeMinInputTokens     *int                      `json:"probe_min_input_tokens"`
 	Priority                *int                      `json:"priority"`
 	RateMultiplier          *float64                  `json:"rate_multiplier"`
 	LoadFactor              *int                      `json:"load_factor"`
@@ -1347,6 +1350,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			UpstreamKeyID:         req.UpstreamKeyID,
 			Concurrency:           req.Concurrency,
 			RPMLimit:              req.RPMLimit,
+			ProbeMinInputTokens:   req.ProbeMinInputTokens,
 			Priority:              req.Priority,
 			RateMultiplier:        req.RateMultiplier,
 			LoadFactor:            req.LoadFactor,
@@ -1481,6 +1485,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		UpstreamKeyID:         req.UpstreamKeyID,
 		Concurrency:           req.Concurrency, // 指针类型，nil 表示未提供
 		RPMLimit:              req.RPMLimit,
+		ProbeMinInputTokens:   req.ProbeMinInputTokens,
 		Priority:              req.Priority, // 指针类型，nil 表示未提供
 		RateMultiplier:        req.RateMultiplier,
 		LoadFactor:            req.LoadFactor,
@@ -2431,6 +2436,8 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				UpstreamConfigID:      item.UpstreamConfigID,
 				UpstreamKeyID:         item.UpstreamKeyID,
 				Concurrency:           item.Concurrency,
+				RPMLimit:              item.RPMLimit,
+				ProbeMinInputTokens:   item.ProbeMinInputTokens,
 				Priority:              item.Priority,
 				RateMultiplier:        item.RateMultiplier,
 				LoadFactor:            item.LoadFactor,
@@ -2626,6 +2633,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		req.ProxyID != nil ||
 		req.Concurrency != nil ||
 		req.RPMLimit != nil ||
+		req.ProbeMinInputTokens != nil ||
 		req.Priority != nil ||
 		req.RateMultiplier != nil ||
 		req.LoadFactor != nil ||
@@ -2648,6 +2656,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		ProxyID:               req.ProxyID,
 		Concurrency:           req.Concurrency,
 		RPMLimit:              req.RPMLimit,
+		ProbeMinInputTokens:   req.ProbeMinInputTokens,
 		Priority:              req.Priority,
 		RateMultiplier:        req.RateMultiplier,
 		LoadFactor:            req.LoadFactor,

@@ -88,6 +88,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
+	c.Request = c.Request.WithContext(service.WithGatewayInputTokenEstimate(
+		c.Request.Context(), service.EstimateGatewayInputTokens(body, "responses"),
+	))
 
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))

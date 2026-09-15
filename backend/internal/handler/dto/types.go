@@ -237,6 +237,7 @@ type Account struct {
 	UpstreamSchedulingEnabled *bool                          `json:"upstream_scheduling_enabled,omitempty"`
 	Concurrency               int                            `json:"concurrency"`
 	RPMLimit                  int                            `json:"rpm_limit"`
+	ProbeMinInputTokens       int                            `json:"probe_min_input_tokens"`
 	LoadFactor                *int                           `json:"load_factor,omitempty"`
 	Priority                  int                            `json:"priority"`
 	RateMultiplier            float64                        `json:"rate_multiplier"`
@@ -431,6 +432,7 @@ type AccountListItem struct {
 	ProxyFallbackOriginName *string    `json:"proxy_fallback_origin_name,omitempty"`
 	Concurrency             int        `json:"concurrency"`
 	RPMLimit                int        `json:"rpm_limit"`
+	ProbeMinInputTokens     int        `json:"probe_min_input_tokens"`
 	LoadFactor              *int       `json:"load_factor,omitempty"`
 	Priority                int        `json:"priority"`
 	RateMultiplier          float64    `json:"rate_multiplier"`

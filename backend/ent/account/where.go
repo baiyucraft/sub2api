@@ -140,6 +140,11 @@ func RpmLimit(v int) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldRpmLimit, v))
 }
 
+// ProbeMinInputTokens applies equality check predicate on the "probe_min_input_tokens" field. It's identical to ProbeMinInputTokensEQ.
+func ProbeMinInputTokens(v int) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldProbeMinInputTokens, v))
+}
+
 // LoadFactor applies equality check predicate on the "load_factor" field. It's identical to LoadFactorEQ.
 func LoadFactor(v int) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldLoadFactor, v))
@@ -1093,6 +1098,46 @@ func RpmLimitLT(v int) predicate.Account {
 // RpmLimitLTE applies the LTE predicate on the "rpm_limit" field.
 func RpmLimitLTE(v int) predicate.Account {
 	return predicate.Account(sql.FieldLTE(FieldRpmLimit, v))
+}
+
+// ProbeMinInputTokensEQ applies the EQ predicate on the "probe_min_input_tokens" field.
+func ProbeMinInputTokensEQ(v int) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldProbeMinInputTokens, v))
+}
+
+// ProbeMinInputTokensNEQ applies the NEQ predicate on the "probe_min_input_tokens" field.
+func ProbeMinInputTokensNEQ(v int) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldProbeMinInputTokens, v))
+}
+
+// ProbeMinInputTokensIn applies the In predicate on the "probe_min_input_tokens" field.
+func ProbeMinInputTokensIn(vs ...int) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldProbeMinInputTokens, vs...))
+}
+
+// ProbeMinInputTokensNotIn applies the NotIn predicate on the "probe_min_input_tokens" field.
+func ProbeMinInputTokensNotIn(vs ...int) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldProbeMinInputTokens, vs...))
+}
+
+// ProbeMinInputTokensGT applies the GT predicate on the "probe_min_input_tokens" field.
+func ProbeMinInputTokensGT(v int) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldProbeMinInputTokens, v))
+}
+
+// ProbeMinInputTokensGTE applies the GTE predicate on the "probe_min_input_tokens" field.
+func ProbeMinInputTokensGTE(v int) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldProbeMinInputTokens, v))
+}
+
+// ProbeMinInputTokensLT applies the LT predicate on the "probe_min_input_tokens" field.
+func ProbeMinInputTokensLT(v int) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldProbeMinInputTokens, v))
+}
+
+// ProbeMinInputTokensLTE applies the LTE predicate on the "probe_min_input_tokens" field.
+func ProbeMinInputTokensLTE(v int) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldProbeMinInputTokens, v))
 }
 
 // LoadFactorEQ applies the EQ predicate on the "load_factor" field.

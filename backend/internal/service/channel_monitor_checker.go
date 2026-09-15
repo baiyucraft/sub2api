@@ -27,6 +27,13 @@ var monitorHTTPClient = newSSRFSafeHTTPClient(monitorRequestTimeout)
 // monitorPingHTTPClient 用于 endpoint origin 的 HEAD ping，超时更短。
 var monitorPingHTTPClient = newSSRFSafeHTTPClient(monitorPingTimeout)
 
+// channelMonitorProbeMinimumInputTokens keeps managed/local channel-monitor
+// requests eligible for upstream accounts that reject short request bodies.
+// The monitor does not know which account the gateway will select, so it uses
+// a conservative shared floor with a small safety margin over the documented
+// 2000-token minimum. Ordinary user requests are not padded.
+const channelMonitorProbeMinimumInputTokens = 2200
+
 // newSSRFSafeHTTPClient 返回一个使用 safeDialContext 的 http.Client。
 // 仅供监控模块对外发起请求使用——所有目标都应是公网 endpoint。
 func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
@@ -67,10 +74,11 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	}
 
 	challenge := generateChallenge()
+	probePrompt := probeInputWithMinimumTokens(&Account{ProbeMinInputTokens: channelMonitorProbeMinimumInputTokens}, challenge.Prompt)
 	mode := bodyOverrideMode(opts)
 
 	start := time.Now()
-	respText, rawBody, statusCode, switchCount, ttftMs, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
+	respText, rawBody, statusCode, switchCount, ttftMs, err := callProvider(ctx, provider, endpoint, apiKey, model, probePrompt, opts)
 	res.AccountSwitchCount = switchCount
 	if ttftMs != nil {
 		value := int(*ttftMs)

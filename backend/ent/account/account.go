@@ -54,6 +54,8 @@ const (
 	FieldConcurrency = "concurrency"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
+	// FieldProbeMinInputTokens holds the string denoting the probe_min_input_tokens field in the database.
+	FieldProbeMinInputTokens = "probe_min_input_tokens"
 	// FieldLoadFactor holds the string denoting the load_factor field in the database.
 	FieldLoadFactor = "load_factor"
 	// FieldPriority holds the string denoting the priority field in the database.
@@ -193,6 +195,7 @@ var Columns = []string{
 	FieldUpstreamArchiveReason,
 	FieldConcurrency,
 	FieldRpmLimit,
+	FieldProbeMinInputTokens,
 	FieldLoadFactor,
 	FieldPriority,
 	FieldRateMultiplier,
@@ -265,6 +268,8 @@ var (
 	DefaultConcurrency int
 	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
 	DefaultRpmLimit int
+	// DefaultProbeMinInputTokens holds the default value on creation for the "probe_min_input_tokens" field.
+	DefaultProbeMinInputTokens int
 	// DefaultPriority holds the default value on creation for the "priority" field.
 	DefaultPriority int
 	// DefaultRateMultiplier holds the default value on creation for the "rate_multiplier" field.
@@ -398,6 +403,11 @@ func ByConcurrency(opts ...sql.OrderTermOption) OrderOption {
 // ByRpmLimit orders the results by the rpm_limit field.
 func ByRpmLimit(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRpmLimit, opts...).ToFunc()
+}
+
+// ByProbeMinInputTokens orders the results by the probe_min_input_tokens field.
+func ByProbeMinInputTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProbeMinInputTokens, opts...).ToFunc()
 }
 
 // ByLoadFactor orders the results by the load_factor field.
