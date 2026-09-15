@@ -963,6 +963,31 @@ func TestValidateUpstreamArithmeticChallengeMatchesChannelMonitorV1(t *testing.T
 	}
 }
 
+func TestProbeInputWithMinimumTokensPadsOnlyWhenConfigured(t *testing.T) {
+	input := "solve 2 + 2"
+	account := &Account{ProbeMinInputTokens: 2000}
+	padded := probeInputWithMinimumTokens(account, input)
+	require.GreaterOrEqual(t, len([]rune(padded)), 2000*4+64)
+	require.True(t, strings.HasSuffix(padded, input))
+	require.Equal(t, input, probeInputWithMinimumTokens(&Account{}, input))
+}
+
+func TestPadUpstreamHealthChallengePreservesAllMessagesAndChallengeTail(t *testing.T) {
+	challenge := upstreamHealthChallenge{Input: []map[string]string{
+		{"role": "developer", "content": "system"},
+		{"role": "user", "content": "solve 2 + 2"},
+		{"role": "assistant", "content": "previous"},
+	}}
+	padded := padUpstreamHealthChallenge(&Account{ProbeMinInputTokens: 2000}, challenge)
+	input, ok := padded.Input.([]map[string]string)
+	require.True(t, ok)
+	require.Len(t, input, 3)
+	require.Equal(t, "developer", input[0]["role"])
+	require.NotEqual(t, "solve 2 + 2", input[1]["content"])
+	require.Equal(t, "assistant", input[2]["role"])
+	require.True(t, strings.HasSuffix(input[1]["content"], "solve 2 + 2"))
+}
+
 func TestParseGeminiUpstreamHealthResponseSupportsSSEJSONAndWrapper(t *testing.T) {
 	responses := []struct {
 		name string

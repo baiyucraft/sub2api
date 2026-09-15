@@ -413,8 +413,9 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		Credentials:           credentials,
 		Extra:                 extra,
 		ProxyID:               cloneAccountValuePointer(proxyID),
-		Concurrency:           source.Concurrency,
-		RPMLimit:              source.RPMLimit,
+			Concurrency:           source.Concurrency,
+			RPMLimit:              source.RPMLimit,
+			ProbeMinInputTokens:   source.ProbeMinInputTokens,
 		Priority:              source.Priority,
 		RateMultiplier:        cloneAccountValuePointer(source.RateMultiplier),
 		LoadFactor:            cloneAccountValuePointer(source.LoadFactor),
@@ -457,6 +458,16 @@ func validateAccountRPMLimit(limit int) error {
 	}
 	if limit > 100000 {
 		return errors.New("rpm_limit must be <= 100000")
+	}
+	return nil
+}
+
+func validateAccountProbeMinInputTokens(limit int) error {
+	if limit < 0 {
+		return errors.New("probe_min_input_tokens must be >= 0")
+	}
+	if limit > 1000000 {
+		return errors.New("probe_min_input_tokens must be <= 1000000")
 	}
 	return nil
 }
@@ -529,6 +540,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	if err := validateAccountRPMLimit(input.RPMLimit); err != nil {
 		return nil, err
 	}
+	if err := validateAccountProbeMinInputTokens(input.ProbeMinInputTokens); err != nil {
+		return nil, err
+	}
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -549,6 +563,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		UpstreamKeyID:    input.UpstreamKeyID,
 		Concurrency:      normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
 		RPMLimit:         input.RPMLimit,
+		ProbeMinInputTokens: input.ProbeMinInputTokens,
 		Priority:         input.Priority,
 		Status:           StatusActive,
 		Schedulable:      true,
@@ -949,6 +964,12 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		account.RPMLimit = *input.RPMLimit
 	}
+	if input.ProbeMinInputTokens != nil {
+		if err := validateAccountProbeMinInputTokens(*input.ProbeMinInputTokens); err != nil {
+			return nil, err
+		}
+		account.ProbeMinInputTokens = *input.ProbeMinInputTokens
+	}
 	// 只在指针非 nil 时更新 Concurrency（支持设置为 0）
 	if input.Concurrency != nil {
 		account.Concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)
@@ -1197,7 +1218,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		return nil
 	}
 	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck ||
-		input.Concurrency != nil || input.RPMLimit != nil || input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil ||
+		input.Concurrency != nil || input.RPMLimit != nil || input.ProbeMinInputTokens != nil || input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil ||
 		input.Name != "" || openAISettings.any() || input.ProbeEnabled != nil {
 		if err := loadCachedTargets(); err != nil {
 			return nil, err
@@ -1376,6 +1397,12 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 	if input.RPMLimit != nil {
 		repoUpdates.RPMLimit = input.RPMLimit
+	}
+	if input.ProbeMinInputTokens != nil {
+		if err := validateAccountProbeMinInputTokens(*input.ProbeMinInputTokens); err != nil {
+			return nil, err
+		}
+		repoUpdates.ProbeMinInputTokens = input.ProbeMinInputTokens
 	}
 	if input.Priority != nil {
 		repoUpdates.Priority = input.Priority

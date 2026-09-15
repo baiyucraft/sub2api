@@ -33,7 +33,7 @@ type ChannelMonitor struct {
 	CheckMode string `json:"check_mode,omitempty"`
 	// AccountID holds the value of the "account_id" field.
 	AccountID *int64 `json:"account_id,omitempty"`
-	// OpenAI request protocol: chat_completions or responses; non-OpenAI uses chat_completions
+	// Monitor request protocol: chat_completions, responses, or zhipu_native
 	APIMode string `json:"api_mode,omitempty"`
 	// Provider base origin, e.g. https://api.openai.com; empty for quota-only monitors
 	Endpoint string `json:"endpoint,omitempty"`

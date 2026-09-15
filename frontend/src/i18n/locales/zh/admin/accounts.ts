@@ -1214,6 +1214,8 @@ export default {
       concurrency: '并发数',
       upstreamRpmLimit: 'RPM 限制',
       upstreamRpmLimitHint: '上游账号每分钟最大业务请求数；0 表示不限制。仅用于账号调度限流。',
+      probeMinInputTokens: '最小输入 Token',
+      probeMinInputTokensHint: '上游账号要求的最小输入 token 数；0 表示不限制。普通请求不足时会跳过此账号，探针会自动补足。',
       loadFactor: '负载因子',
       loadFactorHint: '提高负载因子可以提高对账号的调度频率',
       upstreamAutoLoadFactor: '按优先级和并发自动计算',

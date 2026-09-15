@@ -1142,6 +1142,8 @@ export default {
       concurrency: 'Concurrency',
       upstreamRpmLimit: 'RPM Limit',
       upstreamRpmLimitHint: 'Maximum business requests per minute for this upstream account; 0 means unlimited.',
+      probeMinInputTokens: 'Minimum Input Tokens',
+      probeMinInputTokensHint: 'Minimum input token count required by this upstream account; 0 means unlimited. Short requests skip this account; probes are padded automatically.',
       loadFactor: 'Load Factor',
       loadFactorHint: 'Higher load factor increases scheduling frequency',
       upstreamAutoLoadFactor: 'Calculated from priority and concurrency',

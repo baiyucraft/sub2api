@@ -201,6 +201,7 @@ type AccountBulkUpdate struct {
 	ProxyID        *int64
 	Concurrency    *int
 	RPMLimit       *int
+	ProbeMinInputTokens *int
 	Priority       *int
 	RateMultiplier *float64
 	// UpstreamSourceRateMultiplier preserves the provider source rate for
