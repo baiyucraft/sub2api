@@ -45,7 +45,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/upstreamhealthobservation"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamincident"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
-	"github.com/Wei-Shaw/sub2api/ent/upstreamkeymodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkeyratesnapshot"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncresult"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamsyncrun"
@@ -2493,81 +2492,6 @@ func init() {
 	upstreamkeyDescExtra := upstreamkeyFields[20].Descriptor()
 	// upstreamkey.DefaultExtra holds the default value on creation for the extra field.
 	upstreamkey.DefaultExtra = upstreamkeyDescExtra.Default.(func() map[string]interface{})
-	upstreamkeymodelrouteMixin := schema.UpstreamKeyModelRoute{}.Mixin()
-	upstreamkeymodelrouteMixinHooks1 := upstreamkeymodelrouteMixin[1].Hooks()
-	upstreamkeymodelroute.Hooks[0] = upstreamkeymodelrouteMixinHooks1[0]
-	upstreamkeymodelrouteMixinInters1 := upstreamkeymodelrouteMixin[1].Interceptors()
-	upstreamkeymodelroute.Interceptors[0] = upstreamkeymodelrouteMixinInters1[0]
-	upstreamkeymodelrouteMixinFields0 := upstreamkeymodelrouteMixin[0].Fields()
-	_ = upstreamkeymodelrouteMixinFields0
-	upstreamkeymodelrouteFields := schema.UpstreamKeyModelRoute{}.Fields()
-	_ = upstreamkeymodelrouteFields
-	// upstreamkeymodelrouteDescCreatedAt is the schema descriptor for created_at field.
-	upstreamkeymodelrouteDescCreatedAt := upstreamkeymodelrouteMixinFields0[0].Descriptor()
-	// upstreamkeymodelroute.DefaultCreatedAt holds the default value on creation for the created_at field.
-	upstreamkeymodelroute.DefaultCreatedAt = upstreamkeymodelrouteDescCreatedAt.Default.(func() time.Time)
-	// upstreamkeymodelrouteDescUpdatedAt is the schema descriptor for updated_at field.
-	upstreamkeymodelrouteDescUpdatedAt := upstreamkeymodelrouteMixinFields0[1].Descriptor()
-	// upstreamkeymodelroute.DefaultUpdatedAt holds the default value on creation for the updated_at field.
-	upstreamkeymodelroute.DefaultUpdatedAt = upstreamkeymodelrouteDescUpdatedAt.Default.(func() time.Time)
-	// upstreamkeymodelroute.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
-	upstreamkeymodelroute.UpdateDefaultUpdatedAt = upstreamkeymodelrouteDescUpdatedAt.UpdateDefault.(func() time.Time)
-	// upstreamkeymodelrouteDescPublicModel is the schema descriptor for public_model field.
-	upstreamkeymodelrouteDescPublicModel := upstreamkeymodelrouteFields[1].Descriptor()
-	// upstreamkeymodelroute.PublicModelValidator is a validator for the "public_model" field. It is called by the builders before save.
-	upstreamkeymodelroute.PublicModelValidator = func() func(string) error {
-		validators := upstreamkeymodelrouteDescPublicModel.Validators
-		fns := [...]func(string) error{
-			validators[0].(func(string) error),
-			validators[1].(func(string) error),
-		}
-		return func(public_model string) error {
-			for _, fn := range fns {
-				if err := fn(public_model); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-	}()
-	// upstreamkeymodelrouteDescUpstreamModel is the schema descriptor for upstream_model field.
-	upstreamkeymodelrouteDescUpstreamModel := upstreamkeymodelrouteFields[2].Descriptor()
-	// upstreamkeymodelroute.DefaultUpstreamModel holds the default value on creation for the upstream_model field.
-	upstreamkeymodelroute.DefaultUpstreamModel = upstreamkeymodelrouteDescUpstreamModel.Default.(string)
-	// upstreamkeymodelroute.UpstreamModelValidator is a validator for the "upstream_model" field. It is called by the builders before save.
-	upstreamkeymodelroute.UpstreamModelValidator = upstreamkeymodelrouteDescUpstreamModel.Validators[0].(func(string) error)
-	// upstreamkeymodelrouteDescTargetPlatform is the schema descriptor for target_platform field.
-	upstreamkeymodelrouteDescTargetPlatform := upstreamkeymodelrouteFields[3].Descriptor()
-	// upstreamkeymodelroute.DefaultTargetPlatform holds the default value on creation for the target_platform field.
-	upstreamkeymodelroute.DefaultTargetPlatform = upstreamkeymodelrouteDescTargetPlatform.Default.(string)
-	// upstreamkeymodelroute.TargetPlatformValidator is a validator for the "target_platform" field. It is called by the builders before save.
-	upstreamkeymodelroute.TargetPlatformValidator = upstreamkeymodelrouteDescTargetPlatform.Validators[0].(func(string) error)
-	// upstreamkeymodelrouteDescAPIProtocol is the schema descriptor for api_protocol field.
-	upstreamkeymodelrouteDescAPIProtocol := upstreamkeymodelrouteFields[4].Descriptor()
-	// upstreamkeymodelroute.DefaultAPIProtocol holds the default value on creation for the api_protocol field.
-	upstreamkeymodelroute.DefaultAPIProtocol = upstreamkeymodelrouteDescAPIProtocol.Default.(string)
-	// upstreamkeymodelroute.APIProtocolValidator is a validator for the "api_protocol" field. It is called by the builders before save.
-	upstreamkeymodelroute.APIProtocolValidator = upstreamkeymodelrouteDescAPIProtocol.Validators[0].(func(string) error)
-	// upstreamkeymodelrouteDescSource is the schema descriptor for source field.
-	upstreamkeymodelrouteDescSource := upstreamkeymodelrouteFields[5].Descriptor()
-	// upstreamkeymodelroute.DefaultSource holds the default value on creation for the source field.
-	upstreamkeymodelroute.DefaultSource = upstreamkeymodelrouteDescSource.Default.(string)
-	// upstreamkeymodelroute.SourceValidator is a validator for the "source" field. It is called by the builders before save.
-	upstreamkeymodelroute.SourceValidator = upstreamkeymodelrouteDescSource.Validators[0].(func(string) error)
-	// upstreamkeymodelrouteDescEnabled is the schema descriptor for enabled field.
-	upstreamkeymodelrouteDescEnabled := upstreamkeymodelrouteFields[6].Descriptor()
-	// upstreamkeymodelroute.DefaultEnabled holds the default value on creation for the enabled field.
-	upstreamkeymodelroute.DefaultEnabled = upstreamkeymodelrouteDescEnabled.Default.(bool)
-	// upstreamkeymodelrouteDescPriority is the schema descriptor for priority field.
-	upstreamkeymodelrouteDescPriority := upstreamkeymodelrouteFields[7].Descriptor()
-	// upstreamkeymodelroute.DefaultPriority holds the default value on creation for the priority field.
-	upstreamkeymodelroute.DefaultPriority = upstreamkeymodelrouteDescPriority.Default.(int)
-	// upstreamkeymodelrouteDescStatus is the schema descriptor for status field.
-	upstreamkeymodelrouteDescStatus := upstreamkeymodelrouteFields[8].Descriptor()
-	// upstreamkeymodelroute.DefaultStatus holds the default value on creation for the status field.
-	upstreamkeymodelroute.DefaultStatus = upstreamkeymodelrouteDescStatus.Default.(string)
-	// upstreamkeymodelroute.StatusValidator is a validator for the "status" field. It is called by the builders before save.
-	upstreamkeymodelroute.StatusValidator = upstreamkeymodelrouteDescStatus.Validators[0].(func(string) error)
 	upstreamkeyratesnapshotFields := schema.UpstreamKeyRateSnapshot{}.Fields()
 	_ = upstreamkeyratesnapshotFields
 	// upstreamkeyratesnapshotDescKeyNameSnapshot is the schema descriptor for key_name_snapshot field.

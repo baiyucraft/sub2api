@@ -168,12 +168,9 @@ type UpstreamKey struct {
 	// provider snapshots and test fixtures that predate the dedicated column.
 	ObservationEnabledKnown bool
 	Extra                   map[string]any
-	// ModelRoutes contains the model-level platform capabilities discovered for
-	// this key. It is optional for legacy repositories and old snapshots.
-	ModelRoutes  []UpstreamKeyModelRoute
-	ImagePricing *UpstreamKeyImagePricing
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ImagePricing            *UpstreamKeyImagePricing
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 type UpstreamConfigRepository interface {
@@ -295,7 +292,6 @@ type UpstreamConfigService struct {
 	healthProbeSF              singleflight.Group
 	authSessionManager         UpstreamAuthSessionManager
 	upstreamBalanceNotifier    UpstreamBalanceNotifier
-	schedulerSnapshot          *SchedulerSnapshotService
 }
 
 // UpstreamBalanceNotifier sends an administrator alert for a newly opened
@@ -511,14 +507,6 @@ func (s *UpstreamConfigService) SetUpstreamBalanceNotifier(notifier UpstreamBala
 func (s *UpstreamConfigService) SetOpenAIScheduleReporter(reporter any) {
 	if s != nil {
 		s.openAIScheduleReporter = reporter
-	}
-}
-
-// SetSchedulerSnapshotService wires request-scheduler cache invalidation for
-// model-route mutations. It remains optional for lightweight tests.
-func (s *UpstreamConfigService) SetSchedulerSnapshotService(snapshot *SchedulerSnapshotService) {
-	if s != nil {
-		s.schedulerSnapshot = snapshot
 	}
 }
 

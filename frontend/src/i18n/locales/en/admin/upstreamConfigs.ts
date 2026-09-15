@@ -140,8 +140,7 @@ export default {
         grok: 'Grok',
         kimi: 'Kimi',
         zhipu: 'Zhipu GLM',
-        deepseek: 'DeepSeek',
-        minimax: 'MiniMax'
+        deepseek: 'DeepSeek'
       },
       sources: {
         manual: 'Manual',
@@ -217,8 +216,7 @@ export default {
       description: 'Review upstream key routing assignments and final image-generation cost. Image cost is informational and does not affect scheduling.',
       tabs: {
         imagePricing: 'Image Cost {count}',
-        platforms: 'Platform Assignment',
-        modelRoutes: 'Model Routes'
+        platforms: 'Platform Assignment'
       },
       searchPlaceholder: 'Search key, group, or suffix',
       filters: {
@@ -245,32 +243,6 @@ export default {
         empty: 'No matching image-capable keys',
         emptyHint: 'Change the filter or sync the upstream and try again.'
       }
-    },
-    modelRoutes: {
-      add: 'Add Route',
-      addTitle: 'Add Model Route',
-      editTitle: 'Edit Model Route',
-      hint: 'Model platform assignment is resolved through routes. Manual routes are preserved during upstream sync.',
-      inheritProtocol: 'Inherit account protocol / adaptive',
-      empty: 'No model routes',
-      emptyHint: 'Add a route manually or sync the upstream model catalog first.',
-      loadFailed: 'Failed to load model routes',
-      saveFailed: 'Failed to save model route',
-      platformCatalogLoadFailed: 'Failed to load the registered platform catalog',
-      updated: 'Model route saved',
-      restoreAuto: 'Restore automatic detection',
-      restoredAuto: 'Automatic detection restored',
-      restoreAutoFailed: 'Failed to restore automatic detection',
-      deleted: 'Model route deleted',
-      deleteFailed: 'Failed to delete model route',
-      deleteTitle: 'Delete model route?',
-      deleteMessage: 'Delete the route for model {model}?',
-      fields: { key: 'Upstream Key', publicModel: 'Public Model', upstreamModel: 'Upstream Model', platform: 'Target Platform', protocol: 'API Protocol', priority: 'Priority', enabled: 'Enabled' },
-      columns: { key: 'Key', publicModel: 'Public Model', upstreamModel: 'Upstream Model', platform: 'Target Platform', protocol: 'Protocol', source: 'Source', status: 'Status', actions: 'Actions' },
-      filters: { allPlatforms: 'All platforms' },
-      protocols: { adaptive: 'Adaptive', chatCompletions: 'Chat Completions', responses: 'Responses', anthropic: 'Anthropic Messages' },
-      sources: { auto: 'Automatic', manual: 'Manual override', legacy: 'Legacy compatibility', unknown: 'Unknown' },
-      status: { available: 'Available', disabled: 'Disabled', ambiguous: 'Ambiguous', unknown: 'Unknown', unsupported: 'Unsupported protocol', stale: 'Stale' }
     },
     dialog: {
       createTitle: 'Add Upstream',
