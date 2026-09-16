@@ -957,11 +957,26 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	return ""
 }
 
+// GenerateExplicitSessionHash returns only a client-provided session identity.
+// Content-derived cache affinity remains valid for sticky routing but is not a
+// reliable boundary for cross-request session switching.
+func (s *GatewayService) GenerateExplicitSessionHash(parsed *ParsedRequest) string {
+	if parsed == nil || strings.TrimSpace(parsed.MetadataUserID) == "" {
+		return ""
+	}
+	uid := ParseMetadataUserID(parsed.MetadataUserID)
+	if uid == nil {
+		return ""
+	}
+	return strings.TrimSpace(uid.SessionID)
+}
+
 // BindStickySession sets session -> account binding with standard TTL.
 func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if sessionHash == "" || accountID <= 0 || s.cache == nil {
 		return nil
 	}
+	ctx = WithSessionSwitchStickyOperation(ctx)
 	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTL)
 }
 
@@ -989,6 +1004,7 @@ func (s *GatewayService) BindStickySessionAfterProfitAdmission(ctx context.Conte
 	if !gatewayProfitControlGateActive(ctx) {
 		return s.BindStickySession(ctx, groupID, sessionHash, accountID)
 	}
+	ctx = WithSessionSwitchStickyOperation(ctx)
 	existingAccountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 	if err != nil && !errors.Is(err, ErrStickySessionNotFound) {
 		// 读失败时无法判断既有绑定，保守跳过而不是冒着覆盖健康绑定的风险写入。
@@ -1007,6 +1023,7 @@ func (s *GatewayService) GetCachedSessionAccountID(ctx context.Context, groupID 
 	if sessionHash == "" || s.cache == nil {
 		return 0, nil
 	}
+	ctx = WithSessionSwitchStickyOperation(ctx)
 	accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 	if err != nil {
 		return 0, err

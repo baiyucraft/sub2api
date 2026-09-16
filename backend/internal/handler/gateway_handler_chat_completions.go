@@ -159,16 +159,24 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		APIKeyID:  apiKey.ID,
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	sessionSwitchHash := h.gatewayService.GenerateExplicitSessionHash(parsedReq)
 	groupPlatform := effectiveAPIKeyPlatform(c, apiKey)
 	selectionSessionHash := sessionHash
 	if groupPlatform == service.PlatformGemini && selectionSessionHash != "" {
 		selectionSessionHash = "gemini:" + selectionSessionHash
+	}
+	if groupPlatform == service.PlatformGemini && sessionSwitchHash != "" {
+		sessionSwitchHash = "gemini:" + sessionSwitchHash
 	}
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
 	if groupPlatform == service.PlatformGemini {
 		fs = NewFailoverState(h.maxAccountSwitchesGemini, false)
 	}
+	sessionSwitch := newSessionSwitchGuard(
+		h.gatewayService, c.Request.Context(), apiKey, apiKey.GroupID, sessionSwitchHash, fs.FailedAccountIDs,
+	)
+	sessionSwitch.MergeExclusions(reqModel)
 
 	for {
 		if c.Request.Context().Err() != nil {
@@ -189,7 +197,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				h.chatCompletionsErrorResponse(c, cls.Status, cls.ErrType, message)
 				return
 			}
-			action := fs.HandleSelectionExhausted(c.Request.Context())
+			action := sessionSwitch.HandleSelectionExhausted(c.Request.Context(), fs)
 			switch action {
 			case FailoverContinue:
 				continue
@@ -310,11 +318,12 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				effectiveFailoverErr, _ := sessionSwitch.RecordFailure(reqModel, account.ID, failoverErr)
 				if c.Writer.Size() != writerSizeBeforeForward {
 					h.handleCCFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+				action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), effectiveFailoverErr)
 				switch action {
 				case FailoverContinue:
 					continue
@@ -339,6 +348,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			)
 			return
 		}
+		sessionSwitch.ClearSuccess(reqModel, account.ID)
 
 		// 6. Record usage
 		userAgent := c.GetHeader("User-Agent")

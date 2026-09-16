@@ -166,6 +166,13 @@ export default {
       composite: 'Composite'
     },
     groupLabel: 'Group',
+    schedulingMode: {
+      label: 'Scheduling preference',
+      cacheFirst: 'Cache first',
+      cacheFirstDescription: 'Keep session affinity and do not switch accounts based on failures across requests.',
+      speedFirst: 'Speed first',
+      speedFirstDescription: 'Switch the upstream account for this session after the administrator-defined failure threshold is reached.'
+    },
     providerLabel: 'Provider',
     providers: {
       anthropic: 'Anthropic',
