@@ -52,6 +52,10 @@ func (APIKey) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
+		field.Enum("scheduling_mode").
+			Values("cache_first", "speed_first").
+			Default("cache_first").
+			Comment("Per-key scheduling preference: preserve affinity or enable session-level switching."),
 		field.Time("last_used_at").
 			Optional().
 			Nillable().

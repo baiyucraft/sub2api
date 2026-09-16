@@ -361,6 +361,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(current["new_migrations"], [
             "274_opencode_go_platform.sql",
             "275_purge_unlimited_user_platform_quotas.sql",
+            "276_api_key_scheduling_mode.sql",
         ])
         self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "252")
         self.assertEqual(get_release_profile("252"), current)

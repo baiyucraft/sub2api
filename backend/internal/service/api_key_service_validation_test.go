@@ -31,6 +31,13 @@ func TestValidateCreateAPIKeyRequestNumericLimits(t *testing.T) {
 	}
 }
 
+func TestValidateCreateAPIKeyRequestSchedulingMode(t *testing.T) {
+	require.NoError(t, validateCreateAPIKeyRequest(CreateAPIKeyRequest{}))
+	require.NoError(t, validateCreateAPIKeyRequest(CreateAPIKeyRequest{SchedulingMode: APIKeySchedulingModeCacheFirst}))
+	require.NoError(t, validateCreateAPIKeyRequest(CreateAPIKeyRequest{SchedulingMode: APIKeySchedulingModeSpeedFirst}))
+	require.ErrorIs(t, validateCreateAPIKeyRequest(CreateAPIKeyRequest{SchedulingMode: "latency_first"}), ErrInvalidAPIKeySchedulingMode)
+}
+
 func TestValidateUpdateAPIKeyRequestNumericLimits(t *testing.T) {
 	zero, large, negative, nan, inf := 0.0, 1e100, -1.0, math.NaN(), math.Inf(1)
 	require.NoError(t, validateUpdateAPIKeyRequest(UpdateAPIKeyRequest{Quota: &zero, RateLimit7d: &large}))
@@ -43,4 +50,14 @@ func TestValidateUpdateAPIKeyRequestNumericLimits(t *testing.T) {
 	} {
 		require.Error(t, validateUpdateAPIKeyRequest(req))
 	}
+}
+
+func TestValidateUpdateAPIKeyRequestSchedulingMode(t *testing.T) {
+	cacheFirst := APIKeySchedulingModeCacheFirst
+	speedFirst := APIKeySchedulingModeSpeedFirst
+	invalid := "latency_first"
+	require.NoError(t, validateUpdateAPIKeyRequest(UpdateAPIKeyRequest{}))
+	require.NoError(t, validateUpdateAPIKeyRequest(UpdateAPIKeyRequest{SchedulingMode: &cacheFirst}))
+	require.NoError(t, validateUpdateAPIKeyRequest(UpdateAPIKeyRequest{SchedulingMode: &speedFirst}))
+	require.ErrorIs(t, validateUpdateAPIKeyRequest(UpdateAPIKeyRequest{SchedulingMode: &invalid}), ErrInvalidAPIKeySchedulingMode)
 }

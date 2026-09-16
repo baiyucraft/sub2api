@@ -186,6 +186,10 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	requestCtx := service.WithOpenAIProfitControlSuppressed(c.Request.Context())
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
+	sessionSwitch := newSessionSwitchGuard(
+		h.gatewayService, requestCtx, apiKey, apiKey.GroupID, sessionHash, failedAccountIDs,
+	)
+	sessionSwitch.MergeExclusions(routingModel)
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
@@ -377,9 +381,13 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		}
 		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, responseLatencyMs)
 
+		if err == nil {
+			sessionSwitch.ClearSuccess(routingModel, account.ID)
+		}
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				_, tripped := sessionSwitch.RecordFailure(routingModel, account.ID, failoverErr)
 				if failoverClientGone(c) {
 					reqLog.Info("grok_media.failover_aborted_client_disconnected",
 						zap.Int64("account_id", account.ID),
@@ -402,7 +410,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 					h.handleFailoverExhausted(c, failoverErr, false)
 					return
 				}
-				if failoverErr.RetryableOnSameAccount {
+				if failoverErr.RetryableOnSameAccount && !tripped {
 					retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 					if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 						sameAccountRetryCount[account.ID]++

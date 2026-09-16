@@ -44,10 +44,11 @@ if [[ "$manifest_schema" == 2 ]]; then
   [[ $(jq -er '.catalog_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
   [[ $(jq -er '.checksum_policy_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
   [[ $(jq -er '.parent_profile' "$manifest") == 251 ]]
-  [[ $(jq -er '.new_migrations | length' "$manifest") == 2 ]]
+  [[ $(jq -er '.new_migrations | length' "$manifest") == 3 ]]
   jq -e '.new_migrations == [
     "274_opencode_go_platform.sql",
-    "275_purge_unlimited_user_platform_quotas.sql"
+    "275_purge_unlimited_user_platform_quotas.sql",
+    "276_api_key_scheduling_mode.sql"
   ]' "$manifest" >/dev/null
   [[ -n "$production_snapshot" && -f "$production_snapshot" && ! -L "$production_snapshot" ]]
   [[ -n "$pre_gate_descriptor" && -f "$pre_gate_descriptor" && ! -L "$pre_gate_descriptor" ]]

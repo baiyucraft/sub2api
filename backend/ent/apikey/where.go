@@ -610,6 +610,26 @@ func StatusContainsFold(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldContainsFold(FieldStatus, v))
 }
 
+// SchedulingModeEQ applies the EQ predicate on the "scheduling_mode" field.
+func SchedulingModeEQ(v SchedulingMode) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldSchedulingMode, v))
+}
+
+// SchedulingModeNEQ applies the NEQ predicate on the "scheduling_mode" field.
+func SchedulingModeNEQ(v SchedulingMode) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldSchedulingMode, v))
+}
+
+// SchedulingModeIn applies the In predicate on the "scheduling_mode" field.
+func SchedulingModeIn(vs ...SchedulingMode) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldSchedulingMode, vs...))
+}
+
+// SchedulingModeNotIn applies the NotIn predicate on the "scheduling_mode" field.
+func SchedulingModeNotIn(vs ...SchedulingMode) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldSchedulingMode, vs...))
+}
+
 // LastUsedAtEQ applies the EQ predicate on the "last_used_at" field.
 func LastUsedAtEQ(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldLastUsedAt, v))

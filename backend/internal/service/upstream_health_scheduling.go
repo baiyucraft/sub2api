@@ -28,6 +28,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 }
 
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+	ctx = WithSessionSwitchStickyOperation(ctx)
 	healthExcluded := s.upstreamHealthExcludedAccountIDs(ctx, groupID)
 	if len(healthExcluded) == 0 {
 		return s.selectAccountWithLoadAwarenessCore(ctx, groupID, sessionHash, requestedModel, excludedIDs, metadataUserID, sub2apiUserID)

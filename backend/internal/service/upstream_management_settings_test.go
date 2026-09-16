@@ -41,8 +41,14 @@ func (r *upstreamManagementSettingRepoStub) Set(_ context.Context, key, value st
 	return nil
 }
 
-func (r *upstreamManagementSettingRepoStub) GetMultiple(context.Context, []string) (map[string]string, error) {
-	return nil, errors.New("unexpected GetMultiple call")
+func (r *upstreamManagementSettingRepoStub) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	values := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, ok := r.values[key]; ok {
+			values[key] = value
+		}
+	}
+	return values, nil
 }
 
 func (r *upstreamManagementSettingRepoStub) SetMultiple(_ context.Context, values map[string]string) error {
@@ -83,17 +89,143 @@ func TestSetManagementSettingsPersistsAtomicallyAndPublishesTTFT(t *testing.T) {
 	}
 
 	require.NoError(t, upstreamService.SetManagementSettings(context.Background(), settings))
-	require.Equal(t, 1, repo.setMultipleCalls)
-	require.Len(t, repo.lastMultiple, 5)
-	require.JSONEq(t, `{"enabled":true,"degradation_ttft_seconds":35,"min_samples":6}`, repo.lastMultiple[SettingKeyOpenAITTFTGuardSettings])
-	require.JSONEq(t, `{"openai":"gpt-custom","anthropic":"claude-custom","gemini":"gemini-custom"}`, repo.lastMultiple[SettingKeyUpstreamProbeModels])
-	require.Equal(t, "600", repo.lastMultiple[SettingKeyUpstreamProbeIntervalSeconds])
-	require.JSONEq(t, `{"enabled":true,"suspend_after_failures":4,"recovery_successes":2,"custom_error_codes_enabled":true,"custom_error_codes":[404,429]}`, repo.lastMultiple[SettingKeyUpstreamProbeGuardSettings])
-	require.JSONEq(t, `{"gpt-5.6-luna":"gpt-5.6-terra"}`, repo.lastMultiple[SettingKeyUpstreamModelAliasRules])
+	require.Equal(t, 2, repo.setMultipleCalls)
+	require.JSONEq(t, `{"enabled":true,"degradation_ttft_seconds":35,"min_samples":6}`, repo.values[SettingKeyOpenAITTFTGuardSettings])
+	require.JSONEq(t, `{"openai":"gpt-custom","anthropic":"claude-custom","gemini":"gemini-custom"}`, repo.values[SettingKeyUpstreamProbeModels])
+	require.Equal(t, "600", repo.values[SettingKeyUpstreamProbeIntervalSeconds])
+	require.JSONEq(t, `{"enabled":true,"suspend_after_failures":4,"recovery_successes":2,"custom_error_codes_enabled":true,"custom_error_codes":[404,429]}`, repo.values[SettingKeyUpstreamProbeGuardSettings])
+	require.JSONEq(t, `{"gpt-5.6-luna":"gpt-5.6-terra"}`, repo.values[SettingKeyUpstreamModelAliasRules])
+	require.Equal(t, "60", repo.values[SettingKeySessionSwitchWindowSeconds])
+	require.Equal(t, "3", repo.values[SettingKeySessionSwitchFailureThreshold])
+	require.Equal(t, "300", repo.values[SettingKeySessionSwitchCooldownSeconds])
+	require.JSONEq(t, `[502,503]`, repo.values[SettingKeySessionSwitchStatusCodes])
 	snapshot := settingService.OpenAITTFTGuardConfigSnapshot()
 	require.True(t, snapshot.Enabled)
 	require.Equal(t, 35*time.Second, snapshot.Threshold)
 	require.Equal(t, 6, snapshot.MinSamples)
+}
+
+func TestGetSessionSwitchSettingsDefaultsAndNormalizes(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]string
+		want   SessionSwitchSettings
+	}{
+		{
+			name:   "all settings missing",
+			values: map[string]string{},
+			want:   DefaultSessionSwitchSettings(),
+		},
+		{
+			name: "missing values fall back independently",
+			values: map[string]string{
+				SettingKeySessionSwitchWindowSeconds: "120",
+			},
+			want: SessionSwitchSettings{
+				WindowSeconds: 120, FailureThreshold: 3, CooldownSeconds: 300, StatusCodes: []int{502, 503},
+			},
+		},
+		{
+			name: "status codes are sorted and deduplicated",
+			values: map[string]string{
+				SettingKeySessionSwitchWindowSeconds:    "90",
+				SettingKeySessionSwitchFailureThreshold: "4",
+				SettingKeySessionSwitchCooldownSeconds:  "600",
+				SettingKeySessionSwitchStatusCodes:      `[503,502,503]`,
+			},
+			want: SessionSwitchSettings{
+				WindowSeconds: 90, FailureThreshold: 4, CooldownSeconds: 600, StatusCodes: []int{502, 503},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settingService := NewSettingService(&upstreamManagementSettingRepoStub{values: tt.values}, nil)
+			got, err := settingService.GetSessionSwitchSettings(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGetSessionSwitchSettingsRejectsMissingStore(t *testing.T) {
+	_, err := NewSettingService(nil, nil).GetSessionSwitchSettings(context.Background())
+	require.Error(t, err)
+}
+
+func TestSetManagementSettingsPersistsNormalizedSessionSwitchSettings(t *testing.T) {
+	repo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
+	settingService := NewSettingService(repo, nil)
+	upstreamService := NewUpstreamConfigService(nil, nil, nil)
+	upstreamService.SetHealthProbeDependencies(nil, settingService)
+	settings := validUpstreamManagementSettings()
+	settings.SessionSwitchWindowSeconds = 120
+	settings.SessionSwitchFailureThreshold = 5
+	settings.SessionSwitchCooldownSeconds = 900
+	settings.SessionSwitchStatusCodes = []int{503, 502, 503}
+
+	require.NoError(t, upstreamService.SetManagementSettings(context.Background(), settings))
+	require.Equal(t, "120", repo.values[SettingKeySessionSwitchWindowSeconds])
+	require.Equal(t, "5", repo.values[SettingKeySessionSwitchFailureThreshold])
+	require.Equal(t, "900", repo.values[SettingKeySessionSwitchCooldownSeconds])
+	require.JSONEq(t, `[502,503]`, repo.values[SettingKeySessionSwitchStatusCodes])
+
+}
+
+func TestSetManagementSettingsRejectsInvalidSessionSwitchSettingsBeforeWrite(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*UpstreamManagementSettings)
+	}{
+		{name: "window below minimum", mutate: func(settings *UpstreamManagementSettings) { settings.SessionSwitchWindowSeconds = 9 }},
+		{name: "window above maximum", mutate: func(settings *UpstreamManagementSettings) { settings.SessionSwitchWindowSeconds = 3601 }},
+		{name: "threshold below minimum", mutate: func(settings *UpstreamManagementSettings) { settings.SessionSwitchFailureThreshold = 0 }},
+		{name: "threshold above maximum", mutate: func(settings *UpstreamManagementSettings) { settings.SessionSwitchFailureThreshold = 21 }},
+		{name: "cooldown below minimum", mutate: func(settings *UpstreamManagementSettings) { settings.SessionSwitchCooldownSeconds = 9 }},
+		{name: "cooldown above maximum", mutate: func(settings *UpstreamManagementSettings) { settings.SessionSwitchCooldownSeconds = 3601 }},
+		{name: "status below minimum", mutate: func(settings *UpstreamManagementSettings) { settings.SessionSwitchStatusCodes = []int{99} }},
+		{name: "status above maximum", mutate: func(settings *UpstreamManagementSettings) { settings.SessionSwitchStatusCodes = []int{600} }},
+		{name: "status list empty", mutate: func(settings *UpstreamManagementSettings) { settings.SessionSwitchStatusCodes = []int{} }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
+			upstreamService := NewUpstreamConfigService(nil, nil, nil)
+			upstreamService.SetHealthProbeDependencies(nil, NewSettingService(repo, nil))
+			settings := validUpstreamManagementSettings()
+			settings.SessionSwitchWindowSeconds = 60
+			settings.SessionSwitchFailureThreshold = 3
+			settings.SessionSwitchCooldownSeconds = 300
+			settings.SessionSwitchStatusCodes = []int{502, 503}
+			tt.mutate(&settings)
+
+			require.Error(t, upstreamService.SetManagementSettings(context.Background(), settings))
+			require.Zero(t, repo.setMultipleCalls)
+			require.Empty(t, repo.values)
+		})
+	}
+}
+
+func TestGetSessionSwitchSettingsRejectsInvalidStoredValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]string
+	}{
+		{name: "invalid integer", values: map[string]string{SettingKeySessionSwitchWindowSeconds: "not-a-number"}},
+		{name: "window out of range", values: map[string]string{SettingKeySessionSwitchWindowSeconds: "9"}},
+		{name: "invalid status JSON", values: map[string]string{SettingKeySessionSwitchStatusCodes: `{`}},
+		{name: "status out of range", values: map[string]string{SettingKeySessionSwitchStatusCodes: `[600]`}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settingService := NewSettingService(&upstreamManagementSettingRepoStub{values: tt.values}, nil)
+			_, err := settingService.GetSessionSwitchSettings(context.Background())
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestManagementSettingsRejectsInvalidModelAliasRulesBeforeWrite(t *testing.T) {

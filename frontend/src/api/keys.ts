@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from './client'
-import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
+import type { ApiKey, ApiKeySchedulingMode, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
 
 /**
  * List all API keys for current user
@@ -65,9 +65,10 @@ export async function create(
   ipBlacklist?: string[],
   quota?: number,
   expiresInDays?: number,
-  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number }
+  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number },
+  schedulingMode: ApiKeySchedulingMode = 'cache_first'
 ): Promise<ApiKey> {
-  const payload: CreateApiKeyRequest = { name }
+  const payload: CreateApiKeyRequest = { name, scheduling_mode: schedulingMode }
   if (groupId !== undefined) {
     payload.group_id = groupId
   }

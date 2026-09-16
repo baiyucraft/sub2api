@@ -24,14 +24,15 @@ import (
 )
 
 var (
-	ErrAPIKeyNotFound       = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
-	ErrGroupNotAllowed      = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
-	ErrAPIKeyExists         = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
-	ErrAPIKeyTooShort       = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
-	ErrAPIKeyInvalidChars   = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
-	ErrAPIKeyRateLimited    = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
-	ErrAPIKeyAuthOverloaded = infraerrors.ServiceUnavailable("API_KEY_AUTH_OVERLOADED", "api key authentication is temporarily overloaded")
-	ErrInvalidIPPattern     = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrAPIKeyNotFound              = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrGroupNotAllowed             = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
+	ErrAPIKeyExists                = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
+	ErrAPIKeyTooShort              = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
+	ErrAPIKeyInvalidChars          = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
+	ErrAPIKeyRateLimited           = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
+	ErrAPIKeyAuthOverloaded        = infraerrors.ServiceUnavailable("API_KEY_AUTH_OVERLOADED", "api key authentication is temporarily overloaded")
+	ErrInvalidIPPattern            = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrInvalidAPIKeySchedulingMode = infraerrors.BadRequest("INVALID_API_KEY_SCHEDULING_MODE", "scheduling_mode must be cache_first or speed_first")
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
@@ -74,7 +75,8 @@ type APIKeyUpdateFields struct {
 	// 仅供"重置限流用量"路径声明；常规计费走 IncrementRateLimitUsage。
 	RateLimitUsage bool
 	// IPRules 覆盖 ip_whitelist 与 ip_blacklist。
-	IPRules bool
+	IPRules        bool
+	SchedulingMode bool
 }
 
 // IsEmpty 报告该次 Update 是否不写任何列。
@@ -220,9 +222,10 @@ type CreateAPIKeyRequest struct {
 	ExpiresInDays *int    `json:"expires_in_days"` // Days until expiry (nil = never expires)
 
 	// Rate limit fields (0 = unlimited)
-	RateLimit5h float64 `json:"rate_limit_5h"`
-	RateLimit1d float64 `json:"rate_limit_1d"`
-	RateLimit7d float64 `json:"rate_limit_7d"`
+	RateLimit5h    float64 `json:"rate_limit_5h"`
+	RateLimit1d    float64 `json:"rate_limit_1d"`
+	RateLimit7d    float64 `json:"rate_limit_7d"`
+	SchedulingMode string  `json:"scheduling_mode"`
 }
 
 // UpdateAPIKeyRequest 更新API Key请求
@@ -244,6 +247,7 @@ type UpdateAPIKeyRequest struct {
 	RateLimit1d         *float64 `json:"rate_limit_1d"`
 	RateLimit7d         *float64 `json:"rate_limit_7d"`
 	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // Reset all usage counters to 0
+	SchedulingMode      *string  `json:"scheduling_mode"`
 }
 
 func validateAPIKeyLimit(v float64) error {
@@ -262,6 +266,9 @@ func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
 	if req.ExpiresInDays != nil && *req.ExpiresInDays <= 0 {
 		return infraerrors.BadRequest("API_KEY_EXPIRY_INVALID", "expires_in_days must be greater than zero")
 	}
+	if _, err := NormalizeAPIKeySchedulingMode(req.SchedulingMode); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -271,6 +278,11 @@ func validateUpdateAPIKeyRequest(req UpdateAPIKeyRequest) error {
 			if err := validateAPIKeyLimit(*v); err != nil {
 				return err
 			}
+		}
+	}
+	if req.SchedulingMode != nil {
+		if _, err := NormalizeAPIKeySchedulingMode(*req.SchedulingMode); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -545,6 +557,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		RateLimit1d: req.RateLimit1d,
 		RateLimit7d: req.RateLimit7d,
 	}
+	apiKey.SchedulingMode, _ = NormalizeAPIKeySchedulingMode(req.SchedulingMode)
 
 	// Set expiration time if specified
 	if req.ExpiresInDays != nil && *req.ExpiresInDays > 0 {
@@ -830,6 +843,10 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		if s.cache != nil {
 			_ = s.cache.DeleteCreateAttemptCount(ctx, apiKey.UserID)
 		}
+	}
+	if req.SchedulingMode != nil {
+		apiKey.SchedulingMode, _ = NormalizeAPIKeySchedulingMode(*req.SchedulingMode)
+		fields.SchedulingMode = true
 	}
 
 	// Update quota fields

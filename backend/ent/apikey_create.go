@@ -142,6 +142,20 @@ func (_c *APIKeyCreate) SetNillableStatus(v *string) *APIKeyCreate {
 	return _c
 }
 
+// SetSchedulingMode sets the "scheduling_mode" field.
+func (_c *APIKeyCreate) SetSchedulingMode(v apikey.SchedulingMode) *APIKeyCreate {
+	_c.mutation.SetSchedulingMode(v)
+	return _c
+}
+
+// SetNillableSchedulingMode sets the "scheduling_mode" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableSchedulingMode(v *apikey.SchedulingMode) *APIKeyCreate {
+	if v != nil {
+		_c.SetSchedulingMode(*v)
+	}
+	return _c
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_c *APIKeyCreate) SetLastUsedAt(v time.Time) *APIKeyCreate {
 	_c.mutation.SetLastUsedAt(v)
@@ -435,6 +449,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.SchedulingMode(); !ok {
+		v := apikey.DefaultSchedulingMode
+		_c.mutation.SetSchedulingMode(v)
+	}
 	if _, ok := _c.mutation.Quota(); !ok {
 		v := apikey.DefaultQuota
 		_c.mutation.SetQuota(v)
@@ -511,6 +529,14 @@ func (_c *APIKeyCreate) check() error {
 	if v, ok := _c.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.SchedulingMode(); !ok {
+		return &ValidationError{Name: "scheduling_mode", err: errors.New(`ent: missing required field "APIKey.scheduling_mode"`)}
+	}
+	if v, ok := _c.mutation.SchedulingMode(); ok {
+		if err := apikey.SchedulingModeValidator(v); err != nil {
+			return &ValidationError{Name: "scheduling_mode", err: fmt.Errorf(`ent: validator failed for field "APIKey.scheduling_mode": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Quota(); !ok {
@@ -598,6 +624,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
 		_node.Status = value
+	}
+	if value, ok := _c.mutation.SchedulingMode(); ok {
+		_spec.SetField(apikey.FieldSchedulingMode, field.TypeEnum, value)
+		_node.SchedulingMode = value
 	}
 	if value, ok := _c.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -906,6 +936,18 @@ func (u *APIKeyUpsert) SetStatus(v string) *APIKeyUpsert {
 // UpdateStatus sets the "status" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateStatus() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldStatus)
+	return u
+}
+
+// SetSchedulingMode sets the "scheduling_mode" field.
+func (u *APIKeyUpsert) SetSchedulingMode(v apikey.SchedulingMode) *APIKeyUpsert {
+	u.Set(apikey.FieldSchedulingMode, v)
+	return u
+}
+
+// UpdateSchedulingMode sets the "scheduling_mode" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateSchedulingMode() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldSchedulingMode)
 	return u
 }
 
@@ -1375,6 +1417,20 @@ func (u *APIKeyUpsertOne) SetStatus(v string) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateStatus() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetSchedulingMode sets the "scheduling_mode" field.
+func (u *APIKeyUpsertOne) SetSchedulingMode(v apikey.SchedulingMode) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetSchedulingMode(v)
+	})
+}
+
+// UpdateSchedulingMode sets the "scheduling_mode" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateSchedulingMode() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateSchedulingMode()
 	})
 }
 
@@ -2055,6 +2111,20 @@ func (u *APIKeyUpsertBulk) SetStatus(v string) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateStatus() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetSchedulingMode sets the "scheduling_mode" field.
+func (u *APIKeyUpsertBulk) SetSchedulingMode(v apikey.SchedulingMode) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetSchedulingMode(v)
+	})
+}
+
+// UpdateSchedulingMode sets the "scheduling_mode" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateSchedulingMode() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateSchedulingMode()
 	})
 }
 
