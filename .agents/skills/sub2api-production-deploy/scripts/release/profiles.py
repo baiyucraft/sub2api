@@ -708,6 +708,7 @@ PROFILES["252"] = {
     "new_migrations": [
         "274_opencode_go_platform.sql",
         "275_purge_unlimited_user_platform_quotas.sql",
+        "276_api_key_scheduling_mode.sql",
     ],
     "gate_schema": 2,
     "release_policy": {

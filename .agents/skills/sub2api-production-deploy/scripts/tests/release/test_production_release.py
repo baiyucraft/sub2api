@@ -1705,9 +1705,10 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('"version": "0.2.5-baiyu"', profile_block)
         self.assertIn('[[ "$version" == 0.2.5-baiyu ]]', validator)
         self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 251 ]]', validator)
-        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 2 ]]', validator)
+        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 3 ]]', validator)
         self.assertIn('"274_opencode_go_platform.sql"', validator)
         self.assertIn('"275_purge_unlimited_user_platform_quotas.sql"', validator)
+        self.assertIn('"276_api_key_scheduling_mode.sql"', validator)
 
     def test_profile_242_switch_uses_gate_v2_without_legacy_state_files(self) -> None:
         switch = self.script("switch.sh")

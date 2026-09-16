@@ -276,6 +276,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		APIKeyID:  apiKey.ID,
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	sessionSwitchHash := h.gatewayService.GenerateExplicitSessionHash(parsedReq)
 
 	// [DEBUG-STICKY] 打印会话 hash 生成结果
 	reqLog.Info("sticky.session_hash_generated",
@@ -293,8 +294,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		platform = apiKey.Group.Platform
 	}
 	sessionKey := sessionHash
+	sessionSwitchKey := sessionSwitchHash
 	if platform == service.PlatformGemini && sessionHash != "" {
 		sessionKey = "gemini:" + sessionHash
+	}
+	if platform == service.PlatformGemini && sessionSwitchHash != "" {
+		sessionSwitchKey = "gemini:" + sessionSwitchHash
 	}
 
 	// 查询粘性会话绑定的账号 ID
@@ -322,6 +327,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	if platform == service.PlatformGemini {
 		fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
+		sessionSwitch := newSessionSwitchGuard(
+			h.gatewayService, c.Request.Context(), apiKey, apiKey.GroupID, sessionSwitchKey, fs.FailedAccountIDs,
+		)
+		sessionSwitch.MergeExclusions(reqModel)
 
 		// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 		// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
@@ -352,7 +361,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
 					return
 				}
-				action := fs.HandleSelectionExhausted(c.Request.Context())
+				action := sessionSwitch.HandleSelectionExhausted(c.Request.Context(), fs)
 				switch action {
 				case FailoverContinue:
 					ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
@@ -509,12 +518,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if err != nil {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
+					effectiveFailoverErr, _ := sessionSwitch.RecordFailure(reqModel, account.ID, failoverErr)
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
 					if c.Writer.Size() != writerSizeBeforeForward {
 						h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, true)
 						return
 					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), effectiveFailoverErr)
 					switch action {
 					case FailoverContinue:
 						continue
@@ -552,6 +562,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
 				return
 			}
+			sessionSwitch.ClearSuccess(reqModel, account.ID)
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 			userAgent := c.GetHeader("User-Agent")
@@ -641,6 +652,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	for {
 		fs := NewFailoverState(h.maxAccountSwitches, hasBoundSession)
+		sessionSwitch := newSessionSwitchGuard(
+			h.gatewayService, c.Request.Context(), currentAPIKey, currentAPIKey.GroupID, sessionSwitchKey, fs.FailedAccountIDs,
+		)
+		sessionSwitch.MergeExclusions(reqModel)
 		retryWithFallback := false
 
 		for {
@@ -679,7 +694,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
 					return
 				}
-				action := fs.HandleSelectionExhausted(c.Request.Context())
+				action := sessionSwitch.HandleSelectionExhausted(c.Request.Context(), fs)
 				switch action {
 				case FailoverContinue:
 					ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
@@ -1043,12 +1058,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
+					effectiveFailoverErr, _ := sessionSwitch.RecordFailure(reqModel, account.ID, failoverErr)
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
 					if c.Writer.Size() != writerSizeBeforeForward {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
 					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), effectiveFailoverErr)
 					switch action {
 					case FailoverContinue:
 						// 本次尝试已确定性失败，立即释放该账号的会话注册
@@ -1097,6 +1113,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 				return
 			}
+			sessionSwitch.ClearSuccess(reqModel, account.ID)
 
 			// 绑定粘性会话（成功转发后绑定/刷新）
 			// - 无现有绑定（首次请求）：创建绑定

@@ -1043,6 +1043,9 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	svc.WarmUpstreamPoolModeRetryStatusCodes(context.Background())
 	// Warm the standalone TTFT guard at its owning service boundary.
 	svc.WarmOpenAITTFTGuardConfig(context.Background())
+	// Session switching is optional; warm its snapshot once so gateway requests
+	// never need to synchronously query the settings table.
+	svc.WarmSessionSwitchSettings(context.Background())
 	svc.SetDefaultSubscriptionGroupReader(groupRepo)
 	svc.SetProxyRepository(proxyRepo)
 	if err := svc.LoadForwardedClientIPSettings(context.Background()); err != nil {

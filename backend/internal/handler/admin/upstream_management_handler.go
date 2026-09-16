@@ -16,13 +16,17 @@ type upstreamProbeModelsRequest struct {
 }
 
 type upstreamManagementSettingsRequest struct {
-	TTFTGuard                service.OpenAITTFTGuardSettings          `json:"ttft_guard"`
-	ProbeModels              service.UpstreamProbeModels              `json:"probe_models"`
-	ProbeIntervalSeconds     int                                      `json:"probe_interval_seconds"`
-	ProbeGuard               *service.UpstreamProbeGuardSettings      `json:"probe_guard"`
-	ModelAliasRules          map[string]string                        `json:"model_alias_rules"`
-	ConfidenceProbe          *service.UpstreamConfidenceProbeSettings `json:"confidence_probe"`
-	PoolModeRetryStatusCodes *[]int                                   `json:"pool_mode_retry_status_codes"`
+	TTFTGuard                     service.OpenAITTFTGuardSettings          `json:"ttft_guard"`
+	ProbeModels                   service.UpstreamProbeModels              `json:"probe_models"`
+	ProbeIntervalSeconds          int                                      `json:"probe_interval_seconds"`
+	ProbeGuard                    *service.UpstreamProbeGuardSettings      `json:"probe_guard"`
+	ModelAliasRules               map[string]string                        `json:"model_alias_rules"`
+	ConfidenceProbe               *service.UpstreamConfidenceProbeSettings `json:"confidence_probe"`
+	PoolModeRetryStatusCodes      *[]int                                   `json:"pool_mode_retry_status_codes"`
+	SessionSwitchWindowSeconds    *int                                     `json:"session_switch_window_seconds"`
+	SessionSwitchFailureThreshold *int                                     `json:"session_switch_failure_threshold"`
+	SessionSwitchCooldownSeconds  *int                                     `json:"session_switch_cooldown_seconds"`
+	SessionSwitchStatusCodes      *[]int                                   `json:"session_switch_status_codes"`
 }
 
 func (h *UpstreamConfigHandler) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
@@ -111,22 +115,43 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 		response.BadRequest(c, "invalid upstream management settings: "+err.Error())
 		return
 	}
-	probeGuard := service.DefaultUpstreamProbeGuardSettings()
+	currentSettings, err := h.service.GetManagementSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	probeGuard := currentSettings.ProbeGuard
 	modelAliasRules := req.ModelAliasRules
 	if req.ProbeGuard != nil {
 		probeGuard = *req.ProbeGuard
-	} else if current, getErr := h.service.GetManagementSettings(c.Request.Context()); getErr == nil {
-		probeGuard = current.ProbeGuard
-		if modelAliasRules == nil {
-			modelAliasRules = current.ModelAliasRules
-		}
 	}
-	currentSettings, _ := h.service.GetManagementSettings(c.Request.Context())
+	if modelAliasRules == nil {
+		modelAliasRules = currentSettings.ModelAliasRules
+	}
 	confidenceProbe := currentSettings.ConfidenceProbe
 	if req.ConfidenceProbe != nil {
 		confidenceProbe = *req.ConfidenceProbe
 	}
-	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules, ConfidenceProbe: confidenceProbe}
+	settings := service.UpstreamManagementSettings{
+		TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds,
+		ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules, ConfidenceProbe: confidenceProbe,
+		SessionSwitchWindowSeconds:    currentSettings.SessionSwitchWindowSeconds,
+		SessionSwitchFailureThreshold: currentSettings.SessionSwitchFailureThreshold,
+		SessionSwitchCooldownSeconds:  currentSettings.SessionSwitchCooldownSeconds,
+		SessionSwitchStatusCodes:      append([]int(nil), currentSettings.SessionSwitchStatusCodes...),
+	}
+	if req.SessionSwitchWindowSeconds != nil {
+		settings.SessionSwitchWindowSeconds = *req.SessionSwitchWindowSeconds
+	}
+	if req.SessionSwitchFailureThreshold != nil {
+		settings.SessionSwitchFailureThreshold = *req.SessionSwitchFailureThreshold
+	}
+	if req.SessionSwitchCooldownSeconds != nil {
+		settings.SessionSwitchCooldownSeconds = *req.SessionSwitchCooldownSeconds
+	}
+	if req.SessionSwitchStatusCodes != nil {
+		settings.SessionSwitchStatusCodes = append([]int(nil), (*req.SessionSwitchStatusCodes)...)
+	}
 	if settings.ProbeIntervalSeconds == 0 {
 		settings.ProbeIntervalSeconds = service.DefaultUpstreamProbeIntervalSeconds
 	}

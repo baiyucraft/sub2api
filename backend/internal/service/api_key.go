@@ -19,6 +19,22 @@ const (
 	APIKeyPurposeManagedMonitor = "managed_monitor"
 )
 
+const (
+	APIKeySchedulingModeCacheFirst = "cache_first"
+	APIKeySchedulingModeSpeedFirst = "speed_first"
+)
+
+func NormalizeAPIKeySchedulingMode(mode string) (string, error) {
+	switch mode {
+	case "", APIKeySchedulingModeCacheFirst:
+		return APIKeySchedulingModeCacheFirst, nil
+	case APIKeySchedulingModeSpeedFirst:
+		return APIKeySchedulingModeSpeedFirst, nil
+	default:
+		return "", ErrInvalidAPIKeySchedulingMode
+	}
+}
+
 // Rate limit window durations
 const (
 	RateLimitWindow5h = 5 * time.Hour
@@ -41,6 +57,7 @@ type APIKey struct {
 	ManagedMonitorID *int64
 	GroupID          *int64
 	Status           string
+	SchedulingMode   string
 	IPWhitelist      []string
 	IPBlacklist      []string
 	// 预编译的 IP 规则，用于认证热路径避免重复 ParseIP/ParseCIDR。

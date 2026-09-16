@@ -338,6 +338,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	// 3) select account (sticky session based on request body)
 	// 优先使用 Gemini CLI 的会话标识（privileged-user-id + tmp 目录哈希）
 	sessionHash := extractGeminiCLISessionHash(c, body)
+	sessionSwitchHash := sessionHash
 	if sessionHash == "" {
 		// Fallback: 使用通用的会话哈希生成逻辑（适用于其他客户端）
 		parsedReq, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
@@ -351,8 +352,12 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		sessionHash = h.gatewayService.GenerateSessionHash(parsedReq)
 	}
 	sessionKey := sessionHash
+	sessionSwitchKey := sessionSwitchHash
 	if sessionHash != "" {
 		sessionKey = "gemini:" + sessionHash
+	}
+	if sessionSwitchHash != "" {
+		sessionSwitchKey = "gemini:" + sessionSwitchHash
 	}
 
 	// 查询粘性会话绑定的账号 ID（用于检测账号切换）
@@ -440,6 +445,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	cleanedForUnknownBinding := false
 
 	fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
+	sessionSwitch := newSessionSwitchGuard(
+		h.gatewayService, c.Request.Context(), apiKey, apiKey.GroupID, sessionSwitchKey, fs.FailedAccountIDs,
+	)
+	sessionSwitch.MergeExclusions(modelName)
 
 	// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 	// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
@@ -463,7 +472,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				googleError(c, cls.Status, message)
 				return
 			}
-			action := fs.HandleSelectionExhausted(c.Request.Context())
+			action := sessionSwitch.HandleSelectionExhausted(c.Request.Context(), fs)
 			switch action {
 			case FailoverContinue:
 				ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
@@ -606,7 +615,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+				effectiveFailoverErr, _ := sessionSwitch.RecordFailure(modelName, account.ID, failoverErr)
+				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), effectiveFailoverErr)
 				switch failoverAction {
 				case FailoverContinue:
 					continue
@@ -622,6 +632,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			reqLog.Error("gemini.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			return
 		}
+		sessionSwitch.ClearSuccess(modelName, account.ID)
 
 		// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 		userAgent := c.GetHeader("User-Agent")

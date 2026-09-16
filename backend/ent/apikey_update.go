@@ -176,6 +176,20 @@ func (_u *APIKeyUpdate) SetNillableStatus(v *string) *APIKeyUpdate {
 	return _u
 }
 
+// SetSchedulingMode sets the "scheduling_mode" field.
+func (_u *APIKeyUpdate) SetSchedulingMode(v apikey.SchedulingMode) *APIKeyUpdate {
+	_u.mutation.SetSchedulingMode(v)
+	return _u
+}
+
+// SetNillableSchedulingMode sets the "scheduling_mode" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableSchedulingMode(v *apikey.SchedulingMode) *APIKeyUpdate {
+	if v != nil {
+		_u.SetSchedulingMode(*v)
+	}
+	return _u
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_u *APIKeyUpdate) SetLastUsedAt(v time.Time) *APIKeyUpdate {
 	_u.mutation.SetLastUsedAt(v)
@@ -643,6 +657,11 @@ func (_u *APIKeyUpdate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.SchedulingMode(); ok {
+		if err := apikey.SchedulingModeValidator(v); err != nil {
+			return &ValidationError{Name: "scheduling_mode", err: fmt.Errorf(`ent: validator failed for field "APIKey.scheduling_mode": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "APIKey.user"`)
 	}
@@ -690,6 +709,9 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.SchedulingMode(); ok {
+		_spec.SetField(apikey.FieldSchedulingMode, field.TypeEnum, value)
 	}
 	if value, ok := _u.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -1098,6 +1120,20 @@ func (_u *APIKeyUpdateOne) SetStatus(v string) *APIKeyUpdateOne {
 func (_u *APIKeyUpdateOne) SetNillableStatus(v *string) *APIKeyUpdateOne {
 	if v != nil {
 		_u.SetStatus(*v)
+	}
+	return _u
+}
+
+// SetSchedulingMode sets the "scheduling_mode" field.
+func (_u *APIKeyUpdateOne) SetSchedulingMode(v apikey.SchedulingMode) *APIKeyUpdateOne {
+	_u.mutation.SetSchedulingMode(v)
+	return _u
+}
+
+// SetNillableSchedulingMode sets the "scheduling_mode" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableSchedulingMode(v *apikey.SchedulingMode) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetSchedulingMode(*v)
 	}
 	return _u
 }
@@ -1582,6 +1618,11 @@ func (_u *APIKeyUpdateOne) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.SchedulingMode(); ok {
+		if err := apikey.SchedulingModeValidator(v); err != nil {
+			return &ValidationError{Name: "scheduling_mode", err: fmt.Errorf(`ent: validator failed for field "APIKey.scheduling_mode": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "APIKey.user"`)
 	}
@@ -1646,6 +1687,9 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.SchedulingMode(); ok {
+		_spec.SetField(apikey.FieldSchedulingMode, field.TypeEnum, value)
 	}
 	if value, ok := _u.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)

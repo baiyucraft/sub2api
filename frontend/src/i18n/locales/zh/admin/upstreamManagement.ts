@@ -27,6 +27,16 @@ export default {
       overwriteConfirm: '确定要修改全部上游账号统一使用的同账号重试状态码吗？新增上游账号也会自动使用此配置，普通账号不受影响。',
       clearConfirm: '确定要恢复全部上游账号的系统默认同账号重试状态码吗？普通账号不受影响。'
     },
+    sessionSwitch: {
+      title: '会话级切号',
+      description: '为选择“速度优先”的 API Key 配置会话级失败窗口、切号阈值和账号冷却时间；只影响当前会话，不会暂停账号或影响其他会话。',
+      windowSeconds: '统计窗口（秒）',
+      failureThreshold: '失败阈值（次）',
+      cooldownSeconds: '排除时间（秒）',
+      statusCodes: '触发状态码',
+      statusCodesHint: '使用英文逗号分隔 HTTP 状态码（100–599），保存时会自动去重排序。',
+      invalidStatusCodes: '至少填写一个 100–599 范围内的整数状态码，并使用英文逗号分隔。'
+    },
     probeSettings: {
       title: '探针配置',
       open: '探针配置'

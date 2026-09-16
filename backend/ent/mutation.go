@@ -142,6 +142,7 @@ type APIKeyMutation struct {
 	managed_monitor_id              *int64
 	addmanaged_monitor_id           *int64
 	status                          *string
+	scheduling_mode                 *apikey.SchedulingMode
 	last_used_at                    *time.Time
 	ip_whitelist                    *[]string
 	appendip_whitelist              []string
@@ -699,6 +700,42 @@ func (m *APIKeyMutation) OldStatus(ctx context.Context) (v string, err error) {
 // ResetStatus resets all changes to the "status" field.
 func (m *APIKeyMutation) ResetStatus() {
 	m.status = nil
+}
+
+// SetSchedulingMode sets the "scheduling_mode" field.
+func (m *APIKeyMutation) SetSchedulingMode(am apikey.SchedulingMode) {
+	m.scheduling_mode = &am
+}
+
+// SchedulingMode returns the value of the "scheduling_mode" field in the mutation.
+func (m *APIKeyMutation) SchedulingMode() (r apikey.SchedulingMode, exists bool) {
+	v := m.scheduling_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSchedulingMode returns the old "scheduling_mode" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldSchedulingMode(ctx context.Context) (v apikey.SchedulingMode, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSchedulingMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSchedulingMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSchedulingMode: %w", err)
+	}
+	return oldValue.SchedulingMode, nil
+}
+
+// ResetSchedulingMode resets all changes to the "scheduling_mode" field.
+func (m *APIKeyMutation) ResetSchedulingMode() {
+	m.scheduling_mode = nil
 }
 
 // SetLastUsedAt sets the "last_used_at" field.
@@ -1720,7 +1757,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 25)
+	fields := make([]string, 0, 26)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1750,6 +1787,9 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.status != nil {
 		fields = append(fields, apikey.FieldStatus)
+	}
+	if m.scheduling_mode != nil {
+		fields = append(fields, apikey.FieldSchedulingMode)
 	}
 	if m.last_used_at != nil {
 		fields = append(fields, apikey.FieldLastUsedAt)
@@ -1824,6 +1864,8 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.GroupID()
 	case apikey.FieldStatus:
 		return m.Status()
+	case apikey.FieldSchedulingMode:
+		return m.SchedulingMode()
 	case apikey.FieldLastUsedAt:
 		return m.LastUsedAt()
 	case apikey.FieldIPWhitelist:
@@ -1883,6 +1925,8 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldGroupID(ctx)
 	case apikey.FieldStatus:
 		return m.OldStatus(ctx)
+	case apikey.FieldSchedulingMode:
+		return m.OldSchedulingMode(ctx)
 	case apikey.FieldLastUsedAt:
 		return m.OldLastUsedAt(ctx)
 	case apikey.FieldIPWhitelist:
@@ -1991,6 +2035,13 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetStatus(v)
+		return nil
+	case apikey.FieldSchedulingMode:
+		v, ok := value.(apikey.SchedulingMode)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSchedulingMode(v)
 		return nil
 	case apikey.FieldLastUsedAt:
 		v, ok := value.(time.Time)
@@ -2349,6 +2400,9 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldStatus:
 		m.ResetStatus()
+		return nil
+	case apikey.FieldSchedulingMode:
+		m.ResetSchedulingMode()
 		return nil
 	case apikey.FieldLastUsedAt:
 		m.ResetLastUsedAt()

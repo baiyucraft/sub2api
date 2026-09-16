@@ -237,6 +237,38 @@ func TestResolveOpenAIMessagesMetadataSession_BlankClaudeHeaderKeepsContentFallb
 	require.Empty(t, cacheKey)
 }
 
+func TestResolveOpenAIMessagesSessionSwitchHashRejectsOpaqueMetadata(t *testing.T) {
+	body := []byte(`{"metadata":{"user_id":"shared-user"}}`)
+	require.Empty(t, resolveOpenAIMessagesSessionSwitchHash(nil, "", body))
+}
+
+func TestResolveOpenAIMessagesSessionSwitchHashAcceptsParsedMetadataSession(t *testing.T) {
+	const sessionID = "123e4567-e89b-12d3-a456-426614174000"
+	body := []byte(`{"metadata":{"user_id":"{\"device_id\":\"d61f76d0aabbccdd00112233445566778899aabbccddeeff0011223344556677\",\"account_uuid\":\"\",\"session_id\":\"123e4567-e89b-12d3-a456-426614174000\"}"}}`)
+	require.Equal(t, service.DeriveSessionHashFromSeed(sessionID), resolveOpenAIMessagesSessionSwitchHash(nil, "", body))
+}
+
+func TestResolveOpenAIMessagesSessionSwitchHashAcceptsClaudeCodeHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("X-Claude-Code-Session-Id", "claude-session-001")
+
+	require.Equal(t,
+		service.DeriveSessionHashFromSeed("claude-session-001"),
+		resolveOpenAIMessagesSessionSwitchHash(c, "", nil),
+	)
+}
+
+func TestResolveOpenAIMessagesSessionSwitchHashPrefersExistingExplicitHash(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("X-Claude-Code-Session-Id", "claude-session-001")
+
+	require.Equal(t, "explicit-hash", resolveOpenAIMessagesSessionSwitchHash(c, "explicit-hash", nil))
+}
+
 func TestOpenAIHandleStreamingAwareError_NonStreaming(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
