@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -49,7 +50,7 @@ func (r *extraCostRepository) List(ctx context.Context, filter service.ExtraCost
 	}
 	args = append(args, pageSize, (page-1)*pageSize)
 	query := `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version
-		FROM extra_cost_entries WHERE ` + whereSQL + fmt.Sprintf(" ORDER BY cost_date DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+		FROM extra_cost_entries WHERE ` + whereSQL + fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
@@ -71,12 +72,12 @@ func (r *extraCostRepository) List(ctx context.Context, filter service.ExtraCost
 
 func (r *extraCostRepository) Create(ctx context.Context, entry service.ExtraCostEntry) (*service.ExtraCostEntry, error) {
 	query := `INSERT INTO extra_cost_entries
-		(cost_date, amount, category, notes, created_by, reversal_of, idempotency_key, rule_version)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		(cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT DO NOTHING
 		RETURNING id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version`
 	result, err := scanExtraCostRow(r.db.QueryRowContext(ctx, query,
-		entry.CostDate, entry.Amount, entry.Category, entry.Notes, entry.CreatedBy, entry.ReversalOf, nullableString(entry.IdempotencyKey), entry.RuleVersion))
+		entry.CostDate, entry.Amount, entry.Category, entry.Notes, entry.CreatedBy, entry.CreatedAt, entry.ReversalOf, nullableString(entry.IdempotencyKey), entry.RuleVersion))
 	if err == nil {
 		return &result, nil
 	}
@@ -90,6 +91,12 @@ func (r *extraCostRepository) Create(ctx context.Context, entry service.ExtraCos
 	existing, err = scanExtraCostRow(r.db.QueryRowContext(ctx, `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE idempotency_key = $1`, entry.IdempotencyKey))
 	if err != nil {
 		return nil, err
+	}
+	if existing.ReversalOf != nil {
+		return nil, service.ErrExtraCostIdempotencyConflict
+	}
+	if !sameExtraCostCreateRequest(existing, entry) {
+		return nil, service.ErrExtraCostIdempotencyConflict
 	}
 	return &existing, nil
 }
@@ -105,7 +112,7 @@ func (r *extraCostRepository) GetByID(ctx context.Context, id int64) (*service.E
 	return &entry, nil
 }
 
-func (r *extraCostRepository) Reverse(ctx context.Context, id int64, createdBy *int64, reason, idempotencyKey string) (*service.ExtraCostEntry, error) {
+func (r *extraCostRepository) Reverse(ctx context.Context, id int64, adjustment service.ExtraCostEntry) (*service.ExtraCostEntry, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -119,31 +126,69 @@ func (r *extraCostRepository) Reverse(ctx context.Context, id int64, createdBy *
 	if err != nil {
 		return nil, err
 	}
+	if adjustment.IdempotencyKey == "" {
+		adjustment.IdempotencyKey = fmt.Sprintf("reverse:%d", id)
+	}
+	existing, err := scanExtraCostRow(tx.QueryRowContext(ctx, `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE idempotency_key = $1`, adjustment.IdempotencyKey))
+	if err == nil {
+		if !sameExtraCostReversalRequest(existing, id, adjustment) {
+			return nil, service.ErrExtraCostIdempotencyConflict
+		}
+		return &existing, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
 	var existingID int64
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM extra_cost_entries WHERE reversal_of = $1 LIMIT 1`, id).Scan(&existingID); err == nil {
 		return nil, service.ErrExtraCostAlreadyReversed
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	if idempotencyKey == "" {
-		idempotencyKey = fmt.Sprintf("reverse:%d", id)
-	}
 	entry, err := scanExtraCostRow(tx.QueryRowContext(ctx, `INSERT INTO extra_cost_entries
-		(cost_date, amount, category, notes, created_by, reversal_of, idempotency_key, rule_version)
-		VALUES ($1, $2, 'adjustment', $3, $4, $5, $6, $7)
+		(cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version)
+		VALUES ($1, $2, 'adjustment', $3, $4, $5, $6, $7, $8)
 		ON CONFLICT DO NOTHING
 		RETURNING id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version`,
-		original.CostDate, -original.Amount, reason, createdBy, id, idempotencyKey, service.ExtraCostRuleVersion))
+		adjustment.CostDate, -original.Amount, adjustment.Notes, adjustment.CreatedBy, adjustment.CreatedAt, id, adjustment.IdempotencyKey, service.ExtraCostRuleVersion))
 	if errors.Is(err, sql.ErrNoRows) {
-		entry, err = scanExtraCostRow(tx.QueryRowContext(ctx, `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE idempotency_key = $1`, idempotencyKey))
+		entry, err = scanExtraCostRow(tx.QueryRowContext(ctx, `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE idempotency_key = $1`, adjustment.IdempotencyKey))
 	}
 	if err != nil {
 		return nil, err
+	}
+	if !sameExtraCostReversalRequest(entry, id, adjustment) {
+		return nil, service.ErrExtraCostIdempotencyConflict
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return &entry, nil
+}
+
+func sameExtraCostCreateRequest(existing, requested service.ExtraCostEntry) bool {
+	return amountsEqualAtExtraCostScale(existing.Amount, requested.Amount) &&
+		existing.Category == requested.Category &&
+		existing.Notes == requested.Notes &&
+		sameOptionalInt64(existing.CreatedBy, requested.CreatedBy)
+}
+
+func amountsEqualAtExtraCostScale(left, right float64) bool {
+	const scale = 100_000_000.0
+	return math.Round(left*scale) == math.Round(right*scale)
+}
+
+func sameExtraCostReversalRequest(existing service.ExtraCostEntry, originalID int64, requested service.ExtraCostEntry) bool {
+	return existing.ReversalOf != nil && *existing.ReversalOf == originalID &&
+		existing.Notes == requested.Notes &&
+		sameOptionalInt64(existing.CreatedBy, requested.CreatedBy)
+}
+
+func sameOptionalInt64(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func (r *extraCostRepository) Sum(ctx context.Context, start, end *time.Time) (float64, error) {

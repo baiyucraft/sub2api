@@ -365,8 +365,6 @@
     </div>
     <ExtraCostsDialog
       :show="showExtraCostsDialog"
-      :start-date="startDate"
-      :end-date="endDate"
       @close="showExtraCostsDialog = false"
       @changed="loadDashboardStats"
     />

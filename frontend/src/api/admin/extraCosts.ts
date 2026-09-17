@@ -38,7 +38,6 @@ export interface ExtraCostListResponse {
 }
 
 export interface CreateExtraCostRequest {
-  cost_date: string
   amount: number
   category: ExtraCostType
   notes?: string
